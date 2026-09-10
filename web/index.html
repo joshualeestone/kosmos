@@ -8891,7 +8891,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
                      hit a dead row on the way to the second live one. Both working rows
                      now come first. Move this only if a provider changes state. -->
                 <div class="llm on"><span class="llm-m pmark live" data-pmark="openai" role="img" aria-label="OpenAI"><svg viewBox="0 0 716 716" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M508.749 317.399C516.777 287.314 508.991 253.884 485.389 230.282C461.788 206.681 428.36 198.895 398.273 206.923C376.231 184.928 343.39 174.956 311.148 183.596C278.906 192.234 255.45 217.292 247.36 247.361C217.291 255.451 192.233 278.91 183.595 311.149C174.957 343.391 184.927 376.232 206.924 398.274C198.896 428.359 206.683 461.789 230.284 485.391C253.885 508.992 287.313 516.779 317.401 508.75C339.442 530.745 372.286 540.717 404.525 532.079C436.767 523.441 460.223 498.384 468.313 468.315C498.383 460.224 523.44 436.766 532.078 404.526C540.716 372.285 530.747 339.443 508.749 317.402V317.399ZM470.899 244.776C486.892 260.77 493.488 282.601 490.687 303.412L415.577 260.046C412.411 258.218 408.509 258.218 405.345 260.046L317.401 310.82V277.526C317.401 275.191 318.652 273.005 320.676 271.837L387.644 233.174C414.178 218.353 448.346 222.223 470.901 244.776H470.899ZM357.837 311.144L398.275 334.491V381.185L357.837 404.532L317.398 381.185V334.491L357.837 311.144ZM264.776 269.693C265.207 239.305 285.644 211.649 316.453 203.393C338.3 197.54 360.505 202.744 377.127 215.573L302.014 258.937C298.848 260.764 296.898 264.144 296.898 267.798V369.346L268.065 352.699C266.043 351.531 264.776 349.353 264.776 347.017V269.691V269.693ZM203.391 316.454C209.244 294.608 224.854 277.978 244.276 269.999V356.73C244.276 360.384 246.226 363.763 249.392 365.591L337.337 416.365L308.503 433.013C306.481 434.181 303.961 434.188 301.939 433.02L234.971 394.357C208.868 378.789 195.138 347.261 203.391 316.454ZM244.775 470.9C228.781 454.906 222.186 433.075 224.986 412.264L300.096 455.63C303.263 457.457 307.164 457.457 310.328 455.63L398.273 404.856V438.149C398.273 440.485 397.022 442.671 394.997 443.839L328.029 482.502C301.495 497.322 267.327 493.452 244.772 470.9H244.775ZM450.897 445.982C450.466 476.371 430.029 504.027 399.22 512.283C377.373 518.136 355.168 512.932 338.547 500.102L413.659 456.738C416.826 454.911 418.775 451.532 418.775 447.877V346.329L447.609 362.977C449.631 364.145 450.897 366.323 450.897 368.659V445.985V445.982ZM512.282 399.221C506.429 421.068 490.819 437.697 471.397 445.676V358.946C471.397 355.292 469.448 351.912 466.281 350.085L378.336 299.311L407.17 282.663C409.192 281.495 411.712 281.487 413.734 282.655L480.702 321.318C506.805 336.887 520.536 368.415 512.282 399.221Z" fill="currentColor"/> </svg></span><div class="llm-w"><b>GPT</b><small>OpenAI &middot; works today</small></div>
-                  <button class="connect-b" type="button" id="fr-openai-connect" aria-expanded="false" aria-controls="fr-openai-flow" aria-label="Connect OpenAI">Connect</button></div>
+                  <button class="connect-b" type="button" id="fr-openai-connect" aria-expanded="false" aria-controls="fr-openai-confirm fr-openai-pick" aria-label="Connect OpenAI">Connect</button></div>
                 <!-- #944-adjacent: OpenAI is a pasted API key, not an OAuth popup like
                      Claude, so it gets its own small reveal instead of reusing
                      fr-llm-connect. Shares Settings' #acct-openai-flow contract
@@ -8934,6 +8934,41 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
                      📌 Both paragraphs carry `.fr-confirm-t`, so the sizes MATCH BY
                      CONSTRUCTION rather than by two rules agreeing (Josh's follow-up:
                      "the font sizes should all match as well"). -->
+                <!-- #2621 (Josh, 2026-09-09): the same subscription-vs-API-key choice
+                     Settings offers (#2338/#2433, #acct-openai-pick), ported into the
+                     first-run install so the wizard is not API-key-only. The sub-step
+                     elements AND their driver (frOpenaiChoose/Show*/Sub* at ~40540) are
+                     first-run MIRRORS of Settings' #acct-openai-sub-step with fr-* ids --
+                     the same mirror pattern first-run already uses for the key form
+                     (fr-openai-key mirrors acct-openai-key). What is genuinely SHARED, not
+                     copied: the pure state mapper acctOpenaiSubView, the poll teardown
+                     acctOpenaiSubStop, the app-wide session state (ACCT_OPENAI_SUB_*), and
+                     the engine subscription/{start,status,cancel} routes. The JS comment at
+                     the driver says the same; keep the two in sync. -->
+                <div id="fr-openai-pick" hidden class="fr-confirm" role="group" aria-labelledby="fr-openai-pick-t">
+                  <p class="fr-confirm-t" id="fr-openai-pick-t">Download complete. Choose how to connect OpenAI.</p>
+                  <div class="frow" style="margin-top:8px;">
+                    <button class="btn uprime" id="fr-openai-pick-sub" type="button">Sign in with ChatGPT</button>
+                    <button class="btn" id="fr-openai-pick-key" type="button">Use an API key</button>
+                  </div>
+                  <p class="dhint" style="margin:8px 0 0;">A ChatGPT subscription signs in through OpenAI, with nothing to paste. An API key is a string you create on OpenAI's site.</p>
+                </div>
+                <div id="fr-openai-sub-step" hidden class="fr-confirm" role="group" aria-labelledby="fr-openai-sub-t">
+                  <p class="fr-confirm-t" id="fr-openai-sub-t"><b>Sign in with your ChatGPT subscription.</b> Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</p>
+                  <div class="frow" style="margin-top:8px;">
+                    <input type="text" id="fr-openai-sub-label" autocomplete="off" maxlength="40"
+                           aria-label="A name for this account (optional)" placeholder="A name, if you want one">
+                  </div>
+                  <p class="dhint" style="margin:6px 0 0;">The name is optional. It is only so you can tell this account apart from another one later.</p>
+                  <div class="frow" style="margin-top:12px;">
+                    <button class="btn uprime" id="fr-openai-sub-go" type="button">Sign in with ChatGPT</button>
+                  </div>
+                  <div class="frow" id="fr-openai-sub-open-row" hidden style="margin-top:8px;">
+                    <a class="btn" id="fr-openai-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a>
+                  </div>
+                  <p class="dhint" id="fr-openai-sub-code" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+                  <div class="frow" id="fr-openai-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="fr-openai-sub-cancel" type="button">Stop this sign-in</button></div>
+                </div>
                 <div id="fr-openai-flow" hidden class="fr-confirm">
                   <p class="fr-confirm-t" id="fr-openai-key-t">Download complete. You will need an OpenAI API key to finish. A key is a bit like a password that OpenAI issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
                   <div class="frow"><a class="btn" id="fr-openai-getkey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key</a></div>
@@ -40864,11 +40899,17 @@ function frCollapseProviders(keep) {
   }
   if (keep !== 'openai') {
     let shut = false;
-    for (const id of ['fr-openai-confirm', 'fr-openai-flow']) {
+    /* #2621: the picker and the subscription step are part of OpenAI's panel too, so
+       collapsing OpenAI (e.g. the person clicks Claude's Connect) must hide them and
+       ABORT any in-flight ChatGPT sign-in -- otherwise the OpenAI picker/sub-step sits
+       open beside the Claude confirm (breaking the one-open-panel invariant) and its
+       poll keeps running. Mirrors Settings' acctPick switch-away teardown. */
+    for (const id of ['fr-openai-confirm', 'fr-openai-flow', 'fr-openai-pick', 'fr-openai-sub-step']) {
       const el = document.getElementById(id);
       if (el && !el.hidden) { el.hidden = true; shut = true; }
     }
     if (shut) {
+      frOpenaiSubAbort();
       const btn = document.getElementById('fr-openai-connect');
       if (btn && btn.setAttribute) btn.setAttribute('aria-expanded', 'false');
     }
@@ -40989,17 +41030,193 @@ async function frOpenaiRunnerPresent() {
     return o ? !!o.present : false;
   } catch { return false; }
 }
-function frOpenaiShowKey() {
+/* #2621: the first-run OpenAI step now offers the SAME subscription-vs-API-key
+   choice Settings does. The runner-present hand-off shows this picker (was the
+   key form directly); the key branch is unchanged (#fr-openai-flow), the sub
+   branch is a first-run mirror of Settings' #acct-openai-sub-step. The mirror is
+   the SAME pattern first-run already uses for the key form (fr-openai-key mirrors
+   acct-openai-key); it shares the pure state mapper acctOpenaiSubView, the poll
+   teardown acctOpenaiSubStop, the app-wide session state (ACCT_OPENAI_SUB_*), and
+   the engine's subscription/{start,status,cancel} routes -- only the DOM ids and
+   the connected paint differ.
+   🔑 SHARING ACCT_OPENAI_SUB_* ACROSS THE TWO SURFACES IS SAFE ON A UI-EXCLUSIVITY
+   INVARIANT, stated so it is not merely implicit: the first-run WIZARD and the
+   Settings MODAL are never both live, so only one sub flow owns the session/poll
+   at a time. The teardown is preserved from Settings (the overlapping-tick guard
+   and Watch's stop-before-set); what makes it enough is that no concurrent second
+   flow contends for the shared globals. If that exclusivity ever stops holding,
+   the session state must move per-surface. */
+/* Re-entry note: first-run adds a re-entry path the Settings picker lacks -- pressing
+   Connect again returns here. Like Settings' acctOpenaiChoose, this only resets/hides;
+   it does NOT stop a running poll (ACCT_OPENAI_SUB_*). That is by design and safe: a
+   later frOpenaiSubWatch calls acctOpenaiSubStop before re-arming, the FR_STEP + session
+   guards prevent a wrong-pane paint, and if the sign-in genuinely completed while the
+   picker was showing the poll correctly paints connected. */
+function frOpenaiShowPick() {
   document.getElementById('fr-openai-confirm').hidden = true;
-  document.getElementById('fr-openai-flow').hidden = false;
-  const k = document.getElementById('fr-openai-key');
-  if (k) k.focus();
+  const flow = document.getElementById('fr-openai-flow'); if (flow) flow.hidden = true;
+  const sub = document.getElementById('fr-openai-sub-step'); if (sub) sub.hidden = true;
+  const pick = document.getElementById('fr-openai-pick'); if (pick) pick.hidden = false;
+  const b = document.getElementById('fr-openai-pick-sub'); if (b) b.focus();
 }
+function frOpenaiChoose(which) {
+  const pick = document.getElementById('fr-openai-pick');
+  const flow = document.getElementById('fr-openai-flow');   // the key form
+  const sub = document.getElementById('fr-openai-sub-step');
+  const msg = document.getElementById('fr-openai-msg');
+  if (msg) { msg.className = 'dhint'; msg.textContent = ''; }
+  /* #2621: choosing a branch ABANDONS any sign-in already in flight. Without this, a
+     person who clicks "Sign in with ChatGPT", starts the poll, then switches to "Use an
+     API key" would have the poll keep running on the same step (the FR_STEP guard does not
+     catch it) and, on a late `connected`, paint the connected box over the key form they
+     were typing into. Aborting here stops that; it is a no-op when nothing is running, so
+     re-entering the sub branch stays idempotent. */
+  frOpenaiSubAbort();
+  if (pick) pick.hidden = true;
+  if (flow) flow.hidden = which !== 'key';
+  if (sub) sub.hidden = which !== 'sub';
+  if (which === 'key') { const k = document.getElementById('fr-openai-key'); if (k) k.focus(); }
+  else {
+    const g = document.getElementById('fr-openai-sub-go'); if (g) g.focus();
+  }
+}
+function frOpenaiSubShowStart(out) {
+  const openRow = document.getElementById('fr-openai-sub-open-row');
+  const openA = document.getElementById('fr-openai-sub-open');
+  const code = document.getElementById('fr-openai-sub-code');
+  const cancelRow = document.getElementById('fr-openai-sub-cancel-row');
+  if (openA && out && out.authUrl) openA.href = out.authUrl;
+  if (openRow) openRow.hidden = !(out && out.authUrl);
+  if (code) {
+    if (out && out.mode === 'device' && out.userCode) { code.hidden = false; code.textContent = 'On that page, enter this code: ' + out.userCode; }
+    else { code.hidden = true; code.textContent = ''; }
+  }
+  if (cancelRow) cancelRow.hidden = false;
+}
+function frOpenaiSubReset() {
+  ['fr-openai-sub-open-row', 'fr-openai-sub-cancel-row', 'fr-openai-sub-code'].forEach((id) => { const el = document.getElementById(id); if (el) el.hidden = true; });
+  const code = document.getElementById('fr-openai-sub-code'); if (code) code.textContent = '';
+  const go = document.getElementById('fr-openai-sub-go'); if (go) go.disabled = false;
+}
+/* #2621: fully ABANDON an in-flight first-run ChatGPT sign-in -- stop its poll, drop the
+   session, and reset the sub-step affordances. Called wherever the sub flow is left with a
+   sign-in possibly running: switching providers (frCollapseProviders), switching to the key
+   branch (frOpenaiChoose). Without this a late `connected` resolve would paint over whatever
+   the person moved on to. Mirrors what Settings' acctPick does on switch-away. */
+function frOpenaiSubAbort() {
+  acctOpenaiSubStop();
+  ACCT_OPENAI_SUB_SESSION = null;
+  frOpenaiSubReset();
+}
+function frOpenaiSubWatch() {
+  acctOpenaiSubStop();
+  const msg = document.getElementById('fr-openai-msg');
+  ACCT_OPENAI_SUB_POLL = setInterval(async () => {
+    /* 🛑 STEP-SCOPED TEARDOWN, mirroring Claude's first-run sub poll frConnWatch
+       (`if (FR_STEP !== 5) { frConnStopWatch(); return; }`). The OpenAI connect step
+       is fr-pane-5; if the person starts a ChatGPT sign-in here and then navigates
+       away (Skip / Continue / the stepper back-nav) without cancelling, this poll
+       would otherwise keep firing every 1.2s and, on a late resolve, repaint a hidden
+       pane. Self-stop when we are no longer on step 5. (Settings gets the same
+       protection from closeAcctAdd() on dialog close; first-run's navigation model
+       needs this instead.) */
+    if (FR_STEP !== 5) { frOpenaiSubAbort(); return; }
+    const id = ACCT_OPENAI_SUB_SESSION;
+    if (!id) { acctOpenaiSubStop(); return; }
+    let r;
+    try { r = await fetch('/api/accounts/openai/subscription/status?sessionId=' + encodeURIComponent(id), { cache: 'no-store' }); } catch { return; }
+    if (r.status === 404) {
+      acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null; frOpenaiSubReset();
+      if (msg) { msg.className = 'dhint'; msg.textContent = 'That sign-in expired. Nothing changed; you can try again.'; }
+      return;
+    }
+    if (!r.ok) return;
+    const out = await r.json().catch(() => null);
+    if (!out) return;
+    const view = acctOpenaiSubView(out.state);
+    if (msg && view.say) { msg.className = 'dhint'; msg.textContent = view.say; }
+    if (!view.done) return;
+    acctOpenaiSubStop();
+    if (view.ok) {
+      if (!ACCT_OPENAI_SUB_SESSION) return;   // a slow overlapping tick already handled it
+      // The status fetch is async: the person may have left step 5 while it was in
+      // flight. Do not paint a connected box into a pane they navigated away from.
+      if (FR_STEP !== 5) { ACCT_OPENAI_SUB_SESSION = null; return; }
+      ACCT_OPENAI_SUB_SESSION = null;
+      await frOpenaiSubConnected(out.account);
+      return;
+    }
+    ACCT_OPENAI_SUB_SESSION = null;
+    frOpenaiSubReset();
+  }, 1200);
+}
+async function frOpenaiSubConnected(_account) {
+  // `_account` (the connected account, with its email) is INTENTIONALLY not read:
+  // first-run's connected box is the lighter frPaintOpenai gold box, which does not
+  // surface an email for the KEY path either, so a subscription connect matches it
+  // rather than Settings' fuller "Signed in ... (email)" line. The parameter is kept
+  // for signature-parity with the Settings mirror acctOpenaiSubConnected(account).
+  ACCT_OPENAI_SUB_SESSION = null;
+  const labelField = document.getElementById('fr-openai-sub-label');
+  if (labelField) labelField.value = '';
+  const sub = document.getElementById('fr-openai-sub-step'); if (sub) sub.hidden = true;
+  const pick = document.getElementById('fr-openai-pick'); if (pick) pick.hidden = true;
+  // paintAccounts refreshes the row list; frPaintOpenai paints the SAME gold
+  // connected box the key path uses -- a subscription carries no keyTail, so it
+  // reads "This computer is signed in." with no key suffix, which is exactly right.
+  await paintAccounts();
+  await frPaintOpenai({ connected: true, justAdded: true });
+}
+document.getElementById('fr-openai-pick-sub').addEventListener('click', () => frOpenaiChoose('sub'));
+document.getElementById('fr-openai-pick-key').addEventListener('click', () => frOpenaiChoose('key'));
+document.getElementById('fr-openai-sub-go').addEventListener('click', async (e) => {
+  const go = e.currentTarget;
+  const msg = document.getElementById('fr-openai-msg');
+  const labelField = document.getElementById('fr-openai-sub-label');
+  go.disabled = true;
+  if (msg) { msg.className = 'dhint'; msg.textContent = 'Starting the sign-in…'; }
+  try {
+    const res = await fetch('/api/accounts/openai/subscription/start', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      // First-run is a FRESH add only -- no reauthDir (that is a Settings "Sign in
+      // again" concern); the engine treats an absent reauthDir as a new account.
+      body: JSON.stringify({ mode: 'browser', label: (labelField && labelField.value.trim()) || undefined }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok || !out || !out.sessionId) {
+      throw new Error((out && (out.error || out.because)) || 'we could not start that sign-in');
+    }
+    ACCT_OPENAI_SUB_SESSION = out.sessionId;
+    frOpenaiSubShowStart(out);
+    frOpenaiSubWatch();
+  } catch (err) {
+    go.disabled = false;
+    if (msg) { msg.className = 'dhint'; msg.textContent = String((err && err.message) || 'We could not start that sign-in.'); }
+  }
+});
+document.getElementById('fr-openai-sub-cancel').addEventListener('click', async () => {
+  acctOpenaiSubStop();
+  const id = ACCT_OPENAI_SUB_SESSION;
+  ACCT_OPENAI_SUB_SESSION = null;
+  const msg = document.getElementById('fr-openai-msg');
+  if (id) {
+    try {
+      await fetch('/api/accounts/openai/subscription/cancel', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: id }),
+      });
+    } catch { /* the child is torn down host-side regardless; nothing to show */ }
+  }
+  if (msg) { msg.className = 'dhint'; msg.textContent = ''; }
+  frOpenaiSubReset();
+  frOpenaiShowPick();   // back to the picker: try again, or switch to a key
+});
 document.getElementById('fr-openai-connect').addEventListener('click', async (e) => {
   const btn = e.currentTarget;
   frCollapseProviders('openai');
   btn.setAttribute('aria-expanded', 'true');
-  if (await frOpenaiRunnerPresent()) { frOpenaiShowKey(); return; }
+  if (await frOpenaiRunnerPresent()) { frOpenaiShowPick(); return; }
   document.getElementById('fr-openai-flow').hidden = true;
   const box = document.getElementById('fr-openai-confirm');
   box.hidden = false;
@@ -41036,7 +41253,7 @@ document.getElementById('fr-openai-confirm-go').addEventListener('click', async 
        appears. If it never does, the sentence above stays and nothing lies. */
     const started = Date.now();
     const tick = setInterval(async () => {
-      if (await frOpenaiRunnerPresent()) { clearInterval(tick); showBar(false); if (msg) msg.textContent = ''; frOpenaiShowKey(); return; }
+      if (await frOpenaiRunnerPresent()) { clearInterval(tick); showBar(false); if (msg) msg.textContent = ''; frOpenaiShowPick(); return; }
       if (Date.now() - started > 300000) { clearInterval(tick); showBar(false); if (msg) msg.textContent = 'That is taking longer than expected. Settings > Accounts can finish it.'; }
     }, 2000);
   } catch (err) {
@@ -41243,6 +41460,11 @@ async function frPaintOpenai(known) {
   if (connectBtn.setAttribute) connectBtn.setAttribute('aria-disabled', String(!!connected));
   if (connected) {
     flow.hidden = true;
+    /* #2621: a connected paint clears the WHOLE OpenAI flow, not just the key
+       form -- so the picker or the subscription step never sits over the gold
+       connected box (e.g. a cold-read repaint arriving while one was open). */
+    const pick = document.getElementById('fr-openai-pick'); if (pick) pick.hidden = true;
+    const sub = document.getElementById('fr-openai-sub-step'); if (sub) sub.hidden = true;
     // The cold-read path can hide the form with a half-typed key still in
     // it; nothing ever submits it, but no key text should sit parked in a
     // hidden field (the justAdded path already cleared it on success).
