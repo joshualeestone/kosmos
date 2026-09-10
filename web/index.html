@@ -26308,7 +26308,10 @@ document.getElementById('found-toggle').addEventListener('click', () => {
   /* 🔑 REPAINTS RATHER THAN TOGGLING `hidden` HERE, so the label and the
      aria-expanded state cannot be set in two places and disagree. Its neighbour
      is written the same way for the same reason. */
-  paintFoundBoard();
+  /* #2651 (review): repaint the trigger too, so if this refetch finds the panel now
+     empty or dismissed (wrap hides), the "Look for agents" trigger reappears at once
+     rather than leaving a blank discovery section until the next 5s poll heals it. */
+  paintFoundBoard().then(paintDiscoveryTrigger);
 });
 
 /* #2651: the explicit-action gate for the discovery panels. The trigger row shows
@@ -26316,8 +26319,6 @@ document.getElementById('found-toggle').addEventListener('click', () => {
    both panels on demand. Keyed on panel VISIBILITY (not on DISCOVERY_OPENED), so it
    is also the resting state after a look that found nothing, and it hides itself the
    moment a panel renders candidates. */
-/* #2651: the neutral action label, ONE source (this const), so the HTML initial text and
-   the JS reset below cannot drift. */
 /* #2651: show the discovery trigger on the Agents tab whenever no discovery panel is
    visible; hide it once a panel shows, off the Agents tab, or after a Dismiss-forever (a
    dismissed person is not re-offered the look). The button label is STATIC - there is no
@@ -26351,17 +26352,24 @@ document.getElementById('found-scan-look').addEventListener('click', async () =>
      the panel untouched on a FAILED fetch, so the click cannot tell an empty result from a
      failed one, and a message would misreport "nothing found" when Kosmos never checked. */
   paintDiscoveryTrigger();
-  /* #2651 (review): once a panel opens, paintDiscoveryTrigger hides the trigger ROW that
-     holds this button, which would drop keyboard focus to <body> and restart Tab from the
-     top of the page. Move focus into the panel the press just revealed so a keyboard or
-     screen-reader user continues from there. Only when the trigger actually hid: an empty
-     look keeps the trigger, and focus stays on the button for an easy re-look. */
+  /* #2651 (review): setting look.disabled = true above blurs the pressed button to <body>
+     the instant it runs, so focus has to be restored in EVERY outcome, not only when a
+     panel opened. Land it on the most relevant control in each branch:
+       - a panel opened -> that panel's toggle, the first control in the revealed content;
+       - empty look (the trigger is still shown) -> back on the trigger button, so the
+         re-look affordance keeps focus;
+       - dismissed-forever learned via this very press (the trigger row is now gone and the
+         discovery region holds no control) -> the Agents tab, where the person still is,
+         rather than a stranded <body>. */
   const trig = document.getElementById('found-scan-trigger');
-  if (trig && trig.hidden) {
+  if (trig && !trig.hidden) {
+    look.focus();
+  } else {
     const fw = document.getElementById('found-wrap');
     const sw = document.getElementById('scan-wrap');
     const target = (fw && !fw.hidden && document.getElementById('found-toggle'))
-      || (sw && !sw.hidden && document.getElementById('scan-toggle'));
+      || (sw && !sw.hidden && document.getElementById('scan-toggle'))
+      || document.querySelector('.tab[data-tab="agents"]');
     if (target && typeof target.focus === 'function') target.focus();
   }
 });
@@ -26371,7 +26379,8 @@ document.getElementById('found-scan-look').addEventListener('click', async () =>
    offers about agents on this computer, and a person who dismissed one meant both. */
 document.getElementById('scan-toggle').addEventListener('click', () => {
   SCAN_OPEN = !SCAN_OPEN;
-  paintScanBoard();
+  /* #2651 (review): repaint the trigger too (same reason as found-toggle above). */
+  paintScanBoard().then(paintDiscoveryTrigger);
 });
 {
   const dis = document.getElementById('scan-dismiss');
@@ -43068,6 +43077,9 @@ document.addEventListener('click', async (e) => {
   /* #1938: a Skip on a scan row is a decline too, so undoing it must bring the row
      back on the scan panel as well as the found one. */
   if (typeof paintScanBoard === 'function') { await paintScanBoard(); }
+  /* #2651 (review): keep the trigger's visibility in step after this repaint too, so an
+     undo that leaves both panels empty re-offers the "Look for agents" trigger at once. */
+  if (typeof paintDiscoveryTrigger === 'function') { paintDiscoveryTrigger(); }
 });
 
 document.addEventListener('click', async (e) => {

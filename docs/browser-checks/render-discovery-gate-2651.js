@@ -15,9 +15,10 @@
  * candidate existed. This drives the real paint functions against stubbed
  * /api/found-agents and /api/scan-agents (no server) and reads the rendered state.
  *
- * ⚠️ BOTH ARMS ARE LOAD-BEARING. An "on load the panels are hidden" arm alone passes
- * on a page that never shows them at all, which would delete the feature rather than
- * gate it. The second arm proves the explicit press still opens them.
+ * ⚠️ THE LOAD AND PRESS ARMS ARE LOAD-BEARING AS A PAIR. An "on load the panels are
+ * hidden" arm alone passes on a page that never shows them at all, which would delete the
+ * feature rather than gate it. The press arm proves the explicit press still opens them.
+ * The later arms cover the focus behaviour on the empty-look and dismissed outcomes.
  *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-discovery-gate-2651.js
@@ -124,7 +125,42 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     const shownBefore = !tr.hidden;
     look.click();                            // the person looks; the fetch reveals the dismissal
     await new Promise((res) => setTimeout(res, 150));
-    return { shownBefore, triggerHidden: tr.hidden, dismissedFlag: (typeof DISCOVERY_DISMISSED !== 'undefined' && DISCOVERY_DISMISSED) };
+    /* The trigger row (with the pressed button) has just vanished, so focus must land on
+       a real control - the Agents tab - not be stranded on <body>. */
+    const af = document.activeElement;
+    return {
+      shownBefore, triggerHidden: tr.hidden,
+      dismissedFlag: (typeof DISCOVERY_DISMISSED !== 'undefined' && DISCOVERY_DISMISSED),
+      focusTab: (af && af.getAttribute && af.getAttribute('data-tab')) || null,
+      focusIsBody: af === document.body,
+    };
+  });
+
+  /* Arm 4 - EMPTY LOOK. A press that finds nothing (agents: [], candidates: [], NOT dismissed):
+     the panels stay hidden, the trigger STAYS shown as the re-look affordance, and focus must
+     return to the trigger button - the disable during the look blurred it, so it has to be put
+     back or a keyboard user is stranded on <body> with the button right in front of them. */
+  const page3 = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+  await page3.goto('file://' + PAGE);
+  const em = await page3.evaluate(async () => {
+    const bb = document.getElementById('boardbar');
+    if (!bb) return { error: 'boardbar is gone' };
+    bb.hidden = false;
+    window.fetch = (u) => {
+      const url = String(u);
+      if (url.indexOf('/api/found-agents') !== -1 || url.indexOf('/api/scan-agents') !== -1) {
+        return Promise.resolve({ ok: true, json: async () => ({ ok: true, agents: [], candidates: [] }) });
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    };
+    const tr = document.getElementById('found-scan-trigger');
+    const look = document.getElementById('found-scan-look');
+    if (!tr || !look) return { error: 'trigger or button missing' };
+    paintDiscoveryTrigger();
+    const shownBefore = !tr.hidden;
+    look.click();
+    await new Promise((res) => setTimeout(res, 150));
+    return { shownBefore, triggerHidden: tr.hidden, focusId: (document.activeElement && document.activeElement.id) || '' };
   });
 
   await browser.close();
@@ -146,6 +182,14 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     if (d.shownBefore !== true) fail.push('dismissed arm: the trigger was not even offered before the press (arm is vacuous)');
     if (d.dismissedFlag !== true) fail.push('dismissed arm: DISCOVERY_DISMISSED was not set from body.dismissed');
     if (d.triggerHidden !== true) fail.push('dismissed arm: the trigger did not hide for a dismissed-forever user');
+    if (d.focusIsBody === true || d.focusTab !== 'agents') fail.push('dismissed arm: focus was stranded (landed on "' + (d.focusIsBody ? 'body' : d.focusTab) + '"); after the trigger vanishes it must fall back to the Agents tab');
+  }
+  if (em.error) {
+    fail.push('empty-look arm errored: ' + em.error);
+  } else {
+    if (em.shownBefore !== true) fail.push('empty-look arm: the trigger was not offered before the press (arm is vacuous)');
+    if (em.triggerHidden !== false) fail.push('empty-look arm: the trigger did not stay shown after a look that found nothing (it is the re-look affordance)');
+    if (em.focusId !== 'found-scan-look') fail.push('empty-look arm: focus did not return to the trigger button after an empty look (dropped to "' + em.focusId + '"; the disable blurred it and it was never restored)');
   }
   if (fail.length) {
     /* One-line reason after the marker so the release runner's reason-grep can quote
@@ -154,5 +198,5 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     console.error('  load=' + JSON.stringify(r.load) + '  afterClick=' + JSON.stringify(r.afterClick));
     process.exit(1);
   }
-  console.log('render-discovery-gate-2651 (3 arms): on load the panels stay hidden and only the "Look for agents" trigger shows; the press opens both found and scan, hides the trigger, and moves focus into the opened panel; a Dismissed-forever user is not re-offered the trigger. PASS');
+  console.log('render-discovery-gate-2651 (4 arms): on load the panels stay hidden and only the "Look for agents" trigger shows; the press opens both found and scan, hides the trigger, and moves focus into the opened panel; a Dismissed-forever user is not re-offered the trigger and focus falls back to the Agents tab, not <body>; an empty look keeps the trigger shown and returns focus to the button. PASS');
 })().catch((e) => { console.error('FAIL  render-discovery-gate-2651', e && e.message); process.exit(1); });
