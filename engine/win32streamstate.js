@@ -135,12 +135,28 @@ function writeState(name, record) {
    UNKNOWN until its next message (measured on the box). */
 function clearState(name, ownerPid) {
   const at = statePath(name);
-  if (Number.isInteger(ownerPid)) {
-    let rec = null;
-    try { rec = JSON.parse(fs.readFileSync(at, 'utf8')); } catch (e) { if (e && e.code === 'ENOENT') return true; }
-    if (rec && typeof rec === 'object' && rec.pid !== ownerPid) return true;
+  if (!Number.isInteger(ownerPid)) {
+    try { fs.rmSync(at, { force: true }); return true; } catch { return false; }
   }
-  try { fs.rmSync(at, { force: true }); return true; } catch { return false; }
+  /* 🔑 CLAIM, THEN DECIDE -- never read-then-delete. A plain read followed by a
+     delete-by-path could remove a file the new supervisor wrote in between (found
+     in review round 2). Renaming is atomic: once the file is ours under a private
+     name, nobody else's write can be caught by what we do with it. */
+  const claim = at + '.' + process.pid + '.clear';
+  try { fs.renameSync(at, claim); }
+  catch (e) { return Boolean(e && e.code === 'ENOENT'); }
+  let rec = null;
+  try { rec = JSON.parse(fs.readFileSync(claim, 'utf8')); } catch { rec = null; }
+  if (rec && typeof rec === 'object' && rec.pid === ownerPid) {
+    try { fs.rmSync(claim, { force: true }); } catch { /* a private leftover; harmless */ }
+    return true;
+  }
+  /* Not ours, or unreadable: a doubt never deletes. Put it back -- unless a newer
+     file has landed at the real name meanwhile, which then wins (a hard link does
+     not replace an existing name). */
+  try { fs.linkSync(claim, at); } catch { /* the newer file stays */ }
+  try { fs.rmSync(claim, { force: true }); } catch { /* a private leftover; harmless */ }
+  return true;
 }
 
 /**
@@ -209,7 +225,15 @@ function publisher(name, opts) {
       generation += 1;
       retrying = false;
       written = null;
-      if (!Number.isInteger(pid) || typeof sessionId !== 'string' || !sessionId) { current = null; clear(); return; }
+      if (!Number.isInteger(pid) || typeof sessionId !== 'string' || !sessionId) {
+        /* A launch that did not spawn (no pid) proves nothing about the file at
+           this name, which may be the still-running previous supervisor's. Only
+           this publisher's OWN earlier process is cleared, never an unowned file. */
+        const was = current;
+        current = null;
+        if (was) clear(was.pid);
+        return;
+      }
       current = { pid, sessionId, state: IDLE };
       flush();
     },

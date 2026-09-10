@@ -100,12 +100,18 @@ test('#570 7c-5 nothing is published before a start or after a death', () => {
   assert.equal(r.clears(), 1, 'the death clears the file');
 });
 
-test('#570 7c-5 a start without a real pid or session publishes nothing and clears', () => {
+test('#570 7c-5 a start without a real pid or session publishes nothing, and clears only its OWN earlier process', () => {
+  /* A launch that did not spawn proves nothing about the file at this name -- it
+     may be a still-running previous supervisor's (headless overlap, review round
+     2). So with no earlier process of its own, it clears nothing. */
   const r = recording();
   r.pub.started(undefined, 'sid');
   r.pub.started(5, '');
   assert.deepEqual(r.wrote, []);
-  assert.equal(r.clears(), 2);
+  assert.equal(r.clears(), 0, 'no earlier process of its own, so nothing is cleared');
+  r.pub.started(7, 'sid-ok');
+  r.pub.started(undefined, 'sid-next');
+  assert.equal(r.clears(), 1, 'its own earlier process is cleared');
 });
 
 test('#570 7c-5 a restart is a new process: its first state is written even if it matches the last one', () => {
@@ -243,6 +249,31 @@ test('#570 headless: a LEAVING supervisor\'s stop does not erase the file of the
   assert.equal(ss.stateFor('overlap', { sessionId: 'sid-new', pid: 222 }), 'idle', 'the new file survives');
   newOne.stopped();                          // its own stop still clears its own file
   assert.equal(ss.stateFor('overlap', { sessionId: 'sid-new', pid: 222 }), null);
+});
+
+test('#570 headless: a new supervisor whose launch failed does not erase the old one\'s file', () => {
+  /* Found in review round 2: a spawn that fails leaves no pid, and started()
+     cleared the file at this name with NO owner -- the still-running previous
+     supervisor's valid state. */
+  const oldOne = ss.publisher('failspawn');
+  const newOne = ss.publisher('failspawn');
+  oldOne.started(333, 'sid-old');
+  newOne.started(undefined, 'sid-new');       // the new launch never spawned
+  assert.equal(ss.stateFor('failspawn', { sessionId: 'sid-old', pid: 333 }), 'idle', 'the old file survives');
+  oldOne.stopped();
+});
+
+test('#570 headless: a stop leaves alone a file it cannot read, rather than deleting on a doubt', () => {
+  const pub = ss.publisher('garbled');
+  pub.started(444, 'sid-g');
+  const dir = path.join(require('./store').ROOT, 'win32-state');
+  const file = fs.readdirSync(dir).map((f) => path.join(dir, f)).find((f) => fs.readFileSync(f, 'utf8').includes('sid-g'));
+  fs.writeFileSync(file, '{not json');
+  pub.stopped();
+  assert.equal(fs.existsSync(file), true, 'an unreadable file is put back, not destroyed');
+  assert.equal(fs.readFileSync(file, 'utf8'), '{not json');
+  assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith('.clear')), [], 'no private claim is left behind');
+  fs.rmSync(file, { force: true });
 });
 
 test('#570 7c-5 THE FILE ROUND TRIP: the real publisher writes what stateFor reads, for THIS process only', () => {

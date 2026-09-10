@@ -241,18 +241,22 @@ function serve(name, opts) {
      (EADDRINUSE, the restart case above) is retried until it frees; anything else
      is reported, because a supervisor that cannot be reached must say so. */
   const onProblem = typeof o.onProblem === 'function' ? o.onProblem : () => {};
+  /* Injectable only so a test can prove close() cancels a retry and that giving
+     up is reported, without waiting out the production 30s. */
+  const retryMs = Number.isFinite(o.retryMs) ? o.retryMs : LISTEN_RETRY_MS;
+  const retryLimit = Number.isFinite(o.retryLimit) ? o.retryLimit : LISTEN_RETRY_LIMIT;
   let closed = false;
   let retries = 0;
   let retryTimer = null;
   server.on('error', (e) => {
     if (closed) return;
-    if (e && e.code === 'EADDRINUSE' && retries < LISTEN_RETRY_LIMIT) {
+    if (e && e.code === 'EADDRINUSE' && retries < retryLimit) {
       retries += 1;
       retryTimer = setTimeout(() => {
         retryTimer = null;
         if (closed) return;
         try { server.listen(at); } catch (err) { onProblem('we could not open its channel (' + ((err && err.code) || 'unknown') + ')'); }
-      }, LISTEN_RETRY_MS);
+      }, retryMs);
       return;
     }
     onProblem('we could not open its channel (' + ((e && e.code) || 'unknown') + ')');
