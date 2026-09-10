@@ -1116,6 +1116,11 @@ if boot_board "$sb7" "$P8"; then
   # granted, blue when granted) and carries a real focusable overlay button that opens
   # the macOS pane. Same first-run board + mocked status endpoints as render-gated-next.
   run_one "render-permission-slider-2620" env KOSMOS_URL="$B8" node docs/browser-checks/render-permission-slider-2620.js
+  # #2617: the Token Usage page is the graphical value view (four class cards, a
+  # shared-axis trend chart, an output-derived money box, the table), not a plain
+  # white box. /api/usage is mocked to a fixed two-day response, so the rendered
+  # structure is deterministic on any board -- same page.route shape as the checks above.
+  run_one "render-token-usage-2617" env KOSMOS_URL="$B8" node docs/browser-checks/render-token-usage-2617.js
   # #1553: the launch must not flash the agents view before the first-run gate
   # resolves. Proven green + fails-without-the-cover before wiring (the #812 rule).
   run_one "render-boot-no-flash" env KOSMOS_URL="$B8" node docs/browser-checks/render-boot-no-flash.js
@@ -1129,7 +1134,7 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-full-width"   env KOSMOS_URL="$B8" node docs/browser-checks/render-full-width.js "$sb7/shots-fullwidth"
   run_one "render-offline-note"  env KOSMOS_URL="$B8" node docs/browser-checks/render-offline-note.js "$sb7/shots-offline" "$B8_PID"
 else
-  for n in contrast named-controls render-create-form render-found-undo render-scan-board render-adopt-1531 render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-switch-states render-optout-403-2020 render-settings-403-2047 render-first-run render-gated-next render-permission-slider-2620 render-boot-no-flash render-theme-toggle render-full-width render-offline-note; do FAILED+=("$n (server did not boot)"); done
+  for n in contrast named-controls render-create-form render-found-undo render-scan-board render-adopt-1531 render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-switch-states render-optout-403-2020 render-settings-403-2047 render-first-run render-gated-next render-permission-slider-2620 render-token-usage-2617 render-boot-no-flash render-theme-toggle render-full-width render-offline-note; do FAILED+=("$n (server did not boot)"); done
 fi
 # #812 batch 2 (retried after the first attempt found four checks that
 # assumed compatibility with B8's fixture instead of verifying it -- those
