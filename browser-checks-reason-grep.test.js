@@ -526,7 +526,18 @@ test('every emit site in every check prints a line the gate can quote', () => {
      emit is counted once by the catch/launch scan below (as the 46th), not here.
      (73 was render-model-restart-interstitial's +1, which never got its own numbered
      block above -- a pre-existing trail gap, noted rather than back-filled here.) */
-  const EXPECTED_SITES = 81;   // +1: render-provider-combobox-1040.js (the problems FAIL-emit loop, #1040 2b);
+  /* 75/76 after kosmos#2617 added render-token-usage-2617.js, whose TWO literal-`FAIL `
+     emit lines are two SHAPE-1 finding-emit sites (same shape as render-permission-slider-2620's,
+     now on main): its `could not start a browser` launch catch and its top-level
+     `.catch(...) threw:` emit. Both are ALSO counted by the catch/launch scan below (+2 there).
+     Its ok() helper interpolates FAIL (empty literal prefix), so that is NOT counted -- matching
+     how every ok()-helper check on this page is treated. */
+  const EXPECTED_SITES = 86;   // +2: render-token-usage-2617.js (its launch catch + top-level .catch throw, #2617). +2: render-permission-slider-2620.js (#2620) -- its launch catch + the final .catch() throw (the ok() helper's FAIL is interpolated -> not counted). +1: render-provider-combobox-1040.js (the problems FAIL-emit loop, #1040 2b);
+  //                              +1: render-worldsw-abandon-2628.js (its `for (const p of problems)
+  //                              console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site,
+  //                              confirmed quotable; same shape as render-worldswitch-2238's. Its
+  //                              launch-failure catch is counted once by the catch/launch scan below
+  //                              (as the 50th), not here. #2633). 80 + 1 (#2633) + 2 (#2620) + 2 (#2617) = 85.
   //                              +1: #2497 -- the reconciled first-run checks emit a 'FAILED: <names>' summary
   //                              line (a quotable failure), net +1 across the suppression rewrites.
   //                              +1: render-account-dup-reauth-2584.js (its problems FAIL-emit loop, #2584)
@@ -537,17 +548,18 @@ test('every emit site in every check prints a line the gate can quote', () => {
   //                              catch/launch scan below (as the 49th), not here. (#2570)
   //                              +1: render-tophead-consolidated-2282.js -- its per-problem
   //                              `for (const p of problems) console.error('  FAIL  ' + p)` loop is one SHAPE-1
-  //                              finding-emit site, confirmed quotable. Its launch-failure
+  //                              finding-emit site, confirmed quotable. Its launch-failure literal
   //                              `console.error('FAIL  render-tophead-consolidated-2282: could not start a browser' ...)`
-  //                              is a complete literal (no ` + <finding>` concatenation), so it is counted ONLY by
-  //                              the catch/launch scan below (as the 50th), NOT here -- the same split as
-  //                              render-worldrename-1704. Added on the merge of origin/main into tophead-2282 (#2282/#2624).
+  //                              has no ` + <finding>`, so it is counted ONLY by the catch/launch scan below
+  //                              (as the 55th), NOT here -- same split as render-worldrename-1704. So the
+  //                              recent arithmetic runs 80 + 1 (#2633) + 2 (#2620) + 2 (#2617) + 1 (#2282) = 86.
+  //                              Added on the RE-merge of current origin/main into tophead-2282 (#2282/#2624).
   //                              ⚠️ APPEND HERE, NEVER REPLACE, AND THAT GOES FOR A MERGE TOO. The first
   //                              version of this row overwrote the #1040 line above it, which left both
   //                              counters correct and their trails unable to reconcile. Then the MERGE with
   //                              main tried it again from the other side: main's own +1 row for #2606 sits
   //                              above, and taking either side of the conflict whole would have dropped one
-  //                              branch's row while its check kept emitting. 74 + 1 + 1 + 1 + 1 + 2 + 1 = 81.
+  //                              branch's row while its check kept emitting. 74 + 1 + 1 + 1 + 1 + 2 = 80.
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
@@ -709,12 +721,20 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
      `console.error('FAIL  render-sound-master-2436: could not start a browser' ...)`
      is one catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921's).
      Its per-problem finding-emit loop is counted once by the finding-emit scan above (72). */
-  const EXPECTED_CATCH_SITES = 50;   // +1: render-provider-combobox-1040.js (the could-not-start-a-browser launch catch, #1040 2b)
+  /* 45/46 after kosmos#2617 added render-token-usage-2617.js, whose could-not-start-a-browser
+     launch catch AND its single-line top-level `.catch(...) threw:` crash catch are two
+     catch/launch emit sites, both confirmed quotable (`FAIL  render-token-usage-2617: ...`
+     and `FAIL  render-token-usage-2617 threw: ...`). Both are ALSO counted once by the
+     finding-emit scan above (75/76). Same shape as render-account-badge-1921's launch catch. */
+  const EXPECTED_CATCH_SITES = 55;   // +1: render-tophead-consolidated-2282.js (its could-not-start-a-browser launch catch; the 55th, #2282, added on the re-merge). +2: render-token-usage-2617.js (its launch catch + top-level .catch throw, #2617). +2: render-permission-slider-2620.js (its could-not-start-a-browser launch catch + the final .catch() throw emit, #2620; both quotable FAIL lines). +1: render-provider-combobox-1040.js (the could-not-start-a-browser launch catch, #1040 2b)
+  //                                   +1: render-worldsw-abandon-2628.js (its `console.error('FAIL
+  //                                   render-worldsw-abandon-2628: could not start a browser' ...)` launch catch
+  //                                   is one catch/launch emit site, confirmed quotable; same shape as
+  //                                   render-worldswitch-2238's. Its per-problem finding-emit loop is counted
+  //                                   once by the finding-emit scan above (81), not here. #2633)
   //                                   +1: render-account-dup-reauth-2584.js (its could-not-start-a-browser launch catch, #2584)
   //                                   +1: render-disconnect-stop-2570.js (its could-not-start-a-browser launch
   //                                   catch, #2570). Appended, not substituted: see the note on EXPECTED_SITES.
-  //                                   +1: render-tophead-consolidated-2282.js (its could-not-start-a-browser launch
-  //                                   catch; the 50th). Added on the merge of origin/main into tophead-2282 (#2282/#2624).
   assert.equal(sites, EXPECTED_CATCH_SITES,
     `${sites} catch/launch emit sites matched, expected ${EXPECTED_CATCH_SITES}. Update this `
     + 'number deliberately when you add or remove a catch/launch emit, after confirming the '
