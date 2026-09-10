@@ -25,8 +25,11 @@
  * 🔑 THE BOARD IS ANOTHER PROCESS, so the state crosses as a small file per agent,
  * stamped with the session id and the agent's pid. `claude agents --json` lists
  * that same pid (measured: the spawned child's own pid), so `stateFor` accepts a
- * file only when both match the LIVE row. A file left by a dead or earlier
- * process can never describe the one running now.
+ * file only when both match the LIVE row. That is why a file left by a dead or
+ * earlier process does not describe the one running now: every supervisor started
+ * by its task mints a NEW session id, and within one supervisor a run's own stop
+ * removes its file before a restarted child could reuse the pid. (A leftover can
+ * only line up by stacking the residuals the headless plan names.)
  *
  * ⚠️ IT IS STILL THE FALLBACK. needs_you / blocked come from the self-report path,
  * and reconcileReport outranks this exactly as it outranks a Mac pane scrape.

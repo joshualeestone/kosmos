@@ -281,6 +281,29 @@ test('#570 headless: a stop leaves alone a file it cannot read, rather than dele
   fs.rmSync(file, { force: true });
 });
 
+test('#570 headless: when the put-back itself fails, the claim KEEPS the file that was not ours', () => {
+  /* Review round 4: the non-EEXIST branch (a volume without hard links, say) had no
+     test. The claim is then the only copy of another process's state, so it must
+     survive, and the clear must not pretend it went cleanly. */
+  const pub = ss.publisher('nolink');
+  pub.started(555, 'sid-mine');
+  const dir = path.join(require('./store').ROOT, 'win32-state');
+  const file = fs.readdirSync(dir).map((f) => path.join(dir, f)).find((f) => fs.readFileSync(f, 'utf8').includes('sid-mine'));
+  const theirs = JSON.stringify({ v: 1, state: 'busy', sessionId: 'sid-theirs', pid: 666, at: 'x' });
+  fs.writeFileSync(file, theirs);                       // a newer supervisor's file now sits at the name
+  const realLink = fs.linkSync;
+  fs.linkSync = () => { throw Object.assign(new Error('no hard links here'), { code: 'EPERM' }); };
+  try {
+    assert.doesNotThrow(() => pub.stopped(), 'a failed put-back never throws out of a stop');
+  } finally {
+    fs.linkSync = realLink;
+  }
+  const claims = fs.readdirSync(dir).filter((f) => f.endsWith('.clear'));
+  assert.equal(claims.length, 1, 'the claim is kept');
+  assert.equal(fs.readFileSync(path.join(dir, claims[0]), 'utf8'), theirs, 'with the other process\'s state intact');
+  for (const c of claims) fs.rmSync(path.join(dir, c), { force: true });
+});
+
 test('#570 7c-5 THE FILE ROUND TRIP: the real publisher writes what stateFor reads, for THIS process only', () => {
   const pub = ss.publisher('Round Trip');
   pub.started(777, 'sid-rt');
