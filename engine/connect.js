@@ -2185,11 +2185,12 @@ async function tickBody(owner) {
        * this only prevents the false failure.
        */
       const sub = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
-      /* #1937: a re-auth may finish off the file only once login-done has proven
-         the login landed; the file was stale-connected from the start, so an
-         unrecognised screen with no completion evidence is a genuine "we could
-         not confirm", not a silent success on the old credential. Non-reauth is
-         unchanged (`!owner.reauth` short-circuits true). */
+      /* #1937/#2645: a needsLogin flow -- a re-auth OR a present-but-dead credential
+         -- may finish off the file only once login-done has proven the login landed;
+         the file was stale-connected from the start, so an unrecognised screen with
+         no completion evidence is a genuine "we could not confirm", not a silent
+         success on the old credential. A flow with no login to run (a fresh machine,
+         add-another) is unchanged: `!owner.needsLogin` short-circuits the guard true. */
       if ((!owner.needsLogin || owner.sawLoginDone) && sub.state === subscription.STATE.CONNECTED) {
         finishConnected(owner, sub);
         return;
@@ -2284,11 +2285,12 @@ async function tickBody(owner) {
    * cross-tick bookkeeping to shrink further.
    */
   if (seen.kind === 'browser-open' || seen.kind === 'awaiting-code') {
-    /* #1937: these screens appear BEFORE a login completes, so for a re-auth the
-       only "connected" the file can report here is the STALE one from flow start
-       -- finishing on it kills the still-running `claude auth login` and reports
-       success with no credential repaired. Require login-done first for a
-       re-auth; a normal flow (file starts signed-out) is unchanged. */
+    /* #1937/#2645: these screens appear BEFORE a login completes, so for a needsLogin
+       flow (a re-auth OR a present-but-dead credential) the only "connected" the file
+       can report here is the STALE one from flow start -- finishing on it kills the
+       still-running `claude auth login` and reports success with no credential
+       repaired. Require login-done first whenever needsLogin; a flow with no login to
+       run (a fresh machine, file starts signed-out) is unchanged. */
     if (!owner.needsLogin || owner.sawLoginDone) {
       const sub = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
       if (sub.state === subscription.STATE.CONNECTED) {
@@ -2533,17 +2535,18 @@ async function tickBody(owner) {
         // promises.
         /* #1937: the THIRD file-outranks-screen finish, and the same stale-file
            hazard as the two arms above. `repl` is a live, logged-in session -- a
-           genuine completion signal, safe to finish on even for a re-auth. But the
-           `settleTicks` path also fires on `press-enter`, which this file's own
+           genuine completion signal, safe to finish on even for a needsLogin flow. But
+           the `settleTicks` path also fires on `press-enter`, which this file's own
            note (below, on the second `press-enter` handler) says is NOT login
-           evidence: a pre-login notice screen carries no login. For a re-auth the
-           config is stale-CONNECTED from flow start, so finishing on a pre-login
-           press-enter after settleTicks would be the exact false success the two
-           arms above were hardened against. Require login evidence for a re-auth's
-           settle finish -- owner.sawLoginDone is set (line ~2125) whenever a real
-           "Login successful" (login-done) screen appears, including this tick. The
-           repl path and every non-reauth flow are unchanged. A re-auth stuck on a
-           pre-login press-enter instead falls to the never-moves becomeStuck. */
+           evidence: a pre-login notice screen carries no login. For a needsLogin flow
+           (a re-auth OR a present-but-dead credential, #2645) the config is
+           stale-CONNECTED from flow start, so finishing on a pre-login press-enter
+           after settleTicks would be the exact false success the two arms above were
+           hardened against. Require login evidence for a needsLogin settle finish --
+           owner.sawLoginDone is set whenever a real "Login successful" (login-done)
+           screen appears, including this tick. The repl path and any flow with no login
+           to run are unchanged. A needsLogin flow stuck on a pre-login press-enter
+           instead falls to the never-moves becomeStuck. */
         if (seen.kind === 'repl'
           || ((owner.settleTicks || 0) > 4 && (!owner.needsLogin || owner.sawLoginDone))) {
           await finishConnected(owner, sub);

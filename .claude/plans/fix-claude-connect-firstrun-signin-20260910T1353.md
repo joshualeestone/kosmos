@@ -62,7 +62,12 @@ the stuck message + a "Try again", fix that so an unforeseen wedge is never a si
       (three elements `'auth','login','--claudeai'`), per the #1937 note.
 - [ ] **3.** Implement the strict-completion change (`connect.js:2117, 2216, 2469`) so an explicit
       Connect requires `sawLoginDone` before reporting CONNECTED (kills the flash-then-revert).
-- [ ] **4.** Verify/fix the bail-path painter surfaces an actionable error + retry (secondary).
+- [x] **4.** Verify/fix the bail-path painter surfaces an actionable error + retry (secondary).
+      VERIFIED ALREADY SATISFIED, no code change: the `stuck`-phase painter in web/index.html
+      (~40564+) already renders `becomeStuck`'s `because` + `tail` plus a "Try again"
+      affordance, so a bail is not a silent clear. (Also, the #1922 fix reduces how often the
+      bail fires at all -- a session that closed after a completed login now reports connected
+      rather than bailing.) web/index.html is intentionally untouched by this branch.
 - [ ] **5.** Regression test in `server.connect.test.js` (mirror the reauth harness): first-run
       Connect (`reauth:false`) against a present-but-dead credential (a) pushes `auth login
       --claudeai` in the launch argv and (b) requires login-success before reporting connected.
