@@ -18227,10 +18227,29 @@ async function worldAddSubmit() {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(payload),
     });
+    const body = await res.json().catch(() => null);
     if (!res.ok) {
-      const body = await res.json().catch(() => null);
       msg.textContent = (body && (body.because || body.error)) || 'Could not create the Kosmos. Try a different name.';
       go.disabled = false;
+      return;
+    }
+    // #2563: surface the import OUTCOME instead of closing silently as full success. The create
+    // succeeded either way, but the engine returns `imported` {copied,skipped,failed,
+    // unknownSources,error}; a genuine import problem -- the whole import threw (error), a profile
+    // failed to copy (failed), or a selected source was not found (unknownSources) -- must be
+    // shown, or a person who checked a Kosmos silently gets a new one missing its agents. (copied
+    // === 0 is NOT a failure on its own: selecting only empty Kosmoses legitimately copies nothing.)
+    const imp = importAgentsFrom.length && body ? body.imported : null;
+    if (imp && (imp.error || imp.failed > 0 || imp.unknownSources > 0)) {
+      await worldsFetch().catch(() => {});   // the new Kosmos DOES exist -- reflect it in the list
+      const copied = Number(imp.copied) || 0;
+      msg.textContent = imp.error
+        ? 'Your Kosmos was created, but its agents could not be imported. You can add them from the new Kosmos.'
+        : 'Your Kosmos was created' + (copied ? ' with ' + copied + (copied === 1 ? ' agent' : ' agents') : '')
+          + ', but some agents could not be copied. You can add the rest from the new Kosmos.';
+      // The Kosmos exists, so re-submitting would duplicate the name -- leave Create disabled and
+      // let the person dismiss via Cancel; the alert (role=alert) announces what happened.
+      go.disabled = true;
       return;
     }
     worldAddClose();

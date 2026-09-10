@@ -146,3 +146,54 @@ test('#2563: the create payload carries importAgentsFrom ONLY when a Kosmos is c
   assert.equal(Object.prototype.hasOwnProperty.call(noImport.body, 'importAgentsFrom'), false,
     'importAgentsFrom must be absent, not present-and-empty, so existing create behaviour is untouched');
 });
+
+// Run worldAddSubmit against a chosen 200 response body and observe what the UI did (message,
+// whether it closed/switched, the button state). The engine returns `imported` on a
+// create-with-import; the slice must surface a genuine import failure rather than close silently.
+async function runSubmitOutcome(nameValue, checkedIds, responseBody) {
+  const captured = { closed: false, switched: false };
+  const boxes = checkedIds.map((id) => ({ value: id, checked: true }));
+  const els = {
+    'world-add-name': { value: nameValue },
+    'world-add-go': { disabled: false },
+    'world-add-msg': { textContent: '' },
+  };
+  const document = { getElementById: (id) => els[id], querySelectorAll: () => boxes };
+  const fetchStub = async () => ({ ok: true, json: async () => responseBody });
+  const wrap = `${SUBMIT}\n return worldAddSubmit();`;
+  // eslint-disable-next-line no-new-func
+  await new Function('document', 'fetch', 'worldAddClose', 'worldsFetch', 'worldswOpen', wrap)(
+    document, fetchStub, () => { captured.closed = true; }, async () => {}, () => { captured.switched = true; },
+  );
+  return { els, captured };
+}
+
+test('#2563: a create whose import FAILED surfaces the outcome and does not close silently', async () => {
+  // Hard failure: the engine caught importAgents throwing -> imported.error, 0 copied.
+  const hard = await runSubmitOutcome('New', ['w1'],
+    { ok: true, world: { id: 'wn', name: 'New' }, imported: { copied: 0, skipped: 0, failed: 0, unknownSources: 0, error: true } });
+  assert.match(hard.els['world-add-msg'].textContent, /created, but its agents could not be imported/,
+    'a hard import failure must be announced, not swallowed');
+  assert.equal(hard.captured.closed, false, 'the modal must stay open so the person sees the import failure');
+  assert.equal(hard.els['world-add-go'].disabled, true, 'Create stays disabled (the Kosmos exists; re-submit would duplicate the name)');
+
+  // Partial failure: some copied, at least one profile failed to copy.
+  const partial = await runSubmitOutcome('New', ['w1'],
+    { ok: true, world: {}, imported: { copied: 2, skipped: 0, failed: 1, unknownSources: 0 } });
+  assert.match(partial.els['world-add-msg'].textContent, /some agents could not be copied/,
+    'a partial import failure must be surfaced');
+  assert.equal(partial.captured.closed, false, 'a partial failure keeps the modal open too');
+
+  // Full success: closes + opens the switcher exactly as before, no lingering error.
+  const ok = await runSubmitOutcome('New', ['w1'],
+    { ok: true, world: {}, imported: { copied: 3, skipped: 0, failed: 0, unknownSources: 0 } });
+  assert.equal(ok.captured.closed, true, 'a fully-successful import closes the modal as before');
+  assert.equal(ok.captured.switched, true, 'and opens the switcher');
+
+  // copied === 0 with no error/failed/unknownSources (all selected Kosmoses were empty) is NOT a
+  // failure -- it must take the normal success path, not the surface-the-failure path.
+  const empty = await runSubmitOutcome('New', ['w1'],
+    { ok: true, world: {}, imported: { copied: 0, skipped: 0, failed: 0, unknownSources: 0 } });
+  assert.equal(empty.captured.closed, true,
+    'copied 0 with no error/failed (an empty source Kosmos) is success, not a failure to surface');
+});
