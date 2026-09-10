@@ -1386,8 +1386,16 @@ cmd_task() {
       say "  kosmos task close <project-id> <task-number>                  close one (number is from list)"
       say "  (project ids are in your instructions' Your projects section.)"
       exit 2 ;;
-    list|add|close) : ;;   # recognized -- validated BEFORE the health check, so an
-                           # unknown verb is named even when the board is stopped
+    # Validate the subcommand AND its required args BEFORE the health check, the same order
+    # cmd_post and cmd_room use, so a malformed invocation is named even when the board is stopped
+    # (rather than reporting "not running" and hiding the usage).
+    list)
+      [ -n "${1:-}" ] || { say "Usage: kosmos task list <project-id>"; exit 2; } ;;
+    add)
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task add <project-id> \"<what the task is>\" [\"more detail\"]"; exit 2; } ;;
+    close)
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task close <project-id> <task-number>   (the number is shown by kosmos task list)"; exit 2; }
+      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
     *)
       say "Unknown: kosmos task $sub. Try: list | add | close"
       exit 2 ;;
@@ -1403,7 +1411,6 @@ cmd_task() {
   local esc_project; esc_project=$(printf '%s' "${1:-}" | sed "s/[^A-Za-z0-9._-]//g")
   case "$sub" in
     list)
-      [ -n "${1:-}" ] || { say "Usage: kosmos task list <project-id>"; exit 2; }
       local rc=0 body
       body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/tasks?project=$esc_project" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to list tasks. Is it running at $URL?"; exit 1; }
@@ -1420,8 +1427,7 @@ cmd_task() {
       ;;
     add)
       local project sentence detail
-      project="${1:-}"; sentence="${2:-}"
-      { [ -n "$project" ] && [ -n "$sentence" ]; } || { say "Usage: kosmos task add <project-id> \"<what the task is>\" [\"more detail\"]"; exit 2; }
+      project="${1:-}"; sentence="${2:-}"   # both validated non-empty before the health check above
       # Fold EVERY arg after the sentence into detail, so an unquoted multi-word detail is not
       # silently dropped (bash word-splits it into $4, $5, ... which a $3-only read would lose).
       shift 2 2>/dev/null || true   # drop project + sentence; the remaining args are the detail
@@ -1446,9 +1452,7 @@ cmd_task() {
       esac
       ;;
     close)
-      local project num; project="${1:-}"; num="${2:-}"
-      { [ -n "$project" ] && [ -n "$num" ]; } || { say "Usage: kosmos task close <project-id> <task-number>   (the number is shown by kosmos task list)"; exit 2; }
-      case "$num" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
+      local project num; project="${1:-}"; num="${2:-}"   # both validated (num is all-digits) before the health check above
       local rc=0 body
       body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/close" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to close that task. Is it running at $URL?"; exit 1; }
