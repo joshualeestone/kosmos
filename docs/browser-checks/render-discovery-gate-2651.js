@@ -119,80 +119,7 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     const shownBefore = !tr.hidden;
     look.click();                            // the person looks; the fetch reveals the dismissal
     await new Promise((res) => setTimeout(res, 150));
-    return { shownBefore, triggerHidden: tr.hidden, dismissedFlag: (typeof DISCOVERY_DISMISSED !== 'undefined' && DISCOVERY_DISMISSED), label: look.textContent };
-  });
-
-  /* Arm 4 - LABEL RESET. After an empty look flips the button to "We could not find any new
-     agents to add", a later poll that RE-SHOWS the trigger must restore the neutral action
-     label, so a stale message never persists across unrelated state changes (found-then-
-     handled candidate). Fresh page; simulate the prior empty-look label, then a poll show. */
-  const page3 = await browser.newPage({ viewport: { width: 1100, height: 900 } });
-  await page3.goto('file://' + PAGE);
-  const L = await page3.evaluate(async () => {
-    const bb = document.getElementById('boardbar');
-    if (!bb) return { error: 'boardbar is gone' };
-    bb.hidden = false;
-    const look = document.getElementById('found-scan-look');
-    const tr = document.getElementById('found-scan-trigger');
-    if (!look || !tr) return { error: 'button or trigger missing' };
-    /* The reset fires only on a hidden->shown TRANSITION, so create one: settle to shown,
-       stage the stale empty-look label, force the trigger HIDDEN (via the dismissed flag),
-       then clear that and re-show. Only the final re-show is a transition, and it must
-       restore the neutral label. */
-    paintDiscoveryTrigger();                                         // settle: shown
-    look.textContent = 'We could not find any new agents to add';   // a prior empty look left this
-    DISCOVERY_DISMISSED = true; paintDiscoveryTrigger();             // force hidden
-    DISCOVERY_DISMISSED = false; paintDiscoveryTrigger();            // re-show -> transition -> reset
-    return { label: look.textContent, triggerHidden: tr.hidden };
-  });
-
-  /* Arm 5 - LABEL WRITE IS GUARDED (no aria-live re-announce). paintDiscoveryTrigger runs on
-     every 5s poll while the trigger is shown (the default landing state); with aria-live on
-     the button, an unconditional textContent write would re-announce the label every tick.
-     The write must be a no-op when the label already equals the default. Mark the text node
-     and prove a SECOND paintDiscoveryTrigger (label already default) does NOT replace it. */
-  const page4 = await browser.newPage({ viewport: { width: 1100, height: 900 } });
-  await page4.goto('file://' + PAGE);
-  const G = await page4.evaluate(async () => {
-    const bb = document.getElementById('boardbar');
-    if (!bb) return { error: 'boardbar is gone' };
-    bb.hidden = false;
-    const look = document.getElementById('found-scan-look');
-    const tr = document.getElementById('found-scan-trigger');
-    if (!look || !tr) return { error: 'button or trigger missing' };
-    paintDiscoveryTrigger();                 // shows the trigger, label becomes the default
-    const node = look.firstChild;
-    if (!node) return { error: 'no text node after first paint' };
-    node.__cl_marker = 'keep';               // mark the exact text node
-    paintDiscoveryTrigger();                 // second poll, label already default -> must NOT rewrite
-    const kept = !!(look.firstChild && look.firstChild.__cl_marker === 'keep');
-    return { shown: !tr.hidden, kept };
-  });
-
-  /* Arm 6 - EMPTY-LOOK MESSAGE PERSISTS ACROSS A POLL. After an empty look sets the button to
-     "We could not find any new agents to add", the very next poll (paintDiscoveryTrigger, no
-     panel state change) must NOT wipe it back to the neutral label - the reset fires only on a
-     hidden->shown transition, not on every shown poll. Fresh page: stub both endpoints EMPTY,
-     press Look (message set), then simulate one more poll and assert the message survives. */
-  const page5 = await browser.newPage({ viewport: { width: 1100, height: 900 } });
-  await page5.goto('file://' + PAGE);
-  const P = await page5.evaluate(async () => {
-    const bb = document.getElementById('boardbar');
-    if (!bb) return { error: 'boardbar is gone' };
-    bb.hidden = false;
-    window.fetch = (u) => {
-      const url = String(u);
-      if (url.indexOf('/api/found-agents') !== -1) return Promise.resolve({ ok: true, json: async () => ({ ok: true, agents: [] }) });
-      if (url.indexOf('/api/scan-agents') !== -1) return Promise.resolve({ ok: true, json: async () => ({ ok: true, candidates: [] }) });
-      return Promise.resolve({ ok: false, json: async () => ({}) });
-    };
-    const look = document.getElementById('found-scan-look');
-    if (!look) return { error: 'button missing' };
-    look.click();                                   // empty look -> the message is set
-    await new Promise((res) => setTimeout(res, 150));
-    const afterClick = look.textContent;
-    paintDiscoveryTrigger();                         // a subsequent poll, no panel-state change
-    return { afterClick, afterPoll: look.textContent };
+    return { shownBefore, triggerHidden: tr.hidden, dismissedFlag: (typeof DISCOVERY_DISMISSED !== 'undefined' && DISCOVERY_DISMISSED) };
   });
 
   await browser.close();
@@ -213,27 +140,7 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     if (d.shownBefore !== true) fail.push('dismissed arm: the trigger was not even offered before the press (arm is vacuous)');
     if (d.dismissedFlag !== true) fail.push('dismissed arm: DISCOVERY_DISMISSED was not set from body.dismissed');
     if (d.triggerHidden !== true) fail.push('dismissed arm: the trigger did not hide for a dismissed-forever user');
-    if (/could not find/i.test(d.label || '')) fail.push('dismissed arm: the empty-look message misreported a dismissal as a search result');
   }
-  if (L.error) {
-    fail.push('label-reset arm errored: ' + L.error);
-  } else {
-    if (L.triggerHidden !== false) fail.push('label-reset arm: the trigger was not re-shown, so the reset path did not run (arm vacuous)');
-    if (/could not find/i.test(L.label || '')) fail.push('label-reset arm: a stale "could not find" message persisted after the trigger was re-shown');
-  }
-  if (G.error) {
-    fail.push('label-write-guarded arm errored: ' + G.error);
-  } else {
-    if (G.shown !== true) fail.push('label-write-guarded arm: the trigger was not shown, so the write path did not run (arm vacuous)');
-    if (G.kept !== true) fail.push('label-write-guarded arm: the label text node was replaced on a no-change re-show, so aria-live would re-announce every 5s poll');
-  }
-  if (P.error) {
-    fail.push('message-persists arm errored: ' + P.error);
-  } else {
-    if (!/could not find/i.test(P.afterClick || '')) fail.push('message-persists arm: the empty-look message was not set on the press (arm vacuous)');
-    if (!/could not find/i.test(P.afterPoll || '')) fail.push('message-persists arm: the empty-look message was wiped by the next poll (reset fired on a no-transition show)');
-  }
-
   if (fail.length) {
     /* One-line reason after the marker so the release runner's reason-grep can quote
        it (a multi-line "FAIL  <name>:\n  - ..." leaves the FAIL line's reason empty). */
@@ -241,5 +148,5 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     console.error('  load=' + JSON.stringify(r.load) + '  afterClick=' + JSON.stringify(r.afterClick));
     process.exit(1);
   }
-  console.log('render-discovery-gate-2651 (6 arms): on load the panels stay hidden and only the "Look for agents" trigger shows; the press opens both found and scan and hides the trigger; a Dismissed-forever user is not re-offered and the empty message never misreports the dismissal; a stale empty-look label is reset on a hidden->shown re-show; that label write is guarded so aria-live does not re-announce; and an empty-look message is NOT wiped by the next poll while the trigger stays shown. PASS');
+  console.log('render-discovery-gate-2651 (3 arms): on load the panels stay hidden and only the "Look for agents" trigger shows; the press opens both found and scan and hides the trigger; a Dismissed-forever user is not re-offered the trigger. PASS');
 })().catch((e) => { console.error('FAIL  render-discovery-gate-2651', e && e.message); process.exit(1); });

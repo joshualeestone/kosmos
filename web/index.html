@@ -12309,10 +12309,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
      DISCOVERY_OPENED). Pressing it opens both on demand; a full reload starts
      collapsed again on purpose, so the page never opens itself. -->
 <div class="removed-wrap" id="found-scan-trigger" hidden>
-  <!-- aria-live so the empty-look result ("We could not find any new agents to add"),
-       which replaces this button's own label, is announced to a screen reader rather than
-       changing silently under focus (#2651 review). -->
-  <button class="linkish" id="found-scan-look" type="button" aria-live="polite">Look for agents already on this computer</button>
+  <button class="linkish" id="found-scan-look" type="button">Look for agents already on this computer</button>
 </div>
 <div class="removed-wrap" id="found-wrap" hidden>
   <!-- Josh, 2026-08-24 17:06: "add a button that says Dismiss this forever at
@@ -15518,11 +15515,9 @@ function showTab(tab) {
        the 5s poll is gated to the Agents tab, so off-tab nothing hid it. Mirror
        the found-wrap line exactly. */
     document.getElementById('scan-wrap').hidden = true;
-    /* #2651: hide the discovery trigger off the Agents tab (it is painted only there, by
-       the tab-gated poll), and sync DISCOVERY_TRIGGER_WAS_HIDDEN so a later leave->return
-       counts as the real hidden->shown transition (else a stale empty-look label would not
-       reset on return). */
-    { const t = document.getElementById('found-scan-trigger'); if (t) t.hidden = true; DISCOVERY_TRIGGER_WAS_HIDDEN = true; }
+    /* #2651: the discovery trigger is painted only on the Agents tab (by the tab-gated
+       poll), so like its two panels it must be hidden on the way off the tab. */
+    { const t = document.getElementById('found-scan-trigger'); if (t) t.hidden = true; }
     // ⚠️ And the message with it. It deliberately lives outside the wrap so a
     // repaint cannot erase it -- which also means nothing else hides it, so a
     // sentence about the removed list would otherwise sit under Settings or
@@ -26323,38 +26318,17 @@ document.getElementById('found-toggle').addEventListener('click', () => {
    moment a panel renders candidates. */
 /* #2651: the neutral action label, ONE source (this const), so the HTML initial text and
    the JS reset below cannot drift. */
-const FOUND_SCAN_LOOK_LABEL = 'Look for agents already on this computer';
-/* #2651: the trigger's previous hidden state, so the neutral-label reset fires only on a
-   hidden->shown TRANSITION (the trigger re-appearing after a found-then-handled candidate),
-   never on every poll while already shown - otherwise an empty-look message would be wiped
-   within one 5s tick and the button's aria-live would re-announce it. Starts true: the
-   trigger ships hidden. */
-let DISCOVERY_TRIGGER_WAS_HIDDEN = true;
-
-/* Show/hide the discovery trigger, and RETURN whether a discovery panel is currently
-   showing (so the click handler need not recompute it). */
+/* #2651: show the discovery trigger on the Agents tab whenever no discovery panel is
+   visible; hide it once a panel shows, off the Agents tab, or after a Dismiss-forever (a
+   dismissed person is not re-offered the look). The button label is STATIC - there is no
+   empty-look message to reset, deliberately (see the click handler). */
 function paintDiscoveryTrigger() {
   const trig = document.getElementById('found-scan-trigger');
-  if (!trig) return false;
+  if (!trig) return;
   const fw = document.getElementById('found-wrap');
   const sw = document.getElementById('scan-wrap');
   const anyPanel = (fw && !fw.hidden) || (sw && !sw.hidden);
-  /* #2651: also hidden once we learn the feature was Dismissed forever - a dismissed
-     person is not re-offered the look. */
-  const hidden = !onAgentsTab() || anyPanel || DISCOVERY_DISMISSED;
-  const wasHidden = DISCOVERY_TRIGGER_WAS_HIDDEN;
-  trig.hidden = hidden;
-  DISCOVERY_TRIGGER_WAS_HIDDEN = hidden;
-  /* Restore the neutral label ONLY on a hidden->shown TRANSITION (the trigger re-appearing
-     after a found-then-handled candidate), not on every poll while already shown - else the
-     click handler's empty-look message would be wiped within one 5s tick and the aria-live
-     would re-announce neutral->empty->neutral. The !== keeps even the transition write a
-     no-op when the label is already neutral. */
-  if (!hidden && wasHidden) {
-    const look = document.getElementById('found-scan-look');
-    if (look && look.textContent !== FOUND_SCAN_LOOK_LABEL) look.textContent = FOUND_SCAN_LOOK_LABEL;
-  }
-  return anyPanel;
+  trig.hidden = !onAgentsTab() || anyPanel || DISCOVERY_DISMISSED;
 }
 
 document.getElementById('found-scan-look').addEventListener('click', async () => {
@@ -26362,8 +26336,6 @@ document.getElementById('found-scan-look').addEventListener('click', async () =>
   const look = document.getElementById('found-scan-look');
   look.disabled = true;
   try {
-    /* Await both, so the empty-result feedback below reads the SETTLED panels rather
-       than a fetch still in flight. */
     await paintFoundBoard();
     await paintScanBoard();
   } catch { /* the paints swallow their own fetch errors; this only guards an unexpected throw */ }
@@ -26372,14 +26344,13 @@ document.getElementById('found-scan-look').addEventListener('click', async () =>
        (the same belt-and-braces the poll IIFEs carry with their .catch). */
     look.disabled = false;
   }
-  /* paintDiscoveryTrigger hides the trigger once a panel shows and returns whether one is
-     showing, so we do not recompute it here. This press keeps the trigger shown when nothing
-     was found (a no-transition show), so the empty-look message set below is NOT reset by it. */
-  const anyPanel = paintDiscoveryTrigger();
-  /* Hedged and NOT a machine-scoped count claim (web.empty-scope guard); and only when the
-     look genuinely found nothing - NOT when the feature was dismissed (paintDiscoveryTrigger
-     has already hidden the trigger there), so the message never misreports a dismissal. */
-  if (!anyPanel && !DISCOVERY_DISMISSED) look.textContent = 'We could not find any new agents to add';
+  /* Reveal whatever the look found; paintDiscoveryTrigger hides the trigger if a panel now
+     shows and keeps it if not. An empty look intentionally shows NO separate message - the
+     trigger simply stays as the re-look affordance. An in-button "we could not find any"
+     message was tried and removed (#2651 review): the found/scan paints deliberately leave
+     the panel untouched on a FAILED fetch, so the click cannot tell an empty result from a
+     failed one, and a message would misreport "nothing found" when Kosmos never checked. */
+  paintDiscoveryTrigger();
 });
 
 /* #1938: the scan panel's toggle and dismiss, mirroring the found panel above so
