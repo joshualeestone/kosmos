@@ -152,8 +152,9 @@ never `could_not`. `chat.setChannel` is the seam, with setRunner's interlock.
   supervisor holds stdout/stderr pipes and never drains them, which looked like a
   freeze waiting for a full pipe buffer. Measured on winstream-1: an 18,892-char
   answer completed, and a follow-up was answered 2s later, agent alive. So Claude
-  Code buffers or the pipe is roomy at this size. 7c-5 reads the stream anyway
-  (state comes from it), which retires the question rather than relying on it.
+  Code buffers or the pipe is roomy at this size. ✅ RETIRED by 7c-5: the
+  supervisor now reads stdout (state comes from it) and drains stderr, keeping
+  its tail for the `died` line.
 
 📌 SPLINTER'S ANSWERS 2026-09-10: v1 ships with by-hand update (Josh approved);
 installkosmos.com serves a STALE Windows zip (0.6.37); #2604 is merged and win32
@@ -165,9 +166,12 @@ shared usage before fanning out subagents.
 ## Do this next
 
 1. Merge win32-chat-arm-570 once its review converges and CI is green.
-2. **7c-5:** state from the event stream (§4). A streaming agent's
-   `claude agents --json` row has no `status`, so every Windows card reads
-   `unknown` today (measured: winstream-1 did).
+2. ✅ **7c-5 DONE 2026-09-10** (branch win32-stream-state-570): state from the
+   event stream (§4). The supervisor reads the agent's stdout and keeps its
+   working/idle in `win32-state/<key>.json`, stamped with session id and pid;
+   `win32capture` falls back to it for a status-less row. Measured live through
+   the supervisor's real `main()`, a real claude.exe and the real snapshot:
+   card absent -> idle -> working (0.7s after the message) -> idle.
 3. **7c-6:** the rehearsal, R1–R8 with R3 for the first time, and a real reboot.
 4. The crash-restart token defect above.
 5. A current Windows build and publish (the pipeline exists; the site is stale).
@@ -246,8 +250,8 @@ That is the bar. Not "the tests pass".
 |---|---|---|
 | 1 | install + first run | ⚠️ **BLOCKER 3 CLOSED** 2026-09-09 — the card now names the real installer. Kosmos still cannot install Claude Code FOR you; see §3c |
 | 2 | make an agent | ✅ MEASURED |
-| 3 | board + roster | ✅ MEASURED (state: partial, see §4) |
-| 4 | **talk to it** | ✅ **BLOCKER 1 CLOSED** 2026-09-10 (7c-4) — the board's `chat.deliver` reaches the agent through its supervisor's pipe and it answers; measured live. State still reads `unknown` until 7c-5 |
+| 3 | board + roster | ✅ MEASURED — working/idle from the event stream since 7c-5 (§4); needs_you/blocked still come only from self-reports, as on the Mac |
+| 4 | **talk to it** | ✅ **BLOCKER 1 CLOSED** 2026-09-10 (7c-4) — the board's `chat.deliver` reaches the agent through its supervisor's pipe and it answers; measured live. Its card reads working/idle since 7c-5 |
 | 5 | stop/restart/remove/restore | ✅ MEASURED |
 | 6 | survive a reboot | ✅ AGENTS measured (R8). BOARD: **BLOCKER 4 CLOSED** 2026-09-09 — an at-logon task, proven end to end via /Run; a real logon still owed |
 | 7 | **update the app** | ⚠️ **BLOCKER 2, OFF THE v1 PATH** — Josh approved 2026-09-10: v1 updates by hand, a real updater is a fast-follow. §3a. The ANCHOR (not stranding the fleet) is designed and unit-tested; the UPDATER ITSELF cannot run on Windows at all |
@@ -346,7 +350,7 @@ resume-not-replace, and the property it protected is preserved rather than trade
 | 7c-2 | ✅ **DONE 2026-09-10** — WIRED LIVE. The task's `main()` supervises the streaming agent, and `create.js` starts the agent by RUNNING ITS JOB rather than spawning one, collapsing two launch paths into one. See the RESUME block for the four facts | — |
 | 7c-3 | ✅ **DONE 2026-09-10** — board → supervisor channel: a local named pipe per agent, per-agent secret, honest `down` when the supervisor is gone. Measured through the real task | — |
 | 7c-4 | ✅ **DONE 2026-09-10** — `chat.js` win32 arm on that channel, keeping the `could_not` contract; `verifyAtSend`'s hazards (a shell, copy-mode) do not exist on a stdin pipe, and the supervisor re-checks at the write. Measured live | — |
-| 7c-5 | state + transcript from the EVENT STREAM (see §4) | 1–2 sessions |
+| 7c-5 | ✅ **DONE 2026-09-10** — working/idle from the EVENT STREAM (see §4), crossing to the board as a per-agent file joined on session id AND pid. Measured live. The transcript needed no work: Claude Code writes the session's jsonl under `~/.claude/projects` in streaming mode too (7c-4 read replies from it) | — |
 | 7c-6 | re-run R1–R8, and R3 for the first time | ½ session + a reboot |
 
 **Estimate: 4–6 working sessions**, plus the near-certainty of 2–4 new defects
@@ -716,6 +720,11 @@ one showed nothing). `win32capture` reads exactly that, so it would answer UNKNO
 for every agent. That is the safe direction, and the PRIMARY state reader
 (`selfreport` + `reconcileReport`) is untouched — but the coarse working/idle
 fallback is lost.
+
+✅ DONE in 7c-5 (2026-09-10), and the measurements it rests on are in
+`.claude/plans/win32-stream-state-570-20260910T1620.md`: one message is one turn
+(init .. result, never batched), nothing arrives before a message on a fresh or
+resumed session, and `claude agents --json`'s pid is the spawned child's.
 
 🔑 THE FIX IS BETTER THAN WHAT IT REPLACES. Under 7c-1 the supervisor holds the
 agent's stdout, so it sees EVERY event: assistant messages, tool calls, results.

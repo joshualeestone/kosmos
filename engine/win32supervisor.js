@@ -260,6 +260,12 @@ function main(argv) {
   }
   let last = null;
   const handle = superviseStreaming(spec, {
+    /* 🔑 THE ONE PRODUCTION PUBLISHER (7c-5): the agent's working/idle, kept in a
+       file the board's capture reads. A state it could not record is said on the
+       task log, where a missing card state can be traced back to it. */
+    stream: require('./win32streamstate').publisher(spec.name, {
+      onProblem: (why) => process.stderr.write(new Date().toISOString() + ' ' + spec.name + ' state-unrecorded -- ' + why + '\n'),
+    }),
     onEvent: (e) => {
       /* One line per transition, on stderr so a task log captures it.
          ⚠️ A REPEATED `waiting` IS NOT A TRANSITION. Everything else here happens
@@ -341,6 +347,14 @@ if (require.main === module) main(process.argv.slice(2));
  * cannot be missed, so death is known in milliseconds rather than up to a poll
  * late, and the runner is not asked anything on the happy path.
  */
+/* A stream sink that records nothing: the default, so only `main()` publishes. */
+const NO_STREAM = { started() {}, event() {}, wrote() {}, stopped() {} };
+
+/** How much of a dying agent's stderr rides on its `died` line. Enough for the
+    one sentence that explains a crash; small enough that a chatty agent cannot
+    flood the task log through it. */
+const STDERR_TAIL_CHARS = 500;
+
 function superviseStreaming(spec, opts) {
   const s = spec || {};
   const o = opts || {};
@@ -355,6 +369,11 @@ function superviseStreaming(spec, opts) {
      drive the two independently. Defaults to the real runner. */
   const readLive = o.liveReader || (() => liveSessions(s.claudeBin));
 
+  /* Where the agent's working/idle goes (7c-5). The default does nothing, so no
+     suite that drives this loop writes state files; `main()` passes the real
+     publisher, which is the one production wiring. */
+  const stream = o.stream || NO_STREAM;
+
   let running = true;
   let child = null;
   let lastStart = 0;
@@ -362,14 +381,31 @@ function superviseStreaming(spec, opts) {
 
   function attach(c) {
     child = c;
+    /* 🔑 THE EVENT STREAM IS READ, and that is what gives a Windows card its
+       working/idle (7c-5): `claude agents --json` lists no status for a
+       streaming session. Reading stdout also retires the old question of what
+       happens when nobody drains a full pipe. Only the CURRENT child publishes;
+       a late line from a child already replaced says nothing about the new one. */
+    const { lineReader, parseEvent } = require('./win32streamstate');
+    if (c.stdout && typeof c.stdout.on === 'function') {
+      const feed = lineReader((line) => { if (child === c) stream.event(parseEvent(line)); });
+      c.stdout.on('data', feed);
+    }
+    /* stderr is drained so it can never fill, and its tail is kept so a death can
+       say why on the task log rather than dying in silence. */
+    let stderrTail = '';
+    if (c.stderr && typeof c.stderr.on === 'function') {
+      c.stderr.on('data', (d) => { stderrTail = (stderrTail + String(d)).slice(-STDERR_TAIL_CHARS); });
+    }
     /* ⚠️ ONE HANDLER, AND IT MUST NOT FIRE TWICE. 'exit' and 'close' both arrive;
        acting on both would double-count a death and burn the throttle budget. */
     let handled = false;
     const gone = (code) => {
       if (handled) return;
       handled = true;
-      if (child === c) child = null;
-      onEvent({ action: 'died', code: code === undefined ? null : code, sessionId: handle.sessionId });
+      if (child === c) { child = null; stream.stopped(); }
+      const said = stderrTail.replace(/\s+/g, ' ').trim();
+      onEvent({ action: 'died', code: code === undefined ? null : code, sessionId: handle.sessionId, because: said ? 'it said: ' + said : undefined });
       if (running) schedule();
     };
     c.on('exit', gone);
@@ -440,6 +476,10 @@ function superviseStreaming(spec, opts) {
     lastStart = now();
     if (!r.ok) { onEvent({ action: 'refused', because: r.because }); if (running) schedule(); return; }
     handle.sessionId = r.sessionId;
+    /* Published BEFORE the handlers attach, so the first line the agent prints
+       already has a process to belong to. Idle: measured, a streaming agent says
+       nothing until it is told something, fresh or resumed. */
+    stream.started(r.child && r.child.pid, r.sessionId);
     attach(r.child);
     onEvent({ action: r.resumed ? 'resumed' : 'started', sessionId: r.sessionId });
   }
@@ -483,7 +523,7 @@ function superviseStreaming(spec, opts) {
            that buffered and then errored is not could_not). Only the synchronous
            throw below proves nothing left this process. */
         if (err) answer({ ok: false, unsure: true, because: 'the write to it failed part-way (' + ((err && err.code) || 'unknown') + '), so we cannot tell whether it arrived' });
-        else answer({ ok: true });
+        else { stream.wrote(); answer({ ok: true }); }
       });
     } catch (e) { return answer({ ok: false, because: 'we could not reach it (' + ((e && e.code) || 'unknown') + ')' }); }
     return { ok: true };

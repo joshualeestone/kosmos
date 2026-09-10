@@ -8,6 +8,13 @@
  * --json` reports a per-session `status` for interactive sessions, observed to be
  * `busy` (working) or `idle` (waiting) -- so THAT is the win32 scrape-equivalent.
  *
+ * 🔑 BUT A STREAMING SESSION LISTS NO STATUS (measured 2026-09-10), and every agent
+ * Kosmos starts has been one since 7c-2. For those the token comes from
+ * `engine/win32streamstate`: the supervisor reads the agent's own event stream and
+ * keeps its working/idle in a file, which is accepted here only when its session
+ * id and pid match the live row. Same two tokens either way, so classify's win32
+ * arm reads both without knowing which it got.
+ *
  * 🔑 THIS IS THE FALLBACK, NOT THE PRIMARY STATE READER. The primary win32 state
  * reader is the SELF-REPORT path (`engine/selfreport` + `status.reconcileReport`),
  * exactly as on the Mac: a fresh self-report outranks the scrape, and the states
@@ -49,6 +56,7 @@
 const win32sessions = require('./win32sessions');
 const win32roster = require('./win32roster');
 const win32live = require('./win32live');
+const win32streamstate = require('./win32streamstate');
 
 /**
  * Build the win32 capture function for `status.setPaneCapture`.
@@ -71,6 +79,9 @@ function make(opts) {
   const record = opts && opts.record ? opts.record : win32sessions;
   const now = opts && typeof opts.now === 'function' ? opts.now : Date.now;
   const ttlMs = opts && Number.isFinite(opts.ttlMs) ? opts.ttlMs : 1500;
+  const streamState = opts && typeof opts.streamState === 'function' ? opts.streamState : win32streamstate.stateFor;
+  /* Under the same never-throw contract as run() and record.read(). */
+  const readStreamState = (name, hit) => { try { return streamState(name, hit); } catch { return null; } };
 
   // Cache one { at, ok, byName } per TTL window so a whole snapshot's per-pane
   // calls share a single read. `ok` records whether the live read SUCCEEDED, kept
@@ -112,7 +123,13 @@ function make(opts) {
       // no owned sessions running. `ok` is what keeps those apart downstream.
       if (live) {
         ok = true;
-        for (const [name, hit] of live) byName.set(name, hit.status);
+        for (const [name, hit] of live) {
+          /* 🔑 TWO SOURCES, ONE TOKEN (7c-5). An interactive session reports its own
+             status. A STREAMING one -- every agent Kosmos has started since 7c-2 --
+             lists none, so its state comes from the file its supervisor keeps from
+             the agent's event stream, accepted only for this exact session and pid. */
+          byName.set(name, typeof hit.status === 'string' && hit.status ? hit.status : readStreamState(name, hit));
+        }
       }
     } catch {
       // An injected run()/record.read() threw. Treat it as a failed read: no state

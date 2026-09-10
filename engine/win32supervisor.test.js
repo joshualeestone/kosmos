@@ -287,6 +287,113 @@ test('#570 7c send() writes ONE json line, and refuses honestly when nothing is 
   h.stop();
 });
 
+/** A piped agent with stdout and stderr, whose stdin answers the flush callback. */
+function streamingChild(pid) {
+  const c = fakeChild();
+  c.pid = pid;
+  c.stdout = new EventEmitter();
+  c.stderr = new EventEmitter();
+  c.stdin.write = (s, cb) => { c.written.push(s); if (typeof cb === 'function') cb(null); };
+  return c;
+}
+
+/** A stream sink that records every call in order. */
+function streamSink() {
+  const calls = [];
+  return {
+    calls,
+    started: (pid, sid) => calls.push(['started', pid, sid]),
+    event: (e) => calls.push(['event', e && e.type]),
+    wrote: () => calls.push(['wrote']),
+    stopped: () => calls.push(['stopped']),
+  };
+}
+
+test('#570 7c-5 the supervisor publishes its agent: the start, every stream event, a flushed write, the death', () => {
+  const kids = [];
+  const sink = streamSink();
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    stream: sink,
+    launch: () => { const c = streamingChild(4100); kids.push(c); return { ok: true, sessionId: 'sid-s', child: c }; },
+  });
+  // A line split across two chunks is still one event.
+  kids[0].stdout.emit('data', Buffer.from('{"type":"system","subtype":"init"}\n{"type":"assi'));
+  kids[0].stdout.emit('data', Buffer.from('stant"}\n{"type":"result"}\n'));
+  h.send('hello', () => {});
+  kids[0].die(0);
+  assert.deepEqual(sink.calls, [
+    ['started', 4100, 'sid-s'],
+    ['event', 'system'], ['event', 'assistant'], ['event', 'result'],
+    ['wrote'],
+    ['stopped'],
+  ]);
+  h.stop();
+});
+
+test('#570 7c-5 a REPLACED child can neither publish nor clear for the one that replaced it', () => {
+  const kids = [];
+  const sink = streamSink();
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    stream: sink,
+    launch: () => { const c = streamingChild(5000 + kids.length); kids.push(c); return { ok: true, sessionId: 'sid-r', child: c }; },
+  });
+  kids[0].die(1);                        // restarts at once: kids[1] is the agent now
+  assert.deepEqual(sink.calls.slice(-1), [['started', 5001, 'sid-r']]);
+  sink.calls.length = 0;
+  kids[0].stdout.emit('data', Buffer.from('{"type":"assistant"}\n'));   // a late line from the dead one
+  kids[0].emit('exit', 1);                                              // and a second signal for its death
+  assert.deepEqual(sink.calls, [], 'the old process said nothing about the new one');
+  h.stop();
+});
+
+test('#570 7c-5 a failed write does not mark the agent busy', () => {
+  const kids = [];
+  const sink = streamSink();
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    stream: sink,
+    launch: () => { const c = streamingChild(1); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  kids[0].stdin.write = (s, cb) => cb(Object.assign(new Error('pipe broke'), { code: 'EPIPE' }));
+  h.send('hello', () => {});
+  assert.ok(!sink.calls.some((c) => c[0] === 'wrote'), 'only a flushed write is a message the agent has');
+  h.stop();
+});
+
+test('#570 7c-5 stderr is drained, and a death carries its tail to the task log', () => {
+  const kids = [];
+  const events = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    onEvent: (e) => events.push(e),
+    launch: () => { const c = streamingChild(1); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  kids[0].stderr.emit('data', Buffer.from('boom:\n  the api key\n'));
+  kids[0].stderr.emit('data', Buffer.from(' was rejected\n'));
+  kids[0].die(1);
+  const died = events.find((e) => e.action === 'died');
+  assert.equal(died.because, 'it said: boom: the api key was rejected');
+
+  kids.length = 0;
+  events.length = 0;
+  const quiet = sup.superviseStreaming({ name: 'b', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    onEvent: (e) => events.push(e),
+    launch: () => { const c = streamingChild(2); kids.push(c); return { ok: true, sessionId: 's2', child: c }; },
+  });
+  kids[0].die(0);
+  assert.equal(events.find((e) => e.action === 'died').because, undefined, 'a silent death invents no sentence');
+  h.stop();
+  quiet.stop();
+});
+
 test('#570 7c-4 a write that fails AFTER it was handed to the pipe is unsure, never a definite no', () => {
   /* Baron's bar (Mac delivery owner, 2026-09-10): a write that buffered and then
      errored may already have put bytes in front of the agent, so it must read as
