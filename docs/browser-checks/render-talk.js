@@ -666,6 +666,7 @@ function unreachableStates() {
     // #1927: how many states actually rendered a message bubble, so the
     // pre-wrap assertion below is not passing because nothing reached it.
     let measuredBubbleWrap = 0;
+    let measuredMineBubble = 0;
     for (const [name, fx] of Object.entries(STATES)) {
       await page.evaluate((f) => {
         window.__fx = f;
@@ -729,6 +730,10 @@ function unreachableStates() {
         const vis = (n) => !!(n && !n.hidden && n.getClientRects().length);
         const bubble = document.querySelector('#d-dmthread .dm-b');
         const cs = bubble ? getComputedStyle(bubble) : null;
+        // #2660: the PERSON'S OWN bubble specifically. `bubble` above is the
+        // first `.dm-b`, which may be the agent's `.dm.theirs` (now transparent);
+        // the royal-blue tint lives on `.dm.mine`, so the colour check reads this.
+        const mineBubble = document.querySelector('#d-dmthread .dm.mine .dm-b');
         const qask = el('d-qask');
         return {
           pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -741,6 +746,7 @@ function unreachableStates() {
           qoutVisible: vis(el('d-qout')),
           optCount: el('d-qopts').querySelectorAll('.qopt').length,
           bubbleBg: cs ? cs.backgroundColor : null,
+          mineBubbleBg: mineBubble ? getComputedStyle(mineBubble).backgroundColor : null,
           /* ⚠️ #1927: the store keeps paragraph breaks now, and `.dm-b` renders
              them with `white-space: pre-wrap`. Read the REAL computed style off
              the real bubble, so removing the rule from web/index.html reds this
@@ -1053,14 +1059,20 @@ function unreachableStates() {
       if (m.qaskVisible && (m.qaskBg === 'rgba(0, 0, 0, 0)' || m.qaskBg === 'transparent')) {
         problems.push(`${tag}: the question box has no background at all`);
       }
-      /* ⚠️ THE BUBBLE CHECK IS GONE, because it could not fail. `dmRow` emits
-         `class="dm mine"` unconditionally and `.dm.mine .dm-b` sets a literal
-         gold, so the transparent case it named was unreachable and every run
-         reported the same colour. A guard that reads as protection and cannot
-         fire teaches the next reader that the case is handled. What it is
-         replaced by is the one thing that IS true of every bubble: the gold. */
-      if (m.bubbleBg && m.bubbleBg !== 'rgba(214, 166, 46, 0.14)') {
-        problems.push(`${tag}: a message bubble is not the person's own colour: ${m.bubbleBg}`);
+      /* #2660: the person's OWN bubble (`.dm.mine .dm-b`) wears the royal-blue
+         `--usermsg-tint`, not the old gold, and the agent's row (`.dm.theirs`,
+         which `dmRow` emits when `m.from` is set, since #175) takes the
+         transparent `.dm-b` default. So read the MINE bubble specifically:
+         reading the first `.dm-b` (which may be a transparent theirs row) would
+         false-fire. Assert the royal-blue channels (65,113,227), alpha-agnostic
+         so it holds in BOTH themes (light .1, dark .15). `null` when no mine
+         bubble is on screen in this state; the post-loop counter refuses a run
+         where none ever was. */
+      if (m.mineBubbleBg !== null) {
+        measuredMineBubble += 1;
+        if (!/^rgba\(65, 113, 227,/.test(m.mineBubbleBg)) {
+          problems.push(`${tag}: the person's own message bubble is not the royal-blue tint: ${m.mineBubbleBg}`);
+        }
       }
       /* #1927: the bubble must preserve paragraph breaks. `pre-wrap` is what
          shows a stored `\n`; `normal` (the default, and what a reverted rule
@@ -1104,6 +1116,10 @@ function unreachableStates() {
     if (!measuredBubbleWrap) {
       problems.push(`[${theme}] bubble: no state rendered a message bubble, so #1927's `
         + 'paragraph-preserving white-space: pre-wrap is UNCHECKED');
+    }
+    if (!measuredMineBubble) {
+      problems.push(`[${theme}] bubble: no state rendered the person's own (.dm.mine) bubble, `
+        + "so #2660's royal-blue --usermsg-tint on the person's own message is UNCHECKED");
     }
 
     /* ⚠️ TWO STATES, ONE PICTURE, SAID OUT LOUD. `11-answered-hold` and

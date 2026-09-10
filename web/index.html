@@ -4206,8 +4206,12 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    stops exercising it. */
 /* #2255: emoji reactions under a room post. Discord-shaped: small toggle pills
    with a count, a "+" opener, and a quick palette the opener reveals. Colours
-   ride the theme tokens, so they flip light/dark. `.mine` is the gold accent the
-   rest of "you" uses, so a person sees their own reactions at a glance. */
+   ride the theme tokens, so they flip light/dark. `.rxn.mine` marks your OWN
+   reaction in gold so you see it at a glance.
+   ⚠️ #2660: this gold is no longer a shared "you" colour. The person's own
+   MESSAGE bubble now uses the royal-blue `--usermsg-tint`, not gold (Josh scoped
+   the blue to message backgrounds, not reactions), so the reaction pill keeps
+   gold on purpose and the two surfaces deliberately differ. */
 .rxns { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
 .rxn { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 100px;
        border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink);
