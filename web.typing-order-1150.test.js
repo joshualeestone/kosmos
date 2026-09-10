@@ -47,10 +47,21 @@ function run({ agents, lastAt, spoke }) {
    own fixture-discipline test refuses hand-built rows, and it is right: a
    hand-rolled fixture missing one field is how a measurement ends up answering
    a different question accurately. */
-const board = fleet.install([fleet.agent('dana', { state: 'working' })]);
+/* #2660: `erin` joins the fixture for the auth-failed arm below. Both cards come
+   from `fleet` rather than being written out here, because a hand-built card can
+   drift from the real shape and then the painter answers a different question.
+   The repo has a gate that refuses exactly that, and it caught the first version
+   of these arms. */
+const board = fleet.install([
+  fleet.agent('dana', { state: 'working' }),
+  fleet.agent('erin', { state: 'auth_failed' }),
+]);
 const dana = board.agents.find((a) => a && a.name === 'dana');
+const erin = board.agents.find((a) => a && a.name === 'erin');
 assert.ok(dana && dana.sessionName, 'the fixture produced no card, so nothing below is testing the painter');
 assert.equal(dana.state, 'working', 'the fixture card is not in the state this whole file is about');
+assert.ok(erin && erin.sessionName, 'the auth-failed fixture produced no card');
+assert.equal(erin.state, 'auth_failed', 'the auth-failed fixture is not in that state');
 
 /**
  * The NaN guard in `paintRoom` is unreachable ONLY because another module
@@ -466,21 +477,20 @@ function runDm({ fresh, lastAt, spoke }) {
 
 test('#2660: a dialog reply already on screen is not announced as still working', () => {
   const SNAP = 1000;
-  const dm = { sessionName: 'dana', name: 'Dana', state: 'working' };
 
   /* 🔑 CONTROL FIRST, same rule as the room arm above: with no reply recorded
      the line must paint, or every assertion below is satisfied by a painter
      that never shows anything. */
-  const plain = runDm({ fresh: dm, lastAt: SNAP, spoke: new Map() });
+  const plain = runDm({ fresh: dana, lastAt: SNAP, spoke: new Map() });
   assert.equal(plain.hidden, false, 'a working agent is not announced in the dialog at all');
-  assert.match(plain.innerHTML, /ROW:Dana/, 'the shared row helper was not reached');
+  assert.match(plain.innerHTML, new RegExp('ROW:' + dana.name), 'the shared row helper was not reached');
 
   /* THE DEFECT: the reply reached this page AFTER the snapshot, so the state
      about to be asserted is older than what is already painted beneath it. */
   const after = runDm({
-    fresh: dm,
+    fresh: dana,
     lastAt: SNAP,
-    spoke: new Map([['dana', { at: 1, learnedAt: SNAP + 1 }]]),
+    spoke: new Map([[dana.sessionName, { at: 1, learnedAt: SNAP + 1 }]]),
   });
   assert.equal(after.hidden, true,
     'the dialog indicator still follows the reply it was supposed to precede');
@@ -488,9 +498,9 @@ test('#2660: a dialog reply already on screen is not announced as still working'
   /* THE OTHER ARM: a reply learned BEFORE the snapshot proves nothing about it.
      Without this the fix could be "never show it" and both rows above pass. */
   const before = runDm({
-    fresh: dm,
+    fresh: dana,
     lastAt: SNAP,
-    spoke: new Map([['dana', { at: 1, learnedAt: SNAP - 1 }]]),
+    spoke: new Map([[dana.sessionName, { at: 1, learnedAt: SNAP - 1 }]]),
   });
   assert.equal(before.hidden, false,
     'an older reply is suppressing a state that is newer than it');
@@ -503,13 +513,12 @@ test('#2660: an auth failure is NOT suppressed by a reply, which #874 put in thi
      the fix was to give `auth_failed` its own line here. A reply arriving does
      not make an auth failure stale, so the #2660 filter must not touch it.
      Same inputs that suppress `working` two tests up. */
-  const failed = { sessionName: 'dana', name: 'Dana', state: 'auth_failed' };
   const out = runDm({
-    fresh: failed,
+    fresh: erin,
     lastAt: SNAP,
-    spoke: new Map([['dana', { at: 1, learnedAt: SNAP + 1 }]]),
+    spoke: new Map([[erin.sessionName, { at: 1, learnedAt: SNAP + 1 }]]),
   });
   assert.equal(out.hidden, false,
     'the #2660 staleness filter swallowed an auth failure, re-opening #874');
-  assert.match(out.innerHTML, /ROW:Dana/, 'the auth-failed row did not reach the shared helper');
+  assert.match(out.innerHTML, new RegExp('ROW:' + erin.name), 'the auth-failed row did not reach the shared helper');
 });
