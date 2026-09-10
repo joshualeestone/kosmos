@@ -84,11 +84,13 @@ function known() {
     .filter((f) => f.endsWith('.json'))
     .map((f) => f.slice(0, -'.json'.length))
     /* ⚠️ Filtered through `create.NAME_RE`, the writer's own rule, and NOT
-       through `slugFor`: that only lowercases, so `..json` would round-trip
-       unchanged and `..` is a path, not a name. A profile file whose name does
-       not survive the rule is not something we can build a job from, and
-       guessing at what it was meant to be is how a job ends up pointing into
-       a folder belonging to something else. */
+       through `slugFor`: `slugFor` folds and lower-cases but never REFUSES, so
+       it cannot stand in for the rule -- a `..json` file slugs to `-` (#2605
+       folds the periods) rather than being rejected, and `..` is a path, not a
+       name. A profile file whose name does not survive the rule is not
+       something we can build a job from, and guessing at what it was meant to
+       be is how a job ends up pointing into a folder belonging to something
+       else. */
     .filter((n) => create.NAME_RE.test(n));
   return { ok: true, names: names.sort() };
 }

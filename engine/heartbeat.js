@@ -1,5 +1,13 @@
 'use strict';
-/* #1722: the product heartbeat's periodic sweep -- the check-and-notify half.
+/* #1722: the product heartbeat's periodic sweep -- the stall-detection half.
+ *
+ * 🛑 #2623: THE DELIVERY HALF IS GONE. This sweep used to hand its `toAsk` list to
+ * engine/notify.js (a `check_in` notify.happened per agent), but that phone-home
+ * seam was deleted (Josh, 2026-09-09, "invasion of privacy"). This module still
+ * computes who is in an open stall and carries the per-agent record across ticks;
+ * server.js no longer delivers the result anywhere off the Mac. A future in-app
+ * delivery channel is a separate build. Comments below that say "notify" describe
+ * the removed delivery, kept for the design record.
  *
  * DETECTION IS NOT REBUILT HERE. Every agent on the board already carries a
  * `state` classified by engine/status.js `classify()` (WORKING / IDLE / STOPPED
@@ -117,8 +125,10 @@ function stateOf(a) {
  *   CONFIRMED-delivered ask exists for this open episode; `streak` = consecutive
  *   stall ticks with no episode yet (the persistent-stall counter).
  * @returns {{toAsk: Array<{session:string,from?:string,to:string}>, next: Map}}
- *   toAsk: agents to ask NOW (fire one question-shaped notify.happened each; on
- *          CONFIRMED delivery the runner sets next.get(session).asked = true).
+ *   toAsk: agents to ask NOW. #2623: the delivery that consumed this (one
+ *          question-shaped notify.happened each, marking next.get(session).asked
+ *          = true on CONFIRMED delivery) was removed with the phone-home seam, so
+ *          server.js no longer reads toAsk; it is still computed for the record.
  *   next: the record map to carry into the following tick.
  */
 function tick(roster, prev) {

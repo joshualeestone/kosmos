@@ -2645,8 +2645,10 @@ test('a write another website could send is refused, whatever route it names', a
       headers: { 'content-type': 'application/json', origin: new URL(base).origin },
       /* A name the engine still refuses, so the 400 proves the request
          reached the route. 'BAD NAME' stopped being one in #740 (a space
-         between words is a name now); a dot is still refused, never stripped. */
-      body: JSON.stringify({ name: 'BAD.NAME', role: 'pm' }),
+         between words is a name now) and 'BAD.NAME' stopped being one in #2605
+         (a period folds to a hyphen the way a space does); a comma still fails
+         NAME_RE, so it is the refusal that proves the route was reached. */
+      body: JSON.stringify({ name: 'BAD,NAME', role: 'pm' }),
     });
     assert.equal(ours.status, 400,
       'the board can no longer write to itself, so this guard has broken the product');
@@ -9686,7 +9688,7 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
     getAttribute(k) { return this.attrs[k]; },
     removeAttribute(k) { delete this.attrs[k]; },
   });
-  for (const id of ['tell-toggle', 'tell-msg', 'notify-toggle', 'notify-msg', 'auto-toggle', 'auto-msg']) {
+  for (const id of ['auto-toggle', 'auto-msg']) {
     const e = el(id); e.classList._s = e.classes;
   }
   const raw3 = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
@@ -9717,20 +9719,12 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
     return new Function('document', helper + '\n' + sc3.slice(at, end) + '\nreturn ' + name + ';')({ getElementById: el });
   };
 
-  /* 📌 THE TELL AND NOTIFY SWITCHES ARE BACK (#2020, Josh 2026-09-03: "on, and
-     they can turn it off" needs the opt-out controls he removed 08-26). They are
-     restored as controls; BOTH send defaults have SINCE been flipped ON - the
-     create-ping (tell) on 2026-09-05 (#2020/#2013) and the notify send in #2020
-     step 3 on 2026-09-03 - so both are on-by-default OPT-OUTS. They are tested
-     here on the SAME three-state rule as autoPaint - and it matters MORE for
-     these two: they are the telemetry opt-outs, so an unread setting drawing a
-     confident Off would tell a person nothing is sent while the engine may be
-     (#2047). engine/notify.test.js pins the rows present + each send's default
-     (both ON now). */
+  /* #2623: the tell and notify telemetry switches were DELETED (Josh, 2026-09-09,
+     "invasion of privacy"), so only autoPaint remains on this three-state rule.
+     autoPaint still matters: an unread auto-update setting drawing a confident Off
+     would misreport the switch Josh relies on to protect a demo (#2047/#229). */
   for (const [paint, toggle, msg] of [
     ['autoPaint', 'auto-toggle', 'auto-msg'],
-    ['tellPaint', 'tell-toggle', 'tell-msg'],
-    ['notifyPaint', 'notify-toggle', 'notify-msg'],
   ]) {
     const p = lift(paint);
 
@@ -9769,18 +9763,12 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
    * they drive the painter directly. The defect lives in the seam between the
    * two, which is exactly where a test that only exercises one half cannot see.
    */
-  /* #2020: refreshTell and refreshNotify are restored, so this seam test now covers
-     ALL THREE refreshers (it previously ran only refreshAutoUpdate, and the earlier
-     ternary scaffolding for refreshTell was never activated and had no arm for
-     refreshNotify). The painter and epoch are carried in the tuple rather than
-     derived by a ternary, so a fourth refresher is one row, not another branch.
-     🛑 AND ALL THREE ARE RUN: the previous version `return`ed inside the loop, so
-     only the first tuple was ever exercised - a second entry would have been silently
-     skipped. Promise.all runs every one. */
+  /* #2623: refreshTell and refreshNotify were deleted with the telemetry, so this
+     seam test covers refreshAutoUpdate only. The painter and epoch are carried in
+     the tuple rather than derived by a ternary, so a future refresher is one row,
+     not another branch. Promise.all runs every row. */
   const seams = [
     ['refreshAutoUpdate', 'auto-toggle', 'autoPaint', 'AUTO_EPOCH'],
-    ['refreshTell', 'tell-toggle', 'tellPaint', 'TELL_EPOCH'],
-    ['refreshNotify', 'notify-toggle', 'notifyPaint', 'NOTIFY_EPOCH'],
   ];
   return Promise.all(seams.map(([refresh, toggle, painterName, epoch]) => {
     el(toggle).setAttribute('aria-checked', 'false');   // the static markup's lie
@@ -10330,87 +10318,6 @@ test('compact and clear type the bare slash command into the pane, refuse a pane
     assert.equal(nope.status, 404);
   } finally {
     chatEngine.setRunner(null);
-    board.restore();
-  }
-});
-
-/**
- * The "something happened" seam (engine/notify.js): an agent's room post and
- * an agent's reply each produce one outbound call when the switch is on,
- * carrying who and what and never the words; the person's own post does not;
- * a refused post does not; and the setting round-trips.
- */
-test('notify: an agent posting or replying sends one outbound call when on, never the words, never for the person or a refusal', async () => {
-  const notifyEngine = require('./engine/notify');
-  const messagesEngine = require('./engine/messages');
-  const chatEngine = require('./engine/chat');
-  const board = fleet.install([fleet.agent('leo', { state: 'idle', displayName: 'Leo' }), fleet.agent('mara', { state: 'idle' })]);
-  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-notify-route-'));
-  const sent = [];
-  notifyEngine.setSender(async (url, init) => { sent.push(JSON.parse(init.body)); return { ok: true }; });
-  try {
-    // The setting: ON by default now (#2020 step 3), and it round-trips both ways.
-    assert.equal(JSON.parse((await req('/api/notify-setting')).body).on, true);
-    const off = await req('/api/notify-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: false }) });
-    assert.equal(JSON.parse(off.body).on, false);
-    const put = await req('/api/notify-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: true }) });
-    assert.equal(JSON.parse(put.body).on, true);
-
-    messagesEngine.setRunner(() => ({ ok: true, session: 'leo-discord' }));
-    chatEngine.setRunner((args) => {
-      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
-      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
-    });
-    chatEngine.setDryRun(false);
-    await req('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Notify room', folder: dir, agents: ['leo', 'mara'] }) });
-
-    // An agent's post: one call, the shown name, the project's name, no words.
-    const post = await req('/api/post', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ project: 'notifyroom', text: 'the secret plan @mara', from_pane: '%3' }) });
-    assert.equal(post.status, 200, post.body);
-    await new Promise((r) => setTimeout(r, 20));
-    assert.equal(sent.length, 1, 'an agent post did not produce exactly one call: ' + JSON.stringify(sent));
-    assert.equal(sent[0].kind, 'posted');
-    assert.equal(sent[0].agent, 'Leo');
-    assert.equal(sent[0].project, 'Notify room');
-    assert.match(String(sent[0].id), /^m\d+$/, 'a post carries no message id for the coordinator to de-duplicate on');
-    assert.equal(sent[0].session, 'leo');
-    assert.ok(!JSON.stringify(sent[0]).includes('secret'), 'the words left the Mac');
-
-    // The person's own post in the room: nothing (it is not something that happened TO them).
-    const mine = await req('/api/project/notifyroom/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'from me' }) });
-    assert.equal(mine.status, 200, mine.body);
-    assert.notEqual(JSON.parse(mine.body).delivery.state, 'could_not', 'the person\'s post did not go, so its silence proves nothing: ' + mine.body);
-    await new Promise((r) => setTimeout(r, 20));
-    assert.equal(sent.length, 1, 'the person\'s own post produced a call');
-
-    // A refused post: nothing.
-    const refused = await req('/api/post', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ project: 'no-such-room', text: 'x', from_pane: '%3' }) });
-    assert.match(JSON.parse(refused.body).delivery.because, /no project/);
-    await new Promise((r) => setTimeout(r, 20));
-    assert.equal(sent.length, 1, 'a refused post produced a call');
-
-    // An agent's reply to the person: one call, kind replied, no project.
-    const reply = await req('/api/reply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'my secret answer', from_pane: '%3' }) });
-    assert.equal(reply.status, 200, reply.body);
-    await new Promise((r) => setTimeout(r, 20));
-    assert.equal(sent.length, 2, 'a reply did not produce exactly one more call: ' + JSON.stringify(sent));
-    assert.equal(sent[1].kind, 'replied');
-    assert.equal(sent[1].agent, 'Leo');
-    assert.equal(sent[1].project, null);
-    assert.match(String(sent[1].id), /^reply:leo:\d{4}-/, 'a reply carries no key');
-    assert.ok(!JSON.stringify(sent[1]).includes('secret'));
-
-    // Off again: silence.
-    await req('/api/notify-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: false }) });
-    await req('/api/reply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'again', from_pane: '%3' }) });
-    await new Promise((r) => setTimeout(r, 20));
-    assert.equal(sent.length, 2, 'a call went out with the switch off');
-  } finally {
-    notifyEngine.setSender(null);
-    fs.rmSync(notifyEngine.FILE, { force: true });
-    messagesEngine.resetForTests();
-    chatEngine.resetForTests();
-    try { fs.rmSync(messagesEngine.LOG, { force: true }); } catch { /* sandboxed */ }
     board.restore();
   }
 });
@@ -11989,39 +11896,6 @@ test('the report route refuses an unknown state word with the closed list, and a
     assert.equal(who.recorded, false);
     assert.match(who.because, /which agent/, 'an unidentifiable caller was not refused in a sentence');
   } finally {
-    messagesEngine.resetForTests();
-    board.restore();
-  }
-});
-
-test('a reported needs_you reaches the phone seam in the same word, with zero translation', async () => {
-  const messagesEngine = require('./engine/messages');
-  const selfreportEngine = require('./engine/selfreport');
-  const notifyEngine = require('./engine/notify');
-  const board = fleet.install([fleet.agent('peteworker', { state: 'idle' })]);
-  const pinged = [];
-  try {
-    messagesEngine.setRunner(() => ({ ok: true, session: 'peteworker-discord' }));
-    notifyEngine.setSender((url, init) => { pinged.push(JSON.parse(init.body)); return Promise.resolve({ ok: true }); });
-    assert.equal(notifyEngine.setOn(true).ok, true, 'could not switch the notify seam on in the sandbox');
-
-    const r = await req('/api/report', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ state: 'needs_you', text: 'Which domain should the relay use?', from_pane: '%7' }),
-    });
-    assert.equal(JSON.parse(r.body).recorded, true);
-    assert.equal(pinged.length, 1, 'the needs_you transition did not reach notify');
-    assert.equal(pinged[0].kind, 'needs_you', 'the report word and the notify word are not the same word');
-    assert.equal(pinged[0].session, 'peteworker');
-    /* The payload rule notify.js states: never the words. The question stays
-       on the Mac, in the record; the ping carries who and what kind and when. */
-    assert.equal(JSON.stringify(pinged[0]).includes('Which domain'), false,
-      'the question text left the Mac through the ping');
-  } finally {
-    fs.rmSync(selfreportEngine.fileFor('peteworker'), { force: true });
-    notifyEngine.setOn(false);
-    notifyEngine.setSender(null);
     messagesEngine.resetForTests();
     board.restore();
   }

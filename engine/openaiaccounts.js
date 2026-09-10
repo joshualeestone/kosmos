@@ -241,6 +241,25 @@ function forgetAccount(dir, usedBy) {
     return { ok: false, forgotten: false, because: 'that is not an OpenAI account on this computer' };
   }
 
+  /* #2584: refuse while a reauth of this account is in flight (its dir is reserved in
+     activeChatgptDirs). A rename now would pull the live dir out from under the pending
+     promote, so this refusal keeps the reservation whole. Without it the reauth still
+     fails safely (renameSync throws once the dir is gone, the account is left
+     unchanged), but with a confusing error rather than this upfront one.
+
+     🛑 IT SITS BEFORE THE AGENTS GUARD, AND THAT ORDER IS LOAD-BEARING (#2570). This
+     refusal has nothing to do with which agents are on the account, and #2570's
+     disconnect-and-stop route relies on being able to learn every such refusal by
+     calling this function with a NON-EMPTY `usedBy`: with agents present the call
+     stops at the agents guard, so anything after it is invisible to that pre-flight.
+     While this check sat below, a stopAgents request against an account with a reauth
+     in flight really stopped every agent on it and THEN refused. Its own comment
+     already said it mirrors the agents refusal; mirroring means beside, not after.
+     `server.disconnect-stop-2570.test.js` pins this ordering. */
+  if (activeChatgptDirs.has(clean)) {
+    return { ok: false, forgotten: false, because: 'a sign-in is in progress for this account; finish or cancel it first.' };
+  }
+
   /* 🛑 REFUSED WHILE AN AGENT IS ON IT, AND THE AGENTS ARE NAMED. A rename
      moves a path that a running agent's plist points at by absolute path, so
      this refusal is not politeness, it is what makes the rename safe. And a
@@ -257,16 +276,6 @@ function forgetAccount(dir, usedBy) {
         : `${agents.length} agents are set up to run on this account: ${agents.join(', ')}. `
           + 'Move them to another account or remove them first.',
     };
-  }
-
-  // #2584: refuse while a reauth of this account is in flight (its dir is reserved in
-  // activeChatgptDirs). A rename now would pull the live dir out from under the pending
-  // promote, so this refusal keeps the reservation whole, mirroring the agents-on-it
-  // refusal above. Without it the reauth still fails safely (renameSync throws once the
-  // dir is gone, the account is left unchanged), but with a confusing error rather than
-  // this upfront one.
-  if (activeChatgptDirs.has(clean)) {
-    return { ok: false, forgotten: false, because: 'a sign-in is in progress for this account; finish or cancel it first.' };
   }
 
   if (!fs.existsSync(clean)) {
@@ -392,6 +401,16 @@ function removeAccount(dir, usedBy) {
   if (clean === path.resolve(defaultDir())) {
     return { ok: false, removed: false, because: 'the default account cannot be deleted; disconnect it instead' };
   }
+  /* #2584: refuse while a reauth of this account is in flight (its dir is reserved), so
+     a delete cannot pull the live dir out from under the pending promote.
+
+     🛑 BEFORE THE AGENTS GUARD, same reason as in forgetAccount (#2570): a refusal that
+     does not depend on the agents must be reachable by a pre-flight call made with a
+     NON-EMPTY `usedBy`, or the disconnect-and-stop route stops every agent on the
+     account and only then learns it was never going to be deleted. */
+  if (activeChatgptDirs.has(clean)) {
+    return { ok: false, removed: false, because: 'a sign-in is in progress for this account; finish or cancel it first.' };
+  }
   const agents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);
   if (agents.length) {
     return {
@@ -403,11 +422,6 @@ function removeAccount(dir, usedBy) {
         : `${agents.length} agents are set up to run on this account: ${agents.join(', ')}. `
           + 'Move them to another account or remove them first.',
     };
-  }
-  // #2584: refuse while a reauth of this account is in flight (its dir is reserved), so
-  // a delete cannot pull the live dir out from under the pending promote.
-  if (activeChatgptDirs.has(clean)) {
-    return { ok: false, removed: false, because: 'a sign-in is in progress for this account; finish or cancel it first.' };
   }
 
   if (!fs.existsSync(clean)) {

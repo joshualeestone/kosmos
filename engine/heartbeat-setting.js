@@ -3,8 +3,8 @@
  *
  * Kept OUT of engine/heartbeat.js on purpose: that module is the PURE stall
  * decision (tick), unit-tested over synthetic rows with no disk. This one owns
- * the setting the person controls in Settings > Automation, persisted exactly as
- * engine/notify.js persists its own on/off (atomic tmp + rename, read defaults
+ * the setting the person controls in Settings > Automation, persisted the same
+ * way engine/ping.js persists the install id (atomic tmp + rename, read defaults
  * to on, a write failure returns a reason and never throws). The runner reads
  * this to decide whether to sweep and how often; the HTTP routes read/write it.
  *

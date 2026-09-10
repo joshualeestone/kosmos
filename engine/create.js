@@ -461,14 +461,25 @@ function spokenName(clean) {
  */
 function slugFor(raw) {
   /* #740 (Josh, 2026-08-24 21:17: "I've got to be able to have capitals.
-     I've got to be able to have spaces... first name, last name"): a run of
-     whitespace becomes ONE hyphen, and that is the only thing besides case
-     that changes. Still not safeKey: nothing is stripped, so `Ca.sey` is
-     still refused rather than silently becoming `casey`. "Kira Knightley"
-     is shown as typed and is `kira-knightley` to the machinery; if an agent
-     already holds that machine name, createAgent refuses by name, so two
-     spellings can never land on one folder in silence. */
-  return cleanName(raw).toLowerCase().replace(/\s+/g, '-');
+     I've got to be able to have spaces... first name, last name") and #2605
+     (Josh, 2026-09-09: a title like "Dr." must be allowed, "blocking me from
+     making this agent's name Doctor"): a run of whitespace OR periods becomes
+     ONE hyphen, and case is the only other thing that changes.
+     🛑 STILL NOT safeKey, AND THAT DISTINCTION IS THE WHOLE SAFETY ARGUMENT.
+     safeKey STRIPS, so `Ca.sey` would become `casey` -- a DIFFERENT agent's
+     name, arrived at silently, the exact hole this repo has closed three times.
+     This REPLACES a period with a hyphen (the same as whitespace) rather than
+     removing it, so `Ca.sey` is `ca-sey`, DISTINCT from `casey`, never a silent
+     collision. The change is a NO-OP for any name without a period (`[\s.]+`
+     matches exactly what `\s+` did), so its whole blast radius is the period.
+     "Dr. Maya Okafor" is shown as typed and is `dr-maya-okafor` to the
+     machinery; if an agent already holds that machine name, createAgent refuses
+     by name, so two spellings can never land on one folder in silence.
+     ⚠️ A LEADING period is still refused, not silently dropped: it folds to a
+     leading hyphen, which NAME_RE rejects, so `.Net` is refused rather than
+     becoming `net`. Only the period joins whitespace here; every other
+     character still survives unchanged to be caught by NAME_RE. */
+  return cleanName(raw).toLowerCase().replace(/[\s.]+/g, '-');
 }
 
 function nameProblem(raw) {
@@ -2835,7 +2846,11 @@ function createAgentInner(opts) {
     }
   }
   const problem = nameProblem(shown);
-  if (problem) return { outcome: OUTCOME.REFUSED, because: problem, steps };
+  // #2606: `field` names WHICH field the refusal is about, so the create page can
+  // put the reason beside that field (red border + message) instead of only in the
+  // after-the-button slot the person has scrolled past. The sentence still comes
+  // from the server (no client-side copy of the rule); this only says where it goes.
+  if (problem) return { outcome: OUTCOME.REFUSED, because: problem, field: 'name', steps };
 
   const role = roles.byKey(roleKey);
   if (!role) {
@@ -3034,6 +3049,7 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: `${shown} is on your removed list. Put that one back from "Show removed agents" at the bottom of the Agents tab, delete what was left of it there to free the name, or pick a different name.`,
+      field: 'name', // #2606: a name collision is a name refusal; land it at the name field
       steps,
     };
   }
@@ -3059,6 +3075,7 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: `there is already an agent called ${shown}. If it never came up, it is half made rather than missing. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
+      field: 'name', // #2606
       steps,
     };
   }
@@ -3066,6 +3083,7 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: `something called ${shown} is still set to start on this computer, though there is no folder for it. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
+      field: 'name', // #2606
       steps,
     };
   }
@@ -3073,6 +3091,7 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: `there is already a folder for an agent called ${shown}. If you removed that agent, its folder was left behind. Pick another name, or delete what was left of it, from its page under Agents or from "Show removed agents" at the bottom of the Agents tab, which frees the name.`,
+      field: 'name', // #2606
       steps,
     };
   }
@@ -3112,6 +3131,7 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: `something called ${shown} is already set to start on this computer, though there is nothing else left of it. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
+      field: 'name', // #2606
       steps,
     };
   }
@@ -3140,6 +3160,10 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: 'we could not check which agents are already running, so we will not risk making a second one with the same name',
+      // #2606: deliberately left UNtagged (no field marker). This is a fail-closed SYSTEM
+      // refusal (tmux could not be queried), not a name that is known to be taken -- flagging
+      // the name field red would assert the name is wrong when it may be fine. It stays in the
+      // below-button #create-msg, where "we could not check" reads honestly.
       steps,
     };
   }
@@ -3163,6 +3187,7 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: `something called ${shown} is already running on this computer${also}`,
+      field: 'name', // #2606
       steps,
     };
   }
@@ -4080,9 +4105,10 @@ module.exports = {
   SELF_STARTS,
   createdLog, createdLogFile, disabledJobs, runningJobs,
 
-  /* ⚠️ Exported as the ONE machine-name rule. `slugFor` only lowercases — it
-     is a converter, not a gate — so anything asking "is this a name we can
-     act on" has to reach this, or it grows a weaker second copy. */
+  /* ⚠️ Exported as the ONE machine-name rule. `slugFor` lower-cases and folds
+     whitespace and periods to hyphens — it is a converter, not a gate — so
+     anything asking "is this a name we can act on" has to reach this, or it
+     grows a weaker second copy. */
   NAME_RE,
   /* The disk roots themselves, for #500's stray walk: the walk must read
      these directly, because workerDir() consults recorded folders and
