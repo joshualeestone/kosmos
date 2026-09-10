@@ -1409,7 +1409,10 @@ async function start(opts) {
      "Not logged in" REPL and never opens the browser (the #1937 hazard, previously fixed only
      for reauth). The launch already scopes CLAUDE_CONFIG_DIR to configDir, so the token lands
      in the account's own dir, where the check reads it. */
-  const owner = { pendingCode: null, lastActed: null, acted: null, unknownTicks: 0, configDir, reauth, needsLogin: reauth || deadCredential };
+  /* #2645: `needsLogin` (reauth OR a present-but-dead credential) is the single signal
+     every gate reads; `owner.reauth` itself is no longer read anywhere, so it is not
+     stored -- the local `reauth` const still feeds needsLogin here. */
+  const owner = { pendingCode: null, lastActed: null, acted: null, unknownTicks: 0, configDir, needsLogin: reauth || deadCredential };
   driver = owner;
 
   runFlow(owner, haveBinary).catch((err) => {
@@ -1924,6 +1927,12 @@ async function runFlow(owner, haveBinary) {
         await finishConnected(owner, already);
         return;
       }
+      /* #2645: a present-but-dead credential detected HERE (the file said CONNECTED,
+         the live check says NONE) needs a real login too. start() left needsLogin
+         false because its live check was UNKNOWN (no binary yet); the binary now
+         exists and this live check is authoritative, so set it, or launchSignin below
+         runs a bare `claude` that wedges in the "Not logged in" REPL. */
+      if (live.state === subscription.STATE.NONE) owner.needsLogin = true;
     }
   }
   await launchSignin(owner);
@@ -2154,13 +2163,13 @@ async function tickBody(owner) {
          path used to report "the sign-in window closed" over a login that
          actually completed (Josh's reauth-completes-but-not-seen symptom). Before
          declaring the window closed, confirm LIVE (the authoritative "did Anthropic
-         accept it"): a Kosmos-driven login wrote its token under THIS process, so
-         this process's checkLive can read it. This mirrors the "config outranks the
-         screen" check on the unknown-screen path below -- but keyed on the LIVE
-         check, not the file, so a stale present-but-dead credential (checkLive NONE)
-         is never mistaken for success, and a token written by another responsible
-         process (a hand-run Terminal login) that this process cannot read stays
-         honestly "not finished" rather than a false connected. */
+         accept it"). This mirrors the "config outranks the screen" check on the
+         unknown-screen path below, but keyed on the LIVE check, not the file: a
+         stale present-but-dead credential (checkLive NONE) is never mistaken for
+         success, so this only finishes on a login the live check actually confirms
+         landed. (Why an in-app login is seen here where a hand-run Terminal one may
+         not be is in the commit and plan, not asserted here -- the code only calls
+         checkLive and cannot enforce it.) */
       const live = await subscription.checkLive(owner.configDir ? { configDir: owner.configDir } : undefined);
       if (driver !== owner) return;
       if (live.state === subscription.STATE.CONNECTED) {
