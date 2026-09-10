@@ -80,9 +80,14 @@ test('#570 the real check: this process is alive; a pid that is certainly gone i
 
 test('#570 the real default timer is unref\'d, so the watch alone never holds a process open', () => {
   const w = orphan.exitWhenParentGone({ parentPid: process.pid, onGone: () => {} });
-  assert.equal(w.armed, true);
-  assert.equal(w.timer.hasRef(), false, 'the watch must not keep a stopped supervisor or board alive');
-  w.stop();
+  /* Stopped in `finally`: if unref ever regressed, a failed assertion must fail the
+     test, not leave a live timer that hangs the whole file (the control run did). */
+  try {
+    assert.equal(w.armed, true);
+    assert.equal(w.timer.hasRef(), false, 'the watch must not keep a stopped supervisor or board alive');
+  } finally {
+    w.stop();
+  }
 });
 
 test('#570 EPERM is ALIVE (a process we may not signal is still there); only ESRCH is gone', () => {
