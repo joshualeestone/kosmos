@@ -810,13 +810,81 @@ test('#2612: a row labelled `main` beside the default keeps its identifying path
 });
 
 /* The mirror: the SAME shape in a group that DOES span providers still gets the
-   provider name, so the scoping above did not simply disable the feature. */
+   provider name, so the scoping above did not simply disable the feature.
+
+   🛑 THIS TEST USED TO BE A DUPLICATE OF ANOTHER ONE, AND ITS COMMENT WAS THE
+   ONLY THING THAT SAID OTHERWISE. Challenge-loop iteration 6 caught it: the
+   fixture was `[claudeDefault, openaiDefault]`, byte-for-byte the rows of "a
+   second cross-provider default is qualified by PROVIDER" far above, so it
+   re-asserted a subset of that test while its comment claimed to mirror the
+   `label: 'main'` collision directly above it. THE COMBINED CASE THE COMMENT
+   DESCRIBES WAS EXERCISED BY NOTHING. The `named` row is what makes this a
+   mirror rather than a repeat, so it is now in the fixture.
+   ⚠️ The distinction is the whole point of the pair: the SAME `label: 'main'`
+   row answers `/Users/x/.claude-main` in a single-provider group (above) and
+   "Claude" here, because the provider only becomes a usable qualifier once the
+   group actually spans providers. One fixture without the other cannot show
+   that, which is why a duplicate read as coverage. */
 test('#2612: the same collision in a cross-provider group still gets the provider name', () => {
   const claudeDefault = { provider: 'anthropic', email: 'agent@example.com', dir: '/Users/x/.claude', label: null, isDefault: true };
+  const named = { provider: 'anthropic', email: 'agent@example.com', dir: '/Users/x/.claude-main', label: 'main', isDefault: false };
   const openaiDefault = { provider: 'openai', authMode: 'chatgpt', email: 'agent@example.com', dir: '/Users/x/.codex', label: null, isDefault: true };
-  const q = qualifiers([claudeDefault, openaiDefault]);
+  const q = qualifiers([claudeDefault, named, openaiDefault]);
+  assert.equal(q.get(named.dir), 'Claude',
+    'the label="main" row fell past the provider step in a group that DOES span providers, '
+    + 'so the scoping went too far and it is back to announcing a path');
   assert.equal(q.get(openaiDefault.dir), 'OpenAI',
     'the provider qualifier is gone even where it DOES distinguish, so the scoping went too far');
+  assert.equal(q.get(claudeDefault.dir), 'main', 'the first default still holds the reserved word');
+  /* All three must still be audibly distinct, which is the invariant the whole
+     function exists for and is not implied by the three equalities above. */
+  const heard = [q.get(claudeDefault.dir), q.get(named.dir), q.get(openaiDefault.dir)]
+    .map((s) => String(s).toLowerCase());
+  assert.equal(new Set(heard).size, 3,
+    'two of the three qualifiers sound the same to a screen reader: ' + JSON.stringify(heard));
+});
+
+/* 🔑 THE PROVIDER ID IS MATCHED CASE-INSENSITIVELY, both where the group's
+   provider set is built and where the name is chosen. Every other membership
+   test in `accountQualifiers` was made case-insensitive after being burned
+   twice; this one was left exact until iteration 6 flagged the asymmetry.
+   ⚠️ It is a correctness arm, not a style arm. A case-variant id inflates the
+   provider set, so `providerDistinguishes` goes TRUE for a group holding ONE
+   real provider, and a row in it is then qualified by a provider name that
+   identifies nothing (the #1917 shape the scoping exists to prevent). Measured
+   before the fix: ["main","work","Claude"], against a control of the same rows
+   with consistent lowercase ids giving ["main","work","/Users/x/.claude-work"].
+   📌 Not reachable through `/api/accounts` today (server.js writes 'anthropic'
+   and 'openai' as lowercase literals), so this pins the property rather than
+   guarding a live path, and #2634 is when a third provider could arrive. */
+test('#2612: a case-variant provider id does not fake a cross-provider group', () => {
+  const E = 'agent@example.com';
+  const rows = [
+    { provider: 'anthropic', email: E, dir: '/Users/x/.claude', label: null, isDefault: true },
+    { provider: 'Anthropic', email: E, dir: '/Users/x/.claude-alt', label: 'work', isDefault: false },
+    { provider: 'anthropic', email: E, dir: '/Users/x/.claude-work', label: 'work', isDefault: false },
+  ];
+  const q = qualifiers(rows);
+  assert.equal(q.get('/Users/x/.claude-work'), '/Users/x/.claude-work',
+    'a case-variant provider id made a single-provider group look cross-provider, so a row '
+    + 'was qualified by a provider name that distinguishes nothing there');
+  /* CONTROL: the same three rows with consistent ids must give the same answer.
+     Without this the assertion above could pass for the wrong reason (any change
+     that disabled the provider step entirely would also satisfy it). */
+  const qCtl = qualifiers(rows.map((r) => ({ ...r, provider: r.provider.toLowerCase() })));
+  assert.equal(qCtl.get('/Users/x/.claude-work'), q.get('/Users/x/.claude-work'),
+    'normalising the ids by hand changed the answer, so the function is still case-sensitive here');
+  /* And the arm can still see the feature working: the same shape with a REAL
+     second provider must give the provider name, or the two assertions above
+     would be satisfied by a function that never qualifies by provider at all. */
+  const qReal = qualifiers([
+    { provider: 'anthropic', email: E, dir: '/Users/x/.claude', label: null, isDefault: true },
+    { provider: 'openai', email: E, dir: '/Users/x/.codex', label: 'work', isDefault: false },
+    { provider: 'openai', email: E, dir: '/Users/x/.codex2', label: 'work', isDefault: false },
+  ]);
+  assert.equal(qReal.get('/Users/x/.codex'), 'work', 'the first labelled row keeps its label');
+  assert.equal(qReal.get('/Users/x/.codex2'), 'OpenAI',
+    'a genuinely cross-provider group no longer reaches the provider step at all');
 });
 
 /* ─────────────────────────────────────────────────────────────────────────────

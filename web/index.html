@@ -15897,7 +15897,29 @@ function accountQualifiers(list) {
     count.set(k, (count.get(k) || 0) + 1);
     let provs = providersByKey.get(k);
     if (!provs) { provs = new Set(); providersByKey.set(k, provs); }
-    provs.add(String((a && a.provider) || ''));
+    /* 🛑 LOWERCASED, FOR THE SAME REASON EVERY OTHER MEMBERSHIP TEST IN THIS
+       FUNCTION IS CASE-INSENSITIVE. Leaving this one exact was an asymmetry in a
+       function that has already been burned twice by an exact `Set.has`, and it
+       is not merely stylistic: a case-variant provider id inflates this set, so
+       `providerDistinguishes` goes TRUE for a group that holds ONE real
+       provider, and a row in it is then qualified by a provider name that
+       identifies nothing. That is the #1917 shape the scoping exists to prevent.
+
+       ⚠️ REPRODUCED before fixing, three rows all genuinely Anthropic with one
+       carrying the id "Anthropic" instead of "anthropic":
+         exact    -> ["main", "work", "Claude"]          <- a provider name in a
+                                                            single-provider group
+         control  -> ["main", "work", "/Users/x/.claude-work"]   (same rows, ids
+                                                            consistently lowercase)
+       📌 NOT REACHABLE TODAY, and that is a statement about the two writers, not
+       about this function: `/api/accounts` rows get their provider from
+       `server.js` (`'anthropic'` at :4610, `'openai'` at :4696) and from
+       `openaiaccounts.js`'s `PROVIDER` constant, all lowercase literals. The
+       `provider: 'claude'` at `server.js:4739` is an ERROR BODY from
+       POST /api/accounts/claude/apikey, not an account row, so it never arrives
+       here. #2634 (consolidating the three provider-name derivations) is exactly
+       when a third provider could arrive with a differently-cased constant. */
+    provs.add(String((a && a.provider) || '').toLowerCase());
   }
   /* 🔑 KEYED ON `dir`, NOT ON THE ROW OBJECT. Object identity is correct today,
      because accountGroupsHtml pushes the same references it was handed, but it
@@ -16068,9 +16090,15 @@ function accountQualifiers(list) {
            already exists, so whoever fixes #2634 sees it go red and updates it
            on purpose rather than by accident. Change any one of the three and
            read that arm before you change the pin. */
+        /* Matched case-insensitively for the reason the set above is lowercased:
+           the two must agree, or a case-variant id counts toward
+           `providerDistinguishes` and then fails to resolve to a name, which is
+           the worst of both (the group is treated as spanning providers, and the
+           row still falls to its path). Silence still means `dir`. */
+        const provId = String((a && a.provider) || '').toLowerCase();
         const prov = !providerDistinguishes ? ''
-          : (a.provider === 'openai' ? 'OpenAI'
-            : (a.provider === 'anthropic' ? 'Claude' : ''));
+          : (provId === 'openai' ? 'OpenAI'
+            : (provId === 'anthropic' ? 'Claude' : ''));
         qual = (prov && !takenAlready(prov)) ? prov : dir;
       }
     }
