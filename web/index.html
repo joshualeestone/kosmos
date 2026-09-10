@@ -40324,6 +40324,20 @@ async function frRecheckPress(btn) {
      ⇒ Only the press that still owns the button re-enables it. */
   FR_RECHECK_PRESS += 1;
   const mine = FR_RECHECK_PRESS;
+  /* 🛑 AND WHICH SCREEN WE STARTED ON, because our own token cannot see the
+     OTHER guarded consumer of this button. `frRecheck` (step 5) disables and
+     re-enables the same `#fr-alt` behind its own separate `FR_CHECKING` counter,
+     and the two counters know nothing about each other: a press here that
+     settles after the person has moved on and pressed step 5's re-check passed
+     `mine === FR_RECHECK_PRESS` (no newer press through THIS function) and
+     handed back a button step 5 was deliberately holding. Measured before the
+     fix: step 5 holding it disabled, stale finally, disabled false.
+     🔑 `FR_GATE_SCREEN` rather than a step NUMBER: `frGo` nulls it via
+     `frGateStop()` on any step that is not 2 or 3, so it is a semantic "are we
+     still on the screen this press belongs to" rather than a magic index, and
+     this file has a whole lib explaining why step numbers must not be hardcoded
+     in checks. */
+  const screen = FR_GATE_SCREEN;
   if (btn) btn.disabled = true;
   if (m && !hadErr) m.textContent = 'Checking…';
   try {
@@ -40349,8 +40363,13 @@ async function frRecheckPress(btn) {
        identical, which was the kind of claim about neighbouring code that has
        been wrong four times on this card already. */
     if (mine === FR_RECHECK_PRESS) {
+      /* The message is OURS: `#fr-s3-msg` belongs to this screen alone, so our
+         own token is the whole guard it needs. */
       if (m && !m.classList.contains('fr-msg-err')) m.textContent = '';
-      if (btn) btn.disabled = false;
+      /* The BUTTON is not: it also needs us to still be on the screen that
+         borrowed it. ⇒ Each thing guarded by what can actually contend for it,
+         which is why these two lines no longer carry the same condition. */
+      if (btn && FR_GATE_SCREEN === screen) btn.disabled = false;
     }
   }
 }
