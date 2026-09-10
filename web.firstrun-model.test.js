@@ -87,8 +87,14 @@ test('the step is a real slice of the model pane', () => {
      Kimi, MiniMax), each carrying its own inlined vendor mark (DeepSeek's whale is
      ~3.5k on its own), take the slice to ~32.4k. `id="create-model"` now sits 75695
      chars from the slice start, so 34000 is ~41k short of swallowing the create
+     form -- the tripwire still trips long before it stops meaning anything.
+     ⚠️ RAISED 34000 -> 37000 (#2621): the first-run OpenAI step gained the
+     subscription-vs-API-key picker (#fr-openai-pick) and the subscription step
+     (#fr-openai-sub-step), mirroring Settings so the install offers Sign-in-with-
+     ChatGPT, taking the slice to ~35.0k. `id="create-model"` still sits ~75.7k
+     chars from the slice start, so 37000 is ~40k short of swallowing the create
      form -- the tripwire still trips long before it stops meaning anything. */
-  assert.ok(STEP.length > 200 && STEP.length < 34000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
+  assert.ok(STEP.length > 200 && STEP.length < 37000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
   assert.match(STEP, /Your agents run on your own subscription/, 'the slice does not contain the model step');
   assert.ok(!STEP.includes('id="create-model"'), 'the slice ran past this step into the create form');
 });
