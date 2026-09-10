@@ -7323,6 +7323,18 @@ const server = http.createServer((req, res) => {
         shownAs: a.shownAs || a.name,
         removedAt: a.removedAt,
         stopped: a.stopped,
+        /* #2615: whether a Restore would be REFUSED because the account folder
+           this agent ran on is gone, so the screen can grey the control out
+           BEFORE the click instead of offering it and then saying no.
+           🔑 Read from `removal.restoreBlockedByMissingAccountDir`, the SAME
+           predicate `restore()` refuses on. Not re-implemented here: this
+           field's entire purpose is to agree with that refusal, and two
+           implementations of one fact is how they eventually stop agreeing.
+           ⚠️ A boolean, not the path. The path is machine detail this product's
+           vocabulary rule keeps off the screen, and the refusal sentence (which
+           does name it) is still what a person sees if they get there another
+           way. Same reasoning as the fields deliberately omitted above. */
+        accountFolderGone: !!removal.restoreBlockedByMissingAccountDir(a.name),
       })),
     });
     return;

@@ -4382,9 +4382,32 @@ test('the removed list gives the browser only what it draws', async () => {
 
     const res = await req('/api/removed');
     const row = JSON.parse(res.body).agents.find((a) => a.name === name);
-    assert.deepEqual(Object.keys(row).sort(), ['name', 'removedAt', 'shownAs', 'stopped'],
+    /* #2615 adds `accountFolderGone`, and it belongs in this allowlist for the
+       reason the allowlist exists: THE SCREEN DRAWS IT. The removed-list greys
+       the Restore control out when it is true, because #2609 made the engine
+       refuse that restore and the person was still being offered a live button.
+       ⚠️ A boolean, deliberately, not the folder path. The path is exactly the
+       machine detail the fields above are withheld to keep off the wire, and
+       the engine's refusal sentence (which does name it) is a different surface
+       reached a different way. Adding the path here would defeat this test
+       while passing it. */
+    assert.deepEqual(Object.keys(row).sort(),
+      ['accountFolderGone', 'name', 'removedAt', 'shownAs', 'stopped'],
       'the removed list ships fields the screen does not draw');
     assert.equal(row.shownAs, 'Payload', 'the row has nothing recognisable to show');
+    /* 🔑 #2615: THE FIELD AND THE REFUSAL MUST AGREE, and this is the arm that
+       reds if either side is ever changed alone. They share one predicate
+       today; this asserts the SHARING, not merely that both happen to say the
+       same thing right now. Compared against the engine directly rather than
+       against a second hard-coded expectation, so a change to the predicate
+       moves both sides of this equality together and a change to only ONE of
+       the two callers breaks it. */
+    assert.equal(typeof row.accountFolderGone, 'boolean',
+      'accountFolderGone is not a boolean, so the screen cannot branch on it safely');
+    assert.equal(row.accountFolderGone,
+      !!removal.restoreBlockedByMissingAccountDir(name),
+      'the payload disagrees with the predicate restore() refuses on, so the greyed-out '
+      + 'control and the engine answer have drifted');
   } finally {
     removal.setRunner(null);
     status.setPaneSource(null);

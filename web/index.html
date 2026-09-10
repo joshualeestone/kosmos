@@ -25778,6 +25778,13 @@ async function paintRemoved() {
    * explaining why. The split exists to make that legible; this is where it
    * becomes visible.
    */
+  /* One sentence, defined once, used by the tooltip AND the accessible name.
+     🔑 It must say what makes it work again, not merely that it does not. The
+     engine's own refusal ends "Add that account back under the same name first,
+     then restore", and this is the pre-click half of that same instruction: a
+     person who reads only one of the two should get the same next action. */
+  const RESTORE_BLOCKED_SENTENCE = 'the account folder this agent ran on is gone. '
+    + 'Add that account back under the same name first, then restore.';
   const html = gone.map((a) => '<div class="removed-row">'
     + '<div><span class="who">' + esc(a.shownAs || a.name) + '</span>'
     + '<span class="when">' + esc(whenRemoved(a))
@@ -25787,7 +25794,32 @@ async function paintRemoved() {
        "Starting <name> again", and with only `data-restore` to read from it
        would have said `claudebot` for the agent every other surface calls
        Splinter — the exact unrecognisability this row was rebuilt to end. */
+    /* 🛑 #2615: RESTORE IS DISABLED WHEN THE ACCOUNT FOLDER IS GONE, because
+       #2609 made the engine REFUSE that restore and the person was still being
+       offered a live button and told no afterwards.
+       🔑 `accountFolderGone` is computed by the SAME predicate the refusal uses
+       (`removal.restoreBlockedByMissingAccountDir`), not a second copy of the
+       test, so the pre-click state cannot drift from the post-click answer. A
+       control greyed out where the engine would have said YES is worse than the
+       click-then-refuse it replaces, and it fails in the direction nobody
+       reports: it looks like a considered decision, so nobody files it.
+       ⚠️ `disabled`, not `aria-disabled`. This control has nothing to say on
+       click, so it should not take focus and hand a screen-reader user a
+       silent press; the sibling reauth control uses `aria-disabled` precisely
+       BECAUSE it explains itself on click (#1659). Different reasons, different
+       attribute, and this comment exists so the difference does not read as
+       an inconsistency somebody tidies.
+       📌 The REASON rides the button's title and its accessible name rather
+       than a row of extra text: the row is already two lines and a person who
+       can see the grey control mostly wants to know why, not to be told twice.
+       The folder PATH is deliberately not shown, matching what /api/removed
+       withholds. */
     + '<div class="acts"><button class="btn" type="button" data-restore="' + esc(a.name) + '"'
+    + (a.accountFolderGone
+      ? ' disabled title="' + esc(RESTORE_BLOCKED_SENTENCE) + '"'
+        + ' aria-label="Restore ' + esc(a.shownAs || a.name) + ' (unavailable: '
+        + esc(RESTORE_BLOCKED_SENTENCE) + ')"'
+      : '')
     + ' data-shown-as="' + esc(a.shownAs || a.name) + '">Restore</button>'
     /* #514: the way through for a removed agent whose name is still taken.
        The plan is fetched on the click, so a row never promises a delete
