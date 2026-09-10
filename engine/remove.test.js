@@ -1026,33 +1026,85 @@ test('#2609 restore REFUSES when the account directory the agent ran on is gone,
  * decision rather than a bug and nobody reports it.
  * ───────────────────────────────────────────────────────────────────────────*/
 test('#2615 the exported predicate and the refusal agree, both ways', () => {
-  const gone = 'pred-gone';
-  const acctDir = acctAgent(gone);
-  boardShows(gone, `${gone}-discord`);
+  const name = 'pred-gone';
+  const acctDir = acctAgent(name);
+  boardShows(name, `${name}-discord`);
   world();
   remove.setDryRun(false);
-  assert.equal(mac.remove(gone).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
 
-  // Present: predicate says null, and the refusal does not fire.
-  assert.equal(remove.restoreBlockedByMissingAccountDir(gone, 'darwin'), null,
-    'the predicate blocks while the account dir still exists');
+  /* 🛑 MEASURED IN BOTH STATES, AND THE FIRST VERSION OF THIS ARM WAS A
+     TAUTOLOGY. It ended by comparing `!!pred(...)` against
+     `r.outcome === REFUSED` after two preceding asserts had already pinned both
+     sides to `true`, so no mutation could red it that did not already red one
+     of those. `true === true` proves nothing about a relationship.
+     ⇒ Each state is measured independently, then the PAIR is compared. A change
+     that breaks the correspondence in either direction reds this. */
+  const observe = () => {
+    const blocked = remove.restoreBlockedByMissingAccountDir(name, 'darwin');
+    world();
+    remove.setDryRun(false);
+    const refused = mac.restore(name).outcome === remove.OUTCOME.REFUSED;
+    return { blocked: !!blocked, refused, dir: blocked };
+  };
 
+  const present = observe();
+  assert.equal(present.blocked, false, 'the predicate blocks while the account dir still exists');
+  assert.equal(present.refused, false, 'the refusal fired while the account dir still exists');
+
+  // Put it back on the removed list so the second observation restores again.
+  world();
+  remove.setDryRun(false);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
   fs.rmSync(acctDir, { recursive: true, force: true });
   assert.ok(!fs.existsSync(acctDir), 'control: the account dir must actually be gone');
 
-  // Gone: predicate names the dir, and the refusal fires for the same agent.
-  assert.equal(remove.restoreBlockedByMissingAccountDir(gone, 'darwin'), acctDir,
-    'the predicate does not see the gone account dir the refusal refuses on');
-  world();
-  remove.setDryRun(false);
-  const r = mac.restore(gone);
-  assert.equal(r.outcome, remove.OUTCOME.REFUSED, r.because);
-  /* 🔑 THE AGREEMENT, asserted as one fact rather than as two that happen to
-     match: the refusal fires exactly when the predicate returns a dir. A change
-     to either caller alone reds this. */
-  assert.equal(!!remove.restoreBlockedByMissingAccountDir(gone, 'darwin'),
-    r.outcome === remove.OUTCOME.REFUSED,
-    'the predicate and the refusal disagree, so the greyed-out control and the engine have drifted');
+  const gone = observe();
+  assert.equal(gone.dir, acctDir, 'the predicate does not name the gone account dir');
+  assert.equal(gone.refused, true, 'the refusal did not fire on a gone account dir');
+
+  /* The correspondence itself, across two INDEPENDENTLY measured states. */
+  assert.deepEqual([present.blocked, gone.blocked], [present.refused, gone.refused],
+    'the predicate and the refusal disagree in at least one state, so the unavailable control and '
+    + 'the engine answer have drifted');
+});
+
+/* 🛑 THE REFUSAL READS THE EXPORT, ASSERTED ON THE SOURCE, because nothing
+ * behavioural can see this. Re-inlining a byte-identical `readJob` + `existsSync`
+ * copy in `restoreInner` leaves every behavioural arm in this file green: the two
+ * would agree perfectly on the day the copy was written, which is exactly when
+ * they always agree. The drift is the whole risk and it is invisible to outcomes.
+ *
+ * ⚠️ A SOURCE-SHAPE ASSERTION IS A WEAKER INSTRUMENT THAN IT LOOKS, and the file
+ * already says so about its siblings: it pins the shape, not the behaviour, and a
+ * rewrite that keeps the shape and loses the meaning passes. It is here because
+ * the alternative was a comment claiming a guarantee the suite did not have,
+ * which is worse: that comment is now this test.
+ * 📌 The honest scope: this catches a SECOND COPY appearing, which is the
+ * observed failure mode on this codebase. It does not catch the exported
+ * function being changed to do something else, which the behavioural arms above
+ * do catch.
+ */
+test('#2615 restore() calls the exported predicate rather than carrying its own copy', () => {
+  const src = fs.readFileSync(nodePath.join(__dirname, 'remove.js'), 'utf8');
+  const at = src.indexOf('function restoreInner(');
+  assert.notEqual(at, -1, 'restoreInner is gone; re-anchor this test');
+  let d = 0; let i = src.indexOf('{', at); let end = -1;
+  for (let j = i; j < src.length; j += 1) {
+    if (src[j] === '{') d += 1;
+    else if (src[j] === '}') { d -= 1; if (d === 0) { end = j + 1; break; } }
+  }
+  const body = src.slice(at, end);
+  assert.match(body, /restoreBlockedByMissingAccountDir\(/,
+    'restoreInner no longer calls the exported predicate, so the screen and the refusal are two '
+    + 'implementations of one fact and will drift');
+  /* CONTROL that this can FAIL: the same body must NOT contain the inlined
+     shape. Without this the assertion above is satisfied by a body that both
+     calls the export AND keeps a copy, which is the realistic way a copy comes
+     back (added beside the call, not instead of it). */
+  assert.doesNotMatch(body, /readJob\([^)]*\)[\s\S]{0,200}?existsSync\(/,
+    'restoreInner carries an inlined readJob + existsSync copy again, beside or instead of the '
+    + 'exported predicate');
 });
 
 test('#2615 SCOPE: a default-account agent is never blocked (configDir is null)', () => {
