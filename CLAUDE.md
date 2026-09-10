@@ -38,7 +38,8 @@ explicitly to learn the repo's pre-PR commands and conventions.
 
 A single-app Node.js codebase (plain JavaScript, `node >=26`). The board is a local web
 server (`server.js`) whose UI is a single committed page (`web/index.html`). The engine
-(`engine/`, ~300 modules) holds the domain logic: accounts, agents, chat, activity, the
+(`engine/`, over 100 source modules plus their colocated `*.test.js`) holds the domain logic:
+accounts, agents, chat, activity, the
 board-auth model, install/update, multi-world ("Kosmos") switching, and provider sessions
 (Claude Code and Codex). Tooling in `tools/` builds, releases, and gates the product;
 `install/` is the end-user installer.
@@ -47,7 +48,7 @@ board-auth model, install/update, multi-world ("Kosmos") switching, and provider
 
 | Directory | Purpose |
 |-----------|---------|
-| `engine/` | Core domain logic (~300 modules): accounts, agents, chat, activity, board-auth, autoupdate, worlds (multi-Kosmos), provider sessions. `engine/store.js` owns the ONE data-root derivation (`store.ROOT`). |
+| `engine/` | Core domain logic (over 100 source modules, plus colocated `*.test.js`): accounts, agents, chat, activity, board-auth, autoupdate, worlds (multi-Kosmos), provider sessions. `engine/store.js` owns the ONE data-root derivation (`store.ROOT`). |
 | `web/` | The board UI: a single committed page (`web/index.html`) plus icons and the web manifest. |
 | `tools/` | Build, release, and gate scripts. `tools/run-tests.sh` is the canonical test runner; `tools/lib/` holds shared shell libs; `tools/release.sh` cuts releases. |
 | `install/` | The end-user installer (`setup.sh`, the `kosmos` command, pkg scripts). |
@@ -189,10 +190,19 @@ from a night in this codebase, kosmos#2616.)
    the module captures the wrong root. `engine/store.js`'s header documents the
    require-ordering trap.
 
-3. **Live execution is armed only inside `if (require.main === module)`.** An in-process test
-   never satisfies that, so modules like `engine/remove.js` fail closed (they refuse to act)
-   rather than performing a destructive action when imported by a test. Preserve this: never
-   move live-execution side effects to module top level.
+3. **Destructive/live actions fail closed by default; production opts in once.** A module that
+   performs a real side effect (a `launchctl`/`tmux kill-session`, a delete) calls
+   `engine/live-execution.js`'s `liveExecutionAllowed()` and, when it returns false, calls
+   `refuseOrWarn(...)` to refuse rather than act (#1598). The flag is a module-level
+   `allowed=false` that only `allowLiveExecution()` flips, and only `server.js`'s real-startup
+   path calls it (`server.js` around line 10656). A `node --test` process is detected by
+   `process.execArgv` containing `--test` (deliberately NOT `require.main === module`, and NOT
+   an env var, which children inherit), so an in-process test never has live execution armed and
+   `engine/remove.js`, `update.js`, `create.js`, `delete-leftover.js`, and `win32stop.js` refuse
+   instead of faking success. Preserve this: gate any new destructive action behind
+   `liveExecutionAllowed()` and never let it fire at module load. Enforced by
+   `engine/create.live-gate-1598.test.js`, `engine/update.livegate-1726.test.js`, and
+   `engine/platform-gate-wiring.test.js`.
 
 4. **A committed `web/` change needs a `docs/browser-checks/` assertion or a
    `Browser-check: <reason>` trailer.** `tools/run-tests.sh` (around lines 213-222, via
