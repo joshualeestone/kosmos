@@ -1364,7 +1364,7 @@ function restoreInner(name, platform) {
      rather than incidental (readJob happens to return null on win32 for lack of a
      plist): a win32 configDir rides the Scheduled Task argv, not a plist, and needs
      its own readback (the follow-up named above). */
-  const launched = platform === 'win32' ? null : create.readJob(clean);
+  const launched = (platform || process.platform) === 'win32' ? null : create.readJob(clean);
   if (launched && launched.configDir && !fs.existsSync(launched.configDir)) {
     return {
       outcome: OUTCOME.REFUSED,

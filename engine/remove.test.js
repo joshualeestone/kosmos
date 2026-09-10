@@ -962,7 +962,10 @@ test('restore says so when the startup file has gone, rather than claiming it st
    neither exercises this on its own). */
 function acctAgent(name) {
   foreignAgent(name);
-  const acctDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-acct-2609-'));
+  // Under SANDBOX (not os.tmpdir) so it is co-located with the test's other
+  // sandbox files; the CONTROL leaves it in place, so this keeps the leak inside
+  // the test's own tree rather than scattering one /tmp dir per run.
+  const acctDir = fs.mkdtempSync(nodePath.join(SANDBOX, 'kosmos-acct-2609-'));
   fs.writeFileSync(create.plistPath(name),
     create.plistFor(name, BINS.claudeBin, BINS.tmuxBin, null, acctDir, 'claude'), 'utf8');
   assert.equal(create.readJob(name).configDir, acctDir,
