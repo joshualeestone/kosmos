@@ -87,18 +87,44 @@ seams are now stubbed at the top of that file. `remove.test.js` had the same hol
 in two calls and now states `platform: MAC`, which is what the file already
 claimed to do.
 
-## Do this next (slice 7c-3)
+## ✅ 7c-3 PART 1 IS DONE (2026-09-10) — the channel exists, unit-proven
 
-The channel. The supervisor holds `handle.send()`; the BOARD is a different
-process and has no way to call it.
+    engine/win32channel.js     serve() in the supervisor, say() for the board
+    engine/win32supervisor.js  main() serves the channel; handle.stop closes it;
+                               handle.send(text, done) answers AFTER the flush
 
-1. A local channel per agent -- a named pipe (`\\.\pipe\kosmos-agent-<name>`) is
-   the Windows analog of the unix socket, and `win32supervisor.main()` is where it
-   is served, because that is the process holding the stdin.
-2. Agent-token auth on it, and honest failure when the supervisor is down: the
-   `could_not` contract `chat.js` already has, not a silent drop.
-3. Then 7c-4 (`chat.js`'s win32 arm on that channel, keeping verify-before-send)
-   and 7c-5 (re-run R1–R8, and R3 for the first time). §3 has the sizing.
+What it is: `\\.\pipe\kosmos-agent-<safeKey>`, served by the supervisor (the only
+process holding the agent's stdin). One JSON line each way: token + text in,
+`{ok}` or `{ok:false, because, down?}` out. Per-agent secret under
+`store.ROOT/win32-channel/`, created `wx` by whichever side is first, compared in
+constant time. Supervisor down = ENOENT at once = `down:true`, "nothing typed".
+No spool. `say()` is SYNCHRONOUS (chat.js is) and runs the client in a CHILD
+under `execFileSync`'s timeout, because Node has no deadline-able sync pipe read.
+
+📌 FIXTURE FACT: `say()` cannot be tested against a server in the same process —
+`execFileSync` stops the event loop, so the in-process server never accepts. The
+test's stand-in supervisor is a separate process (`servingElsewhere`), which is
+the production topology anyway.
+
+Win32 suite after this + a merge of main: **279/279**. `create.test.js` still at
+its known 61/100.
+
+## Do this next
+
+1. **7c-3 part 2: measure the channel ON THE BOX** through the real task. Create
+   an agent, confirm the pipe is listed (`[IO.Directory]::GetFiles('\\.\pipe\')`),
+   `say()` a message into it, and see the agent answer on its event stream. Also
+   measure the pipe's default DACL, which `win32channel.js`'s header says is
+   unmeasured.
+2. **7c-4:** `chat.js`'s win32 arm on `win32channel.say()`, keeping
+   verify-before-send and the `could_not` contract; `down` words "not running".
+3. Then 7c-5 (state from the event stream) and 7c-6 (re-run R1–R8, R3 for the
+   first time). §3 has the sizing.
+
+📌 ASKED SPLINTER 2026-09-10 (no reply yet): would a first Windows release with
+update-by-hand be acceptable (drops BLOCKER 2 off the critical path); is
+installkosmos.com serving the Windows zip; who owns the win32leak-2603 lane that
+edits the same test files; any Mac-side change planned to chat.js's contract.
 
 ⚠️ DO NOT re-derive the three measurements in §3 — a streaming session stays
 alive across turns, is still listed by `claude agents --json` as
