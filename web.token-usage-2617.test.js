@@ -35,6 +35,7 @@ function bundle() {
     page.liftConst(SCRIPT, 'USAGE_TOKENS_PER_ENGINEER_DAY') + '\n'
     + page.liftConst(SCRIPT, 'USAGE_HOURS_PER_ENGINEER_DAY') + '\n'
     + page.liftConst(SCRIPT, 'USAGE_RATE_PER_HOUR') + '\n'
+    + page.liftConst(SCRIPT, 'USAGE_CLASS_COLORS') + '\n'
     + lift('esc') + '\n'
     + lift('usageNum') + '\n'
     + lift('usageDayLabel') + '\n'
@@ -43,7 +44,8 @@ function bundle() {
     + lift('usageCardsHtml') + '\n'
     + lift('usageMoneyHtml') + '\n'
     + lift('usageChartSvg') + '\n'
-    + 'return { usageTotals, usageDailySeries, usageCardsHtml, usageMoneyHtml, usageChartSvg, usageDayLabel, usageNum };'
+    + lift('usageLegendHtml') + '\n'
+    + 'return { usageTotals, usageDailySeries, usageCardsHtml, usageMoneyHtml, usageChartSvg, usageLegendHtml, usageDayLabel, usageNum, USAGE_CLASS_COLORS };'
   )();
 }
 const U = bundle();
@@ -136,6 +138,20 @@ test('#2617: the section markup carries the cards, chart, money and table contai
   assert.match(CODE, /id="usage-chart"/, 'the chart container is in the page');
   assert.match(CODE, /id="usage-worth"/, 'the money container is in the page');
   assert.match(CODE, /class="usage-meas"[\s\S]*id="usage-table"/, 'the table stays, framed as the measurement');
-  assert.match(CODE, /class="usage-legend"[\s\S]*Cache read[\s\S]*Cache written[\s\S]*Input[\s\S]*Output/, 'the legend names all four classes');
+  assert.match(CODE, /id="usage-legend"/, 'the legend container is in the page (filled by JS from the shared color source)');
   assert.match(SCRIPT, /fetch\('\/api\/usage\?days=14'\)/, 'the render asks for 14 days (Mona\'s two-week trend)');
+});
+
+test('#2617: the legend and the chart draw from ONE color source, so they cannot drift', () => {
+  // Both usageChartSvg and usageLegendHtml read USAGE_CLASS_COLORS -- proven by running them.
+  const legend = U.usageLegendHtml();
+  const svg = U.usageChartSvg(U.usageDailySeries(FIXTURE));
+  for (const c of U.USAGE_CLASS_COLORS) {
+    assert.ok(legend.includes('background:' + c.color), 'legend swatch uses ' + c.color + ' for ' + c.label);
+    assert.ok(legend.includes('>' + c.label + '</span>'), 'legend names ' + c.label);
+    assert.ok(svg.includes('stroke="' + c.color + '"'), 'the chart polyline uses the SAME ' + c.color);
+  }
+  assert.equal(U.USAGE_CLASS_COLORS.length, 4, 'exactly the four classes');
+  // the legend order matches the mockup (cache-read first)
+  assert.deepEqual(U.USAGE_CLASS_COLORS.map((c) => c.label), ['Cache read', 'Cache written', 'Input', 'Output']);
 });

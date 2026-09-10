@@ -1851,16 +1851,15 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    wider than a narrow window, and a table that widens the page pushes every
    other section sideways too. `#usage-table` is the scroll container; the table
    inside it is allowed to be wider than the screen. */
-/* 🔑 ROOM FOR THE SCROLLBAR, SO IT DOES NOT LAND ON THE SENTENCE (kosmos#1308).
-   Josh, on 0.5.97: "there's a horizontal scroll bar that is going right over the
-   top of the total line". The scrollbar is drawn at this container's bottom edge
-   and `#usage-worth` begins immediately after it, so with nothing between them
-   the bar strikes through the summary -- and the summary is the most important
-   sentence on the page, the one that says what the number actually means.
-   ⚠️ PADDING INSIDE THE SCROLL CONTAINER, not a margin on the paragraph: the bar
-   belongs to this box, so the room for it has to be in this box. A margin below
-   would move the sentence and leave the bar sitting on the last table row
-   instead, which is the same defect one element up.
+/* ROOM FOR THE SCROLLBAR (kosmos#1308, revisited by #2617). Josh, on 0.5.97:
+   "there's a horizontal scroll bar that is going right over the top of the total
+   line". Back then `#usage-worth` sat immediately BELOW this scroll container and
+   the bar struck through the summary. #2617 reordered the section: the money box
+   now sits ABOVE the table and `#usage-table` is the LAST element, so the bar no
+   longer lands on the summary. The padding stays: it is breathing room below the
+   bar at the foot of the section, and it keeps the bar off the last table row.
+   ⚠️ PADDING INSIDE THE SCROLL CONTAINER, not a margin below it: the bar belongs
+   to this box, so the room for it has to be in this box.
    📌 Only appears when the six columns are wider than the window, which is why
    it shows on a narrow window and not a wide one. */
 #usage-table { overflow-x: auto; padding-bottom: 10px; }
@@ -11408,12 +11407,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <h4>Daily usage, all four classes</h4>
         <p class="dhint">Cache read dominates the axis, so the other three run low along the bottom. That is the real scale, not a drawing choice.</p>
         <div id="usage-chart"></div>
-        <div class="usage-legend">
-          <span class="usage-lg"><i style="background:#d6a62e"></i>Cache read</span>
-          <span class="usage-lg"><i style="background:#6fd3a0"></i>Cache written</span>
-          <span class="usage-lg"><i style="background:#8ab4ff"></i>Input</span>
-          <span class="usage-lg"><i style="background:#c78cff"></i>Output</span>
-        </div>
+        <!-- Filled by usageLegendHtml() from the shared USAGE_CLASS_COLORS, so the
+             swatches cannot drift from the polyline colors they explain. -->
+        <div id="usage-legend" class="usage-legend"></div>
       </div>
       <!-- The engineering-equivalent line, quoted against OUTPUT tokens and
            saying so in the sentence itself. It sits BELOW the cards and chart on
@@ -22529,21 +22525,33 @@ function usageMoneyHtml(totals) {
     + 'folded into this figure, so a large number is never turned into a large dollar amount it did not earn.</p>'
     + '</div>';
 }
+/* The four class colors live ONCE here and drive BOTH the chart polylines
+   (usageChartSvg) and the legend swatches (usageLegendHtml), so a color Mona
+   revises cannot drift between the two surfaces -- the "two derivations of one
+   fact" defect. Order matches the mockup's legend (cache-read first). */
+const USAGE_CLASS_COLORS = [
+  { key: 'cacheRead', color: '#d6a62e', label: 'Cache read' },
+  { key: 'cacheWritten', color: '#6fd3a0', label: 'Cache written' },
+  { key: 'input', color: '#8ab4ff', label: 'Input' },
+  { key: 'output', color: '#c78cff', label: 'Output' }
+];
+/* The legend, generated from the shared color list so it cannot disagree with
+   the polylines it explains. */
+function usageLegendHtml() {
+  return USAGE_CLASS_COLORS.map((c) =>
+    '<span class="usage-lg"><i style="background:' + c.color + '"></i>' + c.label + '</span>').join('');
+}
 /* The daily chart: four polylines on ONE shared y-axis, scaled to the single
    largest value across all four classes (cache-read, in practice), so the true
    proportion shows -- cache-read towers, the other three run low along the
    bottom. Needs at least two days to draw a line; returns '' otherwise and the
-   caller hides the chart. Colors match Mona's mockup exactly. */
+   caller hides the chart. Colors come from USAGE_CLASS_COLORS (shared with the
+   legend). */
 function usageChartSvg(series) {
   const s = Array.isArray(series) ? series : [];
   if (s.length < 2) return '';
   const x0 = 8, x1 = 752, yBase = 274, yTop = 14;
-  const classes = [
-    { key: 'cacheRead', color: '#d6a62e' },
-    { key: 'cacheWritten', color: '#6fd3a0' },
-    { key: 'input', color: '#8ab4ff' },
-    { key: 'output', color: '#c78cff' }
-  ];
+  const classes = USAGE_CLASS_COLORS;
   let max = 0;
   for (const p of s) for (const c of classes) max = Math.max(max, Number(p[c.key]) || 0);
   if (!max) max = 1;
@@ -22589,6 +22597,7 @@ async function paintUsage() {
   const cards = document.getElementById('usage-cards');
   const chartWrap = document.getElementById('usage-chartwrap');
   const chart = document.getElementById('usage-chart');
+  const legend = document.getElementById('usage-legend');
   const money = document.getElementById('usage-worth');
   const box = document.getElementById('usage-table');
   if (!msg || !box || USAGE_BUSY) return;
@@ -22605,6 +22614,7 @@ async function paintUsage() {
       msg.textContent = 'No usage recorded yet on this computer.';
       if (cards) cards.innerHTML = '';
       if (chart) chart.innerHTML = '';
+      if (legend) legend.innerHTML = '';
       if (chartWrap) chartWrap.hidden = true;
       if (money) money.innerHTML = '';
       box.innerHTML = '';
@@ -22614,6 +22624,7 @@ async function paintUsage() {
     if (cards) cards.innerHTML = usageCardsHtml(totals);
     const svg = usageChartSvg(usageDailySeries(byDay));
     if (chart) chart.innerHTML = svg;
+    if (legend) legend.innerHTML = svg ? usageLegendHtml() : '';
     if (chartWrap) chartWrap.hidden = !svg;
     if (money) money.innerHTML = usageMoneyHtml(totals);
     box.innerHTML = usageTableHtml(byDay);
@@ -22621,6 +22632,7 @@ async function paintUsage() {
       msg.textContent = 'No usage recorded in the last fourteen days.';
       if (cards) cards.innerHTML = '';
       if (chart) chart.innerHTML = '';
+      if (legend) legend.innerHTML = '';
       if (chartWrap) chartWrap.hidden = true;
       if (money) money.innerHTML = '';
       return;
@@ -22636,6 +22648,7 @@ async function paintUsage() {
     msg.textContent = 'We could not read token usage just now.';
     if (cards) cards.innerHTML = '';
     if (chart) chart.innerHTML = '';
+    if (legend) legend.innerHTML = '';
     if (chartWrap) chartWrap.hidden = true;
     if (money) money.innerHTML = '';
     box.innerHTML = '';
