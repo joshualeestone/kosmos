@@ -247,6 +247,31 @@ function initStub() {
   });
   check('thread throws: the notice resolves to the manual line (not stuck on "Waking")', s6.line === 'Y-manual', JSON.stringify(s6.line));
 
+  // ---- Arm 7: the note node is DETACHED mid-wait, the real stale-notice case ----
+  // On the stale-instructions notice, renderStale regenerates #d-instr-stale
+  // (setLive innerHTML=) on every tick, so the captured note is detached before
+  // the async resolution. Driving the real rst-go handler and removing the note
+  // node mid-wait must still fire the wake hello and must not throw (the
+  // isConnected guard no-ops the dead write instead of crashing the resolution).
+  await page.evaluate(() => {
+    window.__posted = [];
+    window.__readyAfterCalls = 2; window.__statusSinceRestart = 0;
+    document.querySelector('#__ah .instr-restart-note').textContent = '';
+    openRestartModal(document.querySelector('#__ah [data-restart-agent]'), 'april');
+  });
+  await page.click('#rst-go');
+  // Remove the note node while the readiness wait is in flight (renderStale's
+  // setLive(innerHTML=) has the same detaching effect on the real notice).
+  await page.evaluate(() => { const n = document.querySelector('#__ah .instr-restart-note'); if (n) n.remove(); });
+  await page.waitForFunction(
+    () => window.__posted.some((p) => /\/api\/agent\/[^/]+\/thread$/.test(p.url) && (p.method === 'POST')),
+    { timeout: 4000 },
+  ).catch(() => {});
+  const s7 = await page.evaluate(() => ({
+    threadCalls: window.__posted.filter((p) => /\/api\/agent\/[^/]+\/thread$/.test(p.url) && p.method === 'POST').length,
+  }));
+  check('detached note: the wake hello still fires when the notice was regenerated away', s7.threadCalls === 1, 'calls=' + s7.threadCalls);
+
   if (pageErrors.length) check('no page/console errors during the run', false, pageErrors.join(' | '));
   else check('no page/console errors during the run', true);
 
