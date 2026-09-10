@@ -11,9 +11,9 @@
  * 🔑 A LOCAL NAMED PIPE PER AGENT, which is this platform's unix socket. The
  * supervisor serves `\\.\pipe\kosmos-agent-<key>` for as long as it is up; the
  * board connects, presents a token, hands over one message, and is told what
- * happened. It is a REQUEST AND A REPLY, not a drop -- `chat.js`'s whole contract
- * is that a delivery either happened or is reported as `could_not`, and a channel
- * that could only post into a void could not honour it.
+ * happened. It is a REQUEST AND A REPLY, not a drop -- `chat.js` reports one of
+ * three verdicts (placed, could_not, unconfirmed), and a channel that could only
+ * post into a void could not tell them apart.
  *
  *      board  --(one json line: token + text)-->  supervisor
  *      board  <--(one json line: ok / because)--  supervisor  --> agent stdin
@@ -221,7 +221,10 @@ function serve(name, opts) {
           because: (r && r.because) || 'it did not take the message',
         }));
       }
-      catch (e) { answer({ ok: false, because: 'we could not hand it over (' + ((e && e.code) || 'unknown') + ')' }); }
+      /* A throw from `onSay` broke at a point we cannot see -- possibly after its
+         write began -- so it is unsure, the same reading chat.js gives a throw
+         from `say()`. */
+      catch (e) { answer({ ok: false, unsure: true, because: 'it broke while handing the message over (' + ((e && e.code) || 'unknown') + '), so we cannot tell whether it arrived' }); }
     });
   });
 
@@ -308,9 +311,13 @@ function say(name, text, opts) {
     }
   }
   let parsed;
-  try { parsed = JSON.parse(String(out).trim().split('\n').pop()); }
-  catch { return { ok: false, because: 'we could not make sense of what came back from its channel' }; }
-  if (parsed && parsed.ok === true) return { ok: true };
+  try { parsed = JSON.parse(String(out).trim().split('\n').pop()); } catch { parsed = undefined; }
+  /* The helper RAN -- a never-started one returned above -- so it may have
+     handed the message over before its verdict went wrong. Unsure, not a no. */
+  if (!parsed || typeof parsed !== 'object') {
+    return { ok: false, unsure: true, because: 'we could not make sense of what came back from its channel, so we cannot tell whether it arrived' };
+  }
+  if (parsed.ok === true) return { ok: true };
   return {
     ok: false,
     because: (parsed && parsed.because) || 'it did not take the message',
@@ -389,8 +396,15 @@ function clientMain(name, text, opts) {
     const nl = buf.indexOf('\n');
     if (nl === -1) return;
     let reply;
-    try { reply = JSON.parse(buf.slice(0, nl)); }
-    catch { finish({ ok: false, because: 'we could not make sense of what came back from its channel' }); return; }
+    try { reply = JSON.parse(buf.slice(0, nl)); } catch { reply = undefined; }
+    /* An answer we cannot read came from a supervisor that may already have typed
+       the message, so once the request is written it is unsure, never a no. */
+    if (!reply || typeof reply !== 'object') {
+      finish(wrote
+        ? { ok: false, unsure: true, because: 'we could not make sense of what came back from its channel, so we cannot tell whether it arrived' }
+        : { ok: false, because: 'we could not make sense of what came back from its channel' });
+      return;
+    }
     /* The supervisor's own flags travel with its sentence; dropping them here
        would turn its "may have arrived" into our "was not delivered". */
     finish(reply && reply.ok === true ? { ok: true } : {

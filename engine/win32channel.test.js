@@ -54,9 +54,9 @@ function ask(name, text, pipe, opts) {
 test('#570 7c-3 a message crosses the channel and the ANSWER comes back', async () => {
   /* 🔑 THE WHOLE SLICE. After 7c-2 the supervisor could type at the agent and
      nothing outside that process could ask it to. This is the asking. It is a
-     request and a REPLY rather than a drop, because chat.js's contract is that a
-     delivery either happened or is reported as could_not -- a channel that could
-     only post into a void could not honour it. */
+     request and a REPLY rather than a drop, because chat.js reports one of three
+     verdicts -- placed, could_not, unconfirmed -- and a channel that could only
+     post into a void could not tell them apart. */
   const said = [];
   const s = serving('crosser', { onSay: (text, done) => { said.push(text); done({ ok: true }); } });
   assert.equal(s.ok, true, s.because || '');
@@ -210,6 +210,46 @@ test('#570 7c-4 a helper killed at the deadline is unsure, and says it did not a
   assert.equal(r.ok, false);
   assert.equal(r.unsure, true);
   assert.match(r.because, /did not answer us in time/);
+});
+
+test('#570 7c-4 a helper that RAN but left no readable verdict is unsure, not a definite no', () => {
+  /* Found in review round 3: a helper that exited 0 with garbage or nothing on
+     stdout read as could_not, yet it ran and may have handed the message over. */
+  for (const [label, body] of [['garbage', "process.stdout.write('not json\\n');\n"], ['silent', '']]) {
+    const script = path.join(SANDBOX, 'helper-' + label + '.js');
+    fs.writeFileSync(script, body, 'utf8');
+    const r = channel.say('garbled-' + label, 'x', { pipe: address(), helper: script, timeoutMs: 2000 });
+    assert.equal(r.ok, false, label);
+    assert.equal(r.unsure, true, label + ': it ran, so it may have delivered');
+    assert.match(r.because, /cannot tell whether it arrived/, label);
+  }
+});
+
+test('#570 7c-4 a reply we cannot read, after the request was written, is unsure', async () => {
+  /* The supervisor had the request and may have typed it; only its answer is
+     unreadable. Reading that as "not delivered" invites a second send. */
+  const net = require('node:net');
+  for (const reply of ['not json\n', 'null\n']) {
+    const at = address();
+    const server = net.createServer((sock) => { sock.once('data', () => sock.end(reply)); });
+    await new Promise((res) => server.listen(at, res));
+    try {
+      const r = await ask('unreadable', 'hello', at);
+      assert.equal(r.ok, false, JSON.stringify(reply));
+      assert.equal(r.unsure, true, JSON.stringify(reply) + ' came after the request was written');
+      assert.match(r.because, /could not make sense/);
+    } finally {
+      await new Promise((res) => server.close(res));
+    }
+  }
+});
+
+test('#570 7c-4 an onSay that THROWS is unsure, the same reading chat.js gives a throwing say()', async () => {
+  const s = serving('thrower', { onSay: () => { throw Object.assign(new Error('boom'), { code: 'EBOOM' }); } });
+  const r = await ask('thrower', 'hello', s.pipe);
+  assert.equal(r.ok, false);
+  assert.equal(r.unsure, true);
+  assert.match(r.because, /EBOOM.*cannot tell whether it arrived/);
 });
 
 test('#570 7c-3 a delivery the supervisor could not make is relayed with ITS sentence', async () => {
