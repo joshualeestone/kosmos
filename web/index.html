@@ -18129,8 +18129,16 @@ function worldswToggle() {
   if (menu.hidden) worldswOpen();
   else worldswClose();
 }
+// #2563: monotonic open counter. Each worldAddOpen() takes the next value; a fetch's late
+// resolution renders ONLY if its captured value is still current. Without it, a slow
+// /api/worlds/list from a PRIOR open could resolve after the person reopened and started
+// checking boxes, and worldImportRender's `listEl.textContent = ''` would silently WIPE their
+// selection -- Create would then submit `{ name }` with no import while they believe they
+// imported. (Referenced only here, not in the eval-extracted render/fetch/submit functions.)
+let worldAddImportGen = 0;
 function worldAddOpen() {
   worldswClose();
+  const gen = ++worldAddImportGen;
   const input = document.getElementById('world-add-name');
   input.value = '';
   document.getElementById('world-add-go').disabled = true;
@@ -18145,7 +18153,12 @@ function worldAddOpen() {
   if (impList) impList.textContent = '';
   document.getElementById('world-add-modal').hidden = false;
   input.focus();
-  worldImportFetch().then((worlds) => worldImportRender(worlds, impList, impWrap)).catch(() => {});
+  worldImportFetch().then((worlds) => {
+    // A newer open superseded this fetch: drop the stale result rather than re-render over
+    // (and wipe) a selection the person has already started on the current open.
+    if (gen !== worldAddImportGen) return;
+    worldImportRender(worlds, impList, impWrap);
+  }).catch(() => {});
 }
 /* #2563: fetch the user's existing Kosmoses (with agent counts) for the create-time import
    selector. The engine half is live on main (GET /api/worlds/list -> {worlds:[{id,name,

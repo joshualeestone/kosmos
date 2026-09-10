@@ -97,6 +97,17 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       value: (row.querySelector('.world-import-cb') || {}).value || '',
       isCheckbox: (row.querySelector('.world-import-cb') || {}).type === 'checkbox',
     }));
+    // #2563 (a-render-check-that-asserts-existence-passes-the-wrong-asset): prove this check is
+    // asserting the WORLD-import control, not the pre-existing DISK find-agents panel
+    // (#import-found). The world control must be a distinct element and its checkboxes must be
+    // scoped to it, never descendants of the disk panel -- else a rename/collision could let the
+    // existence assertions above false-pass on the wrong asset.
+    const diskPanel = document.getElementById('import-found');
+    const worldPanel = document.getElementById('world-add-import');
+    const worldCbs = Array.from(document.querySelectorAll('#world-add-import-list .world-import-cb'));
+    const distinctFromDisk = !!worldPanel && worldPanel !== diskPanel
+      && worldCbs.length > 0
+      && worldCbs.every((cb) => worldPanel.contains(cb) && !(diskPanel && diskPanel.contains(cb)));
     // Check both, name it, submit -> the create payload must carry both world ids.
     for (const cb of document.querySelectorAll('#world-add-import-list .world-import-cb')) cb.checked = true;
     document.getElementById('world-add-name').value = 'Imported';
@@ -110,7 +121,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     await sleep(200);   // let the fetch reject + render run
     const hiddenWhenAbsent = wrapHidden();
 
-    return { shown, rowInfo, submittedImport, hiddenWhenAbsent };
+    return { shown, rowInfo, submittedImport, hiddenWhenAbsent, distinctFromDisk };
   });
 
   await browser.close();
@@ -126,6 +137,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!info.every((i) => i.isCheckbox)) problems.push('the import rows must be real checkboxes');
     if (JSON.stringify(r.submittedImport) !== JSON.stringify(['w1', 'w2'])) problems.push('checking both Kosmoses and creating must POST importAgentsFrom:["w1","w2"], got ' + JSON.stringify(r.submittedImport));
     if (!r.hiddenWhenAbsent) problems.push('THE GRACEFUL DEGRADE: when GET /api/worlds/list is unreachable (404, a board that cannot answer), #world-add-import must stay HIDDEN so the create flow is unchanged, but it was shown');
+    if (!r.distinctFromDisk) problems.push('THE WRONG-ASSET GUARD: the world-import control (#world-add-import + its .world-import-cb boxes) must be a DISTINCT element from the disk find-agents panel (#import-found), with its checkboxes scoped to it, so these assertions cannot false-pass on the wrong panel; it was not');
   }
 
   console.log('  ' + JSON.stringify(r));
