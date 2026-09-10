@@ -207,8 +207,8 @@ from a night in this codebase, kosmos#2616.)
    `refuseOrWarn(...)` to refuse rather than act (#1598). The flag is a module-level
    `allowed=false` that only `allowLiveExecution()` flips, and only `server.js`'s real-startup
    path calls it (`server.js` around line 10656). A `node --test` process is detected by
-   `process.execArgv` containing `--test` (deliberately NOT `require.main === module`, and NOT
-   an env var, which children inherit), so an in-process test never has live execution armed and
+   `process.execArgv` containing `--test` (deliberately not an env var, which a child process
+   would inherit and misfire on), so an in-process test never has live execution armed and
    `engine/remove.js`, `update.js`, `create.js`, `delete-leftover.js`, and `win32stop.js` refuse
    instead of faking success. Preserve this: gate any new destructive action behind
    `liveExecutionAllowed()` and never let it fire at module load. Enforced by
@@ -223,9 +223,9 @@ from a night in this codebase, kosmos#2616.)
 
 5. **Two derivations of one fact is this codebase's most-shipped defect.** When two places
    compute or state the same thing, they drift, and the drift ships silently. The measured
-   instance is `one-derivation.test.js` (kosmos#1228): three of four `instructions.staleness`
-   call sites were wrapped in `toldOverride` and one silently was not, so the same agent could
-   read `stale` in one place and `told` in another. Prefer one source of truth that both sites
+   instance is `one-derivation.test.js` (kosmos#1228): the staleness verdict was wrapped in
+   `toldOverride` at some call sites and not others (and a route served the raw verdict), so the
+   same agent could read `stale` in one place and `told` in another. Prefer one source of truth that both sites
    read; if you must duplicate, add a test that pins them equal (that test asserts the SHAPE,
    not a count, so a new caller has to be deliberate rather than merely plausible). A comment
    that asserts behavior the code does not have is the same defect in prose: state what the
