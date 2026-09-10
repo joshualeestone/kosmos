@@ -30,10 +30,16 @@
      iOS Safari, which reads them rather than display:standalone.
      Theme colour and title are finalized (this was a #815 placeholder flag;
      #815 is closed, the live parent is #718). The theme colour is the brand
-     ground token, light and dark, so the browser chrome matches the app in
-     both schemes; the manifest itself carries the light value, since a
-     manifest has no per-scheme variant. Title stays "Kosmos", the short
-     home-screen label. Not the App Store third, and not iOS parity. -->
+     ground token, one value per OS colour scheme, so the browser chrome
+     tracks the system light/dark setting; the manifest itself carries the
+     light value, since a manifest has no per-scheme variant.
+     Known gap (fast-follow): these metas follow the OS scheme via the media
+     attribute, not the in-app theme toggle (.themepick writes data-theme), so
+     a manual override against the OS setting is not yet reflected in the
+     chrome. Closing that needs a small script updating the meta on the
+     data-theme change.
+     Title stays "Kosmos", the short home-screen label. Not the App Store
+     third, and not iOS parity. -->
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0c0d0f" media="(prefers-color-scheme: dark)">

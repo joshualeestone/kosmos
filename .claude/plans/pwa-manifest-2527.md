@@ -54,6 +54,20 @@ lighter elevated surface. The dark ground is the honest match for the app backgr
 status bar reads too heavy against the content, a one-token change to an elevated dark surface
 is the follow-up. Reversible.
 
+## Known limitation (deferred, fast-follow)
+
+The `theme-color` metas follow the OS colour scheme through the `media` attribute, not the
+in-app theme toggle. The app has a manual theme picker (`.themepick`, which writes
+`data-theme`) that can override the OS setting, and no script updates
+`meta[name="theme-color"]` on that change. So a user who manually toggles the app theme
+against their OS setting gets a browser chrome / status bar that does not match the app's
+rendered ground. This is deferred, not fixed, for two reasons: this change is a strict
+improvement over the prior single static placeholder meta (which matched no scheme at all),
+and the full fix is a separate behaviour change (a small script that rewrites the meta on the
+`data-theme` change, which touches the theme-picker path rather than the manifest). Recorded
+here and in the head comment so the gap is documented rather than silently shipped as fully
+solved. Scoped as a fast-follow.
+
 ## Scope / verification
 
 Copy/meta/branding only. No served user-facing prose, no DOM behaviour change. This is a `web/`
