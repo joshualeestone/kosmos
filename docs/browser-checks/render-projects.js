@@ -1057,8 +1057,8 @@ async function main() {
            what `expect` was added for. Both headings are now measured: they
            are the same class doing the same job, so there was never a reason
            to check one and not the other. */
-        { sel: '.pjcard-members > h3.dlab', expect: 'Project members' },
-        { sel: '.pjcard-files > h3.dlab', expect: 'Files in this project' },
+        { sel: '.pjcard-members > h3.dlab', expect: 'Members' },
+        { sel: '.pjcard-files > h3.dlab', expect: 'Files' },
         /* ⚠️ MEASURED OPEN, and the check OPENS it. #1005 put the description
            behind a disclosure that starts closed on a project that has one, so
            `offsetParent` is null and this entry recorded itself as missing --
@@ -1414,7 +1414,7 @@ async function main() {
           modalHidden: document.getElementById('am-modal').hidden,
         };
       });
-      if (members.heading !== 'Project members') throw new Error('the members heading reads "' + members.heading + '", not the pinned words');
+      if (members.heading !== 'Members') throw new Error('the members heading reads "' + members.heading + '", not the pinned word (#2711 item 14: "Members")');
       // A column header is a heading. The pack draws all three as h3.
       if (members.headingTag !== 'H3') throw new Error('the members heading is a ' + members.headingTag + ', not a heading element');
       if (!members.btnShown || !members.modalHidden) throw new Error('the picker is not resting behind + Add Member: ' + JSON.stringify(members));
