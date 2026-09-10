@@ -329,9 +329,12 @@ test('#570 ensureWired win32: all seven events wired with the node.exe EXEC-form
 });
 
 test('#570 ensureWired win32 migration: an OLD shell-form entry is repointed to exec form, not doubled', () => {
-  // The critical non-vacuity arm for the entryIsOurs(args) + full-shape sameHook
-  // changes: a machine carrying the pre-exec-form win32 hook must be recognized as
-  // ours and REPLACED with exec form, leaving exactly one entry per event.
+  // End-to-end migration: a machine carrying the pre-exec-form win32 hook must be
+  // recognized as ours and REPLACED with exec form, leaving exactly one entry per
+  // event. NOTE this arm does NOT prove the full-shape sameHook: the old shell-form
+  // command differs from the bare-node target, so it repoints under a command-only
+  // check too. The sameHook args-comparison is pinned by the separate stale-exec-form
+  // non-vacuity test below; entryIsOurs(args) recognition is pinned by the MARKER test.
   const oldShellForm = '"' + WIN_NODE + '" "' + WIN_SCRIPT + '"';
   const data = { hooks: {} };
   for (const e of reporthook.HOOK_EVENTS) {
@@ -372,6 +375,33 @@ test('#570 CONTROL: a foreign win32 exec-form hook in the same event survives re
   const ours = entries.filter(reporthook.entryIsOurs)[0];
   assert.equal(ours.hooks[0].command, WIN_NODE);
   assert.deepEqual(ours.hooks[0].args, [WIN_SCRIPT]);
+});
+
+test('#570 sameHook non-vacuity: a STALE win32 exec-form entry (old args) is repointed, not skipped as already-correct', () => {
+  // The non-vacuity proof for the FULL-SHAPE sameHook (command AND args). The
+  // entry is ALREADY exec form with the CURRENT node.exe as command, but args[0]
+  // is an OLD script copy still carrying the marker (so entryIsOurs matches it).
+  // A command-only "already correct" check (h.command === want.command) would see
+  // the matching command, skip it, and leave the stale args -- the #1467 defect in
+  // exec-form clothing. Reverting sameHook to command-only makes THIS test fail
+  // (the migration test does NOT, because an old shell-form command already differs
+  // from the bare-node target and repoints under command-only too).
+  const staleScript = 'C:\\Program Files\\Kosmos\\OLD\\app\\engine\\kosmos-report-hook.js';
+  assert.ok(staleScript.includes('kosmos-report-hook'), 'precondition: the stale args path must carry the marker so entryIsOurs matches it');
+  const data = { hooks: {} };
+  for (const e of reporthook.HOOK_EVENTS) {
+    data.hooks[e] = [{ matcher: '', hooks: [{ type: 'command', command: WIN_NODE, args: [staleScript], timeout: 15 }] }];
+  }
+  const p = fresh();
+  fs.writeFileSync(p, JSON.stringify(data));
+  const r = reporthook.ensureWired(p, WIN_SCRIPT, { platform: 'win32', node: WIN_NODE });
+  assert.equal(r.wired, true);
+  assert.equal(r.changed, true, 'a stale exec-form entry (old args) must be repointed (changed)');
+  const out = readJson(p);
+  for (const e of reporthook.HOOK_EVENTS) {
+    assert.equal(oursIn(out, e), 1, 'event ' + e + ' must have exactly one of ours (repointed, not doubled)');
+    assert.deepEqual(out.hooks[e][0].hooks[0].args, [WIN_SCRIPT], 'event ' + e + ' stale args were not repointed to the current script');
+  }
 });
 
 test('#570 ensureWired win32 guard: a node path with a double-quote is refused, a backslash path is not', () => {

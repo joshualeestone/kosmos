@@ -323,11 +323,16 @@ function ensureWired(settingsPath, scriptPath, opts) {
      configuration -- and leaving it is how a machine keeps running a hook
      nobody has looked at since August. */
   const want = entryFor(scriptPath, { platform: plat, node }).hooks[0];
-  /* Compare the FULL desired shape, not just the command: the #570 win32 exec
-     form carries its script path in `args`, so a command-only check would read
-     an OLD win32 shell-form entry (same node in the command, no args) as already
-     correct and never repoint it. Normalizing a missing `args` to null makes the
-     posix shell form (no args) compare equal to itself. */
+  /* Compare the FULL desired shape, not just the command. The case a command-only
+     check would MISS is a STALE win32 EXEC-form entry: command already equals the
+     current node.exe but args[0] is an OLD script path still carrying the marker
+     (so entryIsOurs matches it). command-only would see the matching command,
+     call it already-correct, and never repoint the stale args -- the #1467
+     "aimed at another copy" defect in exec-form clothing. (An OLD shell-form
+     entry, by contrast, has command `"<node>" "<script>"`, which already differs
+     from the bare-node target, so command-only would repoint THAT one fine -- it
+     is not the case this widening protects.) Normalizing a missing `args` to null
+     makes the posix shell form (no args) compare equal to itself, a no-op there. */
   const sameHook = (h) => !!(h && h.command === want.command
     && JSON.stringify(h.args === undefined ? null : h.args)
        === JSON.stringify(want.args === undefined ? null : want.args));
