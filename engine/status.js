@@ -3319,6 +3319,10 @@ function classify(pane, paneText) {
    * pane). Gets its own arm, like the codex arm above, because the runtime beneath
    * it is different and its "screen" is a status token, not lines of text.
    *
+   * The token comes from `claude agents --json` for an interactive session, and
+   * from the agent's own event stream (engine/win32streamstate, #570 7c-5) for a
+   * streaming one, whose live row carries no status. Same two tokens either way.
+   *
    * 🔑 THIS IS THE SCRAPE-EQUIVALENT, NOT THE WHOLE STATE. It maps only the coarse
    * working/idle the live list can see; `needs_you`/`blocked` are NOT here and
    * never can be from `agents --json` (measured: a waiting session reads `idle`).

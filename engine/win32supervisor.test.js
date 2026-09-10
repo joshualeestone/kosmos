@@ -287,6 +287,159 @@ test('#570 7c send() writes ONE json line, and refuses honestly when nothing is 
   h.stop();
 });
 
+/** A piped agent with stdout and stderr, whose stdin answers the flush callback. */
+function streamingChild(pid) {
+  const c = fakeChild();
+  c.pid = pid;
+  c.stdout = new EventEmitter();
+  c.stderr = new EventEmitter();
+  c.stdin.write = (s, cb) => { c.written.push(s); if (typeof cb === 'function') cb(null); };
+  return c;
+}
+
+/** A stream sink that records every call in order. */
+function streamSink() {
+  const calls = [];
+  return {
+    calls,
+    started: (pid, sid) => calls.push(['started', pid, sid]),
+    event: (e) => calls.push(['event', e && e.type]),
+    wrote: () => calls.push(['wrote']),
+    stopped: () => calls.push(['stopped']),
+  };
+}
+
+test('#570 7c-5 the supervisor publishes its agent: the start, every stream event, a flushed write, the death', () => {
+  const kids = [];
+  const sink = streamSink();
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    stream: sink,
+    launch: () => { const c = streamingChild(4100); kids.push(c); return { ok: true, sessionId: 'sid-s', child: c }; },
+  });
+  // A line split across two chunks is still one event.
+  kids[0].stdout.emit('data', Buffer.from('{"type":"system","subtype":"init"}\n{"type":"assi'));
+  kids[0].stdout.emit('data', Buffer.from('stant"}\n{"type":"result"}\n'));
+  h.send('hello', () => {});
+  kids[0].die(0);
+  assert.deepEqual(sink.calls, [
+    ['started', 4100, 'sid-s'],
+    ['event', 'system'], ['event', 'assistant'], ['event', 'result'],
+    ['wrote'],
+    ['stopped'],
+  ]);
+  h.stop();
+});
+
+test('#570 7c-5 a REPLACED child\'s late output says nothing about the one that replaced it', () => {
+  const kids = [];
+  const sink = streamSink();
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    stream: sink,
+    launch: () => { const c = streamingChild(5000 + kids.length); kids.push(c); return { ok: true, sessionId: 'sid-r', child: c }; },
+  });
+  kids[0].die(1);                        // restarts at once: kids[1] is the agent now
+  assert.deepEqual(sink.calls.slice(-1), [['started', 5001, 'sid-r']]);
+  sink.calls.length = 0;
+  kids[0].stdout.emit('data', Buffer.from('{"type":"assistant"}\n'));   // a late line from the dead one
+  assert.deepEqual(sink.calls, [], 'the old process said nothing about the new one');
+  h.stop();
+});
+
+test('#570 7c-5 a clean STOP clears the state, and the agent\'s later exit does not clear it twice', () => {
+  /* stop() drops `child` before the agent exits, so the death handler's
+     current-child guard skips it; without the clear in stop() a turn cut off by
+     the stop would stay WORKING on disk. */
+  const kids = [];
+  const sink = streamSink();
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    stream: sink,
+    launch: () => { const c = streamingChild(7); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  h.send('hello', () => {});
+  sink.calls.length = 0;
+  h.stop();
+  assert.deepEqual(sink.calls, [['stopped']], 'the stop clears');
+  kids[0].stdout.emit('data', Buffer.from('{"type":"result"}\n'));   // its last line, during shutdown
+  kids[0].die(0);                                                     // then its exit
+  assert.deepEqual(sink.calls, [['stopped']], 'nothing after the stop publishes or clears again');
+});
+
+test('#570 7c-5 a flush that lands after its child was REPLACED does not mark the new agent busy', () => {
+  /* Found in review round 2, reproduced: a write to C1 is still flushing when C1
+     dies and the restart brings up C2 (idle). C1's late flush said "a message
+     reached it" about a process that is gone, and published idle C2 as WORKING
+     with nothing to correct it until C2's next event. */
+  const kids = [];
+  const sink = streamSink();
+  let pendingFlush = null;
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    stream: sink,
+    launch: () => { const c = streamingChild(6000 + kids.length); kids.push(c); return { ok: true, sessionId: 'sid-late', child: c }; },
+  });
+  kids[0].stdin.write = (s, cb) => { pendingFlush = cb; };   // the flush has not landed yet
+  let answered = null;
+  h.send('hello', (r) => { answered = r; });
+  kids[0].die(1);                                            // C1 dies; C2 comes up at once
+  assert.deepEqual(sink.calls.slice(-1), [['started', 6001, 'sid-late']]);
+  sink.calls.length = 0;
+  pendingFlush(null);                                        // C1's flush lands now
+  assert.deepEqual(sink.calls, [], 'news about the dead process is not news about the new one');
+  assert.deepEqual(answered, { ok: true }, 'the sender is still told its bytes left: delivery is a separate question');
+  h.stop();
+});
+
+test('#570 7c-5 a failed write does not mark the agent busy', () => {
+  const kids = [];
+  const sink = streamSink();
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    stream: sink,
+    launch: () => { const c = streamingChild(1); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  kids[0].stdin.write = (s, cb) => cb(Object.assign(new Error('pipe broke'), { code: 'EPIPE' }));
+  h.send('hello', () => {});
+  assert.ok(!sink.calls.some((c) => c[0] === 'wrote'), 'only a flushed write is a message the agent has');
+  h.stop();
+});
+
+test('#570 7c-5 stderr is drained, and a death carries its tail to the task log', () => {
+  const kids = [];
+  const events = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    onEvent: (e) => events.push(e),
+    launch: () => { const c = streamingChild(1); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  kids[0].stderr.emit('data', Buffer.from('boom:\n  the api key\n'));
+  kids[0].stderr.emit('data', Buffer.from(' was rejected\n'));
+  kids[0].die(1);
+  const died = events.find((e) => e.action === 'died');
+  assert.equal(died.because, 'it said: boom: the api key was rejected');
+
+  kids.length = 0;
+  events.length = 0;
+  const quiet = sup.superviseStreaming({ name: 'b', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    onEvent: (e) => events.push(e),
+    launch: () => { const c = streamingChild(2); kids.push(c); return { ok: true, sessionId: 's2', child: c }; },
+  });
+  kids[0].die(0);
+  assert.equal(events.find((e) => e.action === 'died').because, undefined, 'a silent death invents no sentence');
+  h.stop();
+  quiet.stop();
+});
+
 test('#570 7c-4 a write that fails AFTER it was handed to the pipe is unsure, never a definite no', () => {
   /* Baron's bar (Mac delivery owner, 2026-09-10): a write that buffered and then
      errored may already have put bytes in front of the agent, so it must read as
@@ -345,6 +498,7 @@ test('#570 7c-2 THE TASK SUPERVISES THE STREAMING AGENT -- the detached one cann
   const spawned = [];
   launcher.setSpawn((bin, argv) => {
     const c = fakeChild();
+    c.pid = 4242;
     c.spawnargs = argv;
     spawned.push({ bin, argv, child: c });
     return c;
@@ -352,17 +506,29 @@ test('#570 7c-2 THE TASK SUPERVISES THE STREAMING AGENT -- the detached one cann
   sup.setLiveReader(() => []);
   const cwd = workdir('entry');
   const handle = sup.main(['entry', cwd, '-', '-', 'claude']);
+  /* 🛑 CLEANUP RUNS HOWEVER THE ASSERTIONS GO. main() opens the agent's pipe
+     server, and a failed assertion that skipped handle.stop() left it listening,
+     so the test process never exited: a hang where a red belonged. Found by this
+     file's own control run for the 7c-5 assertion below. */
+  try {
+    /* 7c-5: main() is the ONE production wiring of the state publisher. Without it
+       every Windows card reads UNKNOWN while every other test stays green, so the
+       file main()'s agent gets is checked here, before the stop clears it. */
+    assert.equal(require('./win32streamstate').stateFor('entry', { sessionId: handle.sessionId, pid: 4242 }), 'idle',
+      'main() publishes its agent\'s state from the moment it starts');
 
-  assert.equal(spawned.length, 1, 'main() started exactly one agent');
-  assert.ok(spawned[0].argv.includes('--input-format'), 'and it is a STREAMING session');
-  assert.ok(spawned[0].argv.includes('stream-json'));
-  assert.equal(typeof handle.send, 'function', 'so the supervisor can be told things');
-  /* ⚠️ THE LOAD-BEARING NEGATIVE. The detached launch goes through `cmd /c start`;
-     if main() ever goes back to it, this is the line that says so. */
-  assert.ok(!/cmd\.exe$/i.test(spawned[0].bin), 'a `cmd /c start` here is the detached launch coming back');
-  handle.stop();
-  launcher.setSpawn(null);
-  sup.setLiveReader(null);
+    assert.equal(spawned.length, 1, 'main() started exactly one agent');
+    assert.ok(spawned[0].argv.includes('--input-format'), 'and it is a STREAMING session');
+    assert.ok(spawned[0].argv.includes('stream-json'));
+    assert.equal(typeof handle.send, 'function', 'so the supervisor can be told things');
+    /* ⚠️ THE LOAD-BEARING NEGATIVE. The detached launch goes through `cmd /c start`;
+       if main() ever goes back to it, this is the line that says so. */
+    assert.ok(!/cmd\.exe$/i.test(spawned[0].bin), 'a `cmd /c start` here is the detached launch coming back');
+  } finally {
+    handle.stop();
+    launcher.setSpawn(null);
+    sup.setLiveReader(null);
+  }
 });
 
 test('#570 7c-2 a session it does NOT hold, under its own name, is left alone', () => {

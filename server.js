@@ -11510,7 +11510,9 @@ if (require.main === module) {
     require('./engine/status').setPaneSource(require('./engine/win32roster').make());
     /* #570: and the win32 live-STATE source (the `capture-pane` analog). A win32
        pane has no screen; win32capture supplies `claude agents --json`'s per-session
-       status as the paneText the win32 arm of classify() reads (working/idle). Same
+       status, or for a streaming session (which lists none) the state its supervisor
+       reads off the agent's event stream (7c-5), as the paneText the win32 arm of
+       classify() reads (working/idle). Same
        platform-gate independence as the source above -- this is the coarse scrape
        equivalent; needs_you/blocked still come through the self-report path and
        reconcileReport, which outranks this. Platform-agnostic, unit-tested with
