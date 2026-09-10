@@ -18247,8 +18247,11 @@ async function worldAddSubmit() {
         ? 'Your Kosmos was created, but its agents could not be imported. You can add them from the new Kosmos.'
         : 'Your Kosmos was created' + (copied ? ' with ' + copied + (copied === 1 ? ' agent' : ' agents') : '')
           + ', but some agents could not be copied. You can add the rest from the new Kosmos.';
-      // The Kosmos exists, so re-submitting would duplicate the name -- leave Create disabled and
-      // let the person dismiss via Cancel; the alert (role=alert) announces what happened.
+      // Disable Create now so an immediate re-press cannot duplicate the Kosmos that was just
+      // created; the alert (role=alert) announces what happened and Cancel/backdrop/Escape dismiss.
+      // (Editing the name re-enables Create via the pre-existing name-input listener -- that is
+      // fine: a deliberate second create is a normal new-Kosmos action, and a same-name retry is
+      // caught by the !res.ok branch above, so this is not relied on as a hard guarantee.)
       go.disabled = true;
       return;
     }
