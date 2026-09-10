@@ -1,4 +1,4 @@
-# kosmos#2563 — "Add my agents from an existing Kosmos" at create (web UI slice)
+# kosmos#2563 -- "Add my agents from an existing Kosmos" at create (web UI slice)
 
 ## Definition of done (what is TRUE when finished)
 
@@ -22,7 +22,7 @@ gate chain are green; a screenshot of the create modal with the control is attac
 - This is an explicit opt-in selector, DISTINCT from the existing disk find-agents import
   (`/api/scan-import`, `#import-found`).
 
-## Endpoint contract (engine is a SEPARATE lane — build against this, stubbed/graceful)
+## Endpoint contract (engine is a SEPARATE lane -- build against this, stubbed/graceful)
 
 The engine half is routed to a board owner; the card carries the contract. This slice depends on:
 
@@ -41,39 +41,39 @@ So the UI wires up automatically when the engine lands; no coordination race eit
 
 ## Checklist
 
-- [ ] **1. Markup** — in `world-add-modal`, between the Name field and the actions row, add an
+- [ ] **1. Markup** -- in `world-add-modal`, between the Name field and the actions row, add an
       "Add my agents from" control: a labelled container `#world-add-import` (hidden by default) with a
       list holder `#world-add-import-list` and an empty/hint line. Use existing `.field`/`.tk-*` classes.
-- [ ] **2. JS render (self-contained)** — `worldImportRender(worlds, listEl, wrapEl)`: given an array,
-      build a checkbox per world (`name — N agents`, accessible label, focusable), or hide `wrapEl` when
+- [ ] **2. JS render (self-contained)** -- `worldImportRender(worlds, listEl, wrapEl)`: given an array,
+      build a checkbox per world (`name -- N agents`, accessible label, focusable), or hide `wrapEl` when
       the array is empty. MUST be self-contained (the node suite eval-extracts web/index.html functions;
-      an extracted fn that calls an out-of-scope helper throws ReferenceError — memory
+      an extracted fn that calls an out-of-scope helper throws ReferenceError -- memory
       `kosmos-extracted-painters-must-be-self-contained`). Build markup inline.
-- [ ] **3. JS fetch** — `worldImportFetch()`: `GET /api/worlds/list`, return `worlds` array on 200, `[]`
-      on any non-ok / parse error / network error (graceful — memory
+- [ ] **3. JS fetch** -- `worldImportFetch()`: `GET /api/worlds/list`, return `worlds` array on 200, `[]`
+      on any non-ok / parse error / network error (graceful -- memory
       `a-threshold-gated-display-hides-its-null-case`: the empty case is a real state, pin it).
-- [ ] **4. Wire open** — in `worldAddOpen()`, reset the control, then fetch + render (await, best-effort;
+- [ ] **4. Wire open** -- in `worldAddOpen()`, reset the control, then fetch + render (await, best-effort;
       a failed fetch just leaves the control hidden).
-- [ ] **5. Wire submit** — in `worldAddSubmit()`, gather checked world ids; include
+- [ ] **5. Wire submit** -- in `worldAddSubmit()`, gather checked world ids; include
       `importAgentsFrom: ids` in the POST body ONLY when non-empty (keep the no-selection payload
       byte-identical to today so existing create tests are unaffected).
-- [ ] **6. CSS** — minimal styling for `#world-add-import` reusing existing tokens; AA contrast.
-- [ ] **7. Node test** — `web.world-import-2563.test.js` (runtime-DOM, no jsdom — memory
+- [ ] **6. CSS** -- minimal styling for `#world-add-import` reusing existing tokens; AA contrast.
+- [ ] **7. Node test** -- `web.world-import-2563.test.js` (runtime-DOM, no jsdom -- memory
       `runtime-dom-test-pattern-no-jsdom`): (a) empty array -> wrap hidden; (b) populated -> one checkbox
       per world with name+count and an accessible label; (c) `worldAddSubmit` includes `importAgentsFrom`
       when boxes are checked and omits it when none. Declare any new module-scope global the extracted
       functions reference in each test's wrap (memory `a-new-global-breaks-eval-sliced-node-tests`).
-- [ ] **8. Browser-check** — `docs/browser-checks/render-world-import-2563.js`: open the create modal,
+- [ ] **8. Browser-check** -- `docs/browser-checks/render-world-import-2563.js`: open the create modal,
       assert the import control exists and shows the graceful-empty state on the served board (endpoint
       absent). Pin the specific control + a negative assertion it is not confused with the disk-import
       panel (memory `a-render-check-that-asserts-existence-passes-the-wrong-asset`). Bump BOTH
       `EXPECTED_SITES` and `EXPECTED_CATCH_SITES` in `browser-checks-reason-grep.test.js` (memory
       `kosmos-new-browser-check-count-bumps`).
-- [ ] **9. Gates** — `bash tools/run-tests.sh` (node) AND the browser-check shell gate slice, since local
+- [ ] **9. Gates** -- `bash tools/run-tests.sh` (node) AND the browser-check shell gate slice, since local
       run-tests is node-only (memory `kosmos-web-change-browser-check-gate-chain`). Assert the expected
       test count, not just exit 0.
 - [ ] **10. Screenshot** the create modal with the control (headed), attach to PR + Discord reply.
-- [ ] **11. `/challenge-loop`** to convergence (bound the loop; sweep on web/index.html — memory
+- [ ] **11. `/challenge-loop`** to convergence (bound the loop; sweep on web/index.html -- memory
       `bound-the-review-loop-before-it-starts`), then PR: reviewer `joshualeestone` only, squash, merge on
       green. Non-closing `Addresses #2563` (engine slice still open). No em dashes anywhere.
 
