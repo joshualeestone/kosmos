@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: frnav-2647
-diff_hash: 8e67c3f88910a8ffb0d60d606dc7c802f8463d7dd891041001917967ffa6e152
+diff_hash: 7608d15cd4460edeff6fd7d6bb4aae88d38f07e27578146c215794a0cd4a5531
 timestamp: 2026-09-10T16:47:37Z
 iterations: 5
 converged: true
@@ -54,6 +54,12 @@ the instruments and the prose around it.
   union computed token-wise (86 from main, including this author's own check from the merged
   #2615, plus this one) and the two counters by applying this card's CONTRIBUTION (+2 each) to
   main's new baseline, confirmed by RUNNING that test rather than by arithmetic.
+  ⚠️ REBASED THREE TIMES in all, hitting the same two wiring files each time, because every
+  browser-check card touches that runner loop and those counters. On the third, ONE counter
+  auto-merged cleanly and that was checked rather than trusted: main's own values were read
+  directly (89 and 58) to confirm the clean merge had not silently dropped main's contribution.
+  It had not: main's new check bumped only the catch counter, so the auto-merged 91 was right
+  and only the catch line needed resolving (58 + this card's 2 = 60).
   carried through to the SHELL gates rather than stopped at the node tally.
   Browser-check surface gate and bc-surface-map both **0 FAILED**.
 - `render-frnav-2647.js` under real Playwright: **exit 0.**
