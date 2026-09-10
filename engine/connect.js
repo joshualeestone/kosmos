@@ -1339,6 +1339,26 @@ async function start(opts) {
     if (!probe.ok || probe.dryRun) haveBinary = false;
   }
 
+  /* #1922 (RE-AUTH of a DEAD credential): start()'s deadCredential detection above is gated
+     `!reauth` (a reauth must never early-finish as connected, so that whole block is skipped for
+     it), which leaves `deadCredential` false for every reauth. But a reauth of a credential that
+     is DEAD at flow start is the SAME dead->live proof case as a present-but-dead first-run: if the
+     login lands and `claude auth login` then exits and closes the pane before the brief "Login
+     successful" screen is captured, the #1922 capture-fail rescue needs `deadCredential` to know a
+     later checkLive CONNECTED is a real NEW login and not the OLD credential. Compute it here for
+     the reauth path. A reauth of a STILL-LIVE credential leaves this false (checkLive CONNECTED at
+     start), so that case still falls to becomeStuck -- it cannot prove the new login landed vs.
+     reading the old live one (the iter-7 BLOCKER guard). The binary must be present for checkLive
+     to be authoritative; with none on disk the probe is UNKNOWN and we stay conservative (false).
+     This is the site that makes the rescue comment's "Josh's reauth-completes-but-not-seen symptom"
+     claim actually true -- without it, the reauth path that comment cites stays uncovered. Before
+     the driver claim below, so a concurrent start that claims during this await is caught by the
+     `if (driver) return state()` guard (deadCredential is a local, unused until the owner literal). */
+  if (reauth && haveBinary) {
+    const liveAtStart = await subscription.checkLive(configDir ? { configDir } : undefined);
+    if (liveAtStart.state === subscription.STATE.NONE) deadCredential = true;
+  }
+
   /**
    * 🛑 #1574: THE CONFIRM IS DECIDED HERE, IN THE SAME CALL THAT WOULD START THE
    * DOWNLOAD, BECAUSE ANYWHERE ELSE IS A RACE.
@@ -1933,8 +1953,18 @@ async function runFlow(owner, haveBinary) {
          exists and this live check is authoritative, so set it, or launchSignin below
          runs a bare `claude` that wedges in the "Not logged in" REPL. Safe after the
          await: launchSignin, the next call, opens with `if (driver !== owner) return`,
-         so a cancel/takeover during the checkLive above cannot act on this mutation. */
-      if (live.state === subscription.STATE.NONE) owner.needsLogin = true;
+         so a cancel/takeover during the checkLive above cannot act on this mutation.
+         🛑 BOTH FLAGS, NOT JUST needsLogin. `deadCredential` must be set here too, and
+         for the SAME reason start()'s site sets it (connect.js #1560 fall-through): it is
+         the proof the #1922 capture-fail rescue reads. This credential is provably dead at
+         this point (live NONE over a CONNECTED file), so a later checkLive CONNECTED after
+         the pane dies is a dead->live transition only a real login makes. Setting needsLogin
+         alone would launch the login correctly but then, if the "Login successful" screen
+         fell between ticks and the pane closed, the rescue's
+         (!needsLogin || sawLoginDone || deadCredential) would be (false||false||false) and
+         report "the sign-in window closed" over a login that landed -- the exact symptom the
+         PR exists to kill, on the no-binary-at-start path. */
+      if (live.state === subscription.STATE.NONE) { owner.needsLogin = true; owner.deadCredential = true; }
     }
   }
   await launchSignin(owner);

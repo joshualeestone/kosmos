@@ -1775,6 +1775,112 @@ driverTest('#1922: a re-auth on a still-live credential does NOT finish on a cap
   } finally { subscription.setRunner(null); }
 });
 
+// #1922 (reauth-on-DEAD, the complement of the still-live test above): a RE-AUTH of a
+// credential that is DEAD at flow start (checkLive NONE) is the same dead->live proof case as a
+// present-but-dead first-run. start()'s deadCredential detection is gated `!reauth`, so the reauth
+// path computes deadCredential in its own block; without that this reauth would false-STICK on a
+// capture-fail even though the login landed -- the exact "reauth-completes-but-not-seen" symptom
+// the #1922 rescue comment names. checkLive is NONE at start, flips to signed-in when the login
+// lands, then the pane dies before "Login successful" is captured: the rescue must finish CONNECTED
+// because a dead->live transition is proof only a real login makes.
+driverTest('#1922: a re-auth on a DEAD credential DOES finish on a capture failure (dead->live proves the login)', async () => {
+  const term = fakeTerminal();
+  let failCaptures = false;
+  const base = term.runner.bind(term);
+  connect.setRunner((file, args) => {
+    if (args[0] === 'capture-pane' && failCaptures) {
+      return { ok: false, stdout: '', stderr: "can't find pane: =kosmos-connect:" };
+    }
+    return base(file, args);
+  });
+  connect.setDryRun(false);
+  writeClaudeConfig(CONNECTED_CONFIG);
+  // DEAD at reauth start (live signed-out); flips to signed-in when the login lands.
+  let loggedIn = false;
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn }), err: null }));
+  try {
+    await connect.start({ reauth: true });
+    await until(() => String(connect.state().phase).startsWith('signin'), 5000);
+    // The login lands (dead -> live) and its process exits, closing the pane before the
+    // "Login successful" screen is captured.
+    loggedIn = true;
+    failCaptures = true;
+    await until(() => connect.state().phase === connect.PHASE.CONNECTED, 15000);
+    assert.equal(connect.state().phase, connect.PHASE.CONNECTED,
+      'a reauth of a DEAD credential whose pane died after the login landed must report connected '
+      + '(the dead->live transition proves it): ' + connect.state().because);
+  } finally { subscription.setRunner(null); }
+});
+
+// #1922 + #2645 (the no-binary-at-start dead-credential BLOCKER): the OTHER detection site.
+// A machine with NO claude binary yet AND a stranded present-but-dead credential (file CONNECTED,
+// live NONE) -- exactly the post-migration state the plan names -- makes start() leave needsLogin
+// false (its live check is UNKNOWN with no binary, not NONE), so the dead credential is caught only
+// by runFlow's POST-INSTALL re-check. That site must set BOTH needsLogin (launch the real login)
+// AND deadCredential (the proof the #1922 capture-fail rescue reads). If it set needsLogin alone, a
+// login that lands and whose pane closes before "Login successful" is captured would false-STICK:
+// (!needsLogin || sawLoginDone || deadCredential) = (false || false || false). Driven end to end
+// through a real (fixture) download+install so the post-install site is genuinely reached.
+test('#1922/#2645: a dead credential discovered AFTER an install still finishes a landed login on a capture failure', async (t) => {
+  connect.resetForTests();
+  clearClaudeConfig();
+  subscription.resetCache();
+  connect.setTickInterval(15);
+  connect.setUnknownGrace(300);
+  connect.setAbandonedSigninMs(15 * 60 * 1000);
+  const binary = crypto.randomBytes(64 * 1024);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, { version: '9.9.6', binary, checksum });
+  // No binary at start() -> start()'s live check is UNKNOWN (not NONE), so needsLogin stays false
+  // and the dead credential must be caught by runFlow's post-install re-check, the site under test.
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = nodePath.join(SANDBOX, 'no-such-claude-postinstall');
+  writeClaudeConfig(CONNECTED_CONFIG); // present-but-dead: file says CONNECTED, live says NONE (below)
+  const term = fakeTerminal();
+  let failCaptures = false;
+  const base = term.runner.bind(term);
+  connect.setRunner((file, args) => {
+    // The installer runs `<downloaded-binary> install`; place a runnable stub at the target bin
+    // path so the post-install "is anything runnable there?" verification passes and the flow
+    // proceeds to its post-install re-check (the site under test), then return ok.
+    if (args[0] === 'install') {
+      const bp = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+      fs.writeFileSync(bp, '#!/bin/sh\necho "9.9.6 (Claude Code)"\n');
+      fs.chmodSync(bp, 0o755);
+      return { ok: true, stdout: '' };
+    }
+    if (args[0] === 'capture-pane' && failCaptures) {
+      return { ok: false, stdout: '', stderr: "can't find pane: =kosmos-connect:" };
+    }
+    return base(file, args);
+  });
+  connect.setDryRun(false);
+  let loggedIn = false; // DEAD across start()+install; the post-install checkLive must read NONE
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn }), err: null }));
+  t.after(async () => {
+    await connect.cancel().catch(() => {});
+    connect.resetForTests();
+    connect.setRunner(null);
+    connect.setTickInterval(700);
+    connect.setUnknownGrace(10000);
+    subscription.setRunner(null);
+    delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+    delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+    clearClaudeConfig();
+    subscription.resetCache();
+  });
+
+  await connect.start();
+  // Install + the post-install dead-credential detection, then launchSignin.
+  await until(() => String(connect.state().phase).startsWith('signin'), 15000);
+  // The login lands (dead -> live) and `claude auth login` exits, closing the pane before capture.
+  loggedIn = true;
+  failCaptures = true;
+  await until(() => connect.state().phase === connect.PHASE.CONNECTED, 15000);
+  assert.equal(connect.state().phase, connect.PHASE.CONNECTED,
+    'a dead credential discovered AFTER the install must set deadCredential so a landed login whose '
+    + 'pane closed reports connected, not "window closed": ' + connect.state().because);
+});
+
 driverTest('a code is refused while nothing is asking for one', async () => {
   const refusedCold = connect.submitCode('abCD1234#efGH5678');
   assert.equal(refusedCold.ok, false);
