@@ -480,22 +480,29 @@ test('#570 7c-2 THE TASK SUPERVISES THE STREAMING AGENT -- the detached one cann
   sup.setLiveReader(() => []);
   const cwd = workdir('entry');
   const handle = sup.main(['entry', cwd, '-', '-', 'claude']);
-  /* 7c-5: and main() is the ONE production wiring of the state publisher. Without
-     it every Windows card reads UNKNOWN while every other test stays green, so the
-     file main()'s agent gets is checked here, before the stop below clears it. */
-  assert.equal(require('./win32streamstate').stateFor('entry', { sessionId: handle.sessionId, pid: 4242 }), 'idle',
-    'main() publishes its agent\'s state from the moment it starts');
+  /* 🛑 CLEANUP RUNS HOWEVER THE ASSERTIONS GO. main() opens the agent's pipe
+     server, and a failed assertion that skipped handle.stop() left it listening,
+     so the test process never exited: a hang where a red belonged. Found by this
+     file's own control run for the 7c-5 assertion below. */
+  try {
+    /* 7c-5: main() is the ONE production wiring of the state publisher. Without it
+       every Windows card reads UNKNOWN while every other test stays green, so the
+       file main()'s agent gets is checked here, before the stop clears it. */
+    assert.equal(require('./win32streamstate').stateFor('entry', { sessionId: handle.sessionId, pid: 4242 }), 'idle',
+      'main() publishes its agent\'s state from the moment it starts');
 
-  assert.equal(spawned.length, 1, 'main() started exactly one agent');
-  assert.ok(spawned[0].argv.includes('--input-format'), 'and it is a STREAMING session');
-  assert.ok(spawned[0].argv.includes('stream-json'));
-  assert.equal(typeof handle.send, 'function', 'so the supervisor can be told things');
-  /* ⚠️ THE LOAD-BEARING NEGATIVE. The detached launch goes through `cmd /c start`;
-     if main() ever goes back to it, this is the line that says so. */
-  assert.ok(!/cmd\.exe$/i.test(spawned[0].bin), 'a `cmd /c start` here is the detached launch coming back');
-  handle.stop();
-  launcher.setSpawn(null);
-  sup.setLiveReader(null);
+    assert.equal(spawned.length, 1, 'main() started exactly one agent');
+    assert.ok(spawned[0].argv.includes('--input-format'), 'and it is a STREAMING session');
+    assert.ok(spawned[0].argv.includes('stream-json'));
+    assert.equal(typeof handle.send, 'function', 'so the supervisor can be told things');
+    /* ⚠️ THE LOAD-BEARING NEGATIVE. The detached launch goes through `cmd /c start`;
+       if main() ever goes back to it, this is the line that says so. */
+    assert.ok(!/cmd\.exe$/i.test(spawned[0].bin), 'a `cmd /c start` here is the detached launch coming back');
+  } finally {
+    handle.stop();
+    launcher.setSpawn(null);
+    sup.setLiveReader(null);
+  }
 });
 
 test('#570 7c-2 a session it does NOT hold, under its own name, is left alone', () => {
