@@ -93,11 +93,21 @@ branch I made about another file and got wrong.
 
 ## Two things this makes slightly worse, recorded rather than hidden
 
-- **Inside a SINGLE-provider group the qualifier repeats the group head.** Two OpenAI accounts on
-  one email now read "(main)" and "(OpenAI)" under a box already headed "OpenAI", where the second
-  previously showed its path and at least said which account it was. It is still the better
-  trade: the accessible name has no group head to lean on, and that is the surface a screen-reader
-  user actually gets.
+- **The cross-provider pair's VISIBLE tag repeats the group head.** Settings renders one
+  `<section>` per provider with a head (`accountGroupsHtml`), so "(OpenAI)" sits inside a box
+  already labelled "OpenAI". It is still the right trade, because the per-control ACCESSIBLE name
+  has no head to lean on and that is the surface a screen-reader user actually gets.
+
+  🛑 **AN EARLIER VERSION OF THIS BULLET DESCRIBED SOMETHING THE CODE CANNOT DO, and it survived
+  in this file for two iterations.** It said two OpenAI accounts on one email "now read (main) and
+  (OpenAI)". They do not: the `providersHere.size > 1` scoping added one section above makes the
+  provider step unreachable in a single-provider group. Measured on exactly that fixture:
+  `["main","two"]` when the second is labelled and `["main","/h/.codex-x"]` when it is not, never
+  `"OpenAI"`. A reviewer swept 12,544 fixture combinations against origin/main's helper and found
+  ZERO cases putting a provider name into a single-provider group.
+  ⇒ **I wrote the downside before adding the scoping, then added the scoping and never went back
+  to the downside it eliminated.** That is the repo's convention 5 in prose form, in the one file
+  the next reader would consult to learn whether the scoping works.
 - **The cross-provider pair mixes two axes**: "(main)" says which is original, "(OpenAI)" says
   which provider. Somebody hearing "(main)" cannot tell it is the Claude one. "(Claude)" and
   "(OpenAI)" would be more parallel, at the cost of dropping the reserved `main` that the rest of
@@ -133,8 +143,11 @@ value, so it will fail loudly rather than drift.
   `dir` already satisfied, so it passed throughout the defect. Distinctness and readability are
   separate properties and only one was pinned.
   ⚠️ And the pre-existing arm for the `label: 'main'` shape uses a fixture with **no `provider`
-  field**, which `/api/accounts` never emits, so it exercised only the unknown-provider path and
-  passed unchanged through this card. The reachable version is new.
+  field**, which `/api/accounts` never emits, so it passed unchanged through this card. The
+  reachable version is new.
+  📌 It did NOT exercise the unknown-provider path, which an earlier version of this sentence
+  claimed: with no `provider` on either row `providersHere` is `{''}`, so the provider step is
+  never reached at all.
 - `docs/browser-checks/render-account-dup-reauth-2584.js`, two new arms on the RENDERED
   aria-labels: neither may contain a path separator, and one must read "(OpenAI)". Measured after:
   `["Sign in again as agent@example.com (main)","Sign in again as agent@example.com (OpenAI)"]`.

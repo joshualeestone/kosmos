@@ -788,8 +788,12 @@ test('#2612: a case-variant of the reserved word cannot sound like it', () => {
 
    ⚠️ The pre-existing arm for this shape uses a fixture with NO `provider` field,
    which `/api/accounts` never emits (server.js sets `provider:'anthropic'` on
-   every Claude row), so it only ever exercised the unknown-provider path and
-   passed unchanged through this card. This is the reachable version.
+   every Claude row), so it passed unchanged through this card. This is the
+   reachable version.
+   📌 IT DID NOT EXERCISE THE UNKNOWN-PROVIDER PATH, which an earlier version of
+   this comment claimed. With no `provider` on either row `providersHere` is
+   `{''}`, so `providerDistinguishes` is false and the provider ternary is never
+   reached at all. The conclusion held; the named mechanism was wrong.
 
    📌 AND THE ANSWER IS THE DIR, NOT THE PROVIDER, because both rows are Claude:
    the provider distinguishes nothing inside a single-provider group, so the
