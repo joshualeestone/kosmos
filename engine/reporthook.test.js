@@ -255,11 +255,21 @@ test('#1467 CONTROL: somebody else hook in the same event survives repointing', 
 const WIN_NODE = 'C:\\Program Files\\Kosmos\\runtime\\node.exe';
 const WIN_SCRIPT = 'C:\\Program Files\\Kosmos\\app\\engine\\kosmos-report-hook.js';
 
-test('#570 entryFor: win32 runs the node entry through node.exe; darwin stays bash', () => {
+test('#570 entryFor: win32 is EXEC form (command=node.exe, args=[script], no shell); darwin stays bash shell form', () => {
   const win = reporthook.entryFor(WIN_SCRIPT, { platform: 'win32', node: WIN_NODE });
-  assert.equal(win.hooks[0].command, '"' + WIN_NODE + '" "' + WIN_SCRIPT + '"');
+  // Exec form: command is the bare node executable, the script is a verbatim arg,
+  // and NO shell string is built -- this is what makes the win32 hook fire the
+  // same whether Git Bash is present or PowerShell is the fallback (#570).
+  assert.equal(win.hooks[0].command, WIN_NODE, 'win32 command must be the bare node executable');
+  assert.deepEqual(win.hooks[0].args, [WIN_SCRIPT], 'win32 must pass the script as a verbatim arg');
+  // Guard against a silent regression to shell form: the command must NOT embed
+  // the script path, and must NOT be a leading-quoted "<node>" "<script>" string
+  // (the node path itself may legitimately contain spaces, e.g. Program Files).
+  assert.ok(!win.hooks[0].command.includes(WIN_SCRIPT), 'win32 command must not embed the script (that is the shell form)');
+  assert.ok(!win.hooks[0].command.startsWith('"'), 'win32 command must not be a quoted shell-form string');
   const mac = reporthook.entryFor('/app/engine/kosmos-report-hook.sh', { platform: 'darwin' });
   assert.equal(mac.hooks[0].command, 'bash "/app/engine/kosmos-report-hook.sh"');
+  assert.equal(mac.hooks[0].args, undefined, 'posix stays shell form (no args)');
 });
 
 test('#570 hookScriptPath: win32 returns the .js entry beside this module; posix returns the .sh', () => {
@@ -275,20 +285,26 @@ test('#570 unsafeForCommand: backslash is a normal separator on win32 but danger
   // The whole reason the guard is platform-specific: a Windows path is all backslashes.
   assert.equal(reporthook.unsafeForCommand(WIN_SCRIPT, 'win32'), false, 'a normal Windows path was refused');
   assert.equal(reporthook.unsafeForCommand('C:\\a\\b.js', 'linux'), true, 'sh must refuse a backslash');
-  // win32 is the conservative superset of cmd.exe (" and %) AND PowerShell (` and $):
+  // The win32 set (["%$`\r\n]) is kept UNCHANGED after the #570 exec-form change.
+  // In exec form the path is passed verbatim as an argv element with no shell, so
+  // these refusals are defensive/over-refusal (a rare real path with one of these
+  // degrades to scraping) rather than load-bearing injection defense. Pinned so a
+  // future edit that relaxes the win32 set is a deliberate, reviewed change.
   assert.equal(reporthook.unsafeForCommand('C:\\a"b.js', 'win32'), true);
   assert.equal(reporthook.unsafeForCommand('C:\\a%PATH%b.js', 'win32'), true);
-  assert.equal(reporthook.unsafeForCommand('C:\\a`b.js', 'win32'), true, 'PowerShell backtick must be refused pending the real-win32 shell');
-  assert.equal(reporthook.unsafeForCommand('C:\\a$env.js', 'win32'), true, 'PowerShell $ must be refused pending the real-win32 shell');
+  assert.equal(reporthook.unsafeForCommand('C:\\a`b.js', 'win32'), true, 'backtick stays refused (over-refusal, safe direction)');
+  assert.equal(reporthook.unsafeForCommand('C:\\a$env.js', 'win32'), true, '$ stays refused (over-refusal, safe direction)');
   assert.equal(reporthook.unsafeForCommand('/a/b$x.sh', 'linux'), true);
   assert.equal(reporthook.unsafeForCommand('/a/b.sh', 'linux'), false);
-  // cmd.exe/PowerShell metacharacters that ARE quote-protected must NOT be
-  // refused -- especially `()`, since C:\Program Files (x86)\ is a normal path
-  // and refusing it would break the common case.
+  // Shell metacharacters that the win32 set does NOT refuse must stay allowed --
+  // especially `()`, since C:\Program Files (x86)\ is a normal path and refusing
+  // it would break the common case. In exec form these are inert because no shell
+  // parses the arg at all (not because quotes protect them, which was the old
+  // shell-form framing); the point that survives is that they must not be refused.
   assert.equal(reporthook.unsafeForCommand('C:\\Program Files (x86)\\Kosmos\\app\\engine\\kosmos-report-hook.js', 'win32'), false,
     'the Program Files (x86) path must be allowed');
   assert.equal(reporthook.unsafeForCommand('C:\\a&b^c|d<e>f.js', 'win32'), false,
-    'quote-protected cmd.exe metacharacters must not be refused');
+    'shell metacharacters outside the win32 set must not be refused');
   // A raw CR/LF is refused on BOTH platforms (line-oriented parsing can break out
   // of even a quoted argument); no legitimate hook path contains one.
   assert.equal(reporthook.unsafeForCommand('C:\\a\nb.js', 'win32'), true, 'a newline must be refused on win32');
@@ -296,14 +312,95 @@ test('#570 unsafeForCommand: backslash is a normal separator on win32 but danger
   assert.equal(reporthook.unsafeForCommand(null, 'win32'), true, 'a non-string is unsafe, not a throw');
 });
 
-test('#570 ensureWired win32: all seven events wired with the node.exe command', () => {
+test('#570 ensureWired win32: all seven events wired with the node.exe EXEC-form entry', () => {
   const p = fresh();
   const r = reporthook.ensureWired(p, WIN_SCRIPT, { platform: 'win32', node: WIN_NODE });
   assert.equal(r.wired, true);
   const data = readJson(p);
   for (const event of reporthook.HOOK_EVENTS) {
     assert.equal(oursIn(data, event), 1, 'event ' + event + ' not wired once');
-    assert.equal(data.hooks[event][0].hooks[0].command, '"' + WIN_NODE + '" "' + WIN_SCRIPT + '"');
+    assert.equal(data.hooks[event][0].hooks[0].command, WIN_NODE, 'event ' + event + ' command must be bare node.exe');
+    assert.deepEqual(data.hooks[event][0].hooks[0].args, [WIN_SCRIPT], 'event ' + event + ' args must be [script]');
+  }
+  // Idempotent: a second run changes nothing.
+  const r2 = reporthook.ensureWired(p, WIN_SCRIPT, { platform: 'win32', node: WIN_NODE });
+  assert.equal(r2.wired, true);
+  assert.equal(r2.changed, false, 'a second win32 wiring run must be a no-op');
+});
+
+test('#570 ensureWired win32 migration: an OLD shell-form entry is repointed to exec form, not doubled', () => {
+  // End-to-end migration: a machine carrying the pre-exec-form win32 hook must be
+  // recognized as ours and REPLACED with exec form, leaving exactly one entry per
+  // event. NOTE this arm does NOT prove the full-shape sameHook: the old shell-form
+  // command differs from the bare-node target, so it repoints under a command-only
+  // check too. The sameHook args-comparison is pinned by the separate stale-exec-form
+  // non-vacuity test below; entryIsOurs(args) recognition is pinned by the MARKER test.
+  const oldShellForm = '"' + WIN_NODE + '" "' + WIN_SCRIPT + '"';
+  const data = { hooks: {} };
+  for (const e of reporthook.HOOK_EVENTS) {
+    data.hooks[e] = [{ matcher: '', hooks: [{ type: 'command', command: oldShellForm, timeout: 15 }] }];
+  }
+  const p = fresh();
+  fs.writeFileSync(p, JSON.stringify(data));
+  const r = reporthook.ensureWired(p, WIN_SCRIPT, { platform: 'win32', node: WIN_NODE });
+  assert.equal(r.wired, true);
+  assert.equal(r.changed, true, 'the old shell-form entry must be repointed (changed)');
+  const out = readJson(p);
+  for (const e of reporthook.HOOK_EVENTS) {
+    assert.equal(oursIn(out, e), 1, 'event ' + e + ' must have exactly one of ours (repointed, not doubled)');
+    assert.equal(out.hooks[e][0].hooks[0].command, WIN_NODE, 'event ' + e + ' was not repointed to exec form');
+    assert.deepEqual(out.hooks[e][0].hooks[0].args, [WIN_SCRIPT], 'event ' + e + ' exec-form args missing after repoint');
+  }
+});
+
+test('#570 CONTROL: a foreign win32 exec-form hook in the same event survives repointing', () => {
+  // The win32 analog of the #1467 CONTROL. A bystander that SHARES our node.exe
+  // command but is NOT ours (no marker in command or args) must survive when our
+  // OLD shell-form entry in the same event is repointed to exec form. Without
+  // this, the entryIsOurs(args)/full-shape sameHook coupling could let "replace
+  // our entries" quietly become "replace the list" on win32 -- and because the
+  // foreign entry shares our command string, a command-only identity check would
+  // be especially prone to mistaking it for ours.
+  const p = fresh();
+  const theirs = { matcher: '', hooks: [{ type: 'command', command: WIN_NODE, args: ['C:\\Somebody\\else\\thing.js'] }] };
+  const oursOldShell = { matcher: '', hooks: [{ type: 'command', command: '"' + WIN_NODE + '" "' + WIN_SCRIPT + '"', timeout: 15 }] };
+  fs.writeFileSync(p, JSON.stringify({ hooks: { SessionStart: [theirs, oursOldShell] } }));
+  reporthook.ensureWired(p, WIN_SCRIPT, { platform: 'win32', node: WIN_NODE });
+  const entries = readJson(p).hooks.SessionStart;
+  // The foreign exec-form bystander is untouched.
+  assert.equal(entries.filter((e) => e.hooks[0].args && e.hooks[0].args[0] === 'C:\\Somebody\\else\\thing.js').length, 1,
+    'a foreign win32 exec-form hook was destroyed by repointing');
+  // Ours is present exactly once, now in exec form (repointed, not doubled).
+  assert.equal(entries.filter(reporthook.entryIsOurs).length, 1, 'our win32 hook must be present exactly once after repoint');
+  const ours = entries.filter(reporthook.entryIsOurs)[0];
+  assert.equal(ours.hooks[0].command, WIN_NODE);
+  assert.deepEqual(ours.hooks[0].args, [WIN_SCRIPT]);
+});
+
+test('#570 sameHook non-vacuity: a STALE win32 exec-form entry (old args) is repointed, not skipped as already-correct', () => {
+  // The non-vacuity proof for the FULL-SHAPE sameHook (command AND args). The
+  // entry is ALREADY exec form with the CURRENT node.exe as command, but args[0]
+  // is an OLD script copy still carrying the marker (so entryIsOurs matches it).
+  // A command-only "already correct" check (h.command === want.command) would see
+  // the matching command, skip it, and leave the stale args -- the #1467 defect in
+  // exec-form clothing. Reverting sameHook to command-only makes THIS test fail
+  // (the migration test does NOT, because an old shell-form command already differs
+  // from the bare-node target and repoints under command-only too).
+  const staleScript = 'C:\\Program Files\\Kosmos\\OLD\\app\\engine\\kosmos-report-hook.js';
+  assert.ok(staleScript.includes('kosmos-report-hook'), 'precondition: the stale args path must carry the marker so entryIsOurs matches it');
+  const data = { hooks: {} };
+  for (const e of reporthook.HOOK_EVENTS) {
+    data.hooks[e] = [{ matcher: '', hooks: [{ type: 'command', command: WIN_NODE, args: [staleScript], timeout: 15 }] }];
+  }
+  const p = fresh();
+  fs.writeFileSync(p, JSON.stringify(data));
+  const r = reporthook.ensureWired(p, WIN_SCRIPT, { platform: 'win32', node: WIN_NODE });
+  assert.equal(r.wired, true);
+  assert.equal(r.changed, true, 'a stale exec-form entry (old args) must be repointed (changed)');
+  const out = readJson(p);
+  for (const e of reporthook.HOOK_EVENTS) {
+    assert.equal(oursIn(out, e), 1, 'event ' + e + ' must have exactly one of ours (repointed, not doubled)');
+    assert.deepEqual(out.hooks[e][0].hooks[0].args, [WIN_SCRIPT], 'event ' + e + ' stale args were not repointed to the current script');
   }
 });
 
@@ -315,19 +412,28 @@ test('#570 ensureWired win32 guard: a node path with a double-quote is refused, 
   assert.equal(ok.wired, true, 'a normal backslash path was wrongly refused');
 });
 
-test('#570 MARKER stem: a widened marker recognises BOTH the .sh and the .js command as ours', () => {
-  // Back-compat: an already-wired bash entry (the pre-#570 shape) is still ours.
+test('#570 MARKER: entryIsOurs recognises the posix command, the OLD win32 shell form, and the exec-form args', () => {
+  // Back-compat: an already-wired posix bash entry (marker in the command) is ours.
   const shEntry = { matcher: '', hooks: [{ type: 'command', command: 'bash "/app/bin/kosmos-report-hook.sh"', timeout: 15 }] };
+  // The OLD win32 shell form carried the marker in the command string too -- still
+  // ours, so it gets repointed to exec form rather than doubled.
+  const oldWinShell = { matcher: '', hooks: [{ type: 'command', command: '"' + WIN_NODE + '" "' + WIN_SCRIPT + '"', timeout: 15 }] };
+  // The #570 exec form carries the marker in args[0], NOT the command (which is
+  // the bare node.exe) -- entryIsOurs must find it there.
   const jsEntry = reporthook.entryFor(WIN_SCRIPT, { platform: 'win32', node: WIN_NODE });
-  assert.equal(reporthook.entryIsOurs(shEntry), true, 'the widened marker lost the .sh entry');
-  assert.equal(reporthook.entryIsOurs(jsEntry), true, 'the widened marker does not match the .js entry');
-  // A truly foreign hook is still not ours.
+  assert.ok(!jsEntry.hooks[0].command.includes('kosmos-report-hook'), 'precondition: exec-form command is the bare node, no marker');
+  assert.equal(reporthook.entryIsOurs(shEntry), true, 'the marker lost the posix .sh entry');
+  assert.equal(reporthook.entryIsOurs(oldWinShell), true, 'the marker lost the OLD win32 shell-form entry (breaks migration)');
+  assert.equal(reporthook.entryIsOurs(jsEntry), true, 'the marker does not match the exec-form entry via args');
+  // A truly foreign hook is still not ours (neither command nor args carry the stem).
   assert.equal(reporthook.entryIsOurs({ hooks: [{ command: 'bash "/somebody/else.sh"' }] }), false);
+  assert.equal(reporthook.entryIsOurs({ hooks: [{ command: 'node', args: ['/somebody/else.js'] }] }), false);
 });
 
 test('#570 + #1582: an ephemeral win32 NODE path into a durable settings file is refused', () => {
-  // The win32 command embeds node too, so a durable settings.json pointing at a
-  // cut-sandbox runtime/node.exe is the same #1582 defect as an ephemeral script.
+  // The win32 exec-form entry carries node too (as the command), so a durable
+  // settings.json pointing at a cut-sandbox runtime/node.exe is the same #1582
+  // defect as an ephemeral script.
   const ephemeralNode = path.join(RESOLVED_TMP, 'kosmos-cut-abc', 'runtime', 'node.exe');
   const r = reporthook.ensureWired(DURABLE_SETTINGS, WIN_SCRIPT, { platform: 'win32', node: ephemeralNode });
   assert.equal(r.wired, false, 'an ephemeral node path into a durable settings file must be refused');
