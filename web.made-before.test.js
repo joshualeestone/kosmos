@@ -96,7 +96,7 @@ test('the picker and the explainer both name the way in, and only for the never-
      on text UNIQUE to its surface: the first version of the explainer pin
      matched the picker's sentence too, so deleting the explainer's path
      left it green while its failure message named the wrong survivor. */
-  assert.match(PAGE, /Made before Kosmos recorded how it starts, so there is no launch file to change\. /,
+  assert.match(PAGE, /Made before Kosmos recorded how it starts, so its model cannot change here\. /,
     'the picker refusal no longer names the state');
   assert.match(PAGE, /add it from Found agents in Settings to bring it in/,
     'the picker refusal no longer names the way in');
@@ -106,7 +106,7 @@ test('the picker and the explainer both name the way in, and only for the never-
     'the runs-on explainer no longer names the migration path for a running agent');
   assert.match(PAGE, /To bring it in: add it from Found agents in Settings/,
     'the runs-on explainer no longer has the stopped wording, so a stopped agent is told to stop');
-  assert.match(PAGE, /will not write a launch file while it runs some other way/,
+  assert.match(PAGE, /will not record how it starts while it runs some other way/,
     'the running-state reason (the #362 gate) is gone');
   /* The explainer element exists and starts hidden, so every OTHER agent
      shows nothing rather than a stale sentence. */
@@ -116,14 +116,14 @@ test('the picker and the explainer both name the way in, and only for the never-
      the only branch that had zero pins until this block. The Found path is
      not claimed (that list excludes a recorded folder), the reason no path
      is offered is stated, and no tracker number leaks into user copy. */
-  assert.match(PAGE, /Kosmos records where this agent lives but has no launch file for it/,
+  assert.match(PAGE, /Kosmos records where this agent lives but did not record how it starts/,
     'the recorded-folder state lost its sentence');
   assert.match(PAGE, /, so it will not start on its own\./,
     'the stopped recorded-folder arm lost its consequence clause');
   /* BOTH surfaces carry this sentence, so the count is pinned at two:
      deleting it from either one alone must fail, not hide behind the
      other (the same both-surfaces trap the preamble above records). */
-  assert.equal((PAGE.match(/There is no control here that re-records one yet\./g) || []).length, 2,
+  assert.equal((PAGE.match(/There is no control here to re-record that yet\./g) || []).length, 2,
     'a surface lost the stated reason no path is offered, which reopens the 149 done-when');
   /* Scoped to the two assignment regions: a page-wide quoted-string sweep
      cannot tell copy from comments (apostrophes in prose make the quotes
@@ -150,7 +150,7 @@ test('the picker and the explainer both name the way in, and only for the never-
       'a tracker number leaked into the ' + label + ' user copy');
     /* Surface-aware: the count-of-two above cannot tell WHICH surfaces
        hold the copies; each region must hold its own. */
-    assert.match(region, /There is no control here that re-records one yet\./,
+    assert.match(region, /There is no control here to re-record that yet\./,
       'the ' + label + ' lost its stated reason while the global count stayed at two');
   }
 
