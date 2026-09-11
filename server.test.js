@@ -12193,6 +12193,40 @@ test('#2811: a card with NO runner marker falls back to the launch job, not to t
   }
 });
 
+test('#2811: account-status does not run a CLAUDE auth probe against a codex home', async () => {
+  /**
+   * 🛑 THE HALF THE PROVIDER GATE DOES NOT REACH. A codex agent on a NAMED
+   * OpenAI account has a `configDir` (its CODEX_HOME), so it arrives with a row
+   * and the `!account` guard does not catch it. `subscription.checkLive` runs
+   * `claude auth status`, which against a codex home returns NONE: a confident
+   * `connected: false` and a remedy telling the person to re-authenticate, about
+   * an agent that was never signed out of anything.
+   */
+  const create = require('./engine/create');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('namedcodex', { state: 'idle' })]);
+    fs.writeFileSync(
+      create.plistPath('namedcodex'),
+      create.plistFor('namedcodex', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, '/Users/x/.codex-work2', 'codex'),
+      'utf8',
+    );
+    assert.equal(create.readJob('namedcodex').configDir, '/Users/x/.codex-work2',
+      'the fixture has no account dir, so it is not the named-account shape this arm is about');
+
+    const r = await req('/api/agent/namedcodex/account-status');
+    assert.equal(r.status, 200);
+    const out = JSON.parse(r.body);
+    assert.equal(out.connected, null,
+      'a codex agent was reported as not connected, off a Claude auth probe against its codex home');
+    assert.notEqual(out.state, 'none', 'the Claude probe still ran and answered NONE');
+    assert.match(out.because, /does not run on Claude/);
+  } finally {
+    try { fs.unlinkSync(create.plistPath('namedcodex')); } catch { /* may not have been written */ }
+    fleet.restore();
+  }
+});
+
 test('#2811: a DEFAULT-account Codex agent is not handed the operator Claude account', () => {
   /**
    * 🛑 THE CARD'S OWN DEFECT, IN THE BRANCH I EXEMPTED BY NAME. A default-account
@@ -12381,6 +12415,53 @@ test('#2811: a LIVE claude process beats a stale codex marker, and keeps its mod
   }
 });
 
+test('#2811: an UNRECORDED runner marker does not read as claude when the job says codex', () => {
+  /**
+   * 🛑 THE MARKER'S `'claude'` IS A DEFAULT, NOT A CLAIM. `status.js:6421`
+   * normalises the pane marker as `pane.runner === 'codex' ? 'codex' : 'claude'`,
+   * so an agent whose `@kosmos_runner` was never recorded is indistinguishable
+   * from one recorded as claude. `bin/agent-supervisor.sh` says that failure is
+   * real: "could not record $SESSION's runner -- the board will read it as
+   * claude".
+   *
+   * With a failed live read that agent resolved to claude, took the stale Claude
+   * transcript model and was never told it is a Codex agent: this card's own
+   * defect, with the definitive plist in hand and never opened.
+   */
+  const { whoamiFor } = require('./server.js');
+  const create = require('./engine/create');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('lostmarker', { state: 'idle' })]);
+    const card = board.agents.find((a) => a && a.name === 'lostmarker');
+    assert.equal(card.runner, 'claude',
+      'the fixture card does not carry the DEFAULTED marker, so there is nothing to distinguish');
+    seedTranscript('lostmarker', 'claude-opus-5');
+
+    /* CONTROL FIRST: with no launch job, the marker's claude stands and the
+       record answers, so the arm below cannot pass for lack of a transcript. */
+    const before = whoamiFor(card, [], { ok: false, because: 'no pane' });
+    assert.equal(before.resolvedRunner, 'claude');
+    assert.equal(before.model.id, 'claude-opus-5',
+      'the record answered nothing, so the arm below is vacuous');
+
+    /* Now a REAL codex launch job. The plist is definitive; the marker is not. */
+    fs.writeFileSync(
+      create.plistPath('lostmarker'),
+      create.plistFor('lostmarker', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, '/Users/x/.codex', 'codex'),
+      'utf8',
+    );
+    const after = whoamiFor(card, [], { ok: false, because: 'no pane' });
+    assert.equal(after.resolvedRunner, 'codex',
+      'a defaulted claude marker outranked a launch job that says codex');
+    assert.equal(after.model, null,
+      'the Codex agent was handed its old Claude transcript model');
+  } finally {
+    try { fs.unlinkSync(create.plistPath('lostmarker')); } catch { /* may not have been written */ }
+    fleet.restore();
+  }
+});
+
 test('#2811: a Codex agent with NO live read is still told it is a Codex agent', () => {
   /* 🛑 THE SENTENCE USED TO ASK THE LIVE READER ONLY, so a paneless, crashed or
      win32 Codex agent read "an account we cannot identify (...)" with the word
@@ -12485,6 +12566,40 @@ test('#2811 CONTROL: a CLAUDE live read still gets a real isDefault boolean, and
       'the claude path no longer gets the accounts engine answer');
     assert.strictEqual(out.account.isDefault, false,
       'and that answer is a real boolean, not null');
+  } finally {
+    server.setLiveReader(null);
+    messagesEngine.setRunner(null);
+    fleet.restore();
+  }
+});
+
+test('#2811: the wire runner is armed by ok === TRUE, not by a truthy ok', async () => {
+  /* 🔑 THE SAME ARM THIS FILE ALREADY CARRIES FOR THE ACCOUNT FIELD (#1409), for
+     the same stated reason: `setLiveReader` accepts any function without
+     shape-checking its return, so the day a fourth producer hands back a truthy
+     non-`true` ok, `=== true` becomes load-bearing SILENTLY. A reviewer mutated
+     it to `(live && live.runner)` and nothing failed, which makes it an unarmed
+     guard rather than a defect. This arms it.
+     ⚠️ Bounded honestly: not a live defect today. `engine/runningas.js` returns
+     `ok:` as a strict boolean at every site, so nothing in the product can
+     currently hand this a truthy non-`true`. */
+  const messagesEngine = require('./engine/messages');
+  const server = require('./server.js');
+  const board = fleet.install([fleet.agent('okworker', { state: 'idle' })]);
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'okworker-discord' }));
+    server.setLiveReader(() => ({
+      ok: 'yes', account: null, organization: null, model: null,
+      configDir: '/Users/x/.codex', runner: 'codex',
+    }));
+    const r = await req('/api/whoami', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from_pane: '%7' }),
+    });
+    const out = JSON.parse(r.body);
+    assert.strictEqual(out.runner, null,
+      'a truthy non-true ok armed the runner field, so an unverified live shape reaches the wire');
   } finally {
     server.setLiveReader(null);
     messagesEngine.setRunner(null);
