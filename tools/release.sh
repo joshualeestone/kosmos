@@ -62,15 +62,53 @@ _CUT_DONE_WRITTEN=0
 # `step` replaces the bare `echo` on each phase header: same line on screen,
 # and the last one reached is what the completion line reports.
 _STEP="before step 1"
+# Per-step wall-time, so a cut SELF-REPORTS where its minutes go (the serial
+# suite/render/build were tuned by guessing before this). step() runs at each phase
+# header, so the moment a new step begins is also the moment the previous one ended;
+# emit that duration here and let cut_record_done emit the last step's plus the total.
+# 🛑 MEASUREMENT ONLY, AND FAIL-SAFE BY CONSTRUCTION. A clock that cannot be read
+# leaves _STEP_START empty, and every consumer below returns before it can fault, so a
+# broken `date` NEVER breaks a step, the machine claim, or the cut. The emitted lines
+# are prefixed "   (step wall-time" so no existing log parser (which keys on "== ",
+# CUT_EXIT, duration_ms, PASS/FAIL/✖) can match them.
+_STEP_START=""
+_step_now() { date +%s 2>/dev/null; }
+_CUT_START=$(_step_now)
+_step_emit_duration() {
+  # Prints "<label>: <n>s" for the step that just ended. Silent unless both the start
+  # stamp and a fresh stamp are readable AND both are pure integers (so the $(( ))
+  # below can never fault on garbage).
+  local _end
+  [ -n "$_STEP_START" ] || return 0
+  _end=$(_step_now); [ -n "$_end" ] || return 0
+  case "$_STEP_START" in *[!0-9]*|'') return 0 ;; esac
+  case "$_end" in *[!0-9]*|'') return 0 ;; esac
+  echo "   (step wall-time -- ${1:-unknown}: $((_end - _STEP_START))s)"
+}
 # #1962: each phase also RENEWS the machine claim, so a healthy cut of any length
 # keeps the box reserved (no single step approaches the window) while a genuinely
 # stuck step lets the claim lapse and frees the fleet. Guarded so an exit before
 # cut-guard.sh is sourced (there are no `step` calls that early today, but the
 # guard costs nothing) cannot fault.
-step() { _STEP="$1"; echo "$1"; command -v kosmos_claim_machine >/dev/null 2>&1 && kosmos_claim_machine >/dev/null 2>&1 || true; }
+step() {
+  _step_emit_duration "$_STEP"          # the step that was running has just ended
+  _STEP="$1"; _STEP_START=$(_step_now)
+  echo "$1"
+  command -v kosmos_claim_machine >/dev/null 2>&1 && kosmos_claim_machine >/dev/null 2>&1 || true
+}
 cut_record_done() {
   [ "$_CUT_DONE_WRITTEN" = 1 ] && return 0
   _CUT_DONE_WRITTEN=1
+  # The final step just ended (this runs on exit), so emit its wall-time and the
+  # whole-cut total. Same fail-safe contract as step(): unreadable clocks stay silent
+  # and never affect the completion line written below.
+  _step_emit_duration "$_STEP"
+  if [ -n "$_CUT_START" ]; then
+    local _crd_end; _crd_end=$(_step_now)
+    case "$_CUT_START" in *[!0-9]*|'') _crd_end="" ;; esac
+    case "$_crd_end" in *[!0-9]*|'') _crd_end="" ;; esac
+    [ -n "$_crd_end" ] && echo "   (cut wall-time total: $((_crd_end - _CUT_START))s)"
+  fi
   # #1388: decode the exit so a KILLED step is a different row from a FAILED one.
   # A browser gate SIGTERM'd by another cut killed release.sh with exit 143, the
   # trap logged a bare `exit=143`, and it read as a red, sending readers to hunt
