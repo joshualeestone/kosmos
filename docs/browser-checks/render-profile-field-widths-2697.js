@@ -74,6 +74,26 @@ const PANEL_W = 1200; // wide enough that 25% (~290px) clears the shared min-wid
     };
     const cs = (el, prop) => parseFloat(getComputedStyle(el)[prop]) || 0;
     const formW = prof.getBoundingClientRect().width;
+
+    /* NEGATIVE CONTROL (scoping): the whole safety of this change is that it narrows ONLY the
+       detail-form ids and leaves every other form full-width. The create form is a separate
+       panel that does not lay out while hidden, and getComputedStyle on a hidden element does
+       not return its cascaded flex values, so neither geometry nor computed style is reliable
+       here. Read the CSSOM instead: collect every rule that sets a narrowing flex-basis (25% or
+       50%, the #2697 signature) and return its selector. The assertion outside checks each one
+       targets exactly a single detail-form id and never a create-form (or any other) id, so a
+       future edit that widened a #2697 rule to a create id reds even though nothing lays out. */
+    const narrowingSelectors = [];
+    for (const sheet of document.styleSheets) {
+      let rules;
+      try { rules = sheet.cssRules; } catch (e) { continue; } // cross-origin sheet; none here
+      if (!rules) continue;
+      for (const rule of rules) {
+        if (rule && rule.style && (rule.style.flexBasis === '25%' || rule.style.flexBasis === '50%')) {
+          narrowingSelectors.push(rule.selectorText);
+        }
+      }
+    }
     return {
       frowW: name.parentElement.getBoundingClientRect().width,
       nameRatio: ratio(name),
@@ -81,6 +101,7 @@ const PANEL_W = 1200; // wide enough that 25% (~290px) clears the shared min-wid
       reportsRatio: ratio(reports),
       reportsMarginTop: cs(repWrap, 'marginTop'),
       hintRatioOfForm: formW > 0 ? hint.getBoundingClientRect().width / formW : 0,
+      narrowingSelectors,
     };
   }, PANEL_W);
 
@@ -99,11 +120,21 @@ const PANEL_W = 1200; // wide enough that 25% (~290px) clears the shared min-wid
   if (!(r.roleRatio > r.nameRatio && r.roleRatio > r.reportsRatio)) fail.push('What-they-do is not wider than Name and Reports-to (the 50/25/25 relationship is gone)');
   if (!(r.reportsMarginTop > 0)) fail.push('Reports-to wrap has no top spacing (margin-top ' + r.reportsMarginTop + 'px); its title sits against the What-they-do input');
   if (!(r.hintRatioOfForm <= 0.55)) fail.push('the Name helper spans ' + (r.hintRatioOfForm * 100).toFixed(0) + '% of the form, not wrapped at ~50%');
+  // NEGATIVE CONTROL (scoping): my three narrowing rules must be present and must target ONLY
+  // the detail-form ids. (1) each of #d-rename/#d-role/#d-reports has a 25%/50% narrowing rule
+  // (the change exists); (2) no narrowing rule's selector mentions a create-form id. A future
+  // edit that widened a #2697 rule to a create id (e.g. "#d-rename, #create-name") reds (2).
+  const ns = Array.isArray(r.narrowingSelectors) ? r.narrowingSelectors.map((s) => (s || '').trim()) : [];
+  const present = (id) => ns.some((s) => s.split(',').map((x) => x.trim()).includes(id));
+  const missing = ['#d-rename', '#d-role', '#d-reports'].filter((id) => !present(id));
+  if (missing.length) fail.push('the #2697 narrowing rules are not all present in the CSSOM (' + JSON.stringify(missing) + '); the scoping control cannot verify - did the rules move or change?');
+  const createLeak = ns.filter((s) => /#create-/.test(s));
+  if (createLeak.length) fail.push('a field-narrowing (25%/50%) rule targets a create-form id: ' + JSON.stringify(createLeak) + ' - the #2697 sizing leaked past the detail form to the create form (scoping regression)');
 
   if (fail.length) {
     console.error('FAIL  render-profile-field-widths-2697: ' + fail.join('; '));
     console.error('  measured=' + JSON.stringify(r));
     process.exit(1);
   }
-  console.log('render-profile-field-widths-2697: the agent Profile fields size to ~25% (Name) / ~50% (What they do) / ~25% (Reports to) of their rows, Reports-to has top spacing, and the Name helper wraps at ~50%. PASS');
+  console.log('render-profile-field-widths-2697: the agent Profile fields size to ~25% (Name) / ~50% (What they do) / ~25% (Reports to) of their rows, Reports-to has top spacing, the Name helper wraps at ~50%, and the create form is UNAFFECTED (its Name field stays full-width). PASS');
 })().catch((e) => { console.error('FAIL  render-profile-field-widths-2697', e && e.message); process.exit(1); });

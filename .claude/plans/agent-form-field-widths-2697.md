@@ -36,6 +36,7 @@ The `#2697` block is placed immediately after the shared `flex: 1; min-width: 22
 ## Verification
 
 - `docs/browser-checks/render-profile-field-widths-2697.js` (new): hermetic file://, unhides `#panel-detail` + `#d-sec-profile` + `#d-reports-wrap` at a wide viewport (so 25% clears the 220px floor), and measures each field's width against its `.frow`: Name ~25%, What they do ~50%, Reports to ~25% (with tolerance), the What-they-do field wider than Name and Reports to, `#d-reports-wrap` margin-top > 0 (spacing restored), and the Name helper width at ~50% of the form. Proven can-fail by reverting each rule.
+- Scoping NEGATIVE CONTROL (added after the first challenge-loop review flagged it): the whole safety of the change is that it narrows ONLY the detail-form ids. The create form is a separate hidden panel that neither lays out nor returns reliable computed flex values while hidden, so the control reads the CSSOM instead: it collects every rule with a 25%/50% flex-basis (the #2697 signature) and asserts each of `#d-rename`/`#d-role`/`#d-reports` has one (the change is present) and that no such rule's selector mentions a create-form id. Proven can-fail: widening a #2697 rule to `#d-rename, #create-name` reds it.
 - The browser-check wiring guards reconciled (reason-grep counts, README index, browser-checks.sh loop).
 
 ## Weakest premise
