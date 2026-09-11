@@ -27,10 +27,15 @@ grep -qF 'NODE_CACHE="${KOSMOS_NODE_CACHE:-' "$SRC" \
 # THE LOAD-BEARING SOURCE PIN: the whole checksum defense rests on the download SOURCE being
 # hardcoded to nodejs.org. An overridable base URL would let a caller serve BOTH a poisoned
 # tarball AND a matching SHASUMS256, so the verify would pass on poisoned bytes. Only the cache
-# DIR is overridable (checked above); BASE must not be. This reds if BASE is ever made env-driven.
-{ grep -qE '^[[:space:]]*BASE="https://nodejs\.org/dist/' "$SRC" && ! grep -qE 'BASE="\$\{' "$SRC"; } \
-  && ok "the node download source is hardcoded to nodejs.org (no overridable base URL)" \
-  || no "the node download BASE is not a hardcoded nodejs.org URL, or was made overridable via an env var"
+# DIR is overridable (checked above); BASE must not be. We assert BASE is assigned EXACTLY ONCE
+# and that one assignment is the hardcoded nodejs.org literal, so the realistic override shapes
+# all red it: a second `BASE="$VAR"` line or an inline `then BASE="$X"` reassignment raise the
+# count above 1, and an env-default `BASE="${...}"` leaves the single line no longer matching the
+# literal. This is a structural proxy, not a proof of the absence of every conceivable injection.
+base_defs="$(grep -cE '(^|[^A-Za-z0-9_])BASE="' "$SRC")"
+{ [ "$base_defs" -eq 1 ] && grep -qE '^[[:space:]]*BASE="https://nodejs\.org/dist/' "$SRC"; } \
+  && ok "the node download source is a single hardcoded nodejs.org assignment (no overridable base URL)" \
+  || no "the node download BASE is not exactly one hardcoded nodejs.org assignment (base_defs=$base_defs; source may have become overridable)"
 
 S="$(line_of 'curl -fsSL "$BASE/SHASUMS256.txt"')"          # the authoritative checksums are actually FETCHED (not a comment)
 W="$(line_of 'WANT="$(grep')"                               # WANT extracted from them
