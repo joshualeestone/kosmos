@@ -29989,6 +29989,8 @@ async function changeProviderNow(say) {
     tell(restarted
       ? 'Say hello to ' + agentShown() + ' to reactivate them on ' + provName + '.'
       : (out.because || 'Switched.'), restarted);
+    // #2716: on a real restart, auto-send the wake hello and confirm it in place.
+    if (restarted) autoHelloOnSwitchRestart(forAgent, agentShown(), provName);
     sel.value = '';
     /* ⚠️ A PROGRAMMATIC `value =` FIRES NO `change` EVENT, so nothing rebuilt the
        sign-in picker and it sat visible and populated under a now-blank provider
@@ -30652,6 +30654,8 @@ async function changeModelNow(say) {
     if (say) say(restarted
       ? 'Say hello to ' + agentShown() + ' to reactivate them on ' + provName + '.'
       : (out.because || 'Changed.'), restarted);
+    // #2716: on a real restart, auto-send the wake hello and confirm it in place.
+    if (restarted) autoHelloOnSwitchRestart(forAgent, agentShown(), provName);
     sel.value = '';
     await tick();
     /**
@@ -32416,6 +32420,31 @@ async function autoHelloAfterRestart(name, report, saidText, manualText) {
     if (mine !== RESTART_HELLO_SEQ[name]) return;
     report(manualText);
   }
+}
+
+/* #2716: the changeDialog twin of the restart-modal auto-hello. After a model
+   (changeModelNow) or provider (moveAccountNow) switch restarts the agent, send the
+   wake 'hello' via the same helper and, on success, reduce the dialog's line from the
+   "Say hello to reactivate ..." instruction to a confirmation.
+
+   The report writes to chg-msg DIRECTLY, not through changeDialog's `say`: `say` is a
+   one-shot exit that has already fired (rendering the manual line after the ~2s
+   RESTART_HOLD_MS floor), so a second update has to touch the element itself. Guarded on
+   the dialog still being open AND still this agent, mirroring `say`'s own hidden-modal
+   bail, so a late resolution never lands in a closed or switched-away dialog. The
+   manualText is byte-identical to the line `say` already showed, so a timeout/failure
+   leaves today's behavior unchanged (no regression). No race with the floor render:
+   autoHelloAfterRestart must observe the restart gap before accepting ready, so its
+   earliest write is ~2 polls out, after the floor line has painted. */
+function autoHelloOnSwitchRestart(forAgent, shown, provName) {
+  autoHelloAfterRestart(forAgent,
+    (t) => {
+      const m = document.getElementById('chg-msg');
+      if (m && !document.getElementById('chg-modal').hidden
+          && CURRENT && CURRENT.sessionName === forAgent) m.textContent = t;
+    },
+    'Reactivated on ' + provName + ', and said hello to wake ' + shown + '.',
+    'Say hello to ' + shown + ' to reactivate them on ' + provName + '.');
 }
 
 /**

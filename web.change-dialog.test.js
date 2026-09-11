@@ -55,6 +55,11 @@ function world(html, fetchImpl) {
     document: { getElementById: el, addEventListener: () => {}, removeEventListener: () => {} },
     CURRENT: currentCard(),
     fetch: fetchImpl, encodeURIComponent, tick: async () => {}, agentShown: () => 'Mara', console,
+    /* #2716: changeModelNow/moveAccountNow now fire autoHelloOnSwitchRestart on a real
+       restart. `lift` only pulls the two function declarations, so stub it as a no-op
+       here: this file is about the SENTENCES the dialog shows, and the auto-hello side
+       effect is covered by docs/browser-checks/render-autohello-switch-2716.js. */
+    autoHelloOnSwitchRestart: () => {},
     /* #768-batch: changeModelNow now names the provider in the reduced success line.
        Lift the real (const arrow) providerOf into the VM ctx, since `lift` only pulls
        the two `function` declarations. */
