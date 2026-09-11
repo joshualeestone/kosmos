@@ -1557,14 +1557,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                  initiatedByFrame frame: WKFrameInfo,
                  completionHandler: @escaping ([URL]?) -> Void) {
         /* 🛑 A RE-ENTRANT REQUEST IS ANSWERED IMMEDIATELY, NOT IGNORED.
-           MEASURED on macOS 26: a second `beginSheetModal(for:)` on a window
-           that already has a sheet is SILENTLY DROPPED. The panel never becomes
-           a sheet, it is not queued, and its completion handler is never
-           called -- which, by the rule two comments down, TERMINATES THE APP.
-           Refusing the second request with nil costs the person nothing (the
-           first panel is still up and still theirs) and removes the whole
-           class. Narrow today, because clicking a second + through a sheet is
-           hard; free to close. */
+           This delegate serves ONE open panel at a time: while a panel is
+           outstanding (openPanelOutstanding, set below), a second runOpenPanel is
+           refused with a single nil answer rather than opening a second picker.
+           The nil answer is mandatory -- WebKit aborts the app if a runOpenPanel
+           completion is not called exactly once (the rule two comments down) --
+           and refusing costs the person nothing: the first panel is still up and
+           still theirs. (Historically this also sidestepped a measured macOS-26
+           bug where a second beginSheetModal on a window that already had a sheet
+           was silently dropped; the panel path no longer uses beginSheetModal, so
+           that specific mechanism no longer applies, but serialising open panels
+           is the right invariant and this nil answer is required either way.) */
         /* ⚠️ SAID, NOT SILENT. This branch introduces the one state in the class
            (`openPanelOutstanding`) that could strand: if a future path ever
            presents without going through one of the two closures that clear it,
@@ -1572,8 +1575,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            reproduced by the code that fixes it. Nothing exercises this branch,
            so a line in the log is the only thing that would ever name it.
            Main-thread only, like every other flag on this delegate: WebKit
-           calls this method on the main thread and both sheet completions are
-           main-thread, so the flag needs no synchronisation. */
+           calls this method on the main thread and the panel's begin completion
+           (and the presenter stub's) are main-thread, so the flag needs no
+           synchronisation. */
         if openPanelOutstanding {
             logLine("runOpenPanelWith: refused, a panel is already up")
             // The OTHER panel still owns openPanelOutstanding; do NOT clear it
@@ -3097,24 +3101,40 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
                             let blocker = NSOpenPanel()
                             blocker.beginSheetModal(for: win) { _ in }
                             current = "sheeted"
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                                // Setup control: the sheet MUST be attached, or the
-                                // arm would pass trivially without exercising #2807.
-                                guard win.attachedSheet != nil else {
-                                    print("press:with-a-sheet-up\tSETUP-FAILED: no sheet attached to the host")
+                            /* Setup control: the sheet MUST actually be attached
+                               before we fire, or the arm would pass trivially
+                               without exercising #2807. POLL for it rather than
+                               assuming a fixed delay -- on a slow/busy build box
+                               beginSheetModal can take a moment to attach, and a
+                               fixed wait there would emit a spurious failure that
+                               reds a real cut. If it genuinely never attaches that
+                               is a HARNESS problem (not the product), so print an
+                               INCONCLUSIVE token the build gate treats as "could
+                               not run", never a product verdict -- and one that
+                               does NOT begin with `press:`, or the gate's product
+                               arm would still match it. */
+                            func fireWithSheet(tries: Int) {
+                                if win.attachedSheet != nil {
+                                    web.evaluateJavaScript("document.getElementById('bvisible').click()") { _, _ in }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                        // Reaching here AT ALL means the app did not abort;
+                                        // the pre-fix code aborts before this line runs.
+                                        let modal = NSApp.windows.first { $0 is NSOpenPanel && $0.isVisible && $0 !== blocker }
+                                        print("press:with-a-sheet-up\tno-abort-and-panel-presented:\((modal != nil) ? "yes" : "no")")
+                                        if let m = modal as? NSOpenPanel { m.cancel(nil) }
+                                        if let host = blocker.sheetParent { host.endSheet(blocker, returnCode: .cancel) } else { blocker.cancel(nil) }
+                                        exit(modal != nil ? 0 : 1)
+                                    }
+                                    return
+                                }
+                                guard tries > 0 else {
+                                    print("filepanel selftest SETUP INCONCLUSIVE: the host sheet never attached (harness, not the product)")
+                                    if let host = blocker.sheetParent { host.endSheet(blocker, returnCode: .cancel) } else { blocker.cancel(nil) }
                                     exit(1)
                                 }
-                                web.evaluateJavaScript("document.getElementById('bvisible').click()") { _, _ in }
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                                    // Reaching here AT ALL means the app did not abort;
-                                    // the pre-fix code aborts before this line runs.
-                                    let modal = NSApp.windows.first { $0 is NSOpenPanel && $0.isVisible && $0 !== blocker }
-                                    print("press:with-a-sheet-up\tno-abort-and-panel-presented:\((modal != nil) ? "yes" : "no")")
-                                    if let m = modal as? NSOpenPanel { m.cancel(nil) }
-                                    if let host = blocker.sheetParent { host.endSheet(blocker, returnCode: .cancel) } else { blocker.cancel(nil) }
-                                    exit(modal != nil ? 0 : 1)
-                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { fireWithSheet(tries: tries - 1) }
                             }
+                            fireWithSheet(tries: 30)
                         }
                     }
                 }

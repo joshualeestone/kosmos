@@ -128,6 +128,20 @@ test('the gate GIVING UP is not a verdict on the product', () => {
     'the gate giving up was reported as a broken + button');
 });
 
+test('#2807: a with-a-sheet-up SETUP INCONCLUSIVE is the harness, NOT the product', () => {
+  /* The #2807 arm prints this when its precondition (a sheet attached to the
+     host) never held within the poll window -- a slow build box, not the + button.
+     The output still carries the earlier uiDelegate:/press: arms that DID run, so
+     the gate must match the INCONCLUSIVE arm BEFORE the product arm and NOT blame
+     the product. */
+  const ranArms = GOOD.split('\n').slice(0, 6).join('\n'); // through after-a-cancel; with-a-sheet-up absent
+  const v = verdict(ranArms + '\nfilepanel selftest SETUP INCONCLUSIVE: the host sheet never attached (harness, not the product)', 1);
+  assert.ok(!v.ok, 'an inconclusive setup must still stop the cut');
+  assert.match(v.text, /could not set up/);
+  assert.doesNotMatch(v.text, /file picker is broken/,
+    'a slow-box setup failure was blamed on the + button');
+});
+
 test('the timeout arm cannot be spoofed by the words appearing in other output', () => {
   /* The timeout arm is tested FIRST, so a bare "TIMED OUT" substring would let
      any output containing those two words exonerate a genuinely broken build.

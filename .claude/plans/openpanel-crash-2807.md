@@ -25,23 +25,33 @@ so this is NOT a promote regression and a rollback would not fix it. Fix-forward
 
 ## The fix
 
-1. **Guard the sheet presentation:** only `beginSheetModal(for: host)` when `host.attachedSheet ==
-   nil`; otherwise (no window, OR the window already has a sheet) fall back to the app-modal
-   `panel.begin`, which does not attach to the window and so always presents and always calls its
-   completion. The common case (a sheet-free window) keeps the nicer attached sheet.
+1. **Present with the app-modal `panel.begin` UNCONDITIONALLY** (not `beginSheetModal`). `begin`
+   does not attach to a window, so no window state can silently drop it: it always presents and
+   always calls its completion. This closes the ENTIRE abort class, not just the one attached-sheet
+   instance a `host.attachedSheet == nil` guard would cover (a miniaturized host, or a
+   mid-dismissal-animation window, could still drop a `beginSheetModal`). The cost is every file
+   picker is now app-modal (centred) rather than a sheet attached to its window -- an acceptable
+   trade on a path that otherwise aborts the app. The re-entrant guard above (serialise one open
+   panel at a time, refuse a second with nil) is unchanged.
 2. **Call-once wrapper (`respond`):** the handler is invoked exactly once on every path of this
    invocation (a repeat call is a no-op) -- WebKit aborts on multiple calls too. It clears the
    `openPanelOutstanding` flag THIS call set; the re-entrant-refusal path (which never owned the
    flag) is left untouched and still answers with a single direct `completionHandler(nil)`.
+3. **Selftest hardening:** `setvbuf(stdout, nil, _IONBF, 0)` at the file-panel selftest hatch start,
+   so an aborting regression's already-printed arms survive the build gate's pipe capture (block
+   buffering would otherwise lose them and misattribute the failure to the gate, not the product).
 
 ## Test
 
-New `--kosmos-app-filepanel-selftest` arm (`press:with-a-sheet-up`): puts a sheet on the host, fires
-the file input on the REAL panel path (presenter nil), and requires the app to survive AND a panel
-to present via the `begin` fallback, with a setup-control that the sheet is actually attached (so
-it cannot false-pass). Verified: fixed build passes all arms (RC=0); reverting only the delegate
-guard makes the arm report `panel-presented:no` (RC=1), and the build's exit-code gate
-(build-kosmos-bundle.sh:428) reds the cut if the fix is dropped.
+New `--kosmos-app-filepanel-selftest` arm (`press:with-a-sheet-up`): puts a sheet on the host, polls
+until the sheet is actually attached (a setup control, so it cannot false-pass; if the sheet never
+attaches -- a slow build box -- it prints a distinct INCONCLUSIVE token the gate treats as
+harness-not-product, never a `press:` product verdict), fires the file input on the REAL panel path
+(presenter nil), and requires the app to survive AND a panel to present via `begin`. The arm is in
+the gate's `_fp_want` named list (and the gate test's GOOD fixture). Verified: fixed build passes
+all arms (RC=0); reverting only the `begin` presentation makes the arm report
+`no-abort-and-panel-presented:no` (RC=1), and the build's exit-code gate (build-kosmos-bundle.sh)
+reds the cut if the fix is dropped.
 
 ## Ships via a new cut
 

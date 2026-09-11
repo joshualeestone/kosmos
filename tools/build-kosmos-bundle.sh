@@ -418,6 +418,16 @@ if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
         # uses runModal in three places) would hang here too and land in this
         # arm. "Could not be judged" is what the evidence supports.
         echo "the #1032 file-picker gate did not finish (exit $_fp_rc). It could not judge the + button either way, so this is NOT a verdict on the product. Look at the output above before assuming either." >&2 ;;
+      *"filepanel selftest SETUP INCONCLUSIVE"*)
+        # ⚠️ TESTED BEFORE THE PRODUCT ARM, for the same reason TIMED OUT is: the
+        # output still carries the uiDelegate:/press: lines from the arms that DID
+        # run, so this must win over the `*"press:"*` arm below. The #2807
+        # with-a-sheet-up arm prints this when its precondition (a sheet actually
+        # attached to the host) never held within the poll window -- a slow/busy
+        # build box, NOT the product. Like TIMED OUT this is the gate failing to
+        # RUN its check, so the cut stops (re-cut on a quieter box) but the + button
+        # is not implicated.
+        echo "the #1032 file-picker gate's #2807 with-a-sheet-up arm could not set up (exit $_fp_rc): the host sheet never attached in time (a slow build box), so that arm could not run. This is NOT a verdict on the product; re-cut on a quieter box. Output above." >&2 ;;
       *"press:"*|*"uiDelegate:"*)
         printf '%s\n' "the native app's file picker is broken (#1032). The gate got as far as it could and then this did not hold:" "    $_fp_missing" "A + button will do nothing, or Cancel will take the app down with it. Output above; exit $_fp_rc." >&2 ;;
       *)
