@@ -19,8 +19,11 @@
 # restart, remove and restore it, and the fleet comes back after a reboot. The
 # first double-click of Kosmos.exe registers the board's own logon task and hands
 # the board to it (engine/win32handoff.js), so the board runs with no window.
-# Measured end to end on a Windows 11 box from a downloaded zip (the R1-R8
-# rehearsal in .claude/plans/WINDOWS-ROADMAP.md).
+# The agent lifecycle was measured by the R1-R8 rehearsal on a Windows 11 box
+# (from a source checkout, .claude/plans/WINDOWS-ROADMAP.md §2). A zip built by
+# this script was then checked end to end on the same box on 2026-09-11: create,
+# talk, restart, remove, restore, the hand-off, and an update unpacked over the
+# install.
 #
 # 🛑 AND IT UPDATES BY HAND. The Mac bundle ships `install/setup.sh`, which is how
 # a Mac install updates itself. There is no Windows equivalent: a person updates
@@ -280,11 +283,13 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
 {
   printf 'Kosmos for Windows (unsigned preview)\r\n'
   printf '\r\n'
-  printf 'Unpack the whole zip into a folder you will keep, for example\r\n'
-  printf 'Documents\\Kosmos. Kosmos runs from that folder, so do not delete or\r\n'
-  printf 'move it. Then double-click Kosmos.exe in that folder.\r\n'
+  printf 'Unpack the whole zip into a folder you will keep, for example a\r\n'
+  printf 'Kosmos folder in your user folder (C:\\Users\\<your name>\\Kosmos).\r\n'
+  printf 'Not Downloads, and not a folder OneDrive syncs. Kosmos runs from that\r\n'
+  printf 'folder, so do not delete or move it. Then double-click Kosmos.exe in\r\n'
+  printf 'that folder.\r\n'
   printf '\r\n'
-  printf 'FIRST: Windows will try to stop you, and that is expected.\r\n'
+  printf 'The first time, Windows will try to stop you, and that is expected.\r\n'
   printf '\r\n'
   printf 'A blue box says "Windows protected your PC". The only button you can\r\n'
   printf 'see says "Don\047t run". DO NOT PRESS IT. Click the small "More info"\r\n'
@@ -303,8 +308,9 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
   printf 'window, and starts by itself when you log in. Your agents do too. To\r\n'
   printf 'open the board again later, double-click Kosmos.exe again.\r\n'
   printf '\r\n'
-  printf 'Agents need Claude Code on this computer, signed in. If it is not,\r\n'
-  printf 'the board says so and shows you how to install it.\r\n'
+  printf 'Agents need Claude Code on this computer, signed in. If it is\r\n'
+  printf 'missing, the board shows you the command that installs it. If it is\r\n'
+  printf 'not signed in, the board shows you how to sign in.\r\n'
   printf '\r\n'
   printf 'To update: download the new zip, unpack it over this folder, and\r\n'
   printf 'double-click Kosmos.exe again. Your agents keep running.\r\n'
@@ -312,7 +318,9 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
   printf 'Everything Kosmos starts at login is listed in Task Scheduler, in the\r\n'
   printf 'Kosmos folder.\r\n'
   printf '\r\n'
-  printf 'If no browser opens, go to http://127.0.0.1:%s yourself.\r\n' "$PORT_DEFAULT"
+  printf 'If no browser opens, double-click Kosmos.exe again. The board lives\r\n'
+  printf 'at http://127.0.0.1:%s, but typing that address yourself opens it\r\n' "$PORT_DEFAULT"
+  printf 'without signing you in, so it cannot show your agents.\r\n'
 } > "$STAGE/! READ ME FIRST - Windows will warn you.txt"
 
 # ---- the manifest ----------------------------------------------------------
