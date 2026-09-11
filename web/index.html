@@ -35543,7 +35543,7 @@ document.getElementById('snd-toggle') && document.getElementById('snd-toggle').a
    together along with the number in the hint text, so they cannot drift.
    ⚠️ CODE POINTS, deliberately: `Array.from` iterates code points, which is what
    the engine counts. `desc.length` counts UTF-16 units and would refuse a
-   101-emoji description the engine accepts. */
+   501-emoji description (1002 UTF-16 units) the engine accepts (501 code points). */
 const PJ_DESC_MAX = 1000;
 function pjDescTooLong(text) { return Array.from(String(text || '')).length > PJ_DESC_MAX; }
 

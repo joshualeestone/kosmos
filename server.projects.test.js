@@ -1908,7 +1908,7 @@ test('the task routes: create over the wire, refusals write nothing, close and r
   for (const [label, body, want] of [
     ['no sentence', {}, /say what needs doing/],
     ['blank sentence', { sentence: '  ' }, /say what needs doing/],
-    ['oversize sentence', { sentence: 'x'.repeat(1001) }, /200 characters or fewer/],
+    ['oversize sentence', { sentence: 'x'.repeat(201) }, /200 characters or fewer/],
   ]) {
     const r = await post(`/api/project/${made.project.id}/tasks`, body);
     assert.equal(r.status, 400, `${label} was accepted`);

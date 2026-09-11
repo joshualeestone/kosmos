@@ -1167,7 +1167,7 @@ function cleanDescription(text) {
   // answered success while cutting the person's words with nothing saying
   // so -- two answers to over-length on two adjacent fields of one form.
   // Counted in code points (the "1000 characters" people count is the
-  // approximation; an all-emoji description is up to 400 UTF-16 units).
+  // approximation; an all-emoji description is up to 2000 UTF-16 units).
   // ⚠️ Counted in code POINTS, and deliberately NOT the name's rule: the
   // name caps at 120 UTF-16 units because its input carries maxlength=120,
   // which counts units, and the cap must agree with the box a person types
