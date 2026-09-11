@@ -5342,7 +5342,13 @@ const server = http.createServer((req, res) => {
    * what the Restore control reads. If that ever stops being true this sentence
    * becomes the lie, and `engine/remove.js` is where it would be told.
    */
-  function withStopNote(payload, stopReport, restorable) {
+  function withStopNote(payload, stopReport, restorable, recoveryClause) {
+    /* #2684: `recoveryClause` (optional) overrides the way-back sentence for the
+       one case neither `restorable` arm fits: the CLAUDE default, whose dir
+       PERSISTS in place (only the oauth identity is cleared), so recovery is a
+       fresh sign-in to ~/.claude rather than a removed-list re-add ("under the
+       same name") or "needs a different account". Only the Claude default paths
+       pass it; every other caller passes undefined and is unchanged. */
     if (!stopReport || !stopReport.stopped.length) return payload;
     /* 🛑 NOT ON THE ALREADY-GONE BRANCH. Both engines answer
        `{ok: true, forgotten: false}` for an account that is not there, and
@@ -5405,7 +5411,9 @@ const server = http.createServer((req, res) => {
        run-on it prevents was found in the sibling and the fix was not carried
        across. A latent defect with a known instance next door is worth closing. */
     const lead = /[.!?]$/.test(String(payload.because)) ? payload.because : `${payload.because}.`;
-    const way = restorable
+    const way = recoveryClause !== undefined
+      ? recoveryClause(one)
+      : restorable
       ? ` You can put ${one ? 'it' : 'them'} back from the removed list once you add this account again under the same name.`
       : ` ${one ? 'It was' : 'They were'} set up to run on that account, so ${one ? 'it needs' : 'they need'} a different one before ${one ? 'it' : 'they'} can start again.`;
     return {
@@ -5415,6 +5423,15 @@ const server = http.createServer((req, res) => {
         + `${one ? '' : ' (' + names.join(', ') + ')'}.${way}`,
     };
   }
+
+  /* #2684: the recovery clause for a CLAUDE DEFAULT removal (disconnect or delete).
+     The `.claude` folder is KEPT and the stopped agents' launch files already point
+     at it, so they ARE on the removed list (restorable) AND their folder still
+     exists -- recovery is a fresh sign-in in place, not a re-add "under the same
+     name" (there is no rename) and not "needs a different account" (the folder is
+     there). Passed to withStopNote only when the row is the default. */
+  const claudeDefaultRecovery = (one) =>
+    ` You can put ${one ? 'it' : 'them'} back from the removed list; ${one ? 'it runs' : 'they run'} on the main folder, which is kept, so signing in again reconnects ${one ? 'it' : 'them'}.`;
 
   /**
    * Forget an OpenAI account (#1372).
@@ -5587,17 +5604,16 @@ const server = http.createServer((req, res) => {
              THE AGENTS. Which refusals those are differs by DOOR on this
              provider, and the earlier version of this comment named only the
              delete one while sitting above a call that is `forgetAccount`
-             whenever `remove` is false: `openaiAccounts.removeAccount` refuses
-             the default `.codex` outright, `forgetAccount` does NOT (it can
-             rename the default aside, unlike the Claude side where forget
-             refuses `.claude` too). What both share is the path guard and the
-             sign-in-in-progress guard, and all of those checks run BEFORE the
-             agents check. So without this, a request
+             whenever `remove` is false: #2684: NEITHER door refuses the default outright any more --
+             `removeAccount` deletes the default `.codex` (whole-dir) and
+             `forgetAccount` renames it aside, both AFTER the agents check. What
+             both share as PRE-agents refusals is the path guard and the
+             sign-in-in-progress guard. So without this, a request
              naming the default account stopped every agent on it, for real, wrote
              each to the removed list, and then answered 400 with a refusal that
-             never mentioned the stop. Deterministic, not a race. Not reachable
-             from the page (the default row renders no control) and fully
-             reachable from the board API.
+             never mentioned the stop. Deterministic, not a race. The default row renders live
+             controls now (#2684), and this pre-flight is reachable from both the
+             page and the board API.
 
              📌 NOT the CLI, which an earlier version of this comment claimed.
              Measured: `stopAgents` appears only in this file, web/index.html,
@@ -5613,10 +5629,10 @@ const server = http.createServer((req, res) => {
              🛑 WHAT IT CATCHES, AND WHAT IT PROVABLY CANNOT, because an earlier
              version of this comment claimed an invariant it does not have and
              claimed it in the UNSAFE direction ("every refusal that does not
-             depend on the agents comes BEFORE the agents guard"). Three refusals
+             depend on the agents comes BEFORE the agents guard"). Two refusals
              precede the agents guard and are therefore visible here: the path
-             guard, the default-account guard, and the OpenAI
-             sign-in-in-progress guard. The IDENTITY refusal ("that is not a
+             guard and the OpenAI sign-in-in-progress guard (#2684 removed the
+             default-account guard; the default is agents-gated like any row now). The IDENTITY refusal ("that is not a
              Claude/OpenAI account on this computer") does NOT, in any of the
              four, and it cannot be hoisted: `engine/accounts.js` states why at
              the guard itself, that `identityOf` answers null for a missing
@@ -5786,8 +5802,16 @@ const server = http.createServer((req, res) => {
           }
           sendJson(res, 200, withStopNote({
             removed: gone.removed === true,
+            /* #2684: the DEFAULT is deletable now, and deleting it rmSyncs the whole
+               .codex home -- so its codex sessions/rollouts go with it. Disclose that
+               on the default only (codexsession reads the default home alone, so a
+               labelled account's history is not the product's to lose), matching the
+               history clause the disconnect door already carries for wasDefault. The
+               more destructive door must not disclose LESS than the reversible one. */
             because: gone.removed
-              ? 'That account is deleted from this computer. Its sign-in file is gone.'
+              ? (gone.wasDefault
+                  ? 'That account is deleted from this computer. Its sign-in file is gone, and any history kept only under it (its codex sessions) goes with it.'
+                  : 'That account is deleted from this computer. Its sign-in file is gone.')
               : 'That account was already gone from this computer.',
             accounts: openaiAccounts.list(),
           }, stopReport, false));
@@ -5867,15 +5891,18 @@ const server = http.createServer((req, res) => {
    * sentence for it was AMBIGUITY WAS SILENTLY NONE. A Claude route written
    * from the card alone would have had that bug, so it is copied deliberately.
    *
-   * 📌 THE `isDefault` FALLBACK IS CARRIED FOR SYMMETRY WITH THE OPENAI ROUTE
-   * AND IS INERT HERE. A Claude job on the default account carries
-   * `configDir: null` (`create.js:734` writes `acct.isDefault ? null :
-   * acct.dir`), so absence falls back to the isDefault comparison rather than
-   * reading as "no account" -- but that branch can only ADD names to `usedBy`
-   * when `dir` IS the default, and `accounts.forgetAccount` refuses the default
-   * before it ever reads `usedBy`. So no test can exercise it and it cannot
-   * change this route's outcome. It is kept so the two routes stay diffable;
-   * it is not load-bearing, and this comment says so rather than implying it is.
+   * 🛑 THE `isDefault` FALLBACK IS LOAD-BEARING (#2684). A Claude job on the
+   * default account carries `configDir: null` (`create.js` writes
+   * `acct.isDefault ? null : acct.dir`), so absence falls back to the isDefault
+   * comparison and ADDS that agent to `usedBy` when `dir` IS the default. Before
+   * #2684 this was inert because `accounts.forgetAccount` refused the default
+   * outright before reading `usedBy`; NOW the default is removable and
+   * `forgetAccount`/`removeAccount` read `usedBy` (the inlined running-agents
+   * guard), so this fallback is exactly what makes the default's running-agents
+   * guard fire for a real default agent. Do NOT delete it: without it, the default
+   * identity could be cleared while an agent still runs on it (the
+   * working-agent-behaves-like-a-blank-one hazard). Pinned by
+   * server.disconnect-stop-2570.test.js's null-configDir default-agent arm.
    * 📌 `readJob` normalises a MISSING runner to 'claude', because every plist
    * written before runners existed carries no ninth argument -- so the filter
    * below cannot silently skip an old Claude agent. That one IS load-bearing.
@@ -6068,14 +6095,15 @@ const server = http.createServer((req, res) => {
         const stoppable = usedBy.filter((n) => typeof n === 'string' && n);
         if (stoppable.length && !!(body && body.stopAgents === true)) {
           /* 🛑 ASK THE ENGINE FIRST, BECAUSE ITS OTHER REFUSALS DO NOT CARE ABOUT
-             THE AGENTS. `accounts.forgetAccount` refuses the DEFAULT account outright, and
-             refuses a path that is not one of its accounts, and BOTH of those
-             checks run BEFORE its agents check. So without this, a request
-             naming the default account stopped every agent on it, for real, wrote
-             each to the removed list, and then answered 400 with a refusal that
-             never mentioned the stop. Deterministic, not a race. Not reachable
-             from the page (the default row renders no control) and fully
-             reachable from the board API.
+             THE AGENTS. `accounts.forgetAccount` refuses a path that is not one of
+             its accounts BEFORE its agents check. So without this, a request that
+             would be refused for a non-agent reason stopped every agent on it, for
+             real, wrote each to the removed list, and then answered 400 with a
+             refusal that never mentioned the stop. Deterministic, not a race.
+             (#2684: the DEFAULT is no longer a pre-agents refusal -- for the
+             default the running-agents guard IS the guard, inlined first in the
+             primary branch, so a default-with-agents returns a usedBy-carrying
+             refusal that flows into the stop path rather than a bare 400.)
 
              📌 NOT the CLI, which an earlier version of this comment claimed.
              Measured: `stopAgents` appears only in this file, web/index.html,
@@ -6091,12 +6119,12 @@ const server = http.createServer((req, res) => {
              🛑 WHAT IT CATCHES, AND WHAT IT PROVABLY CANNOT, because an earlier
              version of this comment claimed an invariant it does not have and
              claimed it in the UNSAFE direction ("every refusal that does not
-             depend on the agents comes BEFORE the agents guard"). TWO refusals
-             precede the agents guard here and are therefore visible: the path
-             guard and the default-folder guard. (The OpenAI engine has a third,
-             its sign-in-in-progress guard. This one has none, and an earlier
-             version of this paragraph was a verbatim copy of the OpenAI route's
-             that claimed it did.) The IDENTITY refusal ("that is not a
+             depend on the agents comes BEFORE the agents guard"). ONE refusal
+             precedes the agents guard here and is therefore visible: the path
+             guard. (#2684 removed the default-folder guard that used to precede it
+             too; the default is now agents-gated like any other row. The OpenAI
+             engine has a sign-in-in-progress guard before its agents check.) The
+             IDENTITY refusal ("that is not a
              Claude/OpenAI account on this computer") does NOT, in any of the
              four, and it cannot be hoisted: `engine/accounts.js` states why at
              the guard itself, that `identityOf` answers null for a missing
@@ -6142,11 +6170,13 @@ const server = http.createServer((req, res) => {
              neither an oauth account nor an api-key one. So a `~/.claude` whose
              only credential is a stored api key is absent from the list while
              the engine still treats it as a real directory. `dirIsAnAccount`
-             goes false, we decline to stop, and the engine then refuses it
-             anyway under its default-folder guard, so the outcome is right and
-             nothing was stopped for an operation that was never going to run.
-             It fails in the safe direction, and it is API-reachable only, since
-             the page renders no control on the default row.
+             goes false, we decline to stop, and the engine would clear NOTHING
+             anyway (#2684: clearDefaultIdentity finds no oauthAccount and returns
+             a quiet already-cleared success), so the outcome is right and nothing
+             was stopped for an operation that would do nothing. It fails in the
+             safe direction, and it is API-reachable only: this api-key-only
+             default is unlisted, so no control renders for THIS row (a normal
+             oauth default does render a live Disconnect now, #2684).
 
              ⚠️ GUARDED ON EXISTENCE, because a MISSING directory is not in the
              list either and its answer is a quiet SUCCESS rather than a refusal.
@@ -6268,11 +6298,21 @@ const server = http.createServer((req, res) => {
           }
           sendJson(res, 200, withStopNote({
             removed: gone.removed === true,
+            /* #2684: the DEFAULT is removed by clearing ONLY its oauth identity
+               from <HOME>/.claude.json -- the `.claude` folder and any history in
+               it are KEPT (it is Claude Code's home and may hold other accounts'
+               symlinked history), so the "history goes with it" clause the
+               secondary path carries would be false here. */
             because: gone.removed
-              ? 'That account is deleted from this computer. Its sign-in file is gone, and any history kept only under it goes with it.'
+              ? (gone.wasDefault
+                  ? 'The main Claude connection is removed. Only its sign-in was cleared '
+                    + '-- the Claude folder and any history in it are kept -- so sign in again to reconnect it.'
+                  : 'That account is deleted from this computer. Its sign-in file is gone, and any history kept only under it goes with it.')
               : 'That account was already gone from this computer.',
             accounts: accounts.list(),
-          }, stopReport, false));
+            /* #2684: the default delete also keeps the folder (Claude clears only the
+               identity), so its stopped agents recover by a fresh sign-in in place. */
+          }, stopReport, false, gone.wasDefault ? claudeDefaultRecovery : undefined));
           return;
         }
 
@@ -6314,9 +6354,17 @@ const server = http.createServer((req, res) => {
         sendJson(res, 200, withStopNote({
           forgotten: out.forgotten === true,
           because: out.forgotten
-            ? 'That account is off the list. Its sign-in file is still on this computer, '
+            ? (out.wasDefault
+              /* #2684: the DEFAULT disconnect clears ONLY the oauth identity from
+                 <HOME>/.claude.json; the `.claude` folder and its history are KEPT
+                 (unlike a secondary, which is renamed aside). So the secondary's
+                 "sign-in file still here / history stops appearing" wording is
+                 false here and gets its own accurate sentence. */
+              ? 'The main Claude connection is off the list. Only its sign-in was cleared '
+                + '-- the Claude folder and any history in it are kept -- so sign in again to reconnect it.'
+              : 'That account is off the list. Its sign-in file is still on this computer, '
               + 'so nothing was deleted. Kosmos stops looking inside it, so any history '
-              + 'kept only there will not appear any more.'
+              + 'kept only there will not appear any more.')
               /* 🔑 NAME WHERE IT WENT. "Still on this computer" is true and
                  unactionable on its own: the engine computes `movedTo` and the
                  route was dropping it, so the one fact that makes a removal
@@ -6335,7 +6383,9 @@ const server = http.createServer((req, res) => {
              through GET /api/accounts, which uses listLive(), so no caller
              reads this: it is a second, non-live derivation of the same list. */
           accounts: accounts.list(),
-        }, stopReport, true));
+          /* #2684: the default disconnect keeps the folder in place, so its stopped
+             agents recover by a fresh sign-in, not a re-add under the same name. */
+        }, stopReport, true, out.wasDefault ? claudeDefaultRecovery : undefined));
       })
       /* #2570: the stop report rides on this too. Anything thrown below the stop
          loop lands here, and answering "we could not read that request" after N

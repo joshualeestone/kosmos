@@ -372,12 +372,13 @@ function forgetAccount(dir, usedBy) {
  *
  * 🛑 EVERY GUARD forgetAccount HAS (same-home + name shape, the running-agents
  * gate, the identity guard -- NEVER rm a name-shaped folder that is not an
- * account), plus one forgetAccount does NOT: the DEFAULT `.codex` is REFUSED.
- * forgetAccount can rename the default aside because a rename is recoverable and
- * a fresh sign-in recreates it; DELETING the default codex home is not that -- it
- * is the home other codex agents resolve to when nothing overrides CODEX_HOME.
- * The default's action is Disconnect (reversible); delete is for the named
- * accounts a person actually wants gone. Only the final step differs from
+ * account), and #2684 makes the DEFAULT `.codex` DELETABLE too: unlike Claude (whose primary
+ * identity is a key in a shared external file and whose dir may hold symlinked
+ * history), an OpenAI account's identity + config live inside its own `.codex` dir
+ * with no cross-account sharing, and disconnect already renames the whole default
+ * dir aside -- so delete is the same whole-dir rmSync for the default as for a
+ * secondary, gated by the same running-agents / sign-in-in-flight / arbitrary-path
+ * guards. Only the final step differs from
  * forget: rmSync instead of renameSync. Irreversible on purpose; the UI asks
  * with a destructive confirm.
  */
@@ -398,9 +399,18 @@ function removeAccount(dir, usedBy) {
      comparison. This is defence in depth on an unauthenticated local endpoint
      that DELETES a directory, so it must hold regardless of the UI's own
      (env-aware) hiding of the button on the default row. */
-  if (clean === path.resolve(defaultDir())) {
-    return { ok: false, removed: false, because: 'the default account cannot be deleted; disconnect it instead' };
-  }
+  /* #2684: the default IS deletable now. Unlike Claude -- whose primary identity
+     is a key in the SHARED <HOME>/.claude.json and whose dir may hold other
+     accounts' symlinked history -- an OpenAI account's identity (auth.json) and
+     config live INSIDE its own `.codex` dir, there is no cross-account symlink
+     sharing, and disconnect (forgetAccount) already moves the whole default dir
+     aside. So deleting the default is the same act as deleting a secondary: the
+     rmSync below takes the whole dir. Every real guard still stands -- the
+     arbitrary-path defence above, the sign-in-in-flight refusal, and the
+     running-agents refusal below -- so a default the user has moved every agent
+     off (Josh's #2684 use case) is deletable, while one still in use is refused.
+     The env-aware `defaultDir()` comparison survives only to set `wasDefault` on
+     the success return, for the caller's history messaging. */
   /* #2584: refuse while a reauth of this account is in flight (its dir is reserved), so
      a delete cannot pull the live dir out from under the pending promote.
 
@@ -432,7 +442,9 @@ function removeAccount(dir, usedBy) {
   }
   try { fs.rmSync(clean, { recursive: true, force: true }); }
   catch { return { ok: false, removed: false, because: 'we could not delete that account from this computer' }; }
-  return { ok: true, removed: true, because: null };
+  /* #2684: wasDefault so the caller's history messaging matches forgetAccount's.
+     Env-aware, matching the `defaultDir()` comparison the refusal used to make. */
+  return { ok: true, removed: true, wasDefault: clean === path.resolve(defaultDir()), because: null };
 }
 
 function cleanLabel(label) {
