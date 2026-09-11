@@ -18,6 +18,10 @@
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-alltasks.js
  */
 // Browser-check-surface: pj-alltasks pj-alltasks-view alltasks-count tkFace
+// ⚠️ `tkFace` here fires only when a line CONTAINING that literal changes (a
+// signature or a call site). The gate keeps `+`/`-` diff-body lines and not context,
+// so an edit to the function BODY -- which is where #2762 lived -- does not trip it.
+// Measured. Keep the token, do not read it as covering the body.
 // (#2518) the distinctive web/index.html tokens this check asserts, so a change to the
 // all-tasks door/view/count is required to update this check at PR time, not stale it to a cut.
 const { spawn } = require('node:child_process');
@@ -162,15 +166,23 @@ const say = (n, cond, note) => {
        never recreates the <img> and the face stays stale. This is the same class
        #2698 fixed on the org chart, asserted here in a real browser against the
        real rendered src. */
+    /* ⚠️ SCOPED, WITH NO FALLBACK. This file's own header records that the project
+       page BEHIND this screen also renders `.tkcard`, and that an unscoped query is
+       what produced #1346's second number. A fallback to `.tkcard .lav img` would
+       silently measure a card on that other page and still report PASS. If the
+       scoped selector misses, that is a finding, not something to route around. */
     const face = await p.evaluate(() => {
-      const img = document.querySelector('#pj-alltasks-view .tkcard .lav img')
-        || document.querySelector('.tkcard .lav img');
+      const img = document.querySelector('#pj-alltasks-view .tkcard .lav img');
       return img ? img.getAttribute('src') : null;
     });
     say('the member face renders a picture at all (else the arm below is vacuous)',
       typeof face === 'string' && /\/api\/agent\/[^/]+\/avatar/.test(face), JSON.stringify(face));
-    say('#2762: the member face URL carries the avatar version, not a bare URL',
-      typeof face === 'string' && /\/avatar\?v=\d+/.test(face), JSON.stringify(face));
+    /* 🛑 NON-ZERO, not `\d+`. `?v=0` is what `(m.avatarVer || 0)` yields when the
+       version never reaches the page, which is exactly the "producer drops
+       avatarVer" failure this arm should catch. `\d+` matches `0`, so the arm would
+       have greened on the broken case it was added for. */
+    say('#2762: the member face URL carries a NON-ZERO avatar version, not a bare URL and not v=0',
+      typeof face === 'string' && /\/avatar\?v=[1-9]\d*/.test(face), JSON.stringify(face));
 
     /* A CONTROL ON THE SCOPING ITSELF: if the document holds more .tkcard than
        this screen does, then an unscoped count would have been wrong, and the
