@@ -376,24 +376,30 @@ test('the callout shows the name and the title small, with NO chevron; the verb 
   assert.doesNotMatch(node, /callout">Open /, 'the visible word Open is back');
 });
 
-test('#2683: the org callout is a non-interactive label, so an invisible callout cannot steal hover over a neighbour avatar', () => {
+test('#2683: the org callout is interactive ONLY while visible -- inert (so it cannot capture a neighbour hover) when hidden, pressable when shown (#284)', () => {
   /* The mis-targeting cause: the callout is opacity:0 until hover AND positioned
      above its node, and an opacity:0 element with pointer-events:auto STILL
      captures the pointer. A node's invisible callout sitting over a neighbour's
-     avatar stole the hover, lighting the wrong label. pointer-events:none is the
-     fix; the avatar (the .onode button) is the hover-and-click target. If this
-     reverts to auto, the neighbour-capture bug returns. */
-  // The callout takes pointer-events:none from the shared `.onode .oname, .onode .callout`
-  // rule; #2683 removed the separate `.onode .callout { pointer-events: auto; }` override.
-  // [^}] keeps the match inside the ONE rule block: [\s\S] would bridge across a `}` to a
-  // later rule's pointer-events:none and pass vacuously if the shared rule ever lost it.
+     avatar stole the hover, lighting the wrong label. The fix scopes pointer-events
+     to the VISIBLE state: base none (shared rule) so an INVISIBLE callout cannot
+     capture; auto on hover/focus so the visible gold pill is pressable (#284: a
+     thing that looks pressable must be pressable). If the base ever reverts to an
+     unconditional auto, the neighbour-capture bug returns. */
+  // Base none, bounded to the ONE shared rule block ([^}] can't bridge a `}` to a
+  // later rule's pointer-events:none and pass vacuously if the shared rule lost it).
   assert.match(PAGE, /\.onode \.oname, \.onode \.callout \{[^}]*?pointer-events: none;[^}]*?\}/,
-    'the shared .oname/.callout rule no longer sets pointer-events:none, so the callout can capture hover');
+    'the shared .oname/.callout rule no longer sets pointer-events:none, so an invisible callout can capture a neighbour hover');
+  // Visible state clickable: the hover/focus rule flips pointer-events to auto in
+  // the same rule it shows the callout, so look and hit area move together (#284).
+  assert.match(PAGE, /\.onode:hover \.callout, \.onode:focus-visible \.callout \{[^}]*?pointer-events: auto;[^}]*?\}/,
+    'the visible callout is not clickable (the gold pill looks pressable but is inert -- violates #284)');
   // Line-anchored so the #2683 comment ABOVE the rule (which quotes the old
   // `.onode .callout { pointer-events: auto; }` verbatim) is not mistaken for a
   // live rule -- real CSS rules start at column 0, the prose mention does not.
+  // This guards the BARE unconditional override (the bug), NOT the hover-scoped
+  // rule above (`.onode:hover .callout` does not start with `.onode .callout {`).
   assert.doesNotMatch(PAGE, /^\.onode \.callout \{ pointer-events: auto/m,
-    'the pointer-events:auto override is back (the #2683 mis-targeting cause)');
+    'the unconditional pointer-events:auto override is back (the #2683 mis-targeting cause)');
 });
 
 test('the flat-fleet hint stays removed (Josh, 2026-08-31): a deletion needs an absence guard', () => {

@@ -67,7 +67,7 @@ const { chromium } = require('playwright');
   // auto so it read as a button; but an opacity:0 callout with pointer-events:auto,
   // positioned above its node, captured hover over a NEIGHBOUR's avatar and lit the
   // wrong label. pointer-events:none is the fix; the avatar is the hover+click target.
-  say(m.calloutEvents === 'none', 'the callout is a non-interactive label, so it cannot steal hover over a neighbour avatar', m.calloutEvents);
+  say(m.calloutEvents === 'none', 'the callout is inert AT REST (invisible), so it cannot steal hover over a neighbour avatar (it becomes clickable only when hovered, checked below)', m.calloutEvents);
   say(m.chevrons === 0, 'the chevron-right is removed from every node callout (#2683)', 'chevrons=' + m.chevrons);
   say(Math.abs(m.offsetX) <= 2 && Math.abs(m.offsetY) <= 2,
     'the drawing is centred on itself, not on the hub', m.offsetX + ',' + m.offsetY);
@@ -91,11 +91,14 @@ const { chromium } = require('playwright');
       mineVisible: vis(mine),
       shownCount: shown.length,
       shownAgents: shown.map((x) => x.dataset.agent),
+      // #284/#2683: while VISIBLE the gold-pill callout must be pressable (pointer-events auto).
+      mineEvents: mine ? getComputedStyle(mine.querySelector('.callout')).pointerEvents : null,
     };
   }, firstAgent);
   say(hov.mineVisible, 'hovering an avatar shows ITS OWN callout', firstAgent);
   say(hov.shownCount === 1 && hov.shownAgents[0] === firstAgent,
     'exactly one callout shows on hover and it is the hovered avatar (no neighbour mis-fire)', JSON.stringify(hov));
+  say(hov.mineEvents === 'auto', 'the VISIBLE callout is clickable (#284: it looks pressable, so it must be)', hov.mineEvents);
   await pg.screenshot({ path: '/tmp/orgshots/org-hover.png', clip: { x: 0, y: 110, width: 1400, height: 780 } });
 
   // #2683 ask 3: clicking the avatar (the face) opens that agent's detail.

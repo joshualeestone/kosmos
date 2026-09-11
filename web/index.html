@@ -1464,17 +1464,21 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    node with a callout in his sketch is the HOVER state, not a selection --
    which is better, because the view then has exactly one way of saying "this
    one", and pointing at it is a preview of going there. */
-/* 🛑 THE CALLOUT IS A LABEL, NOT A HIT TARGET (#2683, Josh 2026-09-10). It takes
-   pointer-events:none from the shared rule below. It USED TO override that to
-   `auto` (a separate `.onode .callout { pointer-events: auto; }` rule) so the
-   button-looking callout could be clicked. But the callout is opacity:0 until
-   hover AND positioned ABOVE its node, and an opacity:0 element with
-   pointer-events:auto STILL captures the pointer -- so a node's invisible callout
-   sitting over a NEIGHBOUR's avatar stole the hover, and hovering directly over
-   one avatar lit a neighbour's label (Josh's report). The override is REMOVED, so
-   the callout inherits none: the avatar itself is the hover-and-click target (the
-   orgmap click handler opens on the .onode), and the chevron that made the callout
-   read as a button is gone too, so it no longer invites a click it should not take. */
+/* 🛑 THE CALLOUT IS INTERACTIVE ONLY WHILE VISIBLE (#2683, Josh 2026-09-10). It
+   takes pointer-events:none from the shared rule below, and the hover/focus rule
+   further down flips it to `auto` in the SAME breath it flips opacity to 1 -- so
+   the look and the hit area move together (#284's rule: a thing that looks
+   pressable must be pressable; the callout is a gold pill, so when it shows it is
+   clickable and, sitting inside its own .onode, the orgmap handler opens that
+   agent). It USED TO be an UNCONDITIONAL `auto` (a separate
+   `.onode .callout { pointer-events: auto; }` rule). That was the #2683 bug: the
+   callout is opacity:0 until hover AND positioned ABOVE its node, and an opacity:0
+   element with pointer-events:auto STILL captures the pointer -- so a node's
+   INVISIBLE callout sitting over a NEIGHBOUR's avatar stole the hover, and hovering
+   directly over one avatar lit a neighbour's label (Josh's report). Scoping `auto`
+   to the visible state fixes that (an invisible callout is now `none`, so it cannot
+   capture a neighbour) while keeping the visible pill pressable. The avatar itself
+   also opens the agent (the orgmap click handler), and the chevron is gone. */
 .onode .oname, .onode .callout {
   position: absolute; left: 50%; transform: translateX(-50%);
   white-space: nowrap; pointer-events: none;
@@ -1491,7 +1495,10 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
   display: inline-flex; align-items: center; text-align: left; line-height: 1.15;
   color: #14161a; opacity: 0; transition: opacity .12s ease;
 }
-.onode:hover .callout, .onode:focus-visible .callout { opacity: 1; }
+/* #2683: opacity AND pointer-events move together, so the callout is clickable
+   exactly when it is visible -- pressable when shown (#284), inert (and unable to
+   capture a neighbour's hover) when hidden. */
+.onode:hover .callout, .onode:focus-visible .callout { opacity: 1; pointer-events: auto; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .onode .face { background: #3a3d42; }
 }

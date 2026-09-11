@@ -21,17 +21,22 @@ propagates to the lower `.onode`, and the lower node's label lights. That is exa
 over one avatar -> a neighbour's label", the reported bug.
 
 ## Change
-1. `.onode .callout { pointer-events: none; }` (was `auto`). The callout is now a plain hover
-   LABEL; an invisible callout can no longer capture hover/clicks over a neighbour's avatar. The
-   avatar (the `.onode` button) is the hover-and-click target.
+1. Scope the callout's interactivity to its VISIBLE state. Base `pointer-events:none` (from the
+   shared `.onode .oname, .onode .callout` rule); the hover/focus rule flips it to `auto` in the
+   same rule it flips opacity to 1: `.onode:hover .callout, .onode:focus-visible .callout { opacity:
+   1; pointer-events: auto; }`. So an INVISIBLE callout is `none` and can no longer capture hover
+   over a neighbour's avatar (the mis-targeting fix), while the VISIBLE gold pill stays pressable
+   (honouring #284: a thing that looks pressable must be pressable; clicking the visible callout,
+   which sits inside its own `.onode`, opens that agent through the orgmap handler).
+   (First draft used an UNCONDITIONAL `pointer-events:none`; challenge-loop iter 3 flagged that it
+   left the visible gold pill looking pressable but inert -- a #284 violation. Scoping to the
+   visible state reconciles #2683 and #284.)
 2. Remove the chevron: drop `<span class="co-go" ...>&rsaquo;</span>` from the node render, remove
    the `.co-go` CSS rule, and make the callout padding symmetric (`6px 12px`, dropping the
    chevron's asymmetric padding + gap).
 3. Click-avatar-to-open: ALREADY works -- the `orgmap` click handler does
    `closest('.onode')` -> `openDetail(dataset.agent)`, so a click anywhere on the node (the face
-   included) opens the agent. With the callout now `pointer-events:none` and the chevron gone, the
-   callout no longer invites a click it should not take; the avatar is the sole target. No handler
-   change needed.
+   or the visible callout, both inside the `.onode`) opens the agent. No handler change needed.
 
 ## Why not clip the hit-area to a circle
 Josh says "only when over that avatar's own circle". The button is a 44x44 square; a `clip-path:
