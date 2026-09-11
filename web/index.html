@@ -10292,12 +10292,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   <p class="fhint" id="pj-none" hidden></p>
   <div id="pj-list-view">
     <!-- #520, piece two: the projects rail's head, consolidated view only.
-         The + is the list's own New project; the arrow folds the list away
-         and leaves the arrow. -->
+         #2850 (Josh, 2026-09-11): the fold arrow sits on the LEFT (inside .lead,
+         before the name) and the + (the list's own New project) sits on the FAR
+         RIGHT (inside .railacts), matching the agents rail and the tab-view
+         grammar. When folded, the arrow alone remains and reopens the list. -->
     <div class="railhead" id="rail-projects" hidden>
-      <span class="lead"><button class="fold plus" type="button" id="rail-projects-new" aria-label="New project" title="New project">+</button><span class="railname">Projects</span></span>
+      <span class="lead"><button class="fold" type="button" id="rail-projects-fold" data-fold="p" aria-label="Fold the projects column" aria-expanded="true">&lsaquo;</button><span class="railname">Projects</span></span>
       <span class="railacts">
-        <button class="fold" type="button" id="rail-projects-fold" data-fold="p" aria-label="Fold the projects column" aria-expanded="true">&lsaquo;</button>
+        <button class="fold plus" type="button" id="rail-projects-new" aria-label="New project" title="New project">+</button>
       </span>
     </div>
     <!-- ⚠️ The pack's stats row (view C), the same grammar as the agents
@@ -12601,19 +12603,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
      view (showTab shows it with the mode). The + is the board's own New
      agent; the arrow folds the column to its letters. -->
 <div class="railhead" id="rail-agents" hidden>
-  <!-- Josh, 2026-08-27: "I want to get rid of the K icon in the top left corner",
-       and "the plus sign for agents, projects, tasks, and project members on the
-       left side of their respective labels. This way we give room for the arrows
-       on the collapsible ones to be on the right and we just clean things up."
-       🔑 THE + MOVES INTO .lead, BESIDE THE NAME. It is not decoration: every
-       header then has its action on the left and its fold on the right, instead
-       of two controls competing for one corner. The K mark went from here rather
-       than being restyled, so its button, its image and its styles are gone
-       with it. Its name is deliberately not written here: the guard for this is a
-       literal search, and prose naming the thing would fail it. -->
-  <span class="lead"><button class="fold plus" type="button" id="rail-agents-new" aria-label="New agent" title="New agent">+</button><span class="railname">Agents</span></span>
+  <!-- #2850 (Josh, 2026-09-11, 0.6.57 review): the fold arrow sits on the LEFT
+       (inside .lead, before the name) and the + (New agent) sits on the FAR
+       RIGHT (inside .railacts). This lines the collapse control up flush-left
+       with the agent avatars below it and matches the tab-view grammar.
+       ⚠️ This REVERSES the 2026-08-27 arrangement, which put the + on the left of
+       each label to free the right corner for the fold arrow; the 0.6.57 review
+       asked for the opposite, so collapse-left / +-right is now the rule for
+       agents, projects, tasks and members. The K mark removed on 2026-08-27 does
+       not return (its class/id stay guarded away in the layout-picker test). -->
+  <span class="lead"><button class="fold" type="button" id="rail-agents-fold" data-fold="a" aria-label="Fold the agents column" aria-expanded="true">&lsaquo;</button><span class="railname">Agents</span></span>
   <span class="railacts">
-    <button class="fold" type="button" id="rail-agents-fold" data-fold="a" aria-label="Fold the agents column" aria-expanded="true">&lsaquo;</button>
+    <button class="fold plus" type="button" id="rail-agents-new" aria-label="New agent" title="New agent">+</button>
   </span>
 </div>
 <div class="alist" id="alist" hidden></div>
