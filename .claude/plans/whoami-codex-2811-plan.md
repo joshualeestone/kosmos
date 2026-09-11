@@ -334,3 +334,44 @@ nodes occur):
 The fuzzes are verification evidence rather than shipped tests: 60,000 iterations
 does not belong in the suite, and the semantics they check are already pinned by
 named arms (tie-break both orders, depth beats the preference, cycles terminate).
+
+## Round 3: one warning, and it was a comment claiming coverage the code lacked
+
+Round 3 found every other category clean and confirmed all six claimed mutants dead
+plus two of its own. It also wrote its own independent property test of the walk
+rewrite (30,000 random trees, cycles included) and reached the same verdict my two
+fuzzes did, which is the corroboration that matters most: the rewrite is the oldest
+code on this branch and the one I was least able to review impartially.
+
+### The finding
+
+My guard's comment named "a paneless agent" as a case it covered. It did not.
+`engine/status.js:5912` sets `runner: null` on every paneless card, and it is the
+only such site, so the `@kosmos_runner` marker is absent for exactly that case:
+`configuredRunner` was null, `foreignRunner` false, and a stale Claude transcript
+model went out unopposed. The crashed-pane half worked (a pane card keeps its
+marker); the paneless half could not fire at all.
+
+⭐ This is the failure mode this codebase names explicitly: a comment describing
+behaviour the code cannot produce is worse than no comment, because it stops the
+next reader from checking. The fix had been real and the sentence around it was
+not.
+
+### The fix
+
+The launch job does not depend on a pane, and `accountForAgent` already reads it on
+every request, so the guard now falls back to `create.readJob(who).runner` when the
+marker is absent. Its absent-runner default is `'claude'`, matching the supervisor,
+so a plist written before runners existed reads as claude and takes the old path
+rather than suppressing a model.
+
+Both sources are load-bearing and pinned independently: dropping the job fallback
+fails the new arm, and consulting the job BEFORE the marker fails the crashed-pane
+arm.
+
+The new arm writes a REAL plist with the product's own `create.plistFor` rather
+than hand-rolled XML, and derives its paneless card by nulling `runner` on a
+genuine fleet card (which is exactly what `status.js:5912` emits) rather than
+building one, which `fixture-discipline.test.js` exists to refuse. Its control runs
+first and asserts the record CAN answer before the job exists, so the arm cannot
+pass merely because the transcript was unreadable.

@@ -324,7 +324,14 @@ function parseCmdlines(out) {
    produces, so the assertion "the model came from the codex command line" was
    testing an impossible input.
    The token must stand alone (anchored on start-or-space, and a value must
-   follow), so this does not match an `-m` buried in a path or another word. */
+   follow), so this does not match an `-m` buried in a path or another word.
+   📌 RESIDUAL, STATED: a standalone `-m` INSIDE a quoted argument value would
+   still match, because this reads a flat command string and has no quoting
+   model. Sampled against this machine's live process table: 21 command lines
+   carried a standalone `-m` and NONE had a claude or codex first token (they
+   are mdworker_shared and python). A live sample, so the count moves; the
+   zero is the part that matters, and no product launch path produces the
+   shape. It is the price of the widened token, not an oversight. */
 function modelIn(cmd) {
   const m = String(cmd == null ? '' : cmd).match(/(?:^|\s)(?:--model|-m)[= ](\S+)/);
   return m ? m[1] : null;
