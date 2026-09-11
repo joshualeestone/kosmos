@@ -1096,6 +1096,10 @@ test('a pane we cannot tie to a name does not borrow that agent’s identity', (
     // this reason: their fixture had no registry entry and no avatar, so their
     // nulls were null either way.
     assert.equal(card.hasAvatar, true, 'the seeded avatar was not found, so the hasAvatar gate proves nothing');
+    // #2698: the avatar version must travel with the RUNNING (pane) card, not
+    // just hasAvatar -- the org chart keys its cache-busting URL on it, and a
+    // missing/zero version there is exactly the running-agent staleness this fixes.
+    assert.ok(card.avatarVer > 0, 'the tied pane card carried no avatar version, so the org avatar URL cannot bust its cache (#2698)');
     assert.ok(card.model, 'the seeded registry entry was not read, so the model gate proves nothing');
   } finally {
     setPaneSource(null);
@@ -1121,6 +1125,11 @@ test('a pane we cannot tie to a name does not borrow that agent’s identity', (
       'a borrowed context reading was published at real confidence');
     assert.equal(card.hasAvatar, false,
       'an untied pane rendered the real agent’s photograph');
+    // #2698: gated exactly like hasAvatar -- an untied pane must not leak the
+    // real agent's avatar version either (it would key a cache-buster on a
+    // borrowed picture's mtime).
+    assert.equal(card.avatarVer, 0,
+      'an untied pane carried the real agent’s avatar version');
     // ⚠️ `registryFile` exists on disk for this name — that is the point. The
     // gate is what stops it being read, not its absence.
     assert.ok(fs.existsSync(registryFile), 'the fixture stopped seeding, so these nulls are vacuous again');

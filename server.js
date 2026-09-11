@@ -2371,6 +2371,10 @@ const server = http.createServer((req, res) => {
                       + '; if it stays off, its Terminal tab is where to look'
                     : 'this agent is not running: nothing on this computer has a session for it',
                 hasAvatar: Boolean(safeAvatarFor(k.name)),
+                /* #2698: a version that moves when the picture changes, so a view
+                   that skips an identical repaint (the org chart) still refreshes
+                   the avatar. Carried in the URL as `?v=`; see store.avatarVersion. */
+                avatarVer: store.avatarVersion(k.name),
                 profile,
                 plannedModelName: plannedFor({ sessionName: k.name, isNamedOurs: true }),
                 /* #149/#150: same field the roster rows carry, same meaning.

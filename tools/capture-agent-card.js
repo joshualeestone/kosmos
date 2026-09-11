@@ -50,7 +50,7 @@
  *     so a tied agent with an unreadable transcript produced a card this recording could
  *     not represent, while four separate copies of this sentence claimed otherwise.
  *   - PINS these fields to constants. PIN-LIST-BEGIN
- *     `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.cause`, `disruption.startedAt`, `disruption.timedOut`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
+ *     `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.cause`, `disruption.startedAt`, `disruption.timedOut`, `avatarVer`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
  *     PIN-LIST-END
  *     ⚠️ PATHS, NOT NAMES, AND THE DIFFERENCE WAS A REAL HOLE. The list carried bare
  *     names with a parenthetical saying where each lived, and `because` IS PINNED IN TWO
@@ -378,6 +378,13 @@ function neutralise(live) {
      the producer emits, so the recording stays possible. The guard is a TYPE guard only:
      it stops a non-boolean being invented into one, it does not preserve `false`. */
   if (typeof card.hasAvatar === 'boolean') card.hasAvatar = true;
+  /* #2698: the avatar VERSION (avatar file mtime, status.js) travels with hasAvatar
+     so the org chart can bust its avatar URL. It is an epoch-ms MACHINE TIMESTAMP --
+     the same class as disruption.startedAt below -- so recording it verbatim would
+     differ per box and leak when a picture was set. Pinned to a fixed non-zero
+     constant, the value that pairs with the hasAvatar:true above (an avatar-present
+     card carries a real version). Type guard only, like the others. */
+  if (typeof card.avatarVer === 'number') card.avatarVer = 1757000000000;
   /* 🛑 AN EPOCH-MS MACHINE TIMESTAMP, AND THE ONLY REASON IT IS NOT A LIVE LEAK IS THAT
      `disruption` is null in today's recording. status.js:5431 emits
      {cause, startedAt, timedOut}; scrubStrings took `cause` and left `startedAt`. */

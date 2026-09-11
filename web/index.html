@@ -20007,7 +20007,13 @@ function paintOrg() {
     const needsYou = cardStOf(a).st === 'attn';
     const shown = a.name || a.sessionName;
     const face = a.hasAvatar
-      ? '<img src="/api/agent/' + encodeURIComponent(a.sessionName) + '/avatar" alt="" draggable="false">'
+      /* #2698: `?v=` the avatar version so a changed picture changes this markup.
+         Without it the URL is byte-identical after an update, the repaint guard
+         below (html === ORG_HTML) skips, and this node's <img> is never recreated,
+         so the org chart keeps the OLD picture while grid and list (which rebuild
+         their imgs each poll) update. The avatar route is no-store, so a recreated
+         <img> refetches the current image; this only has to make the markup differ. */
+      ? '<img src="/api/agent/' + encodeURIComponent(a.sessionName) + '/avatar?v=' + (a.avatarVer || 0) + '" alt="" draggable="false">'
       /* ⚠️ WRAPPED, so the rule above has an element to reach. Bare text in the
          disc cannot be dimmed without dimming the disc itself, which is the
          transparency Josh asked us to remove. */

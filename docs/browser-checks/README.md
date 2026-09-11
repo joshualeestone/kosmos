@@ -144,7 +144,7 @@ items with the numbering skipping 4). Counting the items and counting the catego
 different acts, and every version so far has done one while claiming the other:
 
 1. **PINNED to constants.** PIN-LIST-BEGIN
-   `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.cause`, `disruption.startedAt`, `disruption.timedOut`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
+   `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.cause`, `disruption.startedAt`, `disruption.timedOut`, `avatarVer`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
    PIN-LIST-END
    (Paths, not names: `because` is pinned both top-level and under `context`.)
    🛑 **This does NOT make a re-capture byte-identical**, and the sentence claiming it did
