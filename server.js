@@ -706,7 +706,26 @@ function whoamiFor(card, known, live) {
      Empty means claude, the same default the supervisor records. */
   const resolvedRunner = (() => {
     /* Live first: a running process is the strongest evidence of what this
-       agent is, and it is the only source that cannot be stale. */
+       agent is, and it is the only source that cannot be stale.
+
+       ⚠️ AND THIS COMPOSES WITH A SAFEGUARD IN THE OTHER DIRECTION, which is
+       worth naming because the two were designed independently. `agentUnder`
+       breaks a same-depth tie toward `claude` ON PURPOSE, so an ambiguous pane
+       yields a live `claude` that was chosen rather than observed, and this line
+       then prefers it over a plist that says `codex` definitively.
+
+       ⇒ KEPT AS IS, and the reasoning is which case is REACHABLE. Live-claude
+       over plist-codex is a real product path: `setProvider` rewrites the plist
+       and the marker while the RUNNING process stays claude until the agent
+       restarts, and during that window live is right and the transcript it is
+       writing is valid. The opposite case needs two agent-shaped processes in one
+       pane's tree at the same or shallower depth, which a reviewer tried and
+       could not construct from any launch path this product has.
+       📌 Weakest premise, named: "could not construct" is not "cannot exist". If
+       a real topology ever produces two agent processes under one pane, the
+       tie-break's invented answer would outrank a definitive record, and the fix
+       then is for `agentUnder` to report that a tie was broken rather than for
+       this line to distrust every live read. */
     if (seen && seen.runner) return seen.runner;
     if (card && card.runner) return card.runner;
     /* 🛑 A PANELESS CARD CARRIES `runner: null` BY CONSTRUCTION
@@ -721,8 +740,12 @@ function whoamiFor(card, known, live) {
        called `readJob(who).runner` directly, which is a duplicate of a
        derivation this module already owns AND a weaker one: `recordedRunner`
        falls back to the profile's provider when the plist cannot answer, so it
-       still knows an agent is codex when the job is missing or predates
-       runners. One fact, one place, and the existing place is better.
+       still knows an agent is codex when the job is MISSING. One fact, one
+       place, and the existing place is better.
+       📌 Only when MISSING, precisely: `readJob` FLOORS `runner` at `'claude'`
+       (`args[8] ? args[8] : 'claude'`), so a job that merely predates runners
+       answers `'claude'` and the profile is never consulted. An earlier version
+       of this comment claimed both cases and was half wrong.
        📌 It floors at `'claude'` rather than null, which is the safe direction
        here: an agent nothing knows about takes the old path instead of having
        its model suppressed. */
@@ -952,8 +975,14 @@ function whoamiFor(card, known, live) {
 function runnerDisplayName(runner) {
   /* 📌 THE FALLBACK RENDERS A THIRD RUNNER LOWERCASE ("this is a gemini
      agent"), and that is left as-is deliberately rather than "fixed" with a
-     capitalise. It is unreachable today: `agentUnder` returns only `claude` or
-     `codex`, and this is reached only for a non-claude one. Whoever adds a third
+     capitalise. `agentUnder` returns only `claude` or `codex`, and this is
+     reached only for a non-claude one.
+     ⚠️ THAT BOUND IS WEAKER THAN AN EARLIER VERSION OF THIS COMMENT CLAIMED, and
+     the change that weakened it is on this branch: `resolvedRunner` also takes
+     the tmux marker and the plist's ninth argument VERBATIM, so an unexpected
+     value can reach here from a hand-edited job rather than only from
+     `agentUnder`. Still not a product path, and a raw name is the honest
+     rendering of one. Whoever adds a third
      runner adds its real product name here, which is the point of the map; a
      speculative transform would quietly produce a WRONG name instead of an
      obviously unfinished one, and this file has already deleted one branch for
@@ -1012,7 +1041,11 @@ function sentenceForWhoami(account, model, runner) {
   const named = isForeign ? 'This is a ' + runnerDisplayName(runner) + ' agent, and ' : null;
   parts.push(acct
     ? (named ? named + 'it runs on ' + acct : 'This agent runs on ' + acct)
-    : (named ? named + 'we cannot tell which account it runs on, because we have no startup file for it' : why));
+    /* 📌 NO REASON GIVEN ON THE FOREIGN ARM, deliberately. The shared `why` blames
+       a missing startup file, and this arm is reachable WITH one present (a job
+       exists, carries no account dir, and no row of the right provider matched),
+       so borrowing that reason would state a cause that is sometimes false. */
+    : (named ? named + 'we cannot tell which account it runs on' : why));
   parts.push(model && model.name ? 'and its model is ' + model.name : 'and we cannot tell which model it is running');
   return parts.join(', ') + '.';
 }
@@ -1095,7 +1128,33 @@ function accountForAgent(name, known) {
   if (!job) return null;
   const dir = job.configDir;
   const list = Array.isArray(known) ? known : [];
-  const found = dir ? list.find((x) => x.dir === dir) : list.find((x) => x.isDefault);
+  /* 🛑 THE PROVIDER GATES THE DIR-LESS MATCH, AND WITHOUT IT THIS IS THE CARD'S
+     OWN DEFECT. A DEFAULT-account OpenAI agent launches with NO `CODEX_HOME`
+     (`engine/create.js`: "THE DEFAULT ROW WRITES NO HOME"), so its job carries
+     `configDir: null` and this falls to the dir-less arm, which matched purely on
+     `isDefault`. Handed the CLAUDE list, that is the operator's Claude account:
+     a Codex agent told it runs on josh@... with `isDefault: true`.
+     ⭐ The codebase already knew: the #2413 overlay a few hundred lines below
+     says in as many words that "a codex agent on the default home maps to the
+     default Claude account", and guards its own join by filtering observations
+     per provider. The raw mapping here was never gated, so every OTHER caller
+     still got the wrong row.
+     🛑 AND I WAVED THIS OFF BY NAME. My round-4 comment said only the fallback
+     needed guarding because "there `isDefault` comes from whichever list matched,
+     which is that list's own notion and correct for both providers". That is true
+     of the DIR match and false of the DEFAULTNESS match: matching on `isDefault`
+     alone keeps no provider straight. The sentence change then made the case
+     worse rather than better, because "This is a Codex agent, and it runs on
+     <a Claude email>" contradicts itself inside one line.
+     ⇒ OpenAI rows carry `provider: 'openai'` and Claude rows carry no provider
+     at all, so the two lists are separable, and the dir-matched arm needs no gate
+     because a codex dir cannot equal a claude row's dir. A caller handed the
+     wrong list for the agent now gets NO row rather than a confident wrong one. */
+  const isOpenaiRow = (x) => !!(x && x.provider === 'openai');
+  const foreign = !!(job.runner && job.runner !== 'claude');
+  const found = dir
+    ? list.find((x) => x.dir === dir)
+    : list.find((x) => x.isDefault && (foreign ? isOpenaiRow(x) : !isOpenaiRow(x)));
   if (found) {
     return {
       dir: found.dir, email: found.email, label: found.label,
@@ -1134,7 +1193,6 @@ function accountForAgent(name, known) {
      📌 Only this fallback, not the `found` branch above: there `isDefault` comes
      from whichever list matched, which is that list's own notion and correct for
      both providers. */
-  const foreign = !!(job.runner && job.runner !== 'claude');
   return dir
     ? { dir, email: null, label: null, name: openaiAccounts.readName(dir), organization: null, isDefault: foreign ? null : accounts.isDefaultDir(dir) }
     : null;
