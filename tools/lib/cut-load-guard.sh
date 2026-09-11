@@ -153,7 +153,16 @@ kosmos_gate_or_abort() {
 # back to the default) so the decision below can never fault on a garbage value.
 kosmos_cut_parallel_min_cores() {
   local v="${KOSMOS_CUT_PARALLEL_MIN_CORES:-}"
-  case "$v" in *[!0-9]*|'') echo 8 ;; *) echo "$v" ;; esac
+  # Reject non-digit, empty, OR overlong (5+ digits): an all-digit but huge override would
+  # pass a digit-only check yet WRAP in the `$((10#...))` arithmetic that consumes this value,
+  # silently mis-deciding parallel-vs-serial. 4 digits (up to 9999 cores) is well past any real
+  # machine, so anything longer falls back to the default -- keeping the "every unreadable or
+  # out-of-range input -> serial" fail-safe claim literally true rather than nearly true.
+  case "$v" in
+    *[!0-9]*|'') echo 8 ;;
+    ?????*)      echo 8 ;;
+    *)           echo "$v" ;;
+  esac
 }
 
 # The 1-min load strictly below which the overlap may fire. STRICTER than the entry

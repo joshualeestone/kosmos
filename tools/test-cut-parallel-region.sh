@@ -50,6 +50,23 @@ grep -q 'the page checks are red' "$REGION"        && ok "region contains the pa
 grep -q 'nice -n' "$REGION"                        && ok "region backgrounds the suite at low priority (nice)" || bad "region missing nice (low-priority suite)"
 grep -q 'kosmos_cut_parallel_ok' "$REGION"         && ok "region gates the overlap on kosmos_cut_parallel_ok"  || bad "region missing the parallel gate"
 
+# CLAUDE.md Convention #5 ("two derivations of one fact"): the page-gate invocation is
+# duplicated byte-for-byte between the parallel branch and the serial branch (the SUITE
+# invocation is deliberately NOT -- the parallel one adds `nice`). A comment asserts the two
+# are "the SAME command", but a comment is not enforcement: a future edit to one branch (an
+# added env var, a changed strict-version flag) could silently drift from the other with
+# nothing catching it. Pin them equal here -- Convention #5's sanctioned "a test that pins
+# duplicates equal" -- matching on the `>"$_page_log"` redirect so prose mentions of
+# browser-checks.sh in comments cannot satisfy it.
+pg_count=$(grep -c 'bash tools/browser-checks.sh >"$_page_log"' "$RELEASE")
+[ "$pg_count" -eq 2 ] \
+  && ok "page-gate invocation appears exactly twice in release.sh (parallel + serial branch)" \
+  || bad "expected exactly 2 page-gate invocations in release.sh, found $pg_count -- a branch gained or lost one"
+pg_distinct=$(grep 'bash tools/browser-checks.sh >"$_page_log"' "$RELEASE" | sed 's/^[[:space:]]*//' | sort -u | grep -c .)
+[ "$pg_distinct" -eq 1 ] \
+  && ok "the parallel and serial page-gate invocations are byte-identical (modulo indent)" \
+  || bad "the parallel and serial page-gate invocations have DRIFTED ($pg_distinct distinct forms) -- Convention #5: keep them identical"
+
 # --- drive the region under stubs ---
 # $1 desc  $2 extra-env (space-separated VAR=val)  $3 expect (0=completes / 1=aborts)
 #   optional $4 = a label the run's STEP output MUST contain (branch-taken proof)

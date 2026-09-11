@@ -132,6 +132,10 @@ got="$(KOSMOS_CUT_PARALLEL_MIN_CORES=12 kosmos_cut_parallel_min_cores)"
 [ "$got" = "12" ] && ok "KOSMOS_CUT_PARALLEL_MIN_CORES overrides min-cores" || bad "min-cores override: got [$got], expected [12]"
 got="$(KOSMOS_CUT_PARALLEL_MIN_CORES=garbage kosmos_cut_parallel_min_cores)"
 [ "$got" = "8" ] && ok "a garbage min-cores override is ignored (falls back to 8, so the decision cannot fault)" || bad "min-cores garbage-override: got [$got], expected [8]"
+got="$(KOSMOS_CUT_PARALLEL_MIN_CORES=9999 kosmos_cut_parallel_min_cores)"
+[ "$got" = "9999" ] && ok "a 4-digit (in-range) min-cores override is honoured" || bad "min-cores 4-digit: got [$got], expected [9999]"
+got="$(KOSMOS_CUT_PARALLEL_MIN_CORES=99999999999999999999 kosmos_cut_parallel_min_cores)"
+[ "$got" = "8" ] && ok "an OVERLONG (5+ digit) min-cores override folds to the default 8, so it cannot wrap the 10# arithmetic and mis-decide (fail-safe gap flagged in review)" || bad "min-cores overlong: got [$got], expected [8] (fold, no wrap)"
 ncpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
 expect="$(LC_ALL=C awk -v n="$ncpu" 'BEGIN { printf "%.1f", n * 0.5 }')"
 got="$(kosmos_cut_parallel_max_load)"
@@ -156,8 +160,10 @@ parok() { if eval "$1 kosmos_cut_parallel_ok"; then echo 0; else echo $?; fi; }
 [ "$(parok 'KOSMOS_CUT_PARALLEL=1 KOSMOS_FAKE_LOAD=0.1 KOSMOS_CUT_PARALLEL_MIN_CORES=1')" = 0 ] \
   && ok "opt-in + enough cores + low load -> parallel" || bad "opt-in + quiet should parallelize"
 
-# 3. opt-in but too few cores -> serial (a 2-/4-core box has no spare cycles)
-[ "$(parok 'KOSMOS_CUT_PARALLEL=1 KOSMOS_FAKE_LOAD=0.1 KOSMOS_CUT_PARALLEL_MIN_CORES=99999')" = 1 ] \
+# 3. opt-in but too few cores -> serial (a 2-/4-core box has no spare cycles). Use 9999 (a
+#    4-digit, in-range threshold above any real core count); NOT 5+ digits, which the
+#    min-cores validator rejects as overlong and folds back to the default 8.
+[ "$(parok 'KOSMOS_CUT_PARALLEL=1 KOSMOS_FAKE_LOAD=0.1 KOSMOS_CUT_PARALLEL_MIN_CORES=9999')" = 1 ] \
   && ok "opt-in but cores below the minimum -> serial" || bad "too few cores should be serial"
 
 # 4. opt-in but load too high -> serial
