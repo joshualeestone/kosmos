@@ -7304,6 +7304,125 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
   }
 });
 
+test('#2711 item 16: pjMember takes a state wash class, for working/needs-you/idle only, and never on an unseen member', () => {
+  // Same lift shape as the pjMember test above, plus LROW_WARN (a needs-you
+  // member draws the triangle) and a STATE_COPY stub carrying a label for every
+  // state this test constructs -- pjMember reads stateCopyOf(m).label on the
+  // present branch, so an absent key would fall through to STATE_COPY.unknown
+  // rather than fail; the stub names each one so the test does not lean on that.
+  const prelude = TOLD_PRELUDE
+    + 'const STATE_COPY = { working: { label: "Working" }, needs_you: { label: "Needs you" }, idle: { label: "Idle" }, rate_limited: { label: "Paused" }, stopped: { label: "Not running" }, restarting: { label: "Restarting agent" }, unknown: { label: "Can\'t tell" } };\n'
+    + pageConstSource('DISC_TINTS') + '\n'
+    + pageConstSource('DISC_INKS') + '\n'
+    // LROW_WARN is a string const (pageConstSource lifts only object/array consts),
+    // and this test reads the wash CLASS, not the triangle markup, so a stub is enough.
+    + 'const LROW_WARN = "<svg class=\\"lwarn\\"></svg>";\n'
+    + pageFnSource('discIndex') + '\n'
+    + pageFnSource('discTint') + '\n'
+    + pageFnSource('discInk') + '\n'
+    + pageFnSource('initials') + '\n'
+    + pageFnSource('pjToldLine') + '\n'
+    + pageFnSource('pjMemberHasIt') + '\n'
+    + pageFnSource('restartingLabel') + '\n'
+    + pageFnSource('stateCopyOf') + '\n'
+    + pageConstSource('CARD_ST') + '\n'
+    + pageFnSource('cardStOf') + '\n';
+  const member = pageFunction('pjMember', prelude);
+
+  // Real produced roster rows, not hand-built stand-ins (fixture-discipline):
+  // fleet.install verifies each agent actually classifies to the asked state,
+  // and projectsEngine.list gives the exact member rows pjMember receives.
+  const projectsEngine = require('./engine/projects');
+  const board = fleet.install([
+    fleet.agent('wrk', { state: 'working' }),
+    fleet.agent('ndy', { state: 'needs_you' }),
+    fleet.agent('idl', { state: 'idle' }),
+    fleet.agent('rlm', { state: 'rate_limited' }),
+  ]);
+  const pdir = nodePath.join(SANDBOX, 'wash-proj');
+  fs.mkdirSync(pdir, { recursive: true });
+  let roster; let ghost;
+  try {
+    projectsEngine.create({ name: 'Wash', folder: pdir, agents: ['wrk', 'ndy', 'idl', 'rlm'], roster: board.agents });
+    roster = projectsEngine.list(board.agents).find((x) => x.name === 'Wash').agents;
+    // An UNSEEN member: on the project, absent from the board (the producer's
+    // own never-seen path, the same shape paintSettingsMembers' ghost test uses).
+    const gdir = nodePath.join(SANDBOX, 'wash-ghost');
+    fs.mkdirSync(gdir, { recursive: true });
+    projectsEngine.create({ name: 'Wash Ghost', folder: gdir, agents: ['nobody-here'], roster: [] });
+    ghost = projectsEngine.list([]).find((x) => x.name === 'Wash Ghost').agents[0];
+  } finally {
+    board.restore();
+  }
+  const row = (n) => roster.find((r) => r.name === n);
+
+  // The three washed states each get their own class, so the CSS can give them
+  // the green / red / gray ground the agent homepage cards use.
+  assert.ok(member(row('wrk')).includes('pjm-working'),
+    'a working member lost its green wash class');
+  assert.ok(member(row('ndy')).includes('pjm-attn'),
+    'a needs-you member lost its red wash class');
+  assert.ok(member(row('idl')).includes('pjm-idle'),
+    'an idle member lost its gray wash class');
+
+  // CONTROL: a present but neutral state (rate_limited -> the "paused" card
+  // shape) takes NO wash -- the homepage rule is that the grounds cover exactly
+  // working/needs-you/idle and every other state stays neutral. Without this the
+  // three asserts above would pass even if pjMember stamped a class on everything.
+  const neutral = member(row('rlm'));
+  assert.ok(!/pjm-(working|attn|idle)/.test(neutral),
+    'a rate-limited (neutral) member wrongly took a wash class: ' + neutral);
+
+  // CONTROL: an UNSEEN member takes no wash -- an unseen row says why (its dashed
+  // border + reason), not a state colour, so the wash class is gated on presence.
+  assert.ok(!/pjm-/.test(member(ghost)),
+    'an unseen member took a wash class');
+});
+
+test('#2711 item 16: the three member wash grounds are defined in the CSS, scoped to the project view', () => {
+  // A class with no rule behind it is invisible; and an absence-assertion guards
+  // the ground against a later edit silently dropping it (a removal ships with
+  // nothing failing otherwise). Each rule is scoped to #pj-one-agents so it does
+  // not bleed onto the settings or add-agents member surfaces.
+  const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  for (const cls of ['pjm-working', 'pjm-attn', 'pjm-idle']) {
+    assert.match(page, new RegExp('#pj-one-agents \\.pj-member\\.' + cls + ' \\{[^}]*background:[^}]*var\\(--k-surface\\)'),
+      'the ' + cls + ' member ground rule is missing or no longer washes over var(--k-surface)');
+  }
+});
+
+test('#2711 item 16: the working/needs-you member washes stay pinned to the agent-card colours', () => {
+  // Convention #5: the green and red washes are DELIBERATELY the same colours as
+  // the agent homepage cards (.acard.working / .acard.attn), so the two surfaces
+  // read as one system. That is a duplicated fact, and the convention's remedy for
+  // a duplicated fact is a test that pins the copies equal -- otherwise a future
+  // contrast fix to the .acard colours (see #976/#977) would drift the member wash
+  // silently, which no presence test above could catch. Idle is deliberately NOT
+  // pinned: item 16 gives members a gray idle ground where the homepage leaves idle
+  // white, so there is no card colour to track.
+  // Scope: this pins the base/light rules, which is where both colours live today
+  // (neither .acard nor pjm-* carries a dark-theme background override). If a future
+  // dark override is added to one, it must be added to the other; this pin sees only
+  // the base rule and would not catch a dark-only drift.
+  const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  // The rgba of the rule's `background:` wash. Anchored on `background:` so it
+  // selects the ground rule, not a sibling that only sets border-color -- e.g.
+  // `.acard.attn` has two blocks (one border-color, one background), and the wash
+  // colour lives only in the background one.
+  const washRgba = (sel) => {
+    const rule = page.match(new RegExp(sel.replace(/[.[\]]/g, '\\$&') + ' \\{[^}]*background:[^}]*\\}'));
+    assert.ok(rule, 'wash rule not found: ' + sel);
+    const bg = rule[0].match(/background:[^;}]*/)[0];
+    const rgba = bg.match(/rgba\([^)]*\)/);
+    assert.ok(rgba, 'no rgba in the background of: ' + sel);
+    return rgba[0];
+  };
+  assert.equal(washRgba('#pj-one-agents .pj-member.pjm-working'), washRgba('.acard.working'),
+    'the working member wash drifted from .acard.working; re-pin them or the two greens disagree');
+  assert.equal(washRgba('#pj-one-agents .pj-member.pjm-attn'), washRgba('.acard.attn'),
+    'the needs-you member wash drifted from .acard.attn; re-pin them or the two reds disagree');
+});
+
 test('the free-agent picker names the not-signed-in state distinctly on a 403 (#2023)', () => {
   /* The signin branch of `emptyBecause` had no assertion: the harness above only
      BINDS BOARD_NEEDS_SIGNIN to stop a ReferenceError, it never sets it true and
