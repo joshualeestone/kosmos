@@ -3,10 +3,10 @@
 /**
  * kosmos#2575 (STATE half): the "Not waiting? Clear it" button clears a STALE
  * needs_you through Pete's engine route (POST /api/agent/<name>/clear-selfreport)
- * and re-reads the thread so the question comes off screen. Distinct from the
- * head "Hide" (the DISPLAY half, #2575 display: a per-session collapse that keeps
- * the safety breadcrumb because the agent IS waiting). This runs the real
- * pjClearState lifted from the page, so the wiring is exercised, not restated.
+ * and re-reads the thread so the question comes off screen. (#2575 also had a
+ * DISPLAY half, the head "Hide" button + safety breadcrumb; #2691 removed that,
+ * so only this STATE-clear control remains.) This runs the real pjClearState
+ * lifted from the page, so the wiring is exercised, not restated.
  *
  *   node --test web.pj-clear-state-2575.test.js
  */
@@ -109,11 +109,13 @@ test('#2575: pjClearState never keys on `by` (provenance) -- only ok/cleared, pe
     'pjClearState reads a `.by` property; the contract keys on `cleared`/ok, not provenance');
 });
 
-test('#2575: the state-clear button ships inside the question block, distinct from the head Hide', () => {
+test('#2575: the state-clear button ships inside the question block (#2691 removed the separate head Hide)', () => {
   assert.match(PAGE, /id="pj-question-clear"/, 'the state-clear button markup is gone');
   const q = PAGE.indexOf('id="pj-question"');
   const clear = PAGE.indexOf('id="pj-question-clear"');
-  const hide = PAGE.indexOf('id="pj-thread-hide"');
   assert.ok(q > 0 && clear > q, 'the clear button is not inside the #pj-question block');
-  assert.ok(clear !== hide, 'the state-clear and the display Hide must be two different controls');
+  // #2691 removed the head "Hide" (the DISPLAY half); this STATE-clear control is
+  // now the only per-agent dismiss affordance, and it lives in the question block.
+  assert.equal(PAGE.indexOf('id="pj-thread-hide"'), -1,
+    'the head "Hide" button is back; #2691 removed it as part of the Off-mode walk-back');
 });
