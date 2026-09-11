@@ -17,9 +17,18 @@ wrong pick reds this PR before merge.
 Add five verified DOM-state candidates (headers read; each reads rendered hidden/text/class/
 focus/event state, not fragile geometry):
 - **render-inline-field-errors-2606** - Create-agent/Create-project field-level validation
-  errors render inline (the .ferr slots, red-border CLASS, message beside the field, focus).
-  Drives the shipped pjFieldBad/pjFieldOk helper + the #pj-create empty-name gate, file://,
-  no board. Class + text + focus state.
+  errors render inline (the .ferr slots, message beside the field, focus). Drives the
+  shipped pjFieldBad/pjFieldOk helper + the #pj-create empty-name gate, file://, no board.
+  Reads class + text + focus state, AND a COARSE computed-borderColor check (isColored =
+  non-transparent, and borderColor != a captured baseline) - not an exact or cross-element
+  color value. This is headless-SAFE and distinct from the excluded render-openai-key-callout-2164
+  below: getComputedStyle color is resolved by the CSS style engine, NOT the paint/compositor
+  pipeline, so SwiftShader software rendering does not affect it (the fragile class is
+  screenshots and exact-pixel geometry, which this does not do); and the check is coarse
+  (changed/non-transparent), whereas 2164 asserts EXACT color-string equality between two
+  different elements. 2164 is also excluded for a second, independent reason: it needs a live
+  KOSMOS_URL/board and is NOT in the no-board loop. The same-PR CI is the definitive backstop
+  for the computed-color question either way.
 - **render-disconnect-stop-2570** - the Settings row's three-press confirm flow
   (arm -> refusal-with-names -> stop) and that the third press's request carries the flag.
   Button/confirm DOM state, no geometry.
@@ -34,9 +43,14 @@ focus/event state, not fragile geometry):
   wiring, no geometry.
 
 ## Excluded while shortlisting this batch
-- render-openai-key-callout-2164 - asserts the callout renders in the same COMPUTED ink/tone
-  as the Claude one (not the muted grey .dhint): a computed-COLOR comparison, the class
-  closest to the excluded paint class; also NOT in the no-board loop. Left out conservatively.
+- render-openai-key-callout-2164 - excluded for a DECISIVE reason and a secondary one. Decisive:
+  it needs a live KOSMOS_URL/board and is NOT in the no-board/no-arg loop, so it would be
+  reported "never ran" = FAILED in the CI path regardless of the color question. Secondary: it
+  asserts EXACT color-string equality of the computed `color` between two DIFFERENT elements
+  (the OpenAI callout must match the Claude one's ink and not the muted grey .dhint) - a tighter
+  computed-color assertion than 2606's coarse non-transparent/changed-from-baseline check. (Note:
+  the coarse computed-color read in 2606 is kept and is headless-safe - see its entry above - so
+  "computed color" alone is not the exclusion criterion; the needs-a-board fact is.)
 
 ## Verification
 - This PR's own browser-checks CI runs the expanded allowlist on the runner. GREEN means all
