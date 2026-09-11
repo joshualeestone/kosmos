@@ -155,6 +155,20 @@ test('#2669 record: a held record lock REFUSES the write rather than racing it, 
   assert.equal(win32sessions.forget('locked-2669').ok, true);
 });
 
+test('#2669 record: forgetting an id that was never recorded writes NOTHING, and every other row survives', () => {
+  /* `win32stop` forgets without checking the id was ever recorded, so this no-op
+     branch runs in production. A rewrite that wrote on it would replace the whole
+     ownership record -- every other agent's row -- with what the no-op built
+     (review round 8). */
+  assert.equal(win32sessions.record('kept-2669', { name: 'keeper', runner: 'claude' }).ok, true);
+  const before = fs.readFileSync(win32sessions.FILE, 'utf8');
+  const r = win32sessions.forget('never-recorded-2669');
+  assert.equal(r.ok, true, 'nothing to forget is not a failure');
+  assert.equal(fs.readFileSync(win32sessions.FILE, 'utf8'), before, 'and the record was not rewritten');
+  assert.equal(win32sessions.isOurs('kept-2669'), true, 'every other row survives');
+  assert.equal(win32sessions.forget('kept-2669').ok, true);
+});
+
 test('#570 record: record/read/isOurs/forget round-trip, keyed on sessionId', () => {
   win32sessions.record('sess-xyz', { name: 'leo-11', runner: '' });
   assert.equal(win32sessions.isOurs('sess-xyz'), true, 'a recorded session is ours');
