@@ -137,38 +137,52 @@ function identityFromData(parsed) {
   if (mode === 'chatgpt') {
     /* codex keeps an id_token for a ChatGPT sign-in; its payload names the
        email. Decoded, never verified: this is a label, not an authentication. */
-    let email = null;
-    try {
-      const tok = parsed.tokens && parsed.tokens.id_token;
-      const payload = JSON.parse(Buffer.from(String(tok).split('.')[1], 'base64url').toString('utf8'));
-      if (typeof payload.email === 'string') email = payload.email;
-    } catch { email = null; }
+    const payload = decodeIdTokenPayload(parsed.tokens && parsed.tokens.id_token);
+    const email = payload && typeof payload.email === 'string' ? payload.email : null;
     return { authMode: 'chatgpt', email, keyTail: null };
   }
   return null;
 }
 
-/** Pure, offline: the ChatGPT-subscription validity-end (`chatgpt_subscription_active_until`)
-    from a parsed auth.json, as epoch ms, or null when this is not a chatgpt sign-in, the
-    id_token is missing/undecodable, or the claim is absent/unparseable. A LABEL read of the
-    same id_token identityFromData decodes -- decoded, NEVER verified. It is the ONLY offline
-    signal that a ChatGPT sign-in (whose id_token checkLive cannot test against /v1/models) is
-    dead: OpenAI writes and refreshes this subscription window in the token, so a value in the
-    PAST is a genuinely lapsed subscription. NOT the token `exp`, which is short and refreshed
-    and would false-red a live sign-in between refreshes. Fail-NULL on any doubt so the caller
-    stays UNKNOWN (grey) rather than red -- a false red is the inverted #874 harm. */
-function chatgptSubscriptionActiveUntil(parsed) {
+/** Pure, offline: the base64url-decoded JSON payload (middle segment) of a codex id_token JWT,
+    or null on any doubt (missing/empty token, wrong segment count, non-JSON, non-object).
+    Decoded, NEVER verified -- the signature is not checked; callers read labels, not an
+    authenticated claim. Shared by identityFromData (email) and chatgptSubscriptionWindow (the
+    sub window) so the two reads of the same token cannot drift. */
+function decodeIdTokenPayload(tok) {
   try {
-    if (!parsed || parsed.auth_mode !== 'chatgpt') return null;
-    const tok = parsed.tokens && parsed.tokens.id_token;
     if (typeof tok !== 'string' || tok === '') return null;
-    const payload = JSON.parse(Buffer.from(String(tok).split('.')[1], 'base64url').toString('utf8'));
-    const auth = payload && payload['https://api.openai.com/auth'];
-    const until = auth && auth.chatgpt_subscription_active_until;
-    if (typeof until !== 'string' || until === '') return null;
-    const ms = Date.parse(until);
-    return Number.isFinite(ms) ? ms : null;
+    const seg = tok.split('.')[1];
+    if (!seg) return null;
+    const payload = JSON.parse(Buffer.from(seg, 'base64url').toString('utf8'));
+    return payload && typeof payload === 'object' ? payload : null;
   } catch { return null; }
+}
+
+/** Pure, offline: the ChatGPT-subscription window from a parsed auth.json as
+    `{ activeUntil, exp }` in epoch ms (each null when absent/unparseable), or `null` when this
+    is not a decodable chatgpt sign-in. `activeUntil` is OpenAI's own subscription validity-end
+    (`chatgpt_subscription_active_until`, an ISO string -- confirmed the real claim's type); `exp`
+    is the JWT token expiry (standard, in SECONDS, converted to ms here).
+    🛑 THE CALLER MUST RED ONLY A PAST `activeUntil` ON A STILL-VALID TOKEN (`exp` in the future).
+    A stale/unrefreshed token cannot be trusted to report a working sub's window: a working but
+    IDLE sub whose short token has simply expired would otherwise carry a past `activeUntil` and
+    be false-reddened -- the inverted #874 harm. Gating on a fresh `exp` removes that: a working
+    sub's freshly-refreshed token carries a FUTURE `activeUntil` (written from the same refresh),
+    so a valid token showing a PAST window is a genuinely lapsed sub. NOT `exp` alone as the red
+    signal (it is short and refreshed, and would red a live sign-in between refreshes). */
+function chatgptSubscriptionWindow(parsed) {
+  if (!parsed || parsed.auth_mode !== 'chatgpt') return null;
+  const payload = decodeIdTokenPayload(parsed.tokens && parsed.tokens.id_token);
+  if (!payload) return null;
+  const auth = payload['https://api.openai.com/auth'];
+  const untilRaw = auth && typeof auth === 'object' ? auth.chatgpt_subscription_active_until : null;
+  const untilMs = typeof untilRaw === 'string' && untilRaw !== '' ? Date.parse(untilRaw) : NaN;
+  const expMs = typeof payload.exp === 'number' && Number.isFinite(payload.exp) ? payload.exp * 1000 : NaN;
+  return {
+    activeUntil: Number.isFinite(untilMs) ? untilMs : null,
+    exp: Number.isFinite(expMs) ? expMs : null,
+  };
 }
 
 /** What codex wrote about who this is; null when nobody is signed in here,
@@ -1145,9 +1159,13 @@ async function checkLive(dir) {
        live check and no reliable scrape. But the id_token carries
        `chatgpt_subscription_active_until`, the subscription's own validity end that OpenAI
        writes and refreshes; a value in the PAST is a lapsed subscription with no ambiguity,
-       so we can red the badge on it. */
-    const until = chatgptSubscriptionActiveUntil(got.data);
-    if (until !== null && until < Date.now()) {
+       so we can red the badge on it -- but ONLY when the token is itself still VALID
+       (`exp` in the future), so an idle-but-working sub whose short token merely expired
+       is not false-reddened (see chatgptSubscriptionWindow). */
+    const win = chatgptSubscriptionWindow(got.data);
+    const nowMs = Date.now();
+    if (win && win.activeUntil !== null && win.exp !== null
+        && win.exp > nowMs && win.activeUntil < nowMs) {
       return {
         state: STATE.NONE, plan: null, checkedLive: true,
         because: 'this ChatGPT subscription has lapsed (its active-until date has passed)',
@@ -1601,7 +1619,7 @@ module.exports = {
   list, identityOf, addWithKey, addWithKeyLive, finishChatgptLogin, startChatgptLogin, chatgptLoginStatus, cancelChatgptLogin, nextWorkDir, defaultDir, forgetAccount, removeAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, setChatgptTimers, MISSING_RUNNER_SENTENCE,
-  chatgptSubscriptionActiveUntil,   // #2790 Phase 2: pure offline sub-validity read, exported for unit test
+  chatgptSubscriptionWindow, decodeIdTokenPayload,   // #2790 Phase 2: pure offline sub-window read, exported for unit tests
 
   accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds, runnableAllowlist, openaiModelClass,
   readName, writeName,   // #2095: the human-chosen display name (sidecar file)
