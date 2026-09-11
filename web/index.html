@@ -32423,7 +32423,7 @@ async function autoHelloAfterRestart(name, report, saidText, manualText) {
 }
 
 /* #2716: the changeDialog twin of the restart-modal auto-hello. After a model
-   (changeModelNow) or provider (moveAccountNow) switch restarts the agent, send the
+   (changeModelNow) or provider (changeProviderNow) switch restarts the agent, send the
    wake 'hello' via the same helper and, on success, reduce the dialog's line from the
    "Say hello to reactivate ..." instruction to a confirmation.
 

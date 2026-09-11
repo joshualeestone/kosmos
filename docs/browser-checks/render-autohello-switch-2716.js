@@ -126,7 +126,8 @@ function initStub() {
 
   // ---- Arm 2: unconfirmed delivery -> manual line, never a false confirmation ----
   const s2 = await run({ readyAfter: 2, threadResp: { recorded: true, delivery: { state: 'unconfirmed', because: 'x' } } });
-  check('unconfirmed: chg-msg stays the manual reactivate line', s2.msg === MANUAL, JSON.stringify(s2.msg));
+  check('unconfirmed: the hello WAS posted (helper ran, not a silent no-op)', s2.threadCalls === 1, 'calls=' + s2.threadCalls);
+  check('unconfirmed: chg-msg stays the manual reactivate line (no false confirmation)', s2.msg === MANUAL, JSON.stringify(s2.msg));
 
   // ---- Arm 3: stays restarting (timeout) -> manual line ----
   const s3 = await run({ readyAfter: 'inf' });
@@ -139,6 +140,21 @@ function initStub() {
   // ---- Arm 5: the person SWITCHED agents mid-wait -> the write is suppressed ----
   const s5 = await run({ readyAfter: 2, mutate: () => { CURRENT = { sessionName: 'other', name: 'Other' }; } });
   check('switched agent: the confirmation does NOT land in another agent\'s dialog', s5.msg !== SAID, JSON.stringify(s5.msg));
+
+  // ---- The no-race invariant, guarded from source (not exercised by the arms above,
+  // which drive the helper directly). The chg-msg confirmation must not be clobbered by
+  // changeDialog's floor render, which repaints the manual line at RESTART_HOLD_MS. That
+  // holds only while the readiness wait's first accept (>= 2 polls, since sawUnready
+  // requires a gap) lands after the floor: 2 * RESTART_READY_POLL_MS > RESTART_HOLD_MS.
+  // Parse the production constants (not the test-overridden ones) and assert it, so a
+  // future retune that would silently regress to "shows manual instead of the
+  // confirmation" reds here. Benign direction (never a false claim), but caught. ----
+  const src = require('node:fs').readFileSync(path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html'), 'utf8');
+  const num = (re) => { const m = src.match(re); return m ? Number(m[1]) : NaN; };
+  const poll = num(/RESTART_READY_POLL_MS\s*=\s*(\d+)/);
+  const hold = num(/RESTART_HOLD_MS\s*=\s*(\d+)/);
+  check('no-race invariant holds: 2 * RESTART_READY_POLL_MS > RESTART_HOLD_MS',
+    Number.isFinite(poll) && Number.isFinite(hold) && (2 * poll > hold), 'poll=' + poll + ' hold=' + hold);
 
   if (pageErrors.length) check('no page/console errors during the run', false, pageErrors.join(' | '));
   else check('no page/console errors during the run', true);

@@ -6,7 +6,7 @@ Card: joshualeestone/kosmos#2716 (follow-up to #2686). Branch: autohello-switch-
 
 #2686 auto-sends the wake `hello` after a user-initiated restart, but only on the two
 restart-modal sites. The model-switch (`changeModelNow`) and provider-switch
-(`moveAccountNow`) dialogs also restart the agent (`out.outcome === 'changed'`) and
+(`changeProviderNow`) dialogs also restart the agent (`out.outcome === 'changed'`) and
 still tell the person to say hello by hand ("Say hello to <agent> to reactivate them
 on <provider>."). Those should auto-send it too.
 
@@ -53,6 +53,18 @@ Called after the existing `tell`/`say` at each site, only when `restarted`:
 
 - Provider switch names the provider moved to: 'OpenAI' / 'Anthropic'.
 - Model switch names the agent's current provider: 'OpenAI' / 'Claude'.
+
+### Scope boundary: moveAccountNow is NOT covered (and why)
+
+`moveAccountNow` (the account-MOVE dialog, `/api/agent/<name>/account`) is a THIRD
+changeDialog restart path, distinct from the model/provider switch. The code comment
+says an account move restarts the agent, but its dialog says "Moved." and has NEVER
+carried a manual "Say hello to reactivate" line. #2716's scope, from its title and from
+#2686's pattern, is "replace the manual-hello prompt with auto-hello" on the two
+switch dialogs; moveAccountNow has no such prompt to replace, so it is deliberately
+excluded here. Whether an account move actually leaves the agent needing a wake (and
+should therefore auto-hello, or already comes back active) is an open question for
+Josh's review, not something to resolve by widening this change.
 
 ## Held for Josh's review (draft PR)
 

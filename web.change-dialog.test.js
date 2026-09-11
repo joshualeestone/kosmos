@@ -55,7 +55,7 @@ function world(html, fetchImpl) {
     document: { getElementById: el, addEventListener: () => {}, removeEventListener: () => {} },
     CURRENT: currentCard(),
     fetch: fetchImpl, encodeURIComponent, tick: async () => {}, agentShown: () => 'Mara', console,
-    /* #2716: changeModelNow/moveAccountNow now fire autoHelloOnSwitchRestart on a real
+    /* #2716: changeModelNow/changeProviderNow now fire autoHelloOnSwitchRestart on a real
        restart. `lift` only pulls the two function declarations, so stub it as a no-op
        here: this file is about the SENTENCES the dialog shows, and the auto-hello side
        effect is covered by docs/browser-checks/render-autohello-switch-2716.js. */
