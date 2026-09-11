@@ -47,29 +47,33 @@ const OLD_BOARD_GRACE_MS = 3000;
 const PROBE_TIMEOUT_MS = 2000;
 const POLL_INTERVAL_MS = 300;
 
-/* The page names its own version (tools/build-*-bundle.sh bake it, #269), and GET /
-   needs no token, so this is how one board tells whether another is itself. */
-const VERSION_META = /<meta name="kosmos-version" content="([^"]*)">/;
+/**
+ * 🔑 THE RUNNING BOARD'S VERSION COMES FROM A HEADER, NEVER FROM THE PAGE.
+ * server.js reads `web/index.html` per request, so a new zip unpacked over the
+ * running install -- the folder Explorer's Extract All offers by default -- makes
+ * the OLD board serve the NEW page, version meta and all. Comparing the page
+ * would call that old board "already running" and leave the old code serving
+ * until the next logon. The header is `package.json`'s version as the process
+ * loaded it at start, so it names the code that is actually answering.
+ * ⚠️ A board without the header predates this module, so its version is unknown
+ * and it is never taken for this one: a task board without it is replaced once.
+ * GET / needs no token, so any caller can ask; the version is on the page anyway.
+ */
+const BOARD_VERSION_HEADER = 'x-kosmos-version';
 
-function versionInPage(html) {
-  const m = VERSION_META.exec(String(html || ''));
-  return m ? m[1] : null;
-}
-
-/* This install's own version, read from the page it would serve -- the same file
-   the answering board's version comes from, so the two are one derivation. */
+/* This install's own version, from the same `package.json` the header is read
+   from, so the two sides of the comparison are one derivation. */
 function ownVersion(appDir) {
-  try { return versionInPage(fs.readFileSync(path.join(appDir, 'web', 'index.html'), 'utf8')); } catch { return null; }
+  try { return String(JSON.parse(fs.readFileSync(path.join(appDir, 'package.json'), 'utf8')).version || '') || null; } catch { return null; }
 }
 
-/* Is a board answering on this port, and which version is it? Never rejects. */
+/* Is a board answering on this port, and which version is it running? Never rejects. */
 function probeBoard(port) {
   return new Promise((resolve) => {
     const req = http.get({ host: '127.0.0.1', port, path: '/', timeout: PROBE_TIMEOUT_MS }, (res) => {
-      let body = '';
-      res.setEncoding('utf8');
-      res.on('data', (d) => { if (body.length < 65536) body += d; });
-      res.on('end', () => resolve({ answering: true, version: versionInPage(body) }));
+      res.resume();
+      const named = res.headers[BOARD_VERSION_HEADER];
+      res.on('end', () => resolve({ answering: true, version: typeof named === 'string' && named ? named : null }));
     });
     req.on('timeout', () => req.destroy(new Error('timeout')));
     req.on('error', () => resolve({ answering: false, version: null }));
@@ -173,4 +177,4 @@ async function handOffToTask(opts) {
   }
 }
 
-module.exports = { handOffToTask };
+module.exports = { handOffToTask, BOARD_VERSION_HEADER };

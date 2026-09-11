@@ -174,9 +174,11 @@ test('a probe that throws does not escape: serve here', async () => {
 
 // ── the real probe, against a real local server ────────────────────────────
 
-test('the default probe reads the version out of a real page, and says "not answering" on a closed port', async () => {
+const { BOARD_VERSION_HEADER } = require('./win32handoff');
+
+test('the default probe reads the version the running process names in its header, and says "not answering" on a closed port', async () => {
   const http = require('node:http');
-  const srv = http.createServer((q, s) => { s.end('<html><head><meta name="kosmos-version" content="9.9.9"></head></html>'); });
+  const srv = http.createServer((q, s) => { s.writeHead(200, { [BOARD_VERSION_HEADER]: '9.9.9' }); s.end('<html></html>'); });
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
   const port = srv.address().port;
   try {
@@ -194,19 +196,45 @@ test('the default probe reads the version out of a real page, and says "not answ
   assert.equal(r2.serve, true, 'nothing answers on the closed port, so the unstarted task is not proof');
 });
 
-test('its own version is read from the page this install would serve', async () => {
+test('🛑 an OLD board serving a NEW page (a zip unpacked over the running install) is not taken for this one', async () => {
+  /* server.js reads web/index.html per request, so after an unpack-over the old
+     process serves the new page, version meta included. Only the header names the
+     code that is running, and an old board has none. */
+  const http = require('node:http');
+  const srv = http.createServer((q, s) => { s.end('<html><head><meta name="kosmos-version" content="9.9.9"></head></html>'); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const port = srv.address().port;
+  try {
+    const w = world({ taskRunning: true });
+    w.board.end = () => { w.ops.push('end'); return { ok: true }; };
+    const opts = w.opts({ port, version: '9.9.9' });
+    delete opts.probe;
+    const r = await handOffToTask(opts);
+    assert.notEqual(r.say, 'Kosmos is already running. Your browser is opening it.');
+    assert.equal(w.taskOps()[0], 'end', 'the old task board is ended so the new code can serve');
+  } finally { await new Promise((r) => srv.close(r)); }
+});
+
+test('its own version is read from this install\'s package.json, the file the header comes from', async () => {
   const fs = require('node:fs');
   const os = require('node:os');
   const p = require('node:path');
   const app = fs.mkdtempSync(p.join(os.tmpdir(), 'aw-handoff-570-'));
   try {
-    fs.mkdirSync(p.join(app, 'web'));
-    fs.writeFileSync(p.join(app, 'web', 'index.html'), '<meta name="kosmos-version" content="1.2.3">');
+    fs.writeFileSync(p.join(app, 'package.json'), JSON.stringify({ name: 'agent-workforce', version: '1.2.3' }));
     const w = world({ occupant: '1.2.3', taskRunning: true });
     const opts = w.opts({ appDir: app });
     delete opts.version;
     const r = await handOffToTask(opts);
     assert.equal(r.serve, false);
-    assert.match(r.say, /already running/, 'same version as the page on disk');
+    assert.match(r.say, /already running/, 'same version as package.json on disk');
   } finally { fs.rmSync(app, { recursive: true, force: true }); }
+});
+
+test('the board serves the header with the version its process loaded', async () => {
+  /* The other half of the comparison, pinned at the source: server.js's static
+     shell must send BOARD_VERSION_HEADER from its package.json `version`. */
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /\[BOARD_VERSION_HEADER\]: version/, 'the page response no longer names the running version');
+  assert.match(src, /const \{ version \} = require\('\.\/package\.json'\)/, 'the version is no longer package.json\'s, read once at start');
 });

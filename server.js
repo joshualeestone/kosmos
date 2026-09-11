@@ -165,6 +165,9 @@ const usage = require('./engine/usage');
 // on screen has to be the number in the release rather than a hand-typed label
 // that drifts.
 const { version } = require('./package.json');
+/* The header the page carries `version` in; the Windows hand-off reads it. One
+   name, owned by the module that reads it. */
+const { BOARD_VERSION_HEADER } = require('./engine/win32handoff');
 
 /**
  * Whether this process is behind the code on disk (#338).
@@ -11348,7 +11351,12 @@ const server = http.createServer((req, res) => {
        exactly that: 0.2.75 on the line and the previous page on screen.
        📌 It costs a re-read of one local file per load, which is the price of
        an update actually arriving. (#271, Mona Lisa.) */
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+    /* #570: the version this PROCESS loaded, which the page cannot say. The page
+       is read per request, so a new zip unpacked over the running install makes
+       an old board serve the new page and name the new version. The Windows
+       hand-off (engine/win32handoff.js) must tell the running code from the files
+       on disk, and this header is that answer. */
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', [BOARD_VERSION_HEADER]: version });
     res.end(buf);
   });
 });
