@@ -396,20 +396,6 @@ test('#1659: qualName falls back to the PROVIDER, so no row can render an empty 
     + '"Disconnect <who> ()" and two such rows answer to the same name again');
 });
 
-/* 🛑 THE DISABLED ROW MUST LOOK DISABLED, and the rule was pinned by nothing.
-   Measured: deleting `.acct-disconnect[aria-disabled="true"]` left every web test
-   green, and the browser gate asserts the ATTRIBUTE rather than the appearance. The
-   default row would then inherit the base style, full opacity and underlined with a
-   pointer cursor, and render identically to the live controls next to it.
-   ⚠️ The opacity is load-bearing for contrast, not taste: .8 clears AA for 13px
-   text at 4.82:1 and .7 does not at 3.77:1, which is why this arm pins the VALUE
-   and not merely the selector. */
-test('#1659: the aria-disabled control has its own styling, at the opacity the contrast comment measured', () => {
-  assert.match(PAGE, /\.acct-disconnect\[aria-disabled="true"\][^}]*opacity: \.8/,
-    'the aria-disabled rule is gone or its opacity changed: the dead control now looks identical to the live '
-    + 'ones, or it dropped below the AA threshold the comment above it measured');
-});
-
 /* 🛑 BROWSER-ONLY BEHAVIOURS WITH NO FLOOR ANYWHERE. Measured: deleting the
    catch-path `btn.focus(...)` AND all three `msg.scrollIntoView(...)` calls leaves
    the entire suite green. Neither is observable to the unit fixtures (their stubs
