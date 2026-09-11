@@ -3943,6 +3943,23 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    tests pin (the base .pjcard/.pjcol borders above still apply there).
    The backgrounds are left alone here; item 6 handles the dialog fill. */
 body:not(.consolidated) .pjcard, body:not(.consolidated) .pj3 > aside.pjcol:not(.pjsplit), body:not(.consolidated) .pjmid, body:not(.consolidated) .pjmid .thread { border: 0; }
+/* Josh, 2026-09-10 (#2711 item 10): in the tab view, add-a-member and add-a-task
+   are a small 22x22 "+" at the top right of the Members / Tasks head, on the
+   heading's baseline, instead of a full-width button under the list. This is
+   the treatment the consolidated view already uses (kosmos#1303 H), ported here
+   and scoped to body:not(.consolidated); Josh wants BOTH pluses on the RIGHT in
+   the tab view (the consolidated view swaps the Tasks plus to the left, which
+   this does not). The buttons keep their ids/wiring and accessible names; only
+   place and size change. `font-size: 0` on the button hides the worded text
+   while the "+" span keeps its own size, so the accessible name survives (a
+   display:none on the text would take the name with it). */
+body:not(.consolidated) .pjcard-members, body:not(.consolidated) #pj-tasks-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 8px; }
+body:not(.consolidated) .pjcard-members > *, body:not(.consolidated) #pj-tasks-field > * { grid-column: 1 / -1; }
+body:not(.consolidated) .pjcard-members > .dlab, body:not(.consolidated) #pj-tasks-field > .dlab { grid-column: 1; grid-row: 1; margin-bottom: 0; }
+body:not(.consolidated) .pjcard-members > .pj-addmem, body:not(.consolidated) #pj-tasks-field > #pj-newtask { grid-column: 2; grid-row: 1; width: 22px; height: 22px; padding: 0; margin: 0; border: 1px solid var(--k-rule); border-radius: 7px; background: var(--k-surface); color: var(--k-ink-2); font-size: 0; line-height: 0; display: grid; place-items: center; }
+body:not(.consolidated) .pjcard-members > .pj-addmem > span, body:not(.consolidated) #pj-tasks-field > #pj-newtask > span { font: 600 15px/1 var(--font-ui); }
+body:not(.consolidated) .pjcard-members > .pj-addmem:hover, body:not(.consolidated) #pj-tasks-field > #pj-newtask:hover { color: var(--k-ink); }
+body:not(.consolidated) .pjcard-members > .pj-members, body:not(.consolidated) #pj-tasks-field > .tkcards { margin-top: 6px; }
 /* Josh, 2026-09-10 (#2711 item 6): the dialog area is white in the tab view,
    not the super-light gray. The .pjmid column is already --k-surface, so the
    thread joins it as one flat white area. Consolidated keeps its own thread

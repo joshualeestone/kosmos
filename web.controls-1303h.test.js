@@ -19,15 +19,15 @@ test('item 1: the Tasks plus takes the first grid track, so it sits left of the 
   // and the button sat at the far right reading "+ New task".
   assert.match(rule('#pj-tasks-field { grid-template-columns:'), /auto minmax\(0, 1fr\)/,
     'the tracks are back to label-then-button, so the plus returns to the right');
-  assert.match(rule('#pj-tasks-field > #pj-newtask {'), /grid-column: 1/);
+  assert.match(rule('.pj3 #pj-tasks-field > #pj-newtask {'), /grid-column: 1/);
   assert.match(rule('#pj-tasks-field > .dlab { grid-column: 2'), /grid-column: 2/);
 });
 
 test('item 1: it is the rails\' 22x22 glyph, not a worded button', () => {
-  const r = rule('#pj-tasks-field > #pj-newtask {');
+  const r = rule('.pj3 #pj-tasks-field > #pj-newtask {');
   assert.match(r, /width: 22px; height: 22px/, 'the rails draw 22x22 and this no longer matches them');
   assert.match(r, /font-size: 0/, 'the " New task" words are drawn again');
-  assert.match(rule('#pj-tasks-field > #pj-newtask > span {'), /font-size: 15px/,
+  assert.match(rule('.pj3 #pj-tasks-field > #pj-newtask > span {'), /font-size: 15px/,
     'the + glyph lost its own size, so the button is now invisible rather than compact');
 });
 
