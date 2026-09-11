@@ -357,20 +357,36 @@ test('children are angled among their SIBLINGS, not among every cousin at that d
   assert.ok(g('c3', 'm3') < 0.05, 'a lone child is off to the side of its parent by ' + g('c3', 'm3').toFixed(2) + ' rad');
 });
 
-test('the callout shows the name, the title small, and a chevron; the verb lives in the accessible name only (#392)', () => {
-  /* Josh, after the drag fix: "write their name. Underneath, real small,
-     their title, with a little right arrow or chevron... We get rid of the
-     word Open." The verb stays in aria-label, because a chevron is invisible
-     to a screen reader and this button is the only focusable way into an
-     agent from the chart (:1120 records what retiring a verb cost once). */
+test('the callout shows the name and the title small, with NO chevron; the verb lives in the accessible name only (#392, #2683)', () => {
+  /* Josh #392: "write their name. Underneath, real small, their title... We get
+     rid of the word Open." The verb stays in aria-label, because this button is
+     the only focusable way into an agent from the chart (:1120 records what
+     retiring a verb cost once).
+     #2683 (Josh 2026-09-10): the chevron-right is REMOVED. It read as "mouse up
+     to the arrow to open", but the avatar click already opens (orgmap handler),
+     so the callout is a plain hover label now, not a control. */
   const at = SCRIPT.indexOf("'<span class=\"callout\">");
   assert.ok(at > -1, 'the callout markup moved');
   const node = SCRIPT.slice(SCRIPT.lastIndexOf("nodes.push(", at), at + 600);
   assert.match(node, /aria-label="Open ' \+ esc\(shown\)/, 'the accessible name lost its verb');
   assert.match(node, /class="co-name">' \+ esc\(shown\)/, 'the name is not in the callout');
   assert.match(node, /class="co-role">' \+ esc\(roleLine\(a, ROLE_TITLES\)\)/, 'the title is not in the callout');
-  assert.match(node, /class="co-go" aria-hidden="true">&rsaquo;/, 'the chevron is missing or read aloud');
+  assert.doesNotMatch(node, /co-go/, 'the chevron (.co-go) is back; #2683 removed it');
+  assert.doesNotMatch(node, /&rsaquo;/, 'the chevron glyph is back in the callout; #2683 removed it');
   assert.doesNotMatch(node, /callout">Open /, 'the visible word Open is back');
+});
+
+test('#2683: the org callout is a non-interactive label, so an invisible callout cannot steal hover over a neighbour avatar', () => {
+  /* The mis-targeting cause: the callout is opacity:0 until hover AND positioned
+     above its node, and an opacity:0 element with pointer-events:auto STILL
+     captures the pointer. A node's invisible callout sitting over a neighbour's
+     avatar stole the hover, lighting the wrong label. pointer-events:none is the
+     fix; the avatar (the .onode button) is the hover-and-click target. If this
+     reverts to auto, the neighbour-capture bug returns. */
+  assert.match(PAGE, /\.onode \.callout \{ pointer-events: none; \}/,
+    'the org callout is not pointer-events:none, so an invisible callout can capture hover over a neighbour');
+  assert.doesNotMatch(PAGE, /\.onode \.callout \{ pointer-events: auto; \}/,
+    'the org callout is still pointer-events:auto (the #2683 mis-targeting cause)');
 });
 
 test('the flat-fleet hint stays removed (Josh, 2026-08-31): a deletion needs an absence guard', () => {
