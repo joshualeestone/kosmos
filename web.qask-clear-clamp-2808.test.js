@@ -25,9 +25,9 @@ const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 // fixture-discipline gate). CURRENT (the open-agent object the handler reads) is
 // one of these.
 function twoCards() {
-  const board = fleet.install([fleet.agent('liukang'), fleet.agent('mara')]);
+  const board = fleet.install([fleet.agent('fixture_liukang'), fleet.agent('mara')]);
   return {
-    a: board.agents.find((c) => c.name === 'liukang'),
+    a: board.agents.find((c) => c.name === 'fixture_liukang'),
     b: board.agents.find((c) => c.name === 'mara'),
     restore: board.restore,
   };
