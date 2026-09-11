@@ -29,6 +29,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const remove = require('./remove');
 const job = require('./win32job');
 
@@ -218,4 +221,55 @@ test('#570 7b BOTH platforms refuse to call a still-live session stopped', () =>
   assert.equal(remove.sessionOps('win32').end('casey'), false,
     'the Windows arm: same rule, different substrate');
   stop.setLive(null); stop.setRunner(null); stop.setAlive(null);
+});
+
+/* #2614: the restore-refuse account-dir check (#2609) now runs on win32 too. A
+   win32 agent has no plist for create.readJob, so remove.js reads its configDir
+   back from the Scheduled Task argv via win32job.configDirFor. Asserted from a
+   Mac by mocking the task query with the XML win32job itself would have
+   registered -- the same cross-platform-from-either posture as the rest of this
+   file. A real temp dir stands in for the account dir so fs.existsSync is real. */
+test('#2614 restore is REFUSED on win32 when the account dir named by the task argv is gone', () => {
+  const name = 'win-acct-gone';
+  const acctDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-win-acct-')));
+  // The exact task definition win32job would have registered, carrying this dir.
+  const xml = job.taskXml(
+    { name, cwd: 'C:\\work', configDir: acctDir, node: 'C:\\node.exe', supervisor: 'C:\\app\\win32supervisor.js' },
+    { USERNAME: 'u', USERDOMAIN: 'BOX' });
+  job.setRunner((args) => (args.includes('/Query') && args.includes('/XML')
+    ? { ok: true, out: xml } : { ok: false, out: 'unexpected verb' }));
+
+  // Present: the account dir exists, so restore is not blocked.
+  assert.equal(remove.restoreBlockedByMissingAccountDir(name, 'win32'), null,
+    'restore must not be blocked while the win32 account dir still exists');
+
+  // Gone: delete it -> the predicate blocks and names the gone dir, the same
+  // #1659 blank-agent restore the Mac side already refuses.
+  fs.rmSync(acctDir, { recursive: true, force: true });
+  assert.ok(!fs.existsSync(acctDir), 'control: the account dir must actually be gone');
+  assert.equal(remove.restoreBlockedByMissingAccountDir(name, 'win32'), acctDir,
+    'restore must be blocked and name the gone win32 account dir');
+});
+
+test('#2614 a default-account win32 agent (no configDir on the task) is not blocked', () => {
+  // Symmetric with the Mac default-account agent: no CLAUDE_CONFIG_DIR, the
+  // default ~/.claude always exists, nothing to refuse.
+  const name = 'win-default';
+  const xml = job.taskXml(
+    { name, cwd: 'C:\\work', node: 'C:\\node.exe', supervisor: 'C:\\app\\win32supervisor.js' },
+    { USERNAME: 'u', USERDOMAIN: 'BOX' });
+  job.setRunner(() => ({ ok: true, out: xml }));
+  assert.equal(remove.restoreBlockedByMissingAccountDir(name, 'win32'), null,
+    'a default-account win32 agent has no configDir to check');
+});
+
+test('#2614 an unreadable task does not silently drop the guard (fail-safe: not blocked, not guessed)', () => {
+  // known:false must not read as "no account dir" -- but it also must not throw
+  // or fabricate a dir. The predicate returns null (does not block) on an
+  // unreadable task, which is the honest "we could not tell" rather than a
+  // false refusal.
+  const name = 'win-locked';
+  job.setRunner(() => ({ ok: false, out: 'ERROR: Access is denied.' }));
+  assert.equal(remove.restoreBlockedByMissingAccountDir(name, 'win32'), null,
+    'an unreadable task must not fabricate a gone-dir refusal');
 });

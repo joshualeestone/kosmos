@@ -332,3 +332,125 @@ test('#570 status reports registered/enabled, and fails toward the honest answer
   assert.deepEqual(job.status('a'), { registered: true, enabled: false },
     'the DISABLED token is what is read -- defaulting to enabled would claim a stopped agent is running');
 });
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * #2614: configDirFor reads the account dir back from the Scheduled Task argv,
+ * so restore-refuse (#2609) can run on Windows where there is no plist. Every arm
+ * round-trips through taskXml -- the same writer schtasks would have stored -- so
+ * the reader is tested against the real registered shape, not a hand-built string.
+ * ───────────────────────────────────────────────────────────────────────────*/
+test('#2614 configDirFor reads the configDir back out of the task the writer registered', () => {
+  const configDir = 'C:\\Users\\kitty\\.claude';
+  const xml = job.taskXml(
+    { name: 'kitty', cwd: 'C:\\work', configDir, node: 'C:\\node.exe', supervisor: 'C:\\app\\win32supervisor.js' },
+    { USERNAME: 'kitty', USERDOMAIN: 'BOX' });
+  job.setRunner((args) => (args.includes('/Query') && args.includes('/XML')
+    ? { ok: true, out: xml } : { ok: false, out: 'unexpected verb' }));
+  assert.deepEqual(job.configDirFor('kitty'), { known: true, configDir });
+});
+
+test('#2614 configDirFor round-trips a configDir carrying an XML metacharacter', () => {
+  // taskXml escapes `&` in the argv; configDirFor must unescape it or the read
+  // path silently returns a different directory than the one the agent ran on.
+  const configDir = 'C:\\Users\\a & b\\.claude';
+  const xml = job.taskXml(
+    { name: 'amp', cwd: 'C:\\work', configDir, node: 'C:\\node.exe', supervisor: 'C:\\app\\win32supervisor.js' },
+    { USERNAME: 'u', USERDOMAIN: 'BOX' });
+  assert.ok(xml.includes('&amp;'), 'control: the writer must have escaped the ampersand, or this proves nothing');
+  job.setRunner(() => ({ ok: true, out: xml }));
+  assert.equal(job.configDirFor('amp').configDir, configDir);
+});
+
+test('#2614 a default-account agent (configDir "-") reads back as null, so the guard skips it', () => {
+  // Matches the Mac side: a default-account agent has configDir: null and is
+  // untouched (the default ~/.claude always exists).
+  const xml = job.taskXml(
+    { name: 'deflt', cwd: 'C:\\work', node: 'C:\\node.exe', supervisor: 'C:\\app\\win32supervisor.js' },
+    { USERNAME: 'u', USERDOMAIN: 'BOX' });
+  job.setRunner(() => ({ ok: true, out: xml }));
+  assert.deepEqual(job.configDirFor('deflt'), { known: true, configDir: null });
+});
+
+test('#2614 the reader reuses win32supervisor.specFromArgv, not a second copy of the positions', () => {
+  // The position of configDir is stated once, in specFromArgv. If the two ever
+  // disagree this fails, which is the whole point of not re-deriving it here.
+  const configDir = 'C:\\dir4\\.claude';
+  const xml = job.taskXml(
+    { name: 'pos', cwd: 'C:\\cwd', model: 'opus', configDir, runner: 'codex', node: 'C:\\node.exe', supervisor: 'C:\\app\\sup.js' },
+    { USERNAME: 'u', USERDOMAIN: 'BOX' });
+  // Pull the argv the writer put on the line and confirm specFromArgv agrees.
+  const argStr = job.xmlUnescape(/<Arguments>([\s\S]*?)<\/Arguments>/.exec(xml)[1]);
+  const toks = []; const re = /"([^"]*)"/g; let m; while ((m = re.exec(argStr)) !== null) toks.push(m[1]);
+  // slice(2) drops the headless wrapper's [node, supervisor] prefix, leaving node's
+  // process.argv[2:] -- exactly what win32supervisor.main consumes.
+  assert.equal(sup.specFromArgv(toks.slice(2)).configDir, configDir, 'control: specFromArgv reads position 4');
+  job.setRunner(() => ({ ok: true, out: xml }));
+  assert.equal(job.configDirFor('pos').configDir, configDir);
+});
+
+test('#2614 an absent task reads as known with no configDir (guard skips), an UNREADABLE one as unknown', () => {
+  // The distinction matters: "no such task" is an honest "nothing to check", but
+  // "schtasks would not answer" must NOT read as "no account dir" and silently
+  // drop the guard -- known:false is the fail-safe the caller checks for.
+  job.setRunner(() => ({ ok: false, out: 'ERROR: The system cannot find the file specified.' }));
+  assert.deepEqual(job.configDirFor('gone'), { known: true, configDir: null });
+
+  job.setRunner(() => ({ ok: false, out: 'ERROR: Access is denied.' }));
+  const r = job.configDirFor('locked');
+  assert.equal(r.known, false, 'an unreadable task must not read as "no account dir"');
+  assert.equal(r.configDir, undefined);
+});
+
+test('#2614 configDirFor survives a real UTF-16 /XML report (run decodes utf8), guard not silently disarmed', () => {
+  // The ACCURATE mis-decode: encode the XML as the UTF-16LE bytes a box would emit,
+  // then decode those bytes as utf8 the way run() does. For an ASCII line this leaves
+  // a NUL after every character; the NUL strip recovers it. (A hand-built '" + '" + uFEFF + "' +
+  // interleaved-NUL fixture is NOT what a byte-level mis-decode produces -- the real
+  // UTF-16 BOM decodes to U+FFFD, not U+FEFF -- so build the real bytes.)
+  const configDir = 'C:\\Users\\kitty\\.claude';
+  const xml = job.taskXml(
+    { name: 'u16', cwd: 'C:\\work', configDir, node: 'C:\\node.exe', supervisor: 'C:\\app\\win32supervisor.js' },
+    { USERNAME: 'kitty', USERDOMAIN: 'BOX' });
+  const real = Buffer.from(xml, 'utf16le').toString('utf8');
+  // Control: the real mis-decoded bytes defeat a naive match before the strip.
+  assert.equal(/<Arguments>[\s\S]*?<\/Arguments>/.test(real), false,
+    'control: the real UTF-16-mis-decoded output must NOT match before the strip');
+  job.setRunner(() => ({ ok: true, out: real }));
+  assert.equal(job.configDirFor('u16').configDir, configDir,
+    'the NUL strip must recover the configDir from a real UTF-16 report');
+});
+
+test('#2614 a genuine UTF-8-with-BOM report has its leading BOM stripped', () => {
+  // This is the case the BOM strip actually defends: a utf8 report that carries a
+  // real U+FEFF BOM (EF BB BF), unlike the UTF-16 BOM which decodes to U+FFFD.
+  const configDir = 'C:\\Users\\bom\\.claude';
+  const xml = job.taskXml(
+    { name: 'bomdir', cwd: 'C:\\work', configDir, node: 'C:\\node.exe', supervisor: 'C:\\app\\s.js' },
+    { USERNAME: 'u', USERDOMAIN: 'BOX' });
+  job.setRunner(() => ({ ok: true, out: '\uFEFF' + xml }));
+  assert.equal(job.configDirFor('bomdir').configDir, configDir);
+});
+
+test('#2614 a NON-ASCII path under a real UTF-16 report is known:false, never a corrupted directory', () => {
+  // The dangerous case: a real UTF-16 mis-decode of a non-ASCII account folder
+  // yields U+FFFD mid-path, which the NUL strip cannot recover and the (ASCII)
+  // name self-check would not catch. The U+FFFD guard must turn it into an honest
+  // unknown rather than return a silently wrong directory.
+  const xml = job.taskXml(
+    { name: 'nonascii', cwd: 'C:\\work', configDir: 'C:\\Users\\caf\u00e9\\.claude', node: 'C:\\node.exe', supervisor: 'C:\\app\\s.js' },
+    { USERNAME: 'u', USERDOMAIN: 'BOX' });
+  const real = Buffer.from(xml, 'utf16le').toString('utf8');
+  assert.ok(real.indexOf('\uFFFD') !== -1, 'control: the non-ASCII path must actually corrupt to U+FFFD');
+  job.setRunner(() => ({ ok: true, out: real }));
+  const r = job.configDirFor('nonascii');
+  assert.equal(r.known, false, 'a corrupted non-ASCII path must not be returned as a configDir');
+  assert.equal(r.configDir, undefined);
+});
+
+test('#2614 a registered task with no readable argument line is known:false, not a confident no-configDir', () => {
+  // r.ok but no <Arguments> element is a shape we do not understand; admit it
+  // rather than assert 'no account dir' the way an absent task legitimately can.
+  job.setRunner(() => ({ ok: true, out: '<Task><Actions><Exec><Command>x</Command></Exec></Actions></Task>' }));
+  const r = job.configDirFor('noargs');
+  assert.equal(r.known, false);
+});
