@@ -118,6 +118,27 @@ test('NO REPORT YET: an agent that never reported gets found:false at 200, not a
   });
 });
 
+test('ENFORCING BOARD + valid agent token: the read-back still returns the report (200) -- the real production path', async () => {
+  // The round-trip above runs on a non-enforcing board (denyPaneFallback=false).
+  // This exercises the actual deployed shape: an enforcing board where the token
+  // arm must short-circuit the pane fallback and still authorize the read.
+  boardAuthState.on = true;
+  try {
+    await withLeo(async () => {
+      const tok = sendertoken.mint(WHO).token;
+      try {
+        const wrote = await post('/api/report', { headers: { 'x-kosmos-agent-token': tok }, body: { state: 'blocked', on: 'a decision' } });
+        assert.equal(wrote.json.recorded, true, 'the report must record on an enforcing board with a valid token: ' + wrote.text);
+        const jr = await get('/api/report', { headers: { 'x-kosmos-agent-token': tok } });
+        assert.equal(jr.code, 200, 'enforcing board + valid token must still read back (200): ' + jr.text);
+        assert.equal(jr.json.ok, true);
+        assert.equal(jr.json.report.found, true, 'the token-authed read on an enforcing board did not find the report');
+        assert.equal(jr.json.report.state, 'blocked', 'the read-back carried the wrong state on an enforcing board');
+      } finally { sendertoken.revoke(WHO); }
+    });
+  } finally { boardAuthState.on = false; }
+});
+
 test('SECURITY: an unresolved caller (enforcing board, bare pane, no token) is refused -- it cannot read a report', async () => {
   boardAuthState.on = true;
   try {

@@ -13,7 +13,7 @@
 - Two arms, same as the room route:
   - JSON (default): `sendJson(res, 200, { ok:true, report })` where report is the selfreport.read result (found:true|false). A read miss is a 200 with `found:false` + because (a real state, NOT a 500).
   - `?as=text` (the CLI): the server shapes a human line (bash has no JSON parser), e.g. `You are currently: needs_you -- on <on>, owner <owner>, until <until> (set <at>). This is a WAITING-ON-A-PERSON state; clear it with `kosmos report working ...` once answered.` and for no report: `No report recorded yet.` Keep it one short block; surface `state` and, when WAITING_ON_A_PERSON, say so explicitly.
-- HEAD: behaves like the room route (Node strips the body; no special-casing needed).
+- Method: GET only (no HEAD). The CLI uses GET; matching HEAD too would need `HEAD /api/report` ALSO added to LOOPBACK_AGENT_ROUTES or a HEAD on an enforcing board 403s at the gate (a GET-works/HEAD-403s inconsistency). No caller HEADs this, so GET-only is the clean shape.
 
 ### 2. install/kosmos -- `report show` subcommand
 - `report` currently dispatches to `cmd_report`. Add, at the TOP of cmd_report (or in the `report)` dispatch), a `show` subcommand (accept `status` as an alias): if `$1` is `show`/`status`, call a new `cmd_report_show` and return; otherwise fall through to the existing write path UNCHANGED.

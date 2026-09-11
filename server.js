@@ -7727,7 +7727,7 @@ const server = http.createServer((req, res) => {
       .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read that request' }));
     return;
   }
-  if (pathname === '/api/report' && (req.method === 'GET' || req.method === 'HEAD')) {
+  if (pathname === '/api/report' && req.method === 'GET') {
     /* #2709: the READ-BACK. `kosmos report` was write-only, so an agent could set
        its board state but never check its own -- and it is TOLD to clear a stale
        needs_you it cannot see, across a compaction that erased its memory of it.
