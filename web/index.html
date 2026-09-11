@@ -4923,9 +4923,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .pj-member .pj-face > .lwarn { display: block; position: absolute; left: 50%; top: 50%; width: 18px; height: 16px; transform: translate(-50%, -52%); }
 .pj-member small.pj-attn { color: #b3261e; }
 /* #b3261e is a ~2:1 whisper on the dark surface (under WCAG AA for this caption), the same
-   reason .pjonode.attn lightens; lift to #ff8c82 in both dark spellings (system + toggle). */
+   reason .pjonode.attn lightens. Only the SYSTEM-dark @media rule is written by hand; the
+   [data-theme="dark"] forced twin is generated into the forced-theme section by
+   tools/sync-forced-theme.js (do not hand-write it, or the forced-theme parity test fails). */
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pj-member small.pj-attn { color: #ff8c82; } }
-:root[data-theme="dark"] .pj-member small.pj-attn { color: #ff8c82; }
 .pj-member .pj-told { display: block; font: var(--text-caption) var(--font-ui); color: var(--label-2); flex-basis: 100%; }
 /* The remedy beside the not-picked-up line. Quiet and inline: it is the second
    thing on that line, and the sentence is what a person reads before deciding
@@ -6824,6 +6825,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 :root[data-theme="dark"] .pjonode .pjoc.a { color: #ff8c82; }
 
 :root[data-theme="dark"] .msg-av { background: rgba(245,245,244,.10); }
+
+:root[data-theme="dark"] .pj-member small.pj-attn { color: #ff8c82; }
 
 :root[data-theme="dark"] .utoast { --utone: #ff8c82; }
 /* ⚠️ RE-STATED UNDER THE THEME, not left to the base rule. The dark override
