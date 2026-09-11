@@ -265,3 +265,23 @@ test('#570 the native-win32 report hook is verified into the zip, not just glob-
   assert.match(WIN, /for want in[^\n]*"app\/engine\/kosmos-report-hook\.js"/,
     'the win32 build does not verify the report hook is in the zip');
 });
+
+test('#570: the zip ships the agent\'s kosmos command, one shim per shell, where the supervisor puts it on PATH', () => {
+  /* Without it a Windows agent's `kosmos reply` failed with "not recognized" and
+     no answer ever reached the board. */
+  assert.match(WIN, /cp "\$REPO\/tools\/windows\/kosmos-cli\.js" "\$STAGE\/bin\/kosmos-cli\.js"/, 'the CLI is not staged into bin/');
+  /* PowerShell resolves kosmos.cmd; CRLF, and the zip's own node beside bin. */
+  assert.match(WIN, /printf '@echo off\\r\\n'/);
+  assert.match(WIN, /printf '"%%~dp0\.\.\\\\runtime\\\\node\.exe" "%%~dp0kosmos-cli\.js" %%\*\\r\\n'/, 'kosmos.cmd does not run the zip\'s node on the CLI with every argument');
+  /* Git Bash resolves the extensionless sh shim, with MSYS path conversion off. */
+  assert.match(WIN, /> "\$STAGE\/bin\/kosmos" <<'SH'/);
+  assert.match(WIN, /MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='\*' exec "\$node" "\$cli" "\$@"/, 'the bash shim would let MSYS rewrite /c/... arguments');
+  /* The zip is refused without them. */
+  assert.match(WIN, /"bin\/kosmos-cli\.js" "bin\/kosmos\.cmd"; do/);
+  assert.match(WIN, /\*" bin\/kosmos"\$'\\n'\*\) ;;/, 'the extensionless shim is not checked as a whole line');
+  /* One fact, two files: the folder and shim the build writes are the ones
+     engine/win32launch.js looks for before putting the folder on PATH. */
+  const launch = fs.readFileSync('engine/win32launch.js', 'utf8');
+  assert.match(launch, /const AGENT_CLI_DIR = 'bin';/);
+  assert.match(launch, /const AGENT_CLI_SHIM = 'kosmos\.cmd';/);
+});

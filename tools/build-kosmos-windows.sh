@@ -102,6 +102,40 @@ cp "$REPO/bin/codex-report-bridge.js" "$STAGE/app/bin/"
 # (tools.build-windows-570.test.js reads only `cp ... "$STAGE/app` lines).
 cp "$REPO/tools/kosmos-open-board.js" "$STAGE/open-board.js"
 
+# #570: the AGENT's `kosmos` command. Every message the board delivers ends "to
+# answer, run: kosmos reply", and every agent's instructions teach `kosmos msg` and
+# `kosmos post` -- and this zip shipped no `kosmos` at all, so a Windows agent's
+# answer never reached the board (measured: "The term 'kosmos' is not recognized").
+# tools/windows/kosmos-cli.js is that command in Node, run by this zip's own
+# node.exe, and engine/win32launch.js puts `<zip>\bin` first on every agent's PATH
+# (it looks for the kosmos.cmd written here). At the zip ROOT like open-board.js,
+# not under app/, for the same reason: a launcher-side artifact, outside the
+# two-builder app-parity scan.
+# 🛑 TWO SHIMS, ONE PER SHELL, BOTH MEASURED ON THE BOX. Claude Code runs an
+# agent's commands through PowerShell or Git Bash. PowerShell resolves a bare
+# `kosmos` to kosmos.cmd (PATHEXT) and never to the extensionless file; Git Bash
+# resolves the extensionless sh script and never the .cmd. The sh one converts its
+# own paths with cygpath and turns MSYS path conversion OFF for the arguments, or
+# a message mentioning /c/something would reach the board rewritten.
+# ⚠️ CRLF FOR THE .cmd, LF FOR THE sh: each is read by the shell that runs it.
+# ⚠️ KNOWN LIMIT OF A .cmd, recorded rather than hidden: cmd expands %NAME% in the
+# arguments when NAME is a set variable, so "100%PATH%" in a message arrives
+# expanded. A signed PE shim is the fix and the follow-up (WINDOWS-ROADMAP.md).
+mkdir -p "$STAGE/bin"
+cp "$REPO/tools/windows/kosmos-cli.js" "$STAGE/bin/kosmos-cli.js"
+{
+  printf '@echo off\r\n'
+  printf '"%%~dp0..\\runtime\\node.exe" "%%~dp0kosmos-cli.js" %%*\r\n'
+} > "$STAGE/bin/kosmos.cmd"
+cat > "$STAGE/bin/kosmos" <<'SH'
+#!/bin/sh
+# Written by tools/build-kosmos-windows.sh: the agent's kosmos command for Git Bash.
+here=$(cd "$(dirname "$0")" && pwd)
+node=$(cygpath -w "$here/../runtime/node.exe" 2>/dev/null || printf '%s' "$here/../runtime/node.exe")
+cli=$(cygpath -w "$here/kosmos-cli.js" 2>/dev/null || printf '%s' "$here/kosmos-cli.js")
+MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' exec "$node" "$cli" "$@"
+SH
+
 # 🔑 THE VERSION IS BAKED INTO THE PAGE, same as the Mac builder and for the same
 # reason (#269): a fact about the bundle must not require the bundle's API. The
 # checks below FAIL THE BUILD rather than shipping the marker to a screen.
@@ -335,7 +369,7 @@ shasum -a 256 "$ZIPOUT" | awk '{print $1}' > "$ZIPOUT.sha256"
 refuse() { echo "$1" >&2; rm -f "$ZIPOUT" "$ZIPOUT.sha256"; exit 1; }
 
 LISTING="$(unzip -l "$ZIPOUT")"
-for want in "Kosmos.exe" "open-board.js" "! READ ME FIRST - Windows will warn you.txt" "manifest.json" "runtime/node.exe" "app/server.js" "app/web/index.html" "app/engine/kosmos-report-hook.js"; do
+for want in "Kosmos.exe" "open-board.js" "! READ ME FIRST - Windows will warn you.txt" "manifest.json" "runtime/node.exe" "app/server.js" "app/web/index.html" "app/engine/kosmos-report-hook.js" "bin/kosmos-cli.js" "bin/kosmos.cmd"; do
   case "$LISTING" in
     *" $want"*) ;;
     *) refuse "the zip is missing $want" ;;
@@ -350,6 +384,12 @@ done
 # ⇒ So this asserts TWO things that cannot both be satisfied by the same
 # mistake: ZERO test files, and a count that EQUALS the repo rather than clears
 # a floor. Equality is what makes shipping too many as loud as shipping too few.
+# The Git Bash shim has no extension, so " bin/kosmos" alone would also match
+# " bin/kosmos-cli.js" above: it is checked as a whole listing line.
+case "$LISTING" in
+  *" bin/kosmos"$'\n'*) ;;
+  *) refuse "the zip is missing bin/kosmos (the Git Bash shim)" ;;
+esac
 _tests="$(printf '%s\n' "$LISTING" | grep -c '\.test\.js' || true)"
 [ "$_tests" = "0" ] || refuse "the zip ships $_tests test file(s); the engine glob lost its filter"
 _zipmods="$(printf '%s\n' "$LISTING" | grep -c ' app/engine/[^ ]*\.js$' || true)"
