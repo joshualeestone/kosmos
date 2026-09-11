@@ -205,7 +205,8 @@ function skipReason(o) {
 async function attemptHandOff(o, deps) {
   const { board, probe, sleep, now } = deps;
   const port = o.port;
-  const mine = o.identity !== undefined ? o.identity : boardIdentity(buildIdentity(path.resolve(__dirname, '..')), require('./worldenv').bootedWorld());
+  /* server.js passes its BOARD_IDENTITY; without one nothing is ever "this one". */
+  const mine = o.identity || null;
   const startedAt = o.startedAt !== undefined ? o.startedAt : now() - Math.round(process.uptime() * 1000);
   const deadline = startedAt + HANDOFF_BUDGET_MS;
   const left = () => Math.max(0, deadline - now());
