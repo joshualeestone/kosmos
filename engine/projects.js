@@ -1675,7 +1675,65 @@ function create({ name, folder, agents, roster, description, made, parent } = {}
     updatedAt: now,
   };
   writeAll([...all, project]);
+  // #2706: staffing a project used to scaffold NOTHING for the agents put on it -
+  // no brief, no goal, no definition of done - so they landed in an empty folder
+  // with nothing to read and defaulted to talking (the "wall of questions" episode
+  // Josh saw). Drop a short brief stub in the folder so the operator and every agent
+  // share one source of truth instead of a chat message that scrolls away. AFTER the
+  // record is written and best-effort (never clobbering an existing brief, never
+  // failing creation), for the same reason markWelcomeSeeded is best-effort: the
+  // project EXISTS from writeAll above, and a folder we could not write a stub into
+  // (read-only, or one that already holds the person's own brief) is not a reason to
+  // report "we could not create that project".
+  seedBriefStub(given, { name: title, description: desc });
   return project;
+}
+
+/* #2706: the brief stub written into a project's folder on creation. Two fields,
+   Goal and Done-looks-like, because that is the smallest shape that turns "an empty
+   folder" into "a thing to read". The Goal is seeded from the description the person
+   typed on the create form when there is one (so what they already said persists into
+   the folder rather than scrolling away in chat); both fields otherwise carry a prompt
+   the person edits. Markdown, because the rooms and dialogs already render it and a
+   person editing it by hand reads it the same way.
+   ⚠️ CALLERS PASS ALREADY-CLEANED name/description; this does NOT neutralise them. The one
+   caller, `create`, hands `title` (cleanName) and `desc` (cleanDescription), both of which
+   have been through `oneLine`/`neutralise`, so a stray newline or marker cannot break the
+   headings. The function is exported for tests; a future direct caller must clean its inputs
+   the same way rather than pass raw user text. */
+const BRIEF_STUB_FILENAME = 'BRIEF.md';
+function briefStubContent({ name, description } = {}) {
+  const goal = (typeof description === 'string' && description.trim())
+    ? description.trim()
+    : '_What is this project for? Replace this line._';
+  return `# ${String(name || 'This project')}\n\n`
+    + `## Goal\n\n${goal}\n\n`
+    + '## Done looks like\n\n'
+    + '_How will everyone know this is finished? Replace this line._\n\n'
+    + '---\n\n'
+    + 'Kosmos added this brief when the project was created, so everyone on it shares '
+    + 'one source of truth instead of a chat message that scrolls away. Edit it freely.\n';
+}
+
+/* Write the brief stub IF the folder does not already hold one. NO-CLOBBER is the
+   load-bearing rule: Kosmos ADOPTS existing folders (`makeFolder` adopts, and a person
+   can point a project at a folder that already has their real BRIEF.md), so overwriting
+   would destroy the person's own words - the opposite of the shared-source-of-truth this
+   card exists to give them. Best-effort: any failure (read-only folder, a race that
+   created the file between the check and the write) is swallowed, exactly like
+   markWelcomeSeeded, because the project already exists and a missing stub is a smaller
+   harm than a failed creation. Returns true only when it actually wrote one (for tests
+   and callers that want to know), false otherwise. */
+function seedBriefStub(folder, { name, description } = {}) {
+  try {
+    if (!folder || !path.isAbsolute(folder)) return false;
+    const dest = path.join(folder, BRIEF_STUB_FILENAME);
+    // `wx` writes only when the file does not exist and fails (EEXIST) otherwise, so the
+    // existence check and the write are one atomic step - a separate existsSync + write
+    // has a window where a concurrent creator lands between them, and this closes it.
+    fs.writeFileSync(dest, briefStubContent({ name, description }), { encoding: 'utf8', flag: 'wx' });
+    return true;
+  } catch { return false; }
 }
 
 /* #2279: the "Getting started" welcome home, seeded once EVER per store.
@@ -2520,6 +2578,7 @@ module.exports = { memberValve, processMemberChanges, ageMemberChangesForTests, 
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
+  BRIEF_STUB_FILENAME, briefStubContent, seedBriefStub,
   findBlock, spliceBlock, removeBlock, blockBody, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
   folderPathPreview, makeFolder, revealFolder, setRevealRunner, listFiles, openFile,
