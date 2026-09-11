@@ -3,22 +3,25 @@
 **If you are a new session picking this up, read this block, then §2 and §3. Nothing
 else is required to continue.**
 
-    where the work lives   branch win32-chat-arm-570  (pushed; one slice per branch
-                           off main from here on -- repo CLAUDE.md)
-    already on main        #2537 keep-alive; #2601 four blockers + 7c-1/7c-2 + the
-                           channel (44728136)
+    where the work lives   one slice per branch off main (repo CLAUDE.md)
+    already on main        7c-1..7c-5 (#2601, #2661, #2672), headless tasks (#2714),
+                           and the supervisor fixes #2722, #2728, #2731, #2737
     this file              .claude/plans/WINDOWS-ROADMAP.md   <- the whole road
     the keep-alive log     .claude/plans/win32-keepalive-570.md  <- that slice only
 
-## The one-line state
+## The one-line state (2026-09-11)
 
-**A Windows agent can now be talked to** (BLOCKER 1, 7c-4, measured live
-2026-09-10 -- pending merge of win32-chat-arm-570). Blockers 3 and 4 are closed.
-**BLOCKER 2 IS OFF THE v1 CRITICAL PATH:** Josh approved 2026-09-10 (relayed by
-Splinter) that the first Windows release updates BY HAND (download the new zip),
-with a real updater as a fast-follow. What is left for v1: 7c-5 (state from the
-event stream), 7c-6 (the rehearsal, R3 included), and cutting a current Windows
-build -- installkosmos.com serves one, but it is 0.6.37 against the Mac's 0.6.54.
+**7c IS DONE, AND THE REHEARSAL PASSED AS DEFINED: R1-R8, R3 included, and the
+board AND the fleet came back at a real logon, headless** (§2). R3 checked delivery,
+not the agent's answer reaching the board; that gap was BLOCKER 5 (§3c). BLOCKER 2 is off
+the v1 path: Josh approved 2026-09-10 that the first Windows release updates by
+hand, with a real updater as a fast-follow. What is left for v1:
+`kosmos reply/msg/post` on Windows (BLOCKER 5, §3c), a clean-box first run
+(capability 1), and the publish. The launcher hand-off merged as #2752 (2026-09-11).
+installkosmos.com still serves 0.6.37. A zip built from main delivers to agents
+and runs their whole lifecycle on the box. It needed two fixes:
+the launcher hand-off (merged, #2752) and `win32-kosmos-cli-570` (BLOCKER 5).
+See "Do this next".
 
 ## ✅ 7c-2 IS DONE (2026-09-10), AND MEASURED ON THE BOX.
 
@@ -137,9 +140,9 @@ never `could_not`. `chat.setChannel` is the seam, with setRunner's interlock.
   `--continue` anywhere. `--resume` is used only INSIDE one supervisor's life (a
   crash restart). §3 used to say a reboot would resume; it does not, on either
   platform. A fresh boot files a new ownership row; stale rows are harmless
-  (nothing live matches them) but accumulate -- `win32stop` forgets on Stop, a
-  reboot or a task `/End` does not.
-- **DEFECT, small, not yet fixed: a crash-restarted agent resumes with an EMPTY
+  (nothing live matches them), and since #2737 a fresh start prunes the agent's
+  other rows, so they no longer accumulate.
+- ✅ **FIXED by #2722. It was: a crash-restarted agent resumed with an EMPTY
   `KOSMOS_AGENT_TOKEN`** (`launchStreaming` passes `s.token || ''` on resume and
   the supervisor never has one), so its self-reports are refused by /api/report
   on win32. Fix: mint a fresh token on resume and retire the dead run's.
@@ -165,17 +168,43 @@ shared usage before fanning out subagents.
 
 ## Do this next
 
-1. Merge win32-chat-arm-570 once its review converges and CI is green.
+1. ✅ win32-chat-arm-570 merged as #2661.
 2. ✅ **7c-5 DONE 2026-09-10** (branch win32-stream-state-570): state from the
    event stream (§4). The supervisor reads the agent's stdout and keeps its
    working/idle in `win32-state/<key>.json`, stamped with session id and pid;
    `win32capture` falls back to it for a status-less row. Measured live through
    the supervisor's real `main()`, a real claude.exe and the real snapshot:
    card absent -> idle -> working (0.8s after the message) -> idle.
-3. **7c-6:** the rehearsal, R1–R8 with R3 for the first time, and a real reboot.
-4. The crash-restart token defect above.
-5. A current Windows build and publish (the pipeline exists; the site is stale).
-6. Still unmeasured: the named pipe's default DACL.
+3. ✅ **7c-6 DONE 2026-09-11:** R1–R8 all pass, with R3 passing for the first
+   time and R8 a real reboot (§2).
+4. ✅ The crash-restart token defect: #2722. Also fixed along the way: #2728
+   (`/clear` rekey), #2731 (a resume with no conversation starts fresh), #2737
+   (ownership rows pruned).
+5. **A current Windows build and publish.** The pipeline exists; the site serves
+   0.6.37.
+   - A zip built from main 6182640d (0.6.55) passed every agent step on the box,
+     unpacked through Explorer's shell with the Mark of the Web set, as a download
+     would be: sign-in via the #2007 nonce, create, talk (delivery and card state),
+     restart, remove, restore, talk again.
+   - It found one launcher defect. `Kosmos.exe` ran the board in the foreground of
+     its own window: closing the window stopped the board, and every relaunch
+     after the first logon said "port in use ... Kosmos stopped". Fixed by #2752
+     (`win32-launch-handoff-570`, merged): a hand-started board hands itself to its
+     headless logon task and exits. `win32-package-text-570` then brings the zip's README
+     and manifest up to date.
+   - It also found BLOCKER 5 (§3c): an agent's `kosmos reply` did not exist on the
+     zip, so its answer never reached the board. The fix is `win32-kosmos-cli-570`.
+     A candidate built from all three branches passed with the answers on the board.
+   - Merge order: the hand-off, then the kosmos command, then the README (its text
+     describes both).
+   - The handshake, agreed with Baron (2026-09-11):
+     1. Baron builds on the Mac release box from a sha this box has verified.
+     2. This box verifies those exact bytes.
+     3. A deploy serves it, on Josh's explicit go.
+6. Still unmeasured:
+   - the named pipe's default DACL;
+   - a first run on a CLEAN Windows box (capability 1). This box is not admin,
+     and Windows Sandbox needs enabling plus a reboot.
 
 ⚠️ DO NOT re-derive the three measurements in §3 — a streaming session stays
 alive across turns, is still listed by `claude agents --json` as
@@ -251,12 +280,12 @@ That is the bar. Not "the tests pass".
 | 1 | install + first run | ⚠️ **BLOCKER 3 CLOSED** 2026-09-09 — the card now names the real installer. Kosmos still cannot install Claude Code FOR you; see §3c |
 | 2 | make an agent | ✅ MEASURED |
 | 3 | board + roster | ✅ MEASURED — working/idle from the event stream since 7c-5 (§4); needs_you/blocked still come only from self-reports, as on the Mac |
-| 4 | **talk to it** | ✅ **BLOCKER 1 CLOSED** 2026-09-10 (7c-4) — the board's `chat.deliver` reaches the agent through its supervisor's pipe and it answers; measured live. Its card reads working/idle since 7c-5 |
+| 4 | **talk to it** | ✅ **BLOCKER 1 CLOSED** 2026-09-10 (7c-4) — the board's `chat.deliver` reaches the agent through its supervisor's pipe and it answers; measured live. Its card reads working/idle since 7c-5. **R3 PASSED** in the 7c-6 rehearsal: 3 of 3 agents `placed`, card working -> idle, and the reply is in each agent's transcript. ⚠️ **The answer did NOT reach the board**: R3 read the transcript, and an agent on the Windows zip had no `kosmos reply` (BLOCKER 5, §3c). Fixed on branch `win32-kosmos-cli-570` (not yet merged), verified live with the answer on the board. A crash-resumed agent reports again (#2722), and `/clear` keeps it on the board (#2728) |
 | 5 | stop/restart/remove/restore | ✅ MEASURED |
-| 6 | survive a reboot | ✅ AGENTS measured (R8). BOARD: **BLOCKER 4 CLOSED** 2026-09-09 — an at-logon task, proven end to end via /Run; a real logon still owed |
+| 6 | survive a reboot | ✅ **MEASURED AT A REAL LOGON 2026-09-11** (R8 of 7c-6). After Josh's reboot, the board and all 5 enabled agents came back unattended: one `conhost --headless` supervisor each, no windows, every card idle, one ownership row per agent (#2737) |
 | 7 | **update the app** | ⚠️ **BLOCKER 2, OFF THE v1 PATH** — Josh approved 2026-09-10: v1 updates by hand, a real updater is a fast-follow. §3a. The ANCHOR (not stranding the fleet) is designed and unit-tested; the UPDATER ITSELF cannot run on Windows at all |
 
-🛑 THAT IS FOUR BLOCKERS, NOT ONE. This table said "one blocker" on 2026-09-09
+🛑 THAT IS FOUR BLOCKERS, NOT ONE (FIVE since 2026-09-11, §3c). This table said "one blocker" on 2026-09-09
 because capability 1 had never been looked at. It has now been traced end to end,
 and the capability with no evidence was hiding two more. 📌 THE LESSON IS THE
 FILE'S OWN RULE: an unsurveyed row is not a passing row, and should never again be
@@ -274,16 +303,45 @@ every result checked against Windows rather than against a return value):
     R7 restore .................. PASS   task Enabled + Running, agent back
     R8 reboot ................... PASS   back at logon in 7s, unattended
 
+✅ **7c-6, RE-RUN 2026-09-10/11 on the streaming agent**, through the real board's
+HTTP API on port 16180 (script `kosmos-rehearsal-7c6.js` on the box). Every
+verdict reads `/api/status`, `claude agents --json` and `schtasks`, never a
+route's own answer:
+
+    R1 create 3 agents .......... PASS   reh-a, reh-b, reh-c via POST /api/agents
+    R2 board roster ............. PASS   all three cards, idle
+    R3 each reports ............. PASS   FIRST TIME: delivery=placed, card working
+                                         -> idle, PONG in each agent's transcript
+                                         (the transcript, not the board's thread:
+                                         BLOCKER 5)
+    R4/R6 stop = remove ......... PASS   5 steps ok, task Disabled, process and
+                                         card gone, listed under /api/removed
+    R5 restart .................. PASS   new pid, a NEW session (a fresh
+                                         conversation, as on a Mac), one row
+    R7 restore .................. PASS   task Running, card idle
+    R8 reboot ................... PASS   2026-09-11, Josh's reboot of the box on
+                                         main 6182640d: \Kosmos\board and 5 agent
+                                         tasks Running from logon, one headless
+                                         supervisor each, no windows, all 5 cards
+                                         idle, board HTTP 200, one ownership row
+                                         per agent. The BOARD at a real logon for
+                                         the first time.
+
 ⚠️ AND READ THAT LIST FOR WHAT IT IS. R1–R8 measured the AGENT LIFECYCLE, and it
 is genuinely solid. What it did not touch is everything either side of it: getting
 Kosmos onto a machine at all, getting `claude` onto it, keeping the BOARD alive,
 and updating any of it. Those are capabilities 1, 6 and 7, and three of the four
 blockers live there. The rehearsal was never wrong — it was narrower than the bar
-in §1, and this file read it as broader for a day.
+in §1, and this file read it as broader for a day. (2026-09-11: the 7c-6 R8
+above now covers the BOARD at a real logon, and an update by hand has been run
+once, zip over zip. Getting Kosmos and `claude` onto a CLEAN machine is still
+unmeasured.)
 
 ---
 
 ## 3. THE BLOCKER, and the plan for it (7c)
+
+📌 HISTORICAL: closed by 7c-4 (#2661). What follows is the state it was written in.
 
 `engine/chat.js` has no win32 arm. Delivery is `tmux send-keys` end to end,
 addressed at a pane Windows does not have. It refuses honestly — nothing is typed
@@ -351,7 +409,7 @@ resume-not-replace, and the property it protected is preserved rather than trade
 | 7c-3 | ✅ **DONE 2026-09-10** — board → supervisor channel: a local named pipe per agent, per-agent secret, honest `down` when the supervisor is gone. Measured through the real task | — |
 | 7c-4 | ✅ **DONE 2026-09-10** — `chat.js` win32 arm on that channel, keeping the `could_not` contract; `verifyAtSend`'s hazards (a shell, copy-mode) do not exist on a stdin pipe, and the supervisor re-checks at the write. Measured live | — |
 | 7c-5 | ✅ **DONE 2026-09-10** — working/idle from the EVENT STREAM (see §4), crossing to the board as a per-agent file joined on session id AND pid. Measured live. The transcript needed no work: Claude Code writes the session's jsonl under `~/.claude/projects` in streaming mode too (7c-4 read replies from it) | — |
-| 7c-6 | re-run R1–R8, and R3 for the first time | ½ session + a reboot |
+| 7c-6 | ✅ **DONE 2026-09-11** — R1–R8 re-run through the real board API, R3 passing for the first time, R8 a real reboot with the board included. See §2 | — |
 
 **Estimate: 4–6 working sessions**, plus the near-certainty of 2–4 new defects
 that only a real box surfaces. That rate is not pessimism, it is the record:
@@ -477,7 +535,10 @@ and a screen calling it broken.
   question is answered and the answer is no: the Windows bundle ships no
   `bin\kosmos` of any spelling, so `installedKosmosCli()` is null there BY
   CONSTRUCTION — a true negative, now documented in `clipath.js`, that routes to
-  a real mechanism instead of a dead end. See §3c.
+  a real mechanism instead of a dead end. See §3c. (Until `win32-kosmos-cli-570`
+  merges: that branch ships `bin\kosmos` as the AGENT's command, with no board verbs,
+  so `installedKosmosCli()` is no longer null on a Windows bundle; `boardrestart.js`
+  still never asks it on win32.)
 - `engine/terminal.js` — "open the agent's terminal" shells `osascript`. Fails
   honestly with a raw ENOENT sentence. Consistent with 7c: there is no pty to
   attach to, so this may simply not exist on Windows.
@@ -655,7 +716,8 @@ STILL OWED HERE: the console window. A task-launched board has no visible window
 (measured: `MainWindowHandle` 0), which is right for a logon — but it also means
 the board's stdout goes nowhere, so the registration sentence printed at boot is
 seen only by somebody who started Kosmos from a console. And `KosmosLauncher.cs`
-is unchanged, so a hand-started board still dies with its window.
+runs a hand-started board in its own window, so it dies with that window; the fix
+is #2752, merged (the board hands itself to this task).
 
 ### BLOCKER 4 CLOSED (2026-09-09) — `engine/win32board.js`
 
@@ -686,29 +748,57 @@ raised the subject while the answer was NO for every Windows board ever run. It
 now has a win32 arm — missing / switched off / in place — each naming the task and
 the removal command.
 
-📌 STILL OWED: a REAL LOGON. The trigger shape is byte-identical to the one R8
-measured firing at a real logon, and `/Run` was proven end to end, but the box was
-not rebooted. `KosmosLauncher.cs` is also unchanged, so a hand-started board still
-dies with its window.
+✅ A REAL LOGON, MEASURED 2026-09-11 (R8 of 7c-6): the board came back from this
+task at Josh's reboot, headless. Since #2752 a hand-started board hands itself to
+this task instead of dying with its window.
 
-### Also found (DEGRADED), and it is waiting under BLOCKER 1
+### BLOCKER 5 — an agent's answer never reached the board (found 2026-09-11; fixed on branch `win32-kosmos-cli-570` (PR #2754), NOT YET MERGED when this was written)
 
 Every new agent's instructions are written with `kosmosCliShown()` baked in —
 "you can message another agent with `kosmos msg <name> ...`". `engine/clipath.js`
-has NO win32 branch (verified: no `win32`, no `.exe`, no `.cmd`,
-no `process.platform` in the file), so it falls through to a bare `kosmos`, and
+has NO win32 branch (verified: no `process.platform` read and no `.exe`/`.cmd`
+candidate in its code; `win32` appears only in comments), so it falls through to a
+bare `kosmos`, and
 the Windows zip ships no such file. Agents are being told to run a command that
 does not exist.
 
-`messages.js` describes the failure mode in its own comment: "an agent whose shell
-says 'command not found' never reaches the engine, so its failure leaves no
-trace." Masked today only because BLOCKER 1 means no agent can be asked to do
-anything — it becomes live the moment delivery lands.
+It is not only `kosmos msg`. Every operator message the board delivers ends `to
+answer, run: kosmos reply`, and that is the only command that reaches the person.
+Measured 2026-09-11: an agent on a zip built from main answered with `kosmos reply
+"OSPREY"` in PowerShell and got `The term 'kosmos' is not recognized`. So on the
+zip a person could message an agent and never see its answer. The 7c-6 R3 check
+read the answer from the transcript, which is why it passed. `msg`, `post` and
+`react` were also pane-only on the server, and a Windows agent has no pane.
+
+✅ **Fixed on branch `win32-kosmos-cli-570` (not yet merged when written):**
+- a Node `kosmos` for agents in the zip's `bin\`, with a `kosmos.ps1` shim for
+  PowerShell (the arguments go as JSON in a private temp file the CLI deletes on
+  read, never on a command line, at any length) and a `kosmos` shim for Git Bash;
+- that folder put first on every agent's PATH by its supervisor;
+- /api/msg, /api/post and /api/react resolving the agent's per-run token.
+
+Verified live with candidate zips built from all three branches:
+- the agent's `kosmos reply` answers landed in its board thread, before and after
+  a restore, with the first (`.cmd`) shim and again with the `.ps1`;
+- its `kosmos msg reh-a` reached reh-a labelled as that colleague;
+- through the `.ps1`, a TWO-LINE answer holding `"quoted" &` reached the board
+  exactly (`ALPHA-570\nBRAVO-570 "quoted" & done.`).
+- that check ran the FIRST `.ps1`, which passed its arguments in an environment
+  variable. The temp-file version that ships (CLI review rounds 2-3) was then run
+  live too, on candidate `0.6.55+ee61accaae70` (this PR's head plus the README
+  branch, on main with #2752): Z0-Z6 passed with the answers on the board, the
+  two-line answer arrived exactly, `kosmos msg reh-b` reached reh-b as that
+  colleague, and no argument file was left in %TEMP% (recorded on PR #2754).
+
+Known limit: the PowerShell shim is a `.ps1`, so it runs only where the execution
+policy allows scripts. Claude Code's PowerShell runs with a process-scope Bypass
+(measured), and a person's default Restricted PowerShell would refuse it. A signed
+PE shim is the follow-up. (A first `.cmd` shim was dropped: it kept one line of a
+multi-line answer and ran the tail of a `"...&..."` message as a command.)
 
 ### What is still open
 
-Whether installkosmos.com actually serves the Windows zip today. The publish
-script only stages into a separate site checkout, so this repo cannot answer it.
+✅ Answered 2026-09-10: installkosmos.com serves a Windows zip, 0.6.37 (`/dist/latest-win.json`).
 
 ---
 
@@ -742,8 +832,10 @@ Honest gaps in this document:
 - **First run / install on Windows is unsurveyed.** Nobody has walked a clean
   Windows box from download to a working board. This is capability #1 and it is
   the only one with no evidence at all.
-- **Update-without-stranding has never been exercised.** The anchor design exists
-  precisely for it and is unit-tested, but no real update has been run.
+- **An update by hand has been run once (2026-09-11), not yet from a real old
+  release.** A candidate zip unpacked over a running install, then Kosmos.exe:
+  the board was replaced in 8.8-9.6s over three runs, and all agents kept running (idle). The
+  in-app updater (capability 7) is still unbuilt.
 - **A broad Mac-only-assumption sweep is in flight.** A targeted sweep for
   tmux/launchctl found `chat.js` (the blocker) and `runningas.js` (degraded) as
   the only live call sites outside already-ported modules. A wider survey — for
@@ -755,20 +847,19 @@ Honest gaps in this document:
 
 ## 6. Sequencing
 
-    NOW    merge #2537                      (done/in flight)
-    THEN   7c-1  streaming child            <- everything downstream depends on it
-           7c-2  board -> supervisor channel
-           7c-3  chat.js win32 arm
-           7c-4  state from the event stream
-           7c-5  rehearsal R1-R8 + R3
-    THEN   first-run survey + fix           (capability 1, currently unevidenced)
-           a real update, end to end        (capability 7)
-    THEN   Windows release
+    DONE   #2537, 7c-1..7c-6 (the table in §3), the supervisor fixes #2722-#2737,
+           and the launcher hand-off #2752
+    NOW    the zip's README and manifest    win32-package-text-570
+           the agent's kosmos command     win32-kosmos-cli-570 (BLOCKER 5, §3c)
+    THEN   first-run survey + fix           (capability 1, a clean box)
+    THEN   Windows release                  Baron builds on mortals from a
+                                            verified sha, this box verifies the
+                                            bytes, and a deploy serves it on
+                                            Josh's go
+    LATER  a real updater                   (capability 7, a fast-follow)
 
-⚠️ NO WINDOWS RELEASE UNTIL 7c LANDS. `SUPPORTED` gaining win32 is the same
-switch that arms live execution, so the claim and the capability cannot be
-separated — merging turns Windows on. Shipping now would give people agents they
-cannot talk to.
+✅ THE OLD RULE, "NO WINDOWS RELEASE UNTIL 7c LANDS", IS MET: 7c landed and R3
+passed. The gate now is the list above.
 
 ---
 
@@ -779,11 +870,9 @@ otherwise. 7c-1 decides the launch shape; 7c-2, 7c-3 and 7c-4 all consume it.
 Putting more workers on a dependency chain does not shorten it — it produces
 merge conflicts and rework.
 
-🛑 AND KOSMOS AGENTS CANNOT DO THIS WORK ON WINDOWS YET, which is the whole
-chicken-and-egg: an agent you cannot send a message to cannot be given a task.
-That is capability #4, the thing being built. Until 7c lands, parallelism has to
-come from Claude Code subagents (which work fine here and cost API tokens, not
-box RAM) rather than from the Kosmos fleet.
+📌 (Superseded 2026-09-11: 7c landed, so a Windows Kosmos agent CAN now be given a
+task. This paragraph used to say the fleet could not do this work on Windows yet,
+because an agent you cannot message cannot be given a task.)
 
 ⚠️ AND THE BOX'S MEASURED CAPACITY IS 3–4 AGENTS, NOT 8–12. The plan records
 "3-4 now, 6+ with [a second DIMM]" — 8–12 was the TARGET the second DIMM was
@@ -798,7 +887,6 @@ WHAT ACTUALLY PARALLELISES, and is running or queued:
     runningas.js win32 arm           independent      capability 3, the account/model read
     Mac-only assumption survey       independent      fills §5
     first-run survey                 independent      capability 1
-    7c-2 channel design              designable now   while 7c-1 is built
 
 That is roughly four or five real streams alongside the critical path — which is
 what this work actually has, and it is worth more than a number chosen in advance.
