@@ -33288,8 +33288,14 @@ function pjMember(m, suppressTold, withMinus) {
     ? ({ working: ' pjm-working', attn: ' pjm-attn', idle: ' pjm-idle' }[cardStOf(m).st] || '')
     : '';
   const face = m.hasAvatar
+    /* #2762: `?v=` the avatar version, same as tkFace above and the org chart
+       (#2698). This row is painted through `setIfChanged` -> `setLive`, which is
+       `if (el.__lastLive === html) return;` -- an identical-HTML skip exactly like
+       TK_LIST_HTML and ORG_HTML. So a bare URL here is stale for the same reason
+       and by the same mechanism. `m` is the member row from projects.describe,
+       which carries avatarVer. */
     ? '<span class="lav pj-face" aria-hidden="true"><img src="/api/agent/'
-      + encodeURIComponent(m.sessionName) + '/avatar" alt="">' + warn + '</span>'
+      + encodeURIComponent(m.sessionName) + '/avatar?v=' + (m.avatarVer || 0) + '" alt="">' + warn + '</span>'
     : '<span class="lav pj-face" aria-hidden="true" style="background:' + discTint(m.name)
       + ';color:' + discInk(m.name) + '">' + esc(initials(m.name)) + warn + '</span>';
   /* #2019: a restarting member is NOT "unseen" -- .unseen draws the dashed
@@ -33883,8 +33889,12 @@ function projectCard(p, unreadable, depth, childCount) {
      and bare initials read as stray letters to a screen reader while the
      "N agents" count already carries the fact. The title names each face
      for sighted hover. */
+  /* #2762: `?v=` here too. These faces are `p.agents` (the same member rows
+     tkFace and pjMember read) and the card list is painted through
+     `setIfChanged(list, pjTreeRows(active))`, so a bare URL is stale by the same
+     identical-HTML skip. */
   const faces = (p.agents || []).slice(0, 5).map((a) => a.hasAvatar
-    ? '<span class="lav" title="' + esc(a.name) + '"><img src="/api/agent/' + encodeURIComponent(a.sessionName) + '/avatar" alt=""></span>'
+    ? '<span class="lav" title="' + esc(a.name) + '"><img src="/api/agent/' + encodeURIComponent(a.sessionName) + '/avatar?v=' + (a.avatarVer || 0) + '" alt=""></span>'
     : '<span class="lav" title="' + esc(a.name) + '" style="background:' + discTint(a.name) + ';color:' + discInk(a.name) + '">' + esc(initials(a.name)) + '</span>').join('');
   const count = s.total ? '<span class="pjcount">' + Number(s.total) + (s.total === 1 ? ' agent' : ' agents') + '</span>' : '';
   const facesRow = (faces || count)
@@ -39652,8 +39662,12 @@ function addAgentsHtml() {
   if (!picked.length) return '<p class="fhint" style="margin:0;">No agents on it yet.</p>';
   return picked.map((a) => {
     const face = a.hasAvatar
+      /* #2762: same fix, same reason. This block is painted with
+         `setLive(box, addAgentsHtml())`, so it carries the identical-HTML skip
+         too. `a` here is a BOARD CARD out of LAST (not a project member row), and
+         cards have carried avatarVer since #2698. */
       ? '<span class="lav pj-face" aria-hidden="true"><img src="/api/agent/'
-        + encodeURIComponent(a.sessionName) + '/avatar" alt=""></span>'
+        + encodeURIComponent(a.sessionName) + '/avatar?v=' + (a.avatarVer || 0) + '" alt=""></span>'
       : '<span class="lav pj-face" aria-hidden="true" style="background:' + discTint(a.name)
         + ';color:' + discInk(a.name) + '">' + esc(initials(a.name)) + '</span>';
     return '<div class="pj-picked" data-agent="' + esc(a.sessionName) + '">'
