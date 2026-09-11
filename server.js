@@ -6333,9 +6333,12 @@ const server = http.createServer((req, res) => {
       return;
     }
     /* Whether the person sent the board's block away for good (Josh,
-       2026-08-24 17:06). Carried on the same answer so the painter cannot
-       show the list on one fetch and hide it on another. */
-    sendJson(res, 200, { ...out, dismissed: discover.dismissed() });
+       2026-08-24 17:06). #2704: "for good" is measured against what was on offer
+       when they pressed it, so a genuinely NEW agent (Josh's Liu Kang) flips this
+       back to false and the block returns; `candidateDirs(out)` is exactly the
+       offer this response would draw. Carried on the same answer so the painter
+       cannot show the list on one fetch and hide it on another. */
+    sendJson(res, 200, { ...out, dismissed: discover.dismissed(discover.candidateDirs(out)) });
     return;
   }
 
@@ -6378,17 +6381,23 @@ const server = http.createServer((req, res) => {
       scanCache = { at: now, result: out };
     }
     /* Whether the person sent the found-agents block away for good is carried here
-       too, so the scan screen honours the same "forever" the board does. Read fresh
-       (never cached) so Dismiss takes effect on the very next poll. */
-    sendJson(res, 200, { ...out, dismissed: discover.dismissed() });
+       too, so the scan screen honours the same "forever" the board does (#2704:
+       measured against this scan's current offer, `candidateDirs(out)`, so a new
+       candidate re-shows). Read fresh (never cached) so Dismiss takes effect on the
+       very next poll. */
+    sendJson(res, 200, { ...out, dismissed: discover.dismissed(discover.candidateDirs(out)) });
     return;
   }
 
   /* "Dismiss this forever": remembered on disk, behind the same cross-site
-     guard as every other write. There is no route back on purpose; the word
-     Josh chose was forever, and the confirmation on the board says so. */
+     guard as every other write. #2704: what is remembered is the SNAPSHOT of
+     folders on offer right now (`currentDismissSnapshot()` = found() + scan()),
+     not a global flag -- so "forever" hides everything currently offered but a
+     genuinely new agent later re-shows the block. The route still takes no body
+     (the web POSTs body-less); computing the snapshot here keeps `dismiss()` a
+     pure writer. */
   if (pathname === '/api/found-agents/dismiss' && req.method === 'POST') {
-    try { discover.dismiss(); }
+    try { discover.dismiss(discover.currentDismissSnapshot()); }
     catch { sendJson(res, 500, { ok: false, because: 'we could not remember that' }); return; }
     sendJson(res, 200, { ok: true, dismissed: true });
     return;
@@ -8127,7 +8136,7 @@ const server = http.createServer((req, res) => {
         because: 'we could not scan this computer for agent files' });
       return;
     }
-    sendJson(res, 200, { ...out, dismissed: discover.dismissed() });
+    sendJson(res, 200, { ...out, dismissed: discover.dismissed(discover.candidateDirs(out)) });
     return;
   }
 

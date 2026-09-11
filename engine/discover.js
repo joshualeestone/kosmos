@@ -127,17 +127,92 @@ function undecline(dir) {
   return { ok: true, restored: given };
 }
 
-function dismissed() {
-  try { fs.statSync(DISMISS_FILE); return true; } catch (err) {
-    return !(err && err.code === 'ENOENT');
+/**
+ * Has the person sent the found-agents block away, GIVEN what it would show them
+ * right now (#2704)?
+ *
+ * 🛑 THIS USED TO BE A GLOBAL ON/OFF FLAG AND THAT WAS THE BUG. `dismissed()`
+ * returned true whenever `DISMISS_FILE` merely EXISTED, so one "Dismiss forever"
+ * hid EVERY agent found afterwards, forever -- Josh's Liu Kang, added later, never
+ * appeared. Josh's word was "forever", but "forever" meant "everything you are
+ * offering me right now", not "anything you ever find on this computer again".
+ *
+ * ⭐ SO DISMISS IS A SNAPSHOT, NOT A SWITCH. `dismiss()` records the folders that
+ * were on offer at the moment it was pressed; `dismissed()` stays true only while
+ * every folder currently on offer is one of those. A folder that was NOT in the
+ * snapshot -- a genuinely new agent -- flips it back to false and the block returns.
+ *
+ * ⚠️ THE THREE FILE STATES, AND THE SAFE DIRECTION FOR EACH:
+ *   - MISSING (ENOENT): never dismissed -> false. (The only "not dismissed".)
+ *   - UNREADABLE / not valid JSON: the person's answer stands -> true. A read blip
+ *     must not flash a block somebody deliberately sent away.
+ *   - VALID: dismissed iff the current offer is a subset of the snapshot.
+ * An OLD-FORMAT file (pre-#2704: `{dismissedAt}` with no `dirs`) reads as an EMPTY
+ * snapshot, so a machine already dismissed under the old code re-shows its current
+ * agents ONCE (which un-traps it); a fresh dismiss then records the real snapshot.
+ */
+function dismissed(currentDirs) {
+  let snapshot;
+  try {
+    const raw = JSON.parse(fs.readFileSync(DISMISS_FILE, 'utf8'));
+    snapshot = Array.isArray(raw && raw.dirs) ? raw.dirs.filter((d) => typeof d === 'string') : [];
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return false;
+    return true;
   }
+  const cur = Array.isArray(currentDirs) ? currentDirs.filter((d) => typeof d === 'string') : [];
+  return cur.every((d) => snapshot.includes(d));
 }
 
-function dismiss() {
+/**
+ * Record the folders on offer right now as the dismissed snapshot (#2704). A PURE
+ * WRITER: it stores exactly the `dirs` it is handed. The server passes
+ * `currentDismissSnapshot()`; a bare `dismiss()` records an empty snapshot (which
+ * then re-shows on the next candidate), and keeps the no-arg call cheap -- the
+ * writer never walks the filesystem itself.
+ */
+function dismiss(dirs) {
+  const given = Array.isArray(dirs)
+    ? [...new Set(dirs.filter((d) => typeof d === 'string'))]
+    : [];
   fs.mkdirSync(path.dirname(DISMISS_FILE), { recursive: true });
   const tmp = DISMISS_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify({ dismissedAt: new Date().toISOString() }) + '\n');
+  fs.writeFileSync(tmp, JSON.stringify({ dismissedAt: new Date().toISOString(), dirs: given }) + '\n');
   fs.renameSync(tmp, DISMISS_FILE);
+}
+
+/**
+ * The folders a found/scan response WOULD SHOW a person -- the offer whose members
+ * `dismiss`/`dismissed` reason about (#2704). Named agents already under Kosmos
+ * (`already === true`) are never offered, so they are excluded here too; everything
+ * else the board or scan draws (`adoptable`, `candidates`, `importable`) is a folder
+ * a new agent could arrive in. De-duped so a folder reachable two ways counts once.
+ */
+function candidateDirs(out) {
+  const dirs = [];
+  if (out && Array.isArray(out.agents)) {
+    for (const a of out.agents) if (a && a.already !== true && typeof a.dir === 'string') dirs.push(a.dir);
+  }
+  for (const key of ['adoptable', 'candidates', 'importable']) {
+    if (out && Array.isArray(out[key])) {
+      for (const c of out[key]) if (c && typeof c.dir === 'string') dirs.push(c.dir);
+    }
+  }
+  return [...new Set(dirs)];
+}
+
+/**
+ * The union of every folder currently on offer, across `found()` and `scan()` --
+ * what `dismiss` records so a person who dismisses one block dismisses both (the
+ * two are one "agents on your computer" offer, server.js:6371). Each walk is
+ * wrapped: recording a snapshot must never throw, so a look that fails contributes
+ * nothing rather than aborting the dismiss.
+ */
+function currentDismissSnapshot() {
+  const dirs = [];
+  try { dirs.push(...candidateDirs(found())); } catch { /* a failed look adds nothing */ }
+  try { dirs.push(...candidateDirs(scan())); } catch { /* a failed look adds nothing */ }
+  return [...new Set(dirs)];
 }
 
 /**
@@ -1899,6 +1974,7 @@ module.exports = { alreadyIn,
   foundGemini,
   codexIdentity,
   runningUnderName, found, scan, connect, disconnect, dismissed, dismiss, DISMISS_FILE,
+  candidateDirs, currentDismissSnapshot,
   declined, decline, undecline, DECLINED_FILE,
   // #2125: exposed so a test can assert the AUTO scan roots exclude the
   // TCC-protected home folders (Documents/Downloads/Desktop) while the import
