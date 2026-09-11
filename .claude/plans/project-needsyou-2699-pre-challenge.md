@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: project-needsyou-2699
-diff_hash: 8670cdcb6ce736ecf80f1b6a505fd05c09a50401c90071473b313c193bd133dc
+diff_hash: 1a4a5eb51996aecf7ca267b8d81612eac0b7b3d5bf2dced453d2fbcb03198b17
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-11T04:05:02Z
-iterations: 3
+timestamp: 2026-09-11T04:32:16Z
+iterations: 4
 converged: true
 ---
 
@@ -63,6 +63,16 @@ Independently re-verified the condition (mutated it to also match 'stopped' and 
 - The needs-you condition converged onto the SAME key the existing org-node badge uses (cardStOf.st === 'attn'), so the two needs-you surfaces cannot drift.
 - The negative arm is the correct discriminator (a stopped member, whose STATE_COPY.attn is true but is not needs_you); an idle-only arm could not have caught the original BLOCKER.
 - Model alternation held (Sonnet, Opus, Sonnet); the BLOCKER came from the first Sonnet pass.
+
+#### Merge with origin/main (after iteration 3) + iteration 4
+Main advanced (my own #2697 render-profile-field-widths merged as cb77290f, touching the SAME guard
+files). Merged origin/main in (commit 65dd7153). web/index.html AUTO-MERGED cleanly - #2697's change is
+the detail-form field CSS + found-desc, mine is pjMember + .pj-member CSS, different regions, no semantic
+overlap. Three guard-file conflicts, all mechanical: reason-grep counts stacked to 99 SITES / 69 CATCH
+(base 95/65 + #2697 +2/+2 + #2699 +2/+2, verified by the counting test), and the README rows +
+browser-checks.sh loop entries were unioned. After the merge: reason-grep 5/5, both browser checks PASS,
+web.theme.test.js 13/13, server.test.js 263/263. diff_hash regenerated for the merged HEAD (my net change
+vs the new main). Iteration 4 is a blind re-witness of the merged state.
 
 ## Release-cut note
 Baron's 0.6.55 cut is DONE and main is unfrozen, so this can merge when green. Re-check for a NEW active cut before self-merge (render-surface change), per the merges-pause-during-a-cut rule.
