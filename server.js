@@ -7736,8 +7736,9 @@ const server = http.createServer((req, res) => {
        pane), so the same credential that authorizes a write authorizes reading
        that one agent's state. It is NOT the account-gated /api/agents -- an agent
        reads itself, never the roster. */
-    const roster = safeRoster();
-    if (roster === null) { sendJson(res, 200, { ok: false, because: 'we could not check which agents are running, so we could not tell who this is from' }); return; }
+    /* asText computed ONCE at the top (the #2702 lesson) so every arm -- the
+       refusals AND the render -- agree on which format the caller asked for; a
+       bail that ignored ?as=text would hand the bash CLI a raw JSON blob. */
     let asText = false;
     let fromPane = null;
     try {
@@ -7745,43 +7746,59 @@ const server = http.createServer((req, res) => {
       asText = q.get('as') === 'text';
       fromPane = q.get('from_pane');   // the pane arm for a token-less agent (GET has no body)
     } catch { asText = false; fromPane = null; }
-    /* #1968, same as POST: on an enforcing board a bare pane with no credential
-       is refused; a valid board token or agent token passes. */
-    const denyPaneFallback = boardAuthState.on
-      && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
-    const sender = resolveAgentSender(req, { from_pane: fromPane }, roster, {
-      denyPaneFallback,
-      denyBecause: 'this board only shows a report to the account that started it; run `kosmos report show` from that account, or present an agent token',
-    });
-    if (!sender.ok) {
-      if (asText) { res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }); res.end(sender.because + '\n'); }
-      else sendJson(res, 200, { ok: false, because: sender.because });
-      return;
-    }
-    const rep = selfreport.read(sender.card.sessionName);
-    if (asText) {
-      /* Bash 3.2 has no JSON parser, so the server shapes the human line (the
-         same as=text contract the room route keeps). needs_you/blocked are the
-         WAITING_ON_A_PERSON states -- the motivating "is my needs_you still set". */
-      let line;
-      if (!rep || rep.found !== true) {
-        line = (rep && rep.because) ? rep.because : 'No report recorded yet.';
-      } else {
-        const detail = [];
-        if (rep.on) detail.push('on ' + rep.on);
-        if (rep.owner) detail.push('owner ' + rep.owner);
-        if (rep.until) detail.push('until ' + rep.until);
-        line = 'You are currently: ' + rep.state + (detail.length ? ' (' + detail.join(', ') + ')' : '') + '.';
-        if (rep.at) line += ' Set ' + rep.at + '.';
-        if (selfreport.WAITING_ON_A_PERSON.includes(rep.state)) {
-          line += ' This is a waiting-on-a-person state; clear it with a fresh report (e.g. `kosmos report working ...`) once you have been answered.';
+    /* One responder for the NON-success paths, carrying a REAL HTTP status so
+       `kosmos report show` can exit non-zero on a refusal the way post/react/room
+       do (its sibling cmd_room keys the CLI exit off the status; POST /api/report
+       returns 200 because ITS cli parses the body instead -- a different reader,
+       so a different convention). needs a matching text line for the bash arm. */
+    const fail = (status, msg) => {
+      if (asText) { res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8' }); res.end(msg + '\n'); }
+      else sendJson(res, status, { ok: false, because: msg });
+    };
+    /* Wrapped, like the POST sibling's readBody().then().catch(): a synchronous
+       throw from any callee must fault THIS request (500), not crash the board. */
+    try {
+      const roster = safeRoster();
+      if (roster === null) { fail(503, 'we could not check which agents are running, so we could not tell who this is from'); return; }
+      /* #1968, same as POST: on an enforcing board a bare pane with no credential
+         is refused; a valid board token or agent token passes. */
+      const denyPaneFallback = boardAuthState.on
+        && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
+      const sender = resolveAgentSender(req, { from_pane: fromPane }, roster, {
+        denyPaneFallback,
+        denyBecause: 'this board only shows a report to the account that started it; run `kosmos report show` from that account, or present an agent token',
+      });
+      if (!sender.ok) { fail(403, sender.because); return; }
+      const rep = selfreport.read(sender.card.sessionName);
+      /* A no-report agent is a SUCCESSFUL read of "you have no state yet" -- 200,
+         found:false -- never a refusal, so the CLI exits 0 on it. Only auth /
+         server-fault paths above are non-2xx. */
+      if (asText) {
+        /* Bash 3.2 has no JSON parser, so the server shapes the human line (the
+           same as=text contract the room route keeps). needs_you/blocked are the
+           WAITING_ON_A_PERSON states -- the motivating "is my needs_you still set". */
+        let line;
+        if (!rep || rep.found !== true) {
+          line = (rep && rep.because) ? rep.because : 'No report recorded yet.';
+        } else {
+          const detail = [];
+          if (rep.on) detail.push('on ' + rep.on);
+          if (rep.owner) detail.push('owner ' + rep.owner);
+          if (rep.until) detail.push('until ' + rep.until);
+          line = 'You are currently: ' + rep.state + (detail.length ? ' (' + detail.join(', ') + ')' : '') + '.';
+          if (rep.at) line += ' Set ' + rep.at + '.';
+          if (selfreport.WAITING_ON_A_PERSON.includes(rep.state)) {
+            line += ' This is a waiting-on-a-person state; clear it with a fresh report (e.g. `kosmos report working ...`) once you have been answered.';
+          }
         }
+        res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end(line + '\n');
+        return;
       }
-      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-      res.end(line + '\n');
-      return;
+      sendJson(res, 200, { ok: true, report: rep });
+    } catch (err) {
+      fail(500, String((err && err.message) || 'we could not read your report right now'));
     }
-    sendJson(res, 200, { ok: true, report: rep });
     return;
   }
   if (pathname === '/api/report' && req.method === 'POST') {

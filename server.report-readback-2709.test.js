@@ -123,6 +123,10 @@ test('SECURITY: an unresolved caller (enforcing board, bare pane, no token) is r
   try {
     await withLeo(async () => {
       const jr = await get('/api/report?from_pane=%253', {});   // %253 decodes to the tmux pane %3
+      // A REAL 403, not a 200: cmd_report_show keys its exit-1 off the HTTP
+      // status (4xx/5xx), so a refusal MUST be a 4xx or the CLI exits 0 and an
+      // agent cannot tell refused from success (parity with post/react/room).
+      assert.equal(jr.code, 403, 'a refused read must be 403, not 200 -- the CLI exit depends on it: ' + jr.text);
       assert.equal(jr.json.ok, false, 'a no-credential caller on an enforcing board must be refused, not handed a report: ' + jr.text);
       assert.ok(!jr.json.report, 'an unresolved caller must NOT receive any report');
       assert.ok(jr.json.because, 'the refusal must say why');
