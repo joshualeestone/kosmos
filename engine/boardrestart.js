@@ -29,10 +29,11 @@
  * succeed), which made the refusal a Mac answer wearing a Windows coat.
  *
  * 🔑 THE WINDOWS ANSWER TO "WILL A STOP BRING THIS BOARD BACK" IS A DIFFERENT
- * FACT, not a translated one. There is no supervisor and no `bin\kosmos` wrapper
- * to drive (`engine/clipath.js`'s installed layout is `$KOSMOS_HOME/bin/kosmos`,
- * and the Windows bundle ships no such file -- so `installedKosmosCli()` is null
- * there by construction, and the `kosmos` arm below is correctly unreachable).
+ * FACT, not a translated one. There is no `kosmos restart` to drive: the
+ * Windows zip's `bin\kosmos` (#570, win32-kosmos-cli-570) is the AGENT's command
+ * and has no board verbs. `installedKosmosCli()` is therefore NOT null on a
+ * Windows bundle, and the `kosmos` arm below must not be reached there -- it is
+ * not, because canSelfRestart returns at the win32 check before asking.
  * What exists is the board's own at-logon Scheduled Task (engine/win32board.js),
  * and the question becomes: was THIS board started by that task? If it was,
  * ending the task ends this process and running it starts a fresh one. If it was

@@ -70,6 +70,25 @@ const INHERITED_MARKERS = Object.freeze([
   'CLAUDECODE',
 ]);
 
+/* The zip's agent command lives here, beside `app\` and `runtime\`
+   (tools/build-kosmos-windows.sh stages it). The CLI itself is the marker: the
+   shims beside it (kosmos.ps1, kosmos) are per shell, the CLI is always there. */
+const AGENT_CLI_DIR = 'bin';
+const AGENT_CLI_SHIM = 'kosmos-cli.js';
+
+/**
+ * The folder holding the Windows zip's `kosmos` command, or null.
+ * This file runs from `<zip>\app\engine`, so the zip root is two up. A source
+ * checkout has no such folder and gets null: it teaches the same bare word and
+ * has nothing to put on PATH. `root` and `exists` are seams for a test.
+ */
+function agentCliDir(root, exists) {
+  const r = root || path.resolve(__dirname, '..', '..');
+  const has = exists || ((f) => fs.existsSync(f));
+  const dir = path.join(r, AGENT_CLI_DIR);
+  return has(path.join(dir, AGENT_CLI_SHIM)) ? dir : null;
+}
+
 /**
  * The environment the agent starts with: ours, minus the markers that would make
  * it a child, plus its own token.
@@ -77,9 +96,20 @@ const INHERITED_MARKERS = Object.freeze([
  * 🔑 A PURE FUNCTION OVER AN ENV OBJECT, so the stripping is assertable from a
  * Mac without spawning anything.
  */
-function childEnv(baseEnv, token, configDir) {
+function childEnv(baseEnv, token, configDir, cliDir) {
   const env = Object.assign({}, baseEnv || {});
   for (const k of INHERITED_MARKERS) delete env[k];
+  /* #570: the agent's `kosmos` command. Every instruction and every message the
+     board delivers teaches a bare `kosmos reply` / `kosmos msg` / `kosmos post`,
+     and the Windows zip's command lives in its own `bin` folder, so that folder
+     goes FIRST on the agent's PATH (see agentCliDir).
+     ⚠️ ONE PATH KEY, WHATEVER ITS CASE. Windows env names are case-insensitive but
+     a copied env object is not: `process.env` copies as `Path`, and adding `PATH`
+     beside it gives the child two, of which Windows keeps one unpredictably. */
+  if (cliDir) {
+    const pathKey = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
+    env[pathKey] = env[pathKey] ? String(cliDir) + path.win32.delimiter + env[pathKey] : String(cliDir);
+  }
   if (token) env.KOSMOS_AGENT_TOKEN = token;
   else delete env.KOSMOS_AGENT_TOKEN;   // never inherit somebody else's credential
   /* 🔑 THE ACCOUNT, THE WAY THIS PLATFORM CARRIES IT. On the Mac a non-default
@@ -240,7 +270,7 @@ function launch(spec) {
   try {
     child = spawner()('cmd.exe', ['/c', 'start', '', '/min', bin].concat(argv), {
       cwd: s.cwd,
-      env: childEnv(process.env, prepared.token, s.configDir),
+      env: childEnv(process.env, prepared.token, s.configDir, agentCliDir()),
       detached: true,
       windowsHide: true,
       stdio: 'ignore',
@@ -382,7 +412,7 @@ function launchStreaming(spec) {
   try {
     child = spawner()(bin, argv, {
       cwd: s.cwd,
-      env: childEnv(process.env, prepared.token, s.configDir),
+      env: childEnv(process.env, prepared.token, s.configDir, agentCliDir()),
       windowsHide: true,
       /* 🔑 PIPES, AND THIS IS THE WHOLE POINT. `launch()` passes 'ignore' so the
          agent is nobody's child; here stdin is the delivery channel and stdout is
@@ -415,5 +445,5 @@ function launchStreaming(spec) {
 
 module.exports = {
   launch, launchStreaming, messageLine, streamArgvFor,
-  childEnv, argvFor, AUTONOMY, INHERITED_MARKERS, setSpawn,
+  childEnv, agentCliDir, argvFor, AUTONOMY, INHERITED_MARKERS, setSpawn,
 };

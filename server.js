@@ -552,6 +552,27 @@ function resolveAgentSender(req, body, roster, opts) {
 }
 
 /**
+ * #570: the sender of an agent-to-agent send (/api/msg, /api/post, /api/react)
+ * when the caller PRESENTED an agent token, or null when it did not.
+ *
+ * 🛑 THOSE THREE ROUTES WERE PANE-ONLY, and a Windows agent has no pane. So
+ * `kosmos msg` and `kosmos post` could never name their sender there, even with
+ * the per-run token the supervisor puts in every Windows agent's environment
+ * (`KOSMOS_AGENT_TOKEN`). /api/reply and /api/report already resolve token
+ * first; this gives the other three the same chain, through the same resolver.
+ *
+ * 🔑 null WITHOUT A TOKEN, so the pane path is byte-for-byte what it was: every
+ * Mac caller keeps exactly the behaviour it had. A token that is presented and
+ * does not resolve is a refusal (`{ ok:false }`), never a silent fall back to the
+ * pane -- a bad credential must not be quietly swapped for a weaker one.
+ */
+function senderFromAgentToken(req, body, roster) {
+  const presented = (req && req.headers && req.headers['x-kosmos-agent-token']) || (body && body.token);
+  if (!presented) return null;
+  return resolveAgentSender(req, body, roster);
+}
+
+/**
  * The live reader, behind a seam a test can reach (#1304).
  *
  * 🛑 WITHOUT THIS THE ROUTE'S LIVE ARM HAD NO CONTROL. `fleet.install` stubs
@@ -8325,8 +8346,14 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, { delivery: { state: 'could_not', because: 'we could not check which agents are running, so nothing was sent' } });
           return;
         }
+        const tokenSender = senderFromAgentToken(req, body, roster);
+        if (tokenSender && !tokenSender.ok) {
+          sendJson(res, 200, { delivery: { state: 'could_not', because: tokenSender.because } });
+          return;
+        }
         const delivery = messages.send({
           fromPane: body.from_pane,
+          sender: tokenSender,
           to: body.to,
           text: body.text,
           inReplyTo: body.in_reply_to,
@@ -8374,8 +8401,14 @@ const server = http.createServer((req, res) => {
         // its members). If archive ever comes to mean "closed", this is
         // the line that changes.
         const members = (found.agents || []).map((a) => a.sessionName);
+        const tokenSender = senderFromAgentToken(req, body, roster);
+        if (tokenSender && !tokenSender.ok) {
+          sendJson(res, 200, { delivery: { state: 'could_not', because: tokenSender.because } });
+          return;
+        }
         const delivery = messages.sendPost({
           fromPane: body.from_pane,
+          sender: tokenSender,
           project: found.id,
           // The NAME for the envelope the agent reads, the id for everything a
           // machine keys on. Both, from the same record, so they cannot drift.
@@ -8413,7 +8446,7 @@ const server = http.createServer((req, res) => {
         let found = null;
         try { found = projects.get(String(body.project == null ? '' : body.project).trim(), roster); } catch { found = null; }
         if (!found) { sendJson(res, 200, { ok: false, because: 'there is no project by that name' }); return; }
-        const sender = messages.resolveSender(body.from_pane, roster);
+        const sender = senderFromAgentToken(req, body, roster) || messages.resolveSender(body.from_pane, roster);
         if (!sender.ok) { sendJson(res, 200, { ok: false, because: sender.because }); return; }
         // #2255: the project's members, same derivation as /api/post -- react()
         // refuses an agent that is not on the project (room isolation).

@@ -642,9 +642,12 @@ function pairCount(log, a, b, now, windowMs = limits.WINDOW_MS) {
  * chat.deliver and inventing a second vocabulary for the same outcomes is
  * how two surfaces drift.
  */
-function send({ fromPane, to, text, inReplyTo }, roster) {
+function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster) {
   const at = new Date().toISOString();
-  const sender = resolveSender(fromPane, roster);
+  /* #570: a route that already resolved the sender from an AGENT TOKEN passes it
+     here (a Windows agent has no pane to derive one from). Without one, the pane
+     path is unchanged. */
+  const sender = resolvedSender || resolveSender(fromPane, roster);
   if (!sender.ok) return { state: chat.DELIVERY.COULD_NOT, because: sender.because, id: null, at };
 
   const from = sender.card.sessionName;
@@ -1016,7 +1019,7 @@ function _roomMembers(members) {
   return { members: members.filter((m) => !gone.has(clean(m))), ok: true };
 }
 
-function sendPost({ fromPane, project, projectName, text, operator, attachment, attachments, trailer }, roster, members) {
+function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer }, roster, members) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
      composer through the server, which is the operator's own surface),
@@ -1028,7 +1031,8 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
   if (operator === true) {
     from = 'you';
   } else {
-    const sender = resolveSender(fromPane, roster);
+    /* #570: the token-resolved sender, as in send(). */
+    const sender = resolvedSender || resolveSender(fromPane, roster);
     if (!sender.ok) return { state: chat.DELIVERY.COULD_NOT, because: sender.because, id: null, at, outcomes: null };
     from = sender.card.sessionName;
   }

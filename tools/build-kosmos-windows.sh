@@ -102,6 +102,29 @@ cp "$REPO/bin/codex-report-bridge.js" "$STAGE/app/bin/"
 # (tools.build-windows-570.test.js reads only `cp ... "$STAGE/app` lines).
 cp "$REPO/tools/kosmos-open-board.js" "$STAGE/open-board.js"
 
+# #570: the AGENT's `kosmos` command. Every message the board delivers ends "to
+# answer, run: kosmos reply", and every agent's instructions teach `kosmos msg` and
+# `kosmos post` -- and this zip shipped no `kosmos` at all, so a Windows agent's
+# answer never reached the board (measured: "The term 'kosmos' is not recognized").
+# tools/windows/kosmos-cli.js is that command in Node, run by this zip's own
+# node.exe, and engine/win32launch.js puts `<zip>\bin` first on every agent's PATH
+# (it looks for the kosmos-cli.js copied here). At the zip ROOT like open-board.js,
+# not under app/, for the same reason: a launcher-side artifact, outside the
+# two-builder app-parity scan.
+# 🛑 ONE SHIM PER SHELL CLAUDE CODE USES, BOTH MEASURED ON THE BOX, AND NO .cmd.
+# PowerShell resolves a bare `kosmos` to kosmos.ps1 (and Claude Code runs its
+# PowerShell with a Bypass execution policy); Git Bash resolves the extensionless
+# sh script. A .cmd was tried first and REMOVED: cmd's %* kept only the first line
+# of a multi-line message and ran the tail of one holding `"...&...` as a command
+# (review round 1). The .ps1 hands the arguments over as JSON in a private temp
+# file, so no Windows command line ever carries the message, whatever its length.
+# ⚠️ The sh shim is copied with any CR stripped: a builder whose git checks out
+# CRLF would otherwise ship `#!/bin/sh\r`, which bash cannot run.
+mkdir -p "$STAGE/bin"
+cp "$REPO/tools/windows/kosmos-cli.js" "$STAGE/bin/kosmos-cli.js"
+cp "$REPO/tools/windows/kosmos.ps1" "$STAGE/bin/kosmos.ps1"
+tr -d '\r' < "$REPO/tools/windows/kosmos.sh" > "$STAGE/bin/kosmos"
+
 # 🔑 THE VERSION IS BAKED INTO THE PAGE, same as the Mac builder and for the same
 # reason (#269): a fact about the bundle must not require the bundle's API. The
 # checks below FAIL THE BUILD rather than shipping the marker to a screen.
@@ -335,12 +358,18 @@ shasum -a 256 "$ZIPOUT" | awk '{print $1}' > "$ZIPOUT.sha256"
 refuse() { echo "$1" >&2; rm -f "$ZIPOUT" "$ZIPOUT.sha256"; exit 1; }
 
 LISTING="$(unzip -l "$ZIPOUT")"
-for want in "Kosmos.exe" "open-board.js" "! READ ME FIRST - Windows will warn you.txt" "manifest.json" "runtime/node.exe" "app/server.js" "app/web/index.html" "app/engine/kosmos-report-hook.js"; do
+for want in "Kosmos.exe" "open-board.js" "! READ ME FIRST - Windows will warn you.txt" "manifest.json" "runtime/node.exe" "app/server.js" "app/web/index.html" "app/engine/kosmos-report-hook.js" "bin/kosmos-cli.js" "bin/kosmos.ps1"; do
   case "$LISTING" in
     *" $want"*) ;;
     *) refuse "the zip is missing $want" ;;
   esac
 done
+# The Git Bash shim has no extension, so " bin/kosmos" alone would also match
+# " bin/kosmos-cli.js" above: it is checked as a whole listing line.
+case "$LISTING" in
+  *" bin/kosmos"$'\n'*) ;;
+  *) refuse "the zip is missing bin/kosmos (the Git Bash shim)" ;;
+esac
 # 🛑 NO TEST FILES, AND THE ENGINE COUNT MUST MATCH THE REPO (Renet's finding).
 # His parallel builder's engine glob had no filter: it staged 137 .js of which
 # only 59 were real modules, so 78 TEST FILES SHIPPED TO USERS.

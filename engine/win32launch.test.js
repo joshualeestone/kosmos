@@ -432,3 +432,26 @@ test('#570 7c-2 the resolved runner path is a HINT, and a stale one falls back t
   assert.equal(spawns[2], 'codex');
   launcher.setSpawn(null);
 });
+
+// ── #570: the agent's `kosmos` command is on its PATH ───────────────────────
+
+test('the zip\'s bin folder goes FIRST on the agent\'s PATH, on the key the env already has', () => {
+  /* process.env copies on Windows as `Path`; adding `PATH` beside it would give
+     the child two, of which Windows keeps one unpredictably. */
+  const env = launcher.childEnv({ Path: 'C:\\Windows\\system32;C:\\Tools' }, 'deadbeef', null, 'C:\\Kosmos\\bin');
+  assert.equal(env.Path, 'C:\\Kosmos\\bin;C:\\Windows\\system32;C:\\Tools', 'bin must come first, joined with the Windows delimiter');
+  assert.equal(Object.keys(env).filter((k) => k.toUpperCase() === 'PATH').length, 1, 'two PATH keys');
+});
+
+test('no cliDir (a source checkout) leaves PATH exactly as it was; an env with no PATH gets just the folder', () => {
+  assert.equal(launcher.childEnv({ Path: 'C:\\x' }, 't', null, null).Path, 'C:\\x');
+  assert.equal(launcher.childEnv({}, 't', null, 'C:\\Kosmos\\bin').PATH, 'C:\\Kosmos\\bin');
+});
+
+test('agentCliDir finds <zip>\\bin only when the kosmos CLI is there', () => {
+  const nodePath = require('node:path');
+  const root = nodePath.join('C:', 'Kosmos');
+  const bin = nodePath.join(root, 'bin');
+  assert.equal(launcher.agentCliDir(root, (f) => f === nodePath.join(bin, 'kosmos-cli.js')), bin);
+  assert.equal(launcher.agentCliDir(root, () => false), null, 'a source checkout has no bin to put on PATH');
+});

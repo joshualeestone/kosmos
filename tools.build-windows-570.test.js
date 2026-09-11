@@ -265,3 +265,24 @@ test('#570 the native-win32 report hook is verified into the zip, not just glob-
   assert.match(WIN, /for want in[^\n]*"app\/engine\/kosmos-report-hook\.js"/,
     'the win32 build does not verify the report hook is in the zip');
 });
+
+test('#570: the zip ships the agent\'s kosmos command, one shim per shell, where the supervisor puts it on PATH', () => {
+  /* Without it a Windows agent's `kosmos reply` failed with "not recognized" and
+     no answer ever reached the board. */
+  assert.match(WIN, /cp "\$REPO\/tools\/windows\/kosmos-cli\.js" "\$STAGE\/bin\/kosmos-cli\.js"/, 'the CLI is not staged into bin/');
+  /* PowerShell resolves kosmos.ps1; Git Bash the extensionless sh, copied with
+     any CR stripped so a CRLF checkout cannot ship `#!/bin/sh\r`. */
+  assert.match(WIN, /cp "\$REPO\/tools\/windows\/kosmos\.ps1" "\$STAGE\/bin\/kosmos\.ps1"/);
+  assert.match(WIN, /tr -d '\\r' < "\$REPO\/tools\/windows\/kosmos\.sh" > "\$STAGE\/bin\/kosmos"/);
+  /* 🛑 NO .cmd: cmd's %* truncated multi-line messages and ran `"...&...` tails
+     as commands (review round 1). Its return would bring that back. */
+  assert.doesNotMatch(WIN, /STAGE\/bin\/kosmos\.cmd|> "\$STAGE\/bin\/[^"]*\.cmd"/, 'a .cmd shim is back in the zip');
+  /* The zip is refused without them. */
+  assert.match(WIN, /"bin\/kosmos-cli\.js" "bin\/kosmos\.ps1"; do/);
+  assert.match(WIN, /\*" bin\/kosmos"\$'\\n'\*\) ;;/, 'the extensionless shim is not checked as a whole line');
+  /* One fact, two files: the folder and marker the build writes are the ones
+     engine/win32launch.js looks for before putting the folder on PATH. */
+  const launch = fs.readFileSync('engine/win32launch.js', 'utf8');
+  assert.match(launch, /const AGENT_CLI_DIR = 'bin';/);
+  assert.match(launch, /const AGENT_CLI_SHIM = 'kosmos-cli\.js';/);
+});
