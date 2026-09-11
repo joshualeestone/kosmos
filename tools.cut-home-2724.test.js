@@ -45,6 +45,9 @@ function sandbox(prefix) {
      cut home is set up. Give it a shaped-but-empty one so the run reaches the
      part these arms are about. */
   fs.mkdirSync(path.join(dir, 'site', 'dist'), { recursive: true });
+  /* TMPDIR must not equal HOME: the cut refuses to derive its home from a TMPDIR that
+     is a real directory, and these arms run with HOME pointed at the sandbox root. */
+  fs.mkdirSync(path.join(dir, 'tmp'), { recursive: true });
   return dir;
 }
 
@@ -71,16 +74,35 @@ function sandbox(prefix) {
    (${HOME}/.cache/kosmos-run-markers) inside the fixture rather than the
    operator's real one. */
 function envFor(dir, bin, extra) {
-  return {
+  const env = {
     ...process.env,
     HOME: dir,
-    TMPDIR: dir,
+    TMPDIR: path.join(dir, 'tmp'),
     PATH: bin + path.delimiter + process.env.PATH,
     KOSMOS_SITE: path.join(dir, 'site'),
     KOSMOS_CUT_IGNORE_HARNESS: '1',
     KOSMOS_CUT_PROBE: path.join(dir, 'bin', 'no-cut-probe'),
-    ...(extra || {}),
   };
+  /* 🛑 CLEAR THE TWO VARIABLES THESE ARMS ARE ABOUT, or they are decided by the
+     environment instead of by the script. This is not hypothetical and it is the
+     exact defect this whole change exists to fix, reproduced inside the file that
+     asserts the fix:
+
+     step 3 of release.sh runs `yarn test` WITH AGENT_WORKFORCE_HOME exported, so on
+     a real cut this file inherits it. The opt-out arm asserts the child saw
+     `<unset>`; under the cut it sees the cut's own home and the arm reds, the #2006
+     isolation rerun reproduces it (same exported env), it is classified a real red,
+     and THE CUT ABORTS AT STEP 3.
+
+     Measured before the fix: 6/6 pass with no ambient value, 5/6 with one set.
+
+     The plan's original measurement table could not see it, and the arithmetic says
+     why: the "+ test fixes" arm ran 5930 tests (without this file) and the final arm
+     ran 5936 (without an ambient home), so the one combination that describes a real
+     cut was the one combination never measured. */
+  delete env.AGENT_WORKFORCE_HOME;
+  delete env.KOSMOS_CUT_LIVE_HOME;
+  return { ...env, ...(extra || {}) };
 }
 
 /* rc=1 with no output is cut-guard.sh's "nothing matched", i.e. a clean no-cut. */
@@ -128,14 +150,14 @@ test('#2724: the cut announces a cut-only home, and a GATE SUBPROCESS actually s
   const seen = /CHILD_SEES=\[([^\]]*)\]/.exec(said)[1];
   assert.notEqual(seen, '<unset>',
     'AGENT_WORKFORCE_HOME did not reach the gate subprocess, so it was assigned but never exported: the isolation is invisible to every gate');
-  assert.equal(seen, path.join(dir, 'kosmos-cut-home'),
+  assert.equal(seen, path.join(dir, 'tmp', 'kosmos-cut-home'),
     'the child saw a different home than the one derived from TMPDIR');
 });
 
 test('#2724: the home the cut hands its gates EXISTS and is EMPTY', () => {
   const { dir, said } = runToStep1();
   assert.match(said, /cut-only home:/, 'the cut did not say what home it was using');
-  const home = path.join(dir, 'kosmos-cut-home');
+  const home = path.join(dir, 'tmp', 'kosmos-cut-home');
   assert.ok(fs.existsSync(home), 'the cut named a home it never created');
   assert.deepEqual(fs.readdirSync(home), [],
     'the cut home is not empty, so a gate can still read state left in it');
@@ -156,7 +178,7 @@ test('#2724: a pre-existing cut home is EMPTIED, so one cut cannot read the last
      otherwise state from a previous cut is exactly the live state this card is
      about, one cut removed. */
   const dir = sandbox('kosmos-cuthome-pre-');
-  const home = path.join(dir, 'kosmos-cut-home');
+  const home = path.join(dir, 'tmp', 'kosmos-cut-home');
   fs.mkdirSync(path.join(home, 'Library'), { recursive: true });
   fs.writeFileSync(path.join(home, 'leftover.json'), '{"from":"the last cut"}');
 
@@ -200,10 +222,56 @@ test('#2724: the home is exported BEFORE the suite gate, which is the half a gre
      reworded, the gate is restructured) this must fail loudly rather than compare
      two -1s and pass. */
   const src = fs.readFileSync(REAL, 'utf8');
-  const exportAt = src.indexOf('export AGENT_WORKFORCE_HOME=');
+  /* Anchored to the start of a line, and to a REAL statement rather than any mention:
+     `indexOf` on a bare substring takes the FIRST occurrence, and the block above the
+     export already names this variable repeatedly in prose. One future comment line
+     containing the literal, placed above the suite gate, would satisfy the old form
+     no matter where the real export sat. */
+  const exportRe = /^\s*export AGENT_WORKFORCE_HOME=/m;
+  const m = exportRe.exec(src);
+  const exportAt = m ? m.index : -1;
   const suiteAt = src.indexOf('yarn test >"$_suite_log"');
-  assert.notEqual(exportAt, -1, 'no `export AGENT_WORKFORCE_HOME=` in release.sh: the isolation is gone, or it is a bare assignment no child can see');
+  assert.notEqual(exportAt, -1, 'no `export AGENT_WORKFORCE_HOME=` statement in release.sh: the isolation is gone, or it is a bare assignment no child can see');
   assert.notEqual(suiteAt, -1, 'the step-3 suite gate no longer matches, so this ordering assertion stopped measuring anything');
   assert.ok(exportAt < suiteAt,
     'the cut home is exported AFTER the suite gate runs, so the suite still reads the live fleet');
+});
+
+test('#2724: the TMPDIR guard can actually FIRE, which the version it replaced could not', () => {
+  /* The first version of this guard asked whether the DERIVED path was `/`, `/tmp` or
+     `$HOME`. It never could be: the leaf is always appended. So it read as protection in
+     review and could not return the dangerous answer for any value of TMPDIR. The guard
+     now asks about TMPDIR itself, and this arm is the proof that it fires. */
+  const dir = sandbox('kosmos-cuthome-guard-');
+  const bin = path.join(dir, 'bin');
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'git'), '#!/bin/sh\nexit 9\n');
+  fs.chmodSync(path.join(bin, 'git'), 0o755);
+  writeProbe(bin);
+
+  const r = spawnSync('bash', [path.join(dir, 'tools', 'release.sh'), '0.6.56'], {
+    encoding: 'utf8', cwd: dir,
+    /* TMPDIR = the run's own HOME: this is the shape that would have made the previous
+       guard run `rm -rf $HOME/kosmos-cut-home` while reporting itself satisfied. */
+    env: { ...envFor(dir, bin), TMPDIR: dir, HOME: dir },
+  });
+  const said = (r.stdout || '') + (r.stderr || '');
+  assert.match(said, /refusing to derive the cut-only home from TMPDIR=/,
+    'the cut derived its home from a TMPDIR equal to HOME and did not refuse: ' + said.slice(0, 300));
+  assert.doesNotMatch(said, /cut-only home:/, 'it refused and then used one anyway');
+});
+
+test('#2724: the page gate is EXPLICITLY excluded from the cut home, and says why', () => {
+  /* Measured: 7 of the 9 board boot sites in tools/browser-checks.sh do not set
+     AGENT_WORKFORCE_HOME, so they read the operator's home for accounts (5 accounts
+     ambient, 0 under an empty home), and create.js refuses a Claude create with no
+     default account. The page gate was therefore left on the old behaviour rather than
+     changed unmeasured. `env -u` is that exclusion, and this arm keeps it deliberate:
+     if someone removes it, the page layer silently starts running under the cut home
+     and ~25 checks change behaviour with nobody having run them. */
+  const src = fs.readFileSync(REAL, 'utf8');
+  const line = src.split('\n').find((l) => l.includes('bash tools/browser-checks.sh'));
+  assert.ok(line, 'the page gate invocation no longer matches, so this arm stopped measuring anything');
+  assert.match(line, /env -u AGENT_WORKFORCE_HOME/,
+    'the page gate now inherits the cut home, which is the one gate whose boards were never measured under it');
 });

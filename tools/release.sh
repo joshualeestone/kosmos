@@ -308,10 +308,18 @@ kosmos_claim_machine >/dev/null 2>&1 || true
 # kosmos_isolation_rerun_verdict -- which matters: the contention rerun must
 # adjudicate the same world the gate ran in, or it is comparing two machines.
 if [ "${KOSMOS_CUT_LIVE_HOME:-0}" != 1 ]; then
-  _cut_home="${TMPDIR:-/tmp}/kosmos-cut-home"
-  case "$_cut_home" in
-    /|//|/tmp|"$HOME") echo "refusing to use $_cut_home as the cut-only home (it is a real directory, not a scratch leaf)"; exit 1 ;;
+  # 🛑 GUARD THE INPUT, NOT THE DERIVED PATH. An earlier version of this checked
+  # whether "$_cut_home" was `/`, `/tmp` or `$HOME`, which it can NEVER be: the leaf
+  # is always appended, so the case could not fire on any value of TMPDIR and read as
+  # protection while providing none. The shape that actually hurts is a TMPDIR that is
+  # a real directory (TMPDIR=$HOME makes this `rm -rf ~/kosmos-cut-home`), so that is
+  # what is asked about here.
+  _cut_tmp="${TMPDIR:-/tmp}"
+  _cut_tmp="${_cut_tmp%/}"
+  case "$_cut_tmp" in
+    ''|/|"$HOME") echo "refusing to derive the cut-only home from TMPDIR=$_cut_tmp: it is a real directory, and this step removes and recreates a leaf inside it. Point TMPDIR at a scratch directory."; exit 1 ;;
   esac
+  _cut_home="$_cut_tmp/kosmos-cut-home"
   rm -rf "$_cut_home" && mkdir -p "$_cut_home" || { echo "could not create the cut-only home at $_cut_home"; exit 1; }
   export AGENT_WORKFORCE_HOME="$_cut_home"
   echo "cut-only home: $AGENT_WORKFORCE_HOME (empty, so the gates below read no live fleet state; KOSMOS_CUT_LIVE_HOME=1 opts out)"
@@ -641,7 +649,25 @@ _page_exit=0
 # drift -- and an unverifiable version, which is not verified-pinned -- into a
 # hard stop: the gate exits 2 and the red-gate check below fails the cut.
 # Recover by re-provisioning: bash tools/provision-pw.sh.
-( cd "$REPO" && KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
+# 🛑 STEP 3b DELIBERATELY DOES NOT INHERIT THE CUT HOME (#2724), and this line is the
+# exclusion. `env -u` drops it for this gate only, so the page layer runs exactly as it
+# did before that change.
+#
+# WHY, measured rather than assumed: of the nine `node ./server.js` boot sites in
+# tools/browser-checks.sh, SEVEN do not set AGENT_WORKFORCE_HOME (only the sb4 board and
+# the #1573 pair do), so those boards resolve the operator's home for accounts. On this
+# box `accounts.list()` is 5 with the ambient home and 0 under an empty one, and
+# engine/create.js refuses a Claude create outright when there is no default account.
+# That would change the behaviour of roughly 25 checks, and the page gate aborts the cut
+# on any red.
+#
+# ⚠️ SO THE CLASS THIS CARD IS ABOUT IS STILL OPEN HERE. It is excluded because it is
+# UNMEASURED, not because it is clean: the gate needs a real browser, which this change's
+# author could not run. Closing it means giving those boards their own sandbox home with
+# a seeded account, the same shape server.projects.test.js already uses, and then RUNNING
+# the page gate. Carded rather than done, and named here so the exclusion cannot be
+# mistaken for coverage.
+( cd "$REPO" && env -u AGENT_WORKFORCE_HOME KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
 grep -E '^PASS |^FAIL |^COULD NOT RUN|^‼️|retried:|all page' "$_page_log" || true
 if [ "$_page_exit" -eq 126 ] || [ "$_page_exit" -eq 127 ]; then echo "the page gate COULD NOT RUN (exit $_page_exit: bash, node or a program it needs is missing or not executable); this is not a red check. Full output: $_page_log"; exit 1; fi
 [ "$_page_exit" -eq 0 ] || { echo "the page checks are red (exit $_page_exit); full output: $_page_log"; exit 1; }
