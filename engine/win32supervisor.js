@@ -111,7 +111,7 @@ function ourLiveSession(name, live) {
   for (const a of list) {
     if (!a || !a.sessionId) continue;
     const rec = recorded[a.sessionId];
-    if (rec && rec.name === name) return a.sessionId;
+    if (win32sessions.rowIsUnder(rec, name)) return a.sessionId;
   }
   return null;
 }
@@ -648,6 +648,26 @@ function superviseStreaming(spec, opts) {
     return 'a session we do not hold is already running under this name, so we left it alone';
   }
 
+  /* A fresh start records a new ownership row, and nothing removed the row of the
+     session that ended, so every restart left one more behind (#2720). A fresh
+     start happens only once `blockedBy` has just found no session recorded under
+     this name LISTED as running -- otherwise it waits -- so keep only the one just
+     started. "Not listed" is not quite "ended": a new session takes a few seconds
+     to appear in the list. What makes that safe is that this agent has one
+     supervisor (its task is IgnoreNew), and a previous supervisor's child is on
+     its way out (#2714). Said on the task log either way, and never a reason to
+     undo the start. */
+  function pruneEndedRows(startedId) {
+    let r;
+    try { r = sessions.pruneName(s.name, [startedId]); }
+    catch (err) { r = { ok: false, because: 'we could not prune the ownership record (' + ((err && err.code) || 'unknown') + ')' }; }
+    if (!r || !r.ok) {
+      onEvent({ action: 'prune-failed', because: 'its ended sessions are still recorded under its name: ' + ((r && r.because) || 'unknown') });
+    } else if (r.removed) {
+      onEvent({ action: 'pruned', because: 'it forgot ' + r.removed + ' ended session' + (r.removed === 1 ? '' : 's') + ' recorded under its name' });
+    }
+  }
+
   function startOnce() {
     if (!running) return;
     let may = true;
@@ -686,6 +706,7 @@ function superviseStreaming(spec, opts) {
        report it sends -- so the task log says why, rather than nothing. */
     onEvent(Object.assign({ action: r.resumed ? 'resumed' : 'started', sessionId: r.sessionId },
       r.tokenBecause ? { because: 'it has no reporting token: ' + r.tokenBecause } : {}));
+    if (!r.resumed) pruneEndedRows(r.sessionId);   // a resume adds no row, so it has nothing to prune
   }
 
   /* The Mac's ThrottleInterval, gating the RESTART. A crash-loop must limp, not

@@ -321,7 +321,7 @@ function awaitSession(name, opts) {
     if (rec) {
       for (const id of Object.keys(rec)) {
         if (before.has(id)) continue;
-        if (rec[id] && rec[id].name === name) return { ok: true, sessionId: id };
+        if (win32sessions.rowIsUnder(rec[id], name)) return { ok: true, sessionId: id };
       }
     }
     if (waited >= waitMs) break;
