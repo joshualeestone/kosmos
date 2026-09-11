@@ -29,7 +29,7 @@ function seed(folderKey, cwdName, claudeMd, { at } = {}) {
   return cwd;
 }
 
-test('dismiss is kept on disk in the sandbox and read back; only a missing file means not dismissed', () => {
+test('dismiss is kept on disk in the sandbox and read back; a missing file always reads not dismissed (no-arg form)', () => {
   assert.ok(discover.DISMISS_FILE.startsWith(SB), `flag would land outside the sandbox: ${discover.DISMISS_FILE}`);
   assert.equal(discover.dismissed(), false);
   discover.dismiss();

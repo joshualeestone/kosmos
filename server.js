@@ -6410,9 +6410,13 @@ const server = http.createServer((req, res) => {
      out of context. Reusing the warm `scanCache`/`importScanCache` also keeps the
      click cheap (no back-to-back disk walks). `found()` is the one fresh look, and
      it costs no more than a single board poll, which runs every few seconds
-     anyway. Residual: if BOTH scan caches are cold at the instant of the click
-     (the board has not polled within SCAN_CACHE_MS), a TCC-only item can miss the
-     snapshot and re-show once; the next dismiss, with a warm cache, captures it. */
+     anyway. Residual: TCC-root items live ONLY in `importScanCache` (both the auto
+     `scanCache` and the fresh `scan()` fallback are TCC-free by design), so such an
+     item is snapshotted only when the IMPORT cache is warm; if it is cold at the
+     instant of the click (the board has not polled scan-import within
+     SCAN_CACHE_MS), the item can miss the snapshot and re-show once, and the next
+     dismiss with a warm import cache captures it. This is the safe direction
+     (re-show, not hide-forever). */
   if (pathname === '/api/found-agents/dismiss' && req.method === 'POST') {
     const now = Date.now();
     const snap = [];

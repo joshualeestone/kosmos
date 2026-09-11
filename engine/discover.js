@@ -49,8 +49,9 @@ const promptrequest = require('./promptrequest');
    block can be sent away for good. The flag lives on disk beside the app's
    other remembered answers (seen-version.json, first-run.json), not in the
    browser, because "forever" has to survive a new browser, a new port and
-   the next version. A missing file is the only "not dismissed"; a file we
-   cannot read is one that exists, so the person's answer stands.
+   the next version. Its shape and the full read contract live on `dismissed()`
+   below (#2704: the file now records a SNAPSHOT of what was on offer, so a new
+   agent re-shows the block rather than being hidden forever).
    ⚠️ `store.ROOT` ALONE, #891: `store.ROOT` already resolves
    AGENT_WORKFORCE_DATA (it joins the env var with the app's own
    store leaf (store.APP, 'Kosmos') when set). `process.env.AGENT_WORKFORCE_DATA
@@ -213,7 +214,6 @@ function candidateDirs(out) {
   }
   return [...new Set(ids)];
 }
-
 
 /**
  * Is this folder's agent already one Kosmos looks after?
