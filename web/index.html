@@ -36912,9 +36912,18 @@ document.addEventListener('click', (e) => {
 }, true);
 /* Escape closes any open picker. */
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') rxnCloseAllPickers(); });
-/* The picker is `fixed`, so it does not follow the thread scroll -- close it on any
-   scroll (capture phase, since scroll does not bubble) so it never floats detached. */
-document.addEventListener('scroll', () => rxnCloseAllPickers(), true);
+/* The picker is `fixed`, so it does not follow the thread scroll -- close it on a
+   scroll of anything OUTSIDE it (capture phase, since scroll does not bubble) so it
+   never floats detached from the smiley. A scroll INSIDE the picker's own emoji grid
+   (it is overflow-y:auto and taller than its max-height) must NOT close it, or the
+   lower rows of the list become unreachable. Gate on an actually-open picker first so
+   ordinary thread scrolling with nothing open does no work. */
+document.addEventListener('scroll', (e) => {
+  const tgt = e.target;
+  if (tgt && tgt.nodeType === 1 && tgt.closest && tgt.closest('.rxn-picker')) return;
+  const room = document.getElementById('pj-room');
+  if (room && room.querySelector('.rxn-picker:not([hidden])')) rxnCloseAllPickers();
+}, true);
 
 document.getElementById('pj-docs-all').addEventListener('click', () => {
   if (!PJ_CURRENT) return;

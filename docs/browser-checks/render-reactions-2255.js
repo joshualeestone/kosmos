@@ -207,6 +207,34 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       const outside = await rxns.evaluate((box) => ({ hidden: box.querySelector('.rxn-picker') ? box.querySelector('.rxn-picker').hidden : null }));
       if (outside.hidden === true) ok(t + ' an outside click closes the open picker'); else bad(t + ' outside-click closes picker', JSON.stringify(outside));
 
+      // #2806: scrolling INSIDE the open picker must NOT close it (the emoji grid is
+      // taller than its max-height, so the lower rows are only reachable by scrolling).
+      // A scroll event dispatched on the picker reaches the document capture listener
+      // (capture propagates to descendants even for a non-bubbling event), exactly as a
+      // real wheel scroll on it would; the listener must skip it.
+      await msgB.hover();
+      await rxns.locator('.rxn-more').click();
+      await p.waitForTimeout(150);
+      const insideScroll = await rxns.evaluate((box) => {
+        const picker = box.querySelector('.rxn-picker');
+        if (!picker || picker.hidden) return { ok: false, why: 'picker did not open' };
+        picker.scrollTop = 60;
+        picker.dispatchEvent(new Event('scroll', { bubbles: false }));
+        return { ok: !picker.hidden, hidden: picker.hidden };
+      });
+      if (insideScroll.ok) ok(t + ' scrolling INSIDE the picker does NOT close it (lower rows stay reachable)'); else bad(t + ' scroll-inside keeps picker open', JSON.stringify(insideScroll));
+
+      // CONTROL: a scroll OUTSIDE the picker DOES still close it (proves the skip above
+      // is a targeted exception, not a broken close). Dispatch a scroll on the room.
+      const outsideScroll = await p.evaluate(() => {
+        const room = document.getElementById('pj-room');
+        if (room) room.dispatchEvent(new Event('scroll', { bubbles: false }));
+        const posts = [...document.querySelectorAll('#pj-room .msg')].filter((m) => m.querySelector('.rxns'));
+        const picker = posts.length ? posts[posts.length - 1].querySelector('.rxn-picker') : null;
+        return { hidden: picker ? picker.hidden : null };
+      });
+      if (outsideScroll.hidden === true) ok(t + ' CONTROL: a scroll outside the picker DOES close it'); else bad(t + ' outside-scroll closes picker', JSON.stringify(outsideScroll));
+
       if (errs.length) bad(t + ' no page errors', errs.join(' | ')); else ok(t + ' no page errors');
       await p.close();
     }
@@ -217,7 +245,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     srv.kill();
   }
 
-  if (ran < 28) { console.log('reactions: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 32) { console.log('reactions: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (failures) { console.log('reactions: ' + failures + ' FAILED'); process.exit(1); }
   console.log('reactions: all good, ' + ran + ' checks');
 })();
