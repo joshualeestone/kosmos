@@ -628,31 +628,34 @@ function forgetAccount(dir, usedBy) {
   }
 
   if (base === '.claude') {
-    return {
-      ok: false,
-      forgotten: false,
-      /* 🛑 THE REASON IS UNCONDITIONAL BECAUSE THE REFUSAL IS. An earlier
-         version said "Remove the other accounts first, or sign out of this one
-         instead": the first implies the button becomes usable, which it never
-         does, and the second names an affordance the product does not have
-         (measured: no sign-out control exists on the page). It also claimed
-         other accounts keep their history here, which is FALSE on a
-         single-account machine -- the common install, and the row list() always
-         emits. A reason that is true only sometimes, stated as fact, on a
-         refusal that is always.
-         📌 PRECISELY WHAT THE REWRITE ACHIEVED, because the earlier version of
-         this comment overstated it. The clause now reads "other accounts here
-         MAY keep their history inside it", which is true in all three cases the
-         module models: none exist, they share the primary tree, or they keep
-         their own (`sharesMemory` / `memoryShared: false`).
-         ⚠️ AND THIS COMMENT WAS ITSELF STALE FOR ONE ITERATION: it described an
-         intermediate wording ("ANY other accounts", vacuously true) that the
-         next rewrite replaced, so two comments about one sentence disagreed
-         while the sentence sat three lines below both of them. The genuinely unconditional half is
-         the first sentence (this is the folder Claude Code uses when nothing
-         says otherwise), and that is what carries the refusal. */
-      because: 'Kosmos does not remove this computer\u2019s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and other accounts here may keep their history inside it.',
-    };
+    /* #2684: the PRIMARY is removable now, by clearing its oauth identity from
+       <HOME>/.claude.json rather than touching the dir (see clearDefaultIdentity
+       for why the dir must survive). The running-agents guard still applies and
+       is inlined here because the primary path returns before the shared block
+       below: an agent's launch file points at this dir by absolute path, so a
+       still-registered agent must be moved off it first. Josh's own use case
+       (2026-09-11, #2684) is to move every agent to another account and THEN
+       remove the original, so at his delete time this list is empty. */
+    const primaryAgents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);
+    if (primaryAgents.length) {
+      return {
+        ok: false,
+        forgotten: false,
+        usedBy: primaryAgents,
+        because: primaryAgents.length === 1
+          ? `${primaryAgents[0]} is set up to run on this account. Move it to another account or remove it first.`
+          : `${primaryAgents.length} agents are set up to run on this account: ${primaryAgents.join(', ')}. `
+            + 'Move them to another account or remove them first.',
+      };
+    }
+    const res = clearDefaultIdentity();
+    if (!res.ok) return { ok: false, forgotten: false, because: res.because };
+    /* wasDefault:true lets the caller's messaging say the MAIN connection was
+       removed; forgotten:true on both arms because from the person's view the
+       primary is gone from the list whether or not there was an identity to
+       clear. No movedTo: nothing was renamed aside, so there is nothing to
+       restore to -- re-connecting is a fresh sign-in. */
+    return { ok: true, forgotten: true, wasDefault: true, defaultCleared: res.already !== true, because: null };
   }
 
   /* 🛑 REFUSED WHILE AN AGENT IS ON IT, AND THE AGENTS ARE NAMED. The agent's
@@ -759,6 +762,58 @@ function forgetAccount(dir, usedBy) {
 }
 
 /**
+ * #2684: remove the PRIMARY/default (`.claude`) connection.
+ *
+ * The primary is special and neither renaming nor deleting its DIRECTORY is the
+ * right mechanism: `~/.claude` is the folder Claude Code uses when nothing says
+ * otherwise, and secondary accounts may symlink their `projects/` into it
+ * (`sharesMemory`), so removing the dir would destroy Claude Code's home and
+ * orphan other accounts' history. The primary's IDENTITY is not in the dir at
+ * all -- it is the `oauthAccount` key in `<HOME>/.claude.json` (`configFile` of
+ * the default dir). So "remove the primary connection" means surgically deleting
+ * ONLY that key, via a JSON round-trip that preserves every other key (MCP
+ * servers, project state, ...), and leaving the `.claude` dir untouched. Because
+ * the dir survives, there is no history to orphan, so this needs no
+ * shared-history guard -- only the running-agents guard its callers already run.
+ *
+ * This is why both the delete and the disconnect doors call this for the primary:
+ * with no dir to rename-aside or `rmSync`, clearing the identity is the one safe
+ * act, and after it `identityOf('.claude')` is null so the connection is gone
+ * from `list()`.
+ *
+ * Return shape: `{ ok, already, because }`. `already:true` means there was no
+ * identity to clear (no config file, or no `oauthAccount`) -- a quiet success,
+ * the same shape the sibling functions use for an account that is already gone.
+ * A refusal (`ok:false`) is reserved for a config file we could not read as JSON
+ * or could not write: we never leave `<HOME>/.claude.json` half-written or
+ * corrupt.
+ */
+function clearDefaultIdentity() {
+  const cfg = configFile(path.join(homeDir(), '.claude')); /* <HOME>/.claude.json */
+  let raw;
+  try { raw = fs.readFileSync(cfg, 'utf8'); }
+  catch { return { ok: true, already: true, because: null }; } /* no config => nothing signed in */
+  let parsed;
+  try { parsed = JSON.parse(raw); }
+  catch {
+    /* 🛑 DO NOT TOUCH A FILE WE CANNOT PARSE. Rewriting it would destroy the very
+       unrelated config (MCP servers, project state) this mechanism exists to
+       preserve. Refuse and say so, rather than risk corrupting it. */
+    return { ok: false, already: false, because: 'we could not read this computer’s Claude config, so the main connection was left untouched' };
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || !Object.prototype.hasOwnProperty.call(parsed, 'oauthAccount')) {
+    return { ok: true, already: true, because: null }; /* already disconnected */
+  }
+  delete parsed.oauthAccount;
+  /* Two-space indent + trailing newline: the shape Claude Code itself writes, so
+     a human diff of `.claude.json` after this stays legible. Only `oauthAccount`
+     is gone; every other key round-trips unchanged. */
+  try { fs.writeFileSync(cfg, JSON.stringify(parsed, null, 2) + '\n'); }
+  catch { return { ok: false, already: false, because: 'we could not update this computer’s Claude config to remove the main connection' }; }
+  return { ok: true, already: false, because: null };
+}
+
+/**
  * #2264: DELETE AND REMOVE a Claude account -- the destructive sibling of
  * forgetAccount. forgetAccount RENAMES the directory aside (reversible, the
  * credential survives on disk); this DELETES it, so the sign-in is gone from
@@ -784,11 +839,29 @@ function removeAccount(dir, usedBy) {
     return { ok: false, removed: false, because: 'that is not a Claude account on this computer' };
   }
   if (base === '.claude') {
-    return {
-      ok: false,
-      removed: false,
-      because: 'Kosmos does not delete this computer’s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and other accounts here may keep their history inside it.',
-    };
+    /* #2684: the PRIMARY is deletable now, by clearing its oauth identity from
+       <HOME>/.claude.json -- NOT by rmSync-ing the dir, which is Claude Code's
+       home and may hold secondaries' symlinked history (see clearDefaultIdentity).
+       So the delete and disconnect doors converge for the primary: there is no
+       dir to rename-aside or remove without collateral loss, and clearing the
+       identity is the one safe act. The running-agents guard is inlined here for
+       the same reason forgetAccount's is: the primary returns before the shared
+       block below. */
+    const primaryAgents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);
+    if (primaryAgents.length) {
+      return {
+        ok: false,
+        removed: false,
+        usedBy: primaryAgents,
+        because: primaryAgents.length === 1
+          ? `${primaryAgents[0]} is set up to run on this account. Move it to another account or remove it first.`
+          : `${primaryAgents.length} agents are set up to run on this account: ${primaryAgents.join(', ')}. `
+            + 'Move them to another account or remove them first.',
+      };
+    }
+    const res = clearDefaultIdentity();
+    if (!res.ok) return { ok: false, removed: false, because: res.because };
+    return { ok: true, removed: true, wasDefault: true, defaultCleared: res.already !== true, because: null };
   }
   const agents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);
   if (agents.length) {
