@@ -51,13 +51,19 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const mk = (state) => ({ sessionName: 's-' + state, name: 'Agent ' + state, present: true, state, hasAvatar: false, told: {}, role: null, because: '' });
     const host = document.createElement('div');
     document.body.appendChild(host);
-    // suppressTold=true, withMinus=false: minimise the row to what this check is about.
-    host.innerHTML = '<div class="pj-members">' + pjMember(mk('needs_you'), true, false) + pjMember(mk('idle'), true, false) + '</div>';
+    /* suppressTold=true, withMinus=false: minimise the row. Three members: needs_you (must
+       light up), idle (control), and stopped (a state whose STATE_COPY.attn is ALSO true but
+       is NOT needs_you - the exact class that a too-broad condition would wrongly light up, so
+       it is the load-bearing negative arm; idle alone could not catch that). */
+    host.innerHTML = '<div class="pj-members">' + pjMember(mk('needs_you'), true, false)
+      + pjMember(mk('idle'), true, false) + pjMember(mk('stopped'), true, false) + '</div>';
     const rows = host.querySelectorAll('.pj-member');
-    if (rows.length !== 2) return { error: 'expected 2 member rows, got ' + rows.length };
-    const needsRow = rows[0], idleRow = rows[1];
+    if (rows.length !== 3) return { error: 'expected 3 member rows, got ' + rows.length };
+    const needsRow = rows[0], idleRow = rows[1], stoppedRow = rows[2];
     const needsWarn = needsRow.querySelector('.pj-face .lwarn');
     const idleWarn = idleRow.querySelector('.pj-face .lwarn');
+    const stoppedWarn = stoppedRow.querySelector('.pj-face .lwarn');
+    const stoppedSmallCls = (stoppedRow.querySelector('small') || {}).className || '';
     const face = needsRow.querySelector('.pj-face');
     const needsSmall = needsRow.querySelector('small');
     const idleSmall = idleRow.querySelector('small');
@@ -72,6 +78,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       needsWarnDisplay: disp(needsWarn),
       needsWarnOverFace: overFace,
       idleWarnPresent: !!idleWarn,
+      stoppedWarnPresent: !!stoppedWarn,
+      stoppedSmallClass: stoppedSmallCls,
       needsSmallClass: needsSmall ? needsSmall.className : '(no small)',
       needsColor: needsSmall ? getComputedStyle(needsSmall).color : '',
       idleColor: idleSmall ? getComputedStyle(idleSmall).color : '',
@@ -93,6 +101,11 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   if (!/needs you/i.test(r.needsLabel)) fail.push('the needs-you row does not read "Needs you" (' + JSON.stringify(r.needsLabel) + ')');
   // Negative arm: an idle member gets neither the triangle nor the red.
   if (r.idleWarnPresent) fail.push('an IDLE member also got the warning triangle - the signal no longer means needs-you');
+  // Load-bearing negative arm: a STOPPED member (STATE_COPY.attn is true for it, but it is NOT
+  // needs_you) must get NEITHER the triangle NOR the red, or the condition is keying on the
+  // wrong attn (stateCopyOf) and lights up six states instead of one.
+  if (r.stoppedWarnPresent) fail.push('a STOPPED member got the warning triangle - the condition lights up more than needs_you (keying on stateCopyOf.attn, not cardStOf.st===attn)');
+  if (/\bpj-attn\b/.test(r.stoppedSmallClass)) fail.push('a STOPPED member got the red pj-attn status - the condition is broader than needs_you');
 
   if (fail.length) {
     console.error('FAIL  render-project-needsyou-2699: ' + fail.join('; '));

@@ -11,7 +11,7 @@ On the project view, each member row (`pjMember`, used by paintOneProject and pa
 ## The fix (scoped, presentation only)
 
 In `pjMember`:
-- `const needsYou = (m.present || m.state === 'restarting') && stateCopyOf(m).attn === true;` - `attn` is true only for `needs_you` in STATE_COPY, and only the present branch shows a state word (an unseen member says why instead), so this lights up exactly the needs-you-and-visible case.
+- `const needsYou = m.present === true && cardStOf(m).st === 'attn';` - CARD_ST maps ONLY needs_you to `st:'attn'` (the same mapping the org-node badge #2576/#2577 uses for "only needs-you gets a mark"), so this lights up exactly needs_you. NOT `stateCopyOf(m).attn`: STATE_COPY.attn is true for SIX states (needs_you, rate_limited, auth_failed, blocked, stopped, unknown), so keying on it would paint every paused/stopped/unreadable member as urgent and defeat the card (caught by the first challenge-loop review). Gated on `m.present` because an unseen member says why instead of a state.
 - Put `LROW_WARN` (the same warning triangle the list uses) inside the `.pj-face` span when `needsYou`.
 - Add class `pj-attn` to the status `<small>` when `needsYou`.
 

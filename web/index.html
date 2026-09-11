@@ -33174,12 +33174,16 @@ function pjMember(m, suppressTold, withMinus) {
   /* #2699 (Josh, 2026-09-10): on the project view a needs-you member "just says
      'needs you' in text and doesn't show" - it sits in the same spot as Idle/Working
      and blends in. Josh asked for the little red triangle over the agent's icon and the
-     status text in red, so it calls for attention. `attn` is true only for needs_you
-     (STATE_COPY), so this lights up exactly that state, on the present branch (a member we
-     cannot see says why instead and is not "needs you"). LROW_WARN is the same warning
-     glyph the agents list draws over its avatars; it is display:none inside a .lav until a
-     rule shows it, so the CSS below shows+positions it for .pj-member .pj-face. */
-  const needsYou = (m.present || m.state === 'restarting') && stateCopyOf(m).attn === true;
+     status text in red, so it calls for attention, and it must stand out from THE REST -
+     so this lights up ONLY needs_you, not the other cautions.
+     🛑 cardStOf(m).st === 'attn', NOT stateCopyOf(m).attn: STATE_COPY.attn is true for SIX
+     states (needs_you, rate_limited/Paused, auth_failed, blocked/Waiting, stopped, unknown),
+     so keying on it would paint every paused/unreadable/stopped member as urgent too and
+     defeat the card. CARD_ST maps only needs_you to st:'attn' - the same mapping the org-node
+     badge (#2576/#2577) already uses for "only needs-you gets a mark". Gated on m.present
+     because a member we cannot see says why instead of a state. LROW_WARN is the agents
+     list's warning glyph; it is display:none inside a .lav until the CSS below shows it. */
+  const needsYou = m.present === true && cardStOf(m).st === 'attn';
   const warn = needsYou ? LROW_WARN : '';
   const face = m.hasAvatar
     ? '<span class="lav pj-face" aria-hidden="true"><img src="/api/agent/'
