@@ -72,6 +72,11 @@ const CANDS = [
   await page.route('**/api/found-agents', (r) => r.fulfill({ json: { ok: true, agents: [], adoptable: [], dismissed: false } }));
 
   await page.goto(BASE + '/?tab=agents', { waitUntil: 'networkidle' });
+  /* #2651: discovery is now gated behind an explicit press, so the scan panel (and its
+     #scan-toggle inside the now-hidden #scan-wrap) does not render until the "Look for agents"
+     trigger is pressed. The tab-gated poll paints that trigger on arrival. */
+  await page.waitForSelector('#found-scan-look', { timeout: 10000 });
+  await page.click('#found-scan-look');
   await page.waitForSelector('#scan-toggle', { timeout: 10000 });
 
   /* 🔑 THE FOLD IS SHUT ON ARRIVAL, so this opens it the way a person does -- through
