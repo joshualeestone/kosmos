@@ -6508,7 +6508,10 @@ test('the room routes: the operator flag is minted only here, and the thread fil
     await req('/api/projects', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'Ops room', folder: dir, agents: ['leo', 'mara'] }),
+      // #2707: a description makes this a BRIEFED project, so the brief-pending room note
+      // does not fire and add a 'note' row to the thread this test asserts by kind. The note
+      // itself is covered by the dedicated #2707 tests.
+      body: JSON.stringify({ name: 'Ops room', folder: dir, agents: ['leo', 'mara'], description: 'Run the ops room.' }),
     });
     sends.length = 0;
 

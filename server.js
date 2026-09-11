@@ -9962,6 +9962,20 @@ const server = http.createServer((req, res) => {
         } catch (err) {
           told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach the agents you put on it') }];
         }
+        // #2707: if a project is staffed with agents but has no filled-in brief yet, post
+        // ONE shared "brief pending" note into its room, so the agents coordinate (one asks,
+        // the rest hold) instead of each asking "what is the goal?" and buzzing the operator
+        // once per agent (the Mortals dogfood: 7 agents, 7 identical questions). Gated on
+        // agents because a brief-less project with nobody on it has no one to coordinate; on
+        // briefIsPending because a project the person gave a description to already has a goal
+        // (its #2706 stub Goal was seeded from that description) and needs no such note. Posted
+        // AFTER `told`, best-effort (roomNote swallows its own errors): furniture, exactly like
+        // WELCOME_ROOM_NOTE, and a note we could not post is never a reason to fail the create.
+        try {
+          if (made.agents.length > 0 && projects.briefIsPending(made.folder)) {
+            messages.roomNote(made.id, projects.BRIEF_PENDING_NOTE);
+          }
+        } catch { /* the note is furniture; the project exists regardless */ }
         let project = null;
         try { project = projects.get(made.id, roster); } catch { project = null; }
         sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null });
