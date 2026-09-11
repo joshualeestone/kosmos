@@ -37779,8 +37779,11 @@ function paintThreadInto(box, html, hasRows, keyChanged, filtering) {
      popover floats open while its `.rxn-more` opener is rebuilt with aria-expanded
      reset out from under it. `setLive`'s `__lastLive` skip means an UNCHANGED poll
      does not reach here, so a quiet room leaves an open picker alone (parity with
-     the composer `#pj-emoji` panel, whose anchor never repaints). */
-  if (box.__lastLive !== html) {
+     the composer `#pj-emoji` panel, whose anchor never repaints).
+     The `typeof document` guard keeps `paintThreadInto` headless-safe: it is run
+     with no DOM by web.room-scroll.test.js, and every other line here operates on
+     the passed-in `box`, never a bare `document`. */
+  if (typeof document !== 'undefined' && box.__lastLive !== html) {
     const rxnPk = document.getElementById('rxn-picker');
     if (rxnPk && !rxnPk.hidden) rxnCloseAllPickers();
   }
