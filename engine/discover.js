@@ -182,37 +182,57 @@ function dismiss(dirs) {
 }
 
 /**
- * The folders a found/scan response WOULD SHOW a person -- the offer whose members
- * `dismiss`/`dismissed` reason about (#2704). Named agents already under Kosmos
- * (`already === true`) are never offered, so they are excluded here too; everything
- * else the board or scan draws (`adoptable`, `candidates`, `importable`) is a folder
- * a new agent could arrive in. De-duped so a folder reachable two ways counts once.
+ * The identities a found/scan response WOULD SHOW a person -- the offer whose
+ * members `dismiss`/`dismissed` reason about (#2704). Named agents already under
+ * Kosmos (`already === true`) are never offered, so they are excluded here too.
+ *
+ * 🛑 TWO ROW SHAPES, TWO IDENTITY FIELDS. `agents`, `adoptable` and `candidates`
+ * are FOLDERS -- `folderRow` builds `{dir, ...}`. But `importable` rows are loose
+ * agent FILES -- `looseRow` builds `{file, ...}` with NO `dir`. `importable` is a
+ * dismissed-gated population too (the create import panel's `frImportOffer` hides
+ * on `dismissed`), so a loose file contributes its `file` path as its identity; a
+ * `dir`-only read of importable would silently drop every loose file, leaving the
+ * exact "dismiss hides a whole population forever" trap this card fixes still live
+ * for imports. De-duped so a folder reachable two ways counts once.
  */
 function candidateDirs(out) {
-  const dirs = [];
+  const ids = [];
   if (out && Array.isArray(out.agents)) {
-    for (const a of out.agents) if (a && a.already !== true && typeof a.dir === 'string') dirs.push(a.dir);
+    for (const a of out.agents) if (a && a.already !== true && typeof a.dir === 'string') ids.push(a.dir);
   }
-  for (const key of ['adoptable', 'candidates', 'importable']) {
+  for (const key of ['adoptable', 'candidates']) {
     if (out && Array.isArray(out[key])) {
-      for (const c of out[key]) if (c && typeof c.dir === 'string') dirs.push(c.dir);
+      for (const c of out[key]) if (c && typeof c.dir === 'string') ids.push(c.dir);
     }
   }
-  return [...new Set(dirs)];
+  if (out && Array.isArray(out.importable)) {
+    for (const c of out.importable) if (c && typeof c.file === 'string') ids.push(c.file);
+  }
+  return [...new Set(ids)];
 }
 
 /**
- * The union of every folder currently on offer, across `found()` and `scan()` --
+ * The union of everything currently on offer, across `found()` and `scan()` --
  * what `dismiss` records so a person who dismisses one block dismisses both (the
  * two are one "agents on your computer" offer, server.js:6371). Each walk is
  * wrapped: recording a snapshot must never throw, so a look that fails contributes
  * nothing rather than aborting the dismiss.
+ *
+ * ⚠️ DELIBERATELY the TCC-FREE `scan()`, NOT `scan({importScan:true})`. A dismiss
+ * is a button click and must never trigger the macOS permission prompt that
+ * reaching ~/Documents, ~/Downloads and ~/Desktop would. The consequence is a
+ * documented bound: loose importable FILES that live only under those TCC roots
+ * are not in the snapshot, so the create import panel (which the person invokes
+ * deliberately, and only there is the TCC scan run) is not suppressed by a board
+ * dismiss. That is the right call -- asking to import is a fresh explicit action,
+ * not the auto board block "Dismiss forever" governs. Importable files under the
+ * TCC-free roots ARE captured, via `candidateDirs`.
  */
 function currentDismissSnapshot() {
-  const dirs = [];
-  try { dirs.push(...candidateDirs(found())); } catch { /* a failed look adds nothing */ }
-  try { dirs.push(...candidateDirs(scan())); } catch { /* a failed look adds nothing */ }
-  return [...new Set(dirs)];
+  const ids = [];
+  try { ids.push(...candidateDirs(found())); } catch { /* a failed look adds nothing */ }
+  try { ids.push(...candidateDirs(scan())); } catch { /* a failed look adds nothing */ }
+  return [...new Set(ids)];
 }
 
 /**

@@ -81,8 +81,8 @@ test('dismissed() defends against a non-array snapshot and non-array current dir
   assert.equal(discover.dismissed('nope'), true);
 });
 
-test('candidateDirs draws every folder a response would SHOW, and excludes already-in agents', () => {
-  const dirs = discover.candidateDirs({
+test('candidateDirs draws every identity a response would SHOW, and excludes already-in agents', () => {
+  const ids = discover.candidateDirs({
     agents: [
       { dir: '/a', already: true },   // already under Kosmos -> never offered
       { dir: '/b' },                  // a found agent not yet added -> offered
@@ -90,13 +90,29 @@ test('candidateDirs draws every folder a response would SHOW, and excludes alrea
       { name: 'no dir' },             // malformed row -> skipped
     ],
     adoptable: [{ dir: '/c' }],
-    candidates: [{ dir: '/d' }, { dir: '/dup' }],  // dup collapses
-    importable: [{ dir: '/e' }],
+    candidates: [{ dir: '/d' }, { dir: '/dup' }],           // dup collapses
+    // Real importable rows are looseRow's {file,...} with NO dir (discover.js
+    // looseRow), so their identity is the FILE path -- a {dir:...} fixture here
+    // would certify coverage the production shape does not have (#2704 review).
+    importable: [{ file: '/loose/x.md' }, { dir: '/ignored' }],
   });
-  assert.deepEqual(dirs.sort(), ['/b', '/c', '/d', '/dup', '/e']);
+  assert.deepEqual(ids.sort(), ['/b', '/c', '/d', '/dup', '/loose/x.md']);
   // A shape with nothing offerable is an empty array, never a throw.
   assert.deepEqual(discover.candidateDirs({}), []);
   assert.deepEqual(discover.candidateDirs(null), []);
+});
+
+test('a dismissed loose importable file re-shows only when a NEW loose file appears', () => {
+  clearFlag();
+  // The import-panel population is dismissed-gated too; a loose file is identified
+  // by its file path, so the Liu Kang re-show must hold for imports as well.
+  discover.dismiss(['/loose/one.md', '/loose/two.md']);
+  assert.equal(discover.dismissed(discover.candidateDirs({ importable: [{ file: '/loose/one.md' }] })), true);
+  assert.equal(
+    discover.dismissed(discover.candidateDirs({ importable: [{ file: '/loose/one.md' }, { file: '/loose/NEW.md' }] })),
+    false,
+    'a new loose importable file must re-show the import offer',
+  );
 });
 
 test('dismiss(currentDismissSnapshot()) round-trips: what was on offer stays hidden', () => {
