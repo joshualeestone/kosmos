@@ -8372,6 +8372,19 @@ const server = http.createServer((req, res) => {
           agent: who,
           account,
           model,
+          /* #2811: WHICH RUNNER this agent is actually running, read from the live
+             process and never guessed. `kosmos whoami` reported a Codex agent as
+             Claude because the live reader matched only a `claude` executable and
+             refused for every codex one; with that fixed the fact is available, so
+             the answer carries it.
+
+             🛑 `null` WHEN THE LIVE READ DID NOT SUCCEED, deliberately. The record
+             side has a `runner` too, but it comes from an `@kosmos_runner` session
+             marker that SURVIVES A CRASH back to a shell (engine/status.js:680
+             documents exactly this), so falling back to it would let whoami name a
+             provider for an agent that is no longer running. A live-process
+             question gets a live-process answer or none. */
+          runner: (live && live.ok === true && live.runner) || null,
           /* WHICH reader answered. An operator comparing two agents should be
              able to see that one was read from its running process and the
              other from a file. */

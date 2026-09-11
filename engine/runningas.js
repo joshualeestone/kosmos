@@ -60,7 +60,7 @@
  *
  * 🔑 AND IT SKIPS TRAP 1 ENTIRELY. There is no pid tree to walk here: the pid in
  * `claude agents --json` IS the Claude process, not a shell whose grandchild is
- * Claude. `claudeUnder` is darwin's answer to a tmux pane's first child being the
+ * Claude. `agentUnder` is darwin's answer to a tmux pane's first child being the
  * bun plugin, and it has no win32 counterpart because the problem does not exist.
  *
  * 🛑 THE ACCOUNT IS NOT KNOWABLE LIVE ON WINDOWS, AND THIS ARM SAYS SO RATHER
@@ -158,7 +158,7 @@ function defaultEnvOf(pid, deadline) {
  * process whose parent has already exited and been recycled, and a naive walk on
  * that loops forever.
  */
-function claudeUnder(panePid, procs) {
+function agentUnder(panePid, procs) {
   const kids = new Map();
   for (const [pid, { ppid }] of procs) {
     if (!kids.has(ppid)) kids.set(ppid, []);
@@ -176,7 +176,23 @@ function claudeUnder(panePid, procs) {
       /* Matched on the executable PATH ending in /claude, not on the string
          "claude" appearing anywhere: a pane running `grep claude` is not an
          agent, and neither is this module's own command line. */
-      if (first.endsWith('/claude') || first === 'claude') return pid;
+      if (first.endsWith('/claude') || first === 'claude') return { pid, runner: 'claude' };
+      /* #2811: AND CODEX, by the same rule. A Kosmos OpenAI agent runs the codex
+         binary, so a Claude-only match made this reader refuse for every one of
+         them: `kosmos whoami` answered "nothing that looks like Claude Code is
+         running under <name>" about an agent that was plainly running, and could
+         not name its .codex account. Measured before the fix by driving this
+         function with a codex process table against a claude control.
+
+         🛑 NOT `status.isCodexCommand`, AND THE REASON MATTERS. That helper is
+         `c === 'codex' || c === 'codex.exe'`, which is right for a tmux PANE
+         command (a bare name) and returns FALSE for a process PATH like
+         `/opt/homebrew/bin/codex`, which is what `ps` gives this function.
+         Reusing it here would have compiled, read as correct, and never matched:
+         an inert fix. Measured both shapes before deciding. `.exe` is carried so
+         the posix and win32 arms recognise the same two names. */
+      if (first.endsWith('/codex') || first === 'codex'
+          || first.endsWith('/codex.exe') || first === 'codex.exe') return { pid, runner: 'codex' };
     }
     for (const k of kids.get(pid) || []) queue.push(k);
   }
@@ -376,20 +392,36 @@ function runningAsDarwin(session, deps = {}) {
   if (panePid == null) {
     return { ok: false, because: `no pane called ${session} on this computer` };
   }
-  const pid = claudeUnder(panePid, procs);
-  if (pid == null) {
+  const found = agentUnder(panePid, procs);
+  if (found == null) {
     /* ⚠️ NOT "it has no account". The pane exists and nothing is running in it we
-       recognise, which is a different fact from an unreadable account. */
-    return { ok: false, because: `nothing that looks like Claude Code is running under ${session}` };
+       recognise, which is a different fact from an unreadable account.
+       #2811: says "Claude Code or Codex" now, because saying only Claude about a
+       running codex agent was the lie this card was filed for. */
+    return { ok: false, because: `nothing that looks like Claude Code or Codex is running under ${session}` };
   }
+  const { pid, runner } = found;
 
   const cmd = String((procs.get(pid) || {}).command || '');
   const modelMatch = cmd.match(/--model[= ](\S+)/);
   const env = String(envOf(pid) || '');
-  const dirMatch = env.match(/CLAUDE_CONFIG_DIR=(\S+)/);
-  const configDir = dirMatch ? dirMatch[1] : path.join(HOME(), '.claude');
+  /* #2811: read the env var this RUNNER actually uses. A codex agent is
+     configured by CODEX_HOME and has no CLAUDE_CONFIG_DIR, so the Claude-only
+     read below used to fall through to the synthesised `~/.claude` and report a
+     codex agent as living in a Claude directory: the "cannot identify
+     .codex-work2" half of this card. */
+  const codex = runner === 'codex';
+  const dirMatch = env.match(codex ? /CODEX_HOME=(\S+)/ : /CLAUDE_CONFIG_DIR=(\S+)/);
+  const configDir = dirMatch ? dirMatch[1] : path.join(HOME(), codex ? '.codex' : '.claude');
 
-  const id = identityOf(configDir);
+  /* 🛑 `identityOf` RESOLVES A CLAUDE ACCOUNT, so it is not asked about a codex
+     one. Answering `account: null` with a reason is the honest shape here, and it
+     is deliberately NOT a second codex-account derivation: kosmos#2790 is
+     reshaping codex account resolution in engine/openaiaccounts.js right now, and
+     two readers of "which account is this agent on" would disagree the first time
+     either moved. The provider and the config dir are what this card needs, and
+     they are what this now answers. */
+  const id = codex ? null : identityOf(configDir);
   return {
     ok: true,
     /* null rather than a guess. An agent that says "I do not know" is behaving
@@ -399,7 +431,10 @@ function runningAsDarwin(session, deps = {}) {
     organization: (id && id.organization) || null,
     model: modelMatch ? modelMatch[1] : null,
     configDir,
-    because: null,
+    runner,
+    because: codex
+      ? 'this is a Codex agent; which OpenAI account it is signed in as is not read here (kosmos#2790 owns that lookup)'
+      : null,
   };
 }
 
@@ -433,4 +468,4 @@ function everyone(deps = {}) {
    sentinel rule (an unmade look is not an empty answer) would be asserted
    nowhere. Without these the guards cannot go red, and a test that cannot go red
    is decoration. */
-module.exports = { runningAs, everyone, claudeUnder, _sh: sh, _parseCmdlines: parseCmdlines };
+module.exports = { runningAs, everyone, agentUnder, _sh: sh, _parseCmdlines: parseCmdlines };
