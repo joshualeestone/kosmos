@@ -36917,7 +36917,8 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') rxnCloseAl
    never floats detached from the smiley. A scroll INSIDE the picker's own emoji grid
    (it is overflow-y:auto and taller than its max-height) must NOT close it, or the
    lower rows of the list become unreachable. Gate on an actually-open picker first so
-   ordinary thread scrolling with nothing open does no work. */
+   ordinary thread scrolling with nothing open does only one scoped query, not a full
+   close. */
 document.addEventListener('scroll', (e) => {
   const tgt = e.target;
   if (tgt && tgt.nodeType === 1 && tgt.closest && tgt.closest('.rxn-picker')) return;
