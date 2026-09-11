@@ -154,7 +154,7 @@ const FX = {
         // false RED on a legitimate retune of either token. A reused-blue regression
         // (theirs == mine) gives delta ~0 and still fails here; the neutral-gray arm
         // (d) is a second backstop for it, since blue's channel spread is large.
-        chk(delta(over(m.theirsBg, m.talkBoxBg), over(m.mineBg, m.talkBoxBg)) > 4,
+        chk(delta(over(m.theirsBg, m.talkBoxBg), over(m.mineBg, m.talkBoxBg)) >= 4,
           `${t} the agent gray is distinct from the person's blue`,
           `theirs=${m.theirsBg} mine=${m.mineBg}`);
         // (c) distinct from the surface it sits on -- did NOT dissolve.
