@@ -20,10 +20,13 @@ step hit on a loaded box) follows in later PRs against real, measured numbers.
 - `cut_record_done()` (runs on exit) emits the final step's wall-time and the whole-cut total.
 - Helpers `_step_now()` (epoch seconds, or empty on failure) and `_step_emit_duration()`.
 
-Additive only: no gate, no behavior change, no change to the persisted `cut-suite-runs.log` schema (the
-new wall-time lines go to stdout only). The `step "== N ..."` call sites are untouched; the step-7a
-save/restore is extended to carry `_STEP_START` alongside `_STEP` (`_step_start_before_7a`), or the
-duration after 7a would be attributed to step 7 while timing 7a.
+Additive only: no gate, no change to the persisted `cut-suite-runs.log` schema (the new wall-time lines
+go to stdout only). The `step "== N ..."` call sites are untouched. Two small existing-behaviour edits
+are part of making the timing fail-safe and clean: `step()`'s header `echo "$1"` gains `|| true` (a
+broken stdout must not abort the step before its machine-claim renewal -- the same gap the timing
+echoes guard); and the step-7a region saves `_STEP_START` alongside `_STEP`, CLEARS it before the 7a
+sub-step's `step` call (so 7a emits no spurious partial "step 7" line), and restores it after, so step
+7 reports one full wall-time line with 7a's time folded in, not a confusing partial-then-full pair.
 
 ## Fail-safe contract (load-bearing)
 

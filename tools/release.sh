@@ -105,7 +105,7 @@ _step_emit_duration() {
 step() {
   _step_emit_duration "$_STEP" || true  # the step that was running has just ended (|| true: a broken stdout must not abort the renewal below)
   _STEP="$1"; _STEP_START=$(_step_now) || true
-  echo "$1"
+  echo "$1" || true                     # || true so a broken stdout cannot abort before the machine-claim renewal (the same gap the timing echoes guard)
   command -v kosmos_claim_machine >/dev/null 2>&1 && kosmos_claim_machine >/dev/null 2>&1 || true
 }
 cut_record_done() {
@@ -975,7 +975,12 @@ if kosmos_versions_entry_pending_ok "$V" "$KOSMOS_ENTRY_FILE"; then
   # that justified #1463, and the same bucket #1455's effect would be read from. A fix
   # that corrupts the measurement of the thing it fixes is worse than no fix.
   _step_before_7a="$_STEP"
-  _step_start_before_7a="$_STEP_START"   # save the timing anchor too (restored below), or the post-7a duration is mislabeled as step 7 while timing 7a
+  _step_start_before_7a="$_STEP_START"   # save the timing anchor (restored below)
+  # 7a is a SUB-step of step 7, so its time folds into step 7's single wall-time line. Clear
+  # the anchor here so the 7a `step` call below emits NO partial "step 7" duration; restoring
+  # it below then makes the post-7a `step` emit step 7's ONE full duration (start..next step),
+  # rather than the confusing partial-then-full double-line an un-cleared anchor would produce.
+  _STEP_START=""
   step "== 7a. stamp the pending release entry with the minute it goes out (#1455) =="
   # 🛑 THE TOOL COMES FROM THE FROZEN TREE, THE ENTRY FILE FROM THE MAIN CHECKOUT, AND
   # THAT SPLIT IS DELIBERATE. $REPO is $BUILD by now, so this runs the tool as it exists
