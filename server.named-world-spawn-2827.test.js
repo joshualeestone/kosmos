@@ -92,6 +92,16 @@ test('POST /api/agent/:name/restore in a named world is refused (409) before the
   assert.match(String(body.error || ''), NAMED_MSG);
 });
 
+test('POST /api/register in a named world is refused (409) before jobs are installed', async () => {
+  // register.repair installs the missing launch job for every jobless agent and
+  // starts it (create.installJob). The guard runs before that.
+  stubBooted('mars');
+  const res = await post('/api/register', {});
+  assert.equal(res.status, 409);
+  const body = await res.json();
+  assert.match(String(body.error || ''), NAMED_MSG);
+});
+
 test('CONTROL: the DEFAULT world (bootedWorld = DEFAULT_ID) is allowed past the guard', async () => {
   stubBooted(worlds.DEFAULT_ID);
   const res = await post('/api/agents', { name: 'defaultworldagent' });

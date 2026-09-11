@@ -9266,6 +9266,11 @@ const server = http.createServer((req, res) => {
      the set the GET above reports, so the two can never describe different
      work. A body would let a caller name an agent the survey refused. */
   if (pathname === '/api/register' && req.method === 'POST') {
+    // #2827: register.repair installs the missing launch job for every jobless agent
+    // and STARTS it (create.installJob) -- a spawn. In a named world those agents'
+    // board tokens would be refused, so refuse the repair there too.
+    const nwreg = namedWorldSpawnRefusal();
+    if (nwreg) { sendJson(res, nwreg.code, { error: nwreg.error }); return; }
     try {
       /* The model each one LAST RAN AS, which is the only surviving record of
          it: the model an agent was SET to run on lived in the job that does not
