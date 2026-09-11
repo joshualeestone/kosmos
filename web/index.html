@@ -37170,6 +37170,21 @@ function pjFoldRoomRows(rows) {
   }
   return out;
 }
+/* #2770: the room draws a message SENDER's face, and the sender's avatar
+   version does not travel on the project member row -- p.agents (from
+   projects.describe) carries hasAvatar but not avatarVer. Read it from LAST,
+   the board snapshot, which IS the source the org chart versions its own
+   avatars from (#2698). The avatar route is no-store, so a URL that changes
+   is all that is needed: without ?v= the markup is byte-identical after a
+   picture change, setLive's identical-HTML skip keeps the old <img>, and the
+   room shows the stale face. A sender not currently on the board has no card
+   here and falls back to 0 -- that row stays as stale as it is today (there
+   is no newer version in hand to show), which is the status quo, not a
+   regression. */
+function pjAvatarVer(from) {
+  const c = (LAST || []).find((a) => a && a.sessionName === from);
+  return (c && c.avatarVer) || 0;
+}
 function pjRoomRow(m, p, silent) {
   /* A refusal the room can see (#315): Scarlett tried to answer, was stopped,
      and the only record was inside her own window, so from the outside she
@@ -37232,7 +37247,7 @@ function pjRoomRow(m, p, silent) {
       ? '<div class="msg-av" aria-hidden="true"><img src="' + youPicUrl() + '" alt=""></div>'
       : '<div class="msg-av mine" aria-hidden="true"></div>')
     : (card && card.hasAvatar
-      ? '<div class="msg-av" aria-hidden="true"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar" alt=""></div>'
+      ? '<div class="msg-av" aria-hidden="true"><img src="/api/agent/' + encodeURIComponent(m.from) + '/avatar?v=' + pjAvatarVer(m.from) + '" alt=""></div>'
       : '<div class="msg-av" aria-hidden="true" style="background:' + discTint(m.from) + ';color:' + discInk(m.from) + '">' + esc(initials(m.from)) + '</div>');
   const states = Object.values(m.outcomes || {});
   /* The receipt renders under the person's posts always, and under an
