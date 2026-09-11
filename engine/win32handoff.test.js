@@ -29,7 +29,7 @@ const RELEASE_FLOOR = 2000;
    the task is ended and run, and a record of every task op in order.
    occupant: null = nothing on the port; '' = a board with no build header;
    any other string = the build that board names. */
-function world({ occupant = null, taskRunning = false, starts = MINE, runOk = true, endFrees = true, releaseAfter = 0 } = {}) {
+function world({ occupant = null, taskRunning = false, starts = MINE, runOk = true, endFrees = true, releaseAfter = 0, probeCost = 0 } = {}) {
   const w = { t: 0, occupant, taskRunning, ops: [], probes: 0 };
   w.board = {
     status: () => ({ registered: true, enabled: true, running: w.taskRunning }),
@@ -50,6 +50,7 @@ function world({ occupant = null, taskRunning = false, starts = MINE, runOk = tr
   };
   w.probe = async () => {
     w.probes++;
+    w.t += probeCost; // a probe that takes time, as one to a hung board does
     if (w.releasing !== undefined && w.t >= w.releasing) { w.occupant = null; delete w.releasing; }
     if (w.pending && w.t >= w.pending.at) { w.occupant = w.pending.build; w.pending = null; }
     return w.occupant === null ? { answering: false, build: null } : { answering: true, build: w.occupant || null };
@@ -214,18 +215,36 @@ test('🛑 a board slow to let go of the port is waited for even when the budget
      later, as a real one does. Waiting only what is left of the budget (nothing)
      would call it stuck, or serve here straight into EADDRINUSE. */
   const w = world({ occupant: OLDER, taskRunning: true, releaseAfter: 1800 });
-  const r = await handOffToTask(w.opts({ startedAt: -BUDGET }));
+  const r = await handOffToTask(w.opts({ startedAt: -(BUDGET - 100) }));
   assert.equal(r.serve, true, 'no budget left to run the task, so serve here');
   assert.doesNotMatch(r.because, /did not stop/, 'the release floor was not honoured');
-  assert.ok(w.t >= 1800 && w.t <= RELEASE_FLOOR + 300, 'it waited ' + w.t + 'ms; the port freed at 1800ms and the floor is ' + RELEASE_FLOOR);
+  assert.match(r.because, /no time left to start/, 'the sentence must say what happened: nothing was started');
+  assert.ok(w.t >= 1900 && w.t <= 100 + RELEASE_FLOOR + 300, 'it waited ' + w.t + 'ms; the port freed 1800ms after the end at 100ms');
 });
 
 test('the release floor is also a ceiling: a board that holds the port past it is reported, not waited on forever', async () => {
   const w = world({ occupant: OLDER, taskRunning: true, releaseAfter: 5000 });
-  const r = await handOffToTask(w.opts({ startedAt: -BUDGET }));
+  const r = await handOffToTask(w.opts({ startedAt: -(BUDGET - 100) }));
   assert.equal(r.serve, true);
   assert.match(r.because, /did not stop/);
-  assert.ok(w.t <= RELEASE_FLOOR + 300, 'waited ' + w.t + 'ms past a spent budget');
+  assert.ok(w.t <= 100 + RELEASE_FLOOR + 300, 'waited ' + w.t + 'ms past a spent budget');
+});
+
+test('with the budget already spent, a working older board is KEPT, never ended for a window', async () => {
+  const w = world({ occupant: OLDER, taskRunning: true });
+  const r = await handOffToTask(w.opts({ startedAt: -BUDGET }));
+  assert.equal(r.serve, true);
+  assert.match(r.because, /no time left to replace/);
+  assert.deepEqual(w.taskOps(), [], 'nothing to replace it with, so it stays');
+});
+
+test('🛑 slow probes (a board that accepts and hangs) keep the no-board path inside the stated 18s worst case', async () => {
+  /* Every probe costs the full PROBE_TIMEOUT_MS. The module's header promises
+     12s budget + 2s last probe + 2s release floor + 2s its last probe. */
+  const w = world({ starts: null, probeCost: 2000 });
+  const r = await handOffToTask(w.opts());
+  assert.equal(r.serve, true);
+  assert.ok(w.t <= 18000, 'the fallback began ' + w.t + 'ms after process start; the promise is 18000');
 });
 
 test('a /Run that fails: serve here with its reason', async () => {

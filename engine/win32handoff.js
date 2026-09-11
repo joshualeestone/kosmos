@@ -35,10 +35,11 @@ const path = require('node:path');
  * give up and serve in the window -- a board must be answering before then.
  * ⚠️ THE BUDGET IS NOT THE WORST CASE, and the difference is spelled out so it is
  * not rediscovered: a probe already in flight at the deadline can take
- * PROBE_TIMEOUT_MS, and the fallback's port-release wait has a floor of
- * MIN_PORT_RELEASE_WAIT_MS (below) that the budget does not cut. Worst case from
- * process start: 12 + 2 (a last probe) + 2 (the release floor) + 2 (its last
- * probe) = 18s, inside the opener's 20s. Measured on the box: boot to the hand-off
+ * PROBE_TIMEOUT_MS (no wait starts one past its own end), and the fallback's
+ * port-release wait has a floor of MIN_PORT_RELEASE_WAIT_MS (below) that the
+ * budget does not cut. Worst case from process start: 12 + 2 (a last probe) + 2
+ * (the release floor) + 2 (its last probe) = 18s, plus the `/End` spawn, inside
+ * the opener's 20s. Measured on the box: boot to the hand-off
  * about 2s, `/Run` to a listening board 1.2s, a whole update 8.9s from the
  * double-click -- so 12s still covers the update, grace included.
  */
@@ -50,8 +51,10 @@ const HANDOFF_BUDGET_MS = 12000;
    durable one, so it keeps working on the new board -- but only if the old board
    is still up to redeem it. NOT MEASURED: an allowance for a browser that is
    already running (the box's Edge took the url in well under a second by eye). A
-   browser that loses the race loads the page without its cookie, and a relaunch
-   of Kosmos signs it in. */
+   browser that loses the race either finds no board for a second or two (after
+   `/End`, before the new board listens) or reaches the new board with a nonce it
+   never minted -- nonces live in the minting board's memory. Either way the page
+   is not signed in, and a relaunch of Kosmos signs it in. */
 const OLD_BOARD_GRACE_MS = 3000;
 
 /* Whatever the budget says, an ended board gets this long to let go of the port
@@ -185,13 +188,17 @@ async function handOffToTask(opts) {
     const deadline = startedAt + HANDOFF_BUDGET_MS;
     const left = () => Math.max(0, deadline - now());
     const isMine = (p) => p.answering && Boolean(mine) && p.build === mine;
+    /* Never STARTS a probe past `until`, so one wait overshoots by at most the
+       probe already in flight (PROBE_TIMEOUT_MS) -- the figure the worst case in
+       HANDOFF_BUDGET_MS is built from. */
     async function waitUntil(test, ms) {
       const until = now() + ms;
       for (;;) {
         const p = await probe(port);
         if (test(p)) return p;
-        if (now() >= until) return null;
-        await sleep(POLL_INTERVAL_MS);
+        const rest = until - now();
+        if (rest <= 0) return null;
+        await sleep(Math.min(POLL_INTERVAL_MS, rest));
       }
     }
     const gone = (p) => !p.answering;
@@ -201,6 +208,7 @@ async function handOffToTask(opts) {
 
     let ran = false;
     for (let round = 0; round < MAX_ROUNDS; round++) {
+      if (round > 0 && left() <= 0) break;
       const p = await probe(port);
       if (isMine(p)) return ran ? handedOff : { serve: false, exitCode: 0, say: 'Kosmos is already running. Your browser is opening it.' };
       if (p.answering) {
@@ -208,6 +216,9 @@ async function handOffToTask(opts) {
            anything else on the port (a board in another window, or not a board at
            all) is somebody else's, and serving here reproduces today's message. */
         if (!board.status().running) return serveHere('something the logon task did not start is already using port ' + port);
+        /* With no time left to start its replacement, a working older board is
+           worth more than a window: keep it, and let this launch report the port. */
+        if (left() <= 0) return serveHere('there was no time left to replace the older Kosmos that is running');
         await sleep(Math.min(OLD_BOARD_GRACE_MS, left()));
         const ended = board.end();
         if (!ended.ok) return serveHere(ended.because);
@@ -227,10 +238,9 @@ async function handOffToTask(opts) {
     }
     /* Not confirmed. End the task so a late start cannot take the port from the
        board about to serve here, then let it go. */
-    if (ran) {
-      board.end();
-      await waitUntil(gone, Math.max(left(), MIN_PORT_RELEASE_WAIT_MS));
-    }
+    if (!ran) return serveHere('there was no time left to start the background board');
+    board.end();
+    await waitUntil(gone, Math.max(left(), MIN_PORT_RELEASE_WAIT_MS));
     return serveHere('the background board did not answer in time');
   } catch (err) {
     return { serve: true, attempted: true, because: 'the hand-off failed (' + String((err && err.message) || err) + ')' };

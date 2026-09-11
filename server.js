@@ -28,6 +28,14 @@ const path = require('node:path');
    a no-op for the default world (every install today). MUST stay ahead of the first
    `require('./engine/...')` -- server.worldenv-order.test.js guards that. Returns the
    pre-override registry base the /api/worlds routes use (null on a broken env). */
+/* #570: the LAUNCH's own port and data-root choices, copied BEFORE the bootstrap
+   below writes the active world's roots into process.env. The Windows hand-off
+   (engine/win32handoff.js) keeps a launch that chose its own port or data folder
+   in its window, because the logon task would not use them -- and it must not
+   mistake a named world for such a choice: the task boots the same world from the
+   same registry. */
+const LAUNCH_ENV_OVERRIDES = Object.fromEntries(Object.entries(process.env)
+  .filter(([key]) => key === 'PORT' || key.startsWith('AGENT_WORKFORCE_')));
 const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process.env);
 // `STATE` travels with them: the thread route compares a member's state, and a
 // literal there is a comparison that silently stops matching the day the engine
@@ -11931,10 +11939,19 @@ if (require.main === module) {
      board. Every case it cannot confirm resolves to serving here, as before. See
      engine/win32handoff.js. */
   const beforeServing = process.platform === 'win32'
-    ? require('./engine/win32handoff').handOffToTask({ ensured: win32BoardEnsured, port: PORT, build: BOARD_BUILD })
+    ? require('./engine/win32handoff').handOffToTask({ ensured: win32BoardEnsured, port: PORT, build: BOARD_BUILD, env: LAUNCH_ENV_OVERRIDES })
     : Promise.resolve({ serve: true, attempted: false });
   beforeServing.catch((err) => ({ serve: true, attempted: true, because: `the hand-off failed (${String(err && err.message)})` })).then((handOff) => {
     if (!handOff.serve) {
+      /* #2528: this boot recorded an attempt on its world (worldenv's bootstrap)
+         and leaves without reaching `listening`, the only other place that clears
+         it. Left alone, a named world would count every hand-off as a failed boot
+         and be abandoned for the default world. The board that serves it is the
+         task's, which records and clears its own attempts. */
+      try {
+        const worldenv = require('./engine/worldenv');
+        require('./engine/worldbootguard').clear(worldenv.bootedBaseDir(), worldenv.bootedWorld());
+      } catch (_) { /* fail-open, as at the bind */ }
       /* A Windows console write is asynchronous, so exit from its callback. The
          launcher's own console closes on exit 0, so this line is read by whoever
          started Kosmos from a terminal they keep. */
