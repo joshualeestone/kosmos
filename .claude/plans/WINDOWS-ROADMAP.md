@@ -897,7 +897,16 @@ Honest gaps in this document:
   agent's supervisor, its `kosmos` CLI and its report hook resolve `store.ROOT`
   for the DEFAULT world, and read that world's `board.token`. On a board serving a
   named world they present the wrong token and are refused. That is what the
-  code says; it has not been measured yet. The gap is shared with the Mac clients
+  code says; it has not been measured yet.
+
+  ⚠️ IT IS NOT ONE TOKEN. The per-run SENDER token (`engine/sendertoken.js`, whose
+  store freezes `store.ROOT/sendertokens` at require) is minted by the supervisor
+  into the DEFAULT world's store. A named-world board resolves it from the world's
+  own store and finds nothing. The same applies to the Windows session and state
+  records (`win32sessions.js`, `win32streamstate.js`), which the roster and capture
+  read. So fixing `board.token` alone would not close the gap. The agent side
+  needs the world's data root (worlds.envOverridesFor) before its first
+  store-using require. The gap is shared with the Mac clients
   and `install/kosmos`, so it is not specific to Windows. ⚠️ It is REACHABLE from
   the normal v1 install:
   - the board shows the world switcher and "New Kosmos" on every platform
