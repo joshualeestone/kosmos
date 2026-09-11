@@ -189,7 +189,7 @@ function chk(ok, label, extra) {
       'Part 2: the header card says "[name] needs to be restarted"', handEdited.staleHtml);
     chk(handEdited.btnText === 'Restart', 'Part 2: the button says "Restart", never "Restart it"', JSON.stringify(handEdited.btnText));
     chk(handEdited.btnAgent === 'beatrix-discord', 'Part 2: the button carries the restart target', handEdited.btnAgent);
-    chk(/say ‘hello’ to Beatrix to wake them/.test(handEdited.noteText || ''), 'Part 2: the short idle line names the agent with "them"', handEdited.noteText);
+    chk(/Restarting re-reads the changes and wakes Beatrix/.test(handEdited.noteText || ''), 'Part 2: the restart note names the agent it will wake (autohello #2686 auto-sends the hello, so the old "say hello to wake them" line is gone)', handEdited.noteText);
     chk(!/\bit\b/i.test(handEdited.staleHtml.replace(/<[^>]*>/g, '')), 'Part 2: no "it" for the agent anywhere in the header card', handEdited.staleHtml);
     chk(handEdited.reportsHidden === true, 'Part 2: the reports section is hidden for the hand-edited case', String(handEdited.reportsHidden));
     chk(handEdited.dot === true, 'Part 2: the Instructions tab dot is lit for the header restart card', String(handEdited.dot));
