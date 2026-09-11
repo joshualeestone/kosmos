@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: win32cfg-2717
-diff_hash: f36790dd4a32ec2d8671cf24133b07f5ba0d80e255adeba7bbb6ae4bfba9efc9
+diff_hash: c546b2fe93726686c1b8f9b6b60051f14c09defcc2a052e00043a3672fc58e94
 timestamp: 2026-09-11T01:37:31Z
 iterations: 2
 converged: true
@@ -85,3 +85,27 @@ No issues found.
 ### Final Ledger
 
 2 iterations, converged. 1 WARNING, 2 NIT, 2 STRENGTH. All addressed. The WARNING is the one worth keeping: an author's own honest-sounding disclosure ("defence in depth") concealed that one of the two defences was unreachable, and only a mutation aimed at it revealed the difference. Suite at convergence: exit 0, 5895 tests, 5895 pass, 0 fail, 0 skipped, zero FAIL lines.
+
+### Hash re-pin, 2026-09-10 21:0x CDT
+
+`diff_hash` was re-pinned from `f36790dd...` to `c546b2fe...` after adding
+`.claude/plans/win32cfg-2717-20260910T2100.md` (the plan file the PR gate requires,
+which I had not written because the design was recorded on the card and in this proof
+instead).
+
+**No reviewed code changed.** Stated as a measurement rather than an assurance:
+
+```
+git diff 0580c729 HEAD --stat
+ .claude/plans/win32cfg-2717-20260910T2100.md | 123 +++++++++++++++++++++++++++
+ 1 file changed, 123 insertions(+)
+
+git diff 0580c729 HEAD -- engine/win32job.js engine/win32job.test.js | wc -l
+ 0
+```
+
+The reviewed sha is `0580c729`. The hash covers everything except this proof file, so
+adding any document re-pins it; that is the gate working as designed, and the two
+commands above are what separates "a doc was added" from "the code was edited after
+review". Do not read a re-pinned hash as a re-review: re-run the loop if any line of
+the first command names a code file.
