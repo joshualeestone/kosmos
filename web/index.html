@@ -25713,9 +25713,16 @@ async function paintFoundBoard() {
     /* #2651 (review): bound the fetch so a hung backend cannot strand the caller. On
        the poll a stalled fetch was harmless, but the "Look for agents" click disables
        its button and only re-enables it in a finally after this await, so an unbounded
-       hang would leave that one control stuck disabled until a reload. AbortSignal.timeout
-       matches the pattern the other interactive fetches in this file use. */
-    const res = await fetch('/api/found-agents', { cache: 'no-store', signal: AbortSignal.timeout(8000) });
+       hang would leave that one control stuck disabled until a reload.
+       🛑 FEATURE-GUARDED, matching this file's first-run fetch (search AbortSignal.timeout):
+       AbortSignal.timeout is absent on Safari before 16, where calling it throws
+       SYNCHRONOUSLY -- straight into the catch below, so the paint would return before
+       fetching and the whole discovery feature would be silently dead on that browser. */
+    const res = await fetch('/api/found-agents', Object.assign(
+      { cache: 'no-store' },
+      typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+        ? { signal: AbortSignal.timeout(8000) } : {},
+    ));
     /* A look that failed leaves the panel exactly as it was rather than saying
        there is nothing to add. This whole feature exists because a silence was
        read as an all-clear. */
@@ -25857,8 +25864,13 @@ async function paintScanBoard() {
   let body = null;
   try {
     /* #2651 (review): bound the fetch (see the found-agents twin) so a hung backend cannot
-       leave the "Look for agents" button stuck disabled. */
-    const res = await fetch('/api/scan-agents', { cache: 'no-store', signal: AbortSignal.timeout(8000) });
+       leave the "Look for agents" button stuck disabled. Same Safari-<16 feature guard:
+       a bare AbortSignal.timeout throws synchronously there and would kill discovery. */
+    const res = await fetch('/api/scan-agents', Object.assign(
+      { cache: 'no-store' },
+      typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+        ? { signal: AbortSignal.timeout(8000) } : {},
+    ));
     /* A scan that failed leaves the panel exactly as it was rather than claiming
        there is nothing to add -- the same rule the found panel keeps. */
     if (!res.ok) return;
