@@ -15,12 +15,12 @@ else is required to continue.**
 board AND the fleet came back at a real logon, headless** (§2). R3 checked delivery,
 not the agent's answer reaching the board; that gap was BLOCKER 5 (§3c). BLOCKER 2 is off
 the v1 path: Josh approved 2026-09-10 that the first Windows release updates by
-hand, with a real updater as a fast-follow. What is left for v1: the launcher
-hand-off, `kosmos reply/msg/post` on Windows (BLOCKER 5, §3c), a clean-box first
-run (capability 1), and the publish.
+hand, with a real updater as a fast-follow. What is left for v1: `kosmos
+ reply/msg/post` on Windows (BLOCKER 5, §3c), a clean-box first run (capability 1),
+and the publish. The launcher hand-off merged as #2752 (2026-09-11).
 installkosmos.com still serves 0.6.37. A zip built from main delivers to agents
 and runs their whole lifecycle on the box. It needed two fixes:
-`win32-launch-handoff-570` (the launcher) and `win32-kosmos-cli-570` (BLOCKER 5).
+the launcher hand-off (merged, #2752) and `win32-kosmos-cli-570` (BLOCKER 5).
 See "Do this next".
 
 ## ✅ 7c-2 IS DONE (2026-09-10), AND MEASURED ON THE BOX.
@@ -188,9 +188,9 @@ shared usage before fanning out subagents.
      restart, remove, restore, talk again.
    - It found one launcher defect. `Kosmos.exe` ran the board in the foreground of
      its own window: closing the window stopped the board, and every relaunch
-     after the first logon said "port in use ... Kosmos stopped". The fix is
-     `win32-launch-handoff-570`: a hand-started board hands itself to its headless
-     logon task and exits. `win32-package-text-570` then brings the zip's README
+     after the first logon said "port in use ... Kosmos stopped". Fixed by #2752
+     (`win32-launch-handoff-570`, merged): a hand-started board hands itself to its
+     headless logon task and exits. `win32-package-text-570` then brings the zip's README
      and manifest up to date.
    - It also found BLOCKER 5 (§3c): an agent's `kosmos reply` did not exist on the
      zip, so its answer never reached the board. The fix is `win32-kosmos-cli-570`.
@@ -717,7 +717,7 @@ STILL OWED HERE: the console window. A task-launched board has no visible window
 the board's stdout goes nowhere, so the registration sentence printed at boot is
 seen only by somebody who started Kosmos from a console. And `KosmosLauncher.cs`
 runs a hand-started board in its own window, so it dies with that window; the fix
-is `win32-launch-handoff-570` (the board hands itself to this task).
+is #2752, merged (the board hands itself to this task).
 
 ### BLOCKER 4 CLOSED (2026-09-09) — `engine/win32board.js`
 
@@ -749,8 +749,8 @@ now has a win32 arm — missing / switched off / in place — each naming the ta
 the removal command.
 
 ✅ A REAL LOGON, MEASURED 2026-09-11 (R8 of 7c-6): the board came back from this
-task at Josh's reboot, headless. A hand-started board still dies with its window
-until `win32-launch-handoff-570` lands.
+task at Josh's reboot, headless. Since #2752 a hand-started board hands itself to
+this task instead of dying with its window.
 
 ### BLOCKER 5 — an agent's answer never reached the board (found 2026-09-11; fixed on branch `win32-kosmos-cli-570`, NOT YET MERGED when this was written)
 
@@ -772,8 +772,8 @@ read the answer from the transcript, which is why it passed. `msg`, `post` and
 
 ✅ **Fixed on branch `win32-kosmos-cli-570` (not yet merged when written):**
 - a Node `kosmos` for agents in the zip's `bin\`, with a `kosmos.ps1` shim for
-  PowerShell (the arguments go as JSON in `KOSMOS_ARGV_JSON`, never on a command
-  line) and a `kosmos` shim for Git Bash;
+  PowerShell (the arguments go as JSON in a private temp file the CLI deletes on
+  read, never on a command line, at any length) and a `kosmos` shim for Git Bash;
 - that folder put first on every agent's PATH by its supervisor;
 - /api/msg, /api/post and /api/react resolving the agent's per-run token.
 
@@ -841,9 +841,9 @@ Honest gaps in this document:
 
 ## 6. Sequencing
 
-    DONE   #2537, 7c-1..7c-6 (the table in §3), and the supervisor fixes #2722-#2737
-    NOW    the launcher hand-off            win32-launch-handoff-570
-           the zip's README and manifest    win32-package-text-570
+    DONE   #2537, 7c-1..7c-6 (the table in §3), the supervisor fixes #2722-#2737,
+           and the launcher hand-off #2752
+    NOW    the zip's README and manifest    win32-package-text-570
            the agent's kosmos command     win32-kosmos-cli-570 (BLOCKER 5, §3c)
     THEN   first-run survey + fix           (capability 1, a clean box)
     THEN   Windows release                  Baron builds on mortals from a
