@@ -13,11 +13,24 @@ has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 
 # The real pair, lifted from release.sh rather than retyped, so this cannot
 # drift from what ships.
+# 🛑 ANCHOR THE END TO cut_record_done, NOT THE FIRST `}`. The step/record region now holds
+# HELPER functions too (step-timing: _step_now, _step_emit_duration), each closing with its
+# own `}` on its own line, so a `,/^}$/` range would stop at the first helper's brace and
+# lift a block WITHOUT cut_record_done -- the function this test actually runs. It ran
+# undefined, wrote no completion row, and every field arm failed on empty output. Capture
+# from `_STEP="before step 1"` through the `}` that closes cut_record_done specifically.
 SRC="$HERE/release.sh"
-blk="$(awk '/^_STEP="before step 1"$/,/^}$/' "$SRC")"
+blk="$(awk '/^_STEP="before step 1"$/{g=1} g{print} /^cut_record_done\(\)/{r=1} r&&/^}$/{exit}' "$SRC")"
 case "$blk" in
   *"step()"*) : ;;
   *) echo "FAIL  the step/record block is gone from release.sh; this test now checks nothing"; exit 1 ;;
+esac
+# The block MUST carry cut_record_done, since that is the function every arm below runs; a
+# lift that dropped it would otherwise fail every arm on empty output with a misleading
+# message rather than naming the real cause.
+case "$blk" in
+  *"cut_record_done()"*) : ;;
+  *) echo "FAIL  the lift did not reach cut_record_done; the awk range no longer spans it"; exit 1 ;;
 esac
 
 run() {   # $1 = script body appended after the block, $2 = exit code to record
