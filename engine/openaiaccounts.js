@@ -163,7 +163,10 @@ function decodeIdTokenPayload(tok) {
     `{ activeUntil, exp }` in epoch ms (each null when absent/unparseable), or `null` when this
     is not a decodable chatgpt sign-in. `activeUntil` is OpenAI's own subscription validity-end
     (`chatgpt_subscription_active_until`, an ISO string -- confirmed the real claim's type); `exp`
-    is the JWT token expiry (standard, in SECONDS, converted to ms here).
+    is the JWT token expiry (standard, in SECONDS, converted to ms here). If OpenAI ever emitted
+    `activeUntil` as a NUMBER instead, this returns null for it and the red goes silently inert
+    (grey-forever, the pre-change behaviour) -- a coverage loss, never a false red; the release
+    gate's real-lapsed-sub check is the backstop for that.
     🛑 THE CALLER MUST RED ONLY A PAST `activeUntil` ON A STILL-VALID TOKEN (`exp` in the future).
     A stale/unrefreshed token cannot be trusted to report a working sub's window: a working but
     IDLE sub whose short token has simply expired would otherwise carry a past `activeUntil` and

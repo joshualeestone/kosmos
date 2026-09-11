@@ -141,8 +141,10 @@ test('chatgptSubscriptionWindow fails each field safe on hostile CLAIM shapes', 
   assert.equal(f(parsedWithPayload({ [AUTH]: { chatgpt_subscription_active_until: PAST_ISO }, exp: '1700000000' })).exp, null);
   // exp fractional seconds -> a finite number, kept (a more precise timestamp, still valid)
   assert.equal(f(parsedWithPayload({ exp: 1700000000.5 })).exp, 1700000000.5 * 1000);
-  // exp non-finite (Infinity survives JSON? no -> becomes null in JSON; NaN too). A missing exp -> null.
-  assert.equal(f(parsedWithPayload({ [AUTH]: { chatgpt_subscription_active_until: PAST_ISO } })).exp, null);
+  // exp non-finite: Infinity/NaN serialize to JSON `null` (not a number) -> exp null; a missing exp -> null.
+  assert.equal(f(parsedWithPayload({ exp: Infinity })).exp, null, 'Infinity exp -> JSON null -> exp null');
+  assert.equal(f(parsedWithPayload({ exp: NaN })).exp, null, 'NaN exp -> JSON null -> exp null');
+  assert.equal(f(parsedWithPayload({ [AUTH]: { chatgpt_subscription_active_until: PAST_ISO } })).exp, null, 'missing exp -> exp null');
 });
 
 test('decodeIdTokenPayload fails null on every hostile shape, decodes a real payload', () => {

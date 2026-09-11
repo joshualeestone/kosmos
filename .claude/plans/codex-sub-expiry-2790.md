@@ -21,12 +21,17 @@ probe on the badge path). NOT the token `exp`, which is short and refreshable.
 
 ## The change (engine/openaiaccounts.js)
 
-- `chatgptSubscriptionActiveUntil(parsed)`: pure, offline. Decodes the id_token payload and
-  returns `chatgpt_subscription_active_until` as epoch ms, or null on any doubt (not chatgpt,
-  no/undecodable id_token, absent/empty/unparseable claim). Exported for a direct unit test.
-- `checkLive`'s chatgpt branch: if the window is a valid PAST date -> STATE.NONE (the badge
-  reds via the existing checkLive -> verdict -> 'signed_out' path). Everything else -- absent,
-  unparseable, future -> STATE.UNKNOWN (grey), exactly as before.
+- `decodeIdTokenPayload(tok)`: pure, offline. The shared base64url JWT-payload decode, or null
+  on any doubt (missing/empty token, wrong segment count, non-JSON, non-object). identityFromData
+  (email) and chatgptSubscriptionWindow both use it, so the two reads of one token cannot drift.
+- `chatgptSubscriptionWindow(parsed)`: pure, offline. Returns `{ activeUntil, exp }` in epoch ms
+  (each null when absent/unparseable), or null when not a decodable chatgpt sign-in. `activeUntil`
+  is `chatgpt_subscription_active_until` (ISO string); `exp` is the JWT token expiry (seconds ->
+  ms). Both helpers exported for unit tests.
+- `checkLive`'s chatgpt branch: STATE.NONE (red) ONLY when the token is still valid (`exp` in the
+  FUTURE) AND the window is PAST (`activeUntil < now`). Everything else -- a stale/expired token,
+  no exp, absent/unparseable window, or a future window -> STATE.UNKNOWN (grey), reds via the
+  existing checkLive -> verdict -> 'signed_out' path only on the confirmed-lapsed case.
 
 ## Safety (the load-bearing property)
 
