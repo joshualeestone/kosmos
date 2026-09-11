@@ -142,7 +142,11 @@ function chk(ok, label, extra) {
       chk(JSON.stringify(sec.headings) === JSON.stringify(['Auto-save', 'Prompter', 'Sounds', 'Agent Communication', 'Daily report']),
         `[${theme}] the Automation headings read Auto-save, Prompter, Sounds, Agent Communication, Daily report`, JSON.stringify(sec.headings));
       // #2054: the Prompter is a .toggle slider on screen with the visible-word aria.
-      chk(sec.promToggle === true && sec.promToggleAria === 'Ask me to check on any agent that has stopped',
+      // #2632/#2771 (Josh 2026-09): the toggle copy was changed so it no longer promises
+      // an undeliverable nudge -- both the visible <b> label and the slider's aria-label
+      // are now "Check on your agents" (matching, a proper accessible name), not the older
+      // "Ask me to check on any agent that has stopped".
+      chk(sec.promToggle === true && sec.promToggleAria === 'Check on your agents',
         `[${theme}] the Prompter is a slider on screen with its accessible name`, JSON.stringify({ t: sec.promToggle, a: sec.promToggleAria }));
       chk(sec.heartbeatSeen === false,
         `[${theme}] no visible text in the section still reads Heartbeat`, String(sec.heartbeatSeen));
