@@ -225,4 +225,7 @@ jobs:
             render-engmode-gate-2131
             render-discovery-gate-2651
             render-createnav-2190
+            render-claude-connect-choice-2433
+            render-picker-provider-2097
+            render-openai-only-2096
         run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
