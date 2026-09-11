@@ -12135,11 +12135,15 @@ test('#2811: a card with NO runner marker falls back to the launch job, not to t
     const realCard = board.agents.find((a) => a && a.name === 'jobcodex');
     assert.equal(realCard && realCard.runner, 'claude',
       'a real pane card no longer carries a runner marker, so this fixture is not the paneless shape');
-    /* 🔑 DERIVED FROM A REAL CARD, not hand-built: `status.js:5912` emits
-       `runner: null` on a paneless card and changes nothing else, so nulling
-       that one field on a genuine card IS the paneless shape. Building a card
-       from scratch is what `fixture-discipline.test.js` exists to refuse, and it
-       would also let this test drift from what a card really carries. */
+    /* 🔑 DERIVED FROM A REAL CARD, not hand-built. Building one from scratch is
+       what `fixture-discipline.test.js` exists to refuse, and it would let this
+       test drift from what a card really carries.
+       Measured equivalence rather than asserted: a paneless card differs from a
+       pane card on `paneless`, `reachedByChannel`, `runner`, `task` and `state`
+       (`status.js:5908-5914`), and `whoamiFor` reads exactly three card fields:
+       `runner`, `session`, `sessionName`. `runner` is the only member of both
+       sets, so nulling it IS the paneless shape as far as this function can
+       observe, and the other four would be decoration here. */
     const card = { ...realCard, runner: null };
     seedTranscript('jobcodex', 'claude-opus-5');
 
