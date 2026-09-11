@@ -7448,6 +7448,15 @@ test('#2804: the three washed member states drop the box stroke (colour only), k
   // states, and is NOT what Josh asked to drop.
   assert.match(page, /\.pj-member\.unseen \{[^}]*border-style:\s*dashed/,
     'the unseen member lost its dashed presence border');
+  // CONTROL: a present-but-neutral member inside the MEMBERS panel (restarting/unknown/off ->
+  // no pjm-* class, per stClass in the pjMember builder) carries no wash colour and relies on
+  // the base stroke to stay visible. The over-application #2804 warns against is a
+  // state-UNQUALIFIED rule that strips it. The base-stroke check above cannot catch that (it
+  // asserts the base rule text, which such a rule would leave intact). So assert no rule sets a
+  // transparent border on `#pj-one-agents .pj-member` WITHOUT a state class: the three fix rules
+  // qualify with `.pjm-*`, so they never match `.pj-member` immediately followed by `{`.
+  assert.doesNotMatch(page, /#pj-one-agents \.pj-member\s*\{[^}]*border-color:\s*transparent/,
+    'a state-unqualified #pj-one-agents .pj-member transparent-border rule would strip the stroke from present-but-neutral members (the over-application #2804 warns against)');
 });
 
 test('the free-agent picker names the not-signed-in state distinctly on a 403 (#2023)', () => {
