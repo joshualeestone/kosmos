@@ -372,12 +372,13 @@ function forgetAccount(dir, usedBy) {
  *
  * 🛑 EVERY GUARD forgetAccount HAS (same-home + name shape, the running-agents
  * gate, the identity guard -- NEVER rm a name-shaped folder that is not an
- * account), plus one forgetAccount does NOT: the DEFAULT `.codex` is REFUSED.
- * forgetAccount can rename the default aside because a rename is recoverable and
- * a fresh sign-in recreates it; DELETING the default codex home is not that -- it
- * is the home other codex agents resolve to when nothing overrides CODEX_HOME.
- * The default's action is Disconnect (reversible); delete is for the named
- * accounts a person actually wants gone. Only the final step differs from
+ * account), and #2684 makes the DEFAULT `.codex` DELETABLE too: unlike Claude (whose primary
+ * identity is a key in a shared external file and whose dir may hold symlinked
+ * history), an OpenAI account's identity + config live inside its own `.codex` dir
+ * with no cross-account sharing, and disconnect already renames the whole default
+ * dir aside -- so delete is the same whole-dir rmSync for the default as for a
+ * secondary, gated by the same running-agents / sign-in-in-flight / arbitrary-path
+ * guards. Only the final step differs from
  * forget: rmSync instead of renameSync. Irreversible on purpose; the UI asks
  * with a destructive confirm.
  */

@@ -5559,17 +5559,16 @@ const server = http.createServer((req, res) => {
              THE AGENTS. Which refusals those are differs by DOOR on this
              provider, and the earlier version of this comment named only the
              delete one while sitting above a call that is `forgetAccount`
-             whenever `remove` is false: `openaiAccounts.removeAccount` refuses
-             the default `.codex` outright, `forgetAccount` does NOT (it can
-             rename the default aside, unlike the Claude side where forget
-             refuses `.claude` too). What both share is the path guard and the
-             sign-in-in-progress guard, and all of those checks run BEFORE the
-             agents check. So without this, a request
+             whenever `remove` is false: #2684: NEITHER door refuses the default outright any more --
+             `removeAccount` deletes the default `.codex` (whole-dir) and
+             `forgetAccount` renames it aside, both AFTER the agents check. What
+             both share as PRE-agents refusals is the path guard and the
+             sign-in-in-progress guard. So without this, a request
              naming the default account stopped every agent on it, for real, wrote
              each to the removed list, and then answered 400 with a refusal that
-             never mentioned the stop. Deterministic, not a race. Not reachable
-             from the page (the default row renders no control) and fully
-             reachable from the board API.
+             never mentioned the stop. Deterministic, not a race. The default row renders live
+             controls now (#2684), and this pre-flight is reachable from both the
+             page and the board API.
 
              📌 NOT the CLI, which an earlier version of this comment claimed.
              Measured: `stopAgents` appears only in this file, web/index.html,
@@ -5585,10 +5584,10 @@ const server = http.createServer((req, res) => {
              🛑 WHAT IT CATCHES, AND WHAT IT PROVABLY CANNOT, because an earlier
              version of this comment claimed an invariant it does not have and
              claimed it in the UNSAFE direction ("every refusal that does not
-             depend on the agents comes BEFORE the agents guard"). Three refusals
+             depend on the agents comes BEFORE the agents guard"). Two refusals
              precede the agents guard and are therefore visible here: the path
-             guard, the default-account guard, and the OpenAI
-             sign-in-in-progress guard. The IDENTITY refusal ("that is not a
+             guard and the OpenAI sign-in-in-progress guard (#2684 removed the
+             default-account guard; the default is agents-gated like any row now). The IDENTITY refusal ("that is not a
              Claude/OpenAI account on this computer") does NOT, in any of the
              four, and it cannot be hoisted: `engine/accounts.js` states why at
              the guard itself, that `identityOf` answers null for a missing

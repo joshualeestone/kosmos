@@ -52,13 +52,17 @@ physically gone, that is a one-line follow-up. Shipping the honest, non-destruct
 
 ## Tests (fixture-only; never touch the real ~/.claude.json or ~/.codex)
 
-accounts.delete-primary-2684 (6), openaiaccounts.delete-primary-2684 (4), and updated
-server.disconnect-stop-2570 (32), server.forget-claude-1659 (12); server.remove-2264 (3) and
+accounts.delete-primary-2684 (7), openaiaccounts.delete-primary-2684 (4), and updated
+server.disconnect-stop-2570 (33), server.forget-claude-1659 (12); server.remove-2264 (3) and
 server.forget-openai-1689 (7) still green. Controls: running-agent refuses + file untouched,
 unparseable JSON refuses + byte-identical, no-identity quiet success, secondary still dir-deleted,
 stopAgents flow stops then removes, OpenAI default whole-dir delete.
 
 ## Browser check
 
-web/index.html changed (the account-row controls), so the #1720 browser-check surface gate applies.
-The default-row Disconnect/Delete controls are verified render + behaviour via a browser run.
+web/index.html changed (the account-row controls), so both browser-check gates apply (#1720 coarse
+and #2518 surface-map). The docs/browser-checks/render-accounts-openai.js assertion was updated to the
+live-default contract (default Disconnect live, no Claude-default Delete) and both gates pass; the two
+other surface-mapped checks carry per-check Browser-check-surface trailers (they seed only non-default
+rows). NOTE: the assertion was updated, not re-run against a live browser this session -- the
+browser-check suite exercises it in CI. A unit assertion pins the OpenAI-default-Delete render branch.

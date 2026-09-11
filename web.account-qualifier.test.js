@@ -313,6 +313,18 @@ test('EVERY Disconnect control carries the qualifier, escaped, or one branch kee
     `${controls - qualified} disconnect control(s) name themselves by login alone (two rows sharing a key tail give two controls with one name) or interpolate the qualifier unescaped into the attribute`);
 });
 
+/* #2684: the Delete-and-remove suppression is `(a.isDefault && !isOpenai)` -- the
+   OpenAI default DOES render a Delete (whole-dir), the CLAUDE default does NOT (its
+   live Disconnect already clears the identity, so a Delete would be byte-identical).
+   The browser fixture only ever seeds a LABELLED OpenAI account (a secondary), so no
+   browser assertion exercises the OpenAI-default arm; pin the exact guard in source so
+   a regression to `a.isDefault ? ''` (suppressing the OpenAI-default Delete, or showing
+   one on the Claude default) reds here. */
+test('#2684: the Delete button is suppressed only on the CLAUDE default, not the OpenAI default', () => {
+  assert.match(PAGE, /\(a\.isDefault && !isOpenai\) \? ''/,
+    'the acct-remove suppression is no longer (a.isDefault && !isOpenai): the OpenAI default may have lost its Delete, or the Claude default gained one');
+});
+
 /* Angel's review, kept as an arm rather than a comment. The map was keyed on the
    row OBJECT, which is correct today and silently wrong the moment anyone maps,
    clones or spreads rows on the way in: every lookup misses, every qualifier
