@@ -4,8 +4,11 @@
 else is required to continue.**
 
     where the work lives   one slice per branch off main (repo CLAUDE.md)
-    already on main        7c-1..7c-5 (#2601, #2661, #2672), headless tasks (#2714),
-                           and the supervisor fixes #2722, #2728, #2731, #2737
+    already on main        7c-1..7c-6 (#2601, #2661, #2672, #2756), headless tasks
+                           (#2714), the supervisor fixes #2722, #2728, #2731,
+                           #2737, the launcher hand-off #2752, the agent's
+                           kosmos command #2754 and the zip text #2759.
+                           Windows v1 is SERVED as 0.6.55 (below)
     this file              .claude/plans/WINDOWS-ROADMAP.md   <- the whole road
     the keep-alive log     .claude/plans/win32-keepalive-570.md  <- that slice only
 
@@ -24,7 +27,8 @@ there:
 - It shipped on Josh's go.
 
 The fixes it needed are all merged: #2752 (the launcher hand-off), #2754 (the
-agent's `kosmos` command, BLOCKER 5), #2759 (the README and manifest) and #2756.
+agent's `kosmos` command, BLOCKER 5) and #2759 (the README and manifest). #2756
+recorded the 7c-6 rehearsal in this file.
 
 **R8b PASSED 2026-09-11: a real reboot on the SHIPPING zip install**, not the
 source checkout (§2). The board and all 5 enabled agents came back unattended, and
@@ -175,7 +179,8 @@ never `could_not`. `chat.setChannel` is the seam, with setRunner's interlock.
   its tail for the `died` line.
 
 📌 SPLINTER'S ANSWERS 2026-09-10: v1 ships with by-hand update (Josh approved);
-installkosmos.com serves a STALE Windows zip (0.6.37); #2604 is merged and win32
+installkosmos.com serves a STALE Windows zip (0.6.37; superseded: 0.6.55 is
+served since 2026-09-11); #2604 is merged and win32
 changes route through this lane; **Baron Draxum owns the Mac-side delivery
 contract** (could_not / verify-before-send) -- sync the 7c-4 mapping with him.
 The Mac Kosmos builders now share this box's installkosmos account, so watch
@@ -195,8 +200,10 @@ shared usage before fanning out subagents.
 4. ✅ The crash-restart token defect: #2722. Also fixed along the way: #2728
    (`/clear` rekey), #2731 (a resume with no conversation starts fresh), #2737
    (ownership rows pruned).
-5. **A current Windows build and publish.** The pipeline exists; the site serves
-   0.6.37.
+5. ✅ **A current Windows build and publish: DONE 2026-09-11.** #2752, #2754 and
+   #2759 merged. 0.6.55 (main `fbe246e0`) is served, after Baron's bytes passed
+   the handshake below on this box (see the one-line state). What remains is NOW
+   in §6: `win32-anchor-swap-570`. The history follows.
    - A zip built from main 6182640d (0.6.55) passed every agent step on the box,
      unpacked through Explorer's shell with the Mark of the Web set, as a download
      would be: sign-in via the #2007 nonce, create, talk (delivery and card state),
@@ -354,9 +361,9 @@ Kosmos onto a machine at all, getting `claude` onto it, keeping the BOARD alive,
 and updating any of it. Those are capabilities 1, 6 and 7, and three of the four
 blockers live there. The rehearsal was never wrong — it was narrower than the bar
 in §1, and this file read it as broader for a day. (2026-09-11: the 7c-6 R8
-above now covers the BOARD at a real logon, and an update by hand has been run
-once, zip over zip. Getting Kosmos and `claude` onto a CLEAN machine is still
-unmeasured.)
+above now covers the BOARD at a real logon, R8b repeats it on the shipping zip
+install, and an update by hand has been run twice, zip over zip (§5). Getting
+Kosmos and `claude` onto a CLEAN machine is still unmeasured.)
 
 ---
 
@@ -873,12 +880,13 @@ Honest gaps in this document:
     handed off to the running board, and Z0-Z6 passed after.
 
   The in-app updater (capability 7) is still unbuilt.
-- **An update that changes the NODE RUNTIME could not be handed off.** The
-  anchored `%LOCALAPPDATA%\Kosmos\runtime\node.exe` is the running interpreter of
-  the task board and every supervisor. `win32anchor.ensureAnchored` copied over it
-  when the size differed, and Windows refuses that copy with EBUSY. So
-  `ensureInstalled` failed, the hand-off was skipped, and the person got "port in
-  use" until the next logon. Creating an agent failed the same way.
+- **An update that changes the NODE RUNTIME cannot be handed off (on main, and
+  in 0.6.55).** The anchored `%LOCALAPPDATA%\Kosmos\runtime\node.exe` is the
+  running interpreter of the task board and every supervisor.
+  `win32anchor.ensureAnchored` copies over it when the size differs, and Windows
+  refuses that copy with EBUSY. So `ensureInstalled` fails, the hand-off is
+  skipped, and the person gets "port in use" until the next logon. Creating an
+  agent fails the same way.
   - Measured 2026-09-11: a running node.exe cannot be overwritten, but it CAN be
     renamed, and a new file can take its name while it keeps running.
   - The fix is in flight on `win32-anchor-swap-570`: stage beside, rename the old
@@ -888,9 +896,16 @@ Honest gaps in this document:
   process applies a world's `AGENT_WORKFORCE_DATA` (engine/worldenv.js). An
   agent's supervisor, its `kosmos` CLI and its report hook resolve `store.ROOT`
   for the DEFAULT world, and read that world's `board.token`. On a board serving a
-  named world they present the wrong token and are refused. This is shared with
-  the Mac clients and `install/kosmos`, not specific to Windows. Nothing in v1
-  lets a Windows person switch worlds by default, but the gap is real.
+  named world they present the wrong token and are refused. That is what the
+  code says; it has not been measured yet. The gap is shared with the Mac clients
+  and `install/kosmos`, so it is not specific to Windows. ⚠️ It is REACHABLE from
+  the normal v1 install:
+  - the board shows the world switcher and "New Kosmos" on every platform
+    (`web/index.html`);
+  - a switch restarts the board through its logon task (`engine/boardrestart.js`,
+    win32 arm).
+
+  So a person who makes a second Kosmos and switches to it would hit it.
 - **A broad Mac-only-assumption sweep is in flight.** A targeted sweep for
   tmux/launchctl found `chat.js` (the blocker) and `runningas.js` (degraded) as
   the only live call sites outside already-ported modules. A wider survey — for
@@ -909,11 +924,13 @@ Honest gaps in this document:
            2026-09-11 (Baron built it on mortals, this box verified the
            bytes and ran them live, and it shipped on Josh's go)
     NOW    a new Node runtime can update    win32-anchor-swap-570 (§5)
+    NEXT   a named world's board token      (§5: reachable from the v1 switcher;
+           for agents                        shared with the Mac, so designed
+                                             with it)
     THEN   first-run survey + fix           (capability 1, a clean box:
                                             Windows Sandbox needs admin and a
                                             reboot, so it waits on Josh)
     LATER  a real updater                   (capability 7, a fast-follow)
-           a named world's board token for agents (§5; shared with the Mac)
            the .ps1 execution-policy dependency (§3c: a PE shim alone would
            mangle quotes)
 
