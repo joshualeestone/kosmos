@@ -183,6 +183,13 @@ function check(name, pass, detail) {
     dgo.click();                                // opens the confirm dialog (title/small/Go)
     document.getElementById('chg-go').click();  // confirm -> triggers the busy interstitial + run
     await sleep(70); // interstitial is up, before the 300ms hold elapses
+    // #2692: hold a reference to the LIVE interstitial canvas so we can prove, end to end, that
+    // the REAL teardown path (the success render replacing the modal's content) detaches it -
+    // which is what makes the isConnected guard fire in production. The detached-canvas control
+    // above is a unit proxy for the guard; this is the integration proof that the guard's
+    // precondition (a detach) actually happens on the real success transition.
+    const modelCanvas = document.querySelector('#chg-msg .chg-restart canvas.chg-restart-k');
+    const modelCanvasConnectedDuringBusy = !!(modelCanvas && modelCanvas.isConnected);
     const modelBusy = {
       restarting: /Restarting the agent/i.test(msg.innerHTML),
       // #2692: the BRANDED loader canvas is mounted, it is actually painting, and the old
@@ -195,6 +202,9 @@ function check(name, pass, detail) {
     await sleep(400); // past the 300ms hold
     const reducedText = msg.textContent;
     const modelDone = /Say hello to FClaude-Casey to reactivate them on Claude\./.test(reducedText) && keep.textContent === 'Done';
+    // The success render detached the canvas (msg.textContent replaced the interstitial), so the
+    // real loader's rAF loop bails on its next frame. It was connected during busy and is not now.
+    const modelCanvasDetachedAfter = modelCanvasConnectedDuringBusy && !!modelCanvas && !modelCanvas.isConnected;
     if (!back.hidden) keep.click();
 
     // 5. THE PROVIDER FLOW (#2463 follow-up): stub the POST, set the provider picker to
@@ -263,7 +273,7 @@ function check(name, pass, detail) {
       && !/reactivate them on Claude/i.test(providerAnthReducedText) && keep.textContent === 'Done';
     if (!back.hidden) keep.click();
 
-    return { holdFloor, cycleMs, detachedPainted, busyShown, stillHeld, rendered, failFast, plainWorking, curAfterSet, modelBusy, reducedText, modelDone,
+    return { holdFloor, cycleMs, detachedPainted, modelCanvasDetachedAfter, busyShown, stillHeld, rendered, failFast, plainWorking, curAfterSet, modelBusy, reducedText, modelDone,
       providerBusy, providerReducedText, providerDone,
       providerAnthBusy, providerAnthReducedText, providerAnthConsistent };
   });
@@ -281,6 +291,8 @@ function check(name, pass, detail) {
     r.holdFloor === 4400 && r.cycleMs === 4400 && r.holdFloor >= r.cycleMs, 'holdFloor=' + r.holdFloor + ' cycleMs=' + r.cycleMs);
   check('#2692 lifecycle guard: startKLoader does NOT paint a DETACHED canvas -- its loop bails on !isConnected, so a torn-down interstitial cannot leak an rAF loop',
     r.detachedPainted === false, 'detachedPainted=' + JSON.stringify(r.detachedPainted));
+  check('#2692 teardown (integration): the REAL interstitial canvas is connected during the busy hold and DETACHED after the success render, so the guard fires end to end (not just against a synthetic detached canvas)',
+    r.modelCanvasDetachedAfter === true, 'modelCanvasDetachedAfter=' + JSON.stringify(r.modelCanvasDetachedAfter));
   check('MODEL: the change-model dialog shows the branded K-LOADER "Restarting the agent" interstitial (canvas present, actually painting), not plain "Working…"',
     r.modelBusy && r.modelBusy.restarting && r.modelBusy.hasLoaderCanvas && r.modelBusy.loaderPainted && r.modelBusy.noReducedYet, JSON.stringify(r.modelBusy));
   check('#2692: the small pulsing .kspin mark Josh flagged is GONE from the restart interstitial',

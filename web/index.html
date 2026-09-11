@@ -29342,6 +29342,16 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
      does not stack handlers. */
   const close = () => {
     back.hidden = true; keep.onclick = null; goBtn.onclick = null;
+    /* #2692: DETACH the interstitial content on close, not just hide the modal. The restart
+       interstitial mounts the branded K loader on a canvas whose rAF loop self-terminates on
+       `!cv.isConnected` -- but `back.hidden = true` only display:none's the modal, leaving the
+       canvas CONNECTED and the loop running. Today no close path is reachable while the loader
+       is up (keep is hidden and Escape is gated on goBtn.disabled during the busy state), so
+       this cannot leak now; clearing here makes that robust rather than dependent on it, so a
+       future exit-while-busy (the backdrop-click-to-close the #1313/#1316 comments contemplate)
+       cannot leave an rAF loop drawing to a hidden canvas. Harmless on every other path: the
+       modal is hidden and changeDialog resets msg on its next open. */
+    msg.textContent = '';
     document.removeEventListener('keydown', onEsc);
   };
   const onEsc = (e) => {
