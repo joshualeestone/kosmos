@@ -84,15 +84,20 @@ const PANEL_W = 1200; // wide enough that 25% (~290px) clears the shared min-wid
        targets exactly a single detail-form id and never a create-form (or any other) id, so a
        future edit that widened a #2697 rule to a create id reds even though nothing lays out. */
     const narrowingSelectors = [];
-    for (const sheet of document.styleSheets) {
-      let rules;
-      try { rules = sheet.cssRules; } catch (e) { continue; } // cross-origin sheet; none here
-      if (!rules) continue;
+    /* Recurse into grouping rules (@media / @supports are CSSMediaRule / CSSSupportsRule with
+       a .cssRules but no .style), so a narrowing rule nested inside a media query is seen too -
+       a top-level-only scan would silently skip a leak like `@media(...){#create-name{...}}`. */
+    const scan = (rules) => {
+      if (!rules) return;
       for (const rule of rules) {
-        if (rule && rule.style && (rule.style.flexBasis === '25%' || rule.style.flexBasis === '50%')) {
+        if (rule && rule.style && rule.selectorText && (rule.style.flexBasis === '25%' || rule.style.flexBasis === '50%')) {
           narrowingSelectors.push(rule.selectorText);
         }
+        if (rule && rule.cssRules) scan(rule.cssRules);
       }
+    };
+    for (const sheet of document.styleSheets) {
+      try { scan(sheet.cssRules); } catch (e) { continue; } // cross-origin sheet; none here
     }
     return {
       frowW: name.parentElement.getBoundingClientRect().width,
