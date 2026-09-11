@@ -65,19 +65,29 @@ follow-up with a per-project claim.
 
 ## Verification
 
-- New `engine/projects.brief-pending-2707.test.js` (7 tests): briefIsPending is true for an
+- New `engine/projects.brief-pending-2707.test.js` (8 tests): briefIsPending is true for an
   absent brief and for an unfilled-placeholder stub, false for a described/seeded Goal and a
-  filled brief; a CONTROL ties detection to the SAME placeholder briefStubContent writes; a
-  fail-safe arm; and the note names the coordination.
+  filled brief; a CONTROL ties detection to the SAME placeholder briefStubContent writes; the
+  absolute-path guard rejects bad input; a FAIL-SAFE arm proves a brief that EXISTS but cannot be
+  READ (EISDIR) is NOT pending, so the note never contradicts a real brief; and the note names
+  the coordination.
 - `server.projects.test.js` (+3 tests): the route posts the shared note for a brief-less staffed
   project, and does NOT for a described project (goal already set) or a project with no agents.
-- Fixed the note's side-effect on existing room-asserting tests: three fixtures that created
-  brief-less staffed projects and asserted an empty room/thread now pass a description so they
-  are briefed (the `withThread` helper, and one server.test.js "Ops room" fixture). The note's
-  own behavior is covered by the dedicated tests above, which create brief-less projects on
-  purpose. Repo-wide sweep: only three test files create a staffed project via the route and
-  inspect a room; all three pass. The note is project-scoped (keyed by project id), so it cannot
-  pollute another test's room.
+- Fixed the note's side-effect on existing room-asserting tests: two files held fixtures that
+  created brief-less staffed projects and asserted an empty room/thread; they now pass a
+  description so they are briefed (the `withThread` helper in `server.projects.test.js`, and the
+  "Ops room" fixture in `server.test.js`). The note's own behavior is covered by the dedicated
+  tests above, which create brief-less projects on purpose.
+- `node --test` regression scope: the sweep for test files that POST a staffed project through
+  the route AND inspect a room matched exactly three (`server.test.js`, `server.projects.test.js`,
+  `web.mention-rename-refresh-2139.test.js`); all three pass. The note is project-scoped (keyed by
+  project id), so it cannot pollute another test's room.
+- Browser-checks: `docs/browser-checks/render-projects.js` and `render-thread.js` also POST
+  brief-less staffed projects through the route, but they are structurally unaffected: the note is
+  a `kind:'note'` row, and `ROOM_NOT_SPEECH` (web/index.html:20495) excludes `'note'` from the
+  thread/speech views those checks read (`#pj-msgs` and the speech counts, skipped at 21696 and
+  37566). render-projects asserts on told-state / removal UI, not room speech. CI runs the
+  browser-checks as the runtime gate.
 
 ## Not done
 

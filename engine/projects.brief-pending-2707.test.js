@@ -77,10 +77,21 @@ test('CONTROL: detection is tied to the SAME placeholder briefStubContent writes
     'a described stub still carries the placeholder, so pending detection would false-positive');
 });
 
-test('FAIL-SAFE: a non-absolute path or missing input reads as NOT pending, never throws', () => {
+test('the absolute-path guard rejects a non-absolute or empty path as NOT pending, never throws', () => {
   assert.equal(projects.briefIsPending('relative/path'), false);
   assert.equal(projects.briefIsPending(''), false);
   assert.equal(projects.briefIsPending(undefined), false);
+});
+
+test('FAIL-SAFE: a brief that EXISTS but cannot be READ is NOT pending (never contradicts a real brief)', () => {
+  // The dangerous case: a real brief is there but a read error hides it. Only a genuinely
+  // ABSENT brief (ENOENT) is pending; any other error (here EISDIR, a directory where the
+  // file should be) must fail toward NOT pending, or the room note would say "no brief yet"
+  // over a brief that is actually present. This arm exercises the readFileSync catch that the
+  // absolute-path guard above never reaches.
+  const dir = folder('unreadable');
+  fs.mkdirSync(briefPathIn(dir), { recursive: true });   // BRIEF.md occupied -> readFileSync EISDIR
+  assert.equal(projects.briefIsPending(dir), false, 'an unreadable brief was wrongly reported pending');
 });
 
 test('the shared note names the coordination the card asks for', () => {

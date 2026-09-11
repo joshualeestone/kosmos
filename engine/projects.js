@@ -1748,18 +1748,22 @@ function seedBriefStub(folder, { name, description } = {}) {
    creation is NOT pending - its Goal was seeded from that description - which is exactly
    right: if the operator already said what it is for, the agents have a goal and there is
    nothing to ask about.
-   ⚠️ FAIL-SAFE toward NOT pending: any read error (unreadable folder, a brief we cannot
-   open) returns false. The only thing this gates is a one-time "brief pending" room note
-   (#2707); a false negative just skips that note, whereas a false positive would post a
-   "your brief is not filled in" note over a brief that is actually fine. Skipping a helpful
-   note is a smaller harm than contradicting a real brief. */
+   ⚠️ FAIL-SAFE toward NOT pending. "Pending" means one specific thing: there is genuinely NO
+   brief (ENOENT). Every OTHER read error - EACCES (a brief we are not allowed to read), EISDIR
+   (something other than a file at that path) - means a brief may well be there and simply
+   cannot be read, so we return NOT pending. The only thing this gates is a one-time "brief
+   pending" room note (#2707); a false negative just skips that note, whereas a false positive
+   would post "your brief is not filled in" over a brief that is actually fine. Skipping a
+   helpful note is a smaller harm than contradicting a real brief. */
 function briefIsPending(folder) {
   try {
     if (!folder || !path.isAbsolute(folder)) return false;
     const brief = path.join(folder, BRIEF_STUB_FILENAME);
     let text;
     try { text = fs.readFileSync(brief, 'utf8'); }
-    catch { return true; }   // no brief at all: pending
+    // ONLY a genuinely absent brief (ENOENT) is pending. Any other read error means a brief
+    // might be there but unreadable, so fail toward NOT pending and never contradict it.
+    catch (err) { return !!(err && err.code === 'ENOENT'); }
     return text.includes(BRIEF_GOAL_PLACEHOLDER);   // stub present but Goal never filled in
   } catch { return false; }
 }
