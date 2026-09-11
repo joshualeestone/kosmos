@@ -5092,13 +5092,14 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    (Josh, 2026-09-11 reviewing 0.6.56 live: the buttons "look terrible" full
    width -- #2809). This reverses the 2026-08-23 full-bleed stack: the three
    still stack one per line and left-align under the lede, but each is only as
-   wide as its label plus padding. The stack is a flex column with
-   align-items:flex-start so a block button shrinks to its content rather than
-   stretching to the container. */
-.freshstack { margin-top: 2px; display: flex; flex-direction: column;
-              align-items: flex-start; }
-.freshstack .btn { margin-top: 10px; padding: 14px 16px; text-align: center;
-                   font-size: 17px; font-weight: 600; }
+   wide as its label plus padding. `display:block` keeps them stacked (one per
+   line, left-aligned by the block default); `width:fit-content` shrinks each to
+   its label, replacing the old `width:100%`. Scoped to `.btn` deliberately so it
+   does NOT resize the sibling `.fmsg` receipts sharing the restart container --
+   a flex-column parent would have made those content-width too. */
+.freshstack { margin-top: 2px; }
+.freshstack .btn { display: block; width: fit-content; margin-top: 10px;
+                   padding: 14px 16px; font-size: 17px; font-weight: 600; }
 /* The three read as ONE stack: the restart container joins at the stack's
    own 10px rhythm, and the empty receipt slots between them take no height
    until they hold a sentence. */
