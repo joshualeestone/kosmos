@@ -162,9 +162,16 @@ test('#2669 record: forgetting an id that was never recorded writes NOTHING, and
      (review round 8). */
   assert.equal(win32sessions.record('kept-2669', { name: 'keeper', runner: 'claude' }).ok, true);
   const before = fs.readFileSync(win32sessions.FILE, 'utf8');
+  const stamp = fs.statSync(win32sessions.FILE, { bigint: true });
   const r = win32sessions.forget('never-recorded-2669');
   assert.equal(r.ok, true, 'nothing to forget is not a failure');
-  assert.equal(fs.readFileSync(win32sessions.FILE, 'utf8'), before, 'and the record was not rewritten');
+  assert.equal(fs.readFileSync(win32sessions.FILE, 'utf8'), before, 'the record reads the same');
+  /* Same bytes is not enough: a no-op that rewrote identical content would pass
+     that, and a rename onto a file the board is reading can fail on Windows
+     (review round 9). A rename replaces the file, so its file index changes. */
+  const after = fs.statSync(win32sessions.FILE, { bigint: true });
+  assert.equal(after.ino, stamp.ino, 'no rename landed on the record');
+  assert.equal(after.mtimeNs, stamp.mtimeNs, 'and no write touched it');
   assert.equal(win32sessions.isOurs('kept-2669'), true, 'every other row survives');
   assert.equal(win32sessions.forget('kept-2669').ok, true);
 });
