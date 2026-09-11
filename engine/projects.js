@@ -872,6 +872,23 @@ function describe(project, roster, all) {
       // photograph of somebody it is not (the project cards draw member
       // faces, and a face is the strongest identity claim on the screen).
       hasAvatar: Boolean(card && card.isNamedOurs && card.hasAvatar),
+      /* #2762: the avatar VERSION travels with `hasAvatar`, for the same reason
+         #2698 added it to the org chart. The member-faces list (`tkFace`) sits
+         behind its own identical-HTML repaint skip (`TK_LIST_HTML`), and a bare
+         `/api/agent/<name>/avatar` URL is byte-identical before and after a
+         picture change, so the row's <img> was never recreated and kept showing
+         the OLD picture. Carrying the version makes the markup differ, which is
+         all the skip needs to stop skipping; the route is already `no-store`, so
+         a recreated <img> refetches.
+
+         Gated on `isNamedOurs` exactly like `hasAvatar` one line above, and for
+         the same reason: a stranger's pane borrowing the name must not lend this
+         row a photograph of somebody it is not. The producer (status.js
+         snapshot/panelessCard, #2698) has already applied its own `tied` gate, so
+         this is a pass-through of an already-gated value rather than a second
+         read of the store, and `|| 0` keeps a card that predates #2698 harmless
+         (`?v=0` is the stable no-picture value). */
+      avatarVer: (card && card.isNamedOurs) ? (card.avatarVer || 0) : 0,
       /**
        * ⚠️ WHETHER THIS AGENT HAS ACTUALLY BEEN TOLD, which is a different
        * question from whether we wrote the file. An agent reads its
