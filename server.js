@@ -316,10 +316,20 @@ const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopba
 const boardAuthState = { on: false, token: null };
 /* Sandboxed whole or not at all (#634): refused before anything listens or
    writes. In-process (a test requiring this file) it throws; as the program it
-   says the sentence and exits 2. */
+   says the sentence and exits 2.
+   🛑 #2628: AUDIT THE LAUNCH'S ENVIRONMENT, NOT process.env. By this point the
+   world bootstrap at the top of this file has written a NAMED world's data,
+   projects and workers roots into process.env, and those three -- with the launch
+   dir and tmux left live, as they are for every world -- are exactly the shape
+   this guard refuses. Auditing process.env made every named world refuse to boot
+   on every platform ("will not start half-sandboxed"), after which worldbootguard
+   fell back to Kosmos 1: #2528's "the restart errored and I am back in Kosmos 1".
+   LAUNCH_ENV_OVERRIDES is the launch's own AGENT_WORKFORCE_* variables, captured
+   before the bootstrap for the same reason the Windows hand-off reads it, so a
+   real half-sandbox (which sets them at launch) is still refused. */
 {
   const sandbox = require('./engine/sandbox');
-  const a = sandbox.audit(process.env);
+  const a = sandbox.audit(LAUNCH_ENV_OVERRIDES);
   if (a.partial) {
     const msg = sandbox.sentence(a);
     if (require.main === module) { process.stderr.write(msg + '\n'); process.exit(2); }
@@ -11808,7 +11818,10 @@ function start(port = PORT) {
          fixture board (every test + browser-check) does not enforce and writes
          nothing. Fail CLOSED: if provisioning throws (disk/permission), the board
          stays enforcing with a null token, refusing rather than serving unguarded. */
-      boardAuthState.on = boardauth.enforced(process.env);
+      /* #2628: the SAME launch env the #634 boot guard audits. A named world's roots
+         in process.env must never make a real board read as a sandboxed fixture
+         (and so run token-off); both guards judge "sandboxed" from one input. */
+      boardAuthState.on = boardauth.enforced(LAUNCH_ENV_OVERRIDES);
       if (boardAuthState.on) {
         try {
           boardAuthState.token = boardauth.ensureToken();

@@ -276,11 +276,31 @@ function bundleRoot(opts) {
   return null;
 }
 
+/* 🛑 #2628: THE BOARD'S MACHINE PATHS COME FROM THE ENVIRONMENT IT WAS LAUNCHED
+   WITH. A board serving a named world has that world's AGENT_WORKFORCE_DATA in
+   process.env (worldenv), and win32anchor.anchorDir honours it. Without this, a
+   named-world boot would re-register the logon task against a runtime copied under
+   the world, read its claim file from the world (so a task the person removed would
+   be re-created), and write a restart's log into a folder that does not exist.
+   worldenv captures the launch env before it applies any world. Before a boot (a
+   unit test) there is none, and process.env is the launch env, exactly as before.
+   ⚠️ The detached restart helper is NOT such a case: it is spawned by the board and
+   inherits the board's POST-world process.env, with no launch env of its own. It is
+   safe only because it derives no machine path (it ends and runs the task, and
+   `restart` hands it the log path). Anything added to it that needs one must be
+   passed the launch env explicitly (review round 2). */
+function machineEnv(o) {
+  if (o && o.env) return o.env;
+  let launch = null;
+  try { launch = require('./worldenv').launchEnv(); } catch { launch = null; }
+  return launch || process.env;
+}
+
 /** Where the anchor keeps the board's shim, log and claim file. Never throws. */
 function anchorDirFor(opts) {
   const o = opts || {};
   try {
-    return win32anchor.anchorDir(o.platform || process.platform, o.home || os.homedir(), o.env || process.env);
+    return win32anchor.anchorDir(o.platform || process.platform, o.home || os.homedir(), machineEnv(o));
   } catch { return null; }
 }
 
@@ -295,8 +315,9 @@ function anchorDirFor(opts) {
  */
 function install(spec) {
   const s = spec || {};
+  const env = machineEnv(s);   // #2628: the launch env, never a named world's
   const anchor = anchorFor({
-    platform: s.platform, home: s.home, env: s.env,
+    platform: s.platform, home: s.home, env,
     node: s.node, engineDir: s.engineDir,
   });
   if (!anchor.ok) return { ok: false, because: anchor.because };
@@ -306,7 +327,7 @@ function install(spec) {
      rejects with its own opaque one. (win32job paid for this: an injected test
      env with no USERNAME produced `<UserId></UserId>` and a unit test that
      passed.) */
-  if (!win32job.taskUser(s.env)) {
+  if (!win32job.taskUser(env)) {
     return { ok: false, because: 'we could not tell which user this computer signs in as, so a startup job would never run' };
   }
 
@@ -326,7 +347,7 @@ function install(spec) {
     try {
       fs.writeFileSync(xmlAt, Buffer.from('\ufeff' + taskXml({
         node: anchor.node, boot: bootAt, workingDir: s.workingDir,
-      }, s.env), 'utf16le'));
+      }, env), 'utf16le'));
     } catch (e) {
       return { ok: false, because: 'we could not write the startup job definition (' + ((e && e.message) || 'no detail') + ')' };
     }
@@ -472,7 +493,9 @@ function ensureInstalled(opts) {
  */
 function restart(opts) {
   const o = opts || {};
-  const env = o.env || process.env;
+  /* #2628: the launch env. It carries the task marker (the boot shim sets it before
+     server.js loads), and its anchor dir is the machine one a restart logs into. */
+  const env = machineEnv(o);
   if (!startedByTask(env)) {
     return { ok: false, because: 'this board was not started by its Windows logon job, so stopping it would not bring it back' };
   }
@@ -483,7 +506,7 @@ function restart(opts) {
   if (st.enabled === false) {
     return { ok: false, because: 'the board\'s Windows logon job is switched off, so stopping it would not bring it back' };
   }
-  const dir = anchorDirFor(o);
+  const dir = anchorDirFor({ ...o, env });
   const logAt = o.log || path.join(dir || os.tmpdir(), 'board-restart.log');
   let child;
   try {
