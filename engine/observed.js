@@ -45,6 +45,12 @@ const OUTCOME = Object.freeze({ OK: 'ok', REJECTED: '401' });
  * habit this codebase warns about would otherwise break.
  */
 const PROVIDER = Object.freeze({ ANTHROPIC: 'anthropic', OPENAI: 'openai' });
+// The CLOSED set the injective-join claim above rests on. saw() enforces membership so
+// the isolation is structural (a property of this module) rather than a convention the
+// callers happen to keep -- a third caller passing an unrecognised or empty provider
+// string cannot land an observation that a later read might mis-join. Derived from
+// PROVIDER so adding a provider there updates the guard in one place.
+const PROVIDER_VALUES = new Set(Object.values(PROVIDER));
 
 // (provider, agent) -> { provider, agent, outcome, at }. Last qualifying observation
 // only, per provider+agent. Unbounded only by the count of distinct (provider, agent)
@@ -58,14 +64,18 @@ const store = new Map();
 function keyOf(provider, agent) { return provider + ' ' + agent; }
 
 /*
- * Record an observed outcome for an agent on a provider. `provider` must be a
- * non-empty string (PROVIDER.ANTHROPIC / PROVIDER.OPENAI); `outcome` must be
- * OUTCOME.OK or OUTCOME.REJECTED; anything else (including the null status.js passes
- * for idle / needs-you / unknown states) is IGNORED, so a prior real observation
- * SURVIVES an idle tick rather than being clobbered by a non-observation.
+ * Record an observed outcome for an agent on a provider. `provider` must be one of the
+ * closed PROVIDER set (PROVIDER.ANTHROPIC / PROVIDER.OPENAI) -- membership is ENFORCED
+ * here, not merely asserted by the header comment, because this key is the sole
+ * mechanism keeping an OpenAI observation from resolving against a Claude account (and
+ * vice versa); a caller passing an unrecognised or empty provider must not land a
+ * record a later read could mis-join. `outcome` must be OUTCOME.OK or OUTCOME.REJECTED;
+ * anything else (including the null status.js passes for idle / needs-you / unknown
+ * states) is IGNORED, so a prior real observation SURVIVES an idle tick rather than
+ * being clobbered by a non-observation.
  */
 function saw(provider, agent, outcome, now) {
-  if (typeof provider !== 'string' || provider === '') return;
+  if (!PROVIDER_VALUES.has(provider)) return;
   if (typeof agent !== 'string' || agent === '') return;
   if (outcome !== OUTCOME.OK && outcome !== OUTCOME.REJECTED) return;
   const at = typeof now === 'number' && Number.isFinite(now) ? now : Date.now();

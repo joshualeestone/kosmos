@@ -95,6 +95,24 @@ test('a codex WORKING pane with a FRESH rollout completion records an OpenAI ok 
   assert.ok(rec.at <= Date.now() && Date.now() - rec.at < 5 * 60 * 1000);
 });
 
+test('#2413 perf: a codex pane reads its rollout ONCE per snapshot, not twice (shared read)', () => {
+  // codexsession.read walks the sessions tree to match by workdir, so the observation arm
+  // and the context ring must NOT each derive it. snapshot() reads it once (readCodexSession)
+  // and threads the same session into both. Guards against a future edit re-splitting the read.
+  writeRollout('codexonce', Date.now() - 30 * 1000);
+  const codexsession = require('./codexsession');
+  const orig = codexsession.read;
+  let reads = 0;
+  codexsession.read = (dir) => { reads += 1; return orig(dir); };
+  try {
+    fleet.install([fleet.agent('codexonce', { runner: 'codex', state: 'working' })]);
+  } finally {
+    codexsession.read = orig;
+  }
+  assert.equal(reads, 1,
+    'the rollout was read ' + reads + ' times for one codex pane in one snapshot; the observation arm and the context ring must share a single read');
+});
+
 test('a codex WORKING pane with a STALE rollout completion records NOTHING (self-heals, no permanent green)', () => {
   writeRollout('codexstale', Date.now() - 10 * 60 * 1000); // 10 min ago: past the 5-min freshness window
   const board = fleet.install([fleet.agent('codexstale', { runner: 'codex', state: 'working' })]);
