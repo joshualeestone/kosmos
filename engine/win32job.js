@@ -48,7 +48,44 @@ function taskName(agentName) { return TASK_PREFIX + String(agentName); }
 /* The command seam. Tests replace it; production shells schtasks. Returns
    { ok, out } and never throws, so every caller can report rather than unwind. */
 let runFn = null;
-function setRunner(fn) { runFn = typeof fn === 'function' ? fn : null; }
+/**
+ * 🛑 #2717: THE CONFIGDIR PATH, REMEMBERED. The PATH is immutable for the life of
+ * a task; only whether the directory still EXISTS changes, and that is checked
+ * live by the caller on every ask. So this caches the answer to "what path did
+ * this task record", never "does it still exist".
+ *
+ * Why it is worth caching at all: `configDirFor` shells `schtasks /Query /XML`,
+ * and `/api/removed` calls the predicate that uses it ONCE PER REMOVED AGENT on
+ * the board's five-second poll. On Windows that was one process spawn per
+ * removed agent, every five seconds, forever. On darwin the same predicate is a
+ * cheap plist read, which is why it went unnoticed: the accepted-cost note on
+ * #2615 was measured on the Mac and stopped being true when #2614 widened the
+ * predicate underneath it.
+ *
+ * ⚠️ ONLY A `known` ANSWER IS CACHED. A read that failed (`known: false`) is a
+ * statement about the moment, not about the task; caching it would turn one
+ * transient schtasks failure into a permanently disarmed safety check.
+ *
+ * ⚠️ AND IT IS BUSTED WHERE THE ARGV CAN CHANGE, which is `install` (`/Create /F`
+ * rewrites the definition, so a re-registered agent can carry a different
+ * account) and `remove` (`/Delete`). `disable` and `enable` are `/Change` on the
+ * STATE only and cannot move the path, so they deliberately do not bust it.
+ */
+const CONFIG_DIR_CACHE = new Map();
+function forgetConfigDir(name) { CONFIG_DIR_CACHE.delete(taskName(name)); }
+/* 🔑 ONE WRITER, so "which answers are cacheable" is decided in a single place
+   rather than at each `return`. It takes only `known` answers and hands the
+   value straight back, so a call site reads `return rememberConfigDir(n, {...})`
+   and cannot accidentally cache a failure by forgetting which branch it is in. */
+function rememberConfigDir(name, answer) {
+  if (answer && answer.known === true) CONFIG_DIR_CACHE.set(taskName(name), answer);
+  return answer;
+}
+
+/* 🔑 The runner swap clears it too. Without this a stubbed answer outlives the
+   stub and the NEXT test reads the previous one's task, which is the kind of
+   cross-test leak that reads as a flake rather than as a cache. */
+function setRunner(fn) { runFn = typeof fn === 'function' ? fn : null; CONFIG_DIR_CACHE.clear(); }
 function run(args) {
   if (runFn) return runFn(args);
   try {
@@ -251,6 +288,16 @@ function taskXml(spec, env) {
 function install(spec) {
   const s = spec || {};
   if (!s.name || !s.cwd) return { ok: false, because: 'a job needs an agent name and a folder' };
+  /* 🛑 #2717: FORGET THE REMEMBERED PATH AT THE TOP, before anything can fail
+     partway. `/Create /F` REWRITES the definition, so a re-registered agent can
+     carry a different account, and a cache kept across that would hand out the
+     OLD path on a SAFETY check.
+     ⚠️ Deliberately broader than "only when the write succeeded": this also
+     forgets when `install` bails early and nothing changed. That costs ONE
+     re-read, and it removes the reasoning step "did this particular failure
+     reach the create?" from a correctness argument. A first version put it
+     beside the `/Create` and an early return walked straight past it. */
+  forgetConfigDir(s.name);
   /* 🔑 ANCHOR FIRST, THEN REGISTER, and the order is the point: a task built from
      this app's paths outlives the app. `ensureAnchored` copies node out of the
      extract tree and refreshes the shared engine pointer, so the command written
@@ -355,6 +402,7 @@ const NO_SUCH_TASK = /cannot find|does not exist/i;
 
 /** Remove the job entirely (the agent is being deleted, not stopped). */
 function remove(name) {
+  forgetConfigDir(name);   // #2717: the task is going; its remembered path goes with it
   const r = run(['/Delete', '/F', '/TN', taskName(name)]);
   /* A job that was never registered is already gone -- the same posture
      win32sessions.forget takes, so a delete is idempotent. */
@@ -508,9 +556,18 @@ function xmlUnescape(v) {
  * read is tracked in #2717.
  */
 function configDirFor(name) {
+  /* #2717: a remembered PATH answers without a spawn. Existence is not cached
+     and is still checked by the caller on every ask. */
+  const cached = CONFIG_DIR_CACHE.get(taskName(name));
+  if (cached) return cached;
   const r = run(['/Query', '/TN', taskName(name), '/XML']);
   if (!r.ok) {
-    if (NO_SUCH_TASK.test(r.out || '')) return { known: true, configDir: null };
+    /* Cached like any other KNOWN answer: "there is no task" is as stable as a
+       path, and it is the case a REMOVED agent whose task is already gone hits
+       on every single poll. Leaving it uncached would have left the spawn this
+       card is about in place for exactly those agents. `install` re-registering
+       one busts it. */
+    if (NO_SUCH_TASK.test(r.out || '')) return rememberConfigDir(name, { known: true, configDir: null });
     return { known: false, because: (r.out || '').trim().split('\n')[0] || 'schtasks would not answer' };
   }
   /* WARNING: schtasks /Query /XML output encoding is NOT guaranteed utf8, and run()
@@ -550,7 +607,7 @@ function configDirFor(name) {
   if (spec.name !== name) {
     return { known: false, because: 'the task argument line is not the shape we can read a configDir from' };
   }
-  return { known: true, configDir: spec.configDir || null };
+  return rememberConfigDir(name, { known: true, configDir: spec.configDir || null });
 }
 
 module.exports = {
