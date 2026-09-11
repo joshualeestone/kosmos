@@ -125,7 +125,11 @@ test('the modal Josh got stuck in refuses Escape only while the request is in fl
   // And it is torn down, or reopening stacks handlers.
   const closeAt = PAGE.indexOf('const close = () => {\n    back.hidden = true;');
   assert.notEqual(closeAt, -1, 'the changeDialog close is gone');
-  assert.match(PAGE.slice(closeAt, closeAt + 300), /removeEventListener\('keydown', onEsc\)/,
+  // Slice the whole close() body (to its closing `};`), not a fixed 300-char window: the body
+  // carries comments now (#2692 added one), and a length-bounded slice would false-red on a
+  // longer comment while the teardown it checks is unchanged. Same robust pattern as onEsc above.
+  const closeFn = PAGE.slice(closeAt, PAGE.indexOf('};', closeAt) + 2);
+  assert.match(closeFn, /removeEventListener\('keydown', onEsc\)/,
     'the Escape listener is never removed, so reopening the dialog stacks them');
   /* 🛑 AND IT IS ACTUALLY ATTACHED. A perturbation that deleted the
      addEventListener left every other assertion here green: the handler still
