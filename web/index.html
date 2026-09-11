@@ -36966,9 +36966,10 @@ function rxnPositionPicker(picker, anchor) {
   picker.style.top = top + 'px';
 }
 /* Dismiss an open picker on a click anywhere outside an open `.rxn-picker` or its
-   opener (a click INSIDE the picker is a pick and is handled by the room handler,
-   which repaints the row and thus closes it). Capture phase so it runs regardless of
-   stopPropagation elsewhere; it never blocks the click, only tidies open pickers. */
+   opener (a click INSIDE the shared `#rxn-picker` is a pick, handled by that picker's
+   own click handler in rxnPickerEl, which reacts and then closes explicitly -- #2834).
+   Capture phase so it runs regardless of stopPropagation elsewhere; it never blocks the
+   click, only tidies open pickers. */
 document.addEventListener('click', (e) => {
   const inside = e.target && e.target.closest
     ? e.target.closest('.rxn-picker, .rxn-more') : null;
@@ -37770,6 +37771,18 @@ function paintThreadInto(box, html, hasRows, keyChanged, filtering) {
   if (box.__roomHadRows) {
     box.__roomHeldTop = box.scrollTop;
     box.__roomHeldAtBottom = onFloorBefore;
+  }
+  /* #2834: the full picker is now the shared `#rxn-picker` (in body), so a room
+     rebuild no longer destroys it the way the old inline-per-post picker was
+     destroyed. Close it at exactly the moment the room content changes -- the same
+     moment the old inline picker went away and its opener was recreated -- or the
+     popover floats open while its `.rxn-more` opener is rebuilt with aria-expanded
+     reset out from under it. `setLive`'s `__lastLive` skip means an UNCHANGED poll
+     does not reach here, so a quiet room leaves an open picker alone (parity with
+     the composer `#pj-emoji` panel, whose anchor never repaints). */
+  if (box.__lastLive !== html) {
+    const rxnPk = document.getElementById('rxn-picker');
+    if (rxnPk && !rxnPk.hidden) rxnCloseAllPickers();
   }
   setLive(box, html);
   box.__roomHadRows = hasRows;
