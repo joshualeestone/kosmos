@@ -22,17 +22,17 @@ process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-
 process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-buildheader-570-launch-'));
 
 const { start, server } = require('./server');
-const { BOARD_BUILD_HEADER, buildIdentity } = require('./engine/win32handoff');
+const { BOARD_IDENTITY_HEADER, buildIdentity, boardIdentity } = require('./engine/win32handoff');
 
-test('GET / names the build this process loaded, the same identity the hand-off computes for itself', async (t) => {
+test('GET / names the build this process loaded and the world it booted, the same identity the hand-off computes for itself', async (t) => {
   await start(0);
   t.after(() => { server.closeAllConnections(); server.close(); });
   const res = await fetch(`http://127.0.0.1:${server.address().port}/`);
   assert.equal(res.status, 200);
-  const named = res.headers.get(BOARD_BUILD_HEADER);
+  const named = res.headers.get(BOARD_IDENTITY_HEADER);
   const { version } = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   assert.ok(named, 'the page response no longer names the running build');
-  assert.equal(named, buildIdentity(__dirname), 'the header and the hand-off derive the build two different ways');
+  assert.equal(named, boardIdentity(buildIdentity(__dirname), require('./engine/worldenv').bootedWorld()), 'the header and the hand-off derive the identity two different ways');
   assert.ok(named.startsWith(version), 'the build does not lead with package.json\'s version');
 });
 
@@ -50,5 +50,5 @@ test('#570: the hand-off is given the LAUNCH env, copied before the world bootst
   assert.ok(copied > -1 && bootstrap > -1 && copied < bootstrap, 'the launch env is not copied before the world bootstrap rewrites it');
   assert.match(src, /handOffToTask\(\{[^}]*env: LAUNCH_ENV_OVERRIDES/, 'the hand-off reads process.env after the bootstrap, so a named world looks like an override');
   const leave = src.slice(src.indexOf('if (!handOff.serve) {'), src.indexOf('process.stdout.write(`${handOff.say}'));
-  assert.match(leave, /worldbootguard'\)\.clear\(/, 'a hand-off that exits leaves its world boot attempt behind');
+  assert.match(leave, /forgetThisBootAttempt\(\)/, 'a hand-off that exits leaves its world boot attempt behind (the clear itself is tested in engine/win32handoff.test.js)');
 });

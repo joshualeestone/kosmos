@@ -17,7 +17,7 @@ const os = require('node:os');
 const nodePath = require('node:path');
 const http = require('node:http');
 
-const { handOffToTask, buildIdentity, BOARD_BUILD_HEADER } = require('./win32handoff');
+const { handOffToTask, buildIdentity, BOARD_IDENTITY_HEADER } = require('./win32handoff');
 
 const REFRESHED = { ok: true, action: 'refreshed' };
 const MINE = '0.6.55+6182640d6a1f';
@@ -44,7 +44,7 @@ function world({ occupant = null, taskRunning = false, starts = MINE, runOk = tr
       w.ops.push('run');
       if (!runOk) return { ok: false, because: 'we could not start the board (access denied)' };
       /* IgnoreNew: a run while the task runs starts nothing new. */
-      if (!w.taskRunning && starts !== null) { w.taskRunning = true; w.pending = { at: w.t + 1200, build: typeof starts === 'function' ? starts() : starts }; }
+      if (!w.taskRunning && starts !== null) { w.taskRunning = true; w.pending = { at: w.t + 1200, identity: typeof starts === 'function' ? starts() : starts }; }
       return { ok: true };
     },
   };
@@ -52,14 +52,14 @@ function world({ occupant = null, taskRunning = false, starts = MINE, runOk = tr
     w.probes++;
     w.t += probeCost; // a probe that takes time, as one to a hung board does
     if (w.releasing !== undefined && w.t >= w.releasing) { w.occupant = null; delete w.releasing; }
-    if (w.pending && w.t >= w.pending.at) { w.occupant = w.pending.build; w.pending = null; }
-    return w.occupant === null ? { answering: false, build: null } : { answering: true, build: w.occupant || null };
+    if (w.pending && w.t >= w.pending.at) { w.occupant = w.pending.identity; w.pending = null; }
+    return w.occupant === null ? { answering: false, identity: null } : { answering: true, identity: w.occupant || null };
   };
   w.sleep = async (ms) => { w.ops.push('sleep:' + ms); w.t += ms; };
   w.now = () => w.t;
   w.opts = (extra) => Object.assign({
     platform: 'win32', env: {}, byTask: false, bundle: true, live: true, ensured: REFRESHED,
-    port: 16180, build: MINE, startedAt: 0,
+    port: 16180, identity: MINE, startedAt: 0,
     board: w.board, probe: w.probe, sleep: w.sleep, now: w.now,
   }, extra || {});
   w.taskOps = () => w.ops.filter((o) => !o.startsWith('sleep'));
@@ -149,7 +149,7 @@ test('🛑 the SAME version from a different commit is an update, not "already r
   /* Windows zips are cut from main between version bumps, so two 0.6.55 zips can
      carry different code. The build identity includes the commit. */
   const w = world({ occupant: '0.6.55+2f841189aaaa', taskRunning: true });
-  const r = await handOffToTask(w.opts({ build: '0.6.55+6182640d6a1f' }));
+  const r = await handOffToTask(w.opts({ identity: '0.6.55+6182640d6a1f' }));
   assert.equal(r.serve, false);
   assert.match(r.say, /background/);
   assert.deepEqual(w.taskOps(), ['end', 'run']);
@@ -162,11 +162,11 @@ test('a board with no build header predates the hand-off, so it is replaced, nev
   assert.deepEqual(w.taskOps(), ['end', 'run']);
 });
 
-test('a task board still booting at logon answers AFTER /Run with its older build: the second round replaces it', async () => {
+test('a task board still booting at logon answers AFTER /Run with its older identity: the second round replaces it', async () => {
   /* The first probe finds nothing (it is still booting), /Run is ignored because
      the task already runs, then the old build answers. */
   const w = world({ taskRunning: true });
-  w.pending = { at: 800, build: OLDER };
+  w.pending = { at: 800, identity: OLDER };
   const r = await handOffToTask(w.opts());
   assert.equal(r.serve, false, 'the window must not be left serving over a board we could replace');
   assert.match(r.say, /background/);
@@ -290,7 +290,7 @@ async function serveOnce(handler, fn) {
 }
 
 test('the default probe reads the build the running process names in its header', async () => {
-  await serveOnce((q, s) => { s.writeHead(200, { [BOARD_BUILD_HEADER]: MINE }); s.end('<html></html>'); }, async (port) => {
+  await serveOnce((q, s) => { s.writeHead(200, { [BOARD_IDENTITY_HEADER]: MINE }); s.end('<html></html>'); }, async (port) => {
     const w = world();
     const opts = w.opts({ port });
     delete opts.probe;
@@ -307,7 +307,7 @@ test('🛑 an OLD board serving a NEW page (a zip unpacked over the running inst
   await serveOnce((q, s) => { s.end('<html><head><meta name="kosmos-version" content="0.6.55"></head></html>'); }, async (port) => {
     const w = world({ taskRunning: true });
     w.board.end = () => { w.ops.push('end'); return { ok: true }; };
-    const opts = w.opts({ port, build: '0.6.55' });
+    const opts = w.opts({ port, identity: '0.6.55' });
     delete opts.probe;
     const r = await handOffToTask(opts);
     assert.doesNotMatch(String(r.say), /already running/);
@@ -363,6 +363,48 @@ test('buildIdentity: no readable package.json is no identity', () => {
 
 test('with no identity of its own, no answering board is ever taken for this one', async () => {
   const w = world({ occupant: '', taskRunning: true });
-  const r = await handOffToTask(w.opts({ build: null }));
+  const r = await handOffToTask(w.opts({ identity: null }));
   assert.notEqual(r.say, 'Kosmos is already running. Your browser is opening it.');
+});
+
+// ── worlds: the identity names the world, and a hand-off forgets its boot attempt ──
+
+test('boardIdentity: the same build serving ANOTHER world is not this board', async () => {
+  const { boardIdentity } = require('./win32handoff');
+  assert.notEqual(boardIdentity('0.6.55+abc', 'side-1'), boardIdentity('0.6.55+abc', 'default'));
+  assert.equal(boardIdentity(null, 'default'), null, 'no build is no identity');
+  const w = world({ occupant: boardIdentity(MINE, 'side-1'), taskRunning: true, starts: boardIdentity(MINE, 'default') });
+  const r = await handOffToTask(w.opts({ identity: boardIdentity(MINE, 'default') }));
+  assert.equal(r.serve, false);
+  assert.match(r.say, /background/, 'the other world\'s board is replaced, never reported as "already running"');
+  assert.deepEqual(w.taskOps(), ['end', 'run']);
+});
+
+test('🛑 forgetThisBootAttempt clears the attempt the REAL world bootstrap recorded for a named world', () => {
+  /* Real worlds, worldenv and worldbootguard on a sandbox registry: the attempt is
+     written by the bootstrap and must be gone after the hand-off's clear, or every
+     hand-off counts as a failed boot and the world is abandoned (#2528). */
+  const { forgetThisBootAttempt } = require('./win32handoff');
+  const worlds = require('./worlds');
+  const worldenv = require('./worldenv');
+  const guard = require('./worldbootguard');
+  const home = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-handoff-world-570-'));
+  try {
+    const env = { ...process.env, AGENT_WORKFORCE_HOME: home };
+    const base = worlds.baseRoot(env);
+    const side = worlds.createWorld(base, 'Side Project');
+    worlds.setActiveWorld(base, side.id);
+    worldenv.bootstrapWorldEnv(env);
+    const attempts = nodePath.join(base, guard.FILE);
+    assert.ok(fs.existsSync(attempts) && JSON.parse(fs.readFileSync(attempts, 'utf8'))[side.id] === 1,
+      'control: the bootstrap recorded one attempt for the named world');
+    forgetThisBootAttempt();
+    assert.ok(!fs.existsSync(attempts) || !(side.id in JSON.parse(fs.readFileSync(attempts, 'utf8'))),
+      'the hand-off left its world boot attempt behind');
+  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+});
+
+test('forgetThisBootAttempt never throws, whatever the guard does', () => {
+  const { forgetThisBootAttempt } = require('./win32handoff');
+  assert.doesNotThrow(() => forgetThisBootAttempt({ worldenv: { bootedBaseDir: () => { throw new Error('x'); }, bootedWorld: () => 'w' } }));
 });

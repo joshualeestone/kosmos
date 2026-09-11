@@ -173,13 +173,14 @@ const usage = require('./engine/usage');
 // on screen has to be the number in the release rather than a hand-typed label
 // that drifts.
 const { version } = require('./package.json');
-/* #570: which build THIS PROCESS is (version, plus the zip's commit when it runs
-   from the Windows bundle), fixed at start. GET / names it in a header so the
-   Windows hand-off can tell the code that is running from the files on disk.
-   The module loads on every platform for this one function and constant; it has
-   no side effects at load and requires win32board only when a hand-off runs. */
-const { buildIdentity, BOARD_BUILD_HEADER } = require('./engine/win32handoff');
-const BOARD_BUILD = buildIdentity(__dirname) || version;
+/* #570: which board THIS PROCESS is -- its build (version, plus the zip's commit
+   when it runs from the Windows bundle) and the world it booted into -- fixed at
+   start. GET / names it in a header so the Windows hand-off can tell the board
+   that is running from the files on disk, and from a board serving another world.
+   The module loads on every platform for these; it has no side effects at load
+   and requires win32board only when a hand-off runs. */
+const { buildIdentity, boardIdentity, BOARD_IDENTITY_HEADER } = require('./engine/win32handoff');
+const BOARD_IDENTITY = boardIdentity(buildIdentity(__dirname) || version, require('./engine/worldenv').bootedWorld());
 
 /**
  * Whether this process is behind the code on disk (#338).
@@ -11368,7 +11369,7 @@ const server = http.createServer((req, res) => {
        an old board serve the new page and name the new version. The Windows
        hand-off (engine/win32handoff.js) must tell the running code from the files
        on disk, and this header is that answer. */
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', [BOARD_BUILD_HEADER]: BOARD_BUILD });
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', [BOARD_IDENTITY_HEADER]: BOARD_IDENTITY });
     res.end(buf);
   });
 });
@@ -11939,19 +11940,12 @@ if (require.main === module) {
      board. Every case it cannot confirm resolves to serving here, as before. See
      engine/win32handoff.js. */
   const beforeServing = process.platform === 'win32'
-    ? require('./engine/win32handoff').handOffToTask({ ensured: win32BoardEnsured, port: PORT, build: BOARD_BUILD, env: LAUNCH_ENV_OVERRIDES })
+    ? require('./engine/win32handoff').handOffToTask({ ensured: win32BoardEnsured, port: PORT, identity: BOARD_IDENTITY, env: LAUNCH_ENV_OVERRIDES })
     : Promise.resolve({ serve: true, attempted: false });
   beforeServing.catch((err) => ({ serve: true, attempted: true, because: `the hand-off failed (${String(err && err.message)})` })).then((handOff) => {
     if (!handOff.serve) {
-      /* #2528: this boot recorded an attempt on its world (worldenv's bootstrap)
-         and leaves without reaching `listening`, the only other place that clears
-         it. Left alone, a named world would count every hand-off as a failed boot
-         and be abandoned for the default world. The board that serves it is the
-         task's, which records and clears its own attempts. */
-      try {
-        const worldenv = require('./engine/worldenv');
-        require('./engine/worldbootguard').clear(worldenv.bootedBaseDir(), worldenv.bootedWorld());
-      } catch (_) { /* fail-open, as at the bind */ }
+      /* #2528: this boot's world attempt, which only `listening` would clear. */
+      require('./engine/win32handoff').forgetThisBootAttempt();
       /* A Windows console write is asynchronous, so exit from its callback. The
          launcher's own console closes on exit 0, so this line is read by whoever
          started Kosmos from a terminal they keep. */

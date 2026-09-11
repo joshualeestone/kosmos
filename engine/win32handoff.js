@@ -76,13 +76,14 @@ const POLL_INTERVAL_MS = 300;
  * 🔑 THE RUNNING BOARD'S IDENTITY COMES FROM A HEADER, NEVER FROM THE PAGE.
  * server.js reads `web/index.html` per request, so a new zip unpacked over the
  * running install -- the folder Explorer's Extract All offers by default -- makes
- * the OLD board serve the NEW page. The header is `buildIdentity` as the process
- * computed it at start, so it names the code that is actually answering.
+ * the OLD board serve the NEW page. The header is `boardIdentity` -- the build
+ * and the booted world -- as the process computed it at start, so it names the
+ * code, and the world, that is actually answering.
  * ⚠️ A board without the header predates this module, so it is never taken for
  * this one: a task board without it is replaced once.
  * GET / needs no token, so any caller can ask; the version is on the page anyway.
  */
-const BOARD_BUILD_HEADER = 'x-kosmos-build';
+const BOARD_IDENTITY_HEADER = 'x-kosmos-board';
 
 /**
  * Which build this app is: its package.json version, plus the commit the zip was
@@ -109,16 +110,46 @@ function buildIdentity(appDir) {
   return /^[0-9a-f]{7,40}$/.test(sha) ? version + '+' + sha.slice(0, 12) : version;
 }
 
-/* Is a board answering on this port, and which build is it running? Never rejects. */
+/**
+ * What an answering board must match to be "this one": the build AND the Kosmos
+ * world it booted into. A board of this very build serving ANOTHER world (a world
+ * switch whose restart never happened) is not the board this launch would serve,
+ * and calling it "already running" would land the person on the wrong world's
+ * data. Both sides call this with their own booted world (worldenv.bootedWorld()),
+ * the running board once at start for its header and the launching one for
+ * itself. Round 4 of the review found the gap once named worlds could hand off.
+ */
+function boardIdentity(build, worldId) {
+  return build ? String(build) + '@' + String(worldId || '') : null;
+}
+
+/**
+ * Forget the world boot attempt THIS process recorded. worldenv's bootstrap
+ * records one for a named world (#2528), and only a board reaching `listening`
+ * clears it; a hand-off leaves without listening, so without this every hand-off
+ * would count as a failed boot and the world would be abandoned for the default
+ * one. The board that serves the world is the task's, which records and clears
+ * its own. Seams: `worldenv`, `guard`. Never throws.
+ */
+function forgetThisBootAttempt(deps) {
+  const d = deps || {};
+  try {
+    const we = d.worldenv || require('./worldenv');
+    const guard = d.guard || require('./worldbootguard');
+    guard.clear(we.bootedBaseDir(), we.bootedWorld());
+  } catch { /* fail-open, as at the bind */ }
+}
+
+/* Is a board answering on this port, and which board is it? Never rejects. */
 function probeBoard(port) {
   return new Promise((resolve) => {
     const req = http.get({ host: '127.0.0.1', port, path: '/', timeout: PROBE_TIMEOUT_MS }, (res) => {
       res.resume();
-      const named = res.headers[BOARD_BUILD_HEADER];
-      res.on('end', () => resolve({ answering: true, build: typeof named === 'string' && named ? named : null }));
+      const named = res.headers[BOARD_IDENTITY_HEADER];
+      res.on('end', () => resolve({ answering: true, identity: typeof named === 'string' && named ? named : null }));
     });
     req.on('timeout', () => req.destroy(new Error('timeout')));
-    req.on('error', () => resolve({ answering: false, build: null }));
+    req.on('error', () => resolve({ answering: false, identity: null }));
   });
 }
 
@@ -183,11 +214,11 @@ async function handOffToTask(opts) {
     if (skip) return { serve: true, attempted: false, because: skip };
 
     const port = o.port;
-    const mine = o.build !== undefined ? o.build : buildIdentity(path.resolve(__dirname, '..'));
+    const mine = o.identity !== undefined ? o.identity : boardIdentity(buildIdentity(path.resolve(__dirname, '..')), require('./worldenv').bootedWorld());
     const startedAt = o.startedAt !== undefined ? o.startedAt : now() - Math.round(process.uptime() * 1000);
     const deadline = startedAt + HANDOFF_BUDGET_MS;
     const left = () => Math.max(0, deadline - now());
-    const isMine = (p) => p.answering && Boolean(mine) && p.build === mine;
+    const isMine = (p) => p.answering && Boolean(mine) && p.identity === mine;
     /* Never STARTS a probe past `until`, so one wait overshoots by at most the
        probe already in flight (PROBE_TIMEOUT_MS) -- the figure the worst case in
        HANDOFF_BUDGET_MS is built from. */
@@ -247,4 +278,4 @@ async function handOffToTask(opts) {
   }
 }
 
-module.exports = { handOffToTask, buildIdentity, BOARD_BUILD_HEADER };
+module.exports = { handOffToTask, buildIdentity, boardIdentity, forgetThisBootAttempt, BOARD_IDENTITY_HEADER };
