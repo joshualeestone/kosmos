@@ -1016,6 +1016,11 @@ async function withThread(spec, answers, fn) {
        body's own sends, the thing every zero-send assertion here counts. */
     const made = json(await post('/api/projects', {
       name: 'Thread ' + spec.name, folder: folder('thread-' + spec.name), agents: [spec.name],
+      // #2707: a description makes this generic fixture a normal BRIEFED project, so the
+      // brief-pending room note does not fire and pollute the many tests that use withThread
+      // to assert on an otherwise-empty room. The note's own behavior is covered directly by
+      // the dedicated #2707 tests, which create brief-LESS projects on purpose.
+      description: 'A briefed test project.',
     })).project;
     calls = armChat(answers);
     return await fn({ board, calls, project: made });
@@ -3513,4 +3518,34 @@ test('#2458: POST with a blank parent is top-level, unchanged from before', asyn
   const res = await post('/api/projects', { name: 'Top Level', folder: folder('sp-top'), parent: '' });
   assert.equal(res.status, 200);
   assert.equal(json(res).project.parent, null, 'a blank parent means ungrouped, exactly as omitting it does');
+});
+
+// #2707: a brief-less project staffed with agents posts ONE shared "brief pending" room
+// note so the agents coordinate (one asks, the rest hold) instead of each buzzing the
+// operator with the same "what is the goal?" question.
+test('#2707: a brief-less project staffed with agents gets the shared brief-pending room note', async () => {
+  reset();
+  const dir = folder('pending-staffed');   // no BRIEF.md and no description -> pending
+  const made = json(await post('/api/projects', { name: 'Pending staffed', folder: dir, agents: ['agent-a', 'agent-b'] })).project;
+  const room = await req(`/api/project/${made.id}/room?as=text`);
+  assert.equal(room.status, 200, room.body);
+  assert.match(room.body, /One question to the operator, not seven\./, 'the shared brief-pending note is not in the room');
+  assert.match(room.body, /BRIEF\.md/, 'the note does not point agents at the shared brief');
+});
+
+test('#2707 CONTROL: a project created WITH a description (goal already set) gets NO brief-pending note', async () => {
+  reset();
+  const dir = folder('described-staffed');
+  const made = json(await post('/api/projects', { name: 'Described', folder: dir, agents: ['agent-c'], description: 'Ship the thing by Friday.' })).project;
+  const room = await req(`/api/project/${made.id}/room?as=text`);
+  // Its stub Goal was seeded from the description, so it is not pending: no note is needed.
+  assert.doesNotMatch(room.body, /not seven/i, 'a described project should need no brief-pending note');
+});
+
+test('#2707 CONTROL: a brief-less project with NO agents gets NO note (nobody to coordinate)', async () => {
+  reset();
+  const dir = folder('pending-empty');
+  const made = json(await post('/api/projects', { name: 'Pending empty', folder: dir })).project;
+  const room = await req(`/api/project/${made.id}/room?as=text`);
+  assert.doesNotMatch(room.body, /not seven/i, 'a project with no agents needs no coordination note');
 });

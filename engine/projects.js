@@ -1702,10 +1702,16 @@ function create({ name, folder, agents, roster, description, made, parent } = {}
    headings. The function is exported for tests; a future direct caller must clean its inputs
    the same way rather than pass raw user text. */
 const BRIEF_STUB_FILENAME = 'BRIEF.md';
+/* #2707: the Goal placeholder is a NAMED constant, not a loose literal, because two
+   places now depend on the exact string: briefStubContent WRITES it when no description
+   was given, and briefIsPending DETECTS it to tell an unfilled stub from a real brief.
+   A second copy would drift the first time the wording changed and silently break the
+   pending detection. */
+const BRIEF_GOAL_PLACEHOLDER = '_What is this project for? Replace this line._';
 function briefStubContent({ name, description } = {}) {
   const goal = (typeof description === 'string' && description.trim())
     ? description.trim()
-    : '_What is this project for? Replace this line._';
+    : BRIEF_GOAL_PLACEHOLDER;
   return `# ${String(name || 'This project')}\n\n`
     + `## Goal\n\n${goal}\n\n`
     + '## Done looks like\n\n'
@@ -1735,6 +1741,41 @@ function seedBriefStub(folder, { name, description } = {}) {
     return true;
   } catch { return false; }
 }
+
+/* #2707: is this project still waiting on its brief? A project is "brief pending" when
+   its folder has NO brief at all, OR it has the #2706 stub but the Goal was never filled
+   in (the Goal still reads the placeholder). A project the person gave a description to at
+   creation is NOT pending - its Goal was seeded from that description - which is exactly
+   right: if the operator already said what it is for, the agents have a goal and there is
+   nothing to ask about.
+   ⚠️ FAIL-SAFE toward NOT pending: any read error (unreadable folder, a brief we cannot
+   open) returns false. The only thing this gates is a one-time "brief pending" room note
+   (#2707); a false negative just skips that note, whereas a false positive would post a
+   "your brief is not filled in" note over a brief that is actually fine. Skipping a helpful
+   note is a smaller harm than contradicting a real brief. */
+function briefIsPending(folder) {
+  try {
+    if (!folder || !path.isAbsolute(folder)) return false;
+    const brief = path.join(folder, BRIEF_STUB_FILENAME);
+    let text;
+    try { text = fs.readFileSync(brief, 'utf8'); }
+    catch { return true; }   // no brief at all: pending
+    return text.includes(BRIEF_GOAL_PLACEHOLDER);   // stub present but Goal never filled in
+  } catch { return false; }
+}
+
+/* #2707: the single shared "brief pending" note posted into a brief-less project's room,
+   so seven agents staffed at once do not each ask the same "what is the goal?" question and
+   buzz the operator seven times (the Mortals dogfood finding). It names the coordination the
+   card asks for - read the room first, one asks, the rest hold - and points at BRIEF.md so
+   the answer lands in the shared brief (#2706) rather than scrolling away in chat. Kosmos's
+   own voice, posted via messages.roomNote, which the shape validator restricts to the
+   product; agents cannot forge it. */
+const BRIEF_PENDING_NOTE = 'This project has no brief yet, so its goal is not written down. '
+  + 'So you do not all ask the same thing at once: read this room first. If nobody has asked yet, '
+  + 'ONE of you ask here what the goal is; once you hear it, write it into BRIEF.md in the project '
+  + 'folder so everyone shares it. Everyone else: hold, and start once the brief is set. One '
+  + 'question to the operator, not seven.';
 
 /* #2279: the "Getting started" welcome home, seeded once EVER per store.
  *
@@ -2578,7 +2619,7 @@ module.exports = { memberValve, processMemberChanges, ageMemberChangesForTests, 
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
-  BRIEF_STUB_FILENAME, briefStubContent, seedBriefStub,
+  BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE,
   findBlock, spliceBlock, removeBlock, blockBody, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
   folderPathPreview, makeFolder, revealFolder, setRevealRunner, listFiles, openFile,
