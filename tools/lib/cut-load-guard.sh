@@ -24,13 +24,30 @@
 # as a bare command, float compares via awk.
 
 # The 1-minute load average. macOS `sysctl -n vm.loadavg` prints "{ 1m 5m 15m }".
-# KOSMOS_FAKE_LOAD overrides it (tests, and a machine with no sysctl).
+# KOSMOS_FAKE_LOAD overrides the whole value (tests, and a machine with no sysctl).
+#
+# #2749: the raw vm.loadavg string is read ONCE -- from the KOSMOS_LOADAVG_RAW
+# seam if a test set it, otherwise from live sysctl -- and field 2 (the 1-minute
+# figure, never the leading `{` or the 5-/15-minute loads) is extracted from that
+# single string by ONE shared awk. Reading once matters: the earlier field-index
+# guard read the live load twice and asserted the two equal, but the 1-min load
+# moves between reads, so a busy box red it for contention rather than for a wrong
+# field. Because the live path and the seam path now run the SAME extraction, a
+# test that hands a fixed raw via KOSMOS_LOADAVG_RAW guards the live field index
+# too, deterministically. (KOSMOS_FAKE_LOAD still bypasses the parse entirely,
+# for arms that only need a fixed load value.)
 kosmos_box_load_1min() {
   if [ -n "${KOSMOS_FAKE_LOAD:-}" ]; then
     printf '%s\n' "$KOSMOS_FAKE_LOAD"
     return 0
   fi
-  sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}' || true
+  local raw
+  if [ -n "${KOSMOS_LOADAVG_RAW:-}" ]; then
+    raw="$KOSMOS_LOADAVG_RAW"
+  else
+    raw="$(sysctl -n vm.loadavg 2>/dev/null || true)"
+  fi
+  printf '%s\n' "$raw" | awk '{print $2}' || true
 }
 
 # The load at or below which a gated step may run. Default: 1.5x the core count
