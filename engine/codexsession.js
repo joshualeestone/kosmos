@@ -135,6 +135,7 @@ function read(dir) {
   }
   let contextWindow = null;
   let contextUsed = null;
+  let contextUsedAt = null;
   let lastAt = null;
   let messages = 0;
   let lastAgentMessage = null;
@@ -173,6 +174,17 @@ function read(dir) {
       if (p.type === 'token_count' && p.info && p.info.last_token_usage
           && typeof p.info.last_token_usage.input_tokens === 'number') {
         contextUsed = p.info.last_token_usage.input_tokens;
+        /* #2413: WHEN this completed turn was reported, as epoch ms. A `token_count`
+           carrying a real `last_token_usage` is a turn that ran to completion -- a
+           dead-credential 401 reconnect loop NEVER emits one (#2790 fixture). The
+           OpenAI badge overlay records an observed `ok` from this, gated on the
+           timestamp's freshness, so a live sign-in greens from real traffic while a
+           sign-in whose last real turn is old greys again on its own (no permanent
+           green over a dead credential -- the #874 harm). Null when the row carries no
+           parseable timestamp, which keeps the badge grey (the safe direction) rather
+           than green off an untimed completion. */
+        const t = row.timestamp ? Date.parse(row.timestamp) : NaN;
+        contextUsedAt = Number.isFinite(t) ? t : null;
       }
       if (p.type === 'task_complete' && typeof p.last_agent_message === 'string') {
         lastAgentMessage = p.last_agent_message;
@@ -190,6 +202,11 @@ function read(dir) {
        `last_token_usage.input_tokens` is the measured window occupancy (see the
        loop note). Null only when no completed turn has reported usage yet. */
     contextUsed,
+    /* #2413: the epoch-ms timestamp of the `token_count` that set contextUsed -- WHEN
+       the last real turn completed. The OpenAI liveness overlay uses it as the
+       freshness anchor for a witnessed `ok`. Null when no completed turn, or when the
+       completing row carried no parseable timestamp. */
+    contextUsedAt,
     messages,
     lastAt,
     lastAgentMessage,

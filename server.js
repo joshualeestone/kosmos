@@ -4700,6 +4700,12 @@ const server = http.createServer((req, res) => {
         // carry too, so keying by dir joins both sides without a special case.
         const obsByDir = new Map();
         for (const o of observed.all()) {
+          // #2413: the Claude overlay reads ONLY anthropic observations. An OpenAI
+          // observation resolved against the CLAUDE account list would green a Claude
+          // account it has nothing to do with (a codex agent on the default home maps to
+          // the default Claude account -- status.js's own note). The provider is in the
+          // observation key precisely so this join stays on one provider's rows.
+          if (o.provider !== observed.PROVIDER.ANTHROPIC) continue;
           const acct = accountForAgent(o.agent, knownAccts);
           if (!acct || !acct.dir) continue;
           const prev = obsByDir.get(acct.dir);
@@ -4733,10 +4739,49 @@ const server = http.createServer((req, res) => {
            📌 Claude rows are untouched: this override collapses codex homes only. */
         const named = codexupdate.homeIsNamed();
         const onlyDir = named ? path.resolve(openaiAccounts.defaultDir()) : null;
-        const openai = openaiRows.map((a) => ({
-          ...a,
-          offerable: !named || path.resolve(String(a.dir || '')) === onlyDir,
-        }));
+        /* #2413: the OpenAI analog of the Claude overlay above -- green an OpenAI row
+           from the LAST OBSERVED real Codex call, joined to the account via the SAME
+           accountForAgent (fed the OpenAI rows as `known`, so it matches a codex agent's
+           CODEX_HOME configDir against the OpenAI account dirs, or the default account
+           when configDir is null -- create.js:827). Provider-qualified: only `openai`
+           observations reach this join.
+           🛑 THIS IS ADDITIVE / POSITIVE-ONLY, NOT A FULL MIRROR OF THE CLAUDE VERDICT,
+           and the difference is load-bearing. The Claude overlay maps checkLive
+           'connected' -> signed_in_unverified because a Claude 'connected' is only "a
+           credential exists" (#874). An OpenAI 'connected' is NOT that: for an API-key
+           account it is a REAL /v1/models liveness proof (openaiaccounts.js:1140), which
+           renders green today. Applying the Claude verdict wholesale would DOWNGRADE a
+           genuinely-live API key to muted, and would also bypass the tailored #2568
+           chatgpt "not checked live" pill for a signed-in chatgpt row with no traffic.
+           So we ONLY upgrade to green on a FRESH observed `ok`; every other verdict
+           leaves the OpenAI row exactly as it renders today (grey fallback preserved on
+           board restart / stale observation / no observed call -- #2413 acceptance).
+           Phase-1 records `ok` only (status.js codex arm is positive-only), so a fresh
+           `ok` is the sole upgrade this can ever produce. */
+        const obsByOpenaiDir = new Map();
+        for (const o of observed.all()) {
+          if (o.provider !== observed.PROVIDER.OPENAI) continue;
+          const acct = accountForAgent(o.agent, openaiRows);
+          if (!acct || !acct.dir) continue;
+          const prev = obsByOpenaiDir.get(acct.dir);
+          if (!prev || o.at > prev.at) obsByOpenaiDir.set(acct.dir, { outcome: o.outcome, at: o.at });
+        }
+        const openai = openaiRows.map((a) => {
+          const base = { ...a, offerable: !named || path.resolve(String(a.dir || '')) === onlyDir };
+          const obs = a.dir ? obsByOpenaiDir.get(a.dir) : null;
+          if (!obs) return base;
+          const v = observed.verdict({
+            checkLiveState: a.connection && a.connection.state,
+            observedOutcome: obs.outcome,
+            observedAt: obs.at,
+            now: nowMs,
+            freshMs: freshWindow,
+          });
+          // Only a FRESH observed ok greens the row; a stale ok (or any checkLive-derived
+          // fallback) must not overwrite the untouched legacy render (see the note above).
+          if (v.badge !== 'working') return base;
+          return { ...base, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
+        });
         sendJson(res, 200, { accounts: [...claude, ...openai] });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));

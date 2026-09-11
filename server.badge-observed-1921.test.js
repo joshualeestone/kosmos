@@ -119,7 +119,7 @@ test('THE FIX: a credential that only EXISTS (checkLive connected, nothing obser
 });
 
 test('THE BEN CASE: a fresh observed 401 shows not-connected EVEN THOUGH checkLive says connected', async () => {
-  observed.saw('ariaagent', observed.OUTCOME.REJECTED, Date.now());
+  observed.saw(observed.PROVIDER.ANTHROPIC, 'ariaagent', observed.OUTCOME.REJECTED, Date.now());
   const m = await badges();
   assert.equal(m.get('aria@example.com').badge, 'rejected',
     'a real 401 on aria did not override the stored-login green: ' + JSON.stringify(m.get('aria@example.com')));
@@ -130,7 +130,7 @@ test('THE BEN CASE: a fresh observed 401 shows not-connected EVEN THOUGH checkLi
 });
 
 test('GREEN IS EARNED: a fresh observed ok on the DEFAULT account shows working, and joins the default row', async () => {
-  observed.saw('bossagent', observed.OUTCOME.OK, Date.now());
+  observed.saw(observed.PROVIDER.ANTHROPIC, 'bossagent', observed.OUTCOME.OK, Date.now());
   const m = await badges();
   const boss = m.get('boss@example.com');
   assert.equal(boss.badge, 'working', 'an observed successful call on the default account did not go green: ' + JSON.stringify(boss));
@@ -146,7 +146,7 @@ test('a STALE observation does not linger as a confident badge (falls back to ch
   const prev = process.env.AGENT_WORKFORCE_OBSERVED_FRESH_MS;
   process.env.AGENT_WORKFORCE_OBSERVED_FRESH_MS = '1'; // 1ms window: any observation is instantly stale
   try {
-    observed.saw('ariaagent', observed.OUTCOME.REJECTED, Date.now() - 1000);
+    observed.saw(observed.PROVIDER.ANTHROPIC, 'ariaagent', observed.OUTCOME.REJECTED, Date.now() - 1000);
     const m = await badges();
     assert.equal(m.get('aria@example.com').badge, 'signed_in_unverified',
       'a stale 401 kept asserting not-connected instead of falling back: ' + JSON.stringify(m.get('aria@example.com')));

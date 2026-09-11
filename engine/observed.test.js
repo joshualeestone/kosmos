@@ -5,47 +5,76 @@ const assert = require('node:assert/strict');
 const observed = require('./observed');
 
 const { OK, REJECTED } = observed.OUTCOME;
+const { ANTHROPIC, OPENAI } = observed.PROVIDER;
 
 test.beforeEach(() => observed._clearForTest());
 
-test('saw records ok and 401, keyed by agent, with the timestamp given', () => {
-  observed.saw('aria', OK, 1000);
-  observed.saw('boss', REJECTED, 2000);
-  assert.deepEqual(observed.read('aria'), { outcome: OK, at: 1000 });
-  assert.deepEqual(observed.read('boss'), { outcome: REJECTED, at: 2000 });
-  // all() surfaces every agent's last observation.
+test('saw records ok and 401, keyed by (provider, agent), with the timestamp given', () => {
+  observed.saw(ANTHROPIC, 'aria', OK, 1000);
+  observed.saw(ANTHROPIC, 'boss', REJECTED, 2000);
+  assert.deepEqual(observed.read(ANTHROPIC, 'aria'), { outcome: OK, at: 1000 });
+  assert.deepEqual(observed.read(ANTHROPIC, 'boss'), { outcome: REJECTED, at: 2000 });
+  // all() surfaces every observation, each carrying its provider.
   const all = observed.all().sort((a, b) => a.agent.localeCompare(b.agent));
   assert.deepEqual(all, [
-    { agent: 'aria', outcome: OK, at: 1000 },
-    { agent: 'boss', outcome: REJECTED, at: 2000 },
+    { provider: ANTHROPIC, agent: 'aria', outcome: OK, at: 1000 },
+    { provider: ANTHROPIC, agent: 'boss', outcome: REJECTED, at: 2000 },
   ]);
 });
 
+test('#2413: observations are provider-qualified -- the same agent name never crosses providers', () => {
+  // A codex agent on the default home records configDir=null, which accountForAgent
+  // maps to the DEFAULT CLAUDE account (status.js:6209). Without the provider in the
+  // key, an OpenAI ok for "sub" would be read by the Claude overlay and green a Claude
+  // account. Keying by (provider, agent) keeps them separate.
+  observed.saw(OPENAI, 'sub', OK, 1000);
+  observed.saw(ANTHROPIC, 'sub', REJECTED, 2000);
+  assert.deepEqual(observed.read(OPENAI, 'sub'), { outcome: OK, at: 1000 }, 'the openai slot is untouched by the claude write');
+  assert.deepEqual(observed.read(ANTHROPIC, 'sub'), { outcome: REJECTED, at: 2000 });
+  // Both survive in all(), each tagged with its provider, so each overlay reads only its own.
+  const openaiRows = observed.all().filter((o) => o.provider === OPENAI);
+  const claudeRows = observed.all().filter((o) => o.provider === ANTHROPIC);
+  assert.deepEqual(openaiRows, [{ provider: OPENAI, agent: 'sub', outcome: OK, at: 1000 }]);
+  assert.deepEqual(claudeRows, [{ provider: ANTHROPIC, agent: 'sub', outcome: REJECTED, at: 2000 }]);
+});
+
+test('an agent name with a space does not collide across providers', () => {
+  // "Sonya Blade" is a real agent name; the (provider, agent) join must stay injective.
+  observed.saw(OPENAI, 'Sonya Blade', OK, 1000);
+  observed.saw(ANTHROPIC, 'Sonya Blade', REJECTED, 2000);
+  assert.deepEqual(observed.read(OPENAI, 'Sonya Blade'), { outcome: OK, at: 1000 });
+  assert.deepEqual(observed.read(ANTHROPIC, 'Sonya Blade'), { outcome: REJECTED, at: 2000 });
+});
+
 test('a later qualifying observation overwrites the earlier one', () => {
-  observed.saw('aria', OK, 1000);
-  observed.saw('aria', REJECTED, 3000);
-  assert.deepEqual(observed.read('aria'), { outcome: REJECTED, at: 3000 });
+  observed.saw(ANTHROPIC, 'aria', OK, 1000);
+  observed.saw(ANTHROPIC, 'aria', REJECTED, 3000);
+  assert.deepEqual(observed.read(ANTHROPIC, 'aria'), { outcome: REJECTED, at: 3000 });
 });
 
 test('a non-outcome state does NOT clobber a prior real observation', () => {
   // status.js passes null for idle / needs-you / unknown; saw must ignore it so a
   // prior real observation survives an idle tick (else we manufacture a false green
   // or wipe a real 401).
-  observed.saw('aria', OK, 1000);
-  observed.saw('aria', null, 2000);
-  observed.saw('aria', 'idle', 2500);        // not one of our OUTCOME values
-  observed.saw('aria', undefined, 2600);
-  assert.deepEqual(observed.read('aria'), { outcome: OK, at: 1000 }, 'prior ok must survive non-observations');
+  observed.saw(ANTHROPIC, 'aria', OK, 1000);
+  observed.saw(ANTHROPIC, 'aria', null, 2000);
+  observed.saw(ANTHROPIC, 'aria', 'idle', 2500);        // not one of our OUTCOME values
+  observed.saw(ANTHROPIC, 'aria', undefined, 2600);
+  assert.deepEqual(observed.read(ANTHROPIC, 'aria'), { outcome: OK, at: 1000 }, 'prior ok must survive non-observations');
 });
 
-test('saw ignores a missing or empty agent name', () => {
-  observed.saw('', OK, 1000);
-  observed.saw(null, OK, 1000);
+test('saw ignores a missing or empty provider or agent name', () => {
+  observed.saw(ANTHROPIC, '', OK, 1000);
+  observed.saw(ANTHROPIC, null, OK, 1000);
+  observed.saw('', 'aria', OK, 1000);
+  observed.saw(null, 'aria', OK, 1000);
   assert.equal(observed.all().length, 0);
 });
 
-test('read returns null for an unseen agent (never a fabricated shape)', () => {
-  assert.equal(observed.read('nobody'), null);
+test('read returns null for an unseen (provider, agent) (never a fabricated shape)', () => {
+  assert.equal(observed.read(ANTHROPIC, 'nobody'), null);
+  observed.saw(ANTHROPIC, 'aria', OK, 1000);
+  assert.equal(observed.read(OPENAI, 'aria'), null, 'the same name on another provider is still unseen');
 });
 
 // --- verdict: the whole truth table -------------------------------------------

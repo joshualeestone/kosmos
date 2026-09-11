@@ -4561,12 +4561,26 @@ function readContext(agentName, model, exactSession) {
  * case-divergent launch folder matches its rollout. That door -- the #2406 class --
  * was closed by the #2417 canonicalOnDisk sweep.
  */
-function readCodexContext(agentName) {
+/* #2413: resolve a codex agent's launch folder to its rollout session, ONCE. Both the
+   OpenAI liveness overlay (codexCompletionAt) and the context ring (readCodexContext)
+   need it, and codexsession.read WALKS THE SESSIONS TREE (rollouts() + a metaOf on each
+   file) to match by workdir -- so deriving it twice per codex pane per sweep is real
+   avoidable work. snapshot() reads it once and threads it into both. Mirrors the read
+   readCodexContext used to do inline, including the {found:false} fallbacks for an
+   unresolvable folder or a read that throws. */
+function readCodexSession(agentName) {
   let dir;
   try { dir = require('./create').workerDir(agentName); } catch { dir = null; }
-  let sess;
-  try { sess = dir ? require('./codexsession').read(dir) : { found: false }; }
-  catch { sess = { found: false }; }
+  if (!dir) return { found: false };
+  try { return require('./codexsession').read(dir); }
+  catch { return { found: false }; }
+}
+
+function readCodexContext(agentName, sess) {
+  // `sess` is the pre-read session snapshot() already holds for this pane; read it here
+  // only when a direct caller (or a test) did not supply one, so the tick never reads the
+  // rollout twice. `undefined` means "not supplied" -- a supplied {found:false} is honoured.
+  if (sess === undefined) sess = readCodexSession(agentName);
 
   // A rollout that EXISTS but could not be read is a genuine read failure, not a
   // fresh agent -- keep that admission rather than collapsing it into "not yet".
@@ -4602,6 +4616,33 @@ function readCodexContext(agentName) {
   // The Codex window is MEASURED (task_started), not assumed like Claude's -- so
   // `assumed` is false and the ring rests on a firmer footing.
   return measuredResult(tokens, sess.contextWindow, false);
+}
+
+/**
+ * #2413: WHEN this Codex agent last completed a real turn, as epoch ms, or null.
+ *
+ * The OpenAI liveness overlay greens an account row from a WITNESSED completion -- a
+ * `token_count` carrying a real `last_token_usage`, which a dead-credential 401
+ * reconnect loop never emits (#2790 fixture). This returns that completion's timestamp
+ * so the sweep can record an observed `ok` stamped at the moment auth was proven,
+ * NEVER off a pane merely scraping WORKING (which a 401 loop also does).
+ *
+ * 🔑 PURE: derives the timestamp from an ALREADY-READ session, so the caller controls
+ * when the rollout is read. snapshot() reads the session once (readCodexSession) and
+ * hands the same object to this AND readCodexContext, so the rollout is not walked twice
+ * per pane per tick. Best-effort: null on a missing/unread session or an absent
+ * completion, which keeps the badge grey (the safe direction) rather than asserting a
+ * green it cannot support.
+ */
+function codexCompletionAt(sess) {
+  return sess && sess.found && typeof sess.contextUsedAt === 'number' ? sess.contextUsedAt : null;
+}
+
+/* Convenience for a direct caller/test: read the session and derive the completion time
+   in one call. snapshot() does NOT use this -- it reads the session once and passes it to
+   codexCompletionAt and readCodexContext, so the rollout is read a single time per tick. */
+function codexLastCompletionAt(agentName) {
+  return codexCompletionAt(readCodexSession(agentName));
 }
 
 /**
@@ -6215,8 +6256,14 @@ function snapshot() {
        exists to remove. The store is Claude-only; the same codex test classify() uses
        (status.js:2326) keeps it that way.
        Best-effort: a badge signal must never break the tick. */
+    // #2413: read this codex pane's rollout ONCE per tick and share it between the OpenAI
+    // observation arm below and the context ring (readCodexContext, further down).
+    // codexsession.read WALKS THE SESSIONS TREE to match by workdir, so a second
+    // derivation per pane per sweep is avoidable duplicate work. null for a non-codex or
+    // untied pane (neither consumer reads a rollout for it).
+    const isCodexPane = pane.runner === 'codex' || isCodexCommand(pane.command);
+    const codexSess = (isNamedOurs(pane) && isCodexPane) ? readCodexSession(pane.name) : null;
     try {
-      const isCodexPane = pane.runner === 'codex' || isCodexCommand(pane.command);
       if (isNamedOurs(pane) && !isCodexPane) {
         /* 🛑 #1889 EXCLUSION, AND IT IS NOT A TWEAK TO THE RULE ABOVE, IT IS THE
            RULE ABOVE HOLDING. The OK arm's whole justification is that a scraped
@@ -6238,7 +6285,29 @@ function snapshot() {
           && scrapedStatus.backgroundWait !== true) ? observed.OUTCOME.OK
           : status.state === STATE.AUTH_FAILED ? observed.OUTCOME.REJECTED
           : null;
-        if (outcome) observed.saw(pane.name, outcome, now);
+        if (outcome) observed.saw(observed.PROVIDER.ANTHROPIC, pane.name, outcome, now);
+      } else if (isNamedOurs(pane) && isCodexPane) {
+        /* 🛑 #2413 -- the OpenAI/Codex observation arm, and it is DELIBERATELY NOT the
+           Claude arm above. A codex pane classifies WORKING the same way, but WORKING is
+           NOT a reliable auth-success signal here: a dead-credential 401 reconnect loop
+           scrapes as WORKING too (status.test.js CODEX_WORKING, #249) and a scraper
+           cannot tell that 401 from a transient reconnect 401 (codexauthprobe.js:16).
+           Recording WORKING as an `ok` would false-green exactly a dead sign-in -- the
+           #874 harm, and the #2790 case this feature exists to catch. Confirmed by the
+           #2790 weakest-premise fixture (answered from in-tree evidence).
+           ✅ THE SIGNAL THAT GUARANTEES A TURN AUTHENTICATED is a WITNESSED ROLLOUT
+           COMPLETION: a `token_count` carrying a real `last_token_usage.input_tokens`.
+           A 401 loop never completes a turn, so it never writes one. `codexLastCompletionAt`
+           returns WHEN that last completion happened; recording `ok` stamped at that time,
+           gated on freshness, means a live sign-in greens from real traffic and a sign-in
+           whose last real turn is old greys again on its own (verdict's freshness window,
+           one place). POSITIVE-ONLY in Phase 1: no rejected/red for codex until an OBSERVED
+           on-pane auth-failure signal exists (#2790 Phase 2) -- a positive-only overlay can
+           never produce a false "not connected". */
+        const at = codexCompletionAt(codexSess);
+        if (typeof at === 'number' && now - at >= 0 && now - at <= observed.freshMs()) {
+          observed.saw(observed.PROVIDER.OPENAI, pane.name, observed.OUTCOME.OK, at);
+        }
       }
     } catch { /* observation is best-effort; never sink the snapshot */ }
     // ⚠️ Identity, model and context are all filed under the NAME, and only a
@@ -6263,10 +6332,12 @@ function snapshot() {
        `readContext` returned NO_TRANSCRIPT for every OpenAI agent and the ring
        read "Not yet read" forever. Its context lives in the Codex rollout, which
        `readCodexContext` reads instead. Same `isCodexPane` discriminator the
-       account-badge gate above (~5053) uses. */
-    const isCodexPane = pane.runner === 'codex' || isCodexCommand(pane.command);
+       account-badge gate above uses -- now literally the SAME variable, hoisted above the
+       observation arm along with `codexSess` (the pane's rollout, read once per tick). */
     const context = tied
-      ? (isCodexPane ? readCodexContext(pane.name) : readContext(pane.name, model, pane.session))
+      // #2413: pass the PRE-READ `codexSess` so the rollout is not walked a second time
+      // this tick (the observation arm above already read it).
+      ? (isCodexPane ? readCodexContext(pane.name, codexSess) : readContext(pane.name, model, pane.session))
       // ⚠️ Unknown, and not because it is ambiguous: this one is a REFUSAL. We
       // can see there is something to read and are declining to read it, so
       // 'not yet' would be false about us as well as about the agent.
@@ -6624,6 +6695,7 @@ module.exports = {
   identityFromText, configRoots, transcriptCwd,
   countAgents, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
   rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext,
+  codexLastCompletionAt,
   /* ⚠️ Exported so the ROUTE can say what tmux said. The alternative is a
      second caller of `list-panes` asking the same question a second time,
      which would report a different moment from the one that failed. */
