@@ -517,11 +517,20 @@ else
   curl -fsSL "$BASE/SHASUMS256.txt" -o "$TMP/SHASUMS256.txt"
   WANT="$(grep " $TARBALL\$" "$TMP/SHASUMS256.txt" | awk '{print $1}')"
   [ -n "$WANT" ] || { echo "error: $TARBALL not in SHASUMS256.txt" >&2; exit 1; }
+  # The cache READ is best-effort, exactly like the write below: a cache hit that cannot
+  # be copied (the file vanished in the TOCTOU window, TMP full) must fall back to a fresh
+  # download rather than abort the cut -- the same "a cache must never fail a cut" promise.
+  # The cp sits INSIDE the `if` condition, where a non-zero exit is a false branch, not an
+  # errexit abort under `set -euo pipefail`; a partial "$TMP/$TARBALL" left by a failed cp
+  # is overwritten by the `curl -o` on the download fallback, so it cannot leak into the verify.
+  NODE_CACHED=0
   if [ -f "$NODE_CACHE/$TARBALL" ] \
-     && [ "$(shasum -a 256 "$NODE_CACHE/$TARBALL" 2>/dev/null | awk '{print $1}')" = "$WANT" ]; then
+     && [ "$(shasum -a 256 "$NODE_CACHE/$TARBALL" 2>/dev/null | awk '{print $1}')" = "$WANT" ] \
+     && cp "$NODE_CACHE/$TARBALL" "$TMP/$TARBALL" 2>/dev/null; then
     echo "==> using cached node v$NODE_VERSION ($NARCH) from $NODE_CACHE"
-    cp "$NODE_CACHE/$TARBALL" "$TMP/$TARBALL"
-  else
+    NODE_CACHED=1
+  fi
+  if [ "$NODE_CACHED" -eq 0 ]; then
     echo "==> downloading node v$NODE_VERSION ($NARCH) from nodejs.org"
     curl -fL --progress-bar "$BASE/$TARBALL" -o "$TMP/$TARBALL"
     # Populate the cache only with bytes that pass the checksum, and only if the cache

@@ -24,23 +24,32 @@ grep -qF 'NODE_CACHE="${KOSMOS_NODE_CACHE:-' "$SRC" \
   && ok "cache dir honours KOSMOS_NODE_CACHE" \
   || no "cache dir is not overridable via KOSMOS_NODE_CACHE"
 
-S="$(ln 'curl -fsSL "$BASE/SHASUMS256.txt"')"    # the authoritative checksums are actually FETCHED (not a comment)
-W="$(ln 'WANT="$(grep')"                         # WANT extracted from them
-H="$(ln 'using cached')"                          # the cache-hit path copies the cached tarball
-V="$(ln 'checksum mismatch on $TARBALL')"         # the final verify's abort message
-G="$(ln '= "$WANT" ] \')"                         # the populate's checksum gate
-P="$(ln 'cp "$TMP/$TARBALL" "$NODE_CACHE')"       # the cache write
+S="$(ln 'curl -fsSL "$BASE/SHASUMS256.txt"')"          # the authoritative checksums are actually FETCHED (not a comment)
+W="$(ln 'WANT="$(grep')"                               # WANT extracted from them
+C="$(ln 'cp "$NODE_CACHE/$TARBALL" "$TMP/$TARBALL"')"  # the cache-hit copies INTO the same "$TMP/$TARBALL" the verify+extract use
+V="$(ln 'checksum mismatch on $TARBALL')"              # the final verify's abort message
+T="$(ln 'tar -xzf "$TMP/$TARBALL"')"                   # extraction of the (by now verified) bytes
+G="$(ln 'mkdir -p "$NODE_CACHE"')"                     # the populate gate (checksum-match && writable cache dir); content-anchored, survives a reformat
+P="$(ln 'cp "$TMP/$TARBALL" "$NODE_CACHE')"            # the cache write
 
-# WANT must be resolved from the freshly-fetched SHASUMS before the cache decision.
-{ [ -n "$S" ] && [ -n "$W" ] && [ -n "$H" ] && [ "$W" -gt "$S" ] && [ "$H" -gt "$W" ]; } \
-  && ok "SHASUMS + WANT are resolved before the cache-hit decision" \
-  || no "the checksum is not resolved before the cache decision (S=$S W=$W H=$H)"
+# WANT must be resolved from the freshly-fetched SHASUMS before any cache decision.
+{ [ -n "$S" ] && [ -n "$W" ] && [ -n "$C" ] && [ "$W" -gt "$S" ] && [ "$C" -gt "$W" ]; } \
+  && ok "SHASUMS + WANT are resolved before the cache-hit copy" \
+  || no "the checksum is not resolved before the cache decision (S=$S W=$W C=$C)"
 
-# THE INVARIANT: the final checksum verify (whose failure aborts the cut) sits AFTER the
-# cache-hit copy, so a cached tarball is verified exactly like a downloaded one.
-{ [ -n "$H" ] && [ -n "$V" ] && [ "$V" -gt "$H" ]; } \
-  && ok "the cached-or-downloaded bytes are verified before use (final verify after the cache-hit)" \
-  || no "the final checksum verify does not cover the cache-hit path: a cached tarball could bypass it (H=$H V=$V)"
+# THE INVARIANT, part 1: the cache-hit copies into "$TMP/$TARBALL" -- the SAME path the final
+# verify and tar operate on -- and the verify sits AFTER that copy, so a cached tarball is
+# verified exactly like a downloaded one and cannot slip in via an unverified destination.
+{ [ -n "$C" ] && [ -n "$V" ] && [ "$V" -gt "$C" ]; } \
+  && ok "the cache-hit copies to the verified path and is verified after it (V>C)" \
+  || no "the cache-hit copy is not covered by the final verify: a cached tarball could bypass it (C=$C V=$V)"
+
+# THE INVARIANT, part 2: extraction happens ONLY after the final verify. This guards the
+# "verified BEFORE extraction" half -- an edit that moved tar -xzf ahead of the verify (or the
+# verify after extraction) would let unverified bytes reach tar, and this assertion reds.
+{ [ -n "$V" ] && [ -n "$T" ] && [ "$T" -gt "$V" ]; } \
+  && ok "the bytes are extracted only after the checksum verify (tar after verify, T>V)" \
+  || no "extraction is not gated behind the final verify: unverified bytes could reach tar (V=$V T=$T)"
 
 # The cache is POPULATED only after a checksum match, so a bad download never poisons it.
 { [ -n "$G" ] && [ -n "$P" ] && [ "$P" -gt "$G" ]; } \
