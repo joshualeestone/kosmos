@@ -59,7 +59,19 @@ test('#570 the anchor FOLLOWS store.js for the app directory name', () => {
     'the anchor must use store.js\'s name for the app directory, not a copy of it');
 });
 
-function tmp() { return fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-anchor-')); }
+/* Every sandbox is removed after the run, pass or fail: the running-interpreter
+   arm puts a real 92 MB node.exe in one. */
+const sandboxes = [];
+function tmp() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-anchor-'));
+  sandboxes.push(dir);
+  return dir;
+}
+test.after(() => {
+  for (const dir of sandboxes) {
+    try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch { /* best effort */ }
+  }
+});
 
 test('#570 the runtime anchors in LOCAL AppData, never Roaming', () => {
   /* 🛑 A deliberate split from store.dataRootFor, which roams on purpose so a
@@ -194,9 +206,85 @@ function sideFiles(runtime) {
 function retiredFiles(runtime) {
   return sideFiles(runtime).filter((n) => n.startsWith(anchor.NODE_NAME + anchor.RETIRED_INFIX));
 }
-function anchoringOf(dir, src) {
-  return { platform: process.platform, home: os.homedir(), env: { AGENT_WORKFORCE_DATA: dir }, node: src, engineDir: dir };
+function anchoringOf(dir, src, extra) {
+  return Object.assign({ platform: process.platform, home: os.homedir(), env: { AGENT_WORKFORCE_DATA: dir }, node: src, engineDir: dir }, extra || {});
 }
+/* Old enough for the sweep, without sleeping. */
+const LATER = () => Date.now() + anchor.RETIRED_SWEEP_MIN_AGE_MS + 1000;
+
+/* Replace fs.renameSync for one arm. win32anchor calls the same shared `fs`
+   object, so this reaches its renames; the original is always put back. */
+function withRenames(fake, body) {
+  const real = fs.renameSync;
+  fs.renameSync = (from, to) => fake(String(from), String(to), real);
+  try { return body(); } finally { fs.renameSync = real; }
+}
+function failure(code) { return Object.assign(new Error('simulated ' + code), { code }); }
+
+/* An anchor already holding an "old" interpreter, and a "new" source of another size. */
+function anchoredOldWithNewSource() {
+  const dir = tmp();
+  const oldSrc = path.join(dir, 'old-node.exe');
+  fs.writeFileSync(oldSrc, 'old', 'utf8');
+  const first = anchor.ensureAnchored(anchoringOf(dir, oldSrc));
+  assert.equal(first.ok, true, first.because || '');
+  const newSrc = path.join(dir, 'new-node.exe');
+  fs.writeFileSync(newSrc, 'a newer interpreter', 'utf8');
+  return { dir, runtime: first.dir, nodeAt: first.node, newSrc };
+}
+
+test('#570 a swap whose final rename fails leaves the old interpreter in place and says why', () => {
+  const { dir, runtime, nodeAt, newSrc } = anchoredOldWithNewSource();
+  const r = withRenames((from, to, real) => {
+    if (to === nodeAt && from.includes(anchor.STAGED_INFIX)) throw failure('EIO');
+    return real(from, to);
+  }, () => anchor.ensureAnchored(anchoringOf(dir, newSrc)));
+  assert.equal(r.ok, false);
+  assert.match(r.because, /simulated EIO/);
+  assert.equal(fs.readFileSync(nodeAt, 'utf8'), 'old', 'the retired interpreter is moved back');
+  assert.deepEqual(sideFiles(runtime), [], 'no staged or retired file is left behind');
+});
+
+test('#570 a swap that cannot even move the old interpreter back SAYS the interpreter is missing', () => {
+  const { dir, nodeAt, newSrc } = anchoredOldWithNewSource();
+  const r = withRenames((from, to, real) => {
+    if (to === nodeAt) throw failure('EIO');   // the final rename AND the move-back
+    return real(from, to);
+  }, () => anchor.ensureAnchored(anchoringOf(dir, newSrc)));
+  assert.equal(r.ok, false);
+  assert.match(r.because, /could not be put back/,
+    'the worst case must be in the sentence, not swallowed: ' + r.because);
+});
+
+test('#570 a failed copy never touches the running interpreter', () => {
+  const { dir, runtime, nodeAt } = anchoredOldWithNewSource();
+  const notAFile = path.join(dir, 'a-directory-not-an-interpreter');
+  fs.mkdirSync(notAFile);
+  fs.writeFileSync(path.join(notAFile, 'x'), 'padding so the size differs', 'utf8');
+  const r = anchor.ensureAnchored(anchoringOf(dir, notAFile));
+  assert.equal(r.ok, false);
+  assert.equal(fs.readFileSync(nodeAt, 'utf8'), 'old');
+  assert.deepEqual(sideFiles(runtime), [], 'the half-made staged copy is removed');
+});
+
+test('#570 a rename held for a moment (antivirus, the indexer) is retried, and a young retired file is kept', () => {
+  const { dir, runtime, nodeAt, newSrc } = anchoredOldWithNewSource();
+  let refusals = 0;
+  const r = withRenames((from, to, real) => {
+    if (to === nodeAt && from.includes(anchor.STAGED_INFIX) && refusals < 2) { refusals += 1; throw failure('EBUSY'); }
+    return real(from, to);
+  }, () => anchor.ensureAnchored(anchoringOf(dir, newSrc)));
+  assert.equal(r.ok, true, r.because || '');
+  assert.equal(refusals, 2, 'sanity: the rename really was refused twice first');
+  assert.equal(fs.readFileSync(nodeAt, 'utf8'), 'a newer interpreter');
+
+  /* The retired copy was made this instant, so the sweep that ran in the same
+     anchoring leaves it: another anchoring's move-back may still need it. */
+  assert.equal(retiredFiles(runtime).length, 1, 'a just-retired interpreter is not swept at once');
+  const later = anchor.ensureAnchored(anchoringOf(dir, newSrc, { now: LATER() }));
+  assert.equal(later.ok, true, later.because || '');
+  assert.deepEqual(sideFiles(runtime), [], 'once it is old enough, it is swept');
+});
 
 test('#570 a first anchoring leaves no side file beside the interpreter', () => {
   const dir = tmp();
@@ -266,7 +354,7 @@ test('#570 A ZIP THAT CHANGES NODE REPLACES THE RUNNING ANCHORED INTERPRETER', a
   /* Windows can hold the image a moment after the process exits, so the sweep is
      retried briefly rather than asserted on the first pass. */
   for (let attempt = 0; attempt < 30 && retiredFiles(runtime).length > 0; attempt++) {
-    const again = anchor.ensureAnchored(anchoringOf(dir, src));
+    const again = anchor.ensureAnchored(anchoringOf(dir, src, { now: LATER() }));
     assert.equal(again.ok, true, again.because || '');
     if (retiredFiles(runtime).length > 0) await new Promise((resolve) => setTimeout(resolve, 100));
   }

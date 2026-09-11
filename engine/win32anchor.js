@@ -29,6 +29,9 @@
  *         node.exe            a copy, so the task's interpreter is durable
  *         engine-path         a pointer to the CURRENT app engine directory
  *         supervisor-boot.js  a durable shim: read the pointer, run the supervisor
+ *         node.exe.staged-* / node.exe.retired-*
+ *                             transient, only while a new Node version replaces
+ *                             a running one (see replaceInterpreter)
  *
  * 🔑 ONE POINTER FILE, EVERY TASK, and that is the property that makes this scale.
  * The pointer is shared, so refreshing it ONCE moves every registered agent onto
@@ -168,18 +171,50 @@ const BOOT_JS = [
 const STAGED_INFIX = '.staged-';
 const RETIRED_INFIX = '.retired-';
 
+/* Antivirus and the search indexer routinely hold a handle on a freshly written
+   .exe for a moment, and a rename then fails with EPERM, EBUSY or EACCES (the
+   reason graceful-fs retries renames on win32). Ten tries 100 ms apart rides that
+   out, about a second at worst, without making a real failure slow to report. */
+const RENAME_ATTEMPTS = 10;
+const RENAME_RETRY_DELAY_MS = 100;
+const TRANSIENT_RENAME_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);
+
+/* The sweep leaves a retired interpreter younger than this alone. It may belong
+   to another anchoring that moved it aside a moment ago, and that anchoring still
+   needs it to move back if its final rename fails. The swap takes milliseconds,
+   so five seconds is ample. The age is read from the time in the name, because a
+   rename keeps the file's old modification time. */
+const RETIRED_SWEEP_MIN_AGE_MS = 5000;
+
+function pauseSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function renameWithRetry(from, to) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      fs.renameSync(from, to);
+      return;
+    } catch (e) {
+      if (attempt >= RENAME_ATTEMPTS || !TRANSIENT_RENAME_CODES.has(e && e.code)) throw e;
+      pauseSync(RENAME_RETRY_DELAY_MS);
+    }
+  }
+}
+
 /**
  * Put `srcNode` at `nodeAt` even while `nodeAt` is a running interpreter.
  *
- * Throws on failure (ensureAnchored turns that into its sentence). It never
- * leaves `nodeAt` missing when the swap fails: the retired file is moved back.
- * Between the two renames `nodeAt` does not exist for a moment. A task started
- * in that instant fails to start and runs at the next logon or restart. That
- * window is two renames in one directory, and it opens only when the Node
- * version changes.
+ * Throws on failure (ensureAnchored turns that into its sentence). When the swap
+ * fails, the retired file is moved back. If even that fails, the thrown message
+ * says so, because the fleet's interpreter is then missing from its name and
+ * every task start fails until the next anchoring. Between the two renames
+ * `nodeAt` does not exist for a moment. A task started in that instant fails to
+ * start and runs at the next logon or restart. That window opens only when the
+ * Node version changes.
  */
-function replaceInterpreter(srcNode, nodeAt) {
-  const unique = Date.now() + '-' + process.pid;
+function replaceInterpreter(srcNode, nodeAt, now) {
+  const unique = now + '-' + process.pid;
   const staged = nodeAt + STAGED_INFIX + unique;
   let retired = null;
   try {
@@ -188,12 +223,17 @@ function replaceInterpreter(srcNode, nodeAt) {
     fs.copyFileSync(srcNode, staged);
     if (fs.existsSync(nodeAt)) {
       retired = nodeAt + RETIRED_INFIX + unique;
-      fs.renameSync(nodeAt, retired);
+      renameWithRetry(nodeAt, retired);
     }
-    fs.renameSync(staged, nodeAt);
+    renameWithRetry(staged, nodeAt);
   } catch (e) {
     if (retired && !fs.existsSync(nodeAt)) {
-      try { fs.renameSync(retired, nodeAt); } catch { /* the thrown error below is the report */ }
+      try {
+        renameWithRetry(retired, nodeAt);
+      } catch (restoreError) {
+        e.message += ' -- and ' + NODE_NAME + ' could not be put back from ' + retired +
+          ' (' + ((restoreError && restoreError.message) || restoreError) + ')';
+      }
     }
     try { fs.unlinkSync(staged); } catch { /* never created, or already renamed into place */ }
     throw e;
@@ -206,11 +246,14 @@ function replaceInterpreter(srcNode, nodeAt) {
  * be deleted until that process exits (measured), and the next anchoring retries.
  * Staged leftovers are NOT swept: one may be another process's swap in flight.
  */
-function retireLeftoverInterpreters(dir) {
+function retireLeftoverInterpreters(dir, now) {
+  const prefix = NODE_NAME + RETIRED_INFIX;
   let names;
   try { names = fs.readdirSync(dir); } catch { return; }
   for (const name of names) {
-    if (!name.startsWith(NODE_NAME + RETIRED_INFIX)) continue;
+    if (!name.startsWith(prefix)) continue;
+    const retiredAt = Number(name.slice(prefix.length).split('-')[0]);
+    if (Number.isFinite(retiredAt) && now - retiredAt < RETIRED_SWEEP_MIN_AGE_MS) continue;
     try { fs.unlinkSync(path.join(dir, name)); } catch { /* still running; the next anchoring retries */ }
   }
 }
@@ -228,6 +271,8 @@ function ensureAnchored(opts) {
   const env = o.env || process.env;
   const srcNode = o.node || process.execPath;
   const engineDir = o.engineDir || __dirname;
+  /* Injectable so a test can age a retired interpreter without sleeping. */
+  const now = typeof o.now === 'number' ? o.now : Date.now();
 
   let dir;
   try {
@@ -248,8 +293,9 @@ function ensureAnchored(opts) {
        broken. Size is the cheap discriminator and it is sufficient here: the
        source is a released node.exe, so a version change moves the size. An equal
        size over a corrupt copy is a case this does not detect, and the remedy is
-       deleting the anchor -- noted rather than defended against by hashing 92 MB
-       on every create.
+       deleting the anchored node.exe once the fleet is stopped (Windows refuses
+       while it runs) -- noted rather than defended against by hashing 92 MB on
+       every create.
 
        ⚠️ AND NEVER WHEN THE SOURCE IS ALREADY THE ANCHOR. A supervisor started by
        the task runs the anchored node, so `process.execPath` IS `nodeAt` --
@@ -259,9 +305,9 @@ function ensureAnchored(opts) {
     if (path.resolve(srcNode).toLowerCase() !== path.resolve(nodeAt).toLowerCase()) {
       let need = true;
       try { need = fs.statSync(nodeAt).size !== fs.statSync(srcNode).size; } catch { need = true; }
-      if (need) replaceInterpreter(srcNode, nodeAt);
+      if (need) replaceInterpreter(srcNode, nodeAt, now);
     }
-    retireLeftoverInterpreters(dir);
+    retireLeftoverInterpreters(dir, now);
 
     /* The pointer and the shim are small and rewritten unconditionally: this is
        how an app that moved takes effect, and it is the cheap half. */
@@ -285,5 +331,6 @@ function readPointer(platform, home, env) {
 
 module.exports = {
   APP, NODE_NAME, POINTER_NAME, BOOT_NAME, BOOT_JS, STAGED_INFIX, RETIRED_INFIX,
+  RETIRED_SWEEP_MIN_AGE_MS,
   anchorDir, ensureAnchored, readPointer,
 };
