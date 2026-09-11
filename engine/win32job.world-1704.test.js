@@ -8,6 +8,7 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const net = require('node:net');
 
 const win32job = require('./win32job');
@@ -53,7 +54,42 @@ test('#1704 the task line carries a NAMED world as argument seven, and a default
     assert.deepEqual(a, ['ava', 'C:\\work\\ava', '-', '-', 'claude', '-', 'test']);
     assert.equal(win32argv.specFromArgv(a).world, 'test', 'and the one parser reads it back');
   });
-  assert.equal(args(win32job.taskExec(Object.assign({ world: 'other' }, spec)))[6], 'other', 'an explicit world wins');
+});
+
+test('#1704 install names the task and hands the agent ONE world: the name and argument seven agree', () => {
+  /* Review round 1: install used to name the task by the current world while the
+     line honoured an explicit one, so a board could register `Kosmos\agent-ava`
+     whose agent served `kosmos-agent-ava+test`, and nothing could find it. */
+  let created = null;
+  win32job.setAnchorer(() => ({ ok: true, node: 'C:\\n\\node.exe', boot: 'C:\\r\\supervisor-boot.js' }));
+  win32job.setRunner((args) => {
+    if (args[0] === '/Create') {
+      const xml = fs.readFileSync(args[args.indexOf('/XML') + 1]).toString('utf16le');
+      const line = win32job.xmlUnescape(/<Arguments>([^<]*)<\/Arguments>/.exec(xml)[1]);
+      /* The registered line is conhost's: `--headless "<node>" "<boot>" "<name>" ...`,
+         so the agent's argv starts at the third quoted token -- the same
+         `slice(2)` configDirFor reads it with. */
+      created = { task: args[args.indexOf('/TN') + 1], argv: (line.match(/"[^"]*"/g) || []).map((q) => q.slice(1, -1)).slice(2) };
+    }
+    return { ok: true, out: '' };
+  });
+  const env = { USERNAME: 'jo', USERDOMAIN: 'PC' };
+  try {
+    inWorld(undefined, () => assert.equal(win32job.install({ name: 'ava', cwd: 'C:\\w\\ava', env, world: 'test' }).task, 'Kosmos\\agent-ava+test'));
+    assert.equal(created.task, 'Kosmos\\agent-ava+test');
+    assert.equal(created.argv[6], 'test', 'an explicit world names the task AND rides the line');
+
+    inWorld('test', () => win32job.install({ name: 'ava', cwd: 'C:\\w\\ava', env }));
+    assert.equal(created.task, 'Kosmos\\agent-ava+test');
+    assert.equal(created.argv[6], 'test', 'the board\'s own world, the same way');
+
+    inWorld(undefined, () => win32job.install({ name: 'ava', cwd: 'C:\\w\\ava', env }));
+    assert.equal(created.task, 'Kosmos\\agent-ava');
+    assert.equal(created.argv.length, 6, 'a default-world task line is unchanged');
+  } finally {
+    win32job.setRunner(null);
+    win32job.setAnchorer(null);
+  }
 });
 
 test('#1704 argument seven is optional: a task from before it existed is a default-world agent', () => {

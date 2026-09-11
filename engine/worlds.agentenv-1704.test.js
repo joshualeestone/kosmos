@@ -46,8 +46,33 @@ test('#1704 a NAMED-world agent gets that world\'s roots, derived from the id al
   assert.deepEqual(applied, expected);
   for (const k of Object.keys(expected)) assert.equal(env[k], expected[k], k);
   assert.deepEqual(JSON.parse(env[worlds.PRE_WORLD_ROOTS_ENV_VAR]),
-    { AGENT_WORKFORCE_DATA: base, AGENT_WORKFORCE_PROJECTS: null, AGENT_WORKFORCE_WORKERS: null },
-    'the originals are recorded, unset ones as null');
+    { world: 'test', roots: { AGENT_WORKFORCE_DATA: base, AGENT_WORKFORCE_PROJECTS: null, AGENT_WORKFORCE_WORKERS: null } },
+    'the world and the originals are recorded, unset roots as null');
+});
+
+test('#1704 an environment inherited ACROSS a switch is re-applied from the originals, never nested', () => {
+  /* A process that inherited world A's applied environment and is now told it
+     belongs to world B must land on B's roots derived from the REAL base, not on
+     B nested inside A (review round 1: the marker used to mean "done" for any
+     world). */
+  const base = sandbox();
+  const env = { AGENT_WORKFORCE_DATA: base, KOSMOS_WORLD: 'alpha' };
+  const original = { AGENT_WORKFORCE_DATA: base };
+  worlds.applyAgentWorldEnv(env);
+  env.KOSMOS_WORLD = 'beta';
+  const applied = worlds.applyAgentWorldEnv(env);
+  assert.deepEqual(applied, worlds.envOverridesFor(worlds.baseRoot(original), { id: 'beta' }));
+  assert.equal(JSON.parse(env[worlds.PRE_WORLD_ROOTS_ENV_VAR]).world, 'beta');
+  assert.deepEqual(worlds.preWorldEnv(env), original, 'and the originals still come back exactly');
+});
+
+test('#1704 a DEFAULT-world process carrying a stale marker goes back to its own roots', () => {
+  const base = sandbox();
+  const env = { AGENT_WORKFORCE_DATA: base, KOSMOS_WORLD: 'alpha' };
+  worlds.applyAgentWorldEnv(env);
+  delete env.KOSMOS_WORLD;
+  assert.deepEqual(worlds.applyAgentWorldEnv(env), {});
+  assert.deepEqual(env, { AGENT_WORKFORCE_DATA: base });
 });
 
 test('#1704 applying is IDEMPOTENT: an inherited, already-applied environment is not moved twice', () => {

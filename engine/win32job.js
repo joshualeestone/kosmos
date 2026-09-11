@@ -84,7 +84,7 @@ let runFn = null;
  * STATE only and cannot move the path, so they deliberately do not bust it.
  */
 const CONFIG_DIR_CACHE = new Map();
-function forgetConfigDir(name) { CONFIG_DIR_CACHE.delete(taskName(name)); }
+function forgetConfigDir(name, worldId) { CONFIG_DIR_CACHE.delete(taskName(name, worldId)); }
 /* 🔑 ONE WRITER, so "which answers are cacheable" is decided in a single place
    rather than at each `return`. It takes only `known` answers and hands the
    value straight back, so a call site reads `return rememberConfigDir(n, {...})`
@@ -320,6 +320,11 @@ function taskXml(spec, env) {
 function install(spec) {
   const s = spec || {};
   if (!s.name || !s.cwd) return { ok: false, because: 'a job needs an agent name and a folder' };
+  /* 🔑 #1704: THE WORLD IS DECIDED ONCE, HERE, and the task name, the task line
+     and the remembered path all use it. The task's NAME and the world on its
+     LINE must agree, or the supervisor would serve one world's pipe under
+     another world's task and nothing could find it again (review round 1). */
+  const world = s.world !== undefined ? s.world : launchidentity.currentWorldId();
   /* 🛑 #2717: FORGET THE REMEMBERED PATH AT THE TOP, before anything can fail
      partway. `/Create /F` REWRITES the definition, so a re-registered agent can
      carry a different account, and a cache kept across that would hand out the
@@ -329,7 +334,7 @@ function install(spec) {
      re-read, and it removes the reasoning step "did this particular failure
      reach the create?" from a correctness argument. A first version put it
      beside the `/Create` and an early return walked straight past it. */
-  forgetConfigDir(s.name);
+  forgetConfigDir(s.name, world);
   /* 🔑 ANCHOR FIRST, THEN REGISTER, and the order is the point: a task built from
      this app's paths outlives the app. `ensureAnchored` copies node out of the
      extract tree and refreshes the shared engine pointer, so the command written
@@ -357,16 +362,16 @@ function install(spec) {
   let r;
   try {
     try {
-      fs.writeFileSync(xmlAt, Buffer.from('﻿' + taskXml({ ...s, node: anchor.node, supervisor: anchor.boot }, s.env), 'utf16le'));
+      fs.writeFileSync(xmlAt, Buffer.from('﻿' + taskXml({ ...s, world, node: anchor.node, supervisor: anchor.boot }, s.env), 'utf16le'));
     } catch (e) {
       return { ok: false, because: 'we could not write the startup job definition (' + ((e && e.message) || 'no detail') + ')' };
     }
-    r = run(['/Create', '/F', '/TN', taskName(s.name), '/XML', xmlAt]);
+    r = run(['/Create', '/F', '/TN', taskName(s.name, world), '/XML', xmlAt]);
   } finally {
     try { fs.unlinkSync(xmlAt); } catch { /* best effort; it is in the temp root */ }
   }
   if (!r.ok) return { ok: false, because: 'we could not register the startup job (' + (r.out || 'no detail').trim().split('\n')[0] + ')' };
-  return { ok: true, task: taskName(s.name) };
+  return { ok: true, task: taskName(s.name, world) };
 }
 
 /**

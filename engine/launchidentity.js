@@ -26,10 +26,12 @@
  *
  * 📌 HOW A PROCESS KNOWS ITS WORLD: `KOSMOS_WORLD` in its environment, absent for
  * the default world. The board sets it when it boots into a named world
- * (worlds.applyActiveWorldEnv), and every agent-side process gets it before its
- * first store-using require (worlds.applyAgentWorldEnv; on Windows the anchored
- * boot shim reads it from the task's argument line). So a module that names a
- * task or a pipe asks `currentWorldId()` and never needs a world passed in.
+ * (worlds.applyActiveWorldEnv). On Windows every agent-side process has it before
+ * its first store-using require: the anchored boot shim reads it from the task's
+ * argument line and applies it (worlds.applyAgentWorldEnv), and the agent's hooks
+ * and `kosmos` command inherit it. (The Mac's agents get it in the Mac slice,
+ * PR1m.) So a module that names a task or a pipe asks `currentWorldId()` and
+ * never needs a world passed in.
  *
  * A LEAF, WITH NO REQUIRES: the anchored boot shim and worlds.js both load it
  * before any module that freezes store.ROOT.
