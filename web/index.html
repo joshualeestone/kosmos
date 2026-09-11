@@ -1479,6 +1479,11 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    to the visible state fixes that (an invisible callout is now `none`, so it cannot
    capture a neighbour) while keeping the visible pill pressable. The avatar itself
    also opens the agent (the orgmap click handler), and the chevron is gone. */
+/* .oname (the at-rest name label) is pointer-events:none DELIBERATELY, not only as
+   the callout's default: on a small fleet two neighbouring rest-labels can overlap,
+   and an interactive nearer label would eat clicks meant for the node behind it. Do
+   NOT make .oname interactive. (The callout takes its none from here too; see the
+   #2683 note above for how the callout's auto is re-added only while visible.) */
 .onode .oname, .onode .callout {
   position: absolute; left: 50%; transform: translateX(-50%);
   white-space: nowrap; pointer-events: none;
