@@ -4914,6 +4914,18 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    floor this project holds as a hard rule. "It is only a scannable caption"
    was the recorded defence, and the floor does not have a caption exemption. */
 .pj-member small { font: var(--text-caption) var(--font-ui); color: var(--label-2); }
+/* #2699 (Josh, 2026-09-10): a needs-you member on the project view must stand out, not
+   blend into the Idle/Working spot. LROW_WARN (the agents list's warning triangle) is
+   display:none inside a .lav by default, so show + position it over the .pj-face avatar,
+   reusing the consolidated list's 18x16 centered placement; and turn the status line red.
+   Scoped to .pj-member so no other .lav triangle or small is affected. */
+.pj-member .pj-face { position: relative; overflow: visible; }
+.pj-member .pj-face > .lwarn { display: block; position: absolute; left: 50%; top: 50%; width: 18px; height: 16px; transform: translate(-50%, -52%); }
+.pj-member small.pj-attn { color: #b3261e; }
+/* #b3261e is a ~2:1 whisper on the dark surface (under WCAG AA for this caption), the same
+   reason .pjonode.attn lightens; lift to #ff8c82 in both dark spellings (system + toggle). */
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .pj-member small.pj-attn { color: #ff8c82; } }
+:root[data-theme="dark"] .pj-member small.pj-attn { color: #ff8c82; }
 .pj-member .pj-told { display: block; font: var(--text-caption) var(--font-ui); color: var(--label-2); flex-basis: 100%; }
 /* The remedy beside the not-picked-up line. Quiet and inline: it is the second
    thing on that line, and the sentence is what a person reads before deciding
@@ -33156,11 +33168,21 @@ function pjMember(m, suppressTold, withMinus) {
      on a screen, so it is the one that must not be guessed.
      aria-hidden, because the name is right beside it in <b> and a screen
      reader announcing initials as well would say the agent twice. */
+  /* #2699 (Josh, 2026-09-10): on the project view a needs-you member "just says
+     'needs you' in text and doesn't show" - it sits in the same spot as Idle/Working
+     and blends in. Josh asked for the little red triangle over the agent's icon and the
+     status text in red, so it calls for attention. `attn` is true only for needs_you
+     (STATE_COPY), so this lights up exactly that state, on the present branch (a member we
+     cannot see says why instead and is not "needs you"). LROW_WARN is the same warning
+     glyph the agents list draws over its avatars; it is display:none inside a .lav until a
+     rule shows it, so the CSS below shows+positions it for .pj-member .pj-face. */
+  const needsYou = (m.present || m.state === 'restarting') && stateCopyOf(m).attn === true;
+  const warn = needsYou ? LROW_WARN : '';
   const face = m.hasAvatar
     ? '<span class="lav pj-face" aria-hidden="true"><img src="/api/agent/'
-      + encodeURIComponent(m.sessionName) + '/avatar" alt=""></span>'
+      + encodeURIComponent(m.sessionName) + '/avatar" alt="">' + warn + '</span>'
     : '<span class="lav pj-face" aria-hidden="true" style="background:' + discTint(m.name)
-      + ';color:' + discInk(m.name) + '">' + esc(initials(m.name)) + '</span>';
+      + ';color:' + discInk(m.name) + '">' + esc(initials(m.name)) + warn + '</span>';
   /* #2019: a restarting member is NOT "unseen" -- .unseen draws the dashed
      "slot waiting / cannot see this" border the restarting state refuses on every
      other surface (the card pill is deliberately SOLID). Suppress it for
@@ -33198,7 +33220,7 @@ function pjMember(m, suppressTold, withMinus) {
          the card/row/detail on the state word (it names the cause when the member
          payload carries a.disruption, and falls back to "Restarting agent" when it
          does not -- honest either way). */
-      ? '<small>' + esc(stateCopyOf(m).label)
+      ? '<small' + (needsYou ? ' class="pj-attn"' : '') + '>' + esc(stateCopyOf(m).label)
         + (m.state === 'unknown' && m.because ? ': ' + esc(m.because) : '') + '</small>'
       : '<small>' + esc(m.because || 'We cannot see this agent on this computer right now.') + '</small>')
     /* The removal action lives in PROJECT SETTINGS now (Josh's ruling
