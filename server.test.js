@@ -12242,7 +12242,23 @@ test('#2811: account-status does not run a CLAUDE auth probe against a codex age
       assert.notEqual(out.state, subscription.STATE.NONE,
         who + ': the Claude probe ran and its NONE reached the payload');
       assert.match(out.because, /does not run on Claude/, who);
+      assert.strictEqual(out.remedy, null,
+        who + ': the codex answer carries no remedy key, so it is shaped unlike every other ok:true return here');
     }
+
+    /* 🛑 THE PAYLOAD HALF, WHICH A SURVIVING MUTANT SHOWED WAS UNARMED. The arms
+       above read only connected/state/because, so replacing the whole account
+       expression with a bare `null` changed nothing they could see. The two
+       shapes differ here and that difference is the point: a NAMED codex account
+       still reports its row, a DEFAULT one has none to report. */
+    const named = JSON.parse((await req('/api/agent/namedcodex/account-status')).body);
+    assert.equal(named.account && named.account.dir, undefined,
+      'the route leaked a dir it does not send');
+    assert.ok(named.account, 'a named codex account lost its row, so the answer names no account at all');
+    assert.strictEqual(named.account.isDefault, false);
+    const dflt = JSON.parse((await req('/api/agent/defcodex2/account-status')).body);
+    assert.strictEqual(dflt.account, null,
+      'a default codex agent was given an account row it does not have');
 
     /* CONTROL: a CLAUDE agent still gets the real probe, so the guard is scoped
        and has not simply disabled this route. The stub makes it answer NONE. */

@@ -3689,9 +3689,20 @@ const server = http.createServer((req, res) => {
     const name = decodeSegment(agentAccountStatus[1]);
     if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
     const known = (() => { try { return accounts.list(); } catch { return []; } })();
-    /* Wrapped, like the sibling read in `whoamiFor`: a bare call here would let a
-       store or plist read take the route down. */
-    const runnerOf = (n) => { try { return create.recordedRunner(n); } catch { return 'claude'; } };
+    /* 🛑 `null` ON A THROW, NOT `'claude'`, AND THE DIRECTION IS THE WHOLE POINT.
+       `null !== 'claude'` so the guard below FIRES and the route answers an honest
+       unknown; `'claude'` would fall through to the Claude probe and silently
+       restore the exact defect this guard exists to stop. An earlier version
+       returned `'claude'` and justified the wrapper by saying a bad store read
+       would otherwise take the route down.
+       ⚠️ BOTH HALVES OF THAT WERE WRONG. `create.recordedRunner` says in its own
+       header that it NEVER THROWS (`readJob` swallows fs errors and `readProfile`
+       returns `{}` for a missing or unreadable profile), so the catch is
+       unreachable rather than load-bearing; and the sibling it claimed parity
+       with (`whoamiFor`, same file) returns `null`, not `'claude'`. Kept rather
+       than deleted so the two reads stay one shape, with the unreachability
+       stated instead of a reason that is not true. */
+    const runnerOf = (n) => { try { return create.recordedRunner(n); } catch { return null; } };
     const account = accountForAgent(name, known);
     /* 200 with ok:false, DELIBERATELY, and not the 404 the sibling /skills route
        gives an unknown name. This route answers a "could we determine it" question
@@ -3722,6 +3733,11 @@ const server = http.createServer((req, res) => {
         account: account ? { email: account.email, label: account.label, isDefault: account.isDefault === true } : null,
         state: subscription.STATE.UNKNOWN,
         connected: null,
+        /* Null, the same value the two sibling `ok: true` returns give whenever
+           `connected` is not positively false, and asserted by
+           `server.agent-account-status-1885.test.js`. There is nothing to remedy:
+           this agent is not signed out of Claude, it does not run on Claude. */
+        remedy: null,
         because: 'this agent does not run on Claude, so whether it is signed in there is not a question about it',
       });
       return;
