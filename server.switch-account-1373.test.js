@@ -365,3 +365,22 @@ test('#2790 coupling: the note predicate matches checkLive treating a sign-in as
   assert.ok(row && row.authMode !== 'apikey',
     'the sign-in fixture is classified apikey, so the note gate would not fire for the account checkLive cannot verify: ' + JSON.stringify(row));
 });
+
+/* #2790: the reported failure was an UNPICKED default landing (5 agents on the
+   default sign-in nobody explicitly chose), so pin that the note fires there too.
+   `signInNote` is computed independently of `acct.chosen`, but the note rides on
+   the `runsOn` sentence whose wording DOES branch on `chosen` -- so an unpicked
+   arm proves the note attaches to the "your OpenAI sign-in" (default) wording as
+   well as the "you picked" wording, not just by reading the code. */
+test('#2790 route (OK branch, UNPICKED default): a sign-in still warns', async () => {
+  const name = born('route-2790-signin-unpicked');
+  const r = await switchTo(name, { provider: 'openai', account: GAMMA_SIGNIN, picked: false });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.outcome, 'changed', JSON.stringify(r.body));
+  assert.match(r.body.because, /It runs on your OpenAI sign-in/,
+    'the unpicked sentence is missing, so this arm is not exercising the default wording: ' + r.body.because);
+  assert.doesNotMatch(r.body.because, /you picked/,
+    'an unpicked default is reported as a choice: ' + r.body.because);
+  assert.match(r.body.because, /cannot live-check an OpenAI sign-in/,
+    'the note did not fire on an unpicked default sign-in, which is exactly the reported case: ' + r.body.because);
+});
