@@ -7,6 +7,7 @@
 # the arguments, or a message mentioning /c/something would reach the board
 # rewritten as C:\something. Measured: every character of an agent's message
 # arrives intact this way, newlines, quotes, & and % included.
+command -v cygpath >/dev/null 2>&1 || { echo "kosmos: this shim runs in Git Bash, which provides cygpath; it is not on PATH here" >&2; exit 1; }
 here=$(cd "$(dirname "$0")" && pwd)
 node=$(cygpath -w "$here/../runtime/node.exe")
 cli=$(cygpath -w "$here/kosmos-cli.js")

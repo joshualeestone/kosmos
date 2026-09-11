@@ -61,23 +61,33 @@ const USAGE = {
 };
 const VERBS = ['msg', 'reply', 'post', 'react', 'report', 'whoami', 'room', 'task'];
 
-/* kosmos.ps1 passes the agent's arguments as JSON in the environment, never on a
-   command line (see that file), and says so with this flag. Only then is the
-   variable read, so a stale one can never replace real arguments. */
-const ARGV_FROM_ENV_FLAG = '--kosmos-argv-from-env';
-const ARGV_ENV = 'KOSMOS_ARGV_JSON';
+/* kosmos.ps1 passes the agent's arguments as JSON in a private temp file, never on
+   a command line (see that file), and names it after this flag. Only then is a
+   file read, so nothing stale can ever replace real arguments. */
+const ARGV_FILE_FLAG = '--kosmos-argv-file';
 
-/** The command's arguments: from the environment when kosmos.ps1 sent them, else
-    from argv. Every element becomes a string (PowerShell passes a bare 3 as a
-    number). A JSON that does not parse to an array is no arguments at all. */
-function argvFrom(argv, env) {
+/**
+ * The command's arguments: from kosmos.ps1's file when it sent one, else argv.
+ * A bare number becomes its text (PowerShell passes `3` as a number). A LIST or a
+ * TABLE is refused, loudly: PowerShell turns an unquoted `a, b` or `@{...}` into
+ * one, and stringifying it would change the agent's words without a sign (review
+ * round 2). Throws an Error whose message is the sentence to print.
+ */
+function argvFrom(argv, readFile) {
   const a = Array.isArray(argv) ? argv : [];
-  if (a[0] !== ARGV_FROM_ENV_FLAG) return a.map(String);
-  let parsed = null;
-  try { parsed = JSON.parse(String((env && env[ARGV_ENV]) || '')); } catch { parsed = null; }
-  return Array.isArray(parsed) ? parsed.map((x) => (x == null ? '' : String(x))) : [];
+  if (a[0] !== ARGV_FILE_FLAG) return a.map(String);
+  const read = readFile || ((f) => fs.readFileSync(f, 'utf8'));
+  let parsed;
+  try { parsed = JSON.parse(String(read(String(a[1] || ''))).replace(/^\uFEFF/, '')); } catch (e) {
+    throw new Error('kosmos could not read the arguments PowerShell passed (' + ((e && e.message) || e) + ').');
+  }
+  if (!Array.isArray(parsed)) throw new Error('kosmos could not read the arguments PowerShell passed (not a list).');
+  return parsed.map((x) => {
+    if (x == null) return '';
+    if (typeof x === 'object') throw new Error('One of the arguments reached kosmos as a PowerShell list or table, not text, so its words would change. Put that part in quotes and run it again.');
+    return String(x);
+  });
 }
-
 /* cmd_room's and cmd_task's sanitizer, exactly: a project id keeps only
    [A-Za-z0-9._-], so `kosmos room <id>` and `kosmos task <id>` reach one route. */
 function projectSlug(id) { return String(id || '').replace(/[^A-Za-z0-9._-]/g, ''); }
@@ -94,7 +104,8 @@ async function main(argv, io) {
   const doFetch = o.fetch || fetch;
   const hook = o.hook || require(path.join(engineDir(), 'kosmos-report-hook.js'));
   const url = o.url || hook.resolveUrl(env, -1);
-  const args = argvFrom(argv, env);
+  let args;
+  try { args = argvFrom(argv, o.readFile); } catch (e) { err(String(e.message)); return 2; }
   const verb = args.shift();
 
   if (!verb || !VERBS.includes(verb)) {
@@ -296,7 +307,7 @@ function clause(s) { return s ? String(s).replace(/[.\s]+$/, '') : ''; }
 /* A "maybe" is exit 3, never 1: 1 invites the retry that duplicates the send. */
 function maybe(err, sentence) { err(sentence); return 3; }
 
-module.exports = { main, argvFrom, engineDir, projectSlug, VERBS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, ARGV_FROM_ENV_FLAG, ARGV_ENV };
+module.exports = { main, argvFrom, engineDir, projectSlug, VERBS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, ARGV_FILE_FLAG };
 
 if (require.main === module) {
   main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (e) => {

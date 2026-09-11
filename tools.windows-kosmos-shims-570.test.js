@@ -39,7 +39,7 @@ function zipRoot() {
   fs.writeFileSync(path.join(root, 'bin', 'kosmos'), fs.readFileSync(path.join(__dirname, 'tools', 'windows', 'kosmos.sh'), 'utf8').replace(/\r/g, ''));
   const real = path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js').replace(/\\/g, '\\\\');
   fs.writeFileSync(path.join(root, 'bin', 'kosmos-cli.js'),
-    "process.stdout.write(JSON.stringify(require('" + real + "').argvFrom(process.argv.slice(2), process.env)) + '\\n');\nprocess.exitCode = 7;\n");
+    "try { process.stdout.write(JSON.stringify(require('" + real + "').argvFrom(process.argv.slice(2))) + '\\n'); process.exitCode = 7; } catch (e) { process.stdout.write('ERR ' + e.message + '\\n'); process.exitCode = 2; }\n");
   return root;
 }
 
@@ -80,5 +80,51 @@ test('Git Bash: a bare `kosmos` is the sh shim, and the same answer arrives exac
     assert.equal(lines[0], posixBin + '/kosmos', 'Git Bash did not resolve a bare kosmos to the sh shim: ' + r.stdout + r.stderr);
     assert.deepEqual(JSON.parse(lines[1]), ['reply', 'line one\nline two', HARD, '/c/some/path'], 'the answer changed on the way: ' + r.stdout);
     assert.equal(lines[2], 'exit=7');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+function ps(root, lines) {
+  const bin = path.join(root, 'bin');
+  const script = ["$env:Path = '" + bin + ";' + $env:Path"].concat(lines).join('; ');
+  const r = cp.spawnSync('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', script], { encoding: 'utf8', timeout: 60000, maxBuffer: 1e7 });
+  return { lines: String(r.stdout).split(/\r?\n/).filter(Boolean), stderr: String(r.stderr) };
+}
+
+test('PowerShell: a 40,000-character message (past one environment variable\'s limit) arrives intact', { skip: !ON_WINDOWS && 'Windows only' }, () => {
+  const root = zipRoot();
+  try {
+    const r = ps(root, ["kosmos post p1 ('x' * 40000)", "\"exit=$LASTEXITCODE\""]);
+    const got = JSON.parse(r.lines[0]);
+    assert.equal(got[2].length, 40000, 'a long room post was cut or lost: ' + r.stderr.slice(0, 300));
+    assert.equal(r.lines[1], 'exit=7');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('PowerShell: with no node.exe the shim says so and exits 1, never 0', { skip: !ON_WINDOWS && 'Windows only' }, () => {
+  const root = zipRoot();
+  try {
+    fs.rmSync(path.join(root, 'runtime', 'node.exe'));
+    const r = ps(root, ['kosmos reply hello', '"exit=$LASTEXITCODE"']);
+    assert.equal(r.lines[r.lines.length - 1], 'exit=1', 'a message nobody sent was reported as sent: ' + r.lines.join(' | '));
+    assert.match(r.stderr + r.lines.join(' '), /kosmos could not run/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('PowerShell: an unquoted table is refused (exit 2), not sent as "[object Object]"', { skip: !ON_WINDOWS && 'Windows only' }, () => {
+  const root = zipRoot();
+  try {
+    const r = ps(root, ['kosmos msg foo @{a=1}', '"exit=$LASTEXITCODE"']);
+    assert.match(r.lines[0], /^ERR .*list or table/);
+    assert.equal(r.lines[1], 'exit=2');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('the temp file is gone after the call', { skip: !ON_WINDOWS && 'Windows only' }, () => {
+  const root = zipRoot();
+  try {
+    const before = new Set(fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('kosmos-argv-')));
+    ps(root, ['kosmos reply hello']);
+    const left = fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('kosmos-argv-') && !before.has(f));
+    assert.deepEqual(left, [], 'the argument file was left behind');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

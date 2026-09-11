@@ -198,18 +198,28 @@ test('against a real local server: the request is well-formed on the wire', asyn
   } finally { await new Promise((r) => srv.close(r)); }
 });
 
-// ── the arguments kosmos.ps1 hands over in the environment ──────────────────
+// ── the arguments kosmos.ps1 hands over in a temp file ─────────────────────
 
-test('argvFrom: kosmos.ps1\'s JSON is read ONLY behind its flag, exactly, and every element is a string', () => {
-  const env = { [cli.ARGV_ENV]: JSON.stringify(['reply', 'line one\nline two', 'She said "go & echo X" ok', '100%PATH%', 3]) };
-  assert.deepEqual(cli.argvFrom([cli.ARGV_FROM_ENV_FLAG], env), ['reply', 'line one\nline two', 'She said "go & echo X" ok', '100%PATH%', '3']);
-  assert.deepEqual(cli.argvFrom(['reply', 'hi'], env), ['reply', 'hi'], 'a stale variable replaced real arguments');
-  assert.deepEqual(cli.argvFrom([cli.ARGV_FROM_ENV_FLAG], { [cli.ARGV_ENV]: '{"not":"an array"}' }), []);
-  assert.deepEqual(cli.argvFrom([cli.ARGV_FROM_ENV_FLAG], {}), []);
+test('argvFrom: kosmos.ps1\'s JSON file is read ONLY behind its flag, exactly, and a bare number becomes text', () => {
+  const file = JSON.stringify(['reply', 'line one\nline two', 'She said "go & echo X" ok', '100%PATH%', 3]);
+  assert.deepEqual(cli.argvFrom([cli.ARGV_FILE_FLAG, 'f.json'], () => file), ['reply', 'line one\nline two', 'She said "go & echo X" ok', '100%PATH%', '3']);
+  assert.deepEqual(cli.argvFrom([cli.ARGV_FILE_FLAG, 'f.json'], () => '\uFEFF' + file)[0], 'reply', 'a BOM broke the read');
+  assert.deepEqual(cli.argvFrom(['reply', 'hi'], () => { throw new Error('read a file it was not given'); }), ['reply', 'hi']);
 });
 
-test('main reads the environment\'s arguments when kosmos.ps1 says so', async () => {
-  const r = await run([cli.ARGV_FROM_ENV_FLAG], () => ({ body: { kept: true } }), { KOSMOS_AGENT_TOKEN: AGENT, [cli.ARGV_ENV]: JSON.stringify(['reply', 'two\nlines']) });
-  assert.equal(r.code, 0);
-  assert.equal(r.calls[0].body.text, 'two\nlines', 'the multi-line answer was cut, which is the defect the .ps1 shim exists to end');
+test('argvFrom: a PowerShell list or table is REFUSED, never stringified into different words', () => {
+  assert.throws(() => cli.argvFrom([cli.ARGV_FILE_FLAG, 'f'], () => JSON.stringify(['msg', 'foo', { a: 1 }])), /list or table, not text/);
+  assert.throws(() => cli.argvFrom([cli.ARGV_FILE_FLAG, 'f'], () => JSON.stringify(['msg', 'foo', ['a', 'b']])), /list or table/);
+  assert.throws(() => cli.argvFrom([cli.ARGV_FILE_FLAG, 'f'], () => 'not json'), /could not read the arguments/);
+});
+
+test('main reads kosmos.ps1\'s file, and refuses a mangled argument with exit 2 before sending anything', async () => {
+  const calls = [];
+  const ok = await cli.main([cli.ARGV_FILE_FLAG, 'x'], { env: { KOSMOS_AGENT_TOKEN: AGENT }, hook: hookStub, out: () => {}, err: () => {}, readFile: () => JSON.stringify(['reply', 'two\nlines']), fetch: async (u, init) => { calls.push(JSON.parse(init.body)); return { status: 200, text: async () => '{"kept":true}' }; } });
+  assert.equal(ok, 0);
+  assert.equal(calls[0].text, 'two\nlines', 'the multi-line answer was cut, which is the defect the .ps1 shim exists to end');
+  const errs = [];
+  const bad = await cli.main([cli.ARGV_FILE_FLAG, 'x'], { env: {}, hook: hookStub, out: () => {}, err: (s) => errs.push(s), readFile: () => JSON.stringify(['reply', { a: 1 }]), fetch: async () => { throw new Error('sent a mangled message'); } });
+  assert.equal(bad, 2);
+  assert.match(errs.join(' '), /Put that part in quotes/);
 });

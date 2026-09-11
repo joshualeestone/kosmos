@@ -116,8 +116,8 @@ cp "$REPO/tools/kosmos-open-board.js" "$STAGE/open-board.js"
 # PowerShell with a Bypass execution policy); Git Bash resolves the extensionless
 # sh script. A .cmd was tried first and REMOVED: cmd's %* kept only the first line
 # of a multi-line message and ran the tail of one holding `"...&...` as a command
-# (review round 1). The .ps1 hands the arguments over as JSON in the environment,
-# so no Windows command line ever carries the message.
+# (review round 1). The .ps1 hands the arguments over as JSON in a private temp
+# file, so no Windows command line ever carries the message, whatever its length.
 # ⚠️ The sh shim is copied with any CR stripped: a builder whose git checks out
 # CRLF would otherwise ship `#!/bin/sh\r`, which bash cannot run.
 mkdir -p "$STAGE/bin"
