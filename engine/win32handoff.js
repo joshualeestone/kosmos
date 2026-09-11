@@ -33,10 +33,16 @@ const path = require('node:path');
  * a board and then opens the PLAIN url, which an enforcing Windows board answers
  * with the #2007 403. So whatever this does -- succeed, replace an older board, or
  * give up and serve in the window -- a board must be answering before then.
- * 14s leaves the fallback about 6s to bind the port. Measured on the box: boot to
- * the hand-off about 2s, `/Run` to a listening board 1.2s, a whole update 8.9s.
+ * ⚠️ THE BUDGET IS NOT THE WORST CASE, and the difference is spelled out so it is
+ * not rediscovered: a probe already in flight at the deadline can take
+ * PROBE_TIMEOUT_MS, and the fallback's port-release wait has a floor of
+ * MIN_PORT_RELEASE_WAIT_MS (below) that the budget does not cut. Worst case from
+ * process start: 12 + 2 (a last probe) + 2 (the release floor) + 2 (its last
+ * probe) = 18s, inside the opener's 20s. Measured on the box: boot to the hand-off
+ * about 2s, `/Run` to a listening board 1.2s, a whole update 8.9s from the
+ * double-click -- so 12s still covers the update, grace included.
  */
-const HANDOFF_BUDGET_MS = 14000;
+const HANDOFF_BUDGET_MS = 12000;
 
 /* The update case ends an OLDER board that the launcher's opener may be signing
    the browser in to at this very moment: it minted a single-use boot nonce there,
@@ -49,8 +55,10 @@ const HANDOFF_BUDGET_MS = 14000;
 const OLD_BOARD_GRACE_MS = 3000;
 
 /* Whatever the budget says, an ended board gets this long to let go of the port
-   before this one tries to bind it. win32board.restart measured the port staying
-   bound about a second after `/End`. */
+   before this one tries to bind it: serving here into a port still held would only
+   die on EADDRINUSE. win32board.restart measured the port staying bound about a
+   second after `/End`. This floor is why the worst case exceeds the budget (see
+   HANDOFF_BUDGET_MS). */
 const MIN_PORT_RELEASE_WAIT_MS = 2000;
 
 /* A task board still booting at logon can answer AFTER our `/Run` with its older

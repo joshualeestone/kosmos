@@ -22,19 +22,22 @@ const { handOffToTask, buildIdentity, BOARD_BUILD_HEADER } = require('./win32han
 const REFRESHED = { ok: true, action: 'refreshed' };
 const MINE = '0.6.55+6182640d6a1f';
 const OLDER = '0.6.55+2f841189aaaa';
-const BUDGET = 14000;
+const BUDGET = 12000;
+const RELEASE_FLOOR = 2000;
 
 /* A fake world: a clock that sleeping advances, a port whose occupant changes as
    the task is ended and run, and a record of every task op in order.
    occupant: null = nothing on the port; '' = a board with no build header;
    any other string = the build that board names. */
-function world({ occupant = null, taskRunning = false, starts = MINE, runOk = true, endFrees = true } = {}) {
+function world({ occupant = null, taskRunning = false, starts = MINE, runOk = true, endFrees = true, releaseAfter = 0 } = {}) {
   const w = { t: 0, occupant, taskRunning, ops: [], probes: 0 };
   w.board = {
     status: () => ({ registered: true, enabled: true, running: w.taskRunning }),
     end: () => {
       w.ops.push('end');
-      if (w.taskRunning && endFrees) { w.taskRunning = false; w.occupant = null; }
+      /* releaseAfter: the ended board lets go of the port that many ms later, as a
+         real one does (about a second, measured). */
+      if (w.taskRunning && endFrees) { w.taskRunning = false; w.releasing = w.t + releaseAfter; }
       return { ok: true };
     },
     runNow: () => {
@@ -47,6 +50,7 @@ function world({ occupant = null, taskRunning = false, starts = MINE, runOk = tr
   };
   w.probe = async () => {
     w.probes++;
+    if (w.releasing !== undefined && w.t >= w.releasing) { w.occupant = null; delete w.releasing; }
     if (w.pending && w.t >= w.pending.at) { w.occupant = w.pending.build; w.pending = null; }
     return w.occupant === null ? { answering: false, build: null } : { answering: true, build: w.occupant || null };
   };
@@ -193,16 +197,35 @@ test('🛑 the budget counts from PROCESS START, so a slow boot leaves the fallb
   /* The opener waits 20s and then opens the plain url, which an enforcing board
      403s. Here the process spent 13s booting, so 1s of budget is left. */
   const w = world({ starts: null });
-  const r = await handOffToTask(w.opts({ startedAt: -13000 }));
+  const r = await handOffToTask(w.opts({ startedAt: -(BUDGET - 1000) }));
   assert.equal(r.serve, true);
-  assert.ok(w.t <= 1000 + 2000 + 300, 'the hand-off overran its budget: ' + w.t + 'ms after a 13s boot');
+  assert.ok(w.t <= 1000 + RELEASE_FLOOR + 300, 'the hand-off overran its budget: ' + w.t + 'ms with 1s left');
 });
 
 test('the whole update path fits the budget, grace and all', async () => {
-  const w = world({ occupant: OLDER, taskRunning: true, starts: null });
+  const w = world({ occupant: OLDER, taskRunning: true, starts: null, releaseAfter: 1000 });
   const r = await handOffToTask(w.opts());
   assert.equal(r.serve, true);
-  assert.ok(w.t <= BUDGET + 2000 + 300, 'the fallback came too late for the opener: ' + w.t + 'ms');
+  assert.ok(w.t <= BUDGET + RELEASE_FLOOR + 300, 'the fallback came too late for the opener: ' + w.t + 'ms');
+});
+
+test('🛑 a board slow to let go of the port is waited for even when the budget is spent, so this one does not bind into it', async () => {
+  /* The budget is gone when the old board is ended, and it frees the port 1.8s
+     later, as a real one does. Waiting only what is left of the budget (nothing)
+     would call it stuck, or serve here straight into EADDRINUSE. */
+  const w = world({ occupant: OLDER, taskRunning: true, releaseAfter: 1800 });
+  const r = await handOffToTask(w.opts({ startedAt: -BUDGET }));
+  assert.equal(r.serve, true, 'no budget left to run the task, so serve here');
+  assert.doesNotMatch(r.because, /did not stop/, 'the release floor was not honoured');
+  assert.ok(w.t >= 1800 && w.t <= RELEASE_FLOOR + 300, 'it waited ' + w.t + 'ms; the port freed at 1800ms and the floor is ' + RELEASE_FLOOR);
+});
+
+test('the release floor is also a ceiling: a board that holds the port past it is reported, not waited on forever', async () => {
+  const w = world({ occupant: OLDER, taskRunning: true, releaseAfter: 5000 });
+  const r = await handOffToTask(w.opts({ startedAt: -BUDGET }));
+  assert.equal(r.serve, true);
+  assert.match(r.because, /did not stop/);
+  assert.ok(w.t <= RELEASE_FLOOR + 300, 'waited ' + w.t + 'ms past a spent budget');
 });
 
 test('a /Run that fails: serve here with its reason', async () => {
