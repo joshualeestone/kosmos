@@ -19489,12 +19489,19 @@ function pjApplyEngMode() {
        Engineering-mode ONLY, matching #370's base ruling (Josh 2026-08-23: "leave
        it ... if engineering mode is turned on"); the default view every
        non-engineer sees no longer carries it, asking or not.
-       This loses no function. The needs_you SIGNAL still shows in the member
-       roster (the "Needs you" status + the #2699 red warning triangle on the
-       avatar), and a waiting agent is still ANSWERED in Off through the detail
-       view (#d-qask, the agent's own page, reached from the roster card's "See
-       the question" button and proven visible in Off by render-engmode-gate-2131).
-       The room box here was a second, redundant path to the same answer. */
+       The two surfaces a waiting agent needs are preserved in Off. The needs_you
+       SIGNAL still shows in the member roster (the "Needs you" status + the #2699
+       red warning triangle on the avatar), and a waiting agent is still ANSWERED
+       in Off through the detail view (#d-qask, the agent's own page, reached from
+       the roster card's "See the question" button, proven visible in Off by
+       render-engmode-gate-2131).
+       One affordance that lived only in this box DOES move to Engineering mode:
+       the "Not waiting? Clear it" control (pjClearState, the sole clear-selfreport
+       caller) that clears a STALE needs_you. In Off a stale flag now stays until
+       the agent self-clears or an engineer clears it -- an OVER-report ("Needs
+       you" shown a little too long), never a false-calm, so it is the safe
+       direction. Josh named this control in the same #2691 message ("which says
+       'not waiting,' clear it"), so its removal from the default view is intended. */
     box.hidden = !ENG_ON;
   }
 }

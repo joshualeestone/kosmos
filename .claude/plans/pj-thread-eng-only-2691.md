@@ -33,7 +33,8 @@ In default mode the block never appears (neither the box nor the `#pj-thread-sho
 which existed only to restore a dismissed Off-mode asking-box). Engineering mode keeps the full
 picker/question/answer path per #370 (Josh 2026-08-23: "leave it ... if engineering mode is on").
 
-### Why this loses no function (the safety is preserved elsewhere)
+### What Off mode keeps, and the one affordance it moves (corrected after challenge iter 4)
+The two surfaces a waiting agent NEEDS are preserved in Off:
 - The needs_you **signal** still shows in the member roster: the "Needs you" status line plus
   the #2699 red warning triangle on the agent avatar.
 - The **answer path** survives in the DETAIL view: `#d-qask` (the agent's own page question panel)
@@ -41,8 +42,17 @@ picker/question/answer path per #370 (Josh 2026-08-23: "leave it ... if engineer
   render-engmode-gate-2131.js ARM 3 and render-thread.js:431-439 ("the answer button lands on the
   agent's own page, which is where its question is"). The "Needs you" roster card carries an
   `.ansgo` ("See the question") button into that detail view.
-- So the room `#pj-thread` Off surface was a SECOND, redundant path; removing it in Off keeps the
-  card -> detail answer route intact.
+
+One affordance that lived ONLY inside `#pj-thread` DOES become Engineering-only, and my first draft
+overclaimed "loses no function" by omitting it: the **"Not waiting? Clear it"** control
+(`#pj-question-clear` -> `pjClearState`, the sole `clear-selfreport` caller) that clears a STALE
+needs_you (an agent that self-reported needs_you, resumed work, and never self-cleared). The detail
+view offers answer + Trust&Restart but no stale-clear, so in the default view a stale flag now stays
+until the agent self-clears or an engineer clears it. That is an OVER-report ("Needs you" shown a
+little too long), never a false-calm, so it degrades in the SAFE direction. It is intended: Josh
+named this control in the same #2691 message ("which says 'not waiting,' clear it"). So the room
+`#pj-thread` Off surface was redundant for the signal and the answer, and its one non-redundant
+affordance (stale-clear) was one Josh explicitly asked to remove from the default view.
 
 ### What I rejected
 - Removing `#pj-thread` in ALL modes: contradicts #370 (engineers keep the one-to-one box on
