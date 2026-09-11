@@ -284,7 +284,12 @@ test('piece nine, then #761 (2026-08-25): the project head moves into the conver
   assert.match(consolidatedBlock, /body\.consolidated \.pjmidhead > \.dlab \{ display: none; \}/);
   assert.match(consolidatedBlock, /body\.consolidated \.pjmidhead \{[^}]*border-bottom: 1px solid var\(--k-rule\)/);
   assert.match(src, /\.pjmidhead:has\(\.pjhead\) > \.dlab \{ display: none; \}/, 'the tab-view (unscoped) rule hiding the label');
-  assert.match(src, /\.pjmidhead:has\(\.pjhead\) \{[^}]*border-bottom: 1px solid var\(--k-rule\)/, 'the tab-view (unscoped) rule taking the header rule');
+  // #2711 item 5 (Josh, 2026-09-10): the tab-view header no longer carries the
+  // horizontal rule. The consolidated header keeps its border-bottom (asserted
+  // above); the tab-view (unscoped) rule still exists and hides the label
+  // (asserted above), but must NOT carry the border-bottom any more.
+  assert.match(src, /\.pjmidhead:has\(\.pjhead\) \{/, 'the tab-view (unscoped) header rule is missing (it should still exist, just without the border-bottom)');
+  assert.doesNotMatch(src, /\.pjmidhead:has\(\.pjhead\) \{[^}]*border-bottom/, 'the tab-view header rule still carries the border-bottom that #2711 item 5 removed');
 });
 
 test('piece ten: the + sits at the card heads and the minus on the member rows, in the consolidated view only', () => {

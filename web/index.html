@@ -3935,6 +3935,13 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 .pjcol.pjsplit { border: 0; background: none; padding: 0; display: grid; gap: 14px; align-content: start; }
 .ficon { flex: 0 0 18px; margin-right: 2px; align-self: center; }
 .pjcard { border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface); padding: 14px 16px 16px; }
+/* Josh, 2026-09-10 (#2711 item 1): drop the light-gray strokes around the
+   members card, the files card, the tasks box, and the dialog area (the
+   conversation column and its thread) in the TAB view. Scoped to
+   body:not(.consolidated) so the consolidated layout keeps the borders its
+   tests pin (the base .pjcard/.pjcol borders above still apply there).
+   The backgrounds are left alone here; item 6 handles the dialog fill. */
+body:not(.consolidated) .pjcard, body:not(.consolidated) .pj3 > aside.pjcol:not(.pjsplit), body:not(.consolidated) .pjmid, body:not(.consolidated) .pjmid .thread { border: 0; }
 .pjcol > .flabel { display: block; margin-bottom: 10px; }
 /* Inside a pjcol the card IS the boundary: the .field separator rule
    drew a stray line above Tasks. */
@@ -4055,7 +4062,10 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    consolidated's own 1rem attempt on specificity -- verified by comparing
    selector specificity by hand rather than assumed from the rule that
    reads like the intended one), not the dead 1rem line that never wins. */
-.pjmidhead:has(.pjhead) { align-items: center; gap: 12px; padding: 0 0 10px; margin-bottom: 16px; border-bottom: 1px solid var(--k-rule); }
+/* Josh, 2026-09-10 (#2711 item 5): no horizontal rule under the project
+   title + search in the tab view. The consolidated header keeps its own
+   separator (the rule above at the consolidated .pjmidhead selector). */
+.pjmidhead:has(.pjhead) { align-items: center; gap: 12px; padding: 0 0 10px; margin-bottom: 16px; }
 .pjmidhead:has(.pjhead) > .dlab { display: none; }
 .pjmidhead .pjhead { flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; align-items: center; gap: 12px; }
 .pjmidhead .pjhead .pjtitle { display: grid; gap: 1px; }
