@@ -294,7 +294,7 @@ test('#570 a rename held for a moment (antivirus, the indexer) is retried, and a
 });
 
 test('#570 a staged copy is swept only when it is far too old to be a swap in flight', () => {
-  const { dir, runtime, newSrc } = anchoredOldWithNewSource();
+  const { dir, runtime } = anchoredOldWithNewSource();
   const deadSwap = anchor.NODE_NAME + anchor.STAGED_INFIX + '1-1';
   const inFlight = anchor.NODE_NAME + anchor.STAGED_INFIX + Date.now() + '-1';
   fs.writeFileSync(path.join(runtime, deadSwap), 'a dead swap left this', 'utf8');
@@ -302,7 +302,6 @@ test('#570 a staged copy is swept only when it is far too old to be a swap in fl
   const r = anchor.ensureAnchored(anchoringOf(dir, path.join(runtime, anchor.NODE_NAME)));
   assert.equal(r.ok, true, r.because || '');
   assert.deepEqual(sideFiles(runtime), [inFlight], 'the dead swap\'s copy is swept, the young one is left');
-  void newSrc;
 });
 
 test('#570 a staged copy that cannot be deleted after a failed swap is SAID, not left silently', () => {
