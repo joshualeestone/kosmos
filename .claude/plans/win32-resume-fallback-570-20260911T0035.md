@@ -78,8 +78,9 @@ task was cycled onto main, and all 5 cards read idle.
 ## Stacking
 
 This edits the same stdout reader and death handler as `win32-clear-rekey-2669`
-(#2669), so it is stacked on that branch. After #2669 squash-merges, this branch
-is rebased with `git rebase --onto origin/main <#2669 head>`.
+(#2669). It was built stacked on that branch at `3b116422`. When #2669 merged as
+#2728 (`3824c835`), this branch's own commits were rebased onto `main` with
+`git rebase --onto origin/main 3b116422`, and there were no conflicts.
 
 ## Weakest part
 
