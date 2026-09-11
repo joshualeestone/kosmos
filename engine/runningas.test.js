@@ -144,6 +144,47 @@ test('#2811 CONTROL: the codex match is on the executable PATH, not the word any
   assert.equal(agentUnder(100, procs), null, 'the word "codex" in an argument was read as an agent');
 });
 
+/* ───────────────── #2811, the node-fronting launcher ─────────────────
+ * MEASURED, and recorded here because the WRONG conclusion is the intuitive one
+ * and I drew it first. `/opt/homebrew/bin/codex` (the npm/homebrew launcher that
+ * `runners.js` still supports) is a `#!/usr/bin/env node` script, so `ps` shows
+ * `node /opt/homebrew/bin/codex` and its first token is the INTERPRETER, while
+ * `claude` on a native install is a Mach-O binary. That asymmetry looks exactly
+ * like a hole in a first-token matcher, and it is not one: the launcher SPAWNS
+ * the native binary as a child. Sampled during a real run:
+ *     node /opt/homebrew/bin/codex --help                    <- launcher
+ *     .../vendor/aarch64-apple-darwin/bin/codex --help       <- the agent
+ * This walk is a BREADTH walk over the whole subtree, so the plain rule reaches
+ * the child. Teaching the matcher to hop from an interpreter to its script
+ * argument would buy nothing and would let an unrelated node process in.
+ */
+test('#2811: a node-FRONTED codex is found at its native child, with no interpreter rule', () => {
+  const procs = new Map([
+    [100, { ppid: 1, command: '/bin/zsh' }],
+    [101, { ppid: 100, command: 'node /opt/homebrew/bin/codex --model gpt-5.6' }],
+    [102, { ppid: 101, command: '/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex --model gpt-5.6' }],
+  ]);
+  assert.deepEqual(agentUnder(100, procs), { pid: 102, runner: 'codex' },
+    'the walk stopped at the node launcher instead of reaching the agent it spawned');
+});
+
+test('#2811 CONTROL: a bare node process is never an agent', () => {
+  /* 🛑 THE ARM THAT KEEPS THE TEST ABOVE FROM BEING PASSED BY A LOOSER RULE.
+     Accepting `node` (or its script argument) would satisfy the launcher case
+     too, and would also claim every dev server, REPL and build watcher.
+     `isFleetSession` refuses a bare `node` for this reason, and the fleet's
+     canonical classifier accepts one only as a stated tradeoff. Here there is no
+     tradeoff to make: the agent process is in the tree on its own. */
+  const procs = new Map([
+    [100, { ppid: 1, command: '/bin/zsh' }],
+    [101, { ppid: 100, command: 'node /Users/x/proj/node_modules/.bin/webpack --watch' }],
+    [102, { ppid: 100, command: 'node' }],
+    [103, { ppid: 100, command: 'node /opt/homebrew/bin/codex' }],
+  ]);
+  assert.equal(agentUnder(100, procs), null,
+    'a node process was claimed as an agent: the launcher, a watcher and a bare REPL are indistinguishable here');
+});
+
 test('#2811 CONTROL: a first token that merely CONTAINS "codex" is not an agent', () => {
   /* 🛑 THE ARGUMENT CONTROL ABOVE DOES NOT COVER THIS, and a mutation proved it:
      loosening the match to `first.includes('codex')` left the whole file GREEN,
@@ -194,6 +235,29 @@ test('#2811: runningAs reports a codex agent with its CODEX_HOME, not a synthesi
     'the codex account dir is still not identified, which is half of #2811');
   assert.equal(r.model, 'gpt-5.6', 'the model came from the codex command line');
   assert.equal(r.account, null, 'a codex account email must not be guessed here (kosmos#2790 owns it)');
+});
+
+test('#2811: the codex answer SAYS which half of the question it did not answer', () => {
+  /* Nothing renders `because` on a successful read today, which is exactly why
+     it is asserted: an unchecked string is decoration, and the codebase bans a
+     comment that describes behaviour the code cannot produce. This makes the
+     sentence a contract. It must name the account as unread WITHOUT reciting a
+     stale one, which is the finding the whole card rests on. */
+  const panes = new Map([['subzero-discord', 100]]);
+  const procs = new Map([
+    [100, { ppid: 1, command: '/bin/zsh' }],
+    [101, { ppid: 100, command: '/opt/homebrew/bin/codex' }],
+  ]);
+  const out = runningAs('subzero-discord', {
+    panes, procs,
+    envOf: () => 'CODEX_HOME=/Users/agent1/.codex\n',
+    identityOf: () => { throw new Error('identityOf must NOT be asked about a codex dir'); },
+  });
+  assert.equal(out.ok, true, 'refused: ' + out.because);
+  assert.equal(out.runner, 'codex');
+  assert.match(String(out.because), /not read here/,
+    'a codex answer no longer says its account was not read, so a caller may invent one');
+  assert.equal(out.account, null, 'an account was recited for a codex agent');
 });
 
 test('#2811 CONTROL: a CLAUDE agent is unchanged, and still reads CLAUDE_CONFIG_DIR', () => {
