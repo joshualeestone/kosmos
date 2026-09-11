@@ -158,6 +158,28 @@ function defaultEnvOf(pid, deadline) {
  * process whose parent has already exited and been recycled, and a naive walk on
  * that loops forever.
  */
+/* The two runner executables, and the one place their names are written.
+
+   🛑 NOT `status.isCodexCommand`, AND THE REASON MATTERS. That helper is
+   `c === 'codex' || c === 'codex.exe'`, which is right for a tmux PANE command
+   (a bare name) and returns FALSE for a process PATH like
+   `/opt/homebrew/bin/codex`, which is what `ps` gives this function. Reusing it
+   here would have compiled, read as correct, and never matched: an inert fix.
+   Measured both shapes before deciding.
+
+   📌 NO `.exe` ARM, deliberately, though an earlier draft of this carried one
+   "so the posix and win32 arms recognise the same two names". They do not share
+   this function: `agentUnder` is called only from `runningAsDarwin`, and the
+   header above says why it has no win32 counterpart. The clause could not
+   execute and no test could see it. */
+function runnerNamed(token) {
+  const t = String(token == null ? '' : token);
+  for (const name of ['claude', 'codex']) {
+    if (t === name || t.endsWith('/' + name)) return name;
+  }
+  return null;
+}
+
 function agentUnder(panePid, procs) {
   const kids = new Map();
   for (const [pid, { ppid }] of procs) {
@@ -173,26 +195,31 @@ function agentUnder(panePid, procs) {
     const rec = procs.get(pid);
     if (rec) {
       const first = String(rec.command).trim().split(/\s+/)[0] || '';
-      /* Matched on the executable PATH ending in /claude, not on the string
-         "claude" appearing anywhere: a pane running `grep claude` is not an
-         agent, and neither is this module's own command line. */
-      if (first.endsWith('/claude') || first === 'claude') return { pid, runner: 'claude' };
-      /* #2811: AND CODEX, by the same rule. A Kosmos OpenAI agent runs the codex
-         binary, so a Claude-only match made this reader refuse for every one of
-         them: `kosmos whoami` answered "nothing that looks like Claude Code is
-         running under <name>" about an agent that was plainly running, and could
-         not name its .codex account. Measured before the fix by driving this
-         function with a codex process table against a claude control.
+      /* Matched on the executable PATH ending in /claude or /codex, not on the
+         string appearing anywhere: a pane running `grep claude` is not an agent,
+         and neither is this module's own command line.
 
-         🛑 NOT `status.isCodexCommand`, AND THE REASON MATTERS. That helper is
-         `c === 'codex' || c === 'codex.exe'`, which is right for a tmux PANE
-         command (a bare name) and returns FALSE for a process PATH like
-         `/opt/homebrew/bin/codex`, which is what `ps` gives this function.
-         Reusing it here would have compiled, read as correct, and never matched:
-         an inert fix. Measured both shapes before deciding. `.exe` is carried so
-         the posix and win32 arms recognise the same two names. */
-      if (first.endsWith('/codex') || first === 'codex'
-          || first.endsWith('/codex.exe') || first === 'codex.exe') return { pid, runner: 'codex' };
+         📌 A NODE-FRONTING INSTALL NEEDS NOTHING EXTRA HERE, and this is worth
+         recording because the opposite is very easy to believe. `claude` on a
+         native install is a Mach-O binary, but `/opt/homebrew/bin/codex` (the
+         npm/homebrew launcher this repo's `runners.js` still supports) is a
+         `#!/usr/bin/env node` script, so `ps` shows it as
+         `node /opt/homebrew/bin/codex` and the first token is the INTERPRETER.
+         An earlier draft therefore taught this function to hop from an
+         interpreter to its script argument.
+
+         🛑 THAT WAS UNNECESSARY, MEASURED. The launcher does not become the
+         agent: it `spawn`s the native binary as a CHILD, and this is a BREADTH
+         walk over the whole subtree, so the child is reached by the plain rule.
+         Sampled during a real run:
+             node /opt/homebrew/bin/codex --help                  <- launcher
+             .../vendor/aarch64-apple-darwin/bin/codex --help     <- the agent
+         ⇒ Widening the matcher to accept `node` would have bought nothing and
+         cost the thing this rule exists for, since a pane can hold an unrelated
+         node process. The refusal during the launcher's first few milliseconds,
+         before its child exists, is honest. */
+      const runner = runnerNamed(first);
+      if (runner != null) return { pid, runner };
     }
     for (const k of kids.get(pid) || []) queue.push(k);
   }
@@ -326,6 +353,18 @@ function runningAsWin32(session, deps = {}) {
   /* Not "there is no such agent": an unrecorded session (the operator's own) is
      deliberately invisible to the join, so "not one of ours that we can see" is
      the honest scope of this refusal. */
+  /* 🛑 KNOWN GAP, NAMED RATHER THAN LEFT TO BE REDISCOVERED: on win32 a live
+     Codex agent lands HERE, and this sentence is false about it. The ownership
+     join behind `entry` is `win32live.byName()`, whose only source is
+     `claude agents --json` -- it has no codex arm at all. Windows does run codex
+     agents (`win32launch.js` picks the bare command per runner, `win32create.js`
+     records which), so Kosmos owns a session it then says it does not own.
+     ⇒ NOT fixed on this branch, and the reason is that it is a different defect
+     with a different fix: the darwin arm reads a PROCESS TREE and needed a wider
+     match, while this arm needs a SECOND ENUMERATION SOURCE for codex sessions,
+     which cannot be designed against a machine nobody here can measure on. The
+     same reason `win32Answer` carries no `runner` and `/api/whoami` reports null
+     for it on Windows: an unmeasured guess is what this module exists to remove. */
   if (!entry) return { ok: false, because: `no session called ${session} that Kosmos owns on this computer` };
   return win32Answer(entry, cmdlines([entry.pid]));
 }
@@ -433,10 +472,18 @@ function runningAsDarwin(session, deps = {}) {
     configDir,
     runner,
     because: codex
-      /* No card number in this sentence: it is read by an agent asking who it is,
-         to whom a card number is noise, and #147's gate is right that a number in
-         a comment reads as assigning work. The cross-reference lives in the block
-         comment above, as a record of why this is null rather than a promise. */
+      /* ⚠️ `because` ON A SUCCESSFUL READ, the same shape `win32Answer` returns
+         and for the same reason: `ok` means the look happened, and the sentence
+         names the HALF of the question this answer does not carry, so a caller
+         rendering it says something true instead of inventing a reason.
+         📌 AND THE SAME HONEST LIMIT, stated rather than implied: nothing renders
+         it when `ok` is true today (`whoamiFor` returns account/model/source and
+         the route composes its own sentence). It is additive, not a contract
+         change for the existing reader. Asserted in `runningas.test.js` so it is
+         a checked value rather than decoration.
+         No card number in the sentence itself: it is user-facing text, and #147's
+         gate is right that a number there reads as assigning work. The
+         cross-reference lives in the block comment above, as a record. */
       ? 'this is a Codex agent; which OpenAI account it is signed in as is not read here'
       : null,
   };

@@ -12021,6 +12021,181 @@ test('#1304: the ROUTE asks the live reader by tmux session, and says which read
   }
 });
 
+test('#2811: whoami carries the RUNNER the live read found, and a codex dir is not scored as a claude account', async () => {
+  /**
+   * Two server-side halves of #2811, both previously unasserted.
+   *
+   * 1. `runner` on the wire. The board has to be able to say WHICH agent runtime
+   *    a pane is running, read from the live process. Without an arm here the
+   *    field can be replaced by a constant and the whole suite stays green.
+   * 2. `isDefault` must be NULL for a codex directory. `accounts.isDefaultDir`
+   *    compares against `$HOME/.claude` and nothing else, so `~/.codex` scores
+   *    `false` -- literally true, and read inside an ACCOUNT block as "this agent
+   *    is on a NON-default account", implying a named alternate that does not
+   *    exist. An absence of evidence rendered as a finding is the exact failure
+   *    this endpoint exists to remove.
+   */
+  const messagesEngine = require('./engine/messages');
+  const server = require('./server.js');
+  const board = fleet.install([fleet.agent('acctworker', { state: 'idle' })]);
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'acctworker-discord' }));
+    server.setLiveReader(() => ({
+      ok: true, account: null, organization: null, model: null,
+      configDir: '/Users/x/.codex', runner: 'codex',
+      because: 'this is a Codex agent; which OpenAI account it is signed in as is not read here',
+    }));
+    const r = await req('/api/whoami', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from_pane: '%7' }),
+    });
+    assert.equal(r.status, 200);
+    const out = JSON.parse(r.body);
+    assert.equal(out.ok, true, 'the route refused a resolvable sender: ' + r.body);
+
+    assert.equal(out.runner, 'codex', 'the live runner did not reach the payload');
+    assert.equal(out.account.dir, '/Users/x/.codex', 'the codex config dir was dropped');
+    assert.strictEqual(out.account.isDefault, null,
+      'a ~/.codex directory was scored against $HOME/.claude and reported as a non-default ACCOUNT');
+  } finally {
+    server.setLiveReader(null);
+    messagesEngine.setRunner(null);
+    fleet.restore();
+  }
+});
+
+test('#2811: the sentence a Codex agent reads back actually says Codex', () => {
+  /* 🔑 THE ONLY USER-VISIBLE SURFACE OF THE VERB. `install/kosmos` prints the
+     `because` sentence and nothing else (it seds the field out of the body), and
+     `grep -c whoami web/index.html` is 0. So a fix that lands only in JSON is
+     invisible to the agent that asked. */
+  const { sentenceForWhoami } = require('./server.js');
+  const codexAcct = { email: null, label: null, dir: '/Users/x/.codex', isDefault: null };
+  const said = sentenceForWhoami(codexAcct, { id: 'gpt-5.6', name: 'GPT-5.6' }, 'codex');
+  assert.match(said, /^This is a Codex agent, and it runs on an account we cannot identify \(/,
+    'a Codex agent is told nothing about being a Codex agent');
+  assert.match(said, /and its model is GPT-5\.6/);
+
+  /* CONTROL: the claude sentence is byte-identical to what it was. The clause is
+     additive, and a change here would rewrite what every existing agent reads. */
+  const claudeAcct = { email: 'a@b.c', label: null, dir: '/d', isDefault: true };
+  assert.equal(sentenceForWhoami(claudeAcct, { id: 'm', name: 'M' }, 'claude'),
+    'This agent runs on a@b.c, and its model is M.');
+  assert.equal(sentenceForWhoami(claudeAcct, { id: 'm', name: 'M' }, null),
+    'This agent runs on a@b.c, and its model is M.',
+    'an answer with no runner changed shape, so every pre-existing caller moved');
+});
+
+test('#2811: a stale CLAUDE transcript does not supply the model for a CODEX agent', () => {
+  /**
+   * 🛑 THE CONTRADICTION THIS CHANGE MADE REACHABLE. `readModel` is a Claude
+   * transcript reader and it is the PREFERRED source. `create.setProvider`
+   * switches an agent claude -> codex by rewriting the plist and nothing else, so
+   * the agent keeps its name and therefore its workdir, and the OLD Claude
+   * transcript stays findable. While the live reader refused for codex there was
+   * no contradiction to have; making it answer is what put a true runner beside a
+   * stale model, inside one payload.
+   *
+   * 🔑 BOTH SOURCES ANSWER, WITH DIFFERENT VALUES. That is the only fixture that
+   * can tell "the live value surfaced" apart from "live wins", and this file
+   * already paid for learning it: a reviewer swapped the two model branches and
+   * the ENTIRE SUITE STAYED GREEN because no arm had ever populated both.
+   */
+  const { whoamiFor } = require('./server.js');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('codexworker', { state: 'idle' })]);
+    const card = board.agents.find((a) => a && a.name === 'codexworker');
+    assert.ok(card && card.sessionName, 'the fixture produced no card, so nothing below is about an agent');
+    seedTranscript('codexworker', 'claude-opus-5');
+
+    /* CONTROL FIRST, so a seeding failure cannot be mistaken for the guard
+       working. If the record cannot answer here, the arm below proves nothing. */
+    const asClaude = whoamiFor(card, [], {
+      ok: true, account: null, model: 'claude-fable-5', configDir: '/d', runner: 'claude',
+    });
+    assert.equal(asClaude.model.id, 'claude-opus-5',
+      'the transcript did not answer at all, so the codex arm below is vacuous');
+    assert.equal(asClaude.source.model, 'record');
+
+    /* THE ARM. Same card, same transcript, same shape: only the runner differs. */
+    const asCodex = whoamiFor(card, [], {
+      ok: true, account: null, model: 'gpt-5.6', configDir: '/Users/x/.codex', runner: 'codex',
+    });
+    assert.equal(asCodex.model.id, 'gpt-5.6',
+      'a Codex agent was told it runs a Claude model, off a transcript written before the switch');
+    assert.equal(asCodex.source.model, 'process',
+      'the model was attributed to the record for a codex agent');
+  } finally {
+    fleet.restore();
+  }
+});
+
+test('#2811 CONTROL: a CLAUDE live read still gets a real isDefault boolean, and names its runner', async () => {
+  /* 🛑 THE ARM THAT KEEPS THE GUARD ABOVE FROM BEING A BLANKET NULL. Without
+     this, `isDefault: null` unconditionally passes the codex arm while silently
+     removing the answer for every Claude agent, which is the whole field. The
+     two arms differ ONLY in the runner and the directory. */
+  const messagesEngine = require('./engine/messages');
+  const server = require('./server.js');
+  const accountsEngine = require('./engine/accounts');
+  const board = fleet.install([fleet.agent('acctworker', { state: 'idle' })]);
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'acctworker-discord' }));
+    const notDefault = '/Users/x/.claude-account-b';
+    server.setLiveReader(() => ({
+      ok: true, account: null, organization: null, model: null,
+      configDir: notDefault, runner: 'claude',
+    }));
+    const r = await req('/api/whoami', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from_pane: '%7' }),
+    });
+    const out = JSON.parse(r.body);
+    assert.equal(out.runner, 'claude');
+    assert.strictEqual(out.account.isDefault, accountsEngine.isDefaultDir(notDefault),
+      'the claude path no longer gets the accounts engine answer');
+    assert.strictEqual(out.account.isDefault, false,
+      'and that answer is a real boolean, not null');
+  } finally {
+    server.setLiveReader(null);
+    messagesEngine.setRunner(null);
+    fleet.restore();
+  }
+});
+
+test('#2811 CONTROL: a live answer carrying NO runner is unchanged', async () => {
+  /* 🔑 `liveReaderFn` is injectable and `whoamiFor` is exported, so answers reach
+     this code carrying no runner at all -- every test above this line does it.
+     The guard is written to move only for a KNOWN non-claude runner, and this
+     pins that: absent runner takes the old path and still gets a boolean. */
+  const messagesEngine = require('./engine/messages');
+  const server = require('./server.js');
+  const board = fleet.install([fleet.agent('acctworker', { state: 'idle' })]);
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'acctworker-discord' }));
+    server.setLiveReader(() => ({
+      ok: true, account: null, organization: null, model: null,
+      configDir: '/Users/x/.claude-account-b',
+    }));
+    const r = await req('/api/whoami', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from_pane: '%7' }),
+    });
+    const out = JSON.parse(r.body);
+    assert.strictEqual(out.runner, null, 'a missing runner must be null, never invented');
+    assert.strictEqual(out.account.isDefault, false,
+      'an answer with no runner lost its isDefault: the guard is too wide');
+  } finally {
+    server.setLiveReader(null);
+    messagesEngine.setRunner(null);
+    fleet.restore();
+  }
+});
+
 test('#1304: a throwing live reader falls back to the record and fabricates nothing', async () => {
   /**
    * 🛑 EVERY GUARD ON THE ROUTE'S LIVE FETCH WAS UNPINNED, and one of the

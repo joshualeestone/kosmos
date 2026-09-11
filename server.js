@@ -740,8 +740,25 @@ function whoamiFor(card, known, live) {
        rule `accountForAgent` states for the record path: returning null there
        would say "the default account" about an agent pointed somewhere else. */
     if (seen && seen.configDir) {
+      /* 🛑 `isDefaultDir` IS A CLAUDE QUESTION, AND A CODEX DIRECTORY MUST NOT BE
+         GIVEN ITS ANSWER. `accounts.isDefaultDir` compares against
+         `$HOME/.claude` and nothing else, so a live codex read (`~/.codex`)
+         scores `false` -- literally true, and read in an ACCOUNT block as "this
+         agent is on a NON-default account", implying a named alternate that does
+         not exist. That is the same wrong-confidence this endpoint's header
+         exists to remove: an absence of evidence rendered as a finding.
+         `null` is already this field's unknown value (`isDefaultDir` returns it
+         for a falsy dir), so this introduces no third state.
+         ⚠️ Shaped to change NOTHING that exists: a `runner` we did not get stays
+         on the old path, which matters because `liveReaderFn` is injectable and
+         answers reach here carrying no runner at all. Only a KNOWN non-claude
+         runner takes the new branch. */
+      const claudeDir = !seen.runner || seen.runner === 'claude';
       return {
-        value: { email: null, label: null, organization: null, dir: seen.configDir, isDefault: isDefaultDir(seen.configDir) },
+        value: {
+          email: null, label: null, organization: null, dir: seen.configDir,
+          isDefault: claudeDir ? isDefaultDir(seen.configDir) : null,
+        },
         from: 'process',
       };
     }
@@ -812,7 +829,26 @@ function whoamiFor(card, known, live) {
     const rec = (() => {
       try { return readModel(who, (card && card.session) || undefined); } catch { return null; }
     })();
-    if (rec && rec.model) {
+    /* 🛑 THE RECORD MODEL IS A CLAUDE TRANSCRIPT, SO IT IS NOT ASKED ABOUT A
+       CODEX AGENT. `readModel` resolves through `transcriptFor`/`byWorkdir` into
+       `projects/*.jsonl` rows that Claude Code writes. `create.setProvider`
+       switches an agent claude -> codex by rewriting the plist and nothing else,
+       so the agent keeps its name and therefore its workdir, and the OLD Claude
+       transcript stays findable. This branch is the PREFERRED source, so without
+       this guard a Codex agent answers `runner: "codex"` and "its model is Claude
+       Opus 5" in one payload, off a transcript from before the switch.
+       ⚠️ THAT IS NEW, AND IT IS THIS CHANGE THAT MADE IT REACHABLE. While the
+       live reader refused for codex there was no contradiction to have; making it
+       answer is what put a true runner next to a stale model.
+       ⇒ Exactly the decision already made one module over for the sibling field:
+       `identityOf` resolves a Claude ACCOUNT, so it is not asked about a codex
+       one (`engine/runningas.js`). A Claude transcript is the same kind of
+       reader, so it gets the same rule, and a codex agent falls through to the
+       live `--model` below.
+       📌 Keyed on a KNOWN non-claude runner, so an answer carrying no runner at
+       all (every injected reader that predates this field) takes the old path. */
+    const foreignRunner = !!(seen && seen.runner && seen.runner !== 'claude');
+    if (!foreignRunner && rec && rec.model) {
       /* `modelDisplayName`, NOT the raw id, and this is the branch that normally
          answers. The LIVE path's display name was pinned; this one - the
          PREFERRED source for the model - was asserted nowhere, so swapping it
@@ -851,7 +887,15 @@ function whoamiFor(card, known, live) {
  * agents give three answers, which is the defect this card is about wearing a
  * different coat. An unknown is said plainly rather than smoothed over.
  */
-function sentenceForWhoami(account, model) {
+/* The provider's own word for itself, which is what an agent reading this
+   sentence is looking for. `codex` is the executable; OpenAI's product name on
+   screen is Codex, so the two agree here and the map exists so a third runner
+   cannot be spelled two ways in two places. */
+function runnerDisplayName(runner) {
+  return runner === 'codex' ? 'Codex' : String(runner);
+}
+
+function sentenceForWhoami(account, model, runner) {
   const acct = account && account.email ? account.email
     : account && account.label ? account.label
       : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
@@ -883,7 +927,21 @@ function sentenceForWhoami(account, model) {
      account so `acct` is truthy.
      ⭐ Third time on this branch that a gap was "no arm had both populated",
      one field over each time. */
-  parts.push(acct ? 'This agent runs on ' + acct : why);
+  /* #2811: THE RUNNER IS NAMED WHEN IT IS NOT CLAUDE, because this sentence is
+     the ENTIRE user-visible surface of the verb: `install/kosmos` prints only
+     `because` and nothing under `web/` reads whoami. A Codex agent asking who it
+     is could read the whole answer without the word Codex appearing in it, and
+     "an account we cannot identify (~/.codex)" leaves the reader to infer the
+     provider from a directory name.
+     📌 Only the LEAD is switched, not the `why` fallback, and that is deliberate
+     rather than an omission: `runningAs` always sets `configDir` on a successful
+     read, so a codex answer always carries a directory and `acct` is always
+     truthy here. A codex-shaped `why` could not be reached, and this file has
+     already deleted one unreachable branch for exactly that reason. */
+  const lead = runner && runner !== 'claude'
+    ? 'This is a ' + runnerDisplayName(runner) + ' agent, and it runs on '
+    : 'This agent runs on ';
+  parts.push(acct ? lead + acct : why);
   parts.push(model && model.name ? 'and its model is ' + model.name : 'and we cannot tell which model it is running');
   return parts.join(', ') + '.';
 }
@@ -8378,12 +8436,24 @@ const server = http.createServer((req, res) => {
              refused for every codex one; with that fixed the fact is available, so
              the answer carries it.
 
-             🛑 `null` WHEN THE LIVE READ DID NOT SUCCEED, deliberately. The record
-             side has a `runner` too, but it comes from an `@kosmos_runner` session
-             marker that SURVIVES A CRASH back to a shell (engine/status.js:680
-             documents exactly this), so falling back to it would let whoami name a
-             provider for an agent that is no longer running. A live-process
-             question gets a live-process answer or none. */
+             🛑 `null` WHEN THE LIVE READ DID NOT SUCCEED, deliberately, and there
+             are TWO record-side runners it would have been easy to reach for:
+               - the `@kosmos_runner` session marker, which SURVIVES A CRASH back
+                 to a shell (`engine/status.js:682` documents exactly this), so it
+                 reports a provider for an agent that is no longer running;
+               - `create.readJob(name).runner`, off the plist's ninth argument
+                 (`engine/create.js:837`), which says what the agent was LAUNCHED
+                 as. `accountForAgent` already calls `readJob` on every request, so
+                 this one is free and still wrong here: it describes the
+                 configuration, not the process, and the two disagree for exactly
+                 the window this endpoint is asked about.
+             ⇒ A live-process question gets a live-process answer or none. Both
+             record values are the right answer to a different question.
+
+             📌 This is JSON-only surface today: both shipped CLIs print only
+             `because` (`install/kosmos`, `tools/windows/kosmos-cli.js`) and
+             nothing under `web/` reads whoami. Pinned in `server.test.js` so the
+             field is a checked contract rather than an unread extra. */
           runner: (live && live.ok === true && live.runner) || null,
           /* WHICH reader answered. An operator comparing two agents should be
              able to see that one was read from its running process and the
@@ -8400,7 +8470,7 @@ const server = http.createServer((req, res) => {
              the CLI (which prints only this sentence) tells an agent who the
              board thinks it is. */
           because: whoamiIdentityClause(who, identitySource) + '. '
-            + sentenceForWhoami(account, model) + ' '
+            + sentenceForWhoami(account, model, live && live.ok === true ? live.runner : null) + ' '
             + whoamiProjectsClause(projectNames) + '.',
         });
       })
