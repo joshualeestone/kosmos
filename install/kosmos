@@ -909,6 +909,12 @@ cmd_whoami() {
 # hook), not one the agent chose to send. An automatic `idle` will not erase a
 # standing `blocked` or `needs_you` (#900).
 cmd_report() {
+  # #2709: `report show` (alias `status`) is the READ-BACK -- an agent checking
+  # its own current board state (esp. a stale needs_you it was told to clear).
+  # Handled before the state parse so the write path below is unchanged.
+  case "${1:-}" in
+    show|status) shift 2>/dev/null || true; cmd_report_show "$@"; return ;;
+  esac
   local state text body because on="" owner="" until="" project="" auto=0
   state="${1:-}"
   shift 2>/dev/null || true
@@ -1008,6 +1014,42 @@ cmd_report() {
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
       say "That was not recorded: ${because:-we could not tell why}."
       exit 1 ;;
+  esac
+}
+
+# #2709: read back THIS agent's own current board state. Identity is resolved
+# the same way cmd_report's write resolves it -- the hex agent token via header
+# (KOSMOS_AGENT_TOKEN), the board token for an enforcing board, and the pane as
+# the fallback arm. On a GET the pane rides the query (there is no body), so its
+# leading `%` (a tmux pane id is `%<n>`) is url-encoded. The server shapes the
+# human line for ?as=text (bash 3.2 has no JSON parser).
+cmd_report_show() {
+  if ! healthy; then
+    say "Kosmos is not running, so your report cannot be read. Start it with: kosmos start"
+    exit 1
+  fi
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
+  local _bt; _bt="$(board_token || true)"
+  local _pane_q; _pane_q=$(printf '%s' "${TMUX_PANE:-}" | sed 's/%/%25/g')
+  # bash-3.2 under set -euo pipefail: local-then-substitute, `|| _rc=$?` (a bare
+  # `_body=$(...)` aborts the process on a curl failure), status via -w.
+  local _body _rc=0 _code
+  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/report?as=text&from_pane=$_pane_q" 2>/dev/null) || _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    say "We could not reach Kosmos to read your report. Is it running at $URL?"
+    exit 1
+  fi
+  _code="${_body##*$'\n'}"
+  _body="${_body%$'\n'*}"
+  # printf '%s' (no added newline): the server body already carries its own
+  # trailing newline, which survived the split -- a '%s\n' would double it.
+  printf '%s' "$_body"
+  case "$_code" in
+    4??|5??) exit 1 ;;
   esac
 }
 
