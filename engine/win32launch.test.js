@@ -448,10 +448,10 @@ test('no cliDir (a source checkout) leaves PATH exactly as it was; an env with n
   assert.equal(launcher.childEnv({}, 't', null, 'C:\\Kosmos\\bin').PATH, 'C:\\Kosmos\\bin');
 });
 
-test('agentCliDir finds <zip>\\bin only when the kosmos.cmd shim is there', () => {
+test('agentCliDir finds <zip>\\bin only when the kosmos CLI is there', () => {
   const nodePath = require('node:path');
   const root = nodePath.join('C:', 'Kosmos');
   const bin = nodePath.join(root, 'bin');
-  assert.equal(launcher.agentCliDir(root, (f) => f === nodePath.join(bin, 'kosmos.cmd')), bin);
+  assert.equal(launcher.agentCliDir(root, (f) => f === nodePath.join(bin, 'kosmos-cli.js')), bin);
   assert.equal(launcher.agentCliDir(root, () => false), null, 'a source checkout has no bin to put on PATH');
 });

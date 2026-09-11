@@ -71,9 +71,10 @@ const INHERITED_MARKERS = Object.freeze([
 ]);
 
 /* The zip's agent command lives here, beside `app\` and `runtime\`
-   (tools/build-kosmos-windows.sh stages it). */
+   (tools/build-kosmos-windows.sh stages it). The CLI itself is the marker: the
+   shims beside it (kosmos.ps1, kosmos) are per shell, the CLI is always there. */
 const AGENT_CLI_DIR = 'bin';
-const AGENT_CLI_SHIM = 'kosmos.cmd';
+const AGENT_CLI_SHIM = 'kosmos-cli.js';
 
 /**
  * The folder holding the Windows zip's `kosmos` command, or null.

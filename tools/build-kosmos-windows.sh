@@ -108,33 +108,22 @@ cp "$REPO/tools/kosmos-open-board.js" "$STAGE/open-board.js"
 # answer never reached the board (measured: "The term 'kosmos' is not recognized").
 # tools/windows/kosmos-cli.js is that command in Node, run by this zip's own
 # node.exe, and engine/win32launch.js puts `<zip>\bin` first on every agent's PATH
-# (it looks for the kosmos.cmd written here). At the zip ROOT like open-board.js,
+# (it looks for the kosmos-cli.js copied here). At the zip ROOT like open-board.js,
 # not under app/, for the same reason: a launcher-side artifact, outside the
 # two-builder app-parity scan.
-# 🛑 TWO SHIMS, ONE PER SHELL, BOTH MEASURED ON THE BOX. Claude Code runs an
-# agent's commands through PowerShell or Git Bash. PowerShell resolves a bare
-# `kosmos` to kosmos.cmd (PATHEXT) and never to the extensionless file; Git Bash
-# resolves the extensionless sh script and never the .cmd. The sh one converts its
-# own paths with cygpath and turns MSYS path conversion OFF for the arguments, or
-# a message mentioning /c/something would reach the board rewritten.
-# ⚠️ CRLF FOR THE .cmd, LF FOR THE sh: each is read by the shell that runs it.
-# ⚠️ KNOWN LIMIT OF A .cmd, recorded rather than hidden: cmd expands %NAME% in the
-# arguments when NAME is a set variable, so "100%PATH%" in a message arrives
-# expanded. A signed PE shim is the fix and the follow-up (WINDOWS-ROADMAP.md).
+# 🛑 ONE SHIM PER SHELL CLAUDE CODE USES, BOTH MEASURED ON THE BOX, AND NO .cmd.
+# PowerShell resolves a bare `kosmos` to kosmos.ps1 (and Claude Code runs its
+# PowerShell with a Bypass execution policy); Git Bash resolves the extensionless
+# sh script. A .cmd was tried first and REMOVED: cmd's %* kept only the first line
+# of a multi-line message and ran the tail of one holding `"...&...` as a command
+# (review round 1). The .ps1 hands the arguments over as JSON in the environment,
+# so no Windows command line ever carries the message.
+# ⚠️ The sh shim is copied with any CR stripped: a builder whose git checks out
+# CRLF would otherwise ship `#!/bin/sh\r`, which bash cannot run.
 mkdir -p "$STAGE/bin"
 cp "$REPO/tools/windows/kosmos-cli.js" "$STAGE/bin/kosmos-cli.js"
-{
-  printf '@echo off\r\n'
-  printf '"%%~dp0..\\runtime\\node.exe" "%%~dp0kosmos-cli.js" %%*\r\n'
-} > "$STAGE/bin/kosmos.cmd"
-cat > "$STAGE/bin/kosmos" <<'SH'
-#!/bin/sh
-# Written by tools/build-kosmos-windows.sh: the agent's kosmos command for Git Bash.
-here=$(cd "$(dirname "$0")" && pwd)
-node=$(cygpath -w "$here/../runtime/node.exe" 2>/dev/null || printf '%s' "$here/../runtime/node.exe")
-cli=$(cygpath -w "$here/kosmos-cli.js" 2>/dev/null || printf '%s' "$here/kosmos-cli.js")
-MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*' exec "$node" "$cli" "$@"
-SH
+cp "$REPO/tools/windows/kosmos.ps1" "$STAGE/bin/kosmos.ps1"
+tr -d '\r' < "$REPO/tools/windows/kosmos.sh" > "$STAGE/bin/kosmos"
 
 # 🔑 THE VERSION IS BAKED INTO THE PAGE, same as the Mac builder and for the same
 # reason (#269): a fact about the bundle must not require the bundle's API. The
@@ -369,7 +358,7 @@ shasum -a 256 "$ZIPOUT" | awk '{print $1}' > "$ZIPOUT.sha256"
 refuse() { echo "$1" >&2; rm -f "$ZIPOUT" "$ZIPOUT.sha256"; exit 1; }
 
 LISTING="$(unzip -l "$ZIPOUT")"
-for want in "Kosmos.exe" "open-board.js" "! READ ME FIRST - Windows will warn you.txt" "manifest.json" "runtime/node.exe" "app/server.js" "app/web/index.html" "app/engine/kosmos-report-hook.js" "bin/kosmos-cli.js" "bin/kosmos.cmd"; do
+for want in "Kosmos.exe" "open-board.js" "! READ ME FIRST - Windows will warn you.txt" "manifest.json" "runtime/node.exe" "app/server.js" "app/web/index.html" "app/engine/kosmos-report-hook.js" "bin/kosmos-cli.js" "bin/kosmos.ps1"; do
   case "$LISTING" in
     *" $want"*) ;;
     *) refuse "the zip is missing $want" ;;

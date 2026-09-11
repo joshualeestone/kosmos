@@ -110,10 +110,16 @@ test('post: /api/post with the project and text; a --file attempt is refused bef
   assert.equal(f.calls.length, 0);
 });
 
-test('react: /api/react with project, post id and emoji', async () => {
-  const r = await run(['react', 'proj-1', 'm3', '🔥'], () => ({ body: { ok: true } }));
+test('react: /api/react with project, post id and emoji, and the agent hears WHICH way the toggle went', async () => {
+  const r = await run(['react', 'proj-1', 'm3', '🔥'], () => ({ body: { ok: true, op: 'add' } }));
   assert.equal(r.code, 0);
   assert.deepEqual(r.calls[0].body, { project: 'proj-1', of: 'm3', emoji: '🔥', from_pane: '' });
+  assert.equal(r.out, 'Reacted 🔥 to that post.');
+  const off = await run(['react', 'proj-1', 'm3', '🔥'], () => ({ body: { ok: true, op: 'remove' } }));
+  assert.equal(off.out, 'Took your 🔥 back off that post.', 'a second react takes it back, and the agent must be told');
+  const no = await run(['react', 'proj-1', 'm9', '🔥'], () => ({ body: { ok: false, because: 'there is no post m9.' } }));
+  assert.equal(no.code, 1);
+  assert.equal(no.err, 'Not reacted: there is no post m9.');
 });
 
 test('report: the flags become fields; a blocked report with nothing to act on is refused locally (#2001)', async () => {
@@ -143,6 +149,7 @@ test('room and task sanitize the project id the way install/kosmos does, and pre
   assert.equal(list.out, '[1] ship it (leo)');
   const add = await run(['task', 'add', 'p1', 'write docs', 'more', 'detail'], () => ({ body: { task: {} } }));
   assert.deepEqual(add.calls[0].body, { sentence: 'write docs', detail: 'more detail', from_pane: '' });
+  assert.equal(add.calls[0].headers['x-kosmos-agent-token'], undefined, 'the tasks route ignores it; sending it only suggests it counts');
   const close = await run(['task', 'close', 'p1', 'two']);
   assert.equal(close.code, 2, 'a non-number task is a usage error, sent nowhere');
   assert.equal(close.calls.length, 0);
@@ -189,4 +196,20 @@ test('against a real local server: the request is well-formed on the wire', asyn
     assert.equal(seen.headers['x-kosmos-agent-token'], AGENT);
     assert.equal(seen.body.text, 'over the wire');
   } finally { await new Promise((r) => srv.close(r)); }
+});
+
+// ── the arguments kosmos.ps1 hands over in the environment ──────────────────
+
+test('argvFrom: kosmos.ps1\'s JSON is read ONLY behind its flag, exactly, and every element is a string', () => {
+  const env = { [cli.ARGV_ENV]: JSON.stringify(['reply', 'line one\nline two', 'She said "go & echo X" ok', '100%PATH%', 3]) };
+  assert.deepEqual(cli.argvFrom([cli.ARGV_FROM_ENV_FLAG], env), ['reply', 'line one\nline two', 'She said "go & echo X" ok', '100%PATH%', '3']);
+  assert.deepEqual(cli.argvFrom(['reply', 'hi'], env), ['reply', 'hi'], 'a stale variable replaced real arguments');
+  assert.deepEqual(cli.argvFrom([cli.ARGV_FROM_ENV_FLAG], { [cli.ARGV_ENV]: '{"not":"an array"}' }), []);
+  assert.deepEqual(cli.argvFrom([cli.ARGV_FROM_ENV_FLAG], {}), []);
+});
+
+test('main reads the environment\'s arguments when kosmos.ps1 says so', async () => {
+  const r = await run([cli.ARGV_FROM_ENV_FLAG], () => ({ body: { kept: true } }), { KOSMOS_AGENT_TOKEN: AGENT, [cli.ARGV_ENV]: JSON.stringify(['reply', 'two\nlines']) });
+  assert.equal(r.code, 0);
+  assert.equal(r.calls[0].body.text, 'two\nlines', 'the multi-line answer was cut, which is the defect the .ps1 shim exists to end');
 });

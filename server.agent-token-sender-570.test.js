@@ -108,3 +108,17 @@ test('sendPost and send use a sender the route already resolved, and resolve fro
   const bare = messagesEngine.send({ to: 'x', text: 'x' }, []);
   assert.match(bare.because, /cannot tell which agent/, 'control: with no sender and no pane the old refusal stands');
 });
+
+test('msg, post and react stay BEHIND the board-token gate: neither exempt set may name them', () => {
+  /* What makes accepting an agent token here safe is that the caller must ALSO
+     hold the board token (only report and reply are exempt, for remote agents).
+     Adding these routes to either set would let a bare agent token speak. */
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  for (const set of ['REMOTE_AGENT_ROUTES', 'LOOPBACK_AGENT_ROUTES']) {
+    const line = (src.match(new RegExp('const ' + set + ' = new Set\\(\\[[^\\]]*\\]\\)')) || [''])[0];
+    assert.ok(line, set + ' moved; this pin reads nothing');
+    for (const route of ['/api/msg', '/api/post', '/api/react']) {
+      assert.ok(!line.includes(route), route + ' is now exempt from the board token via ' + set);
+    }
+  }
+});
