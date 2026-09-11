@@ -17,7 +17,14 @@ REPO="$(cd "$HERE/.." && pwd)"
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails + 1)); }
-has() { case "$1" in *"$2"*) return 0 ;; *) return 1 ;; esac; }
+# Extract an attribute VALUE from text $1 using grep -oE pattern $2 (which
+# captures attr="value"), printing what is between the quotes, or empty if
+# absent. The SAME pipeline is used for the real Distribution and for the
+# control inputs, so a control exercises the exact extraction an assertion does
+# (not a different substring helper), and it reads the attribute value rather
+# than a substring of the whole block, so a comment naming a tag cannot satisfy
+# or trip it.
+xval() { printf '%s' "$1" | grep -oE "$2" | head -1 | sed 's/.*="//; s/"$//'; }
 
 BUILD_SH="$REPO/tools/build-installer-pkg.sh"
 SETUP_SH="$REPO/install/setup.sh"
@@ -28,48 +35,43 @@ if [ -z "$DIST" ]; then
   echo "FAIL  could not extract the Distribution from $BUILD_SH"; exit 1
 fi
 
+ARCH_PAT='hostArchitectures="[^"]*"'
+OSMIN_PAT='os-version min="[^"]*"'
+
 # 1. arm64 ONLY. Kosmos ships no x86_64 bundle; declaring the extra arch lets an
 #    Intel Mac run the installer, which then dies generic. arm64 makes macOS
-#    refuse it up front. Check the ATTRIBUTE VALUE itself (not a substring over
-#    the whole block), so a comment that merely names the old value cannot
-#    satisfy or trip this.
-ARCHVAL="$(printf '%s' "$DIST" | grep -oE 'hostArchitectures="[^"]*"' | head -1 | sed 's/.*="//; s/"$//')"
+#    refuse it up front. Read the attribute VALUE.
+ARCHVAL="$(xval "$DIST" "$ARCH_PAT")"
 if [ "$ARCHVAL" = "arm64" ]; then
   pass "Distribution hostArchitectures is exactly arm64 (no x86_64)"
 else
   fail "Distribution hostArchitectures must be exactly \"arm64\", got \"$ARCHVAL\""
 fi
 
-# 2. macOS floor gated up front via allowed-os-versions.
-if has "$DIST" "<allowed-os-versions>" && has "$DIST" '<os-version min="13.5"/>'; then
-  pass "Distribution gates macOS via allowed-os-versions (min 13.5)"
-else
-  fail 'Distribution must gate macOS with <allowed-os-versions><os-version min="13.5"/>'
-fi
-
-# 3. The floor MATCHES setup.sh's own MACOS_FLOOR, so the pkg's up-front gate and
-#    setup.sh's late gate cannot drift to different numbers.
+# 2 + 3. macOS floor gated up front, and the min MATCHES setup.sh's own
+#    MACOS_FLOOR, so the pkg's up-front gate and setup.sh's late gate cannot
+#    drift to different numbers. Read the os-version min VALUE (a non-empty value
+#    also proves the gate is present).
 MAJ="$(grep -E '^MACOS_FLOOR_MAJOR=' "$SETUP_SH" | head -1 | cut -d= -f2)"
 MIN="$(grep -E '^MACOS_FLOOR_MINOR=' "$SETUP_SH" | head -1 | cut -d= -f2)"
-if [ -n "$MAJ" ] && [ -n "$MIN" ] && has "$DIST" "<os-version min=\"$MAJ.$MIN\"/>"; then
-  pass "Distribution macOS floor ($MAJ.$MIN) matches setup.sh's MACOS_FLOOR"
+OSMIN="$(xval "$DIST" "$OSMIN_PAT")"
+if [ -n "$OSMIN" ] && [ -n "$MAJ" ] && [ -n "$MIN" ] && [ "$OSMIN" = "$MAJ.$MIN" ]; then
+  pass "Distribution gates macOS via os-version min $OSMIN, matching setup.sh's MACOS_FLOOR ($MAJ.$MIN)"
 else
-  fail "Distribution os-version min must equal setup.sh's MACOS_FLOOR ($MAJ.$MIN)"
+  fail "Distribution must gate macOS with <os-version min> equal to setup.sh's MACOS_FLOOR ($MAJ.$MIN), got \"$OSMIN\""
 fi
 
-# CONTROL: prove the two content checks CAN fail, on the OLD (bad) shape, so a
-# green run means the guards fired rather than matched nothing.
-BAD_ARCH='<options hostArchitectures="arm64,x86_64"/>'
-if has "$BAD_ARCH" 'arm64,x86_64'; then
-  pass "CONTROL: the arch check catches the old arm64,x86_64"
+# CONTROLS: run the SAME xval extraction on the OLD / ungated shapes, so a green
+# run proves the extraction pipeline itself catches them, not a different helper.
+if [ "$(xval '<options hostArchitectures="arm64,x86_64"/>' "$ARCH_PAT")" != "arm64" ]; then
+  pass "CONTROL: the arch extraction rejects the old arm64,x86_64 value"
 else
-  fail "CONTROL broken: arch check would not catch the old shape"
+  fail "CONTROL broken: the arch extraction accepted the old shape as arm64"
 fi
-BAD_OS='<options hostArchitectures="arm64"/>'
-if ! has "$BAD_OS" '<os-version min="13.5"/>'; then
-  pass "CONTROL: the macOS-gate check catches a Distribution with no gate"
+if [ -z "$(xval '<options hostArchitectures="arm64"/>' "$OSMIN_PAT")" ]; then
+  pass "CONTROL: the macOS-gate extraction yields empty on a Distribution with no gate"
 else
-  fail "CONTROL broken: macOS-gate check would pass an ungated Distribution"
+  fail "CONTROL broken: the macOS-gate extraction found a min in an ungated Distribution"
 fi
 
 if [ "$fails" -eq 0 ]; then

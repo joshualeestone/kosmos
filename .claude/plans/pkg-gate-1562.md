@@ -31,7 +31,9 @@ Mona owns: the requirement-message wording (Apple silicon M1+ / macOS 13.5+) in 
 
 ## Weakest premise / verification still needed
 
-I cannot build + notarize + install the real `.pkg` in this session, so the on-device gating BEHAVIOR (does macOS Installer actually refuse an Intel Mac and an old-macOS Mac, and with what exact message?) is NOT verified here. The source guard proves the Distribution DECLARES the gates; Mona verifies the display; a real Intel or macOS-below-13.5 Mac must confirm the refusal at the next cut. Josh's friend's Mac is the real-world test case. `hostArchitectures="arm64"` is the standard mechanism for an Apple-silicon-only installer, but its exact refusal message is what Mona verifies.
+I cannot build + notarize + install the real `.pkg` in this session, so the on-device gating BEHAVIOR (does macOS Installer actually refuse an Intel Mac and an old-macOS Mac, and with what exact message?) is NOT verified here. The source guard proves the Distribution DECLARES the gates; Mona verifies the display; a real Intel or macOS-below-13.5 Mac must confirm the refusal at the next cut. Josh's friend's Mac is the real-world test case (a 2019 Intel Core i9 on macOS 15.5, so his macOS is fine and the ARCH gate is the one that catches him). `hostArchitectures="arm64"` is the standard mechanism for an Apple-silicon-only installer, but its exact refusal message is what Mona verifies.
+
+One nuance to confirm at the cut: `<volume-check><allowed-os-versions>` gates the OS of the TARGET VOLUME, which equals the RUNNING OS only for the ordinary boot-volume install. Kosmos is a scripts-only nopayload package installed to the boot volume, so that equality holds here, but the cut verification should confirm the OS refusal actually fires (with a clear message) on a sub-13.5 Mac, alongside the arch refusal, since neither the source guard nor `productbuild` ran here.
 
 ## Ship
 
