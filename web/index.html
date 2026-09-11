@@ -4154,7 +4154,21 @@ body:not(.consolidated) .pjmid .thread .att { background: var(--k-bg); }
    is met by the size. The hide-when-empty rule that lived here from #520 is
    gone; the check pins the placeholder on screen. */
 .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
-.pjmidhead:has(.pjhead) .tsearch { flex: 0 1 min(320px, 40%); }
+/* Josh, 2026-09-10 (#2711 item 4): the tab-view conversation search is narrow
+   at rest ("Search"), and widens when the person clicks into it so they have
+   room to type. Scoped to body:not(.consolidated) so it never applies in the
+   consolidated layout at all (body carries .consolidated there). The transition
+   animates only the basis, and is disabled under reduced-motion below.
+   🛑 The (max-width: 60rem) block below must RE-RESET these at matching
+   specificity: these selectors are (0,4,1)/(0,5,1), higher than a bare
+   .pjmidhead:has(.pjhead) .tsearch (0,3,0), and a media query adds no
+   specificity, so without the re-reset the flex-basis would win in the stacked
+   header where the row is a column and balloon the box's HEIGHT. */
+body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch { flex: 0 1 min(190px, 30%); transition: flex-basis .15s ease; }
+body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-basis: min(420px, 60%); }
+@media (prefers-reduced-motion: reduce) {
+  body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch { transition: none; }
+}
 /* Below 60rem there is not enough room for a title, a description and a
    search box on one line (tab view has no 960px floor the way
    consolidated does, so this has to hold at phone width too, not just
@@ -4165,7 +4179,23 @@ body:not(.consolidated) .pjmid .thread .att { background: var(--k-bg); }
 @media (max-width: 60rem) {
   .pjmidhead:has(.pjhead) { flex-direction: column; align-items: stretch; }
   .pjmidhead .pjhead { flex-direction: column; align-items: stretch; gap: 4px; }
-  .pjmidhead:has(.pjhead) .tsearch { flex: none; }
+  /* Re-reset the search box here, where the header stacks to a column so any
+     horizontal flex-basis maps to the VERTICAL axis and balloons the box's
+     height. THREE arms are needed:
+       - the unscoped .pjmidhead:has(.pjhead) .tsearch (0,3,0) resets the base
+         .tsearch (0,1,0) in BOTH layouts. A consolidated body keeps its
+         .consolidated class at every width (only the grid is gated on 960px)
+         and its own width rule lives in a min-width block, so below 60rem a
+         consolidated search would otherwise fall back to the base 15rem basis
+         and balloon; this arm is what protects it.
+       - the two body:not(.consolidated) arms MATCH the item-4 rest and focus
+         rules' specificity ((0,4,1)/(0,5,1)) rather than exceeding it, so they
+         win the tie ONLY because this block sits LATER in source order. A bare
+         (0,3,0) arm could not, since a media query adds no specificity.
+     🛑 This block MUST stay after the item-4 rules above. Reordering it (or
+     moving the media block up while "keeping the specificity") breaks the tie
+     the other way and silently reintroduces the height-balloon this fixes. */
+  .pjmidhead:has(.pjhead) .tsearch, body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch, body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex: none; }
 }
 /* ⚠️ THE MESSAGES GET A BOX OF THEIR OWN, matching Project members and Tasks:
    without it the middle column is the only one whose content floats, and the
@@ -10366,7 +10396,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           <span class="tsearch-i" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
           </span>
-          <input type="search" id="pj-room-search" placeholder="Search this conversation" aria-label="Search this conversation">
+          <input type="search" id="pj-room-search" placeholder="Search" aria-label="Search this conversation">
         </div>
       </div>
       <!-- THE ROOM (View D): this project's thread, drawn from the record
