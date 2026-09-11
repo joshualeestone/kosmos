@@ -143,7 +143,12 @@ test('SECURITY: an unresolved caller (enforcing board, bare pane, no token) is r
   boardAuthState.on = true;
   try {
     await withLeo(async () => {
-      const jr = await get('/api/report?from_pane=%253', {});   // %253 decodes to the tmux pane %3
+      // ?from_pane=%253 (a url-encoded tmux pane %3) proves the query value
+      // FLOWS into resolveAgentSender, but on an enforcing board with no
+      // credential denyPaneFallback short-circuits BEFORE pane resolution, so
+      // the pane value itself is not resolved here -- this arm tests the refusal,
+      // not the pane round-trip.
+      const jr = await get('/api/report?from_pane=%253', {});
       // A REAL 403, not a 200: cmd_report_show keys its exit-1 off the HTTP
       // status (4xx/5xx), so a refusal MUST be a 4xx or the CLI exits 0 and an
       // agent cannot tell refused from success (parity with post/react/room).

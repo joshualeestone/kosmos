@@ -7752,7 +7752,7 @@ const server = http.createServer((req, res) => {
        returns 200 because ITS cli parses the body instead -- a different reader,
        so a different convention). needs a matching text line for the bash arm. */
     const fail = (status, msg) => {
-      if (asText) { res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8' }); res.end(msg + '\n'); }
+      if (asText) { res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(msg + '\n'); }
       else sendJson(res, status, { ok: false, because: msg });
     };
     /* Wrapped, like the POST sibling's readBody().then().catch(): a synchronous
@@ -7779,7 +7779,14 @@ const server = http.createServer((req, res) => {
            WAITING_ON_A_PERSON states -- the motivating "is my needs_you still set". */
         let line;
         if (!rep || rep.found !== true) {
-          line = (rep && rep.because) ? rep.because : 'No report recorded yet.';
+          /* selfreport.read ALWAYS sets `because` on found:false, and those are
+             third-person engine fragments ("it has never reported" /
+             "could not read its self-report") -- wrong for a first-person CLI
+             reader. Shape a first-person line here; the JSON arm keeps the raw
+             `because` for programmatic callers. */
+          line = (rep && rep.because === selfreport.NO_READING.UNREADABLE)
+            ? 'We could not read your self-report right now. Try again in a moment.'
+            : 'You have not reported a state to the board yet.';
         } else {
           const detail = [];
           if (rep.on) detail.push('on ' + rep.on);
@@ -7791,7 +7798,7 @@ const server = http.createServer((req, res) => {
             line += ' This is a waiting-on-a-person state; clear it with a fresh report (e.g. `kosmos report working ...`) once you have been answered.';
           }
         }
-        res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+        res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
         res.end(line + '\n');
         return;
       }

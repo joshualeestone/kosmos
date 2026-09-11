@@ -32,6 +32,10 @@
 - [ ] 3. Regression test: round-trip state, no-report 200, JSON==text, unresolved-caller rejected. CLI exit-code arm if a harness exists.
 - [ ] 4. Full node suite green; `/challenge-loop` to convergence (model-alternated); PR (reviewer joshualeestone, squash, merge on green), body NON-closing `Addresses #2709`. No em dashes.
 
+## Deferred (challenge-loop iter 3, eyes-open)
+- **Tokenless PANE success path test (WARNING2):** no test exercises a GET ?from_pane resolving to a real agent (the common path for token-less agents). Deferred: the glue (`q.get('from_pane')` -> `{from_pane}` -> resolveAgentSender pane arm) is IDENTICAL to POST /api/report's from_pane arm, which is proven (server.test.js:11977); the only new code is the query extraction (standard URLSearchParams, and the SECURITY test confirms the query value reaches resolveAgentSender). A full round-trip test needs the fake-tmux paneSession fixture, disproportionate for a coverage gap over proven code (same class as #2702's deferred CLI-harness test).
+- **Shared token-validation helper (NIT2):** cmd_report_show duplicates cmd_report's KOSMOS_AGENT_TOKEN hex-validation rather than a shared bash helper. Deferred: extracting a bash-3.2 helper for a 4-line case is marginal churn; the duplication is noted here so a future validation change updates both.
+
 ## Notes / weakest premise
 - Weakest premise: that reusing POST /api/report's exact auth (resolveAgentSender + safeRoster + the enforcing-board opts) is the right gate for a READ. It is: the read returns only the caller's OWN report, keyed on the token-resolved sessionName, so the same auth that authorizes a write authorizes reading that same agent's state. If wrong, the fix is to tighten (never loosen) -- but there is no weaker read here (no roster, no other agent).
 - No collision: CLI + server.js + a node test only. Does NOT touch web/index.html (Renet's found-panels-gate-2651, Mona's project-tab-2711) or engine/discover.js. Confirmed with Renet + Mona.
