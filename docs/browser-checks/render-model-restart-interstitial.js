@@ -66,6 +66,15 @@ function check(name, pass, detail) {
     process.exit(1);
   }
   const page = await browser.newPage({ viewport: { width: 1000, height: 800 } });
+  // #2692: pin reduced-motion OFF so the detached-canvas control below deterministically
+  // exercises startKLoader's ANIMATING path -- the only path with an rAF loop, and so the
+  // only path the !cv.isConnected guard governs. Under prefers-reduced-motion: reduce the
+  // loader takes a one-shot synchronous frame(1,0) and never enters tick(), which both paints
+  // a detached canvas (false-red for the control) and has no loop to leak anyway. Emulating
+  // no-preference makes the check machine-independent instead of depending on the host's
+  // motion setting (the animating arms -- loaderPainted etc. -- are unaffected: they animate
+  // under no-preference and painted a static frame under reduce, so both were already green).
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   const pageErrors = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
   await page.goto('file://' + PAGE);
@@ -96,11 +105,14 @@ function check(name, pass, detail) {
       return false;
     };
 
-    // #2692 lifecycle guard (negative control for the fix): startKLoader must NOT drive a
-    // DETACHED canvas -- its rAF loop bails on `!cv.isConnected`. A connected canvas paints
-    // (proven in the model arm below); a detached one stays blank, which is exactly why the
-    // loop self-terminates when the restart interstitial is torn down instead of leaking. If
-    // someone deletes the guard, tick draws the ring here and this arm goes red.
+    // #2692 lifecycle guard (negative control for the fix): on the ANIMATING path, startKLoader
+    // must NOT drive a DETACHED canvas -- its rAF loop bails on `!cv.isConnected`. A connected
+    // canvas paints (proven in the model arm below); a detached one stays blank, which is exactly
+    // why the loop self-terminates when the restart interstitial is torn down instead of leaking.
+    // If someone deletes the guard, tick draws the ring here and this arm goes red. Scope: this
+    // covers the rAF path only -- reduced-motion takes a one-shot frame(1,0) with no loop, so
+    // there is nothing to leak and nothing for the guard to do there; reduced-motion is pinned
+    // off above so this control always runs the path it is written for.
     let detachedPainted = null;
     if (typeof startKLoader === 'function') {
       const detached = document.createElement('canvas');
@@ -237,6 +249,7 @@ function check(name, pass, detail) {
     const providerAnthBusy = {
       settingUp: /Setting up Anthropic/i.test(msg.innerHTML),
       hasLoaderCanvas: !!document.querySelector('#chg-msg .chg-restart canvas.chg-restart-k'),
+      noPulsingIcon: !document.querySelector('#chg-msg .chg-restart .kspin'),
       notClaudeSetup: !/Setting up Claude/i.test(msg.innerHTML),
     };
     await sleep(400);
@@ -274,8 +287,8 @@ function check(name, pass, detail) {
     r.providerBusy && r.providerBusy.settingUp && r.providerBusy.hasLoaderCanvas && r.providerBusy.noPulsingIcon && r.providerBusy.noReducedYet, JSON.stringify(r.providerBusy));
   check('PROVIDER: after the hold the provider dialog reduces to "Say hello to <agent> to reactivate them on OpenAI"',
     r.providerDone, JSON.stringify((r.providerReducedText || '').slice(0, 90)));
-  check('PROVIDER (Anthropic arm): the branded-loader interstitial says "Setting up Anthropic" (not "Setting up Claude")',
-    r.providerAnthBusy && r.providerAnthBusy.settingUp && r.providerAnthBusy.hasLoaderCanvas && r.providerAnthBusy.notClaudeSetup, JSON.stringify(r.providerAnthBusy));
+  check('PROVIDER (Anthropic arm): the branded-loader interstitial says "Setting up Anthropic" (not "Setting up Claude"), pulsing .kspin gone',
+    r.providerAnthBusy && r.providerAnthBusy.settingUp && r.providerAnthBusy.hasLoaderCanvas && r.providerAnthBusy.noPulsingIcon && r.providerAnthBusy.notClaudeSetup, JSON.stringify(r.providerAnthBusy));
   check('PROVIDER (Anthropic arm): the dialog speaks ONE vocabulary -- reduces to "reactivate them on Anthropic", never "on Claude"',
     r.providerAnthConsistent, JSON.stringify((r.providerAnthReducedText || '').slice(0, 90)));
 
