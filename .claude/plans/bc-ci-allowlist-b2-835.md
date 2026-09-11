@@ -20,7 +20,15 @@ hidden-state, not paint/geometry):
 - **render-claude-connect-choice-2433** - the Settings > Accounts add-provider modal offers
   Claude the subscription-vs-API-key choice; picking "Use an API key" reveals
   #acct-claude-key-step, "subscription" reveals #acct-claude-sub-step. Asserts which step
-  is revealed (hidden-state on click), no geometry.
+  is revealed (hidden-state on click). Its `sized()` helper DOES call
+  getBoundingClientRect for a COARSE nonzero-size presence check (width > 0 && height > 0
+  on the picker buttons and the key field) - this is the headless-SAFE geometry pattern,
+  not fragile geometry: SwiftShader lays out non-zero boxes reliably, so a coarse
+  presence check is robust; only exact-pixel / width-band / below-the-fold measurement is
+  the fragile class the exclusion list filters out. The same coarse-presence pattern is
+  used by batch-1's render-engmode-gate-2131 (its VIS helper asserts r.height > 0), which
+  ran green in this exact CI lane (#2747), so this is a proven-safe pattern rather than an
+  assumption. The self-validating same-PR CI is the definitive backstop either way.
 - **render-picker-provider-2097** - the create-agent picker is provider-aware; reads the
   rendered #create-model-row / #create-account-row HIDDEN state (model select hidden WHOLE
   on OpenAI, account row hidden at one account). Pure hidden-state.
