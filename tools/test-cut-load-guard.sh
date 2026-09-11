@@ -119,6 +119,74 @@ grep -qF 'load="$(kosmos_box_load_1min)"' "$RT" \
   && ok "INTEGRATION: run-tests.sh reads the 1-min load via kosmos_box_load_1min" \
   || bad "INTEGRATION: run-tests.sh no longer calls kosmos_box_load_1min -- a second inline field-2 copy has likely returned (#2750)"
 
+# --- #2760 P1: the overlap DECISION (kosmos_cut_parallel_ok). The load-bearing
+# half, so it is unit-tested here rather than only bash -n'd in release.sh -- the
+# same reason kosmos_gate_or_abort is tested above. Every assertion below pins the
+# DANGEROUS direction too: the default (flag off) MUST stay serial, and every
+# unreadable input MUST fall back to serial, because serial is the safe path. ---
+
+# defaults
+got="$(kosmos_cut_parallel_min_cores)"
+[ "$got" = "8" ] && ok "parallel min-cores default is 8 ($got)" || bad "min-cores default: got [$got], expected [8]"
+got="$(KOSMOS_CUT_PARALLEL_MIN_CORES=12 kosmos_cut_parallel_min_cores)"
+[ "$got" = "12" ] && ok "KOSMOS_CUT_PARALLEL_MIN_CORES overrides min-cores" || bad "min-cores override: got [$got], expected [12]"
+got="$(KOSMOS_CUT_PARALLEL_MIN_CORES=garbage kosmos_cut_parallel_min_cores)"
+[ "$got" = "8" ] && ok "a garbage min-cores override is ignored (falls back to 8, so the decision cannot fault)" || bad "min-cores garbage-override: got [$got], expected [8]"
+ncpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+expect="$(LC_ALL=C awk -v n="$ncpu" 'BEGIN { printf "%.1f", n * 0.5 }')"
+got="$(kosmos_cut_parallel_max_load)"
+[ "$got" = "$expect" ] && ok "parallel max-load default is 0.5x cores ($got)" || bad "max-load default: got [$got], expected [$expect]"
+got="$(KOSMOS_CUT_PARALLEL_MAX_LOAD=3 kosmos_cut_parallel_max_load)"
+[ "$got" = "3" ] && ok "KOSMOS_CUT_PARALLEL_MAX_LOAD overrides max-load" || bad "max-load override: got [$got], expected [3]"
+
+# the decision: 0 = parallelize, 1 = serial. Force cores+load via overrides so the
+# cases are deterministic on any box (a 2-core CI runner included).
+parok() { if eval "$1 kosmos_cut_parallel_ok"; then echo 0; else echo $?; fi; }
+
+# 1. the opt-in default: flag UNSET -> serial (the feature changes NO real cut)
+[ "$(parok 'KOSMOS_FAKE_LOAD=0.1 KOSMOS_CUT_PARALLEL_MIN_CORES=1')" = 1 ] \
+  && ok "DEFAULT (KOSMOS_CUT_PARALLEL unset) -> serial, even on a quiet many-core box" \
+  || bad "default should be serial: a cut with the flag unset must not parallelize"
+[ "$(parok 'KOSMOS_CUT_PARALLEL=0 KOSMOS_FAKE_LOAD=0.1 KOSMOS_CUT_PARALLEL_MIN_CORES=1')" = 1 ] \
+  && ok "KOSMOS_CUT_PARALLEL=0 -> serial" || bad "flag=0 should be serial"
+[ "$(parok 'KOSMOS_CUT_PARALLEL=yes KOSMOS_FAKE_LOAD=0.1 KOSMOS_CUT_PARALLEL_MIN_CORES=1')" = 1 ] \
+  && ok "KOSMOS_CUT_PARALLEL=yes (not exactly 1) -> serial" || bad "flag must be exactly 1"
+
+# 2. opt-in + enough cores + low load -> parallel
+[ "$(parok 'KOSMOS_CUT_PARALLEL=1 KOSMOS_FAKE_LOAD=0.1 KOSMOS_CUT_PARALLEL_MIN_CORES=1')" = 0 ] \
+  && ok "opt-in + enough cores + low load -> parallel" || bad "opt-in + quiet should parallelize"
+
+# 3. opt-in but too few cores -> serial (a 2-/4-core box has no spare cycles)
+[ "$(parok 'KOSMOS_CUT_PARALLEL=1 KOSMOS_FAKE_LOAD=0.1 KOSMOS_CUT_PARALLEL_MIN_CORES=99999')" = 1 ] \
+  && ok "opt-in but cores below the minimum -> serial" || bad "too few cores should be serial"
+
+# 4. opt-in but load too high -> serial
+[ "$(parok 'KOSMOS_CUT_PARALLEL=1 KOSMOS_FAKE_LOAD=999 KOSMOS_CUT_PARALLEL_MIN_CORES=1')" = 1 ] \
+  && ok "opt-in but load over max -> serial" || bad "high load should be serial"
+
+# 5. STRICTLY below: load == max -> serial (a box exactly at the threshold has no headroom)
+[ "$(parok 'KOSMOS_CUT_PARALLEL=1 KOSMOS_FAKE_LOAD=5 KOSMOS_CUT_PARALLEL_MAX_LOAD=5 KOSMOS_CUT_PARALLEL_MIN_CORES=1')" = 1 ] \
+  && ok "load == max-load -> serial (strictly-below required)" || bad "load==max should be serial"
+[ "$(parok 'KOSMOS_CUT_PARALLEL=1 KOSMOS_FAKE_LOAD=4.9 KOSMOS_CUT_PARALLEL_MAX_LOAD=5 KOSMOS_CUT_PARALLEL_MIN_CORES=1')" = 0 ] \
+  && ok "load just below max-load -> parallel" || bad "load<max should parallelize"
+
+# 6. fail-safe: an unreadable load -> serial (the OPPOSITE fail-direction from
+#    kosmos_load_over_threshold, which fails open; here serial is the safe path)
+[ "$(parok 'KOSMOS_CUT_PARALLEL=1 KOSMOS_LOADAVG_RAW=single_field_no_load KOSMOS_CUT_PARALLEL_MIN_CORES=1')" = 1 ] \
+  && ok "opt-in but unreadable load -> serial (fail-safe)" || bad "unreadable load should fall back to serial"
+
+# --- #2760 P1 INTEGRATION: release.sh must WIRE the decision into the gated-steps
+# region and keep both the START and END markers the behavioural test extracts
+# between (tools/test-cut-parallel-region.sh). Distinctive fragments so a prose
+# mention cannot satisfy them. ---
+RELSH="$REPO/tools/release.sh"
+grep -qF 'if kosmos_cut_parallel_ok; then _cut_parallel=1; fi' "$RELSH" \
+  && ok "INTEGRATION: release.sh gates the overlap on kosmos_cut_parallel_ok" \
+  || bad "INTEGRATION: release.sh no longer calls kosmos_cut_parallel_ok -- the overlap is unwired"
+grep -qF '#2760-P1 gated-steps region START' "$RELSH" && grep -qF '#2760-P1 gated-steps region END' "$RELSH" \
+  && ok "INTEGRATION: release.sh keeps both #2760-P1 region markers (the behavioural test extracts between them)" \
+  || bad "INTEGRATION: a #2760-P1 region marker is missing -- tools/test-cut-parallel-region.sh can no longer extract the region"
+
 echo ""
 if [ "$fails" -eq 0 ]; then
   echo "test-cut-load-guard: ALL PASS"
