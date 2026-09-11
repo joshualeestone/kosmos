@@ -2996,6 +2996,17 @@ build_app_bundle() {
   <key>LSRequiresNativeExecution</key><true/>
   <key>LSMinimumSystemVersion</key><string>$MACOS_FLOOR_MAJOR.$MACOS_FLOOR_MINOR</string>
   <key>LSUIElement</key><false/>
+  <!-- #2810: "Open Terminal" runs osascript to tell Terminal.app to attach the
+       agent's tmux session. The board LaunchAgent below carries
+       AssociatedBundleIdentifiers=com.chaoskosmos.kosmos, so macOS attributes
+       that Apple-event request to THIS bundle for its Automation (TCC) decision.
+       Without a usage-description string on the bundle, macOS does not prompt and
+       silently denies with -1743 ("Not authorized to send Apple events to
+       Terminal"), which is exactly what every agent hit after 0.6.56. This string
+       is the text the one-time "Kosmos wants to control Terminal" prompt shows;
+       once the person allows it, the grant persists for this Developer ID
+       signature across updates. -->
+  <key>NSAppleEventsUsageDescription</key><string>Kosmos opens a Terminal window and attaches your agent's session when you choose Open Terminal.</string>
 </dict></plist>
 PLIST
 
