@@ -868,6 +868,22 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    rule and sizes intrinsically. It is here so an account name does not render
    as a stub next to it, and the known cost is that the row wraps. */
 #create-model, #create-account, #create-reports, #d-reports, #d-provider-account, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }
+/* #2697 (Josh, design channel 2026-09-10, on the agent Profile tab): the three
+   Profile fields each ran the full container width. Josh asked for Name ~25%,
+   What they do ~50%, Reports to ~25%, each left-aligned on its own row. Scoped to
+   the detail form's field ids, so every other form's inputs keep flex:1 filling
+   the row. These come after the flex:1 rules above (same id specificity, so source
+   order wins for #d-reports); the shared min-width:220px still floors each field so
+   a narrow panel does not crush them below a usable size. The wrap also keeps the
+   long Name helper from running the full width, per Josh's "wrap Name helper at ~50%". */
+#d-rename { flex: 0 1 25%; }
+#d-role { flex: 0 1 50%; }
+#d-reports { flex: 0 1 25%; }
+/* Spacing above "Reports to": .detail .field zeroes margin-top, and this wrap (unlike
+   its Name/What-they-do siblings) carried no inline margin-top, so its title sat right
+   under the What-they-do input. Match the siblings' 18px. */
+#d-reports-wrap { margin-top: 18px; }
+#d-rename-hint { max-width: 50%; }
 .btn { font: var(--text-body) var(--font-ui); padding: var(--space-4) var(--space-5);
        border-radius: var(--radius-control); border: 0.5px solid var(--border-strong);
        background: var(--bg); color: var(--label); cursor: pointer; }
@@ -7898,7 +7914,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          reading it now would not know the agent itself is told. The
          disclaimers stay, because both are still true and both are things
          people worry about. -->
-    <div class="fhint">What you call them here, and what their own instructions will say. It does not change where they live on this computer, or the name other agents use to reach them.</div>
+    <div class="fhint" id="d-rename-hint">What you call them here, and what their own instructions will say. It does not change where they live on this computer, or the name other agents use to reach them.</div>
     <div class="frow">
       <input type="text" id="d-rename" maxlength="80" placeholder="What you call them">
     </div>
