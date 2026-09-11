@@ -17041,81 +17041,45 @@ async function paintAccounts() {
             + 'there will not appear any more.' : '')
           + '"'
           + '>Disconnect</button>'
-        : (a.isDefault
-          /* 🛑 THE DEFAULT ROW GETS A DISABLED BUTTON, BECAUSE THE ENGINE
-             REFUSES IT. `accounts.forgetAccount` will not move `~/.claude`:
-             `prepare()` symlinks every account Kosmos makes at
-             `~/.claude/projects`, so removing it strands the history of
-             accounts nobody asked to remove. `list()` emits the default row
-             first WHENEVER it is signed in (it is skipped when
-             `identityOf(~/.claude.json)` is null, so a machine signed in only
-             on a named account renders none), so a live button here is one
-             nearly every user sees and NONE can use -- the "nothing that looks live may do nothing" shape this
-             file refuses elsewhere, and it would carry a title promising an act
-             it cannot perform. The title states the refusal.
-            🛑 IT DOES NOT STATE A WAY OUT, and this clause used to claim it did.
-            The engine says outright that the default refusal deliberately names
-            none, because both candidate remedies were removed as unreachable: one
-            implies the button then works, the other names an affordance this page
-            does not have. A leftover promise like that invites the next reader to
-            add a remedy that does not exist. */
-          /* ⚠️ THE REASON RIDES THE aria-label, NOT ONLY THE title. A `title`
-             on a DISABLED control is not announced, so a screen-reader user got
-             "Disconnect main@example.com" with no hint it is unavailable or
-             why. Repo rule is WCAG AA, and this same function already states
-             the principle for the connection badge: the real sentence is the
-             visible text AND the label, never a reason hidden in a hover. */
-          /* 🛑 `aria-disabled`, NOT `disabled`. A `disabled` button is removed
-             from the tab order, so a keyboard user tabbing this row never lands
-             on it and never hears the reason -- and the repo's own rule names
-             non-focusable controls as a WCAG AA failure. aria-disabled keeps it
-             focusable and announces the state.
-             ✅ IT CANNOT ACT, and the reason stated here used to be WRONG in a way
-             that invited deleting live code. It said "there is no listener to
-             fire". There IS one: the same diff binds a click handler to
-             `.acct-disconnect[aria-disabled="true"]` below, precisely so a press
-             says WHY instead of doing nothing.
-             ⇒ What actually makes softening the attribute safe is that this row
-             carries no `data-forget`, so the REMOVAL handler never selects it. The
-             refusal is enforced by the absence of that attribute, not by the
-             absence of all wiring.
-             ⚠️ The distinction is not pedantry: a reader who believed the old
-             sentence would conclude the default row has no handlers and delete the
-             no-op refusal as dead code, which is the exact "pressable but silent"
-             failure the handler exists to prevent. */
-          ? '<button class="acct-disconnect" type="button" aria-disabled="true" '
-            + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')'
-              + '. Unavailable: Kosmos does not remove this computer\u2019s main Claude folder." '
-            + 'title="Kosmos does not remove this computer\u2019s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and other accounts here may keep their history inside it.">Disconnect</button>'
-          /* 🛑 #2441: THE TITLE IS CONDITIONAL ON api-key, BECAUSE Disconnect DELETES
-             DIFFERENT THINGS ON THE TWO CREDENTIAL SHAPES, and #1659's rule is that
-             "removed" and "deleted" are different promises and the person is owed the
-             true one. On an OAuth row `forgetAccount` renames the dir aside and the
-             sign-in file survives -- "nothing is deleted" is true. On an api-key row
-             it ALSO erases the raw key file and unwires the apiKeyHelper pointer
-             (engine/accounts.js #2420: `ca.forgetKey` + `unwireApiKeyHelper` on the
-             moved dir), so the saved key IS deleted. Reusing the OAuth title there
-             would promise the credential survives when Disconnect is exactly what
-             takes it away. The api-key title says so; the folder is still moved aside,
-             so the history sentence stays true of both. */
-          : '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
+        /* #2684: THE DEFAULT ROW'S DISCONNECT IS LIVE NOW. accounts.forgetAccount
+           no longer refuses `~/.claude`: instead of moving the dir (which would
+           strand other accounts' symlinked history), it clears ONLY the oauth
+           identity from <HOME>/.claude.json, so the folder and any history in it
+           are KEPT. So the default gets a real data-forget button like every other
+           row -- only its title differs (folder kept, not moved aside), stated by
+           the isDefault branch in the title below. The old disabled/aria-disabled
+           default branch and its click-to-explain handler are gone with the refusal
+           they explained.
+           #2441 (still true for the SECONDARY rows the title below serves): an
+           OAuth secondary is renamed aside (sign-in survives); an api-key secondary
+           ALSO has its raw key erased + apiKeyHelper unwired (engine/accounts.js
+           #2420), so the key IS deleted, which is why the api-key title says so. */
+        : '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
             + 'data-forget-provider="claude" '
             + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')' + '" '
-            + 'title="' + (a.apiKey
+            + 'title="' + (a.isDefault
+              /* #2684: the DEFAULT disconnect clears ONLY the oauth identity from
+                 <HOME>/.claude.json; the folder + history are kept. */
+              ? 'Takes the main connection off the list. Only its sign-in is cleared from this computer; the Claude folder and any history in it are kept, so sign in again to reconnect it.'
+              : a.apiKey
               ? 'Takes this account off the list and erases its saved API key from this computer. Nothing else is deleted: its folder is moved aside and Kosmos stops looking inside it, so any history kept only there will not appear any more.'
               : 'Takes this account off the list. Its sign-in file stays on this computer, so nothing is deleted, and Kosmos stops looking inside it, so any history kept only there will not appear any more.')
-            + '">Disconnect</button>'))
-      /* #2264: DELETE AND REMOVE - the destructive third action, on every
-         NON-default row of both providers (removeAccount refuses the default, so
-         it gets no button, matching the disabled Disconnect above). data-remove
+            + '">Disconnect</button>')
+      /* #2264: DELETE AND REMOVE - the destructive third action. data-remove
          (not data-forget) so the removal handler tells delete from disconnect and
          sends remove:true; the provider rides the same data-forget-provider
          attribute the two DELETE routes already read. */
-      /* #2441: Delete-and-remove is now LIVE on api-key Claude rows too. #2420's slice
-         landed, so removeAccount accepts api-key accounts; the #2433 `a.apiKey`
-         suppression is dropped, leaving only the default-row suppression (removeAccount
-         still refuses the default, so it keeps getting no button). */
-      + (a.isDefault ? ''
+      /* #2441: Delete-and-remove is LIVE on api-key Claude rows too (removeAccount
+         accepts api-key accounts since #2420). */
+      /* #2684: THE DEFAULT NOW GETS A DELETE BUTTON ON OPENAI ONLY, and this
+         asymmetry is deliberate. On OpenAI, Delete (removeAccount) rmSyncs the whole
+         `.codex` dir -- genuinely different from Disconnect, which only renames it
+         aside -- so both controls are meaningful. On CLAUDE the primary's only safe
+         removal is clearing the oauth identity from <HOME>/.claude.json (the dir is
+         Claude Code's home + may hold shared history), and the now-live Disconnect
+         already does exactly that; a Claude-default Delete would be byte-identical,
+         so it stays suppressed rather than show two controls that do the same thing. */
+      + ((a.isDefault && !isOpenai) ? ''
         : '<button class="acct-remove" type="button" data-remove="' + esc(a.dir) + '" '
           + 'data-forget-provider="' + (isOpenai ? 'openai' : 'claude') + '" '
           + 'aria-label="Delete and remove ' + who + ' (' + esc(qualName) + ')" '
@@ -17163,110 +17127,9 @@ async function paintAccounts() {
       openAcctReauthOpenai(btn.dataset.openaiReauth, (row && row.email) || '');
     });
   }
-  /* 🛑 THE OTHER HALF OF `aria-disabled`, WITHOUT WHICH IT IS WORSE THAN
-     `disabled`. Making the default row's control focusable so a keyboard user
-     can reach the reason ALSO makes it pressable, and the shared handler below
-     binds only `[data-forget]`, which this branch deliberately lacks. So Enter
-     or Space did nothing at all, with no feedback -- the exact
-     nothing-that-looks-live-may-do-nothing shape, newly reachable by keyboard
-     because of the accessibility fix.
-     ✅ IT READS THE BUTTON'S OWN `title` FIRST, so the normal path repeats
-        nothing.
-     🛑 BUT IT DOES CARRY A COPY, AND THIS COMMENT USED TO DENY IT. The fallback
-        sixteen lines below is a literal of the same sentence, and the comment
-        there argues FOR it: an empty fallback would clear the region and produce
-        exactly the silence this handler exists to prevent. Both are right, and
-        together they made one handler whose two comments described it oppositely.
-     📌 The honest count is FOUR copies (the aria-label short form, the title,
-        that fallback, and the engine), of which a test pinned exactly ONE PAIR,
-        because `pull()` anchors on `title="`. The fallback is pinned to the
-        engine now too, so the copy this comment used to deny cannot drift. */
-  for (const btn of box.querySelectorAll('.acct-disconnect[aria-disabled="true"]')) {
-    btn.addEventListener('click', () => {
-      /* 📌 NO `preventDefault`: a `<button type="button">` defaults to nothing,
-         so calling it read as though IT were what suppresses the removal. What
-         suppresses the removal is the absent `data-forget`, and a line that
-         looks like the guard but is not is the shape this branch keeps finding.
-         ⚠️ CLEARED FIRST, THEN SET, because an unchanged `textContent` in a
-         status region is not reliably re-announced: pressing twice would be
-         silent for a screen-reader user, which is a smaller version of the
-         defect this handler exists to fix. */
-      if (!msg) return;
-      /* 📌 NO EMPTY FALLBACK. `btn.title || ''` would clear the region and
-         produce exactly the silence this handler exists to prevent, on the day
-         somebody drops the title from that branch. If there is nothing to say,
-         say the short form rather than nothing. */
-      /* #1917: THE REFUSAL NOW NAMES A WAY OUT, because the default row is exactly
-         where a real tester dead-ended. Kosmos will not remove `~/.claude`, and when
-         it is the account whose sign-in is broken (Ben, 0.6.22: the agent 401'd on
-         the account it could not remove) the pure refusal was a wall. `Sign in again`
-         (#1492, `data-reauth`) is on this same row and re-auths this account in place,
-         which is the recovery to TRY -- so the pressed refusal points at it. Appended
-         to the SPOKEN message only, never to `btn.title`: the title stays pinned to the
-         engine's `because` (web.account-qualifier.test.js anchors title=" against it),
-         and this remedy is UI-specific ("above") so it does not belong in the engine
-         sentence.
-         \ud83d\uded1 A THING TO TRY, NOT A FIX, AND THE MESSAGE IS TRUE WHETHER OR NOT REAUTH
-         CAPTURES. Confirmed from Ben (via Josh, 2026-09-02): `Sign in again` runs the
-         whole flow, returns a green check "like everything's active", and does NOT
-         capture a working credential -- his agent kept 401'ing after it. So this must
-         NOT promise that `Sign in again` fixes the account, or it loops a user back to a
-         false green. It points at the step to try AND warns that the green check proves a
-         sign-in RAN, not that it took -- the same thing #874 measured about the row badge,
-         which cannot see a rejected token. That warning is true in both worlds, so the
-         sentence stays correct however the reauth defect resolves.
-         \u26a0\ufe0f DOWNSTREAM of the reauth-returns-green-without-capturing defect (Splinter
-         filing its own card; recurring -- it also hit Casey, not one-off on Ben's Mac).
-         When reauth is fixed so a green check means a captured credential, this wording
-         can be strengthened to name it as the fix. Noted on the card so that owner sees
-         it. */
-      /* #2433/#2441: the "Sign in again above" remedy is only TRUE when this row
-         actually has a reauth control, so the clause is gated on the control's presence
-         rather than assumed. #2441 flipped api-key Disconnect live, so the only row that
-         still renders a disabled Disconnect is the default ~/.claude row, which keeps
-         reauth -- meaning the false branch is not reached in practice today. The gate
-         stays because it is the correct guard: any disabled-Disconnect row that lacked
-         reauth (e.g. a default row that is also api-key) would otherwise point at a
-         button that does not exist. The title is untouched either way (a test anchors
-         on it). */
-      const row = btn.closest('.acct-box');
-      const hasReauth = !!(row && row.querySelector('[data-reauth]'));
-      const say = (btn.title || 'Kosmos does not remove this computer\u2019s main Claude folder.')
-        + (hasReauth
-          ? ' If its sign-in is not working you can try \u201cSign in again\u201d above, then check that an agent on it actually connects: a green check here confirms a sign-in ran, not that it captured a working credential.'
-          : '');
-      /* ⚠️ setTimeout, NOT requestAnimationFrame: rAF is throttled or suspended
-         outright in a hidden or background tab, so the clear-then-set would
-         leave the region BLANK there -- worse than the unchanged text it is
-         working around. A frame is also arguably too fast for assistive tech to
-         register the change. */
-      /* 🛑 THE TWO WRITERS TO THIS LINE CAN RACE, AND THE TIMER IS WHAT
-         INTRODUCED IT. Press the disabled default row, then a live Disconnect
-         within 60ms: the deferred refusal lands DURING the in-flight removal and
-         shows the wrong sentence over a request that is still running. The timer
-         id is the MODULE-SCOPE `acctSayTimer`, NOT a button expando. This comment
-         said "held on the button" while the code four hundred lines up says the
-         expando version was the bug and why: `paintAccounts` destroys the node via
-         `box.innerHTML`, so nothing could cancel after a repaint. One file, one
-         mechanism, two comments describing it oppositely. */
-      acctCancelSay();
-      msg.textContent = '';
-      acctSayTimer = setTimeout(() => {
-        acctSayTimer = null;
-        msg.textContent = say;
-        /* 🛑 THE DEFAULT ROW IS EMITTED FIRST AND THIS MESSAGE LINE SITS AFTER
-           THE WHOLE LIST (`#set-accounts` is emitted
-               before `#set-accounts-msg`; located by ID rather than by line,
-               because the numbers this carried were wrong in BOTH trees, and a
-               dead citation reads exactly like a live one). On a multi-account machine the
-           feedback for pressing the TOPMOST button renders below every other
-           account box, possibly off-screen at the moment the person acts. The
-           tooltip and aria-label cover hover and screen readers; a mouse user
-           who clicks and looks gets nothing where they are looking. */
-        if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
-      }, 60);
-    });
-  }
+  /* #2684: the dead aria-disabled default-Disconnect click handler was removed
+     with the disabled default button it explained -- the default now renders a
+     live data-forget Disconnect, handled by the shared handler below. */
   for (const btn of box.querySelectorAll('[data-forget], [data-remove]')) {
     /* #2264: ONE handler for BOTH Disconnect (data-forget, a reversible rename)
        and Delete and remove (data-remove, a destructive delete). They share the
