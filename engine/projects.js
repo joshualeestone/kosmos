@@ -2213,9 +2213,17 @@ function blockBody(projects, sessionName) {
     // work with the real per-project tasks board instead of improvising a shared
     // task-board.md file and colliding on it. Re-spliced like the post line, so
     // existing agents learn it too, not only newborns.
+    // #2708: state the honest task fact the board already has, rather than promise a
+    // list "to see" that is empty. With tasks, teach list+add; with none, say so and
+    // teach only add. An empty result must not read as a broken "including any tasks"
+    // promise (the Mortals dogfood finding).
+    const hasTasks = Array.isArray(p.tasks) && p.tasks.length > 0;
+    const taskLine = hasTasks
+      ? `\n  - Its tasks: \`${cliShown} task list ${oneLine(String(p.id))}\` to see them, \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` to add one (use this, not a hand-rolled task-board file)`
+      : `\n  - No tasks set for this project yet. Add one with \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` (use this, not a hand-rolled task-board file)`;
     const head = `- **${oneLine(p.name)}**: \`${oneLine(p.folder)}\`` + (p.id
       ? `\n  - Post to everyone on it: \`${cliShown} post ${oneLine(String(p.id))} "your message"\``
-        + `\n  - Its tasks: \`${cliShown} task list ${oneLine(String(p.id))}\` to see them, \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` to add one (use this, not a hand-rolled task-board file)`
+        + taskLine
       : '');
     const mine = (sessionName && Array.isArray(p.tasks))
       /* 🛑 THE ONE THAT WOULD HAVE BROKEN QUIETLY AND WORST. This is the list
@@ -2437,7 +2445,11 @@ function membershipLine(project, kind) {
     ? ' Post to everyone on it with: ' + kosmosCliShown() + ' post ' + oneLine(String(project.id)) + ' "your message".'
     : '';
   return 'Kosmos put you on the project "' + name + '".' + folder + room
-    + ' The "Your projects" section of your instructions has the details, including any tasks.';
+    // #2708: no generic "including any tasks" promise here -- the "Your projects"
+    // section now states the honest task fact (the tasks, or "No tasks set yet"), so
+    // this one-time message just points at it instead of promising a feature the
+    // project may have none of.
+    + ' The "Your projects" section of your instructions has the details.';
 }
 function speakOfMembership(sessionName, project, kind, roster) {
   try {
