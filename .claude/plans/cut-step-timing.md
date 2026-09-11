@@ -25,11 +25,17 @@ Additive only: no gate, no behavior, no existing output changes. The `step "== N
 
 ## Fail-safe contract (load-bearing)
 
-`step()` also renews the machine claim and is on the critical path, so timing MUST never break it. A
-clock that cannot be read leaves `_STEP_START` empty, and every consumer returns before it can fault;
-both stamps are integer-guarded with a `case ... *[!0-9]*` check so the `$(( ))` subtraction can never
-run on garbage. Verified in isolation: a broken `date` leaves the header printed, no timing line, exit
-0.
+`step()` also renews the machine claim and is on the critical path, so timing MUST never break it.
+release.sh runs under `set -euo pipefail`, so the guard is TWO layers, and the first is the important
+one: every `_x=$(_step_now)` capture ends in `|| true`, because under errexit a clock that fails
+NON-ZERO (a missing/erroring `date`, not the empty-on-exit-0 case) would otherwise abort the whole
+assignment BEFORE any guard could run -- which inside step() would skip the `kosmos_claim_machine`
+renewal and inside cut_record_done would suppress the #1388 completion line and flip exit 0 to 1. With
+`|| true` the assignment always succeeds (empty value on failure), and the second layer takes over: a
+`[ -n ... ]` check plus integer `case ... *[!0-9]*` guards on both stamps, so the `$(( ))` subtraction
+can never run on garbage. This is the errexit-safe pattern `tools/lib/cut-rerun-guard.sh` already
+mandates. Verified under `set -euo pipefail`: a `date` returning 127 leaves the header printed, the
+machine-claim renewal run, the completion line written, and exit 0; no timing line, no abort.
 
 ## Precision
 

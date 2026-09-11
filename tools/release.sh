@@ -73,14 +73,21 @@ _STEP="before step 1"
 # CUT_EXIT, duration_ms, PASS/FAIL/✖) can match them.
 _STEP_START=""
 _step_now() { date +%s 2>/dev/null; }
-_CUT_START=$(_step_now)
+# `|| true` on every $(_step_now) capture is LOAD-BEARING, not tidiness: release.sh runs
+# under `set -euo pipefail` (line 17), so a clock that fails NON-ZERO (a missing/erroring
+# `date`, not the empty-on-exit-0 case) would abort the whole assignment under errexit --
+# BEFORE the [ -n ]/case guards below can run -- which for the two sites inside step() and
+# cut_record_done would skip the machine-claim renewal and suppress the #1388 completion
+# line. `|| true` lets the assignment succeed with an empty value, which the guards then
+# handle. This is the errexit-safe pattern tools/lib/cut-rerun-guard.sh already mandates.
+_CUT_START=$(_step_now) || true
 _step_emit_duration() {
   # Prints "<label>: <n>s" for the step that just ended. Silent unless both the start
   # stamp and a fresh stamp are readable AND both are pure integers (so the $(( ))
   # below can never fault on garbage).
   local _end
   [ -n "$_STEP_START" ] || return 0
-  _end=$(_step_now); [ -n "$_end" ] || return 0
+  _end=$(_step_now) || true; [ -n "$_end" ] || return 0
   case "$_STEP_START" in *[!0-9]*|'') return 0 ;; esac
   case "$_end" in *[!0-9]*|'') return 0 ;; esac
   echo "   (step wall-time -- ${1:-unknown}: $((_end - _STEP_START))s)"
@@ -92,7 +99,7 @@ _step_emit_duration() {
 # guard costs nothing) cannot fault.
 step() {
   _step_emit_duration "$_STEP"          # the step that was running has just ended
-  _STEP="$1"; _STEP_START=$(_step_now)
+  _STEP="$1"; _STEP_START=$(_step_now) || true
   echo "$1"
   command -v kosmos_claim_machine >/dev/null 2>&1 && kosmos_claim_machine >/dev/null 2>&1 || true
 }
@@ -104,7 +111,7 @@ cut_record_done() {
   # and never affect the completion line written below.
   _step_emit_duration "$_STEP"
   if [ -n "$_CUT_START" ]; then
-    local _crd_end; _crd_end=$(_step_now)
+    local _crd_end; _crd_end=$(_step_now) || true
     case "$_CUT_START" in *[!0-9]*|'') _crd_end="" ;; esac
     case "$_crd_end" in *[!0-9]*|'') _crd_end="" ;; esac
     [ -n "$_crd_end" ] && echo "   (cut wall-time total: $((_crd_end - _CUT_START))s)"
