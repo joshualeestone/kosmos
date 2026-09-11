@@ -4156,11 +4156,19 @@ body:not(.consolidated) .pjmid .thread .att { background: var(--k-bg); }
 .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
 /* Josh, 2026-09-10 (#2711 item 4): the tab-view conversation search is narrow
    at rest ("Search"), and widens when the person clicks into it so they have
-   room to type. Scoped to body:not(.consolidated) so the consolidated search
-   keeps its own width (its higher-specificity .pjmidhead .tsearch rule wins
-   there regardless). The transition animates only the basis. */
+   room to type. Scoped to body:not(.consolidated) so it never applies in the
+   consolidated layout at all (body carries .consolidated there). The transition
+   animates only the basis, and is disabled under reduced-motion below.
+   🛑 The (max-width: 60rem) block below must RE-RESET these at matching
+   specificity: these selectors are (0,4,1)/(0,5,1), higher than a bare
+   .pjmidhead:has(.pjhead) .tsearch (0,3,0), and a media query adds no
+   specificity, so without the re-reset the flex-basis would win in the stacked
+   header where the row is a column and balloon the box's HEIGHT. */
 body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch { flex: 0 1 min(190px, 30%); transition: flex-basis .15s ease; }
 body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-basis: min(420px, 60%); }
+@media (prefers-reduced-motion: reduce) {
+  body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch { transition: none; }
+}
 /* Below 60rem there is not enough room for a title, a description and a
    search box on one line (tab view has no 960px floor the way
    consolidated does, so this has to hold at phone width too, not just
@@ -4171,7 +4179,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 @media (max-width: 60rem) {
   .pjmidhead:has(.pjhead) { flex-direction: column; align-items: stretch; }
   .pjmidhead .pjhead { flex-direction: column; align-items: stretch; gap: 4px; }
-  .pjmidhead:has(.pjhead) .tsearch { flex: none; }
+  /* Re-reset the item-4 search at matching specificity so the narrow/focus
+     flex-basis cannot win here (see the note above the item-4 rules). Below
+     60rem the layout is always the tab view (consolidated has a 960px floor),
+     so body:not(.consolidated) always matches; both the rest and focus
+     selectors are covered so a focused search does not balloon its height. */
+  .pjmidhead:has(.pjhead) .tsearch, body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch, body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex: none; }
 }
 /* ⚠️ THE MESSAGES GET A BOX OF THEIR OWN, matching Project members and Tasks:
    without it the middle column is the only one whose content floats, and the
