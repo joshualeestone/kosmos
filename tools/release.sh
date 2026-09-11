@@ -62,15 +62,70 @@ _CUT_DONE_WRITTEN=0
 # `step` replaces the bare `echo` on each phase header: same line on screen,
 # and the last one reached is what the completion line reports.
 _STEP="before step 1"
+# Per-step wall-time, so a cut SELF-REPORTS where its minutes go (the serial
+# suite/render/build were tuned by guessing before this). step() runs at each phase
+# header, so the moment a new step begins is also the moment the previous one ended;
+# emit that duration here and let cut_record_done emit the last step's plus the total.
+# 🛑 MEASUREMENT ONLY, AND FAIL-SAFE BY CONSTRUCTION. A clock that cannot be read
+# leaves _STEP_START empty, and every consumer below returns before it can fault, so a
+# broken `date` NEVER breaks a step, the machine claim, or the cut. The emitted lines
+# are prefixed "   (step wall-time" so no existing log parser (which keys on "== ",
+# CUT_EXIT, duration_ms, PASS/FAIL/✖) can match them.
+_STEP_START=""
+_step_now() { date +%s 2>/dev/null; }
+# Every capture AND emit in the timing code is errexit-guarded, LOAD-BEARING not tidiness:
+# release.sh runs under `set -euo pipefail` (line 17), so under errexit ANY component that
+# exits non-zero aborts the whole script. Two failure modes are covered: (1) a clock that
+# fails NON-ZERO (a missing/erroring `date`) would abort a `$(_step_now)` capture -- so each
+# capture is `|| true`, succeeding with an empty value the guards then handle; (2) a broken
+# STDOUT (a dropped terminal / dead pipe reader on a long cut) would make an `echo` exit
+# non-zero -- so every emitting `echo`, and every bare `_step_emit_duration` call, is `|| true`
+# too. Without this, a step would skip its machine-claim renewal and cut_record_done would
+# abort before the #1388 completion line. This is the errexit-safe pattern
+# tools/lib/cut-rerun-guard.sh already mandates.
+_CUT_START=$(_step_now) || true
+_step_emit_duration() {
+  # Prints "<label>: <n>s" for the step that just ended. Silent unless both the start
+  # stamp and a fresh stamp are readable AND both are pure integers (so the $(( ))
+  # below can never fault on garbage). Self-fail-safe: every path returns 0 (the echo is
+  # `|| true`'d), so a bare call cannot abort its caller even on a broken stdout.
+  local _end _d
+  [ -n "$_STEP_START" ] || return 0
+  _end=$(_step_now) || true; [ -n "$_end" ] || return 0
+  case "$_STEP_START" in *[!0-9]*|'') return 0 ;; esac
+  case "$_end" in *[!0-9]*|'') return 0 ;; esac
+  _d=$((10#$_end - 10#$_STEP_START)); [ "$_d" -ge 0 ] || _d=0   # 10# forces base-10 so a leading-zero stamp cannot read as octal and fault; clamp a backward clock (NTP/manual)
+  echo "   (step wall-time -- ${1:-unknown}: ${_d}s)" || true
+}
 # #1962: each phase also RENEWS the machine claim, so a healthy cut of any length
 # keeps the box reserved (no single step approaches the window) while a genuinely
 # stuck step lets the claim lapse and frees the fleet. Guarded so an exit before
 # cut-guard.sh is sourced (there are no `step` calls that early today, but the
 # guard costs nothing) cannot fault.
-step() { _STEP="$1"; echo "$1"; command -v kosmos_claim_machine >/dev/null 2>&1 && kosmos_claim_machine >/dev/null 2>&1 || true; }
+step() {
+  _step_emit_duration "$_STEP" || true  # the step that was running has just ended (|| true: a broken stdout must not abort the renewal below)
+  _STEP="$1"; _STEP_START=$(_step_now) || true
+  echo "$1" || true                     # || true so a broken stdout cannot abort before the machine-claim renewal (the same gap the timing echoes guard)
+  command -v kosmos_claim_machine >/dev/null 2>&1 && kosmos_claim_machine >/dev/null 2>&1 || true
+}
 cut_record_done() {
   [ "$_CUT_DONE_WRITTEN" = 1 ] && return 0
   _CUT_DONE_WRITTEN=1
+  # The final step just ended (this runs on exit), so emit its wall-time and the
+  # whole-cut total. Same fail-safe contract as step(): unreadable clocks OR a broken
+  # stdout stay silent and never affect the completion line written below (`|| true` on
+  # the bare call and the echo; if/then rather than `&& echo` so a failed echo cannot
+  # abort the trap before the completion printf).
+  _step_emit_duration "$_STEP" || true
+  if [ -n "$_CUT_START" ]; then
+    local _crd_end _crd_d; _crd_end=$(_step_now) || true
+    case "$_CUT_START" in *[!0-9]*|'') _crd_end="" ;; esac
+    case "$_crd_end" in *[!0-9]*|'') _crd_end="" ;; esac
+    if [ -n "$_crd_end" ]; then
+      _crd_d=$((10#$_crd_end - 10#$_CUT_START)); [ "$_crd_d" -ge 0 ] || _crd_d=0   # 10#: base-10, never octal
+      echo "   (cut wall-time total: ${_crd_d}s)" || true
+    fi
+  fi
   # #1388: decode the exit so a KILLED step is a different row from a FAILED one.
   # A browser gate SIGTERM'd by another cut killed release.sh with exit 143, the
   # trap logged a bare `exit=143`, and it read as a red, sending readers to hunt
@@ -1050,6 +1105,12 @@ if kosmos_versions_entry_pending_ok "$V" "$KOSMOS_ENTRY_FILE"; then
   # that justified #1463, and the same bucket #1455's effect would be read from. A fix
   # that corrupts the measurement of the thing it fixes is worse than no fix.
   _step_before_7a="$_STEP"
+  _step_start_before_7a="$_STEP_START"   # save the timing anchor (restored below)
+  # 7a is a SUB-step of step 7, so its time folds into step 7's single wall-time line. Clear
+  # the anchor here so the 7a `step` call below emits NO partial "step 7" duration; restoring
+  # it below then makes the post-7a `step` emit step 7's ONE full duration (start..next step),
+  # rather than the confusing partial-then-full double-line an un-cleared anchor would produce.
+  _STEP_START=""
   step "== 7a. stamp the pending release entry with the minute it goes out (#1455) =="
   # 🛑 THE TOOL COMES FROM THE FROZEN TREE, THE ENTRY FILE FROM THE MAIN CHECKOUT, AND
   # THAT SPLIT IS DELIBERATE. $REPO is $BUILD by now, so this runs the tool as it exists
@@ -1084,8 +1145,10 @@ if kosmos_versions_entry_pending_ok "$V" "$KOSMOS_ENTRY_FILE"; then
     exit 1
   fi
   node "$REPO/tools/insert-release-entry.js" "$KOSMOS_ENTRY_FILE" --site "$SITE" || exit 1
-  # Back to step 7's label, so the gate below reports under the step it belongs to.
+  # Back to step 7's label AND its timing anchor, so the gate below reports under the step
+  # it belongs to and the next step's duration is step 7's, not 7a's.
   _STEP="$_step_before_7a"
+  _STEP_START="$_step_start_before_7a"
 fi
 
 kosmos_versions_entry_gate "$V" "$SITE/versions.html" "The build is done; only the deploy is unspent." \
