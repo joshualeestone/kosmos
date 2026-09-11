@@ -40,8 +40,21 @@
  *      from something that can silently interpolate to "undefined";
  *   2. the number of avatar URLs on the page is PINNED, so adding one is a question
  *      somebody has to answer rather than a thing that happens quietly.
- * Neither depends on the shape of a line, so neither can be escaped by a comment, a
- * line break, or a helper, and neither can reject correct code.
+ * The COUNT depends on nothing but the text, so it cannot be escaped by a comment, a
+ * line break, a helper, a template tag or an SVG element, and it cannot reject correct
+ * code.
+ *
+ * ⚠️ THE PER-RENDERER ARMS ARE NOT IMMUNE, AND AN EARLIER VERSION OF THIS PARAGRAPH
+ * CLAIMED THEY WERE. Each reads the named function's source, so a refactor that moves
+ * the URL into a helper reds that arm even though the code is correct and fully
+ * versioned. That is not hypothetical: `youPicUrl()` on this page is exactly that shape.
+ * Measured, a correct helper refactor of `pjMember` reds its arm with
+ *     PRE-CONTROL: pjMember emits no avatar URL, so this arm is vacuous
+ * ⇒ THE MESSAGE IS THE POINT, and it is why this is acceptable where the sweep it
+ * replaced was not. It says the arm stopped measuring, not that your code is wrong, and
+ * the remedy is to repoint MUST_VERSION at whatever emits the URL now. There is no
+ * carve-out list to escape into, which is what made the old check train people to
+ * exempt themselves.
  *
  * ⚠️ WHAT THIS DOES NOT DO, said plainly: it does not prove a version is CORRECT at
  * runtime, and it does not stop somebody adding a bare URL and updating the count
@@ -93,6 +106,13 @@ function fnSource(name) {
   throw new Error('could not find the end of ' + name);
 }
 
+/** The one place the version-source matcher is built, so the arms and their control
+    cannot drift apart. Word-bounded because `a.avatarVersion` CONTAINS `a.avatarVer`,
+    and a plain substring test passes on exactly the typo this is meant to catch. */
+function boundedMatcher(token) {
+  return new RegExp('\\b' + token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b');
+}
+
 /* Renderers painted through an identical-HTML skip, so a bare URL goes stale.
    `from` is the expression the version must come from: asserting only `?v=` would
    accept `?v=' + a.avatarVersion` (a typo'd property) which interpolates to the literal
@@ -117,7 +137,7 @@ for (const [name, from, why] of MUST_VERSION) {
        Measured: that mutant survived 7/7 before this was bounded. It is the same
        substring trap that bit the carve-out count and the paint guard in the version
        of this file that this one replaces, for the third time in one card. */
-    const bounded = new RegExp('\\b' + from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b');
+    const bounded = boundedMatcher(from);
     assert.match(src, bounded,
       name + " versions its URL but not from `" + from + "`. A version that is not the avatar "
       + 'version interpolates to a constant (a typo\'d property gives the literal "undefined"), '
@@ -145,7 +165,9 @@ test('#2762: the number of avatar URLs on the page is PINNED', () => {
      was to add yourself to a carve-out list. */
   const count = CODE.split('/avatar').length - 1;
   assert.equal(count, 18,
-    'the page now has ' + count + ' avatar URLs, not 18. If you ADDED one: is it painted through '
+    'the page now has ' + count + ' avatar URLs, not 18. NOTE: this counts every occurrence, '
+    + 'including 6 fetch() calls and 4 /api/you/avatar lines, so an unrelated fetch moves it too; '
+    + 'that is deliberate fail-closed noise rather than a hole. If you ADDED a RENDER: is it painted through '
     + 'setLive / setIfChanged / paintThreadInto? Then it needs `?v=` the avatar version, or it will '
     + 'keep showing the old picture after a profile-image update (#2698, #2762, #2770). If it is '
     + 'assigned straight to innerHTML every poll, a bare URL is fine. Either way, decide, then '
@@ -168,7 +190,10 @@ test('#2762 CONTROL: each assertion above can actually fail', () => {
      CONTAINS `m.avatarVer`. Assert the BOUNDED matcher rejects it, which is the whole
      reason the assertion above is a regex and not a substring test. */
   const wrongSource = real.split('m.avatarVer ').join('m.avatarVersion ');
-  const boundedVer = new RegExp('\\bm\\.avatarVer\\b');
+  /* Built the way the ARM builds it, not re-derived: a control that constructs its own
+     matcher is testing a parallel implementation, which is how four "escape is CAUGHT"
+     controls in the file this replaced ended up certifying a path that did not ship. */
+  const boundedVer = boundedMatcher('m.avatarVer');
   assert.ok(boundedVer.test(real), 'PRE-CONTROL: the bounded matcher does not match the real source');
   assert.ok(!boundedVer.test(wrongSource),
     'the bounded matcher still accepts `m.avatarVersion`, so a typo would ship as ?v=undefined');
