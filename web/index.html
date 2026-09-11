@@ -5002,19 +5002,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .pj-question { margin: var(--space-5) 0; padding-left: var(--space-4);
   border-left: 2px solid var(--warn-ink); }
 .pj-question .pj-screen { max-height: 240px; }
-/* #2575: the dismiss control on the "Talk to one of them" header, and the safety
-   breadcrumb that restores the area while an agent is waiting on an answer. */
 .pj-thread-head { display: flex; justify-content: space-between; align-items: baseline; }
-.pj-thread-hide { background: none; border: 0; padding: 0; margin-left: var(--space-3);
-  font: inherit; font-size: .8125rem; color: var(--label-2);
-  text-decoration: underline; cursor: pointer; white-space: nowrap; }
-.pj-thread-show { display: block; width: 100%; text-align: left; background: none;
-  border: 0.5px solid var(--separator); border-radius: var(--radius-control);
-  padding: var(--space-3) var(--space-4); margin: var(--space-4) 0; font: inherit;
-  font-size: .8125rem; color: var(--label); cursor: pointer; }
-.pj-thread-show:hover { background: var(--k-sunk); }
 /* #2575: the state-clear control inside the question block. A quiet underlined
-   text button (like Hide), plus a status line for a failure it must not swallow. */
+   text button, plus a status line for a failure it must not swallow. */
 .pj-question-clearrow { display: flex; align-items: baseline; gap: var(--space-3);
   flex-wrap: wrap; margin: var(--space-3) 0 0; }
 .pj-question-clear { background: none; border: 0; padding: 0; font: inherit;
@@ -10548,23 +10538,17 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <!-- ⚠️ THE RULE THIS BLOCK EXISTS UNDER, because the screen it replaced said
          the room was waiting on exactly this question: when five agents are on a
          project, who answers. The answer is ONE of them, chosen here. Everything
-         answering at once and nothing answering are the same bug. -->
-    <!-- #2575: the safety breadcrumb. When the person has dismissed the "Talk to
-         one of them" area but an agent is still waiting on an answer, this compact
-         line keeps the waiting signal visible (never a false calm) and restores
-         the full area on click. Sibling of #pj-thread so it shows while that box
-         is hidden; its text is set by pjApplyEngMode when an agent is waiting. -->
-    <button class="pj-thread-show" id="pj-thread-show" type="button" hidden></button>
+         answering at once and nothing answering are the same bug.
+         #2691, Josh 2026-09-10: this area is now Engineering-mode ONLY (pjApplyEngMode
+         gates it on ENG_ON). In the default view a waiting agent is signalled by the
+         roster ("Needs you" + the #2699 red triangle) and answered through the detail
+         view (#d-qask); the earlier Off-mode asking-override + its dismiss breadcrumb
+         are gone (Josh: "all of that needs to go away"). -->
     <div class="field" id="pj-thread">
       <!-- No id: nothing read the one it carried (round 25), the same
            unread-surface rule as the thread payload's agents copy. -->
       <div class="pj-thread-head">
         <span class="flabel">Talk to one of them</span>
-        <!-- #2575: dismiss/collapse. A "not now" for the current session (reset on
-             reload), so the per-agent question + second composer stop cluttering the
-             Projects page; the breadcrumb above restores it if an agent is waiting. -->
-        <button class="pj-thread-hide" id="pj-thread-hide" type="button"
-                aria-label="Hide the talk-to-one-agent area">Hide</button>
       </div>
       <p class="fhint">Every message goes to the one agent you pick. The others
          are on the project and are not in this conversation.</p>
@@ -10599,14 +10583,13 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              prompt with more than two options makes the trailing numbers
              wrong; some day the range comes from the pane. -->
         <p class="fhint" id="pj-answer-how" hidden style="margin:8px 0 0;">Answer by sending the number: 1 or 2.</p>
-        <!-- #2575: clear a STALE waiting state, and it is NOT the same control as
-             Hide. Hide (in the head above) collapses the area for this session and
-             keeps the breadcrumb, because the agent IS waiting and the answer is
-             still owed. This asserts the opposite: the agent is NOT actually
+        <!-- #2575: clear a STALE waiting state. The agent is NOT actually
              waiting -- it resumed work and never self-cleared the needs_you -- so
              it clears the record via Pete's engine route and the flag stops
              surfacing at all, on reload included. Lives inside the question block,
-             so it only appears when there is a waiting claim to clear. -->
+             so it only appears when there is a waiting claim to clear.
+             (#2691 removed the head "Hide"/breadcrumb DISPLAY half; this STATE
+             control stays, now reachable in Engineering mode where the area lives.) -->
         <div class="pj-question-clearrow">
           <button class="pj-question-clear" id="pj-question-clear" type="button"
                   aria-label="Clear this waiting flag because the agent is not actually waiting">Not waiting? Clear it</button>
@@ -19488,30 +19471,25 @@ function pjApplyEngMode() {
      window if engineering mode is turned on." So in the DEFAULT (Off) the
      page has ONE composer, the room's, and @name is how you hand one agent
      a request; the one-to-one box appears only for engineers.
-     🛑 EXCEPT WHEN AN AGENT IS WAITING ON AN ANSWER. The question panel
-     lives inside this box and is needed in Off (the ruled line above it:
-     safety, not chrome), and the box's composer is how the number gets
-     typed. A waiting agent overrides the fold; the fold resumes when the
-     question clears. */
+     (#2575/#2146 once added an Off-mode override that showed this box while an
+     agent was waiting; #2691 removed it -- see the box block below.) */
   const box = document.getElementById('pj-thread');
   if (box) {
-    const q = document.getElementById('pj-question');
-    const asking = Boolean(q) && !q.hidden;
-    /* #2575: a DISMISSED area stays hidden even while an agent is asking, so the
-       per-agent question + second composer stop cluttering the Projects page
-       (Josh: it "shows very often" and "can't be dismissed"). The dismiss is a
-       "not now" for the session (PJ_THREAD_HIDDEN, reset on reload). */
-    box.hidden = !ENG_ON && (!asking || PJ_THREAD_HIDDEN);
-    /* SAFETY, and it is load-bearing: dismissing must never become the false-calm
-       #370/#2146 exists to prevent. When the box is hidden BY the dismiss while an
-       agent is genuinely asking (Off mode only; ENG mode always shows the box),
-       the breadcrumb keeps the waiting signal visible and restores the full area. */
-    const crumb = document.getElementById('pj-thread-show');
-    if (crumb) {
-      const show = !ENG_ON && asking && PJ_THREAD_HIDDEN;
-      crumb.hidden = !show;
-      if (show) crumb.textContent = 'An agent is waiting on an answer. Show it.';
-    }
+    /* #2691, Josh 2026-09-10, verbatim: "All of that needs to go away. I don't
+       know why it appears on some projects sometimes." The "Talk to one of them"
+       block appeared in the DEFAULT (Engineering-off) view whenever an agent was
+       waiting on an answer -- the #370 asking-override added by #2575/#2146. Josh
+       saw that surface and walked it back. So the one-to-one area is now
+       Engineering-mode ONLY, matching #370's base ruling (Josh 2026-08-23: "leave
+       it ... if engineering mode is turned on"); the default view every
+       non-engineer sees no longer carries it, asking or not.
+       This loses no function. The needs_you SIGNAL still shows in the member
+       roster (the "Needs you" status + the #2699 red warning triangle on the
+       avatar), and a waiting agent is still ANSWERED in Off through the detail
+       view (#d-qask, the agent's own page, reached from the roster card's "See
+       the question" button and proven visible in Off by render-engmode-gate-2131).
+       The room box here was a second, redundant path to the same answer. */
+    box.hidden = !ENG_ON;
   }
 }
 
@@ -33045,10 +33023,6 @@ const PJ_DRAFTS = {};
 // the Back button on purpose (round 36).
 let PJ_LAST_OPENED = null;
 let PJ_CURRENT = null;      // the project id being looked at, or null
-/* #2575: the person dismissed the "Talk to one of them" area for this session
-   (reset on reload). pjApplyEngMode keeps the box hidden while set, and shows the
-   safety breadcrumb instead when an agent is genuinely waiting. */
-let PJ_THREAD_HIDDEN = false;
 /* #2575: the sessionName of the agent the open question is about, captured by
    paintThread whenever it paints an asking state and nulled when it does not.
    The state-clear button reads THIS (not the picker) so it always targets the
@@ -40036,19 +40010,7 @@ document.getElementById('pj-one-agents').addEventListener('click', (e) => {
   const member = e.target.closest('.pj-member[data-agent]');
   if (member && member.dataset.agent) openDetail(member.dataset.agent, undefined, PJ_CURRENT);
 });
-/* #2575: dismiss/restore the "Talk to one of them" area. Dismiss is a per-session
-   "not now"; pjApplyEngMode then hides the box and shows the safety breadcrumb
-   while an agent is waiting, and the breadcrumb restores the full area. */
-document.getElementById('pj-thread-hide').addEventListener('click', () => {
-  PJ_THREAD_HIDDEN = true;
-  pjApplyEngMode();
-});
-document.getElementById('pj-thread-show').addEventListener('click', () => {
-  PJ_THREAD_HIDDEN = false;
-  pjApplyEngMode();
-});
-/* #2575: clear a STALE waiting flag through Pete's engine route. This is the
-   STATE half, the opposite of Hide's DISPLAY half: it POSTs to
+/* #2575: clear a STALE waiting flag through Pete's engine route. It POSTs to
    /api/agent/<name>/clear-selfreport, which records `idle` over a
    waiting-on-a-person self-report so the flag stops surfacing (reload included),
    and then re-reads the thread so the question comes off the screen at once.

@@ -109,11 +109,13 @@ test('#2575: pjClearState never keys on `by` (provenance) -- only ok/cleared, pe
     'pjClearState reads a `.by` property; the contract keys on `cleared`/ok, not provenance');
 });
 
-test('#2575: the state-clear button ships inside the question block, distinct from the head Hide', () => {
+test('#2575: the state-clear button ships inside the question block (#2691 removed the separate head Hide)', () => {
   assert.match(PAGE, /id="pj-question-clear"/, 'the state-clear button markup is gone');
   const q = PAGE.indexOf('id="pj-question"');
   const clear = PAGE.indexOf('id="pj-question-clear"');
-  const hide = PAGE.indexOf('id="pj-thread-hide"');
   assert.ok(q > 0 && clear > q, 'the clear button is not inside the #pj-question block');
-  assert.ok(clear !== hide, 'the state-clear and the display Hide must be two different controls');
+  // #2691 removed the head "Hide" (the DISPLAY half); this STATE-clear control is
+  // now the only per-agent dismiss affordance, and it lives in the question block.
+  assert.equal(PAGE.indexOf('id="pj-thread-hide"'), -1,
+    'the head "Hide" button is back; #2691 removed it as part of the Off-mode walk-back');
 });
