@@ -36090,8 +36090,14 @@ function pjTableCells(line) {
 }
 function pjTableAligns(line) {
   /* A separator row: every cell is `:?-+:?`. Returns per-column alignment, or
-     null when the line is not a separator (so no table is started). */
-  if (String(line).indexOf('-') === -1) return null;
+     null when the line is not a separator (so no table is started).
+     REQUIRE a `|`: like GFM, the delimiter row must carry a pipe. Without this,
+     a bare `---`/`:--:` (a thematic-break line) qualified, so a pipe-carrying
+     prose line directly above an `---` rule was mis-read as a header-only table
+     instead of text + <hr>. A real table's separator always has a pipe (framed
+     `|---|` or multi-column `---|---`). */
+  const s = String(line);
+  if (s.indexOf('-') === -1 || s.indexOf('|') === -1) return null;
   const cells = pjTableCells(line);
   if (!cells.length) return null;
   const aligns = [];

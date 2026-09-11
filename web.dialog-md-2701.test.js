@@ -59,6 +59,16 @@ for (const [name, make] of [['pjProse', proseFn], ['pjRich', richFn]]) {
     assert.doesNotMatch(html, /<table/, `${name}: a stray pipe was rendered as a table`);
     assert.match(html, /the cost is 5 \| tax included/, `${name}: the pipe text was mangled`);
   });
+
+  test(`#2701: ${name} does NOT read a pipe-prose line above a bare --- rule as a table`, () => {
+    const fn = make();
+    // The separator row must itself carry a `|` (GFM), so a `---` thematic break
+    // below a pipe-carrying line stays a rule, not a mis-detected header-only table.
+    const html = fn('Pros | Cons\n---\nmore');
+    assert.doesNotMatch(html, /<table/, `${name}: a bare --- rule below a pipe line became a table`);
+    assert.match(html, /Pros \| Cons/, `${name}: the pipe line was consumed by a false table`);
+    assert.match(html, /class="mdhr"/, `${name}: the --- did not render as a rule`);
+  });
 }
 
 test('#2701: table cells keep inline markup escaped (no HTML injection via a cell)', () => {
