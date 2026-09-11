@@ -12058,9 +12058,59 @@ test('#2811: whoami carries the RUNNER the live read found, and a codex dir is n
     assert.equal(out.account.dir, '/Users/x/.codex', 'the codex config dir was dropped');
     assert.strictEqual(out.account.isDefault, null,
       'a ~/.codex directory was scored against $HOME/.claude and reported as a non-default ACCOUNT');
+
+    /* 🛑 THE WIRING, NOT JUST THE UNIT. `sentenceForWhoami` is pinned on its own
+       elsewhere, and that arm stays green while the ROUTE stops passing the
+       runner: the word Codex then disappears from the only surface the filer
+       sees, silently. Measured as a surviving mutant before this line existed
+       (route hardcodes the third argument to null: 272/272 green). */
+    assert.match(out.because, /This is a Codex agent/,
+      'the route composed its sentence without the runner, so a Codex agent is not told it is one');
   } finally {
     server.setLiveReader(null);
     messagesEngine.setRunner(null);
+    fleet.restore();
+  }
+});
+
+test('#2811: a DEAD Codex agent is not handed its old Claude model by the record', () => {
+  /**
+   * 🛑 THE SAME DEFECT ONE READER OVER, and a live-only guard cannot see it.
+   * When the live read fails (paneless, crashed, or the 15s budget spent) the
+   * record is the ONLY source, which is precisely when its stale Claude model
+   * goes out unopposed. So the guard also consults what the agent IS, from the
+   * card's runner marker, not only what is running.
+   */
+  const { whoamiFor } = require('./server.js');
+  let board;
+  try {
+    board = fleet.install([
+      /* `unknown`, not `idle`: fleet's screens are Claude-shaped and the state
+         classifier dispatches per runner, so asking for an idle CODEX agent asks
+         the fixture for a world it cannot build (it says so, loudly, which is
+         the point of that helper). State is irrelevant here anyway; this test is
+         about which reader supplies the model. */
+      fleet.agent('deadcodex', { state: 'unknown', runner: 'codex' }),
+      fleet.agent('deadclaude', { state: 'idle' }),
+    ]);
+    const codexCard = board.agents.find((a) => a && a.name === 'deadcodex');
+    const claudeCard = board.agents.find((a) => a && a.name === 'deadclaude');
+    assert.equal(codexCard && codexCard.runner, 'codex',
+      'the fixture did not produce a codex-marked card, so nothing below is about one');
+    seedTranscript('deadcodex', 'claude-opus-5');
+    seedTranscript('deadclaude', 'claude-opus-5');
+
+    /* CONTROL FIRST: the record CAN answer for a dead agent. Without this the
+       arm below cannot tell "guarded" from "there was never a model". */
+    const claudeDead = whoamiFor(claudeCard, [], { ok: false, because: 'no pane on this computer' });
+    assert.equal(claudeDead.model.id, 'claude-opus-5',
+      'the record answered nothing even for a Claude agent, so the arm below is vacuous');
+
+    /* THE ARM: same shape, same seeded transcript, only the runner differs. */
+    const codexDead = whoamiFor(codexCard, [], { ok: false, because: 'no pane on this computer' });
+    assert.equal(codexDead.model, null,
+      'a dead Codex agent was handed the Claude model from the transcript it had before the switch');
+  } finally {
     fleet.restore();
   }
 });
