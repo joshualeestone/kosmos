@@ -845,6 +845,13 @@ function whoamiFor(card, known, live) {
        one (`engine/runningas.js`). A Claude transcript is the same kind of
        reader, so it gets the same rule, and a codex agent falls through to the
        live `--model` below.
+       📌 AND IN PRACTICE THAT FALL-THROUGH IS USUALLY NULL, which is the point
+       rather than a shortfall: `setModel` refuses a codex agent outright, so
+       Kosmos passes no `--model` to one and there is no live value waiting. So a
+       switched agent goes from "its model is Claude Opus 5" to "we cannot tell
+       which model it is running". Losing a confident wrong answer and gaining an
+       honest absence IS the fix; an agent that says it does not know is behaving
+       better than one reciting a stale sentence.
        📌 Keyed on a KNOWN non-claude runner, so an answer carrying no runner at
        all (every injected reader that predates this field) takes the old path. */
     const foreignRunner = !!(seen && seen.runner && seen.runner !== 'claude');
