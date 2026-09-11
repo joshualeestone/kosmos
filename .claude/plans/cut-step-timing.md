@@ -20,8 +20,10 @@ step hit on a loaded box) follows in later PRs against real, measured numbers.
 - `cut_record_done()` (runs on exit) emits the final step's wall-time and the whole-cut total.
 - Helpers `_step_now()` (epoch seconds, or empty on failure) and `_step_emit_duration()`.
 
-Additive only: no gate, no behavior, no existing output changes. The `step "== N ..."` call sites and
-`_STEP` are untouched (the `_step_before_7a="$_STEP"` save/restore around step 7a still works).
+Additive only: no gate, no behavior change, no change to the persisted `cut-suite-runs.log` schema (the
+new wall-time lines go to stdout only). The `step "== N ..."` call sites are untouched; the step-7a
+save/restore is extended to carry `_STEP_START` alongside `_STEP` (`_step_start_before_7a`), or the
+duration after 7a would be attributed to step 7 while timing 7a.
 
 ## Fail-safe contract (load-bearing)
 
