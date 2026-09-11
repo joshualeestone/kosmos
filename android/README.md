@@ -52,33 +52,30 @@ design, which is why this project ships the Gradle wrapper.
 
 ## Build status: verified green (with a JDK 21), and the JDK-26 catch
 
-**This skeleton builds.** `./gradlew :app:assembleDebug` was run against this
-tree and produced a signed debug APK
+**This skeleton builds, and the JDK requirement is pinned in the repo so a fresh
+clone builds too.** `./gradlew :app:assembleDebug` produces a signed debug APK
 (`app/build/outputs/apk/debug/app-debug.apk`, `io.kosmos.app` v0.1.0,
-compileSdk 35).
+compileSdk 35). No `JAVA_HOME` juggling is needed at the command line.
 
-The one catch is the JDK. The machine's **system-default** JDK is OpenJDK 26,
-and the build fails on it: Gradle 8.9 starts fine, but its Groovy build-script
-compiler cannot read JDK-26 bytecode and dies with
+**Why the pin is necessary.** This box's system-default JDK is OpenJDK 26, and
+Gradle cannot build on it: it starts, but its Groovy build-script compiler
+cannot read JDK-26 bytecode and dies with `Unsupported class file major version
+70` (70 == Java 26). Current Gradle/AGP top out around JDK 21-23. This module has
+**no** Java or Kotlin source (a TWA is zero app code), so the JDK that matters is
+the one **Gradle itself** runs on, not a compile toolchain.
 
-```
-Unsupported class file major version 70
-```
+**How it is pinned.** `gradle/gradle-daemon-jvm.properties` declares
+`toolchainVersion=21`, so Gradle runs its daemon on JDK 21 even when launched
+from the default JDK 26. `gradle.properties` then registers where this box's
+JDK 21 lives (`org.gradle.java.installations.paths`) so the daemon criteria
+resolve without a system symlink. Verified: `./gradlew :app:assembleDebug`
+launched under the default JDK 26 builds green, because the daemon runs on 21.
 
-(major version 70 == Java 26). Current Gradle/AGP top out around JDK 21-23.
-
-**The build was verified with OpenJDK 21**, installed keg-only so it does not
-disturb the system-default 26:
-
-```
-brew install openjdk@21   # keg-only; already installed on this box
-JDK21=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
-JAVA_HOME="$JDK21" PATH="$JDK21/bin:$PATH" ./gradlew :app:assembleDebug
-```
-
-To make this the default for the build without touching the system JDK, set
-`org.gradle.java.home` in `gradle.properties` to the JDK 21 path. It is left
-unset here so the file stays machine-agnostic.
+**Per-machine note.** JDK 21 was installed keg-only here
+(`brew install openjdk@21`), which does not disturb the default 26. On another
+machine, repoint or remove the `org.gradle.java.installations.paths` line and let
+Gradle auto-detect a JDK 21, or install one. The `toolchainVersion=21` criteria
+stay the same everywhere.
 
 ## Finishing the app (after the front-door origin is decided)
 
