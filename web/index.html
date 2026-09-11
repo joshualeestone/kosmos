@@ -4426,12 +4426,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .thread.dragging, #d-dmthread.dragging { outline: 2px dashed var(--gold-deep); outline-offset: -2px; background: rgba(214,166,46,.06); }
 .dm-b { max-width: 92%; padding: 9px 13px; border-radius: 12px; font-size: .9375rem;
   line-height: 1.45;
-  /* #2660 (Josh, 2026-09-10): the agent side carries NO fill -- only the
-     person's OWN message is coloured (`.dm.mine` below). Josh wants his own
-     inputs to be the only thing tinted, so he can slide back to where he last
-     plugged something in and catch up. This drops the old `--k-sunk` agent
-     tint deliberately; the agent row is now plain text, distinguished by the
-     absence of the person's blue rather than by a tint of its own. */
+  /* #2660 then #2805 (Josh): the shared `.dm-b` default stays `transparent`;
+     each side declares its own fill below -- `.dm.mine` the royal-blue wash,
+     `.dm.theirs` a very light gray. #2660 (2026-09-10) had briefly dropped the
+     agent tint so only the person's own message was coloured; #2805
+     (2026-09-11) brings the agent gray back now that the dialog is white
+     (#2711), so an agent message reads as its own bubble again. */
   background: transparent;
   /* #1927: the store keeps paragraph breaks now, so render them. `pre-wrap`
      shows the stored `\n`; `storeText` already collapsed space RUNS, so this
@@ -4442,14 +4442,29 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   white-space: pre-wrap; overflow-wrap: anywhere; }
 /* #2660 (Josh, 2026-09-10): the person's OWN message wears a faint ROYAL BLUE
    (#4171E3), replacing the old gold. Fill only, NO stroke, so a message you
-   posted reads apart from the plain agent rows -- the agent side renders as
-   `.dm.theirs` (dmRow, since #175) and takes the `.dm-b` default, which is now
-   `transparent`, so only `.mine` carries a fill. The colour is the
+   posted reads apart from the agent rows -- the agent side renders as
+   `.dm.theirs` (dmRow, since #175) and, as of #2805, carries its OWN light-gray
+   `--k-sunk` fill (the rule just below), so the two sides are told apart by
+   colour (blue vs gray) rather than by tint-vs-plain. The colour of THIS rule is the
    `--usermsg-tint` token, defined per theme beside --k-sunk (10% light, 15%
    dark), so this ONE rule covers both themes and both surfaces that emit a
    `dm mine` bubble -- the to-agent DM view (dmRow) and the project room. Its
    project-room sibling `.pj-msg` uses the same token below. */
 .dm.mine .dm-b { background: var(--usermsg-tint); }
+/* #2805 (Josh, 2026-09-11): "put a very light gray for messages from the
+   agent" (blue stays for the person's own). The agent side is `.dm.theirs`; it
+   takes `--k-sunk`, the same subtle neutral this row wore BEFORE #2660 removed
+   it -- so this is a restore, not a new colour. `--k-sunk` is defined per theme
+   in the same four blocks as `--usermsg-tint` (5% light, 6% dark, 8% navy), so
+   this ONE rule tints the agent bubble in every theme, mirroring the blue rule
+   above.
+   ⚠️ NOT `--k-bg` (the #2711 file-card gray): #faf9f7 sits on the now-white
+   (`--k-surface`) DM panel and is all but invisible on it -- the exact dissolve
+   the note below records. `--k-sunk` is a neutral tint distinct from the panel
+   colour, so it reads. Inner code pills (`.mdc`/`.mdcb`, themselves `--k-sunk`)
+   stay visible: their own fill composites OVER the bubble's and lands a shade
+   darker, not equal. */
+.dm.theirs .dm-b { background: var(--k-sunk); }
 /* #2067 / #2239: restricted-markdown treatments, on the three agent-dialogue
    surfaces that render them -- the talk thread (.dm-b) and the project message
    list (.pj-msg-text), both via pjRich; and the project ROOM activity thread
@@ -4495,21 +4510,23 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dm-b .mdli.mdlin::before, .pj-msg-text .mdli.mdlin::before, .msg-b .mdli.mdlin::before { content: attr(data-n) "\00a0\00a0"; }
 .dm-b .mdhr, .pj-msg-text .mdhr, .msg-b .mdhr { display: inline-block; width: 100%; margin: 4px 0;
   border-top: 1px solid var(--k-rule); vertical-align: middle; }
-/* 🛑 THERE IS NO RULE FOR `.theirs`, AND ADDING ONE MADE IT WORSE. The first
-   version set `background: var(--k-surface); border: 1px solid var(--k-rule)`
-   — byte-identical to `.dbox`, which is the container it sits in — so the
-   agent's bubble had no bubble at all, only a hairline the same colour as the
-   panel's own edge. It was LESS visible than the default it overrode.
+/* 🛑 A `.theirs` FILL IS RIGHT AS OF #2805 -- BUT ONLY WITH THE RIGHT TOKEN,
+   AND THIS NOTE IS WHY. The agent bubble now carries `--k-sunk` (the rule
+   above). The trap the note guards is still live and is exactly what dictates
+   the token: the first `.theirs` attempt set `background: var(--k-surface);
+   border: 1px solid var(--k-rule)` -- byte-identical to `.dbox`, the container
+   it sits in -- so the bubble had no bubble at all, only a hairline the colour
+   of the panel's own edge. It was LESS visible than the default it overrode.
    ⚠️ THIS FILE ALREADY RECORDS THAT EXACT DEFECT, four hundred lines up: three
    controls "dissolved into their own containers with only a 0.5px border"
-   because they took the surface colour on a surface. I read the note and
-   repeated the mistake in the same file.
-   ✅ The two sides ARE distinguished, now by presence rather than by two
-   tints: as of #2660 the `.dm-b` default is `transparent` (the plain agent
-   row) and `.mine` is the only one that carries a fill (the royal-blue wash).
-   The historical amber `.mine` / `--k-sunk` default this note first described
-   is gone; adding a visible `.theirs` bubble is still the wrong move, for the
-   dissolve reason above. */
+   because they took the surface colour on a surface.
+   ✅ #2805 avoids it by using `--k-sunk` -- a neutral tint that is NOT the panel
+   colour -- and no stroke: the fill alone carries the bubble, and it reads now
+   that #2711 made the dialog white. `--k-bg` (the old dialog gray) would
+   RE-OPEN the dissolve, being all but equal to the white surface; `--k-sunk`
+   does not. So the lesson is unchanged -- do not take the surface colour on a
+   surface -- only its conclusion moved: a tinted `.theirs` bubble is correct,
+   a surface-coloured one is still the mistake. */
 .dm-w { font-size: .75rem; color: var(--k-ink-2); }
 /* ⚠️ THE META LINE FOLLOWS ITS BUBBLE. `.dm.mine` is `align-items: flex-end`,
    which right-aligns the SPAN while it is narrower than the row -- and a
@@ -4570,6 +4587,23 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    screen treatment this app already uses for it in the room, inside the pack's
    box. Rewording a terminal into prose would be a claim about what was asked. */
 .qask .pj-screen { margin-top: 6px; max-height: 200px; }
+/* #2808 (Josh, 0.6.56): the raw command wall reads as "a terrible big mess" at
+   the top of the agent page. Collapse it to a short teaser by default; the
+   "Show full command" toggle (#d-qask-expand) adds `.expanded` to restore the
+   full scrollable box. `overflow` stays `auto` (the base .pj-screen), so the
+   always-on 6px scrollbar invariant render-talk pins is untouched: only the
+   collapsed HEIGHT changes. The extra class raises specificity past
+   `.qask .pj-screen` (0,2,0) so these win. */
+.qask .pj-screen.clamped { max-height: 4.5em; }
+.qask .pj-screen.clamped.expanded { max-height: 200px; }
+/* #2808: the toggle is a subtle text affordance, not a primary button. Colour
+   and focus ring match the sibling `.pj-question-clear` text button (--label-2)
+   and this file's k-component focus convention (--k-ink), not an undefined
+   token. */
+.qask-expand { display: inline-block; margin-top: 4px; background: none; border: 0;
+  padding: 0; font: var(--text-caption) var(--font-ui); color: var(--label-2);
+  text-decoration: underline; cursor: pointer; }
+.qask-expand:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 /* ⚠️ A PERSISTENT SCROLLBAR ON THE QUESTION, and it replaces a fade that would
    have needed logic. `white-space: pre` is deliberate -- a captured line is
    what the agent's screen showed, and wrapping a permission prompt destroys
@@ -4938,6 +4972,19 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 #pj-one-agents .pj-member.pjm-working[data-agent]:hover { background: linear-gradient(rgba(47,125,90,.16), rgba(47,125,90,.16)), var(--k-surface); }
 #pj-one-agents .pj-member.pjm-attn[data-agent]:hover { background: linear-gradient(rgba(179,38,30,.15), rgba(179,38,30,.15)), var(--k-surface); }
 #pj-one-agents .pj-member.pjm-idle[data-agent]:hover { background: linear-gradient(rgba(120,120,128,.16), rgba(120,120,128,.16)), var(--k-surface); }
+/* #2804 (Josh, testing 0.6.56): the three state washes carry the meaning, so the box
+   needs no stroke -- "I do not want to have the 1px stroke around these agents, whether
+   they're active, inactive, or need help. It should only be the color: the light gray,
+   the green, or the red". `border-color: transparent` (not `border: 0`) keeps the box
+   geometry, and with the default background-clip:border-box the wash fills edge to edge
+   with no gap where the stroke was. Scoped to the same #pj-one-agents .pj-member.pjm-*
+   the washes use, so the stroke goes ONLY where a colour replaces it: a present-but-
+   neutral member (no wash) keeps its outline, and an unseen member keeps its dashed
+   presence border (.pj-member.unseen below) -- that is a different signal from the three
+   states (it says "we cannot see this agent", via the .pj-member.unseen rule), not one Josh asked to drop. */
+#pj-one-agents .pj-member.pjm-working { border-color: transparent; }
+#pj-one-agents .pj-member.pjm-attn { border-color: transparent; }
+#pj-one-agents .pj-member.pjm-idle { border-color: transparent; }
 /* The text half: everything that was directly in the row before the face
    arrived. Column, because the name, the state and the told line were three
    siblings of a wrapping flex row and are now one block beside the disc. */
@@ -5078,12 +5125,18 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    before. It lives on the id, not `.pj-screen`, because four surfaces share
    that rule and only this one is the agent page's window. */
 #d-window { max-height: calc(100vh - 220px); }
-/* The pack's Fresh start stack (Josh, 2026-08-23 19:57): three big
-   full-width buttons, one per line, matching his screenshot. */
-.freshstack .btn { display: block; width: 100%; margin-top: 10px;
-                   padding: 14px 16px; text-align: center;
-                   font-size: 17px; font-weight: 600; }
+/* Fresh start actions size to their content, not the full container width
+   (Josh, 2026-09-11 reviewing 0.6.56 live: the buttons "look terrible" full
+   width -- #2809). This reverses the 2026-08-23 full-bleed stack: the three
+   still stack one per line and left-align under the lede, but each is only as
+   wide as its label plus padding. `display:block` keeps them stacked (one per
+   line, left-aligned by the block default); `width:fit-content` shrinks each to
+   its label, replacing the old `width:100%`. Scoped to `.btn` deliberately so it
+   does NOT resize the sibling `.fmsg` receipts sharing the restart container --
+   a flex-column parent would have made those content-width too. */
 .freshstack { margin-top: 2px; }
+.freshstack .btn { display: block; width: fit-content; margin-top: 10px;
+                   padding: 14px 16px; font-size: 17px; font-weight: 600; }
 /* The three read as ONE stack: the restart container joins at the stack's
    own 10px rhythm, and the empty receipt slots between them take no height
    until they hold a sentence. */
@@ -7522,6 +7575,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              question in the room. Not prose: we did not write it. -->
         <pre class="pj-screen" id="d-qask-text" tabindex="0" hidden
              role="region" aria-labelledby="d-qask-lab"></pre>
+        <!-- #2808: a "Show full command" toggle for the collapsed command wall.
+             It flips `.expanded` on #d-qask-text (removing the ~3-line clamp);
+             the render unhides it only for a long question, and the full text
+             stays in the DOM either way. -->
+        <button class="qask-expand" id="d-qask-expand" type="button" hidden
+                aria-expanded="false" aria-controls="d-qask-text">Show full command</button>
         <div class="qopts" id="d-qopts" hidden></div>
         <p class="qout" id="d-qout" hidden>Or write your own answer below.</p>
         <!-- ⚠️ A HINT, NOT A VERDICT PILL, ruled by Mona Lisa 2026-08-20 after a
@@ -7549,6 +7608,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              #2456/#2575 reported-question false state. -->
         <button class="btn" id="d-qask-trust-restart" type="button" hidden>Trust &amp; Restart</button>
         <p class="fmsg" id="d-qask-trust-restart-msg" role="status" aria-live="polite"></p>
+        <!-- #2808 (Josh, 0.6.56): one-click dismiss for the "waiting on an
+             answer" message. Wired to a self-contained handler that POSTs the
+             same clear-selfreport route the project room's clear uses (#2575),
+             for the CURRENT agent. Worded honestly as "Clear this message":
+             clear-selfreport clears the notification, it does NOT grant a live
+             pending permission (that unblock-relay is an engine fast-follow). -->
+        <button class="btn" id="d-qask-clear" type="button" hidden>Clear this message</button>
+        <p class="fmsg" id="d-qask-clear-msg" role="status" aria-live="polite"></p>
       </div>
     </div>
     <!-- #2622: the search moved up beside the caption (.d-talk-caprow above). It still
@@ -7767,14 +7834,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            with it; each button's dialog already says what it keeps and loses,
            and two copies of one explanation is one to keep current. Painted by
            resetLabels() on open and after a rename. -->
-      <!-- 🔑 THE PACK'S SHAPE, MATCHED EXACTLY (Josh, 2026-08-23 19:57: "make
-           this look like what the pack design looks like... nice big fat
-           buttons that are all three stacked"). His screenshot carries the
-           pack's colon labels, which SUPERSEDES the 08-22 long-form ruling
-           recorded below; tonight is later and he was pointing at the picture.
-           The lede and the footer are the pack's sentences verbatim; the cost
-           still lives in each button's dialog, which is what the footer
-           promises. -->
+      <!-- 🔑 THE PACK'S SHAPE (Josh, 2026-08-23 19:57): three stacked actions
+           with the pack's colon labels, which SUPERSEDES the 08-22 long-form
+           ruling recorded below. The lede and the footer are the pack's
+           sentences verbatim; the cost still lives in each button's dialog,
+           which is what the footer promises. Only Restart names the agent.
+           ⚠️ THE WIDTH WAS REVERSED (Josh, 2026-09-11, #2809): the 08-23
+           "nice big fat buttons" were FULL-WIDTH, and reviewing 0.6.56 live he
+           ruled they "look terrible" that way. They now size to content
+           (`.freshstack .btn` is `display:block; width:fit-content`); still
+           stacked one per line, just no longer full-bleed. -->
       <div class="fhint" id="d-fresh-lede" style="margin-bottom:12px;">Three ways to get it going again, whatever the reason.</div>
       <div class="freshstack">
         <button class="btn" id="d-compact-go" type="button">Compact: summarise and keep going</button>
@@ -21991,6 +22060,14 @@ async function paintTalk(sessionName, agentName) {
   /* #2129: default the recovery button hidden every paint, so it only shows
      where the branch below explicitly turns it on. */
   if (qTrust) qTrust.hidden = true;
+  /* #2808: the dismiss button and the "Show full command" toggle, defaulted
+     hidden every paint (like qTrust) so they only show where a branch below
+     turns them on. Self-contained lookups; a self-contained handler drives
+     each, so the qask isolation tests do not throw on a delegate elsewhere. */
+  const qClear = document.getElementById('d-qask-clear');
+  const qExpand = document.getElementById('d-qask-expand');
+  if (qClear) qClear.hidden = true;
+  if (qExpand) qExpand.hidden = true;
   if (body.asking && body.question) {
     /* #1629: for Claude Code's trust dialog the ROUTE sends `answerNote`, the
        same sentence its send refusal uses, because the composer below invites
@@ -22011,6 +22088,38 @@ async function paintTalk(sessionName, agentName) {
        prompt, which is the only state carrying body.answerNote (#1629). Never on
        the #2456/#2575 reported-question false state (answerNote null there). */
     if (qTrust && body.answerNote) qTrust.hidden = false;
+    /* #2808: a TALL command wall (many lines) is the "mess" this card is about.
+       Collapse it to the ~3-line teaser and offer the toggle only when it runs
+       past that. Gated on LINE COUNT (trailing newlines trimmed, so a 3-line
+       command with a stray trailing newline does not read as 4), not length: a
+       single long line is one line tall (the horizontal scrollbar already
+       handles its width), so clamping its height would do nothing. Counted from
+       the TEXT, not a layout read, so it is deterministic. */
+    const qStr = body.question.text || '';
+    const qLong = qStr.replace(/\n+$/, '').split('\n').length > 3;
+    qtext.classList.toggle('clamped', qLong);
+    /* Collapse ONLY when the question is NEW. paintTalk re-runs on every poll
+       tick (~5s) for the SAME still-pending question, so an unconditional reset
+       would silently re-collapse the box a few seconds after the person clicked
+       "Show full command" on a command they are still reading. Keyed on the
+       question text stashed on the element (the #d-qopts __lastOpts pattern). */
+    const qNew = qtext.__q2808 !== qStr;
+    qtext.__q2808 = qStr;
+    if (qNew) qtext.classList.remove('expanded');
+    if (qExpand) {
+      qExpand.hidden = !qLong;
+      /* Label follows the CURRENT expanded state, so a repeat poll never stamps
+         "Show full command" back over a box the person has opened. */
+      const open = qtext.classList.contains('expanded');
+      qExpand.textContent = open ? 'Show less' : 'Show full command';
+      qExpand.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    /* #2808: the one-click dismiss shows for a live "waiting" box, EXCEPT the
+       folder-trust prompt (body.answerNote), whose real one-click action is
+       "Trust & Restart" right beside it. An identical-looking "Clear this
+       message" there would invite dismissing a genuinely live prompt without
+       resolving it (self-correcting, since the flag re-raises, but confusing). */
+    if (qClear) qClear.hidden = !!body.answerNote;
   } else if (!body.asking) {
     /* ⚠️ CLEARED WHEN NOTHING IS ASKING. They sit behind `hidden`, so nothing
        was shown — but the render check reads them directly and found the last
@@ -22019,6 +22128,7 @@ async function paintTalk(sessionName, agentName) {
     qlab.textContent = '';
     pjSetScreen(qtext, '');
     qtext.hidden = true;
+    qtext.classList.remove('clamped', 'expanded');   // #2808: no wall, no clamp
   } else if (body.asking) {
     /* ⚠️ SAID, not hidden. A "Needs you" card over an empty question box is
        the stranded state this feature exists to remove. The ROUTE's own
@@ -22028,6 +22138,10 @@ async function paintTalk(sessionName, agentName) {
       + (body.questionBecause || 'we cannot find the question on its screen right now') + '.';
     pjSetScreen(qtext, '');
     qtext.hidden = true;
+    qtext.classList.remove('clamped', 'expanded');   // #2808: no captured wall here
+    /* #2808: the stranded "Needs you" state IS the one Josh hit (a leftover
+       waiting flag with no question on screen); the dismiss must reach it too. */
+    if (qClear) qClear.hidden = false;
   }
   // The drawing's states 2 and 3: an answered question is no longer a thing
   // waiting on you, and the answer takes its place in the thread below as an
@@ -22864,6 +22978,15 @@ function openDetail(sessionName, section, fromProject) {
     document.getElementById('d-qask-lab').textContent = '';
     document.getElementById('d-qask-text').textContent = '';
     document.getElementById('d-qask-text').hidden = true;
+    document.getElementById('d-qask-text').classList.remove('clamped', 'expanded');
+    /* #2808: drop the stashed question key so the first paint for the agent we
+       are opening treats its question as NEW (opens collapsed) rather than
+       inheriting the previous agent's expanded state. The dismiss button, its
+       receipt line and the toggle need no clearing here: the whole #d-qask is
+       hidden above for the async gap, paintTalk defaults them hidden every
+       paint, and the switch-reset below clears the receipt and re-enables the
+       button (once, matching the trust-restart twin). */
+    document.getElementById('d-qask-text').__q2808 = null;
     document.getElementById('d-qask-fail').textContent = '';
     document.getElementById('d-qask-fail').hidden = true;
     setThread(document.getElementById('d-dmthread'), '<p class="dmnone">Opening&hellip;</p>', null);
@@ -22959,6 +23082,8 @@ function openDetail(sessionName, section, fromProject) {
      elements are reused, not rebuilt per agent, so a landed receipt would stand
      under the next agent unless cleared on switch. */
   { const m = document.getElementById('d-qask-trust-restart-msg'); if (m) m.textContent = ''; }
+  /* #2808: the dismiss receipt line, same reason as its trust-restart twin. */
+  { const m = document.getElementById('d-qask-clear-msg'); if (m) m.textContent = ''; }
   /* The buttons are shared across agents, so an in-flight POST for the agent we are leaving
      left them disabled; re-enable for the agent we are opening. The leaving agent's own
      `finally` re-enable is then a harmless no-op, and its late receipt is dropped by the
@@ -22969,6 +23094,9 @@ function openDetail(sessionName, section, fromProject) {
      same as the two above (an in-flight POST for the leaving agent left it
      disabled; the leaving agent's own finally re-enable is a harmless no-op). */
   { const b = document.getElementById('d-qask-trust-restart'); if (b) b.disabled = false; }
+  /* #2808: re-enable the chat-box dismiss for the agent we are opening, same as
+     the trust-restart button above. */
+  { const b = document.getElementById('d-qask-clear'); if (b) b.disabled = false; }
 
   /* ⚠️ The UI half, which the plan claimed and the code did not do.
      Every write route now refuses an agent whose pane cannot be tied to its
@@ -27339,6 +27467,58 @@ document.getElementById('d-qask-trust-restart').addEventListener('click', async 
   } catch {
     if (CURRENT && CURRENT.sessionName === forAgent) {
       msg.textContent = 'We could not reach Kosmos to trust and restart this agent.';
+    }
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* #2808: the "Show full command" toggle. Flips `.expanded` on the collapsed
+   command wall (removing the ~3-line clamp) and updates its own label. No route,
+   no agent state, purely a local view toggle, so it needs no capture-and-recheck. */
+document.getElementById('d-qask-expand').addEventListener('click', () => {
+  const q = document.getElementById('d-qask-text');
+  const b = document.getElementById('d-qask-expand');
+  if (!q || !b) return;
+  const open = q.classList.toggle('expanded');
+  b.textContent = open ? 'Show less' : 'Show full command';
+  b.setAttribute('aria-expanded', open ? 'true' : 'false');
+});
+
+/* #2808: the one-click dismiss for the "waiting on an answer" message. A
+   SELF-CONTAINED copy of the trust-restart handler pattern (a shared helper
+   would break the qask isolation tests that lift this region), with the same
+   capture-and-recheck (CURRENT.sessionName === forAgent) so a receipt cannot
+   land under a different agent if the person switches mid-POST. It POSTs the
+   same clear-selfreport route the project room's clear uses (#2575); on success
+   it re-reads the agent thread, so the next paint sees asking:false and hides
+   the whole box. Worded "Clear this message" on purpose: this clears the
+   NOTIFICATION, it does not grant a live pending permission (that unblock-relay
+   is an engine fast-follow, out of this render slice). */
+document.getElementById('d-qask-clear').addEventListener('click', async () => {
+  if (!CURRENT) return;
+  const forAgent = CURRENT.sessionName;
+  const btn = document.getElementById('d-qask-clear');
+  const msg = document.getElementById('d-qask-clear-msg');
+  btn.disabled = true;
+  msg.textContent = 'Clearing this message…';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/clear-selfreport',
+      { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reason: 'operator-dismissed' }) });
+    const r = await res.json().catch(() => ({}));
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      if (res.ok && r && r.ok === true) {
+        /* Re-read so the cleared question comes off screen at once. The success
+           receipt is the box disappearing, so no message is written here. */
+        await paintTalk(CURRENT.sessionName, CURRENT.name);
+      } else {
+        msg.textContent = r.because || r.error || 'We could not clear this message.';
+      }
+    }
+  } catch {
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      msg.textContent = 'We could not reach Kosmos to clear this message.';
     }
   } finally {
     btn.disabled = false;

@@ -1557,14 +1557,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                  initiatedByFrame frame: WKFrameInfo,
                  completionHandler: @escaping ([URL]?) -> Void) {
         /* 🛑 A RE-ENTRANT REQUEST IS ANSWERED IMMEDIATELY, NOT IGNORED.
-           MEASURED on macOS 26: a second `beginSheetModal(for:)` on a window
-           that already has a sheet is SILENTLY DROPPED. The panel never becomes
-           a sheet, it is not queued, and its completion handler is never
-           called -- which, by the rule two comments down, TERMINATES THE APP.
-           Refusing the second request with nil costs the person nothing (the
-           first panel is still up and still theirs) and removes the whole
-           class. Narrow today, because clicking a second + through a sheet is
-           hard; free to close. */
+           This delegate serves ONE open panel at a time: while a panel is
+           outstanding (openPanelOutstanding, set below), a second runOpenPanel is
+           refused with a single nil answer rather than opening a second picker.
+           The nil answer is mandatory -- WebKit aborts the app if a runOpenPanel
+           completion is not called exactly once (the rule two comments down) --
+           and refusing costs the person nothing: the first panel is still up and
+           still theirs. (Historically this also sidestepped a measured macOS-26
+           bug where a second beginSheetModal on a window that already had a sheet
+           was silently dropped; the panel path no longer uses beginSheetModal, so
+           that specific mechanism no longer applies, but serialising open panels
+           is the right invariant and this nil answer is required either way.) */
         /* ⚠️ SAID, NOT SILENT. This branch introduces the one state in the class
            (`openPanelOutstanding`) that could strand: if a future path ever
            presents without going through one of the two closures that clear it,
@@ -1572,19 +1575,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            reproduced by the code that fixes it. Nothing exercises this branch,
            so a line in the log is the only thing that would ever name it.
            Main-thread only, like every other flag on this delegate: WebKit
-           calls this method on the main thread and both sheet completions are
-           main-thread, so the flag needs no synchronisation. */
+           calls this method on the main thread and the panel's begin completion
+           (and the presenter stub's) are main-thread, so the flag needs no
+           synchronisation. */
         if openPanelOutstanding {
             logLine("runOpenPanelWith: refused, a panel is already up")
+            // The OTHER panel still owns openPanelOutstanding; do NOT clear it
+            // here. This is a single, direct answer for the refused request.
             completionHandler(nil)
             return
         }
         openPanelOutstanding = true
+        /* 🛑 #2807: WebKit's CompletionHandlerCallChecker ABORTS THE WHOLE APP if
+           this handler is called zero times OR more than once. The cancel path
+           is answered below, but the pre-fix `beginSheetModal` could be SILENTLY
+           DROPPED (now fixed below by presenting with the app-modal `panel.begin`),
+           which left the handler released un-called -- exactly what crashed Josh's
+           0.6.56 the moment he changed a profile picture. Wrap the handler so it
+           is called EXACTLY ONCE on
+           every path of THIS invocation: a repeat call is a no-op, and every
+           branch routes through `respond`. It clears the flag THIS call set (not
+           the refused-request path above, which never set it). Main-thread only,
+           like the flag, so `answered` needs no synchronisation. */
+        var answered = false
+        let respond: ([URL]?) -> Void = { [weak self] urls in
+            if answered { return }
+            answered = true
+            self?.openPanelOutstanding = false
+            completionHandler(urls)
+        }
         if let present = AppDelegate.openPanelPresenter {
-            present(parameters) { [weak self] urls in
-                self?.openPanelOutstanding = false
-                completionHandler(urls)
-            }
+            present(parameters) { urls in respond(urls) }
             return
         }
         let panel = NSOpenPanel()
@@ -1594,29 +1615,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         panel.allowsMultipleSelection = parameters.allowsMultipleSelection
         panel.canChooseDirectories = parameters.allowsDirectories
         panel.canChooseFiles = !parameters.allowsDirectories
-        /* Sheeted on the window the click came from, so it cannot end up behind
-           the board or on the wrong screen.
+        /* 🛑 #2807 + CANCEL MUST ANSWER. WebKit's CompletionHandlerCallChecker
+           ABORTS THE WHOLE APP if this handler is not called EXACTLY once
+           (measured: building this delegate with the cancel arm dropped raises
+           NSInternalInconsistencyException, "Completion handler ... was not
+           called", and the app TERMINATES mid-conversation). There are two ways
+           to reach zero calls: not answering Cancel (the answer closure below
+           answers both OK and Cancel), and #2807 -- beginSheetModal(for:) is
+           SILENTLY DROPPED when the host window already has a sheet (or is
+           otherwise unable to host one). A dropped sheet never presents, `answer`
+           never fires, and at method return the panel + answer + completionHandler
+           release un-called, so the checker aborts synchronously inside
+           runOpenPanel. That is the crash Josh hit on 0.6.56 changing a profile
+           picture.
 
-           🛑 CANCEL MUST ANSWER, AND THE COST IS WORSE THAN IT LOOKS. MEASURED
-           by building this delegate with the cancel arm dropped: WebKit does
-           not wedge the input quietly, it raises
-           NSInternalInconsistencyException, "Completion handler passed to
-           -[main.AppDelegate webView:runOpenPanelWithParameters:...] was not
-           called", and the app TERMINATES. So a person who opens the file
-           picker and presses Cancel would lose Kosmos, mid-conversation, with
-           no warning. An earlier version of this comment said it merely broke
-           the next press; that was a guess and it was wrong in the direction
-           that matters. */
-        let host = webView.window
-        let answer: (NSApplication.ModalResponse) -> Void = { [weak self] resp in
-            self?.openPanelOutstanding = false
-            completionHandler(resp == .OK ? panel.urls : nil)
+           So present with the app-modal `panel.begin`, NOT beginSheetModal:
+           begin does not attach to a window, so no window state can silently
+           drop it -- it ALWAYS presents and ALWAYS calls its completion, which
+           closes the ENTIRE abort class rather than the one attached-sheet
+           instance a `host.attachedSheet == nil` guard would cover. The cost is
+           the picker is app-modal (centred) rather than a sheet on the window;
+           for a path that otherwise aborts the app that is the right trade.
+           `answer` routes through the call-once `respond`, so OK and Cancel each
+           answer exactly once. */
+        let answer: (NSApplication.ModalResponse) -> Void = { resp in
+            respond(resp == .OK ? panel.urls : nil)
         }
-        if let host {
-            panel.beginSheetModal(for: host, completionHandler: answer)
-        } else {
-            panel.begin(completionHandler: answer)
-        }
+        panel.begin(completionHandler: answer)
     }
 
     /* 🛑 EVERY EXTERNAL LINK IN KOSMOS OPENED NOTHING IN THIS APP (#1416),
@@ -2929,6 +2954,15 @@ if CommandLine.arguments.contains("--kosmos-app-menu-selftest") {
 // row means a future reader who reaches for that theory is answered by the
 // gate instead of rewriting five inputs for no reason.
 if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
+    /* #2807: make this hatch's stdout UNBUFFERED. The build gate captures this
+       output through a pipe ($(...)), where Swift block-buffers stdout, so if an
+       arm regresses and the app aborts (SIGABRT), the buffer is never flushed and
+       every already-"printed" arm is LOST -- the gate then reads empty output and
+       misattributes the failure to itself ("the product is NOT implicated")
+       instead of to the #2807 regression. Unbuffered, each arm reaches the pipe
+       the instant it prints, so it survives an abort and the gate attributes the
+       failure correctly. */
+    setvbuf(stdout, nil, _IONBF, 0)
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
     /* ⚠️ `d` IS THE ONLY STRONG REFERENCE, AND BOTH DELEGATE PROPERTIES ARE
@@ -2995,7 +3029,8 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
        Budget: 150 x 0.1s = 15s, inside the hatch's own 25s watchdog and the
        shell's 40s alarm. The page loads in well under half a second here, so
        this is ~30x the observed margin rather than the ~12x it was. The whole
-       run is about 7s, so there was budget going spare. */
+       run is about 11-12s (the #2807 with-a-sheet-up arm added a sheet poll plus
+       a wait), still well inside the 25s watchdog. */
     func whenReady(_ go: @escaping () -> Void, tries: Int = 150) {
         web.evaluateJavaScript("window.__probeReady === 1") { r, _ in
             if (r as? Bool) == true { go(); return }
@@ -3049,7 +3084,59 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                             let again = fired["again"] ?? false
                             print("press:after-a-cancel\treaches-the-app-again:\(again ? "yes" : "no")")
-                            exit(again ? 0 : 1)
+                            guard again else { exit(1) }
+                            /* #2807: the file input fires while the host window
+                               ALREADY HAS A SHEET. With the pre-fix delegate,
+                               beginSheetModal(for:) on a window that already has
+                               a sheet is SILENTLY DROPPED, the completion handler
+                               is released un-called, and WebKit's
+                               CompletionHandlerCallChecker aborts the app
+                               synchronously inside runOpenPanel -- the exact
+                               #2807 crash (Josh, changing a profile picture).
+                               Reproduce it on the REAL panel path: put a sheet on
+                               the window, fire the input, and require the app to
+                               STILL BE ALIVE (reaching the print below AT ALL
+                               proves no abort) AND a panel to have presented via
+                               the app-modal `begin` fallback. This arm reds the
+                               cut if the #2807 fix is ever dropped. */
+                            AppDelegate.openPanelPresenter = nil
+                            let blocker = NSOpenPanel()
+                            blocker.beginSheetModal(for: win) { _ in }
+                            current = "sheeted"
+                            /* Setup control: the sheet MUST actually be attached
+                               before we fire, or the arm would pass trivially
+                               without exercising #2807. POLL for it rather than
+                               assuming a fixed delay -- on a slow/busy build box
+                               beginSheetModal can take a moment to attach, and a
+                               fixed wait there would emit a spurious failure that
+                               reds a real cut. If it genuinely never attaches that
+                               is a HARNESS problem (not the product), so print an
+                               INCONCLUSIVE token the build gate treats as "could
+                               not run", never a product verdict -- and one that
+                               does NOT begin with `press:`, or the gate's product
+                               arm would still match it. */
+                            func fireWithSheet(tries: Int) {
+                                if win.attachedSheet != nil {
+                                    web.evaluateJavaScript("document.getElementById('bvisible').click()") { _, _ in }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                        // Reaching here AT ALL means the app did not abort;
+                                        // the pre-fix code aborts before this line runs.
+                                        let modal = NSApp.windows.first { $0 is NSOpenPanel && $0.isVisible && $0 !== blocker }
+                                        print("press:with-a-sheet-up\tno-abort-and-panel-presented:\((modal != nil) ? "yes" : "no")")
+                                        if let m = modal as? NSOpenPanel { m.cancel(nil) }
+                                        if let host = blocker.sheetParent { host.endSheet(blocker, returnCode: .cancel) } else { blocker.cancel(nil) }
+                                        exit(modal != nil ? 0 : 1)
+                                    }
+                                    return
+                                }
+                                guard tries > 0 else {
+                                    print("filepanel selftest SETUP INCONCLUSIVE: the host sheet never attached (harness, not the product)")
+                                    if let host = blocker.sheetParent { host.endSheet(blocker, returnCode: .cancel) } else { blocker.cancel(nil) }
+                                    exit(1)
+                                }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { fireWithSheet(tries: tries - 1) }
+                            }
+                            fireWithSheet(tries: 30)
                         }
                     }
                 }

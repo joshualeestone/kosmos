@@ -89,6 +89,36 @@ test('the USED half is null when no turn has reported usage yet, and null is the
   assert.equal(r.contextUsed, null);
 });
 
+const TOKEN_COUNT = {
+  timestamp: '2026-08-22T04:47:39.000Z', ordinal: 3, type: 'event_msg',
+  payload: { type: 'token_count', info: {
+    total_token_usage: { input_tokens: 20000, total_tokens: 20005 },
+    last_token_usage: { input_tokens: 11700, total_tokens: 11705 } } },
+};
+
+test('#2413: contextUsedAt is the epoch-ms timestamp of the token_count that set contextUsed', () => {
+  const wd = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-codex-wd-usedat-'));
+  writeRollout('rollout-2026-08-21T23-47-23-usedat.jsonl', wd, [TASK_STARTED, A_MESSAGE, TOKEN_COUNT]);
+  const r = codex.read(wd);
+  assert.equal(r.contextUsed, 11700, 'the used half comes from last_token_usage.input_tokens');
+  /* 🔑 WHY THIS FIELD EXISTS: a token_count carrying a real last_token_usage is a turn
+     that ran to completion, which a dead-credential 401 reconnect loop never emits
+     (#2790). The OpenAI liveness overlay records an observed `ok` from it, gated on
+     THIS timestamp's freshness, so a live sign-in greens from real traffic while an
+     old completion greys again on its own -- never a permanent green over a dead
+     credential (#874). */
+  assert.equal(r.contextUsedAt, Date.parse('2026-08-22T04:47:39.000Z'),
+    'contextUsedAt must be the completing token_count row timestamp, as epoch ms');
+});
+
+test('#2413: contextUsedAt is null when no completed turn has reported usage', () => {
+  const wd = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-codex-wd-nousedat-'));
+  writeRollout('rollout-2026-08-21T23-47-23-nousedat.jsonl', wd, [TASK_STARTED, A_MESSAGE]);
+  const r = codex.read(wd);
+  assert.equal(r.contextUsedAt, null,
+    'no token_count -> no completion timestamp, so the overlay cannot claim a witnessed ok');
+});
+
 test('a folder Codex has never run in is NOT an error', () => {
   const never = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-codex-never-'));
   const r = codex.read(never);
