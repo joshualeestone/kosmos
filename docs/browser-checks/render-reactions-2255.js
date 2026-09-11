@@ -195,6 +195,31 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       const off = await rxns.evaluate((box) => ({ pills: box.querySelectorAll('.rxn').length }));
       if (off.pills === 0) ok(t + ' CONTROL: clicking the picker pill again toggles it OFF'); else bad(t + ' picker toggle-off', 'pills=' + off.pills);
 
+      // #2834: ROUTING TO THE CORRECT POST. Every arm above drives ONE post (the
+      // last), so a regression that always routed a shared-picker pick to a FIXED
+      // post would pass them all. Open the picker on the FIRST post instead and
+      // confirm the pick lands there and NOT on the last post. Both start at 0 pills
+      // (the last post was toggled back off just above).
+      const firstRow = p.locator('#pj-room .msg').filter({ has: p.locator('.rxns') }).first();
+      await firstRow.scrollIntoViewIfNeeded();
+      const firstRxns = firstRow.locator('.rxns');
+      const firstMsgB = firstRow.locator('.msg-b');
+      await firstMsgB.hover();
+      await firstRxns.locator('.rxn-more').click();
+      await p.waitForTimeout(150);
+      const routedTo = await firstRxns.evaluate((box) => {
+        const picker = document.getElementById('rxn-picker');
+        return picker ? (picker.getAttribute('data-post') === box.getAttribute('data-post')) : null;
+      });
+      if (routedTo) ok(t + ' #2834: opening the picker on the FIRST post records that post (not the last)'); else bad(t + ' cross-post data-post', String(routedTo));
+      await p.locator('#rxn-picker .rxn-pick').first().click();
+      await firstRxns.locator('.rxn').first().waitFor({ timeout: 8000 }).catch(() => {});
+      const firstGot = await firstRxns.locator('.rxn').count();
+      const lastStayed = await rxns.locator('.rxn').count();
+      if (firstGot === 1 && lastStayed === 0) ok(t + ' #2834: the pick landed on the post whose smiley opened the picker, NOT another post'); else bad(t + ' cross-post routing', 'first=' + firstGot + ' last=' + lastStayed);
+      await firstRxns.locator('.rxn').first().click();   // toggle off, back to a clean 0-pill room
+      await p.waitForTimeout(400);
+
       // #2806: Escape closes an open picker (parity with the composer emoji panel).
       await msgB.hover();
       await rxns.locator('.rxn-more').click();
@@ -242,6 +267,24 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         return { hidden: picker ? picker.hidden : null };
       });
       if (outsideScroll.hidden === true) ok(t + ' CONTROL: a scroll outside the picker DOES close it'); else bad(t + ' outside-scroll closes picker', JSON.stringify(outsideScroll));
+
+      // #2834: a ROOM-CONTENT CHANGE while the picker is open must close it. The old
+      // inline picker was destroyed by the room rebuild; the shared one is closed
+      // explicitly in paintThreadInto when the room re-renders. Open it, post a NEW
+      // message (which the room poll repaints in), and confirm the picker closes.
+      await msgB.hover();
+      await rxns.locator('.rxn-more').click();
+      await p.waitForTimeout(150);
+      const openedBeforeRepaint = await p.evaluate(() => { const el = document.getElementById('rxn-picker'); return !!(el && !el.hidden); });
+      await p.evaluate((pid) => fetch('/api/project/' + pid + '/room',
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'repaint trigger #2834' }) }), made.id);
+      let closedByRepaint = false;
+      for (let i = 0; i < 60; i += 1) {
+        const hidden = await p.evaluate(() => { const el = document.getElementById('rxn-picker'); return !el || el.hidden; });
+        if (hidden) { closedByRepaint = true; break; }
+        await p.waitForTimeout(200);
+      }
+      if (openedBeforeRepaint && closedByRepaint) ok(t + ' #2834: a room-content change (a new message) closes an open picker, as the old inline rebuild did'); else bad(t + ' repaint closes picker', 'opened=' + openedBeforeRepaint + ' closed=' + closedByRepaint);
 
       if (errs.length) bad(t + ' no page errors', errs.join(' | ')); else ok(t + ' no page errors');
       await p.close();

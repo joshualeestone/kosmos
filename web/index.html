@@ -37774,16 +37774,18 @@ function paintThreadInto(box, html, hasRows, keyChanged, filtering) {
   }
   /* #2834: the full picker is now the shared `#rxn-picker` (in body), so a room
      rebuild no longer destroys it the way the old inline-per-post picker was
-     destroyed. Close it at exactly the moment the room content changes -- the same
-     moment the old inline picker went away and its opener was recreated -- or the
-     popover floats open while its `.rxn-more` opener is rebuilt with aria-expanded
-     reset out from under it. `setLive`'s `__lastLive` skip means an UNCHANGED poll
-     does not reach here, so a quiet room leaves an open picker alone (parity with
-     the composer `#pj-emoji` panel, whose anchor never repaints).
+     destroyed. Close it here -- reaching `paintThreadInto` at all means the room
+     content changed (its sole caller `paintRoom` gates on `box.__lastRoom !== html`),
+     which is exactly the moment the old inline picker went away and its `.rxn-more`
+     opener was recreated with aria-expanded reset. A quiet poll never reaches here,
+     so an open picker is left alone on an unchanged room (parity with the composer
+     `#pj-emoji` panel, whose anchor never repaints). No extra `__lastLive` gate:
+     that is a second cache field on the same element and would always be true at
+     this point, so it would only masquerade as protection.
      The `typeof document` guard keeps `paintThreadInto` headless-safe: it is run
      with no DOM by web.room-scroll.test.js, and every other line here operates on
      the passed-in `box`, never a bare `document`. */
-  if (typeof document !== 'undefined' && box.__lastLive !== html) {
+  if (typeof document !== 'undefined') {
     const rxnPk = document.getElementById('rxn-picker');
     if (rxnPk && !rxnPk.hidden) rxnCloseAllPickers();
   }
