@@ -111,7 +111,7 @@ function ourLiveSession(name, live) {
   for (const a of list) {
     if (!a || !a.sessionId) continue;
     const rec = recorded[a.sessionId];
-    if (rec && rec.name === name) return a.sessionId;
+    if (win32sessions.rowIsUnder(rec, name)) return a.sessionId;
   }
   return null;
 }
@@ -651,9 +651,12 @@ function superviseStreaming(spec, opts) {
   /* A fresh start records a new ownership row, and nothing removed the row of the
      session that ended, so every restart left one more behind (#2720). A fresh
      start happens only once `blockedBy` has just found no session recorded under
-     this name running -- otherwise it waits -- so every other row of this name is
-     for a session that has ended: keep only the one just started. Said on the task
-     log either way, and never a reason to undo the start. */
+     this name LISTED as running -- otherwise it waits -- so keep only the one just
+     started. "Not listed" is not quite "ended": a new session takes a few seconds
+     to appear in the list. What makes that safe is that this agent has one
+     supervisor (its task is IgnoreNew), and a previous supervisor's child is on
+     its way out (#2714). Said on the task log either way, and never a reason to
+     undo the start. */
   function pruneEndedRows(startedId) {
     let r;
     try { r = sessions.pruneName(s.name, [startedId]); }

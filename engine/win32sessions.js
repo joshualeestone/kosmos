@@ -173,6 +173,13 @@ function forget(sessionId) {
   });
 }
 
+/** Does this record row belong to the agent `name`? The ONE test for it, shared by
+    the supervisor's live-session check, create's wait for its new row, and the
+    prune, so the three can never disagree about which rows are an agent's. */
+function rowIsUnder(row, name) {
+  return Boolean(row) && row.name === name;
+}
+
 /**
  * Drop every row recorded under `name` except the ids in `keepIds` (#2720). A fresh
  * start records a row, and nothing removed the one for the session that ended, so
@@ -188,7 +195,7 @@ function pruneName(name, keepIds) {
     removed = 0;
     for (const id of Object.keys(current)) {
       const row = current[id];
-      if (row && row.name === name && !keep.has(id)) { delete current[id]; removed += 1; }
+      if (rowIsUnder(row, name) && !keep.has(id)) { delete current[id]; removed += 1; }
     }
     return removed ? current : null;
   });
@@ -202,4 +209,4 @@ function isOurs(sessionId) {
   return Object.prototype.hasOwnProperty.call(rec, sessionId);
 }
 
-module.exports = { get DIR() { return dir(); }, get FILE() { return file(); }, read, record, forget, pruneName, isOurs, validId, validName };
+module.exports = { get DIR() { return dir(); }, get FILE() { return file(); }, read, record, forget, pruneName, rowIsUnder, isOurs, validId, validName };
