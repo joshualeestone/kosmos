@@ -416,6 +416,20 @@ test('#2669 a NEWER id supersedes a pending retry: the older one is never record
   t.h.stop();
 });
 
+test('#2669 a pending rekey retry writes nothing once the loop is stopped', () => {
+  let attempts = 0;
+  const timers = [];
+  const t = clearingSupervisor('clr-9', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: { record: () => { attempts += 1; return { ok: false, because: 'the record is busy' }; }, forget: () => ({ ok: true }), read: () => ({}) },
+  });
+  t.say(0, { type: 'system', subtype: 'init', session_id: require('node:crypto').randomUUID() });
+  const before = attempts;
+  t.h.stop();
+  timers[0]();                              // the retry armed before the stop fires late
+  assert.equal(attempts, before, 'no ownership write after the supervisor was told to stop');
+});
+
 test('#2669 a forget that fails is SAID: the old id still answers to this name', () => {
   const t = clearingSupervisor('clr-7', {
     sessions: { record: () => ({ ok: true }), forget: () => ({ ok: false, because: 'the record is busy' }), read: () => ({}) },

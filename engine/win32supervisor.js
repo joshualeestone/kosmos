@@ -467,7 +467,9 @@ function superviseStreaming(spec, opts) {
   /* 🛑 A FAILED RECORD IS RETRIED, because it does not heal on its own: with the
      new id unrecorded the agent has no card, so no message reaches it, so no later
      `init` comes along to try again. Retries stop when this child is replaced or
-     the loop stops, when a newer id supersedes this one, or after REKEY_ATTEMPTS. */
+     the loop stops, when a newer id supersedes this one, or after REKEY_ATTEMPTS.
+     `stop()` also clears `child`, so a stopped loop fails both `running` and
+     `child === owner`; a test pins that a retry after a stop writes nothing. */
   let pendingRekey = null;
   function rekeyTo(id, owner, attempt) {
     const oldId = handle.sessionId;

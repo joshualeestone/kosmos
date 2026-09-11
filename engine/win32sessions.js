@@ -46,7 +46,7 @@ const FILE_MODE = 0o600;
 /* How long a write waits for the record's lock before refusing (#2669). The wait
    is synchronous and blocks the caller's whole process, and one caller is a
    supervisor's stdout handler, so it is kept far below filelock's 2s default. A
-   holder's critical section is one small read and one rename (milliseconds), so
+   holder's critical section is one small read, one small write and one rename (milliseconds), so
    250ms still outlasts any live holder. So a refusal needs a holder that died
    mid-write, whose lock stays until filelock's 10s staleness rule collects it.
    What each writer does then:
