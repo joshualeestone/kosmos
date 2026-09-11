@@ -316,10 +316,20 @@ const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopba
 const boardAuthState = { on: false, token: null };
 /* Sandboxed whole or not at all (#634): refused before anything listens or
    writes. In-process (a test requiring this file) it throws; as the program it
-   says the sentence and exits 2. */
+   says the sentence and exits 2.
+   🛑 #2628: AUDIT THE LAUNCH'S ENVIRONMENT, NOT process.env. By this point the
+   world bootstrap at the top of this file has written a NAMED world's data,
+   projects and workers roots into process.env, and those three -- with the launch
+   dir and tmux left live, as they are for every world -- are exactly the shape
+   this guard refuses. Auditing process.env made every named world refuse to boot
+   on every platform ("will not start half-sandboxed"), after which worldbootguard
+   fell back to Kosmos 1: #2528's "the restart errored and I am back in Kosmos 1".
+   LAUNCH_ENV_OVERRIDES is the launch's own AGENT_WORKFORCE_* variables, captured
+   before the bootstrap for the same reason the Windows hand-off reads it, so a
+   real half-sandbox (which sets them at launch) is still refused. */
 {
   const sandbox = require('./engine/sandbox');
-  const a = sandbox.audit(process.env);
+  const a = sandbox.audit(LAUNCH_ENV_OVERRIDES);
   if (a.partial) {
     const msg = sandbox.sentence(a);
     if (require.main === module) { process.stderr.write(msg + '\n'); process.exit(2); }
