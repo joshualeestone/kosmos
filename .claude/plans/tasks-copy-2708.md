@@ -38,7 +38,10 @@ engine tests (the block is composed server-side).
 
 ## Weakest premise
 
-That `p.tasks` empty means "no tasks to point at" for the copy's purpose. If it holds
-open+closed, empty is genuinely no tasks (correct). If it holds only open, a
-closed-only project reads "no tasks set yet", which is still honest ("nothing to do")
-and strictly better than promising a list that is empty.
+That a project with a non-empty `p.tasks` has something for `kosmos task list` to show.
+Verified: `p.tasks` holds open AND closed (closing sets closedAt without removing the
+row), and `kosmos task list` renders closed tasks too (install/kosmos prints them with
+a "[done]" prefix). So a closed-only project still has tasks "to see", and raw length is
+the RIGHT condition -- counting open-only would say "No tasks set yet" while the list
+shows the done ones, the opposite mismatch. Raw length matches the card's count-0
+semantics exactly: "No tasks set" only when there are none at all.

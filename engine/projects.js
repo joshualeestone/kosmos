@@ -2217,6 +2217,12 @@ function blockBody(projects, sessionName) {
     // list "to see" that is empty. With tasks, teach list+add; with none, say so and
     // teach only add. An empty result must not read as a broken "including any tasks"
     // promise (the Mortals dogfood finding).
+    // ⚠️ RAW length (open + closed), NOT an open-only count, and that is deliberate:
+    // `kosmos task list` renders closed tasks too (install/kosmos prints them with a
+    // "[done]" prefix), so a project whose tasks are all closed still has tasks "to
+    // see". Counting open-only here would say "No tasks set yet" while `task list`
+    // shows the done ones -- the opposite mismatch. Raw length matches the card's
+    // count-0 semantics exactly: "No tasks set" only when there are none at all.
     const hasTasks = Array.isArray(p.tasks) && p.tasks.length > 0;
     const taskLine = hasTasks
       ? `\n  - Its tasks: \`${cliShown} task list ${oneLine(String(p.id))}\` to see them, \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` to add one (use this, not a hand-rolled task-board file)`

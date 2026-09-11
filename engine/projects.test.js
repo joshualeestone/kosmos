@@ -712,6 +712,12 @@ test('the block teaches the room command per project, with the id it actually ta
   assert.match(withTasks, /to see them/, 'a project WITH tasks no longer says "to see them"');
   assert.ok(!/No tasks set for this project yet/.test(withTasks),
     'a project WITH tasks wrongly said "No tasks set yet"');
+  // #2708: a project whose tasks are all CLOSED still has tasks "to see" -- kosmos task
+  // list renders closed tasks too ([done] prefix) -- so raw length is correct here, not
+  // an open-only count that would wrongly say "No tasks set yet".
+  const closedOnly = projects.blockBody([{ id: 'hendersonlease', name: 'Henderson lease', folder: '/tmp/h', tasks: [{ sentence: 'done', closedAt: 1 }] }]);
+  assert.match(closedOnly, /kosmos task list hendersonlease/, 'a closed-only project wrongly hid the list command');
+  assert.ok(!/No tasks set for this project yet/.test(closedOnly), 'a closed-only project wrongly said "No tasks set yet"');
   // An id-less row (a caller predating ids, or a fixture) must not teach a
   // broken command -- neither the room command nor the tasks command (nor a
   // dangling "no tasks" line, which also needs the id).
