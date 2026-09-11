@@ -165,9 +165,13 @@ const usage = require('./engine/usage');
 // on screen has to be the number in the release rather than a hand-typed label
 // that drifts.
 const { version } = require('./package.json');
-/* The header the page carries `version` in; the Windows hand-off reads it. One
-   name, owned by the module that reads it. */
-const { BOARD_VERSION_HEADER } = require('./engine/win32handoff');
+/* #570: which build THIS PROCESS is (version, plus the zip's commit when it runs
+   from the Windows bundle), fixed at start. GET / names it in a header so the
+   Windows hand-off can tell the code that is running from the files on disk.
+   The module loads on every platform for this one function and constant; it has
+   no side effects at load and requires win32board only when a hand-off runs. */
+const { buildIdentity, BOARD_BUILD_HEADER } = require('./engine/win32handoff');
+const BOARD_BUILD = buildIdentity(__dirname) || version;
 
 /**
  * Whether this process is behind the code on disk (#338).
@@ -11351,12 +11355,12 @@ const server = http.createServer((req, res) => {
        exactly that: 0.2.75 on the line and the previous page on screen.
        📌 It costs a re-read of one local file per load, which is the price of
        an update actually arriving. (#271, Mona Lisa.) */
-    /* #570: the version this PROCESS loaded, which the page cannot say. The page
+    /* #570: the build this PROCESS loaded, which the page cannot say. The page
        is read per request, so a new zip unpacked over the running install makes
        an old board serve the new page and name the new version. The Windows
        hand-off (engine/win32handoff.js) must tell the running code from the files
        on disk, and this header is that answer. */
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', [BOARD_VERSION_HEADER]: version });
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', [BOARD_BUILD_HEADER]: BOARD_BUILD });
     res.end(buf);
   });
 });
@@ -11927,12 +11931,13 @@ if (require.main === module) {
      board. Every case it cannot confirm resolves to serving here, as before. See
      engine/win32handoff.js. */
   const beforeServing = process.platform === 'win32'
-    ? require('./engine/win32handoff').handOffToTask({ ensured: win32BoardEnsured, port: PORT })
+    ? require('./engine/win32handoff').handOffToTask({ ensured: win32BoardEnsured, port: PORT, build: BOARD_BUILD })
     : Promise.resolve({ serve: true, attempted: false });
-  beforeServing.then((handOff) => {
+  beforeServing.catch((err) => ({ serve: true, attempted: true, because: `the hand-off failed (${String(err && err.message)})` })).then((handOff) => {
     if (!handOff.serve) {
-      /* A Windows console write is asynchronous, so exit from its callback or the
-         one line the launcher window shows is lost. */
+      /* A Windows console write is asynchronous, so exit from its callback. The
+         launcher's own console closes on exit 0, so this line is read by whoever
+         started Kosmos from a terminal they keep. */
       process.stdout.write(`${handOff.say}\n`, () => process.exit(handOff.exitCode || 0));
       return;
     }

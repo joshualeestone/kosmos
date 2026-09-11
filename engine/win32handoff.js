@@ -14,70 +14,111 @@
  * 🔑 SO THE HAND-STARTED BOARD STARTS THE TASK AND LEAVES. The task already exists
  * (`win32board.ensureInstalled` registered or refreshed it a moment earlier in the
  * same boot), it runs headless, and it is what a logon starts anyway -- so after
- * this there is exactly one way the board runs on Windows, whichever way it was
- * started. Exiting 0 lets the launcher close its window by itself; its opener is
- * already waiting to put the board in the browser.
+ * this there is one way the board runs on Windows, whichever way it was started.
+ * Exiting 0 lets the launcher's console close by itself; its opener is already
+ * waiting to put the board in the browser.
  *
- * ⚠️ EVERY UNCERTAIN STEP FALLS BACK TO SERVING IN THE WINDOW, which is exactly the
- * behaviour before this module. A hand-off that could not be confirmed must never
- * leave a person with no board at all.
+ * ⚠️ WHAT IT CANNOT CONFIRM, IT LEAVES TO THE WINDOW, which is the behaviour before
+ * this module -- inside a budget that ends before the opener gives up (see
+ * HANDOFF_BUDGET_MS), so a fallback still gets the browser signed in.
  */
 
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 
-/* How long the task's board has to answer after `/Run`. Measured: 1.2s on the box
-   from `/Run` to listening; the launcher's opener gives up after 20s, so this stays
-   well inside that and still allows a slow disk ten times the measured start. */
-const TASK_BOARD_ANSWER_WAIT_MS = 12000;
-
-/* How long an ended board has to let go of the port. win32board.restart measured
-   the port staying bound for about a second after `/End`. */
-const PORT_RELEASE_WAIT_MS = 10000;
+/**
+ * 🛑 ONE BUDGET FOR THE WHOLE HAND-OFF, MEASURED FROM PROCESS START, because the
+ * browser opener does not wait for us. `tools/kosmos-open-board.js` waits 20s for
+ * a board and then opens the PLAIN url, which an enforcing Windows board answers
+ * with the #2007 403. So whatever this does -- succeed, replace an older board, or
+ * give up and serve in the window -- a board must be answering before then.
+ * 14s leaves the fallback about 6s to bind the port. Measured on the box: boot to
+ * the hand-off about 2s, `/Run` to a listening board 1.2s, a whole update 8.9s.
+ */
+const HANDOFF_BUDGET_MS = 14000;
 
 /* The update case ends an OLDER board that the launcher's opener may be signing
    the browser in to at this very moment: it minted a single-use boot nonce there,
    and the browser redeems it a beat later. The cookie that redemption sets is the
    durable one, so it keeps working on the new board -- but only if the old board
-   is still up to redeem it. This is the beat. */
+   is still up to redeem it. NOT MEASURED: an allowance for a browser that is
+   already running (the box's Edge took the url in well under a second by eye). A
+   browser that loses the race loads the page without its cookie, and a relaunch
+   of Kosmos signs it in. */
 const OLD_BOARD_GRACE_MS = 3000;
+
+/* Whatever the budget says, an ended board gets this long to let go of the port
+   before this one tries to bind it. win32board.restart measured the port staying
+   bound about a second after `/End`. */
+const MIN_PORT_RELEASE_WAIT_MS = 2000;
+
+/* A task board still booting at logon can answer AFTER our `/Run` with its older
+   build; the second round replaces it. Two rounds, never a loop. */
+const MAX_ROUNDS = 2;
 
 /* One probe's budget, and the gap between probes while waiting. */
 const PROBE_TIMEOUT_MS = 2000;
 const POLL_INTERVAL_MS = 300;
 
 /**
- * 🔑 THE RUNNING BOARD'S VERSION COMES FROM A HEADER, NEVER FROM THE PAGE.
+ * 🔑 THE RUNNING BOARD'S IDENTITY COMES FROM A HEADER, NEVER FROM THE PAGE.
  * server.js reads `web/index.html` per request, so a new zip unpacked over the
  * running install -- the folder Explorer's Extract All offers by default -- makes
- * the OLD board serve the NEW page, version meta and all. Comparing the page
- * would call that old board "already running" and leave the old code serving
- * until the next logon. The header is `package.json`'s version as the process
- * loaded it at start, so it names the code that is actually answering.
- * ⚠️ A board without the header predates this module, so its version is unknown
- * and it is never taken for this one: a task board without it is replaced once.
+ * the OLD board serve the NEW page. The header is `buildIdentity` as the process
+ * computed it at start, so it names the code that is actually answering.
+ * ⚠️ A board without the header predates this module, so it is never taken for
+ * this one: a task board without it is replaced once.
  * GET / needs no token, so any caller can ask; the version is on the page anyway.
  */
-const BOARD_VERSION_HEADER = 'x-kosmos-version';
+const BOARD_BUILD_HEADER = 'x-kosmos-build';
 
-/* This install's own version, from the same `package.json` the header is read
-   from, so the two sides of the comparison are one derivation. */
-function ownVersion(appDir) {
-  try { return String(JSON.parse(fs.readFileSync(path.join(appDir, 'package.json'), 'utf8')).version || '') || null; } catch { return null; }
+/**
+ * Which build this app is: its package.json version, plus the commit the zip was
+ * built from when it runs from the bundle. The version alone is not enough:
+ * Windows zips are cut from main between version bumps, so two 0.6.55 zips can
+ * carry different code. Both sides of the comparison call THIS function -- the
+ * running board once at start for its header, the launching board for itself --
+ * so there is one derivation. Never throws.
+ */
+function buildIdentity(appDir) {
+  let version = '';
+  try { version = String(JSON.parse(fs.readFileSync(path.join(appDir, 'package.json'), 'utf8')).version || ''); } catch { /* unreadable: no identity */ }
+  if (!version) return null;
+  let sha = '';
+  /* The manifest sits at the bundle ROOT, beside runtime\node.exe. A source
+     checkout has no runtime\node.exe, so a stray ../manifest.json beside a repo is
+     never read. */
+  const root = path.resolve(appDir, '..');
+  try {
+    if (fs.existsSync(path.join(root, 'runtime', 'node.exe'))) {
+      sha = String(JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8')).source_sha || '');
+    }
+  } catch { /* no manifest: the version alone */ }
+  return /^[0-9a-f]{7,40}$/.test(sha) ? version + '+' + sha.slice(0, 12) : version;
 }
 
-/* Is a board answering on this port, and which version is it running? Never rejects. */
+/* Is a board answering on this port, and which build is it running? Never rejects. */
 function probeBoard(port) {
   return new Promise((resolve) => {
     const req = http.get({ host: '127.0.0.1', port, path: '/', timeout: PROBE_TIMEOUT_MS }, (res) => {
       res.resume();
-      const named = res.headers[BOARD_VERSION_HEADER];
-      res.on('end', () => resolve({ answering: true, version: typeof named === 'string' && named ? named : null }));
+      const named = res.headers[BOARD_BUILD_HEADER];
+      res.on('end', () => resolve({ answering: true, build: typeof named === 'string' && named ? named : null }));
     });
     req.on('timeout', () => req.destroy(new Error('timeout')));
-    req.on('error', () => resolve({ answering: false, version: null }));
+    req.on('error', () => resolve({ answering: false, build: null }));
   });
+}
+
+/* The logon task runs with the account's environment, not this launch's. A launch
+   that asked for its own port or its own data folder would be handed to a board
+   that serves neither -- and the hand-off would then end that working board as
+   "not answering". Those launches keep their window. */
+function overriddenBy(env) {
+  const e = env || {};
+  if (e.PORT) return 'PORT';
+  return Object.keys(e).find((k) => k.startsWith('AGENT_WORKFORCE_') && e[k]) || null;
 }
 
 /**
@@ -89,6 +130,8 @@ function skipReason(o) {
   if (o.byTask) return 'the logon task started this board';
   if (!o.bundle) return 'this board runs from a source checkout';
   if (!o.live) return 'live execution is not armed';
+  const override = overriddenBy(o.env);
+  if (override) return 'this launch sets ' + override + ', which the logon task would not use';
   const e = o.ensured;
   /* Only a task that was just registered or refreshed is known to be enabled AND to
      name this install. A task the person switched off or removed means they chose
@@ -107,74 +150,83 @@ function skipReason(o) {
  *   { serve: true,  attempted: false, because } no hand-off was due; serve here
  *   { serve: true,  attempted: true,  because } one was tried and not confirmed
  *
- * `deps` are seams: platform, bundle, byTask, live, board (status/end/runNow),
- * probe, sleep and now. The defaults are the real ones.
+ * `build` is this process's buildIdentity, computed at start by server.js. The
+ * rest are seams with real defaults: platform, env, bundle, byTask, live, board
+ * (status/end/runNow), probe, sleep, now and startedAt.
  */
 async function handOffToTask(opts) {
   const o = opts || {};
-  const appDir = o.appDir || path.resolve(__dirname, '..');
-  const board = o.board || require('./win32board');
-  const probe = o.probe || probeBoard;
-  const sleep = o.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
-  const now = o.now || Date.now;
-  const facts = {
-    platform: o.platform || process.platform,
-    byTask: o.byTask !== undefined ? o.byTask : board.startedByTask(),
-    bundle: o.bundle !== undefined ? o.bundle : Boolean(board.bundleRoot()),
-    live: o.live !== undefined ? o.live : require('./live-execution').liveExecutionAllowed(),
-    ensured: o.ensured,
-  };
-  const skip = skipReason(facts);
-  if (skip) return { serve: true, attempted: false, because: skip };
-
-  const port = o.port;
-  const mine = o.version !== undefined ? o.version : ownVersion(appDir);
-  const isMine = (p) => p.answering && (mine ? p.version === mine : true);
-  async function waitUntil(test, ms) {
-    const until = now() + ms;
-    for (;;) {
-      const p = await probe(port);
-      if (test(p)) return p;
-      if (now() >= until) return null;
-      await sleep(POLL_INTERVAL_MS);
-    }
-  }
-  const gone = (p) => !p.answering;
-
   try {
-    const first = await probe(port);
-    if (first.answering && mine && first.version === mine) {
-      return { serve: false, exitCode: 0, say: 'Kosmos is already running. Your browser is opening it.' };
-    }
-    if (first.answering) {
-      /* Another version answers. Only the TASK's board can be replaced from here:
-         anything else on the port (a board in another window, or not a board at
-         all) is somebody else's, and serving here reproduces today's message. */
-      if (!board.status().running) {
-        return { serve: true, attempted: true, because: 'something the logon task did not start is already using port ' + port };
+    const board = o.board || require('./win32board');
+    const probe = o.probe || probeBoard;
+    const sleep = o.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
+    const now = o.now || Date.now;
+    const skip = skipReason({
+      platform: o.platform || process.platform,
+      env: o.env || process.env,
+      byTask: o.byTask !== undefined ? o.byTask : board.startedByTask(),
+      bundle: o.bundle !== undefined ? o.bundle : Boolean(board.bundleRoot()),
+      live: o.live !== undefined ? o.live : require('./live-execution').liveExecutionAllowed(),
+      ensured: o.ensured,
+    });
+    if (skip) return { serve: true, attempted: false, because: skip };
+
+    const port = o.port;
+    const mine = o.build !== undefined ? o.build : buildIdentity(path.resolve(__dirname, '..'));
+    const startedAt = o.startedAt !== undefined ? o.startedAt : now() - Math.round(process.uptime() * 1000);
+    const deadline = startedAt + HANDOFF_BUDGET_MS;
+    const left = () => Math.max(0, deadline - now());
+    const isMine = (p) => p.answering && Boolean(mine) && p.build === mine;
+    async function waitUntil(test, ms) {
+      const until = now() + ms;
+      for (;;) {
+        const p = await probe(port);
+        if (test(p)) return p;
+        if (now() >= until) return null;
+        await sleep(POLL_INTERVAL_MS);
       }
-      await sleep(OLD_BOARD_GRACE_MS);
-      const ended = board.end();
-      if (!ended.ok) return { serve: true, attempted: true, because: ended.because };
-      if (!(await waitUntil(gone, PORT_RELEASE_WAIT_MS))) {
-        return { serve: true, attempted: true, because: 'the older Kosmos did not stop' };
-      }
     }
-    const ran = board.runNow();
-    if (!ran.ok) return { serve: true, attempted: true, because: ran.because };
-    /* `schtasks /Run` reports success for a run that started nothing (measured,
-       win32board.taskXml), so the proof is a board answering with THIS version. */
-    if (await waitUntil(isMine, TASK_BOARD_ANSWER_WAIT_MS)) {
-      return { serve: false, exitCode: 0, say: 'Kosmos is running in the background now, and starts by itself when you log in. You can close this window.' };
+    const gone = (p) => !p.answering;
+    const serveHere = (because) => ({ serve: true, attempted: true, because });
+
+    const handedOff = { serve: false, exitCode: 0, say: 'Kosmos is running in the background now, and starts by itself when you log in.' };
+
+    let ran = false;
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+      const p = await probe(port);
+      if (isMine(p)) return ran ? handedOff : { serve: false, exitCode: 0, say: 'Kosmos is already running. Your browser is opening it.' };
+      if (p.answering) {
+        /* Another build answers. Only the TASK's board can be replaced from here:
+           anything else on the port (a board in another window, or not a board at
+           all) is somebody else's, and serving here reproduces today's message. */
+        if (!board.status().running) return serveHere('something the logon task did not start is already using port ' + port);
+        await sleep(Math.min(OLD_BOARD_GRACE_MS, left()));
+        const ended = board.end();
+        if (!ended.ok) return serveHere(ended.because);
+        if (!(await waitUntil(gone, Math.max(left(), MIN_PORT_RELEASE_WAIT_MS)))) return serveHere('the older Kosmos did not stop');
+      }
+      if (left() <= 0) break;
+      const r = board.runNow();
+      if (!r.ok) return serveHere(r.because);
+      ran = true;
+      /* `schtasks /Run` reports success for a run that started nothing (measured,
+         win32board.taskXml), so only a board answering with THIS build is proof. A
+         board of another build answering instead is a task board that was still
+         booting when we looked; the next round replaces it. */
+      const up = await waitUntil((q) => q.answering, left());
+      if (!up) break;
+      if (isMine(up)) return handedOff;
     }
     /* Not confirmed. End the task so a late start cannot take the port from the
        board about to serve here, then let it go. */
-    board.end();
-    await waitUntil(gone, PORT_RELEASE_WAIT_MS);
-    return { serve: true, attempted: true, because: 'the background board did not answer within ' + Math.round(TASK_BOARD_ANSWER_WAIT_MS / 1000) + 's' };
+    if (ran) {
+      board.end();
+      await waitUntil(gone, Math.max(left(), MIN_PORT_RELEASE_WAIT_MS));
+    }
+    return serveHere('the background board did not answer in time');
   } catch (err) {
     return { serve: true, attempted: true, because: 'the hand-off failed (' + String((err && err.message) || err) + ')' };
   }
 }
 
-module.exports = { handOffToTask, BOARD_VERSION_HEADER };
+module.exports = { handOffToTask, buildIdentity, BOARD_BUILD_HEADER };
