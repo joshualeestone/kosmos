@@ -4948,6 +4948,19 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 #pj-one-agents .pj-member.pjm-working[data-agent]:hover { background: linear-gradient(rgba(47,125,90,.16), rgba(47,125,90,.16)), var(--k-surface); }
 #pj-one-agents .pj-member.pjm-attn[data-agent]:hover { background: linear-gradient(rgba(179,38,30,.15), rgba(179,38,30,.15)), var(--k-surface); }
 #pj-one-agents .pj-member.pjm-idle[data-agent]:hover { background: linear-gradient(rgba(120,120,128,.16), rgba(120,120,128,.16)), var(--k-surface); }
+/* #2804 (Josh, testing 0.6.56): the three state washes carry the meaning, so the box
+   needs no stroke -- "I do not want to have the 1px stroke around these agents, whether
+   they're active, inactive, or need help. It should only be the color: the light gray,
+   the green, or the red". `border-color: transparent` (not `border: 0`) keeps the box
+   geometry, and with the default background-clip:border-box the wash fills edge to edge
+   with no gap where the stroke was. Scoped to the same #pj-one-agents .pj-member.pjm-*
+   the washes use, so the stroke goes ONLY where a colour replaces it: a present-but-
+   neutral member (no wash) keeps its outline, and an unseen member keeps its dashed
+   presence border (.pj-member.unseen below) -- that is a different signal from the three
+   states (it says "we cannot see this agent", #33408), not one Josh asked to drop. */
+#pj-one-agents .pj-member.pjm-working { border-color: transparent; }
+#pj-one-agents .pj-member.pjm-attn { border-color: transparent; }
+#pj-one-agents .pj-member.pjm-idle { border-color: transparent; }
 /* The text half: everything that was directly in the row before the face
    arrived. Column, because the name, the state and the told line were three
    siblings of a wrapping flex row and are now one block beside the disc. */

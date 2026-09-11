@@ -7426,6 +7426,30 @@ test('#2711 item 16: the working/needs-you member washes stay pinned to the agen
     'the needs-you member wash drifted from .acard.attn; re-pin them or the two reds disagree');
 });
 
+test('#2804: the three washed member states drop the box stroke (colour only), keeping the base stroke and the unseen dashed border', () => {
+  // Josh, testing 0.6.56: "I do not want to have the 1px stroke around these agents,
+  // whether they're active, inactive, or need help. It should only be the color".
+  // The stroke is removed ONLY where a wash colour stands in for it -- scoped to the
+  // three #pj-one-agents .pj-member.pjm-* states. This asserts both halves so a later
+  // edit cannot silently undo either: the stroke is gone on the washed states, AND the
+  // signals that must survive are still there (a deletion ships with an absence check).
+  const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  for (const cls of ['pjm-working', 'pjm-attn', 'pjm-idle']) {
+    assert.match(page, new RegExp('#pj-one-agents \\.pj-member\\.' + cls + ' \\{\\s*border-color:\\s*transparent;?\\s*\\}'),
+      'the ' + cls + ' member state no longer drops its box stroke (#2804)');
+  }
+  // CONTROL: the base .pj-member stroke is untouched, so the settings (#pjs-members)
+  // and add-agents (#pj-add-agents) member surfaces -- which carry no wash colour --
+  // keep their outline. Removing the base border would over-apply Josh's ask.
+  assert.match(page, /\.pj-member \{[^}]*border:\s*0\.5px solid var\(--separator\)/,
+    'the base .pj-member stroke was removed too, stripping the stroke off surfaces with no wash to replace it');
+  // CONTROL: an unseen member keeps its dashed presence border -- that is the
+  // "we cannot see this agent" signal (#33408), a different dimension from the three
+  // states, and is NOT what Josh asked to drop.
+  assert.match(page, /\.pj-member\.unseen \{[^}]*border-style:\s*dashed/,
+    'the unseen member lost its dashed presence border');
+});
+
 test('the free-agent picker names the not-signed-in state distinctly on a 403 (#2023)', () => {
   /* The signin branch of `emptyBecause` had no assertion: the harness above only
      BINDS BOARD_NEEDS_SIGNIN to stop a ReferenceError, it never sets it true and
