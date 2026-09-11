@@ -6781,8 +6781,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 :root[data-theme="dark"] .dremove .dhint, :root[data-theme="dark"] .detail .dremove .fhint, :root[data-theme="dark"] .detail .dremove .fmsg { color: var(--label-2); }
 :root[data-theme="dark"] .dremove .btn-quiet { color: var(--label); }
 :root[data-theme="dark"] .pjpill.attn { color: #ff8c82; }
-/* The explicit-toggle mirror of the --label-2 pj-msg-when contrast fix above
-   (see the @media prefers-color-scheme: dark block): 4.48:1 -> 6.65:1. */
+/* The project-message timestamp uses --label-3, which in dark
+     (rgba(255,255,255,0.47)) lands at 4.48:1 against the thread background --
+     just under the WCAG AA 4.5 floor the render-thread check enforces. Scope
+     this ONE caption up to --label-2 (6.65:1); do NOT move the global --label-3
+     token, which would shift every tertiary label in the UI. */
 :root[data-theme="dark"] .pj-msg .pj-msg-when { color: var(--label-2); }
 :root[data-theme="dark"] .pj-row.attn { border-color: rgba(255,140,130,.55); }
 :root[data-theme="dark"] .acard.attn { border-color: rgba(255,140,130,.55); box-shadow: 0 1px 3px rgba(255,140,130,.14); }
