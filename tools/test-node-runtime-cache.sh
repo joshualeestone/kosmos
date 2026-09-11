@@ -29,7 +29,7 @@ W="$(ln 'WANT="$(grep')"                               # WANT extracted from the
 C="$(ln 'cp "$NODE_CACHE/$TARBALL" "$TMP/$TARBALL"')"  # the cache-hit copies INTO the same "$TMP/$TARBALL" the verify+extract use
 V="$(ln 'checksum mismatch on $TARBALL')"              # the final verify's abort message
 T="$(ln 'tar -xzf "$TMP/$TARBALL"')"                   # extraction of the (by now verified) bytes
-G="$(ln 'mkdir -p "$NODE_CACHE"')"                     # the populate gate (checksum-match && writable cache dir); content-anchored, survives a reformat
+G="$(ln 'if [ "$(shasum -a 256 "$TMP/$TARBALL"')"      # the populate CHECKSUM gate: keeps the write coupled to the checksum-match (not merely to a mkdir), and is content-anchored so a reformat of the trailing line-continuation does not red it. Unique: the cache-hit gate hashes "$NODE_CACHE/$TARBALL" and the final verify is `GOT="$(...`, so head -1 lands on this populate gate.
 P="$(ln 'cp "$TMP/$TARBALL" "$NODE_CACHE')"            # the cache write
 
 # WANT must be resolved from the freshly-fetched SHASUMS before any cache decision.
