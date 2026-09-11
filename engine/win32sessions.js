@@ -28,6 +28,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
+const { withFileLock } = require('./filelock');
 
 /* #1443: DERIVED LIVE, not frozen at require. store.ROOT is a getter so a later
    AGENT_WORKFORCE_DATA/AGENT_WORKFORCE_HOME change is honoured; baking DIR/FILE
@@ -41,6 +42,19 @@ function file() { return path.join(dir(), 'record.json'); }
    tree is private by default, not the mode bit. Kept for the Mac path and as a
    floor, same "single local user" trust model as the rest of the store. */
 const FILE_MODE = 0o600;
+
+/* How long a write waits for the record's lock before refusing (#2669). The wait
+   is synchronous and blocks the caller's whole process, and one caller is a
+   supervisor's stdout handler, so it is kept far below filelock's 2s default. A
+   holder's critical section is one small read, one small write and one rename (milliseconds), so
+   250ms still outlasts any live holder. So a refusal needs a holder that died
+   mid-write, whose lock stays until filelock's 10s staleness rule collects it.
+   What each writer does then:
+   - a rekey retries for a minute, and heals;
+   - a create's first launch is refused into the task log, and the create fails
+     with its timeout sentence;
+   - a removal ignores it, leaving a stale row that matches nothing live. */
+const RECORD_LOCK_WAIT_MS = 250;
 
 /* A session id is a UUID from `claude agents --json`. The charset gate keeps a
    malformed id out of the store key and out of any later shelling; we do not
@@ -87,14 +101,44 @@ function read() {
 }
 
 /**
- * Mark a session Kosmos created. Called by create.js at launch, the win32
- * analog of setting the tmux `@kosmos_agent` option. Never throws at a caller.
- * Returns { ok:true } or { ok:false, because }.
+ * Read, change and write the record under its lock.
+ *
+ * 🔑 WHY A LOCK (#2669). Every write is a whole-file read-modify-write, so two
+ * writers that interleave each read the old file, and the later rename drops the
+ * earlier one's row while both report ok. That was a narrow window while only
+ * create and removal wrote. A running supervisor now writes too, whenever a
+ * `/clear` gives its agent a new session id, and that can land in the middle of
+ * another agent's create. `change` gets the current record and returns the one to
+ * write, or null when there is nothing to write.
  *
  * ⚠️ The write is atomic (temp + rename) because the roster reads this on every
- * board tick while create writes it, and a half-written record read mid-write
- * would be a parse fault -- which fails safe here (empty), but a torn read that
- * happened to parse is the hazard rename removes.
+ * board tick while it is written, and a torn read that happened to parse is the
+ * hazard rename removes. Readers take no lock: a rename is all-or-nothing.
+ */
+function rewrite(failure, change) {
+  const fail = (e) => ({ ok: false, because: failure + ' (' + ((e && e.code) || 'unknown') + ')' });
+  try { fs.mkdirSync(dir(), { recursive: true }); } catch (e) { return fail(e); }
+  let held;
+  try {
+    held = withFileLock(file(), () => {
+      const next = change(read());
+      if (!next) return { ok: true };
+      try {
+        const tmp = file() + '.' + process.pid + '.tmp';
+        fs.writeFileSync(tmp, JSON.stringify(next) + '\n', { mode: FILE_MODE });
+        fs.renameSync(tmp, file());
+      } catch (e) { return fail(e); }
+      return { ok: true };
+    }, { busy: failure + ' (the record is busy, ELOCKBUSY)', cannotAccess: failure + ' (we could not lock it)', waitMs: RECORD_LOCK_WAIT_MS });
+  } catch (e) { return fail(e); }
+  return held.ok ? held.value : { ok: false, because: held.because };
+}
+
+/**
+ * Mark a session Kosmos created: create's launch, and a running supervisor whose
+ * agent's session id changed under it (a `/clear`, #2669). The win32 analog of
+ * setting the tmux `@kosmos_agent` option. Never throws at a caller.
+ * Returns { ok:true } or { ok:false, because }.
  */
 function record(sessionId, meta) {
   if (!validId(sessionId)) return { ok: false, because: 'that is not a session id we can key a record under' };
@@ -105,17 +149,10 @@ function record(sessionId, meta) {
   // (claim===name) read as ours, with no agent behind it. A real create-side name
   // is never blank, so this only rejects the degenerate case.
   if (!validName(name)) return { ok: false, because: 'a Kosmos-created session must record the name it runs under' };
-  let current = read();
-  current[sessionId] = { name, runner, at: new Date().toISOString() };
-  try {
-    fs.mkdirSync(dir(), { recursive: true });
-    const tmp = file() + '.' + process.pid + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(current) + '\n', { mode: FILE_MODE });
-    fs.renameSync(tmp, file());
-  } catch (e) {
-    return { ok: false, because: 'we could not write the ownership record (' + (e && e.code || 'unknown') + ')' };
-  }
-  return { ok: true };
+  return rewrite('we could not write the ownership record', (current) => {
+    current[sessionId] = { name, runner, at: new Date().toISOString() };
+    return current;
+  });
 }
 
 /**
@@ -126,21 +163,14 @@ function record(sessionId, meta) {
  */
 function forget(sessionId) {
   if (!validId(sessionId)) return { ok: false, because: 'not a session id we hold' };
-  const current = read();
-  // hasOwnProperty, not `in`: `in` walks the prototype chain, so `forget("toString")`
-  // (a valid, unreserved id that names an Object.prototype member) would see a phantom
-  // hit and fall through to a no-op delete + needless rewrite. Match isOurs's discipline.
-  if (!Object.prototype.hasOwnProperty.call(current, sessionId)) return { ok: true };
-  delete current[sessionId];
-  try {
-    fs.mkdirSync(dir(), { recursive: true });
-    const tmp = file() + '.' + process.pid + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(current) + '\n', { mode: FILE_MODE });
-    fs.renameSync(tmp, file());
-  } catch (e) {
-    return { ok: false, because: 'we could not update the ownership record (' + (e && e.code || 'unknown') + ')' };
-  }
-  return { ok: true };
+  return rewrite('we could not update the ownership record', (current) => {
+    // hasOwnProperty, not `in`: `in` walks the prototype chain, so `forget("toString")`
+    // (a valid, unreserved id that names an Object.prototype member) would see a phantom
+    // hit and fall through to a no-op delete + needless rewrite. Match isOurs's discipline.
+    if (!Object.prototype.hasOwnProperty.call(current, sessionId)) return null;
+    delete current[sessionId];
+    return current;
+  });
 }
 
 /** Is this exact session one Kosmos created? The fail-closed ownership question. */

@@ -272,6 +272,18 @@ function publisher(name, opts) {
          its own, so it clears nothing. */
       if (was) clear(was.pid);
     },
+    /** The running session's id rotated under it (a `/clear` does this, #2669).
+        Re-stamp the file with the new id so `stateFor` still matches the live
+        row; the pid and the state token do not change, so the write is forced. */
+    rekey(sessionId) {
+      if (!current) return;
+      if (typeof sessionId !== 'string' || !sessionId || sessionId === current.sessionId) return;
+      generation += 1;    // a retry armed under the old id must not act for the new
+      retrying = false;
+      current.sessionId = sessionId;
+      written = null;     // force the rewrite though the state token is unchanged
+      flush();
+    },
   };
 }
 

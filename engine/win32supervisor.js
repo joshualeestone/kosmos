@@ -354,7 +354,14 @@ if (require.main === module) main(process.argv.slice(2));
 /* ── the streaming supervisor (7c-1) ───────────────────────────────────────── */
 
 /* A stream sink that records nothing: the default, so only `main()` publishes. */
-const NO_STREAM = { started() {}, event() {}, wrote() {}, stopped() {} };
+const NO_STREAM = { started() {}, event() {}, wrote() {}, stopped() {}, rekey() {} };
+
+/* How long between attempts to record an agent's new session id after a `/clear`
+   (#2669), and how many attempts. The failures worth retrying are short: a rename
+   refused while the board reads the file, or the record's lock held by another
+   writer. Thirty tries two seconds apart give those a full minute. */
+const REKEY_RETRY_MS = 2 * 1000;
+const REKEY_ATTEMPTS = 30;
 
 /** How much of a dying agent's stderr rides on its `died` line. Enough for the
     one sentence that explains a crash; small enough that a chatty agent cannot
@@ -416,6 +423,8 @@ function superviseStreaming(spec, opts) {
      a real token store. */
   const retireRun = typeof o.retireRun === 'function' ? o.retireRun
     : (name, instance) => require('./win32create').retireRun(name, instance);
+  /* The ownership record, injectable so a test can make a record fail. */
+  const sessions = o.sessions || win32sessions;
 
   /* Where the agent's working/idle goes (7c-5). The default does nothing, so no
      suite that drives this loop writes state files; `main()` passes the real
@@ -427,8 +436,89 @@ function superviseStreaming(spec, opts) {
   let lastStart = 0;
   const handle = { sessionId: s.resumeSessionId || null };
 
+  /**
+   * Follow the session id when it changes under a running agent (#2669).
+   *
+   * 🛑 A `/clear` ROTATES A STREAMING SESSION'S ID: same pid, new `session_id`.
+   * Measured on the box, fresh and `--resume`d alike: `conversation_reset` still
+   * carries the old id, then a `system`/`init` carries the new one, then a
+   * `result`, all within a tenth of a second. Three
+   * holders of the old id must follow it, or the agent drops off the board:
+   * ownership (`win32sessions`, which `win32live` joins the live list through),
+   * the resume id (`handle.sessionId`, which a crash relaunch `--resume`s), and
+   * the 7c-5 state file (`stream.rekey`).
+   *
+   * Gated on `system`/`init` ONLY: it is the one event that opens every turn and
+   * carries the id. Hook events carry it too but depend on configuration, and a
+   * looser gate would fire this once per event.
+   *
+   * 🔑 RECORD THE NEW ID BEFORE FORGETTING THE OLD, so an interruption leaves the
+   * agent visible under two ids, never under none. The resume id moves only after
+   * the record succeeds, so a failed record never strands it on an unrecorded
+   * session.
+   */
+  function followSessionId(e) {
+    if (!e || e.type !== 'system' || e.subtype !== 'init') return;
+    const id = e.session_id;
+    if (typeof id !== 'string' || !id || id === handle.sessionId) return;
+    /* A chain is already retrying this id. A second `init` for it (the turn of a
+       message queued behind the /clear) must not start a second chain: that doubled
+       the lock traffic and the log, and a late chain could re-run the rekey with the
+       new id as the "old" one and forget the agent's live row (review round 5). */
+    if (id === pendingRekey) return;
+    rekeyTo(id, child, 1);
+  }
+
+  /* 🛑 A FAILED RECORD IS RETRIED, because it does not heal on its own: with the
+     new id unrecorded the agent has no card, so no message reaches it, so no later
+     `init` comes along to try again. Retries stop when this child is replaced or
+     the loop stops, when a newer id supersedes this one, or after REKEY_ATTEMPTS.
+     `stop()` also clears `child`, so a stopped loop fails both `running` and
+     `child === owner`; a test pins that a retry after a stop writes nothing. */
+  let pendingRekey = null;
+  function rekeyTo(id, owner, attempt) {
+    const oldId = handle.sessionId;
+    let rec;
+    try { rec = sessions.record(id, { name: s.name, runner: s.runner }); }
+    catch (err) { rec = { ok: false, because: 'we could not record its new session (' + ((err && err.code) || 'unknown') + ')' }; }
+    if (!rec || !rec.ok) {
+      const why = (rec && rec.because) || 'we could not record its new session';
+      const last = attempt >= REKEY_ATTEMPTS;
+      /* Pending while a retry is armed; cleared on giving up, so a later `init` for
+         the same id can start trying again. */
+      pendingRekey = last ? null : id;
+      if (attempt === 1 || last) {
+        onEvent({ action: 'rekey-failed', sessionId: id,
+          because: 'its session changed from ' + oldId + ' to ' + id + ', but ' + why + (last ? '; we stopped trying' : '; we will keep trying') });
+      }
+      if (!last) timer(() => { if (running && child === owner && pendingRekey === id) rekeyTo(id, owner, attempt + 1); }, REKEY_RETRY_MS);
+      return;
+    }
+    pendingRekey = null;
+    handle.sessionId = id;
+    stream.rekey(id);
+    if (oldId) {
+      /* Said, not swallowed: a stale row is harmless only while nothing runs under
+         the old id, and `claude --resume <old id>` would join the live list under
+         this agent's name -- the duplicate-name case win32live's header warns of. */
+      let forgot;
+      try { forgot = sessions.forget(oldId); }
+      catch (err) { forgot = { ok: false, because: 'we could not update the ownership record (' + ((err && err.code) || 'unknown') + ')' }; }
+      if (!forgot || !forgot.ok) {
+        onEvent({ action: 'forget-failed', sessionId: oldId,
+          because: 'its old session ' + oldId + ' is still recorded under its name: ' + ((forgot && forgot.because) || 'unknown') });
+      }
+    }
+    onEvent({ action: 'rekeyed', sessionId: id, from: oldId, because: 'its session changed from ' + oldId + ' to ' + id });
+  }
+
   function attach(c, runInstance) {
     child = c;
+    /* A new child owns no retry its dead predecessor left pending. The old chain
+       already stops on `child === owner`, but the flag would stay set and make
+       `followSessionId` swallow this child's genuine `init` for the same id
+       (review round 6). */
+    pendingRekey = null;
     /* 🔑 THE EVENT STREAM IS READ, and that is what gives a Windows card its
        working/idle (7c-5): `claude agents --json` lists no status for a
        streaming session. Reading stdout also retires the old question of what
@@ -436,7 +526,12 @@ function superviseStreaming(spec, opts) {
        a late line from a child already replaced says nothing about the new one. */
     const { lineReader, parseEvent } = require('./win32streamstate');
     if (c.stdout && typeof c.stdout.on === 'function') {
-      const feed = lineReader((line) => { if (child === c) stream.event(parseEvent(line)); });
+      const feed = lineReader((line) => {
+        if (child !== c) return;
+        const e = parseEvent(line);
+        followSessionId(e);   // before the state sink, so a rekey lands before the turn's events
+        stream.event(e);
+      });
       c.stdout.on('data', feed);
     }
     /* stderr is drained so it can never fill, and its tail is kept so a death can

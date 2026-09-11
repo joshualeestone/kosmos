@@ -306,8 +306,282 @@ function streamSink() {
     event: (e) => calls.push(['event', e && e.type]),
     wrote: () => calls.push(['wrote']),
     stopped: () => calls.push(['stopped']),
+    rekey: (sid) => calls.push(['rekey', sid]),
   };
 }
+
+/* #2669: a /clear rotates the session id; the supervisor must follow it. */
+function clearingSupervisor(name, opts) {
+  const kids = [];
+  const events = [];
+  const sink = streamSink();
+  const oldId = require('node:crypto').randomUUID();
+  win32sessions.record(oldId, { name, runner: 'claude' });
+  const h = sup.superviseStreaming({ name, cwd: 'C:\w', runner: 'claude' }, Object.assign({
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    stream: sink,
+    onEvent: (e) => events.push(e),
+    launch: () => { const c = streamingChild(7000 + kids.length); kids.push(c); return { ok: true, sessionId: oldId, child: c }; },
+  }, opts));
+  const say = (i, obj) => kids[i].stdout.emit('data', Buffer.from(JSON.stringify(obj) + '\n'));
+  return { h, kids, events, sink, oldId, say };
+}
+
+test('#2669 an init with a NEW session id moves ownership, the resume id, and the state file', () => {
+  const t = clearingSupervisor('clr-1');
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });
+  const rec = win32sessions.read();
+  assert.equal(rec[newId] && rec[newId].name, 'clr-1', 'the new id is recorded under the same name');
+  assert.equal(rec[t.oldId], undefined, 'and the old one is forgotten');
+  assert.equal(t.h.sessionId, newId, 'a crash relaunch now resumes the conversation AFTER the clear');
+  assert.ok(t.sink.calls.some((c) => c[0] === 'rekey' && c[1] === newId), 'the state file follows');
+  assert.ok(t.events.some((e) => e.action === 'rekeyed' && e.from === t.oldId && e.sessionId === newId
+    && e.because.includes(t.oldId) && e.because.includes(newId)), 'the task log line names both ids');
+  const iRekey = t.sink.calls.findIndex((c) => c[0] === 'rekey');
+  const iInit = t.sink.calls.findIndex((c) => c[0] === 'event' && c[1] === 'system');
+  assert.ok(iRekey >= 0 && iRekey < iInit, 'the state file follows BEFORE the turn\'s events are published');
+  t.h.stop();
+});
+
+test('#2669 a failed record is RETRIED until it lands -- it cannot heal on its own', () => {
+  let attempts = 0;
+  const timers = [];
+  const forgotten = [];
+  const t = clearingSupervisor('clr-4', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: {
+      record: () => { attempts += 1; return attempts === 1 ? { ok: false, because: 'the record is busy' } : { ok: true }; },
+      forget: (id) => { forgotten.push(id); return { ok: true }; },
+      read: () => ({}),
+    },
+  });
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });
+  assert.equal(t.h.sessionId, t.oldId, 'nothing moves on the failure');
+  const failed = t.events.find((e) => e.action === 'rekey-failed');
+  assert.ok(failed && failed.because.includes(newId) && /keep trying/.test(failed.because));
+  assert.equal(timers.length, 1, 'a retry is armed');
+  timers[0]();
+  assert.equal(t.h.sessionId, newId, 'the retry lands the new id');
+  assert.deepEqual(forgotten, [t.oldId], 'and only then is the old one forgotten');
+  assert.ok(t.events.some((e) => e.action === 'rekeyed'));
+  t.h.stop();
+});
+
+test('#2669 the retry stops when the child is replaced, and gives up after its attempts', () => {
+  let attempts = 0;
+  const timers = [];
+  const failing = { record: () => { attempts += 1; return { ok: false, because: 'broken' }; }, forget: () => ({ ok: true }), read: () => ({}) };
+  const t = clearingSupervisor('clr-5', { setTimer: (fn) => timers.push(fn), sessions: failing });
+  t.say(0, { type: 'system', subtype: 'init', session_id: require('node:crypto').randomUUID() });
+  t.kids[0].die(1);                         // replaced: the relaunch timer is armed after the retry
+  const before = attempts;
+  timers[0]();                              // the rekey retry, for a child that is gone
+  assert.equal(attempts, before, 'a replaced child\'s rekey is not retried');
+  t.h.stop();
+
+  let n = 0;
+  const q = [];
+  const u = clearingSupervisor('clr-6', { setTimer: (fn) => q.push(fn), sessions: { record: () => { n += 1; return { ok: false, because: 'broken' }; }, forget: () => ({ ok: true }), read: () => ({}) } });
+  u.say(0, { type: 'system', subtype: 'init', session_id: require('node:crypto').randomUUID() });
+  while (q.length) q.shift()();
+  assert.equal(n, 30, 'bounded: REKEY_ATTEMPTS tries, then it stops');
+  const said = u.events.filter((e) => e.action === 'rekey-failed');
+  assert.equal(said.length, 2, 'the log says it once when it starts trying and once when it stops, not thirty times');
+  assert.match(said[1].because, /stopped trying/);
+  u.h.stop();
+});
+
+test('#2669 a NEWER id supersedes a pending retry: the older one is never recorded after it', () => {
+  /* Two /clears in a row: B's record fails, then C arrives before B's retry fires.
+     Retrying B would record it after C and move the resume id back to the wrong
+     conversation (review round 3: the `pendingRekey === id` guard was unpinned). */
+  const recorded = [];
+  const timers = [];
+  const t = clearingSupervisor('clr-8', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: { record: (id) => { recorded.push(id); return { ok: false, because: 'the record is busy' }; }, forget: () => ({ ok: true }), read: () => ({}) },
+  });
+  const B = require('node:crypto').randomUUID();
+  const C = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });
+  t.say(0, { type: 'system', subtype: 'init', session_id: C });
+  const before = recorded.length;
+  timers[0]();                              // B's retry fires after C took over
+  assert.ok(!recorded.slice(before).includes(B), 'the superseded id is not retried');
+  timers[1]();                              // C's own retry still runs
+  assert.ok(recorded.slice(before).includes(C), 'the newest id keeps trying');
+  t.h.stop();
+});
+
+test('#2669 a second init for an id already being retried starts no second chain, and never forgets the live row', () => {
+  /* A message queued behind the /clear produces a second init for the same new id
+     while its record is still failing (review round 5). */
+  let attempts = 0;
+  const timers = [];
+  const forgotten = [];
+  const t = clearingSupervisor('clr-10', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: {
+      record: () => { attempts += 1; return attempts <= 2 ? { ok: false, because: 'the record is busy' } : { ok: true }; },
+      forget: (id) => { forgotten.push(id); return { ok: true }; },
+      read: () => ({}),
+    },
+  });
+  const B = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });
+  assert.equal(attempts, 1, 'the second init did not start an attempt of its own');
+  assert.equal(t.events.filter((e) => e.action === 'rekey-failed').length, 1, 'and the log says it once');
+  while (timers.length) timers.shift()();
+  assert.equal(t.h.sessionId, B, 'the one chain lands the new id');
+  assert.deepEqual(forgotten, [t.oldId], 'only the OLD id is forgotten, never the live one');
+  t.h.stop();
+});
+
+test('#2669 after a retry chain gives up, a later init for the same id tries again', () => {
+  let n = 0;
+  const q = [];
+  const t = clearingSupervisor('clr-11', {
+    setTimer: (fn) => q.push(fn),
+    sessions: { record: () => { n += 1; return { ok: false, because: 'broken' }; }, forget: () => ({ ok: true }), read: () => ({}) },
+  });
+  const B = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });
+  while (q.length) q.shift()();
+  assert.equal(n, 30, 'the chain used its attempts');
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });
+  assert.equal(n, 31, 'a chain that gave up does not block a fresh try');
+  t.h.stop();
+});
+
+test('#2669 once a NEWER id lands, the older pending retry never runs again', () => {
+  /* B's record fails and a retry is armed; C then records at once. If the success
+     did not clear the pending id, B's late retry would pass every guard, record B,
+     move the resume id back, and forget C's live row (review round 7). */
+  const B = require('node:crypto').randomUUID();
+  const C = require('node:crypto').randomUUID();
+  let bMayLand = false;
+  const timers = [];
+  const forgotten = [];
+  const t = clearingSupervisor('clr-13', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: {
+      record: (id) => (id === B && !bMayLand ? { ok: false, because: 'the record is busy' } : { ok: true }),
+      forget: (id) => { forgotten.push(id); return { ok: true }; },
+      read: () => ({}),
+    },
+  });
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });   // fails: a retry is armed for B
+  t.say(0, { type: 'system', subtype: 'init', session_id: C });   // lands at once
+  bMayLand = true;                                                  // B would succeed now, if retried
+  while (timers.length) timers.shift()();
+  assert.equal(t.h.sessionId, C, 'the resume id stays on the newest session');
+  assert.ok(!forgotten.includes(C), 'and the live row is never forgotten');
+  t.h.stop();
+});
+
+test('#2669 a relaunched child is never blocked by a retry its dead predecessor left pending', () => {
+  let attempts = 0;
+  const timers = [];
+  const t = clearingSupervisor('clr-12', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: { record: () => { attempts += 1; return { ok: false, because: 'the record is busy' }; }, forget: () => ({ ok: true }), read: () => ({}) },
+  });
+  const B = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });   // fails: a chain for B, owned by child 0
+  t.kids[0].die(1);                                                 // crash: a relaunch is scheduled
+  while (t.kids.length < 2 && timers.length) timers.shift()();      // the dead child's retry no-ops; the relaunch runs
+  assert.equal(t.kids.length, 2, 'the agent was relaunched');
+  const before = attempts;
+  t.say(1, { type: 'system', subtype: 'init', session_id: B });    // the new child announces B
+  assert.equal(attempts, before + 1, 'the new child tries to record it; a stale pending flag does not swallow it');
+  t.h.stop();
+});
+
+test('#2669 a pending rekey retry writes nothing once the loop is stopped', () => {
+  let attempts = 0;
+  const timers = [];
+  const t = clearingSupervisor('clr-9', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: { record: () => { attempts += 1; return { ok: false, because: 'the record is busy' }; }, forget: () => ({ ok: true }), read: () => ({}) },
+  });
+  t.say(0, { type: 'system', subtype: 'init', session_id: require('node:crypto').randomUUID() });
+  const before = attempts;
+  t.h.stop();
+  timers[0]();                              // the retry armed before the stop fires late
+  assert.equal(attempts, before, 'no ownership write after the supervisor was told to stop');
+});
+
+test('#2669 a record that THROWS is a failed record, not a dead supervisor', () => {
+  /* The call runs inside the stdout handler, so a throw that escaped would take the
+     agent's supervisor down with it (review round 10). */
+  const timers = [];
+  const t = clearingSupervisor('clr-14', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: { record: () => { throw Object.assign(new Error('disk said no'), { code: 'EIO' }); }, forget: () => ({ ok: true }), read: () => ({}) },
+  });
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });
+  assert.equal(t.h.sessionId, t.oldId, 'nothing moves');
+  const failed = t.events.find((e) => e.action === 'rekey-failed');
+  assert.ok(failed && /EIO/.test(failed.because), 'the failure is said, with its code');
+  assert.equal(timers.length, 1, 'and it is retried like any failed record');
+  t.h.stop();
+});
+
+test('#2669 a forget that THROWS is said with its code, and the rekey still stands', () => {
+  const t = clearingSupervisor('clr-15', {
+    sessions: { record: () => ({ ok: true }), forget: () => { throw Object.assign(new Error('busy'), { code: 'EBUSY' }); }, read: () => ({}) },
+  });
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });
+  assert.equal(t.h.sessionId, newId, 'the rekey stands');
+  const said = t.events.find((e) => e.action === 'forget-failed');
+  assert.ok(said && said.sessionId === t.oldId && /EBUSY/.test(said.because));
+  t.h.stop();
+});
+
+test('#2669 a forget that fails is SAID: the old id still answers to this name', () => {
+  const t = clearingSupervisor('clr-7', {
+    sessions: { record: () => ({ ok: true }), forget: () => ({ ok: false, because: 'the record is busy' }), read: () => ({}) },
+  });
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });
+  assert.equal(t.h.sessionId, newId, 'the rekey itself stands');
+  const said = t.events.find((e) => e.action === 'forget-failed');
+  assert.ok(said && said.sessionId === t.oldId && /record is busy/.test(said.because));
+  t.h.stop();
+});
+
+test('#2669 the same id, a hook event carrying a new id, or a replaced child\'s line changes nothing', () => {
+  const t = clearingSupervisor('clr-2', { setTimer: (fn) => fn() });
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: t.oldId });           // the normal first turn
+  t.say(0, { type: 'system', subtype: 'hook_started', session_id: newId });     // config-dependent: not the gate
+  assert.equal(t.h.sessionId, t.oldId);
+  assert.ok(!t.sink.calls.some((c) => c[0] === 'rekey'));
+  t.kids[0].die(1);                                                              // relaunch: kids[1] is current
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });             // a late line from the dead one
+  assert.equal(t.h.sessionId, t.oldId, 'a replaced child cannot move the id');
+  t.h.stop();
+});
+
+test('#2669 a record that FAILS leaves everything on the old id, and says so', () => {
+  const forgotten = [];
+  const t = clearingSupervisor('clr-3', {
+    sessions: { record: () => ({ ok: false, because: 'the store is busy' }), forget: (id) => forgotten.push(id), read: () => ({}) },
+  });
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });
+  assert.equal(t.h.sessionId, t.oldId, 'the resume id is not stranded on an unrecorded session');
+  assert.deepEqual(forgotten, [], 'the old row is kept, so the agent stays visible');
+  assert.ok(!t.sink.calls.some((c) => c[0] === 'rekey'));
+  assert.ok(t.events.some((e) => e.action === 'rekey-failed' && /store is busy/.test(e.because)));
+  t.h.stop();
+});
 
 test('#570 7c-5 the supervisor publishes its agent: the start, every stream event, a flushed write, the death', () => {
   const kids = [];
