@@ -25,8 +25,8 @@ Add ONE verified DOM-state candidate (0 geometry/paint signals):
 - **render-worlds-switcher-1704** - the worlds switcher. Boots server.js IN-PROCESS
   (require('../../server.js') + srv.start(0) on an OS-chosen port) against mkdtemp
   AGENT_WORKFORCE_* roots frozen before the require, with AGENT_WORKFORCE_TMUX_BIN=/bin/echo;
-  reads DOM/text/visibility state. Its waits are the ROBUST kind: ~8 event-driven
-  waitForSelector/waitForFunction condition waits, plus only 2 fixed waitForTimeout settles -
+  reads DOM/text/visibility state. Its waits are the ROBUST kind: 10 event-driven condition
+  waits (4 waitForSelector + 6 waitForFunction), plus only 2 fixed waitForTimeout settles -
   so it does not depend on a fixed sleep landing inside a race window.
 
 It asserts no geometry/computed-color/screenshot/animation/scroll. Mutation-safe: runs
