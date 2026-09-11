@@ -10574,14 +10574,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              role="region" aria-labelledby="pj-question-label"></pre>
         <!-- Mona Lisa's ruled line (2026-08-18): teach the MECHANISM (a
              number typed into the message box is how you answer); the
-             quoted pane above says what the numbers mean. NOT gated on
-             Engineering mode: needed in Off, the default. SHIPS HIDDEN
+             quoted pane above says what the numbers mean. SHIPS HIDDEN
              and follows the question TEXT's own visibility (paintThread):
              in the asking-but-no-capture state there is no quoted pane
              defining the numbers, and the line alone would teach an
              answer to a question nobody can see. Recorded for her: a
              prompt with more than two options makes the trailing numbers
-             wrong; some day the range comes from the pane. -->
+             wrong; some day the range comes from the pane.
+             (#2691: this whole area is inside #pj-thread, now Engineering
+             mode only; the old "needed in Off" note is gone with the
+             Off-mode asking-override.) -->
         <p class="fhint" id="pj-answer-how" hidden style="margin:8px 0 0;">Answer by sending the number: 1 or 2.</p>
         <!-- #2575: clear a STALE waiting state. The agent is NOT actually
              waiting -- it resumed work and never self-cleared the needs_you -- so
