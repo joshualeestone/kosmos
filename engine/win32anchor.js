@@ -174,17 +174,24 @@ const RETIRED_INFIX = '.retired-';
 /* Antivirus and the search indexer routinely hold a handle on a freshly written
    .exe for a moment, and a rename then fails with EPERM, EBUSY or EACCES (the
    reason graceful-fs retries renames on win32). Ten tries 100 ms apart rides that
-   out, about a second at worst, without making a real failure slow to report. */
+   out, about a second at worst, without making a real failure slow to report.
+   ⚠️ The pause is SYNCHRONOUS (ensureAnchored is called synchronously from agent
+   creation inside the board's request handler), so while it waits every other
+   board request waits too. Raising either number trades board responsiveness,
+   not only reporting speed. */
 const RENAME_ATTEMPTS = 10;
 const RENAME_RETRY_DELAY_MS = 100;
 const TRANSIENT_RENAME_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);
 
 /* The sweep leaves a retired interpreter younger than this alone. It may belong
    to another anchoring that moved it aside a moment ago, and that anchoring still
-   needs it to move back if its final rename fails. The swap takes milliseconds,
-   so five seconds is ample. The age is read from the time in the name, because a
-   rename keeps the file's old modification time. */
-const RETIRED_SWEEP_MIN_AGE_MS = 5000;
+   needs it to move back if its final rename fails. Without retries a swap takes
+   milliseconds. Its worst case is three renames (aside, in, back), each
+   retried in full. The margin is DERIVED from the retry budget so the two cannot
+   drift: twice that worst case, about six seconds. The age is read from the time
+   in the name, because a rename keeps the file's old modification time. */
+const SWAP_RENAMES_AT_WORST = 3;
+const RETIRED_SWEEP_MIN_AGE_MS = 2 * SWAP_RENAMES_AT_WORST * RENAME_ATTEMPTS * RENAME_RETRY_DELAY_MS;
 
 function pauseSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
