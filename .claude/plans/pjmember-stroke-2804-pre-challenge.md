@@ -27,14 +27,14 @@ idle/working/needs-help are conveyed by colour alone (#2804). CSS-only, plus one
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 actionable CONVENTIONs, 1 NIT
 **Self-generated:** 0 (nothing had committed yet, ITER_COMMITS empty)
-- [NIT] .claude/plans/pjmember-stroke-2804.md — plan prose used em dashes --> FIXED (6b420de)
-- [CONVENTION] .claude/plans/ — plan file found and implementation matches (positive confirmation, no action)
+- [NIT] .claude/plans/pjmember-stroke-2804.md - plan prose used em dashes --> FIXED (6b420de)
+- [CONVENTION] .claude/plans/ - plan file found and implementation matches (positive confirmation, no action)
 
 #### Iteration 2
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs
 **Self-generated:** 0 (the finding is about server.test.js written in the base branch commit, Origin BRANCH)
-- [WARNING] server.test.js — the over-application control only guarded the base-stroke rule text; a state-unqualified `#pj-one-agents .pj-member { border-color: transparent }` (the exact over-application the plan warns against) would strip present-but-neutral members and pass every assertion --> FIXED (a7ecd0bf): added a `doesNotMatch` guard.
+- [WARNING] server.test.js - the over-application control only guarded the base-stroke rule text; a state-unqualified `#pj-one-agents .pj-member { border-color: transparent }` (the exact over-application the plan warns against) would strip present-but-neutral members and pass every assertion --> FIXED (a7ecd0bf): added a `doesNotMatch` guard.
 
 #### Iteration 3
 **Reviewer model:** opus
@@ -47,8 +47,8 @@ idle/working/needs-help are conveyed by colour alone (#2804). CSS-only, plus one
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 1 NIT
 **Self-generated:** 0
-**Converged** — no new actionable findings; the one NIT is pre-existing and out of scope (below).
-- [NIT] web/index.html:3907 — the pre-existing consolidated-layout rule `body.consolidated .pj-member { border: 0 }` already drops all member borders in that layout, so the "neutral keeps its outline / unseen keeps its dashed border" invariant holds in the tab view only. DEFERRED: not a regression from this diff, and the change is about the tab-view MEMBERS panel Josh's images show. Worth a note if a consolidated-layout review surfaces it.
+**Converged** - no new actionable findings; the one NIT is pre-existing and out of scope (below).
+- [NIT] web/index.html:3907 - the pre-existing consolidated-layout rule `body.consolidated .pj-member { border: 0 }` already drops all member borders in that layout, so the "neutral keeps its outline / unseen keeps its dashed border" invariant holds in the tab view only. DEFERRED: not a regression from this diff, and the change is about the tab-view MEMBERS panel Josh's images show. Worth a note if a consolidated-layout review surfaces it.
 
 ### Final Ledger
 
@@ -64,7 +64,7 @@ idle/working/needs-help are conveyed by colour alone (#2804). CSS-only, plus one
 None.
 
 ### NITs (non-blocking)
-- Consolidated-layout border invariant is layout-conditional (iteration 4) — deferred as pre-existing.
+- Consolidated-layout border invariant is layout-conditional (iteration 4) - deferred as pre-existing.
 
 ### Strengths (across all iterations)
 - `border-color: transparent` (not `border: 0`) preserves box geometry and fills edge to edge via `background-clip: border-box`; id-anchored specificity wins over the base and consolidated rules regardless of source order (iterations 1, 2, 3, 4).
