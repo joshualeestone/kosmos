@@ -52,6 +52,16 @@ field-2 fact for both the cut gate and this banner.
   under `set -u` and red the `test` job), and `kosmos_box_load_1min` itself is already covered by
   `tools/test-cut-load-guard.sh` (including the deterministic field-index arm from #2749).
 
+## One deliberate semantic difference (benign)
+
+`kosmos_box_load_1min` honours the `KOSMOS_FAKE_LOAD` / `KOSMOS_LOADAVG_RAW` seams; the old inline
+read always hit live sysctl. So "identical banner" holds only when neither seam is exported into
+run-tests.sh's OWN shell. This is benign: `seen_before()` runs before any test child process, so a
+test cannot inject those vars back into the runner's env; the banner is diagnostic-only (printed on a
+red suite); and the only way to see a difference is an operator explicitly running
+`KOSMOS_FAKE_LOAD=… yarn test`, where the displayed value is exactly what they asked for. Noted
+rather than guarded against, since guarding would re-introduce a second load-reading path.
+
 ## Weakest premise
 
 That sourcing `cut-load-guard.sh` into `run-tests.sh` introduces no name collision or side effect.
