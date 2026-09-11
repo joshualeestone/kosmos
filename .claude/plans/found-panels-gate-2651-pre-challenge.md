@@ -2,19 +2,19 @@
 pre_challenge: true
 method: challenge-loop
 branch: found-panels-gate-2651
-diff_hash: 56ab400538cae81b4cd3b4d9079b2aa6e23c002e911b17b839f4385a91a0f94c
+diff_hash: ccc357c6d0497d2ad4218b9d43c3258240618b473a5e9c87774dd30670a0d26a
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-11T00:53:50Z
-iterations: 16
+timestamp: 2026-09-11T01:22:59Z
+iterations: 18
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 16
-**Converged:** Yes (two-model witness: iteration 15 on Opus and iteration 16 on Sonnet both returned zero new findings on the final code)
-**Total findings:** 4 BLOCKERs, 15 WARNINGs, several CONVENTION/NIT (all fixed or deliberately deferred)
+**Iterations:** 18 (16 pre-merge to first convergence, then a merge with origin/main and iterations 17-18 to re-witness the merged code)
+**Converged:** Yes. Pre-merge two-model witness at iterations 15 (Opus) and 16 (Sonnet), both zero new. The branch was then merged with origin/main (which had landed a parallel found/scan-panel restructuring); iterations 17 (Opus) and 18 (Sonnet) re-witnessed the merged code and found it clean apart from a merge-mechanics BLOCKER at 17 (a test-harness fix left uncommitted) which was fixed at commit 810252bc, and the stale proof-hash at 18 which this regenerated proof resolves.
+**Total findings:** at least 3 confirmed BLOCKERs (iter10 focus-branch gap, iter14 async off-tab reappearance, iter17 uncommitted-fix red test), plus the interactive-path WARNINGs itemized below (all fixed or deliberately deferred)
 **Fixed:** all BLOCKERs and all actionable WARNINGs | **Deferred (accepted, documented on the plan):** 2 residuals | **Asked:** 0
 
 The gated change (kosmos#2651a) stops the found/scan discovery panels from auto-scanning-and-showing on Agents-page load; they now open only behind an explicit "Look for agents" press (`DISCOVERY_OPENED`, not persisted). The core gate itself never drew a finding in any of the 16 passes. Every finding was on the surrounding interactive path (the empty-look message that was removed, keyboard focus, fetch robustness, browser compatibility, and an async tab-switch race), which is exactly where the risk in this kind of frontend change lives.
@@ -91,6 +91,22 @@ Traced every path (poll, showTab, direct press, stale flag, mid-fetch tab change
 - [WARNING -> DUPLICATE] web/index.html - paintDiscoveryTrigger's docstring reads as an unconditional "a dismissed person is not re-offered the look", but a fresh load re-offers the trigger once until the fetch re-teaches the dismissal. The reviewer explicitly identified this as the accepted, plan-documented residual #1 ("not a hidden defect... flagging only [the] comment phrasing") --> DEDUPLICATED against residual #1; the comment-precision point recorded as a NIT below (not fixed, to avoid resetting the two-model convergence for a cosmetic phrasing change).
 **Converged** - no new actionable findings across two different models on the final code.
 
+#### Merge with origin/main (between iterations 16 and 17)
+origin/main had landed a parallel restructuring of the found/scan panels (the descriptive sentence moved into a new `#found-desc`/`#scan-desc` element; the toggle carries only the Show/Hide verb; the dismiss handlers use a `.found-x-say` message element). Merged it in (commit e1912b4b). Conflicts resolved: the two dismiss handlers kept BOTH this branch's `DISCOVERY_DISMISSED` gate-sync AND main's `.found-x-say` message; the reason-grep guard counts merged to 95 finding-emit / 65 catch/launch (this branch's render-discovery-gate +2, main's render-remove-force +1 and render-autohello +1); the browser-checks.sh runner loop unioned both sides' checks. `web.layout-picker.test.js` came back byte-identical to origin/main (the iteration-9 revert). The merge changed this branch's primary file, so iterations 17-18 re-witness the merged code.
+
+#### Iteration 17
+**Reviewer model:** opus (merge-integration review)
+**New findings:** 1 BLOCKER, 0 WARNINGs
+**Self-generated:** 1 (a merge-mechanics slip)
+- [BLOCKER] web.found-board.test.js - the merge added a `#scan-desc` requirement to paintScanBoard, and the branch's paintScan test harness needed to mock it. The fix was made in the working tree and verified 12/12, but completing the merge git-added only the three conflict files, so the auto-merge-staged test file was committed at its pre-fix content and the fix stayed uncommitted; the committed HEAD was red on the two scan-gate tests --> FIXED: committed the paintScan `#scan-desc` mock (commit 810252bc). Everything else in the merge was verified clean (gate holds, focus branches, feature-guarded timeout, Promise.all, browser check 6 arms, reason-grep 95/65).
+
+#### Iteration 18
+**Reviewer model:** sonnet (final witness of the committed merged code)
+**New findings:** 0 code findings; 1 proof-mechanics BLOCKER
+**Self-generated:** 0
+- [BLOCKER -> proof mechanics] the committed proof's diff_hash was computed at 91a0c9a2, before the merge (e1912b4b) and the post-merge fix (810252bc), so it no longer matched the committed diff and pre-challenge-gate would refuse `gh pr create` --> RESOLVED by this regenerated proof (diff_hash recomputed at the merged HEAD, independently confirmed: ccc357c6...). Iteration 18 verified the merged CODE is clean: 12/12 unit tests, reason-grep 5/5 (counts genuinely correct, not just asserted), the 6-arm browser check passes under a real Playwright run, no em dashes, no merge markers, no dangling references. No code finding.
+**Converged** - both models witnessed the merged code clean; the only non-code items were the merge-mechanics fixes above.
+
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
@@ -113,6 +129,8 @@ Traced every path (poll, showTab, direct press, stale flag, mid-fetch tab change
 | 16 | 14 | BLOCKER | web/index.html | BRANCH | panel reappears off-tab after a mid-fetch candidate (#2025) | FIXED | d0de69d7 |
 | 17 | 14 | WARNING | render-discovery-gate-2651.js | SELF | arm 6 asserted only focus / empty fixture (could not catch #16) | FIXED | d0de69d7 |
 | 18 | 16 | WARNING | web/index.html | BRANCH | paintDiscoveryTrigger docstring overstates the dismiss guarantee | DEFERRED | duplicate of residual #1; NIT below |
+| 19 | 17 | BLOCKER | web.found-board.test.js | SELF | merge left the paintScan #scan-desc harness fix uncommitted; committed HEAD red | FIXED | 810252bc |
+| 20 | 18 | BLOCKER | .claude/plans/...-pre-challenge.md | SELF | stale diff_hash (pre-merge) would fail the PR gate | FIXED | this regenerated proof (ccc357c6) |
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 None. No finding was ever marked ASKED; every product/scope call (the two accepted residuals) was decided under standing Kosmos authority and documented on the plan, not routed to the operator.
