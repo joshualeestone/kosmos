@@ -149,8 +149,12 @@ const FX = {
         const theirs = parse(m.theirsBg);
         // (a) filled at all -- not the transparent #2660 state.
         chk(theirs[3] > 0, `${t} the agent bubble carries a fill (not transparent)`, m.theirsBg);
-        // (b) not the person's blue.
-        chk(delta(over(m.theirsBg, m.talkBoxBg), over(m.mineBg, m.talkBoxBg)) > 8,
+        // (b) not the person's blue. Threshold 4, not 8: at today's exact tokens
+        // the real gray-vs-blue delta is ~8.65 (light), so a tighter bound risks a
+        // false RED on a legitimate retune of either token. A reused-blue regression
+        // (theirs == mine) gives delta ~0 and still fails here; the neutral-gray arm
+        // (d) is a second backstop for it, since blue's channel spread is large.
+        chk(delta(over(m.theirsBg, m.talkBoxBg), over(m.mineBg, m.talkBoxBg)) > 4,
           `${t} the agent gray is distinct from the person's blue`,
           `theirs=${m.theirsBg} mine=${m.mineBg}`);
         // (c) distinct from the surface it sits on -- did NOT dissolve.
