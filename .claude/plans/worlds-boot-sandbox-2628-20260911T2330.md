@@ -120,3 +120,25 @@ guard.
     LAUNCH is one of #634's four roots, so setting it alone makes the launch itself
     half-sandboxed and the board would refuse. `AGENT_WORKFORCE_DRY_RUN=1` was
     added instead, and the reason is in the test.
+- **Between rounds (merge-order hazard, found by us).** The new board-world test's
+  control assumed a post-world env always moves the anchor. With PR #2845 in, its
+  marker-aware `anchorDir` maps a world env back to the launch roots, so the
+  control went vacuous and failed in a combined tree. Both env comparisons now use
+  the post-world env with the #2845 marker stripped (`worldOnlyEnv`), so the tests
+  hold whichever PR lands first. Verified in both trees:
+  - this branch alone: 38/38;
+  - #2845 plus this branch: 179/180, with the one failure the known Windows
+    baseline (`worlds.registry-1704`).
+- **Round 2 (sonnet): no bug.** It verified that `launchEnv` is frozen before any
+  override (the abandon path included), that `machineEnv` is used by
+  `anchorDirFor`, `install` and `restart`, and that `LAUNCH_ENV_OVERRIDES` is
+  captured with nothing in between. Its two [NIT]s:
+  - `startedByTask` still reads process.env. Left as is: its one key
+    (`KOSMOS_WIN32_BOARD_TASK`) is never a world root, so the two envs always agree
+    on it.
+  - The `machineEnv` comment wrongly cited the detached restart helper as having
+    the launch env; it inherits the board's post-world env. Corrected: the comment
+    now says it is safe only because it derives no machine path, and that anything
+    added to it must be handed the launch env.
+
+  Converged.

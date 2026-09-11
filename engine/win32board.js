@@ -282,9 +282,13 @@ function bundleRoot(opts) {
    named-world boot would re-register the logon task against a runtime copied under
    the world, read its claim file from the world (so a task the person removed would
    be re-created), and write a restart's log into a folder that does not exist.
-   worldenv captures the launch env before it applies any world; before a boot (a
-   unit test, the detached restart helper) there is none, and process.env is the
-   launch env, exactly as before. */
+   worldenv captures the launch env before it applies any world. Before a boot (a
+   unit test) there is none, and process.env is the launch env, exactly as before.
+   ⚠️ The detached restart helper is NOT such a case: it is spawned by the board and
+   inherits the board's POST-world process.env, with no launch env of its own. It is
+   safe only because it derives no machine path (it ends and runs the task, and
+   `restart` hands it the log path). Anything added to it that needs one must be
+   passed the launch env explicitly (review round 2). */
 function machineEnv(o) {
   if (o && o.env) return o.env;
   let launch = null;
