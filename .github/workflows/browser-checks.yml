@@ -235,4 +235,8 @@ jobs:
             render-plus-gate-1615
             render-remove-force-2651
             render-firstrun-connect-fires
+            render-model-change
+            render-url-state
+            render-trust-restart-0644
+            render-restore-dircheck-2615
         run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
