@@ -3918,6 +3918,10 @@ const server = http.createServer((req, res) => {
   if (rs && req.method === 'POST') {
     const name = decodeSegment(rs[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    // #2827: restore re-enables the agent's launch job, so it runs again -- a spawn.
+    // In a named world its board token would be refused, so refuse the restore there.
+    const nwr = namedWorldSpawnRefusal();
+    if (nwr) { sendJson(res, nwr.code, { error: nwr.error }); return; }
     let back;
     try { back = removal.restore(name); }
     catch (err) { sendJson(res, 500, { error: 'we could not put this agent back', detail: String(err && err.message || err) }); return; }
@@ -6706,6 +6710,10 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { ok: false, because: 'we could not read that request' }); return; }
+        // #2827: connecting a discovered agent INSTALLS a launch job and STARTS it,
+        // so it is a spawn -- refuse it in a named world just like the create routes.
+        const nw = namedWorldSpawnRefusal();
+        if (nw) { sendJson(res, nw.code, { ok: false, because: nw.error }); return; }
         /* 🔑 THE FIRST AGENT BRINGS ITS OWN HOME, WHETHER IT WAS MADE OR IMPORTED
            (#1349). The seed lived only in the create route, so a person whose
            first agents are IMPORTED landed on an empty Projects tab -- the first

@@ -70,6 +70,28 @@ test('POST /api/team in a named world is refused (409) before any team is spawne
   assert.match(String(body.error || ''), NAMED_MSG);
 });
 
+test('POST /api/connect-agent in a named world is refused (409) before the agent is started', async () => {
+  // connect installs a launch job and STARTS the agent (discover.connect), so it is a
+  // spawn. The guard runs before that, so even a bogus dir gets the named-world 409.
+  stubBooted('mars');
+  const res = await post('/api/connect-agent', { dir: '/tmp/does-not-matter-guard-fires-first' });
+  assert.equal(res.status, 409);
+  const body = await res.json();
+  // This route answers { ok, because }, not { error }.
+  assert.equal(body.ok, false);
+  assert.match(String(body.because || ''), NAMED_MSG);
+});
+
+test('POST /api/agent/:name/restore in a named world is refused (409) before the job is re-enabled', async () => {
+  // restore re-enables the launch job, so it runs again -- a spawn. The guard runs
+  // before removal.restore, so even an unknown name gets the named-world 409.
+  stubBooted('mars');
+  const res = await post('/api/agent/nobody/restore', {});
+  assert.equal(res.status, 409);
+  const body = await res.json();
+  assert.match(String(body.error || ''), NAMED_MSG);
+});
+
 test('CONTROL: the DEFAULT world (bootedWorld = DEFAULT_ID) is allowed past the guard', async () => {
   stubBooted(worlds.DEFAULT_ID);
   const res = await post('/api/agents', { name: 'defaultworldagent' });

@@ -12,9 +12,17 @@ LAUNCH), yet nothing enforced that, so the broken state was reachable.
 ## Fix (direction 1: enforce the v1 rule)
 
 Refuse to spawn an agent when the board is booted into a named world. A single shared
-guard at the server layer covers both spawn routes:
+guard at the server layer covers every route that installs/starts a runnable agent:
 - `POST /api/agents` (create.createAgent)
 - `POST /api/team` (team.createTeam)
+- `POST /api/connect-agent` (discover.connect -> create.installJob: installs a launch
+  job and starts the agent) -- found by challenge review; the original two-route
+  enumeration was incomplete (fix the CLASS: any route that installs a launch job).
+- `POST /api/agent/:name/restore` (removal.restore re-enables the launch job)
+
+Not spawns (checked): `/api/agent-import*` only parses and hands material to
+`/api/agents`; `worlds.importAgents` copies profile/avatar display data (identity
+stripped), installing no job; `/api/first-run/complete` seeds an empty project only.
 
 Guard: `namedWorldSpawnRefusal()` reads `worldenv.bootedWorld()`.
 - null (a never-bootstrapped unit board) -> allow (do not break tests).
