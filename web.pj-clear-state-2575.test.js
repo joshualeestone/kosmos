@@ -3,10 +3,10 @@
 /**
  * kosmos#2575 (STATE half): the "Not waiting? Clear it" button clears a STALE
  * needs_you through Pete's engine route (POST /api/agent/<name>/clear-selfreport)
- * and re-reads the thread so the question comes off screen. Distinct from the
- * head "Hide" (the DISPLAY half, #2575 display: a per-session collapse that keeps
- * the safety breadcrumb because the agent IS waiting). This runs the real
- * pjClearState lifted from the page, so the wiring is exercised, not restated.
+ * and re-reads the thread so the question comes off screen. (#2575 also had a
+ * DISPLAY half, the head "Hide" button + safety breadcrumb; #2691 removed that,
+ * so only this STATE-clear control remains.) This runs the real pjClearState
+ * lifted from the page, so the wiring is exercised, not restated.
  *
  *   node --test web.pj-clear-state-2575.test.js
  */
