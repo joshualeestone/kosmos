@@ -1,15 +1,19 @@
 'use strict';
-/* #2255: emoji reactions on room posts, checked in the real painted room.
+/* #2255 emoji reactions on room posts, hover-restyled in #2806, checked in the real
+ * painted room.
  *
- * The operator opens a project room, reacts to a post from the "+" palette, sees
- * the pill appear with a count and the gold `.mine` accent, and toggles it back
- * off. Driven against the SHIPPED page + the real react route (never a copy):
- * self-boots a sandboxed server, creates a project + an agent on it, posts a
- * message, opens the room, and interacts.
+ * #2806 (Josh): the always-visible "+" is gone. On message hover a `.rxn-quick` bar
+ * reveals three default reactions plus a grey-smiley `.rxn-more` that opens the FULL
+ * emoji picker (PJ_EMOJI). This check drives that shape: it asserts no "+", the three
+ * quick defaults, the hover-reveal (opacity 0 -> 1), the smiley opening the full
+ * picker, a picker emoji adding a pill with count + gold `.mine`, the toggle-off
+ * round-trip control, and Escape closing the picker. Driven against the SHIPPED page
+ * + the real react route (never a copy): self-boots a sandboxed server, creates a
+ * project + an agent, posts a message, opens the room, and interacts.
  *
- * DOM-state assertions only (a pill's presence, its count text, aria-pressed,
- * the palette's hidden flag), so headless + mode-independent. A control proves
- * the toggle round-trips: reacting twice with the same emoji leaves NO pill.
+ * DOM-state + computed-opacity assertions only, so headless + mode-independent. A
+ * control proves the toggle round-trips: reacting twice with the same emoji leaves
+ * NO pill.
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-reactions-2255.js
  */
@@ -77,32 +81,53 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       await p.click('[data-tab="projects"]');
       await p.locator('#pj-list').getByText(pjName, { exact: true }).first().click();
       await p.waitForSelector('#pj-room', { state: 'visible' });
-      // Wait for the post's reaction row (the "+" opener) to paint.
-      await p.waitForSelector('#pj-room .msg-b .rxns .rxn-add', { timeout: 15000 }).catch(() => {});
+      // Wait for the post's reaction row (the hover-revealed grey-smiley opener) to paint.
+      await p.waitForSelector('#pj-room .msg-b .rxns .rxn-more', { timeout: 15000 }).catch(() => {});
 
+      // #2806: the "+" is gone; the affordance is a hover-gated .rxn-quick bar (three
+      // defaults + the grey-smiley .rxn-more) plus the full picker it opens.
       const initial = await p.evaluate(() => {
         const box = document.querySelector('#pj-room .msg-b .rxns');
+        const quick = box && box.querySelector('.rxn-quick');
         return { hasRow: !!box, pills: box ? box.querySelectorAll('.rxn').length : -1,
-          hasAdd: !!(box && box.querySelector('.rxn-add')),
+          hasOldPlus: !!(box && box.querySelector('.rxn-add')),
+          hasMore: !!(box && box.querySelector('.rxn-more')),
+          quickDefaults: quick ? quick.querySelectorAll('.rxn-pick').length : -1,
+          quickOpacity: quick ? Number(getComputedStyle(quick).opacity) : null,
           pickerHidden: box && box.querySelector('.rxn-picker') ? box.querySelector('.rxn-picker').hidden : null };
       });
-      if (initial.hasRow && initial.hasAdd) ok(t + ' a post shows a reaction row with a "+" opener'); else bad(t + ' reaction row + opener', JSON.stringify(initial));
+      if (initial.hasRow && initial.hasMore && !initial.hasOldPlus) ok(t + ' a post shows the grey-smiley opener and NO "+" (removed per #2806)'); else bad(t + ' opener is the smiley, not "+"', JSON.stringify(initial));
+      if (initial.quickDefaults === 3) ok(t + ' the quick bar carries exactly three default reactions'); else bad(t + ' three quick defaults', 'n=' + initial.quickDefaults);
       if (initial.pills === 0) ok(t + ' a fresh post has no pills yet'); else bad(t + ' no initial pills', 'pills=' + initial.pills);
-      if (initial.pickerHidden === true) ok(t + ' the quick palette starts hidden'); else bad(t + ' palette starts hidden', String(initial.pickerHidden));
+      if (initial.pickerHidden === true) ok(t + ' the full picker starts hidden'); else bad(t + ' picker starts hidden', String(initial.pickerHidden));
+      // The quick bar is hidden until hover: opacity 0 before we hover the message.
+      if (initial.quickOpacity === 0) ok(t + ' the quick bar is hidden (opacity 0) before hover'); else bad(t + ' quick bar hidden pre-hover', 'opacity=' + initial.quickOpacity);
 
-      // Open the palette.
-      await p.click('#pj-room .msg-b .rxns .rxn-add');
+      // Hover the message -> the quick bar reveals (opacity animates 0 -> 1 over the
+      // .12s CSS transition). Poll for the transition to finish rather than reading
+      // the instant it starts (which catches the animation at ~0). This also makes
+      // the bar's buttons pointer-clickable (pointer-events flips with the reveal).
+      await p.hover('#pj-room .msg-b');
+      const revealed = await p.waitForFunction(() => {
+        const quick = document.querySelector('#pj-room .msg-b .rxns .rxn-quick');
+        return quick && Number(getComputedStyle(quick).opacity) > 0.9;
+      }, { timeout: 3000 }).then(() => true).catch(() => false);
+      if (revealed) ok(t + ' hovering the message reveals the quick bar (opacity -> 1)'); else bad(t + ' hover reveals quick bar', 'opacity stayed low after hover');
+
+      // Click the grey smiley -> the FULL picker (PJ_EMOJI) opens.
+      await p.hover('#pj-room .msg-b');
+      await p.click('#pj-room .msg-b .rxns .rxn-more');
       const opened = await p.evaluate(() => {
         const picker = document.querySelector('#pj-room .msg-b .rxns .rxn-picker');
-        const add = document.querySelector('#pj-room .msg-b .rxns .rxn-add');
+        const more = document.querySelector('#pj-room .msg-b .rxns .rxn-more');
         return { shown: picker ? !picker.hidden : null, picks: picker ? picker.querySelectorAll('.rxn-pick').length : -1,
-          expanded: add ? add.getAttribute('aria-expanded') : null };
+          expanded: more ? more.getAttribute('aria-expanded') : null };
       });
-      if (opened.shown && opened.picks >= 4) ok(t + ' the "+" reveals the quick palette (' + opened.picks + ' emoji)'); else bad(t + ' palette reveals', JSON.stringify(opened));
-      if (opened.expanded === 'true') ok(t + ' the opener reports aria-expanded=true'); else bad(t + ' aria-expanded', String(opened.expanded));
+      if (opened.shown && opened.picks >= 40) ok(t + ' the smiley opens the full picker (' + opened.picks + ' emoji)'); else bad(t + ' full picker reveals', JSON.stringify(opened));
+      if (opened.expanded === 'true') ok(t + ' the smiley reports aria-expanded=true'); else bad(t + ' aria-expanded', String(opened.expanded));
 
-      // React with the first palette emoji.
-      await p.click('#pj-room .msg-b .rxns .rxn-pick');
+      // React with the first emoji in the open picker.
+      await p.click('#pj-room .msg-b .rxns .rxn-picker .rxn-pick');
       await p.waitForSelector('#pj-room .msg-b .rxns .rxn', { timeout: 8000 }).catch(() => {});
       const reacted = await p.evaluate(() => {
         const pill = document.querySelector('#pj-room .msg-b .rxns .rxn');
@@ -110,11 +135,11 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
           mine: pill ? pill.classList.contains('mine') : null,
           pressed: pill ? pill.getAttribute('aria-pressed') : null };
       });
-      if (reacted.has) ok(t + ' clicking a palette emoji adds a pill'); else bad(t + ' pill added', JSON.stringify(reacted));
+      if (reacted.has) ok(t + ' clicking a picker emoji adds a pill'); else bad(t + ' pill added', JSON.stringify(reacted));
       if (reacted.count === '1') ok(t + ' the pill shows count 1'); else bad(t + ' pill count 1', String(reacted.count));
       if (reacted.mine && reacted.pressed === 'true') ok(t + ' the pill is marked as the viewer\'s own (mine + aria-pressed)'); else bad(t + ' pill mine/pressed', JSON.stringify(reacted));
 
-      // Toggle it off by clicking the pill again (the control that proves the round-trip).
+      // Toggle it off by clicking the pill again (the round-trip control).
       await p.click('#pj-room .msg-b .rxns .rxn');
       await p.waitForTimeout(500);
       const toggled = await p.evaluate(() => {
@@ -122,6 +147,19 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         return { pills: box ? box.querySelectorAll('.rxn').length : -1 };
       });
       if (toggled.pills === 0) ok(t + ' CONTROL: clicking the pill again toggles the reaction OFF (no pill)'); else bad(t + ' toggle-off leaves no pill', 'pills=' + toggled.pills);
+
+      // #2806: Escape closes an open picker (parity with the composer emoji panel).
+      await p.hover('#pj-room .msg-b');
+      await p.click('#pj-room .msg-b .rxns .rxn-more');
+      await p.waitForTimeout(150);
+      await p.keyboard.press('Escape');
+      await p.waitForTimeout(150);
+      const escaped = await p.evaluate(() => {
+        const picker = document.querySelector('#pj-room .msg-b .rxns .rxn-picker');
+        const more = document.querySelector('#pj-room .msg-b .rxns .rxn-more');
+        return { hidden: picker ? picker.hidden : null, expanded: more ? more.getAttribute('aria-expanded') : null };
+      });
+      if (escaped.hidden === true && escaped.expanded === 'false') ok(t + ' Escape closes the open picker'); else bad(t + ' Escape closes picker', JSON.stringify(escaped));
 
       if (errs.length) bad(t + ' no page errors', errs.join(' | ')); else ok(t + ' no page errors');
       await p.close();
@@ -133,7 +171,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     srv.kill();
   }
 
-  if (ran < 16) { console.log('reactions: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 24) { console.log('reactions: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (failures) { console.log('reactions: ' + failures + ' FAILED'); process.exit(1); }
   console.log('reactions: all good, ' + ran + ' checks');
 })();

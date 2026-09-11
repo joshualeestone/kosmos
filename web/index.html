@@ -4331,14 +4331,36 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .rxn .rxn-n { color: var(--k-ink-2); font-weight: 600; font-variant-numeric: tabular-nums; }
 .rxn.mine { border-color: var(--gold-deep, #b8860b); background: rgba(214,166,46,.14); }
 .rxn.mine .rxn-n { color: var(--k-ink); }
-.rxn-add { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
-           border-radius: 100px; border: 1px solid var(--k-rule); background: transparent; color: var(--k-ink-2);
-           font-size: 1rem; line-height: 1; cursor: pointer; padding: 0; }
-.rxn-add:hover { color: var(--k-ink); border-color: var(--k-ink-2); }
-.rxn-add:focus-visible, .rxn:focus-visible, .rxn-pick:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-.rxn-picker { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px 4px; margin-left: 2px;
-              border: 1px solid var(--k-rule); border-radius: 10px; background: var(--k-surface); }
-.rxn-pick { border: 0; background: transparent; cursor: pointer; font-size: 1.05rem; line-height: 1;
+/* #2806 (Josh): the always-visible "+" is gone. The reaction affordance -- the three
+   quick defaults plus the grey-smiley opener -- lives in `.rxn-quick` and is hidden
+   until the message is hovered OR the row takes keyboard focus, then fades in (the
+   Discord shape). opacity + pointer-events (NOT display/visibility) so the buttons
+   stay in the tab order for the `:focus-within` reveal, and an invisible button is
+   never clickable. Existing reaction pills (`.rxn`) are outside this bar and stay
+   visible always. */
+.rxn-quick { display: inline-flex; align-items: center; gap: 2px; opacity: 0;
+             pointer-events: none; transition: opacity .12s ease; }
+.msg:hover .rxn-quick, .rxn-quick:focus-within { opacity: 1; pointer-events: auto; }
+.rxn-more { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+            border-radius: 100px; border: 1px solid var(--k-rule); background: transparent;
+            cursor: pointer; padding: 0; }
+.rxn-more:hover { border-color: var(--k-ink-2); }
+/* Grey smiley, muted like the composer's emoji glyph (#2357): a colour-font glyph
+   ignores CSS `color`, so grayscale it with a filter. */
+.rxn-more-glyph { filter: grayscale(1) opacity(.6); font-size: .95rem; line-height: 1; }
+.rxn-more:focus-visible, .rxn:focus-visible, .rxn-pick:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+/* The full picker the grey smiley opens (PJ_EMOJI, 76 glyphs): a scrollable grid
+   overlaid below the row (absolute, so it does not reflow the room), anchored to the
+   `.rxns` row. Toggled by JS (`.rxn-more`), independent of the hover gate above, so
+   it stays open while you browse it. */
+.rxns { position: relative; }
+.rxn-picker { position: absolute; left: 0; top: calc(100% + 4px); z-index: 6;
+              display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; padding: 6px;
+              max-height: 210px; overflow-y: auto; width: max-content; max-width: min(320px, 90vw);
+              border: 1px solid var(--k-rule); border-radius: 10px; background: var(--k-surface);
+              box-shadow: 0 8px 24px rgba(20,22,26,.16); }
+.rxn-picker[hidden] { display: none; }
+.rxn-pick { border: 0; background: transparent; cursor: pointer; font-size: 1.15rem; line-height: 1;
             padding: 3px 5px; border-radius: 7px; }
 .rxn-pick:hover { background: rgba(20,22,26,.08); }
 .delivery { display: inline-block; margin-top: 8px; font-size: .75rem; font-weight: 600;
@@ -36804,21 +36826,24 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
   }
 });
 
-/* #2255: reactions. A SECOND delegated handler on #pj-room (kept apart from the
-   refgo one above, which returns early on a non-chip click), so it survives the
-   room repaints setLive does. The "+" opener toggles the palette; a pill or a
-   palette emoji toggles that reaction via the react route, then repaints just
-   this post's `.rxns` from the response -- no full room re-fetch. A failed
-   toggle leaves the row as it was; the next room poll reconciles. */
+/* #2255 reactions, hover-restyled in #2806. A SECOND delegated handler on #pj-room
+   (kept apart from the refgo one above, which returns early on a non-chip click), so
+   it survives the room repaints setLive does. The grey-smiley `.rxn-more` opener
+   toggles the full picker; a pill or a picker emoji (quick default OR full-list)
+   toggles that reaction via the react route, then repaints just this post's `.rxns`
+   from the response -- no full room re-fetch. A failed toggle leaves the row as it
+   was; the next room poll reconciles. */
 document.getElementById('pj-room').addEventListener('click', async (e) => {
   const box = e.target && e.target.closest ? e.target.closest('.rxns') : null;
   if (!box) return;
-  const add = e.target.closest('.rxn-add');
-  if (add) {
+  const more = e.target.closest('.rxn-more');
+  if (more) {
     const picker = box.querySelector('.rxn-picker');
     const open = !!(picker && !picker.hidden);
+    // Close any OTHER open picker first, so at most one is open at a time.
+    if (!open) rxnCloseAllPickers();
     if (picker) picker.hidden = open;
-    add.setAttribute('aria-expanded', String(!open));
+    more.setAttribute('aria-expanded', String(!open));
     return;
   }
   const btn = e.target.closest('.rxn, .rxn-pick');
@@ -36833,9 +36858,32 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ emoji }) });
     if (PJ_CURRENT !== forProject || !res.ok) return;
     const body = await res.json();
+    // The repaint replaces this row's innerHTML, which resets the picker to hidden,
+    // so a successful reaction closes the picker on its own.
     repaintReactions(box, Array.isArray(body.reactions) ? body.reactions : []);
   } catch { /* a failed toggle leaves the row; the next poll reconciles */ }
 });
+
+/* #2806: close every open reaction picker (the grey-smiley full list) and reset its
+   opener's aria-expanded. Used to keep at most one open, and by the dismiss paths
+   below (outside click / Escape), mirroring the composer emoji panel's behaviour. */
+function rxnCloseAllPickers() {
+  const room = document.getElementById('pj-room');
+  if (!room) return;
+  room.querySelectorAll('.rxn-picker:not([hidden])').forEach((p) => { p.hidden = true; });
+  room.querySelectorAll('.rxn-more[aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+}
+/* Dismiss an open picker on a click anywhere outside an open `.rxn-picker` or its
+   opener (a click INSIDE the picker is a pick and is handled by the room handler,
+   which repaints the row and thus closes it). Capture phase so it runs regardless of
+   stopPropagation elsewhere; it never blocks the click, only tidies open pickers. */
+document.addEventListener('click', (e) => {
+  const inside = e.target && e.target.closest
+    ? e.target.closest('.rxn-picker, .rxn-more') : null;
+  if (!inside) rxnCloseAllPickers();
+}, true);
+/* Escape closes any open picker. */
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') rxnCloseAllPickers(); });
 
 document.getElementById('pj-docs-all').addEventListener('click', () => {
   if (!PJ_CURRENT) return;
@@ -37295,14 +37343,18 @@ function pjRoomBody(m, p) {
 /* #2255: the quick-reaction palette the "+" opener reveals. A small fixed set
    (Discord's common ones); a person reacting is choosing fast, not browsing
    every emoji. Escapes, so the source stays plain-ASCII and diffable. */
-const RXN_QUICK = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F525}', '\u{1F389}', '\u{1F602}', '\u{1F440}', '\u{2705}', '\u{1F64F}'];
+/* #2806 (Josh): the three quick defaults you can hit without opening the picker --
+   thumbs-up, heart, fire, exactly the set he named. They appear on message hover
+   beside the grey smiley (`.rxn-more`), which opens the FULL list (PJ_EMOJI). */
+const RXN_DEFAULTS = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F525}'];
 /* The reactions row under a room post: one TOGGLE pill per live reaction (marked
-   aria-pressed when the viewer is a reactor, with a title naming who), then a
-   "+" opener that reveals the palette. Every emoji is esc()'d and comes from the
-   server's replayed state (engine reactionsFor), never from raw message text.
-   Empty when the post carries no id. */
-/* The INNER html of a `.rxns` row (pills + opener + palette), shared by the
-   first paint (pjReactions) and the one-row repaint after a toggle
+   aria-pressed when the viewer is a reactor, with a title naming who), then the
+   hover-revealed `.rxn-quick` bar (three defaults + the grey-smiley opener) and the
+   full picker it opens. Every emoji is esc()'d and comes from the server's replayed
+   state (engine reactionsFor) or the fixed PJ_EMOJI list, never from raw message
+   text. Empty when the post carries no id. */
+/* The INNER html of a `.rxns` row (pills + quick bar + smiley + full picker), shared
+   by the first paint (pjReactions) and the one-row repaint after a toggle
    (repaintReactions), so the two cannot draw a pill differently. */
 function rxnsInner(list) {
   const pills = (Array.isArray(list) ? list : []).map((r) => {
@@ -37314,11 +37366,26 @@ function rxnsInner(list) {
       + '<span class="rxn-e" aria-hidden="true">' + esc(e) + '</span>'
       + '<span class="rxn-n">' + esc(String(Number(r.count) || 0)) + '</span></button>';
   }).join('');
-  const picks = RXN_QUICK.map((e) =>
+  /* The three quick defaults, revealed on message hover (see the `.rxn-quick` CSS).
+     They react through the SAME `.rxn-pick` path as the full picker. */
+  const quicks = RXN_DEFAULTS.map((e) =>
     '<button class="rxn-pick" type="button" data-emoji="' + esc(e) + '" aria-label="React with ' + esc(e) + '">'
     + esc(e) + '</button>').join('');
+  /* The full list behind the grey smiley (#2806): "pick from our list of emojis". */
+  const picks = PJ_EMOJI.map((e) =>
+    '<button class="rxn-pick" type="button" data-emoji="' + esc(e) + '" aria-label="React with ' + esc(e) + '">'
+    + esc(e) + '</button>').join('');
+  /* #2806 (Josh): the always-visible "+" is gone. On message hover (or keyboard
+     focus into the row) a compact bar reveals the three quick defaults plus a grey
+     smiley (`.rxn-more`) that opens the full picker -- the Discord shape he asked
+     for. Existing pills stay visible always; only the `.rxn-quick` bar is hover-
+     gated. The picker is toggled by the smiley (JS), independent of hover, so it
+     stays open while you browse it. */
   return pills
-    + '<button class="rxn-add" type="button" aria-label="Add a reaction" aria-expanded="false">+</button>'
+    + '<span class="rxn-quick">' + quicks
+    + '<button class="rxn-more" type="button" aria-label="More reactions" aria-expanded="false">'
+    + '<span class="rxn-more-glyph" aria-hidden="true">\u{1F600}</span></button>'
+    + '</span>'
     + '<span class="rxn-picker" hidden>' + picks + '</span>';
 }
 function pjReactions(m) {
