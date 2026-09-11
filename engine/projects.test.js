@@ -691,18 +691,40 @@ test('the block names each project and its folder', () => {
 });
 
 test('the block teaches the room command per project, with the id it actually takes', () => {
+  // A project with NO tasks (no `tasks` field): the block states the honest fact
+  // rather than promising a list "to see" that is empty (#2708). It still teaches
+  // `task add`, so an agent knows how to start one.
   const body = projects.blockBody([{ id: 'hendersonlease', name: 'Henderson lease', folder: '/tmp/h' }]);
   assert.match(body, /kosmos post hendersonlease "your message"/,
     'an existing agent is never taught the room exists (this block is the surface that re-splices)');
-  // #2662: the block also teaches the per-project tasks feature, with the id it takes,
-  // so agents catalog work with the real board instead of a hand-rolled task-board file.
-  assert.match(body, /kosmos task list hendersonlease/, 'the block does not teach how to list this project\'s tasks');
-  assert.match(body, /kosmos task add hendersonlease "what needs doing"/, 'the block does not teach how to add a task to this project');
+  assert.match(body, /No tasks set for this project yet/,
+    'a taskless project does not state the honest "no tasks" fact (#2708)');
+  assert.ok(!/task list hendersonlease/.test(body),
+    'a taskless project still promises a list "to see" that is empty (#2708)');
+  assert.match(body, /kosmos task add hendersonlease "what needs doing"/,
+    'the block does not teach how to add a task even when there are none');
+  // #2708: a project WITH tasks teaches the list command "to see them". `blockBody`
+  // is called without a sessionName here, so the per-agent `mine` list does not run
+  // and a minimal task object is enough to exercise the count branch.
+  const withTasks = projects.blockBody([{ id: 'hendersonlease', name: 'Henderson lease', folder: '/tmp/h', tasks: [{ sentence: 'do the thing' }] }]);
+  assert.match(withTasks, /kosmos task list hendersonlease/,
+    'a project WITH tasks no longer teaches how to list them');
+  assert.match(withTasks, /to see them/, 'a project WITH tasks no longer says "to see them"');
+  assert.ok(!/No tasks set for this project yet/.test(withTasks),
+    'a project WITH tasks wrongly said "No tasks set yet"');
+  // #2708: a project whose tasks are all CLOSED still has tasks "to see" -- kosmos task
+  // list renders closed tasks too ([done] prefix) -- so raw length is correct here, not
+  // an open-only count that would wrongly say "No tasks set yet".
+  const closedOnly = projects.blockBody([{ id: 'hendersonlease', name: 'Henderson lease', folder: '/tmp/h', tasks: [{ sentence: 'done', closedAt: 1 }] }]);
+  assert.match(closedOnly, /kosmos task list hendersonlease/, 'a closed-only project wrongly hid the list command');
+  assert.ok(!/No tasks set for this project yet/.test(closedOnly), 'a closed-only project wrongly said "No tasks set yet"');
   // An id-less row (a caller predating ids, or a fixture) must not teach a
-  // broken command -- neither the room command nor the tasks command.
+  // broken command -- neither the room command nor the tasks command (nor a
+  // dangling "no tasks" line, which also needs the id).
   const noId = projects.blockBody([{ name: 'Old row', folder: '/tmp/o' }]);
   assert.ok(!/kosmos post/.test(noId), 'a row without an id taught a command with a hole in it');
   assert.ok(!/kosmos task/.test(noId), 'a row without an id taught a tasks command with a hole in it');
+  assert.ok(!/No tasks set for this project yet/.test(noId), 'a row without an id emitted a dangling tasks line');
 });
 
 test('the block for an agent on nothing says so rather than being empty', () => {
@@ -2390,4 +2412,14 @@ test('#2279 homeForFirstAgent does not adopt a coincidentally-named project the 
   assert.notEqual(mine.made && mine.made.via, 'kosmos', 'a user-made project must not claim made.via kosmos');
   assert.equal(projects.homeForFirstAgent({ roster: [] }), null,
     'a same-named project the user made was adopted as the welcome home');
+});
+
+test('#2708: the membership message points at the section, without the generic "any tasks" promise', () => {
+  // 'joined' is the real put-on kind (production vocabulary; the sibling tests use it);
+  // it hits the "Kosmos put you on" branch.
+  const line = projects.membershipLine({ id: 'p1', name: 'Henderson lease', folder: '/tmp/h' }, 'joined');
+  assert.ok(!/including any tasks/.test(line),
+    'the membership message still makes the generic "including any tasks" promise (#2708)');
+  assert.match(line, /"Your projects" section of your instructions has the details\./,
+    'the membership message no longer points at the section, where the honest task state now lives');
 });
