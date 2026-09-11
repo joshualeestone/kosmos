@@ -1620,7 +1620,6 @@ module.exports = {
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, setChatgptTimers, MISSING_RUNNER_SENTENCE,
   chatgptSubscriptionWindow, decodeIdTokenPayload,   // #2790 Phase 2: pure offline sub-window read, exported for unit tests
-
   accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds, runnableAllowlist, openaiModelClass,
   readName, writeName,   // #2095: the human-chosen display name (sidecar file)
 };

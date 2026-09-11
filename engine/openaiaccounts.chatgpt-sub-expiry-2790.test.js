@@ -121,6 +121,30 @@ test('chatgptSubscriptionWindow returns {activeUntil, exp} in ms, and null on no
   assert.deepEqual(f(chatgptAuth({ activeUntil: '', exp: FUTURE_EXP })), { activeUntil: null, exp: FUTURE_EXP * 1000 }, 'empty date -> activeUntil null');
 });
 
+// Inject an ARBITRARY id_token payload so the hostile-shape fail-open of each field is pinned
+// (a future refactor of chatgptSubscriptionWindow that broke fail-open would red here).
+function parsedWithPayload(payloadObj) {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  return { auth_mode: 'chatgpt', tokens: { id_token: `${b64({ alg: 'none' })}.${b64(payloadObj)}.` } };
+}
+
+test('chatgptSubscriptionWindow fails each field safe on hostile CLAIM shapes', () => {
+  const f = openai.chatgptSubscriptionWindow;
+  const AUTH = 'https://api.openai.com/auth';
+  // auth claim is a STRING, not an object -> activeUntil null (never reds)
+  assert.equal(f(parsedWithPayload({ [AUTH]: 'not-an-object', exp: FUTURE_EXP })).activeUntil, null);
+  // auth claim is an ARRAY -> activeUntil null
+  assert.equal(f(parsedWithPayload({ [AUTH]: [PAST_ISO], exp: FUTURE_EXP })).activeUntil, null);
+  // active_until is a NUMBER, not the confirmed ISO string -> activeUntil null (feature inert, never a false red)
+  assert.equal(f(parsedWithPayload({ [AUTH]: { chatgpt_subscription_active_until: 1700000000000 }, exp: FUTURE_EXP })).activeUntil, null);
+  // exp is a STRING, not the standard numeric epoch -> exp null (the red then cannot fire)
+  assert.equal(f(parsedWithPayload({ [AUTH]: { chatgpt_subscription_active_until: PAST_ISO }, exp: '1700000000' })).exp, null);
+  // exp fractional seconds -> a finite number, kept (a more precise timestamp, still valid)
+  assert.equal(f(parsedWithPayload({ exp: 1700000000.5 })).exp, 1700000000.5 * 1000);
+  // exp non-finite (Infinity survives JSON? no -> becomes null in JSON; NaN too). A missing exp -> null.
+  assert.equal(f(parsedWithPayload({ [AUTH]: { chatgpt_subscription_active_until: PAST_ISO } })).exp, null);
+});
+
 test('decodeIdTokenPayload fails null on every hostile shape, decodes a real payload', () => {
   const d = openai.decodeIdTokenPayload;
   assert.equal(d(null), null);
