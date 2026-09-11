@@ -350,3 +350,18 @@ test('#2790 route (PARTIAL branch): a ChatGPT sign-in still carries the warning'
   assert.match(r.body.because, /cannot live-check an OpenAI sign-in/,
     'the partial branch names a sign-in but omits the unverifiability warning: ' + r.body.because);
 });
+
+/* #2790 coupling: the note gate keys on `authMode !== 'apikey'`, which is EXACTLY
+   the predicate checkLive uses to return "cannot verify" (openaiaccounts.js:1117),
+   not a second derivation of it (Repo-Specific Convention #5). Pin that they agree
+   on the sign-in: if checkLive ever gains a real sign-in liveness check and starts
+   returning CONNECTED here, this reds, and the note that claims Kosmos "cannot
+   live-check an OpenAI sign-in" must be revisited rather than silently going stale. */
+test('#2790 coupling: the note predicate matches checkLive treating a sign-in as unverifiable', async () => {
+  const live = await openai.checkLive(GAMMA_SIGNIN);
+  assert.notEqual(live.state, 'connected',
+    'checkLive now verifies a sign-in as connected, so the note claiming it cannot be live-checked is stale: ' + JSON.stringify(live));
+  const row = openai.list().find((a) => a.dir === GAMMA_SIGNIN);
+  assert.ok(row && row.authMode !== 'apikey',
+    'the sign-in fixture is classified apikey, so the note gate would not fire for the account checkLive cannot verify: ' + JSON.stringify(row));
+});

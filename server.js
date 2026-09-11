@@ -4167,21 +4167,31 @@ const server = http.createServer((req, res) => {
             : ` ${tense} your OpenAI sign-in${whichAcct}.`)
           : '');
         const landedOn = runsOn('It runs on');
-        /* #2790: a ChatGPT sign-in (authMode 'chatgpt') is the ONE OpenAI account
-           Kosmos can never live-check -- openaiaccounts.checkLive returns UNKNOWN
-           for authMode !== 'apikey', because a sign-in hands an id_token, not a
-           bearer key it can test. So an agent can land on a sign-in whose OAuth is
-           dead and sit idle with no red, indistinguishable from a healthy-but-quiet
-           one: the prod-user report this card came from (5 codex agents on a grey
-           "not checked live" sign-in, all idle forever). Say so in the same
-           sentence that names the account, so the person learns WHY the badge is
-           grey and what the checkable path is.
+        /* #2790: an OpenAI account Kosmos cannot live-check is the one that can
+           land an agent in the silent failure this card came from: a sign-in whose
+           OAuth is dead sits idle with no red, indistinguishable from a healthy-
+           but-quiet agent (the prod-user report: 5 codex agents on a grey "not
+           checked live" sign-in, all idle forever). Say so in the same sentence
+           that names the account, so the person learns WHY the badge is grey and
+           what the checkable path is.
+           🔑 THE GATE MIRRORS checkLive'S OWN PREDICATE, not a second derivation of
+           it (Repo-Specific Convention #5, two-copies-of-one-fact). `checkLive`
+           (engine/openaiaccounts.js:1117) returns UNKNOWN for `authMode !== 'apikey'`
+           -- a sign-in hands an id_token, not a bearer key it can test -- so THAT is
+           exactly the "Kosmos cannot verify this" condition, and this note keys on
+           the same `!== 'apikey'`. Keying on `=== 'chatgpt'` instead would fail
+           SILENT for any future non-apikey authMode (checkLive would call it
+           unverifiable, the note would stay quiet) -- the very silent-failure
+           direction this card exists to close. `!== 'apikey'` fails SAFE: a new
+           unverifiable mode gets the warning, with wording that is accurate today
+           (the only non-apikey mode is a ChatGPT sign-in) and still points at the
+           checkable API-key path if a new one is ever added.
            🛑 NO BEHAVIOUR CHANGE, ON PURPOSE. This does NOT steer the agent to an
            API key: a sign-in is often the CHEAPER intended path (a ChatGPT
            subscription, not per-token billing), so silently moving it would trade a
            silent failure for a silent bill. It only makes the unverifiability
            visible. An API-key account IS live-checkable, so it gets no note. */
-        const signInNote = (acct && acct.authMode === 'chatgpt')
+        const signInNote = (acct && acct.authMode !== 'apikey')
           ? ' Kosmos cannot live-check an OpenAI sign-in, so its status stays'
             + ' unverified; if it does not respond, switch it to an OpenAI API-key'
             + ' account, which Kosmos can verify.'
