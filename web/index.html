@@ -4264,6 +4264,18 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .msg-av img { width: 100%; height: 100%; object-fit: cover; }
 .msg-av.mine { background: var(--k-ink); color: var(--k-bg); }
 .msg-b { flex: 1; min-width: 0; }
+/* #2806 (Josh, 2026-09-11): the room message BODY box. The person's own post
+   (.msg.you) wears the royal-blue --usermsg-tint; an agent's wears the light-gray
+   --k-sunk -- the SAME two tokens the DM bubble already uses (.dm.mine / .dm.theirs),
+   both theme-defined (per-theme beside --k-sunk), so ONE rule each covers light and
+   dark and the two surfaces cannot drift on the color. Only .msg-bd (the wrapped
+   body: text + preview + attachments; the name/time header and the reaction row live
+   OUTSIDE it) is boxed, mirroring the DM which boxes just its text (.dm-b). Padding
+   and radius match the DM bubble. A bodyless row draws no .msg-bd at all (pjMsg emits
+   the wrapper only for non-empty body content), so there is no empty tinted box. */
+.msg-bd { padding: 8px 12px; border-radius: 12px; }
+.msg.you .msg-bd { background: var(--usermsg-tint); }
+.msg:not(.you) .msg-bd { background: var(--k-sunk); }
 .msg-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
 .msg-h b { font-size: .9375rem; }
 .msg-t { font-size: .75rem; color: var(--k-ink-2); }
@@ -37463,6 +37475,16 @@ function pjRoomRow(m, p, silent) {
        cannot happen today rests on one condition in a different function; this
        is the row a person actually reads, so it enforces the rule itself. */
     ? '<span class="delivery ' + cls + '">' + esc(pjReceiptSentence(m.outcomes, p, isOp ? silent : null)) + '</span>' : '';
+  /* #2806 (Josh, 2026-09-11): the message BODY wears a colored box in the room --
+     royal-blue for the person's own post (`.msg.you`), light-gray for an agent's --
+     the same two tokens the DM view already uses (`--usermsg-tint` / `--k-sunk`; see
+     the .msg-bd rules). The header (name/role/time) stays ABOVE the box and the
+     reactions + receipt stay BELOW it, so only the message content is boxed (the DM
+     boxes `.dm-b`, its text, the same way). The box is drawn only when there IS body
+     content -- a bodyless row (no words and no preview/attachment) emits none rather
+     than an empty tinted box. #2805 gave the DM its gray; the room uses a different
+     class (`.msg-b`) that never got either color, so both sides are new here. */
+  const bd = pjRoomBody(m, p) + pjPreviewCard(m.preview) + pjAttachmentCards(m);
   return '<div class="msg' + (isOp ? ' you' : '') + '">' + av
     + '<div class="msg-b"><div class="msg-h"><b>' + esc(name) + '</b>'
     /* #1703: the agent's title beside the name, before the timestamp. `card` is
@@ -37474,7 +37496,7 @@ function pjRoomRow(m, p, silent) {
        renders no span rather than an empty one. */
     + (card && card.role ? '<small class="msg-role">' + esc(roleLine({ role: card.role }, ROLE_TITLES)) + '</small>' : '')
     + '<span class="msg-t">' + esc(pjWhen(m.at) || '') + '</span></div>'
-    + pjRoomBody(m, p) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + pjReactions(m) + receipt + '</div></div>';
+    + (bd ? '<div class="msg-bd">' + bd + '</div>' : '') + pjReactions(m) + receipt + '</div></div>';
 }
 
 /**
