@@ -73,6 +73,7 @@ const GOOD = [
   'press:visible-input\tasked-for-panel:yes',
   'press:real-presenter\tpanel-on-screen:yes',
   'press:after-a-cancel\treaches-the-app-again:yes',
+  'press:with-a-sheet-up\tno-abort-and-panel-presented:yes',
 ].join('\n');
 
 test('the gate passes the output a working file picker produces', () => {

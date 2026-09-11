@@ -30,7 +30,7 @@ so this is NOT a promote regression and a rollback would not fix it. Fix-forward
    `panel.begin`, which does not attach to the window and so always presents and always calls its
    completion. The common case (a sheet-free window) keeps the nicer attached sheet.
 2. **Call-once wrapper (`respond`):** the handler is invoked exactly once on every path of this
-   invocation (a repeat call is a no-op) — WebKit aborts on multiple calls too. It clears the
+   invocation (a repeat call is a no-op) -- WebKit aborts on multiple calls too. It clears the
    `openPanelOutstanding` flag THIS call set; the re-entrant-refusal path (which never owned the
    flag) is left untouched and still answers with a single direct `completionHandler(nil)`.
 
@@ -38,7 +38,7 @@ so this is NOT a promote regression and a rollback would not fix it. Fix-forward
 
 New `--kosmos-app-filepanel-selftest` arm (`press:with-a-sheet-up`): puts a sheet on the host, fires
 the file input on the REAL panel path (presenter nil), and requires the app to survive AND a panel
-to present via the `begin` fallback — with a setup-control that the sheet is actually attached (so
+to present via the `begin` fallback, with a setup-control that the sheet is actually attached (so
 it cannot false-pass). Verified: fixed build passes all arms (RC=0); reverting only the delegate
 guard makes the arm report `panel-presented:no` (RC=1), and the build's exit-code gate
 (build-kosmos-bundle.sh:428) reds the cut if the fix is dropped.

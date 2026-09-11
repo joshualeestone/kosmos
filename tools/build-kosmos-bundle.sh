@@ -390,7 +390,7 @@ if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
   # that printed none of them never got going and is the only case where the
   # product is genuinely not implicated.
   _fp_missing=""
-  for _fp_want in "uiDelegate:set" "press:hidden-input	asked-for-panel:yes" "press:visible-input	asked-for-panel:yes" "press:real-presenter	panel-on-screen:yes" "press:after-a-cancel	reaches-the-app-again:yes"; do
+  for _fp_want in "uiDelegate:set" "press:hidden-input	asked-for-panel:yes" "press:visible-input	asked-for-panel:yes" "press:real-presenter	panel-on-screen:yes" "press:after-a-cancel	reaches-the-app-again:yes" "press:with-a-sheet-up	no-abort-and-panel-presented:yes"; do
     case "$_fp_out" in
       *"$_fp_want"*) ;;
       *) [ -n "$_fp_missing" ] || _fp_missing="$_fp_want" ;;

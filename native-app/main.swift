@@ -1610,41 +1610,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         panel.allowsMultipleSelection = parameters.allowsMultipleSelection
         panel.canChooseDirectories = parameters.allowsDirectories
         panel.canChooseFiles = !parameters.allowsDirectories
-        /* Sheeted on the window the click came from, so it cannot end up behind
-           the board or on the wrong screen.
+        /* 🛑 #2807 + CANCEL MUST ANSWER. WebKit's CompletionHandlerCallChecker
+           ABORTS THE WHOLE APP if this handler is not called EXACTLY once
+           (measured: building this delegate with the cancel arm dropped raises
+           NSInternalInconsistencyException, "Completion handler ... was not
+           called", and the app TERMINATES mid-conversation). There are two ways
+           to reach zero calls: not answering Cancel (the answer closure below
+           answers both OK and Cancel), and #2807 -- beginSheetModal(for:) is
+           SILENTLY DROPPED when the host window already has a sheet (or is
+           otherwise unable to host one). A dropped sheet never presents, `answer`
+           never fires, and at method return the panel + answer + completionHandler
+           release un-called, so the checker aborts synchronously inside
+           runOpenPanel. That is the crash Josh hit on 0.6.56 changing a profile
+           picture.
 
-           🛑 CANCEL MUST ANSWER, AND THE COST IS WORSE THAN IT LOOKS. MEASURED
-           by building this delegate with the cancel arm dropped: WebKit does
-           not wedge the input quietly, it raises
-           NSInternalInconsistencyException, "Completion handler passed to
-           -[main.AppDelegate webView:runOpenPanelWithParameters:...] was not
-           called", and the app TERMINATES. So a person who opens the file
-           picker and presses Cancel would lose Kosmos, mid-conversation, with
-           no warning. An earlier version of this comment said it merely broke
-           the next press; that was a guess and it was wrong in the direction
-           that matters. */
-        let host = webView.window
+           So present with the app-modal `panel.begin`, NOT beginSheetModal:
+           begin does not attach to a window, so no window state can silently
+           drop it -- it ALWAYS presents and ALWAYS calls its completion, which
+           closes the ENTIRE abort class rather than the one attached-sheet
+           instance a `host.attachedSheet == nil` guard would cover. The cost is
+           the picker is app-modal (centred) rather than a sheet on the window;
+           for a path that otherwise aborts the app that is the right trade.
+           `answer` routes through the call-once `respond`, so OK and Cancel each
+           answer exactly once. */
         let answer: (NSApplication.ModalResponse) -> Void = { resp in
             respond(resp == .OK ? panel.urls : nil)
         }
-        /* 🛑 #2807: beginSheetModal(for:) is SILENTLY DROPPED when the host
-           window ALREADY HAS A SHEET. Measured: the panel never presents, the
-           completion handler is never called, and at method-return the panel +
-           answer + completionHandler are released un-called, so WebKit's
-           CompletionHandlerCallChecker raises NSInternalInconsistencyException
-           and the app ABORTS -- synchronously inside runOpenPanel, which is the
-           exact #2807 stack (Josh, 0.6.56, changing a profile picture). The
-           openPanelOutstanding guard above only covers a second OPEN PANEL, not
-           a sheet from any other source, so it does not close this. Fall back to
-           the app-modal `panel.begin` whenever a sheet cannot be attached (no
-           window, OR the window already has one): begin does not sheet onto the
-           window, so it always presents and always answers. A sheet-free window
-           still gets the nicer attached sheet. */
-        if let host, host.attachedSheet == nil {
-            panel.beginSheetModal(for: host, completionHandler: answer)
-        } else {
-            panel.begin(completionHandler: answer)
-        }
+        panel.begin(completionHandler: answer)
     }
 
     /* 🛑 EVERY EXTERNAL LINK IN KOSMOS OPENED NOTHING IN THIS APP (#1416),
@@ -2957,6 +2949,15 @@ if CommandLine.arguments.contains("--kosmos-app-menu-selftest") {
 // row means a future reader who reaches for that theory is answered by the
 // gate instead of rewriting five inputs for no reason.
 if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
+    /* #2807: make this hatch's stdout UNBUFFERED. The build gate captures this
+       output through a pipe ($(...)), where Swift block-buffers stdout, so if an
+       arm regresses and the app aborts (SIGABRT), the buffer is never flushed and
+       every already-"printed" arm is LOST -- the gate then reads empty output and
+       misattributes the failure to itself ("the product is NOT implicated")
+       instead of to the #2807 regression. Unbuffered, each arm reaches the pipe
+       the instant it prints, so it survives an abort and the gate attributes the
+       failure correctly. */
+    setvbuf(stdout, nil, _IONBF, 0)
     let app = NSApplication.shared
     app.setActivationPolicy(.accessory)
     /* ⚠️ `d` IS THE ONLY STRONG REFERENCE, AND BOTH DELEGATE PROPERTIES ARE
