@@ -457,6 +457,24 @@ test('#2669 after a retry chain gives up, a later init for the same id tries aga
   t.h.stop();
 });
 
+test('#2669 a relaunched child is never blocked by a retry its dead predecessor left pending', () => {
+  let attempts = 0;
+  const timers = [];
+  const t = clearingSupervisor('clr-12', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: { record: () => { attempts += 1; return { ok: false, because: 'the record is busy' }; }, forget: () => ({ ok: true }), read: () => ({}) },
+  });
+  const B = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });   // fails: a chain for B, owned by child 0
+  t.kids[0].die(1);                                                 // crash: a relaunch is scheduled
+  while (t.kids.length < 2 && timers.length) timers.shift()();      // the dead child's retry no-ops; the relaunch runs
+  assert.equal(t.kids.length, 2, 'the agent was relaunched');
+  const before = attempts;
+  t.say(1, { type: 'system', subtype: 'init', session_id: B });    // the new child announces B
+  assert.equal(attempts, before + 1, 'the new child tries to record it; a stale pending flag does not swallow it');
+  t.h.stop();
+});
+
 test('#2669 a pending rekey retry writes nothing once the loop is stopped', () => {
   let attempts = 0;
   const timers = [];

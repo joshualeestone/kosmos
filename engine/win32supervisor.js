@@ -514,6 +514,11 @@ function superviseStreaming(spec, opts) {
 
   function attach(c, runInstance) {
     child = c;
+    /* A new child owns no retry its dead predecessor left pending. The old chain
+       already stops on `child === owner`, but the flag would stay set and make
+       `followSessionId` swallow this child's genuine `init` for the same id
+       (review round 6). */
+    pendingRekey = null;
     /* 🔑 THE EVENT STREAM IS READ, and that is what gives a Windows card its
        working/idle (7c-5): `claude agents --json` lists no status for a
        streaming session. Reading stdout also retires the old question of what
