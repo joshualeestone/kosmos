@@ -832,9 +832,16 @@ function whoamiFor(card, known, live) {
     /* 🛑 THE RECORD MODEL IS A CLAUDE TRANSCRIPT, SO IT IS NOT ASKED ABOUT A
        CODEX AGENT. `readModel` resolves through `transcriptFor`/`byWorkdir` into
        `projects/*.jsonl` rows that Claude Code writes. `create.setProvider`
-       switches an agent claude -> codex by rewriting the plist and nothing else,
-       so the agent keeps its name and therefore its workdir, and the OLD Claude
-       transcript stays findable. This branch is the PREFERRED source, so without
+       switches an agent claude -> codex without moving anything the transcript
+       lookup keys on: it rewrites the plist, renames the brief CLAUDE.md <->
+       AGENTS.md, and writes the profile's provider. The rename happens INSIDE
+       `workerDir(clean)` and the name never changes, so `byWorkdir` resolves the
+       same directory afterwards and the OLD Claude transcript stays findable.
+       ⚠️ `setProvider`'s own header says the mechanism is "a plist rewrite ...
+       and nothing else", and an earlier version of this comment repeated that.
+       It is measurably false (create.js does both other things a dozen lines
+       below the sentence). The CONCLUSION survives, which is exactly why the
+       wrong premise was worth correcting rather than leaning on. This branch is the PREFERRED source, so without
        this guard a Codex agent answers `runner: "codex"` and "its model is Claude
        Opus 5" in one payload, off a transcript from before the switch.
        ⚠️ THAT IS NEW, AND IT IS THIS CHANGE THAT MADE IT REACHABLE. While the
@@ -854,7 +861,21 @@ function whoamiFor(card, known, live) {
        better than one reciting a stale sentence.
        📌 Keyed on a KNOWN non-claude runner, so an answer carrying no runner at
        all (every injected reader that predates this field) takes the old path. */
-    const foreignRunner = !!(seen && seen.runner && seen.runner !== 'claude');
+    /* 🛑 AND THE RECORD-ONLY PATH NEEDS THE SAME GUARD, WHICH THE LIVE RUNNER
+       CANNOT GIVE IT. When the live read does not succeed (a paneless agent, a
+       crashed pane, the 15s budget running out) `seen` is null, so a live-only
+       guard is off exactly when the record is the ONLY source and its stale
+       Claude model goes out unopposed. The defect one reader over.
+       ⇒ The card's `runner` is the `@kosmos_runner` session marker, and its
+       SURVIVING A CRASH -- the property that disqualifies it from the wire field
+       above -- is the right property here. Those are two different questions:
+       "what is running right now" must not be answered from a marker that
+       outlives the process, while "is this agent's Claude transcript stale" is
+       about what the agent IS, and a crashed Codex agent is still a Codex agent.
+       Empty means claude, the same default the supervisor records. */
+    const configuredRunner = (card && card.runner) || null;
+    const foreignRunner = !!((seen && seen.runner && seen.runner !== 'claude')
+      || (configuredRunner && configuredRunner !== 'claude'));
     if (!foreignRunner && rec && rec.model) {
       /* `modelDisplayName`, NOT the raw id, and this is the branch that normally
          answers. The LIVE path's display name was pinned; this one - the

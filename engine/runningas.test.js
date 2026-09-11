@@ -128,7 +128,7 @@ test('#1304 CONTROL: agentUnder is not fooled by the word "claude" in an argumen
 test('#2811: a CODEX process under the pane is found, and named as codex', () => {
   const procs = new Map([
     [100, { ppid: 1, command: '/bin/zsh' }],
-    [101, { ppid: 100, command: '/opt/homebrew/bin/codex --model gpt-5.6' }],
+    [101, { ppid: 100, command: '/opt/homebrew/bin/codex -m gpt-5.6' }],
   ]);
   assert.deepEqual(agentUnder(100, procs), { pid: 101, runner: 'codex' },
     'a codex agent is still invisible to the identity reader (#2811)');
@@ -142,6 +142,44 @@ test('#2811 CONTROL: the codex match is on the executable PATH, not the word any
     [101, { ppid: 100, command: '/usr/bin/grep -r codex /Users/x' }],
   ]);
   assert.equal(agentUnder(100, procs), null, 'the word "codex" in an argument was read as an agent');
+});
+
+test('#2811: at the SAME depth, a claude process wins over a codex one', () => {
+  /* 🛑 THE CARD'S DEFECT INVERTED, which widening this matcher made possible for
+     the first time: while only `claude` matched, two agent-shaped processes in
+     one tree could not compete. Whichever the walk reached first would decide,
+     and getting it wrong is worse than the bug being fixed -- a Claude agent told
+     it is a Codex agent, its account read from CODEX_HOME, its recorded model
+     suppressed as foreign. `claude` wins a tie because that is the answer this
+     function gave before codex existed. */
+  const codexFirst = new Map([
+    [100, { ppid: 1, command: '/bin/zsh' }],
+    [101, { ppid: 100, command: '/opt/homebrew/bin/codex exec' }],
+    [102, { ppid: 100, command: '/usr/bin/claude --model claude-opus-5' }],
+  ]);
+  assert.deepEqual(agentUnder(100, codexFirst), { pid: 102, runner: 'claude' },
+    'a stray codex at the same depth outranked the real claude agent');
+
+  /* CONTROL, and it must pass in BOTH orders or the test is about map order. */
+  const claudeFirst = new Map([
+    [100, { ppid: 1, command: '/bin/zsh' }],
+    [101, { ppid: 100, command: '/usr/bin/claude --model claude-opus-5' }],
+    [102, { ppid: 100, command: '/opt/homebrew/bin/codex exec' }],
+  ]);
+  assert.deepEqual(agentUnder(100, claudeFirst), { pid: 101, runner: 'claude' });
+});
+
+test('#2811: DEPTH still decides before the runner preference', () => {
+  /* The claude preference is a tie-break, not an override. A codex process
+     closer to the pane IS the better candidate for "what this pane is running",
+     and that is what makes the node-launcher case below work at all. */
+  const procs = new Map([
+    [100, { ppid: 1, command: '/bin/zsh' }],
+    [101, { ppid: 100, command: '/opt/homebrew/bin/codex' }],
+    [102, { ppid: 101, command: '/usr/bin/claude' }],
+  ]);
+  assert.deepEqual(agentUnder(100, procs), { pid: 101, runner: 'codex' },
+    'a deeper claude beat a shallower codex, so depth stopped deciding');
 });
 
 /* ───────────────── #2811, the node-fronting launcher ─────────────────
@@ -161,8 +199,8 @@ test('#2811 CONTROL: the codex match is on the executable PATH, not the word any
 test('#2811: a node-FRONTED codex is found at its native child, with no interpreter rule', () => {
   const procs = new Map([
     [100, { ppid: 1, command: '/bin/zsh' }],
-    [101, { ppid: 100, command: 'node /opt/homebrew/bin/codex --model gpt-5.6' }],
-    [102, { ppid: 101, command: '/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex --model gpt-5.6' }],
+    [101, { ppid: 100, command: 'node /opt/homebrew/bin/codex -m gpt-5.6' }],
+    [102, { ppid: 101, command: '/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex -m gpt-5.6' }],
   ]);
   assert.deepEqual(agentUnder(100, procs), { pid: 102, runner: 'codex' },
     'the walk stopped at the node launcher instead of reaching the agent it spawned');
@@ -222,7 +260,7 @@ test('#2811: runningAs reports a codex agent with its CODEX_HOME, not a synthesi
   const panes = new Map([['subzero-discord', 100]]);
   const procs = new Map([
     [100, { ppid: 1, command: '/bin/zsh' }],
-    [101, { ppid: 100, command: '/opt/homebrew/bin/codex --model gpt-5.6' }],
+    [101, { ppid: 100, command: '/opt/homebrew/bin/codex -m gpt-5.6' }],
   ]);
   const r = runningAs('subzero-discord', {
     panes, procs,
@@ -233,7 +271,8 @@ test('#2811: runningAs reports a codex agent with its CODEX_HOME, not a synthesi
   assert.equal(r.runner, 'codex');
   assert.equal(r.configDir, '/Users/agent1/.codex-work2',
     'the codex account dir is still not identified, which is half of #2811');
-  assert.equal(r.model, 'gpt-5.6', 'the model came from the codex command line');
+  assert.equal(r.model, 'gpt-5.6',
+    'the model was not read off the codex command line, which writes `-m`, not `--model`');
   assert.equal(r.account, null, 'a codex account email must not be guessed here (kosmos#2790 owns it)');
 });
 
@@ -258,6 +297,69 @@ test('#2811: the codex answer SAYS which half of the question it did not answer'
   assert.match(String(out.because), /not read here/,
     'a codex answer no longer says its account was not read, so a caller may invent one');
   assert.equal(out.account, null, 'an account was recited for a codex agent');
+});
+
+test('#2811: the model is read in BOTH spellings, because the product writes both', () => {
+  /* 🛑 THE FIXTURE THAT WAS WRONG, KEPT AS A NAMED ARM SO IT CANNOT GO BACK.
+     `bin/agent-supervisor.sh` launches codex with `-m` and claude with `--model`;
+     `engine/win32launch.js` pushes `--model` for both. Every codex arm here once
+     used `--model`, a shape the DARWIN product never writes, so it asserted an
+     impossible input and a `--model`-only reader looked correct. */
+  const read = (cmd) => runningAs('s', {
+    panes: new Map([['s', 100]]),
+    procs: new Map([
+      [100, { ppid: 1, command: '/bin/zsh' }],
+      [101, { ppid: 100, command: cmd }],
+    ]),
+    envOf: () => 'CODEX_HOME=/Users/x/.codex\n',
+    identityOf: () => { throw new Error('identityOf must NOT be asked about a codex dir'); },
+  }).model;
+
+  assert.equal(read('/opt/homebrew/bin/codex -m gpt-5.6'), 'gpt-5.6',
+    'the darwin codex spelling `-m` is unreadable, so a Codex model can never be reported');
+  assert.equal(read('/opt/homebrew/bin/codex --model gpt-5.6'), 'gpt-5.6',
+    'the win32 spelling `--model` stopped working on a codex command line');
+
+  /* CONTROLS: the token has to stand alone. Neither of these names a model. */
+  assert.equal(read('/opt/homebrew/bin/codex --resume /tmp/-m gpt-5.6'), null,
+    'a `-m` embedded in a PATH was read as the model flag: the start-or-space anchor is gone');
+  assert.equal(read('/opt/homebrew/bin/codex --harmless'), null,
+    'a command line with no model flag produced a model');
+  assert.equal(read('/opt/homebrew/bin/codex --stream-mode fast'), null,
+    'a flag merely ENDING in -m was read as the model flag');
+});
+
+test('#2811: a longer AGENT_WORKFORCE_ twin does not win the config-dir read', () => {
+  /* Both `AGENT_WORKFORCE_CODEX_HOME` and `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`
+     are real names in this repo and are set by its own test sandboxes. An
+     unanchored match takes whichever comes FIRST in the environment block, which
+     is insertion order, so the bug is not even reliably reproducible. Both arms
+     are asserted because both had the hole. */
+  const read = (cmd, env) => runningAs('s', {
+    panes: new Map([['s', 100]]),
+    procs: new Map([
+      [100, { ppid: 1, command: '/bin/zsh' }],
+      [101, { ppid: 100, command: cmd }],
+    ]),
+    envOf: () => env,
+    identityOf: () => ({ email: 'a@b.c', organization: 'O' }),
+  }).configDir;
+
+  assert.equal(
+    read('/opt/homebrew/bin/codex', 'AGENT_WORKFORCE_CODEX_HOME=/tmp/sandbox CODEX_HOME=/Users/a/.codex-work2'),
+    '/Users/a/.codex-work2',
+    'the AGENT_WORKFORCE_ twin was read as CODEX_HOME');
+
+  assert.equal(
+    read('/usr/bin/claude', 'AGENT_WORKFORCE_CLAUDE_CONFIG_DIR=/tmp/sandbox CLAUDE_CONFIG_DIR=/Users/a/.claude-b'),
+    '/Users/a/.claude-b',
+    'the AGENT_WORKFORCE_ twin was read as CLAUDE_CONFIG_DIR');
+
+  /* CONTROL: the real variable is still found when it is FIRST, so the anchor
+     did not simply break the read. */
+  assert.equal(
+    read('/opt/homebrew/bin/codex', 'CODEX_HOME=/Users/a/.codex-first AGENT_WORKFORCE_CODEX_HOME=/tmp/sandbox'),
+    '/Users/a/.codex-first');
 });
 
 test('#2811 CONTROL: a CLAUDE agent is unchanged, and still reads CLAUDE_CONFIG_DIR', () => {

@@ -186,42 +186,59 @@ function agentUnder(panePid, procs) {
     if (!kids.has(ppid)) kids.set(ppid, []);
     kids.get(ppid).push(pid);
   }
-  const queue = [panePid];
+  /* 🛑 A LEVEL AT A TIME, AND CLAUDE WINS A TIE. Widening this matcher created a
+     risk that could not exist while only `claude` matched: two agent-shaped
+     processes in one pane's tree, where whichever the walk happened to reach
+     first decided the answer. Getting that wrong is the CARD'S OWN DEFECT
+     INVERTED and strictly worse than the bug being fixed: a Claude agent would
+     be told it is a Codex agent, its account read from `CODEX_HOME`, and its
+     recorded model suppressed as foreign.
+     ⇒ Depth still decides first, which is what makes the launcher case work. The
+     tie is the only ambiguous case, and it resolves to `claude` because that is
+     exactly the answer this function gave before codex was added: the widening
+     can turn a refusal into an answer, and cannot turn one answer into another. */
+  let level = [panePid];
   const seen = new Set();
-  while (queue.length) {
-    const pid = queue.shift();
-    if (seen.has(pid)) continue;
-    seen.add(pid);
-    const rec = procs.get(pid);
-    if (rec) {
-      const first = String(rec.command).trim().split(/\s+/)[0] || '';
-      /* Matched on the executable PATH ending in /claude or /codex, not on the
-         string appearing anywhere: a pane running `grep claude` is not an agent,
-         and neither is this module's own command line.
+  while (level.length) {
+    const next = [];
+    let fallback = null;
+    for (const pid of level) {
+      if (seen.has(pid)) continue;
+      seen.add(pid);
+      const rec = procs.get(pid);
+      if (rec) {
+        const first = String(rec.command).trim().split(/\s+/)[0] || '';
+        /* Matched on the executable PATH ending in /claude or /codex, not on the
+           string appearing anywhere: a pane running `grep claude` is not an agent,
+           and neither is this module's own command line.
 
-         📌 A NODE-FRONTING INSTALL NEEDS NOTHING EXTRA HERE, and this is worth
-         recording because the opposite is very easy to believe. `claude` on a
-         native install is a Mach-O binary, but `/opt/homebrew/bin/codex` (the
-         npm/homebrew launcher this repo's `runners.js` still supports) is a
-         `#!/usr/bin/env node` script, so `ps` shows it as
-         `node /opt/homebrew/bin/codex` and the first token is the INTERPRETER.
-         An earlier draft therefore taught this function to hop from an
-         interpreter to its script argument.
+           📌 A NODE-FRONTING INSTALL NEEDS NOTHING EXTRA HERE, and this is worth
+           recording because the opposite is very easy to believe. `claude` on a
+           native install is a Mach-O binary, but `/opt/homebrew/bin/codex` (the
+           npm/homebrew launcher this repo's `runners.js` still supports) is a
+           `#!/usr/bin/env node` script, so `ps` shows it as
+           `node /opt/homebrew/bin/codex` and the first token is the INTERPRETER.
+           An earlier draft therefore taught this function to hop from an
+           interpreter to its script argument.
 
-         🛑 THAT WAS UNNECESSARY, MEASURED. The launcher does not become the
-         agent: it `spawn`s the native binary as a CHILD, and this is a BREADTH
-         walk over the whole subtree, so the child is reached by the plain rule.
-         Sampled during a real run:
-             node /opt/homebrew/bin/codex --help                  <- launcher
-             .../vendor/aarch64-apple-darwin/bin/codex --help     <- the agent
-         ⇒ Widening the matcher to accept `node` would have bought nothing and
-         cost the thing this rule exists for, since a pane can hold an unrelated
-         node process. The refusal during the launcher's first few milliseconds,
-         before its child exists, is honest. */
-      const runner = runnerNamed(first);
-      if (runner != null) return { pid, runner };
+           🛑 THAT WAS UNNECESSARY, MEASURED. The launcher does not become the
+           agent: it `spawn`s the native binary as a CHILD, and this is a BREADTH
+           walk over the whole subtree, so the child is reached by the plain rule.
+           Sampled during a real run:
+               node /opt/homebrew/bin/codex --help                  <- launcher
+               .../vendor/aarch64-apple-darwin/bin/codex --help     <- the agent
+           ⇒ Widening the matcher to accept `node` would have bought nothing and
+           cost the thing this rule exists for, since a pane can hold an unrelated
+           node process. The refusal during the launcher's first few milliseconds,
+           before its child exists, is honest. */
+        const runner = runnerNamed(first);
+        if (runner === 'claude') return { pid, runner };
+        if (runner != null && fallback == null) fallback = { pid, runner };
+      }
+      for (const k of kids.get(pid) || []) next.push(k);
     }
-    for (const k of kids.get(pid) || []) queue.push(k);
+    if (fallback != null) return fallback;
+    level = next;
   }
   return null;
 }
@@ -293,8 +310,23 @@ function parseCmdlines(out) {
 }
 
 /** `--model` off a command line, the one field win32 CAN read live. */
+/* 🛑 BOTH SPELLINGS, BECAUSE THE PRODUCT WRITES BOTH AND THEY SPLIT BY RUNNER.
+   `bin/agent-supervisor.sh` launches codex with `-m "$MODEL"` and claude with
+   `--model "$MODEL"`, while `engine/win32launch.js` pushes `--model` for BOTH.
+   A `--model`-only match is therefore correct on win32 and blind on darwin for
+   the one runner darwin can now report, so this read could never see a Codex
+   agent's model on the only arm that resolves one.
+   ⚠️ It is latent rather than live today: `setModel` refuses a codex agent, so
+   `$MODEL` is empty and the supervisor takes its no-flag branch. It goes live the
+   moment OpenAI model rows exist, which is exactly when nobody will be looking
+   here. Caught by a reviewer who read the supervisor instead of my fixture: every
+   codex arm I had written used `--model`, a shape the darwin product never
+   produces, so the assertion "the model came from the codex command line" was
+   testing an impossible input.
+   The token must stand alone (anchored on start-or-space, and a value must
+   follow), so this does not match an `-m` buried in a path or another word. */
 function modelIn(cmd) {
-  const m = String(cmd == null ? '' : cmd).match(/--model[= ](\S+)/);
+  const m = String(cmd == null ? '' : cmd).match(/(?:^|\s)(?:--model|-m)[= ](\S+)/);
   return m ? m[1] : null;
 }
 
@@ -442,7 +474,13 @@ function runningAsDarwin(session, deps = {}) {
   const { pid, runner } = found;
 
   const cmd = String((procs.get(pid) || {}).command || '');
-  const modelMatch = cmd.match(/--model[= ](\S+)/);
+  /* 🛑 `modelIn`, NOT A SECOND COPY OF ITS REGEX, and this arm carried one. The
+     duplicate here read `--model` only, so widening the helper for the codex `-m`
+     spelling fixed the win32 arm and left THIS one, the only arm that can report
+     a codex agent at all, still blind. One fact derived in two places, the two
+     drifting, and the wrong one deciding the path that matters: the shape this
+     codebase names more often than any other. */
+  const modelFound = modelIn(cmd);
   const env = String(envOf(pid) || '');
   /* #2811: read the env var this RUNNER actually uses. A codex agent is
      configured by CODEX_HOME and has no CLAUDE_CONFIG_DIR, so the Claude-only
@@ -450,7 +488,18 @@ function runningAsDarwin(session, deps = {}) {
      codex agent as living in a Claude directory: the "cannot identify
      .codex-work2" half of this card. */
   const codex = runner === 'codex';
-  const dirMatch = env.match(codex ? /CODEX_HOME=(\S+)/ : /CLAUDE_CONFIG_DIR=(\S+)/);
+  /* 🛑 ANCHORED ON START-OR-SPACE, BECAUSE BOTH NAMES HAVE A REAL LONGER TWIN.
+     `AGENT_WORKFORCE_CODEX_HOME` and `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR` both
+     exist in this repo and are set by its own test sandboxes, and an unanchored
+     match takes whichever appears FIRST in the environment block -- which is
+     insertion order, not alphabetical, so it is not even reliably wrong.
+     Measured on a real `ps -Eww` shape:
+       unanchored -> /tmp/sandbox-home          <- the AGENT_WORKFORCE_ one
+       anchored   -> /Users/a/.codex-work2      <- the variable actually asked for
+     The codex arm is new here; the claude arm had the same hole and is fixed in
+     the same expression, because leaving one half of one fact broken is how the
+     two drift and the looser one decides. */
+  const dirMatch = env.match(codex ? /(?:^|\s)CODEX_HOME=(\S+)/ : /(?:^|\s)CLAUDE_CONFIG_DIR=(\S+)/);
   const configDir = dirMatch ? dirMatch[1] : path.join(HOME(), codex ? '.codex' : '.claude');
 
   /* 🛑 `identityOf` RESOLVES A CLAUDE ACCOUNT, so it is not asked about a codex
@@ -468,7 +517,7 @@ function runningAsDarwin(session, deps = {}) {
        behind this card. */
     account: (id && id.email) || null,
     organization: (id && id.organization) || null,
-    model: modelMatch ? modelMatch[1] : null,
+    model: modelFound,
     configDir,
     runner,
     because: codex

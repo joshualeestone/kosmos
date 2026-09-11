@@ -40,7 +40,7 @@ running", and `kosmos whoami` could not name the agent at all.
   and why, rather than guessing.
 - **Did not fall back to the record's `runner`.** The record's value comes from
   an `@kosmos_runner` session marker that SURVIVES a crash back to a shell
-  (`engine/status.js:680`), so it can say "codex" about a pane running nothing.
+  (`engine/status.js:682`), so it can say "codex" about a pane running nothing.
   This reader is the live one; a live reader that falls back to a record is no
   longer a live reader.
 - **Did not touch the win32 arm.** It never matches a process name at all: its
@@ -200,8 +200,8 @@ process, and this is the live reader.
 
 ## Tests
 
-`engine/runningas.test.js`, 19 tests. The #1304 controls are preserved and updated
-for the `{pid, runner}` return. `server.test.js`, four new arms.
+`engine/runningas.test.js`, 23 tests. The #1304 controls are preserved and updated
+for the `{pid, runner}` return. `server.test.js`, six new arms.
 
 Every assertion was mutation tested, and mutants that SURVIVED drove real repairs
 rather than being noted:
@@ -224,3 +224,76 @@ values, and runs its control FIRST: if the record cannot answer, the arm proves
 nothing. This file already paid for that lesson once, when a reviewer swapped the
 two model branches and the entire suite stayed green because no arm had ever
 populated both.
+
+## Round 2: what the second challenge pass changed
+
+Round 2 returned NEW ISSUES: three WARNINGs and four NITs, no blocker. It confirmed
+all nine mutants from round 1 die. Two of the WARNINGs were defects in the round-1
+work itself, and two of the NITs were risks this change introduced.
+
+### The user-visible surface was pinned as a unit and not at the route
+
+The sentence test pinned `sentenceForWhoami` directly. Nothing pinned that the
+ROUTE passes the runner into it, so a mutant hardcoding that argument to null kept
+272/272 green while deleting the word Codex from the only place the filer looks.
+The route arm now asserts `out.because`. The reviewer's exact mutant now fails.
+
+⭐ A unit test of the composer plus a route test that never reads the composed
+string leaves the WIRING unpinned, and the wiring is the whole feature.
+
+### The model could never be read for a darwin Codex agent
+
+`bin/agent-supervisor.sh` writes `-m` for codex and `--model` for claude, while
+`engine/win32launch.js` writes `--model` for both. Every codex arm here used
+`--model`, a shape the darwin product never produces, so the assertion "the model
+came from the codex command line" was testing an impossible input.
+
+Fixing it exposed a second defect the review had not named: the darwin arm carried
+its OWN COPY of the regex, so widening the `modelIn` helper alone would have fixed
+win32 and left darwin, the only arm that can report a codex agent, still blind.
+The darwin arm now calls the shared helper. One fact, one derivation.
+
+Latent rather than live today, because `setModel` refuses a codex agent so no model
+flag is written at all. It goes live the moment OpenAI model rows exist.
+
+### The record-only path had the same defect one reader over
+
+The round-1 guard keyed on the LIVE runner, so when the live read does not succeed
+(paneless, crashed, or the 15s budget spent) it was off exactly when the record is
+the only source and its stale Claude model went out unopposed.
+
+It now also consults the card's runner marker. That marker SURVIVES a crash, which
+is precisely why it was rejected for the wire `runner` field and precisely why it
+is right here: "what is running right now" must not come from a marker that
+outlives the process, while "is this agent's Claude transcript stale" is about what
+the agent IS, and a crashed Codex agent is still a Codex agent.
+
+### Two risks this change introduced, both closed
+
+**The card's defect inverted.** Widening the matcher made it possible for two
+agent-shaped processes to compete in one tree, which could not happen while only
+`claude` matched. Whichever the walk reached first won, so a Claude agent could be
+told it is a Codex agent, its account read from `CODEX_HOME`, its recorded model
+suppressed as foreign: strictly worse than the bug being fixed. The walk is now
+level-ordered and `claude` wins a tie, which is the answer this function gave
+before codex was added. Depth still decides first, tested both ways.
+
+**A prefix collision in the new config-dir read.** `CODEX_HOME=(\S+)` also matches
+`AGENT_WORKFORCE_CODEX_HOME`, which is a real name in this repo set by its own test
+sandboxes, and the unanchored match takes whichever appears FIRST in the
+environment block: insertion order, so not even reliably wrong. Measured, both
+arms anchored. The claude arm had the identical hole and is fixed in the same
+expression rather than left as the asymmetry that lets two halves of one fact
+drift.
+
+### A premise of mine that was measurably false
+
+My comment justified trusting the workdir with `setProvider` "rewriting the plist
+and nothing else", quoting `setProvider`'s own header. It is false: it also renames
+the brief CLAUDE.md <-> AGENTS.md and writes the profile provider. The conclusion
+survives (the rename is INSIDE `workerDir` and the name never changes, so the
+lookup resolves the same directory), which is why the wrong premise was worth
+correcting rather than leaning on.
+
+⭐ This is my named recurring failure and it recurred: I repeated a neighbouring
+file's comment as evidence without opening the function it describes.
