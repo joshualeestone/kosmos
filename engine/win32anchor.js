@@ -189,9 +189,16 @@ const TRANSIENT_RENAME_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);
    milliseconds. Its worst case is three renames (aside, in, back), each
    retried in full. The margin is DERIVED from the retry budget so the two cannot
    drift: twice that worst case, about six seconds. The age is read from the time
-   in the name, because a rename keeps the file's old modification time. */
+   in the name, stamped when the file moves aside, because a rename keeps the
+   file's old modification time. */
 const SWAP_RENAMES_AT_WORST = 3;
 const RETIRED_SWEEP_MIN_AGE_MS = 2 * SWAP_RENAMES_AT_WORST * RENAME_ATTEMPTS * RENAME_RETRY_DELAY_MS;
+
+/* A staged copy younger than this may still be being written by a swap in
+   flight: copying 92 MB takes well under a second on a normal disk, but it can
+   take far longer on a slow disk or under an antivirus scan. Ten minutes is far
+   beyond any real copy and still reclaims a dead swap's 92 MB the same day. */
+const STAGED_SWEEP_MIN_AGE_MS = 10 * 60 * 1000;
 
 function pauseSync(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -220,16 +227,17 @@ function renameWithRetry(from, to) {
  * start and runs at the next logon or restart. That window opens only when the
  * Node version changes.
  */
-function replaceInterpreter(srcNode, nodeAt, now) {
-  const unique = now + '-' + process.pid;
-  const staged = nodeAt + STAGED_INFIX + unique;
+function replaceInterpreter(srcNode, nodeAt, clock) {
+  const staged = nodeAt + STAGED_INFIX + clock() + '-' + process.pid;
   let retired = null;
   try {
     /* The copy goes to the side name FIRST, so a failed or half-done copy never
        touches the interpreter the fleet is running on. */
     fs.copyFileSync(srcNode, staged);
     if (fs.existsSync(nodeAt)) {
-      retired = nodeAt + RETIRED_INFIX + unique;
+      /* Stamped AFTER the 92 MB copy, so the sweep's age counts from the moment
+         the file moved aside, not from before a slow copy. */
+      retired = nodeAt + RETIRED_INFIX + clock() + '-' + process.pid;
       renameWithRetry(nodeAt, retired);
     }
     renameWithRetry(staged, nodeAt);
@@ -242,26 +250,42 @@ function replaceInterpreter(srcNode, nodeAt, now) {
           ' (' + ((restoreError && restoreError.message) || restoreError) + ')';
       }
     }
-    try { fs.unlinkSync(staged); } catch { /* never created, or already renamed into place */ }
+    try {
+      fs.unlinkSync(staged);
+    } catch (unlinkError) {
+      /* ENOENT means the copy never created it. Anything else (antivirus holding
+         the fresh file) leaves a 92 MB staged copy for the staged sweep: say so. */
+      if (!unlinkError || unlinkError.code !== 'ENOENT') {
+        e.message += ' -- and the staged copy ' + staged + ' was left behind (' +
+          ((unlinkError && unlinkError.message) || unlinkError) + ')';
+      }
+    }
     throw e;
   }
 }
 
 /**
- * Delete interpreters an earlier swap moved aside. Best-effort and silent by
- * design: a retired node.exe that a supervisor or the board still runs on cannot
- * be deleted until that process exits (measured), and the next anchoring retries.
- * Staged leftovers are NOT swept: one may be another process's swap in flight.
+ * Delete side files earlier swaps left. Best-effort and silent by design: a
+ * retired node.exe that a supervisor or the board still runs on cannot be deleted
+ * until that process exits (measured), and the next anchoring retries. A staged
+ * copy exists only while a swap is copying, or after one died or could not
+ * delete it, so staged copies get a far longer margin than retired ones.
  */
-function retireLeftoverInterpreters(dir, now) {
-  const prefix = NODE_NAME + RETIRED_INFIX;
+function retireLeftoverInterpreters(dir, clock) {
   let names;
   try { names = fs.readdirSync(dir); } catch { return; }
+  const now = clock();
+  const kinds = [
+    [NODE_NAME + RETIRED_INFIX, RETIRED_SWEEP_MIN_AGE_MS],
+    [NODE_NAME + STAGED_INFIX, STAGED_SWEEP_MIN_AGE_MS],
+  ];
   for (const name of names) {
-    if (!name.startsWith(prefix)) continue;
-    const retiredAt = Number(name.slice(prefix.length).split('-')[0]);
-    if (Number.isFinite(retiredAt) && now - retiredAt < RETIRED_SWEEP_MIN_AGE_MS) continue;
-    try { fs.unlinkSync(path.join(dir, name)); } catch { /* still running; the next anchoring retries */ }
+    for (const [prefix, minAgeMs] of kinds) {
+      if (!name.startsWith(prefix)) continue;
+      const stampedAt = Number(name.slice(prefix.length).split('-')[0]);
+      if (Number.isFinite(stampedAt) && now - stampedAt < minAgeMs) continue;
+      try { fs.unlinkSync(path.join(dir, name)); } catch { /* still in use; the next anchoring retries */ }
+    }
   }
 }
 
@@ -278,8 +302,11 @@ function ensureAnchored(opts) {
   const env = o.env || process.env;
   const srcNode = o.node || process.execPath;
   const engineDir = o.engineDir || __dirname;
-  /* Injectable so a test can age a retired interpreter without sleeping. */
-  const now = typeof o.now === 'number' ? o.now : Date.now();
+  /* The clock side files are stamped and aged by. `o.now` is injectable so a
+     test can age them without sleeping: it sets where the clock starts, and it
+     still advances in real time from there. */
+  const startedAt = Date.now();
+  const clock = () => (typeof o.now === 'number' ? o.now : startedAt) + (Date.now() - startedAt);
 
   let dir;
   try {
@@ -312,9 +339,9 @@ function ensureAnchored(opts) {
     if (path.resolve(srcNode).toLowerCase() !== path.resolve(nodeAt).toLowerCase()) {
       let need = true;
       try { need = fs.statSync(nodeAt).size !== fs.statSync(srcNode).size; } catch { need = true; }
-      if (need) replaceInterpreter(srcNode, nodeAt, now);
+      if (need) replaceInterpreter(srcNode, nodeAt, clock);
     }
-    retireLeftoverInterpreters(dir, now);
+    retireLeftoverInterpreters(dir, clock);
 
     /* The pointer and the shim are small and rewritten unconditionally: this is
        how an app that moved takes effect, and it is the cheap half. */

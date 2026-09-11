@@ -124,10 +124,15 @@ test('#570 IT NEVER COPIES THE INTERPRETER ONTO ITSELF', () => {
      node.exe. `fs.copyFileSync(x, x)` truncates, so a re-anchor from inside a
      supervised process would delete the interpreter every agent on the box
      depends on -- while running on it. */
+  /* The anchor is derived by the module itself (it was once a hardcoded
+     `AgentWorkforce`, which after #2439 put this file beside the anchor rather
+     than at it, so the arm checked nothing). The size check alone also stops a
+     self-copy, since a file equals its own size; this pins the OUTCOME, the
+     interpreter intact, whichever guard catches it. */
   const dir = tmp();
-  const runtime = path.join(dir, 'AgentWorkforce', 'runtime');
+  const runtime = anchor.anchorDir(process.platform, os.homedir(), { AGENT_WORKFORCE_DATA: dir });
   fs.mkdirSync(runtime, { recursive: true });
-  const self = path.join(runtime, 'node.exe');
+  const self = path.join(runtime, anchor.NODE_NAME);
   fs.writeFileSync(self, 'the anchored interpreter, still intact', 'utf8');
 
   const r = anchor.ensureAnchored({
@@ -235,12 +240,14 @@ function anchoredOldWithNewSource() {
 
 test('#570 a swap whose final rename fails leaves the old interpreter in place and says why', () => {
   const { dir, runtime, nodeAt, newSrc } = anchoredOldWithNewSource();
+  let finalRenameTries = 0;
   const r = withRenames((from, to, real) => {
-    if (to === nodeAt && from.includes(anchor.STAGED_INFIX)) throw failure('EIO');
+    if (to === nodeAt && from.includes(anchor.STAGED_INFIX)) { finalRenameTries += 1; throw failure('EIO'); }
     return real(from, to);
   }, () => anchor.ensureAnchored(anchoringOf(dir, newSrc)));
   assert.equal(r.ok, false);
   assert.match(r.because, /simulated EIO/);
+  assert.equal(finalRenameTries, 1, 'only a transient lock is retried; a real failure reports at once');
   assert.equal(fs.readFileSync(nodeAt, 'utf8'), 'old', 'the retired interpreter is moved back');
   assert.deepEqual(sideFiles(runtime), [], 'no staged or retired file is left behind');
 });
@@ -284,6 +291,39 @@ test('#570 a rename held for a moment (antivirus, the indexer) is retried, and a
   const later = anchor.ensureAnchored(anchoringOf(dir, newSrc, { now: LATER() }));
   assert.equal(later.ok, true, later.because || '');
   assert.deepEqual(sideFiles(runtime), [], 'once it is old enough, it is swept');
+});
+
+test('#570 a staged copy is swept only when it is far too old to be a swap in flight', () => {
+  const { dir, runtime, newSrc } = anchoredOldWithNewSource();
+  const deadSwap = anchor.NODE_NAME + anchor.STAGED_INFIX + '1-1';
+  const inFlight = anchor.NODE_NAME + anchor.STAGED_INFIX + Date.now() + '-1';
+  fs.writeFileSync(path.join(runtime, deadSwap), 'a dead swap left this', 'utf8');
+  fs.writeFileSync(path.join(runtime, inFlight), 'another swap is still copying this', 'utf8');
+  const r = anchor.ensureAnchored(anchoringOf(dir, path.join(runtime, anchor.NODE_NAME)));
+  assert.equal(r.ok, true, r.because || '');
+  assert.deepEqual(sideFiles(runtime), [inFlight], 'the dead swap\'s copy is swept, the young one is left');
+  void newSrc;
+});
+
+test('#570 a staged copy that cannot be deleted after a failed swap is SAID, not left silently', () => {
+  const { dir, nodeAt, newSrc } = anchoredOldWithNewSource();
+  const realUnlink = fs.unlinkSync;
+  fs.unlinkSync = (p) => {
+    if (String(p).includes(anchor.STAGED_INFIX)) throw failure('EBUSY');
+    return realUnlink(p);
+  };
+  let r;
+  try {
+    r = withRenames((from, to, real) => {
+      if (to === nodeAt && from.includes(anchor.STAGED_INFIX)) throw failure('EIO');
+      return real(from, to);
+    }, () => anchor.ensureAnchored(anchoringOf(dir, newSrc)));
+  } finally {
+    fs.unlinkSync = realUnlink;
+  }
+  assert.equal(r.ok, false);
+  assert.match(r.because, /staged copy .* was left behind/, r.because);
+  assert.equal(fs.readFileSync(nodeAt, 'utf8'), 'old', 'the running interpreter is still the old one');
 });
 
 test('#570 a first anchoring leaves no side file beside the interpreter', () => {
