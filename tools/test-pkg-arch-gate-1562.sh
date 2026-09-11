@@ -29,10 +29,20 @@ xval() { printf '%s' "$1" | grep -oE "$2" | head -1 | sed 's/.*="//; s/"$//'; }
 BUILD_SH="$REPO/tools/build-installer-pkg.sh"
 SETUP_SH="$REPO/install/setup.sh"
 
-# The Distribution the build emits (the heredoc's XML block).
-DIST="$(sed -n '/<installer-gui-script/,/<\/installer-gui-script>/p' "$BUILD_SH")"
-if [ -z "$DIST" ]; then
+# The Distribution the build emits (the heredoc's XML block), with XML comments
+# STRIPPED. The strip is load-bearing, not tidiness: the extraction below reads
+# the first `attr="value"` match, and a `<!-- ... -->` comment above <options>
+# can hold a literal quoted attribute (the old value, an example). Without the
+# strip a future editor writing one there would make the checks read the comment
+# instead of the real attribute; with it, xval is genuinely immune to comment
+# prose rather than immune by luck.
+DIST_RAW="$(sed -n '/<installer-gui-script/,/<\/installer-gui-script>/p' "$BUILD_SH")"
+if [ -z "$DIST_RAW" ]; then
   echo "FAIL  could not extract the Distribution from $BUILD_SH"; exit 1
+fi
+DIST="$(printf '%s' "$DIST_RAW" | python3 -c 'import sys,re; sys.stdout.write(re.sub(r"<!--.*?-->", "", sys.stdin.read(), flags=re.S))')"
+if [ -z "$DIST" ]; then
+  echo "FAIL  Distribution was empty after stripping XML comments"; exit 1
 fi
 
 ARCH_PAT='hostArchitectures="[^"]*"'
@@ -72,6 +82,18 @@ if [ -z "$(xval '<options hostArchitectures="arm64"/>' "$OSMIN_PAT")" ]; then
   pass "CONTROL: the macOS-gate extraction yields empty on a Distribution with no gate"
 else
   fail "CONTROL broken: the macOS-gate extraction found a min in an ungated Distribution"
+fi
+
+# CONTROL: the comment-strip is what makes xval immune to a commented-out
+# attribute. Prove it fires: a block whose COMMENT holds a bad hostArchitectures
+# and whose real <options> is arm64 must still extract arm64 after stripping.
+STRIP_IN='<!-- old value was hostArchitectures="arm64,x86_64" -->
+<options hostArchitectures="arm64"/>'
+STRIP_OUT="$(printf '%s' "$STRIP_IN" | python3 -c 'import sys,re; sys.stdout.write(re.sub(r"<!--.*?-->", "", sys.stdin.read(), flags=re.S))')"
+if [ "$(xval "$STRIP_OUT" "$ARCH_PAT")" = "arm64" ]; then
+  pass "CONTROL: comment-strip makes xval read the real attribute, not a comment's"
+else
+  fail "CONTROL broken: xval read a commented-out attribute value"
 fi
 
 if [ "$fails" -eq 0 ]; then
