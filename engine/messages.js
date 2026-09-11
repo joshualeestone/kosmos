@@ -1236,8 +1236,14 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
         + 'Kosmos did not step in, because you have the limit turned off.';
     // Same latest-row rule as the pair dedup: the record's last word for
     // this room must match current behavior; within one state, once.
+    // #2738: dedup from countFrom, not the raw window, so a reopen (or an
+    // operator post) resets the notice baseline exactly as it reset the
+    // arrival budget above. On the common path countFrom === windowFrom, so
+    // this is unchanged; only after a reopen/operator post does a re-loop get
+    // a fresh "stopped again" notice instead of being suppressed by a
+    // pre-reopen valve row.
     const prior = log.filter((m) => m && m.kind === 'valve'
-      && m.project === projectId && Date.parse(m.at) >= now - lim.windowMs);
+      && m.project === projectId && Date.parse(m.at) >= countFrom);
     const latest = prior[prior.length - 1];
     if (!latest || (latest.stopped !== false) !== lim.on) {
       appendLog({ kind: 'valve', from, to: projectId, project: projectId, at, because, stopped: lim.on });
@@ -1250,9 +1256,13 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
          own summons left its only trace inside her terminal). One refused row
          per agent per window, project-stamped so the room can serve it. */
       try {
+        // #2738: from countFrom too, so a reopen/operator post clears the
+        // per-agent refused dedup as well -- a re-offending agent after a
+        // reopen leaves a fresh refused row instead of being swallowed by its
+        // pre-reopen one. Unchanged on the common path (countFrom===windowFrom).
         const already = log.some((m) => m && m.kind === 'refused'
           && m.from === from && m.project === projectId
-          && Date.parse(m.at) >= now - lim.windowMs);
+          && Date.parse(m.at) >= countFrom);
         if (!already) {
           appendLog({ kind: 'refused', from, to: projectId, project: projectId,
             because: 'the room was going back and forth without landing, so Kosmos was holding it for the person', at });
