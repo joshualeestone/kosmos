@@ -4464,13 +4464,16 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dm-b .mdh4, .pj-msg-text .mdh4, .msg-b .mdh4 { font-size: 1rem; }
 .dm-b .mdh5, .pj-msg-text .mdh5, .msg-b .mdh5 { font-size: .9375rem; }
 .dm-b .mdh6, .pj-msg-text .mdh6, .msg-b .mdh6 { font-size: .875rem; }
-/* #2701: markdown tables. inline-table so it flows in the renderer's inline
-   (<br>-joined) output like .mdhr's inline-block, rather than forcing a block
-   context the surrounding spans do not use. Scrolls rather than widening the
-   message column. */
+/* #2701: markdown tables. The WRAPPER is the inline-block scroll container (the
+   #usage-table pattern) -- it flows in the renderer's inline (<br>-joined)
+   output like .mdhr's inline-block, caps the width, and SCROLLS a wide table
+   rather than letting it widen the message bubble (a long URL / inline-code
+   token in a cell cannot force the column wider). The table itself lays out
+   normally inside it. */
+.dm-b .mdtablewrap, .pj-msg-text .mdtablewrap, .msg-b .mdtablewrap {
+  display: inline-block; max-width: 100%; overflow-x: auto; vertical-align: top; margin: 4px 0; }
 .dm-b .mdtable, .pj-msg-text .mdtable, .msg-b .mdtable {
-  display: inline-table; border-collapse: collapse; margin: 4px 0; max-width: 100%;
-  font-size: .9375rem; vertical-align: top; }
+  border-collapse: collapse; font-size: .9375rem; }
 .dm-b .mdtable th, .pj-msg-text .mdtable th, .msg-b .mdtable th,
 .dm-b .mdtable td, .pj-msg-text .mdtable td, .msg-b .mdtable td {
   border: 1px solid var(--k-rule); padding: 3px 8px; text-align: left; vertical-align: top; }
@@ -36115,7 +36118,10 @@ function pjTableHtml(headerLine, aligns, bodyLines, names) {
   const cols = headers.length;
   const cell = (tag, text, k) => '<' + tag + (aligns[k] ? ' style="text-align:' + aligns[k] + '"' : '')
     + '>' + pjRichSpans(text == null ? '' : text, names) + '</' + tag + '>';
-  let h = '<table class="mdtable"><thead><tr>';
+  /* Wrapped in a scroll container (like #usage-table): the wrapper is the
+     inline-block that caps width and scrolls, the table lays out normally
+     inside, so a wide table scrolls rather than widening the message bubble. */
+  let h = '<span class="mdtablewrap"><table class="mdtable"><thead><tr>';
   for (let k = 0; k < cols; k += 1) h += cell('th', headers[k], k);
   h += '</tr></thead><tbody>';
   for (let r = 0; r < bodyLines.length; r += 1) {
@@ -36124,7 +36130,7 @@ function pjTableHtml(headerLine, aligns, bodyLines, names) {
     for (let k = 0; k < cols; k += 1) h += cell('td', c[k], k);
     h += '</tr>';
   }
-  return h + '</tbody></table>';
+  return h + '</tbody></table></span>';
 }
 function pjProse(text, names) {
   const src = String(text == null ? '' : text).split('\n');

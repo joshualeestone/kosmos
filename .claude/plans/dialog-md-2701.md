@@ -56,9 +56,10 @@ I fixed BOTH renderers because "the dialog box" could be the talk/DM dialog (pjR
 
 ## Verification
 
-- `web.dialog-md-2701.test.js` (new): lifts the REAL pjProse and pjRich and asserts, for each, a
-  table renders as a real `<table class="mdtable">` (not piped text), heading levels emit
-  mdh1..mdh6, a stray pipe stays text, and a cell escapes HTML. 7 tests.
+- `web.dialog-md-2701.test.js` (new): lifts the REAL pjProse and pjRich and asserts, for EACH
+  renderer, a table renders as a real `<table class="mdtable">` (not piped text), heading levels
+  emit mdh1..mdh6, a stray pipe stays text, a `---` rule below a pipe line stays a rule (not a false
+  table), and a cell escapes HTML (no injection). 10 tests (5 per renderer).
 - Extended the two shipped render browser-checks (headless, both themes, run under pw-runtime):
   - `render-richtext-room-2239.js` (pjProse/.msg-b): the shipped function renders a table + distinct
     heading levels in the page, AND the PAINTED room shows a real table element and the level-1

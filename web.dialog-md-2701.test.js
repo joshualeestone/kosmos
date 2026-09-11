@@ -69,11 +69,12 @@ for (const [name, make] of [['pjProse', proseFn], ['pjRich', richFn]]) {
     assert.match(html, /Pros \| Cons/, `${name}: the pipe line was consumed by a false table`);
     assert.match(html, /class="mdhr"/, `${name}: the --- did not render as a rule`);
   });
-}
 
-test('#2701: table cells keep inline markup escaped (no HTML injection via a cell)', () => {
-  const fn = proseFn();
-  const html = fn('| a | b |\n| --- | --- |\n| <b>x</b> | y |');
-  assert.doesNotMatch(html, /<b>x<\/b>/, 'a cell let raw HTML through');
-  assert.match(html, /&lt;b&gt;x&lt;\/b&gt;/, 'a cell did not escape its HTML');
-});
+  test(`#2701: ${name} keeps table cell HTML escaped (no injection via a cell)`, () => {
+    const fn = make();
+    const html = fn('| a | b |\n| --- | --- |\n| <b>x</b> | <img src=q onerror=go> |');
+    assert.doesNotMatch(html, /<b>x<\/b>/, `${name}: a cell let raw HTML through`);
+    assert.doesNotMatch(html, /<img /, `${name}: a cell let a raw <img> through`);
+    assert.match(html, /&lt;b&gt;x&lt;\/b&gt;/, `${name}: a cell did not escape its HTML`);
+  });
+}
