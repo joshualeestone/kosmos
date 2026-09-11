@@ -10158,6 +10158,27 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #2710: the operator REOPENS a held room. The valve holds a room that went
+     back and forth without landing; this clears that hold so the next post
+     lands, without the operator having to type a content post to do it. Its own
+     POST route: like the operator room post and react above, it WRITES and so is
+     an operator surface, board-token gated by the sensitive-route check (every
+     /api/ POST is). The engine writes a reopen marker the valve honors; nothing
+     is delivered and nothing renders in the room. No body is required -- the
+     project rides the path -- so a missing/garbage body is not read. */
+  const roomReopen = pathname.match(/^\/api\/project\/([^/]+)\/room\/reopen$/);
+  if (roomReopen && req.method === 'POST') {
+    const id = decodeSegment(roomReopen[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    const roster = safeRoster();
+    let found = null;
+    try { found = projects.get(id, roster || []); } catch { found = null; }
+    if (!found) { sendJson(res, 404, { ok: false, because: 'there is no project by that name' }); return; }
+    const out = messages.reopenRoom(found.id);
+    sendJson(res, out.ok ? 200 : 400, out);
+    return;
+  }
+
   /* #2255: the operator TOGGLES an emoji reaction on a room post. Its own POST
      route (a react LAUNCHES nothing, but it writes, so it inherits the same
      operator-surface + cross-site posture as the room post above; agents react
