@@ -366,7 +366,23 @@ test('#2726 a resume with NO saved conversation starts fresh instead of resuming
   assert.equal(win32sessions.isOurs(t.firstId), false, 'the row that nothing can resume is forgotten');
   const said = t.events.find((e) => e.action === 'resume-impossible');
   assert.ok(said && said.sessionId === t.firstId && /no saved conversation/.test(said.because), 'and the task log says why');
+  const i = t.events.indexOf(said);
+  assert.equal(t.events[i - 1].action, 'died', 'the death is logged first');
+  assert.equal(t.events[i - 1].sessionId, t.firstId, 'and still names the session that died');
   t.h.stop();
+});
+
+test('#2726 a stop during a failed resume decides no next start, and keeps the row', () => {
+  /* Only a stop makes a dying resumed child not the current one: `stop()` clears
+     `child` first. A stopped supervisor is not restarting anything, so it must not
+     forget the row or say it is starting fresh (review round 1). */
+  const t = resumingSupervisor('nores-5');
+  t.kids[0].die(1);
+  t.say(1, NO_CONVERSATION(t.firstId));
+  t.h.stop();
+  t.kids[1].die(1);
+  assert.ok(!t.events.some((e) => e.action === 'resume-impossible'), 'nothing is started, fresh or otherwise');
+  assert.equal(win32sessions.isOurs(t.firstId), true, 'and the row stays');
 });
 
 test('#2726 a resume that dies for ANY other reason still resumes the same conversation', () => {

@@ -601,8 +601,8 @@ function superviseStreaming(spec, opts) {
       if (wasCurrent) { child = null; stream.stopped(); }
       const said = stderrTail.replace(/\s+/g, ' ').trim();
       onEvent({ action: 'died', code: code === undefined ? null : code, sessionId: handle.sessionId, because: said ? 'it said: ' + said : undefined });
-      /* Only the child that was still the agent decides what the next start is; a
-         replaced child's late death says nothing about its successor's session. */
+      /* A stopped loop decides no next start: `stop()` clears `child` before the
+         child exits, so a stop during a failed resume leaves its row alone. */
       if (nothingToResume && wasCurrent) startFreshAfter(handle.sessionId);
       if (running) schedule();
     };

@@ -28,6 +28,23 @@ path.
 The real supervisor, with its stderr captured (`crash-repro.js`), logged `resumed`
 then `died -- it said: No conversation found with session ID: ...`, every 30s.
 
+## Verified live on the box (2026-09-11 00:39 UTC)
+
+Same `crash-repro.js`, with the shared engine pointer on this branch, on a
+never-messaged winstream-1. The supervisor's own log:
+
+    00:38:39 started
+    00:39:15 died                      (its claude child killed: a crash before any turn)
+    00:39:16 resumed
+    00:39:17 died -- it said: No conversation found with session ID: 85497d47-...
+    00:39:17 resume-impossible -- its session 85497d47-... has no saved conversation (it never had a turn), so it starts fresh
+    00:39:17 throttled
+    00:39:46 started                   (a new --session-id af916916-...; it stayed up)
+
+Before this branch, the same run on main looped `resumed` then `died` every 30s
+for as long as it was watched. Afterwards the pointer was put back on main, the
+task was cycled onto main, and all 5 cards read idle.
+
 ## Design
 
 - **The signal is the structured result event, not the stderr text.** A child
@@ -72,3 +89,12 @@ is rebased with `git rebase --onto origin/main <#2669 head>`.
 - **The resumed conversation is abandoned only on this one error.** If claude
   ever reported "no conversation" for a session that does have one on disk, the
   agent would silently start over. Nothing observed suggests that.
+- **The error line must arrive before the child's `exit`.** `gone()` listens for
+  `'exit'`, and Node allows stdio to still be open when that event fires. If the
+  `result` line ever came after it, the flag would not be set yet, and the old
+  loop would return for that agent. Review round 1 measured the order: the line
+  came first every time, in 20/20 real `claude.exe --resume <missing>` runs, 400
+  synthetic runs, and 30 runs behind a 2MB backlog. It could not produce a late
+  line at all, so the race is unproven either way. Moving the death decision to
+  `'close'` would close it for certain. That is a change to how every death is
+  detected (#570 7c), so it is left to its own change if the race is ever seen.
