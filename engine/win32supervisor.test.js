@@ -328,6 +328,63 @@ function clearingSupervisor(name, opts) {
   return { h, kids, events, sink, oldId, say };
 }
 
+/* #2720: a fresh start prunes the agent's rows for sessions that have ended. */
+function freshStartSupervisor(name, opts) {
+  const kids = [];
+  const events = [];
+  const newId = require('node:crypto').randomUUID();
+  win32sessions.record(newId, { name, runner: 'claude' });   // what prepareSession writes for the birth
+  const h = sup.superviseStreaming({ name, cwd: 'C:\w', runner: 'claude' }, Object.assign({
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    onEvent: (e) => events.push(e),
+    launch: () => { const c = streamingChild(7200 + kids.length); kids.push(c); return { ok: true, sessionId: newId, resumed: false, child: c }; },
+  }, opts));
+  return { h, kids, events, newId };
+}
+
+test('#2720 a FRESH start forgets the agent\'s ended sessions, keeps the new one, and never touches another agent', () => {
+  const ended = [require('node:crypto').randomUUID(), require('node:crypto').randomUUID()];
+  for (const id of ended) win32sessions.record(id, { name: 'prune-1', runner: 'claude' });
+  const someoneElse = require('node:crypto').randomUUID();
+  win32sessions.record(someoneElse, { name: 'prune-other', runner: 'claude' });
+  const t = freshStartSupervisor('prune-1');
+  const rec = win32sessions.read();
+  assert.ok(ended.every((id) => !rec[id]), 'the ended sessions are forgotten');
+  assert.ok(rec[t.newId], 'the session just started stays');
+  assert.ok(rec[someoneElse], 'another agent\'s row is untouched');
+  const said = t.events.find((e) => e.action === 'pruned');
+  assert.ok(said && /forgot 2 ended sessions/.test(said.because), 'and the task log says how many');
+  t.h.stop();
+  win32sessions.forget(someoneElse);
+});
+
+test('#2720 a RESUME prunes nothing: it adds no row', () => {
+  const t = resumingSupervisor('prune-2');           // its first start is fresh, and prunes then
+  const lateRow = require('node:crypto').randomUUID();
+  win32sessions.record(lateRow, { name: 'prune-2', runner: 'claude' });
+  t.kids[0].die(1);                                    // the crash comes back as a resume
+  assert.deepEqual(t.asked, [null, t.firstId]);
+  assert.equal(win32sessions.isOurs(lateRow), true, 'a resume leaves every row alone');
+  t.h.stop();
+});
+
+test('#2720 a prune that fails or throws is SAID, and the start still stands', () => {
+  for (const pruneName of [
+    () => ({ ok: false, because: 'the record is busy' }),
+    () => { throw Object.assign(new Error('x'), { code: 'EIO' }); },
+  ]) {
+    const t = freshStartSupervisor('prune-3', {
+      sessions: { record: () => ({ ok: true }), forget: () => ({ ok: true }), read: () => ({}), pruneName },
+    });
+    assert.ok(t.events.some((e) => e.action === 'started'), 'the agent started');
+    const said = t.events.find((e) => e.action === 'prune-failed');
+    assert.ok(said && /record is busy|EIO/.test(said.because), 'and the failed prune is on the task log');
+    assert.equal(t.kids.length, 1, 'nothing was undone or retried because of it');
+    t.h.stop();
+  }
+});
+
 /* #2726: a resume of a session that has no saved conversation. The shape is the
    one measured on the box (Claude Code 2.1.268). */
 const NO_CONVERSATION = (id) => ({

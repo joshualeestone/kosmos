@@ -173,6 +173,28 @@ function forget(sessionId) {
   });
 }
 
+/**
+ * Drop every row recorded under `name` except the ids in `keepIds` (#2720). A fresh
+ * start records a row, and nothing removed the one for the session that ended, so
+ * each restart left one more behind. One locked rewrite; rows under any other name
+ * are never touched, and a name with nothing to drop writes nothing.
+ * Returns { ok:true, removed } or { ok:false, because }.
+ */
+function pruneName(name, keepIds) {
+  if (!validName(name)) return { ok: false, because: 'that is not a name we can prune rows under' };
+  const keep = new Set(Array.isArray(keepIds) ? keepIds : []);
+  let removed = 0;
+  const r = rewrite('we could not prune the ownership record', (current) => {
+    removed = 0;
+    for (const id of Object.keys(current)) {
+      const row = current[id];
+      if (row && row.name === name && !keep.has(id)) { delete current[id]; removed += 1; }
+    }
+    return removed ? current : null;
+  });
+  return r.ok ? { ok: true, removed } : r;
+}
+
 /** Is this exact session one Kosmos created? The fail-closed ownership question. */
 function isOurs(sessionId) {
   if (!validId(sessionId)) return false;
@@ -180,4 +202,4 @@ function isOurs(sessionId) {
   return Object.prototype.hasOwnProperty.call(rec, sessionId);
 }
 
-module.exports = { get DIR() { return dir(); }, get FILE() { return file(); }, read, record, forget, isOurs, validId, validName };
+module.exports = { get DIR() { return dir(); }, get FILE() { return file(); }, read, record, forget, pruneName, isOurs, validId, validName };

@@ -176,6 +176,32 @@ test('#2669 record: forgetting an id that was never recorded writes NOTHING, and
   assert.equal(win32sessions.forget('kept-2669').ok, true);
 });
 
+test('#2720 record: pruneName drops only that name\'s rows outside keepIds, and writes nothing with nothing to drop', () => {
+  const rec = (id, name) => assert.equal(win32sessions.record(id, { name, runner: 'claude' }).ok, true);
+  rec('p-old-1', 'pruner'); rec('p-old-2', 'pruner'); rec('p-keep', 'pruner'); rec('o-1', 'other-agent');
+  assert.deepEqual(win32sessions.pruneName('pruner', ['p-keep']), { ok: true, removed: 2 });
+  const after = win32sessions.read();
+  assert.ok(!after['p-old-1'] && !after['p-old-2'], 'the ended sessions are gone');
+  assert.ok(after['p-keep'], 'the kept one stays');
+  assert.ok(after['o-1'], 'another agent\'s row is never touched');
+  const stamp = fs.statSync(win32sessions.FILE, { bigint: true });
+  assert.deepEqual(win32sessions.pruneName('pruner', ['p-keep']), { ok: true, removed: 0 });
+  assert.equal(fs.statSync(win32sessions.FILE, { bigint: true }).ino, stamp.ino, 'nothing to drop writes nothing');
+  for (const id of ['p-keep', 'o-1']) win32sessions.forget(id);
+});
+
+test('#2720 record: pruneName refuses a blank name, and a held lock', () => {
+  assert.equal(win32sessions.pruneName('', []).ok, false, 'a blank name prunes nothing');
+  const lockDir = win32sessions.FILE + '.lock';
+  fs.mkdirSync(win32sessions.DIR, { recursive: true });
+  fs.mkdirSync(lockDir);
+  try {
+    const r = win32sessions.pruneName('pruner', []);
+    assert.equal(r.ok, false, 'a held lock is a refusal');
+    assert.match(r.because, /busy/);
+  } finally { fs.rmSync(lockDir, { recursive: true, force: true }); }
+});
+
 test('#570 record: record/read/isOurs/forget round-trip, keyed on sessionId', () => {
   win32sessions.record('sess-xyz', { name: 'leo-11', runner: '' });
   assert.equal(win32sessions.isOurs('sess-xyz'), true, 'a recorded session is ours');
