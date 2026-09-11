@@ -4602,7 +4602,19 @@ function readCodexContext(agentName, sess) {
   // used to be the dominant cause here is now CLOSED -- #2417 switched
   // `forWorkdir` to `trust.canonicalOnDisk`, which folds case; a match-miss now
   // needs some OTHER divergence, which this still soft-handles.
-  if (!sess.found || sess.contextUsed == null) {
+  //
+  // #2803: a rollout that WAS matched and read (`sess.found`) but has reported no
+  // usage yet (`contextUsed == null`) is a working agent early in its first turn,
+  // NOT a missing transcript -- Josh saw a running ChatGPT-subscription agent's
+  // Memory tab say "we cannot find a transcript for it". Holding the read session
+  // is positive proof the transcript exists, so the notYetStarted / neverRecorded
+  // / NO_TRANSCRIPT ladder below -- which can answer "we cannot find a transcript
+  // for it" or "made before Kosmos recorded this" -- would be provably false here.
+  // Answer `notYet` directly. This guard fires ONLY when the rollout was found, so
+  // it leaves the `!sess.found` match-miss path (the #2257 residual above) and its
+  // gates completely unchanged.
+  if (sess.found && sess.contextUsed == null) return notYetResult();
+  if (!sess.found) {
     if (notYetStarted(agentName)) return notYetResult();
     if (neverRecorded(agentName)) return neverRecordedResult();
     return { ...NONE_BASE, notYet: false, because: NO_READING.NO_TRANSCRIPT };
