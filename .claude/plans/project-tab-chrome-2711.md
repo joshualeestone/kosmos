@@ -18,8 +18,11 @@ consolidated layout, whose tests pin that it keeps real borders. So item 1 is a
 `body:not(.consolidated)`-scoped override that zeroes the borders only in the
 tab view; the base rules still apply in consolidated. Verified against
 `web.consolidated-match-mock.test.js` and `web.consolidated-980.test.js` (both
-pass). Backgrounds are left untouched here (item 6 handles the dialog fill); the
-box fills still differ from the page ground, so nothing becomes invisible.
+pass). Backgrounds are left untouched here (item 6 handles the dialog fill).
+Nothing becomes invisible: the members/files/tasks cards and the `.pjmid`
+column are `--k-surface` (white), which differs from the page ground `--k-bg`;
+the `.thread` fill is itself `--k-bg`, but it stays visible because it is nested
+inside the white `.pjmid` column.
 
 ## Gates
 
