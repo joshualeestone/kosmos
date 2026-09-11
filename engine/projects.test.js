@@ -2415,8 +2415,9 @@ test('#2279 homeForFirstAgent does not adopt a coincidentally-named project the 
 });
 
 test('#2708: the membership message points at the section, without the generic "any tasks" promise', () => {
-  // A non-left/non-removed kind hits the "Kosmos put you on" branch.
-  const line = projects.membershipLine({ id: 'p1', name: 'Henderson lease', folder: '/tmp/h' }, 'added');
+  // 'joined' is the real put-on kind (production vocabulary; the sibling tests use it);
+  // it hits the "Kosmos put you on" branch.
+  const line = projects.membershipLine({ id: 'p1', name: 'Henderson lease', folder: '/tmp/h' }, 'joined');
   assert.ok(!/including any tasks/.test(line),
     'the membership message still makes the generic "including any tasks" promise (#2708)');
   assert.match(line, /"Your projects" section of your instructions has the details\./,
