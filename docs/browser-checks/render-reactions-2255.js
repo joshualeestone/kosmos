@@ -292,6 +292,10 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         await p.waitForTimeout(200);
       }
       if (openedBeforeRepaint && closedByRepaint) ok(t + ' #2834: a same-row-set room change closes an open picker via the repaint close block (isolated from scroll-dismiss)'); else bad(t + ' repaint closes picker', 'opened=' + openedBeforeRepaint + ' closed=' + closedByRepaint);
+      // Leave the room clean, per this file's convention: toggle the first post's
+      // reaction back off (the react route toggles).
+      await p.evaluate((a) => fetch('/api/project/' + a.pid + '/room/' + a.post + '/react',
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ emoji: '👍' }) }), { pid: made.id, post: firstPostId });
 
       if (errs.length) bad(t + ' no page errors', errs.join(' | ')); else ok(t + ' no page errors');
       await p.close();

@@ -33379,6 +33379,15 @@ function pjView(which) {
   if (document.body.classList.contains('consolidated') && which !== 'list') document.getElementById('pj-list-view').hidden = false;
   PJ_VIEW = which;
   syncUrl();
+  /* #2834: close the shared reaction picker on ANY navigation, for the same reason
+     the member picker is reset just below. The old per-post picker lived inside the
+     room row, so tearing down or switching the room destroyed it; the shared
+     `#rxn-picker` lives at `document.body`, independent of `#pj-room`, so a project
+     switch or a project-gone `pjView('list')` (paintOneProject, with no user click)
+     would otherwise leave it floating with a stale `data-post`. `pjView` is
+     navigation-only (room polls never pass through here), so a picker in use stays
+     open; only a navigation closes it. */
+  rxnCloseAllPickers();
   // Arriving at a project resets the member picker to its resting state (the
   // "+ Add Member" button), so an open picker does not leak from the last
   // project into this one. Navigation-only: repaints while the view is open
