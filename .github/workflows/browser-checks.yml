@@ -259,4 +259,6 @@ jobs:
             render-tophead-consolidated-2282
             render-emoji-mute-2357
             render-workindicator-2146
+            render-build-marker-2066
+            render-richtext-2067
         run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
