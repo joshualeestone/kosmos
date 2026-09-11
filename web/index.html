@@ -3470,7 +3470,6 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated .pj-row .pjcount { margin-left: 0; white-space: nowrap; }
 
   html[data-layout="consolidated"] body.consolidated .pj-row .pj-warn { grid-column: 1 / -1; }
-  html[data-layout="consolidated"] body.consolidated #pj-back { display: none; }
   /* The open project: the conversation in the centre, its cards down the
      right. #867 (Josh, 2026-08-25 11:02): "sort the tasks to be above
      the files" -- Files sits in .pjsplit, stacked under Members in the
@@ -10205,7 +10204,6 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
 
   <!-- One project. -->
   <div id="pj-one-view" hidden>
-    <button class="back" id="pj-back" type="button">← All projects</button>
     <div class="pjhead">
       <div class="pjtitle">
         <!-- kosmos#1005 (Josh, 2026-08-26): the description used to sit under
@@ -19583,8 +19581,9 @@ document.getElementById('tabs').addEventListener('click', (e) => {
        rather than in `showTab`, where it would break the callers that depend on
        the restore.
 
-       Same three steps the project Back button does, so arriving by the tab and
-       arriving by Back leave the screen in one state rather than two. */
+       These are the same steps the in-project Back arrow historically ran;
+       #2711 removed that arrow, so the tab is now the sole route out of an open
+       project and this reset is what lands a person at the top of the section. */
     topLevelReset(btn.dataset.tab);
     // #980: clear the rail's lit row here, beside the reset (which stays
     // DOM-free by its own contract) -- without this the row stayed lit for
@@ -36499,8 +36498,8 @@ document.getElementById('pj-docs-all').addEventListener('click', () => {
 /* #980: the ONE writer of the rail's .open selected state outside the
    painter -- called with an id on open, with null beside each close path
    that repaints nothing synchronously (the task-view fallback, the
-   missing-project path, the Back button, and the projects tab re-click
-   next to its DOM-free topLevelReset). The two delete/archive paths need
+   missing-project path, the add-project Back button, and the projects tab
+   re-click next to its DOM-free topLevelReset). The two delete/archive paths need
    no call: they await loadProjects(), whose repaint writes .open from the
    already-nulled PJ_CURRENT. */
 function pjMarkOpen(id) {
@@ -39618,12 +39617,6 @@ async function pjWillBe() {
 /* --- wiring ------------------------------------------------------------ */
 
 document.getElementById('pj-new').addEventListener('click', openAddProject);
-// ⚠️ Closes the confirmation on the way out. Leaving it open inside a hidden
-// view left the 5-second refresh permanently switched off (the poll bails while
-// a question is open, on purpose) -- so the screen whose whole honesty argument
-// is "it keeps re-reading" quietly stopped, for the rest of the session, and
-// nothing said so.
-document.getElementById('pj-back').addEventListener('click', () => { pjCloseConfirm(); PJ_CURRENT = null; pjMarkOpen(null); pjView('list'); });
 /* ⚠️ CLEARS THE RAIL MARKER TOO. Reachable in the consolidated view as: open a
    project, press + in the projects rail head, then Back. Without this it lands
    on the nothing-open list with the previous project still lit and still

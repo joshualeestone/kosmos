@@ -52,13 +52,13 @@ const path = require('path');
      genuinely running out), and this check still has to prove Kosmos
      renders it correctly when reached. Forces exactly that state via
      the same PROJECTS/flags reset `paintAs` below already uses, rather
-     than a real click: the door out of an open project (#pj-back) is
-     itself hidden in the consolidated view, so there is no real click
-     that reaches this state from here. */
+     than a real click: in the consolidated view the list is the rail
+     beside the open project, so there is no real click that reaches the
+     "nothing is open" state from here. */
   /* ⚠️ pjMarkOpen(null) IS PART OF REACHING THIS STATE, not decoration. #980
      gave the rail a persistent open marker (class + aria-current), and every
-     real route out of a project clears it: #pj-back and the projects-tab
-     re-click both call pjMarkOpen(null). Resetting PJ_CURRENT alone left the
+     real route out of a project clears it: the projects-tab re-click calls
+     pjMarkOpen(null). Resetting PJ_CURRENT alone left the
      previously-open row still lit and still aria-current="true", so this
      check screenshotted a "nothing is open" state with one project marked
      open -- a combination no person can reach, pinned as if it were correct.
