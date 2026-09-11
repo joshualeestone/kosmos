@@ -6428,15 +6428,20 @@ const server = http.createServer((req, res) => {
     const snap = [];
     try { snap.push(...discover.candidateDirs(discover.found())); } catch { /* a failed look adds nothing */ }
     /* The auto (TCC-free) board population, from its own source: reuse the warm
-       cache, else one bounded walk -- never inferred from the import scan. */
+       cache, else one bounded walk -- never inferred from the import scan. A fresh
+       walk warms `scanCache` so the very next /api/scan-agents poll does not re-walk
+       and, more importantly, serves the SAME population this snapshot recorded. */
     let autoScan = (scanCache.result && (now - scanCache.at) < SCAN_CACHE_MS) ? scanCache.result : null;
-    if (!autoScan) { try { autoScan = discover.scan(); } catch { autoScan = null; } }
+    if (!autoScan) {
+      try { autoScan = discover.scan(); scanCache = { at: now, result: autoScan }; } catch { autoScan = null; }
+    }
     if (autoScan) { try { snap.push(...discover.candidateDirs(autoScan)); } catch { /* ignore */ } }
     /* The TCC-inclusive import population, warm cache ONLY (see above). */
     if (importScanCache.result && (now - importScanCache.at) < SCAN_CACHE_MS) {
       try { snap.push(...discover.candidateDirs(importScanCache.result)); } catch { /* ignore */ }
     }
-    try { discover.dismiss([...new Set(snap)]); }
+    /* `dismiss()` de-dupes what it is handed, so no Set wrapper is needed here. */
+    try { discover.dismiss(snap); }
     catch { sendJson(res, 500, { ok: false, because: 'we could not remember that' }); return; }
     sendJson(res, 200, { ok: true, dismissed: true });
     return;
