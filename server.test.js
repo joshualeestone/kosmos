@@ -7304,6 +7304,66 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
   }
 });
 
+test('#2711 item 16: pjMember takes a state wash class, for working/needs-you/idle only, and never on an unseen member', () => {
+  // Same lift shape as the pjMember test above, plus LROW_WARN (a needs-you
+  // member draws the triangle) and a STATE_COPY stub covering every state this
+  // test constructs -- pjMember reads stateCopyOf(m).label on the present branch,
+  // and the partial stub above only carries idle/restarting/unknown.
+  const prelude = TOLD_PRELUDE
+    + 'const STATE_COPY = { working: { label: "Working" }, needs_you: { label: "Needs you" }, idle: { label: "Idle" }, stopped: { label: "Not running" }, restarting: { label: "Restarting agent" }, unknown: { label: "Can\'t tell" } };\n'
+    + pageConstSource('DISC_TINTS') + '\n'
+    + pageConstSource('DISC_INKS') + '\n'
+    // LROW_WARN is a string const (pageConstSource lifts only object/array consts),
+    // and this test reads the wash CLASS, not the triangle markup, so a stub is enough.
+    + 'const LROW_WARN = "<svg class=\\"lwarn\\"></svg>";\n'
+    + pageFnSource('discIndex') + '\n'
+    + pageFnSource('discTint') + '\n'
+    + pageFnSource('discInk') + '\n'
+    + pageFnSource('initials') + '\n'
+    + pageFnSource('pjToldLine') + '\n'
+    + pageFnSource('pjMemberHasIt') + '\n'
+    + pageFnSource('restartingLabel') + '\n'
+    + pageFnSource('stateCopyOf') + '\n'
+    + pageConstSource('CARD_ST') + '\n'
+    + pageFnSource('cardStOf') + '\n';
+  const member = pageFunction('pjMember', prelude);
+  const base = { present: true, name: 'Ada', sessionName: 'ada', hasAvatar: false };
+
+  // The three washed states each get their own class, so the CSS can give them
+  // the green / red / gray ground the agent homepage cards use.
+  assert.ok(member({ ...base, state: 'working' }).includes('pjm-working'),
+    'a working member lost its green wash class');
+  assert.ok(member({ ...base, state: 'needs_you' }).includes('pjm-attn'),
+    'a needs-you member lost its red wash class');
+  assert.ok(member({ ...base, state: 'idle' }).includes('pjm-idle'),
+    'an idle member lost its gray wash class');
+
+  // CONTROL: a neutral state (paused/stopped/unknown) takes NO wash -- the
+  // homepage rule is that the ground colours cover exactly working/needs-you/idle
+  // and every other state stays neutral. Without this the three asserts above
+  // would pass even if pjMember blindly stamped a class on everything.
+  const stopped = member({ ...base, state: 'stopped' });
+  assert.ok(!/pjm-(working|attn|idle)/.test(stopped),
+    'a stopped member wrongly took a wash class: ' + stopped);
+
+  // CONTROL: an UNSEEN member (not present) takes no wash even when its state
+  // would otherwise map, because an unseen row says why, not a state colour.
+  assert.ok(!/pjm-/.test(member({ ...base, present: false, state: 'working' })),
+    'an unseen member took a wash class');
+});
+
+test('#2711 item 16: the three member wash grounds are defined in the CSS, scoped to the project view', () => {
+  // A class with no rule behind it is invisible; and an absence-assertion guards
+  // the ground against a later edit silently dropping it (a removal ships with
+  // nothing failing otherwise). Each rule is scoped to #pj-one-agents so it does
+  // not bleed onto the settings or add-agents member surfaces.
+  const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  for (const cls of ['pjm-working', 'pjm-attn', 'pjm-idle']) {
+    assert.match(page, new RegExp('#pj-one-agents \\.pj-member\\.' + cls + ' \\{[^}]*background:[^}]*var\\(--k-surface\\)'),
+      'the ' + cls + ' member ground rule is missing or no longer washes over var(--k-surface)');
+  }
+});
+
 test('the free-agent picker names the not-signed-in state distinctly on a 403 (#2023)', () => {
   /* The signin branch of `emptyBecause` had no assertion: the harness above only
      BINDS BOARD_NEEDS_SIGNIN to stop a ReferenceError, it never sets it true and

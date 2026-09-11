@@ -4887,6 +4887,20 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    view (#pj-one-agents) wires the nav, so only it shows the clickable affordance. */
 #pj-one-agents .pj-member[data-agent] { cursor: pointer; }
 #pj-one-agents .pj-member[data-agent]:hover { background: var(--k-sunk); }
+/* #2711 item 16: the member box takes a ground by state, the same wash the agent
+   homepage cards use (.acard.working / .acard.attn), so working reads green,
+   needs-you red (reinforcing #2699's triangle+text) and idle a very light gray,
+   while every other state keeps the neutral surface. The rgba-over-var(--k-surface)
+   gradient works in light and dark off one token, exactly as the acard washes do.
+   The per-state :hover rules below outrank the flat --k-sunk hover above (an extra
+   class raises specificity), so hovering a working/needs-you/idle member DARKENS
+   its own hue rather than dropping to the neutral gray and losing the state. */
+#pj-one-agents .pj-member.pjm-working { background: linear-gradient(rgba(47,125,90,.10), rgba(47,125,90,.10)), var(--k-surface); }
+#pj-one-agents .pj-member.pjm-attn { background: linear-gradient(rgba(179,38,30,.09), rgba(179,38,30,.09)), var(--k-surface); }
+#pj-one-agents .pj-member.pjm-idle { background: linear-gradient(rgba(120,120,128,.10), rgba(120,120,128,.10)), var(--k-surface); }
+#pj-one-agents .pj-member.pjm-working[data-agent]:hover { background: linear-gradient(rgba(47,125,90,.16), rgba(47,125,90,.16)), var(--k-surface); }
+#pj-one-agents .pj-member.pjm-attn[data-agent]:hover { background: linear-gradient(rgba(179,38,30,.15), rgba(179,38,30,.15)), var(--k-surface); }
+#pj-one-agents .pj-member.pjm-idle[data-agent]:hover { background: linear-gradient(rgba(120,120,128,.16), rgba(120,120,128,.16)), var(--k-surface); }
 /* The text half: everything that was directly in the row before the face
    arrived. Column, because the name, the state and the told line were three
    siblings of a wrapping flex row and are now one block beside the disc. */
@@ -33224,6 +33238,18 @@ function pjMember(m, suppressTold, withMinus) {
      list's warning glyph; it is display:none inside a .lav until the CSS below shows it. */
   const needsYou = m.present === true && cardStOf(m).st === 'attn';
   const warn = needsYou ? LROW_WARN : '';
+  /* #2711 item 16: the member box takes a ground by state, the same read the
+     agent homepage cards make (.acard.working/.acard.attn) so the two surfaces
+     cannot disagree on what "working"/"needs you" looks like. Working is green,
+     needs-you red (reinforcing #2699's triangle+text, not replacing it), idle a
+     very light gray; every other state keeps the neutral surface, matching the
+     homepage's "red covers ONE state, the rest stay neutral" rule. Gated on the
+     member being present -- an unseen member says why (its dashed border + its
+     reason line), not a state colour. The CSS scopes these to #pj-one-agents. */
+  const present = m.present || m.state === 'restarting';
+  const stClass = present
+    ? ({ working: ' pjm-working', attn: ' pjm-attn', idle: ' pjm-idle' }[cardStOf(m).st] || '')
+    : '';
   const face = m.hasAvatar
     ? '<span class="lav pj-face" aria-hidden="true"><img src="/api/agent/'
       + encodeURIComponent(m.sessionName) + '/avatar" alt="">' + warn + '</span>'
@@ -33233,7 +33259,7 @@ function pjMember(m, suppressTold, withMinus) {
      "slot waiting / cannot see this" border the restarting state refuses on every
      other surface (the card pill is deliberately SOLID). Suppress it for
      restarting, matching the present-branch caption below and pres='on' elsewhere. */
-  return '<div class="pj-member' + ((m.present || m.state === 'restarting') ? '' : ' unseen') + '" data-agent="' + esc(m.sessionName) + '">'
+  return '<div class="pj-member' + (present ? '' : ' unseen') + stClass + '" data-agent="' + esc(m.sessionName) + '">'
     + face
     + '<span class="pj-member-b">'
     + '<b>' + esc(m.name) + '</b>'
