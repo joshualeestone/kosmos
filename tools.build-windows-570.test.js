@@ -150,8 +150,15 @@ test('the zip contents check does not pipe into grep -q under pipefail', () => {
 
 test('the package tells the truth about itself', () => {
   assert.match(WIN, /"signed": false/, 'the manifest does not record that this build is unsigned');
-  assert.match(WIN, /"agents_supported": false/, 'the manifest claims agents work, which they do not');
-  assert.match(WIN, /AGENTS DO NOT WORK IN THIS BUILD/, 'the README does not warn that agents are dark');
+  /* #570 7c: agents work on Windows now (measured, R1-R8), so the package says so.
+     The old warnings are pinned ABSENT, because a README that still says "agents
+     do not work" over a build where they do sends people away from the thing
+     that works. */
+  assert.match(WIN, /"agents_supported": true/, 'the manifest says agents do not work, which they do');
+  assert.doesNotMatch(WIN, /AGENTS DO NOT WORK/, 'the package still tells people agents are dark');
+  assert.doesNotMatch(WIN, /close the black window/, 'the README still says the board lives in a window; it hands itself to its logon task');
+  assert.match(WIN, /closes by itself/, 'the README does not say the launcher window closes on its own, which looks like a crash if unexplained');
+  assert.match(WIN, /folder you will keep/, 'the README does not say the unpacked folder IS the install');
   assert.match(WIN, /Windows protected your PC/, 'the README does not warn about the unsigned warning');
 });
 
