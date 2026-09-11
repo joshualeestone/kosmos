@@ -76,10 +76,11 @@ test('#2808: the clear handler POSTs clear-selfreport, self-contained, capture-a
 test('#2808: the painter clamps a tall wall and offers the toggle only when tall', () => {
   // The clamp decision is from LINE COUNT of the text, not layout: a single long
   // line is one line tall (horizontal scroll handles its width), so only a
-  // many-line wall clamps.
+  // many-line wall clamps. Trailing newlines are trimmed so a 3-line command
+  // with a stray trailing newline does not read as 4.
   assert.ok(
-    /qLong = \(body\.question\.text \|\| ''\)\.split\('\\n'\)\.length > 3/.test(PAGE),
-    'the tall-question test is > 3 lines',
+    /qLong = qStr\.replace\(\/\\n\+\$\/, ''\)\.split\('\\n'\)\.length > 3/.test(PAGE),
+    'the tall-question test trims trailing newlines then counts > 3 lines',
   );
   assert.ok(/qtext\.classList\.toggle\('clamped', qLong\)/.test(PAGE),
     'the clamp class follows the long test');
@@ -87,6 +88,30 @@ test('#2808: the painter clamps a tall wall and offers the toggle only when tall
   // Default-hidden every paint like qTrust (so a non-asking paint leaves them off).
   assert.ok(/if \(qClear\) qClear\.hidden = true;/.test(PAGE), 'the dismiss is defaulted hidden each paint');
   assert.ok(/if \(qExpand\) qExpand\.hidden = true;/.test(PAGE), 'the toggle is defaulted hidden each paint');
+});
+
+test('#2808: the expand state survives a repeat poll of the SAME question', () => {
+  // The BLOCKER this guards: paintTalk re-runs every ~5s poll for the same live
+  // question; an unconditional `.expanded` reset would re-collapse the box a few
+  // seconds after the person opened it. The reset must be gated on a new question.
+  assert.ok(/const qNew = qtext\.__q2808 !== qStr;/.test(PAGE),
+    'a new-question flag is derived from the stashed question key');
+  assert.ok(/qtext\.__q2808 = qStr;/.test(PAGE), 'the current question is stashed on the element');
+  assert.ok(/if \(qNew\) qtext\.classList\.remove\('expanded'\);/.test(PAGE),
+    'the collapse happens ONLY on a new question, not every paint');
+  // And the label reflects the CURRENT state, not a forced "Show full command".
+  assert.ok(/const open = qtext\.classList\.contains\('expanded'\);/.test(PAGE),
+    'the toggle label reads the current expanded state');
+  // The key is dropped on agent switch so a new agent opens collapsed.
+  assert.ok(/getElementById\('d-qask-text'\)\.__q2808 = null;/.test(PAGE),
+    'the question key is reset on open so a switched-to agent opens collapsed');
+});
+
+test('#2808: the dismiss is hidden in the folder-trust state (Trust & Restart owns it)', () => {
+  // Showing an identical-looking "Clear this message" next to "Trust & Restart"
+  // would invite dismissing a live blocking prompt without resolving it.
+  assert.ok(/if \(qClear\) qClear\.hidden = !!body\.answerNote;/.test(PAGE),
+    'the dismiss is hidden when body.answerNote is set (the trust prompt)');
 });
 
 test('#2808: the box resets clamp + dismiss on open and clears the receipt on switch', () => {

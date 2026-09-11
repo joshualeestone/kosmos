@@ -4589,11 +4589,14 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    `.qask .pj-screen` (0,2,0) so these win. */
 .qask .pj-screen.clamped { max-height: 4.5em; }
 .qask .pj-screen.clamped.expanded { max-height: 200px; }
-/* #2808: the toggle is a subtle text affordance, not a primary button. */
+/* #2808: the toggle is a subtle text affordance, not a primary button. Colour
+   and focus ring match the sibling `.pj-question-clear` text button (--label-2)
+   and this file's k-component focus convention (--k-ink), not an undefined
+   token. */
 .qask-expand { display: inline-block; margin-top: 4px; background: none; border: 0;
-  padding: 0; font: var(--text-caption) var(--font-ui); color: var(--k-accent, currentColor);
+  padding: 0; font: var(--text-caption) var(--font-ui); color: var(--label-2);
   text-decoration: underline; cursor: pointer; }
-.qask-expand:focus-visible { outline: 2px solid var(--k-accent, currentColor); outline-offset: 2px; }
+.qask-expand:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 /* ⚠️ A PERSISTENT SCROLLBAR ON THE QUESTION, and it replaces a fade that would
    have needed logic. `white-space: pre` is deliberate -- a captured line is
    what the agent's screen showed, and wrapping a permission prompt destroys
@@ -22187,21 +22190,36 @@ async function paintTalk(sessionName, agentName) {
     if (qTrust && body.answerNote) qTrust.hidden = false;
     /* #2808: a TALL command wall (many lines) is the "mess" this card is about.
        Collapse it to the ~3-line teaser and offer the toggle only when it runs
-       past that. Gated on LINE COUNT, not length: a single long line is one line
-       tall (the horizontal scrollbar already handles its width), so clamping its
-       height and offering a vertical toggle would do nothing. Counted from the
-       TEXT, not a layout read, so it is deterministic. Reset `.expanded` to
-       `false` each new question so the box opens collapsed. */
-    const qLong = (body.question.text || '').split('\n').length > 3;
+       past that. Gated on LINE COUNT (trailing newlines trimmed, so a 3-line
+       command with a stray trailing newline does not read as 4), not length: a
+       single long line is one line tall (the horizontal scrollbar already
+       handles its width), so clamping its height would do nothing. Counted from
+       the TEXT, not a layout read, so it is deterministic. */
+    const qStr = body.question.text || '';
+    const qLong = qStr.replace(/\n+$/, '').split('\n').length > 3;
     qtext.classList.toggle('clamped', qLong);
-    qtext.classList.remove('expanded');
+    /* Collapse ONLY when the question is NEW. paintTalk re-runs on every poll
+       tick (~5s) for the SAME still-pending question, so an unconditional reset
+       would silently re-collapse the box a few seconds after the person clicked
+       "Show full command" on a command they are still reading. Keyed on the
+       question text stashed on the element (the #d-qopts __lastOpts pattern). */
+    const qNew = qtext.__q2808 !== qStr;
+    qtext.__q2808 = qStr;
+    if (qNew) qtext.classList.remove('expanded');
     if (qExpand) {
       qExpand.hidden = !qLong;
-      qExpand.textContent = 'Show full command';
-      qExpand.setAttribute('aria-expanded', 'false');
+      /* Label follows the CURRENT expanded state, so a repeat poll never stamps
+         "Show full command" back over a box the person has opened. */
+      const open = qtext.classList.contains('expanded');
+      qExpand.textContent = open ? 'Show less' : 'Show full command';
+      qExpand.setAttribute('aria-expanded', open ? 'true' : 'false');
     }
-    /* #2808: the one-click dismiss shows for any live "waiting" box. */
-    if (qClear) qClear.hidden = false;
+    /* #2808: the one-click dismiss shows for a live "waiting" box, EXCEPT the
+       folder-trust prompt (body.answerNote), whose real one-click action is
+       "Trust & Restart" right beside it. An identical-looking "Clear this
+       message" there would invite dismissing a genuinely live prompt without
+       resolving it (self-correcting, since the flag re-raises, but confusing). */
+    if (qClear) qClear.hidden = !!body.answerNote;
   } else if (!body.asking) {
     /* ⚠️ CLEARED WHEN NOTHING IS ASKING. They sit behind `hidden`, so nothing
        was shown — but the render check reads them directly and found the last
@@ -23061,14 +23079,16 @@ function openDetail(sessionName, section, fromProject) {
     document.getElementById('d-qask-text').textContent = '';
     document.getElementById('d-qask-text').hidden = true;
     document.getElementById('d-qask-text').classList.remove('clamped', 'expanded');
+    /* #2808: drop the stashed question key so the first paint for the agent we
+       are opening treats its question as NEW (opens collapsed) rather than
+       inheriting the previous agent's expanded state. The dismiss button, its
+       receipt line and the toggle need no clearing here: the whole #d-qask is
+       hidden above for the async gap, paintTalk defaults them hidden every
+       paint, and the switch-reset below clears the receipt and re-enables the
+       button (once, matching the trust-restart twin). */
+    document.getElementById('d-qask-text').__q2808 = null;
     document.getElementById('d-qask-fail').textContent = '';
     document.getElementById('d-qask-fail').hidden = true;
-    /* #2808: the dismiss button and the "Show full command" toggle are shared
-       across agents like the trust-restart button, so clear their state on open
-       before the paint's awaits (a leftover would stand under the next agent). */
-    { const c = document.getElementById('d-qask-clear'); if (c) c.hidden = true; }
-    { const m = document.getElementById('d-qask-clear-msg'); if (m) m.textContent = ''; }
-    { const e = document.getElementById('d-qask-expand'); if (e) e.hidden = true; }
     setThread(document.getElementById('d-dmthread'), '<p class="dmnone">Opening&hellip;</p>', null);
     /* 🛑 THE READER'S PLACE BELONGS TO THE AGENT, AND THIS ELEMENT IS SHARED.
        One #d-dmthread serves every agent. `__heldTop` and `__heldAtBottom`
