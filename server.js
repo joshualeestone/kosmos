@@ -6405,15 +6405,21 @@ const server = http.createServer((req, res) => {
      snapshot reuses the WARM `importScanCache` (populated by the board's own
      scan-import polls) when present.
 
-     ⚠️ WARM CACHES ONLY -- a dismiss is a button click and must NEVER trigger a
-     fresh `scan({importScan:true})`, which would pop the macOS permission prompt
-     out of context. Reusing the warm `scanCache`/`importScanCache` also keeps the
-     click cheap (no back-to-back disk walks). `found()` is the one fresh look, and
-     it costs no more than a single board poll, which runs every few seconds
-     anyway. Residual: TCC-root items live ONLY in `importScanCache` (both the auto
-     `scanCache` and the fresh `scan()` fallback are TCC-free by design), so such an
-     item is snapshotted only when the IMPORT cache is warm; if it is cold at the
-     instant of the click (the board has not polled scan-import within
+     Each population is drawn from ITS OWN source, so the snapshot never depends on
+     one scan being a superset of another (an implicit root-ordering assumption a
+     future change could quietly break): the auto board population comes from the
+     auto scan (a warm `scanCache` when present, else one bounded TCC-free walk),
+     and the TCC-inclusive import population from the warm `importScanCache`.
+
+     ⚠️ THE IMPORT CACHE IS READ WARM-ONLY -- a dismiss is a button click and must
+     NEVER trigger a fresh `scan({importScan:true})`, which would pop the macOS
+     permission prompt out of context. `found()` is the one always-fresh look, and
+     it costs no more than a single board poll, which runs every few seconds anyway;
+     the auto scan is a fresh walk only when its cache is cold (the granted case,
+     where the board polls scan-import rather than scan-agents). Residual: TCC-root
+     items live ONLY in `importScanCache` (the auto scan is TCC-free by design), so
+     such an item is snapshotted only when the IMPORT cache is warm; if it is cold
+     at the instant of the click (the board has not polled scan-import within
      SCAN_CACHE_MS), the item can miss the snapshot and re-show once, and the next
      dismiss with a warm import cache captures it. This is the safe direction
      (re-show, not hide-forever). */
@@ -6421,16 +6427,14 @@ const server = http.createServer((req, res) => {
     const now = Date.now();
     const snap = [];
     try { snap.push(...discover.candidateDirs(discover.found())); } catch { /* a failed look adds nothing */ }
-    const importWarm = importScanCache.result && (now - importScanCache.at) < SCAN_CACHE_MS;
-    const autoWarm = scanCache.result && (now - scanCache.at) < SCAN_CACHE_MS;
-    /* The import scan is a superset of the auto scan, so a warm import cache alone
-       covers the auto board too; a warm auto cache is added when present. Only when
-       neither is warm do we pay for one fresh TCC-free walk, so the auto board's
-       population is still snapshotted. */
-    if (importWarm) { try { snap.push(...discover.candidateDirs(importScanCache.result)); } catch { /* ignore */ } }
-    if (autoWarm) { try { snap.push(...discover.candidateDirs(scanCache.result)); } catch { /* ignore */ } }
-    if (!importWarm && !autoWarm) {
-      try { snap.push(...discover.candidateDirs(discover.scan())); } catch { /* a failed look adds nothing */ }
+    /* The auto (TCC-free) board population, from its own source: reuse the warm
+       cache, else one bounded walk -- never inferred from the import scan. */
+    let autoScan = (scanCache.result && (now - scanCache.at) < SCAN_CACHE_MS) ? scanCache.result : null;
+    if (!autoScan) { try { autoScan = discover.scan(); } catch { autoScan = null; } }
+    if (autoScan) { try { snap.push(...discover.candidateDirs(autoScan)); } catch { /* ignore */ } }
+    /* The TCC-inclusive import population, warm cache ONLY (see above). */
+    if (importScanCache.result && (now - importScanCache.at) < SCAN_CACHE_MS) {
+      try { snap.push(...discover.candidateDirs(importScanCache.result)); } catch { /* ignore */ }
     }
     try { discover.dismiss([...new Set(snap)]); }
     catch { sendJson(res, 500, { ok: false, because: 'we could not remember that' }); return; }
