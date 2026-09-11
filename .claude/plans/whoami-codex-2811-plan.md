@@ -297,3 +297,26 @@ correcting rather than leaning on.
 
 ⭐ This is my named recurring failure and it recurred: I repeated a neighbouring
 file's comment as evidence without opening the function it describes.
+
+### Verification of the walk rewrite, beyond the unit arms
+
+Restructuring `agentUnder` from a plain BFS queue into a level-ordered walk is the
+riskiest edit on this branch: it is the oldest code here, it is reached by every
+whoami, and the unit arms only assert the cases I thought of. Two differential
+fuzzes were run against it, both on 60,000 randomly generated process tables
+(sizes 2 to 8, with 10% of parents chosen at random so cycles and unreachable
+nodes occur):
+
+1. **Against the ORIGINAL pre-#2811 walk, on claude-only trees.** The comment in
+   the code claims the widening "can turn a refusal into an answer, and cannot
+   turn one answer into another". This measures that claim: claude was found in
+   48,275 of the 60,000 trees and there were **0 mismatches**.
+
+2. **Against an independently written reference** (build a BFS depth map from the
+   pane pid, take the minimum depth, prefer claude on a tie) on mixed
+   claude/codex trees, including decoys whose first token merely contains the
+   word. A match existed in 56,970 of 60,000 trees: **0 violations**.
+
+The fuzzes are verification evidence rather than shipped tests: 60,000 iterations
+does not belong in the suite, and the semantics they check are already pinned by
+named arms (tie-break both orders, depth beats the preference, cycles terminate).
