@@ -4179,12 +4179,19 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 @media (max-width: 60rem) {
   .pjmidhead:has(.pjhead) { flex-direction: column; align-items: stretch; }
   .pjmidhead .pjhead { flex-direction: column; align-items: stretch; gap: 4px; }
-  /* Re-reset the item-4 search at matching specificity so the narrow/focus
-     flex-basis cannot win here (see the note above the item-4 rules). Below
-     60rem the layout is always the tab view (consolidated has a 960px floor),
-     so body:not(.consolidated) always matches; both the rest and focus
-     selectors are covered so a focused search does not balloon its height. */
-  body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch, body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex: none; }
+  /* Re-reset the search box here, where the header stacks to a column so any
+     horizontal flex-basis maps to the VERTICAL axis and balloons the box's
+     height. THREE arms are needed:
+       - the unscoped .pjmidhead:has(.pjhead) .tsearch (0,3,0) resets the base
+         .tsearch (0,1,0) in BOTH layouts. A consolidated body keeps its
+         .consolidated class at every width (only the grid is gated on 960px)
+         and its own width rule lives in a min-width block, so below 60rem a
+         consolidated search would otherwise fall back to the base 15rem basis
+         and balloon; this arm is what protects it.
+       - the two body:not(.consolidated) arms (0,4,1)/(0,5,1) additionally beat
+         the item-4 rest and focus rules in the tab view; a media query adds no
+         specificity, so a bare (0,3,0) match would lose to them there. */
+  .pjmidhead:has(.pjhead) .tsearch, body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch, body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex: none; }
 }
 /* ⚠️ THE MESSAGES GET A BOX OF THEIR OWN, matching Project members and Tasks:
    without it the middle column is the only one whose content floats, and the
