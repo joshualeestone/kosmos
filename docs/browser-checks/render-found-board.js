@@ -99,14 +99,16 @@ const FOUND = {
   const shut = await page.evaluate(() => ({
     listHidden: document.getElementById('found-list').hidden,
     label: document.getElementById('found-toggle').textContent,
+    desc: (document.getElementById('found-desc') || {}).textContent || '',
   }));
-  /* ⚠️ `/Show them/`, NOT `/^Show /`. The label was restructured to lead with
-     what it holds -- "We found agents on your computer. Show them" -- so an
-     ANCHORED test fails on copy that is exactly right. That it arrives SHUT and
-     that it offers to show are the two facts worth pinning; where the verb sits
-     in the sentence is not. */
-  check('it arrives shut, and offers to show', shut.listHidden && /Show them/.test(shut.label),
-    `hidden=${shut.listHidden} "${shut.label}"`);
+  /* foundagents-banner (Josh, 2026-09-10): the descriptive sentence now lives in
+     a plain `.found-desc` span and the Show/Hide verb in its own `#found-toggle`
+     BUTTON. So pin BOTH: the sentence is present in the description, and the
+     toggle offers to show. That it arrives SHUT and that it offers to show are
+     the facts worth pinning; where the verb sits is not. */
+  check('it arrives shut, and offers to show',
+    shut.listHidden && /^(Show|Hide) (it|them)$/.test(shut.label) && /We found .* on your computer\./.test(shut.desc),
+    `hidden=${shut.listHidden} desc="${shut.desc}" btn="${shut.label}"`);
   await page.click('#found-toggle');
   await page.waitForSelector('#found-list .fr-foundrow', { timeout: 8000 });
   await page.waitForTimeout(400);
@@ -132,7 +134,7 @@ const FOUND = {
     return {
       hidden: wrap.hidden,
       names: rows.map((r) => (r.querySelector('.fr-foundname') || {}).textContent),
-      heading: (document.getElementById('found-toggle') || {}).textContent || '',
+      heading: (document.getElementById('found-desc') || {}).textContent || '',
       /* 🔑 UNDER THE CARDS AND OVER THE REMOVED ONES (Josh, 2026-08-23). Read
          off the laid-out boxes rather than off the markup order, because that
          is the fact he asked for: a person looks at where things are.

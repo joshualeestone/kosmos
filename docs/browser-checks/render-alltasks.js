@@ -107,6 +107,9 @@ const say = (n, cond, note) => {
     say('the door is offered even though this project hides nothing', doorVisible);
     const doorText = (await p.textContent('#pj-alltasks')) || '';
     say('the door carries no count', !/\(\d+\)/.test(doorText), JSON.stringify(doorText));
+    // Josh, 2026-09-10 (#2711 item 12): the door reads exactly "View All"
+    // (capital V and A), no "tasks", no arrow.
+    say('the door reads "View All"', doorText.trim() === 'View All', JSON.stringify(doorText));
 
     await p.click('#pj-alltasks');
     await p.waitForSelector('#pj-alltasks-view', { state: 'visible' });

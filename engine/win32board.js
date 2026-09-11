@@ -216,7 +216,8 @@ function taskExec(spec) {
  * the shipped launcher is the shape the board has been measured running in.
  */
 function taskXml(spec, env) {
-  const exec = taskExec(spec);
+  /* No window, the same wrapper the agents' tasks use. See win32job.headlessExec. */
+  const exec = win32job.headlessExec(taskExec(spec), env);
   const esc = win32job.xmlEscape;
   const user = esc(win32job.taskUser(env));
   return '<?xml version="1.0" encoding="UTF-16"?>\n'
@@ -513,7 +514,9 @@ function restart(opts) {
     "gone", and anything else (EPERM on a process we may not touch) is "still
     there" -- fail toward waiting, never toward starting a second board. */
 function pidGone(pid) {
-  try { process.kill(pid, 0); return false; } catch (e) { return Boolean(e && e.code === 'ESRCH'); }
+  /* One reading of "is that pid still here", shared with the parent watch that
+     lets the board leave when /End kills its headless host. */
+  return !require('./win32orphan').pidAlive(pid);
 }
 
 /**

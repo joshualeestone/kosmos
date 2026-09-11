@@ -47,6 +47,7 @@ async function paint(agents, opts = {}) {
   const wrap = opts.wrap || el();
   const list = opts.list || el();
   const toggle = opts.toggle || el();
+  const desc = opts.desc || el();
   const calls = [];
   /* ⚠️ `adoptRowsHtml` AND `cssId` JOINED WHEN THE ADOPT PROMPT SHIPPED (#1531).
      `paintFoundBoard` calls the first and it calls the second, and a lifted function
@@ -76,41 +77,45 @@ async function paint(agents, opts = {}) {
   await run(
     {
       getElementById: (id) => (
-        id === 'found-wrap' ? wrap : id === 'found-list' ? list : id === 'found-toggle' ? toggle : null),
+        id === 'found-wrap' ? wrap : id === 'found-list' ? list : id === 'found-toggle' ? toggle
+          : id === 'found-desc' ? desc : null),
     },
     async (url) => { calls.push(url); return opts.res || { ok: true, json: async () => ({ ok: true, agents }) }; },
     () => opts.onTab !== false,
     calls,
   );
-  return { wrap, list, toggle, calls };
+  return { wrap, list, toggle, desc, calls };
 }
 
 const LOOSE = { dir: '/w/anna', name: 'Anna', role: 'Copywriter', already: false };
 const KEPT = { dir: '/w/bob', name: 'Bob', role: 'Editor', already: true };
 
 test('it offers only the agents Kosmos does not already have', async () => {
-  const { wrap, list, toggle } = await paint([LOOSE, KEPT]);
+  const { wrap, list, toggle, desc } = await paint([LOOSE, KEPT]);
   assert.equal(wrap.hidden, false);
   assert.match(list.innerHTML, /Anna/);
   assert.doesNotMatch(list.innerHTML, /Bob/,
     'an agent Kosmos already looks after is offered back to the person who added it');
-  assert.match(toggle.textContent, /^We found an agent on your computer\. (Show|Hide) it$/,
+  // #2660-sibling: the sentence lives in the plain description now, the Show/Hide
+  // verb in its own button. The sentence still does not count the rows (singular).
+  assert.match(desc.textContent, /^We found an agent on your computer\.$/,
     'the sentence does not count the rows drawn (one row, singular)');
+  assert.match(toggle.textContent, /^(Show|Hide) it$/, 'the button carries the Show/Hide verb, singular');
 });
 
 test('it is a fold, shut until somebody opens it', async () => {
   /* Josh, 2026-08-23: its own expandable area. A list that opens itself every
      time the board loads is a list that has to be dismissed. */
-  const { wrap, list, toggle } = await paint([LOOSE], { open: false });
+  const { wrap, list, toggle, desc } = await paint([LOOSE], { open: false });
   assert.equal(wrap.hidden, false, 'the fold itself is hidden, so there is nothing to open');
   assert.equal(list.hidden, true, 'the list is open before anybody asked for it');
-  assert.match(toggle.textContent, /\. Show (it|them)$/);
-  assert.doesNotMatch(toggle.textContent, /\d/, 'a number is back in the sentence; Josh ruled none');
+  assert.match(toggle.textContent, /^Show (it|them)$/);
+  assert.doesNotMatch(desc.textContent, /\d/, 'a number is back in the sentence; Josh ruled none');
   assert.equal(toggle.attrs['aria-expanded'], 'false');
 
   const open = await paint([LOOSE], { open: true });
   assert.equal(open.list.hidden, false);
-  assert.match(open.toggle.textContent, /\. Hide (it|them)$/);
+  assert.match(open.toggle.textContent, /^Hide (it|them)$/);
   assert.equal(open.toggle.attrs['aria-expanded'], 'true');
 });
 

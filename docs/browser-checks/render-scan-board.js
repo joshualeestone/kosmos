@@ -85,11 +85,15 @@ const CANDS = [
   const shut = await page.evaluate(() => ({
     listHidden: document.getElementById('scan-list').hidden,
     label: document.getElementById('scan-toggle').textContent,
+    desc: (document.getElementById('scan-desc') || {}).textContent || '',
   }));
-  check('it arrives shut, and offers to show', shut.listHidden && /Show (it|them)/.test(shut.label),
-    `hidden=${shut.listHidden} "${shut.label}"`);
-  /* Per Josh's found-panel ruling, no number in the fold label. */
-  check('the fold names no number', !/\d/.test(shut.label), `"${shut.label}"`);
+  /* foundagents-banner (Josh, 2026-09-10): the sentence moved to a plain
+     `.found-desc` span, the Show/Hide verb to the `#scan-toggle` BUTTON. Pin both. */
+  check('it arrives shut, and offers to show',
+    shut.listHidden && /^(Show|Hide) (it|them)$/.test(shut.label) && /we have not seen before\./.test(shut.desc),
+    `hidden=${shut.listHidden} desc="${shut.desc}" btn="${shut.label}"`);
+  /* Per Josh's found-panel ruling, no number in the fold description. */
+  check('the fold names no number', !/\d/.test(shut.desc), `"${shut.desc}"`);
 
   await page.click('#scan-toggle');
   await page.waitForSelector('#scan-list .fr-scanrow', { timeout: 8000 });

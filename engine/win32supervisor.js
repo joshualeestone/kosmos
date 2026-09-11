@@ -23,7 +23,8 @@
  * all. Rather than encode the respawn in a task setting whose semantics differ
  * from KeepAlive's, the loop lives HERE -- respawn and throttle in code, where
  * both are testable from any platform. The task keeps only the half Windows does
- * well: start at logon, and restart the supervisor itself if IT dies.
+ * well: start at logon. Nothing restarts a supervisor that dies -- the task has
+ * no restart-on-failure (`win32job.taskXml`) -- until the next logon.
  *
  *      launchd                          this module
  *      RunAtLoad ......................  Scheduled Task, at-logon trigger
@@ -252,7 +253,8 @@ function specFromArgv(argv) {
  * and tested -- it is the adoption watcher, and the measured knowledge in it is
  * worth keeping -- but nothing in production selects it.
  */
-function main(argv) {
+function main(argv, deps) {
+  const d = deps || {};
   const spec = specFromArgv(argv);
   if (!spec.name || !spec.cwd) {
     process.stderr.write('kosmos win32 supervisor: needs <name> <cwd>\n');
@@ -260,6 +262,11 @@ function main(argv) {
   }
   let last = null;
   const handle = superviseStreaming(spec, {
+    /* 🛑 NEVER START AN AGENT FOR A TASK THAT WAS JUST ENDED (#570 headless). `/End`
+       kills the host at once but this process for up to a second after, and a
+       remove kills the agent right after its `/End` -- so without this check the
+       dying supervisor could relaunch the agent that was just removed. */
+    mayStart: d.hostAlive || (() => require('./win32orphan').pidAlive(process.ppid)),
     /* 🔑 THE ONE PRODUCTION PUBLISHER (7c-5): the agent's working/idle, kept in a
        file the board's capture reads. A state it could not record is said on the
        task log, where a missing card state can be traced back to it. */
@@ -295,6 +302,9 @@ function main(argv) {
    */
   const channel = win32channel.serve(spec.name, {
     onSay: (text, replyWith) => { handle.send(text, replyWith); },
+    /* A listen that failed after serve() returned -- anything but the retried
+       "the previous supervisor still has it" -- is said on the task log. */
+    onProblem: (why) => process.stderr.write(new Date().toISOString() + ' ' + spec.name + ' channel-refused -- ' + why + '\n'),
   });
   if (!channel.ok) {
     process.stderr.write(new Date().toISOString() + ' ' + spec.name
@@ -306,10 +316,30 @@ function main(argv) {
      server holds the event loop open, so a supervisor that stopped supervising and
      left its channel listening is a process that never exits -- which is a hung
      Scheduled Task in production and a test run that never returns. */
+  /**
+   * 🔑 AND IT LEAVES WHEN ITS HOST DOES (#570). The task runs this under
+   * `conhost.exe --headless` so no window opens, and `/End` kills only that
+   * conhost. This watch is what makes every Kosmos stop still stop the agent:
+   * the supervisor stops its agent and exits. See engine/win32orphan.js. Under
+   * an older windowed task the parent is Task Scheduler's svchost, which never
+   * leaves, so nothing changes there.
+   */
+  const watchHost = d.watchHost || require('./win32orphan').exitWhenParentGone;
+  const exitLater = d.exitLater || ((ms) => { const t = setTimeout(() => process.exit(0), ms); if (t.unref) t.unref(); });
+  const hostWatch = watchHost({
+    onGone: () => {
+      process.stderr.write(new Date().toISOString() + ' ' + spec.name
+        + ' host-gone -- its task was ended, so its agent is being stopped\n');
+      handle.stop();
+      exitLater(HOST_GONE_GRACE_MS);
+    },
+  });
+
   const supervisionStop = handle.stop;
   handle.stop = function stop() {
     supervisionStop();
     if (channel.ok) channel.close();
+    if (hostWatch && typeof hostWatch.stop === 'function') hostWatch.stop();
   };
   process.on('SIGINT', handle.stop);
   process.on('SIGTERM', handle.stop);
@@ -322,6 +352,19 @@ function main(argv) {
 if (require.main === module) main(process.argv.slice(2));
 
 /* ── the streaming supervisor (7c-1) ───────────────────────────────────────── */
+
+/* A stream sink that records nothing: the default, so only `main()` publishes. */
+const NO_STREAM = { started() {}, event() {}, wrote() {}, stopped() {} };
+
+/** How much of a dying agent's stderr rides on its `died` line. Enough for the
+    one sentence that explains a crash; small enough that a chatty agent cannot
+    flood the task log through it. */
+const STDERR_TAIL_CHARS = 500;
+
+/** How long the supervisor gives its agent to leave, once its host is gone, before
+    exiting anyway. Closing stdin was measured ending the agent in ~800ms, so this
+    is room enough without leaving a stopped agent up for long. */
+const HOST_GONE_GRACE_MS = 2000;
 
 /**
  * Supervise an agent whose PIPES WE HOLD.
@@ -336,10 +379,15 @@ if (require.main === module) main(process.argv.slice(2));
  *      holder KILLED, pipes broken  -> agent gone in ~800ms, out of agents --json
  *
  * 🔑 NO ORPHANS, IN EITHER DIRECTION, and that is what makes this design safe.
- * A dead supervisor leaves nothing live to collide with, so the task restarts the
- * supervisor, it finds nothing, and it comes back with `--resume` -- the SAME
- * session id, the same conversation (measured). Adopt-not-replace becomes
- * resume-not-replace without ever risking two agents under one name.
+ * A dead supervisor leaves nothing live to collide with. Two different returns
+ * follow from that, and an earlier version of this comment ran them together:
+ *   - an AGENT that dies under a living supervisor is relaunched by it with
+ *     `--resume` -- the SAME session id, the same conversation (measured);
+ *   - a SUPERVISOR that dies is not restarted by anything (the task has no
+ *     restart-on-failure). The next start of its task -- a logon, a restore, a
+ *     restart from the board -- runs `main()`, which mints a NEW session: a fresh
+ *     conversation, as a Mac restart gives.
+ * Neither can put two agents under one name.
  *
  * ⚠️ SO THE EXIT EVENT IS THE SIGNAL, NOT THE POLL. `supervise()` asks
  * `claude agents --json` every POLL_MS because a detached agent's death is
@@ -347,14 +395,6 @@ if (require.main === module) main(process.argv.slice(2));
  * cannot be missed, so death is known in milliseconds rather than up to a poll
  * late, and the runner is not asked anything on the happy path.
  */
-/* A stream sink that records nothing: the default, so only `main()` publishes. */
-const NO_STREAM = { started() {}, event() {}, wrote() {}, stopped() {} };
-
-/** How much of a dying agent's stderr rides on its `died` line. Enough for the
-    one sentence that explains a crash; small enough that a chatty agent cannot
-    flood the task log through it. */
-const STDERR_TAIL_CHARS = 500;
-
 function superviseStreaming(spec, opts) {
   const s = spec || {};
   const o = opts || {};
@@ -368,6 +408,14 @@ function superviseStreaming(spec, opts) {
      the question at a different moment than `supervise()` does and a test needs to
      drive the two independently. Defaults to the real runner. */
   const readLive = o.liveReader || (() => liveSessions(s.claudeBin));
+  /* Asked right before every launch; `main()` answers "is my host still alive". */
+  const mayStart = typeof o.mayStart === 'function' ? o.mayStart : () => true;
+  /* How a finished run's credential is retired. Each launch mints one token
+     (win32create.mintForRun); without this every crash-restart would leave one
+     more live credential behind for the agent. Injectable so a test never touches
+     a real token store. */
+  const retireRun = typeof o.retireRun === 'function' ? o.retireRun
+    : (name, instance) => require('./win32create').retireRun(name, instance);
 
   /* Where the agent's working/idle goes (7c-5). The default does nothing, so no
      suite that drives this loop writes state files; `main()` passes the real
@@ -379,7 +427,7 @@ function superviseStreaming(spec, opts) {
   let lastStart = 0;
   const handle = { sessionId: s.resumeSessionId || null };
 
-  function attach(c) {
+  function attach(c, runInstance) {
     child = c;
     /* 🔑 THE EVENT STREAM IS READ, and that is what gives a Windows card its
        working/idle (7c-5): `claude agents --json` lists no status for a
@@ -405,6 +453,17 @@ function superviseStreaming(spec, opts) {
     const gone = (code) => {
       if (handled) return;
       handled = true;
+      /* This run is over whether or not it was already replaced, so its token is
+         retired unconditionally -- retire, never revoke, so the agent's other runs
+         keep theirs. A clean stop ends the child through this same path. */
+      if (runInstance) {
+        let retired;
+        try { retired = retireRun(s.name, runInstance); }
+        catch (e) { retired = { ok: false, because: 'we could not retire its token (' + ((e && e.code) || 'unknown') + ')' }; }
+        /* Said, not swallowed: a token left live only waits out the store's cap,
+           but the task log should show why it is still there. */
+        if (retired && retired.ok === false) onEvent({ action: 'token-not-retired', because: retired.because });
+      }
       if (child === c) { child = null; stream.stopped(); }
       const said = stderrTail.replace(/\s+/g, ' ').trim();
       onEvent({ action: 'died', code: code === undefined ? null : code, sessionId: handle.sessionId, because: said ? 'it said: ' + said : undefined });
@@ -457,6 +516,12 @@ function superviseStreaming(spec, opts) {
 
   function startOnce() {
     if (!running) return;
+    let may = true;
+    try { may = mayStart() !== false; } catch { may = true; }
+    if (!may) {
+      onEvent({ action: 'not-starting', because: 'its task was ended, so it is not starting its agent again' });
+      return;
+    }
     const blocked = blockedBy();
     if (blocked) {
       /* 🔑 THE THROTTLE IS NOT BURNED BY WAITING. `lastStart` is untouched here, so
@@ -482,8 +547,11 @@ function superviseStreaming(spec, opts) {
        already has a process to belong to. Idle: measured, a streaming agent says
        nothing until it is told something, fresh or resumed. */
     stream.started(r.child && r.child.pid, r.sessionId);
-    attach(r.child);
-    onEvent({ action: r.resumed ? 'resumed' : 'started', sessionId: r.sessionId });
+    attach(r.child, r.instance || null);
+    /* A run that could not mint a token still runs, but the board refuses every
+       report it sends -- so the task log says why, rather than nothing. */
+    onEvent(Object.assign({ action: r.resumed ? 'resumed' : 'started', sessionId: r.sessionId },
+      r.tokenBecause ? { because: 'it has no reporting token: ' + r.tokenBecause } : {}));
   }
 
   /* The Mac's ThrottleInterval, gating the RESTART. A crash-loop must limp, not

@@ -27,9 +27,12 @@
  *
  * 🔑 WHAT LEAVES IS SCRUBBED. feedback.js keeps home paths / project / agent
  * names on disk on purpose (useful to the user's own agent). The SEND path is
- * where that gets redacted: scrub() rewrites home paths to `~` so what leaves
- * is de-identified. It is NOT called "anonymous" anywhere -- a body can still
- * name a project, and #2037 forbids that word on this data.
+ * where that gets redacted: scrub() rewrites home paths to `~`, redacts this
+ * install's agent/project/account names, AND (kosmos#1760) redacts credential
+ * shapes -- provider keys, Bearer tokens, and labelled secret assignments -- so a
+ * key quoted in a "what broke" report does not leave the box. It is NOT called
+ * "anonymous" anywhere -- a body can still name a project, and #2037 forbids that
+ * word on this data.
  *
  * 🛑 A SEND CAN NEVER BLOCK, SLOW, OR THROW INTO A CALLER. Every path is
  * fire-and-forget with a short timeout and every error is swallowed -- the
@@ -192,29 +195,131 @@ function scrub(text) {
     const esc = home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     out = out.replace(new RegExp(esc + '(?=[/\\\\\\s"\']|$)', 'gi'), '~');
   }
-  // #2037 (revision): redact this install's identifying names as a backstop to
-  // the author prompt's own rule. Boundaries are UNICODE-AWARE lookarounds, not
-  // `\b`: `\b` fires only at ASCII `[A-Za-z0-9_]`, so a Cyrillic/CJK/accented
-  // name ("Мона", "José") or one bordered by punctuation ("C++", ".env")
-  // would slip through both edges and leak -- exactly the data this arm exists
-  // to protect. `(?<![\p{L}\p{N}_]) ... (?![\p{L}\p{N}_])` with the `u` flag
-  // treats any letter or number (in any script) as a word char, so the name is
-  // matched whole and never inside a longer word. Case-insensitive, longest
-  // first (installNames sorts) so a fragment cannot pre-empt the full name. A
-  // name that is also a common word (a project literally named "email") is
-  // over-redacted, which is the safe direction for a body leaving the machine --
-  // the same choice the path arms above make, and rare in practice because the
-  // author prompt tells the writer not to name projects, agents or users at all.
+  // 🛑 ORDER (kosmos#1760 iter-6): home-path arms (above) -> SECRET arms
+  // (next) -> install-NAME arm (END of this function). The name arm MUST run
+  // last: if it ran before the secret arms, a project/agent literally named
+  // "Token"/"Secret"/"Password" would have its LABEL redacted to [redacted]
+  // first, leaving the labelled-assignment secret arm nothing to anchor on and
+  // the credential VALUE in the clear. Full name-arm rationale + residuals are
+  // documented at that arm at the end of the function.
+  // #1760 (audit slice 15): redact SECRETS with the same belt-and-suspenders the
+  // names get. The body answers "what bugs did you hit / what's broken / what
+  // would help technically", which invites quoting an error, a log line, or a
+  // config -- exactly where a live credential rides along. The author prompt now
+  // forbids secrets too (roles.js); this is the backstop for a slip, since a
+  // credential is the most catastrophic thing a body leaving the machine could
+  // carry, and the one class the name/path arms above never touched. Over-
+  // redaction is the safe direction (the same choice every arm above makes): a
+  // feedback report is about what is rough, never about a literal token value,
+  // so a `[redacted-secret]` where a secret-shaped string was costs it nothing.
   //
-  // Known residuals the BELT does not catch, acceptable only because the prompt
-  // rule is the primary defence: a name shorter than NAME_MINLEN (a 3-char agent
-  // like "Leo"); a bare FRAGMENT of a multi-word name ("Kitty" out of "Ice Cream
-  // Kitty") or a name run together with a digit ("Flimwaddle2"), both of which
-  // whole-name matching leaves alone rather than over-redacting "Ice"/"Cream" or
-  // breaking a digit boundary; and a whitespace- or Unicode-normalization variant
-  // of a stored name. Widening any of these trades a rare-variant leak for gutting
-  // common report text, so the belt stays whole-name and the prompt rule carries
-  // the rest.
+  // High-confidence provider shapes, each anchored on its OWN fixed prefix so a
+  // normal English word can never match. `sk-` also carries a leading
+  // non-alphanumeric lookbehind so "risk-management-strategy" (the 's' preceded
+  // by 'i') cannot match "sk-management-strategy" inside it and corrupt prose --
+  // the one prefix that is a common word-tail. A legitimate word-boundary
+  // kebab identifier that happens to start `sk-` (e.g. "sk-button-primary-widget")
+  // IS still swallowed; that is the documented over-redaction-is-safe direction,
+  // not a bug -- a real credential must not survive because a UI class name might.
+  // Stripe keys use `sk_`/`rk_` (underscore, not hyphen) so they need their own
+  // arm; Stripe is Kosmos's payment provider, so a Stripe secret quoted in an
+  // error is a realistic leak the OpenAI hyphen arm never reaches.
+  //
+  // This list is a DELIBERATELY CURATED SUBSET of high-frequency prefixes, NOT an
+  // exhaustive credential catalogue -- chasing every provider is a treadmill and
+  // the backstop's value does not require completeness. The author prompt is the
+  // primary defence; a provider not listed here falls to the labelled-assignment
+  // arm below and to that prompt. Add a prefix only when it is fixed and
+  // high-entropy enough that it cannot match ordinary report prose.
+  // EVERY prefix arm carries the same `(?<![A-Za-z0-9])` lookbehind, so none can
+  // match mid-word (e.g. `gho_` inside "flagho_..." would otherwise redact "fla"
+  // and corrupt the word). The name arm above documents this reasoning for `sk-`;
+  // it applies uniformly here.
+  const SECRET_PATTERNS = [
+    /(?<![A-Za-z0-9])sk-(?:ant-)?[A-Za-z0-9_-]{16,}/g,            // OpenAI / Anthropic keys
+    /(?<![A-Za-z0-9])[sr]k_(?:live|test)_[A-Za-z0-9]{10,}/g,      // Stripe secret / restricted keys
+    /(?<![A-Za-z0-9])gh[posru]_[A-Za-z0-9]{20,}/g,               // GitHub classic tokens (ghp/gho/ghs/ghr/ghu)
+    /(?<![A-Za-z0-9])github_pat_[A-Za-z0-9_]{20,}/g,             // GitHub fine-grained PAT
+    /(?<![A-Za-z0-9])npm_[A-Za-z0-9]{20,}/g,                      // npm access token
+    /(?<![A-Za-z0-9])AKIA[0-9A-Z]{16}/g,                          // AWS access key id
+    /(?<![A-Za-z0-9])ASIA[0-9A-Z]{16}/g,                          // AWS temporary access key id
+    /(?<![A-Za-z0-9])AIza[A-Za-z0-9_-]{16,}/g,                    // Google API key
+    /(?<![A-Za-z0-9])ya29\.[A-Za-z0-9_-]{20,}/g,                  // Google OAuth access token
+    /(?<![A-Za-z0-9])xox[baprs]-[A-Za-z0-9-]{10,}/gi,            // Slack bot/user/app tokens
+    /(?<![A-Za-z0-9])xapp-[A-Za-z0-9-]{10,}/gi,                   // Slack app-level token
+    /(?<![A-Za-z0-9])eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}/g, // three-segment JWT
+  ];
+  for (const re of SECRET_PATTERNS) out = out.replace(re, '[redacted-secret]');
+  // A credential embedded in a URL's userinfo: `scheme://user:PASSWORD@host` (a
+  // pasted DB connection string or curl URL, very common in a "what broke"
+  // report). Keep scheme+user, redact the password before the `@`. The user part
+  // is optional so `redis://:pass@host` is covered too.
+  // 🛑 EVERY run here is BOUNDED (kosmos#1760 iter-7). An unbounded `*`/`+` before
+  // a required terminator (`://`, `@`) is O(N^2) via backtracking, and scrub()
+  // runs SYNCHRONOUSLY on the board's event loop over agent-authored free text
+  // where a long dotted/hex run (a stack trace, a digest chain) or a long
+  // no-`@` connection-string fragment is ordinary -- so an unbounded quantifier
+  // would stall the board and break this module's "a send can never block"
+  // invariant. Real schemes are <=32 chars and userinfo is short, so the caps
+  // below never truncate a real credential.
+  out = out.replace(/([a-z][a-z0-9+.-]{0,31}:\/\/[^\s:@/]{0,200}:)[^\s:@/]{1,200}@/gi, '$1[redacted-secret]@');
+  // HTTP auth headers: keep the scheme word, redact the credential. `Bearer`
+  // (JWT/opaque) ENDS on a non-`.`/`-` char so a trailing sentence period
+  // ("...Bearer abc123. then") is given back, not eaten. `Basic` is base64
+  // user:pass; its char class has no `.` so it stops at a period on its own. Both
+  // use the non-alnum lookbehind idiom (not `\b`) for consistency with the arms above.
+  out = out.replace(/(?<![A-Za-z0-9])(Bearer\s+)[A-Za-z0-9._~+/=-]{15,}[A-Za-z0-9_~+/=]/gi, '$1[redacted-secret]');
+  out = out.replace(/(?<![A-Za-z0-9])(Basic\s+)[A-Za-z0-9+/]{15,}={0,2}/gi, '$1[redacted-secret]');
+  // A labelled assignment `<label> = <value>`: keep the label + separator, redact
+  // ONLY a >=8-char no-space value THAT LOOKS LIKE A CREDENTIAL. Four deliberate
+  // parts:
+  //   * The leading lookbehind is `(?<![A-Za-z0-9])` NOT `\b`: `\b` does not fire
+  //     between `_` and a letter, so `client_secret=`, `access_token=`,
+  //     `refresh_token:`, `api_secret=`, `private_key=` -- the exact snake_case
+  //     shapes a config or .env quotes -- would slip through. The lookbehind lets
+  //     a `_`/`-`/space/start precede the label, so those anchor on their trailing
+  //     `secret`/`token`/`key`.
+  //   * The separator group `(["']?\s*[:=]\s*["']?)` tolerates a quote on EITHER
+  //     side, so a JSON body `"api_key": "value"` / `"token":"value"` -- the most
+  //     common way a config or an API error is pasted into a report -- matches, not
+  //     just the unquoted `token=value` form. The quotes are captured INTO $2 so
+  //     they survive in the output; the value's own closing quote is left outside
+  //     the match, so `"[redacted-secret]"` stays balanced.
+  //   * The value carries a `(?=[^\s'"]*[0-9~=+\/])` requirement: it must contain
+  //     a digit or a base64 symbol. `.` and `-` are DELIBERATELY EXCLUDED from this
+  //     set even though a credential may contain them, because they are also
+  //     ordinary prose: a sentence-final period ("token: undefined.") and a
+  //     hyphenated word ("token: read-only", "not-found") would otherwise trip the
+  //     guard and gut exactly the diagnostic bug-signal a report is FOR -- the word
+  //     after the label is often the finding itself. A real credential essentially
+  //     always carries a digit or a base64 symbol, or is caught by a provider arm
+  //     above; the residual (a value of only letters/`.`/`-` with no digit or
+  //     base64 symbol) falls to the author prompt, the primary defence.
+  //   * The value class stops at `& , ;` as well as whitespace/quotes, so a query
+  //     string ("token=abc123&email=x"), a comma list ("token=undefined,count=5")
+  //     and a cookie/config chain ("session=x;token=def456;secure=1") each redact
+  //     only their own secret param and leave the rest intact -- rather than one
+  //     greedy match swallowing across the separators (kosmos#1760 iter-8). And
+  //     the capture ENDS on a non-delimiter so trailing SENTENCE punctuation
+  //     ("token=abc123.", "(token=abc123)") is given back, not eaten.
+  //   * Every quantifier is BOUNDED (`{8}` existence gate, `{0,512}` scan + capture)
+  //     so a multi-MB degenerate run in agent-authored free text cannot drive V8's
+  //     regex to a stack overflow -- scrub() runs synchronously on the board event
+  //     loop, so the same "no unbounded run" rule the URL arm follows applies here.
+  //     512 is far above any real credential length.
+  //   * Known residual, stated like the name arm states its own: a value with NO
+  //     separator ("the token is abcd1234efgh") is not caught by this arm, and a
+  //     generic all-letters credential (no digit/symbol) is not caught either.
+  //     Both fall to the provider-shape arms above or to the author prompt, the
+  //     primary defence -- this arm is the backstop, not the whole wall.
+  out = out.replace(/(?<![A-Za-z0-9])(api[_-]?key|secret|token|password|passwd|key)(["']?\s*[:=]\s*["']?)(?=[^\s'"&,;]{8})(?=[^\s'"&,;]{0,512}[0-9~=+\/])([^\s'"&,;]{0,512}[^\s'"&,;.:!?()\[\]{}<>])/gi, '$1$2[redacted-secret]');
+  // #2037 (revision): redact this install's identifying names as a backstop to the
+  // author prompt -- AFTER the secret arms above (see the ordering note). Unicode-
+  // aware lookarounds, not `\b`: `\b` fires only at ASCII, so an accented/CJK name
+  // or one bordered by punctuation would leak. Longest-first (installNames sorts)
+  // so a fragment cannot pre-empt a full name; a name that is also a common word is
+  // over-redacted, the safe direction. Residuals (a name below NAME_MINLEN, a bare
+  // fragment of a multi-word name, a normalization variant) fall to the prompt.
   for (const n of installNames()) {
     const esc = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     out = out.replace(new RegExp('(?<![\\p{L}\\p{N}_])' + esc + '(?![\\p{L}\\p{N}_])', 'giu'), '[redacted]');

@@ -47,10 +47,21 @@ function run({ agents, lastAt, spoke }) {
    own fixture-discipline test refuses hand-built rows, and it is right: a
    hand-rolled fixture missing one field is how a measurement ends up answering
    a different question accurately. */
-const board = fleet.install([fleet.agent('dana', { state: 'working' })]);
+/* #2660: `erin` joins the fixture for the auth-failed arm below. Both cards come
+   from `fleet` rather than being written out here, because a hand-built card can
+   drift from the real shape and then the painter answers a different question.
+   The repo has a gate that refuses exactly that, and it caught the first version
+   of these arms. */
+const board = fleet.install([
+  fleet.agent('dana', { state: 'working' }),
+  fleet.agent('erin', { state: 'auth_failed' }),
+]);
 const dana = board.agents.find((a) => a && a.name === 'dana');
+const erin = board.agents.find((a) => a && a.name === 'erin');
 assert.ok(dana && dana.sessionName, 'the fixture produced no card, so nothing below is testing the painter');
 assert.equal(dana.state, 'working', 'the fixture card is not in the state this whole file is about');
+assert.ok(erin && erin.sessionName, 'the auth-failed fixture produced no card');
+assert.equal(erin.state, 'auth_failed', 'the auth-failed fixture is not in that state');
 
 /**
  * The NaN guard in `paintRoom` is unreachable ONLY because another module
@@ -430,4 +441,168 @@ test('#1150: both stamps come from this page, never from a server time', () => {
   const fn = page.lift(SCRIPT, 'paintRoomBusy');
   assert.match(fn, /spoke\.learnedAt > LAST_AT/, 'the comparison is not the two local stamps');
   assert.doesNotMatch(fn, /Date\.parse|new Date/, 'a server time reached the comparison');
+});
+
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * #2660: THE SAME DEFECT, ON THE SURFACE #1150's FIX NEVER REACHED.
+ *
+ * Josh, 2026-09-10: "I'll get a reply and then it will show the little thing
+ * that says the agent is working. It'll last for a few seconds and then go
+ * away." That is the sentence at the top of this file again, about the DIALOG
+ * box rather than the room.
+ *
+ * ⭐ The two working lines were built to SHARE their markup (`busyRow`) and the
+ * one word that carries the claim (`WORKING_VERB`), and the correctness filter
+ * went to one of them. These arms are here, in this file, so the pair is pinned
+ * together and the next fix to either has to look at both.
+ * ──────────────────────────────────────────────────────────────────────────*/
+function runDm({ fresh, lastAt, spoke }) {
+  const el = { hidden: null, innerHTML: '' };
+  // eslint-disable-next-line no-new-func
+  const paint = new Function(
+    'FRESH', 'NAME', 'LAST_AT_IN', 'SPOKE', 'EL',
+    'const document = { getElementById: () => EL };\n'
+    + 'let LAST_AT = LAST_AT_IN;\n'
+    + 'const DM_SPOKE_AT = SPOKE;\n'
+    /* busyRow is the SHARED markup helper and has its own coverage; stubbed to a
+       recognisable string so these arms test the SHOW DECISION and nothing else. */
+    + 'const busyRow = (f, n) => "ROW:" + String(n);\n'
+    + page.lift(SCRIPT, 'paintBusy')
+    + '; return paintBusy;',
+  )(fresh, fresh && fresh.name, lastAt, spoke, el);
+  paint(fresh, fresh && fresh.name);
+  return el;
+}
+
+test('#2660: a dialog reply already on screen is not announced as still working', () => {
+  const SNAP = 1000;
+
+  /* 🔑 CONTROL FIRST, same rule as the room arm above: with no reply recorded
+     the line must paint, or every assertion below is satisfied by a painter
+     that never shows anything. */
+  const plain = runDm({ fresh: dana, lastAt: SNAP, spoke: new Map() });
+  assert.equal(plain.hidden, false, 'a working agent is not announced in the dialog at all');
+  assert.match(plain.innerHTML, new RegExp('ROW:' + dana.name), 'the shared row helper was not reached');
+
+  /* THE DEFECT: the reply reached this page AFTER the snapshot, so the state
+     about to be asserted is older than what is already painted beneath it. */
+  const after = runDm({
+    fresh: dana,
+    lastAt: SNAP,
+    spoke: new Map([[dana.sessionName, { at: 1, learnedAt: SNAP + 1 }]]),
+  });
+  assert.equal(after.hidden, true,
+    'the dialog indicator still follows the reply it was supposed to precede');
+
+  /* THE OTHER ARM: a reply learned BEFORE the snapshot proves nothing about it.
+     Without this the fix could be "never show it" and both rows above pass. */
+  const before = runDm({
+    fresh: dana,
+    lastAt: SNAP,
+    spoke: new Map([[dana.sessionName, { at: 1, learnedAt: SNAP - 1 }]]),
+  });
+  assert.equal(before.hidden, false,
+    'an older reply is suppressing a state that is newer than it');
+});
+
+test('#2660: an auth failure is NOT suppressed by a reply, which #874 put in this exact slot', () => {
+  const SNAP = 1000;
+  /* 🛑 THE ARM THAT STOPS THIS FIX RE-OPENING #874. That bug was an agent
+     sitting in this slot claiming to work while its terminal retried a 401, and
+     the fix was to give `auth_failed` its own line here. A reply arriving does
+     not make an auth failure stale, so the #2660 filter must not touch it.
+     Same inputs that suppress `working` two tests up. */
+  const out = runDm({
+    fresh: erin,
+    lastAt: SNAP,
+    spoke: new Map([[erin.sessionName, { at: 1, learnedAt: SNAP + 1 }]]),
+  });
+  assert.equal(out.hidden, false,
+    'the #2660 staleness filter swallowed an auth failure, re-opening #874');
+  assert.match(out.innerHTML, new RegExp('ROW:' + erin.name), 'the auth-failed row did not reach the shared helper');
+});
+
+
+test('#2660: the DM stamp block itself, driven rather than assumed', () => {
+  /* 🛑 THIS ARM EXISTS BECAUSE THE FIRST VERSION OF THIS FIX HAD NONE, AND THE
+     WHOLE THING COULD BE MADE INERT WITH EVERY TEST STILL GREEN. Measured:
+     replacing `learnedAt: seededThread ? Date.now() : 0` with `learnedAt: 0`
+     turns the shipped fix into a no-op, and the arms above stayed 6/6, because
+     they drive `paintBusy` with a HAND-SUPPLIED map. They test the READ side.
+     Nothing tested the WRITE side, which is half the fix.
+     🔑 SLICED OUT OF THE SHIPPED SOURCE, not retyped, for the reason the room's
+     equivalent gives at its own slice: a retyped copy tests this file's version
+     of the logic, which is exactly how a defect ships under a green test. */
+  const from = SCRIPT.indexOf('const seededThread =');
+  assert.ok(from > -1, 'the DM seeding block moved; this test is no longer reading the real one');
+  const END = 'DM_SPOKE_SEEDED.add(dmSession);';
+  const to = SCRIPT.indexOf(END, from);
+  assert.ok(to > from, 'the DM seeding block no longer ends where this test expects');
+  /* Lifted, not declared: a local copy would keep passing with every entry
+     deleted from the real one. Same reasoning as the room's harness. */
+  const notSpeech = SCRIPT.match(/const ROOM_NOT_SPEECH = new Set\(\[[^\]]*\]\);/);
+  assert.ok(notSpeech, 'ROOM_NOT_SPEECH is no longer a Set literal; the sliced block cannot run');
+  const BLOCK = notSpeech[0] + '\n' + SCRIPT.slice(from, to + END.length);
+
+  /* `Date` is a parameter for the room's reason: two calls in a fast test land
+     in the same millisecond, so "stamped now" and "stamped 0" must be separable
+     by construction rather than by luck. */
+  const CLOCK = { t: 5000000 };
+  const FakeDate = { now: () => CLOCK.t, parse: (v) => Date.parse(v) };
+  const stamp = new Function(
+    'dmSession', 'allRows', 'DM_SPOKE_SEEDED', 'DM_SPOKE_AT', 'body', 'Date', BLOCK,
+  );
+  const SEEDED = new Set();
+  const SPOKE = new Map();
+  const say = (who, iso) => [{ from: who, at: iso, text: 'hi' }];
+  const OK = (rows) => ({ messages: rows });
+
+  /* 1. FIRST LOAD IS BACKLOG, NOT SPEECH. Stamping it as a fresh reply would
+     blank the working line every time somebody opens a dialog. */
+  const t1 = '2026-09-10T10:00:00.000Z';
+  stamp('dana', say('dana', t1), SEEDED, SPOKE, OK(say('dana', t1)), FakeDate);
+  assert.equal(SPOKE.get('dana').learnedAt, 0, 'the first load stamped history as a fresh reply');
+  assert.ok(SEEDED.has('dana'), 'a readable first load did not seed the thread');
+
+  /* 2. A LATER, NEWER REPLY IS SPEECH. This is the arm the inert-fix mutation
+     reds, and the reason this test exists. */
+  CLOCK.t += 1000;
+  const t2 = '2026-09-10T10:00:05.000Z';
+  stamp('dana', say('dana', t2), SEEDED, SPOKE, OK(say('dana', t2)), FakeDate);
+  assert.equal(SPOKE.get('dana').learnedAt, CLOCK.t,
+    'a reply that arrived after the thread was seeded was not stamped as newly learned, so the '
+    + 'working line can never be suppressed and the fix is inert');
+
+  /* 3. SOMEBODY ELSE'S ROW IS NOT THIS AGENT SPEAKING. */
+  const other = new Set(); const otherSpoke = new Map();
+  stamp('dana', say('erin', t2), other, otherSpoke, OK(say('erin', t2)), FakeDate);
+  assert.equal(otherSpoke.size, 0, 'a row from another speaker was stamped against this agent');
+
+  /* 4. A FAILED READ MUST NOT SEED. The route answers 200 with `messages: null`
+     when the thread read fails; seeding on that marks the thread
+     known-with-zero-rows, so the next poll's real backlog reads as all-new and
+     blanks the working line for a genuinely working agent. */
+  const failSeed = new Set(); const failSpoke = new Map();
+  stamp('dana', [], failSeed, failSpoke, { messages: null }, FakeDate);
+  assert.equal(failSeed.has('dana'), false, 'a FAILED thread read seeded the thread anyway');
+  /* CONTROL, or the row above passes against a block that never seeds at all. */
+  stamp('dana', say('dana', t1), failSeed, failSpoke, OK(say('dana', t1)), FakeDate);
+  assert.ok(failSeed.has('dana'), 'a readable read did not seed, so the arm above proves nothing');
+});
+
+test('#2660: a reply learned in the SAME millisecond as the snapshot is not suppressed', () => {
+  /* The boundary the other arms step over: they use SNAP plus or minus one, so
+     `>` and `>=` are indistinguishable to them. The filter is deliberately `>`:
+     equal timestamps mean the reply is NOT newer than the state, and the
+     under-claim direction is only worth paying where it is actually earned. */
+  const SNAP = 1000;
+  const out = runDm({
+    fresh: dana,
+    lastAt: SNAP,
+    spoke: new Map([[dana.sessionName, { at: 1, learnedAt: SNAP }]]),
+  });
+  assert.equal(out.hidden, false,
+    'a reply learned in the same millisecond as the snapshot suppressed the working line; the '
+    + 'comparison has become >= and now hides states it proves nothing about');
 });

@@ -304,9 +304,8 @@ function launch(spec) {
  * resume-not-replace: a supervisor cannot adopt a pipe somebody else holds, but
  * it can re-open the same session id, which every other module already keys on.
  *
- * 📌 NOT WIRED IN THIS COMMIT. `create.js` and `win32supervisor.js` still use
- * `launch()`. This is the substrate, measured and tested on its own first, which
- * is the order this lane has learned to work in.
+ * 📌 WIRED through `win32supervisor.superviseStreaming`, which every agent's task
+ * runs; `launch()` remains only for the older detached `supervise()` loop.
  */
 
 /** One message, in the shape `--input-format stream-json` reads. */
@@ -339,14 +338,18 @@ function streamArgvFor(prepared, opts) {
 /**
  * Start a streaming agent and KEEP its pipes.
  *
- * Returns { ok:true, name, sessionId, child } -- `child` is a live ChildProcess
- * whose stdin takes `messageLine()` and whose stdout emits newline-delimited
- * events. Or { ok:false, because }, and it never throws.
+ * Returns { ok:true, name, sessionId, child, instance } -- `child` is a live
+ * ChildProcess whose stdin takes `messageLine()` and whose stdout emits
+ * newline-delimited events, and `instance` names this run's credential so the
+ * caller can retire it when the run ends. Or { ok:false, because }; never throws.
  *
- * ⚠️ ON RESUME NOTHING IS MINTED. `prepareSession` writes the ownership record and
- * the token; a resume already has both, so re-preparing would file a SECOND record
- * for one agent -- the duplicate-name hazard win32live documents. The caller
- * passes the id it is returning to, and the record is left alone.
+ * ⚠️ ON RESUME NO RECORD IS WRITTEN, BUT A TOKEN IS MINTED. `prepareSession` writes
+ * the ownership record; a resume already has one, so re-preparing would file a
+ * SECOND record for one agent -- the duplicate-name hazard win32live documents.
+ * The credential is different: it belongs to a RUN, not to the session, and a
+ * resume that carried none was measured having every self-report refused. So a
+ * resume mints its own (`win32create.mintForRun`), the way the Mac mints one on
+ * every launch.
  */
 function launchStreaming(spec) {
   const s = spec || {};
@@ -364,7 +367,10 @@ function launchStreaming(spec) {
 
   let prepared;
   if (s.resumeSessionId) {
-    prepared = { ok: true, name: s.name, sessionId: String(s.resumeSessionId), launchArgs: [], token: s.token || '' };
+    prepared = {
+      ok: true, name: s.name, sessionId: String(s.resumeSessionId), launchArgs: [],
+      ...win32create.mintForRun(s.name),
+    };
   } else {
     prepared = win32create.prepareSession({ name: s.name, runner: s.runner });
     if (!prepared.ok) return { ok: false, because: prepared.because };
@@ -385,8 +391,15 @@ function launchStreaming(spec) {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
   } catch (e) {
+    /* A fresh start undoes its record AND its token. A resume keeps the record (it
+       is the agent's, not this run's) and retires only the token it just minted. */
+    let tokenNote = '';
     if (!s.resumeSessionId) { try { win32create.abandon(prepared); } catch { /* best effort */ } }
-    return { ok: false, because: 'we could not start it (' + ((e && e.code) || 'unknown') + ')' };
+    else {
+      const retired = win32create.retireRun(prepared.name, prepared.instance);   // never throws
+      if (!retired.ok) tokenNote = '; ' + retired.because;
+    }
+    return { ok: false, because: 'we could not start it (' + ((e && e.code) || 'unknown') + ')' + tokenNote };
   }
 
   return {
@@ -395,6 +408,7 @@ function launchStreaming(spec) {
     sessionId: prepared.sessionId,
     resumed: Boolean(s.resumeSessionId),
     child,
+    instance: prepared.instance || null,
     tokenBecause: prepared.tokenBecause || null,
   };
 }

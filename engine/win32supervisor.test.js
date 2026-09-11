@@ -396,6 +396,141 @@ test('#570 7c-5 a flush that lands after its child was REPLACED does not mark th
   h.stop();
 });
 
+test('#570 headless: a supervisor whose task was ended never starts the agent again', () => {
+  /* Remove runs /End (killing the host) and then kills the agent. The supervisor
+     outlives its host by up to a second, sees its agent die, and used to relaunch
+     it: a removed agent briefly back, owned by nobody. mayStart is asked right
+     before every launch. */
+  const kids = [];
+  const events = [];
+  let hostAlive = true;
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    mayStart: () => hostAlive,
+    onEvent: (e) => events.push(e.action),
+    launch: () => { const c = streamingChild(1); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  assert.equal(kids.length, 1, 'a live host starts its agent');
+  hostAlive = false;                 // /End killed the host
+  kids[0].die(1);                    // then the remove killed the agent
+  assert.equal(kids.length, 1, 'no relaunch for a task that was ended');
+  assert.ok(events.includes('not-starting'), 'and it says so on the task log');
+  h.stop();
+});
+
+test('#570 every finished run retires ITS OWN token: a crash, a relaunch, then a stop', () => {
+  /* Each launch mints a credential for that run (a resume included). Without
+     retiring the dead run's, every crash-restart left one more live token behind
+     for the agent. The death handler retires by the run's own instance, and a
+     clean stop ends the child through that same path. */
+  const kids = [];
+  const retired = [];
+  let n = 0;
+  const h = sup.superviseStreaming({ name: 'tok', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    retireRun: (name, instance) => retired.push(name + '/' + instance),
+    launch: () => { n += 1; const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c, instance: 'inst-' + n }; },
+  });
+  assert.deepEqual(retired, [], 'a live run keeps its token');
+  kids[0].die(1);                                 // crash: relaunches as inst-2
+  assert.deepEqual(retired, ['tok/inst-1'], 'the crashed run\'s token is retired');
+  h.stop();
+  kids[1].die(0);                                 // the stop's exit arrives
+  assert.deepEqual(retired, ['tok/inst-1', 'tok/inst-2'], 'and the stopped run\'s too, exactly once each');
+});
+
+test('#570 a token that cannot be retired is SAID on the task log, not swallowed', () => {
+  for (const retireRun of [
+    () => ({ ok: false, because: 'the token store is busy' }),
+    () => { throw Object.assign(new Error('busy'), { code: 'EBUSY' }); },
+  ]) {
+    const kids = [];
+    const events = [];
+    const h = sup.superviseStreaming({ name: 'stuck', cwd: 'C:\w' }, {
+      liveReader: NOBODY_LIVE,
+      throttleMs: 0, now: () => 0, setTimer: () => {},
+      onEvent: (e) => events.push(e),
+      retireRun,
+      launch: () => { const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c, instance: 'inst-1' }; },
+    });
+    kids[0].die(1);
+    const said = events.find((e) => e.action === 'token-not-retired');
+    assert.ok(said, 'the failure reaches the task log');
+    assert.match(said.because, /store is busy|EBUSY/);
+    h.stop();
+  }
+});
+
+test('#570 a run that got NO token says so when it starts, since the board will refuse its reports', () => {
+  const events = [];
+  const h = sup.superviseStreaming({ name: 'tokenless', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 's', child: fakeChild(), tokenBecause: 'the token store is busy' }),
+  });
+  const started = events.find((e) => e.action === 'started');
+  assert.match(started.because, /no reporting token: the token store is busy/);
+  h.stop();
+});
+
+test('#570 a RESUMED run that got no token says so too -- the crash-restart is the case this branch fixes', () => {
+  const events = [];
+  const kids = [];
+  let n = 0;
+  const h = sup.superviseStreaming({ name: 'tokenless-2', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    onEvent: (e) => events.push(e),
+    launch: (spec) => {
+      n += 1; const c = fakeChild(); kids.push(c);
+      return { ok: true, sessionId: 's', child: c, resumed: Boolean(spec.resumeSessionId),
+        tokenBecause: n === 1 ? null : 'the token store is busy' };
+    },
+  });
+  assert.ok(!('because' in events.find((e) => e.action === 'started')), 'a run WITH a token says nothing extra');
+  kids[0].die(1);                                   // crash: comes back as a resume, with no token
+  const resumed = events.find((e) => e.action === 'resumed');
+  assert.ok(resumed, 'the crash came back as a resume');
+  assert.match(resumed.because, /no reporting token: the token store is busy/);
+  h.stop();
+});
+
+test('#570 the supervisor\'s REAL retire (nothing injected) takes the dead run\'s token out of the store', () => {
+  /* Every other test injects `retireRun`; `main()` injects nothing, so production
+     runs the default. This pins that default against the real (sandboxed) token
+     store (review round 5: replacing it with a no-op stayed green). */
+  const sendertoken = require('./sendertoken');
+  const minted = sendertoken.mint('realretire');
+  assert.equal(minted.ok, true, minted.because);
+  const kids = [];
+  const h = sup.superviseStreaming({ name: 'realretire', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    launch: () => { const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c, instance: minted.instance }; },
+  });
+  assert.ok(sendertoken.live('realretire').includes(minted.instance), 'the token is live while its run is');
+  h.stop();
+  kids[0].die(0);
+  assert.ok(!sendertoken.live('realretire').includes(minted.instance), 'and gone from the store once the run ends');
+});
+
+test('#570 a run that was launched with no token retires nothing', () => {
+  const kids = [];
+  const retired = [];
+  const h = sup.superviseStreaming({ name: 'bare', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    retireRun: (name, instance) => retired.push(instance),
+    launch: () => { const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  kids[0].die(1);
+  assert.deepEqual(retired, []);
+  h.stop();
+});
+
 test('#570 7c-5 a failed write does not mark the agent busy', () => {
   const kids = [];
   const sink = streamSink();
@@ -505,7 +640,16 @@ test('#570 7c-2 THE TASK SUPERVISES THE STREAMING AGENT -- the detached one cann
   });
   sup.setLiveReader(() => []);
   const cwd = workdir('entry');
-  const handle = sup.main(['entry', cwd, '-', '-', 'claude']);
+  /* The host watch is injected: the real one would watch this test runner's
+     parent, and its exit would end the whole suite. */
+  const watches = [];
+  const exits = [];
+  let hostChecks = 0;
+  const handle = sup.main(['entry', cwd, '-', '-', 'claude'], {
+    watchHost: (opts) => { const w = { opts, stopped: false, stop() { this.stopped = true; } }; watches.push(w); return w; },
+    exitLater: (ms) => exits.push(ms),
+    hostAlive: () => { hostChecks += 1; return true; },
+  });
   /* 🛑 CLEANUP RUNS HOWEVER THE ASSERTIONS GO. main() opens the agent's pipe
      server, and a failed assertion that skipped handle.stop() left it listening,
      so the test process never exited: a hang where a red belonged. Found by this
@@ -524,6 +668,16 @@ test('#570 7c-2 THE TASK SUPERVISES THE STREAMING AGENT -- the detached one cann
     /* ⚠️ THE LOAD-BEARING NEGATIVE. The detached launch goes through `cmd /c start`;
        if main() ever goes back to it, this is the line that says so. */
     assert.ok(!/cmd\.exe$/i.test(spawned[0].bin), 'a `cmd /c start` here is the detached launch coming back');
+
+    /* #570 headless: main() watches its host, and when the host is gone (what
+       `/End` does to a headless task) it stops its agent and leaves. */
+    assert.equal(watches.length, 1, 'main() arms exactly one host watch');
+    assert.ok(hostChecks >= 1, 'main() asks whether its host is alive before it starts an agent');
+    assert.equal(spawned[0].child.stdin.destroyed, false);
+    watches[0].opts.onGone(1234);
+    assert.equal(spawned[0].child.stdin.destroyed, true, 'the host going stops the agent (its stdin is closed)');
+    assert.equal(exits.length, 1, 'and the supervisor leaves after a grace period');
+    assert.equal(watches[0].stopped, true, 'the watch is stopped with everything else');
   } finally {
     handle.stop();
     launcher.setSpawn(null);

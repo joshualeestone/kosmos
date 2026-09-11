@@ -927,7 +927,7 @@ function safeRoster() {
     // would have claimed a successful tell about it (the told sentence
     // itself is retired now -- success says nothing -- but the write
     // gate this comment justifies is unchanged).
-    const gone = new Set(removal.removedAgents().filter((r) => r.stopped !== false).map((r) => r.name));
+    const gone = new Set(removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name));
     return agents.filter((a) => !gone.has(a.sessionName));
   } catch {
     return null;
@@ -1011,7 +1011,7 @@ function activeAgentsCreatedBy(creator) {
     // consuming a cap slot forever (over-refuse). slugFor is idempotent, so
     // applying it to an already-slug name is safe.
     gone = new Set(removal.removedAgents()
-      .filter((r) => r && r.stopped !== false)
+      .filter((r) => removal.hidesCard(r))
       .map((r) => { try { return create.slugFor(r.name); } catch { return String(r.name); } }));
   } catch { return null; }
   /* LAST-occurrence wins: the NEWEST 'created' birth per clean name is its current
@@ -2002,9 +2002,10 @@ const server = http.createServer((req, res) => {
       // ⚠️ The predicate is read off the records already in hand, not by calling
       // `isHidden` per agent -- that re-read and re-parsed `removed.json` once
       // per removed agent, on top of the read `removedAgents()` just did, on
-      // every five-second poll. `stopped !== false` is `isHidden`'s own test;
-      // if the two ever diverge this is the copy that is wrong.
-      const gone = new Set(removal.removedAgents().filter((r) => r.stopped !== false).map((r) => r.name));
+      // every five-second poll. `removal.hidesCard` is the ONE predicate
+      // `isHidden` uses too (#2651), so this filter and the per-agent check
+      // cannot diverge -- they read the same function over the same record.
+      const gone = new Set(removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name));
       /**
        * What an agent's job will START it on, for the agents whose live model
        * we could not read.
@@ -3776,11 +3777,19 @@ const server = http.createServer((req, res) => {
   if (rm && req.method === 'DELETE') {
     const name = decodeSegment(rm[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    /* #2651: `?force=1` opts into the user-initiated override of the UNTIED
+       refusal ONLY -- clear the card of an agent whose session Kosmos cannot tie
+       to it (a residual/auto-imported card, a teammate's session on a shared box)
+       WITHOUT stopping that session. A QUERY param (not a DELETE body, which
+       proxies strip) so it survives the request. The engine gates it: force is
+       inert on every refusal except `untied`, so this cannot stop or hide the
+       wrong thing. Absent = today's behaviour exactly. */
+    const force = /[?&]force=(?:1|true)\b/i.test(req.url || '');
     let done;
     // ⚠️ Guarded for the reason given on the route above, and it matters most
     // here: this is the call that has already disabled a launchd job by the
     // time anything downstream can throw.
-    try { done = removal.remove(name); }
+    try { done = removal.remove(name, { force }); }
     catch (err) { sendJson(res, 500, { error: 'the removal failed partway and we cannot tell you how far it got', detail: String(err && err.message || err) }); return; }
     // ⚠️ A PARTIAL answers 200, deliberately: the request was understood and
     // acted on, and what happened is in the body, which is where a removal's
@@ -5387,7 +5396,7 @@ const server = http.createServer((req, res) => {
            same "two derivations of the fleet" habit that comment calls this
            codebase's worst, arriving from the side that looks like a fix. */
         let goneNames = null;
-        try { goneNames = new Set(removal.removedAgents().filter((r) => r && r.stopped !== false).map((r) => r.name)); }
+        try { goneNames = new Set(removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name)); }
         catch { complete = false; goneNames = null; }
         const names = new Set();
         for (const a of (roster || [])) if (a && a.sessionName) names.add(a.sessionName);
@@ -5880,7 +5889,7 @@ const server = http.createServer((req, res) => {
         const knownNames = register.known();
         if (!knownNames || knownNames.ok !== true) complete = false;
         let goneNames = null;
-        try { goneNames = new Set(removal.removedAgents().filter((r) => r && r.stopped !== false).map((r) => r.name)); }
+        try { goneNames = new Set(removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name)); }
         catch { complete = false; goneNames = null; }
         const names = new Set();
         for (const a of (roster || [])) if (a && a.sessionName) names.add(a.sessionName);
@@ -9896,6 +9905,35 @@ const server = http.createServer((req, res) => {
   if (roomThread && (req.method === 'GET' || req.method === 'HEAD')) {
     const id = decodeSegment(roomThread[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    /* Computed ONCE for this request (the text arm below reads it too): the CLI
+       (`kosmos room`) passes ?as=text, the web board reads JSON. #2702's reject
+       and the existing render must agree on which arm this is. */
+    let asText = false;
+    try { asText = new URL(req.url, ROUTING_BASE).searchParams.get('as') === 'text'; } catch { asText = false; }
+    /* #2702: reject an UNKNOWN project the way /api/post and /api/react already
+       do, instead of rendering it as an empty room -- a typo or a hyphenated-name
+       guess otherwise reads identically to genuine silence, and the agent acts on
+       "nobody said anything." The check is EXISTENCE, never post-count: a real
+       project with zero posts still returns the normal empty room below.
+       ⚠️ readAll(), not projects.get(): get() routes through describe(), which
+       heals everSeen and can writeAll() -- a write side-effect on a room READ
+       would be a real defect. readAll() is the pure registry read get() itself
+       uses. FAILS OPEN: a transient registry-read throw must not become a false
+       "no such project," so on a throw we fall through to the best-effort room
+       read below (which already handles an unreadable store), never to a 404. */
+    let projectKnown = true;
+    try { projectKnown = projects.readAll().some((p) => p && p.id === id); } catch { projectKnown = true; }
+    if (!projectKnown) {
+      if (asText) {
+        /* The CLI (bash 3.2, no JSON parser) prints this body verbatim; the 404
+           status lets cmd_room exit non-zero for parity with post/react. */
+        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end('there is no project by that name\n');
+      } else {
+        sendJson(res, 404, { error: 'there is no project by that name' });
+      }
+      return;
+    }
     try {
       const rec = messages.record();
       const rows = rec.rows
@@ -9930,9 +9968,9 @@ const server = http.createServer((req, res) => {
       /* Plain text on ?as=text, for `kosmos room <id>` (#314): the CLI runs on
          stock bash 3.2 with no JSON parser, so the server does the shaping.
          The tail only (last 40), oldest first, one line per row, and the
-         unreadable case says so rather than printing an empty room. */
-      let asText = false;
-      try { asText = new URL(req.url, ROUTING_BASE).searchParams.get('as') === 'text'; } catch { asText = false; }
+         unreadable case says so rather than printing an empty room.
+         #2702: `asText` is computed once at the top of this route now and reused
+         here, so the reject arm and this render arm cannot disagree. */
       /* #185, #563: who still owes an answer, from the record alone, computed
          ONCE here for both arms. The page draws its small line from this and
          the text view prints the same line under the same post, so an agent
@@ -11617,6 +11655,18 @@ if (require.main === module) {
       }
     } catch (err) {
       process.stderr.write(`Kosmos could not check whether it starts when you log in: ${String(err && err.message)}\n`);
+    }
+    /* #570: the board's logon task runs it under `conhost.exe --headless`, so no
+       window opens that a person could close. `/End`, the first step of the
+       board's own restart, then kills only that conhost, so the board leaves when
+       its host does. See engine/win32orphan.js. Armed only for a task-started
+       board: a hand-started one belongs to whoever started it. */
+    try {
+      if (require('./engine/win32board').startedByTask()) {
+        require('./engine/win32orphan').exitWhenParentGone({ onGone: () => process.exit(0) });
+      }
+    } catch (err) {
+      process.stderr.write(`Kosmos could not watch the job that started it: ${String(err && err.message)}\n`);
     }
   }
   /**

@@ -25,8 +25,11 @@
  * 🔑 THE BOARD IS ANOTHER PROCESS, so the state crosses as a small file per agent,
  * stamped with the session id and the agent's pid. `claude agents --json` lists
  * that same pid (measured: the spawned child's own pid), so `stateFor` accepts a
- * file only when both match the LIVE row. A file left by a dead or earlier
- * process can never describe the one running now.
+ * file only when both match the LIVE row. That is why a file left by a dead or
+ * earlier process does not describe the one running now: every supervisor started
+ * by its task mints a NEW session id, and within one supervisor a run's own stop
+ * removes its file before a restarted child could reuse the pid. (A leftover can
+ * only line up by stacking the residuals the headless plan names.)
  *
  * ⚠️ IT IS STILL THE FALLBACK. needs_you / blocked come from the self-report path,
  * and reconcileReport outranks this exactly as it outranks a Mac pane scrape.
@@ -123,12 +126,51 @@ function writeState(name, record) {
   }
 }
 
-/* Returns whether the file is gone. After a death a leftover is harmless -- it
-   names a pid that is no longer listed -- but when the publisher clears a LIVE
-   process's older state, a failed delete leaves that state readable, so the
-   caller reports it. */
-function clearState(name) {
-  try { fs.rmSync(statePath(name), { force: true }); return true; } catch { return false; }
+/* Returns whether the file is gone (or is no longer ours). After a death a leftover
+   is harmless -- it names a pid that is no longer listed -- but when the publisher
+   clears a LIVE process's older state, a failed delete leaves that state readable,
+   so the caller reports it.
+
+   🛑 WITH AN OWNER, ONLY THE OWNER'S FILE IS DELETED (#570 headless). A restart can
+   briefly run two supervisors for one agent: the old one leaves up to a second
+   after `/End`, while the new one has already written its state. Deleting by NAME
+   let the old one's stop erase the new one's file, and an idle new agent then read
+   UNKNOWN until its next message (measured on the box). */
+function clearState(name, ownerPid) {
+  const at = statePath(name);
+  /* No owner means nothing proves the file is ours, so it is left alone. Nothing
+     deletes a state file by NAME: during a headless overlap that name can hold a
+     still-running supervisor's valid state (review round 3 reproduced exactly
+     that through a launch that never spawned). */
+  if (!Number.isInteger(ownerPid)) return true;
+  /* 🔑 CLAIM, THEN DECIDE -- never read-then-delete. A plain read followed by a
+     delete-by-path could remove a file the new supervisor wrote in between (found
+     in review round 2). Renaming is atomic: once the file is ours under a private
+     name, nobody else's write can be caught by what we do with it. */
+  const claim = at + '.' + process.pid + '.clear';
+  try { fs.renameSync(at, claim); }
+  catch (e) { return Boolean(e && e.code === 'ENOENT'); }
+  let rec = null;
+  try { rec = JSON.parse(fs.readFileSync(claim, 'utf8')); } catch { rec = null; }
+  if (rec && typeof rec === 'object' && rec.pid === ownerPid) {
+    try { fs.rmSync(claim, { force: true }); } catch { /* a private leftover; harmless */ }
+    return true;
+  }
+  /* Not ours, or unreadable: a doubt never deletes. Put it back -- unless a newer
+     file has landed at the real name meanwhile, which then wins (a hard link does
+     not replace an existing name). */
+  try { fs.linkSync(claim, at); }
+  catch (e) {
+    if (!(e && e.code === 'EEXIST')) {
+      /* The put-back itself failed (a volume without hard links, say). The claim
+         is now the only copy of a file that is not ours, so it is KEPT, and the
+         caller hears that the clear did not go cleanly. */
+      return false;
+    }
+    /* EEXIST: a newer file landed at the real name meanwhile, and it wins. */
+  }
+  try { fs.rmSync(claim, { force: true }); } catch { /* a private leftover; harmless */ }
+  return true;
 }
 
 /**
@@ -158,7 +200,7 @@ function stateFor(name, live) {
 function publisher(name, opts) {
   const o = opts || {};
   const write = o.write || ((rec) => writeState(name, rec));
-  const clear = o.clear || (() => clearState(name));
+  const clear = o.clear || ((ownerPid) => clearState(name, ownerPid));
   const timer = o.setTimer || ((fn, ms) => setTimeout(fn, ms));
   const onProblem = typeof o.onProblem === 'function' ? o.onProblem : () => {};
 
@@ -183,7 +225,7 @@ function publisher(name, opts) {
          than one that says it cannot tell. The next transition starts over. */
       retrying = false;
       written = null;
-      if (clear() === false) onProblem('we could not clear its older state either, so its card may be out of date until it next changes');
+      if (clear(current.pid) === false) onProblem('we could not clear its older state either, so its card may be out of date until it next changes');
       return;
     }
     retrying = true;
@@ -197,7 +239,15 @@ function publisher(name, opts) {
       generation += 1;
       retrying = false;
       written = null;
-      if (!Number.isInteger(pid) || typeof sessionId !== 'string' || !sessionId) { current = null; clear(); return; }
+      if (!Number.isInteger(pid) || typeof sessionId !== 'string' || !sessionId) {
+        /* A launch that did not spawn (no pid) proves nothing about the file at
+           this name, which may be the still-running previous supervisor's. Only
+           this publisher's OWN earlier process is cleared, never an unowned file. */
+        const was = current;
+        current = null;
+        if (was) clear(was.pid);
+        return;
+      }
       current = { pid, sessionId, state: IDLE };
       flush();
     },
@@ -212,11 +262,15 @@ function publisher(name, opts) {
     },
     /** The agent process is gone. */
     stopped() {
+      const was = current;
       generation += 1;
       current = null;
       written = null;
       retrying = false;
-      clear();
+      /* Only this process's own file: a newer supervisor may already own it. A
+         run that never had a process (a launch that did not spawn) has no file of
+         its own, so it clears nothing. */
+      if (was) clear(was.pid);
     },
   };
 }

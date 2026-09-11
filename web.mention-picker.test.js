@@ -99,7 +99,8 @@ test('what is inserted is the exact key, the hint names the key, and the list is
   const pick = SCRIPT.slice(SCRIPT.indexOf('function mentionPick('), SCRIPT.indexOf('function mentionPick(') + 900);
   assert.match(pick, /const ins = '@' \+ c\.key \+ ' ';/, 'the picker no longer inserts the session key');
   const words = codeOnly(PAGE);
-  assert.match(words, /Type @ and a name to ask one agent directly\./, 'the hint (#142) lost its sentence');
+  // The composer hint that named the @ mechanism was removed in #2711 item 9;
+  // the picker itself (asserted below) is the surviving affordance.
   assert.ok(!/<b>@<\/b> an agent/.test(words), 'the smudge is back');
   assert.match(words, /<div class="mention" id="pj-mention" role="listbox"/, 'the listbox is gone');
 });

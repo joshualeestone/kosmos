@@ -154,7 +154,7 @@ test('every message row draws the attachment card, and the + and drop targets ar
   const words = codeOnly(PAGE);
   assert.match(words, /<button class="attachbtn" id="pj-attach"[^>]*aria-label="Add a file to this conversation"/, 'the room + is missing or unnamed');
   assert.match(words, /<button class="attachbtn" id="d-attach"[^>]*aria-label="Add a file to this conversation"/, 'the agent page + is missing or unnamed');
-  assert.match(words, /Drop a file anywhere in the conversation to add it\./, 'the drop sentence is missing');
+  // The "drop a file / @ a name" composer hint was removed in #2711 item 9.
   // The + posts to the upload routes Angel specified, one per surface.
   /* The route's shape (#389): PUT the bytes to /attachment, then the
      surface's own sender posts the message with the id. */

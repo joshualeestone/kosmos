@@ -44,8 +44,8 @@ test('#1382: the door is offered unconditionally, so the all-tasks screen is alw
 });
 
 test('#1382: the door carries NO count, because its destination spans every project', () => {
-  assert.match(PAGE, /door\.textContent = 'View all tasks/, 'the door lost its label');
-  assert.doesNotMatch(PAGE, /door\.textContent = 'View all tasks \(' \+/,
+  assert.match(PAGE, /door\.textContent = 'View All'/, 'the door lost its label');
+  assert.doesNotMatch(PAGE, /door\.textContent = 'View All \(' \+/,
     'a per-project count is back on a control whose destination is every project: that number can only disagree with the screen it opens, which is #1346');
 });
 
@@ -70,14 +70,14 @@ test('the files link says View All, in Josh\'s newer words', () => {
  */
 test('CONTROL: the forbidden patterns can actually match', () => {
   const OLD_CONDITION = '  if (!TK_SHOW_ALL && (behind + hiddenByCap) > 0) {';
-  const OLD_LABEL = "    door.textContent = 'View all tasks (' + all.length + ') \u2192';";
+  const OLD_LABEL = "    door.textContent = 'View All (' + all.length + ')';";
 
   assert.match(OLD_CONDITION, /if \(!TK_SHOW_ALL && \(behind \+ hiddenByCap\) > 0\)/,
     'the conditional-door pattern cannot match the line it was written from, so that assertion could never fail');
-  assert.match(OLD_LABEL, /door\.textContent = 'View all tasks \(' \+/,
+  assert.match(OLD_LABEL, /door\.textContent = 'View All \(' \+/,
     'the counted-label pattern cannot match the line it was written from, so that assertion could never fail');
 
   /* And the same two against the page, which is the claim being made. */
   assert.doesNotMatch(PAGE, /if \(!TK_SHOW_ALL && \(behind \+ hiddenByCap\) > 0\)/);
-  assert.doesNotMatch(PAGE, /door\.textContent = 'View all tasks \(' \+/);
+  assert.doesNotMatch(PAGE, /door\.textContent = 'View All \(' \+/);
 });

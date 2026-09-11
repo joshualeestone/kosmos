@@ -239,6 +239,10 @@ test('#570 7c a streaming agent is asked for stream-json IN and OUT, and keeps i
   assert.equal(a[a.indexOf('--input-format') + 1], 'stream-json');
   assert.equal(a[a.indexOf('--output-format') + 1], 'stream-json');
   assert.ok(a.includes('--dangerously-skip-permissions'), 'an unattended agent still gets autonomy');
+  /* A FRESH run hands back its token's instance too, or the supervisor's death
+     handler has nothing to retire and every fresh run's token outlives it
+     (review round 4: only the resume path was pinned). */
+  assert.ok(r.instance && sendertoken.live('streamer-1').includes(r.instance), 'the fresh run returns the instance it minted');
 });
 
 test('#570 7c a FRESH agent pins the minted id; a RESUME names the id it already has', () => {
@@ -257,7 +261,7 @@ test('#570 7c a FRESH agent pins the minted id; a RESUME names the id it already
   assert.ok(!back.includes('--session-id'), 'never both -- they are mutually exclusive');
 });
 
-test('#570 7c a RESUME mints nothing, so one agent never gets two ownership records', () => {
+test('#570 7c a RESUME writes no record, so one agent never gets two ownership records', () => {
   /* ⚠️ prepareSession WRITES the record. Calling it on a resume would file a
      SECOND row for one agent -- exactly the duplicate-name hazard win32live
      documents, arriving through the restart path that is supposed to be routine. */
@@ -273,6 +277,114 @@ test('#570 7c a RESUME mints nothing, so one agent never gets two ownership reco
   assert.equal(r.resumed, true);
   assert.equal(r.sessionId, 'a-session-we-already-own', 'it returns to the id it was given');
   assert.equal(Object.keys(win32sessions.read()).length, before, 'a resume records nothing new');
+});
+
+test('#570 a RESUME carries its OWN credential, or every self-report it sends is refused', () => {
+  /* 🛑 THE DEFECT THIS PINS. A crash-restarted agent was resumed with no token:
+     the resume branch passed `s.token || ''`, nobody ever set `token`, and
+     childEnv DELETES the variable on an empty value. A Windows agent has no pane
+     to fall back on, so the board refused every report it sent. The Mac mints a
+     fresh token on every launch; so does this. */
+  const calls = [];
+  launcher.setSpawn((cmd, argv, opts) => { calls.push({ opts }); return { pid: 557, stdin: {}, unref() {} }; });
+  const rowsBefore = Object.keys(win32sessions.read()).length;
+  const liveBefore = sendertoken.live('streamer-3').length;
+
+  const r = launcher.launchStreaming({
+    name: 'streamer-3', cwd: SANDBOX, claudeBin: process.execPath, platform: 'win32',
+    resumeSessionId: 'a-session-we-already-own-3',
+  });
+
+  assert.equal(r.ok, true, r.because);
+  assert.match(String(calls[0].opts.env.KOSMOS_AGENT_TOKEN), /^[0-9a-f]+$/, 'the resumed agent carries a token');
+  assert.equal(sendertoken.live('streamer-3').length, liveBefore + 1, 'exactly one new live credential');
+  assert.ok(r.instance && sendertoken.live('streamer-3').includes(r.instance), 'and it is the run it returns');
+  assert.equal(Object.keys(win32sessions.read()).length, rowsBefore, 'but still no second ownership record');
+});
+
+test('#570 a RESUME whose spawn throws retires the token it minted, and keeps the record', () => {
+  /* The row must EXIST first, or a resume that wrongly forgot it would forget
+     nothing and this test could not tell. */
+  const owned = win32sessions.record('a-session-we-already-own-4', { name: 'streamer-4', runner: 'claude' });
+  assert.equal(owned.ok, true, owned.because);
+  launcher.setSpawn(() => { const e = new Error('nope'); e.code = 'ENOENT'; throw e; });
+  const rowsBefore = Object.keys(win32sessions.read()).length;
+  const liveBefore = sendertoken.live('streamer-4').length;
+
+  const r = launcher.launchStreaming({
+    name: 'streamer-4', cwd: SANDBOX, claudeBin: process.execPath, platform: 'win32',
+    resumeSessionId: 'a-session-we-already-own-4',
+  });
+
+  assert.equal(r.ok, false);
+  assert.equal(sendertoken.live('streamer-4').length, liveBefore, 'no credential outlives a run that never started');
+  assert.equal(Object.keys(win32sessions.read()).length, rowsBefore, 'and the record, which is the agent\'s, is untouched');
+  assert.equal(win32sessions.read()['a-session-we-already-own-4'].name, 'streamer-4', 'the agent\'s own row survives a failed restart');
+});
+
+test('#570 a RESUME that trust refuses mints NOTHING -- no token outlives a run that never started', () => {
+  /* The mint comes after the trust gate. A refused resume returns before any
+     spawn, so its instance would never reach the supervisor, and a mint hoisted
+     above the gate would leak one token per refused restart (review round 5). The
+     config is blocked the way the trust-refusal test above does it. */
+  const saved = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+  const blocked = path.join(SANDBOX, 'blocked-config-resume');
+  fs.mkdirSync(blocked, { recursive: true });
+  process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = blocked;
+  const before = sendertoken.live('streamer-7').length;
+  try {
+    const r = launcher.launchStreaming({
+      name: 'streamer-7', cwd: SANDBOX, claudeBin: process.execPath, platform: 'win32',
+      resumeSessionId: 'a-session-we-already-own-7',
+    });
+    assert.equal(r.ok, false, 'trust refused the resume');
+    assert.match(r.because, /vouch for its folder/);
+    assert.equal(sendertoken.live('streamer-7').length, before, 'and it minted nothing');
+  } finally { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = saved; }
+});
+
+test('#570 a RESUME whose mint fails still starts, token-less, and SAYS why', () => {
+  /* The crash-restart is the case this branch exists for. A mint fault must not
+     cost the relaunch, and must not pass silently either. The fault is scoped to
+     ONE agent: a directory where its token file belongs (the path comes from the
+     module, as win32create.test.js explains). */
+  const store = require('./store');
+  const blocked = path.join(sendertoken.DIR, store.safeKey('streamer-5') + '.json');
+  fs.mkdirSync(blocked, { recursive: true });
+  const calls = [];
+  launcher.setSpawn((cmd, argv, opts) => { calls.push({ opts }); return { pid: 558, stdin: {}, unref() {} }; });
+  try {
+    const r = launcher.launchStreaming({
+      name: 'streamer-5', cwd: SANDBOX, claudeBin: process.execPath, platform: 'win32',
+      resumeSessionId: 'a-session-we-already-own-5',
+    });
+    assert.equal(r.ok, true, 'a failed mint is not a failed relaunch');
+    assert.ok(typeof r.tokenBecause === 'string' && r.tokenBecause.length > 0, 'the degradation is named');
+    assert.equal(r.instance, null, 'there is no run token to retire later');
+    assert.equal(calls[0].opts.env.KOSMOS_AGENT_TOKEN, undefined, 'and no empty token rides into the agent');
+  } finally { fs.rmSync(blocked, { recursive: true, force: true }); }
+});
+
+test('#570 a RESUME whose spawn throws AND whose retire fails says so in its refusal', () => {
+  /* The token was minted, then the spawn threw, and the retire could not run: the
+     token is still live, and the task log must say so rather than "could not start
+     it" alone. The retire is made to fail by putting a directory where the token
+     file was, AFTER the mint wrote it. */
+  const store = require('./store');
+  const file = path.join(sendertoken.DIR, store.safeKey('streamer-6') + '.json');
+  launcher.setSpawn(() => {
+    fs.rmSync(file, { force: true });
+    fs.mkdirSync(file, { recursive: true });
+    const e = new Error('nope'); e.code = 'ENOENT'; throw e;
+  });
+  try {
+    const r = launcher.launchStreaming({
+      name: 'streamer-6', cwd: SANDBOX, claudeBin: process.execPath, platform: 'win32',
+      resumeSessionId: 'a-session-we-already-own-6',
+    });
+    assert.equal(r.ok, false);
+    assert.match(r.because, /^we could not start it \(ENOENT\); .+/, 'the refusal names the token it could not retire');
+  } finally { fs.rmSync(file, { recursive: true, force: true }); }
 });
 
 test('#570 7c a message is ONE json line, in the shape stream-json reads', () => {

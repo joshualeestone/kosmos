@@ -78,6 +78,37 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       look('needs_you', { sessionName: 'dan', name: 'Dan', state: 'needs_you' }),
       look('stopped', { sessionName: 'dan', name: 'Dan', state: 'stopped' }),
       look('no card at all', null),
+      /* 🛑 #2660: THE STALENESS ARMS, RENDERED. `node --test` drives `paintBusy`
+         with a stubbed `busyRow`, so it can prove the SHOW DECISION and cannot
+         prove the line is actually off the screen. That distinction is the
+         whole reason this file exists, and it is the one #2660 is about: the
+         report was a line the person SAW after the reply.
+         The stamp and the snapshot are the page's own module state, set here
+         rather than mocked, so this drives the shipped branch. */
+      (() => {
+        DM_SPOKE_AT.set('dan', { at: 1, learnedAt: LAST_AT + 1000 });
+        const r = look('working, reply already on screen', { sessionName: 'dan', name: 'Dan', state: 'working' });
+        DM_SPOKE_AT.delete('dan');
+        return r;
+      })(),
+      (() => {
+        /* THE OTHER DIRECTION, or the fix could be "never show it" and the arm
+           above would still pass. A reply learned BEFORE the snapshot proves
+           nothing about it. */
+        DM_SPOKE_AT.set('dan', { at: 1, learnedAt: Math.max(0, LAST_AT - 1000) });
+        const r = look('working, reply older than the snapshot', { sessionName: 'dan', name: 'Dan', state: 'working' });
+        DM_SPOKE_AT.delete('dan');
+        return r;
+      })(),
+      (() => {
+        /* ⚠️ AND AN AUTH FAILURE IS NOT A STALE REPLY. #874 put that state in
+           this exact slot because an agent sat here claiming to work while its
+           terminal retried a 401. Same inputs that suppress `working` above. */
+        DM_SPOKE_AT.set('dan', { at: 1, learnedAt: LAST_AT + 1000 });
+        const r = look('auth_failed, reply already on screen', { sessionName: 'dan', name: 'Dan', state: 'auth_failed' });
+        DM_SPOKE_AT.delete('dan');
+        return r;
+      })(),
     ];
   });
 
@@ -86,6 +117,22 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   const byLabel = Object.fromEntries(rows.map((r) => [r.label, r]));
   const work = byLabel.working;
 
+  /* #2660 */
+  const staleWork = byLabel['working, reply already on screen'];
+  const freshWork = byLabel['working, reply older than the snapshot'];
+  const staleAuth = byLabel['auth_failed, reply already on screen'];
+  if (staleWork && staleWork.shown) {
+    problems.push('the dialog still announces "working" from a snapshot OLDER than the reply already '
+      + 'on screen, which is the indicator following the answer it was supposed to precede (#2660)');
+  }
+  if (freshWork && !freshWork.shown) {
+    problems.push('a reply learned BEFORE the snapshot suppressed the working line, so the #2660 '
+      + 'filter is hiding states it proves nothing about');
+  }
+  if (staleAuth && !staleAuth.shown) {
+    problems.push('the #2660 staleness filter swallowed an auth failure, re-opening #874: an agent '
+      + 'retrying a 401 would sit here saying nothing');
+  }
   if (!work.shown) problems.push('a working agent draws nothing');
   if (work.spoken !== 'Dan is working…') {
     problems.push(`a working agent is announced as "${work.spoken}", not "Dan is working…"`);

@@ -267,13 +267,14 @@ function isRemoved(name) {
  * the click-then-refuse it replaces, because it fails in the direction nobody
  * reports.
  *
- * The scope is #2609's and is deliberately narrow. Every bullet is a case this
- * must NOT fire on, and each is pinned by an arm:
- *  - **win32 is out, structurally.** The account dir rides the launchd plist,
- *    and a win32 agent has none (it carries a registered Scheduled Task), so
- *    `readJob` returns null. A Windows agent whose account was deleted still
- *    restores unchecked; that is #2609's named follow-up, still open, and NOT
- *    closed here.
+ * The scope is #2609's and is deliberately narrow. Each bullet is pinned by an
+ * arm:
+ *  - **win32 is now covered too (#2614), the #2609 follow-up this closes.** A
+ *    win32 agent has no plist, but its configDir rides the Scheduled Task argv,
+ *    so `win32job.configDirFor` reads it back into the same `{ configDir }` shape
+ *    `readJob` produces on a Mac, and the one check below runs on both platforms.
+ *    A task we could not read yields no configDir and the guard skips it, the same
+ *    fail-open posture as a missing plist.
  *  - **A default-account agent has `configDir: null`** and is untouched: no
  *    CLAUDE_CONFIG_DIR in its plist, and the default `~/.claude` always exists.
  *  - **A gone plist** makes `readJob` return null, which is the separate
@@ -287,7 +288,15 @@ function isRemoved(name) {
  */
 function restoreBlockedByMissingAccountDir(name, platform) {
   const clean = create.cleanName(name);
-  const launched = (platform || process.platform) === 'win32' ? null : create.readJob(clean);
+  /* #2614: win32 no longer opts out. A win32 agent has no plist for
+     `create.readJob` to read, but its configDir rides the Scheduled Task argv, so
+     `win32job.configDirFor` reads it back into the same `{ configDir }` shape the
+     Mac side produces, and the one check below runs on both platforms. A task we
+     could not read (`known: false`) yields no configDir, so the guard skips rather
+     than guessing -- the same fail-open posture as a missing plist. */
+  const launched = (platform || process.platform) === 'win32'
+    ? win32job.configDirFor(clean)
+    : create.readJob(clean);
   if (launched && launched.configDir && !fs.existsSync(launched.configDir)) return launched.configDir;
   return null;
 }
@@ -560,7 +569,7 @@ function sessionFor(name) {
  * second copy of this for the partial path would have been the obvious way to
  * write it, and the obvious way for the two to drift.
  */
-function recordRemoval(clean, job, stopped, shownAs) {
+function recordRemoval(clean, job, stopped, shownAs, leftRunningByChoice) {
   if (DRY_RUN && !runner) return true;
   /* #2323: a removed agent's sender token must stop working. Revoke it here --
      the ONE point every removal-commit path reaches (recordAndSay's partials and
@@ -631,6 +640,16 @@ function recordRemoval(clean, job, stopped, shownAs) {
      * is precisely what the card is for.
      */
     stopped: stopped !== false,
+    /* #2651: THE ONE STATE `stopped` CANNOT EXPRESS. `stopped:false` means "we
+       did not stop it, so keep the card, it may still be going" -- the partial
+       case. The untied-override is the opposite intent on the same stop-state:
+       we deliberately did NOT stop the session (it is a teammate's process we
+       cannot tie to the card), yet the person asked to clear the card anyway.
+       So the card must HIDE while `stopped` stays false (the session genuinely
+       is not stopped, which engine/messages.js correctly reads). A separate
+       flag carries "hide it even though we left it running", read only by the
+       board-visibility predicate `hidesCard`, never by the stop-state readers. */
+    leftRunningByChoice: leftRunningByChoice === true,
     // ⚠️ What RESTORE needs, captured at removal rather than re-derived later.
     // By then the plist may be gone, or a different one may have taken its
     // place, and restoring the wrong job is worse than not restoring at all.
@@ -673,8 +692,24 @@ function recordRemoval(clean, job, stopped, shownAs) {
  */
 function isHidden(name) {
   const clean = create.cleanName(name);
-  const r = readRemoved().find((x) => x.name === clean);
-  return Boolean(r) && r.stopped !== false;
+  return hidesCard(readRemoved().find((x) => x.name === clean));
+}
+
+/**
+ * Whether a removed-list RECORD should take its agent's card off the board.
+ *
+ * ⚠️ THE ONE PREDICATE, so the six places that ask it cannot drift (server.js
+ * re-implemented `stopped !== false` inline five times; #2651 added a second
+ * clause and every one of them had to learn it). A card hides when the agent
+ * actually stopped (`stopped !== false`), OR when the person chose to clear an
+ * untied card off their board while its session was deliberately left running
+ * (`leftRunningByChoice`). `stopped:false` alone still means "keep the card, it
+ * may be running" -- the partial case -- so the override needs its own flag
+ * rather than overloading the stop-state, which engine/messages.js reads with
+ * the opposite meaning (a session left running IS not-stopped, correctly).
+ */
+function hidesCard(r) {
+  return Boolean(r) && (r.stopped !== false || r.leftRunningByChoice === true);
 }
 
 /**
@@ -822,6 +857,17 @@ function plan(name, platform) {
   if (tie && tie.isNamedOurs !== true) {
     return {
       ok: false,
+      /* #2651: MACHINE-READABLE so ONLY this refusal is overridable. A person
+         whose board carries a residual/auto-imported card whose session Kosmos
+         cannot tie to it (a teammate's test agent on a shared Mac, a bare-named
+         session with no `-discord` suffix) is stuck: the safety gate rightly
+         will not STOP a process it cannot prove is this agent, so removal is
+         refused and the card cannot be cleared. `untied` lets the caller offer a
+         user-initiated override that removes the CARD (records the removal, hides
+         it) WITHOUT stopping the session -- the safe half of the act, which is
+         all the person needs to declutter their board. Every OTHER refusal above
+         and below stays unmarked, so the override can never reach them. */
+      untied: true,
       because: `something called ${clean} is already running, and we cannot confirm it is this agent. `
         + 'Kosmos will not stop it, because doing so could stop the wrong thing.',
     };
@@ -950,9 +996,76 @@ function markDryRun(result) {
   };
 }
 
-function removeInner(name, { tmuxBin, platform } = {}) {
+function removeInner(name, { tmuxBin, platform, force } = {}) {
   const intent = plan(name, platform);
-  if (!intent.ok) return { outcome: OUTCOME.REFUSED, because: intent.because, steps: [] };
+
+  /* #2651: THE USER-INITIATED "CLEAR THE CARD, LEAVE THE SESSION RUNNING"
+     OVERRIDE. It is OFFERED (web) only on the untied refusal -- a residual /
+     auto-imported card whose session Kosmos cannot tie to it (a teammate's test
+     agent on a shared Mac, a bare-named session with no `-discord` suffix),
+     where the safety gate rightly will not STOP a process it cannot prove is
+     this agent, so the card cannot be cleared the ordinary way. The override
+     records the removal (which hides the card via `leftRunningByChoice`) and
+     runs no tmux/launchd command -- the engine test pins this by asserting the
+     recorded command list is empty.
+
+     ⚠️ ONE SIDE EFFECT, and it is deliberate rather than a contradiction of the
+     button: `recordRemoval` revokes the agent's sender token (#2323, every
+     removal-commit path does), so a cleared card stops reporting as a sender.
+     For the in-scope case -- a local, pane-bearing residual -- this is invisible
+     (reports authenticate via the pane arm, not the token) and a restore re-mints
+     on relaunch. The SESSION itself keeps running untouched; "left running" is a
+     statement about the process, which no command here stops.
+
+     🛑 IT MUST NEVER STOP A SESSION -- that is the promise on the button ("this
+     leaves the terminal session running"). So `force` is handled HERE, ABOVE the
+     ordinary removal, and structurally cannot fall through to the stop/disable
+     path below. This also closes a race the safety gate alone did not: the offer
+     is made on a GET `plan()` and acted on later on the DELETE, and if the
+     session became TIED in that window, re-running `plan()` here returns ok:true
+     -- the OLD structure then fell through to the STOPPING removal, silently
+     turning "leave it running" into a kill. A forced clear now leaves the
+     session running whether the agent is untied or (now) tied; it stops nothing
+     either way. It stays INERT on a refusal with nothing to clear (not-there,
+     cannot-check, unsafe): those are not "leave it running" situations, so it
+     returns the plain refusal and runs nothing.
+
+     `job` is passed NULL on purpose: the untied card owns no launchd job we may
+     touch, and even for a now-tied agent "leave it running" means we do NOT
+     disable its job -- recording jobFor()'s resolution would let a later restore
+     re-enable a job we never disabled, and for the untied case it could file a
+     bystander's plist, the exact cross-agent hazard the gate exists for. */
+  if (force === true && (intent.untied === true || intent.ok === true)) {
+    const clean = create.cleanName(name);
+    const shown = status.readIdentity(clean).displayName || clean;
+    const kept = recordRemoval(clean, null, false, shown, true);
+    if (!kept) {
+      /* ⚠️ NOTHING WAS CLEARED. On this path the record write is the ONLY
+         action -- there is no prior stop/disable step (unlike the ordinary
+         partial, where real work happened before the write), and hiding the
+         card is driven entirely by `leftRunningByChoice` on that record. So a
+         failed write means the board is unchanged; do not say we cleared it. */
+      return {
+        outcome: OUTCOME.PARTIAL,
+        steps: [],
+        because: `we could not clear ${shown} from your board just now, because saving the change failed. Nothing was stopped, and its terminal session is still running. Please try again in a moment.`,
+      };
+    }
+    return {
+      outcome: OUTCOME.REMOVED,
+      steps: [],
+      /* The untied message names WHY the session was left (Kosmos cannot tie it
+         to the card); the now-tied race message must NOT say "cannot confirm it
+         is this agent" -- by then it can -- so it speaks to the person's choice. */
+      because: intent.untied === true
+        ? `we cleared ${shown} from your board. We left its terminal session running, because Kosmos cannot confirm it is this agent and will not stop a session it cannot tie to the card. Whoever owns that session can stop it where it runs.`
+        : `we cleared ${shown} from your board and left its terminal session running, as you chose. Kosmos did not stop it; you can stop it from its terminal, or put the card back from the removed list.`,
+    };
+  }
+
+  if (!intent.ok) {
+    return { outcome: OUTCOME.REFUSED, because: intent.because, steps: [] };
+  }
 
   const clean = intent.name;
   /**
@@ -1542,6 +1655,15 @@ function restoreInner(name, platform) {
     // is "set to start again" would be a claim about a job that does not exist.
     because: (() => {
       if (!record.label) {
+        /* #2651: A CARD CLEARED BY THE UNTIED OVERRIDE WAS NEVER STOPPED. Its
+           session kept running the whole time, so restoring it needs no "start
+           it again" -- un-hiding is enough and the board repaints it on its own
+           within a poll. The generic no-label message below is for an agent that
+           had no startup job AND was actually stopped, where starting it again
+           IS what brings it back. */
+        if (record.leftRunningByChoice) {
+          return `${shown} is no longer removed from Kosmos. Its terminal session was left running when you cleared the card, so it will reappear on the board on its own within a few seconds.`;
+        }
         // ⚠️ Not "is back on the board" -- there is no card until something
         // starts it, and Kosmos has no job to start. Says what it did do.
         return `${shown} is no longer removed from Kosmos. It was not set to start on its own, so there was nothing `
@@ -1756,6 +1878,7 @@ module.exports = {
   restart,
   unsafeToActOn,
   isHidden,
+  hidesCard,   // #2651: the ONE board-visibility predicate, so server.js stops re-implementing it
   remove,
   restore,
   forget,

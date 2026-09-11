@@ -7385,8 +7385,20 @@ test('the settings members wiring is real, not just extractable', () => {
   const flat = raw.replace(/\s+/g, ' ');
   // Presence control first: the section this absence speaks about must
   // exist, or a typo in the needle passes vacuously forever.
-  assert.ok(flat.includes('Project members'),
+  assert.ok(flat.includes('>Members</h3>'),
     'CONTROL: the members section is gone; the absence below proves nothing');
+  // #2711 items 13/14 renamed the two card headings. Assert the new heading
+  // TAGS exactly and that the old heading tags are gone, so a regression to the
+  // old copy fails. This is keyed on the >...</h3> tag, not the bare phrase: a
+  // comment elsewhere in the page contains "Files in this project", and a
+  // browser-check `expect: 'Files'` is a substring of the old heading too, so
+  // neither can discriminate old from new the way this pair does.
+  assert.ok(flat.includes('>Files</h3>'),
+    'the files card heading is not the renamed "Files" (#2711 item 13)');
+  assert.ok(!flat.includes('>Files in this project</h3>'),
+    'the old "Files in this project" card heading came back (#2711 item 13)');
+  assert.ok(!flat.includes('>Project members</h3>'),
+    'the old "Project members" card heading came back (#2711 item 14)');
   assert.ok(!flat.includes('Who is on this project. Removing an agent takes it off'),
     'the cut members hint came back');
   // The painter must repaint through setIfChanged: the unit test stubs
@@ -8080,12 +8092,14 @@ test('--k-sunk is DEFINED, in both themes, not merely defended with a fallback',
   // an SVG fill it fails LOUDLY (undefined resolves to black). The invisible
   // instances are what let three drawings pass while the token was dead.
   //
-  // Here it decides the QUESTION BOX. (An earlier version of this comment said
-  // "and every message bubble", which is false: `.dm.mine .dm-b` overrides it
-  // and `dmRow` emits `dm mine` unconditionally, as the rule's own note in the
-  // stylesheet says.) The light fallback on the dark ground is a 5%-black wash
-  // on #17191c, which is not a sunk panel, it is a missing one. So the token is
-  // defined per theme.
+  // Here it decides the QUESTION BOX. (It no longer touches the message bubbles
+  // at all: as of #2660 the `.dm-b` default is `transparent`, the person's own
+  // bubble uses `--usermsg-tint`, and the agent's row -- `dm theirs`, which
+  // `dmRow` emits when `m.from` is set, since #175 -- takes that transparent
+  // default. Two earlier versions of this comment were false about that:
+  // "and every message bubble", then "dmRow emits dm mine unconditionally".)
+  // The light fallback on the dark ground is a 5%-black wash on #17191c, which
+  // is not a sunk panel, it is a missing one. So the token is defined per theme.
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   /* ⚠️ SCOPED PER THEME, because "defined twice" is not what this test's own
      name claims. A whole-file count is satisfied by two declarations sitting
@@ -8108,6 +8122,44 @@ test('--k-sunk is DEFINED, in both themes, not merely defended with a fallback',
     + 'not a sunk panel, a missing one');
   assert.notEqual(light[0], dark[0],
     `both --k-sunk definitions are the same value (${light[0]}), so one theme is wearing the other’s wash`);
+});
+
+test('--usermsg-tint is DEFINED in every theme, tied to its --k-sunk sibling', () => {
+  // #2660: the wash behind the person's own messages. Same invisible-fallback
+  // failure mode as --k-sunk above: a `var(--usermsg-tint)` with no per-theme
+  // definition silently wears the light 10% on a dark ground, and web.theme's
+  // sync check does NOT catch a token dropped from the system-dark block (the
+  // forced-dark regen drops it too and stays in sync).
+  //
+  // ⚠️ A bare `dark.length >= 1` mirror of the --k-sunk test does NOT close the
+  // gap, because this app has THREE dark-side blocks (system-dark, forced-dark,
+  // navy) -- dropping the def from ONE leaves the other two to keep the count
+  // >= 1 and the surviving value the same, so the drop is invisible and that
+  // ground silently wears the light value. (The --k-sunk test above shares this
+  // exact blind spot.) So instead of a floor, tie completeness to --k-sunk,
+  // which its own test guarantees is per-theme: --usermsg-tint must appear in
+  // EVERY dark block --k-sunk does. Drop it from any one and the counts diverge.
+  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  const declsIn = (token, text) => text.match(new RegExp('--' + token + ':\\s*[^;]+;', 'g')) || [];
+  const valuesIn = (token, text) => declsIn(token, text)
+    .map((d) => d.replace(new RegExp('^--' + token + ':\\s*'), '').replace(/;$/, '').trim());
+  const darkAt = raw.indexOf('@media (prefers-color-scheme: dark)');
+  assert.ok(darkAt > 0, 'CONTROL: no dark media block in the page at all, so this test cannot mean anything');
+  const tintLight = valuesIn('usermsg-tint', raw.slice(0, darkAt));
+  const tintDark = valuesIn('usermsg-tint', raw.slice(darkAt));
+  const sunkDark = declsIn('k-sunk', raw.slice(darkAt));
+  assert.equal(tintLight.length, 1,
+    `--usermsg-tint is defined ${tintLight.length} time(s) before the first dark block; the light theme needs exactly one`);
+  assert.ok(sunkDark.length >= 2,
+    `CONTROL: --k-sunk has only ${sunkDark.length} dark-side def(s); this test's per-block guarantee is meaningless if the sibling is not itself multi-theme`);
+  assert.equal(tintDark.length, sunkDark.length,
+    `--usermsg-tint has ${tintDark.length} dark-side definition(s) but its sibling --k-sunk has ${sunkDark.length}; `
+    + 'it must be defined in every dark theme block --k-sunk is (system-dark, forced-dark, navy), '
+    + 'or the missing ground wears the light 10%');
+  assert.ok(tintDark.every((v) => v === tintDark[0]),
+    `the dark --usermsg-tint definitions disagree (${tintDark.join(', ')}); every dark theme should use the same 15%`);
+  assert.notEqual(tintLight[0], tintDark[0],
+    `light and dark --usermsg-tint are the same value (${tintLight[0]}); light should be 10%, dark 15%`);
 });
 
 test('a composer that cannot send looks like it cannot send', () => {
