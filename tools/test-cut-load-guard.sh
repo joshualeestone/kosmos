@@ -103,6 +103,22 @@ if out="$(bash -c 'set -euo pipefail; . "$REPO/tools/lib/cut-load-guard.sh"; KOS
 printf '%s\n' "$out" | grep -q "returned:0" && ok "under set -euo pipefail as a direct caller, the guard returns cleanly (errexit-safe)" \
   || bad "errexit-safety: [$out] (erc=$erc)"
 
+# --- INTEGRATION (#2750). run-tests.sh's seen_before() banner reads the 1-min
+# load through kosmos_box_load_1min, not a second inline `sysctl | awk '{print $2}'`.
+# That call is `command -v`-guarded and fails OPEN (a missing/renamed function just
+# omits the banner line), so deleting the source or the call produces NO runtime
+# signal -- the banner silently stops showing load, or a second inline field-2 copy
+# creeps back. These grep arms ARE the signal, mirroring the integration arms in
+# tools/test-board-origin.sh. Distinctive fragments, not bare names, so the comment
+# in run-tests.sh (which mentions the function by name) does not satisfy them. ---
+RT="$REPO/tools/run-tests.sh"
+grep -qF '. "$REPO/tools/lib/cut-load-guard.sh"' "$RT" \
+  && ok "INTEGRATION: run-tests.sh SOURCES cut-load-guard.sh" \
+  || bad "INTEGRATION: run-tests.sh no longer sources cut-load-guard.sh -- its load banner falls back to omitting the line, silently"
+grep -qF 'load="$(kosmos_box_load_1min)"' "$RT" \
+  && ok "INTEGRATION: run-tests.sh reads the 1-min load via kosmos_box_load_1min" \
+  || bad "INTEGRATION: run-tests.sh no longer calls kosmos_box_load_1min -- a second inline field-2 copy has likely returned (#2750)"
+
 echo ""
 if [ "$fails" -eq 0 ]; then
   echo "test-cut-load-guard: ALL PASS"
