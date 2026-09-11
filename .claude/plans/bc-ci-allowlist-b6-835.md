@@ -23,14 +23,27 @@ it would report "never ran"). All four below have zero fragile signals and are i
 Add four verified pure-DOM-state candidates (0 geometry/style/screenshot/animation signals):
 - **render-account-badge-1921** - the observed-liveness account badge (a known no-board stub
   harness for account-row rendering). Pure DOM/text/hidden state.
-- **render-import-add-inplace-2419** - the import add-in-place surface. Pure DOM/text state.
-- **render-open-terminal-0644** - the View-Agent open-terminal control. Pure DOM/text state.
-- **render-firstrun-scan-on-grant-1652** - the first-run scan-on-grant behaviour. Pure DOM/text
+- **render-import-add-inplace-2419** - guards that the import-add-in-place row is SUPPRESSED on
+  first run (the original add-in-place behaviour was superseded by #2497; the check now asserts
+  the suppression). BOOTS its own sandboxed temp-rooted server (spawn node server.js with all
+  AGENT_WORKFORCE_* roots = fresh mkdtemp, fake-tmux) - not file://. Reads DOM/text/row state.
+- **render-open-terminal-0644** - the View-Agent open-terminal control. file://; pure DOM/text
   state.
+- **render-firstrun-scan-on-grant-1652** - guards that the scan/import rows are SUPPRESSED on
+  first run (post-#2497 behaviour; the check asserts a would-be poll does NOT fire). BOOTS its
+  own sandboxed temp-rooted server (spawn node server.js, mkdtemp roots, fake-tmux) - not
+  file://. Reads DOM/text/row state.
 
-All four assert only DOM/text/attribute/hidden/disabled state (no getBoundingClientRect,
-getComputedStyle, screenshot, animation, or scroll). Mutation-safe: file:// with fetch stubbed
-or seeded globals (per the no-board loop); none boots a live board.
+All four assert only DOM/text/attribute/hidden/disabled/row state (no getBoundingClientRect,
+getComputedStyle, screenshot, animation, or scroll). Mutation-safe: account-badge-1921 and
+open-terminal-0644 are file:// (fetch stubbed / seeded globals); import-add-inplace-2419 and
+firstrun-scan-on-grant-1652 BOOT their own sandboxed servers (spawn node server.js with every
+AGENT_WORKFORCE_{DATA,WORKERS,LAUNCH,PROJECTS} root set to a fresh fs.mkdtempSync dir before the
+child starts, and AGENT_WORKFORCE_TMUX_BIN = test-support/fake-tmux.sh) - an established pattern
+in this same no-board loop (e.g. render-detail-header-1841, render-worlds-switcher-1704). None
+touches the operator's real board or data. (Two of the four also use a fixed waitForTimeout -
+600ms / 2500ms - as a settle, which adds a few seconds to per-PR CI time; not a headless-
+robustness concern, just noted.)
 
 ## Verification
 - This PR's own browser-checks CI runs the expanded allowlist on the runner. GREEN means all
