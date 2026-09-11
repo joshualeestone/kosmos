@@ -2,9 +2,14 @@
 
 ## Card
 #2850 (Josh, 0.6.57 live review, 2026-09-11): "Consolidated view - design changes
-(running list)". This branch delivers ONE item of the multi-item card - the rail-head
-control swap (item 4) - as a coherent, mergeable slice. The rest of the card's items
-follow in later passes (see the card and my daily report for the ordered list).
+(running list)". This branch delivers PART of one item of the multi-item card - the rail-head
+control swap (item 4), for the AGENTS and PROJECTS rails only - as a coherent, mergeable slice.
+Item 4 also names tasks and members; their + currently sits LEFT (kosmos#1303 H, to match the
+OLD agents/projects arrangement) via a fiddly multi-variant grid (.pjsplit / .pj3), so
+repositioning them is deferred to a render-capable pass rather than changed blind. That leaves a
+temporary state where tasks/members + are on the left while agents/projects + are on the right;
+it is tracked on #2850. The rest of the card's items follow in later passes (see the card and my
+daily report for the ordered list).
 
 ## What finished looks like
 In the consolidated view, the agents rail and the projects rail each show the collapse
@@ -35,6 +40,8 @@ are unchanged.
   `#rail-*-new { display:none }` rule (unchanged).
 
 ## Out of scope for this PR (deferred, documented on the card)
+- Item 4 REMAINDER (tasks + members + reposition to the right): fiddly multi-variant grid
+  (kosmos#1303 H, .pjsplit / .pj3), needs a live render to verify; deferred rather than done blind.
 - Item 6 (dialog bubbles + emoji picker/pop-out): covered by in-flight #2805/#2806/#2834.
 - Items 2/3 (baseline tuning), 12 (avatar flush-left): pixel work that needs a live render.
 - Item 5 (remove close-projects-tab), 7 (cog/desc-arrow, dup #2838), 9/10/11 (agent-row

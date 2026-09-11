@@ -3915,12 +3915,15 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   /* 🔑 THE PLUS GOES LEFT OF THE TASKS LABEL (kosmos#1303 H). Josh: "On the tasks
      let's put the plus on the left side of the tasks label so it matches agents
      and projects."
-     Agents and Projects draw `<button class="fold plus">+</button>` immediately
-     before their label inside `.lead`. Tasks is built the other way round: the
-     grid above is `1fr auto`, so the label takes the row and the button sits at
-     the far right reading "+ New task".
-     ⇒ The tracks swap and the button takes the first one, which puts the control
-     in the same place on all three heads.
+     When kosmos#1303 H landed, Agents and Projects drew their + on the left of
+     the label; Tasks is built the other way round: the grid above is `1fr auto`,
+     so the label takes the row and the button sits at the far right reading
+     "+ New task".
+     ⇒ The tracks swap and the button takes the first one, which put the tasks +
+     on the left to match the rails as they were then.
+     ⚠️ #2850 (2026-09-11) moved the agents/projects rail + to the RIGHT (into
+     .railacts), so the tasks/members + on the left no longer matches them;
+     realigning tasks and members is item 4's remaining half, tracked on #2850.
      ⚠️ THE WORDS GO, THE ACCESSIBLE NAME STAYS. `font-size: 0` on the button
      hides the " New task" text node while the `+` span keeps its own size. The
      text is still in the DOM, so the button is still named "New task" for a
@@ -12608,10 +12611,13 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
        RIGHT (inside .railacts). This lines the collapse control up flush-left
        with the agent avatars below it and matches the tab-view grammar.
        ⚠️ This REVERSES the 2026-08-27 arrangement, which put the + on the left of
-       each label to free the right corner for the fold arrow; the 0.6.57 review
-       asked for the opposite, so collapse-left / +-right is now the rule for
-       agents, projects, tasks and members. The K mark removed on 2026-08-27 does
-       not return (its class/id stay guarded away in the layout-picker test). -->
+       each label to free the right corner for the fold arrow.
+       SCOPE: this change moves the AGENTS and PROJECTS rails only. Josh's #2850
+       item 4 asks for the same swap on tasks and members; their + currently sits
+       LEFT (kosmos#1303 H, chosen to match the old agents/projects arrangement),
+       so it no longer matches until that reposition lands. That remaining
+       tasks/members half is tracked on #2850. The K mark removed on 2026-08-27
+       does not return (its class/id stay guarded away in the layout-picker test). -->
   <span class="lead"><button class="fold" type="button" id="rail-agents-fold" data-fold="a" aria-label="Fold the agents column" aria-expanded="true">&lsaquo;</button><span class="railname">Agents</span></span>
   <span class="railacts">
     <button class="fold plus" type="button" id="rail-agents-new" aria-label="New agent" title="New agent">+</button>
