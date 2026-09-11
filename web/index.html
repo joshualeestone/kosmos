@@ -17966,7 +17966,14 @@ function acctReauthChrome(on, email) {
   if (on) {
     t.textContent = 'Sign in again';
     intro.textContent = 'This signs in again as ' + (email || 'this account') + ' and updates the account you already have. It does not make a second one.';
-    warn.innerHTML = '<span class="dwarn-m" aria-hidden="true">&#9888;</span><b>First, sign in as ' + (email || 'this account') + ' in your browser.</b> Kosmos never sees your password.';
+    /* #1760: esc() the email here. This is the one board sink that put a dynamic
+       account string into innerHTML raw -- the intro line above uses textContent,
+       and every other account/name path in this file (acctRowHtml, card, the
+       option lists) already runs through esc(). The email is provider-validated
+       and read off this machine, so a raw concat is only self-XSS today; escaping
+       it removes the file's one output-encoding inconsistency and closes the sink
+       against a future change to where email comes from. */
+    warn.innerHTML = '<span class="dwarn-m" aria-hidden="true">&#9888;</span><b>First, sign in as ' + esc(email || 'this account') + ' in your browser.</b> Kosmos never sees your password.';
     add.textContent = 'Sign in again';
   } else {
     t.textContent = ACCT_ADD_TITLE;
