@@ -17,7 +17,7 @@
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-alltasks.js
  */
-// Browser-check-surface: pj-alltasks pj-alltasks-view alltasks-count
+// Browser-check-surface: pj-alltasks pj-alltasks-view alltasks-count tkFace
 // (#2518) the distinctive web/index.html tokens this check asserts, so a change to the
 // all-tasks door/view/count is required to update this check at PR time, not stale it to a cut.
 const { spawn } = require('node:child_process');
@@ -48,6 +48,17 @@ const say = (n, cond, note) => {
   fs.writeFileSync(roots.DATA + '/fake-panes',
     require('../../test-support/fleet').line({ session: 'tasker-discord', claim: 'tasker', title: '✳ idle' }));
   fs.writeFileSync(roots.DATA + '/fake-sessions', 'tasker-discord\n');
+
+  /* #2762: give the fixture member a PICTURE, so this check exercises the avatar
+     path of `tkFace` rather than the initials path. Without it every browser
+     check renders initials and the member-face URL is never looked at in a real
+     browser at all -- which is exactly how #2762 shipped.
+     The env var is set before requiring the store because store.js resolves its
+     root per call (#1443), and this is the same root the server below is given. */
+  process.env.AGENT_WORKFORCE_DATA = roots.DATA;
+  // The 8-byte PNG signature is a real PNG to store.imageTypeOf.
+  require('../../engine/store').saveAvatar('tasker', 'image/png',
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
 
   const srv = spawn('node', ['server.js'], {
     cwd: REPO,
@@ -144,6 +155,22 @@ const say = (n, cond, note) => {
     say('the heading states a number', Number.isFinite(stated), JSON.stringify(seen.heading));
     say('the heading matches the rows on the screen', stated === seen.rows,
       'heading says ' + stated + ', rows on screen ' + seen.rows);
+
+    /* #2762: the member face must carry the avatar VERSION, not a bare URL.
+       A bare `/api/agent/<name>/avatar` is byte-identical before and after a
+       picture change, so the list's identical-HTML repaint skip (TK_LIST_HTML)
+       never recreates the <img> and the face stays stale. This is the same class
+       #2698 fixed on the org chart, asserted here in a real browser against the
+       real rendered src. */
+    const face = await p.evaluate(() => {
+      const img = document.querySelector('#pj-alltasks-view .tkcard .lav img')
+        || document.querySelector('.tkcard .lav img');
+      return img ? img.getAttribute('src') : null;
+    });
+    say('the member face renders a picture at all (else the arm below is vacuous)',
+      typeof face === 'string' && /\/api\/agent\/[^/]+\/avatar/.test(face), JSON.stringify(face));
+    say('#2762: the member face URL carries the avatar version, not a bare URL',
+      typeof face === 'string' && /\/avatar\?v=\d+/.test(face), JSON.stringify(face));
 
     /* A CONTROL ON THE SCOPING ITSELF: if the document holds more .tkcard than
        this screen does, then an unscoped count would have been wrong, and the
