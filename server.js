@@ -11798,9 +11798,14 @@ if (require.main === module) {
    * block. A board that refused to start because it could not register a logon
    * task would be strictly worse than the board that is starting right now.
    */
+  /* ensureInstalled's answer, kept for the hand-off right before start(): only a
+     task this boot just registered or refreshed is one a hand-started board may
+     hand itself to. */
+  let win32BoardEnsured = null;
   if (process.platform === 'win32') {
     try {
       const r = require('./engine/win32board').ensureInstalled({});
+      win32BoardEnsured = r;
       if (r.action === 'registered') {
         process.stdout.write(`Kosmos will now start when you log in. Task Scheduler > Kosmos > board; remove it with: ${r.removeHint}\n`);
       } else if (!r.ok) {
@@ -11908,20 +11913,39 @@ if (require.main === module) {
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about connections: ${String(err && err.message)}\n`);
   }
-  start().then(() => {
-    // Report the port actually bound, not the one requested, or a `PORT=0` run
-    // would announce itself on port 0.
-    process.stdout.write(`Kosmos on http://127.0.0.1:${server.address().port}\n`);
-    process.stdout.write('Local only. It writes, and it has no login yet.\n');
-  }).catch((err) => {
-    // Say what to do rather than name an exception. A raw EADDRINUSE stack is
-    // exactly what start()'s promise exists to replace, and leaving this
-    // uncaught made the comment above it a lie.
-    const detail = err && err.code === 'EADDRINUSE'
-      ? `port ${PORT} is already in use. Is a board already running?`
-      : String(err && err.message);
-    process.stderr.write(`Kosmos could not start: ${detail}\n`);
-    process.exit(1);
+  /* #570: on Windows, a board started by hand from the unpacked zip (Kosmos.exe)
+     hands itself to its headless logon task and leaves, so the launcher's window
+     is never the board and a relaunch never reports "port in use" over a working
+     board. Every case it cannot confirm resolves to serving here, as before. See
+     engine/win32handoff.js. */
+  const beforeServing = process.platform === 'win32'
+    ? require('./engine/win32handoff').handOffToTask({ ensured: win32BoardEnsured, port: PORT })
+    : Promise.resolve({ serve: true, attempted: false });
+  beforeServing.then((handOff) => {
+    if (!handOff.serve) {
+      /* A Windows console write is asynchronous, so exit from its callback or the
+         one line the launcher window shows is lost. */
+      process.stdout.write(`${handOff.say}\n`, () => process.exit(handOff.exitCode || 0));
+      return;
+    }
+    if (handOff.attempted) {
+      process.stderr.write(`Kosmos could not move to the background (${handOff.because}), so it is running in this window. Keep this window open while you use Kosmos.\n`);
+    }
+    start().then(() => {
+      // Report the port actually bound, not the one requested, or a `PORT=0` run
+      // would announce itself on port 0.
+      process.stdout.write(`Kosmos on http://127.0.0.1:${server.address().port}\n`);
+      process.stdout.write('Local only. It writes, and it has no login yet.\n');
+    }).catch((err) => {
+      // Say what to do rather than name an exception. A raw EADDRINUSE stack is
+      // exactly what start()'s promise exists to replace, and leaving this
+      // uncaught made the comment above it a lie.
+      const detail = err && err.code === 'EADDRINUSE'
+        ? `port ${PORT} is already in use. Is a board already running?`
+        : String(err && err.message);
+      process.stderr.write(`Kosmos could not start: ${detail}\n`);
+      process.exit(1);
+    });
   });
 }
 
