@@ -181,10 +181,15 @@ test('the open project stays lit: a persistent .open state, written on click and
      the opposite. A floor is the right shape only when the number is allowed
      to grow freely; here every call site is a named close path, so the number
      IS the claim. Adding a legitimate one should make somebody update this
-     line and say which path it is. */
+     line and say which path it is.
+     📌 #2711 dropped this from 6 to 5: item 17 removed the in-project back
+     arrow (#pj-back), whose click handler was one of the close paths. No path
+     was LOST -- the door out of a project is now the Projects tab, whose click
+     handler (`if (btn.dataset.tab === 'projects') pjMarkOpen(null)`) is one of
+     the five that remain. */
   const nulls = (codeOnly.match(/pjMarkOpen\(null\)/g) || []).length;
-  assert.equal(nulls, 6,
-    `pjMarkOpen(null) is called from ${nulls} places, expected 6. Fewer means a close path lost it and a lit row can outlive its project; more means a new close path arrived and this pin should name it.`);
+  assert.equal(nulls, 5,
+    `pjMarkOpen(null) is called from ${nulls} places, expected 5. Fewer means a close path lost it and a lit row can outlive its project; more means a new close path arrived and this pin should name it.`);
   assert.ok((('/* pjMarkOpen(null) */').replace(/\/\*[\s\S]*?\*\//g, '').match(/pjMarkOpen\(null\)/g) || []).length === 0,
     'control: the comment strip no longer removes a quoted call, so the count above can be satisfied by prose');
 });
