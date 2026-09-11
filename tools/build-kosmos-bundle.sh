@@ -501,12 +501,53 @@ else
   TARBALL="node-v$NODE_VERSION-darwin-$NARCH.tar.gz"
   BASE="https://nodejs.org/dist/v$NODE_VERSION"
   TMP="$(mktemp -d)"
-  echo "==> downloading node v$NODE_VERSION ($NARCH) from nodejs.org"
-  curl -fL --progress-bar "$BASE/$TARBALL" -o "$TMP/$TARBALL"
+  # A cut re-downloads this ~35 MB runtime every time, though nodejs.org publishes
+  # each version's bytes IMMUTABLY. Cache the VERIFIED tarball across cuts, keyed by
+  # its version+arch name, so a repeat cut skips the download. This is the first
+  # caching lever of the get-cuts-out-faster work (#2760); the per-step wall-time
+  # instrumentation (#2755) gives the before/after.
+  # 🛑 THE CACHE IS A SPEED OPTIMISATION, NEVER A TRUST SHORTCUT. The SHASUMS256 is
+  # always fetched fresh (a few KB) and the bytes ACTUALLY USED -- cached or freshly
+  # downloaded -- are verified against it below before extraction, so a stale, corrupt,
+  # or poisoned cache cannot inject a node: it fails the same checksum and the build
+  # aborts. The cache write is best-effort (a cache dir we cannot write must never fail
+  # a real cut).
+  NODE_CACHE="${KOSMOS_NODE_CACHE:-$HOME/.cache/kosmos-node-runtime}"
+  echo "==> fetching node v$NODE_VERSION ($NARCH) checksums from nodejs.org"
   curl -fsSL "$BASE/SHASUMS256.txt" -o "$TMP/SHASUMS256.txt"
-  echo "==> verifying checksum"
   WANT="$(grep " $TARBALL\$" "$TMP/SHASUMS256.txt" | awk '{print $1}')"
   [ -n "$WANT" ] || { echo "error: $TARBALL not in SHASUMS256.txt" >&2; exit 1; }
+  # The cache READ is best-effort, exactly like the write below: a cache hit that cannot
+  # be copied (the file vanished in the TOCTOU window, TMP full) must fall back to a fresh
+  # download rather than abort the cut -- the same "a cache must never fail a cut" promise.
+  # The cp sits INSIDE the `if` condition, where a non-zero exit is a false branch, not an
+  # errexit abort under `set -euo pipefail`; a partial "$TMP/$TARBALL" left by a failed cp
+  # is overwritten by the `curl -o` on the download fallback, so it cannot leak into the verify.
+  NODE_CACHED=0
+  if [ -f "$NODE_CACHE/$TARBALL" ] \
+     && [ "$(shasum -a 256 "$NODE_CACHE/$TARBALL" 2>/dev/null | awk '{print $1}')" = "$WANT" ] \
+     && cp "$NODE_CACHE/$TARBALL" "$TMP/$TARBALL" 2>/dev/null; then
+    echo "==> using cached node v$NODE_VERSION ($NARCH) from $NODE_CACHE"
+    NODE_CACHED=1
+  fi
+  if [ "$NODE_CACHED" -eq 0 ]; then
+    echo "==> downloading node v$NODE_VERSION ($NARCH) from nodejs.org"
+    curl -fL --progress-bar "$BASE/$TARBALL" -o "$TMP/$TARBALL"
+    # Populate the cache only with bytes that pass the checksum, and only if the cache
+    # is writable -- an atomic rename so a killed cut never leaves a torn cache file.
+    if [ "$(shasum -a 256 "$TMP/$TARBALL" | awk '{print $1}')" = "$WANT" ] \
+       && mkdir -p "$NODE_CACHE" 2>/dev/null; then
+      # The trailing `|| :` is LOAD-BEARING under `set -euo pipefail`: an EXISTING but
+      # unwritable cache dir passes the mkdir (already there), then the cp fails and the
+      # cleanup `rm -f` itself returns non-zero (permission denied traversing the dir),
+      # which errexit would turn into a cut abort -- the exact "a cache we cannot write
+      # must never fail a real cut" promise this block makes. `|| :` swallows it.
+      { cp "$TMP/$TARBALL" "$NODE_CACHE/.$TARBALL.$$" 2>/dev/null \
+          && mv "$NODE_CACHE/.$TARBALL.$$" "$NODE_CACHE/$TARBALL" 2>/dev/null; } \
+        || rm -f "$NODE_CACHE/.$TARBALL.$$" 2>/dev/null || :
+    fi
+  fi
+  echo "==> verifying checksum"
   GOT="$(shasum -a 256 "$TMP/$TARBALL" | awk '{print $1}')"
   if [ "$WANT" != "$GOT" ]; then
     echo "FAIL: checksum mismatch on $TARBALL" >&2
@@ -515,7 +556,7 @@ else
     exit 1
   fi
   echo "    checksum ok"
-  NODE_SHA="$GOT"   # the bytes that were actually downloaded, for the manifest (#776)
+  NODE_SHA="$GOT"   # the bytes actually used (cached or downloaded), verified, for the manifest (#776)
   tar -xzf "$TMP/$TARBALL" -C "$TMP"
   cp "$TMP/node-v$NODE_VERSION-darwin-$NARCH/bin/node" "$STAGE/runtime/bin/node"
   # ⚠️ Node's LICENSE travels with the binary. It is the single file that
