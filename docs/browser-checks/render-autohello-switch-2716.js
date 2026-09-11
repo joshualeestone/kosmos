@@ -107,7 +107,8 @@ function initStub() {
       const msg = document.getElementById('chg-msg');
       back.hidden = false;
       msg.textContent = 'Say hello to April to reactivate them on OpenAI.';
-      autoHelloOnSwitchRestart('april', 'April', 'OpenAI');
+      // 4th arg is the manual line the call site builds once and passes in (matches MANUAL).
+      autoHelloOnSwitchRestart('april', 'April', 'OpenAI', 'Say hello to April to reactivate them on OpenAI.');
     }, { n: readyAfter, tr: threadResp });
     if (mutate) await page.evaluate(mutate);
     // Wait until either a thread POST fired or the readiness window elapsed and the

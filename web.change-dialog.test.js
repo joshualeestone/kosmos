@@ -140,7 +140,12 @@ test('#2716: both switch dialogs wire autoHelloOnSwitchRestart on a real restart
      helper itself is covered by docs/browser-checks/render-autohello-switch-2716.js. */
   for (const fn of ['changeModelNow', 'changeProviderNow']) {
     const body = lift(page.scriptOf(CURRENT_PAGE), 'async function ' + fn + '(');
-    assert.match(body, /if \(restarted\) autoHelloOnSwitchRestart\(forAgent, agentShown\(\), provName\);/,
-      fn + ' no longer wires autoHelloOnSwitchRestart(forAgent, agentShown(), provName) on a real restart');
+    assert.match(body, /if \(restarted\) autoHelloOnSwitchRestart\(forAgent, switchShown, provName, switchManual\);/,
+      fn + ' no longer wires autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual) on a real restart');
+    /* And the manual line the helper's content check compares against is the SAME string
+       passed to say/tell -- built once as switchManual and handed to both -- so a reword
+       cannot silently break the content match. Pin that shared construction. */
+    assert.match(body, /const switchManual = 'Say hello to ' \+ switchShown \+ ' to reactivate them on ' \+ provName \+ '\.';/,
+      fn + ' no longer builds the manual line once as switchManual to share with say/tell and the helper');
   }
 });
