@@ -42,6 +42,22 @@ function withData(v, fn) {
   }
 }
 
+/* #2724: "no sandbox" has to mean BOTH seams cleared, not just DATA.
+   `store.ROOT` resolves `AGENT_WORKFORCE_HOME || os.homedir()`, so an ambient
+   AGENT_WORKFORCE_HOME kept the root off the real per-platform location while
+   `withData(undefined, ...)` still called it unsandboxed. The control below then
+   reported a false red about the environment instead of about the product. This
+   clears both, which is what the control always meant by "with no sandbox". */
+function withNoSandbox(fn) {
+  const savedHome = process.env.AGENT_WORKFORCE_HOME;
+  delete process.env.AGENT_WORKFORCE_HOME;
+  try { return withData(undefined, fn); }
+  finally {
+    if (savedHome === undefined) delete process.env.AGENT_WORKFORCE_HOME;
+    else process.env.AGENT_WORKFORCE_HOME = savedHome;
+  }
+}
+
 test('🛑 a sandbox set AFTER the require is honoured', () => {
   const got = withData('/tmp/late-sandbox-1443', () => store.ROOT);
   assert.match(got, /late-sandbox-1443/,
@@ -60,7 +76,7 @@ test('the DERIVED paths move too, which is the half that is easy to miss', () =>
 
 test('CONTROL: with no sandbox it is the real per-platform location', () => {
   /* Without this, "always return a temp path" passes everything above. */
-  const got = withData(undefined, () => store.ROOT);
+  const got = withNoSandbox(() => store.ROOT);
   assert.equal(got, store.dataRootFor(process.platform, os.homedir(), {}),
     'the unsandboxed root no longer matches the platform rule');
   assert.doesNotMatch(got, /late-sandbox/, 'a previous test leaked into the unsandboxed answer');
