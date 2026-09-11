@@ -5,9 +5,13 @@ Third batch of Josh's 17-item project-page (tab view) styling pass (copy batch
 and 15, both tab-view CSS fills, building on the item 1/5 strokes removal:
 
 - Item 6: the dialog area (`.pjmid .thread`) is white (`--k-surface`) instead of
-  the super-light gray (`--k-bg`), so the blue on the person's own messages
-  stands out. The `.pjmid` column is already white, so with item 1's borders
-  gone the thread joins it as one flat white area.
+  the super-light gray (`--k-bg`). The `.pjmid` column is already white, so with
+  item 1's borders gone the thread joins it as one flat white area. Josh's
+  rationale was that a white dialog helps the blue own-message tint stand out;
+  in practice that `--usermsg-tint` lives on the agent-DM thread and the "Talk
+  to one of them" panel, not on `#pj-room` (whose posts render plain), so in the
+  room this is a cleaner-surface change rather than a blue-contrast one. Flagged
+  for Josh; the code comment says the same.
 - Item 15: a file an agent posts (the `.att` card, currently `--k-surface`
   white, which would vanish on the white dialog) gets the light gray the dialog
   used to be (`--k-bg`) - Josh's own suggestion - so it stays visible.
