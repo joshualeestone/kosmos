@@ -286,6 +286,20 @@ arms anchored. The claude arm had the identical hole and is fixed in the same
 expression rather than left as the asymmetry that lets two halves of one fact
 drift.
 
+Confirmed on REAL `ps -Eww` bytes rather than on a string I wrote, because a
+hand-rolled fixture answering a different question is the trap this branch already
+fell into once. Sampled a live process that genuinely sets the variable, then
+spliced a real twin into that same blob:
+
+```
+live process as-is      loose -> /Users/agent1/.claude   anchored -> /Users/agent1/.claude   (agree)
+same blob + a real twin loose -> /tmp/decoy              anchored -> /Users/agent1/.claude
+```
+
+The first line is the no-regression arm, the second is the arm that can return the
+dangerous answer. The real environment block is space separated after the command,
+which is what makes the `\s` half of the anchor the correct one.
+
 ### A premise of mine that was measurably false
 
 My comment justified trusting the workdir with `setProvider` "rewriting the plist
