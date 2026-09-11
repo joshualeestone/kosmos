@@ -12179,6 +12179,64 @@ test('#2811: a card with NO runner marker falls back to the launch job, not to t
       'with no launch job, the profile provider was ignored and the stale Claude model came back');
   } finally {
     try { fs.unlinkSync(create.plistPath('jobcodex')); } catch { /* the test may have failed before writing it */ }
+    /* 📌 THE PROFILE IS DELIBERATELY NOT UNLINKED, and this note exists so the
+       next reader does not "fix" it. It lands in the sandboxed store under a
+       name used nowhere else in this file, so it leaks nothing and no other test
+       reads it. Cleaning it up means resolving the profiles directory, and
+       `store.PROFILES` is a STRING evaluated at require time: measured, it reads
+       the operator's REAL store when the sandbox env is not set first. A stray
+       unlink against that path is a real risk taken for a cosmetic tidy. */
+    fleet.restore();
+  }
+});
+
+test('#2811: the RECORD account path does not score a codex dir as a non-default Claude account', () => {
+  /**
+   * 🛑 THE SIBLING OF THE LIVE GUARD, MISSED ONCE ALREADY. I guarded `isDefault`
+   * on the live reader, wrote in that very comment that the record-only path
+   * needed the same guard, and then carried the reasoning to the MODEL and not to
+   * the ACCOUNT. `readJob` returns CODEX_HOME as `configDir`, so a codex home
+   * scored `false` against `$HOME/.claude`: one payload saying the model is
+   * unknown (correct) and the account is a non-default CLAUDE one (not).
+   *
+   * Driven through `accountForAgent`, which is where the defect lives, so all
+   * five of its callers are covered rather than the whoami one.
+   */
+  const { accountForAgent } = require('./server.js');
+  const create = require('./engine/create');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('acctcodex', { state: 'idle' })]);
+
+    /* A REAL codex launch job, written by the product's own writer. */
+    fs.writeFileSync(
+      create.plistPath('acctcodex'),
+      create.plistFor('acctcodex', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, '/Users/x/.codex-work2', 'codex'),
+      'utf8',
+    );
+    const job = create.readJob('acctcodex');
+    assert.equal(job && job.runner, 'codex', 'the fixture job does not read back as codex');
+    assert.equal(job.configDir, '/Users/x/.codex-work2', 'CODEX_HOME did not land as the job configDir');
+
+    const acct = accountForAgent('acctcodex', []);
+    assert.equal(acct.dir, '/Users/x/.codex-work2');
+    assert.strictEqual(acct.isDefault, null,
+      'a codex home was scored against $HOME/.claude and reported as a non-default account');
+
+    /* CONTROL: a CLAUDE record still gets a real boolean, so the guard is not a
+       blanket null that would silently remove the answer for every agent. */
+    fs.writeFileSync(
+      create.plistPath('acctclaude'),
+      create.plistFor('acctclaude', '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, '/Users/x/.claude-b', ''),
+      'utf8',
+    );
+    const claudeAcct = accountForAgent('acctclaude', []);
+    assert.strictEqual(claudeAcct.isDefault, false,
+      'the claude record path lost its real isDefault answer');
+  } finally {
+    for (const n of ['acctcodex', 'acctclaude']) {
+      try { fs.unlinkSync(create.plistPath(n)); } catch { /* may not have been written */ }
+    }
     fleet.restore();
   }
 });
@@ -12203,6 +12261,38 @@ test('#2811: the sentence a Codex agent reads back actually says Codex', () => {
   assert.equal(sentenceForWhoami(claudeAcct, { id: 'm', name: 'M' }, null),
     'This agent runs on a@b.c, and its model is M.',
     'an answer with no runner changed shape, so every pre-existing caller moved');
+});
+
+test('#2811: a Codex agent with NO live read is still told it is a Codex agent', () => {
+  /* 🛑 THE SENTENCE USED TO ASK THE LIVE READER ONLY, so a paneless, crashed or
+     win32 Codex agent read "an account we cannot identify (...)" with the word
+     Codex nowhere in it. That is the same miss as the model guard one field
+     over: "what is running" is a live question, but "what IS this agent" is not,
+     and the sentence asks the second one. */
+  const { whoamiFor, sentenceForWhoami } = require('./server.js');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('crashedcodex', { state: 'unknown', runner: 'codex' })]);
+    const card = board.agents.find((a) => a && a.name === 'crashedcodex');
+    assert.equal(card && card.runner, 'codex', 'the fixture is not a codex-marked card');
+
+    const out = whoamiFor(card, [], { ok: false, because: 'no pane on this computer' });
+    assert.equal(out.resolvedRunner, 'codex',
+      'with no live read, the agent no longer resolves as codex at all');
+    assert.match(sentenceForWhoami(out.account, out.model, out.resolvedRunner), /^This is a Codex agent/,
+      'a crashed Codex agent is told nothing about being one');
+
+    /* CONTROL: the same shape on a CLAUDE card keeps the original lead, so the
+       clause is still gated and has not become unconditional. */
+    const cb = fleet.install([fleet.agent('crashedclaude', { state: 'idle' })]);
+    const claudeCard = cb.agents.find((a) => a && a.name === 'crashedclaude');
+    const cOut = whoamiFor(claudeCard, [], { ok: false, because: 'no pane on this computer' });
+    assert.equal(cOut.resolvedRunner, 'claude');
+    assert.doesNotMatch(sentenceForWhoami(cOut.account, cOut.model, cOut.resolvedRunner), /This is a .* agent, and/,
+      'a Claude agent picked up the runner lead');
+  } finally {
+    fleet.restore();
+  }
 });
 
 test('#2811: a stale CLAUDE transcript does not supply the model for a CODEX agent', () => {

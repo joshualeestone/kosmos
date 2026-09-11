@@ -692,6 +692,43 @@ function whoamiFor(card, known, live) {
      route answered "we cannot tell which model" about an agent whose transcript
      plainly says `claude-opus-5`. Each field now takes the best source that has
      it, and each carries where it came from. */
+  /* 🛑 AND THE RECORD-ONLY PATH NEEDS THE SAME GUARD, WHICH THE LIVE RUNNER
+     CANNOT GIVE IT. When the live read does not succeed (a paneless agent, a
+     crashed pane, the 15s budget running out) `seen` is null, so a live-only
+     guard is off exactly when the record is the ONLY source and its stale
+     Claude model goes out unopposed. The defect one reader over.
+     ⇒ The card's `runner` is the `@kosmos_runner` session marker, and its
+     SURVIVING A CRASH -- the property that disqualifies it from the wire field
+     above -- is the right property here. Those are two different questions:
+     "what is running right now" must not be answered from a marker that
+     outlives the process, while "is this agent's Claude transcript stale" is
+     about what the agent IS, and a crashed Codex agent is still a Codex agent.
+     Empty means claude, the same default the supervisor records. */
+  const resolvedRunner = (() => {
+    /* Live first: a running process is the strongest evidence of what this
+       agent is, and it is the only source that cannot be stale. */
+    if (seen && seen.runner) return seen.runner;
+    if (card && card.runner) return card.runner;
+    /* 🛑 A PANELESS CARD CARRIES `runner: null` BY CONSTRUCTION
+       (`engine/status.js:5912`, the only such site), so the marker above
+       cannot answer for exactly one of the cases this guard exists for. The
+       plist does not depend on a pane, and `accountForAgent` already reads it
+       on every request, so this costs nothing and closes the gap.
+       ⚠️ Its absent-runner default is `'claude'`, deliberately matching the
+       supervisor, so a plist written before runners existed reads as claude
+       and takes the old path rather than suppressing a model. */
+    /* 🛑 `recordedRunner`, NOT A SECOND READER OF THE PLIST. My first version
+       called `readJob(who).runner` directly, which is a duplicate of a
+       derivation this module already owns AND a weaker one: `recordedRunner`
+       falls back to the profile's provider when the plist cannot answer, so it
+       still knows an agent is codex when the job is missing or predates
+       runners. One fact, one place, and the existing place is better.
+       📌 It floors at `'claude'` rather than null, which is the safe direction
+       here: an agent nothing knows about takes the old path instead of having
+       its model suppressed. */
+    try { return create.recordedRunner(who); } catch { return null; }
+  })();
+
   const account = (() => {
     /* Live first: the account is what the process is authenticated as, and a
        startup file can be stale after a migration (Baron was moved off
@@ -861,41 +898,7 @@ function whoamiFor(card, known, live) {
        better than one reciting a stale sentence.
        📌 Keyed on a KNOWN non-claude runner, so an answer carrying no runner at
        all (every injected reader that predates this field) takes the old path. */
-    /* 🛑 AND THE RECORD-ONLY PATH NEEDS THE SAME GUARD, WHICH THE LIVE RUNNER
-       CANNOT GIVE IT. When the live read does not succeed (a paneless agent, a
-       crashed pane, the 15s budget running out) `seen` is null, so a live-only
-       guard is off exactly when the record is the ONLY source and its stale
-       Claude model goes out unopposed. The defect one reader over.
-       ⇒ The card's `runner` is the `@kosmos_runner` session marker, and its
-       SURVIVING A CRASH -- the property that disqualifies it from the wire field
-       above -- is the right property here. Those are two different questions:
-       "what is running right now" must not be answered from a marker that
-       outlives the process, while "is this agent's Claude transcript stale" is
-       about what the agent IS, and a crashed Codex agent is still a Codex agent.
-       Empty means claude, the same default the supervisor records. */
-    const configuredRunner = (() => {
-      if (card && card.runner) return card.runner;
-      /* 🛑 A PANELESS CARD CARRIES `runner: null` BY CONSTRUCTION
-         (`engine/status.js:5912`, the only such site), so the marker above
-         cannot answer for exactly one of the cases this guard exists for. The
-         plist does not depend on a pane, and `accountForAgent` already reads it
-         on every request, so this costs nothing and closes the gap.
-         ⚠️ Its absent-runner default is `'claude'`, deliberately matching the
-         supervisor, so a plist written before runners existed reads as claude
-         and takes the old path rather than suppressing a model. */
-      /* 🛑 `recordedRunner`, NOT A SECOND READER OF THE PLIST. My first version
-         called `readJob(who).runner` directly, which is a duplicate of a
-         derivation this module already owns AND a weaker one: `recordedRunner`
-         falls back to the profile's provider when the plist cannot answer, so it
-         still knows an agent is codex when the job is missing or predates
-         runners. One fact, one place, and the existing place is better.
-         📌 It floors at `'claude'` rather than null, which is the safe direction
-         here: an agent nothing knows about takes the old path instead of having
-         its model suppressed. */
-      try { return create.recordedRunner(who); } catch { return null; }
-    })();
-    const foreignRunner = !!((seen && seen.runner && seen.runner !== 'claude')
-      || (configuredRunner && configuredRunner !== 'claude'));
+    const foreignRunner = !!(resolvedRunner && resolvedRunner !== 'claude');
     if (!foreignRunner && rec && rec.model) {
       /* `modelDisplayName`, NOT the raw id, and this is the branch that normally
          answers. The LIVE path's display name was pinned; this one - the
@@ -925,6 +928,13 @@ function whoamiFor(card, known, live) {
     model: model.value,
     /* Per field, because they can now come from different places. */
     source: { account: account.from, model: model.from },
+    /* 🔑 WHAT THIS AGENT IS, which is a DIFFERENT QUESTION from the wire
+       `runner` the route sets. That one is live-only on purpose and answers
+       "what is running right now"; this one answers "what is this agent",
+       survives a crash, and is defined for a paneless agent. The sentence asks
+       the second question, so it gets the second answer, and it is exported
+       rather than re-derived at the route: one fact, one place. */
+    resolvedRunner,
   };
 }
 
@@ -989,15 +999,20 @@ function sentenceForWhoami(account, model, runner) {
      is could read the whole answer without the word Codex appearing in it, and
      "an account we cannot identify (~/.codex)" leaves the reader to infer the
      provider from a directory name.
-     📌 Only the LEAD is switched, not the `why` fallback, and that is deliberate
-     rather than an omission: `runningAs` always sets `configDir` on a successful
-     read, so a codex answer always carries a directory and `acct` is always
-     truthy here. A codex-shaped `why` could not be reached, and this file has
-     already deleted one unreachable branch for exactly that reason. */
-  const lead = runner && runner !== 'claude'
-    ? 'This is a ' + runnerDisplayName(runner) + ' agent, and it runs on '
-    : 'This agent runs on ';
-  parts.push(acct ? lead + acct : why);
+
+     🛑 BOTH BRANCHES, AND AN EARLIER VERSION GUARDED ONLY THE FIRST. I wrote
+     that a codex-shaped `why` was unreachable because "runningAs always sets
+     configDir on a successful read, so `acct` is always truthy". That is true of
+     the LIVE path and false of the record one: an agent with no launch job has
+     no account at all while its runner is perfectly well known, so the fallback
+     is reached with a known codex runner. A test demonstrated it rather than a
+     re-read catching it. ⇒ Reasoning that holds for the live reader does not
+     transfer to the record reader, which is the third time on this branch. */
+  const isForeign = !!(runner && runner !== 'claude');
+  const named = isForeign ? 'This is a ' + runnerDisplayName(runner) + ' agent, and ' : null;
+  parts.push(acct
+    ? (named ? named + 'it runs on ' + acct : 'This agent runs on ' + acct)
+    : (named ? named + 'we cannot tell which account it runs on, because we have no startup file for it' : why));
   parts.push(model && model.name ? 'and its model is ' + model.name : 'and we cannot tell which model it is running');
   return parts.join(', ') + '.';
 }
@@ -1105,8 +1120,23 @@ function accountForAgent(name, known) {
      on whether its pane happened to be readable.
      ⭐ Two derivations of one fact, in the field I unified one round earlier:
      the live path was fixed and its sibling was not. Same miss, third time. */
+  /* 🛑 AND `isDefaultDir` IS A CLAUDE QUESTION, SO IT IS NOT ASKED ABOUT A CODEX
+     DIRECTORY. `readJob` returns `CODEX_HOME` as `configDir` for a codex agent
+     (`engine/create.js`), and `accounts.isDefaultDir` compares against
+     `$HOME/.claude` and nothing else, so that directory scores `false`: read in
+     an account block as "on a NON-default account", implying a named alternate
+     that does not exist.
+     ⭐ THE COMMENT ABOVE SAYS "the live path was fixed and its sibling was not.
+     Same miss, third time." This was the fourth: I guarded exactly this field on
+     the live reader, wrote that the record path needed the same guard, and then
+     carried that to the model and not to the account. The job is already read at
+     the top of this function, so the runner was in hand the whole time.
+     📌 Only this fallback, not the `found` branch above: there `isDefault` comes
+     from whichever list matched, which is that list's own notion and correct for
+     both providers. */
+  const foreign = !!(job.runner && job.runner !== 'claude');
   return dir
-    ? { dir, email: null, label: null, name: openaiAccounts.readName(dir), organization: null, isDefault: accounts.isDefaultDir(dir) }
+    ? { dir, email: null, label: null, name: openaiAccounts.readName(dir), organization: null, isDefault: foreign ? null : accounts.isDefaultDir(dir) }
     : null;
 }
 
@@ -8526,7 +8556,14 @@ const server = http.createServer((req, res) => {
              the CLI (which prints only this sentence) tells an agent who the
              board thinks it is. */
           because: whoamiIdentityClause(who, identitySource) + '. '
-            + sentenceForWhoami(account, model, live && live.ok === true ? live.runner : null) + ' '
+            /* 🔑 THE CONFIGURED RUNNER, NOT THE LIVE ONE, and the two are
+               deliberately different readers. The wire `runner` above is
+               live-only because it answers "what is running"; this sentence
+               says what the agent IS, so a paneless, crashed or win32 Codex
+               agent is still told it is a Codex agent instead of reading a
+               bare "an account we cannot identify". Taken from `whoamiFor`
+               rather than re-derived here. */
+            + sentenceForWhoami(account, model, seenLive.resolvedRunner) + ' '
             + whoamiProjectsClause(projectNames) + '.',
         });
       })
