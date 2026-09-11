@@ -372,6 +372,20 @@ test('#2726 a resume with NO saved conversation starts fresh instead of resuming
   t.h.stop();
 });
 
+test('#2726 only claude\'s structured error counts: a non-error result, or errors that are not a list, change nothing and never throw', () => {
+  /* A future claude could word the same fact differently. Neither shape may
+     abandon a conversation, and a non-list `errors` must not throw inside the
+     stdout handler (review round 2). */
+  const t = resumingSupervisor('nores-6');
+  t.kids[0].die(1);
+  t.say(1, { type: 'result', is_error: false, errors: ['No conversation found with session ID: ' + t.firstId] });
+  t.say(1, { type: 'result', is_error: true, errors: 'No conversation found with session ID: ' + t.firstId });
+  t.kids[1].die(1);
+  assert.deepEqual(t.asked, [null, t.firstId, t.firstId], 'neither shape abandons the conversation');
+  assert.ok(!t.events.some((e) => e.action === 'resume-impossible'));
+  t.h.stop();
+});
+
 test('#2726 a stop during a failed resume decides no next start, and keeps the row', () => {
   /* Only a stop makes a dying resumed child not the current one: `stop()` clears
      `child` first. A stopped supervisor is not restarting anything, so it must not

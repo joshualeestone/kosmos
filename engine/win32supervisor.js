@@ -511,19 +511,24 @@ function superviseStreaming(spec, opts) {
     pendingRekey = null;
     handle.sessionId = id;
     stream.rekey(id);
-    if (oldId) {
-      /* Said, not swallowed: a stale row is harmless only while nothing runs under
-         the old id, and `claude --resume <old id>` would join the live list under
-         this agent's name -- the duplicate-name case win32live's header warns of. */
-      let forgot;
-      try { forgot = sessions.forget(oldId); }
-      catch (err) { forgot = { ok: false, because: 'we could not update the ownership record (' + ((err && err.code) || 'unknown') + ')' }; }
-      if (!forgot || !forgot.ok) {
-        onEvent({ action: 'forget-failed', sessionId: oldId,
-          because: 'its old session ' + oldId + ' is still recorded under its name: ' + ((forgot && forgot.because) || 'unknown') });
-      }
-    }
+    forgetAndReport(oldId);
     onEvent({ action: 'rekeyed', sessionId: id, from: oldId, because: 'its session changed from ' + oldId + ' to ' + id });
+  }
+
+  /* Forget one session's ownership row, and say so on the task log if that fails:
+     a stale row is harmless only while nothing runs under that id, and
+     `claude --resume <id>` would join the live list under this agent's name -- the
+     duplicate-name case win32live's header warns of. ONE helper for the rekey's old
+     id and a fresh start's dead id, so the two cannot drift (review round 2). */
+  function forgetAndReport(id) {
+    if (!id) return;
+    let forgot;
+    try { forgot = sessions.forget(id); }
+    catch (err) { forgot = { ok: false, because: 'we could not update the ownership record (' + ((err && err.code) || 'unknown') + ')' }; }
+    if (!forgot || !forgot.ok) {
+      onEvent({ action: 'forget-failed', sessionId: id,
+        because: 'its old session ' + id + ' is still recorded under its name: ' + ((forgot && forgot.because) || 'unknown') });
+    }
   }
 
   /* An agent that never had a turn has no saved conversation, so `--resume` can
@@ -535,15 +540,7 @@ function superviseStreaming(spec, opts) {
      error. */
   function startFreshAfter(deadId) {
     handle.sessionId = null;
-    if (deadId) {
-      let forgot;
-      try { forgot = sessions.forget(deadId); }
-      catch (err) { forgot = { ok: false, because: 'we could not update the ownership record (' + ((err && err.code) || 'unknown') + ')' }; }
-      if (!forgot || !forgot.ok) {
-        onEvent({ action: 'forget-failed', sessionId: deadId,
-          because: 'its old session ' + deadId + ' is still recorded under its name: ' + ((forgot && forgot.because) || 'unknown') });
-      }
-    }
+    forgetAndReport(deadId);
     onEvent({ action: 'resume-impossible', sessionId: deadId,
       because: 'its session ' + deadId + ' has no saved conversation (it never had a turn), so it starts fresh' });
   }
