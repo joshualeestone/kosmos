@@ -481,3 +481,14 @@ if [ "$PROMOTE" = 1 ]; then
       || echo "post-release-notes: hook returned non-zero (the promote still shipped; this is best-effort)"
   fi
 fi
+
+# #2791: a successful --publish/--promote returns 0 EXPLICITLY. Every real failure exits 1 before
+# here (the pre-deploy refusals and the post-deploy served-verify / served_matches guards), so
+# reaching this line is verified success. Without an explicit exit the status is only whatever the
+# trailing #2159 `if [ "$PROMOTE" = 1 ]` block happens to leave: on a --publish that condition is
+# false, and a false `if...fi` with no else returns 0 today -- but the status is IMPLICIT, so a
+# future trailing command (or a shell whose empty-if differs) would silently make a clean publish
+# exit non-zero. Baron saw DEPLOY_EXIT=128 (a git-fatal code) trail a verified 0.6.55 publish; a
+# deploy script that exits non-zero on success is a latent false-alarm trap for any runner or CI
+# gate reading DEPLOY_EXIT. Make success unambiguous and immune to a trailing command.
+exit 0
