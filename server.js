@@ -8329,6 +8329,99 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #2682: add an agent from an arbitrary FOLDER, the sibling of the loose-FILE
+     import above. An agent set up outside discovery's deliberately-bounded scan
+     roots (an orchestrator run from a shared dir, an agent in a non-standard
+     location) is otherwise invisible with no way to bring it in. The operator
+     points at the agent's directory; we read ONLY its CLAUDE.md and return its
+     TEXT, exactly as the client-side "Choose a file" reader hands the import
+     flow a file's text. The UI loads that into the import textarea and the
+     operator reviews and presses "Bring it in", so parse / validate / create all
+     stay in the existing importLoad path. This route NEVER parses or creates; it
+     is purely a safe server-side read of a file the client cannot reach with a
+     FileReader (which only works on a file the user picked, not a server path).
+
+     ⚠️ NO SCAN-MEMBERSHIP GATE, and that is the deliberate difference from
+     /api/agent-import-file. That route only reads a path the on-demand scan
+     already found, precisely to avoid an arbitrary-path read. This card's whole
+     point is a folder OUTSIDE any scan, so that gate cannot apply. What bounds
+     the read instead: the board is loopback-only and board-token authed (the
+     caller is the operator on their own machine), the path must be absolute, and
+     we read ONLY a file literally named CLAUDE.md inside the named directory --
+     never an arbitrary filename -- with the SAME hardened, symlink-safe,
+     TOCTOU-closing read the file import uses. Whether the CLAUDE.md is actually
+     an agent (introduces somebody) is decided downstream by importAgent when the
+     operator brings it in, the same as for pasted or chosen text. */
+  if (pathname === '/api/agent-import-folder' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read');
+          bad.status = 400; throw bad;
+        }
+        const dir = body && typeof body.dir === 'string' ? body.dir.trim() : '';
+        if (!dir) { sendJson(res, 200, { ok: false, because: 'no folder was named to import' }); return; }
+        /* An absolute path is required: a relative one would resolve against the
+           board's own working directory rather than the operator's intent, which
+           is never what "point at the agent's folder" means. */
+        if (!path.isAbsolute(dir)) { sendJson(res, 200, { ok: false, because: 'name the agent folder with a full path' }); return; }
+        /* statSync (not lstat) so a legitimately symlinked folder -- a common
+           setup, e.g. a work tree reached through a symlinked parent -- resolves.
+           The read below is hardened at the FILE, which is where a symlink could
+           escape; the directory only names where to look for CLAUDE.md.
+           ⚠️ A TOCTOU race on the DIRECTORY component (dir swapped to point
+           elsewhere between this statSync and the CLAUDE.md open) is NOT closed
+           the way the file-level race is, and that is the same residual
+           /api/agent-import-file accepts: it is outside the threat model here
+           (loopback bind + board-token auth + single local operator), and the
+           worst it yields is reading a different <dir>/CLAUDE.md the operator
+           themselves can already read. */
+        let dstat;
+        try { dstat = fs.statSync(dir); } catch { sendJson(res, 200, { ok: false, because: 'there is no folder at that path' }); return; }
+        if (!dstat.isDirectory()) { sendJson(res, 200, { ok: false, because: 'that path is not a folder' }); return; }
+
+        /* The identical hardened read as /api/agent-import-file, scoped to
+           <dir>/CLAUDE.md: a platform-independent lstat symlink/non-file refusal,
+           then O_RDONLY | O_NOFOLLOW | O_NONBLOCK (each `|| 0` for win32, where
+           O_NOFOLLOW is undefined and `X | undefined` would silently drop it),
+           fstat isFile + size cap on the fd, read by fd. This closes the
+           lstat->open TOCTOU window and refuses a CLAUDE.md that is a symlink to
+           somewhere it should not read. */
+        const file = path.join(dir, 'CLAUDE.md');
+        const NOFOLLOW = fs.constants.O_NOFOLLOW || 0;
+        const NONBLOCK = fs.constants.O_NONBLOCK || 0;
+        const MAX_IMPORT_FILE = 512 * 1024;
+        let text;
+        let fd = null;
+        try {
+          const lst = fs.lstatSync(file);
+          if (lst.isSymbolicLink() || !lst.isFile()) { sendJson(res, 200, { ok: false, because: 'that folder has no readable CLAUDE.md' }); return; }
+          fd = fs.openSync(file, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK);
+          const st = fs.fstatSync(fd);
+          if (!st.isFile()) { sendJson(res, 200, { ok: false, because: 'that folder has no readable CLAUDE.md' }); return; }
+          if (st.size > MAX_IMPORT_FILE) { sendJson(res, 200, { ok: false, because: 'that CLAUDE.md is too large to be an agent file' }); return; }
+          const b = Buffer.alloc(st.size);
+          const n = fs.readSync(fd, b, 0, st.size, 0);
+          text = b.slice(0, n).toString('utf8');
+        } catch {
+          // ELOOP (a symlinked CLAUDE.md), a vanished file, or any read error.
+          sendJson(res, 200, { ok: false, because: 'that folder has no readable CLAUDE.md' });
+          return;
+        } finally {
+          if (fd !== null) { try { fs.closeSync(fd); } catch { /* already gone */ } }
+        }
+
+        /* Return the raw text; the import textarea + importLoad do the parse,
+           validation and create, unchanged. A CLAUDE.md that is empty after the
+           read is refused here rather than loading a blank textarea. */
+        if (!text.trim()) { sendJson(res, 200, { ok: false, because: 'that folder’s CLAUDE.md is empty' }); return; }
+        sendJson(res, 200, { ok: true, dir, text });
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
+    return;
+  }
+
   if (pathname === '/api/msg' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
