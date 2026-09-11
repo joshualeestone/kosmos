@@ -589,10 +589,10 @@ test('one rule for what a description IS, on both routes: words or refused', asy
   // Over-length is refused at the route with the sentence, not cut.
   const long = await req(`/api/project/${made.id}`, {
     method: 'PUT', headers: { 'content-type': 'application/json', origin: base },
-    body: JSON.stringify({ description: 'x'.repeat(201) }),
+    body: JSON.stringify({ description: 'x'.repeat(1001) }),
   });
   assert.equal(long.status, 400, long.body);
-  assert.match(json(long).error, /longer than 200/);
+  assert.match(json(long).error, /longer than 1000/);
   // And null clears, as absence: the one field where null meant malformed.
   const nulled = await req(`/api/project/${made.id}`, {
     method: 'PUT', headers: { 'content-type': 'application/json', origin: base },

@@ -11051,15 +11051,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <label class="flabel" for="pjs-desc">Description</label>
       <!-- No maxlength, a recorded engine decision (projects.js): the engine
            counts CODE POINTS and HTML maxlength counts UTF-16 units, so a
-           raw 200 here would cut a pasted emoji description at half length
+           raw 1000 here would cut a pasted emoji description at half length
            while the engine accepts it. The engine's refusal sentence is the
            cap.
            ⚠️ #1303 G: SO THE FIX FOR "TELL ME THE LIMIT" IS A SENTENCE, NOT A
            maxlength. Josh asked to "indicate next to the description that there
-           is a 200-character limit"; putting 200 in the attribute would be the
+           is a 1000-character limit"; putting 1000 in the attribute would be the
            exact bug this note already forbids. The number here, the number in
            PJ_DESC_MAX and the engine's are pinned together by a test. -->
-      <p class="fhint" id="pjs-desc-hint">Up to 200 characters.</p>
+      <p class="fhint" id="pjs-desc-hint">Up to 1000 characters.</p>
       <textarea class="tk-inp" id="pjs-desc" rows="2" aria-describedby="pjs-desc-hint pjs-desc-note"></textarea>
       <p class="ferr" id="pjs-desc-err" aria-live="polite"></p>
       <!-- #1305, the other half of Josh's question: "if I change the description,
@@ -11240,7 +11240,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            CODE POINTS and maxlength counts UTF-16 units, so any number here cuts
            a pasted emoji description at half length. The cap is said in words
            and enforced where it is defined. -->
-      <p class="fhint" id="pj-add-desc-hint">Up to 200 characters.</p>
+      <p class="fhint" id="pj-add-desc-hint">Up to 1000 characters.</p>
       <textarea class="tk-inp" id="pj-add-desc" rows="2"
                 aria-label="What this project is about"
                 aria-describedby="pj-add-desc-hint"
@@ -35538,13 +35538,13 @@ document.getElementById('snd-toggle') && document.getElementById('snd-toggle').a
 });
 
 /* 🔑 THE DESCRIPTION CAP, ONCE IN THIS FILE (#1303 G). The engine is the
-   authority (`engine/projects.js`, `Array.from(flat).length > 200`); this is the
+   authority (`engine/projects.js`, `Array.from(flat).length > 1000`); this is the
    copy that lets the page say WHY before a round trip, and a test pins the two
    together along with the number in the hint text, so they cannot drift.
    ⚠️ CODE POINTS, deliberately: `Array.from` iterates code points, which is what
    the engine counts. `desc.length` counts UTF-16 units and would refuse a
-   101-emoji description the engine accepts. */
-const PJ_DESC_MAX = 200;
+   501-emoji description (1002 UTF-16 units) the engine accepts (501 code points). */
+const PJ_DESC_MAX = 1000;
 function pjDescTooLong(text) { return Array.from(String(text || '')).length > PJ_DESC_MAX; }
 
 /* Mark a field wrong AT the field, and put the reason beside it.

@@ -1017,16 +1017,16 @@ test('a refused description does not leave an orphan folder behind', () => {
 
 test('an over-length description is REFUSED with a sentence, like the name, never silently cut', () => {
   reset();
-  // Counted in code points: 200 emoji are 400 UTF-16 units and legal.
-  const twoHundredEmoji = '\u{1F600}'.repeat(200);
-  const made = projects.create({ name: 'Emoji cap', folder: folder('emoji-cap'), description: twoHundredEmoji });
-  assert.equal(Array.from(made.description).length, 200);
+  // Counted in code points: 1000 emoji are 2000 UTF-16 units and legal.
+  const thousandEmoji = '\u{1F600}'.repeat(1000);
+  const made = projects.create({ name: 'Emoji cap', folder: folder('emoji-cap'), description: thousandEmoji });
+  assert.equal(Array.from(made.description).length, 1000);
   // One over is refused -- a silent truncation answered success while
   // cutting the person's words with nothing saying so.
-  assert.throws(() => projects.create({ name: 'Over', folder: folder('over-cap'), description: 'x'.repeat(201) }),
-    /longer than 200/);
-  assert.throws(() => projects.edit(made.id, { description: '\u{1F600}'.repeat(201) }), /longer than 200/);
-  assert.equal(Array.from(projects.get(made.id, []).description).length, 200, 'a refused write changes nothing');
+  assert.throws(() => projects.create({ name: 'Over', folder: folder('over-cap'), description: 'x'.repeat(1001) }),
+    /longer than 1000/);
+  assert.throws(() => projects.edit(made.id, { description: '\u{1F600}'.repeat(1001) }), /longer than 1000/);
+  assert.equal(Array.from(projects.get(made.id, []).description).length, 1000, 'a refused write changes nothing');
 });
 
 test('null means absence for a description, as it does for name and folder', () => {
@@ -1075,7 +1075,7 @@ test('a description is stored trimmed, one-line, capped, and optional', () => {
   const plain = projects.create({ name: 'Undescribed', folder: folder('undescribed') });
   assert.strictEqual(plain.description, '', 'absent must store as the explicit empty string');
   assert.throws(() => projects.create({ name: 'Longform', folder: folder('longform'),
-    description: 'x'.repeat(500) }), /longer than 200/,
+    description: 'x'.repeat(1001) }), /longer than 1000/,
   'over-length is refused with the sentence, never silently cut');
 });
 
@@ -1094,7 +1094,7 @@ test('setDescription updates, clears on explicit empty, and heals legacy records
   delete all.find((p) => p.id === made.id).description;
   fs.writeFileSync(storeFile, JSON.stringify(all));
   assert.equal(projects.setDescription(made.id, 'added later').description, 'added later');
-  assert.throws(() => projects.setDescription(made.id, 'x'.repeat(500)), /longer than 200/,
+  assert.throws(() => projects.setDescription(made.id, 'x'.repeat(1001)), /longer than 1000/,
     'the refusal holds on update too');
 });
 
