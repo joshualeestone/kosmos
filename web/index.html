@@ -3941,10 +3941,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    body:not(.consolidated) so the consolidated layout keeps the borders its
    tests pin (the base .pjcard/.pjcol borders above still apply there).
    The backgrounds are left alone here; item 6 handles the dialog fill. */
-body:not(.consolidated) .pjcard,
-body:not(.consolidated) .pj3 > aside.pjcol:not(.pjsplit),
-body:not(.consolidated) .pjmid,
-body:not(.consolidated) .pjmid .thread { border: 0; }
+body:not(.consolidated) .pjcard, body:not(.consolidated) .pj3 > aside.pjcol:not(.pjsplit), body:not(.consolidated) .pjmid, body:not(.consolidated) .pjmid .thread { border: 0; }
 .pjcol > .flabel { display: block; margin-bottom: 10px; }
 /* Inside a pjcol the card IS the boundary: the .field separator rule
    drew a stray line above Tasks. */
