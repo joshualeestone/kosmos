@@ -47,6 +47,6 @@ check_heredoc board "$board_body"
 # The app bundle Info.plist heredoc (#2810 added the NSAppleEventsUsageDescription
 # comment here; it is unquoted the same way, so it needs the same guard).
 app_body="$(awk '/cat > "\$target\/Info.plist" <<PLIST/{p=1;next} p&&/^PLIST$/{exit} p' "$f")"
-check_heredoc "app Info.plist" "$app_body"
+check_heredoc app "$app_body"
 
 echo "plist-heredoc-clean: $fails failures"; [ "$fails" -eq 0 ]
