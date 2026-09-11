@@ -5957,6 +5957,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    which looks real sloppy." Scoped to the header instance by id, so the
    Instructions-tab .stale-note (#d-instr-outdated) is untouched. */
 #d-instr-stale { margin-top: var(--space-5); }
+/* #2830 (Josh, 0.6.57 review): the Instructions-tab stale-note (#d-instr-outdated) sat
+   right against the Save button above it -- the same "touching the button, looks sloppy"
+   issue #1841 fixed for the header instance (#d-instr-stale) just above. #1841 deliberately
+   scoped its fix to the header id and left this one; Josh reported it "still" touching, so
+   give this instance the same top gap. Base .stale-note has margin-bottom but no margin-top,
+   which is why it hugged the button. */
+#d-instr-outdated { margin-top: var(--space-5); }
 /* Theme ink again: .acard/.lrow flip with the pack's dark k-token set,
    so --warn-ink is correct on each surface. (Round 2's fixed #7a5200 was
    the compensation for the pre-flip literal-white card.) */

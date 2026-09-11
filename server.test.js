@@ -1397,6 +1397,22 @@ test('a null PUT body is refused with a readable message, not an exception name'
   assert.ok(!/Cannot read properties/.test(error), 'surfaced a raw exception message');
 });
 
+test('#2830: the Instructions-tab stale-note has a top gap so it does not touch the Save button', () => {
+  // Josh, 0.6.57 review: the "This file has changed since you opened it" warning
+  // (#d-instr-outdated) sat right against the Save button above it. #1841 fixed the
+  // header instance (#d-instr-stale) with margin-top and deliberately left this one, so it
+  // hugged the button (base .stale-note has margin-bottom but no margin-top). Assert this
+  // instance now sets a non-zero top gap. Control: the base .stale-note rule still carries
+  // no margin-top of its own (so this fix is the id-scoped one, matching #1841's pattern).
+  const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.match(page, /#d-instr-outdated\s*\{[^}]*margin-top:\s*var\(--space-\d\)/,
+    'the Instructions-tab stale-note (#d-instr-outdated) lost its top gap and will touch the Save button (#2830)');
+  const baseRule = page.match(/\.stale-note\s*\{[^}]*\}/);
+  assert.ok(baseRule, 'base .stale-note rule not found');
+  assert.ok(!/margin-top/.test(baseRule[0]),
+    'base .stale-note now sets margin-top; the #2830 fix should stay id-scoped like #1841, so this control is stale');
+});
+
 // ---------------------------------------------------------------------------
 // The instructions route: the most powerful write on the surface
 // ---------------------------------------------------------------------------
