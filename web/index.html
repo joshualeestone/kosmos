@@ -30567,10 +30567,12 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
            })())
         : 'It comes back on your main Claude account and Claude’s default model until you change them.'),
     go: 'Switch and restart',
-    /* #2463 follow-up (Mona): the provider switch shows the SAME breathing-K interstitial
-       as the model switch, worded for what it is doing -- "Setting up OpenAI" (which may
-       install/authorise) or "Setting up Anthropic". Held on the same ~2s floor via the same
-       __kosmosRestartHoldMs test seam. `label` is app-derived ('OpenAI'/'Anthropic'). */
+    /* #2463 follow-up (Mona): the provider switch shows the SAME interstitial as the model
+       switch, worded for what it is doing -- "Setting up OpenAI" (which may install/authorise)
+       or "Setting up Anthropic". Held on the same floor (RESTART_HOLD_MS) via the same
+       __kosmosRestartHoldMs test seam. #2692 made that interstitial the branded K loader and
+       raised the floor to one full animation cycle; both flows share chgBusyHtml, so both get
+       it. `label` is app-derived ('OpenAI'/'Anthropic'). */
     busyHtml: chgBusyHtml('Setting up ' + label),
     minBusyMs: (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS),
     run: (say) => changeProviderNow(say),
@@ -30611,7 +30613,7 @@ document.getElementById('d-model-go').addEventListener('click', () => {
     go: 'Change and restart',
     busyHtml: RESTART_BUSY_HTML,
     /* Read the hold at click time so a hermetic browser-check can shorten it via
-       `window.__kosmosRestartHoldMs` (a number) rather than waiting the full ~10s;
+       `window.__kosmosRestartHoldMs` (a number) rather than waiting the full hold;
        undefined in prod, so a real switch always holds RESTART_HOLD_MS. Same shape as
        the server's `*_SWEEP_MS` test seams. */
     minBusyMs: (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS),

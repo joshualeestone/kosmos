@@ -13,9 +13,10 @@
  * #2463 follow-up (Mona): the PROVIDER switch now shows the same interstitial, worded
  * "Setting up OpenAI" / "Setting up Anthropic", and reduces to the same reactivate line.
  * The remaining three change dialogs (account move, compact, clear) are unchanged: plain
- * "Working…", no hold. And the hold is now a ~2s FLOOR (RESTART_HOLD_MS), not a fixed ~10s:
- * the interstitial stays until the restart finishes (the awaited POST), the floor only keeps
- * a fast restart on screen long enough to read.
+ * "Working…", no hold. The hold is a FLOOR (RESTART_HOLD_MS), not a fixed duration: the
+ * interstitial stays until the restart finishes (the awaited POST), and the floor only keeps
+ * a fast restart on screen long enough to read. #2463 set that floor at ~2s; #2692 raised it
+ * to max(2s, K_LOADER_CYCLE_MS) = 4400ms so a fast restart still shows one whole animation.
  *
  * WHAT SOURCE CANNOT SEE: that the opt-in `busyHtml`/`minBusyMs` added to the shared
  * changeDialog actually (1) paints the interstitial, (2) HOLDS it on success then renders
@@ -23,7 +24,8 @@
  * the modal, (5) leaves the three plain callers on "Working…", and (6) drives BOTH the model
  * and the provider flows to the reduced reactivate line. This drives the REAL functions in a
  * browser. `window.__kosmosRestartHoldMs` shortens the prod hold so the check is fast; a
- * control asserts the prod floor is 2000 in source.
+ * control asserts the prod floor is max(2000, K_LOADER_CYCLE_MS) in source, and the runtime
+ * reads the live value (4400) to confirm it covers one full K-into-circle cycle.
  *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-model-restart-interstitial.js
@@ -217,6 +219,7 @@ function check(name, pass, detail) {
     const providerBusy = {
       settingUp: /Setting up OpenAI/i.test(msg.innerHTML),
       hasLoaderCanvas: !!document.querySelector('#chg-msg .chg-restart canvas.chg-restart-k'),
+      loaderPainted: loaderPainted(),
       noPulsingIcon: !document.querySelector('#chg-msg .chg-restart .kspin'),
       noReducedYet: !/Say hello/i.test(msg.textContent),
     };
@@ -249,6 +252,7 @@ function check(name, pass, detail) {
     const providerAnthBusy = {
       settingUp: /Setting up Anthropic/i.test(msg.innerHTML),
       hasLoaderCanvas: !!document.querySelector('#chg-msg .chg-restart canvas.chg-restart-k'),
+      loaderPainted: loaderPainted(),
       noPulsingIcon: !document.querySelector('#chg-msg .chg-restart .kspin'),
       notClaudeSetup: !/Setting up Claude/i.test(msg.innerHTML),
     };
@@ -283,12 +287,12 @@ function check(name, pass, detail) {
     r.modelBusy && r.modelBusy.noPulsingIcon, JSON.stringify(r.modelBusy));
   check('MODEL: after the hold the dialog reduces to "Say hello to <agent> to reactivate them on <provider>"',
     r.modelDone, JSON.stringify((r.reducedText || '').slice(0, 90)));
-  check('PROVIDER: the provider switch shows the branded K-loader "Setting up OpenAI" interstitial (canvas present, pulsing .kspin gone), not plain "Working…"',
-    r.providerBusy && r.providerBusy.settingUp && r.providerBusy.hasLoaderCanvas && r.providerBusy.noPulsingIcon && r.providerBusy.noReducedYet, JSON.stringify(r.providerBusy));
+  check('PROVIDER: the provider switch shows the branded K-loader "Setting up OpenAI" interstitial (canvas present and painting, pulsing .kspin gone), not plain "Working…"',
+    r.providerBusy && r.providerBusy.settingUp && r.providerBusy.hasLoaderCanvas && r.providerBusy.loaderPainted && r.providerBusy.noPulsingIcon && r.providerBusy.noReducedYet, JSON.stringify(r.providerBusy));
   check('PROVIDER: after the hold the provider dialog reduces to "Say hello to <agent> to reactivate them on OpenAI"',
     r.providerDone, JSON.stringify((r.providerReducedText || '').slice(0, 90)));
-  check('PROVIDER (Anthropic arm): the branded-loader interstitial says "Setting up Anthropic" (not "Setting up Claude"), pulsing .kspin gone',
-    r.providerAnthBusy && r.providerAnthBusy.settingUp && r.providerAnthBusy.hasLoaderCanvas && r.providerAnthBusy.noPulsingIcon && r.providerAnthBusy.notClaudeSetup, JSON.stringify(r.providerAnthBusy));
+  check('PROVIDER (Anthropic arm): the branded-loader interstitial says "Setting up Anthropic" (not "Setting up Claude"), canvas painting, pulsing .kspin gone',
+    r.providerAnthBusy && r.providerAnthBusy.settingUp && r.providerAnthBusy.hasLoaderCanvas && r.providerAnthBusy.loaderPainted && r.providerAnthBusy.noPulsingIcon && r.providerAnthBusy.notClaudeSetup, JSON.stringify(r.providerAnthBusy));
   check('PROVIDER (Anthropic arm): the dialog speaks ONE vocabulary -- reduces to "reactivate them on Anthropic", never "on Claude"',
     r.providerAnthConsistent, JSON.stringify((r.providerAnthReducedText || '').slice(0, 90)));
 
