@@ -12263,6 +12263,55 @@ test('#2811: the sentence a Codex agent reads back actually says Codex', () => {
     'an answer with no runner changed shape, so every pre-existing caller moved');
 });
 
+test('#2811: a LIVE claude process beats a stale codex marker, and keeps its model', () => {
+  /**
+   * 🛑 THE PRECEDENCE DECISION, WHICH NOTHING PINNED. Round 4 collapsed two
+   * runner readers into one and made LIVE win. That changed a real case: before,
+   * the model guard fired when EITHER reader said non-claude, so a live CLAUDE
+   * process with a stale codex marker had its model suppressed.
+   *
+   * The window is real: `setProvider` rewrites the plist and the marker, but the
+   * RUNNING process does not change until the agent restarts. During it the
+   * agent genuinely is claude, and it is writing the very transcript the record
+   * reads. Suppressing that model would answer "we cannot tell which model" about
+   * an agent whose live process was right there saying so.
+   *
+   * ⇒ Live wins because it is the only source that cannot be stale, and this arm
+   * is what makes that a decision rather than an accident.
+   */
+  const { whoamiFor } = require('./server.js');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('midswitch', { state: 'unknown', runner: 'codex' })]);
+    const card = board.agents.find((a) => a && a.name === 'midswitch');
+    assert.equal(card.runner, 'codex', 'the fixture card is not codex-marked, so there is no staleness to resolve');
+    seedTranscript('midswitch', 'claude-opus-5');
+
+    const out = whoamiFor(card, [], {
+      ok: true, account: null, model: null, configDir: '/Users/x/.claude', runner: 'claude',
+    });
+    assert.equal(out.resolvedRunner, 'claude',
+      'the stale codex marker beat the live claude process');
+    assert.equal(out.model.id, 'claude-opus-5',
+      'a live CLAUDE agent lost its transcript model to a stale codex marker');
+
+    /* CONTROL, the other direction: live codex over a claude-marked card still
+       suppresses, so live-first is not simply "always trust claude". */
+    const cb = fleet.install([fleet.agent('midswitch2', { state: 'idle' })]);
+    const c2 = cb.agents.find((a) => a && a.name === 'midswitch2');
+    assert.equal(c2.runner, 'claude');
+    seedTranscript('midswitch2', 'claude-opus-5');
+    const out2 = whoamiFor(c2, [], {
+      ok: true, account: null, model: null, configDir: '/Users/x/.codex', runner: 'codex',
+    });
+    assert.equal(out2.resolvedRunner, 'codex');
+    assert.equal(out2.model, null,
+      'a live CODEX agent was handed the Claude transcript model because its card said claude');
+  } finally {
+    fleet.restore();
+  }
+});
+
 test('#2811: a Codex agent with NO live read is still told it is a Codex agent', () => {
   /* 🛑 THE SENTENCE USED TO ASK THE LIVE READER ONLY, so a paneless, crashed or
      win32 Codex agent read "an account we cannot identify (...)" with the word
