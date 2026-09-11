@@ -238,4 +238,7 @@ jobs:
             render-url-state
             render-trust-restart-0644
             render-restore-dircheck-2615
+            render-account-name-2095
+            render-observed-consumers-1959
+            render-talk-search
         run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
