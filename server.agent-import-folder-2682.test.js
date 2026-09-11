@@ -83,17 +83,33 @@ test('an empty CLAUDE.md is refused rather than loading a blank box', async () =
   assert.match(json.because, /empty/);
 });
 
-test('a symlinked CLAUDE.md is refused (the O_NOFOLLOW / lstat hardening arm)', async () => {
+test('a symlinked CLAUDE.md is refused and its target is never read out (the lstat symlink guard)', async () => {
   // The security arm: a CLAUDE.md that is a symlink to a file outside the folder
   // (here, a secret) must never be followed, or the folder read becomes an
-  // arbitrary-file read. Mirrors the #1652 file-import TOCTOU test.
+  // arbitrary-file read. This static symlink is caught by the platform-independent
+  // lstat().isSymbolicLink() refusal before O_NOFOLLOW is reached; O_NOFOLLOW
+  // additionally closes the lstat->open TOCTOU RACE, which a deterministic test
+  // cannot reach (same limitation as the #1652 exemplar). What this proves is the
+  // refusal and, crucially, that the symlink target is never read out.
+  const SECRET_MARK = 'TOP SECRET, must never be read through a symlink';
   const secret = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'aw-imp-folder-secret-')), 'secret.txt');
-  fs.writeFileSync(secret, 'TOP SECRET, must never be read through a symlink\n');
+  fs.writeFileSync(secret, SECRET_MARK + '\n');
+
+  // POSITIVE CONTROL: the SAME content as a REAL (non-symlink) CLAUDE.md IS
+  // returned, so the read path surfaces exactly this text when the file is real.
+  // Without this the symlink refusal below is not attributable to the symlink:
+  // a route that filtered the content, or that always omitted text, would look
+  // identical. This control makes the refusal mean "the symlink was not followed".
+  const realDir = folderWithClaudeMd(SECRET_MARK + '\n');
+  const real = await post('/api/agent-import-folder', { dir: realDir });
+  assert.equal(real.json.ok, true, 'CONTROL: a real CLAUDE.md with this content is read');
+  assert.match(real.json.text, /TOP SECRET/, 'CONTROL: so the read path does surface this text');
+
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-imp-folder-link-'));
   fs.symlinkSync(secret, path.join(dir, 'CLAUDE.md'));
   const { json } = await post('/api/agent-import-folder', { dir });
-  assert.equal(json.ok, false, 'a symlinked CLAUDE.md must be refused');
-  assert.doesNotMatch(String(json.text || ''), /TOP SECRET/, 'the symlink target is never read out');
+  assert.equal(json.ok, false, 'a symlinked CLAUDE.md must be refused (not followed)');
+  assert.doesNotMatch(String(json.text || ''), /TOP SECRET/, 'and the symlink target is never read out');
 });
 
 test('a relative path is refused: it would resolve against the board, not the operator', async () => {

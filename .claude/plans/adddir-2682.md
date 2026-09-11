@@ -10,8 +10,8 @@ Card: kosmos#2682. An agent set up outside discovery's bounded roots (an orchest
 
 Build the FOLDER analog of the existing loose-file import (#1652), reusing its entire downstream flow:
 
-- New endpoint `POST /api/agent-import-folder`, body `{ dir }`. It reads `<dir>/CLAUDE.md`, runs `agentfile.importAgent(text, ...)` (the same parse the file import and adoption use), and returns the same parsed shape (`name`, `displayName`, `provider`, `model`, `instructions`, `recognizedFromContent`) so the create form pre-fills identically. Like `/api/agent-import-file`, it NEVER creates the agent; the create form the operator confirms does that.
-- New UI action "Add an agent from a folder" next to the existing file-import entry: a directory-path input that POSTs `{ dir }` and, on `ok`, routes the parsed material into the same create-form pre-fill the file import uses.
+- New endpoint `POST /api/agent-import-folder`, body `{ dir }`. It reads ONLY `<dir>/CLAUDE.md` and returns its raw TEXT as `{ ok, dir, text }`, the server-side sibling of the client-side "Choose a file" FileReader (a browser FileReader cannot read a server-side path). It does NOT parse or create: parse, validation and create all stay downstream in the import textarea's "Bring it in" (`importLoad`), unchanged. The only content check here is a non-empty read (an empty CLAUDE.md is refused rather than loading a blank box).
+- New "Load folder" UI action next to the existing file-import controls: a directory-path input + button whose `loadImportFolder` handler POSTs `{ dir }` and, on `ok`, loads the returned text into the SAME `#import-text` textarea the paste/choose path uses. The operator then presses "Bring it in" to review, parse, validate and create, exactly as for pasted or chosen text.
 
 ### Why not touch discovery scope
 
@@ -25,14 +25,15 @@ Discovery's bounded auto-scan is deliberately bounded for safety (it never walks
 - Require an ABSOLUTE, existing directory path.
 - Read ONLY a file literally named `CLAUDE.md` inside that dir (not an arbitrary filename), so the read surface is agent-instruction files, not arbitrary files.
 - Mirror the file import's full hardening verbatim: a platform-independent `lstat` symlink/non-file refusal, then `O_RDONLY | O_NOFOLLOW | O_NONBLOCK` (each `|| 0` for win32), `fstat` isFile + size cap on the fd, read by fd. This closes the lstat->open TOCTOU window exactly as the exemplar does.
-- Require the CLAUDE.md to parse as an agent (`agentfile.importAgent` returns `ok` only when it carries a usable identity); a plain project CLAUDE.md that introduces nobody is refused with its own `because`.
+
+Agent-ness is NOT decided here. Whether the CLAUDE.md actually introduces an agent (vs a plain project instruction file) is decided downstream by `importLoad` when the operator brings it in, the same as for pasted or chosen text. So a non-agent CLAUDE.md returns `ok:true` with its text and is refused later at "Bring it in", not by this route.
 
 Weakest premise: this reads a path the scan never vetted, a deliberate departure from the membership gate. It is bounded by loopback + auth (operator's own machine), a CLAUDE.md-only read, and the full symlink/TOCTOU hardening. If a future threat model needs more (e.g. a root allowlist), it is an additive tightening, not a redesign.
 
 ## Tests
 
-- `server.agent-import-folder-2682.test.js`: the happy path (a temp dir with an identity-bearing CLAUDE.md parses and returns the create-form shape); a dir with no CLAUDE.md refuses; a CLAUDE.md that introduces nobody refuses; a symlinked CLAUDE.md is refused (the TOCTOU/symlink arm, mirroring the #1652 test); a non-absolute or missing dir refuses.
-- Web: a runtime handler test for the add-from-folder UI action if it carries logic, plus the browser-check gate (a `Browser-check:` trailer or a docs/browser-checks touch).
+- `server.agent-import-folder-2682.test.js` (end to end over HTTP): the happy path (a temp dir with a CLAUDE.md returns its text verbatim); a non-agent CLAUDE.md still returns its text (`ok:true`, because agent-ness is decided downstream); a dir with no CLAUDE.md refuses naming CLAUDE.md; an empty CLAUDE.md refuses; a symlinked CLAUDE.md is refused and the symlink target is never read out (the security arm); a relative path, a missing dir, an empty body, and a file-not-a-dir path each refuse.
+- `web.import-folder-2682.test.js`: a source slice pinning the UI wiring (the input + button exist, the button is bound to `loadImportFolder`, and the handler POSTs the folder and loads the returned text into `#import-text`). The browser-check gate is satisfied by a `Browser-check:` trailer.
 
 ## Ship
 

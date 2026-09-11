@@ -8369,7 +8369,14 @@ const server = http.createServer((req, res) => {
         /* statSync (not lstat) so a legitimately symlinked folder -- a common
            setup, e.g. a work tree reached through a symlinked parent -- resolves.
            The read below is hardened at the FILE, which is where a symlink could
-           escape; the directory only names where to look for CLAUDE.md. */
+           escape; the directory only names where to look for CLAUDE.md.
+           ⚠️ A TOCTOU race on the DIRECTORY component (dir swapped to point
+           elsewhere between this statSync and the CLAUDE.md open) is NOT closed
+           the way the file-level race is, and that is the same residual
+           /api/agent-import-file accepts: it is outside the threat model here
+           (loopback bind + board-token auth + single local operator), and the
+           worst it yields is reading a different <dir>/CLAUDE.md the operator
+           themselves can already read. */
         let dstat;
         try { dstat = fs.statSync(dir); } catch { sendJson(res, 200, { ok: false, because: 'there is no folder at that path' }); return; }
         if (!dstat.isDirectory()) { sendJson(res, 200, { ok: false, because: 'that path is not a folder' }); return; }

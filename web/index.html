@@ -31576,6 +31576,11 @@ async function loadImportFolder() {
   importMsg('Loaded from that folder. Press Bring it in.');
   document.getElementById('import-text').focus();
 }
+// Enter in the path input loads the folder, matching the create-name field's
+// Enter-to-act binding, so a typed path does not require a mouse trip to the button.
+document.getElementById('import-folder').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); loadImportFolder(); }
+});
 document.getElementById('import-load').addEventListener('click', importLoad);
 
 async function importLoad() {
