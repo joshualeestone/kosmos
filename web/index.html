@@ -36842,56 +36842,107 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
   }
 });
 
-/* #2255 reactions, hover-restyled in #2806. A SECOND delegated handler on #pj-room
-   (kept apart from the refgo one above, which returns early on a non-chip click), so
-   it survives the room repaints setLive does. The grey-smiley `.rxn-more` opener
-   toggles the full picker; a pill or a picker emoji (quick default OR full-list)
-   toggles that reaction via the react route, then repaints just this post's `.rxns`
-   from the response -- no full room re-fetch. A failed toggle leaves the row as it
-   was; the next room poll reconciles. */
-document.getElementById('pj-room').addEventListener('click', async (e) => {
-  const box = e.target && e.target.closest ? e.target.closest('.rxns') : null;
-  if (!box) return;
-  const more = e.target.closest('.rxn-more');
-  if (more) {
-    const picker = box.querySelector('.rxn-picker');
-    const open = !!(picker && !picker.hidden);
-    if (open) {
-      if (picker) picker.hidden = true;
-      more.setAttribute('aria-expanded', 'false');
-    } else {
-      rxnCloseAllPickers();   // at most one open at a time
-      if (picker) { picker.hidden = false; rxnPositionPicker(picker, more); }
-      more.setAttribute('aria-expanded', 'true');
-    }
-    return;
+/* #2834: ONE shared full-list picker, mirroring the composer's `#pj-emoji` panel.
+   Inlining PJ_EMOJI per post (`rxnsInner`, pre-#2834) put ~80 hidden buttons into
+   every room post and rebuilt them as a string on every poll. This element is created
+   once, appended to `body` (it is `position: fixed` + JS-positioned, so it needs no
+   per-row anchor), and remembers which post it acts on via `data-post`. Its click
+   handler is attached at creation because the element is not in the static HTML. */
+let RXN_PICKER_BUILT = false;
+function rxnPickerEl() {
+  let el = document.getElementById('rxn-picker');
+  if (el) return el;
+  el = document.createElement('span');
+  el.id = 'rxn-picker';
+  el.className = 'rxn-picker';
+  el.hidden = true;
+  /* The shared picker lives OUTSIDE `#pj-room`, so the room handler below never sees
+     a click on a full-list emoji -- this handler does. It reads the post it was opened
+     for, finds that post's `.rxns` back in the room, toggles, and closes (a repaint no
+     longer resets an inline picker, so the close is explicit). */
+  el.addEventListener('click', async (e) => {
+    const b = e.target.closest ? e.target.closest('.rxn-pick') : null;
+    if (!b || !PJ_CURRENT) return;
+    const postId = el.getAttribute('data-post');
+    let box = null;
+    document.querySelectorAll('#pj-room .rxns').forEach((r) => {
+      if (r.getAttribute('data-post') === postId) box = r;
+    });
+    if (box) await rxnToggle(PJ_CURRENT, box, b.getAttribute('data-emoji'));
+    rxnCloseAllPickers();
+  });
+  document.body.appendChild(el);
+  return el;
+}
+function rxnPickerBuild() {
+  if (RXN_PICKER_BUILT) return;
+  const el = rxnPickerEl();
+  const frag = document.createDocumentFragment();
+  for (const glyph of PJ_EMOJI) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'rxn-pick';
+    b.textContent = glyph;
+    b.setAttribute('aria-label', 'React with ' + glyph);
+    b.dataset.emoji = glyph;
+    frag.appendChild(b);
   }
-  const btn = e.target.closest('.rxn, .rxn-pick');
-  if (!btn || !PJ_CURRENT) return;
-  const emoji = btn.getAttribute('data-emoji');
-  const postId = box.getAttribute('data-post');
+  el.appendChild(frag);
+  RXN_PICKER_BUILT = true;
+}
+/* The react POST + one-row repaint, shared (#2834) by the room handler (pills + quick
+   defaults) and the shared-picker handler, so a pill can never be drawn two ways. A
+   failed toggle leaves the row; the next room poll reconciles. */
+async function rxnToggle(forProject, box, emoji) {
+  const postId = box && box.getAttribute('data-post');
   if (!emoji || !postId) return;
-  const forProject = PJ_CURRENT;
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(forProject) + '/room/'
       + encodeURIComponent(postId) + '/react',
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ emoji }) });
     if (PJ_CURRENT !== forProject || !res.ok) return;
     const body = await res.json();
-    // The repaint replaces this row's innerHTML, which resets the picker to hidden,
-    // so a successful reaction closes the picker on its own.
     repaintReactions(box, Array.isArray(body.reactions) ? body.reactions : []);
   } catch { /* a failed toggle leaves the row; the next poll reconciles */ }
+}
+
+/* #2255 reactions, hover-restyled in #2806. A SECOND delegated handler on #pj-room
+   (kept apart from the refgo one above, which returns early on a non-chip click), so
+   it survives the room repaints setLive does. The grey-smiley `.rxn-more` opener
+   toggles the SHARED picker for THIS post; a pill or a quick default toggles that
+   reaction via the react route (the full-list picks live in `#rxn-picker` and are
+   handled there). */
+document.getElementById('pj-room').addEventListener('click', async (e) => {
+  const box = e.target && e.target.closest ? e.target.closest('.rxns') : null;
+  if (!box) return;
+  const more = e.target.closest('.rxn-more');
+  if (more) {
+    const picker = rxnPickerEl();
+    const postId = box.getAttribute('data-post');
+    const openForThis = !picker.hidden && picker.getAttribute('data-post') === postId;
+    rxnCloseAllPickers();   // at most one open at a time; also resets every opener's aria
+    if (!openForThis) {
+      rxnPickerBuild();
+      picker.setAttribute('data-post', postId);
+      picker.hidden = false;
+      rxnPositionPicker(picker, more);
+      more.setAttribute('aria-expanded', 'true');
+    }
+    return;
+  }
+  const btn = e.target.closest('.rxn, .rxn-pick');
+  if (!btn || !PJ_CURRENT) return;
+  await rxnToggle(PJ_CURRENT, box, btn.getAttribute('data-emoji'));
 });
 
-/* #2806: close every open reaction picker (the grey-smiley full list) and reset its
-   opener's aria-expanded. Used to keep at most one open, and by the dismiss paths
-   below (outside click / Escape), mirroring the composer emoji panel's behaviour. */
+/* #2806/#2834: close the shared reaction picker and reset every opener's aria-expanded.
+   Used to keep at most one open, and by the dismiss paths below (outside click / Escape
+   / outside scroll), mirroring the composer emoji panel's behaviour. */
 function rxnCloseAllPickers() {
+  const picker = document.getElementById('rxn-picker');
+  if (picker) { picker.hidden = true; picker.removeAttribute('data-post'); }
   const room = document.getElementById('pj-room');
-  if (!room) return;
-  room.querySelectorAll('.rxn-picker:not([hidden])').forEach((p) => { p.hidden = true; });
-  room.querySelectorAll('.rxn-more[aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+  if (room) room.querySelectorAll('.rxn-more[aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
 }
 /* #2806: place the FIXED reaction picker as a popover anchored to the smiley button.
    Below it when there is room, flipped above when the viewport bottom is close, and
@@ -36935,8 +36986,11 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') rxnCloseAl
 document.addEventListener('scroll', (e) => {
   const tgt = e.target;
   if (tgt && tgt.nodeType === 1 && tgt.closest && tgt.closest('.rxn-picker')) return;
-  const room = document.getElementById('pj-room');
-  if (room && room.querySelector('.rxn-picker:not([hidden])')) rxnCloseAllPickers();
+  /* #2834: the picker is the shared `#rxn-picker`, which lives OUTSIDE `#pj-room`, so
+     gate on it directly rather than on a query scoped to the room (which would never
+     find it and leave the popover floating detached after a thread scroll). */
+  const picker = document.getElementById('rxn-picker');
+  if (picker && !picker.hidden) rxnCloseAllPickers();
 }, true);
 
 document.getElementById('pj-docs-all').addEventListener('click', () => {
@@ -37407,9 +37461,14 @@ const RXN_DEFAULTS = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F525}'];
    full picker it opens. Every emoji is esc()'d and comes from the server's replayed
    state (engine reactionsFor) or the fixed PJ_EMOJI list, never from raw message
    text. Empty when the post carries no id. */
-/* The INNER html of a `.rxns` row (pills + quick bar + smiley + full picker), shared
-   by the first paint (pjReactions) and the one-row repaint after a toggle
-   (repaintReactions), so the two cannot draw a pill differently. */
+/* The INNER html of a `.rxns` row (pills + quick bar + smiley), shared by the first
+   paint (pjReactions) and the one-row repaint after a toggle (repaintReactions), so
+   the two cannot draw a pill differently.
+   #2834: the full PJ_EMOJI picker is NO LONGER inlined here. Inlining it put ~80
+   hidden buttons into EVERY post, rebuilt as a string on every poll; a busy room
+   carried thousands of dead nodes. The full list now lives in ONE shared `#rxn-picker`
+   (rxnPickerEl / rxnPickerBuild below), the same shape the composer's `#pj-emoji`
+   panel already uses, opened beside whichever post's smiley was clicked. */
 function rxnsInner(list) {
   const pills = (Array.isArray(list) ? list : []).map((r) => {
     const e = String(r && r.emoji ? r.emoji : '');
@@ -37425,22 +37484,16 @@ function rxnsInner(list) {
   const quicks = RXN_DEFAULTS.map((e) =>
     '<button class="rxn-pick" type="button" data-emoji="' + esc(e) + '" aria-label="React with ' + esc(e) + '">'
     + esc(e) + '</button>').join('');
-  /* The full list behind the grey smiley (#2806): "pick from our list of emojis". */
-  const picks = PJ_EMOJI.map((e) =>
-    '<button class="rxn-pick" type="button" data-emoji="' + esc(e) + '" aria-label="React with ' + esc(e) + '">'
-    + esc(e) + '</button>').join('');
   /* #2806 (Josh): the always-visible "+" is gone. On message hover (or keyboard
      focus into the row) a compact bar reveals the three quick defaults plus a grey
      smiley (`.rxn-more`) that opens the full picker -- the Discord shape he asked
      for. Existing pills stay visible always; only the `.rxn-quick` bar is hover-
-     gated. The picker is toggled by the smiley (JS), independent of hover, so it
-     stays open while you browse it. */
+     gated. #2834: the smiley opens the SHARED `#rxn-picker`, not an inline one. */
   return pills
     + '<span class="rxn-quick">' + quicks
     + '<button class="rxn-more" type="button" aria-label="More reactions" aria-expanded="false">'
     + '<span class="rxn-more-glyph" aria-hidden="true">\u{1F600}</span></button>'
-    + '</span>'
-    + '<span class="rxn-picker" hidden>' + picks + '</span>';
+    + '</span>';
 }
 function pjReactions(m) {
   const id = String(m && m.id ? m.id : '');
