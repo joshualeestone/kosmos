@@ -251,6 +251,5 @@ jobs:
             render-world-import-2563
             render-worldsw-abandon-2628
             render-worldswitch-2238
-            render-firstrun-openai-sub-2621
             render-worlds-switcher-1704
         run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh

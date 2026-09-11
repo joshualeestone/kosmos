@@ -6,8 +6,8 @@ browser-checks.yml, so a break in more render checks fails at the PR, not at the
 Follows merged batches 1-8 (#2747-#2779). Allowlist at 35 before this batch.
 
 ## The mechanism (unchanged)
-KOSMOS_BC_CI_ALLOWLIST is a FILTER over checks the driver already invokes; both added
-here are in browser-checks.sh's no-board/no-arg loop, so this is a names-only change.
+KOSMOS_BC_CI_ALLOWLIST is a FILTER over checks the driver already invokes; the one added
+here is in browser-checks.sh's no-board/no-arg loop, so this is a names-only change.
 Self-validating: this PR edits browser-checks.yml (in the job's own path filter), so the
 expanded set runs on the runner in THIS PR's CI, and the driver's never-ran guard hard-reds a
 misspelled/never-running name. A wrong pick reds this PR before merge.
@@ -21,21 +21,28 @@ false positive, not an API call) - confirmed in the no-board/no-arg loop, and me
 (file:// vs sandboxed server) with the timing-wait count recorded.
 
 ## Change
-Add two verified DOM-state candidates (0 geometry/paint signals; timing waits noted):
-- **render-firstrun-openai-sub-2621** - the first-run OpenAI subscription connect box. file://,
-  fetch stubbed; reads DOM/text state; 3 timing settles (plain sleeps, not paint waits).
+Add ONE verified DOM-state candidate (0 geometry/paint signals):
 - **render-worlds-switcher-1704** - the worlds switcher. Boots server.js IN-PROCESS
   (require('../../server.js') + srv.start(0) on an OS-chosen port) against mkdtemp
   AGENT_WORKFORCE_* roots frozen before the require, with AGENT_WORKFORCE_TMUX_BIN=/bin/echo;
-  reads DOM/text state; 2 timing settles.
+  reads DOM/text/visibility state. Its waits are the ROBUST kind: ~8 event-driven
+  waitForSelector/waitForFunction condition waits, plus only 2 fixed waitForTimeout settles -
+  so it does not depend on a fixed sleep landing inside a race window.
 
-Neither asserts geometry/computed-color/screenshot/animation/scroll. The timing settles (3/2)
-are plain sleeps, not paint/animation waits - not a headless-robustness concern, just a few
-seconds of CI time. Mutation-safe: openai-sub is file:// with fetch stubbed; worlds-switcher
-runs server.js in-process against throwaway mkdtemp roots + fake tmux, on a random port - neither
+It asserts no geometry/computed-color/screenshot/animation/scroll. Mutation-safe: runs
+server.js in-process against throwaway mkdtemp roots + fake tmux, on a random port - it never
 touches the operator's real board/data.
 
 ## Excluded this batch (caught in blind review, dropped)
+- **render-firstrun-openai-sub-2621** - DROPPED (iteration 3). It is headless-robust and
+  mutation-safe (file://, fetch stubbed, no geometry/canvas), but it settles an async
+  subscription poll with FIXED sleeps ONLY - waitForTimeout(2100) to cover a 1200ms poll +
+  paint, plus 300/1600ms in the abandon arms - and has ZERO event-driven condition waits.
+  On a starved CI runner a poll tick can slip past the 2100ms window and red intermittently.
+  That is not a bad-merge risk (a flake reds the PR, never merges), but adding a fixed-sleep-
+  only check to the ALWAYS-RUN per-PR subset degrades exactly the reliability #835 exists to
+  keep - so it is excluded rather than merged. (A future version that converts its sleeps to
+  event-driven waits, like worlds-switcher, would be a clean re-add.)
 - **render-model-restart-interstitial** - DROPPED. It reads LIVE CANVAS PIXEL DATA
   (getContext('2d').getImageData) in loaderPainted()/detachedPainted to verify a rAF-driven
   canvas animation (startKLoader) actually painted, and uses
@@ -51,14 +58,14 @@ touches the operator's real board/data.
   even with a 0 literal-token count.
 
 ## Verification
-- This PR's own browser-checks CI runs the expanded allowlist on the runner. GREEN means both
-  run and pass headless; a RED naming one means drop it (with the driver's reason) and
+- This PR's own browser-checks CI runs the expanded allowlist on the runner. GREEN means it
+  runs and passes headless; a RED naming one means drop it (with the driver's reason) and
   re-push. Merge only on green.
 - Node unit suite unaffected (yaml-only change); test.yml stays green.
 
 ## Weakest premise
-That both run green headless on the runner. The refined grep (geometry + timing) + the
+That render-worlds-switcher-1704 runs green headless on the runner. The refined grep (geometry + timing) + the
 mechanism check are strong filters but not proofs; this PR's own CI is the definitive backstop -
 a wrong pick reds this PR before merge and I drop that name, so a miss costs an iteration, never
-a bad merge. The timing-wait checks (both have some) have marginally more flake surface on
-a starved runner, but a flake reds this PR before merge rather than causing a bad merge.
+a bad merge. Its event-driven condition waits make it robust to runner load (the flaky fixed-sleep
+candidate, openai-sub, was excluded above); and this PR's own CI is the backstop regardless.
