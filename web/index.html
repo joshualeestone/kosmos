@@ -3795,12 +3795,9 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      full width, full height, scrolling inside itself; the header rule
      above and the composer below are the only edges it needs. */
   html[data-layout="consolidated"] body.consolidated .pjmid .thread { min-height: 0; max-height: none; flex: 1 1 auto; border: 0; border-radius: 0; background: none; }
-  /* #867 (Josh, 2026-08-25 15:52): "strip out the 'drop a file... type @'
-     hint for this view as well, because this is kind of the power user
-     mode. They're going to know what a + means or how to do an @ to
-     mention agents." Tab view keeps it; only the consolidated composer
-     drops it. */
-  html[data-layout="consolidated"] body.consolidated #pj-composerhint { display: none; }
+  /* #867 hid this hint in the consolidated view only; Josh, 2026-09-10
+     (#2711 item 9), removed the hint element outright, so both views now
+     drop it and there is no #pj-composerhint left to hide. */
   /* #520 piece seven (Josh, 2026-08-24 16:32: the project name and members
      "flush vertically with agents"): the projects panel keeps the .panel top
      padding, which sat the project title and its columns below the agents
@@ -4678,13 +4675,11 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 .cinput:focus { outline: none; }
 .cinput::placeholder { color: var(--k-ink-2); }
 .cpost { flex: 0 0 auto; padding: .5em 1.05em; font-size: .9375rem; }
-.composerhint { margin: 0; font-size: .75rem; color: var(--k-ink-2); }
 /* #761 (Josh, 2026-08-24 21:56: "a little extra space below 'Drop a file
    anywhere'... tighten up that space"): the room's status line sits under
    the composer and, empty, still took its minimum height and margin (33px
    measured). A status line that says nothing takes no room. */
 .pjmid #pj-room-msg:empty { display: none; }
-.composerhint b { font-family: var(--font-mono); font-weight: 700; color: var(--k-ink); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .msg-av { background: rgba(245,245,244,.10); }
   /* #2660: the user-message tint does NOT need a per-selector dark rule here --
@@ -5883,6 +5878,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                    border-radius: 8px; color: var(--k-ink-2); }
 .pj-settings-cog:hover { color: var(--k-ink); background: var(--k-sunk); }
 .linkish:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+/* Josh, 2026-09-10 (#2711 item 12): the Files and Tasks "View All" doors read
+   as plain centred text, no underline, capital V and A. The base .linkish
+   underline is dropped only for these two doors, so every other text link keeps
+   it; block + full width centres the label within its card. */
+.pj-viewall { display: block; width: 100%; text-align: center; text-decoration: none; }
 .removed-list { margin-top: 14px; max-width: 34rem; }
 .removed-row { display: flex; align-items: center; justify-content: space-between;
                gap: 14px; padding: 10px 0; }
@@ -10199,7 +10199,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            consolidated one does not, and that is a decision rather than an
            oversight. -->
 <div class="pjcard pjcard-members">
-      <h3 class="dlab">Project members</h3>
+      <!-- Josh, 2026-09-10 (#2711 item 14): the column heading is just
+           "Members" now. "Project members" restated the page it sits on. -->
+      <h3 class="dlab">Members</h3>
       <div id="pj-one-agents" class="pj-members"></div>
       <!-- ⚠️ The picker hides behind the button, not the other way round: the
            resting state of the box is the members, and "+ Add Member" (the
@@ -10304,7 +10306,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              (the attachment path). Naming this section for what it really shows
              is what stops it looking like the other one arrived. (#110, heading
              from Mona Lisa.) -->
-        <h3 class="dlab">Files in this project</h3>
+        <!-- Josh, 2026-09-10 (#2711 item 13): just "Files". Still the
+             project folder, top level, newest first, as the comment above says. -->
+        <h3 class="dlab">Files</h3>
         <div id="pj-docs" class="pj-docs"></div>
         <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
         <!-- ⚠️ "Show them all in Finder", NOT "see all files". Josh asked for a
@@ -10314,7 +10318,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <!-- The door's label finally matches its handler (#535): it has
              opened the in-app Documents view since #134 landed, while the
              words still promised Finder. Finder lives INSIDE that view. -->
-        <button class="linkish" id="pj-docs-all" type="button" hidden>View all</button>
+        <button class="linkish pj-viewall" id="pj-docs-all" type="button" hidden>View All</button>
       </div>
     </aside>
 
@@ -10345,14 +10349,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <div class="dmbusy-room" id="pj-busy" hidden></div>
       <!-- ⚠️ NO `+` BUTTON AND NO "drop a file anywhere" SENTENCE, and their
            absence is the decision rather than an omission. The pack draws both
-           (.attachbtn, and a composerhint whose first half promises drop-to-
+           (.attachbtn, and a hint line whose first half promises drop-to-
            attach). Neither is true of this build yet: there is no attachment
            path and no Project Documents surface for a file to land in. A `+`
            that opens nothing and a sentence promising a behaviour that does not
            exist are both claims, and 0.2.1 shipped on "screens say what is
            true". They arrive together with the attachment work, along with the
            pack's drop-target affordance (`.pjmid .thread.dragging`, :515).
-           The `@` half of the hint IS true today and ships now. -->
+           The `@` picker still opens on typing @ (asserted in
+           web.mention-picker.test.js); the composer hint that named it was
+           removed in #2711 item 9. -->
       <div class="composer">
         <div class="composerbox">
           <!-- ⚠️ THE PLACEHOLDER NAMES THE OUTCOME, THE HINT NAMES THE
@@ -10412,9 +10418,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              v1 of Discord's UX, not the whole of it). Paired with #2067, which
              RENDERS emoji in dialogue; this is the INPUT side. -->
         <div class="emojipanel" id="pj-emoji" role="group" aria-label="Pick an emoji" hidden></div>
-        <!-- #142: a symbol is not a verb, and the bold @ rendered as a smudge
-             that read as a zero. The key is named, the bold is off the glyph. -->
-        <p class="composerhint" id="pj-composerhint">Drop a file anywhere in the conversation to add it. Type @ and a name to ask one agent directly.</p>
+        <!-- Josh, 2026-09-10 (#2711 item 9): the composer hint below the input
+             is removed. It named the drop-to-attach behaviour (which is not
+             built yet) and the @ mechanism; the @ picker still opens on typing @,
+             so the affordance stays, just without a permanent line of copy under
+             the box. (Was #142's "Type @ and a name to ask one agent directly.") -->
+
       </div>
       <div class="attach-chips" id="pj-attach-chips" hidden></div>
       <p class="fmsg" id="pj-room-msg"></p>
@@ -10553,7 +10562,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            all-tasks screen yet); the reveal survives repaints and
            same-project Back-and-return (the page's round-31 rule) and
            resets on a project SWITCH. -->
-      <button class="linkish" id="pj-alltasks" type="button" hidden></button>
+      <button class="linkish pj-viewall" id="pj-alltasks" type="button" hidden></button>
     </div>
     </aside>
     </div>
@@ -34046,7 +34055,7 @@ function paintProjectTasks(p) {
        Nothing open, but finished tasks behind the door, must NOT say "Add a
        task" -- that contradicts the door line sitting directly under it. */
     list.innerHTML = html || (all.length
-      ? '<p class="tk-empty">Nothing open here. The finished ones are behind View all.</p>'
+      ? '<p class="tk-empty">Nothing open here. The finished ones are behind View All.</p>'
       : '<p class="tk-empty">Add a task, or have an agent add one, to start tracking progress.</p>');
   }
   /* THE DOOR IS ALWAYS THERE NOW (#1382), and both halves of that are
@@ -34065,7 +34074,9 @@ function paintProjectTasks(p) {
      the card asked us to avoid). The count the person needs is on the screen,
      derived from the rows it renders. */
   door.hidden = false;
-  door.textContent = 'View all tasks \u2192';
+  // Josh, 2026-09-10 (#2711 item 12): just "View All" (capital V and A),
+  // no "tasks", no arrow, centred and un-underlined via .pj-viewall.
+  door.textContent = 'View All';
 }
 
 /**

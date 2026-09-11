@@ -32,17 +32,17 @@ test('#1382: the screen exists and is one of the project views', () => {
 });
 
 test('#1382: the door is unconditional and carries no count', () => {
-  assert.match(PAGE, /door\.textContent = 'View all tasks/, 'the door lost its label');
+  assert.match(PAGE, /door\.textContent = 'View All'/, 'the door lost its label');
   /* CONTROL for the negative below: the forbidden pattern must be able to match
-     the line it was written from, or the assertion could never fail. */
-  const OLD = "    door.textContent = 'View all tasks (' + all.length + ') →';";
-  assert.match(OLD, /door\.textContent = 'View all tasks \(' \+/,
-    'the forbidden pattern cannot match the line it came from, so the assertion below is vacuous');
+     a counted door, or the assertion could never fail. */
+  const OLD = "    door.textContent = 'View All (' + all.length + ')';";
+  assert.match(OLD, /door\.textContent = 'View All \(' \+/,
+    'the forbidden pattern cannot match a counted door, so the assertion below is vacuous');
   /* #2498 scoped the destination to the current project, so a per-project count
      could now agree with it - but adding one was out of this card's scope, so
      the door still carries no count. This still guards the #1346 rule: no count
-     was reintroduced on the door. */
-  assert.doesNotMatch(PAGE, /door\.textContent = 'View all tasks \(' \+/,
+     was reintroduced on the door. (#2711 item 12 relabelled it "View All".) */
+  assert.doesNotMatch(PAGE, /door\.textContent = 'View All \(' \+/,
     'a per-project count is back on the door');
 });
 

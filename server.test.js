@@ -7385,8 +7385,20 @@ test('the settings members wiring is real, not just extractable', () => {
   const flat = raw.replace(/\s+/g, ' ');
   // Presence control first: the section this absence speaks about must
   // exist, or a typo in the needle passes vacuously forever.
-  assert.ok(flat.includes('Project members'),
+  assert.ok(flat.includes('>Members</h3>'),
     'CONTROL: the members section is gone; the absence below proves nothing');
+  // #2711 items 13/14 renamed the two card headings. Assert the new heading
+  // TAGS exactly and that the old heading tags are gone, so a regression to the
+  // old copy fails. This is keyed on the >...</h3> tag, not the bare phrase: a
+  // comment elsewhere in the page contains "Files in this project", and a
+  // browser-check `expect: 'Files'` is a substring of the old heading too, so
+  // neither can discriminate old from new the way this pair does.
+  assert.ok(flat.includes('>Files</h3>'),
+    'the files card heading is not the renamed "Files" (#2711 item 13)');
+  assert.ok(!flat.includes('>Files in this project</h3>'),
+    'the old "Files in this project" card heading came back (#2711 item 13)');
+  assert.ok(!flat.includes('>Project members</h3>'),
+    'the old "Project members" card heading came back (#2711 item 14)');
   assert.ok(!flat.includes('Who is on this project. Removing an agent takes it off'),
     'the cut members hint came back');
   // The painter must repaint through setIfChanged: the unit test stubs
