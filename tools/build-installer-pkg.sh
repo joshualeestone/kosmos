@@ -91,6 +91,36 @@ cat > "$BUILD/distribution.xml" <<XML
   <welcome file="welcome.html" mime-type="text/html"/>
   <conclusion file="conclusion.html" mime-type="text/html"/>
   <options customize="never" require-scripts="false" hostArchitectures="arm64,x86_64"/>
+  <!-- #2792: Kosmos is arm64-only (the prod runtime ships only as
+       kosmos-<v>-arm64.tar.gz; x64 variants 404), so an Intel Mac cannot run it.
+       setup.sh already refuses non-arm64 with a named message, but in the .pkg its
+       stdout is SWALLOWED by Installer (kept only in /var/log/install.log), so an
+       Intel user saw Apple's generic "The installation failed" instead of the real
+       reason. This installation-check refuses BEFORE install, at the door, with a
+       clear message the person actually sees.
+       🛑 hostArchitectures deliberately KEEPS x86_64: if it did not, Installer would
+       refuse an Intel Mac with ITS OWN generic message before this check ever ran, so
+       the clear message below would never appear. The check is what says "not
+       supported"; hostArchitectures only lets Installer open far enough to say it. -->
+  <installation-check script="kosmosArchCheck()"/>
+  <script>
+/* Returns true only when we POSITIVELY confirm Apple silicon. hw.optional.arm64 is
+   "1" on every Apple-silicon Mac and absent (or "0") on Intel. Anything that is not a
+   confirmed "1" -- including a sysctl that throws -- is treated as unsupported, so the
+   Intel refusal cannot be skipped by an unexpected value; a real Apple-silicon Mac
+   returns "1" and is allowed. (Verified on an M-series box: sysctl hw.optional.arm64 = 1.) */
+function kosmosIsAppleSilicon() {
+  try { return (system.sysctl('hw.optional.arm64') == '1'); }
+  catch (e) { return false; }
+}
+function kosmosArchCheck() {
+  if (kosmosIsAppleSilicon()) return true;
+  my.result.title = 'Apple Silicon required';
+  my.result.message = 'Kosmos requires a Mac with Apple silicon (M1 or newer). This Mac has an Intel processor, which Kosmos does not support.';
+  my.result.type = 'Fatal';
+  return false;
+}
+  </script>
   <choices-outline>
     <line choice="default"><line choice="$IDENTIFIER"/></line>
   </choices-outline>
