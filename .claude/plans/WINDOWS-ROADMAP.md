@@ -14,7 +14,9 @@ else is required to continue.**
 **7c IS DONE, AND THE REHEARSAL PASSED END TO END: R1-R8, R3 included, and the
 board AND the fleet came back at a real logon, headless** (§2). BLOCKER 2 is off
 the v1 path: Josh approved 2026-09-10 that the first Windows release updates by
-hand, with a real updater as a fast-follow. What is left for v1 is shipping it.
+hand, with a real updater as a fast-follow. What is left for v1: the launcher
+hand-off, `kosmos msg` on Windows (§3c, it is dark in the zip), a clean-box first
+run (capability 1), and the publish.
 installkosmos.com still serves 0.6.37. A zip built from main passes every agent
 step on the box, and the launcher fix it needed is `win32-launch-handoff-570`
 (see "Do this next").
@@ -136,9 +138,9 @@ never `could_not`. `chat.setChannel` is the seam, with setRunner's interlock.
   `--continue` anywhere. `--resume` is used only INSIDE one supervisor's life (a
   crash restart). §3 used to say a reboot would resume; it does not, on either
   platform. A fresh boot files a new ownership row; stale rows are harmless
-  (nothing live matches them) but accumulate -- `win32stop` forgets on Stop, a
-  reboot or a task `/End` does not.
-- **DEFECT, small, not yet fixed: a crash-restarted agent resumes with an EMPTY
+  (nothing live matches them), and since #2737 a fresh start prunes the agent's
+  other rows, so they no longer accumulate.
+- ✅ **FIXED by #2722. It was: a crash-restarted agent resumed with an EMPTY
   `KOSMOS_AGENT_TOKEN`** (`launchStreaming` passes `s.token || ''` on resume and
   the supervisor never has one), so its self-reports are refused by /api/report
   on win32. Fix: mint a fresh token on resume and retire the dead run's.
@@ -164,7 +166,7 @@ shared usage before fanning out subagents.
 
 ## Do this next
 
-1. Merge win32-chat-arm-570 once its review converges and CI is green.
+1. ✅ win32-chat-arm-570 merged as #2661.
 2. ✅ **7c-5 DONE 2026-09-10** (branch win32-stream-state-570): state from the
    event stream (§4). The supervisor reads the agent's stdout and keeps its
    working/idle in `win32-state/<key>.json`, stamped with session id and pid;
@@ -179,7 +181,8 @@ shared usage before fanning out subagents.
 5. **A current Windows build and publish.** The pipeline exists; the site serves
    0.6.37.
    - A zip built from main 6182640d (0.6.55) passed every agent step on the box,
-     unpacked from a download marked as coming from the internet: sign-in via
+     unpacked through Explorer's shell with the Mark of the Web set, as a download
+would be: sign-in via
      the #2007 nonce, create, talk, restart, remove, restore, talk again.
    - It found one launcher defect. `Kosmos.exe` ran the board in the foreground of
      its own window: closing the window stopped the board, and every relaunch
@@ -320,7 +323,10 @@ is genuinely solid. What it did not touch is everything either side of it: getti
 Kosmos onto a machine at all, getting `claude` onto it, keeping the BOARD alive,
 and updating any of it. Those are capabilities 1, 6 and 7, and three of the four
 blockers live there. The rehearsal was never wrong — it was narrower than the bar
-in §1, and this file read it as broader for a day.
+in §1, and this file read it as broader for a day. (2026-09-11: the 7c-6 R8
+above now covers the BOARD at a real logon, and an update by hand has been run
+once, zip over zip. Getting Kosmos and `claude` onto a CLEAN machine is still
+unmeasured.)
 
 ---
 
@@ -696,7 +702,8 @@ STILL OWED HERE: the console window. A task-launched board has no visible window
 (measured: `MainWindowHandle` 0), which is right for a logon — but it also means
 the board's stdout goes nowhere, so the registration sentence printed at boot is
 seen only by somebody who started Kosmos from a console. And `KosmosLauncher.cs`
-is unchanged, so a hand-started board still dies with its window.
+runs a hand-started board in its own window, so it dies with that window; the fix
+is `win32-launch-handoff-570` (the board hands itself to this task).
 
 ### BLOCKER 4 CLOSED (2026-09-09) — `engine/win32board.js`
 
@@ -727,12 +734,11 @@ raised the subject while the answer was NO for every Windows board ever run. It
 now has a win32 arm — missing / switched off / in place — each naming the task and
 the removal command.
 
-📌 STILL OWED: a REAL LOGON. The trigger shape is byte-identical to the one R8
-measured firing at a real logon, and `/Run` was proven end to end, but the box was
-not rebooted. `KosmosLauncher.cs` is also unchanged, so a hand-started board still
-dies with its window.
+✅ A REAL LOGON, MEASURED 2026-09-11 (R8 of 7c-6): the board came back from this
+task at Josh's reboot, headless. A hand-started board still dies with its window
+until `win32-launch-handoff-570` lands.
 
-### Also found (DEGRADED), and it is waiting under BLOCKER 1
+### Also found (DEGRADED), and LIVE since 7c-4
 
 Every new agent's instructions are written with `kosmosCliShown()` baked in —
 "you can message another agent with `kosmos msg <name> ...`". `engine/clipath.js`
@@ -744,12 +750,12 @@ does not exist.
 `messages.js` describes the failure mode in its own comment: "an agent whose shell
 says 'command not found' never reaches the engine, so its failure leaves no
 trace." Masked today only because BLOCKER 1 means no agent can be asked to do
-anything — it becomes live the moment delivery lands.
+anything. It became live the moment delivery landed (7c-4), and it is still
+open: agents on the Windows zip are taught a `kosmos msg` that does not exist.
 
 ### What is still open
 
-Whether installkosmos.com actually serves the Windows zip today. The publish
-script only stages into a separate site checkout, so this repo cannot answer it.
+✅ Answered 2026-09-10: installkosmos.com serves a Windows zip, 0.6.37 (`/dist/latest-win.json`).
 
 ---
 
@@ -783,8 +789,10 @@ Honest gaps in this document:
 - **First run / install on Windows is unsurveyed.** Nobody has walked a clean
   Windows box from download to a working board. This is capability #1 and it is
   the only one with no evidence at all.
-- **Update-without-stranding has never been exercised.** The anchor design exists
-  precisely for it and is unit-tested, but no real update has been run.
+- **An update by hand has been run once (2026-09-11), not yet from a real old
+  release.** A candidate zip unpacked over a running install, then Kosmos.exe:
+  the board was replaced in 8.8s, and all 6 agents kept running (idle). The
+  in-app updater (capability 7) is still unbuilt.
 - **A broad Mac-only-assumption sweep is in flight.** A targeted sweep for
   tmux/launchctl found `chat.js` (the blocker) and `runningas.js` (degraded) as
   the only live call sites outside already-ported modules. A wider survey — for
@@ -797,19 +805,19 @@ Honest gaps in this document:
 ## 6. Sequencing
 
     NOW    merge #2537                      (done/in flight)
-    THEN   7c-1  streaming child            <- everything downstream depends on it
-           7c-2  board -> supervisor channel
-           7c-3  chat.js win32 arm
-           7c-4  state from the event stream
-           7c-5  rehearsal R1-R8 + R3
-    THEN   first-run survey + fix           (capability 1, currently unevidenced)
-           a real update, end to end        (capability 7)
-    THEN   Windows release
+    DONE   7c-1..7c-6 (the table in §3), and the supervisor fixes #2722-#2737
+    NOW    the launcher hand-off            win32-launch-handoff-570
+           the zip's README and manifest    win32-package-text-570
+           `kosmos msg` on Windows          (§3c)
+    THEN   first-run survey + fix           (capability 1, a clean box)
+    THEN   Windows release                  Baron builds on mortals from a
+                                            verified sha, this box verifies the
+                                            bytes, and a deploy serves it on
+                                            Josh's go
+    LATER  a real updater                   (capability 7, a fast-follow)
 
-⚠️ NO WINDOWS RELEASE UNTIL 7c LANDS. `SUPPORTED` gaining win32 is the same
-switch that arms live execution, so the claim and the capability cannot be
-separated — merging turns Windows on. Shipping now would give people agents they
-cannot talk to.
+✅ THE OLD RULE, "NO WINDOWS RELEASE UNTIL 7c LANDS", IS MET: 7c landed and R3
+passed. The gate now is the list above.
 
 ---
 
@@ -820,11 +828,9 @@ otherwise. 7c-1 decides the launch shape; 7c-2, 7c-3 and 7c-4 all consume it.
 Putting more workers on a dependency chain does not shorten it — it produces
 merge conflicts and rework.
 
-🛑 AND KOSMOS AGENTS CANNOT DO THIS WORK ON WINDOWS YET, which is the whole
-chicken-and-egg: an agent you cannot send a message to cannot be given a task.
-That is capability #4, the thing being built. Until 7c lands, parallelism has to
-come from Claude Code subagents (which work fine here and cost API tokens, not
-box RAM) rather than from the Kosmos fleet.
+📌 (Superseded 2026-09-11: 7c landed, so a Windows Kosmos agent CAN now be given a
+task. This paragraph used to say the fleet could not do this work on Windows yet,
+because an agent you cannot message cannot be given a task.)
 
 ⚠️ AND THE BOX'S MEASURED CAPACITY IS 3–4 AGENTS, NOT 8–12. The plan records
 "3-4 now, 6+ with [a second DIMM]" — 8–12 was the TARGET the second DIMM was
