@@ -873,7 +873,27 @@ function whoamiFor(card, known, live) {
        outlives the process, while "is this agent's Claude transcript stale" is
        about what the agent IS, and a crashed Codex agent is still a Codex agent.
        Empty means claude, the same default the supervisor records. */
-    const configuredRunner = (card && card.runner) || null;
+    const configuredRunner = (() => {
+      if (card && card.runner) return card.runner;
+      /* 🛑 A PANELESS CARD CARRIES `runner: null` BY CONSTRUCTION
+         (`engine/status.js:5912`, the only such site), so the marker above
+         cannot answer for exactly one of the cases this guard exists for. The
+         plist does not depend on a pane, and `accountForAgent` already reads it
+         on every request, so this costs nothing and closes the gap.
+         ⚠️ Its absent-runner default is `'claude'`, deliberately matching the
+         supervisor, so a plist written before runners existed reads as claude
+         and takes the old path rather than suppressing a model. */
+      /* 🛑 `recordedRunner`, NOT A SECOND READER OF THE PLIST. My first version
+         called `readJob(who).runner` directly, which is a duplicate of a
+         derivation this module already owns AND a weaker one: `recordedRunner`
+         falls back to the profile's provider when the plist cannot answer, so it
+         still knows an agent is codex when the job is missing or predates
+         runners. One fact, one place, and the existing place is better.
+         📌 It floors at `'claude'` rather than null, which is the safe direction
+         here: an agent nothing knows about takes the old path instead of having
+         its model suppressed. */
+      try { return create.recordedRunner(who); } catch { return null; }
+    })();
     const foreignRunner = !!((seen && seen.runner && seen.runner !== 'claude')
       || (configuredRunner && configuredRunner !== 'claude'));
     if (!foreignRunner && rec && rec.model) {
@@ -920,6 +940,14 @@ function whoamiFor(card, known, live) {
    screen is Codex, so the two agree here and the map exists so a third runner
    cannot be spelled two ways in two places. */
 function runnerDisplayName(runner) {
+  /* 📌 THE FALLBACK RENDERS A THIRD RUNNER LOWERCASE ("this is a gemini
+     agent"), and that is left as-is deliberately rather than "fixed" with a
+     capitalise. It is unreachable today: `agentUnder` returns only `claude` or
+     `codex`, and this is reached only for a non-claude one. Whoever adds a third
+     runner adds its real product name here, which is the point of the map; a
+     speculative transform would quietly produce a WRONG name instead of an
+     obviously unfinished one, and this file has already deleted one branch for
+     describing behaviour the code could not produce. */
   return runner === 'codex' ? 'Codex' : String(runner);
 }
 

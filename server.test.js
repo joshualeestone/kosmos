@@ -12115,6 +12115,70 @@ test('#2811: a DEAD Codex agent is not handed its old Claude model by the record
   }
 });
 
+test('#2811: a card with NO runner marker falls back to the launch job, not to the transcript', () => {
+  /**
+   * 🛑 THE CASE THE MARKER CANNOT ANSWER. A paneless card carries `runner: null`
+   * by construction (`engine/status.js:5912`, the only such site), so the
+   * `@kosmos_runner` marker is absent for exactly one of the cases this guard
+   * names. The launch job does not depend on a pane, so it answers there.
+   *
+   * 🔑 THE PLIST IS WRITTEN BY THE PRODUCT'S OWN WRITER (`create.plistFor`),
+   * not hand-rolled XML. A hand-rolled fixture answering a different question is
+   * the trap this branch already fell into once, with `--model` on a codex
+   * command line the supervisor never writes.
+   */
+  const { whoamiFor } = require('./server.js');
+  const create = require('./engine/create');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('jobcodex', { state: 'idle' })]);
+    const realCard = board.agents.find((a) => a && a.name === 'jobcodex');
+    assert.equal(realCard && realCard.runner, 'claude',
+      'a real pane card no longer carries a runner marker, so this fixture is not the paneless shape');
+    /* 🔑 DERIVED FROM A REAL CARD, not hand-built: `status.js:5912` emits
+       `runner: null` on a paneless card and changes nothing else, so nulling
+       that one field on a genuine card IS the paneless shape. Building a card
+       from scratch is what `fixture-discipline.test.js` exists to refuse, and it
+       would also let this test drift from what a card really carries. */
+    const card = { ...realCard, runner: null };
+    seedTranscript('jobcodex', 'claude-opus-5');
+
+    /* CONTROL FIRST: with no job on disk the record answers, so the arm below
+       cannot pass merely because the transcript was unreadable. */
+    assert.equal(create.readJob('jobcodex'), null, 'a job already exists, so the control is not clean');
+    const beforeJob = whoamiFor(card, [], { ok: false, because: 'no pane on this computer' });
+    assert.equal(beforeJob.model.id, 'claude-opus-5',
+      'the record answered nothing, so the arm below is vacuous');
+
+    /* Now give it a REAL codex launch job, written by the product. */
+    fs.writeFileSync(
+      create.plistPath('jobcodex'),
+      create.plistFor('jobcodex', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, '/Users/x/.codex', 'codex'),
+      'utf8',
+    );
+    assert.equal(create.readJob('jobcodex').runner, 'codex',
+      'the plist this test just wrote does not read back as codex');
+
+    const afterJob = whoamiFor(card, [], { ok: false, because: 'no pane on this computer' });
+    assert.equal(afterJob.model, null,
+      'an agent whose LAUNCH JOB says codex was handed the Claude model from its old transcript');
+
+    /* 🔑 AND THE ARM THAT DISCRIMINATES `recordedRunner` FROM A BARE `readJob`.
+       With the plist deleted, a plain job read knows nothing and the stale model
+       returns; the canonical reader still answers from the profile's provider,
+       which is exactly why it is the right reader and not merely the tidier one. */
+    fs.unlinkSync(create.plistPath('jobcodex'));
+    assert.equal(create.readJob('jobcodex'), null, 'the plist survived the unlink, so the arm is not about the profile');
+    require('./engine/store').writeProfile('jobcodex', { provider: 'openai' });
+    const viaProfile = whoamiFor(card, [], { ok: false, because: 'no pane on this computer' });
+    assert.equal(viaProfile.model, null,
+      'with no launch job, the profile provider was ignored and the stale Claude model came back');
+  } finally {
+    try { fs.unlinkSync(create.plistPath('jobcodex')); } catch { /* the test may have failed before writing it */ }
+    fleet.restore();
+  }
+});
+
 test('#2811: the sentence a Codex agent reads back actually says Codex', () => {
   /* 🔑 THE ONLY USER-VISIBLE SURFACE OF THE VERB. `install/kosmos` prints the
      `because` sentence and nothing else (it seds the field out of the body), and
