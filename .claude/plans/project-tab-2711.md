@@ -17,9 +17,15 @@ states, search expand, dialog always-visible) follow on their own branches.
   typing @, so the affordance survives. Removed the now-moot consolidated-only
   `display:none` rule for it, and the two dead `.composerhint` base CSS rules.
 - Item 12: the Files and Tasks "View All" doors both read "View All"
-  (capital V and A, Josh's exact words; the files door already did via JS, the
-  tasks door said "View all tasks" with an arrow). New `.pj-viewall` class
-  centres them and drops the `.linkish` underline for these two doors only.
+  (capital V and A, Josh's exact words). The files door already read "View All"
+  via JS and appends a file count ("View All 42") when there are more files than
+  shown; that pre-existing counted branch is out of scope here and untouched.
+  The tasks door said "View all tasks" with an arrow and now reads plain "View
+  All" (the tasks door stays deliberately count-free per #1346). New
+  `.pj-viewall` class centres both and drops the `.linkish` underline for these
+  two doors only. (Open question for Josh: whether "just the text View All"
+  means the files-door count should go too; left as-is for now, it is a tested
+  deliberate feature.)
 - Item 11: already satisfied on main (`.tkcards` is a flex column with
   `min-height:14rem` and `.tk-empty` has `margin:auto 0`, so the empty text
   centres). No change; Josh's shipped build lags main. Recorded for the card.
