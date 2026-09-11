@@ -64,6 +64,24 @@ Two parts:
 - Only `release.sh` sources the lib (via `kosmos_wait_for_quiet_box`/`kosmos_gate_or_abort`); the
   refactor preserves the return value, so cut gating is unchanged. No JS touched.
 
+## Seen and left out of scope (tracked)
+
+- **`tools/run-tests.sh:94` reads vm.loadavg field 2 INLINE** (`sysctl ... | awk '{print $2}'`) in
+  its machine-state banner, rather than calling `kosmos_box_load_1min`. This is a second derivation
+  of the field-2 fact (the "two copies of one fact" convention). Left out of scope deliberately: the
+  call is diagnostic-only (mislabelling a banner line, not gating a cut), and folding it requires
+  sourcing this lib into the CI-critical `run-tests.sh` entrypoint - a bigger blast radius that
+  deserves its own review. Tracked as kosmos#2750. (Both challenge reviewers flagged it.)
+
+## Risks
+
+- **`KOSMOS_LOADAVG_RAW` is an unguarded env seam.** Like the pre-existing `KOSMOS_FAKE_LOAD`, it has
+  no test-only guard, so if it leaked into an operator's real shell before a live `release.sh` cut it
+  would substitute a fixed load for the real one and silently defeat the guard. This is the SAME
+  class of risk `KOSMOS_FAKE_LOAD` already carries, not a new one, and the precedence
+  (`KOSMOS_FAKE_LOAD` short-circuits first) is sensible; the surface just doubled. Accepted as
+  consistent with the existing seam convention rather than adding a bespoke guard for one test knob.
+
 ## Weakest premise
 
 That the synthetic raw `'{ 1.11 5.55 9.99 }'` matches the real macOS `sysctl -n vm.loadavg` shape
