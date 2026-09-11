@@ -26,6 +26,9 @@ const crypto = require('node:crypto');
 const subscription = require('./subscription');
 const inflight = require('./inflight');
 const runners = require('./runners');
+// #2790: the codex-doctor-backed sign-in liveness. Top-level (no cycle: codexsigninlive
+// requires only ./runners, never this module).
+const codexsigninlive = require('./codexsigninlive');
 
 /* 🛑 A FUNCTION, NOT A CONST (#1337, found by Angel reviewing this branch).
    Frozen at require time, this made `list()` DISAGREE WITH ITSELF: the default
@@ -1133,13 +1136,28 @@ async function checkLive(dir) {
          dead    -> NONE + reauthRequired:true     ("sign in again"; codexauthprobe -> EXPIRED, reddens)
          unknown -> UNKNOWN                        (network/uncheckable; no driver action, no red)
        The never-signed-in (c) case is the `got.kind === 'absent'` return above (NONE,
-       reauthRequired:false); it does not reach here because there is no auth file to parse. */
-    const live = await require('./codexsigninlive').liveness(dir);
+       reauthRequired:false); it does not reach here because there is no auth file to parse.
+       📌 `reauthRequired` is CHATGPT-SCOPED: it is meaningful only for a sign-in (this branch
+       and the absent case). An apikey account has no "sign in again", so its returns leave the
+       field unset (falsy), and ICK's driver keys on `authMode === 'chatgpt'` before reading it.
+       ⏱ LATENCY, STATED HONESTLY (the #1885/#1921 off-tick rule). `liveness` runs `codex doctor`,
+       a live handshake, so on a COLD cache checkLive here blocks up to codexsigninlive.TIMEOUT_MS
+       (~20s) where it used to return UNKNOWN instantly. Bounded: a HEALTHY sign-in handshakes in
+       under a second (only a DEAD/slow one waits out the timeout, and there the caller is about to
+       learn it is broken), it is cached per home for one TTL, and codexauthprobe already warms the
+       cache off the request path for any account with a running agent. The board's 5s tick never
+       reaches here (only listLive/HTTP and codexauthprobe's async probe do). One aligned
+       consequence to know: create.accountConnectable (#1903) now gets a REAL verdict for a sign-in
+       instead of a fail-open UNKNOWN, so creating an agent on a confirmed-dead sign-in can now be
+       refused rather than silently bound -- which is exactly the silent-binding this card is about. */
+    const live = await codexsigninlive.liveness(dir);
     if (live === 'live') {
       return { state: STATE.CONNECTED, plan: null, checkedLive: true, reauthRequired: false, because: 'the OpenAI sign-in reached ChatGPT, so it is working' };
     }
     if (live === 'dead') {
-      return { state: STATE.NONE, plan: null, checkedLive: true, reauthRequired: true, because: 'signed in, but the OpenAI sign-in is not working right now; sign in again' };
+      // Says what was OBSERVED (codex could not reach OpenAI with this sign-in), not a claim we
+      // cannot prove offline (the credential is revoked) -- a persistent WSS block reads dead too.
+      return { state: STATE.NONE, plan: null, checkedLive: true, reauthRequired: true, because: 'signed in, but Codex could not reach OpenAI with this sign-in; try signing in again' };
     }
     return {
       state: STATE.UNKNOWN, plan: null, checkedLive: true, reauthRequired: false,

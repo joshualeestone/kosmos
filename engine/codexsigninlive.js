@@ -26,11 +26,19 @@
  *
  * 🛑 NEVER 'dead' ON A NETWORK FAULT (the #1930 never-false-red doctrine, applied to the
  * PRODUCE direction like codexauthprobe). 'dead' requires the endpoint to be reachable
- * (`provider_reachability` ok) so a refused handshake can only be the credential. A network
- * problem is UNKNOWN, never a red. The one accepted residual: a transient WS-only warning on
- * a HEALTHY sign-in (endpoint reachable, handshake momentarily failed) reads 'dead' for up to
- * one cache TTL, then self-heals on the next probe. That is bounded and self-healing, and it
- * replaces a PERMANENT silent-idle, which is the trade the card is about.
+ * (`provider_reachability`, an HTTPS probe, ok) so a refused handshake can only be the
+ * credential. A general network problem is UNKNOWN, never a red.
+ * ⚠️ THE RESIDUAL, STATED HONESTLY BECAUSE IT IS NOT ALWAYS SELF-HEALING. provider_reachability
+ * attests HTTPS, and the WS handshake is a DISTINCT property HTTPS cannot vouch for: an
+ * environment that allows HTTPS to chatgpt.com but blocks the WSS upgrade (a corporate proxy)
+ * reads provider-ok + ws-not-ok = 'dead' PERSISTENTLY, not for one TTL. Two things bound the
+ * harm. (1) A TRANSIENT ws blip on a healthy sign-in does self-heal within one TTL (the common
+ * residual). (2) A PERSISTENT ws block is rare, and in it codex genuinely cannot run (codex's
+ * own turn uses the same WSS backend), so flagging the agent as unable-to-run is the SAFE
+ * direction even though the "sign in again" affordance will not fix a proxy. Both are better
+ * than the PERMANENT silent-idle this replaces. The `because` below says what was observed
+ * (could not reach OpenAI with this sign-in), not a claim we cannot prove (the credential is
+ * revoked), so it does not overclaim the cause.
  *
  * OFF-TICK + CACHED like codexauthprobe: `codex doctor` is a live handshake with codex's own
  * ~15s WS timeout, so it must never run on the board's 5s tick. Callers cache the checkLive
@@ -75,8 +83,12 @@ function classify(stdout) {
 // and resolves { ok, stdout } | { ok:false } -- it never rejects, so a caller on a kicked
 // promise never sees an unhandled rejection.
 function defaultRunner(dir) {
-  let bin;
-  try { bin = runners.resolveBin('openai').bin; } catch { bin = null; }
+  let resolved;
+  try { resolved = runners.resolveBin('openai'); } catch { resolved = null; }
+  // .present, not just .bin: resolveBin returns a managed .bin path even when nothing is
+  // installed there, so spawning it would be a doomed execFile that ENOENTs. Short-circuit to
+  // 'unknown' (never a false dead) without the needless spawn when the runner is not runnable.
+  const bin = resolved && resolved.present ? resolved.bin : null;
   if (!bin) return Promise.resolve({ ok: false });
   const env = { ...process.env };
   // A null/empty dir means the default codex home; leave CODEX_HOME as the process inherits
