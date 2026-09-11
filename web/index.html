@@ -32437,14 +32437,25 @@ async function autoHelloAfterRestart(name, report, saidText, manualText) {
    autoHelloAfterRestart must observe the restart gap before accepting ready, so its
    earliest write is ~2 polls out, after the floor line has painted. */
 function autoHelloOnSwitchRestart(forAgent, shown, provName) {
+  const manualLine = 'Say hello to ' + shown + ' to reactivate them on ' + provName + '.';
+  const saidLine = 'Reactivated on ' + provName + ', and said hello to wake ' + shown + '.';
   autoHelloAfterRestart(forAgent,
     (t) => {
       const m = document.getElementById('chg-msg');
+      /* Write only if this is STILL the dialog `say` rendered for THIS restart: the
+         modal open, the agent unchanged, AND chg-msg still showing the exact manual
+         line say painted. The content check is what closes the reopen window that the
+         open+agent checks alone leave: RESTART_HELLO_SEQ supersedes only on a NEW
+         restart, so a Done-then-reopen of another changeDialog for the same agent (a
+         different switch, or the account-move dialog) within the readiness window would
+         otherwise be clobbered. A reopen resets chg-msg to '' (changeDialog line
+         `msg.textContent = ''`) then to that action's own message, so it no longer
+         equals manualLine and the resolution stands down. */
       if (m && !document.getElementById('chg-modal').hidden
-          && CURRENT && CURRENT.sessionName === forAgent) m.textContent = t;
+          && CURRENT && CURRENT.sessionName === forAgent
+          && m.textContent === manualLine) m.textContent = t;
     },
-    'Reactivated on ' + provName + ', and said hello to wake ' + shown + '.',
-    'Say hello to ' + shown + ' to reactivate them on ' + provName + '.');
+    saidLine, manualLine);
 }
 
 /**

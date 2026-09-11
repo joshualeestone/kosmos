@@ -135,11 +135,24 @@ function initStub() {
 
   // ---- Arm 4: the dialog is CLOSED mid-wait -> the write is suppressed ----
   const s4 = await run({ readyAfter: 2, mutate: () => { document.getElementById('chg-modal').hidden = true; } });
-  check('closed dialog: the confirmation is NOT written into a closed modal', s4.msg !== SAID, JSON.stringify(s4.msg));
+  check('closed dialog: the hello fired but the confirmation is NOT written into a closed modal',
+    s4.threadCalls === 1 && s4.msg === MANUAL, 'calls=' + s4.threadCalls + ' msg=' + JSON.stringify(s4.msg));
 
   // ---- Arm 5: the person SWITCHED agents mid-wait -> the write is suppressed ----
   const s5 = await run({ readyAfter: 2, mutate: () => { CURRENT = { sessionName: 'other', name: 'Other' }; } });
-  check('switched agent: the confirmation does NOT land in another agent\'s dialog', s5.msg !== SAID, JSON.stringify(s5.msg));
+  check('switched agent: the hello fired but the confirmation does NOT land in another agent\'s dialog',
+    s5.threadCalls === 1 && s5.msg === MANUAL, 'calls=' + s5.threadCalls + ' msg=' + JSON.stringify(s5.msg));
+
+  // ---- Arm 6: Done-then-REOPEN a different dialog for the same agent mid-wait ----
+  // The open+agent guards both pass (a changeDialog IS open for this agent), so only the
+  // content check (chg-msg still shows the exact manual line this helper rendered) stops
+  // the resolution from clobbering the reopened dialog's own message. Simulate the reopen
+  // by changing chg-msg to a different action's content mid-wait; the confirmation must
+  // NOT overwrite it.
+  const REOPENED = 'Setting up Anthropic';   // e.g. an account-move / provider interstitial caption
+  const s6 = await run({ readyAfter: 2, mutate: () => { document.getElementById('chg-msg').textContent = 'Setting up Anthropic'; } });
+  check('reopened dialog: the confirmation does NOT clobber a different dialog shown for the same agent',
+    s6.threadCalls === 1 && s6.msg === REOPENED, 'calls=' + s6.threadCalls + ' msg=' + JSON.stringify(s6.msg));
 
   // ---- The no-race invariant, guarded from source (not exercised by the arms above,
   // which drive the helper directly). The chg-msg confirmation must not be clobbered by

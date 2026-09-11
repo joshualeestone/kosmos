@@ -129,3 +129,18 @@ test('control: the page before this change left the dialog on Working… after a
   }
   assert.equal(got.keep.hidden, true);
 });
+
+test('#2716: both switch dialogs wire autoHelloOnSwitchRestart on a real restart', () => {
+  /* The behavioural driver above uses a NO-OP stub for autoHelloOnSwitchRestart, so it
+     cannot catch a regression that deletes or misorders the wiring at either call site.
+     This pins it from source: both changeModelNow and changeProviderNow must call
+     autoHelloOnSwitchRestart(forAgent, agentShown(), provName) inside their `if
+     (restarted)` branch. `lift` captures each full body (verified: it reaches the call).
+     A deleted or argument-swapped call reds here. The runtime guard/race behaviour of the
+     helper itself is covered by docs/browser-checks/render-autohello-switch-2716.js. */
+  for (const fn of ['changeModelNow', 'changeProviderNow']) {
+    const body = lift(page.scriptOf(CURRENT_PAGE), 'async function ' + fn + '(');
+    assert.match(body, /if \(restarted\) autoHelloOnSwitchRestart\(forAgent, agentShown\(\), provName\);/,
+      fn + ' no longer wires autoHelloOnSwitchRestart(forAgent, agentShown(), provName) on a real restart');
+  }
+});
