@@ -1683,12 +1683,17 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
   .kspin img { animation: none; opacity: 1; transform: none; }
 }
 /* #768-batch (Josh, 5.51.59): the restart interstitial shown in the change-model
-   dialog while an agent restarts. The Kosmos K (the same kbreathe mark, sized up)
-   over the "Restarting the agent" line, centred, so the wait reads as the restart
-   happening rather than a frozen dialog. */
+   dialog while an agent restarts. Centred K over the "Restarting the agent" line,
+   so the wait reads as the restart happening rather than a frozen dialog.
+   #2692 (Josh, design channel 2026-09-10): the mark here is now the BRANDED K
+   LOADER (the big K made of dots that gathers and opens back to the circle,
+   `startKLoader`), not the small breathing `.kspin` MARK -- Josh flagged that
+   pulsing icon as the wrong asset. `.chg-restart-k` is the canvas the loader
+   mounts into; the bitmap is 176x206 (2x for crispness) shown at 88x103, the
+   same proportions the update overlay uses so the K reads big. */
 .chg-restart { display: flex; flex-direction: column; align-items: center; gap: 12px;
   padding: 14px 0 6px; font: 600 .9375rem var(--font-ui); color: var(--k-ink); }
-.chg-restart .kspin img { width: 44px; height: 44px; }
+.chg-restart .chg-restart-k { width: 88px; height: 103px; display: block; }
 /* #2019 timedOut: an OVERRUN restart holds the K STILL and fully visible for
    everyone, not only reduced-motion users. The pulse means "in progress"; a
    restart that has not come back within its window is no longer in progress, so
@@ -27626,19 +27631,30 @@ let ROLES = null;          // the menu, fetched once
      on a screen whose rule is that nothing is asserted on a timer — it says
      "still working" without implying it knows how far along it is.
      ⚠️ A FUNCTION TAKING A CANVAS rather than the pack's IIFE bound to
-     `#kload`. Two screens need it (the update overlay, and the making-an-agent
-     step), and the overlay's canvas does not exist until the update starts. One
-     implementation, two mounts — a second copy would drift the first time the
-     mark changes.
-     📌 NOTHING STOPS THE LOOP, deliberately: every exit from the update overlay
-     is a page reload, so the frame callback dies with the document. A stop
-     handle nobody could call would be ceremony.
+     `#kload`. THREE screens need it now (the update overlay, the making-an-agent
+     step, and #2692 the restart interstitial), and the overlay's canvas does not
+     exist until the update starts. One implementation, several mounts - a second
+     copy would drift the first time the mark changes.
+     📌 THE LOOP SELF-TERMINATES WHEN ITS CANVAS LEAVES THE DOM (`!cv.isConnected`).
+     The update overlay and the making-an-agent step both exit by a page reload, so
+     for them the frame callback dies with the document either way; the guard is a
+     no-op there (their canvas stays connected until reload). #2692 added it because
+     the restart interstitial HIDES WITHOUT A RELOAD -- changeDialog replaces the
+     modal's message content on success/failure, which removes the canvas -- so a
+     naive reuse would leak an rAF loop drawing to a detached canvas forever. The
+     guard makes the loop stop the moment the interstitial is torn down, and needs
+     no external stop handle.
   ---- the making-it loader --------------------------------------------
      The K's own 155 dots, scattered and gathered on a loop. `p` runs 0 to 1
      and back, so the mark assembles, holds, and falls apart again -- which is
      the honest shape of "still working" rather than a bar that implies it
      knows how far along it is. */
   var K_LOAD = [6,5,2.9,14,4,3.5,22,6,3.2,29,6,2.6,93,5,2.1,100,6,2.9,108,5,2.9,117,5,3.2,5,12,2.8,13,14,3.1,21,12,3.2,29,12,2.8,85,12,2.8,93,13,3.5,101,12,3.6,108,14,2.2,6,21,3.5,13,22,2.4,21,22,3.2,29,21,2.3,77,20,2.8,84,21,3.4,93,21,3.6,102,21,3.4,5,30,3.4,14,29,3.6,22,28,2.5,29,29,3.5,69,29,2.5,76,28,2.8,84,28,2.7,93,30,3.1,4,37,2.5,12,37,2.7,20,36,2.8,29,38,3.4,61,38,2.8,70,37,3.5,77,37,3.5,86,38,2.7,92,36,2.7,5,45,3.5,14,45,3.5,21,45,2.8,30,46,2.9,61,44,2.7,69,44,3.0,77,46,3.6,86,45,2.6,6,53,2.5,14,53,3.4,21,53,3.0,29,53,2.4,53,54,2.8,61,52,3.3,69,53,2.7,77,54,2.2,5,62,2.2,13,62,3.0,21,62,3.0,29,62,2.6,46,61,2.7,54,62,3.5,61,62,3.7,69,61,2.8,5,69,3.0,13,70,2.4,22,69,2.4,29,70,2.6,38,69,2.5,45,69,3.4,54,69,2.9,61,69,2.3,69,70,2.3,5,78,2.6,12,77,3.0,20,77,2.1,30,78,3.1,38,77,3.6,45,77,3.2,53,78,3.4,61,78,2.6,68,76,2.6,6,86,3.7,13,86,2.5,20,86,2.2,29,86,2.9,37,84,2.9,46,85,2.3,54,85,2.8,61,86,2.5,70,85,2.1,76,86,2.2,4,94,3.5,13,92,2.9,22,93,3.6,30,92,2.5,38,93,3.5,52,93,2.6,61,93,2.3,70,93,2.7,77,92,2.2,86,93,2.3,5,101,3.4,13,101,2.9,21,101,3.2,30,101,2.3,62,100,2.3,70,101,2.7,76,101,2.3,84,101,2.8,93,101,2.8,5,109,2.5,13,109,2.7,21,110,3.3,29,110,3.6,69,109,2.8,76,110,3.5,85,109,3.6,93,109,2.5,4,117,2.8,13,117,3.4,22,117,3.4,29,116,2.5,69,117,2.2,77,116,3.2,85,117,2.3,92,117,2.9,101,118,2.5,5,125,2.2,13,126,3.3,22,125,2.3,29,124,2.7,77,124,2.6,84,125,3.2,93,126,2.4,100,125,3.1,110,125,3.0,5,133,3.5,12,133,3.0,21,134,3.3,29,134,2.5,84,133,2.9,93,134,2.2,101,132,3.3,110,133,3.5,4,141,3.6,12,141,3.0,22,142,3.1,29,141,3.3,86,141,2.2,93,142,3.0,102,141,2.8,109,140,3.3,117,141,2.3];
+  /* One full gather-hold-open loop of the loader, in ms. #2692 needs this shared
+     with the restart interstitial's minimum hold (Josh asked it to show for "at
+     least ... a single animation of the K animating into the circle"), so it lives
+     here as the one source rather than a magic 4400 duplicated at the two sites. */
+  const K_LOADER_CYCLE_MS = 4400;
   function startKLoader(cv) {
     if (!cv || !cv.getContext) return;
     var g = cv.getContext('2d');
@@ -27775,6 +27791,12 @@ let ROLES = null;          // the menu, fetched once
 
     var t0 = null;
     function tick(ts) {
+      /* #2692: stop when the canvas has left the DOM. The restart interstitial
+         tears its canvas down without a page reload (changeDialog replaces the
+         modal's content), so without this the rAF loop would run forever drawing
+         to a detached canvas. Benign for the reload-exit mounts: their canvas
+         stays connected until the reload that ends the loop anyway. */
+      if (!cv.isConnected) return;
       if (t0 === null) t0 = ts;
       var el = ts - t0;
       if (finishing) {
@@ -27784,7 +27806,7 @@ let ROLES = null;          // the menu, fetched once
         if (m < 1) requestAnimationFrame(tick);
         return;
       }
-      var cycle = (el % 4400) / 4400;
+      var cycle = (el % K_LOADER_CYCLE_MS) / K_LOADER_CYCLE_MS;
       /* Gather, hold, open back out. The old timing gave the collapse a third
          of the time the build got, so the mark fell apart three times faster
          than it came together and snapped to a stop. Opening out is now nearly
@@ -29330,15 +29352,26 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
   keep.onclick = close;
   goBtn.onclick = async () => {
     goBtn.disabled = true; keep.hidden = true;
-    /* busyHtml is app-generated markup (the .kspin K markup + a caption that is either a fixed
-       literal -- RESTART_BUSY_HTML for the model switch -- or an app-DERIVED provider label from
-       chgBusyHtml, e.g. "Setting up OpenAI"), never user input, so
-       innerHTML is safe here; the plain path keeps textContent. In the interstitial
-       (busyHtml) case, hide the now-decided confirm question's button and small text so
-       the restart reads as a clean interstitial rather than a line tacked under the
-       question -- the title stays for context and to keep the dialog's aria-labelledby
-       target present. Both are reset at the top of the next changeDialog. */
-    if (busyHtml) { goBtn.hidden = true; sm.hidden = true; msg.innerHTML = busyHtml; }
+    /* busyHtml is app-generated markup (#2692: the branded K-loader canvas markup +
+       a caption that is either a fixed literal -- RESTART_BUSY_HTML for the model
+       switch -- or an app-DERIVED provider label from chgBusyHtml, e.g. "Setting up
+       OpenAI"), never user input, so innerHTML is safe here; the plain path keeps
+       textContent. In the interstitial (busyHtml) case, hide the now-decided confirm
+       question's button and small text so the restart reads as a clean interstitial
+       rather than a line tacked under the question -- the title stays for context and
+       to keep the dialog's aria-labelledby target present. Both are reset at the top
+       of the next changeDialog. */
+    if (busyHtml) {
+      goBtn.hidden = true; sm.hidden = true; msg.innerHTML = busyHtml;
+      /* #2692: drive the branded K loader on the canvas the markup just injected.
+         It must be in the document first (the loop reads the canvas), which it now
+         is -- the modal is already open. startKLoader no-ops on a missing/invalid
+         canvas, so a future busyHtml without one is safe; its rAF loop self-
+         terminates when this canvas is torn down (see the isConnected guard), so
+         nothing needs to stop it when the sentence renders over the interstitial. */
+      const kcv = msg.querySelector('canvas.chg-restart-k');
+      if (kcv) startKLoader(kcv);
+    }
     else { msg.textContent = 'Working…'; }
     const busyStart = Date.now();
     /* 🛑 EVERY WAY OUT OF THIS MODAL USED TO LIVE INSIDE `say` (#1313). Press the
@@ -30543,23 +30576,30 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
     run: (say) => changeProviderNow(say),
   });
 });
-/* #768-batch (Josh, 5.51.59): the restart interstitial. The K breathes over
+/* #768-batch (Josh, 5.51.59): the restart interstitial. The branded K loader plays over
    "Restarting the agent" while the switch is in flight.
-   #2463 follow-up (Mona): RESTART_HOLD_MS is a ~2s FLOOR, not a fixed hold. The
+   #2463 follow-up (Mona): RESTART_HOLD_MS is a FLOOR, not a fixed hold. The
    interstitial already stays up until the restart finishes -- `run` awaits the POST and
    only then calls `say`, and changeDialog holds for the REMAINDER of minBusyMs
    (`Math.max(0, minBusyMs - elapsed)`), so a slow restart is covered by the await and a
-   fast one still shows the K for the floor. The old value was an arbitrary ~10s, which
-   made every fast restart sit a needless 10s; 2s is enough to read as "restarting"
-   without stalling. A named constant so it is one edit to tune. App-generated markup only
-   (no user input), safe for innerHTML. */
-const RESTART_HOLD_MS = 2000;
-/* The breathing-K interstitial markup, parameterised by its line so the provider switch can
-   say "Setting up OpenAI" while the model switch says "Restarting the agent". `line` is an
-   app-generated fixed literal or an app-derived provider label, never user input, so the
-   innerHTML at the changeDialog call site stays safe. */
-const chgBusyHtml = (line) => '<span class="chg-restart"><span class="kspin" aria-hidden="true">'
-  + '<img src="/icons/kosmos-48.png" alt="" width="44" height="44"></span>' + line + '</span>';
+   fast one still shows the K for the floor. The old value was an arbitrary ~10s.
+   #2692 (Josh, design channel 2026-09-10): Josh asked the loader to show for "at least a
+   minimum of 2 full seconds, or at least as long as a single animation of the K animating
+   into the circle is." One full loop of the loader is K_LOADER_CYCLE_MS (4400ms), longer
+   than 2s, so the floor is max(2000, one cycle) -- a fast restart still shows one whole
+   K-into-circle animation. Derived from the loader's own cycle constant so the two cannot
+   drift. A named constant so it is one edit to tune. App-generated markup only (no user
+   input), safe for innerHTML. */
+const RESTART_HOLD_MS = Math.max(2000, K_LOADER_CYCLE_MS);
+/* #2692: the branded-K-loader interstitial markup, parameterised by its line so the provider
+   switch can say "Setting up OpenAI" while the model switch says "Restarting the agent".
+   The canvas is the loader's mount (startKLoader is driven on it at the changeDialog call
+   site, once it is in the document); it is decorative (aria-hidden) because `line` is the
+   announced text. `line` is an app-generated fixed literal or an app-derived provider label,
+   never user input, so the innerHTML at the changeDialog call site stays safe. */
+const chgBusyHtml = (line) => '<span class="chg-restart">'
+  + '<canvas class="chg-restart-k" width="176" height="206" aria-hidden="true"></canvas>'
+  + line + '</span>';
 const RESTART_BUSY_HTML = chgBusyHtml('Restarting the agent');
 document.getElementById('d-model-go').addEventListener('click', () => {
   const sel = document.getElementById('d-model');
