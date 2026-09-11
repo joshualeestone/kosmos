@@ -4188,9 +4188,13 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
          and its own width rule lives in a min-width block, so below 60rem a
          consolidated search would otherwise fall back to the base 15rem basis
          and balloon; this arm is what protects it.
-       - the two body:not(.consolidated) arms (0,4,1)/(0,5,1) additionally beat
-         the item-4 rest and focus rules in the tab view; a media query adds no
-         specificity, so a bare (0,3,0) match would lose to them there. */
+       - the two body:not(.consolidated) arms MATCH the item-4 rest and focus
+         rules' specificity ((0,4,1)/(0,5,1)) rather than exceeding it, so they
+         win the tie ONLY because this block sits LATER in source order. A bare
+         (0,3,0) arm could not, since a media query adds no specificity.
+     🛑 This block MUST stay after the item-4 rules above. Reordering it (or
+     moving the media block up while "keeping the specificity") breaks the tie
+     the other way and silently reintroduces the height-balloon this fixes. */
   .pjmidhead:has(.pjhead) .tsearch, body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch, body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex: none; }
 }
 /* ⚠️ THE MESSAGES GET A BOX OF THEIR OWN, matching Project members and Tasks:
