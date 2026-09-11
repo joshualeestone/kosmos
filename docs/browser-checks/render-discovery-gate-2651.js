@@ -18,7 +18,8 @@
  * ⚠️ THE LOAD AND PRESS ARMS ARE LOAD-BEARING AS A PAIR. An "on load the panels are
  * hidden" arm alone passes on a page that never shows them at all, which would delete the
  * feature rather than gate it. The press arm proves the explicit press still opens them.
- * The later arms cover the focus behaviour on the empty-look and dismissed outcomes.
+ * The later arms cover the focus behaviour on the dismissed, empty-look, and scan-only
+ * outcomes, and the tab-switch race where a person leaves the Agents tab mid-fetch.
  *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-discovery-gate-2651.js
@@ -163,6 +164,60 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     return { shownBefore, triggerHidden: tr.hidden, focusId: (document.activeElement && document.activeElement.id) || '' };
   });
 
+  /* Arm 5 - ONLY SCAN VISIBLE. Found finds nothing but scan has a candidate, so only the
+     scan panel opens. The focus branch must fall THROUGH the empty found panel to the scan
+     toggle (not the found toggle, and not <body>). This is the "only scan visible" branch of
+     the focus ternary, which arms 2-4 never exercise. */
+  const page4 = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+  await page4.goto('file://' + PAGE);
+  const so = await page4.evaluate(async () => {
+    const bb = document.getElementById('boardbar');
+    if (!bb) return { error: 'boardbar is gone' };
+    bb.hidden = false;
+    window.fetch = (u) => {
+      const url = String(u);
+      if (url.indexOf('/api/found-agents') !== -1) return Promise.resolve({ ok: true, json: async () => ({ ok: true, agents: [] }) });
+      if (url.indexOf('/api/scan-agents') !== -1) return Promise.resolve({ ok: true, json: async () => ({ ok: true, candidates: [{ dir: '/tmp/y/only-scan' }] }) });
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    };
+    const fw = document.getElementById('found-wrap');
+    const sw = document.getElementById('scan-wrap');
+    const look = document.getElementById('found-scan-look');
+    if (!fw || !sw || !look) return { error: 'a wrap or the button is missing' };
+    look.click();
+    await new Promise((res) => setTimeout(res, 150));
+    return { foundHidden: fw.hidden, scanHidden: sw.hidden, focusId: (document.activeElement && document.activeElement.id) || '' };
+  });
+
+  /* Arm 6 - TAB-SWITCH RACE. The click handler awaits the paints, so a person can leave the
+     Agents tab while the fetch is in flight. When the post-await focus code then runs it must
+     NOT yank focus back onto the Agents tab the person already left. Hold the fetch on a gate,
+     flip the tab off Agents, release, and assert focus was not stolen. Without the onAgentsTab()
+     guard the dismissed-style fallback focuses the Agents tab, so this reds. */
+  const page5 = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+  await page5.goto('file://' + PAGE);
+  const rc = await page5.evaluate(async () => {
+    const bb = document.getElementById('boardbar');
+    if (!bb) return { error: 'boardbar is gone' };
+    bb.hidden = false;
+    let release;
+    const gate = new Promise((res) => { release = res; });
+    window.fetch = (u) => {
+      const url = String(u);
+      if (url.indexOf('/api/found-agents') !== -1) return gate.then(() => ({ ok: true, json: async () => ({ ok: true, agents: [] }) }));
+      if (url.indexOf('/api/scan-agents') !== -1) return gate.then(() => ({ ok: true, json: async () => ({ ok: true, candidates: [] }) }));
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    };
+    const look = document.getElementById('found-scan-look');
+    if (!look) return { error: 'button missing' };
+    look.click();            // handler awaits Promise.all([paints]), pending on the gate
+    bb.hidden = true;        // the person leaves the Agents tab while the fetch is in flight
+    release();               // the fetches settle; the post-await focus code now runs
+    await new Promise((res) => setTimeout(res, 150));
+    const af = document.activeElement;
+    return { focusTab: (af && af.getAttribute && af.getAttribute('data-tab')) || null };
+  });
+
   await browser.close();
 
   if (r.error) { console.error('FAIL  render-discovery-gate-2651: ' + r.error); process.exit(1); }
@@ -191,6 +246,18 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     if (em.triggerHidden !== false) fail.push('empty-look arm: the trigger did not stay shown after a look that found nothing (it is the re-look affordance)');
     if (em.focusId !== 'found-scan-look') fail.push('empty-look arm: focus did not return to the trigger button after an empty look (dropped to "' + em.focusId + '"; the disable blurred it and it was never restored)');
   }
+  if (so.error) {
+    fail.push('scan-only arm errored: ' + so.error);
+  } else {
+    if (so.foundHidden !== true) fail.push('scan-only arm: the empty found panel did not stay hidden');
+    if (so.scanHidden !== false) fail.push('scan-only arm: the scan panel did not open when it had the only candidate');
+    if (so.focusId !== 'scan-toggle') fail.push('scan-only arm: focus did not fall through to the scan toggle (landed on "' + so.focusId + '"); the only-scan-visible focus branch is wrong');
+  }
+  if (rc.error) {
+    fail.push('tab-switch race arm errored: ' + rc.error);
+  } else if (rc.focusTab === 'agents') {
+    fail.push('tab-switch race arm: focus was yanked to the Agents tab after the person left it mid-fetch (the onAgentsTab guard is missing)');
+  }
   if (fail.length) {
     /* One-line reason after the marker so the release runner's reason-grep can quote
        it (a multi-line "FAIL  <name>:\n  - ..." leaves the FAIL line's reason empty). */
@@ -198,5 +265,5 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     console.error('  load=' + JSON.stringify(r.load) + '  afterClick=' + JSON.stringify(r.afterClick));
     process.exit(1);
   }
-  console.log('render-discovery-gate-2651 (4 arms): on load the panels stay hidden and only the "Look for agents" trigger shows; the press opens both found and scan, hides the trigger, and moves focus into the opened panel; a Dismissed-forever user is not re-offered the trigger and focus falls back to the Agents tab, not <body>; an empty look keeps the trigger shown and returns focus to the button. PASS');
+  console.log('render-discovery-gate-2651 (6 arms): on load the panels stay hidden and only the "Look for agents" trigger shows; the press opens both found and scan, hides the trigger, and moves focus into the opened panel; a Dismissed-forever user is not re-offered the trigger and focus falls back to the Agents tab, not <body>; an empty look keeps the trigger shown and returns focus to the button; a scan-only result focuses the scan toggle; and a tab switch mid-fetch does not yank focus back to Agents. PASS');
 })().catch((e) => { console.error('FAIL  render-discovery-gate-2651', e && e.message); process.exit(1); });

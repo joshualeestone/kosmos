@@ -15307,7 +15307,7 @@ async function tick() {
        settled `hidden` state. Fire-and-forget (like the un-awaited paints above) so a slow
        or failed found/scan fetch never blocks the grid; the paints swallow their own fetch
        errors, and the .catch is a backstop against an unhandled rejection in the poll. */
-    if (onAgentsTab()) { paintRemoved(); paintSurvival(); (async () => { await paintFoundBoard(); await paintScanBoard(); paintDiscoveryTrigger(); })().catch(() => {}); }
+    if (onAgentsTab()) { paintRemoved(); paintSurvival(); (async () => { await Promise.all([paintFoundBoard(), paintScanBoard()]); paintDiscoveryTrigger(); })().catch(() => {}); }
   } catch (err) {
     // ⚠️ Recorded and REPAINTED, not just written into `#grid`. The picker in
     // the add-a-project flow reads these globals, that flow hides `#grid`, and
@@ -15530,7 +15530,7 @@ function showTab(tab) {
     if (rw) rw.hidden = true;
     /* Leaving the screen is what finishes a repair report; see SURVIVAL_HELD. */
     SURVIVAL_HELD = false;
-  } else { paintRemoved(); paintSurvival(); (async () => { await paintFoundBoard(); await paintScanBoard(); paintDiscoveryTrigger(); })().catch(() => {}); }
+  } else { paintRemoved(); paintSurvival(); (async () => { await Promise.all([paintFoundBoard(), paintScanBoard()]); paintDiscoveryTrigger(); })().catch(() => {}); }
   PANELS.forEach((p) => { document.getElementById('panel-' + p).hidden = (p !== tab); });
   /* #1615: un-blue + tear down the Plus canvases when leaving Settings (or when
      the Settings section is not Plus); re-blue + re-mount on return. The Settings
@@ -25710,7 +25710,12 @@ async function paintFoundBoard() {
 
   let body = null;
   try {
-    const res = await fetch('/api/found-agents', { cache: 'no-store' });
+    /* #2651 (review): bound the fetch so a hung backend cannot strand the caller. On
+       the poll a stalled fetch was harmless, but the "Look for agents" click disables
+       its button and only re-enables it in a finally after this await, so an unbounded
+       hang would leave that one control stuck disabled until a reload. AbortSignal.timeout
+       matches the pattern the other interactive fetches in this file use. */
+    const res = await fetch('/api/found-agents', { cache: 'no-store', signal: AbortSignal.timeout(8000) });
     /* A look that failed leaves the panel exactly as it was rather than saying
        there is nothing to add. This whole feature exists because a silence was
        read as an all-clear. */
@@ -25851,7 +25856,9 @@ async function paintScanBoard() {
 
   let body = null;
   try {
-    const res = await fetch('/api/scan-agents', { cache: 'no-store' });
+    /* #2651 (review): bound the fetch (see the found-agents twin) so a hung backend cannot
+       leave the "Look for agents" button stuck disabled. */
+    const res = await fetch('/api/scan-agents', { cache: 'no-store', signal: AbortSignal.timeout(8000) });
     /* A scan that failed leaves the panel exactly as it was rather than claiming
        there is nothing to add -- the same rule the found panel keeps. */
     if (!res.ok) return;
@@ -26337,8 +26344,10 @@ document.getElementById('found-scan-look').addEventListener('click', async () =>
   const look = document.getElementById('found-scan-look');
   look.disabled = true;
   try {
-    await paintFoundBoard();
-    await paintScanBoard();
+    /* #2651 (review): run the two paints concurrently (they hit different endpoints and
+       touch different elements), then sequence the trigger + focus after BOTH settle.
+       Awaiting them in series doubled the press latency for no reason. */
+    await Promise.all([paintFoundBoard(), paintScanBoard()]);
   } catch { /* the paints swallow their own fetch errors; this only guards an unexpected throw */ }
   finally {
     /* finally, so a throw in either paint can never leave the button permanently disabled
@@ -26360,17 +26369,23 @@ document.getElementById('found-scan-look').addEventListener('click', async () =>
          re-look affordance keeps focus;
        - dismissed-forever learned via this very press (the trigger row is now gone and the
          discovery region holds no control) -> the Agents tab, where the person still is,
-         rather than a stranded <body>. */
-  const trig = document.getElementById('found-scan-trigger');
-  if (trig && !trig.hidden) {
-    look.focus();
-  } else {
-    const fw = document.getElementById('found-wrap');
-    const sw = document.getElementById('scan-wrap');
-    const target = (fw && !fw.hidden && document.getElementById('found-toggle'))
-      || (sw && !sw.hidden && document.getElementById('scan-toggle'))
-      || document.querySelector('.tab[data-tab="agents"]');
-    if (target && typeof target.focus === 'function') target.focus();
+         rather than a stranded <body>.
+     🔑 Guarded on onAgentsTab(): the paints are awaited, so the person can switch tabs
+     while the fetch is in flight. If they have left the Agents tab by the time this runs,
+     restoring focus (especially the Agents-tab fallback) would YANK it back onto a tab they
+     already navigated away from. Leave focus wherever their tab switch put it. */
+  if (onAgentsTab()) {
+    const trig = document.getElementById('found-scan-trigger');
+    if (trig && !trig.hidden) {
+      look.focus();
+    } else {
+      const fw = document.getElementById('found-wrap');
+      const sw = document.getElementById('scan-wrap');
+      const target = (fw && !fw.hidden && document.getElementById('found-toggle'))
+        || (sw && !sw.hidden && document.getElementById('scan-toggle'))
+        || document.querySelector('.tab[data-tab="agents"]');
+      if (target && typeof target.focus === 'function') target.focus();
+    }
   }
 });
 
