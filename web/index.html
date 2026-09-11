@@ -4453,8 +4453,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* #2660 (Josh, 2026-09-10): the person's OWN message wears a faint ROYAL BLUE
    (#4171E3), replacing the old gold. Fill only, NO stroke, so a message you
    posted reads apart from the plain agent rows -- the agent side renders as
-   `.dm.theirs` (dmRow, since #175) and takes the `.dm-b` default, which is now
-   `transparent`, so only `.mine` carries a fill. The colour is the
+   `.dm.theirs` (dmRow, since #175) and, as of #2805, carries its OWN light-gray
+   `--k-sunk` fill (the rule just below), so both sides are now tinted rather than
+   only `.mine`. The colour of THIS rule is the
    `--usermsg-tint` token, defined per theme beside --k-sunk (10% light, 15%
    dark), so this ONE rule covers both themes and both surfaces that emit a
    `dm mine` bubble -- the to-agent DM view (dmRow) and the project room. Its

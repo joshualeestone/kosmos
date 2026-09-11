@@ -82,6 +82,11 @@ const FX = {
     ignoreDefaultArgs: ['--hide-scrollbars'],
   });
   try {
+    // Light and dark only, deliberately. The navy "world" theme's `--k-sunk` is
+    // rgba(120,150,200,.08) -- a bluish inset by that theme's own design language,
+    // not a neutral gray -- so the neutral-gray arm (d) is a light/dark claim and
+    // navy is out of its scope. The other arms (filled, not-blue, reads-against-
+    // panel) would hold there too, but are not asserted here.
     for (const theme of ['light', 'dark']) {
       const page = await browser.newPage({ viewport: { width: 1100, height: 900 }, colorScheme: theme });
       const errs = [];

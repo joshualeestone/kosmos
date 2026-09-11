@@ -1,4 +1,4 @@
-# Plan: kosmos#2805 — agent messages get a very light gray bubble
+# Plan: kosmos#2805 -- agent messages get a very light gray bubble
 
 ## The request
 
@@ -11,8 +11,8 @@ the DM view to read as its own light-gray bubble, blue staying for the user.
 
 The "Talk to <agent>" DM view (`web/index.html`, `#d-dmthread`, rows drawn by
 `dmRow`). A person's message is `.dm.mine .dm-b` (royal-blue `--usermsg-tint`,
-from #2660). An agent's message is `.dm.theirs .dm-b` — created when a stored
-message carries a `from` field — and since #2660 it has been `transparent`.
+from #2660). An agent's message is `.dm.theirs .dm-b` -- created when a stored
+message carries a `from` field -- and since #2660 it has been `transparent`.
 
 This is the only surface with both a user bubble and an agent bubble: in the
 project room the agent side is read live off the pane and is not stored, so
@@ -20,14 +20,14 @@ project room the agent side is read live off the pane and is not stored, so
 
 ## The change
 
-`.dm.theirs .dm-b { background: var(--k-sunk); }` — restoring the exact agent
+`.dm.theirs .dm-b { background: var(--k-sunk); }` -- restoring the exact agent
 tint #2660 removed. Rationale:
 
 - `--k-sunk` is the system's subtle neutral inset gray, defined per theme in the
   same four blocks as `--usermsg-tint` (5% light, 6% dark, 8% navy), so one rule
   covers light/dark/navy, mirroring the blue rule.
 - NOT `--k-bg` (the #2711 file-card gray): #faf9f7 sits on the now-white
-  (`--k-surface`) DM panel and is all but invisible on it — the dissolve trap the
+  (`--k-surface`) DM panel and is all but invisible on it -- the dissolve trap the
   file's own note already records (a `.theirs` fill that took the surface colour
   had no visible bubble). #2711 made the dialog white precisely so a light-gray
   agent bubble reads.
@@ -36,7 +36,7 @@ tint #2660 removed. Rationale:
 
 Two stale comments are corrected: the `.dm-b` default note ("agent side carries
 NO fill") and the "there is no rule for `.theirs`" note (which argued against
-adding one — now superseded by #2805, with the dissolve reason preserved as the
+adding one -- now superseded by #2805, with the dissolve reason preserved as the
 reason `--k-sunk` and not `--k-bg`/`--k-surface` is the right token).
 
 ## Guard
@@ -53,7 +53,7 @@ negative control (rule -> transparent) reds it on 4 arms.
 ## Rejected
 
 - `--k-bg`: too close to the white surface for a borderless bubble (dissolve).
-- A dedicated `--agentmsg-tint` token: redundant — `--k-sunk` is literally the
+- A dedicated `--agentmsg-tint` token: redundant -- `--k-sunk` is literally the
   gray this row wore before #2660, and adding a token duplicating its per-theme
   values is over-engineering.
 - Changing the shared `.dm-b` default instead of scoping to `.dm.theirs`: less
