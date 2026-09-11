@@ -71,7 +71,24 @@ function fnSource(name) {
   let depth = 0; let open = false;
   for (let i = start; i < CODE.length; i += 1) {
     if (CODE[i] === '{') { depth += 1; open = true; }
-    else if (CODE[i] === '}') { depth -= 1; if (open && depth === 0) return CODE.slice(start, i + 1); }
+    else if (CODE[i] === '}') {
+      depth -= 1;
+      if (open && depth === 0) {
+        const src = CODE.slice(start, i + 1);
+        /* 🛑 OVER-CAPTURE MUST FAIL LOUDLY. This counts braces without understanding
+           strings, so a `{` inside a string literal would unbalance it and swallow the
+           functions that follow -- and then an assertion about THIS renderer would pass
+           on a NEIGHBOUR's versioned URL, which is the wrong-reason pass this whole file
+           exists to avoid. Sound on today's page (verified: no extraction contains
+           another top-level declaration); guarded so it stays that way. */
+        const swallowed = src.match(/\nfunction [A-Za-z0-9_$]+\(/g);
+        assert.equal(swallowed, null,
+          'extracting `' + name + '` swallowed ' + (swallowed || []).length + ' later function(s): '
+          + JSON.stringify(swallowed) + '. A brace inside a string literal has unbalanced the '
+          + 'match, so assertions about this renderer may be reading a neighbour code.');
+        return src;
+      }
+    }
   }
   throw new Error('could not find the end of ' + name);
 }
