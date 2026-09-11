@@ -60,16 +60,23 @@ affordance (stale-clear) was one Josh explicitly asked to remove from the defaul
 - Trimming only the chrome (heading/explainer/picker/Hide/"not sent yet") but keeping the room
   question+composer in Off: Josh's enumeration named the composer and the question text too, so
   the whole room surface is what he pointed at. Kept as the documented alternative if I misread.
-- Removing the `#pj-thread` markup or the Hide/dismiss machinery: out of scope and higher risk.
-  The dismiss (`PJ_THREAD_HIDDEN`, Hide button, breadcrumb) becomes vestigial with the Off surface
-  gone, but leaving the markup is the minimal, reversible change. The Hide button was ALREADY a
-  no-op in Engineering mode before this change (box always shown when ENG_ON), so this introduces
-  no NEW dead control in the view engineers see.
+- (Superseded during implementation.) I first planned to LEAVE the Hide/dismiss machinery as
+  vestigial (minimal change). I changed course and REMOVED it fully -- the head "Hide" button, the
+  `#pj-thread-show` breadcrumb, the `PJ_THREAD_HIDDEN` flag, both click handlers, and their CSS --
+  because with the Off surface gone the dismiss has no live purpose in any mode (the Hide button was
+  ALREADY a no-op in Engineering mode, box always shown when ENG_ON), it left a write-only
+  `PJ_THREAD_HIDDEN` (dead code), and Josh's #2691 message named "the hide link" for removal. The
+  "Not waiting? Clear it" STATE-clear control is KEPT (it is a distinct engine-backed feature),
+  now reachable in Engineering mode. This is what shipped; see the Change set below.
 
 ## Change set
-1. `web/index.html` `pjApplyEngMode()`: gate `box.hidden = !ENG_ON;` and force
-   `crumb.hidden = true` always. Drop the now-unused `q`/`asking` locals in this function
-   (nothing else in the function uses them).
+1. `web/index.html` `pjApplyEngMode()`: gate `box.hidden = !ENG_ON;` and drop the now-unused
+   `q`/`asking` locals and the whole breadcrumb block (nothing else in the function uses them).
+   Then remove the dismiss machinery outright: the `#pj-thread-hide` (Hide) and `#pj-thread-show`
+   (breadcrumb) markup, their `.pj-thread-hide`/`.pj-thread-show` CSS, the `PJ_THREAD_HIDDEN`
+   declaration, and both click handlers. Reconcile the sibling comments (#370 header, the
+   `pjApplyEngMode` header, the `#pj-answer-how` note, the pj-clear-state test header) so none
+   still describes the removed Off-mode behavior.
 2. `web.fold-boxes.test.js`: rewrite the truth-table to assert the NEW behavior - Off hides the
    box whether or not an agent is asking; Off never shows the breadcrumb; ENG shows the box. Keep
    the #370 base assertion (Off folds to one composer) and re-document the #2691 walk-back + the
