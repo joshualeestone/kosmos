@@ -34,13 +34,22 @@ focus/event state, not fragile geometry):
   Button/confirm DOM state, no geometry.
 - **render-plus-gate-1615** - the Kosmos Plus tab gates the on-switch on enrolment: an
   unenrolled machine shows state-1 with NO "Turn on" switch; an enrolled one shows the
-  switch. Presence/absence of the switch, pure DOM.
+  switch. Reads presence/absence of the switch via a COARSE getBoundingClientRect height
+  (>0 / ===0 via waitForFunction). NOT pure file://: it boots its own in-process server
+  (srv.start(0) on a random port) against fresh mkdtemp AGENT_WORKFORCE_* roots set before
+  require('server.js'), with /api/remote page-route-stubbed and the server closed in finally
+  - sandbox-safe, touches no live board.
 - **render-remove-force-2651** - the untied-remove override affordance shows only in the
-  untied-refusal state and NOT in any other removal state. Drives the real loadRemoval();
-  presence/absence across states.
+  untied-refusal state and NOT in any other removal state. Drives the real loadRemoval() with
+  window.fetch stubbed (the DELETE resolves against an in-memory stub, no real request);
+  reads hidden/disabled/dataset state across states.
 - **render-firstrun-connect-fires** - the first-run #fr-llm-connect button must actually
-  FIRE the connect flow on click (the delegated-on-the-wrong-pane dead-button bug). Event
-  wiring, no geometry.
+  FIRE the connect flow on click (the delegated-on-the-wrong-pane dead-button bug). Reads a
+  JS __fired flag after a DOM element.click(); event wiring, no geometry. NOTE: this is the
+  first allowlist entry that launches WEBKIT in addition to chromium (ENGINES = chromium,
+  webkit). webkit IS provisioned on the CI runner - tools/provision-pw.sh runs
+  `playwright install chromium webkit` - so the second-engine launch succeeds; see the
+  weakest premise.
 
 ## Excluded while shortlisting this batch
 - render-openai-key-callout-2164 - excluded for a DECISIVE reason and a secondary one. Decisive:
@@ -61,6 +70,12 @@ focus/event state, not fragile geometry):
 ## Weakest premise
 That all five run green headless on the runner. If one does not, this PR's own CI catches it
 before merge and I drop that name - self-validating, so a wrong pick costs an iteration, never
-a bad merge. (Three of the five drive confirm/DELETE/connect flows, but all are in the
-no-board file:// loop, so no live board is touched; the shipped checks already run sandbox-safe
-at the cut.)
+a bad merge. Two specific dependencies to name rather than leave implicit:
+- **render-firstrun-connect-fires launches webkit** (not just chromium), the first allowlist
+  entry to do so. On a runner without the webkit build, webkit.launch() would throw and red.
+  This is satisfied: tools/provision-pw.sh installs `chromium webkit` for the pinned playwright
+  version, and browser-checks.yml provisions via that script before the run step.
+- **render-plus-gate-1615 boots an in-process server** rather than running pure file://; it is
+  sandboxed (fresh mkdtemp AGENT_WORKFORCE_* roots set before require, /api/remote stubbed,
+  server closed in finally), so it touches no live board. The other four are file:// with
+  fetch stubbed/absent.
