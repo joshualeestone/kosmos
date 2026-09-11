@@ -268,23 +268,30 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       });
       if (outsideScroll.hidden === true) ok(t + ' CONTROL: a scroll outside the picker DOES close it'); else bad(t + ' outside-scroll closes picker', JSON.stringify(outsideScroll));
 
-      // #2834: a ROOM-CONTENT CHANGE while the picker is open must close it. The old
-      // inline picker was destroyed by the room rebuild; the shared one is closed
-      // explicitly in paintThreadInto when the room re-renders. Open it, post a NEW
-      // message (which the room poll repaints in), and confirm the picker closes.
+      // #2834: a ROOM-CONTENT CHANGE while the picker is open must close it via the
+      // paintThreadInto close block. To ISOLATE that block from the scroll-dismiss
+      // path, the change must NOT move the scroll: a NEW message changes the row set
+      // (keyChanged), which pins to bottom and fires a scroll that the scroll-dismiss
+      // handler would itself act on -- so the arm could pass even if the close block
+      // were deleted. Instead REACT to an existing post via the API: the room html
+      // changes (a pill appears) but the row SET does not, so keyChanged is false, no
+      // pin/scroll happens, and the ONLY thing that can close the open picker is the
+      // paintThreadInto close block. Open the picker on the LAST post, then react to
+      // the FIRST post.
+      const firstPostId = await firstRxns.evaluate((box) => box.getAttribute('data-post'));
       await msgB.hover();
       await rxns.locator('.rxn-more').click();
       await p.waitForTimeout(150);
       const openedBeforeRepaint = await p.evaluate(() => { const el = document.getElementById('rxn-picker'); return !!(el && !el.hidden); });
-      await p.evaluate((pid) => fetch('/api/project/' + pid + '/room',
-        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'repaint trigger #2834' }) }), made.id);
+      await p.evaluate((a) => fetch('/api/project/' + a.pid + '/room/' + a.post + '/react',
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ emoji: '👍' }) }), { pid: made.id, post: firstPostId });
       let closedByRepaint = false;
       for (let i = 0; i < 60; i += 1) {
         const hidden = await p.evaluate(() => { const el = document.getElementById('rxn-picker'); return !el || el.hidden; });
         if (hidden) { closedByRepaint = true; break; }
         await p.waitForTimeout(200);
       }
-      if (openedBeforeRepaint && closedByRepaint) ok(t + ' #2834: a room-content change (a new message) closes an open picker, as the old inline rebuild did'); else bad(t + ' repaint closes picker', 'opened=' + openedBeforeRepaint + ' closed=' + closedByRepaint);
+      if (openedBeforeRepaint && closedByRepaint) ok(t + ' #2834: a same-row-set room change closes an open picker via the repaint close block (isolated from scroll-dismiss)'); else bad(t + ' repaint closes picker', 'opened=' + openedBeforeRepaint + ' closed=' + closedByRepaint);
 
       if (errs.length) bad(t + ' no page errors', errs.join(' | ')); else ok(t + ' no page errors');
       await p.close();
