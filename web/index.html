@@ -22574,7 +22574,7 @@ async function sendTalk(text, chose, attachment) {
       line = placedWords(d);
     } else if (d.state === 'unconfirmed') {
       if (inThread) clearSent();
-      line = 'We could not confirm that reached ' + name + '’s session' + note + '. '
+      line = 'We could not confirm ' + name + ' got that' + note + '. '
         + pjSentence(d.because || 'we typed it and could not tell whether it arrived')
         + (inThread ? ' Your message is kept above.' : ' Your message is still in the box below.');
     } else {
@@ -22583,7 +22583,7 @@ async function sendTalk(text, chose, attachment) {
          "not at this moment", which invites a retry we have no reason to
          promise. The row in the thread carries the time. */
       line = 'We could not get that to ' + name + ': '
-        + pjSentence(d.because || 'we could not put it into its session');
+        + pjSentence(d.because || 'we could not reach them');
     }
     // Delivering and keeping are two acts and two sentences. Said whenever the
     // record failed, on every verdict — a message that went through and could
@@ -38160,7 +38160,7 @@ function pjComposerReset(el) {
  * ⚠️ WHAT THIS SCREEN MAY SAY, and it is the whole design. We put text into a
  * pane and we captured what that pane shows. We did NOT inform a program, and
  * nothing here may read as though we did: the verdict under a message is
- * "placed into casey's session", never "casey received it". A keystroke
+ * "placed with casey", never "casey received it". A keystroke
  * reaching a terminal is not evidence that anything read it.
  *
  * ⚠️ AND THE AGENT'S SIDE IS THE SCREEN, NOT SPEECH. There are no bubbles for
@@ -38344,7 +38344,7 @@ function pjVerdict(m, name) {
   const when = pjWhenPart(m.at);
   if (d.state === 'placed') {
     mark = '';
-    /* The note ALONE when it speaks: no "Placed into April's session" in front
+    /* The note ALONE when it speaks: no placed-confirmation clause in front
        of it. That clause is the one Josh named, and on the agent's own page a
        note about what it was doing needs no antecedent -- the row sits under
        the message it is about. */
@@ -38353,7 +38353,7 @@ function pjVerdict(m, name) {
     mark = ' unsure';
     // A row is history, so it states what happened and stops. The instruction
     // about what to do lives in the live message line, once.
-    said = 'Could not confirm this reached ' + esc(name) + '’s session'
+    said = 'Could not confirm ' + esc(name) + ' got that'
       + (note ? ' (' + note + ')' : '') + '. '
       + esc(pjSentence(d.because || 'we typed it and could not tell whether it arrived'));
   } else {
@@ -38381,7 +38381,7 @@ function pjVerdict(m, name) {
     // was the one arm gluing a raw clause to its own full stop, so a
     // because that already ends in punctuation doubled the stop.
     said = 'Could not deliver: '
-      + esc(pjSentence(d.because || 'we could not put it into its session'));
+      + esc(pjSentence(d.because || 'we could not reach them'));
   }
   return { mark, said, when };
 }
@@ -38915,7 +38915,7 @@ async function pjSend() {
     pjAnnounce(msg.textContent);
     return;
   }
-  if (!text) { msg.textContent = 'Write something to send.'; pjAnnounce(msg.textContent); return; }
+  if (!text) { msg.textContent = 'Say something first.'; pjAnnounce(msg.textContent); return; }
 
   PJ_SENDING = true;
   /* ⚠️ THE FLIGHT REMEMBERS WHERE IT TOOK OFF (round 37). Back is not
@@ -38990,7 +38990,7 @@ async function pjSend() {
     // and both are about a thread the person may have left. The words stay
     // parked in PJ_DRAFTS under the project they belong to either way.
     if (!flightMoved()) {
-      msg.textContent = 'We could not tell whether that reached ' + name + '’s session: '
+      msg.textContent = 'We could not tell whether ' + name + ' got that: '
         + 'we lost contact with Kosmos while sending, so it may or may not have arrived. '
         + (!pjScreenOnScreen()
           ? 'Before sending it again, check whether it already arrived. '
@@ -39101,7 +39101,7 @@ async function pjSend() {
     };
     if (state === 'placed') {
       clearSent();
-      render = (when) => 'Placed into ' + name + '’s session' + when + note + '.' + moved + kept;
+      render = (when) => 'Placed with ' + name + when + note + '.' + moved + kept;
     } else if (state === 'unconfirmed') {
       if (inThread) clearSent();
       // ⚠️ ONE instruction, not three. The first version stacked the engine's
@@ -39109,7 +39109,7 @@ async function pjSend() {
       // above" on top of "it may be sitting in its composer unsent" — a wall
       // that sent the person to three different places. The engine states the
       // fact; this line says the one thing to do about it.
-      render = (when) => 'Could not confirm this reached ' + name + '’s session' + when + note + '. '
+      render = (when) => 'Could not confirm ' + name + ' got that' + when + note + '. '
         + pjSentence((body.delivery && body.delivery.because) || 'we typed it and could not tell whether it arrived')
         // Gated like the question label's pointer (round 22), through the
         // ONE visibility derivation (pjScreenOnScreen): the capture may
@@ -39136,7 +39136,7 @@ async function pjSend() {
        * checked.
        */
       render = () => 'Could not deliver: '
-        + ((body.delivery && body.delivery.because) || 'we could not put it into its session') + '.' + moved + kept;
+        + ((body.delivery && body.delivery.because) || 'we could not reach them') + '.' + moved + kept;
     }
     // The paint itself is the gated act (round 37): everything above only
     // computed strings and retired the takeoff project's spent draft. With
@@ -39202,7 +39202,7 @@ document.getElementById('d-send').addEventListener('click', () => {
      compares `say.value.trim() === text` meant any message with a leading or
      trailing space -- a paste, a stray space before Enter -- was delivered and
      recorded and then cleared NEITHER the box nor the draft, leaving the
-     person's words armed under "Placed into its session": an invitation to
+     person's words armed under a placed confirmation: an invitation to
      send the same line into a live pane twice. */
   const text = say.value.trim();
   if (text) sendTalk(text);
@@ -39341,7 +39341,7 @@ document.getElementById('d-say').addEventListener('keydown', (e) => {
      compares `say.value.trim() === text` meant any message with a leading or
      trailing space -- a paste, a stray space before Enter -- was delivered and
      recorded and then cleared NEITHER the box nor the draft, leaving the
-     person's words armed under "Placed into its session": an invitation to
+     person's words armed under a placed confirmation: an invitation to
      send the same line into a live pane twice. */
   const text = say.value.trim();
   if (text) sendTalk(text);

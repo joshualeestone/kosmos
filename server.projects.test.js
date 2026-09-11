@@ -1690,7 +1690,7 @@ test('a send that never reached tmux IS a failure, because re-sending is the rig
 
 test('the verdict says what the agent was doing, and keeps saying it on every later read', async () => {
   reset();
-  // ⚠️ "Placed into zeta's session" is exactly true and invites the wrong
+  // ⚠️ "Placed with zeta" is exactly true and invites the wrong
   // inference — that zeta is reading it. A Claude that is mid-task does not
   // consume its composer until it finishes.
   await withThread(fleet.agent('zeta', { state: 'working' }), [said(), said(), said('screen')],
