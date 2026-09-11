@@ -268,6 +268,27 @@ function worldCreateReason(e) {
   if (/invalid agent name/i.test(m)) return 'that is not a name we can use for a Kosmos (use letters, numbers, - or _)';
   return m || 'we could not create that Kosmos';
 }
+/* #2827: named worlds do not run agents in v1. engine/worlds.js scopes named-world
+   agents OUT -- it overrides AGENT_WORKFORCE_DATA/WORKERS/PROJECTS for a named world
+   but deliberately NOT AGENT_WORKFORCE_LAUNCH -- so an agent created while the board
+   is booted into a named world is only half redirected: its data + board token
+   (store.ROOT/board.token) sit under the named world's roots while its launch env
+   does not, and the board token it presents is refused, so its reports and replies
+   fail. Nothing enforced the rule, so both spawn routes now do: they refuse when the
+   board BOOTED into a named world (the world that actually runs agents; a switch only
+   records activeWorldId and needs a restart, so bootedWorld -- not activeWorld -- is
+   what determines whether a spawn would be broken). Returns a refusal {code, error}
+   to send, or null to allow. bootedWorld() is null on a never-bootstrapped unit board
+   (allow, so fixtures are unaffected) and DEFAULT_ID for the default world (allow). */
+function namedWorldSpawnRefusal() {
+  const booted = require('./engine/worldenv').bootedWorld();
+  if (!booted || booted === worlds.DEFAULT_ID) return null;
+  return {
+    code: 409,
+    error: 'Kosmos is running a named world, which does not run agents yet. '
+      + 'Switch back to Kosmos 1 (the default world) to create agents.',
+  };
+}
 /* #2066: which channel this build was FETCHED from (staging vs prod), for the
    board's build marker. It is NOT baked into the artifact -- #2036's invariant is
    that the SAME bytes are promoted to prod with no rebuild, so a baked stamp would
@@ -3238,6 +3259,10 @@ const server = http.createServer((req, res) => {
           throw new Error('we could not read that request');
         }
 
+        // #2827: named worlds do not run agents in v1 -- refuse before writing anything.
+        const nw = namedWorldSpawnRefusal();
+        if (nw) { sendJson(res, nw.code, { error: nw.error }); return; }
+
         /**
          * ⚠️ The projects the new agent should join are validated HERE,
          * BEFORE the engine writes anything: a refusal after the folder
@@ -3514,6 +3539,10 @@ const server = http.createServer((req, res) => {
           sendJson(res, 400, { error: 'we could not read that request' });
           return;
         }
+
+        // #2827: named worlds do not run agents in v1 -- refuse before spawning a team.
+        const nw = namedWorldSpawnRefusal();
+        if (nw) { sendJson(res, nw.code, { error: nw.error }); return; }
 
         const members = Array.isArray(body.members) ? body.members : null;
 
@@ -3889,6 +3918,10 @@ const server = http.createServer((req, res) => {
   if (rs && req.method === 'POST') {
     const name = decodeSegment(rs[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    // #2827: restore re-enables the agent's launch job, so it runs again -- a spawn.
+    // In a named world its board token would be refused, so refuse the restore there.
+    const nwr = namedWorldSpawnRefusal();
+    if (nwr) { sendJson(res, nwr.code, { error: nwr.error }); return; }
     let back;
     try { back = removal.restore(name); }
     catch (err) { sendJson(res, 500, { error: 'we could not put this agent back', detail: String(err && err.message || err) }); return; }
@@ -6677,6 +6710,10 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { ok: false, because: 'we could not read that request' }); return; }
+        // #2827: connecting a discovered agent INSTALLS a launch job and STARTS it,
+        // so it is a spawn -- refuse it in a named world just like the create routes.
+        const nw = namedWorldSpawnRefusal();
+        if (nw) { sendJson(res, nw.code, { ok: false, because: nw.error }); return; }
         /* 🔑 THE FIRST AGENT BRINGS ITS OWN HOME, WHETHER IT WAS MADE OR IMPORTED
            (#1349). The seed lived only in the create route, so a person whose
            first agents are IMPORTED landed on an empty Projects tab -- the first
@@ -9229,6 +9266,11 @@ const server = http.createServer((req, res) => {
      the set the GET above reports, so the two can never describe different
      work. A body would let a caller name an agent the survey refused. */
   if (pathname === '/api/register' && req.method === 'POST') {
+    // #2827: register.repair installs the missing launch job for every jobless agent
+    // and STARTS it (create.installJob) -- a spawn. In a named world those agents'
+    // board tokens would be refused, so refuse the repair there too.
+    const nwreg = namedWorldSpawnRefusal();
+    if (nwreg) { sendJson(res, nwreg.code, { error: nwreg.error }); return; }
     try {
       /* The model each one LAST RAN AS, which is the only surviving record of
          it: the model an agent was SET to run on lived in the job that does not
