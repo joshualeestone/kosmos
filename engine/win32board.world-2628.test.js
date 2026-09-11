@@ -44,9 +44,21 @@ worldenv.bootstrapWorldEnv(process.env);   // what server.js does first, with a 
 
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch { /* best effort */ } });
 
+/* The post-world environment AS A WORLD-UNAWARE READER SEES IT: the world's roots,
+   without the marker a world-aware anchorDir (#1704, PR #2845) would use to map them
+   back. On this branch alone there is no marker and this is process.env; with #2845
+   in, stripping it keeps the control honest instead of vacuous, so these tests hold
+   whichever of the two lands first. */
+function worldOnlyEnv() {
+  const env = { ...process.env };
+  delete env.KOSMOS_PRE_WORLD_ROOTS;
+  delete env.KOSMOS_WORLD;
+  return env;
+}
+
 test('#2628 CONTROL: the post-world env would move the anchor under the world', () => {
   assert.notEqual(process.env.AGENT_WORKFORCE_DATA, LAUNCH.AGENT_WORKFORCE_DATA, 'sanity: the world moved process.env');
-  assert.notEqual(win32anchor.anchorDir('win32', HOME, process.env), win32anchor.anchorDir('win32', HOME, LAUNCH),
+  assert.notEqual(win32anchor.anchorDir('win32', HOME, worldOnlyEnv()), win32anchor.anchorDir('win32', HOME, LAUNCH),
     'without the launch env, the board\'s machine paths would follow the world');
 });
 
@@ -63,7 +75,7 @@ test('#2628 the claim file -- and so "you removed it, leave it alone" -- lives w
      are real on a Mac and on Windows. */
   const opts = { platform: process.platform, home: os.homedir() };
   const launchDir = win32anchor.anchorDir(process.platform, os.homedir(), LAUNCH);
-  const worldDir = win32anchor.anchorDir(process.platform, os.homedir(), process.env);
+  const worldDir = win32anchor.anchorDir(process.platform, os.homedir(), worldOnlyEnv());
   assert.notEqual(launchDir, worldDir, 'sanity: the two candidates differ');
   fs.mkdirSync(launchDir, { recursive: true });
   board.claim(opts);
