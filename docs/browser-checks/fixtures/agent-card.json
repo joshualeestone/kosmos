@@ -38,6 +38,7 @@
   "modelName": "Claude Opus 5",
   "neverRecorded": true,
   "hasAvatar": true,
+  "avatarVer": 1757000000000,
   "profile": {
     "instructionsWrite": {
       "who": "example-who",

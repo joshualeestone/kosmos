@@ -110,7 +110,7 @@ function liveCard() {
  * in the plan, then in the README, and missed here each time.
  *
  * THE FULL PIN SET, WHICH AN ARM CHECKS AGAINST THE CODE. PIN-LIST-BEGIN
- * `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.cause`, `disruption.startedAt`, `disruption.timedOut`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
+ * `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.cause`, `disruption.startedAt`, `disruption.timedOut`, `avatarVer`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
  * PIN-LIST-END
  * (Paths, not names: `because` is pinned BOTH top-level and under `context`, and a list
  * of bare names could not say so.)

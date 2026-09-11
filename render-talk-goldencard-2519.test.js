@@ -845,7 +845,7 @@ test('#2519: every PINNED field name appears in all four documents that enumerat
   /* ⚠️ THE EXACT COUNT, NOT A FLOOR WITH SLACK. This was `>= 21` while the code pins
      22, so the first deletion netted to 21 and passed, while the comment below claimed
      the floor catches a net removal. A floor one below the truth catches nothing. */
-  assert.equal(pinned.size, 24, `the pin count changed: ${pinned.size} -> ${[...pinned].sort()}`);
+  assert.equal(pinned.size, 25, `the pin count changed: ${pinned.size} -> ${[...pinned].sort()}`);
   assert.deepEqual([...repinned].sort(), ['runner', 'state', 'stateConfidence'],
     'the set of fields re-pinned FROM another object changed; that is the enum-bounded category and it needs an arm of its own');
 
@@ -985,7 +985,11 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
       'reachedByChannel',
     ];
     const PINNED_BOOLEAN = ['hasAvatar'];
-    const ALWAYS = STRUCTURAL.concat(PINNED_BOOLEAN);
+    /* #2698: avatarVer is a PINNED NUMBER (category 1), forced to a constant in
+       neutralise like hasAvatar and disruption.startedAt -- it is the avatar file
+       mtime, an epoch-ms timestamp that must not reach a committed file verbatim. */
+    const PINNED_NUMBER = ['avatarVer'];
+    const ALWAYS = STRUCTURAL.concat(PINNED_BOOLEAN, PINNED_NUMBER);
     /* ⚠️ TWO INVENTORIES, BECAUSE `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (ELEVEN objects share that one key set, derived by the arm; an earlier version said six by counting only readContext and missing readCodexContext and the two inline card literals), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) AND THE TWO
        CARDS HERE ARE DIFFERENT ONES. The fleet agent has no transcript, so its context is
        the no-reading shape; the committed recording was captured from an agent with a
