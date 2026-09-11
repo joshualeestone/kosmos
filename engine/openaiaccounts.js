@@ -1096,7 +1096,9 @@ async function checkLive(dir) {
      genuinely cannot tell, and asserting NONE for it would be exactly the
      false negative this whole feature exists to prevent. */
   if (got.kind === 'absent') {
-    return { state: STATE.NONE, plan: null, checkedLive: true, because: 'nobody has signed in to this account yet' };
+    // #2790 outcome (c): never signed in. NONE + reauthRequired:false is what ICK's driver
+    // reads to offer a FRESH "sign in" rather than the "sign in again" a dead sign-in (b) gets.
+    return { state: STATE.NONE, plan: null, checkedLive: true, reauthRequired: false, because: 'nobody has signed in to this account yet' };
   }
   if (got.kind === 'unreadable') {
     return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because: 'we could not read this account\'s settings' };
@@ -1115,15 +1117,33 @@ async function checkLive(dir) {
     return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because: 'we could not find a usable sign-in in this account\'s settings' };
   }
   if (who.authMode !== 'apikey') {
-    /* ⚠️ UNKNOWN, NOT NONE, AND NOT A GUESSED CONNECTED EITHER. codex's
-       ChatGPT-mode auth hands us an id_token (an identity claim), not a
-       bearer credential usable against OpenAI's API the way apikey mode's
-       raw key is -- there is no real live check to run here yet. Saying so
-       honestly is the whole point of this fix: a badge this codebase cannot
-       actually verify must never claim it did. */
+    /* #2790: a ChatGPT sign-in IS live-checkable after all -- not with a raw GET /v1/models
+       (the id_token is an identity claim, not a bearer key, which is why this branch used to
+       give up and return UNKNOWN), but through codex's OWN `codex doctor --json`, which runs a
+       live WS handshake to chatgpt.com/backend-api with the sign-in's credentials. That closes
+       the silent-failure this card is about: a dead sign-in that left agents Idle with no red.
+       engine/codexsigninlive maps the doctor's websocket_reachability check to live/dead/unknown
+       (cached per codex-home, off-tick), and it NEVER reports dead on a network fault (the #1930
+       never-false-red rule): 'dead' needs the endpoint reachable, so a refused handshake can only
+       be the credential.
+       🔑 THREE DISTINGUISHABLE OUTCOMES (kosmos#2338, Ice Cream Kitty's driver + green-badge +
+       tier consumers read these verbatim). subscription.STATE has no reauth value, so the
+       signed-in-but-dead (b) vs never-signed-in (c) split rides on `reauthRequired`:
+         live    -> CONNECTED                     (green badge; codexauthprobe -> HEALTHY)
+         dead    -> NONE + reauthRequired:true     ("sign in again"; codexauthprobe -> EXPIRED, reddens)
+         unknown -> UNKNOWN                        (network/uncheckable; no driver action, no red)
+       The never-signed-in (c) case is the `got.kind === 'absent'` return above (NONE,
+       reauthRequired:false); it does not reach here because there is no auth file to parse. */
+    const live = await require('./codexsigninlive').liveness(dir);
+    if (live === 'live') {
+      return { state: STATE.CONNECTED, plan: null, checkedLive: true, reauthRequired: false, because: 'the OpenAI sign-in reached ChatGPT, so it is working' };
+    }
+    if (live === 'dead') {
+      return { state: STATE.NONE, plan: null, checkedLive: true, reauthRequired: true, because: 'signed in, but the OpenAI sign-in is not working right now; sign in again' };
+    }
     return {
-      state: STATE.UNKNOWN, plan: null, checkedLive: true,
-      because: 'this sign-in method is not yet checked live; it may or may not still work',
+      state: STATE.UNKNOWN, plan: null, checkedLive: true, reauthRequired: false,
+      because: 'we could not reach ChatGPT to check this sign-in, so we cannot say whether it works',
     };
   }
   // The key, from the SAME parsed read readAuthFile() already did above --
