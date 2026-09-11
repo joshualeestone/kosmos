@@ -227,60 +227,6 @@ test('the Disconnect control carries the qualifier, escaped, because that is the
     'the Disconnect button either dropped the qualifier (two of them answer to one name again) or stopped escaping it (a directory name with a quote breaks out of the attribute)');
 });
 
-/* 🔑 #1659 RELABELLED THE OPENAI CONTROL FROM "Remove" TO "Disconnect", so this
-   arm can no longer name its branch by its label: all three controls (OpenAI,
-   the live Claude row, and the DISABLED default row) now read "Disconnect".
-   ⇒ IT COUNTS INSTEAD. Every acct-disconnect button must carry the qualifier,
-   so a branch added or edited without it drops the count and this goes red --
-   which is the property the original two-arm version was protecting, kept
-   rather than weakened into a single match that any one branch could satisfy. */
-/* 🛑 #1659: THE TWO DISCONNECT BRANCHES, ASSERTED IN THE SOURCE. The real
-   assertions that the default row is DISABLED and the others are LIVE live in
-   the browser gate, which does not run under `yarn test`. So inverting
-   `a.isDefault`, or dropping `disabled`, would keep the node suite green and
-   ship a live Disconnect on ~/.claude -- the one row every user has, and the
-   one the engine refuses. This is the cheap merge-time floor under that. */
-/* 🛑 THIS TEST USED TO READ THE BRANCH'S TEXT AND COULD NOT SEE ITS GUARD.
-   It sliced the disabled branch out of the page source and asserted the slice
-   was `disabled` and carried no `data-forget`. Both are true of the branch no
-   matter WHICH row reaches it, so inverting `a.isDefault` to `!a.isDefault`
-   left every assertion green -- the default row got a live Disconnect the
-   engine refuses on every click, and every removable account got a permanently
-   dead one, with nothing red.
-   ⭐ AND THE PERTURBATIONS THAT "VERIFIED" IT MISSED FOR ONE REASON: they broke
-   the branch BODY (added data-forget, dropped disabled) and never the branch
-   SELECTOR. A slice cannot see the condition that chooses it.
-   ✅ SO IT RUNS THE BRANCH NOW instead of reading it: the ternary is extracted
-   from the page and evaluated against a default row and a non-default row, and
-   the two rendered strings are asserted separately. Inverting the guard swaps
-   them and both assertions fail. */
-/* 🛑 ONE FACT, TWO DERIVATIONS, NOTHING RECONCILING THEM. The default-refusal
-   sentence is written in engine/accounts.js (what the API answers) and again in
-   web/index.html (what the tooltip says). They have already drifted once during
-   this card's own review, and because the button is disabled the engine's copy
-   is unreachable from the UI for this case, so nothing would ever reveal a
-   mismatch. This pins them until somebody gives the page a single source. */
-/* 🛑 THE NO-OP HANDLER HAD NO GUARD AT ANY LAYER. Deleting the loop silently
-   restores the state this branch found and fixed mid-review: the default row's
-   control stays focusable and pressable and produces NOTHING on Enter or Space.
-   The browser check reads that row's STATE (aria-disabled, forgets) and never
-   presses it, so nothing downstream would catch the deletion either.
-   📌 Same cheap merge-time floor already used for `data-forget-provider` and the
-   `a.isDefault` branch: a browser-only property, pinned in source. */
-test('#1659: the disabled default control has a handler, so a keypress is not silent', () => {
-  assert.match(PAGE, /querySelectorAll\('\.acct-disconnect\[aria-disabled="true"\]'\)/,
-    'the no-op handler binding is gone, so the focusable default button does nothing on Enter or Space with no feedback');
-  /* 🛑 ANCHOR IT TO THE DEFERRED WRITE. A bare /msg\.textContent = say;/ IS UNANCHORED
-     and the page holds THREE occurrences: this one, plus `dmsg.textContent = say;` and
-     `rmsg.textContent = say;` in unrelated code. Measured: deleting the real line left
-     every web*.test.js green at 909 pass, so the assertion could not fail for the
-     property its own message names. The sibling assertion above pins the loop's
-     EXISTENCE; only its body was unpinned. */
-  assert.match(PAGE, /acctSayTimer = setTimeout\([\s\S]{0,200}?msg\.textContent = say;/,
-    'the handler no longer writes the refusal into the message line on the deferred '
-    + 'timer, so pressing the disabled default button is silent');
-});
-
 test('#1659: the tooltip and the route make the SAME history promise', () => {
   const server = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   /* 🔑 PIN THE CLAIM, NOT THE SENTENCE. These two are deliberately NOT identical:
@@ -312,102 +258,57 @@ test('#1659: the tooltip and the route make the SAME history promise', () => {
     + 'copies of one claim have drifted with nothing to say so');
 });
 
-test('#1659: the engine refusal and the page tooltip say the SAME thing', () => {
-  const engine = fs.readFileSync(path.join(__dirname, 'engine', 'accounts.js'), 'utf8');
-  /* ⚠️ ANCHOR THE PAGE ON `title="`, NOT ON THE SENTENCE. The aria-label carries
-     a deliberately SHORTER form of the same refusal (a label should be terse;
-     the tooltip carries the whole thing), so the page holds two occurrences and
-     a bare indexOf finds the label's. Pinning the label to the engine's full
-     sentence would force the two to be identical, which is the wrong contract. */
-  const pull = (text, anchor) => {
-    const at = text.indexOf(anchor);
-    assert.ok(at > -1, 'the default-refusal sentence is gone from one of the two files');
-    const rest = text.slice(at + anchor.length - 'Kosmos does not remove'.length);
-    const end = rest.indexOf('inside it.');
-    assert.ok(end > -1, 'the sentence no longer ends where both copies expect');
-    /* ⚠️ NORMALISE THE ENCODING, NOT ONLY THE WHITESPACE. Without this the test
-       compares SOURCE SPELLINGS: `computer\u2019s` in one file and a literal
-       curly apostrophe in the other would fail while rendering identically, so
-       the guard would fire on a difference no person could see. */
-    const unescape = (t) => t.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
-    return unescape(rest.slice(0, end + 'inside it.'.length).replace(/'\s*\+\s*'/g, '').replace(/\s+/g, ' '));
-  };
-  assert.equal(pull(engine, 'Kosmos does not remove'), pull(PAGE, 'title="Kosmos does not remove'),
-    'the engine refusal and the page tooltip have drifted; a person would be told two different things about one act');
-});
-
-test('#1659: the default row renders DISABLED and a non-default row renders LIVE', () => {
-  const at = PAGE.indexOf(': (a.isDefault');
-  assert.ok(at > -1, 'the default-vs-live ternary is gone from acctRowHtml');
-  /* +1 for the paren that closes `(a.isDefault ... )` itself: the end token is
-     the LIVE branch's tail followed by `))`, and the slice needs exactly one of
-     those two. Measured rather than guessed (open 10, close 9 without it). */
-  const endAt = PAGE.indexOf(">Disconnect</button>'))", at);
-  assert.ok(endAt > at, 'the ternary no longer closes the way this extraction expects');
-  const body = PAGE.slice(at + 2, endAt + ">Disconnect</button>'".length + 1);
+test('#2684: the default row renders a LIVE Disconnect (identity-clear) and keeps the folder', () => {
+  // Extract the Claude disconnect button (the isOpenai-else in acctRowHtml) and EXECUTE it,
+  // so a new free variable is a ReferenceError rather than a silent pass. #2684 removed the
+  // old default-vs-live ternary; the default now renders the same live button, differing only
+  // in its title branch.
+  const anchor = 'data-forget-provider="claude" ';
+  const ai = PAGE.indexOf(anchor);
+  assert.ok(ai > -1, 'the Claude disconnect button is gone from acctRowHtml');
+  const start = PAGE.lastIndexOf("'<button class=\"acct-disconnect\"", ai);
+  assert.ok(start > -1 && ai - start < 200, 'could not find the Claude disconnect button opener');
+  const endTok = ">Disconnect</button>'";
+  const endAt = PAGE.indexOf(endTok, ai);
+  assert.ok(endAt > start, 'the Claude disconnect button does not close as expected');
+  const body = PAGE.slice(start, endAt + endTok.length);
   const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   // eslint-disable-next-line no-new-func
-  /* `qualName` joins the signature because #1659 made the accessible name ALWAYS
-     carry a parenthetical, falling back to the provider when the ambiguity
-     qualifier is empty. This test EXECUTES the ternary rather than reading it,
-     so a new free variable is a ReferenceError rather than a silent pass. That
-     is the property worth having: it caught the change instead of ignoring it. */
   const render = new Function('a', 'who', 'qual', 'qualName', 'esc', `return ${body};`);
-
   const onDefault = render({ isDefault: true, dir: '/h/.claude' }, 'main@example.com', '', 'Claude', esc);
   const onOther = render({ isDefault: false, dir: '/h/.claude-walk' }, 'walk@example.com', '', 'Claude', esc);
 
-  /* 🛑 ANCHOR ON THE EXACT SPELLING. `/disabled/` matched the SUBSTRING inside
-     `aria-disabled`, so the moment the markup moved from the native attribute to
-     the ARIA one this floor silently stopped discriminating: it could no longer
-     tell "the row is inert" from "the row carries an ARIA hint and nothing
-     else", and the browser arm that DID depend on the difference went red
-     unnoticed. Both spellings are pinned separately now. */
-  assert.match(onDefault, /aria-disabled="true"/,
-    'the DEFAULT row is no longer marked aria-disabled, so ~/.claude gets a button the engine refuses on every click');
-  /* 🛑 `(\b|$)`, NOT A LOOKAHEAD FOR `[\s>'"]`. That lookahead required the attribute
-     to be followed by whitespace, `>` or a quote, and `=` IS IN NONE OF THEM. So it
-     caught the BARE `disabled` (the spelling that happened to ship) and MISSED
-     `disabled=""` and `disabled="disabled"`. Measured with the empty-value spelling
-     planted: 914 pass, 0 fail, NO named test red, while the rendered row was natively
-     disabled, out of the tab order, its no-op handler unreachable, and its fallback
-     style 3.77:1 on the light surface, under AA. Controls: `aria-disabled="true"`
-     alone, and a class containing "disabled", both correctly still fail to match. */
-  assert.ok(!/(^|\s)disabled(\b|$)/.test(onDefault),
-    'the DEFAULT row went back to the NATIVE disabled attribute, which drops it out of the tab order so a keyboard user never reaches the reason');
-  assert.ok(!/data-forget=/.test(onDefault),
-    'the DEFAULT row now carries data-forget, so the shared handler fires on a row the engine refuses');
-  assert.match(onOther, /data-forget="\/h\/\.claude-walk"/,
-    'a NON-default row lost its data-forget, so a removable account cannot be removed');
-  assert.ok(!/disabled/.test(onOther),
-    'a NON-default row carries a disabled or aria-disabled marking, so a removable account got a dead button');
+  // #2684: the DEFAULT is LIVE now (data-forget), never disabled.
+  assert.ok(!/aria-disabled="true"/.test(onDefault),
+    'the DEFAULT Disconnect is still marked aria-disabled; #2684 makes it a live control');
+  assert.ok(!/(^|\s)disabled(\b|=)/.test(onDefault),
+    'the DEFAULT Disconnect went back to the native disabled attribute');
+  assert.match(onDefault, /data-forget="\/h\/\.claude"/,
+    'the DEFAULT row lost its data-forget, so its live Disconnect cannot fire');
+  assert.match(onDefault, /data-forget-provider="claude"/, 'the DEFAULT Disconnect lost its provider marker');
+  // its title states the #2684 kept-folder consequence, not the old refusal.
+  assert.match(onDefault, /main connection off the list/,
+    'the DEFAULT title no longer states the identity-clear (folder kept)');
+  assert.match(onDefault, /the Claude folder and any history in it are kept/,
+    'the DEFAULT title no longer promises the folder + history are kept');
+  assert.ok(!/does not remove this computer/.test(onDefault),
+    'the DEFAULT title still carries the OLD refusal copy that #2684 removed');
 
-  /* 🛑 THE PROVIDER MARKER WAS GUARDED BY NOTHING AT ANY LAYER. The handler
-     reads the endpoint off `data-forget-provider`, and since it now REFUSES an
-     unmarked button rather than defaulting to OpenAI, dropping or misspelling
-     this attribute ships a Claude Disconnect that renders live, is pressable,
-     and only prints "we could not tell which provider" -- the exact
-     nothing-that-looks-live-may-do-nothing shape this file refuses. Measured:
-     misspelling it left the whole node suite AND the browser gate green, because
-     the gate pins only the OPENAI marker. Same reasoning as the a.isDefault
-     floor above: a browser-only property, so pin it here. */
-  assert.match(onOther, /data-forget-provider="claude"/,
-    'the live Claude row lost its provider marker, so the shared handler cannot route it and the button does nothing');
-  assert.ok(!/data-forget-provider=/.test(onDefault),
-    'the disabled default row now carries a provider marker, which only a wired button should have');
+  // a NON-default row is also live, with the secondary title.
+  assert.match(onOther, /data-forget="\/h\/\.claude-walk"/, 'a NON-default row lost its data-forget');
+  assert.match(onOther, /data-forget-provider="claude"/, 'a NON-default row lost its provider marker');
+  assert.match(onOther, /Its sign-in file stays on this computer/, 'a NON-default row lost its secondary title');
 
-  /* The OpenAI branch sits outside the extracted ternary, so it is pinned in
-     source rather than executed. Without this, the same misspelling on the
-     other provider is equally invisible. */
-  assert.match(PAGE, /data-forget-provider="openai"/,
-    'the OpenAI row lost its provider marker, so its Disconnect cannot route either');
+  // the OpenAI branch sits outside the extracted expression; pin its provider marker in source.
+  assert.match(PAGE, /data-forget-provider="openai"/, 'the OpenAI Disconnect lost its provider marker');
 });
 
 test('EVERY Disconnect control carries the qualifier, escaped, or one branch keeps the whole defect', () => {
   const qualified = (PAGE.match(/aria-label="Disconnect ' \+ who \+ ' \(' \+ esc\(qualName\) \+ '\)'/g) || []).length;
   const controls = (PAGE.match(/class="acct-disconnect"/g) || []).length;
-  assert.ok(controls >= 3,
-    `expected the three disconnect branches (OpenAI, live Claude, disabled default); found ${controls}`);
+  // #2684 removed the disabled-default branch, leaving two live Disconnect branches (OpenAI, Claude).
+  assert.ok(controls >= 2,
+    `expected the two live disconnect branches (OpenAI, Claude); found ${controls}`);
   assert.equal(qualified, controls,
     `${controls - qualified} disconnect control(s) name themselves by login alone (two rows sharing a key tail give two controls with one name) or interpolate the qualifier unescaped into the attribute`);
 });
@@ -462,76 +363,6 @@ test('the visible qualifier and its tooltip are escaped too, not only the button
     'the visible qualifier span dropped esc(), so a directory name with markup would render raw');
   assert.match(PAGE, /class="acct-qual" title="' \+ esc\(/,
     'the qualifier tooltip is no longer wrapped in esc(), so the login renders raw in the title attribute');
-});
-
-/* 🛑 THE FALLBACK IS A FOURTH COPY OF THE REFUSAL AND WAS PINNED BY NOTHING. The
-   drift test above anchors on `title="`, so it pins the TITLE against the engine
-   and leaves the JS fallback (`btn.title || '...'`) free to diverge. That literal
-   is what a screen-reader user hears on the day somebody drops the title from
-   that branch, which is the case the fallback exists for, so it is the copy least
-   likely to be noticed when it goes stale. */
-test('#1659: the aria-disabled handler fallback says the SAME thing as the engine refusal', () => {
-  const m = PAGE.match(/btn\.title \|\| '([^']+)'/);
-  assert.ok(m, 'the aria-disabled handler no longer carries a fallback sentence; re-anchor this test');
-  /* 🔑 DECODE BOTH SIDES. My first version decoded the page and compared against
-     RAW engine source, which stores the same sentence with a literal \u2019
-     escape. It failed, and the failure looked exactly like a drift. Same error
-     the sibling drift test above already avoids by normalising both sides: a
-     comparison that decodes one side is measuring two different worlds. */
-  const un = (x) => x.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
-  const fallback = un(m[1]);
-  const engine = un(require('fs').readFileSync(require('path').join(__dirname, 'engine', 'accounts.js'), 'utf8'));
-  /* 🛑 THE WHOLE SENTENCE, NOT A PREFIX. slice(0, 48) of a 58-character sentence left
-     its last ten characters unpinned on the fourth copy of the refusal: appending a word
-     to the page's fallback measured 34 pass, 0 fail, and only a wholesale replacement
-     went red. The full fallback IS a prefix of the engine sentence today, so matching it
-     entire pins all of it and costs nothing. */
-  assert.ok(engine.indexOf(fallback) > -1,
-    'the handler fallback and the engine refusal have drifted: a person pressing the disabled row hears one sentence and the engine says another. fallback: ' + fallback);
-});
-
-/* 🛑 THE ONE SENTENCE A SCREEN-READER USER HEARS ABOUT THE DISABLED ROW, AND IT
-   WAS PINNED BY NOTHING. The default row's aria-label carries the reason as a
-   suffix, because a `title` on a control announced as unavailable is not read out.
-   The qualifier assertion above matches only the label's PREFIX, so the appended
-   clause is invisible to it, and the browser gate captures innerText, disabled,
-   ariaDisabled, data-forget and the row text but never aria-label.
-   ⇒ Measured before this was written: deleting the clause left every web test
-   green. Same prefix-match shape this branch found on the OpenAI success sentence,
-   in the half that only a screen-reader user experiences. */
-test('#1659: the disabled default row explains itself IN THE ACCESSIBLE NAME, not only in a title', () => {
-  const at = PAGE.indexOf(': (a.isDefault');
-  assert.ok(at > -1, 'the default-vs-live ternary is gone; re-anchor this test');
-  const endAt = PAGE.indexOf(">Disconnect</button>'))", at);
-  const body = PAGE.slice(at + 2, endAt + ">Disconnect</button>'".length + 1);
-  /* 🛑 SLICE THE aria-label, DO NOT MATCH THE WHOLE TERNARY. `body` contains BOTH the
-         aria-label and the title, so this matched either one and could not tell them apart,
-         which is the entire distinction its own name asserts. Measured: moving the clause
-         out of the aria-label and appending it to the TITLE left 913 pass, 0 fail, while
-         restoring exactly the WCAG defect the block above describes, since a title on a
-         disabled control is not announced. */
-      const ariaAt = body.indexOf('aria-label="Disconnect ');
-      assert.ok(ariaAt > -1, 'the default row has no aria-label at all; re-anchor this test');
-      const ariaEnd = body.indexOf('"', body.indexOf('aria-label="') + 'aria-label="'.length + 1);
-      const ariaLabel = body.slice(ariaAt, ariaEnd > ariaAt ? ariaEnd : undefined);
-      assert.match(ariaLabel, /Unavailable: /,
-        'the default row no longer says WHY in its ACCESSIBLE NAME. A title on a disabled '
-        + 'control is not announced, so a screen-reader user hears a name with no reason')
-  /* Paired with the engine, so the two cannot drift into saying different things. */
-  const un = (x) => x.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
-  /* Ends at `."` because the clause closes an HTML ATTRIBUTE, not a JS string.
-     My first version anchored on `.'` and failed, and the failure read exactly
-     like the clause being absent. Third time today a test of mine has failed in a
-     way that looked like a finding: check the raw text before believing your own
-     assertion. */
-  const m = un(body).match(/Unavailable: ([^"']+?)\."/);
-  assert.ok(m, 'the Unavailable clause is no longer a literal this test can read; re-anchor it');
-  const engine = un(require('fs').readFileSync(require('path').join(__dirname, 'engine', 'accounts.js'), 'utf8'));
-      /* Whole sentence, not a prefix, for the same reason as the fallback above:
-         17 of these 57 characters were unpinned. Measured that the FULL string is
-         present in the engine today, so this costs nothing. */
-  assert.ok(engine.indexOf(m[1]) > -1,
-    'the accessible-name reason and the engine refusal have drifted: ' + m[1]);
 });
 
 /* 🛑 THE FOCUS TARGET MUST BE FOCUSABLE, and nothing checked. After a removal the
