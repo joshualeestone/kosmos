@@ -74,6 +74,10 @@ Three things to TUNE, in my lane (backend/messaging):
 The reopen resets the arrival BUDGET cleanly, but I did not touch the valve-notice / refused-
 row DEDUP (keyed on the raw window, not the reopen mark). So if a room is reopened and then
 loops again within the same window, agents are correctly refused again, but a second "stopped
-again" valve NOTICE may be suppressed as a duplicate. That dedup is pre-existing and delicate;
-widening it was out of scope for this card. If that suppressed re-notice turns out to matter,
-the fix is to also reset the dedup baseline at the reopen mark - a follow-up, not this card.
+again" valve NOTICE may be suppressed as a duplicate, and a repeat-offending agent's new refused
+row likewise. The gating decision stays correct (the post IS refused); only the operator-visible
+history goes stale. That dedup is pre-existing and delicate, and it also governs the operator-post
+path, so widening it risks existing tested behaviour and was out of scope for this card. Tracked as
+a follow-up in kosmos#2738 (the likely fix: key both dedup filters off countFrom instead of the raw
+window, which is a no-op on the common path). Both challenge-loop reviewers (opus + sonnet)
+independently flagged this and agreed it is the deliberate deferral.
