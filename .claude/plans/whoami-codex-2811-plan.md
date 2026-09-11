@@ -375,3 +375,69 @@ genuine fleet card (which is exactly what `status.js:5912` emits) rather than
 building one, which `fixture-discipline.test.js` exists to refuse. Its control runs
 first and asserts the record CAN answer before the job exists, so the arm cannot
 pass merely because the transcript was unreadable.
+
+## Round 4: the same miss, twice more, in fields I had already reasoned about
+
+Round 4 confirmed all nine claimed mutants dead and added nine of its own, seven
+dead, one equivalent, one SURVIVOR. One WARNING and two NITs.
+
+### The warning, and it is my own sentence not carried through
+
+I guarded `isDefault` on the LIVE account path and wrote, inside that very
+comment, that the record-only path needed the same guard. I then carried that
+reasoning to the MODEL and not to the ACCOUNT. So one payload could say the model
+is unknown (correct) and the account is a non-default CLAUDE account (not), for
+the same codex agent.
+
+The comment immediately above the defective line already read: "the live path was
+fixed and its sibling was not. Same miss, third time." Mine was the fourth.
+
+Fixed in `accountForAgent`, which is where the defect lives, so all five of its
+callers are covered rather than the whoami one. Only the fallback branch is
+guarded: the `found` branch takes `isDefault` from whichever list matched, which
+is that list's own notion and correct for both providers.
+
+### The surviving mutant was real
+
+`runnerNamed`'s bare-name arm (`t === name`) was asserted nowhere: every fixture
+in the file used a full path, so deleting the arm left everything green. Not
+hypothetical either. Sampled live on this machine: 3 processes front as a bare
+`claude` against 18 with a full path, which is what a PATH-resolved exec looks
+like in `ps`. Arms added for both runners plus lookalike controls (`claudebot`,
+`codex-helper`, `myclaude`) so the bare match cannot be loosened into a prefix
+match.
+
+### Fixing the NIT exposed a fourth instance of the same pattern
+
+The sentence asked the LIVE reader only, so a paneless, crashed or win32 Codex
+agent read "an account we cannot identify (...)" with the word Codex nowhere in
+it. Extending it, my own test failed: I had written that a codex-shaped no-account
+branch was UNREACHABLE because "runningAs always sets configDir on a successful
+read, so `acct` is always truthy".
+
+That is true of the live path and false of the record one. An agent with no launch
+job has no account at all while its runner is perfectly well known, so the
+fallback is reached with a known codex runner. A test demonstrated it; re-reading
+the comment never would have.
+
+⭐ THE THROUGH-LINE OF THIS WHOLE BRANCH, now visible three times in one round:
+**reasoning that holds for the LIVE reader does not transfer to the RECORD
+reader.** It has now bitten at `isDefault`, at the model, and at the sentence.
+
+### The structural fix, not just the three patches
+
+The two runner readers were collapsed into one `resolvedRunner` (live, then the
+crash-surviving marker, then the launch job and profile), exported from
+`whoamiFor` and consumed by both the model guard and the sentence. Live takes
+precedence because a running process is the only source that cannot be stale.
+One derivation means the guard and the sentence can no longer drift apart, which
+is what let this class recur three times.
+
+### One finding I deliberately did NOT fix
+
+The review noted the new test leaves a profile record uncleaned. Going to fix it,
+I measured that `store.PROFILES` is a STRING evaluated at require time and
+resolves to the OPERATOR'S REAL profiles directory when the sandbox env is not set
+first. A stray unlink against that path is a live destructive risk taken for a
+cosmetic tidy on a record that leaks nothing and no other test reads. Left alone,
+with the reason recorded in the test so the next reader does not re-introduce it.

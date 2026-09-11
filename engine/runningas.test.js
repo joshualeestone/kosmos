@@ -182,6 +182,37 @@ test('#2811: DEPTH still decides before the runner preference', () => {
     'a deeper claude beat a shallower codex, so depth stopped deciding');
 });
 
+test('#2811: a BARE executable name is matched, not only a path', () => {
+  /* 🛑 A SURVIVING MUTANT FOUND THIS: removing the `t === name` arm and keeping
+     only `t.endsWith('/' + name)` left every test green, because every fixture in
+     this file used a full path. The bare arm is not hypothetical: sampled on this
+     machine, 3 live processes front as a bare `claude` (against 18 with a full
+     path), which is what a PATH-resolved exec looks like in `ps`. */
+  const bareClaude = new Map([
+    [100, { ppid: 1, command: '/bin/zsh' }],
+    [101, { ppid: 100, command: 'claude --model claude-opus-5' }],
+  ]);
+  assert.deepEqual(agentUnder(100, bareClaude), { pid: 101, runner: 'claude' },
+    'a bare `claude` command is not recognised, so a PATH-resolved agent is invisible');
+
+  const bareCodex = new Map([
+    [100, { ppid: 1, command: '/bin/zsh' }],
+    [101, { ppid: 100, command: 'codex -m gpt-5.6' }],
+  ]);
+  assert.deepEqual(agentUnder(100, bareCodex), { pid: 101, runner: 'codex' });
+
+  /* CONTROLS: bare matching must stay EXACT, or it becomes the "too loose" rule
+     the path arm was written to avoid. */
+  const lookalikes = new Map([
+    [100, { ppid: 1, command: '/bin/zsh' }],
+    [101, { ppid: 100, command: 'claudebot --serve' }],
+    [102, { ppid: 100, command: 'codex-helper' }],
+    [103, { ppid: 100, command: 'myclaude' }],
+  ]);
+  assert.equal(agentUnder(100, lookalikes), null,
+    'a name merely starting or ending with the runner name was matched');
+});
+
 /* ───────────────── #2811, the node-fronting launcher ─────────────────
  * MEASURED, and recorded here because the WRONG conclusion is the intuitive one
  * and I drew it first. `/opt/homebrew/bin/codex` (the npm/homebrew launcher that
