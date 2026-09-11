@@ -28,6 +28,14 @@ const path = require('node:path');
    a no-op for the default world (every install today). MUST stay ahead of the first
    `require('./engine/...')` -- server.worldenv-order.test.js guards that. Returns the
    pre-override registry base the /api/worlds routes use (null on a broken env). */
+/* #570: the LAUNCH's own port and data-root choices, copied BEFORE the bootstrap
+   below writes the active world's roots into process.env. The Windows hand-off
+   (engine/win32handoff.js) keeps a launch that chose its own port or data folder
+   in its window, because the logon task would not use them -- and it must not
+   mistake a named world for such a choice: the task boots the same world from the
+   same registry. */
+const LAUNCH_ENV_OVERRIDES = Object.fromEntries(Object.entries(process.env)
+  .filter(([key]) => key === 'PORT' || key.startsWith('AGENT_WORKFORCE_')));
 const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process.env);
 // `STATE` travels with them: the thread route compares a member's state, and a
 // literal there is a comparison that silently stops matching the day the engine
@@ -165,6 +173,14 @@ const usage = require('./engine/usage');
 // on screen has to be the number in the release rather than a hand-typed label
 // that drifts.
 const { version } = require('./package.json');
+/* #570: which board THIS PROCESS is -- its build (version, plus the zip's commit
+   when it runs from the Windows bundle) and the world it booted into -- fixed at
+   start. GET / names it in a header so the Windows hand-off can tell the board
+   that is running from the files on disk, and from a board serving another world.
+   The module loads on every platform for these; it has no side effects at load
+   and requires win32board only when a hand-off runs. */
+const { buildIdentity, boardIdentity, BOARD_IDENTITY_HEADER } = require('./engine/win32handoff');
+const BOARD_IDENTITY = boardIdentity(buildIdentity(__dirname) || version, require('./engine/worldenv').bootedWorld());
 
 /**
  * Whether this process is behind the code on disk (#338).
@@ -11348,7 +11364,12 @@ const server = http.createServer((req, res) => {
        exactly that: 0.2.75 on the line and the previous page on screen.
        📌 It costs a re-read of one local file per load, which is the price of
        an update actually arriving. (#271, Mona Lisa.) */
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+    /* #570: the build this PROCESS loaded, which the page cannot say. The page
+       is read per request, so a new zip unpacked over the running install makes
+       an old board serve the new page and name the new version. The Windows
+       hand-off (engine/win32handoff.js) must tell the running code from the files
+       on disk, and this header is that answer. */
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', [BOARD_IDENTITY_HEADER]: BOARD_IDENTITY });
     res.end(buf);
   });
 });
@@ -11798,9 +11819,14 @@ if (require.main === module) {
    * block. A board that refused to start because it could not register a logon
    * task would be strictly worse than the board that is starting right now.
    */
+  /* ensureInstalled's answer, kept for the hand-off right before start(): only a
+     task this boot just registered or refreshed is one a hand-started board may
+     hand itself to. */
+  let win32BoardEnsured = null;
   if (process.platform === 'win32') {
     try {
       const r = require('./engine/win32board').ensureInstalled({});
+      win32BoardEnsured = r;
       if (r.action === 'registered') {
         process.stdout.write(`Kosmos will now start when you log in. Task Scheduler > Kosmos > board; remove it with: ${r.removeHint}\n`);
       } else if (!r.ok) {
@@ -11908,20 +11934,40 @@ if (require.main === module) {
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about connections: ${String(err && err.message)}\n`);
   }
-  start().then(() => {
-    // Report the port actually bound, not the one requested, or a `PORT=0` run
-    // would announce itself on port 0.
-    process.stdout.write(`Kosmos on http://127.0.0.1:${server.address().port}\n`);
-    process.stdout.write('Local only. It writes, and it has no login yet.\n');
-  }).catch((err) => {
-    // Say what to do rather than name an exception. A raw EADDRINUSE stack is
-    // exactly what start()'s promise exists to replace, and leaving this
-    // uncaught made the comment above it a lie.
-    const detail = err && err.code === 'EADDRINUSE'
-      ? `port ${PORT} is already in use. Is a board already running?`
-      : String(err && err.message);
-    process.stderr.write(`Kosmos could not start: ${detail}\n`);
-    process.exit(1);
+  /* #570: on Windows, a board started by hand from the unpacked zip (Kosmos.exe)
+     hands itself to its headless logon task and leaves, so the launcher's window
+     is never the board and a relaunch never reports "port in use" over a working
+     board. Every case it cannot confirm resolves to serving here, as before. See
+     engine/win32handoff.js. */
+  const beforeServing = process.platform === 'win32'
+    ? require('./engine/win32handoff').handOffToTask({ ensured: win32BoardEnsured, port: PORT, identity: BOARD_IDENTITY, env: LAUNCH_ENV_OVERRIDES })
+    : Promise.resolve({ serve: true, attempted: false });
+  beforeServing.catch((err) => ({ serve: true, attempted: true, because: `the hand-off failed (${String(err && err.message)})` })).then((handOff) => {
+    if (!handOff.serve) {
+      /* A Windows console write is asynchronous, so exit from its callback. The
+         launcher's own console closes on exit 0, so this line is read by whoever
+         started Kosmos from a terminal they keep. */
+      process.stdout.write(`${handOff.say}\n`, () => process.exit(handOff.exitCode || 0));
+      return;
+    }
+    if (handOff.attempted) {
+      process.stderr.write(`Kosmos could not move to the background (${handOff.because}), so it is running in this window. Keep this window open while you use Kosmos.\n`);
+    }
+    start().then(() => {
+      // Report the port actually bound, not the one requested, or a `PORT=0` run
+      // would announce itself on port 0.
+      process.stdout.write(`Kosmos on http://127.0.0.1:${server.address().port}\n`);
+      process.stdout.write('Local only. It writes, and it has no login yet.\n');
+    }).catch((err) => {
+      // Say what to do rather than name an exception. A raw EADDRINUSE stack is
+      // exactly what start()'s promise exists to replace, and leaving this
+      // uncaught made the comment above it a lie.
+      const detail = err && err.code === 'EADDRINUSE'
+        ? `port ${PORT} is already in use. Is a board already running?`
+        : String(err && err.message);
+      process.stderr.write(`Kosmos could not start: ${detail}\n`);
+      process.exit(1);
+    });
   });
 }
 
