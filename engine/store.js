@@ -282,6 +282,30 @@ function avatarPath(name) {
 }
 
 /**
+ * A version that CHANGES whenever this agent's stored avatar changes (#2698).
+ *
+ * 🔑 WHY THIS EXISTS. The board serves the avatar with `cache-control: no-store`,
+ * so a freshly-drawn `<img>` always refetches the current picture. But the
+ * org-chart view skips a repaint when its generated HTML is byte-identical (to
+ * preserve keyboard focus), and a BARE `/api/agent/<name>/avatar` URL is identical
+ * before and after a picture change -- so the org node's `<img>` was never
+ * recreated and kept showing the old image while grid and list (which rebuild
+ * their imgs every poll) updated. Carrying this value in the URL as `?v=` makes
+ * the HTML change when the picture changes, so the org view repaints and refetches.
+ * It mirrors the operator's own `?v=YOU_PIC_V` treatment.
+ *
+ * The file mtime is the version: `saveAvatar` rewrites the file on every update,
+ * so the mtime moves with it, and no counter has to be persisted across restarts.
+ * Returns 0 when there is no avatar or the file cannot be stat'd, which is a
+ * stable, harmless `?v=0` for the no-picture (initials) case.
+ */
+function avatarVersion(name) {
+  const file = avatarPath(name);
+  if (!file) return 0;
+  try { return Math.round(fs.statSync(file).mtimeMs); } catch { return 0; }
+}
+
+/**
  * What an image ACTUALLY is, read from its first bytes.
  *
  * 🛑 THE TYPE USED TO COME FROM THE BROWSER AND THAT FAILED BOTH WAYS. The page
@@ -497,7 +521,7 @@ function writeSettings(patch) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings };
+module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarVersion, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers

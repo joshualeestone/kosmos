@@ -472,3 +472,18 @@ test('#2577: the node badge is the list-row glyph reused verbatim, so the two ca
   assert.match(SCRIPT, /const ONODE_WARN = LROW_WARN\.replace\('class="lwarn"', 'class="owarn"'\);/,
     'ONODE_WARN is not derived from LROW_WARN by a class swap; the two needs-you glyphs can now drift');
 });
+
+/* #2698: the org-chart avatar kept the OLD picture after a profile-image update,
+   because its URL was bare and paintOrg skips a repaint whose HTML is unchanged,
+   so its <img> was never recreated. The fix carries an avatar version in the URL
+   so the markup differs when the picture changes. These pin the versioned URL and
+   guard against the bare form creeping back (which would silently re-break it). */
+test('#2698: the org avatar URL carries the avatar version so a changed picture repaints the node', () => {
+  const paint = SCRIPT.slice(SCRIPT.indexOf('function paintOrg'), SCRIPT.indexOf('function orgLiveStart'));
+  const face = paint.slice(paint.indexOf('const face = a.hasAvatar'), paint.indexOf('const tint'));
+  assert.ok(face.includes('const face = a.hasAvatar'), 'the org face construction moved');
+  assert.match(face, /\/avatar\?v='\s*\+\s*\(a\.avatarVer \|\| 0\)/,
+    'the org avatar img must carry ?v=<avatarVer>; a bare URL never changes so paintOrg skips the repaint and the node keeps the old picture');
+  assert.doesNotMatch(face, /\/avatar" alt=""/,
+    'the bare unversioned org avatar URL crept back, which silently re-breaks #2698');
+});
