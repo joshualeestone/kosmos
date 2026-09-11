@@ -34,9 +34,13 @@ Both:
   escaped (no HTML injection through a cell). Alignment colons map to `text-align`.
 - **Heading level emitted** (`<span class="mdh mdh1">` .. `mdh6`) in both renderers, and CSS sizes
   them (a gentle ramp; `mdh3` keeps the old 1.0625rem so the common case is unchanged).
-- **`.mdtable` CSS**: `inline-table` so it flows in the renderers' inline (`<br>`-joined) output like
-  `.mdhr`'s inline-block, `max-width:100%` so a wide table scrolls rather than widening the message
-  column.
+- **Table CSS**: the table is wrapped in a `.mdtablewrap` inline-block scroll container (the
+  `#usage-table` pattern) carrying `max-width:100%` + `overflow-x:auto`, so a wide table (a long
+  URL / inline-code token in a cell) SCROLLS inside the container rather than widening the message
+  bubble; the wrapper flows in the renderers' inline (`<br>`-joined) output like `.mdhr`'s
+  inline-block, and `.mdtable` itself keeps only `border-collapse` + `font-size`. (An earlier draft
+  put `inline-table`/`max-width` on `.mdtable` directly, which asserted "scrolls" without an
+  `overflow` to make it true; the wrapper is the fix.)
 - **pjRich fast-path**: a message containing `|` now takes the slow path (where table detection
   runs). A single-line pipe message stays byte-identical (`pjRichSpans` escapes it the same); a
   multi-line one renders its breaks as `<br>` under the same pre-wrap, so no visible change.
