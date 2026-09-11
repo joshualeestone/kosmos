@@ -461,6 +461,11 @@ function superviseStreaming(spec, opts) {
     if (!e || e.type !== 'system' || e.subtype !== 'init') return;
     const id = e.session_id;
     if (typeof id !== 'string' || !id || id === handle.sessionId) return;
+    /* A chain is already retrying this id. A second `init` for it (the turn of a
+       message queued behind the /clear) must not start a second chain: that doubled
+       the lock traffic and the log, and a late chain could re-run the rekey with the
+       new id as the "old" one and forget the agent's live row (review round 5). */
+    if (id === pendingRekey) return;
     rekeyTo(id, child, 1);
   }
 
@@ -478,8 +483,10 @@ function superviseStreaming(spec, opts) {
     catch (err) { rec = { ok: false, because: 'we could not record its new session (' + ((err && err.code) || 'unknown') + ')' }; }
     if (!rec || !rec.ok) {
       const why = (rec && rec.because) || 'we could not record its new session';
-      pendingRekey = id;
       const last = attempt >= REKEY_ATTEMPTS;
+      /* Pending while a retry is armed; cleared on giving up, so a later `init` for
+         the same id can start trying again. */
+      pendingRekey = last ? null : id;
       if (attempt === 1 || last) {
         onEvent({ action: 'rekey-failed', sessionId: id,
           because: 'its session changed from ' + oldId + ' to ' + id + ', but ' + why + (last ? '; we stopped trying' : '; we will keep trying') });

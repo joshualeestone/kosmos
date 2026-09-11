@@ -416,6 +416,47 @@ test('#2669 a NEWER id supersedes a pending retry: the older one is never record
   t.h.stop();
 });
 
+test('#2669 a second init for an id already being retried starts no second chain, and never forgets the live row', () => {
+  /* A message queued behind the /clear produces a second init for the same new id
+     while its record is still failing (review round 5). */
+  let attempts = 0;
+  const timers = [];
+  const forgotten = [];
+  const t = clearingSupervisor('clr-10', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: {
+      record: () => { attempts += 1; return attempts <= 2 ? { ok: false, because: 'the record is busy' } : { ok: true }; },
+      forget: (id) => { forgotten.push(id); return { ok: true }; },
+      read: () => ({}),
+    },
+  });
+  const B = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });
+  assert.equal(attempts, 1, 'the second init did not start an attempt of its own');
+  assert.equal(t.events.filter((e) => e.action === 'rekey-failed').length, 1, 'and the log says it once');
+  while (timers.length) timers.shift()();
+  assert.equal(t.h.sessionId, B, 'the one chain lands the new id');
+  assert.deepEqual(forgotten, [t.oldId], 'only the OLD id is forgotten, never the live one');
+  t.h.stop();
+});
+
+test('#2669 after a retry chain gives up, a later init for the same id tries again', () => {
+  let n = 0;
+  const q = [];
+  const t = clearingSupervisor('clr-11', {
+    setTimer: (fn) => q.push(fn),
+    sessions: { record: () => { n += 1; return { ok: false, because: 'broken' }; }, forget: () => ({ ok: true }), read: () => ({}) },
+  });
+  const B = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });
+  while (q.length) q.shift()();
+  assert.equal(n, 30, 'the chain used its attempts');
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });
+  assert.equal(n, 31, 'a chain that gave up does not block a fresh try');
+  t.h.stop();
+});
+
 test('#2669 a pending rekey retry writes nothing once the loop is stopped', () => {
   let attempts = 0;
   const timers = [];
