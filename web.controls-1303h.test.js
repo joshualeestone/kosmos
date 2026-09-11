@@ -43,6 +43,15 @@ test('item 1: the words are still in the DOM, so the button keeps its name', () 
     'the New task words were deleted from the markup, which removes the accessible name');
 });
 
+// #2711 item 10: the tab view now applies the SAME font-size:0 "+"-only
+// treatment to #pj-add-member (both layouts share the technique). Guard its
+// worded name too, so a future edit that swaps the "+ Add member" text for a
+// bare glyph is caught, exactly as the #pj-newtask test above catches it.
+test('#2711 item 10: the Add member button keeps its worded name in the DOM', () => {
+  assert.match(PAGE, /<button class="btn-quiet pj-addmem" id="pj-add-member" type="button"><span aria-hidden="true">\+<\/span> Add member<\/button>/,
+    'the Add member words were deleted from the markup, which removes the accessible name (font-size:0 hides them visibly, so the text must stay)');
+});
+
 test('item 2: a folded section hides its plus, and only its plus', () => {
   /* Josh, 10:23. Folded, the rail is 48px and the label is gone, so a + is an
      action with nothing visible to act on. MEASURED: unfolded both visible,
