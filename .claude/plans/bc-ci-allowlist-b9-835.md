@@ -6,7 +6,7 @@ browser-checks.yml, so a break in more render checks fails at the PR, not at the
 Follows merged batches 1-8 (#2747-#2779). Allowlist at 35 before this batch.
 
 ## The mechanism (unchanged)
-KOSMOS_BC_CI_ALLOWLIST is a FILTER over checks the driver already invokes; all three added
+KOSMOS_BC_CI_ALLOWLIST is a FILTER over checks the driver already invokes; both added
 here are in browser-checks.sh's no-board/no-arg loop, so this is a names-only change.
 Self-validating: this PR edits browser-checks.yml (in the job's own path filter), so the
 expanded set runs on the runner in THIS PR's CI, and the driver's never-ran guard hard-reds a
@@ -21,31 +21,44 @@ false positive, not an API call) - confirmed in the no-board/no-arg loop, and me
 (file:// vs sandboxed server) with the timing-wait count recorded.
 
 ## Change
-Add three verified DOM-state candidates (0 geometry/paint signals; timing waits noted):
-- **render-model-restart-interstitial** - the model-restart interstitial state. file://; reads
-  DOM/text state; 1 timing wait. (Its only fragile-grep hit was the word "screenshot" in a
-  comment referencing a Josh screenshot - not a screenshot API call.)
+Add two verified DOM-state candidates (0 geometry/paint signals; timing waits noted):
 - **render-firstrun-openai-sub-2621** - the first-run OpenAI subscription connect box. file://,
-  fetch stubbed; reads DOM/text state; 3 timing settles.
-- **render-worlds-switcher-1704** - the worlds switcher. BOOTS its own sandboxed temp-rooted
-  server (spawn node server.js, mkdtemp AGENT_WORKFORCE_* roots, fake-tmux); reads DOM/text
-  state; 2 timing settles.
+  fetch stubbed; reads DOM/text state; 3 timing settles (plain sleeps, not paint waits).
+- **render-worlds-switcher-1704** - the worlds switcher. Boots server.js IN-PROCESS
+  (require('../../server.js') + srv.start(0) on an OS-chosen port) against mkdtemp
+  AGENT_WORKFORCE_* roots frozen before the require, with AGENT_WORKFORCE_TMUX_BIN=/bin/echo;
+  reads DOM/text state; 2 timing settles.
 
-None asserts geometry/computed-color/screenshot/animation/scroll. The timing waits (1/3/2) are
-plain settles, not paint/animation waits - not a headless-robustness concern, just a few
-seconds of CI time. Mutation-safe: model-restart + openai-sub are file:// with fetch stubbed;
-worlds-switcher boots a sandboxed temp-rooted server (roots frozen before require, fake-tmux) -
-none touches the operator's real board/data.
+Neither asserts geometry/computed-color/screenshot/animation/scroll. The timing settles (3/2)
+are plain sleeps, not paint/animation waits - not a headless-robustness concern, just a few
+seconds of CI time. Mutation-safe: openai-sub is file:// with fetch stubbed; worlds-switcher
+runs server.js in-process against throwaway mkdtemp roots + fake tmux, on a random port - neither
+touches the operator's real board/data.
+
+## Excluded this batch (caught in blind review, dropped)
+- **render-model-restart-interstitial** - DROPPED. It reads LIVE CANVAS PIXEL DATA
+  (getContext('2d').getImageData) in loaderPainted()/detachedPainted to verify a rAF-driven
+  canvas animation (startKLoader) actually painted, and uses
+  emulateMedia({reducedMotion:'no-preference'}) to force the animating path - functionally an
+  animation/paint assertion, the fragile class the allowlist excludes. It also has 12 sleep()
+  call sites with tight margins. My fragile-signal grep missed both: the rAF loop lives in
+  web/index.html (not the check file), the check reads it via getImageData (not in my signal
+  list), and its timing uses a custom sleep() helper (my grep matched waitForTimeout/setTimeout/
+  waitFor, not sleep). METHOD REFINEMENT for future batches: extend the grep to getImageData /
+  getContext (canvas pixel reads) and a custom sleep( helper, and note that a rAF loop in the
+  PAGE can be asserted by a check that reads the canvas without any rAF token in the check file
+  itself - so a check that emulateMedia(reducedMotion) + reads a canvas is an animation check
+  even with a 0 literal-token count.
 
 ## Verification
-- This PR's own browser-checks CI runs the expanded allowlist on the runner. GREEN means all
-  three run and pass headless; a RED naming one means drop it (with the driver's reason) and
+- This PR's own browser-checks CI runs the expanded allowlist on the runner. GREEN means both
+  run and pass headless; a RED naming one means drop it (with the driver's reason) and
   re-push. Merge only on green.
 - Node unit suite unaffected (yaml-only change); test.yml stays green.
 
 ## Weakest premise
-That all three run green headless on the runner. The refined grep (geometry + timing) + the
+That both run green headless on the runner. The refined grep (geometry + timing) + the
 mechanism check are strong filters but not proofs; this PR's own CI is the definitive backstop -
 a wrong pick reds this PR before merge and I drop that name, so a miss costs an iteration, never
-a bad merge. The timing-wait checks (all three have some) have marginally more flake surface on
+a bad merge. The timing-wait checks (both have some) have marginally more flake surface on
 a starved runner, but a flake reds this PR before merge rather than causing a bad merge.
