@@ -148,6 +148,29 @@ function identityFromData(parsed) {
   return null;
 }
 
+/** Pure, offline: the ChatGPT-subscription validity-end (`chatgpt_subscription_active_until`)
+    from a parsed auth.json, as epoch ms, or null when this is not a chatgpt sign-in, the
+    id_token is missing/undecodable, or the claim is absent/unparseable. A LABEL read of the
+    same id_token identityFromData decodes -- decoded, NEVER verified. It is the ONLY offline
+    signal that a ChatGPT sign-in (whose id_token checkLive cannot test against /v1/models) is
+    dead: OpenAI writes and refreshes this subscription window in the token, so a value in the
+    PAST is a genuinely lapsed subscription. NOT the token `exp`, which is short and refreshed
+    and would false-red a live sign-in between refreshes. Fail-NULL on any doubt so the caller
+    stays UNKNOWN (grey) rather than red -- a false red is the inverted #874 harm. */
+function chatgptSubscriptionActiveUntil(parsed) {
+  try {
+    if (!parsed || parsed.auth_mode !== 'chatgpt') return null;
+    const tok = parsed.tokens && parsed.tokens.id_token;
+    if (typeof tok !== 'string' || tok === '') return null;
+    const payload = JSON.parse(Buffer.from(String(tok).split('.')[1], 'base64url').toString('utf8'));
+    const auth = payload && payload['https://api.openai.com/auth'];
+    const until = auth && auth.chatgpt_subscription_active_until;
+    if (typeof until !== 'string' || until === '') return null;
+    const ms = Date.parse(until);
+    return Number.isFinite(ms) ? ms : null;
+  } catch { return null; }
+}
+
 /** What codex wrote about who this is; null when nobody is signed in here,
     or when auth.json exists but is unreadable/unrecognized. */
 function identityOf(dir) {
@@ -1115,12 +1138,26 @@ async function checkLive(dir) {
     return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because: 'we could not find a usable sign-in in this account\'s settings' };
   }
   if (who.authMode !== 'apikey') {
-    /* ⚠️ UNKNOWN, NOT NONE, AND NOT A GUESSED CONNECTED EITHER. codex's
-       ChatGPT-mode auth hands us an id_token (an identity claim), not a
-       bearer credential usable against OpenAI's API the way apikey mode's
-       raw key is -- there is no real live check to run here yet. Saying so
-       honestly is the whole point of this fix: a badge this codebase cannot
-       actually verify must never claim it did. */
+    /* #2790 Phase 2: the ONE offline signal that a ChatGPT-subscription sign-in is
+       actually DEAD. codex's ChatGPT-mode auth hands us an id_token (an identity claim),
+       not a bearer credential testable against /v1/models -- and the pane cannot separate
+       a dead 401 from a transient reconnect 401 (codexauthprobe.js) -- so there is no
+       live check and no reliable scrape. But the id_token carries
+       `chatgpt_subscription_active_until`, the subscription's own validity end that OpenAI
+       writes and refreshes; a value in the PAST is a lapsed subscription with no ambiguity,
+       so we can red the badge on it. */
+    const until = chatgptSubscriptionActiveUntil(got.data);
+    if (until !== null && until < Date.now()) {
+      return {
+        state: STATE.NONE, plan: null, checkedLive: true,
+        because: 'this ChatGPT subscription has lapsed (its active-until date has passed)',
+      };
+    }
+    /* ⚠️ UNKNOWN, NOT NONE, AND NOT A GUESSED CONNECTED EITHER, for everything else:
+       an absent/unparseable window, or one that is still open. codex's id_token is an
+       identity claim, not a bearer credential we can verify, so a badge this codebase
+       cannot actually check must never claim it did -- and a false red (telling a working
+       sub it is broken) is the inverted #874 harm. Fail-open to grey on all doubt. */
     return {
       state: STATE.UNKNOWN, plan: null, checkedLive: true,
       because: 'this sign-in method is not yet checked live; it may or may not still work',
@@ -1564,6 +1601,8 @@ module.exports = {
   list, identityOf, addWithKey, addWithKeyLive, finishChatgptLogin, startChatgptLogin, chatgptLoginStatus, cancelChatgptLogin, nextWorkDir, defaultDir, forgetAccount, removeAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, setChatgptTimers, MISSING_RUNNER_SENTENCE,
+  chatgptSubscriptionActiveUntil,   // #2790 Phase 2: pure offline sub-validity read, exported for unit test
+
   accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds, runnableAllowlist, openaiModelClass,
   readName, writeName,   // #2095: the human-chosen display name (sidecar file)
 };
