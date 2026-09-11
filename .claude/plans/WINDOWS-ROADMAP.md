@@ -3,22 +3,21 @@
 **If you are a new session picking this up, read this block, then §2 and §3. Nothing
 else is required to continue.**
 
-    where the work lives   branch win32-chat-arm-570  (pushed; one slice per branch
-                           off main from here on -- repo CLAUDE.md)
-    already on main        #2537 keep-alive; #2601 four blockers + 7c-1/7c-2 + the
-                           channel (44728136)
+    where the work lives   one slice per branch off main (repo CLAUDE.md)
+    already on main        7c-1..7c-5 (#2601, #2661, #2672), headless tasks (#2714),
+                           and the supervisor fixes #2722, #2728, #2731, #2737
     this file              .claude/plans/WINDOWS-ROADMAP.md   <- the whole road
     the keep-alive log     .claude/plans/win32-keepalive-570.md  <- that slice only
 
-## The one-line state
+## The one-line state (2026-09-11)
 
-**A Windows agent can now be talked to** (BLOCKER 1, 7c-4, measured live
-2026-09-10 -- pending merge of win32-chat-arm-570). Blockers 3 and 4 are closed.
-**BLOCKER 2 IS OFF THE v1 CRITICAL PATH:** Josh approved 2026-09-10 (relayed by
-Splinter) that the first Windows release updates BY HAND (download the new zip),
-with a real updater as a fast-follow. What is left for v1: 7c-5 (state from the
-event stream), 7c-6 (the rehearsal, R3 included), and cutting a current Windows
-build -- installkosmos.com serves one, but it is 0.6.37 against the Mac's 0.6.54.
+**7c IS DONE, AND THE REHEARSAL PASSED END TO END: R1-R8, R3 included, and the
+board AND the fleet came back at a real logon, headless** (§2). BLOCKER 2 is off
+the v1 path: Josh approved 2026-09-10 that the first Windows release updates by
+hand, with a real updater as a fast-follow. What is left for v1 is shipping it.
+installkosmos.com still serves 0.6.37. A zip built from main passes every agent
+step on the box, and the launcher fix it needed is `win32-launch-handoff-570`
+(see "Do this next").
 
 ## ✅ 7c-2 IS DONE (2026-09-10), AND MEASURED ON THE BOX.
 
@@ -172,10 +171,30 @@ shared usage before fanning out subagents.
    `win32capture` falls back to it for a status-less row. Measured live through
    the supervisor's real `main()`, a real claude.exe and the real snapshot:
    card absent -> idle -> working (0.8s after the message) -> idle.
-3. **7c-6:** the rehearsal, R1–R8 with R3 for the first time, and a real reboot.
-4. The crash-restart token defect above.
-5. A current Windows build and publish (the pipeline exists; the site is stale).
-6. Still unmeasured: the named pipe's default DACL.
+3. ✅ **7c-6 DONE 2026-09-11:** R1–R8 all pass, with R3 passing for the first
+   time and R8 a real reboot (§2).
+4. ✅ The crash-restart token defect: #2722. Also fixed along the way: #2728
+   (`/clear` rekey), #2731 (a resume with no conversation starts fresh), #2737
+   (ownership rows pruned).
+5. **A current Windows build and publish.** The pipeline exists; the site serves
+   0.6.37.
+   - A zip built from main 6182640d (0.6.55) passed every agent step on the box,
+     unpacked from a download marked as coming from the internet: sign-in via
+     the #2007 nonce, create, talk, restart, remove, restore, talk again.
+   - It found one launcher defect. `Kosmos.exe` ran the board in the foreground of
+     its own window: closing the window stopped the board, and every relaunch
+     after the first logon said "port in use ... Kosmos stopped". The fix is
+     `win32-launch-handoff-570`: a hand-started board hands itself to its headless
+     logon task and exits. `win32-package-text-570` then brings the zip's README
+     and manifest up to date.
+   - The handshake, agreed with Baron (2026-09-11):
+     1. Baron builds on the Mac release box from a sha this box has verified.
+     2. This box verifies those exact bytes.
+     3. A deploy serves it, on Josh's explicit go.
+6. Still unmeasured:
+   - the named pipe's default DACL;
+   - a first run on a CLEAN Windows box (capability 1). This box is not admin,
+     and Windows Sandbox needs enabling plus a reboot.
 
 ⚠️ DO NOT re-derive the three measurements in §3 — a streaming session stays
 alive across turns, is still listed by `claude agents --json` as
@@ -251,9 +270,9 @@ That is the bar. Not "the tests pass".
 | 1 | install + first run | ⚠️ **BLOCKER 3 CLOSED** 2026-09-09 — the card now names the real installer. Kosmos still cannot install Claude Code FOR you; see §3c |
 | 2 | make an agent | ✅ MEASURED |
 | 3 | board + roster | ✅ MEASURED — working/idle from the event stream since 7c-5 (§4); needs_you/blocked still come only from self-reports, as on the Mac |
-| 4 | **talk to it** | ✅ **BLOCKER 1 CLOSED** 2026-09-10 (7c-4) — the board's `chat.deliver` reaches the agent through its supervisor's pipe and it answers; measured live. Its card reads working/idle since 7c-5 |
+| 4 | **talk to it** | ✅ **BLOCKER 1 CLOSED** 2026-09-10 (7c-4) — the board's `chat.deliver` reaches the agent through its supervisor's pipe and it answers; measured live. Its card reads working/idle since 7c-5. **R3 PASSED** in the 7c-6 rehearsal: 3 of 3 agents `placed`, card working -> idle, and the reply is in each agent's transcript. A crash-resumed agent reports again (#2722), and `/clear` keeps it on the board (#2728) |
 | 5 | stop/restart/remove/restore | ✅ MEASURED |
-| 6 | survive a reboot | ✅ AGENTS measured (R8). BOARD: **BLOCKER 4 CLOSED** 2026-09-09 — an at-logon task, proven end to end via /Run; a real logon still owed |
+| 6 | survive a reboot | ✅ **MEASURED AT A REAL LOGON 2026-09-11** (R8 of 7c-6). After Josh's reboot, the board and all 5 enabled agents came back unattended: one `conhost --headless` supervisor each, no windows, every card idle, one ownership row per agent (#2737) |
 | 7 | **update the app** | ⚠️ **BLOCKER 2, OFF THE v1 PATH** — Josh approved 2026-09-10: v1 updates by hand, a real updater is a fast-follow. §3a. The ANCHOR (not stranding the fleet) is designed and unit-tested; the UPDATER ITSELF cannot run on Windows at all |
 
 🛑 THAT IS FOUR BLOCKERS, NOT ONE. This table said "one blocker" on 2026-09-09
@@ -273,6 +292,28 @@ every result checked against Windows rather than against a return value):
     R6 remove ................... PASS   five steps, Restore offered
     R7 restore .................. PASS   task Enabled + Running, agent back
     R8 reboot ................... PASS   back at logon in 7s, unattended
+
+✅ **7c-6, RE-RUN 2026-09-10/11 on the streaming agent**, through the real board's
+HTTP API on port 16180 (script `kosmos-rehearsal-7c6.js` on the box). Every
+verdict reads `/api/status`, `claude agents --json` and `schtasks`, never a
+route's own answer:
+
+    R1 create 3 agents .......... PASS   reh-a, reh-b, reh-c via POST /api/agents
+    R2 board roster ............. PASS   all three cards, idle
+    R3 each reports ............. PASS   FIRST TIME: delivery=placed, card working
+                                         -> idle, PONG in each agent's transcript
+    R4/R6 stop = remove ......... PASS   5 steps ok, task Disabled, process and
+                                         card gone, listed under /api/removed
+    R5 restart .................. PASS   new pid, a NEW session (a fresh
+                                         conversation, as on a Mac), one row
+    R7 restore .................. PASS   task Running, card idle
+    R8 reboot ................... PASS   2026-09-11, Josh's reboot of the box on
+                                         main 6182640d: \Kosmos\board and 5 agent
+                                         tasks Running from logon, one headless
+                                         supervisor each, no windows, all 5 cards
+                                         idle, board HTTP 200, one ownership row
+                                         per agent. The BOARD at a real logon for
+                                         the first time.
 
 ⚠️ AND READ THAT LIST FOR WHAT IT IS. R1–R8 measured the AGENT LIFECYCLE, and it
 is genuinely solid. What it did not touch is everything either side of it: getting
@@ -351,7 +392,7 @@ resume-not-replace, and the property it protected is preserved rather than trade
 | 7c-3 | ✅ **DONE 2026-09-10** — board → supervisor channel: a local named pipe per agent, per-agent secret, honest `down` when the supervisor is gone. Measured through the real task | — |
 | 7c-4 | ✅ **DONE 2026-09-10** — `chat.js` win32 arm on that channel, keeping the `could_not` contract; `verifyAtSend`'s hazards (a shell, copy-mode) do not exist on a stdin pipe, and the supervisor re-checks at the write. Measured live | — |
 | 7c-5 | ✅ **DONE 2026-09-10** — working/idle from the EVENT STREAM (see §4), crossing to the board as a per-agent file joined on session id AND pid. Measured live. The transcript needed no work: Claude Code writes the session's jsonl under `~/.claude/projects` in streaming mode too (7c-4 read replies from it) | — |
-| 7c-6 | re-run R1–R8, and R3 for the first time | ½ session + a reboot |
+| 7c-6 | ✅ **DONE 2026-09-11** — R1–R8 re-run through the real board API, R3 passing for the first time, R8 a real reboot with the board included. See §2 | — |
 
 **Estimate: 4–6 working sessions**, plus the near-certainty of 2–4 new defects
 that only a real box surfaces. That rate is not pessimism, it is the record:
