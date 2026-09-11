@@ -150,6 +150,71 @@ const BOOT_JS = [
   '',
 ].join('\n');
 
+/* 🛑 A RUNNING INTERPRETER CANNOT BE OVERWRITTEN ON WINDOWS, BUT IT CAN BE RENAMED.
+   The anchored node.exe is the running interpreter of the task board and every
+   agent supervisor. Measured on the Windows box (2026-09-11): copying over a
+   running node.exe fails with "being used by another process"; renaming it
+   succeeds; a new file can then take the old name; the renamed process keeps
+   running; and the renamed file can be deleted only once that process exits.
+   So a zip that changes the Node version used to fail `ensureAnchored`
+   outright, and with it the launcher's hand-off (the person got "port in use"
+   until the next logon). The replacement therefore goes BESIDE the old file,
+   the old file moves aside, and the new one takes its name. Each process keeps
+   the interpreter it started with, and the next start of every task picks up
+   the new one.
+
+   Both side names start with NODE_NAME, so `retireLeftoverInterpreters` and a
+   person looking in the folder can tell what they are. */
+const STAGED_INFIX = '.staged-';
+const RETIRED_INFIX = '.retired-';
+
+/**
+ * Put `srcNode` at `nodeAt` even while `nodeAt` is a running interpreter.
+ *
+ * Throws on failure (ensureAnchored turns that into its sentence). It never
+ * leaves `nodeAt` missing when the swap fails: the retired file is moved back.
+ * Between the two renames `nodeAt` does not exist for a moment. A task started
+ * in that instant fails to start and runs at the next logon or restart. That
+ * window is two renames in one directory, and it opens only when the Node
+ * version changes.
+ */
+function replaceInterpreter(srcNode, nodeAt) {
+  const unique = Date.now() + '-' + process.pid;
+  const staged = nodeAt + STAGED_INFIX + unique;
+  let retired = null;
+  try {
+    /* The copy goes to the side name FIRST, so a failed or half-done copy never
+       touches the interpreter the fleet is running on. */
+    fs.copyFileSync(srcNode, staged);
+    if (fs.existsSync(nodeAt)) {
+      retired = nodeAt + RETIRED_INFIX + unique;
+      fs.renameSync(nodeAt, retired);
+    }
+    fs.renameSync(staged, nodeAt);
+  } catch (e) {
+    if (retired && !fs.existsSync(nodeAt)) {
+      try { fs.renameSync(retired, nodeAt); } catch { /* the thrown error below is the report */ }
+    }
+    try { fs.unlinkSync(staged); } catch { /* never created, or already renamed into place */ }
+    throw e;
+  }
+}
+
+/**
+ * Delete interpreters an earlier swap moved aside. Best-effort and silent by
+ * design: a retired node.exe that a supervisor or the board still runs on cannot
+ * be deleted until that process exits (measured), and the next anchoring retries.
+ * Staged leftovers are NOT swept: one may be another process's swap in flight.
+ */
+function retireLeftoverInterpreters(dir) {
+  let names;
+  try { names = fs.readdirSync(dir); } catch { return; }
+  for (const name of names) {
+    if (!name.startsWith(NODE_NAME + RETIRED_INFIX)) continue;
+    try { fs.unlinkSync(path.join(dir, name)); } catch { /* still running; the next anchoring retries */ }
+  }
+}
+
 /**
  * Put the anchor in place, and answer with the paths a task should be built from.
  *
@@ -194,8 +259,9 @@ function ensureAnchored(opts) {
     if (path.resolve(srcNode).toLowerCase() !== path.resolve(nodeAt).toLowerCase()) {
       let need = true;
       try { need = fs.statSync(nodeAt).size !== fs.statSync(srcNode).size; } catch { need = true; }
-      if (need) fs.copyFileSync(srcNode, nodeAt);
+      if (need) replaceInterpreter(srcNode, nodeAt);
     }
+    retireLeftoverInterpreters(dir);
 
     /* The pointer and the shim are small and rewritten unconditionally: this is
        how an app that moved takes effect, and it is the cheap half. */
@@ -218,6 +284,6 @@ function readPointer(platform, home, env) {
 }
 
 module.exports = {
-  APP, NODE_NAME, POINTER_NAME, BOOT_NAME, BOOT_JS,
+  APP, NODE_NAME, POINTER_NAME, BOOT_NAME, BOOT_JS, STAGED_INFIX, RETIRED_INFIX,
   anchorDir, ensureAnchored, readPointer,
 };

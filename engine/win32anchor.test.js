@@ -185,3 +185,90 @@ test('#570 the shim runs the supervisor the pointer names', () => {
   assert.equal(out.stdout, 'MAIN:["winagent-1","C:\\\\work\\\\a","-","-","claude"]',
     'the argv reaches the supervisor unchanged: ' + out.stdout);
 });
+
+/* The interpreter's side files, named by the module's own constants so the test
+   and the code cannot disagree about a spelling. */
+function sideFiles(runtime) {
+  return fs.readdirSync(runtime).filter((n) => n.startsWith(anchor.NODE_NAME + '.'));
+}
+function retiredFiles(runtime) {
+  return sideFiles(runtime).filter((n) => n.startsWith(anchor.NODE_NAME + anchor.RETIRED_INFIX));
+}
+function anchoringOf(dir, src) {
+  return { platform: process.platform, home: os.homedir(), env: { AGENT_WORKFORCE_DATA: dir }, node: src, engineDir: dir };
+}
+
+test('#570 a first anchoring leaves no side file beside the interpreter', () => {
+  const dir = tmp();
+  const src = path.join(dir, 'src-node.exe');
+  fs.writeFileSync(src, 'stand-in', 'utf8');
+  const r = anchor.ensureAnchored(anchoringOf(dir, src));
+  assert.equal(r.ok, true, r.because || '');
+  assert.deepEqual(sideFiles(r.dir), [], 'a clean copy leaves no staged or retired file');
+});
+
+test('#570 an interpreter an earlier swap retired is swept even when nothing is copied', () => {
+  const dir = tmp();
+  const src = path.join(dir, 'src-node.exe');
+  fs.writeFileSync(src, 'stand-in', 'utf8');
+  const first = anchor.ensureAnchored(anchoringOf(dir, src));
+  assert.equal(first.ok, true, first.because || '');
+  fs.writeFileSync(path.join(first.dir, anchor.NODE_NAME + anchor.RETIRED_INFIX + '1-1'), 'an old interpreter nothing runs on', 'utf8');
+
+  const second = anchor.ensureAnchored(anchoringOf(dir, src));
+  assert.equal(second.ok, true, second.because || '');
+  assert.deepEqual(sideFiles(second.dir), [], 'the retired interpreter is deleted once nothing runs on it');
+});
+
+test('#570 A ZIP THAT CHANGES NODE REPLACES THE RUNNING ANCHORED INTERPRETER', async () => {
+  /* 🛑 Run for real: the anchored node.exe is what the task board and every
+     supervisor run on, and Windows refuses to overwrite a running executable.
+     Before this, a zip with a new Node version failed ensureAnchored, and with it
+     the launcher's hand-off. A real copy of this interpreter is started FROM the
+     anchor so the lock is the operating system's, not a stand-in's. */
+  const dir = tmp();
+  const runtime = anchor.anchorDir(process.platform, os.homedir(), { AGENT_WORKFORCE_DATA: dir });
+  fs.mkdirSync(runtime, { recursive: true });
+  const nodeAt = path.join(runtime, anchor.NODE_NAME);
+  fs.copyFileSync(process.execPath, nodeAt);
+  const src = path.join(dir, 'src-node.exe');
+  fs.writeFileSync(src, 'a different Node version, stood in for by a different size', 'utf8');
+
+  const running = cp.spawn(nodeAt, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  const stillRunning = () => running.exitCode === null && running.signalCode === null;
+  try {
+    await new Promise((resolve, reject) => { running.once('spawn', resolve); running.once('error', reject); });
+    if (process.platform === 'win32') {
+      /* Control: the old code's direct copy IS refused here, so this arm really
+         exercises the lock rather than passing on a filesystem that allows it. */
+      assert.throws(() => fs.copyFileSync(src, nodeAt), /EBUSY|EPERM|EACCES/,
+        'control: Windows must refuse a copy over a running interpreter');
+    }
+
+    const r = anchor.ensureAnchored(anchoringOf(dir, src));
+    assert.equal(r.ok, true, r.because || '');
+    assert.equal(r.node, nodeAt);
+    assert.equal(fs.readFileSync(nodeAt, 'utf8'), 'a different Node version, stood in for by a different size',
+      'the new interpreter takes the anchored name');
+    assert.ok(stillRunning(), 'a process running on the old interpreter keeps running');
+    if (process.platform === 'win32') {
+      assert.equal(retiredFiles(runtime).length, 1,
+        'while a process runs on it, the old interpreter waits beside the new one: ' + sideFiles(runtime));
+    }
+  } finally {
+    if (stillRunning()) {
+      const exited = new Promise((resolve) => running.once('exit', resolve));
+      running.kill();
+      await exited;
+    }
+  }
+
+  /* Windows can hold the image a moment after the process exits, so the sweep is
+     retried briefly rather than asserted on the first pass. */
+  for (let attempt = 0; attempt < 30 && retiredFiles(runtime).length > 0; attempt++) {
+    const again = anchor.ensureAnchored(anchoringOf(dir, src));
+    assert.equal(again.ok, true, again.because || '');
+    if (retiredFiles(runtime).length > 0) await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.deepEqual(sideFiles(runtime), [], 'once nothing runs on it, the retired interpreter is removed');
+});
