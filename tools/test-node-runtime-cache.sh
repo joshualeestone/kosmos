@@ -64,16 +64,26 @@ P="$(line_of 'cp "$TMP/$TARBALL" "$NODE_CACHE')"            # the cache write
   && ok "the bytes are extracted only after the checksum verify (tar after verify, T>V)" \
   || no "extraction is not gated behind the final verify: unverified bytes could reach tar (V=$V T=$T)"
 
-# THE INVARIANT, part 3: the final verify must be UNCONDITIONAL. Line-order alone cannot see the
-# verify being made conditional -- e.g. wrapping it in `if [ "$NODE_CACHED" -eq 0 ]; then ... fi`
-# would leave V>C and T>V both true while a cached tarball reached tar UNVERIFIED. The only
-# NODE_CACHED conditional in the runtime block is the single download-fallback gate; a second one
-# (the shape that would wrap the verify) raises this count and reds. `if .*NODE_CACHED` matches
-# `[ ` and `[[ ` and any operator.
+# THE INVARIANT, part 3: the final verify must be UNCONDITIONAL. Line-order alone (V>C, T>V) cannot
+# see the verify being made conditional, and there are TWO shapes; each is caught by one check below.
+# Shape A -- a SECOND NODE_CACHED conditional wrapping the verify: the runtime block has exactly one
+# NODE_CACHED conditional (the download-fallback gate), so a second raises this count and reds.
+# `if .*NODE_CACHED` matches `[ ` and `[[ ` and any operator.
 nc_conds="$(grep -cE 'if .*NODE_CACHED' "$SRC")"
 [ "$nc_conds" -eq 1 ] \
-  && ok "the final verify is unconditional (exactly one NODE_CACHED conditional: the download gate)" \
-  || no "there is more than one NODE_CACHED conditional (nc_conds=$nc_conds): the verify may have been made conditional and a cached tarball could reach tar unverified"
+  && ok "no second NODE_CACHED conditional (verify not wrapped in a new one)" \
+  || no "there is more than one NODE_CACHED conditional (nc_conds=$nc_conds): the verify may have been wrapped and a cached tarball could reach tar unverified"
+# Shape B -- EXTENDING the existing download gate's `fi` down past the verify (so a cache hit skips
+# it): both the populate `fi` and the download-gate `fi` currently close BEFORE the GOT verify, i.e.
+# exactly two `fi` lines sit between the gate and the verify. Extending the gate past the verify
+# leaves only one, and this reds. (This shape also self-destructs at runtime: GOT would be unset on
+# the cache-hit path and `set -u` aborts -- but the test guards it directly rather than relying on that.)
+nc_if_ln="$(line_of 'if [ "$NODE_CACHED" -eq 0 ]')"
+got_ln="$(line_of 'GOT="$(shasum -a 256 "$TMP/$TARBALL"')"   # unique: the populate gate is `if [ "$(shasum...`, only the verify is `GOT="$(shasum...`
+fis_between="$(awk -v a="$nc_if_ln" -v b="$got_ln" 'NR>a && NR<b && /^[[:space:]]*fi$/' "$SRC" | wc -l | tr -d ' ')"
+{ [ -n "$nc_if_ln" ] && [ -n "$got_ln" ] && [ "$got_ln" -gt "$nc_if_ln" ] && [ "$fis_between" -eq 2 ]; } \
+  && ok "the download gate closes before the verify (verify not swallowed by extending its fi)" \
+  || no "the fi count between the NODE_CACHED gate and the verify is not 2 (fis_between=$fis_between nc_if=$nc_if_ln got=$got_ln): the verify may now sit inside the gate"
 
 # The cache is POPULATED only after a checksum match, so a bad download never poisons it.
 { [ -n "$G" ] && [ -n "$P" ] && [ "$P" -gt "$G" ]; } \
