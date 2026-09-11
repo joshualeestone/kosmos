@@ -883,10 +883,14 @@ function describe(project, roster, all) {
 
          Gated on `isNamedOurs` exactly like `hasAvatar` one line above, and for
          the same reason: a stranger's pane borrowing the name must not lend this
-         row a photograph of somebody it is not. The producer (status.js
-         snapshot/panelessCard, #2698) has already applied its own `tied` gate, so
-         this is a pass-through of an already-gated value rather than a second
-         read of the store, and `|| 0` keeps a card that predates #2698 harmless
+         row a photograph of somebody it is not. The two producers reach that safely
+         by different routes, and it is worth being exact: `snapshot()` gates on
+         `tied` (status.js), while `panelessCard` does NOT gate at all because
+         `isNamedOurs: true` is STRUCTURAL there (the token tie). An earlier version
+         of this comment said both applied a `tied` gate, which was wrong about half
+         its subject. So
+         this is a pass-through rather than a second read of the store, and `|| 0`
+         keeps a card that predates #2698 harmless
          (`?v=0` is the stable no-picture value). */
       avatarVer: (card && card.isNamedOurs) ? (card.avatarVer || 0) : 0,
       /**
