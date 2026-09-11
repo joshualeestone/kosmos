@@ -4184,7 +4184,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
      60rem the layout is always the tab view (consolidated has a 960px floor),
      so body:not(.consolidated) always matches; both the rest and focus
      selectors are covered so a focused search does not balloon its height. */
-  .pjmidhead:has(.pjhead) .tsearch, body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch, body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex: none; }
+  body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch, body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex: none; }
 }
 /* ⚠️ THE MESSAGES GET A BOX OF THEIR OWN, matching Project members and Tasks:
    without it the middle column is the only one whose content floats, and the
