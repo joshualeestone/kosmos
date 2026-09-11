@@ -2,25 +2,33 @@
 pre_challenge: true
 method: challenge-loop
 branch: deploy-exit-2791
-diff_hash: efc5debc9ad904ab8095608be49ffe576bd3bde1d0d886ef405331c9ef6732ce
+diff_hash: 333a8f7f34f6a3f8c45b09b7289bde0691d97b03c41619de25aaef950ba05b5b
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-11T15:12:07Z
-iterations: 3
+timestamp: 2026-09-11T15:37:26Z
+iterations: 4
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 3
+**Iterations:** 4 (iteration 4 is a post-merge re-review after resolving a package.json conflict)
 **Converged:** Yes
-**Total findings:** 1 WARNING, 0 BLOCKERs, 0 CONVENTIONs, 8 NITs
-**Fixed:** 1 WARNING (+ 1 NIT: shebang) | **Deferred:** 0 | **Asked (awaiting user):** 0
+**Total findings:** 2 WARNINGs, 0 BLOCKERs, 0 CONVENTIONs, 8 NITs
+**Fixed:** 1 WARNING (+ 1 NIT: shebang) | **Deferred:** 1 WARNING | **Asked (awaiting user):** 0
 
-Reviewer models rotated across iterations (kosmos#2032): Opus, Sonnet, Opus. The rotation earned
-its keep this run: the WARNING that drove the only code change was raised by the Sonnet pass and had
-been classed only a NIT by the Opus pass before it, then the fix was re-reviewed blind by Opus at
-iteration 3 and produced no new actionable findings.
+Reviewer models rotated across iterations (kosmos#2032): Opus, Sonnet, Opus, Sonnet. The rotation
+earned its keep this run: the WARNING that drove the only code change was raised by the Sonnet pass
+and had been classed only a NIT by the Opus pass before it, then the fix was re-reviewed blind by
+Opus at iteration 3 and produced no new actionable findings.
+
+Post-merge note: after the loop converged at iteration 3, the PR (kosmos#2797) was CONFLICTING
+because main's package.json test:shell chain had gained new tests since the branch point. origin/main
+was merged in and the package.json conflict resolved (main's full chain kept, my one test re-inserted
+after the winderive test; verified by a 141 -> 142 multiset diff that dropped nothing). The merged
+tree was re-validated (full suite, green) and iteration 4 is a fresh blind re-review of the net diff
+against the new base. The reviewed CODE (deploy-site.sh exit 0, the test file) is byte-identical to
+what iterations 1-3 converged on; only the base moved.
 
 ### Per-Iteration Breakdown
 
@@ -80,12 +88,36 @@ defects to fix; nothing was acted on as SELF)
 - [STRENGTH] the B2 control is non-vacuous (requires rc!=0 AND the exact refuse message at line 248)
 - [STRENGTH] layered test design with honest self-assessment; A is correctly the load-bearing arm
 
+#### Iteration 4 (post-merge re-review, new base)
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 0 NITs
+**Self-generated:** 0 of the above (the WARNING cites an inherited stub pattern, not this loop's output)
+**Converged** - the one WARNING was deferred (see below); no unresolved NEW findings remain.
+- [WARNING] tools/test-deploy-site-exit0-2791.sh:39-47 - the stub curl's `-w` branch prints the
+  literal `200`/`404` rather than honoring the requested `-w '%{http_code} %{content_type}'` format,
+  so served_verify_asset_ok's content-type check passes on the token `200` (non-empty, not
+  text/html) rather than on a simulated real content-type --> DEFERRED. Reasoning: (1) it does not
+  affect this test's assertions - B1 requires the whole --publish success path to pass (proven to
+  redden when the trailing exit is broken) and B2 refuses at deploy-site.sh:248, BEFORE any
+  content-type check; (2) it is inherited verbatim from the sibling tools/test-deploy-site-promote.sh,
+  which uses the identical stub and passes CI, so it is not a defect this branch introduces; (3) a
+  faithful content-type stub belongs in a shared-harness improvement across both deploy-site test
+  files, not bolted onto this exit-code card. What would change the call: if served_verify_asset_ok's
+  content-type check were tightened such that the literal `200` token began to FAIL it, both this
+  test and the promote test would need the stub made faithful together.
+- [STRENGTH] the package.json merge kept all of main's test:shell entries and added exactly my one
+  test (verified by a 141 -> 142 multiset diff), inserted in a sensible position
+- [STRENGTH] the explicit exit 0 masks no failure (re-confirmed against set -eu at line 66 and every
+  guard's explicit exit 1 before the success line)
+- [STRENGTH] A1's last-line pin re-derived and A-CONTROL re-confirmed non-vacuous
+
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
 |---|------|----------|-----------|--------|-------------|--------|------------|
 | 1 | 2 | WARNING | tools/test-deploy-site-exit0-2791.sh | BRANCH | Test pinned only source text, no runtime rc==0 on a successful publish | FIXED | a2259540 (runtime PART B arm + refuse control) |
 | 2 | 2 | NIT | tools/test-deploy-site-exit0-2791.sh:1 | BRANCH | Shebang #!/bin/sh vs siblings' bash | FIXED | a2259540 (converted to bash) |
+| 3 | 4 | WARNING | tools/test-deploy-site-exit0-2791.sh:39-47 | BRANCH | Stub curl -w prints literal 200/404, not a real content-type (inherited from promote test) | DEFERRED | Does not affect B1/B2 assertions; inherited from sibling; faithful stub is a shared-harness change |
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 None.
