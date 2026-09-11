@@ -4892,9 +4892,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    needs-you red (reinforcing #2699's triangle+text) and idle a very light gray,
    while every other state keeps the neutral surface. The rgba-over-var(--k-surface)
    gradient works in light and dark off one token, exactly as the acard washes do.
-   The per-state :hover rules below outrank the flat --k-sunk hover above (an extra
-   class raises specificity), so hovering a working/needs-you/idle member DARKENS
-   its own hue rather than dropping to the neutral gray and losing the state. */
+   The per-state :hover rules below carry an id, so they outrank BOTH neutral
+   --k-sunk hovers -- the tab-view one just above and the consolidated one
+   (html[data-layout="consolidated"] body.consolidated .pj-member:hover). So in
+   either layout, hovering a working/needs-you/idle member DARKENS its own hue
+   rather than dropping to the neutral gray and losing the state, which is the
+   point: the state signal must not disappear the moment a person points at it. */
 #pj-one-agents .pj-member.pjm-working { background: linear-gradient(rgba(47,125,90,.10), rgba(47,125,90,.10)), var(--k-surface); }
 #pj-one-agents .pj-member.pjm-attn { background: linear-gradient(rgba(179,38,30,.09), rgba(179,38,30,.09)), var(--k-surface); }
 #pj-one-agents .pj-member.pjm-idle { background: linear-gradient(rgba(120,120,128,.10), rgba(120,120,128,.10)), var(--k-surface); }
@@ -33287,7 +33290,7 @@ function pjMember(m, suppressTold, withMinus) {
     // members-list analog of CARD_ST.restarting.pres='on'), so it shows
     // "Restarting agent", not "We cannot see this agent". Inert until the engine
     // emits the state.
-    + ((m.present || m.state === 'restarting')
+    + (present
       /* #2019: through the shared stateCopyOf so the members list cannot drift from
          the card/row/detail on the state word (it names the cause when the member
          payload carries a.disruption, and falls back to "Restarting agent" when it
