@@ -459,6 +459,10 @@ chk "PATH wiring wrote the sandbox profile" "grep -qxF '# kosmos: PATH for the k
 chk "PATH wiring wrote the export line (the functional half)" "grep -qF \"$SB/bin\" \"$SB/zprofile\""
 chk "the gold-K icon landed inside the app, intact" "[ \"\$(shasum -a 256 \"$SB/apps/Kosmos.app/Contents/Resources/Kosmos.icns\" 2>/dev/null | cut -d' ' -f1)\" = \"\$(shasum -a 256 \"$KOS_SRC/app/assets/Kosmos.icns\" | cut -d' ' -f1)\" ]"
 chk "the bundle declares its architecture (no Rosetta prompt)" "grep -q 'LSArchitecturePriority' \"$SB/apps/Kosmos.app/Contents/Info.plist\" && grep -q 'arm64' \"$SB/apps/Kosmos.app/Contents/Info.plist\""
+# #2810: the bundle must carry NSAppleEventsUsageDescription, or macOS silently
+# denies "Open Terminal" osascript with -1743 (Automation/TCC) instead of prompting.
+chk "the bundle can be prompted for Terminal Automation (#2810)" "grep -q 'NSAppleEventsUsageDescription' \"$SB/apps/Kosmos.app/Contents/Info.plist\""
+chk "the app Info.plist is well-formed plist XML" "plutil -lint \"$SB/apps/Kosmos.app/Contents/Info.plist\" >/dev/null 2>&1"
 chk "VERSION record installed" "[ -f \"$SB/home/VERSION\" ]"
 # 🛑 THE BOARD'S LOGIN JOB. Its absence is what made a reboot look like total
 # failure on 2026-08-22: the board died with the machine, nothing started it,
