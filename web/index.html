@@ -1464,35 +1464,46 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    node with a callout in his sketch is the HOVER state, not a selection --
    which is better, because the view then has exactly one way of saying "this
    one", and pointing at it is a preview of going there. */
+/* 🛑 THE CALLOUT IS INTERACTIVE ONLY WHILE VISIBLE (#2683, Josh 2026-09-10). It
+   takes pointer-events:none from the shared rule below, and the hover/focus rule
+   further down flips it to `auto` in the SAME breath it flips opacity to 1 -- so
+   the look and the hit area move together (#284's rule: a thing that looks
+   pressable must be pressable; the callout is a gold pill, so when it shows it is
+   clickable and, sitting inside its own .onode, the orgmap handler opens that
+   agent). It USED TO be an UNCONDITIONAL `auto` (a separate
+   `.onode .callout { pointer-events: auto; }` rule). That was the #2683 bug: the
+   callout is opacity:0 until hover AND positioned ABOVE its node, and an opacity:0
+   element with pointer-events:auto STILL captures the pointer -- so a node's
+   INVISIBLE callout sitting over a NEIGHBOUR's avatar stole the hover, and hovering
+   directly over one avatar lit a neighbour's label (Josh's report). Scoping `auto`
+   to the visible state fixes that (an invisible callout is now `none`, so it cannot
+   capture a neighbour) while keeping the visible pill pressable. The avatar itself
+   also opens the agent (the orgmap click handler), and the chevron is gone. */
+/* .oname (the at-rest name label) is pointer-events:none DELIBERATELY, not only as
+   the callout's default: on a small fleet two neighbouring rest-labels can overlap,
+   and an interactive nearer label would eat clicks meant for the node behind it. Do
+   NOT make .oname interactive. (The callout takes its none from here too; see the
+   #2683 note above for how the callout's auto is re-added only while visible.) */
 .onode .oname, .onode .callout {
   position: absolute; left: 50%; transform: translateX(-50%);
   white-space: nowrap; pointer-events: none;
 }
-/* 🛑 THE ONE THING THAT LOOKS PRESSABLE HAS TO BE PRESSABLE. Josh asked for the
-   callout to read as a button you could click to go to that agent, and clicking
-   the node already does exactly that -- but the callout was excluded from the
-   hit area, so somebody aiming at the thing that looks like a button hit
-   nothing. Making it LOOK clickable while it is not is worse than leaving it
-   plain, so the look and the hit area move together (Mona Lisa, #284).
-   ⚠️ THE NAME LABEL IS DELIBERATELY LEFT ALONE. `.oname` shares the rule above
-   and it sits at rest under every node on a small fleet, where two neighbouring
-   labels can overlap; the nearer one would then eat clicks meant for the node
-   behind it. The callout only exists on hover, over the node it belongs to. */
-.onode .callout { pointer-events: auto; }
 .onode .oname { top: 52px; font: 600 12px var(--font-ui); color: var(--k-ink-2); }
 .onode .co-txt { display: flex; flex-direction: column; gap: 1px; }
 .onode .co-name { font: 600 14px var(--font-ui); }
 .onode .co-role { font: 500 11px var(--font-ui); color: rgba(20,22,26,.72); }
-.onode .co-go { font-size: 20px; line-height: 1; color: #14161a; opacity: .8; }
 /* On brand and legibly pressable: the same gold this app uses for a primary
    action, with the dark ink that stays readable on it in both themes. */
 .onode .callout {
   bottom: 50px; background: var(--gold-bright); border: 2px solid var(--gold-bright);
-  border-radius: 9px; padding: 6px 10px 6px 12px; font: 600 14px var(--font-ui);
-  display: inline-flex; align-items: center; gap: 10px; text-align: left; line-height: 1.15;
+  border-radius: 9px; padding: 6px 12px; font: 600 14px var(--font-ui);
+  display: inline-flex; align-items: center; text-align: left; line-height: 1.15;
   color: #14161a; opacity: 0; transition: opacity .12s ease;
 }
-.onode:hover .callout, .onode:focus-visible .callout { opacity: 1; }
+/* #2683: opacity AND pointer-events move together, so the callout is clickable
+   exactly when it is visible -- pressable when shown (#284), inert (and unable to
+   capture a neighbour's hover) when hidden. */
+.onode:hover .callout, .onode:focus-visible .callout { opacity: 1; pointer-events: auto; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .onode .face { background: #3a3d42; }
 }
@@ -20083,13 +20094,16 @@ function paintOrg() {
          (#284: "say what it does"). The gold is the app's action treatment, so
          the words say the action too; the accessible name matches. The name at
          rest stays a plain label, because it is one. */
-      /* #392, Josh: the name on top, the title small underneath, a chevron on
-         the right, and no "Open", closer to the avatar. The verb stays in the
-         accessible name above, because a chevron is invisible to a screen
-         reader and the button is the only focusable way into an agent here. */
+      /* #392, Josh: the name on top, the title small underneath, and no "Open",
+         closer to the avatar. The verb stays in the accessible name above,
+         because the button is the only focusable way into an agent here.
+         #2683, Josh 2026-09-10: the chevron-right is REMOVED. It read as "mouse
+         up to the arrow to open", but clicking the avatar already opens the
+         agent (the orgmap click handler), so the callout is now a plain hover
+         label (name + title) rather than a control. */
       + '<span class="callout"><span class="co-txt"><span class="co-name">' + esc(shown) + '</span>'
       + (roleLine(a, ROLE_TITLES) ? '<span class="co-role">' + esc(roleLine(a, ROLE_TITLES)) + '</span>' : '')
-      + '</span><span class="co-go" aria-hidden="true">&rsaquo;</span></span></button>');
+      + '</span></span></button>');
   }
 
   const html = '<svg class="wires" id="orgwires" viewBox="0 0 ' + size + ' ' + size

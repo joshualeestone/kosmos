@@ -357,20 +357,49 @@ test('children are angled among their SIBLINGS, not among every cousin at that d
   assert.ok(g('c3', 'm3') < 0.05, 'a lone child is off to the side of its parent by ' + g('c3', 'm3').toFixed(2) + ' rad');
 });
 
-test('the callout shows the name, the title small, and a chevron; the verb lives in the accessible name only (#392)', () => {
-  /* Josh, after the drag fix: "write their name. Underneath, real small,
-     their title, with a little right arrow or chevron... We get rid of the
-     word Open." The verb stays in aria-label, because a chevron is invisible
-     to a screen reader and this button is the only focusable way into an
-     agent from the chart (:1120 records what retiring a verb cost once). */
+test('the callout shows the name and the title small, with NO chevron; the verb lives in the accessible name only (#392, #2683)', () => {
+  /* Josh #392: "write their name. Underneath, real small, their title... We get
+     rid of the word Open." The verb stays in aria-label, because this button is
+     the only focusable way into an agent from the chart (:1120 records what
+     retiring a verb cost once).
+     #2683 (Josh 2026-09-10): the chevron-right is REMOVED. It read as "mouse up
+     to the arrow to open", but the avatar click already opens (orgmap handler),
+     so the callout is a plain hover label now, not a control. */
   const at = SCRIPT.indexOf("'<span class=\"callout\">");
   assert.ok(at > -1, 'the callout markup moved');
   const node = SCRIPT.slice(SCRIPT.lastIndexOf("nodes.push(", at), at + 600);
   assert.match(node, /aria-label="Open ' \+ esc\(shown\)/, 'the accessible name lost its verb');
   assert.match(node, /class="co-name">' \+ esc\(shown\)/, 'the name is not in the callout');
   assert.match(node, /class="co-role">' \+ esc\(roleLine\(a, ROLE_TITLES\)\)/, 'the title is not in the callout');
-  assert.match(node, /class="co-go" aria-hidden="true">&rsaquo;/, 'the chevron is missing or read aloud');
+  assert.doesNotMatch(node, /co-go/, 'the chevron (.co-go) is back; #2683 removed it');
+  assert.doesNotMatch(node, /&rsaquo;/, 'the chevron glyph is back in the callout; #2683 removed it');
   assert.doesNotMatch(node, /callout">Open /, 'the visible word Open is back');
+});
+
+test('#2683: the org callout is interactive ONLY while visible -- inert (so it cannot capture a neighbour hover) when hidden, pressable when shown (#284)', () => {
+  /* The mis-targeting cause: the callout is opacity:0 until hover AND positioned
+     above its node, and an opacity:0 element with pointer-events:auto STILL
+     captures the pointer. A node's invisible callout sitting over a neighbour's
+     avatar stole the hover, lighting the wrong label. The fix scopes pointer-events
+     to the VISIBLE state: base none (shared rule) so an INVISIBLE callout cannot
+     capture; auto on hover/focus so the visible gold pill is pressable (#284: a
+     thing that looks pressable must be pressable). If the base ever reverts to an
+     unconditional auto, the neighbour-capture bug returns. */
+  // Base none, bounded to the ONE shared rule block ([^}] can't bridge a `}` to a
+  // later rule's pointer-events:none and pass vacuously if the shared rule lost it).
+  assert.match(PAGE, /\.onode \.oname, \.onode \.callout \{[^}]*?pointer-events: none;[^}]*?\}/,
+    'the shared .oname/.callout rule no longer sets pointer-events:none, so an invisible callout can capture a neighbour hover');
+  // Visible state clickable: the hover/focus rule flips pointer-events to auto in
+  // the same rule it shows the callout, so look and hit area move together (#284).
+  assert.match(PAGE, /\.onode:hover \.callout, \.onode:focus-visible \.callout \{[^}]*?pointer-events: auto;[^}]*?\}/,
+    'the visible callout is not clickable (the gold pill looks pressable but is inert -- violates #284)');
+  // Line-anchored so the #2683 comment ABOVE the rule (which quotes the old
+  // `.onode .callout { pointer-events: auto; }` verbatim) is not mistaken for a
+  // live rule -- real CSS rules start at column 0, the prose mention does not.
+  // This guards the BARE unconditional override (the bug), NOT the hover-scoped
+  // rule above (`.onode:hover .callout` does not start with `.onode .callout {`).
+  assert.doesNotMatch(PAGE, /^\.onode \.callout \{ pointer-events: auto/m,
+    'the unconditional pointer-events:auto override is back (the #2683 mis-targeting cause)');
 });
 
 test('the flat-fleet hint stays removed (Josh, 2026-08-31): a deletion needs an absence guard', () => {
