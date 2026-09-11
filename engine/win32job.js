@@ -76,9 +76,23 @@ function forgetConfigDir(name) { CONFIG_DIR_CACHE.delete(taskName(name)); }
 /* 🔑 ONE WRITER, so "which answers are cacheable" is decided in a single place
    rather than at each `return`. It takes only `known` answers and hands the
    value straight back, so a call site reads `return rememberConfigDir(n, {...})`
-   and cannot accidentally cache a failure by forgetting which branch it is in. */
+   and cannot accidentally cache a failure by forgetting which branch it is in.
+   🛑 EVERY RETURN GOES THROUGH HERE, INCLUDING THE FAILURES, AND THAT IS THE
+   POINT. An earlier version routed only the `known: true` returns, which left
+   the `known === true` test below VACUOUS: no failure ever reached it, so
+   deleting it changed nothing and the arm asserting "a failed read is never
+   cached" could not fail. The one branch that would permanently disarm a safety
+   check was the only one with no live guard behind it.
+   ⇒ Sending failures through the writer too costs nothing today (they are still
+   refused) and makes the refusal LOAD-BEARING, so that arm kills the mutant and
+   the natural future refactor, "route everything through the one writer", is
+   safe by construction rather than by nobody having done it yet.
+   ⚠️ FROZEN ON THE WAY IN. Before the cache every call built a fresh object;
+   now callers share one, so a caller that mutated what it got would poison every
+   later answer. Nothing does today (`remove.js` reads `.configDir`), which is
+   exactly when it is cheap to make impossible. */
 function rememberConfigDir(name, answer) {
-  if (answer && answer.known === true) CONFIG_DIR_CACHE.set(taskName(name), answer);
+  if (answer && answer.known === true) CONFIG_DIR_CACHE.set(taskName(name), Object.freeze(answer));
   return answer;
 }
 
@@ -568,7 +582,7 @@ function configDirFor(name) {
        card is about in place for exactly those agents. `install` re-registering
        one busts it. */
     if (NO_SUCH_TASK.test(r.out || '')) return rememberConfigDir(name, { known: true, configDir: null });
-    return { known: false, because: (r.out || '').trim().split('\n')[0] || 'schtasks would not answer' };
+    return rememberConfigDir(name, { known: false, because: (r.out || '').trim().split('\n')[0] || 'schtasks would not answer' });
   }
   /* WARNING: schtasks /Query /XML output encoding is NOT guaranteed utf8, and run()
      decodes as utf8. Two defenses, for two different reports, because guessing the
@@ -588,7 +602,7 @@ function configDirFor(name) {
   /* A registered task whose definition carries no argument line we can read is not a
      shape we understand, so admit it (known:false) rather than asserting a confident
      "no configDir" the way an absent task legitimately can. */
-  if (!m) return { known: false, because: 'the task definition had no argument line we could read' };
+  if (!m) return rememberConfigDir(name, { known: false, because: 'the task definition had no argument line we could read' });
   const argStr = xmlUnescape(m[1]);
   /* A U+FFFD in the argument line means the utf8 decode hit bytes it could not
      represent -- a UTF-16 report whose NON-ASCII path (an accented account folder)
@@ -596,7 +610,7 @@ function configDirFor(name) {
      silently wrong configDir that the (usually ASCII) name self-check below would not
      catch, so refuse to guess rather than block or allow a restore on it. */
   if (argStr.indexOf('\uFFFD') !== -1) {
-    return { known: false, because: 'the task argument line came back in an encoding we could not decode cleanly' };
+    return rememberConfigDir(name, { known: false, because: 'the task argument line came back in an encoding we could not decode cleanly' });
   }
   const tokens = [];
   const re = /"([^"]*)"/g;
@@ -605,7 +619,7 @@ function configDirFor(name) {
   const { specFromArgv } = require('./win32supervisor');
   const spec = specFromArgv(tokens.slice(2));
   if (spec.name !== name) {
-    return { known: false, because: 'the task argument line is not the shape we can read a configDir from' };
+    return rememberConfigDir(name, { known: false, because: 'the task argument line is not the shape we can read a configDir from' });
   }
   return rememberConfigDir(name, { known: true, configDir: spec.configDir || null });
 }
