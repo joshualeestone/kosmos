@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { runningAs, everyone, claudeUnder } = require('./runningas');
+const { runningAs, everyone, agentUnder } = require('./runningas');
 
 /**
  * #1304. Every reader is injected, so these run without a tmux server, a process
@@ -103,19 +103,126 @@ test('#1304: a recycled-pid cycle does not hang the walk', () => {
     [101, { ppid: 100, command: 'b' }],
     [102, { ppid: 101, command: 'c' }],
   ]);
-  assert.equal(claudeUnder(100, procs), null);
+  assert.equal(agentUnder(100, procs), null);
 });
 
-test('#1304 CONTROL: claudeUnder is not fooled by the word "claude" in an argument', () => {
+test('#1304 CONTROL: agentUnder is not fooled by the word "claude" in an argument', () => {
   /* This module\'s own probe command line contains the word. Matching on the
      executable path is what keeps a `grep claude` pane from reading as an agent. */
   const procs = new Map([
     [100, { ppid: 1, command: '/bin/zsh' }],
     [101, { ppid: 100, command: '/usr/bin/grep -r claude /Users/x' }],
   ]);
-  assert.equal(claudeUnder(100, procs), null);
+  assert.equal(agentUnder(100, procs), null);
   const withReal = new Map(procs).set(102, { ppid: 100, command: '/Users/x/.local/bin/claude --model m' });
-  assert.equal(claudeUnder(100, withReal), 102, 'it cannot find a real claude either: the matcher is dead');
+  assert.deepEqual(agentUnder(100, withReal), { pid: 102, runner: 'claude' },
+    'it cannot find a real claude either: the matcher is dead');
+});
+
+/* ─────────────────────────── #2811 ───────────────────────────
+ * A Kosmos OpenAI agent runs the codex binary, and this reader matched only
+ * `claude`, so it refused for every codex agent: `kosmos whoami` answered
+ * "nothing that looks like Claude Code is running under <name>" about an agent
+ * that was plainly running, and could not name its .codex account.
+ */
+test('#2811: a CODEX process under the pane is found, and named as codex', () => {
+  const procs = new Map([
+    [100, { ppid: 1, command: '/bin/zsh' }],
+    [101, { ppid: 100, command: '/opt/homebrew/bin/codex --model gpt-5.6' }],
+  ]);
+  assert.deepEqual(agentUnder(100, procs), { pid: 101, runner: 'codex' },
+    'a codex agent is still invisible to the identity reader (#2811)');
+});
+
+test('#2811 CONTROL: the codex match is on the executable PATH, not the word anywhere', () => {
+  /* The same rule the claude arm above is held to. Without this, `grep codex`
+     or an argument mentioning codex would read as an agent. */
+  const procs = new Map([
+    [100, { ppid: 1, command: '/bin/zsh' }],
+    [101, { ppid: 100, command: '/usr/bin/grep -r codex /Users/x' }],
+  ]);
+  assert.equal(agentUnder(100, procs), null, 'the word "codex" in an argument was read as an agent');
+});
+
+test('#2811 CONTROL: a first token that merely CONTAINS "codex" is not an agent', () => {
+  /* 🛑 THE ARGUMENT CONTROL ABOVE DOES NOT COVER THIS, and a mutation proved it:
+     loosening the match to `first.includes('codex')` left the whole file GREEN,
+     because that control's first token is `/usr/bin/grep` and the word sits in the
+     ARGUMENTS. To catch a loose FIRST-TOKEN match the token itself has to be the
+     near miss. */
+  const procs = new Map([
+    [100, { ppid: 1, command: '/bin/zsh' }],
+    [101, { ppid: 100, command: '/usr/local/bin/codex-helper --watch' }],
+    [102, { ppid: 100, command: '/opt/codextools/bin/run' }],
+  ]);
+  assert.equal(agentUnder(100, procs), null,
+    'a binary whose name merely contains "codex" was read as a codex agent');
+});
+
+test('#2811: a codex agent with NO CODEX_HOME falls back to ~/.codex, never ~/.claude', () => {
+  /* Also found by mutation: the arm below always supplies CODEX_HOME, so the
+     fallback was never exercised and pointing it at ~/.claude stayed green.
+     Reporting a codex agent as living in a Claude directory is the exact
+     misattribution this card is about. */
+  const panes = new Map([['subzero-discord', 100]]);
+  const procs = new Map([
+    [100, { ppid: 1, command: '/bin/zsh' }],
+    [101, { ppid: 100, command: '/opt/homebrew/bin/codex' }],
+  ]);
+  const r = runningAs('subzero-discord', {
+    panes, procs, envOf: () => '', identityOf: () => null,
+  });
+  assert.equal(r.runner, 'codex');
+  assert.match(r.configDir, /\.codex$/,
+    'a codex agent with no CODEX_HOME was reported as living in ' + r.configDir);
+});
+
+test('#2811: runningAs reports a codex agent with its CODEX_HOME, not a synthesised ~/.claude', () => {
+  const panes = new Map([['subzero-discord', 100]]);
+  const procs = new Map([
+    [100, { ppid: 1, command: '/bin/zsh' }],
+    [101, { ppid: 100, command: '/opt/homebrew/bin/codex --model gpt-5.6' }],
+  ]);
+  const r = runningAs('subzero-discord', {
+    panes, procs,
+    envOf: () => 'CODEX_HOME=/Users/agent1/.codex-work2\n',
+    identityOf: () => { throw new Error('identityOf must NOT be asked about a codex dir'); },
+  });
+  assert.equal(r.ok, true, 'still refusing for a codex agent: ' + r.because);
+  assert.equal(r.runner, 'codex');
+  assert.equal(r.configDir, '/Users/agent1/.codex-work2',
+    'the codex account dir is still not identified, which is half of #2811');
+  assert.equal(r.model, 'gpt-5.6', 'the model came from the codex command line');
+  assert.equal(r.account, null, 'a codex account email must not be guessed here (kosmos#2790 owns it)');
+});
+
+test('#2811 CONTROL: a CLAUDE agent is unchanged, and still reads CLAUDE_CONFIG_DIR', () => {
+  /* Without this, "make it work for codex" could quietly break the path that
+     already worked, and every assertion above would still pass. */
+  const panes = new Map([['angel-discord', 100]]);
+  const procs = new Map([
+    [100, { ppid: 1, command: '/bin/zsh' }],
+    [101, { ppid: 100, command: '/Users/x/.local/bin/claude --model claude-opus-5' }],
+  ]);
+  const r = runningAs('angel-discord', {
+    panes, procs,
+    envOf: () => 'CLAUDE_CONFIG_DIR=/Users/agent1/.claude-account-c\n',
+    identityOf: (dir) => ({ email: 'joshua@stonesyndicate.com', organization: 'Stone Syndicate', dir }),
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.runner, 'claude');
+  assert.equal(r.configDir, '/Users/agent1/.claude-account-c');
+  assert.equal(r.account, 'joshua@stonesyndicate.com', 'the claude account read regressed');
+  assert.equal(r.model, 'claude-opus-5');
+});
+
+test('#2811: the refusal no longer says only "Claude Code" when nothing is running', () => {
+  const panes = new Map([['empty-discord', 100]]);
+  const procs = new Map([[100, { ppid: 1, command: '/bin/zsh' }]]);
+  const r = runningAs('empty-discord', { panes, procs, envOf: () => '', identityOf: () => null });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /Claude Code or Codex/,
+    'the refusal still names only Claude, which is the sentence that lied about a running codex agent');
 });
 
 test('#1304: everyone() answers for each pane and sorts by name', () => {
