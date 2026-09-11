@@ -22583,7 +22583,7 @@ async function sendTalk(text, chose, attachment) {
       line = placedWords(d);
     } else if (d.state === 'unconfirmed') {
       if (inThread) clearSent();
-      line = 'We could not confirm that reached ' + name + '’s session' + note + '. '
+      line = 'We could not confirm ' + name + ' got that' + note + '. '
         + pjSentence(d.because || 'we typed it and could not tell whether it arrived')
         + (inThread ? ' Your message is kept above.' : ' Your message is still in the box below.');
     } else {
@@ -22592,7 +22592,7 @@ async function sendTalk(text, chose, attachment) {
          "not at this moment", which invites a retry we have no reason to
          promise. The row in the thread carries the time. */
       line = 'We could not get that to ' + name + ': '
-        + pjSentence(d.because || 'we could not put it into its session');
+        + pjSentence(d.because || 'we could not reach them');
     }
     // Delivering and keeping are two acts and two sentences. Said whenever the
     // record failed, on every verdict — a message that went through and could
@@ -38379,7 +38379,7 @@ function pjVerdict(m, name) {
     // was the one arm gluing a raw clause to its own full stop, so a
     // because that already ends in punctuation doubled the stop.
     said = 'Could not deliver: '
-      + esc(pjSentence(d.because || 'we could not put it into its session'));
+      + esc(pjSentence(d.because || 'we could not reach them'));
   }
   return { mark, said, when };
 }
@@ -38913,7 +38913,7 @@ async function pjSend() {
     pjAnnounce(msg.textContent);
     return;
   }
-  if (!text) { msg.textContent = 'Write something to send.'; pjAnnounce(msg.textContent); return; }
+  if (!text) { msg.textContent = 'Say something first.'; pjAnnounce(msg.textContent); return; }
 
   PJ_SENDING = true;
   /* ⚠️ THE FLIGHT REMEMBERS WHERE IT TOOK OFF (round 37). Back is not
@@ -39134,7 +39134,7 @@ async function pjSend() {
        * checked.
        */
       render = () => 'Could not deliver: '
-        + ((body.delivery && body.delivery.because) || 'we could not put it into its session') + '.' + moved + kept;
+        + ((body.delivery && body.delivery.because) || 'we could not reach them') + '.' + moved + kept;
     }
     // The paint itself is the gated act (round 37): everything above only
     // computed strings and retired the takeoff project's spent draft. With
