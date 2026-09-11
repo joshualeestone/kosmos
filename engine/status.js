@@ -4588,9 +4588,10 @@ function readCodexContext(agentName, sess) {
     return { ...NONE_BASE, notYet: false, because: NO_READING.UNREADABLE };
   }
 
-  // No rollout matched this folder, or a session that has reported no usage yet:
-  // the same not-started / never-recorded / admission split `readContext` makes
-  // for a missing Claude transcript, via the shared result builders.
+  // No rollout matched this folder (`!sess.found`): the same not-started /
+  // never-recorded / admission split `readContext` makes for a missing Claude
+  // transcript, via the shared result builders. (A rollout that WAS matched but
+  // has reported no usage yet is the #2803 guard below, not this ladder.)
   //
   // 🛑 RESIDUAL, STATED RATHER THAN HIDDEN (#2257 scope): `notYetStarted` reads
   // `byWorkdirDetailed`, which looks for a Claude `.jsonl` -- a Codex agent never
