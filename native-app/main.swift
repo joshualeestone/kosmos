@@ -1588,10 +1588,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         openPanelOutstanding = true
         /* 🛑 #2807: WebKit's CompletionHandlerCallChecker ABORTS THE WHOLE APP if
            this handler is called zero times OR more than once. The cancel path
-           is answered below, but a beginSheetModal that is SILENTLY DROPPED (see
-           the host guard further down) leaves the handler released un-called --
-           which is exactly what crashed Josh's 0.6.56 the moment he changed a
-           profile picture. Wrap the handler so it is called EXACTLY ONCE on
+           is answered below, but the pre-fix `beginSheetModal` could be SILENTLY
+           DROPPED (now fixed below by presenting with the app-modal `panel.begin`),
+           which left the handler released un-called -- exactly what crashed Josh's
+           0.6.56 the moment he changed a profile picture. Wrap the handler so it
+           is called EXACTLY ONCE on
            every path of THIS invocation: a repeat call is a no-op, and every
            branch routes through `respond`. It clears the flag THIS call set (not
            the refused-request path above, which never set it). Main-thread only,
@@ -3028,7 +3029,8 @@ if CommandLine.arguments.contains("--kosmos-app-filepanel-selftest") {
        Budget: 150 x 0.1s = 15s, inside the hatch's own 25s watchdog and the
        shell's 40s alarm. The page loads in well under half a second here, so
        this is ~30x the observed margin rather than the ~12x it was. The whole
-       run is about 7s, so there was budget going spare. */
+       run is about 11-12s (the #2807 with-a-sheet-up arm added a sheet poll plus
+       a wait), still well inside the 25s watchdog. */
     func whenReady(_ go: @escaping () -> Void, tries: Int = 150) {
         web.evaluateJavaScript("window.__probeReady === 1") { r, _ in
             if (r as? Bool) == true { go(); return }
