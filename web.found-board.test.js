@@ -202,6 +202,7 @@ async function paintScan(candidates, opts = {}) {
   const wrap = opts.wrap || el();
   const list = opts.list || el();
   const toggle = opts.toggle || el();
+  const desc = opts.desc || el();
   const calls = [];
   const src = liftAll(SCRIPT, ['esc', 'cssId', 'scanRowsHtml', 'paintScanBoard']);
   const run = new Function('document', 'fetch', 'onAgentsTab', 'calls', `
@@ -215,13 +216,14 @@ async function paintScan(candidates, opts = {}) {
   await run(
     {
       getElementById: (id) => (
-        id === 'scan-wrap' ? wrap : id === 'scan-list' ? list : id === 'scan-toggle' ? toggle : null),
+        id === 'scan-wrap' ? wrap : id === 'scan-list' ? list : id === 'scan-toggle' ? toggle
+          : id === 'scan-desc' ? desc : null),
     },
     async (url) => { calls.push(url); return opts.res || { ok: true, json: async () => ({ ok: true, candidates }) }; },
     () => opts.onTab !== false,
     calls,
   );
-  return { wrap, list, toggle, calls };
+  return { wrap, list, toggle, desc, calls };
 }
 
 const SCAN_CAND = { dir: '/w/unseen', name: 'Unseen', role: 'Unknown', already: false };
