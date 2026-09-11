@@ -1,7 +1,7 @@
 # Plan: remove the 1px stroke on the washed member states (#2804)
 
 ## Card
-#2804 — "Agent cards: remove the 1px stroke - convey the 3 states by color fill only
+#2804 - "Agent cards: remove the 1px stroke - convey the 3 states by color fill only
 (gray/green/red), no border." Josh, testing 0.6.56, 2026-09-11.
 
 Josh's exact words: "I do not want to have the 1px stroke around these agents, whether
@@ -38,16 +38,16 @@ was.
 - **Scope to the three wash classes**, not all `#pj-one-agents .pj-member`. Josh
   enumerated the three states ("active, inactive, or need help" = working/idle/needs).
   A present-but-neutral member (rate_limited/restarting/unknown) carries no wash colour,
-  so it KEEPS its outline — removing its stroke would leave a fill-less, stroke-less
+  so it KEEPS its outline, removing its stroke would leave a fill-less, stroke-less
   row. Rejected the broader `#pj-one-agents .pj-member { border-color: transparent }`
   for that reason.
 - **Preserve `.pj-member.unseen { border-style: dashed }`.** An unseen member ("we
   cannot see this agent", web/index.html #33408) is a presence signal on a different
-  axis from the three states, and gets NO wash — its dashed border is its only visual.
+  axis from the three states, and gets NO wash, its dashed border is its only visual.
   The wash classes and `unseen` are mutually exclusive in the builder (pjm-* is gated
   on `present`), so the scoped rule never touches unseen.
 - **Leave the settings (`#pjs-members`) and add-agent picker (`#pj-add-agents`)
-  strokes alone** — no washes there, so the base stroke still delineates the box.
+  strokes alone**, no washes there, so the base stroke still delineates the box.
 
 ## Weakest premise
 That Josh considers "unseen" outside "the three states." If he wants the dashed
@@ -65,6 +65,6 @@ on the safe/reversible reading, and flagging it, beats silently dropping it.
 - #1720 coarse browser-check: `Browser-check:` trailer (CSS-only, unit-covered, blind
   ship, Playwright follow-up recommended).
 - #2518 surface gate: `pj-one-agents` is mapped to render-member-modal.js, which
-  asserts the add-member MODAL, not the box border — per-check
+  asserts the add-member MODAL, not the box border, per-check
   `Browser-check-surface: render-member-modal.js` override. Same pattern #2711 item 16
   used.
