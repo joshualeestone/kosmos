@@ -5297,7 +5297,13 @@ const server = http.createServer((req, res) => {
    * what the Restore control reads. If that ever stops being true this sentence
    * becomes the lie, and `engine/remove.js` is where it would be told.
    */
-  function withStopNote(payload, stopReport, restorable) {
+  function withStopNote(payload, stopReport, restorable, recoveryClause) {
+    /* #2684: `recoveryClause` (optional) overrides the way-back sentence for the
+       one case neither `restorable` arm fits: the CLAUDE default, whose dir
+       PERSISTS in place (only the oauth identity is cleared), so recovery is a
+       fresh sign-in to ~/.claude rather than a removed-list re-add ("under the
+       same name") or "needs a different account". Only the Claude default paths
+       pass it; every other caller passes undefined and is unchanged. */
     if (!stopReport || !stopReport.stopped.length) return payload;
     /* 🛑 NOT ON THE ALREADY-GONE BRANCH. Both engines answer
        `{ok: true, forgotten: false}` for an account that is not there, and
@@ -5360,7 +5366,9 @@ const server = http.createServer((req, res) => {
        run-on it prevents was found in the sibling and the fix was not carried
        across. A latent defect with a known instance next door is worth closing. */
     const lead = /[.!?]$/.test(String(payload.because)) ? payload.because : `${payload.because}.`;
-    const way = restorable
+    const way = recoveryClause !== undefined
+      ? recoveryClause(one)
+      : restorable
       ? ` You can put ${one ? 'it' : 'them'} back from the removed list once you add this account again under the same name.`
       : ` ${one ? 'It was' : 'They were'} set up to run on that account, so ${one ? 'it needs' : 'they need'} a different one before ${one ? 'it' : 'they'} can start again.`;
     return {
@@ -5370,6 +5378,15 @@ const server = http.createServer((req, res) => {
         + `${one ? '' : ' (' + names.join(', ') + ')'}.${way}`,
     };
   }
+
+  /* #2684: the recovery clause for a CLAUDE DEFAULT removal (disconnect or delete).
+     The `.claude` folder is KEPT and the stopped agents' launch files already point
+     at it, so they ARE on the removed list (restorable) AND their folder still
+     exists -- recovery is a fresh sign-in in place, not a re-add "under the same
+     name" (there is no rename) and not "needs a different account" (the folder is
+     there). Passed to withStopNote only when the row is the default. */
+  const claudeDefaultRecovery = (one) =>
+    ` You can put ${one ? 'it' : 'them'} back from the removed list; ${one ? 'it runs' : 'they run'} on the main folder, which is kept, so signing in again reconnects ${one ? 'it' : 'them'}.`;
 
   /**
    * Forget an OpenAI account (#1372).
@@ -5741,8 +5758,16 @@ const server = http.createServer((req, res) => {
           }
           sendJson(res, 200, withStopNote({
             removed: gone.removed === true,
+            /* #2684: the DEFAULT is deletable now, and deleting it rmSyncs the whole
+               .codex home -- so its codex sessions/rollouts go with it. Disclose that
+               on the default only (codexsession reads the default home alone, so a
+               labelled account's history is not the product's to lose), matching the
+               history clause the disconnect door already carries for wasDefault. The
+               more destructive door must not disclose LESS than the reversible one. */
             because: gone.removed
-              ? 'That account is deleted from this computer. Its sign-in file is gone.'
+              ? (gone.wasDefault
+                  ? 'That account is deleted from this computer. Its sign-in file is gone, and any history kept only under it (its codex sessions) goes with it.'
+                  : 'That account is deleted from this computer. Its sign-in file is gone.')
               : 'That account was already gone from this computer.',
             accounts: openaiAccounts.list(),
           }, stopReport, false));
@@ -6235,7 +6260,9 @@ const server = http.createServer((req, res) => {
                   : 'That account is deleted from this computer. Its sign-in file is gone, and any history kept only under it goes with it.')
               : 'That account was already gone from this computer.',
             accounts: accounts.list(),
-          }, stopReport, false));
+            /* #2684: the default delete also keeps the folder (Claude clears only the
+               identity), so its stopped agents recover by a fresh sign-in in place. */
+          }, stopReport, false, gone.wasDefault ? claudeDefaultRecovery : undefined));
           return;
         }
 
@@ -6306,7 +6333,9 @@ const server = http.createServer((req, res) => {
              through GET /api/accounts, which uses listLive(), so no caller
              reads this: it is a second, non-live derivation of the same list. */
           accounts: accounts.list(),
-        }, stopReport, true));
+          /* #2684: the default disconnect keeps the folder in place, so its stopped
+             agents recover by a fresh sign-in, not a re-add under the same name. */
+        }, stopReport, true, out.wasDefault ? claudeDefaultRecovery : undefined));
       })
       /* #2570: the stop report rides on this too. Anything thrown below the stop
          loop lands here, and answering "we could not read that request" after N

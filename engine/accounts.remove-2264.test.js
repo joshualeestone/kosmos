@@ -41,14 +41,19 @@ test('#2264: removeAccount DELETES a non-default account (dir gone, not just hid
   assert.deepEqual(leftovers, [], 'a delete must not leave a renamed-aside copy');
 });
 
-test('#2264: the DEFAULT account is refused and is still there afterwards', () => {
+test('#2684: removeAccount clears the DEFAULT oauth identity and KEEPS the folder', () => {
   const dir = acct('default');
   assert.ok(accounts.list().some((a) => a.dir === dir && a.isDefault), 'the default must be listed first');
   const got = accounts.removeAccount(dir, []);
-  assert.equal(got.ok, false);
-  assert.equal(got.removed, false);
-  assert.match(got.because, /main Claude folder/);
-  assert.ok(fs.existsSync(dir), 'the default directory must survive the refusal');
+  assert.equal(got.ok, true, got.because);
+  assert.equal(got.removed, true);
+  assert.equal(got.wasDefault, true);
+  // #2684: for the Claude default, delete == clear the oauth identity; the dir is kept
+  // (unlike a secondary, whose whole dir is rmSync'd), because it is Claude Code's home.
+  assert.ok(!accounts.list().some((a) => a.dir === dir), 'the connection is gone from the list');
+  assert.ok(fs.existsSync(dir), 'the .claude dir is KEPT (Claude Code home + any symlinked history)');
+  const after = JSON.parse(fs.readFileSync(nodePath.join(SANDBOX, '.claude.json'), 'utf8'));
+  assert.ok(!('oauthAccount' in after), 'ONLY the oauth identity was cleared');
 });
 
 test('#2264: a running agent refuses the delete, NAMED, and the account survives', () => {

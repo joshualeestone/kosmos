@@ -52,18 +52,23 @@ test('#1659: forgetting a Claude account hides it from list() and KEEPS the sign
    measured rather than assumed: prepare() symlinks every account Kosmos makes
    at ~/.claude/projects, so moving the default strands the history of accounts
    nobody asked to remove. */
-test('#1659: the DEFAULT account is refused, and it is still there afterwards', () => {
+test('#2684: forgetting the DEFAULT clears its oauth identity and KEEPS the folder', () => {
   const dir = acct('default');
   assert.ok(accounts.list().some((a) => a.dir === dir && a.isDefault),
-    'the default must be listed first, or the refusal proves nothing');
+    'the default must be listed first, or the removal proves nothing');
 
   const got = accounts.forgetAccount(dir, []);
-  assert.equal(got.ok, false);
-  assert.equal(got.forgotten, false);
-  assert.match(got.because, /main Claude folder/);
+  assert.equal(got.ok, true, got.because);
+  assert.equal(got.forgotten, true);
+  assert.equal(got.wasDefault, true, 'the default clears via the wasDefault path, not the rename path');
 
-  assert.ok(accounts.list().some((a) => a.dir === dir), 'IT IS STILL THERE: nothing was moved');
-  assert.ok(fs.existsSync(dir), 'the directory itself is untouched');
+  // #2684: the connection is gone from the list (identity cleared), but the dir is KEPT
+  // -- it is Claude Code's home and may hold other accounts' symlinked history.
+  assert.ok(!accounts.list().some((a) => a.dir === dir),
+    'the connection is gone from the list once its oauth identity is cleared');
+  assert.ok(fs.existsSync(dir), 'the .claude dir itself is KEPT (not moved aside, not deleted)');
+  const after = JSON.parse(fs.readFileSync(nodePath.join(SANDBOX, '.claude.json'), 'utf8'));
+  assert.ok(!('oauthAccount' in after), 'ONLY the oauth identity was cleared from <HOME>/.claude.json');
 });
 
 test('#1659: a path that is not a Claude account on this computer is refused', () => {

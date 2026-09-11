@@ -27,7 +27,7 @@ function makeHome(extraConfig) {
   fs.writeFileSync(path.join(dir, 'projects', 'keep.jsonl'), '{"kept":true}\n');
   const cfg = path.join(home, '.claude.json');
   const base = {
-    oauthAccount: { emailAddress: 'josh@book.io', organizationName: 'Book.io' },
+    oauthAccount: { emailAddress: 'main@example.com', organizationName: 'Example Org' },
     mcpServers: { some: { command: 'x' } },
     projects: { '/work': { lastUsed: 1 } },
     numStartups: 42,

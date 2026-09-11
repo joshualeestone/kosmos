@@ -807,9 +807,31 @@ function clearDefaultIdentity() {
   delete parsed.oauthAccount;
   /* Two-space indent + trailing newline: the shape Claude Code itself writes, so
      a human diff of `.claude.json` after this stays legible. Only `oauthAccount`
-     is gone; every other key round-trips unchanged. */
-  try { fs.writeFileSync(cfg, JSON.stringify(parsed, null, 2) + '\n'); }
-  catch { return { ok: false, already: false, because: 'we could not update this computer’s Claude config to remove the main connection' }; }
+     is gone; every other key round-trips unchanged.
+     🛑 ATOMIC temp+rename, matching every other JSON-config write in this engine
+     (worlds.js, remove.js, discover.js). A direct writeFileSync on `.claude.json`
+     -- routinely MBs of `projects`/state -- issues multiple write() syscalls, so a
+     crash/kill/power-loss mid-write would TRUNCATE exactly the unrelated config this
+     clear exists to preserve. rename() is atomic: a crash leaves the original file
+     intact and only a stray `.tmp` behind. The catch handles a JS-level failure;
+     the rename handles the process-level one the promise in this docblock is about.
+     ⚠️ PRESERVE THE MODE. A fresh temp adopts the umask, so a mode-600 `.claude.json`
+     (it can hold a token) would silently widen to 644 -- the atomic-write idiom's
+     known permission-discard trap. stat the original, write the temp, chmod it back,
+     then rename. */
+  try {
+    let mode = 0o600;
+    try { mode = fs.statSync(cfg).mode & 0o777; } catch { /* keep the 600 default */ }
+    const tmp = `${cfg}.tmp-${process.pid}`;
+    try {
+      fs.writeFileSync(tmp, JSON.stringify(parsed, null, 2) + '\n', { mode });
+      fs.chmodSync(tmp, mode);
+      fs.renameSync(tmp, cfg);
+    } catch (e) {
+      try { fs.rmSync(tmp, { force: true }); } catch { /* best effort: never leave a partial temp */ }
+      throw e;
+    }
+  } catch { return { ok: false, already: false, because: 'we could not update this computer’s Claude config to remove the main connection' }; }
   return { ok: true, already: false, because: null };
 }
 

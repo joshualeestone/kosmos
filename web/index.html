@@ -634,18 +634,6 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    screen-reader half (aria-label) is handled in the arm handler (armLabel). */
 .acct-disconnect.armed { font-weight: 600; color: var(--danger, #b3261e); }
 .acct-disconnect[disabled] { cursor: not-allowed; text-decoration: none; opacity: .7; }
-/* 🛑 THE aria-disabled ARM GETS ITS OWN OPACITY, AND THE REASON IS WCAG RATHER
-   THAN TASTE. WCAG 1.4.3 exempts "inactive user interface components", which
-   covers a natively `disabled` control. This one is deliberately FOCUSABLE and
-   carries a click handler that writes into a live region, so it is not inactive
-   in that sense and the exemption does not reach it.
-   MEASURED ON THE LIGHT SCHEME, and named as such because a ratio quoted
-   without its background reads as though one theme were the whole answer:
-   --label-2 #4a4f57 on the light surface is 8.24:1 at full opacity, 3.76:1 at
-   .7 (AA needs 4.5 for 13px text) and 4.83:1 at .8. The dark and
-   prefers-contrast arms clear AA at .8 by a wider margin. It still reads as
-   unavailable via cursor, the removed underline and the announced label. */
-.acct-disconnect[aria-disabled="true"] { cursor: not-allowed; text-decoration: none; opacity: .8; }
 /* #770: "underneath it we just have a large one that's the same exact
    size that says Add a provider." Same width as a box, no fixed height
    assumption -- .btn already matches a box's padding rhythm closely
@@ -906,8 +894,10 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    minimum, so `.5` is fine there. This one is NOT exempt: it stays focusable and
    a press does something (it explains why). Measured on --label #14161a over
    --bg #faf9f7: full 17.21:1, `.8` 9.36:1 (passes AA), `.7` 6.55:1, `.5`
-   3.39:1 (FAILS the 4.5 minimum). Same reasoning and same value as the sibling
-   `.acct-disconnect[aria-disabled="true"]`, which did this math first.
+   3.39:1 (FAILS the 4.5 minimum), so `.8` is the AA floor for a focusable control
+   that a screen reader still reaches. (The account-row Disconnect that once shared
+   this math is gone: #2684 made the default Disconnect a live control, so no
+   `.acct-disconnect` renders `aria-disabled` any more.)
    📌 SCOPED TO `.acts`, AND THE REASON IS BLAST RADIUS RATHER THAN ANY SPECIFIC
    RESCUE. An earlier version of this comment claimed an unscoped
    `.btn[aria-disabled="true"]` would tie `.btn:disabled` on specificity, win on
