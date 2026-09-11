@@ -4605,6 +4605,29 @@ function readCodexContext(agentName) {
 }
 
 /**
+ * #2413: WHEN this Codex agent last completed a real turn, as epoch ms, or null.
+ *
+ * The OpenAI liveness overlay greens an account row from a WITNESSED completion -- a
+ * `token_count` carrying a real `last_token_usage`, which a dead-credential 401
+ * reconnect loop never emits (#2790 fixture). This returns that completion's timestamp
+ * so the sweep can record an observed `ok` stamped at the moment auth was proven,
+ * NEVER off a pane merely scraping WORKING (which a 401 loop also does).
+ *
+ * 🔑 REUSES the SAME launch-folder -> rollout resolution readCodexContext uses
+ * (create.workerDir -> codexsession.read), so "which rollout is this agent's" is
+ * derived in one place, not two. Best-effort: null on any read fault, which keeps the
+ * badge grey (the safe direction) rather than asserting a green it cannot support.
+ */
+function codexLastCompletionAt(agentName) {
+  let dir;
+  try { dir = require('./create').workerDir(agentName); } catch { dir = null; }
+  if (!dir) return null;
+  let sess;
+  try { sess = require('./codexsession').read(dir); } catch { return null; }
+  return sess && sess.found && typeof sess.contextUsedAt === 'number' ? sess.contextUsedAt : null;
+}
+
+/**
  * Model IDs as a person should read them.
  *
  * An explicit table, not a transform. A dash-to-space rule looks fine on
@@ -6238,7 +6261,29 @@ function snapshot() {
           && scrapedStatus.backgroundWait !== true) ? observed.OUTCOME.OK
           : status.state === STATE.AUTH_FAILED ? observed.OUTCOME.REJECTED
           : null;
-        if (outcome) observed.saw(pane.name, outcome, now);
+        if (outcome) observed.saw(observed.PROVIDER.ANTHROPIC, pane.name, outcome, now);
+      } else if (isNamedOurs(pane) && isCodexPane) {
+        /* 🛑 #2413 -- the OpenAI/Codex observation arm, and it is DELIBERATELY NOT the
+           Claude arm above. A codex pane classifies WORKING the same way, but WORKING is
+           NOT a reliable auth-success signal here: a dead-credential 401 reconnect loop
+           scrapes as WORKING too (status.test.js CODEX_WORKING, #249) and a scraper
+           cannot tell that 401 from a transient reconnect 401 (codexauthprobe.js:16).
+           Recording WORKING as an `ok` would false-green exactly a dead sign-in -- the
+           #874 harm, and the #2790 case this feature exists to catch. Confirmed by the
+           #2790 weakest-premise fixture (answered from in-tree evidence).
+           ✅ THE SIGNAL THAT GUARANTEES A TURN AUTHENTICATED is a WITNESSED ROLLOUT
+           COMPLETION: a `token_count` carrying a real `last_token_usage.input_tokens`.
+           A 401 loop never completes a turn, so it never writes one. `codexLastCompletionAt`
+           returns WHEN that last completion happened; recording `ok` stamped at that time,
+           gated on freshness, means a live sign-in greens from real traffic and a sign-in
+           whose last real turn is old greys again on its own (verdict's freshness window,
+           one place). POSITIVE-ONLY in Phase 1: no rejected/red for codex until an OBSERVED
+           on-pane auth-failure signal exists (#2790 Phase 2) -- a positive-only overlay can
+           never produce a false "not connected". */
+        const at = codexLastCompletionAt(pane.name);
+        if (typeof at === 'number' && now - at >= 0 && now - at <= observed.freshMs()) {
+          observed.saw(observed.PROVIDER.OPENAI, pane.name, observed.OUTCOME.OK, at);
+        }
       }
     } catch { /* observation is best-effort; never sink the snapshot */ }
     // ⚠️ Identity, model and context are all filed under the NAME, and only a
@@ -6624,6 +6669,7 @@ module.exports = {
   identityFromText, configRoots, transcriptCwd,
   countAgents, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
   rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext,
+  codexLastCompletionAt,
   /* ⚠️ Exported so the ROUTE can say what tmux said. The alternative is a
      second caller of `list-panes` asking the same question a second time,
      which would report a different moment from the one that failed. */

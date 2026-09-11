@@ -33,32 +33,52 @@
 // re-introduce exactly the false green this feature removes.
 const OUTCOME = Object.freeze({ OK: 'ok', REJECTED: '401' });
 
-// agent name -> { outcome, at }. Last qualifying observation only. Unbounded only by
-// the count of distinct agent names ever seen this process (not a per-tick leak: saw()
-// overwrites in place), and freshness gating means a stale entry for a removed agent
-// never affects a verdict -- so a periodic sweep is not needed for correctness.
+/*
+ * #2413: observations are PROVIDER-QUALIFIED. The badge overlay for the Claude rows
+ * and the badge overlay for the OpenAI rows are two different joins over two different
+ * account lists; without the provider in the key, an OpenAI agent's `ok` could resolve
+ * against the Claude account list (a codex agent on the default home records
+ * configDir=null, which accountForAgent maps to the DEFAULT CLAUDE account -- see
+ * status.js:6209) and green a Claude account it has nothing to do with. Keying by
+ * (provider, agent) makes an OpenAI observation reachable ONLY from the OpenAI overlay
+ * and a Claude observation ONLY from the Claude one -- the isolation the two-derivations
+ * habit this codebase warns about would otherwise break.
+ */
+const PROVIDER = Object.freeze({ ANTHROPIC: 'anthropic', OPENAI: 'openai' });
+
+// (provider, agent) -> { provider, agent, outcome, at }. Last qualifying observation
+// only, per provider+agent. Unbounded only by the count of distinct (provider, agent)
+// pairs ever seen this process (not a per-tick leak: saw() overwrites in place), and
+// freshness gating means a stale entry for a removed agent never affects a verdict --
+// so a periodic sweep is not needed for correctness. The join is INJECTIVE: `provider`
+// is a closed, space-free enum ('anthropic'/'openai', neither a prefix of the other),
+// so the text before the first space names the provider unambiguously and the rest is
+// the agent -- an agent name may contain spaces (e.g. "Sonya Blade") without colliding.
 const store = new Map();
+function keyOf(provider, agent) { return provider + ' ' + agent; }
 
 /*
- * Record an observed outcome for an agent. `outcome` must be OUTCOME.OK or
- * OUTCOME.REJECTED; anything else (including the null status.js passes for idle /
- * needs-you / unknown states) is IGNORED, so a prior real observation SURVIVES an
- * idle tick rather than being clobbered by a non-observation.
+ * Record an observed outcome for an agent on a provider. `provider` must be a
+ * non-empty string (PROVIDER.ANTHROPIC / PROVIDER.OPENAI); `outcome` must be
+ * OUTCOME.OK or OUTCOME.REJECTED; anything else (including the null status.js passes
+ * for idle / needs-you / unknown states) is IGNORED, so a prior real observation
+ * SURVIVES an idle tick rather than being clobbered by a non-observation.
  */
-function saw(agent, outcome, now) {
+function saw(provider, agent, outcome, now) {
+  if (typeof provider !== 'string' || provider === '') return;
   if (typeof agent !== 'string' || agent === '') return;
   if (outcome !== OUTCOME.OK && outcome !== OUTCOME.REJECTED) return;
   const at = typeof now === 'number' && Number.isFinite(now) ? now : Date.now();
-  store.set(agent, { outcome, at });
+  store.set(keyOf(provider, agent), { provider, agent, outcome, at });
 }
 
-function read(agent) {
-  const v = store.get(agent);
+function read(provider, agent) {
+  const v = store.get(keyOf(provider, agent));
   return v ? { outcome: v.outcome, at: v.at } : null;
 }
 
 function all() {
-  return [...store.entries()].map(([agent, v]) => ({ agent, outcome: v.outcome, at: v.at }));
+  return [...store.values()].map((v) => ({ provider: v.provider, agent: v.agent, outcome: v.outcome, at: v.at }));
 }
 
 // Test-only: reset the in-memory record between cases.
@@ -108,4 +128,4 @@ function verdict({ checkLiveState, observedOutcome, observedAt, now, freshMs: fm
   return { badge: 'unchecked', observedAt: null, ageMs: null };
 }
 
-module.exports = { OUTCOME, saw, read, all, freshMs, verdict, _clearForTest };
+module.exports = { OUTCOME, PROVIDER, saw, read, all, freshMs, verdict, _clearForTest };
