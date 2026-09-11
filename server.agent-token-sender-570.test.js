@@ -99,8 +99,11 @@ test('the post and react routes resolve a token sender through the same helper',
   assert.match(react, /senderFromAgentToken\(req, body, roster\) \|\| messages\.resolveSender/);
 });
 
-test('sendPost and send use a sender the route already resolved, and resolve from the pane otherwise', () => {
-  const card = { sessionName: 'leo', isNamedOurs: true };
+test('sendPost and send use a sender the route already resolved, and resolve from the pane otherwise', (t) => {
+  /* The card comes from test-support/fleet, never typed by hand (fixture-discipline). */
+  const board = fleet.install([fleet.agent('leo', { state: 'idle' })]);
+  t.after(() => board.restore());
+  const card = board.roster.find((c) => c.sessionName === 'leo');
   const sent = messagesEngine.send({ sender: { ok: true, card }, to: 'nobody-by-this-name', text: 'x' }, []);
   assert.doesNotMatch(String(sent.because), /cannot tell which agent/, 'send ignored the resolved sender');
   const posted = messagesEngine.sendPost({ sender: { ok: true, card }, project: 'no-such', projectName: 'x', text: 'x' }, [], []);
