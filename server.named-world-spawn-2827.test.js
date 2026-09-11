@@ -29,6 +29,10 @@ process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_CODEX_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
+// Sandbox Claude Code's own config: the default-world control POSTs /api/agents,
+// which would otherwise read/write the operator's real ~/.claude.json (fixture-
+// discipline enforces this for every suite that can create an agent).
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 
 const { start, server } = require('./server');
 const worldenv = require('./engine/worldenv');
