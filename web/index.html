@@ -3943,6 +3943,21 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    tests pin (the base .pjcard/.pjcol borders above still apply there).
    The backgrounds are left alone here; item 6 handles the dialog fill. */
 body:not(.consolidated) .pjcard, body:not(.consolidated) .pj3 > aside.pjcol:not(.pjsplit), body:not(.consolidated) .pjmid, body:not(.consolidated) .pjmid .thread { border: 0; }
+/* Josh, 2026-09-10 (#2711 item 6): the dialog area is white in the tab view,
+   not the super-light gray. The .pjmid column is already --k-surface, so the
+   thread joins it as one flat white area. Consolidated keeps its own thread
+   fill (background:none).
+   Note: Josh's rationale was that a white dialog helps the blue own-message
+   tint stand out. That --usermsg-tint lives on the agent-DM thread (.dm.mine)
+   and the "Talk to one of them" panel (.pj-msg), NOT on #pj-room, whose posts
+   render plain (.msg). So in the room this is a cleaner-surface change, not a
+   blue-contrast one; flagged for him on the card. */
+body:not(.consolidated) .pjmid .thread { background: var(--k-surface); }
+/* Josh, 2026-09-10 (#2711 item 15): with the dialog white, a file an agent
+   posts gets the light gray the dialog used to be (--k-bg), so the file card
+   does not vanish into the white. Scoped to the tab-view project room, so the
+   agent DM thread and the consolidated view keep the .att default fill. */
+body:not(.consolidated) .pjmid .thread .att { background: var(--k-bg); }
 .pjcol > .flabel { display: block; margin-bottom: 10px; }
 /* Inside a pjcol the card IS the boundary: the .field separator rule
    drew a stray line above Tasks. */
