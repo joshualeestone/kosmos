@@ -457,6 +457,32 @@ test('#2669 after a retry chain gives up, a later init for the same id tries aga
   t.h.stop();
 });
 
+test('#2669 once a NEWER id lands, the older pending retry never runs again', () => {
+  /* B's record fails and a retry is armed; C then records at once. If the success
+     did not clear the pending id, B's late retry would pass every guard, record B,
+     move the resume id back, and forget C's live row (review round 7). */
+  const B = require('node:crypto').randomUUID();
+  const C = require('node:crypto').randomUUID();
+  let bMayLand = false;
+  const timers = [];
+  const forgotten = [];
+  const t = clearingSupervisor('clr-13', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: {
+      record: (id) => (id === B && !bMayLand ? { ok: false, because: 'the record is busy' } : { ok: true }),
+      forget: (id) => { forgotten.push(id); return { ok: true }; },
+      read: () => ({}),
+    },
+  });
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });   // fails: a retry is armed for B
+  t.say(0, { type: 'system', subtype: 'init', session_id: C });   // lands at once
+  bMayLand = true;                                                  // B would succeed now, if retried
+  while (timers.length) timers.shift()();
+  assert.equal(t.h.sessionId, C, 'the resume id stays on the newest session');
+  assert.ok(!forgotten.includes(C), 'and the live row is never forgotten');
+  t.h.stop();
+});
+
 test('#2669 a relaunched child is never blocked by a retry its dead predecessor left pending', () => {
   let attempts = 0;
   const timers = [];
