@@ -96,7 +96,14 @@ run "serial: green suite + RED page -> ABORTS"                      "YARN_EXIT=0
 run "serial: page COULD-NOT-RUN (127) -> ABORTS"                    "YARN_EXIT=0 PAGE_EXIT=127"           1
 
 echo "--- PARALLEL mode (opt-in + quiet box -> overlap) ---"
-P="KOSMOS_CUT_PARALLEL=1 KOSMOS_FAKE_LOAD=0.5"
+# Pin BOTH cores and max-load so the parallel arms take the overlap branch on ANY host,
+# CI included. Without KOSMOS_CUT_PARALLEL_MIN_CORES=1 these arms depend on the host having
+# >= 8 cores (the default min); CI runs on macos-latest (3-4 cores), where the decision
+# returns SERIAL, the "== 3+3b." branch assertion fails, AND the parallel-mode abort proofs
+# silently never run -- defeating this test's whole purpose. FAKE_LOAD=0.1 < MAX_LOAD=5
+# keeps the load arm host-independent too. (The unit tests in test-cut-load-guard.sh pin
+# MIN_CORES=1 on every decision case for exactly this reason.)
+P="KOSMOS_CUT_PARALLEL=1 KOSMOS_FAKE_LOAD=0.1 KOSMOS_CUT_PARALLEL_MIN_CORES=1 KOSMOS_CUT_PARALLEL_MAX_LOAD=5"
 run "parallel: green suite + green page -> completes"               "$P"                                  0 "STEP: == 3+3b."
 run "parallel: REAL red suite (rerun stays red) -> ABORTS"          "$P YARN_EXIT=1 RERUN_RC=1 PAGE_EXIT=0" 1
 run "parallel: red suite dismissed as contention -> completes"      "$P YARN_EXIT=1 RERUN_RC=0 PAGE_EXIT=0" 0
