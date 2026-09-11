@@ -199,20 +199,26 @@ has "$out" 'outcome=failed' && has "$out" 'step=' \
   && pass "a broken clock does not abort the cut: the completion row still lands" \
   || fail "a broken clock aborted before the completion row: $out"
 
-# A broken STDOUT: fd 1 closed while the timing echoes fire (working clock). The completion
-# printf writes to the log FILE, not stdout, so it must still land; an unguarded emit (a bare
-# `echo`, or a bare `_step_emit_duration` call whose echo fails) would exit non-zero under
-# errexit and abort cut_record_done before the printf.
+# A broken STDOUT while the timing echoes fire (working clock): the emit `echo`s exit non-zero,
+# and an UNGUARDED emit (a bare `echo`, or a bare `_step_emit_duration` call whose echo fails)
+# would then abort cut_record_done under errexit BEFORE the completion `printf`, so no row lands.
+# The `|| true`s must keep the row landing. This arm asserts exactly THAT -- the completion row is
+# present (cut_record_done was not aborted) -- and NOT byte-intactness: a real dropped terminal
+# (fd open, EPIPE) leaves the row clean because the `printf`'s own `>>` opens a separate log fd,
+# but no PORTABLE in-process simulation reproduces that cleanly -- both a closed fd (`1>&-`) and a
+# read-only dup let bash reuse the freed number for the `>>` and interleave the failed echo's bytes,
+# an artifact of the simulation, not of a real cut. So we simulate the failure (closed fd) and
+# assert only the load-bearing property the BLOCKER was about: the row still lands.
 brT="$(mktemp -d)"; mkdir -p "$brT/.claude/logs"
 HOME="$brT" V=9.9.9 _CUT_DONE_WRITTEN=0 bash -c "
   set -euo pipefail
   _CUT_DONE_WRITTEN=0; V=9.9.9
   $blk
   step '== 4. build =='
-  cut_record_done 1 1>&-
+  cut_record_done 1 1>&-       # fd 1 closed: the timing echoes fail; the row must still land
 " >/dev/null 2>&1
 brout="$(cat "$brT/.claude/logs/cut-suite-runs.log" 2>/dev/null)"; rm -rf "$brT"
-has "$brout" 'outcome=failed' \
+has "$brout" 'completed exit=' \
   && pass "a broken stdout does not abort the cut: the completion row still lands" \
   || fail "a broken stdout aborted before the completion row: $brout"
 

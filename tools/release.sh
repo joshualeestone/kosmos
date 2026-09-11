@@ -94,7 +94,7 @@ _step_emit_duration() {
   _end=$(_step_now) || true; [ -n "$_end" ] || return 0
   case "$_STEP_START" in *[!0-9]*|'') return 0 ;; esac
   case "$_end" in *[!0-9]*|'') return 0 ;; esac
-  _d=$((_end - _STEP_START)); [ "$_d" -ge 0 ] || _d=0   # a backward clock (NTP/manual) never prints negative
+  _d=$((10#$_end - 10#$_STEP_START)); [ "$_d" -ge 0 ] || _d=0   # 10# forces base-10 so a leading-zero stamp cannot read as octal and fault; clamp a backward clock (NTP/manual)
   echo "   (step wall-time -- ${1:-unknown}: ${_d}s)" || true
 }
 # #1962: each phase also RENEWS the machine claim, so a healthy cut of any length
@@ -122,7 +122,7 @@ cut_record_done() {
     case "$_CUT_START" in *[!0-9]*|'') _crd_end="" ;; esac
     case "$_crd_end" in *[!0-9]*|'') _crd_end="" ;; esac
     if [ -n "$_crd_end" ]; then
-      _crd_d=$((_crd_end - _CUT_START)); [ "$_crd_d" -ge 0 ] || _crd_d=0
+      _crd_d=$((10#$_crd_end - 10#$_CUT_START)); [ "$_crd_d" -ge 0 ] || _crd_d=0   # 10#: base-10, never octal
       echo "   (cut wall-time total: ${_crd_d}s)" || true
     fi
   fi
@@ -975,7 +975,7 @@ if kosmos_versions_entry_pending_ok "$V" "$KOSMOS_ENTRY_FILE"; then
   # that justified #1463, and the same bucket #1455's effect would be read from. A fix
   # that corrupts the measurement of the thing it fixes is worse than no fix.
   _step_before_7a="$_STEP"
-  _step_start_before_7a="$_STEP_START"   # restore the timing anchor too, or the post-7a duration is mislabeled as step 7 while timing 7a
+  _step_start_before_7a="$_STEP_START"   # save the timing anchor too (restored below), or the post-7a duration is mislabeled as step 7 while timing 7a
   step "== 7a. stamp the pending release entry with the minute it goes out (#1455) =="
   # 🛑 THE TOOL COMES FROM THE FROZEN TREE, THE ENTRY FILE FROM THE MAIN CHECKOUT, AND
   # THAT SPLIT IS DELIBERATE. $REPO is $BUILD by now, so this runs the tool as it exists
