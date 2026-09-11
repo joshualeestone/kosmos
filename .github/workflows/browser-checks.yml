@@ -146,12 +146,14 @@ jobs:
     # 🛑 macos-latest, matching test.yml AND the cut's 3b: a green here must mean
     # what a green 3b means, so it runs in the same OS family the release gate does.
     runs-on: macos-latest
-    # provision-pw (npm i + two browser builds) is ~2-4 min; the CI ALLOWLIST
-    # subset (7 checks, see the run step) is ~3m20s, one headless Chromium each,
-    # and a macOS runner is slower than a dev Mac -- so a real run is ~6-7 min. 40
-    # is generous headroom for provision + a hung run + future allowlist growth,
-    # without clipping an honest slow one. (The FULL 63-check suite -- ~15-20 min
-    # -- runs only at the release cut's 3b, never in this job.)
+    # provision-pw (npm i + chromium+webkit builds) is ~2-4 min; the CI ALLOWLIST
+    # subset (the headless-robust DOM-state checks named in the run step -- the list
+    # grows batch by batch under #835, so this comment states no fixed count; most
+    # launch one headless chromium, and at least one -- render-firstrun-connect-fires
+    # -- also launches webkit) plus a macOS runner being slower than a dev Mac puts a
+    # real run in the several-minutes range. 40 is generous headroom for provision +
+    # a hung run + further allowlist growth, without clipping an honest slow one. (The
+    # FULL page-check suite runs only at the release cut's 3b, never in this job.)
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -228,4 +230,9 @@ jobs:
             render-claude-connect-choice-2433
             render-picker-provider-2097
             render-openai-only-2096
+            render-inline-field-errors-2606
+            render-disconnect-stop-2570
+            render-plus-gate-1615
+            render-remove-force-2651
+            render-firstrun-connect-fires
         run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
