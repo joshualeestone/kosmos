@@ -13,16 +13,25 @@
 # certificate is a separate purchase with its own lead time.
 #
 # 🛑 WHAT THIS PACKAGE DOES AND DOES NOT DO, so nobody ships it believing more.
-# It carries the BOARD and a Node runtime. The board comes up and serves the real
-# UI. AGENTS DO NOT WORK: an agent is a tmux pane and there is no tmux, so most
-# agent-facing features are dark. That is the honest first look and it is better
-# than a mock, because it makes the remaining work visible instead of abstract.
+# It carries the BOARD, a Node runtime, and everything Windows AGENTS need (#570,
+# slice 7c). An agent is a headless Scheduled Task whose supervisor holds the
+# agent's pipes, so the board can make one, show its state, TALK to it, stop,
+# restart, remove and restore it, and the fleet comes back after a reboot. An
+# agent answers through the `kosmos` command the zip carries in `bin\` (#570,
+# win32-kosmos-cli-570), which is how its reply reaches the board. The
+# first double-click of Kosmos.exe registers the board's own logon task and hands
+# the board to it (engine/win32handoff.js), so the board runs with no window.
+# The agent lifecycle was measured by the R1-R8 rehearsal on a Windows 11 box
+# (from a source checkout, .claude/plans/WINDOWS-ROADMAP.md §2). A zip built by
+# this script was then checked end to end on the same box on 2026-09-11: create,
+# talk (the agent's answer reaching the board), restart, remove, restore, the
+# hand-off, and an update unpacked over the install.
 #
-# 🛑 AND IT HAS NO UPDATE PATH. The Mac bundle ships `install/setup.sh`, which is
-# how a Mac install updates itself. There is no Windows equivalent, so a person
-# updates this by downloading the zip again. That is acceptable for an unsigned
-# preview somebody is trying once, and it is NOT acceptable for the thing behind
-# a Download for Windows button on installkosmos.com.
+# 🛑 AND IT UPDATES BY HAND. The Mac bundle ships `install/setup.sh`, which is how
+# a Mac install updates itself. There is no Windows equivalent: a person updates
+# by downloading the new zip and running its Kosmos.exe, which replaces the
+# running board. Josh approved that for the first Windows release (2026-09-10),
+# with an in-app updater as a fast-follow (WINDOWS-ROADMAP.md, BLOCKER 2).
 #
 # 📌 THIS HAS NOW BEEN RUN ON WINDOWS (2026-09-04), and the note that used to
 # stand here -- "every claim here is about what the script stages, not about what
@@ -266,14 +275,23 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
 # "More info", which does not look like a button. Somebody who has not been told
 # stops there, and we learn nothing about the installer because it never ran.
 # 🔑 A README A PERSON ACTUALLY READS, because the FIRST thing they see is a
-# security warning and the second is a board with no agents. Both are expected
-# and neither is obvious.
+# security warning, and the second is a window that closes by itself. Both are
+# expected, and neither is obvious.
+# ⚠️ THE FOLDER IS THE INSTALL. There is no installer: the board's and every
+# agent's logon task run the app from wherever the zip was unpacked (the engine
+# pointer, engine/win32anchor.js), so a folder unpacked into Downloads and
+# tidied away later leaves Kosmos unable to start at the next logon. That is
+# why the README's first instruction is where to unpack it.
 {
   printf 'Kosmos for Windows (unsigned preview)\r\n'
   printf '\r\n'
-  printf 'Double-click Kosmos.exe.\r\n'
+  printf 'Unpack the whole zip into a folder you will keep, for example a\r\n'
+  printf 'Kosmos folder in your user folder (C:\\Users\\<your name>\\Kosmos).\r\n'
+  printf 'Not Downloads, and not a folder OneDrive syncs. Kosmos runs from that\r\n'
+  printf 'folder, so do not delete or move it. Then double-click Kosmos.exe in\r\n'
+  printf 'that folder.\r\n'
   printf '\r\n'
-  printf 'FIRST: Windows will try to stop you, and that is expected.\r\n'
+  printf 'The first time, Windows will try to stop you, and that is expected.\r\n'
   printf '\r\n'
   printf 'A blue box says "Windows protected your PC". The only button you can\r\n'
   printf 'see says "Don\047t run". DO NOT PRESS IT. Click the small "More info"\r\n'
@@ -287,15 +305,24 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
   printf 'Unblock at the bottom, then OK. Windows adds that to anything that\r\n'
   printf 'arrives inside a downloaded zip.\r\n'
   printf '\r\n'
-  printf 'A browser opens on the Kosmos board. Settings and projects work.\r\n'
-  printf 'AGENTS DO NOT WORK IN THIS BUILD. An agent is currently a terminal\r\n'
-  printf 'window managed by tmux, which does not exist on Windows, so the parts\r\n'
-  printf 'of the board that talk about agents will be empty or say they could\r\n'
-  printf 'not check. That is the honest state, not a fault in your install.\r\n'
+  printf 'A window opens for a moment and closes by itself, and a browser opens\r\n'
+  printf 'on the Kosmos board. Kosmos keeps running in the background, with no\r\n'
+  printf 'window, and starts by itself when you log in. Your agents do too. To\r\n'
+  printf 'open the board again later, double-click Kosmos.exe again.\r\n'
   printf '\r\n'
-  printf 'To stop it, close the black window.\r\n'
+  printf 'Agents need Claude Code on this computer, signed in. If it is\r\n'
+  printf 'missing, the board shows you the command that installs it. If it is\r\n'
+  printf 'not signed in, the board shows you how to sign in.\r\n'
   printf '\r\n'
-  printf 'If no browser opens, go to http://127.0.0.1:%s yourself.\r\n' "$PORT_DEFAULT"
+  printf 'To update: download the new zip, unpack it over this folder, and\r\n'
+  printf 'double-click Kosmos.exe again. Your agents keep running.\r\n'
+  printf '\r\n'
+  printf 'Everything Kosmos starts at login is listed in Task Scheduler, in the\r\n'
+  printf 'Kosmos folder.\r\n'
+  printf '\r\n'
+  printf 'If no browser opens, or the board says it is not signed in,\r\n'
+  printf 'double-click Kosmos.exe again. Typing http://127.0.0.1:%s into a\r\n' "$PORT_DEFAULT"
+  printf 'browser Kosmos has not opened before cannot show your agents.\r\n'
 } > "$STAGE/! READ ME FIRST - Windows will warn you.txt"
 
 # ---- the manifest ----------------------------------------------------------
@@ -309,7 +336,7 @@ cat > "$STAGE/manifest.json" <<JSON
   "source_dirty": $SOURCE_DIRTY,
   "signed": false,
   "node": { "version": "v$NODE_VERSION", "download_sha256": "$NODE_SHA" },
-  "agents_supported": false
+  "agents_supported": true
 }
 JSON
 

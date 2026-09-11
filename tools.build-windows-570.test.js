@@ -150,8 +150,25 @@ test('the zip contents check does not pipe into grep -q under pipefail', () => {
 
 test('the package tells the truth about itself', () => {
   assert.match(WIN, /"signed": false/, 'the manifest does not record that this build is unsigned');
-  assert.match(WIN, /"agents_supported": false/, 'the manifest claims agents work, which they do not');
-  assert.match(WIN, /AGENTS DO NOT WORK IN THIS BUILD/, 'the README does not warn that agents are dark');
+  /* #570 7c: agents work on Windows now (measured, R1-R8), so the package says so.
+     The old warnings are pinned ABSENT, because a README that still says "agents
+     do not work" over a build where they do sends people away from the thing
+     that works. */
+  assert.match(WIN, /"agents_supported": true/, 'the manifest says agents do not work, which they do');
+  assert.doesNotMatch(WIN, /AGENTS DO NOT WORK/, 'the package still tells people agents are dark');
+  assert.doesNotMatch(WIN, /close the black window/, 'the README still says the board lives in a window; it hands itself to its logon task');
+  assert.match(WIN, /closes by itself/, 'the README does not say the launcher window closes on its own, which looks like a crash if unexplained');
+  assert.match(WIN, /folder you will keep/, 'the README does not say the unpacked folder IS the install');
+  /* Board auth ENFORCES on Windows (tools/kosmos-open-board.js), so the bare
+     address loads a board that 403s every agent read. Relaunching is the way in. */
+  assert.doesNotMatch(WIN, /go to http:\/\/127\.0\.0\.1:%s yourself/, 'the README sends people to the unsigned address as the fix');
+  assert.match(WIN, /If no browser opens, or the board says it is not signed in,/, 'the README does not cover the likelier failure: a browser that opened on a board it is not signed in to');
+  assert.match(WIN, /double-click Kosmos\.exe again\. Typing http/, 'the README does not say how to get back in signed in');
+  /* The README names the Task Scheduler folder; it must be the one the tasks
+     are actually registered in (win32board.TASK_NAME, win32job.TASK_PREFIX). */
+  const folder = require('./engine/win32board').TASK_NAME.split('\\')[0];
+  assert.equal(require('./engine/win32job').TASK_PREFIX.split('\\')[0], folder);
+  assert.match(WIN, new RegExp("printf '" + folder + " folder\\."), 'the README names a Task Scheduler folder the tasks are not in');
   assert.match(WIN, /Windows protected your PC/, 'the README does not warn about the unsigned warning');
 });
 
