@@ -115,12 +115,13 @@ test('a dismissed loose importable file re-shows only when a NEW loose file appe
   );
 });
 
-test('dismiss(currentDismissSnapshot()) round-trips: what was on offer stays hidden', () => {
+test('a mixed folder+file snapshot round-trips: everything on offer stays hidden', () => {
   clearFlag();
-  // currentDismissSnapshot walks found()+scan() over the (empty) sandbox and must
-  // never throw; the resulting dismiss keeps the no-agent state hidden.
-  const snap = discover.currentDismissSnapshot();
-  assert.ok(Array.isArray(snap));
+  // The server builds the snapshot as the union of candidateDirs across found() +
+  // the warm scan caches (folders by dir, loose imports by file). dismissed() must
+  // treat that mixed set uniformly.
+  const snap = ['/x/folder-agent', '/loose/file.md'];
   discover.dismiss(snap);
   assert.equal(discover.dismissed(snap), true);
+  assert.equal(discover.dismissed([...snap, '/x/brand-new']), false);
 });

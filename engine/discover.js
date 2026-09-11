@@ -143,10 +143,12 @@ function undecline(dir) {
  * snapshot -- a genuinely new agent -- flips it back to false and the block returns.
  *
  * ⚠️ THE THREE FILE STATES, AND THE SAFE DIRECTION FOR EACH:
- *   - MISSING (ENOENT): never dismissed -> false. (The only "not dismissed".)
+ *   - MISSING (ENOENT): never dismissed -> false (the only file state that is
+ *     UNCONDITIONALLY not dismissed; the VALID state below can also return false).
  *   - UNREADABLE / not valid JSON: the person's answer stands -> true. A read blip
  *     must not flash a block somebody deliberately sent away.
- *   - VALID: dismissed iff the current offer is a subset of the snapshot.
+ *   - VALID: dismissed iff the current offer is a subset of the snapshot (so this
+ *     state returns false too whenever a new item is on offer).
  * An OLD-FORMAT file (pre-#2704: `{dismissedAt}` with no `dirs`) reads as an EMPTY
  * snapshot, so a machine already dismissed under the old code re-shows its current
  * agents ONCE (which un-traps it); a fresh dismiss then records the real snapshot.
@@ -165,11 +167,12 @@ function dismissed(currentDirs) {
 }
 
 /**
- * Record the folders on offer right now as the dismissed snapshot (#2704). A PURE
- * WRITER: it stores exactly the `dirs` it is handed. The server passes
- * `currentDismissSnapshot()`; a bare `dismiss()` records an empty snapshot (which
- * then re-shows on the next candidate), and keeps the no-arg call cheap -- the
- * writer never walks the filesystem itself.
+ * Record the identities on offer right now as the dismissed snapshot (#2704). A
+ * PURE WRITER: it stores exactly the identities it is handed. The server's dismiss
+ * route builds that set from `candidateDirs` over the current found()/warm-scan
+ * caches; a bare `dismiss()` records an empty snapshot (which then re-shows on the
+ * next candidate), and keeps the no-arg call cheap -- the writer never walks the
+ * filesystem itself.
  */
 function dismiss(dirs) {
   const given = Array.isArray(dirs)
@@ -211,29 +214,6 @@ function candidateDirs(out) {
   return [...new Set(ids)];
 }
 
-/**
- * The union of everything currently on offer, across `found()` and `scan()` --
- * what `dismiss` records so a person who dismisses one block dismisses both (the
- * two are one "agents on your computer" offer, server.js:6371). Each walk is
- * wrapped: recording a snapshot must never throw, so a look that fails contributes
- * nothing rather than aborting the dismiss.
- *
- * ⚠️ DELIBERATELY the TCC-FREE `scan()`, NOT `scan({importScan:true})`. A dismiss
- * is a button click and must never trigger the macOS permission prompt that
- * reaching ~/Documents, ~/Downloads and ~/Desktop would. The consequence is a
- * documented bound: loose importable FILES that live only under those TCC roots
- * are not in the snapshot, so the create import panel (which the person invokes
- * deliberately, and only there is the TCC scan run) is not suppressed by a board
- * dismiss. That is the right call -- asking to import is a fresh explicit action,
- * not the auto board block "Dismiss forever" governs. Importable files under the
- * TCC-free roots ARE captured, via `candidateDirs`.
- */
-function currentDismissSnapshot() {
-  const ids = [];
-  try { ids.push(...candidateDirs(found())); } catch { /* a failed look adds nothing */ }
-  try { ids.push(...candidateDirs(scan())); } catch { /* a failed look adds nothing */ }
-  return [...new Set(ids)];
-}
 
 /**
  * Is this folder's agent already one Kosmos looks after?
@@ -1994,7 +1974,7 @@ module.exports = { alreadyIn,
   foundGemini,
   codexIdentity,
   runningUnderName, found, scan, connect, disconnect, dismissed, dismiss, DISMISS_FILE,
-  candidateDirs, currentDismissSnapshot,
+  candidateDirs,
   declined, decline, undecline, DECLINED_FILE,
   // #2125: exposed so a test can assert the AUTO scan roots exclude the
   // TCC-protected home folders (Documents/Downloads/Desktop) while the import

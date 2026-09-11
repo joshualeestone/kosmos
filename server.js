@@ -6391,13 +6391,44 @@ const server = http.createServer((req, res) => {
 
   /* "Dismiss this forever": remembered on disk, behind the same cross-site
      guard as every other write. #2704: what is remembered is the SNAPSHOT of
-     folders on offer right now (`currentDismissSnapshot()` = found() + scan()),
-     not a global flag -- so "forever" hides everything currently offered but a
-     genuinely new agent later re-shows the block. The route still takes no body
-     (the web POSTs body-less); computing the snapshot here keeps `dismiss()` a
-     pure writer. */
+     everything on offer right now, not a global flag -- so "forever" hides
+     everything currently offered but a genuinely new agent later re-shows the
+     block. The route still takes no body (the web POSTs body-less); the snapshot
+     is computed here.
+
+     🛑 THE SNAPSHOT MUST COVER WHAT EVERY dismissed-GATED ROUTE SERVES, AND ONE
+     OF THEM IS TCC-INCLUSIVE. `/api/scan-import` serves `scan({importScan:true})`,
+     which reaches ~/Documents, ~/Downloads and ~/Desktop; its `dismissed` is a
+     subset check against this snapshot, so if a TCC-root item it serves is NOT
+     here, that check is permanently false and a legitimate dismiss silently
+     re-shows the whole scan block for anyone who granted file access. So the
+     snapshot reuses the WARM `importScanCache` (populated by the board's own
+     scan-import polls) when present.
+
+     ⚠️ WARM CACHES ONLY -- a dismiss is a button click and must NEVER trigger a
+     fresh `scan({importScan:true})`, which would pop the macOS permission prompt
+     out of context. Reusing the warm `scanCache`/`importScanCache` also keeps the
+     click cheap (no back-to-back disk walks). `found()` is the one fresh look, and
+     it costs no more than a single board poll, which runs every few seconds
+     anyway. Residual: if BOTH scan caches are cold at the instant of the click
+     (the board has not polled within SCAN_CACHE_MS), a TCC-only item can miss the
+     snapshot and re-show once; the next dismiss, with a warm cache, captures it. */
   if (pathname === '/api/found-agents/dismiss' && req.method === 'POST') {
-    try { discover.dismiss(discover.currentDismissSnapshot()); }
+    const now = Date.now();
+    const snap = [];
+    try { snap.push(...discover.candidateDirs(discover.found())); } catch { /* a failed look adds nothing */ }
+    const importWarm = importScanCache.result && (now - importScanCache.at) < SCAN_CACHE_MS;
+    const autoWarm = scanCache.result && (now - scanCache.at) < SCAN_CACHE_MS;
+    /* The import scan is a superset of the auto scan, so a warm import cache alone
+       covers the auto board too; a warm auto cache is added when present. Only when
+       neither is warm do we pay for one fresh TCC-free walk, so the auto board's
+       population is still snapshotted. */
+    if (importWarm) { try { snap.push(...discover.candidateDirs(importScanCache.result)); } catch { /* ignore */ } }
+    if (autoWarm) { try { snap.push(...discover.candidateDirs(scanCache.result)); } catch { /* ignore */ } }
+    if (!importWarm && !autoWarm) {
+      try { snap.push(...discover.candidateDirs(discover.scan())); } catch { /* a failed look adds nothing */ }
+    }
+    try { discover.dismiss([...new Set(snap)]); }
     catch { sendJson(res, 500, { ok: false, because: 'we could not remember that' }); return; }
     sendJson(res, 200, { ok: true, dismissed: true });
     return;
