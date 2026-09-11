@@ -280,7 +280,7 @@ That is the bar. Not "the tests pass".
 | 1 | install + first run | ⚠️ **BLOCKER 3 CLOSED** 2026-09-09 — the card now names the real installer. Kosmos still cannot install Claude Code FOR you; see §3c |
 | 2 | make an agent | ✅ MEASURED |
 | 3 | board + roster | ✅ MEASURED — working/idle from the event stream since 7c-5 (§4); needs_you/blocked still come only from self-reports, as on the Mac |
-| 4 | **talk to it** | ✅ **BLOCKER 1 CLOSED** 2026-09-10 (7c-4) — the board's `chat.deliver` reaches the agent through its supervisor's pipe and it answers; measured live. Its card reads working/idle since 7c-5. **R3 PASSED** in the 7c-6 rehearsal: 3 of 3 agents `placed`, card working -> idle, and the reply is in each agent's transcript. ⚠️ **The answer did NOT reach the board**: R3 read the transcript, and an agent on the Windows zip had no `kosmos reply` (BLOCKER 5, §3c). Fixed and verified live by `win32-kosmos-cli-570`. A crash-resumed agent reports again (#2722), and `/clear` keeps it on the board (#2728) |
+| 4 | **talk to it** | ✅ **BLOCKER 1 CLOSED** 2026-09-10 (7c-4) — the board's `chat.deliver` reaches the agent through its supervisor's pipe and it answers; measured live. Its card reads working/idle since 7c-5. **R3 PASSED** in the 7c-6 rehearsal: 3 of 3 agents `placed`, card working -> idle, and the reply is in each agent's transcript. ⚠️ **The answer did NOT reach the board**: R3 read the transcript, and an agent on the Windows zip had no `kosmos reply` (BLOCKER 5, §3c). Fixed on branch `win32-kosmos-cli-570` (not yet merged), verified live with the answer on the board. A crash-resumed agent reports again (#2722), and `/clear` keeps it on the board (#2728) |
 | 5 | stop/restart/remove/restore | ✅ MEASURED |
 | 6 | survive a reboot | ✅ **MEASURED AT A REAL LOGON 2026-09-11** (R8 of 7c-6). After Josh's reboot, the board and all 5 enabled agents came back unattended: one `conhost --headless` supervisor each, no windows, every card idle, one ownership row per agent (#2737) |
 | 7 | **update the app** | ⚠️ **BLOCKER 2, OFF THE v1 PATH** — Josh approved 2026-09-10: v1 updates by hand, a real updater is a fast-follow. §3a. The ANCHOR (not stranding the fleet) is designed and unit-tested; the UPDATER ITSELF cannot run on Windows at all |
@@ -535,7 +535,10 @@ and a screen calling it broken.
   question is answered and the answer is no: the Windows bundle ships no
   `bin\kosmos` of any spelling, so `installedKosmosCli()` is null there BY
   CONSTRUCTION — a true negative, now documented in `clipath.js`, that routes to
-  a real mechanism instead of a dead end. See §3c.
+  a real mechanism instead of a dead end. See §3c. (Until `win32-kosmos-cli-570`
+  merges: that branch ships `bin\kosmos` as the AGENT's command, with no board verbs,
+  so `installedKosmosCli()` is no longer null on a Windows bundle; `boardrestart.js`
+  still never asks it on win32.)
 - `engine/terminal.js` — "open the agent's terminal" shells `osascript`. Fails
   honestly with a raw ENOENT sentence. Consistent with 7c: there is no pty to
   attach to, so this may simply not exist on Windows.
@@ -753,8 +756,9 @@ until `win32-launch-handoff-570` lands.
 
 Every new agent's instructions are written with `kosmosCliShown()` baked in —
 "you can message another agent with `kosmos msg <name> ...`". `engine/clipath.js`
-has NO win32 branch (verified: no `win32`, no `.exe`, no `.cmd`,
-no `process.platform` in the file), so it falls through to a bare `kosmos`, and
+has NO win32 branch (verified: no `process.platform` read and no `.exe`/`.cmd`
+candidate in its code; `win32` appears only in comments), so it falls through to a
+bare `kosmos`, and
 the Windows zip ships no such file. Agents are being told to run a command that
 does not exist.
 
@@ -767,18 +771,24 @@ read the answer from the transcript, which is why it passed. `msg`, `post` and
 `react` were also pane-only on the server, and a Windows agent has no pane.
 
 ✅ **Fixed on branch `win32-kosmos-cli-570` (not yet merged when written):**
-- a Node `kosmos` for agents in the zip's `bin\`, with a `kosmos.cmd` shim for
-  PowerShell and a `kosmos` shim for Git Bash;
+- a Node `kosmos` for agents in the zip's `bin\`, with a `kosmos.ps1` shim for
+  PowerShell (the arguments go as JSON in `KOSMOS_ARGV_JSON`, never on a command
+  line) and a `kosmos` shim for Git Bash;
 - that folder put first on every agent's PATH by its supervisor;
 - /api/msg, /api/post and /api/react resolving the agent's per-run token.
 
-Verified live with a candidate zip:
+Verified live with candidate zips built from all three branches:
 - the agent's `kosmos reply` answers landed in its board thread, before and after
-  a restore;
-- its `kosmos msg reh-a` reached reh-a labelled as that colleague.
+  a restore, with the first (`.cmd`) shim and again with the `.ps1`;
+- its `kosmos msg reh-a` reached reh-a labelled as that colleague;
+- through the `.ps1`, a TWO-LINE answer holding `"quoted" &` reached the board
+  exactly (`ALPHA-570\nBRAVO-570 "quoted" & done.`).
 
-Known limit: through the `.cmd` shim, cmd expands `%NAME%` in a message, and
-PowerShell 5.1 drops embedded double quotes. A signed PE shim is the follow-up.
+Known limit: the PowerShell shim is a `.ps1`, so it runs only where the execution
+policy allows scripts. Claude Code's PowerShell runs with a process-scope Bypass
+(measured), and a person's default Restricted PowerShell would refuse it. A signed
+PE shim is the follow-up. (A first `.cmd` shim was dropped: it kept one line of a
+multi-line answer and ran the tail of a `"...&..."` message as a command.)
 
 ### What is still open
 
