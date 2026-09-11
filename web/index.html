@@ -29782,11 +29782,19 @@ let OPENAI_DETAIL_GEN = 0;
    ⚠️ THE READ BELOW IS UNCHANGED AND THE REASONING UNDER IT IS NOT. This block
    used to say "isDefault is the reliable signal: only the Claude-default fallback
    sets it". That fallback is gone (#2811): a default-codex agent now yields a
-   null account rather than the operator's Claude one, and a named codex dir
-   carries isDefault:null rather than false. The guard still lands on '' in both
-   cases, now because there is no row and because null is falsy, so nothing here
-   had to change -- but do not reason from the old sentence, which described a
-   mapping the product no longer performs. */
+   NULL ACCOUNT rather than the operator's Claude one, and a named codex dir
+   carries isDefault:null rather than false.
+   The guard reads `a.account && a.account.dir && !a.account.isDefault`, so the
+   three cases land as:
+     default-codex -> no account at all, so ''      (send nothing, route resolves
+                                                     the default OpenAI account)
+     named-codex   -> !null is TRUE, so THE DIR     (send it, as we always did)
+     claude        -> unchanged
+   ⇒ Both codex cases behave exactly as before, but for different reasons than
+   the old sentence gave, and an earlier version of THIS correction got it wrong
+   in the other direction by claiming both land on ''. They do not: only the
+   default one does, and a named codex account must still send its dir or the
+   picker would resolve the wrong account. */
 async function paintOpenaiDetailModel(a, forWhom) {
   const sel = document.getElementById('d-model');
   const go = document.getElementById('d-model-go');

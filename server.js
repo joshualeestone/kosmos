@@ -3689,6 +3689,9 @@ const server = http.createServer((req, res) => {
     const name = decodeSegment(agentAccountStatus[1]);
     if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
     const known = (() => { try { return accounts.list(); } catch { return []; } })();
+    /* Wrapped, like the sibling read in `whoamiFor`: a bare call here would let a
+       store or plist read take the route down. */
+    const runnerOf = (n) => { try { return create.recordedRunner(n); } catch { return 'claude'; } };
     const account = accountForAgent(name, known);
     /* 200 with ok:false, DELIBERATELY, and not the 404 the sibling /skills route
        gives an unknown name. This route answers a "could we determine it" question
@@ -3696,28 +3699,34 @@ const server = http.createServer((req, res) => {
        resource exist" one: accountForAgent returns null when the agent has no
        launch record, which is "we cannot tell", not "no such agent". Same
        never-a-guessed-negative posture as checkLive below. */
-    if (!account) { sendJson(res, 200, { ok: false, because: 'we could not tell which account this agent runs on' }); return; }
     /* 🛑 `subscription.checkLive` RUNS `claude auth status`, so it is not asked
-       about a non-claude agent. A codex agent on a NAMED OpenAI account reaches
-       here with a row (its `CODEX_HOME` is its `configDir`), so the `!account`
-       guard above does not catch it, and probing a codex home with a Claude
-       command returns NONE: a confident `connected: false` plus a remedy telling
-       the person to re-authenticate from the Accounts tab, about an agent that
-       was never signed out of anything.
-       ⚠️ THE DEFAULT-ACCOUNT CASE IS NOT THE WHOLE CASE, and an earlier note of
-       mine claimed this route was closed by the provider gate alone. That gate
-       fixes the DIR-LESS match; a named codex account has a dir, matches nothing
-       in the Claude list, and arrives here through the fallback with its dir
-       intact. Walking the callers for one branch and claiming the function is
-       what left this open. */
-    if (create.recordedRunner(name) !== 'claude') {
+       about a non-claude agent, and this sits ABOVE the no-account return on
+       purpose. Two shapes reach here and BOTH are codex:
+         - a NAMED OpenAI account has a `configDir`, so `account` is a real row and
+           the guard below would not have caught it. Probing a codex home with a
+           Claude command returns NONE, which this route renders as a confident
+           `connected: false` plus a remedy telling the person to re-authenticate,
+           about an agent that was never signed out of anything.
+         - a DEFAULT-account OpenAI agent has NO `CODEX_HOME`, so `accountForAgent`
+           correctly declines to hand it a Claude row and `account` is null. Below
+           the no-account return this answered "we could not tell which account
+           this agent runs on", which is false: we CAN tell. The job says codex and
+           the absent home IS the default OpenAI home.
+       ⚠️ An earlier version of this guard sat BELOW that return and so never fired
+       for the second shape, which is the card's own headline case. Checking the
+       branch I had just changed and reporting the route is the same miss this
+       branch has now made three times. */
+    if (runnerOf(name) !== 'claude') {
       sendJson(res, 200, {
-        ok: true, account: { email: account.email, label: account.label, isDefault: account.isDefault === true },
-        state: subscription.STATE.UNKNOWN, connected: null,
+        ok: true,
+        account: account ? { email: account.email, label: account.label, isDefault: account.isDefault === true } : null,
+        state: subscription.STATE.UNKNOWN,
+        connected: null,
         because: 'this agent does not run on Claude, so whether it is signed in there is not a question about it',
       });
       return;
     }
+    if (!account) { sendJson(res, 200, { ok: false, because: 'we could not tell which account this agent runs on' }); return; }
     const shape = { email: account.email, label: account.label, isDefault: account.isDefault === true };
     subscription.checkLive(account.isDefault ? undefined : { configDir: account.dir })
       .then((live) => {

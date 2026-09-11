@@ -12193,36 +12193,71 @@ test('#2811: a card with NO runner marker falls back to the launch job, not to t
   }
 });
 
-test('#2811: account-status does not run a CLAUDE auth probe against a codex home', async () => {
+test('#2811: account-status does not run a CLAUDE auth probe against a codex agent, named OR default', async () => {
   /**
-   * 🛑 THE HALF THE PROVIDER GATE DOES NOT REACH. A codex agent on a NAMED
-   * OpenAI account has a `configDir` (its CODEX_HOME), so it arrives with a row
-   * and the `!account` guard does not catch it. `subscription.checkLive` runs
-   * `claude auth status`, which against a codex home returns NONE: a confident
-   * `connected: false` and a remedy telling the person to re-authenticate, about
-   * an agent that was never signed out of anything.
+   * 🛑 THE ASSERTIONS ARE ARMED BY A STUB, AND AN EARLIER VERSION WAS NOT. With
+   * the real `checkLive` this route answers UNKNOWN in a sandbox whether or not
+   * the guard exists, so `connected === null` and `state !== 'none'` could not
+   * return the dangerous answer: the arm pinned only the `because` wording, and
+   * renaming that sentence would have deleted the test silently.
+   * `checkLive` is stubbed to the shape the defect actually produces (NONE, which
+   * the route renders as a confident `connected: false`), so the assertions now
+   * fail when the guard is removed.
+   *
+   * BOTH codex shapes are covered, because the first version of the guard sat
+   * below the no-account return and so never fired for the default-account agent,
+   * which is this card's headline case.
    */
   const create = require('./engine/create');
+  const subscription = require('./engine/subscription');
+  const realCheckLive = subscription.checkLive;
   let board;
   try {
-    board = fleet.install([fleet.agent('namedcodex', { state: 'idle' })]);
-    fs.writeFileSync(
-      create.plistPath('namedcodex'),
-      create.plistFor('namedcodex', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, '/Users/x/.codex-work2', 'codex'),
-      'utf8',
-    );
-    assert.equal(create.readJob('namedcodex').configDir, '/Users/x/.codex-work2',
-      'the fixture has no account dir, so it is not the named-account shape this arm is about');
+    board = fleet.install([
+      fleet.agent('namedcodex', { state: 'idle' }),
+      fleet.agent('defcodex2', { state: 'idle' }),
+      fleet.agent('plainclaude', { state: 'idle' }),
+    ]);
+    /* The dangerous answer: a Claude probe against a codex home reports NONE. */
+    subscription.checkLive = async () => ({ state: subscription.STATE.NONE, plan: null });
 
-    const r = await req('/api/agent/namedcodex/account-status');
-    assert.equal(r.status, 200);
-    const out = JSON.parse(r.body);
-    assert.equal(out.connected, null,
-      'a codex agent was reported as not connected, off a Claude auth probe against its codex home');
-    assert.notEqual(out.state, 'none', 'the Claude probe still ran and answered NONE');
-    assert.match(out.because, /does not run on Claude/);
+    /* NAMED codex account: a real row, so the no-account return never catches it. */
+    fs.writeFileSync(create.plistPath('namedcodex'),
+      create.plistFor('namedcodex', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, '/Users/x/.codex-work2', 'codex'), 'utf8');
+    assert.equal(create.readJob('namedcodex').configDir, '/Users/x/.codex-work2',
+      'the named fixture lost its account dir, so it is not the shape this arm is about');
+
+    /* DEFAULT codex account: NO CODEX_HOME, so accountForAgent returns null. */
+    fs.writeFileSync(create.plistPath('defcodex2'),
+      create.plistFor('defcodex2', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, null, 'codex'), 'utf8');
+    assert.equal(create.readJob('defcodex2').configDir, null,
+      'the default fixture carries a dir, so it is not the default-row shape');
+
+    for (const who of ['namedcodex', 'defcodex2']) {
+      const r = await req('/api/agent/' + who + '/account-status');
+      assert.equal(r.status, 200, who);
+      const out = JSON.parse(r.body);
+      assert.equal(out.connected, null,
+        who + ': reported as NOT CONNECTED off a Claude auth probe against a codex agent');
+      assert.notEqual(out.state, subscription.STATE.NONE,
+        who + ': the Claude probe ran and its NONE reached the payload');
+      assert.match(out.because, /does not run on Claude/, who);
+    }
+
+    /* CONTROL: a CLAUDE agent still gets the real probe, so the guard is scoped
+       and has not simply disabled this route. The stub makes it answer NONE. */
+    fs.writeFileSync(create.plistPath('plainclaude'),
+      create.plistFor('plainclaude', '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, '/Users/x/.claude-b', ''), 'utf8');
+    const c = await req('/api/agent/plainclaude/account-status');
+    const cout = JSON.parse(c.body);
+    assert.equal(cout.state, subscription.STATE.NONE,
+      'a Claude agent stopped being probed, so the guard is too wide');
+    assert.equal(cout.connected, false);
   } finally {
-    try { fs.unlinkSync(create.plistPath('namedcodex')); } catch { /* may not have been written */ }
+    subscription.checkLive = realCheckLive;
+    for (const n of ['namedcodex', 'defcodex2', 'plainclaude']) {
+      try { fs.unlinkSync(create.plistPath(n)); } catch { /* may not have been written */ }
+    }
     fleet.restore();
   }
 });
