@@ -32,7 +32,7 @@ grep -qF 'NODE_CACHE="${KOSMOS_NODE_CACHE:-' "$SRC" \
 # all red it: a second `BASE="$VAR"` line or an inline `then BASE="$X"` reassignment raise the
 # count above 1, and an env-default `BASE="${...}"` leaves the single line no longer matching the
 # literal. This is a structural proxy, not a proof of the absence of every conceivable injection.
-base_defs="$(grep -cE '(^|[^A-Za-z0-9_])BASE="' "$SRC")"
+base_defs="$(grep -oE '(^|[^A-Za-z0-9_])BASE="' "$SRC" | wc -l | tr -d ' ')"   # -o counts OCCURRENCES, so two BASE=" on one line also count as 2
 { [ "$base_defs" -eq 1 ] && grep -qE '^[[:space:]]*BASE="https://nodejs\.org/dist/' "$SRC"; } \
   && ok "the node download source is a single hardcoded nodejs.org assignment (no overridable base URL)" \
   || no "the node download BASE is not exactly one hardcoded nodejs.org assignment (base_defs=$base_defs; source may have become overridable)"
@@ -63,6 +63,17 @@ P="$(line_of 'cp "$TMP/$TARBALL" "$NODE_CACHE')"            # the cache write
 { [ -n "$V" ] && [ -n "$T" ] && [ "$T" -gt "$V" ]; } \
   && ok "the bytes are extracted only after the checksum verify (tar after verify, T>V)" \
   || no "extraction is not gated behind the final verify: unverified bytes could reach tar (V=$V T=$T)"
+
+# THE INVARIANT, part 3: the final verify must be UNCONDITIONAL. Line-order alone cannot see the
+# verify being made conditional -- e.g. wrapping it in `if [ "$NODE_CACHED" -eq 0 ]; then ... fi`
+# would leave V>C and T>V both true while a cached tarball reached tar UNVERIFIED. The only
+# NODE_CACHED conditional in the runtime block is the single download-fallback gate; a second one
+# (the shape that would wrap the verify) raises this count and reds. `if .*NODE_CACHED` matches
+# `[ ` and `[[ ` and any operator.
+nc_conds="$(grep -cE 'if .*NODE_CACHED' "$SRC")"
+[ "$nc_conds" -eq 1 ] \
+  && ok "the final verify is unconditional (exactly one NODE_CACHED conditional: the download gate)" \
+  || no "there is more than one NODE_CACHED conditional (nc_conds=$nc_conds): the verify may have been made conditional and a cached tarball could reach tar unverified"
 
 # The cache is POPULATED only after a checksum match, so a bad download never poisons it.
 { [ -n "$G" ] && [ -n "$P" ] && [ "$P" -gt "$G" ]; } \
