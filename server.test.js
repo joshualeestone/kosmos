@@ -7327,28 +7327,54 @@ test('#2711 item 16: pjMember takes a state wash class, for working/needs-you/id
     + pageConstSource('CARD_ST') + '\n'
     + pageFnSource('cardStOf') + '\n';
   const member = pageFunction('pjMember', prelude);
-  const base = { present: true, name: 'Ada', sessionName: 'ada', hasAvatar: false };
+
+  // Real produced roster rows, not hand-built stand-ins (fixture-discipline):
+  // fleet.install verifies each agent actually classifies to the asked state,
+  // and projectsEngine.list gives the exact member rows pjMember receives.
+  const projectsEngine = require('./engine/projects');
+  const board = fleet.install([
+    fleet.agent('wrk', { state: 'working' }),
+    fleet.agent('ndy', { state: 'needs_you' }),
+    fleet.agent('idl', { state: 'idle' }),
+    fleet.agent('rlm', { state: 'rate_limited' }),
+  ]);
+  const pdir = nodePath.join(SANDBOX, 'wash-proj');
+  fs.mkdirSync(pdir, { recursive: true });
+  let roster; let ghost;
+  try {
+    projectsEngine.create({ name: 'Wash', folder: pdir, agents: ['wrk', 'ndy', 'idl', 'rlm'], roster: board.agents });
+    roster = projectsEngine.list(board.agents).find((x) => x.name === 'Wash').agents;
+    // An UNSEEN member: on the project, absent from the board (the producer's
+    // own never-seen path, the same shape paintSettingsMembers' ghost test uses).
+    const gdir = nodePath.join(SANDBOX, 'wash-ghost');
+    fs.mkdirSync(gdir, { recursive: true });
+    projectsEngine.create({ name: 'Wash Ghost', folder: gdir, agents: ['nobody-here'], roster: [] });
+    ghost = projectsEngine.list([]).find((x) => x.name === 'Wash Ghost').agents[0];
+  } finally {
+    board.restore();
+  }
+  const row = (n) => roster.find((r) => r.name === n);
 
   // The three washed states each get their own class, so the CSS can give them
   // the green / red / gray ground the agent homepage cards use.
-  assert.ok(member({ ...base, state: 'working' }).includes('pjm-working'),
+  assert.ok(member(row('wrk')).includes('pjm-working'),
     'a working member lost its green wash class');
-  assert.ok(member({ ...base, state: 'needs_you' }).includes('pjm-attn'),
+  assert.ok(member(row('ndy')).includes('pjm-attn'),
     'a needs-you member lost its red wash class');
-  assert.ok(member({ ...base, state: 'idle' }).includes('pjm-idle'),
+  assert.ok(member(row('idl')).includes('pjm-idle'),
     'an idle member lost its gray wash class');
 
-  // CONTROL: a neutral state (paused/stopped/unknown) takes NO wash -- the
-  // homepage rule is that the ground colours cover exactly working/needs-you/idle
-  // and every other state stays neutral. Without this the three asserts above
-  // would pass even if pjMember blindly stamped a class on everything.
-  const stopped = member({ ...base, state: 'stopped' });
-  assert.ok(!/pjm-(working|attn|idle)/.test(stopped),
-    'a stopped member wrongly took a wash class: ' + stopped);
+  // CONTROL: a present but neutral state (rate_limited -> the "paused" card
+  // shape) takes NO wash -- the homepage rule is that the grounds cover exactly
+  // working/needs-you/idle and every other state stays neutral. Without this the
+  // three asserts above would pass even if pjMember stamped a class on everything.
+  const neutral = member(row('rlm'));
+  assert.ok(!/pjm-(working|attn|idle)/.test(neutral),
+    'a rate-limited (neutral) member wrongly took a wash class: ' + neutral);
 
-  // CONTROL: an UNSEEN member (not present) takes no wash even when its state
-  // would otherwise map, because an unseen row says why, not a state colour.
-  assert.ok(!/pjm-/.test(member({ ...base, present: false, state: 'working' })),
+  // CONTROL: an UNSEEN member takes no wash -- an unseen row says why (its dashed
+  // border + reason), not a state colour, so the wash class is gated on presence.
+  assert.ok(!/pjm-/.test(member(ghost)),
     'an unseen member took a wash class');
 });
 
