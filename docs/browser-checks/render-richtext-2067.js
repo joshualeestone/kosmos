@@ -96,6 +96,9 @@ function ok(name, cond, detail) {
         mdLinkMail: pj('[email me](mailto:x@y.test)'),
         fenceNoLink: pj('```\nhttps://x.test\n```'),
         headingHtml: pj('# <b>hi</b>'),
+        // #2701: tables render, and heading LEVELS emit distinct mdh1..mdh6.
+        table: pj('| A | B |\n| :-- | --: |\n| a1 | b1 |'),
+        heads: pj('# H1\n###### H6'),
         // the three URL/emphasis-interaction vectors an earlier version got
         // wrong: (E1) inline code adjacent to a URL must not inject the code
         // tag into the href; (E2) a URL containing underscores must not be
@@ -131,8 +134,11 @@ function ok(name, cond, detail) {
     ok(t + ' italic', /<em>b<\/em>/.test(r.italic), r.italic);
     ok(t + ' strike', /<s>b<\/s>/.test(r.strike), r.strike);
     ok(t + ' inline code', /<code class="mdc">kosmos open<\/code>/.test(r.code), r.code);
-    ok(t + ' heading tag', /<span class="mdh">Title<\/span>/.test(r.heading), r.heading);
+    ok(t + ' heading tag', /<span class="mdh mdh1">Title<\/span>/.test(r.heading), r.heading);
     ok(t + ' heading strips #', !/# /.test(r.heading), r.heading);
+    // #2701: the talk/DM dialog renders tables and sizes heading levels.
+    ok(t + ' table renders (#2701)', /<table class="mdtable">/.test(r.table) && /<td[^>]*>a1<\/td>/.test(r.table) && !/\| A \|/.test(r.table) && !/:--/.test(r.table), r.table);
+    ok(t + ' heading levels mdh1/mdh6 (#2701)', /class="mdh mdh1">H1</.test(r.heads) && /class="mdh mdh6">H6</.test(r.heads), r.heads);
     ok(t + ' unordered list', /<span class="mdli">one<\/span>/.test(r.ul), r.ul);
     ok(t + ' ul strips dash', !/- one/.test(r.ul), r.ul);
     ok(t + ' ordered list', /data-n="1\."/.test(r.ol) && />first<\/span>/.test(r.ol), r.ol);
@@ -153,7 +159,7 @@ function ok(name, cond, detail) {
     ok(t + ' md link (mailto) stripped to text', r.mdLinkMail === 'email me', r.mdLinkMail);
     ok(t + ' md link (mailto) no raw markup', !/\]\(/.test(r.mdLinkMail) && !r.mdLinkMail.includes('mailto:'), r.mdLinkMail);
     ok(t + ' fenced code not linkified', !/<a class="xlink"/.test(r.fenceNoLink), r.fenceNoLink);
-    ok(t + ' heading html inert', /<span class="mdh">&lt;b&gt;hi&lt;\/b&gt;<\/span>/.test(r.headingHtml), r.headingHtml);
+    ok(t + ' heading html inert', /<span class="mdh mdh1">&lt;b&gt;hi&lt;\/b&gt;<\/span>/.test(r.headingHtml), r.headingHtml);
     ok(t + ' bare url autolink kept', /<a class="xlink" href="https:\/\/x\.test\/p"/.test(r.url), r.url);
     ok(t + ' emoji passes', /\u{1F680}/u.test(r.emoji), r.emoji);
     // E1: code adjacent to a URL — the code tag must never land inside an href,

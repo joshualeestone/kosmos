@@ -4454,6 +4454,28 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    (the UA already renders them). Colours ride the existing theme tokens, so
    they flip with light/dark like the rest. */
 .dm-b .mdh, .pj-msg-text .mdh, .msg-b .mdh { font-weight: 700; font-size: 1.0625rem; }
+/* #2701: heading LEVEL sizing. Before, every `#`..`######` collapsed to one
+   mdh size, so text and emojis in a `##` and a `####` heading looked identical.
+   mdh3 keeps the old single size (the common case, so ordinary messages are
+   unchanged); the ramp scales gently around it for a chat surface. */
+.dm-b .mdh1, .pj-msg-text .mdh1, .msg-b .mdh1 { font-size: 1.3rem; }
+.dm-b .mdh2, .pj-msg-text .mdh2, .msg-b .mdh2 { font-size: 1.15rem; }
+.dm-b .mdh3, .pj-msg-text .mdh3, .msg-b .mdh3 { font-size: 1.0625rem; }
+.dm-b .mdh4, .pj-msg-text .mdh4, .msg-b .mdh4 { font-size: 1rem; }
+.dm-b .mdh5, .pj-msg-text .mdh5, .msg-b .mdh5 { font-size: .9375rem; }
+.dm-b .mdh6, .pj-msg-text .mdh6, .msg-b .mdh6 { font-size: .875rem; }
+/* #2701: markdown tables. inline-table so it flows in the renderer's inline
+   (<br>-joined) output like .mdhr's inline-block, rather than forcing a block
+   context the surrounding spans do not use. Scrolls rather than widening the
+   message column. */
+.dm-b .mdtable, .pj-msg-text .mdtable, .msg-b .mdtable {
+  display: inline-table; border-collapse: collapse; margin: 4px 0; max-width: 100%;
+  font-size: .9375rem; vertical-align: top; }
+.dm-b .mdtable th, .pj-msg-text .mdtable th, .msg-b .mdtable th,
+.dm-b .mdtable td, .pj-msg-text .mdtable td, .msg-b .mdtable td {
+  border: 1px solid var(--k-rule); padding: 3px 8px; text-align: left; vertical-align: top; }
+.dm-b .mdtable th, .pj-msg-text .mdtable th, .msg-b .mdtable th {
+  font-weight: 700; background: var(--k-sunk, rgba(20,22,26,.06)); }
 .dm-b .mdc, .pj-msg-text .mdc, .msg-b .mdc { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: .85em; background: var(--k-sunk, rgba(20,22,26,.08)); padding: .05em .35em; border-radius: 5px; }
 .dm-b .mdcb, .pj-msg-text .mdcb, .msg-b .mdcb { display: inline-block; max-width: 100%; overflow-x: auto;
@@ -36050,6 +36072,54 @@ function pjLinkPaths(text, names) {
    `.msg-b` needing `pre-wrap`. Fenced blocks stay pjBody's job (its figure /
    codeb / codesrc rendering is richer than pjRich's and must not regress), so
    no fence branch lives here. */
+/* #2701: GFM tables, shared by both message renderers (pjProse for the room
+   thread, pjRich for the talk/DM + project-message surfaces) so the parse lives
+   in ONE place. A table is a header row, a separator row (dashes with optional
+   alignment colons), then body rows. The detection is deliberately strict --
+   a line is only the start of a table when the NEXT line is a valid separator --
+   so a stray `|` in ordinary prose never renders as a table. Cells carry inline
+   markdown via pjRichSpans (so a table cell keeps code/links/emphasis). */
+function pjTableCells(line) {
+  /* Split on `|`. A leading/trailing `|` is optional framing, not an empty cell.
+     Known limitation: an escaped `\\|` inside a cell splits the cell -- rare in
+     agent tables; a placeholder-based hold is deferred. */
+  let inner = String(line).trim();
+  if (inner.charAt(0) === '|') inner = inner.slice(1);
+  if (inner.charAt(inner.length - 1) === '|') inner = inner.slice(0, -1);
+  return inner.split('|').map((c) => c.trim());
+}
+function pjTableAligns(line) {
+  /* A separator row: every cell is `:?-+:?`. Returns per-column alignment, or
+     null when the line is not a separator (so no table is started). */
+  if (String(line).indexOf('-') === -1) return null;
+  const cells = pjTableCells(line);
+  if (!cells.length) return null;
+  const aligns = [];
+  for (let k = 0; k < cells.length; k += 1) {
+    const c = cells[k];
+    if (!/^:?-+:?$/.test(c)) return null;
+    const l = c.charAt(0) === ':';
+    const r = c.charAt(c.length - 1) === ':';
+    aligns.push(l && r ? 'center' : r ? 'right' : l ? 'left' : '');
+  }
+  return aligns;
+}
+function pjTableHtml(headerLine, aligns, bodyLines, names) {
+  const headers = pjTableCells(headerLine);
+  const cols = headers.length;
+  const cell = (tag, text, k) => '<' + tag + (aligns[k] ? ' style="text-align:' + aligns[k] + '"' : '')
+    + '>' + pjRichSpans(text == null ? '' : text, names) + '</' + tag + '>';
+  let h = '<table class="mdtable"><thead><tr>';
+  for (let k = 0; k < cols; k += 1) h += cell('th', headers[k], k);
+  h += '</tr></thead><tbody>';
+  for (let r = 0; r < bodyLines.length; r += 1) {
+    const c = pjTableCells(bodyLines[r]);
+    h += '<tr>';
+    for (let k = 0; k < cols; k += 1) h += cell('td', c[k], k);
+    h += '</tr>';
+  }
+  return h + '</tbody></table>';
+}
 function pjProse(text, names) {
   const src = String(text == null ? '' : text).split('\n');
   /* Drop empty lines at the two ENDS only (never interior blank lines, which
@@ -36062,9 +36132,24 @@ function pjProse(text, names) {
   const out = [];
   for (let i = 0; i < src.length; i += 1) {
     const line = src[i];
+    /* #2701: a GFM table -- this line is the header ONLY when the next line is a
+       valid separator, so a stray `|` in prose never starts one. */
+    if (line.indexOf('|') !== -1 && i + 1 < src.length) {
+      const aligns = pjTableAligns(src[i + 1]);
+      if (aligns) {
+        let j = i + 2; const body = [];
+        while (j < src.length && src[j].trim() !== '' && src[j].indexOf('|') !== -1) { body.push(src[j]); j += 1; }
+        out.push(pjTableHtml(line, aligns, body, names));
+        i = j - 1; // the for-loop's i += 1 lands on the line after the table
+        continue;
+      }
+    }
     if (/^[ \t]*(-{3,}|\*{3,}|_{3,})[ \t]*$/.test(line)) { out.push('<span class="mdhr"></span>'); continue; }
-    let m = /^[ \t]*#{1,6}[ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdh">' + pjRichSpans(m[1], names) + '</span>'); continue; }
+    /* #2701: emit the heading LEVEL (mdh1..mdh6) so `#`..`######` render at
+       different sizes -- a `##` heading (and any emoji in it) is bigger than a
+       `####` one, which a single mdh size collapsed. */
+    let m = /^[ \t]*(#{1,6})[ \t]+(.*)$/.exec(line);
+    if (m) { out.push('<span class="mdh mdh' + m[1].length + '">' + pjRichSpans(m[2], names) + '</span>'); continue; }
     /* NO markdown blockquote in the room, on purpose. The room already has a
        DISTINCT, server-supplied quote (`m.quotes` -> <blockquote class="quoteb">),
        and web.quoteb asserts a bare leading `>` with no tag stays literal text
@@ -36278,6 +36363,11 @@ function pjRich(text) {
   if (!/[*_`~]/.test(raw)
       && !/(^|\n)[ \t]*(#{1,6}[ \t]|>[ \t]?|[-+][ \t]|\d+\.[ \t]|-{3,}[ \t]*(\n|$))/.test(raw)
       && !/\[[^\]\n]+\]\([^)\n]+\)/.test(raw)
+      /* #2701: `|` now carries table syntax, so a message that has one takes the
+         slow path where pjProse-style table detection runs. A single-line pipe
+         message stays byte-identical (pjRichSpans escapes it the same); a
+         multi-line one renders its breaks as <br> under the same pre-wrap. */
+      && raw.indexOf('|') === -1
       && raw.indexOf('http://') === -1 && raw.indexOf('https://') === -1) {
     return esc(raw);
   }
@@ -36298,9 +36388,22 @@ function pjRich(text) {
       out.push('<span class="mdcb">' + esc(body.join('\n')) + '</span>');
       continue;
     }
+    /* #2701: a GFM table -- the header row when the next line is a valid
+       separator, so a stray `|` never starts one. */
+    if (line.indexOf('|') !== -1 && i + 1 < src.length) {
+      const aligns = pjTableAligns(src[i + 1]);
+      if (aligns) {
+        let j = i + 2; const body = [];
+        while (j < src.length && src[j].trim() !== '' && src[j].indexOf('|') !== -1) { body.push(src[j]); j += 1; }
+        out.push(pjTableHtml(line, aligns, body));
+        i = j; continue;
+      }
+    }
     if (/^[ \t]*(-{3,}|\*{3,}|_{3,})[ \t]*$/.test(line)) { out.push('<span class="mdhr"></span>'); i += 1; continue; }
-    let m = /^[ \t]*#{1,6}[ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdh">' + pjRichSpans(m[1]) + '</span>'); i += 1; continue; }
+    /* #2701: emit the heading LEVEL (mdh1..mdh6) so different `#` depths render
+       at different sizes (emojis/text in a `##` heading larger than a `####`). */
+    let m = /^[ \t]*(#{1,6})[ \t]+(.*)$/.exec(line);
+    if (m) { out.push('<span class="mdh mdh' + m[1].length + '">' + pjRichSpans(m[2]) + '</span>'); i += 1; continue; }
     m = /^[ \t]*>[ \t]?(.*)$/.exec(line);
     if (m) { out.push('<span class="mdq">' + pjRichSpans(m[1]) + '</span>'); i += 1; continue; }
     m = /^[ \t]*[-+*][ \t]+(.*)$/.exec(line);
