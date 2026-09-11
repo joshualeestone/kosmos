@@ -273,6 +273,22 @@ kosmos_claim_machine >/dev/null 2>&1 || true
 # comes from tmux and is redirected only by AGENT_WORKFORCE_TMUX_BIN. So a cut-time gate
 # can STILL enumerate the live fleet by name. The class is narrowed, not closed.
 #
+# 🛑 AND THAT LIST IS NOT EXHAUSTIVE. Treating it as a closed set is how the next gap
+# gets missed. Two more that ARE measured and are easy to overlook because they are not
+# data roots at all:
+#   openaiaccounts.list()               1 -> 0   (the same shape as the Claude accounts,
+#                                                 and the step-3b argument below rested
+#                                                 only on the Claude half)
+#   runners.resolveBin('claude').present true -> FALSE
+#                                                (BINARY DISCOVERY: under the cut home the
+#                                                 product believes the Claude CLI is not
+#                                                 installed on this machine)
+# Others that resolve through the same seam and were not individually measured:
+# trust.js, subscription.js, codexupdate.js + create.js (.codex), geminisession.js,
+# boardauth.js, runningas.js, worlds.js, delete-leftover.js, connect.js, discover.js.
+# ⇒ ANYTHING resolving a path through AGENT_WORKFORCE_HOME changes during a cut. Ask
+# that question of a gate rather than consulting the table above.
+#
 # 🔑 THE CLASS, not one flaky test. `tools/release.sh` runs on a box that is also
 # running real agents and carrying a live board, roster and data root. Several
 # cut-time gates read that live state instead of the tree they froze, so a cut
@@ -325,14 +341,32 @@ if [ "${KOSMOS_CUT_LIVE_HOME:-0}" != 1 ]; then
   # a real directory (TMPDIR=$HOME makes this `rm -rf ~/kosmos-cut-home`), so that is
   # what is asked about here.
   _cut_tmp="${TMPDIR:-/tmp}"
-  _cut_tmp="${_cut_tmp%/}"
+  # Strip EVERY trailing slash, not one: `${x%/}` removes a single one, so `$HOME//`
+  # survived the literal comparison below and reached the `rm -rf`.
+  while [ "$_cut_tmp" != "/" ] && [ "${_cut_tmp%/}" != "$_cut_tmp" ]; do _cut_tmp="${_cut_tmp%/}"; done
   case "$_cut_tmp" in
-    ''|/|"$HOME") echo "refusing to derive the cut-only home from TMPDIR=$_cut_tmp: it is a real directory, and this step removes and recreates a leaf inside it. Point TMPDIR at a scratch directory."; exit 1 ;;
+    ''|/) echo "refusing to derive the cut-only home from TMPDIR=$_cut_tmp: this step removes and recreates a leaf inside it. Point TMPDIR at a scratch directory."; exit 1 ;;
+    # A RELATIVE TMPDIR would make AGENT_WORKFORCE_HOME relative, which each gate
+    # subprocess then resolves against its OWN cwd; engine/accounts.js:99 already names
+    # that as a hazard, and store.dataRootFor throws on a non-absolute root part-way
+    # through the cut. Refuse it here, where the message can say why.
+    [!/]*) echo "refusing to derive the cut-only home from a RELATIVE TMPDIR=$_cut_tmp: the exported AGENT_WORKFORCE_HOME would resolve against each gate's own working directory. Point TMPDIR at an absolute scratch directory."; exit 1 ;;
   esac
+  # 🔑 `-ef` (same file), NOT a string compare. `$HOME` has more than one spelling on
+  # macOS: the firmlink path /System/Volumes/Data/Users/<u> names the same directory as
+  # /Users/<u>, and a literal `case "$HOME"` pattern misses it. tools/lib/board-origin.sh
+  # hit exactly this and uses -ef for the same reason.
+  if [ -e "$_cut_tmp" ] && [ "$_cut_tmp" -ef "$HOME" ]; then
+    echo "refusing to derive the cut-only home from TMPDIR=$_cut_tmp: it is the operator's home directory, and this step removes and recreates a leaf inside it. Point TMPDIR at a scratch directory."; exit 1
+  fi
   _cut_home="$_cut_tmp/kosmos-cut-home"
   rm -rf "$_cut_home" && mkdir -p "$_cut_home" || { echo "could not create the cut-only home at $_cut_home"; exit 1; }
   export AGENT_WORKFORCE_HOME="$_cut_home"
-  echo "cut-only home: $AGENT_WORKFORCE_HOME (empty, so the gates below read no live fleet state; KOSMOS_CUT_LIVE_HOME=1 opts out)"
+  # ⚠️ THE EMITTED LINE IS THE ONE A PERSON READS, AND IT IS THE ONE THE FIRST ROUND OF
+  # CORRECTIONS MISSED. The comment fifty lines above was fixed to stop saying "the live
+  # fleet"; this string, which is what actually reaches the operator at cut time, still
+  # said it. Say what moves, and do not imply the roster is isolated: it is not.
+  echo "cut-only home: $AGENT_WORKFORCE_HOME (empty: the store, the accounts and the runner-binary lookup below read no operator state. The agent roster and the config-root scan are NOT isolated by this. KOSMOS_CUT_LIVE_HOME=1 opts out)"
 fi
 
 step "== 1. main, clean, and carrying what you mean to ship =="
@@ -663,11 +697,15 @@ _page_exit=0
 # exclusion. `env -u` drops it for this gate only, so the page layer runs exactly as it
 # did before that change.
 #
-# WHY, measured rather than assumed: of the nine `node ./server.js` boot sites in
-# tools/browser-checks.sh, SEVEN do not set AGENT_WORKFORCE_HOME (only the sb4 board and
-# the #1573 pair do), so those boards resolve the operator's home for accounts. On this
-# box `accounts.list()` is 5 with the ambient home and 0 under an empty one, and
-# engine/create.js refuses a Claude create outright when there is no default account.
+# WHY, measured rather than assumed: `AGENT_WORKFORCE_HOME=` appears at exactly two
+# places in tools/browser-checks.sh (the sb4 board, and the #1573 site that runs twice),
+# so THREE boards set it and SIX do not. (An earlier version of this comment said "seven
+# of nine", which was a bad count off a sloppy parse; the direction of the argument is
+# unchanged, the number was simply wrong.) Those six resolve the operator's home, and on
+# this box an empty home takes `accounts.list()` from 5 to 0, `openaiaccounts.list()`
+# from 1 to 0, and `runners.resolveBin('claude').present` from true to FALSE, so the
+# product also stops believing the Claude CLI is installed. engine/create.js refuses a
+# Claude create outright when there is no default account.
 # That would change the behaviour of roughly 25 checks, and the page gate aborts the cut
 # on any red.
 #

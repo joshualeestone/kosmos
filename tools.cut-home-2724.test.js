@@ -79,9 +79,6 @@ function envFor(dir, bin, extra) {
     HOME: dir,
     TMPDIR: path.join(dir, 'tmp'),
     PATH: bin + path.delimiter + process.env.PATH,
-    KOSMOS_SITE: path.join(dir, 'site'),
-    KOSMOS_CUT_IGNORE_HARNESS: '1',
-    KOSMOS_CUT_PROBE: path.join(dir, 'bin', 'no-cut-probe'),
   };
   /* 🛑 CLEAR THE TWO VARIABLES THESE ARMS ARE ABOUT, or they are decided by the
      environment instead of by the script. This is not hypothetical and it is the
@@ -100,8 +97,30 @@ function envFor(dir, bin, extra) {
      why: the "+ test fixes" arm ran 5930 tests (without this file) and the final arm
      ran 5936 (without an ambient home), so the one combination that describes a real
      cut was the one combination never measured. */
-  delete env.AGENT_WORKFORCE_HOME;
-  delete env.KOSMOS_CUT_LIVE_HOME;
+  /* ⚠️ CLEAR BY CONSTRUCTION, NOT BY ENUMERATION. Naming the two variables round 1
+     happened to find leaves the next one live, and round 2 found it one variable over:
+     an ambient `KOSMOS_CUT_CHANNEL=bogus` made release.sh refuse at line 37, long before
+     the cut home, and six of eight arms failed on a value that has nothing to do with
+     what they assert. (It failed LOUD, via the reached-step-1 guards, and cannot happen
+     during a real cut because release.sh validates the channel itself. It is still the
+     round-1 BLOCKER's shape, and a list of two names is not a defence against the third.)
+
+     So: drop every KOSMOS_* and AGENT_WORKFORCE_* the parent happens to carry, then put
+     back exactly the ones these arms need. A variable this file does not name cannot
+     decide its result. */
+  for (const k of Object.keys(env)) {
+    if (k.startsWith('KOSMOS_') || k.startsWith('AGENT_WORKFORCE_')) delete env[k];
+  }
+  env.KOSMOS_CUT_IGNORE_HARNESS = '1';
+  env.KOSMOS_CUT_PROBE = path.join(dir, 'bin', 'no-cut-probe');
+  env.KOSMOS_SITE = path.join(dir, 'site');
+  /* Pinned rather than inherited: the cut guard refuses on EITHER the pgrep arm (which
+     KOSMOS_CUT_PROBE covers) OR a marker-file arm that reads
+     ${KOSMOS_RUN_MARKER_DIR:-$HOME/.cache/kosmos-run-markers}. These arms were safe only
+     because HOME is sandboxed above, which moved that directory as a side effect. Saying
+     it out loud means a later edit to HOME cannot silently let a real cut's markers
+     refuse them. */
+  env.KOSMOS_RUN_MARKER_DIR = path.join(dir, 'run-markers');
   return { ...env, ...(extra || {}) };
 }
 
@@ -274,4 +293,87 @@ test('#2724: the page gate is EXPLICITLY excluded from the cut home, and says wh
   assert.ok(line, 'the page gate invocation no longer matches, so this arm stopped measuring anything');
   assert.match(line, /env -u AGENT_WORKFORCE_HOME/,
     'the page gate now inherits the cut home, which is the one gate whose boards were never measured under it');
+});
+
+test('#2724: an ambient KOSMOS_* or AGENT_WORKFORCE_* cannot decide what these arms measure', () => {
+  /* The round-1 BLOCKER was an arm whose verdict came from the environment. Round 2 found
+     the same shape one variable over (KOSMOS_CUT_CHANNEL). This arm is the general form:
+     it drives the script with a spread of hostile ambient values and asserts the cut home
+     still comes out of the script. If envFor ever goes back to deleting a named list,
+     this fails. */
+  const hostile = {
+    KOSMOS_CUT_CHANNEL: 'bogus',
+    KOSMOS_CUT_LIVE_HOME: '1',
+    KOSMOS_RUN_MARKER_DIR: '/nonexistent/markers',
+    KOSMOS_CUT_SELF_PID: '1',
+    AGENT_WORKFORCE_HOME: '/nonexistent/ambient-home',
+    AGENT_WORKFORCE_DATA: '/nonexistent/ambient-data',
+  };
+  const dir = sandbox('kosmos-cuthome-amb-');
+  const bin = path.join(dir, 'bin');
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'git'),
+    '#!/bin/sh\necho "CHILD_SEES=[${AGENT_WORKFORCE_HOME-<unset>}]"\nexit 9\n');
+  fs.chmodSync(path.join(bin, 'git'), 0o755);
+  writeProbe(bin);
+
+  /* The hostile values go in the PARENT, which is what a real cut does to this file. */
+  const r = spawnSync('bash', [path.join(dir, 'tools', 'release.sh'), '0.6.56'], {
+    encoding: 'utf8', cwd: dir, env: envFor(dir, bin),
+  });
+  const said = (r.stdout || '') + (r.stderr || '');
+  assert.match(said, /CHILD_SEES=\[/, 'the run did not reach step 1: ' + said.slice(0, 300));
+  const seen = /CHILD_SEES=\[([^\]]*)\]/.exec(said)[1];
+  assert.equal(seen, path.join(dir, 'tmp', 'kosmos-cut-home'),
+    'the child saw something other than the script-derived cut home');
+
+  /* And the control that makes the above mean something: the same hostile values present
+     in this process's own env, proving envFor is what neutralises them rather than their
+     simply being absent. */
+  const saved = {};
+  for (const [k, v] of Object.entries(hostile)) { saved[k] = process.env[k]; process.env[k] = v; }
+  try {
+    const r2 = spawnSync('bash', [path.join(dir, 'tools', 'release.sh'), '0.6.56'], {
+      encoding: 'utf8', cwd: dir, env: envFor(dir, bin),
+    });
+    const said2 = (r2.stdout || '') + (r2.stderr || '');
+    assert.match(said2, /CHILD_SEES=\[/,
+      'an ambient KOSMOS_*/AGENT_WORKFORCE_* value reached the script and changed where it stopped: ' + said2.slice(0, 300));
+    const seen2 = /CHILD_SEES=\[([^\]]*)\]/.exec(said2)[1];
+    assert.equal(seen2, path.join(dir, 'tmp', 'kosmos-cut-home'),
+      'an ambient value decided the cut home instead of the script');
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  }
+});
+
+test('#2724: a RELATIVE TMPDIR is refused, because the exported home would follow each gate cwd', () => {
+  const dir = sandbox('kosmos-cuthome-rel-');
+  const bin = path.join(dir, 'bin');
+  fs.mkdirSync(bin);
+  fs.writeFileSync(path.join(bin, 'git'), '#!/bin/sh\nexit 9\n');
+  fs.chmodSync(path.join(bin, 'git'), 0o755);
+  writeProbe(bin);
+  const r = spawnSync('bash', [path.join(dir, 'tools', 'release.sh'), '0.6.56'], {
+    encoding: 'utf8', cwd: dir, env: { ...envFor(dir, bin), TMPDIR: 'reltmp' },
+  });
+  const said = (r.stdout || '') + (r.stderr || '');
+  assert.match(said, /refusing to derive the cut-only home from a RELATIVE TMPDIR/,
+    'a relative TMPDIR was accepted, so AGENT_WORKFORCE_HOME would resolve against each gate own cwd: ' + said.slice(0, 300));
+  assert.doesNotMatch(said, /cut-only home:/, 'it refused and then used one anyway');
+});
+
+test('#2724: the operator-facing line does NOT claim the fleet roster is isolated', () => {
+  /* Round 1 corrected this overclaim in the comments and the plan and MISSED the emitted
+     string, which is the only one a person reads at cut time. Pinned so it cannot drift
+     back: the comment and the message have to keep agreeing. */
+  const src = fs.readFileSync(REAL, 'utf8');
+  const line = src.split('\n').find((l) => l.includes('echo "cut-only home:'));
+  assert.ok(line, 'the cut-home announcement no longer matches, so this arm stopped measuring anything');
+  assert.doesNotMatch(line, /read no live fleet state/,
+    'the emitted line still claims the gates read no live fleet state; the roster and the config-root scan are NOT isolated by this change');
+  assert.match(line, /NOT isolated/,
+    'the emitted line no longer says what this change does not cover');
 });
