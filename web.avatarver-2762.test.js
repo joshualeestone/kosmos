@@ -1,28 +1,43 @@
 /**
- * #2762: every avatar emission in the page is CLASSIFIED, and the ones behind an
- * identical-HTML repaint skip must version their URL.
+ * #2762: every avatar URL the page RENDERS must bust its cache, or be listed with a
+ * reason.
  *
- * 🔑 WHY A SWEEP AND NOT A LIST OF NAMES. The defect is not "one function forgot a
- * query string". It is that the page has several renderers of the same face, and
- * the ones painted through a skip (`setLive`: `if (el.__lastLive === html) return`)
- * never recreate their <img>, so a bare URL keeps the OLD picture after a
- * profile-image update. #2698 fixed the org chart. #2762 was the SAME bug on the
- * task list, found separately, months later. A fifth was found while fixing #2762.
+ * 🔑 THE DEFECT CLASS. Renderers painted through an identical-HTML repaint skip
+ * (`setLive`: `if (el.__lastLive === html) return`) never recreate their <img>, so a
+ * BARE `/api/agent/<name>/avatar` keeps the OLD picture after a profile-image update.
+ * #2698 fixed the org chart. #2762 was the same bug on the project task list, found
+ * separately, months later. A third instance was found while fixing #2762, and a
+ * fourth is carded (#2770). The class needs one check that asks the question of the
+ * WHOLE PAGE, not one arm per renderer.
  *
- * 🛑 AND THE FIRST VERSION OF THIS FILE MADE EXACTLY THE MISTAKE IT EXISTS TO
- * PREVENT. It said it covered "every renderer, including ones nobody has written
- * yet" and was in fact a hardcoded four-name array. A known-broken fifth
- * (`pjRoomRow`, kosmos#2770) was not in it and the file was 6/6 green, with no hint
- * to a reader that anything had been excluded. A review caught it.
+ * 🛑 THIS FILE HAS BEEN WRONG THREE TIMES AND THE THIRD IS WHY IT LOOKS LIKE THIS.
+ *   v1: the regex required `/api/agent/` and `/avatar` to be CONTIGUOUS. Most
+ *       renderers concatenate with quotes between, so it matched almost nothing;
+ *       reverting two renderers left it green. Its control used a single-literal URL
+ *       no renderer on this page uses, so the control certified the blind spot.
+ *   v2: it claimed to cover "every renderer, including ones nobody has written yet"
+ *       and was a hardcoded four-NAME array, with a known-broken fifth silently
+ *       outside it.
+ *   v3: it enumerated emissions but keyed on (a) a per-line `<img` filter and (b) the
+ *       nearest preceding `function` declaration. A review broke it four ways, each
+ *       leaving the file green:
+ *         - an SVG `<image href=` emission (the shape `face()` ALREADY USES in this
+ *           file: `<img` is not a prefix of `<image`, so the filter never saw it);
+ *         - a `const`/arrow renderer placed after a carved-out function, which
+ *           INHERITED that function's carve-out;
+ *         - the URL extracted into a helper (the page already does this for
+ *           `youPicUrl`), so neither line had both halves;
+ *         - a concatenation wider than the fixed 3-line lookback.
  *
- * So this version ENUMERATES every `/avatar` emission in the page and requires each
- * one to be classified. A renderer nobody has written yet fails the sweep until
- * somebody says which kind it is, which is the only way this catches the next one.
+ * ⇒ SO THIS VERSION CLASSIFIES LINES, NOT FUNCTIONS, AND HAS NO WINDOW. Every line
+ * carrying an avatar URL must be one of: cache-busted (`/avatar?...`), a `fetch()`
+ * call rather than a rendering, or listed in ALLOWED_BARE with a reason. There is no
+ * function-name attribution left to inherit and no window to overflow, which is what
+ * killed all four escapes.
  *
- * THE RULE:
- *   painted through setLive / setIfChanged / paintThreadInto  -> MUST version
- *   assigned straight to innerHTML every poll                 -> bare is fine,
- *     because the <img> is recreated each poll and the route is `no-store`
+ * ⚠️ It is still a source-shape check. It cannot tell you a version is CORRECT, only
+ * that an un-busted URL is not being rendered. The behavioural arms live in
+ * web.task-card-761.test.js and docs/browser-checks/render-alltasks.js.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -30,141 +45,174 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { codeOnly } = require('./test-support/code-only');
 
-const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
-
-/* Comments stripped BOTH directions (#1080's shared helper): this file's own prose
+const PAGE_PATH = path.join(__dirname, 'web', 'index.html');
+/* Comments stripped both directions (#1080's shared helper): this file's prose
    mentions avatar URLs, and a renderer's comment must never satisfy or break an
    assertion about its code. */
-const CODE = codeOnly(PAGE);
-const LINES = CODE.split('\n');
+const CODE = codeOnly(fs.readFileSync(PAGE_PATH, 'utf8'));
 
-/** Nearest enclosing top-level function name for a line index. */
-function ownerOf(i) {
-  for (let j = i; j >= 0; j -= 1) {
-    const m = /^\s*function ([A-Za-z0-9_$]+)\s*\(/.exec(LINES[j]);
-    if (m) return m[1];
-  }
-  return '<top level>';
-}
-
-/* A BARE avatar emission: `/avatar` closing its string literal rather than
-   continuing into `?v=`.
-
-   ⚠️ The first version required `/api/agent/` and `/avatar` to be CONTIGUOUS. Most
-   renderers build the URL by CONCATENATION, with quote characters between the two
-   halves, so it matched none of them: reverting two renderers left the file green.
-   Its control used a single-literal URL no renderer on this page uses, so the
-   control certified the blind spot instead of catching it. */
+/* A BARE avatar URL: `/avatar` closing its string literal rather than continuing into
+   a query string. `?v=` (the fix) and `?t=` (a timestamp bust) both continue. */
 const BARE = /\/avatar(["'`])/;
-const ANY_AVATAR = /\/avatar[?"'`]/;
 
-/* Renderers whose output is assigned straight to innerHTML every poll, so a bare
-   URL refreshes on its own. Each entry is a claim you can check by finding the
-   paint call. */
-const DIRECT_ASSIGNMENT = {
-  face: "grid.innerHTML = ... (agent grid, rebuilt every poll)",
-  lrow: "document.getElementById('alist').innerHTML = ... (agents list)",
-  busyRow: 'el.innerHTML = busyRow(...) (the busy/auth row)',
-  youPicUrl: 'the operator own picture, already versioned with YOU_PIC_V',
-};
+/* Lines that carry an avatar URL and are NOT renderings. `fetch(...)` for upload and
+   delete puts the same path in a string whose closing quote looks identical. */
+const NOT_A_RENDERING = /fetch\(/;
 
-/* Known-broken, carded, deliberately NOT fixed here. An entry needs a card number:
-   this is the slot the first version of this file lacked, which is how a
-   known-broken renderer sat outside a "covers everything" claim in silence. */
-const KNOWN_BROKEN = {
-  pjRoomRow: 'kosmos#2770 -- room message-sender avatars, painted via paintThreadInto -> setLive. A message row is not a member row, so there is no avatarVer to pass through yet; that is the work of that card.',
-};
+/**
+ * Bare URLs that are FINE, each with the paint call that makes it fine. Keyed on a
+ * distinctive substring of the LINE, not on a function name: a name is something a
+ * stranger's code can be written next to and inherit (that was escape 2), and a
+ * rename leaves a name-shaped hole behind.
+ */
+const ALLOWED_BARE = [
+  {
+    match: '<image href="/api/agent/${encodeURIComponent(a.sessionName)}/avatar"',
+    why: 'face(): the agent-grid SVG ring. Reaches the DOM only through card() -> '
+      + "document.getElementById('grid').innerHTML = ..., a direct assignment that "
+      + 'recreates the element every poll, and the avatar route is no-store.',
+  },
+  {
+    match: '`<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`',
+    /* lrow draws this twice (the not-running row and the live row), so the expected
+       count is 2. Declared rather than loosened to "one or more": a THIRD copy is a
+       new renderer inheriting this exemption, which is the hole the count closes. */
+    count: 2,
+    why: "lrow(): the agents list. document.getElementById('alist').innerHTML = ..., "
+      + 'a direct assignment, rebuilt every poll.',
+  },
+  {
+    match: "encodeURIComponent(fresh.sessionName) + '/avatar\" alt=\"\"></div>'",
+    why: 'busyRow(): el.innerHTML = busyRow(...), a direct assignment.',
+  },
+  {
+    match: "encodeURIComponent(m.from) +",
+    why: 'pjRoomRow(): room message senders, painted via paintThreadInto -> setLive, '
+      + 'so this one IS behind a skip and IS stale. kosmos#2770. A message row is not '
+      + 'a member row, so there is no avatarVer to pass through yet; that is the work '
+      + 'of that card.',
+  },
+];
 
-/** Every avatar emission in the page, by owning function. */
-function emissions() {
-  const out = new Map();
-  LINES.forEach((line, i) => {
-    if (!ANY_AVATAR.test(line)) return;
-    if (/\/api\/you\/avatar/.test(line)) return;   // the operator's own picture, a different route
-    /* ⚠️ EMISSIONS ONLY, NOT CALLS. The avatar path also appears in `fetch(...)`
-       for upload and delete (renderStale, paintMade), where the closing quote of
-       the argument looks exactly like the closing quote of a bare <img> src. The
-       first version of this sweep reported both as unclassified bare renderers,
-       which is a false positive that would have trained the next reader to add
-       entries to a carve-out list to quiet it. A rendered face always builds an
-       <img>. */
-    /* ⚠️ AND THE WINDOW IS NOT OPTIONAL. These emissions are built by concatenation
-       ACROSS LINES: `<img src="/api/agent/'` on one line, `+ name + '/avatar?v='` on
-       the next. A per-line `<img` filter found only 3 of the 5 renderers and the
-       "at least four" guard below is what caught it. Look back a couple of lines. */
-    const window = LINES.slice(Math.max(0, i - 3), i + 1).join('\n');
-    if (!/<img|img src=/.test(window)) return;
-    const fn = ownerOf(i);
-    if (!out.has(fn)) out.set(fn, []);
-    out.get(fn).push({ line: i + 1, text: line.trim() });
-  });
-  return out;
+/** Every line carrying an agent-avatar URL, with its 1-based line number. */
+function avatarLines() {
+  return CODE.split('\n')
+    .map((text, i) => ({ line: i + 1, text: text.trim() }))
+    .filter((e) => /\/avatar/.test(e.text))
+    .filter((e) => !/\/api\/you\/avatar/.test(e.text));   // the operator's own picture, its own route and its own version
 }
 
-test('#2762: every avatar emission is classified, so a NEW renderer cannot appear unnoticed', () => {
-  const found = [...emissions().keys()].sort();
-  assert.ok(found.length >= 5,
-    'the sweep found almost no avatar emissions, so its pattern has probably stopped matching: ' + JSON.stringify(found));
+function classify(e) {
+  if (!BARE.test(e.text)) return 'busted';
+  if (NOT_A_RENDERING.test(e.text)) return 'call';
+  const hit = ALLOWED_BARE.find((a) => e.text.includes(a.match));
+  return hit ? 'allowed' : 'UNCLASSIFIED';
+}
 
-  const unclassified = found.filter((fn) => !(fn in DIRECT_ASSIGNMENT) && !(fn in KNOWN_BROKEN));
-  /* Anything not on a list must be versioned; if it is bare AND unlisted, the
-     author has not said which kind it is. */
-  const bareUnlisted = unclassified.filter((fn) =>
-    emissions().get(fn).some((e) => BARE.test(e.text)));
-  assert.deepEqual(bareUnlisted, [],
-    'these renderers emit a BARE avatar URL and are on no list: '
-    + JSON.stringify(bareUnlisted)
-    + '. Find the paint call. If it goes through setLive / setIfChanged / paintThreadInto, append `?v=` the avatar version (#2698, #2762). '
-    + 'If it assigns innerHTML directly every poll, add it to DIRECT_ASSIGNMENT with the paint call as the reason.');
+test('#2762: no rendered avatar URL is bare, unless it is listed with a reason', () => {
+  const all = avatarLines();
+  assert.ok(all.length >= 8,
+    'the sweep found almost no avatar URLs, so its matcher has probably stopped working: ' + all.length);
+
+  const bad = all.filter((e) => classify(e) === 'UNCLASSIFIED');
+  assert.deepEqual(bad.map((e) => 'web/index.html:' + e.line + '  ' + e.text.slice(0, 90)), [],
+    'these lines RENDER a bare avatar URL and are on no list. If the markup is painted through '
+    + 'setLive / setIfChanged / paintThreadInto, the <img> is never recreated and the face goes '
+    + 'stale after a profile-image update: append `?v=` the avatar version (#2698, #2762). If it '
+    + 'is assigned straight to innerHTML every poll, add it to ALLOWED_BARE with the paint call '
+    + 'as the reason.');
 });
 
-test('#2762: the renderers behind a repaint skip all version their URL', () => {
-  const em = emissions();
-  const mustVersion = [...em.keys()].filter((fn) => !(fn in DIRECT_ASSIGNMENT) && !(fn in KNOWN_BROKEN));
-  assert.ok(mustVersion.length >= 4,
-    'expected at least the four renderers #2762 fixed; found ' + JSON.stringify(mustVersion));
-  for (const fn of mustVersion) {
-    for (const e of em.get(fn)) {
-      assert.doesNotMatch(e.text, BARE,
-        fn + ' (web/index.html:' + e.line + ') emits a BARE avatar URL. Its output is painted '
-        + 'through an identical-HTML skip, so the <img> is never recreated and the face keeps the '
-        + 'OLD picture after a profile-image update.');
-    }
+test('#2762: every ALLOWED_BARE entry still matches something, so the list cannot rot', () => {
+  /* Mirrors the guard KNOWN_BROKEN had and DIRECT_ASSIGNMENT (v3) did not: an entry
+     for a renderer that has been renamed, deleted or FIXED is a permanent hole in the
+     sweep, and nothing would say so. */
+  const all = avatarLines();
+  for (const a of ALLOWED_BARE) {
+    const hits = all.filter((e) => e.text.includes(a.match));
+    assert.ok(hits.length > 0,
+      'ALLOWED_BARE entry matches nothing any more: ' + JSON.stringify(a.match)
+      + '. It was renamed, deleted, or fixed. Remove the entry so the sweep covers that ground again.');
+    assert.ok(hits.some((e) => BARE.test(e.text)),
+      'ALLOWED_BARE entry no longer matches a BARE url (it has been fixed): ' + JSON.stringify(a.match)
+      + '. Remove the entry.');
+    /* 🔑 EXACTLY ONE. A carve-out that matches two lines excuses the second one for
+       free, which is how a new renderer inherits an old renderer's exemption: it was
+       escape 2 keyed on a function name, and it came straight back when the key was a
+       generic substring instead. An entry names ONE line or it is not specific enough. */
+    const want = a.count === undefined ? 1 : a.count;
+    assert.equal(hits.length, want,
+      'ALLOWED_BARE entry ' + JSON.stringify(a.match) + ' matches ' + hits.length
+      + ' lines, expected ' + want + ': ' + JSON.stringify(hits.map((e) => 'web/index.html:' + e.line))
+      + '. If a NEW renderer copied this shape it is inheriting an exemption it was never '
+      + 'granted; give it its own entry or version its URL. If this renderer legitimately '
+      + 'draws N times, set `count`.');
   }
 });
 
-test('#2762: the KNOWN_BROKEN list is honest, and empties itself when a card lands', () => {
-  /* The half the first version of this file was missing. Two failure directions:
-     a renderer listed as broken that is actually FIXED (the note is now a lie and
-     the sweep has a permanent hole), and a card number that is not a card. */
-  const em = emissions();
-  for (const fn of Object.keys(KNOWN_BROKEN)) {
-    assert.ok(em.has(fn),
-      fn + ' is listed as known-broken but emits no avatar URL at all; remove the entry');
-    assert.ok(em.get(fn).some((e) => BARE.test(e.text)),
-      fn + ' is listed as known-broken but no longer emits a bare URL. It has been fixed: '
-      + 'remove it from KNOWN_BROKEN so the sweep covers it again.');
-    assert.match(KNOWN_BROKEN[fn], /kosmos#\d+/,
-      fn + ' is excluded from the sweep with no card number, which is how a known defect goes quiet');
-  }
+test('#2762: the one KNOWN-STALE entry names its card', () => {
+  const stale = ALLOWED_BARE.find((a) => /kosmos#\d+/.test(a.why));
+  assert.ok(stale, 'no entry cites a card. pjRoomRow is behind a repaint skip and IS stale; '
+    + 'if it has been fixed, remove its entry rather than leaving an uncited exclusion.');
+  assert.match(stale.why, /kosmos#2770/);
 });
 
-test('#2762 CONTROL: the bare-URL pattern fails on the REAL emission shapes, both of them', () => {
-  const concatBare = `'<img src="/api/agent/' + encodeURIComponent(n) + '/avatar" alt="">'`;
-  const concatOk = `'<img src="/api/agent/' + encodeURIComponent(n) + '/avatar?v=' + (m.avatarVer || 0) + '" alt="">'`;
-  const tplBare = '`<img src="/api/agent/${encodeURIComponent(n)}/avatar" alt="">`';
-  const tplOk = '`<img src="/api/agent/${encodeURIComponent(n)}/avatar?v=${v}" alt="">`';
-  assert.match(concatBare, BARE, 'the pattern misses a bare CONCATENATED url, which is what most renderers emit');
-  assert.match(tplBare, BARE, 'the pattern misses a bare TEMPLATE-LITERAL url');
-  assert.doesNotMatch(concatOk, BARE, 'the pattern flags a correctly versioned concatenated url');
-  assert.doesNotMatch(tplOk, BARE, 'the pattern flags a correctly versioned template-literal url');
+/* ─────────── controls: the sweep must CATCH the shapes that escaped v3 ───────────
+   These inject a renderer into a COPY of the page source and re-run the classifier.
+   v3's control tested the regex against two hand-written strings and never tested the
+   filter or the function-attribution, which is where every escape lived. A control
+   has to resemble its subject. */
+function classifyInjected(snippet) {
+  const injected = CODE.replace('function tkFace(', snippet + '\nfunction tkFace(');
+  assert.notEqual(injected, CODE, 'the injection anchor no longer matches, so this control is vacuous');
+  return injected.split('\n')
+    .map((text, i) => ({ line: i + 1, text: text.trim() }))
+    .filter((e) => /\/avatar/.test(e.text) && !/\/api\/you\/avatar/.test(e.text))
+    .filter((e) => classify(e) === 'UNCLASSIFIED')
+    .length;
+}
+
+test('#2762 CONTROL: an SVG <image href> renderer is CAUGHT (escape 1, the shape face() uses)', () => {
+  assert.ok(classifyInjected(
+    'function newSvgFace(who) {\n'
+    + '  return `<svg viewBox="0 0 40 40"><image href="/api/agent/${encodeURIComponent(who.sessionName)}/avatar" x="0"/></svg>`;\n'
+    + '}') > 0,
+    'an SVG <image href> avatar renderer was not flagged. `<img` is not a prefix of `<image`, '
+    + 'which is exactly how face() escaped the previous version of this sweep.');
 });
 
-test('#2762 CONTROL: the DIRECT_ASSIGNMENT carve-outs are still direct assignments', () => {
-  /* If one of these is ever moved behind a skip, it becomes stale and this file
-     would keep excusing it. Assert the paint calls that justify the carve-out. */
-  assert.match(CODE, /getElementById\('alist'\)\.innerHTML\s*=/,
-    'the agents list is no longer a direct innerHTML assignment; lrow must now version its URL');
-  assert.match(CODE, /\.innerHTML = busyRow\(/,
-    'busyRow is no longer painted by direct assignment; it must now version its URL');
+test('#2762 CONTROL: an arrow renderer next to a carved-out one is CAUGHT (escape 2)', () => {
+  assert.ok(classifyInjected(
+    "const roomFace = (a) => a.hasAvatar\n"
+    + "  ? '<span class=\"lav\"><img src=\"/api/agent/' + encodeURIComponent(a.sessionName) + '/avatar\" alt=\"\"></span>'\n"
+    + "  : '<span class=\"lav\">?</span>';") > 0,
+    'an arrow-function renderer was not flagged. The previous version attributed emissions to the '
+    + 'nearest preceding `function` declaration, so a renderer written next to a carved-out one '
+    + 'inherited its carve-out.');
+});
+
+test('#2762 CONTROL: a renderer whose URL comes from a helper is CAUGHT (escape 3)', () => {
+  /* The helper line itself carries the bare URL, which is the point: classifying LINES
+     means the URL cannot hide by being one function away from the markup. */
+  assert.ok(classifyInjected(
+    "function agentPicUrl(n) { return '/api/agent/' + encodeURIComponent(n) + '/avatar'; }") > 0,
+    'a URL-building helper was not flagged, so a renderer can put the bare URL one function away');
+});
+
+test('#2762 CONTROL: a wide multi-line concatenation is CAUGHT (escape 4)', () => {
+  assert.ok(classifyInjected(
+    "function wideFace(a) {\n  const p1 = '<span class=\"lav\">';\n  const p2 = '<img src=\"';\n"
+    + "  const p3 = '/api/agent/';\n  const p4 = encodeURIComponent(a.sessionName);\n"
+    + "  const p5 = '/avatar\" alt=\"\">';\n  return p1 + p2 + p3 + p4 + p5;\n}") > 0,
+    'a renderer whose markup spans more lines than any fixed lookback was not flagged');
+});
+
+test('#2762 CONTROL: a correctly VERSIONED renderer is NOT flagged', () => {
+  /* The other direction: a sweep that flags everything is as useless as one that
+     flags nothing, and would train the next reader to add carve-outs to quiet it. */
+  assert.equal(classifyInjected(
+    "function okFace(a) {\n"
+    + "  return '<img src=\"/api/agent/' + encodeURIComponent(a.sessionName) + '/avatar?v=' + (a.avatarVer || 0) + '\" alt=\"\">';\n"
+    + "}"), 0,
+    'a correctly versioned renderer was flagged, so this sweep would fail on correct code');
 });
