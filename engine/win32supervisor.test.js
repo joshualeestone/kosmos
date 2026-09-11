@@ -515,6 +515,35 @@ test('#2669 a pending rekey retry writes nothing once the loop is stopped', () =
   assert.equal(attempts, before, 'no ownership write after the supervisor was told to stop');
 });
 
+test('#2669 a record that THROWS is a failed record, not a dead supervisor', () => {
+  /* The call runs inside the stdout handler, so a throw that escaped would take the
+     agent's supervisor down with it (review round 10). */
+  const timers = [];
+  const t = clearingSupervisor('clr-14', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: { record: () => { throw Object.assign(new Error('disk said no'), { code: 'EIO' }); }, forget: () => ({ ok: true }), read: () => ({}) },
+  });
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });
+  assert.equal(t.h.sessionId, t.oldId, 'nothing moves');
+  const failed = t.events.find((e) => e.action === 'rekey-failed');
+  assert.ok(failed && /EIO/.test(failed.because), 'the failure is said, with its code');
+  assert.equal(timers.length, 1, 'and it is retried like any failed record');
+  t.h.stop();
+});
+
+test('#2669 a forget that THROWS is said with its code, and the rekey still stands', () => {
+  const t = clearingSupervisor('clr-15', {
+    sessions: { record: () => ({ ok: true }), forget: () => { throw Object.assign(new Error('busy'), { code: 'EBUSY' }); }, read: () => ({}) },
+  });
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });
+  assert.equal(t.h.sessionId, newId, 'the rekey stands');
+  const said = t.events.find((e) => e.action === 'forget-failed');
+  assert.ok(said && said.sessionId === t.oldId && /EBUSY/.test(said.because));
+  t.h.stop();
+});
+
 test('#2669 a forget that fails is SAID: the old id still answers to this name', () => {
   const t = clearingSupervisor('clr-7', {
     sessions: { record: () => ({ ok: true }), forget: () => ({ ok: false, because: 'the record is busy' }), read: () => ({}) },
