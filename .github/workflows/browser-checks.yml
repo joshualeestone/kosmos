@@ -245,4 +245,7 @@ jobs:
             render-import-add-inplace-2419
             render-open-terminal-0644
             render-firstrun-scan-on-grant-1652
+            render-worldrename-1704
+            render-firstrun-import-1652
+            render-reactions-2255
         run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
