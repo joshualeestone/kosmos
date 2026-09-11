@@ -19,7 +19,15 @@ The room RECEIPT (pjReceiptSentence, the multi-agent post) already uses plain la
 It rendered in the room's own verdict renderers too - pjVerdict rows (the unconfirmed
 "said") and pjSend (the room composer live line: placed, unconfirmed, and lost-contact).
 So the de-jargon had to cover ALL of: sendTalk (one-agent thread), pjVerdict (room rows),
-and pjSend (room composer), not just the failure reason. All are now covered.
+and pjSend (room composer), not just the failure reason.
+
+⚠️ CORRECTED AGAIN (challenge-loop iter 2): the delivery verdict also renders in the
+shipped CLI - the placed line "Placed into $to's session." in install/kosmos (macOS) and
+tools/windows/kosmos-cli.js (Windows). Both are now "Placed with $to." to match the web.
+The CLI's unconfirmed/could_not lines already used plain language ("Not confirmed" / "Not
+delivered"), so only the placed line needed it. All surfaces are now covered, verified by a
+tree-wide sweep. Present-tense comments describing the current verdict were updated; the
+PAST-tense historical comments that accurately narrate the retired string were left intact.
 
 ## What changed (surgical; every honesty clause preserved verbatim)
 1. Unconfirmed verdict -> "We could not confirm {name} got that" (was "...that reached

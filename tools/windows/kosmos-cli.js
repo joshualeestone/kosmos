@@ -159,7 +159,7 @@ async function main(argv, io) {
     if (!r.reached) return r.timedOut ? maybe(err, 'Kosmos was slow to answer and we stopped waiting. The message may have been delivered; check with them before sending it again.') : unreachable('send that');
     if (refusedBy(r)) { err('Kosmos refused that request: ' + refusedBy(r) + '.'); return 1; }
     const d = (r.json && r.json.delivery) || {};
-    if (d.state === 'placed') { out('Placed into ' + to + '\'s session.'); return 0; }
+    if (d.state === 'placed') { out('Placed with ' + to + '.'); return 0; }
     if (d.state === 'unconfirmed') return maybe(err, 'Not confirmed: ' + (clause(d.because) || 'the text may already be in their composer') + '. Do not re-send; check with them.');
     err('Not delivered: ' + (clause(d.because) || 'we could not tell why') + '.');
     return 1;

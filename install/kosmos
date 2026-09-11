@@ -659,7 +659,7 @@ cmd_msg() {
   # delivery, unconfirmed means the text may already be in their composer
   # (do NOT re-send), could_not names why.
   case "$body" in
-    *'"state":"placed"'*)      say "Placed into $to's session." ;;
+    *'"state":"placed"'*)      say "Placed with $to." ;;
     *'"state":"unconfirmed"'*)
       # The server's own sentence: unconfirmed has two flavors (typed with
       # Enter unconfirmed, or a send that timed out mid-flight) and only
