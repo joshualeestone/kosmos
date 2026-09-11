@@ -54,7 +54,9 @@ except the reopen row:
   the pre-reopen rows correctly suppress the notice + refused row (counts stay 1), proving the change
   is a no-op on the common path and that arm A is the reopen's doing, not a valve that always
   re-notifies.
-Perturbation-checked: reverting the valve-notice line to the raw window reds arm A.
+Perturbation-checked: reverting EITHER changed line to the raw window reds arm A - it asserts both
+the valve-notice count (==2) and the per-agent refused count (==2), and the pre-reopen refused row
+sits inside the raw window, so each line is independently guarded.
 
 The existing valve tests ("the room valve closes ... once" and "once the person has spoken ...")
 still pass: the first has no reopen/operator-post so countFrom===windowFrom, and the second asserts
