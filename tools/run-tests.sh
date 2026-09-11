@@ -29,6 +29,13 @@ cd "$REPO"
 # lib is missing the function is undefined and the caller falls back to the bare
 # path, which is what this file printed before #708.
 . "$REPO/tools/lib/board-origin.sh" 2>/dev/null || true
+# #2750: the 1-minute load in seen_before()'s banner is read through
+# kosmos_box_load_1min (the one owner of "field 2 of vm.loadavg is the 1-min
+# load"), rather than a second inline copy of that fact. Sourced HERE beside
+# board-origin, and for the same reason: seen_before() runs before the cut-guard
+# source below. Same fail-open contract -- if the lib is missing the function is
+# undefined and seen_before falls back to omitting the load line.
+. "$REPO/tools/lib/cut-load-guard.sh" 2>/dev/null || true
 
 # #2439 fleet-safety: disable the one-time AgentWorkforce -> Kosmos migration for the
 # WHOLE suite. That migration is triggered by store.root(), so ANY test that reaches
@@ -90,8 +97,12 @@ seen_before() {
   gates="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'kosmos-bc.*' -mmin -15 2>/dev/null | wc -l | tr -d ' ')"
   [ "${gates:-0}" -gt 0 ] && lines+=("$gates browser-check sandbox(es) touched in the last 15 minutes, so a page gate was probably running")
   # Load against cores: a stalled spawn (#704) is what a high number looks like.
-  local load cores
-  load="$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')"
+  # #2750: read the 1-min load through the shared kosmos_box_load_1min rather than
+  # a second inline `sysctl | awk '{print $2}'`. `command -v` guarded (matching
+  # board_cwd_note above) so a missing lib just omits the line, and load is
+  # pre-initialised for `set -u` since the guard may leave it unassigned.
+  local load="" cores=""
+  command -v kosmos_box_load_1min >/dev/null 2>&1 && load="$(kosmos_box_load_1min)"
   cores="$(sysctl -n hw.ncpu 2>/dev/null)"
   [ -n "$load" ] && lines+=("1-minute load $load on ${cores:-?} cores")
   printf '%s
