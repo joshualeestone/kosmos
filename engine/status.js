@@ -5915,6 +5915,9 @@ function panelessCard(key, nowMs, defaultStatus) {
     modelName: null,
     neverRecorded: false,
     hasAvatar: Boolean(safeAvatar(key)),
+    // #2698: the avatar version travels with hasAvatar so a changed picture
+    // changes the org node's URL and defeats its identical-repaint skip.
+    avatarVer: store.avatarVersion(key),
     profile: store.readProfile(key),
   };
 }
@@ -6409,6 +6412,10 @@ function snapshot() {
       // Fixing four of six is not a partial fix, it is the same defect with a
       // smaller surface.
       hasAvatar: tied ? Boolean(safeAvatar(pane.name)) : false,
+      // #2698: keyed on pane.name and gated on `tied`, exactly like hasAvatar
+      // above -- the same "every read keyed on the name needs the same gate"
+      // rule this block already states. Untied -> 0, the no-picture value.
+      avatarVer: tied ? store.avatarVersion(pane.name) : 0,
       profile: tied ? store.readProfile(pane.name) : null,
     };
   });
