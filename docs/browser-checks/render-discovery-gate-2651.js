@@ -190,10 +190,14 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
   });
 
   /* Arm 6 - TAB-SWITCH RACE. The click handler awaits the paints, so a person can leave the
-     Agents tab while the fetch is in flight. When the post-await focus code then runs it must
-     NOT yank focus back onto the Agents tab the person already left. Hold the fetch on a gate,
-     flip the tab off Agents, release, and assert focus was not stolen. Without the onAgentsTab()
-     guard the dismissed-style fallback focuses the Agents tab, so this reds. */
+     Agents tab while the fetch is in flight, and the fetch can then resolve with a REAL
+     candidate. Two things must hold when it does: (a) neither panel reappears off the Agents
+     tab (the #2025 "it appears everywhere" defect, which the paints' post-await onAgentsTab
+     re-check prevents), and (b) focus is not yanked back onto the tab the person left. Hold
+     both fetches on a gate, flip off the Agents tab mid-flight, release with a candidate, and
+     assert both. 🛑 The fixture MUST carry a candidate: with empty results wrap.hidden is
+     already true regardless, so the visibility assertion would be vacuous and could never
+     catch the panel-reappearing case. */
   const page5 = await browser.newPage({ viewport: { width: 1100, height: 900 } });
   await page5.goto('file://' + PAGE);
   const rc = await page5.evaluate(async () => {
@@ -204,18 +208,23 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     const gate = new Promise((res) => { release = res; });
     window.fetch = (u) => {
       const url = String(u);
-      if (url.indexOf('/api/found-agents') !== -1) return gate.then(() => ({ ok: true, json: async () => ({ ok: true, agents: [] }) }));
-      if (url.indexOf('/api/scan-agents') !== -1) return gate.then(() => ({ ok: true, json: async () => ({ ok: true, candidates: [] }) }));
+      if (url.indexOf('/api/found-agents') !== -1) return gate.then(() => ({ ok: true, json: async () => ({ ok: true, agents: [{ dir: '/tmp/x/late', already: false }] }) }));
+      if (url.indexOf('/api/scan-agents') !== -1) return gate.then(() => ({ ok: true, json: async () => ({ ok: true, candidates: [{ dir: '/tmp/y/late' }] }) }));
       return Promise.resolve({ ok: false, json: async () => ({}) });
     };
+    const fw = document.getElementById('found-wrap');
+    const sw = document.getElementById('scan-wrap');
     const look = document.getElementById('found-scan-look');
-    if (!look) return { error: 'button missing' };
+    if (!fw || !sw || !look) return { error: 'a wrap or the button is missing' };
     look.click();            // handler awaits Promise.all([paints]), pending on the gate
     bb.hidden = true;        // the person leaves the Agents tab while the fetch is in flight
-    release();               // the fetches settle; the post-await focus code now runs
-    await new Promise((res) => setTimeout(res, 150));
+    release();               // the fetches settle WITH A CANDIDATE; the post-await code runs
+    await new Promise((res) => setTimeout(res, 200));
     const af = document.activeElement;
-    return { focusTab: (af && af.getAttribute && af.getAttribute('data-tab')) || null };
+    return {
+      foundHidden: fw.hidden, scanHidden: sw.hidden,
+      focusTab: (af && af.getAttribute && af.getAttribute('data-tab')) || null,
+    };
   });
 
   await browser.close();
@@ -255,8 +264,10 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
   }
   if (rc.error) {
     fail.push('tab-switch race arm errored: ' + rc.error);
-  } else if (rc.focusTab === 'agents') {
-    fail.push('tab-switch race arm: focus was yanked to the Agents tab after the person left it mid-fetch (the onAgentsTab guard is missing)');
+  } else {
+    if (rc.foundHidden !== true) fail.push('tab-switch race arm: the found panel reappeared off the Agents tab after a candidate arrived post-switch (#2025 defect; the paint needs a post-await onAgentsTab re-check)');
+    if (rc.scanHidden !== true) fail.push('tab-switch race arm: the scan panel reappeared off the Agents tab after a candidate arrived post-switch (#2025 defect)');
+    if (rc.focusTab === 'agents') fail.push('tab-switch race arm: focus was yanked to the Agents tab after the person left it mid-fetch (the onAgentsTab focus guard is missing)');
   }
   if (fail.length) {
     /* One-line reason after the marker so the release runner's reason-grep can quote
@@ -265,5 +276,5 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     console.error('  load=' + JSON.stringify(r.load) + '  afterClick=' + JSON.stringify(r.afterClick));
     process.exit(1);
   }
-  console.log('render-discovery-gate-2651 (6 arms): on load the panels stay hidden and only the "Look for agents" trigger shows; the press opens both found and scan, hides the trigger, and moves focus into the opened panel; a Dismissed-forever user is not re-offered the trigger and focus falls back to the Agents tab, not <body>; an empty look keeps the trigger shown and returns focus to the button; a scan-only result focuses the scan toggle; and a tab switch mid-fetch does not yank focus back to Agents. PASS');
+  console.log('render-discovery-gate-2651 (6 arms): on load the panels stay hidden and only the "Look for agents" trigger shows; the press opens both found and scan, hides the trigger, and moves focus into the opened panel; a Dismissed-forever user is not re-offered the trigger and focus falls back to the Agents tab, not <body>; an empty look keeps the trigger shown and returns focus to the button; a scan-only result focuses the scan toggle; and a tab switch mid-fetch (with a candidate arriving after) reopens NEITHER panel off the Agents tab nor yanks focus back to Agents. PASS');
 })().catch((e) => { console.error('FAIL  render-discovery-gate-2651', e && e.message); process.exit(1); });

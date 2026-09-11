@@ -25730,6 +25730,13 @@ async function paintFoundBoard() {
     body = await res.json().catch(() => null);
   } catch { return; }
   if (!body || body.ok !== true || !Array.isArray(body.agents)) return;
+  /* #2651 (review): the fetch above is AWAITED, so the tab can change under it (press
+     "Look for agents", then switch to Settings/Projects while the scan runs). onAgentsTab()
+     was checked at entry but not here, so a candidate arriving after the switch would set
+     wrap.hidden = false and the panel would reappear off the Agents tab -- the #2025 "it
+     appears everywhere" defect, reintroduced through this button. Re-check before touching
+     visibility; off-tab, hide and leave (showTab's off-tab branch also hides it). */
+  if (!onAgentsTab()) { wrap.hidden = true; return; }
   /* Sent away for good (Josh, 2026-08-24 17:06). Hidden before the list is
      even filtered: a dismissed block must not flash on a poll. */
   if (body.dismissed === true) { DISCOVERY_DISMISSED = true; wrap.hidden = true; list.innerHTML = ''; return; }
@@ -25877,6 +25884,10 @@ async function paintScanBoard() {
     body = await res.json().catch(() => null);
   } catch { return; }
   if (!body || body.ok !== true || !Array.isArray(body.candidates)) return;
+  /* #2651 (review): post-await tab re-check, same reason as the found-agents twin -- an
+     awaited fetch can resolve after the person left the Agents tab, and without this the
+     scan panel would reappear off-tab (the #2025 defect). */
+  if (!onAgentsTab()) { wrap.hidden = true; return; }
   /* Sent away for good honours the SAME flag as the found panel: both are "agents on
      your computer" offers, and a person who dismissed one forever meant both. */
   if (body.dismissed === true) { DISCOVERY_DISMISSED = true; wrap.hidden = true; list.innerHTML = ''; return; }
