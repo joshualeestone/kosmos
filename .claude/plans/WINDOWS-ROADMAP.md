@@ -15,9 +15,9 @@ else is required to continue.**
 board AND the fleet came back at a real logon, headless** (§2). R3 checked delivery,
 not the agent's answer reaching the board; that gap was BLOCKER 5 (§3c). BLOCKER 2 is off
 the v1 path: Josh approved 2026-09-10 that the first Windows release updates by
-hand, with a real updater as a fast-follow. What is left for v1: `kosmos
- reply/msg/post` on Windows (BLOCKER 5, §3c), a clean-box first run (capability 1),
-and the publish. The launcher hand-off merged as #2752 (2026-09-11).
+hand, with a real updater as a fast-follow. What is left for v1:
+`kosmos reply/msg/post` on Windows (BLOCKER 5, §3c), a clean-box first run
+(capability 1), and the publish. The launcher hand-off merged as #2752 (2026-09-11).
 installkosmos.com still serves 0.6.37. A zip built from main delivers to agents
 and runs their whole lifecycle on the box. It needed two fixes:
 the launcher hand-off (merged, #2752) and `win32-kosmos-cli-570` (BLOCKER 5).
@@ -752,7 +752,7 @@ the removal command.
 task at Josh's reboot, headless. Since #2752 a hand-started board hands itself to
 this task instead of dying with its window.
 
-### BLOCKER 5 — an agent's answer never reached the board (found 2026-09-11; fixed on branch `win32-kosmos-cli-570`, NOT YET MERGED when this was written)
+### BLOCKER 5 — an agent's answer never reached the board (found 2026-09-11; fixed on branch `win32-kosmos-cli-570` (PR #2754), NOT YET MERGED when this was written)
 
 Every new agent's instructions are written with `kosmosCliShown()` baked in —
 "you can message another agent with `kosmos msg <name> ...`". `engine/clipath.js`
@@ -783,6 +783,12 @@ Verified live with candidate zips built from all three branches:
 - its `kosmos msg reh-a` reached reh-a labelled as that colleague;
 - through the `.ps1`, a TWO-LINE answer holding `"quoted" &` reached the board
   exactly (`ALPHA-570\nBRAVO-570 "quoted" & done.`).
+- that check ran the FIRST `.ps1`, which passed its arguments in an environment
+  variable. The temp-file version that ships (CLI review rounds 2-3) was then run
+  live too, on candidate `0.6.55+ee61accaae70` (this PR's head plus the README
+  branch, on main with #2752): Z0-Z6 passed with the answers on the board, the
+  two-line answer arrived exactly, `kosmos msg reh-b` reached reh-b as that
+  colleague, and no argument file was left in %TEMP% (recorded on PR #2754).
 
 Known limit: the PowerShell shim is a `.ps1`, so it runs only where the execution
 policy allows scripts. Claude Code's PowerShell runs with a process-scope Bypass
