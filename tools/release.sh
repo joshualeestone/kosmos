@@ -261,7 +261,17 @@ fi
 # layer, 4b's harness), so they self-exclude and are never refused by their own cut.
 kosmos_claim_machine >/dev/null 2>&1 || true
 
-# #2724: GIVE THE CUT AN EMPTY HOME, so its gates stop reading the live fleet.
+# #2724: GIVE THE CUT AN EMPTY HOME, so its gates stop reading the operator's STORE
+# and ACCOUNTS.
+#
+# ⚠️ NOT "stop reading the live fleet", which is what this comment said first and is an
+# OVERCLAIM. What moves is the data store, the workers root, the Claude accounts and the
+# LaunchAgents WRITES (all of which resolve through AGENT_WORKFORCE_HOME). What does NOT
+# move: the projects root (projects.js:1384, os.homedir), the LaunchAgents READS
+# (machine.js:52 and boardrestart.js:69 use $HOME), the config-root scan (status.js:46
+# has its OWN homeDir() that never consults the variable), and the agent roster, which
+# comes from tmux and is redirected only by AGENT_WORKFORCE_TMUX_BIN. So a cut-time gate
+# can STILL enumerate the live fleet by name. The class is narrowed, not closed.
 #
 # 🔑 THE CLASS, not one flaky test. `tools/release.sh` runs on a box that is also
 # running real agents and carrying a live board, roster and data root. Several

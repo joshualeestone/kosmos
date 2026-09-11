@@ -11362,8 +11362,11 @@ test('#1304: each field takes the best source that has it, and neither hard-null
     /* 🛑 AND THE SANDBOX-SEAM DIVERGENCE, WHICH CANNOT BE TESTED IN THIS PROCESS
        AND WHOSE FIRST VERSION WAS VACUOUS. `accounts` resolves HOME once, AT
        MODULE LOAD, as `AGENT_WORKFORCE_HOME || os.homedir()`. My first attempt
-       guarded on `process.env.AGENT_WORKFORCE_HOME` - which this suite never
-       sets - so the whole arm was skipped and reverting the fix left 249/249
+       guarded on `process.env.AGENT_WORKFORCE_HOME` - which this suite did not
+       set AT THE TIME (#2724 now sets it near the top, so the reasoning recorded
+       here no longer reproduces as written; the arm would no longer skip, and the
+       child-process form below is what keeps it honest either way)
+       - so the whole arm was skipped and reverting the fix left 249/249
        green. An arm that cannot run is an assertion a broken implementation
        satisfies, which is the exact defect the rest of this test exists to close.
        ⇒ Driven in a CHILD PROCESS with the variable set before any require, so
