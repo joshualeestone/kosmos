@@ -4349,12 +4349,15 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    ignores CSS `color`, so grayscale it with a filter. */
 .rxn-more-glyph { filter: grayscale(1) opacity(.6); font-size: .95rem; line-height: 1; }
 .rxn-more:focus-visible, .rxn:focus-visible, .rxn-pick:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-/* The full picker the grey smiley opens (PJ_EMOJI, 76 glyphs): a scrollable grid
-   overlaid below the row (absolute, so it does not reflow the room), anchored to the
-   `.rxns` row. Toggled by JS (`.rxn-more`), independent of the hover gate above, so
-   it stays open while you browse it. */
-.rxns { position: relative; }
-.rxn-picker { position: absolute; left: 0; top: calc(100% + 4px); z-index: 6;
+/* The full picker the grey smiley opens (PJ_EMOJI): a scrollable grid. It is
+   `position: fixed` and JS-positioned from the smiley's rect (see the room click
+   handler), NOT absolute: the room thread (`.thread`) is an `overflow: auto` scroll
+   box, and an absolutely-positioned picker would be CLIPPED by it -- invisible for a
+   post near the thread's bottom edge, which is the most-reacted-to post. `fixed`
+   escapes the ancestor overflow entirely; the handler flips it above the smiley when
+   there is no room below, and clamps it into the viewport. Toggled by JS, independent
+   of the hover gate above, so it stays open while you browse it. */
+.rxn-picker { position: fixed; z-index: 20;
               display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; padding: 6px;
               max-height: 210px; overflow-y: auto; width: max-content; max-width: min(320px, 90vw);
               border: 1px solid var(--k-rule); border-radius: 10px; background: var(--k-surface);
@@ -36840,10 +36843,14 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
   if (more) {
     const picker = box.querySelector('.rxn-picker');
     const open = !!(picker && !picker.hidden);
-    // Close any OTHER open picker first, so at most one is open at a time.
-    if (!open) rxnCloseAllPickers();
-    if (picker) picker.hidden = open;
-    more.setAttribute('aria-expanded', String(!open));
+    if (open) {
+      if (picker) picker.hidden = true;
+      more.setAttribute('aria-expanded', 'false');
+    } else {
+      rxnCloseAllPickers();   // at most one open at a time
+      if (picker) { picker.hidden = false; rxnPositionPicker(picker, more); }
+      more.setAttribute('aria-expanded', 'true');
+    }
     return;
   }
   const btn = e.target.closest('.rxn, .rxn-pick');
@@ -36873,6 +36880,27 @@ function rxnCloseAllPickers() {
   room.querySelectorAll('.rxn-picker:not([hidden])').forEach((p) => { p.hidden = true; });
   room.querySelectorAll('.rxn-more[aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
 }
+/* #2806: place the FIXED reaction picker as a popover anchored to the smiley button.
+   Below it when there is room, flipped above when the viewport bottom is close, and
+   clamped horizontally into the viewport. Measured AFTER unhiding so offsetWidth/
+   Height are real. `fixed` means these are viewport coordinates, which is exactly
+   what getBoundingClientRect returns -- so the picker escapes the thread's overflow
+   clip that an absolutely-positioned one could not. */
+function rxnPositionPicker(picker, anchor) {
+  const r = anchor.getBoundingClientRect();
+  const pw = picker.offsetWidth;
+  const ph = picker.offsetHeight;
+  const pad = 8;
+  let left = Math.min(r.left, window.innerWidth - pw - pad);
+  left = Math.max(pad, left);
+  let top = r.bottom + 4;
+  if (top + ph > window.innerHeight - pad) {
+    const above = r.top - ph - 4;
+    top = above >= pad ? above : Math.max(pad, window.innerHeight - ph - pad);
+  }
+  picker.style.left = left + 'px';
+  picker.style.top = top + 'px';
+}
 /* Dismiss an open picker on a click anywhere outside an open `.rxn-picker` or its
    opener (a click INSIDE the picker is a pick and is handled by the room handler,
    which repaints the row and thus closes it). Capture phase so it runs regardless of
@@ -36884,6 +36912,9 @@ document.addEventListener('click', (e) => {
 }, true);
 /* Escape closes any open picker. */
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') rxnCloseAllPickers(); });
+/* The picker is `fixed`, so it does not follow the thread scroll -- close it on any
+   scroll (capture phase, since scroll does not bubble) so it never floats detached. */
+document.addEventListener('scroll', () => rxnCloseAllPickers(), true);
 
 document.getElementById('pj-docs-all').addEventListener('click', () => {
   if (!PJ_CURRENT) return;
