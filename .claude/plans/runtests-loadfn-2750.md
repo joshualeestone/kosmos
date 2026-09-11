@@ -24,7 +24,7 @@ it.
    Same fail-open contract (`… 2>/dev/null || true`): a missing lib leaves the function undefined
    and the caller degrades.
 2. **Call `kosmos_box_load_1min` instead of the inline read**, guarded by `command -v` exactly like
-   the neighbouring `board_cwd_note` call (line 81), and with `load` pre-initialised (`local load=""`)
+   the neighbouring `board_cwd_note` call (line ~88), and with `load` pre-initialised (`local load=""`)
    because the guard may leave it unassigned and the file runs under `set -uo pipefail`.
 
 The inline duplicate is removed entirely (not kept as a fallback), so there is now ONE owner of the
@@ -33,7 +33,7 @@ field-2 fact for both the cut gate and this banner.
 ## The call, what I rejected
 
 - **Chosen: `command -v` guard + omit-the-line fallback.** Matches the file's own proven pattern
-  (line 81) and its fail-open convention. If the lib is somehow missing, the banner omits the load
+  (line ~88) and its fail-open convention. If the lib is somehow missing, the banner omits the load
   line - the same graceful degradation it already shows when `sysctl` returns nothing.
 - **Rejected: keeping the inline read as a fallback.** That would leave the duplicate standing, which
   is the whole thing this card removes.
@@ -47,10 +47,15 @@ field-2 fact for both the cut gate and this banner.
   does): prints "1-minute load 8.64 on 10 cores" - identical banner, now via the shared function.
 - Negative path (lib absent): `load` stays empty, the line is omitted, no `set -u` abort - fail-open
   confirmed.
-- No new test file: `run-tests.sh` is the suite runner itself and has no per-function harness; the
-  banner change is exercised every time CI runs `yarn test` (a broken read would abort run-tests.sh
-  under `set -u` and red the `test` job), and `kosmos_box_load_1min` itself is already covered by
-  `tools/test-cut-load-guard.sh` (including the deterministic field-index arm from #2749).
+- Wiring test added (`tools/test-cut-load-guard.sh`, INTEGRATION arms). This is the important
+  correction to my first draft: because the call is `command -v`-guarded and fails OPEN, a
+  broken/renamed/deleted call does NOT abort run-tests.sh or red CI - it silently omits the banner
+  line (the silent-drift class). So "CI would catch it" was WRONG. Following the precedent in
+  `tools/test-board-origin.sh`, two `grep -qF` arms now assert run-tests.sh both SOURCES
+  cut-load-guard.sh and CALLS `kosmos_box_load_1min` - so a silent-drift deletion (or a second inline
+  field-2 copy creeping back) reds the test. Perturbation-checked: reverting the call to the inline
+  read reds the call arm. `kosmos_box_load_1min` itself remains covered by the same file's #2749
+  field-index arm.
 
 ## One deliberate semantic difference (benign)
 
