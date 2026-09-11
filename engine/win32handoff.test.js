@@ -380,31 +380,71 @@ test('boardIdentity: the same build serving ANOTHER world is not this board', as
   assert.deepEqual(w.taskOps(), ['end', 'run']);
 });
 
-test('🛑 forgetThisBootAttempt clears the attempt the REAL world bootstrap recorded for a named world', () => {
-  /* Real worlds, worldenv and worldbootguard on a sandbox registry: the attempt is
-     written by the bootstrap and must be gone after the hand-off's clear, or every
-     hand-off counts as a failed boot and the world is abandoned (#2528). */
-  const { forgetThisBootAttempt } = require('./win32handoff');
+/* A sandboxed named-world registry that has NEVER served: one recorded failed
+   boot is enough for its next boot to abandon it (#2528). Both roots point into
+   the sandbox, so a shell that carries AGENT_WORKFORCE_DATA is never written to. */
+function neverServedWorld() {
   const worlds = require('./worlds');
   const worldenv = require('./worldenv');
   const guard = require('./worldbootguard');
   const home = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-handoff-world-570-'));
+  const env = { AGENT_WORKFORCE_HOME: home, AGENT_WORKFORCE_DATA: home };
+  const base = worlds.baseRoot(env);
+  const side = worlds.createWorld(base, 'Side Project');
+  worlds.setActiveWorld(base, side.id);
+  worldenv.bootstrapWorldEnv(env);   // THIS launch's boot: records one attempt
+  const attempts = () => { try { return JSON.parse(fs.readFileSync(nodePath.join(base, guard.FILE), 'utf8'))[side.id] || 0; } catch { return 0; } };
+  return { base, side, guard, attempts, done: () => fs.rmSync(home, { recursive: true, force: true }) };
+}
+
+test('🛑 the task\'s board, started by the hand-off, does NOT abandon a never-served world because of this launch\'s attempt', async () => {
+  /* Review round 5 measured it: with this launch's attempt still on disk, the
+     task board's bootstrap found shouldAbandon(world) === true for a world that
+     had never served, and booted the default world instead. */
+  const s = neverServedWorld();
   try {
-    const env = { ...process.env, AGENT_WORKFORCE_HOME: home };
-    const base = worlds.baseRoot(env);
-    const side = worlds.createWorld(base, 'Side Project');
-    worlds.setActiveWorld(base, side.id);
-    worldenv.bootstrapWorldEnv(env);
-    const attempts = nodePath.join(base, guard.FILE);
-    assert.ok(fs.existsSync(attempts) && JSON.parse(fs.readFileSync(attempts, 'utf8'))[side.id] === 1,
-      'control: the bootstrap recorded one attempt for the named world');
-    forgetThisBootAttempt();
-    assert.ok(!fs.existsSync(attempts) || !(side.id in JSON.parse(fs.readFileSync(attempts, 'utf8'))),
-      'the hand-off left its world boot attempt behind');
-  } finally { fs.rmSync(home, { recursive: true, force: true }); }
+    assert.equal(s.attempts(), 1, 'control: this launch recorded its attempt');
+    const w = world();
+    let taskWouldAbandon = null;
+    const run = w.board.runNow;
+    w.board.runNow = () => { taskWouldAbandon = s.guard.shouldAbandon(s.base, s.side.id); return run(); };
+    const r = await handOffToTask(w.opts());
+    assert.equal(r.serve, false);
+    assert.equal(taskWouldAbandon, false, 'the task board would have abandoned the world over an attempt it never made');
+    assert.equal(s.attempts(), 0, 'a successful hand-off leaves no attempt of its own behind');
+  } finally { s.done(); }
 });
 
-test('forgetThisBootAttempt never throws, whatever the guard does', () => {
-  const { forgetThisBootAttempt } = require('./win32handoff');
-  assert.doesNotThrow(() => forgetThisBootAttempt({ worldenv: { bootedBaseDir: () => { throw new Error('x'); }, bootedWorld: () => 'w' } }));
+test('a hand-off that falls back to the window PUTS ITS ATTEMPT BACK, so a window board that then crashes still counts', async () => {
+  const s = neverServedWorld();
+  try {
+    const w = world({ runOk: false });
+    const r = await handOffToTask(w.opts());
+    assert.equal(r.serve, true);
+    assert.equal(s.attempts(), 1, 'the fallback serves here; its boot attempt must be on record again');
+  } finally { s.done(); }
+});
+
+test('retractAttempt takes back exactly one, never earlier boots\' failures, and says whether it took one', () => {
+  const guard = require('./worldbootguard');
+  const base = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-retract-570-'));
+  try {
+    guard.recordAttempt(base, 'w1'); guard.recordAttempt(base, 'w1');
+    assert.equal(guard.retractAttempt(base, 'w1'), true);
+    assert.equal(JSON.parse(fs.readFileSync(nodePath.join(base, guard.FILE), 'utf8')).w1, 1, 'an earlier boot\'s failure was erased');
+    assert.equal(guard.retractAttempt(base, 'w1'), true);
+    assert.equal(fs.existsSync(nodePath.join(base, guard.FILE)), false, 'the empty file lingers');
+    assert.equal(guard.retractAttempt(base, 'w1'), false, 'nothing to take back');
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+test('a default-world boot records no attempt, so a hand-off neither takes nor puts one back', async () => {
+  /* Recorded, not thrown: the guard calls are fail-open by design, so a throw
+     would be swallowed and prove nothing. */
+  let recorded = 0;
+  const guard = { retractAttempt: () => false, recordAttempt: () => { recorded++; } };
+  const w = world({ runOk: false });
+  const r = await handOffToTask(w.opts({ worlds: { guard, worldenv: { bootedBaseDir: () => '/x', bootedWorld: () => 'default' } } }));
+  assert.equal(r.serve, true);
+  assert.equal(recorded, 0, 'the fallback recorded an attempt the bootstrap never made');
 });

@@ -11944,8 +11944,6 @@ if (require.main === module) {
     : Promise.resolve({ serve: true, attempted: false });
   beforeServing.catch((err) => ({ serve: true, attempted: true, because: `the hand-off failed (${String(err && err.message)})` })).then((handOff) => {
     if (!handOff.serve) {
-      /* #2528: this boot's world attempt, which only `listening` would clear. */
-      require('./engine/win32handoff').forgetThisBootAttempt();
       /* A Windows console write is asynchronous, so exit from its callback. The
          launcher's own console closes on exit 0, so this line is read by whoever
          started Kosmos from a terminal they keep. */

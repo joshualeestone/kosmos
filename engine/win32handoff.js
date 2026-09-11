@@ -64,8 +64,9 @@ const OLD_BOARD_GRACE_MS = 3000;
    HANDOFF_BUDGET_MS). */
 const MIN_PORT_RELEASE_WAIT_MS = 2000;
 
-/* A task board still booting at logon can answer AFTER our `/Run` with its older
-   build; the second round replaces it. Two rounds, never a loop. */
+/* A task board still booting can answer AFTER our `/Run` as another board -- an
+   older build, or the world it was booting into -- and the second round replaces
+   it. Two rounds, never a loop. */
 const MAX_ROUNDS = 2;
 
 /* One probe's budget, and the gap between probes while waiting. */
@@ -124,20 +125,33 @@ function boardIdentity(build, worldId) {
 }
 
 /**
- * Forget the world boot attempt THIS process recorded. worldenv's bootstrap
- * records one for a named world (#2528), and only a board reaching `listening`
- * clears it; a hand-off leaves without listening, so without this every hand-off
- * would count as a failed boot and the world would be abandoned for the default
- * one. The board that serves the world is the task's, which records and clears
- * its own. Seams: `worldenv`, `guard`. Never throws.
+ * THIS boot's world attempt: taken back while a hand-off is tried, put back if
+ * this board ends up serving after all.
+ *
+ * 🛑 THE TASK'S BOARD READS IT BEFORE WE ARE DONE. worldenv's bootstrap records
+ * an attempt for a named world (#2528) that only `listening` clears. If it is
+ * still on disk when `/Run` starts the task, the task's board counts it as a
+ * failed boot -- and for a world that has never served, ONE is enough to abandon
+ * it for the default world (measured on a sandbox registry in review round 5).
+ * So it is retracted before the task can run, and restored only if this board
+ * goes on to serve in its window, where a crash must still count.
+ * Retract, not clear: attempts earlier boots really made still count. Seams:
+ * `worldenv`, `guard`. Never throws.
  */
-function forgetThisBootAttempt(deps) {
+function thisBootsWorldAttempt(deps) {
   const d = deps || {};
-  try {
-    const we = d.worldenv || require('./worldenv');
-    const guard = d.guard || require('./worldbootguard');
-    guard.clear(we.bootedBaseDir(), we.bootedWorld());
-  } catch { /* fail-open, as at the bind */ }
+  let taken = false;
+  const withGuard = (fn) => {
+    try {
+      const we = d.worldenv || require('./worldenv');
+      const guard = d.guard || require('./worldbootguard');
+      return fn(guard, we.bootedBaseDir(), we.bootedWorld());
+    } catch { return false; /* fail-open, as at the bind */ }
+  };
+  return {
+    retract() { taken = Boolean(withGuard((g, base, id) => g.retractAttempt(base, id))); },
+    restore() { if (taken) { withGuard((g, base, id) => g.recordAttempt(base, id)); taken = false; } },
+  };
 }
 
 /* Is a board answering on this port, and which board is it? Never rejects. */
@@ -185,6 +199,75 @@ function skipReason(o) {
 }
 
 /**
+ * The hand-off itself, once handOffToTask has decided one is due. Resolves to the
+ * same shapes as handOffToTask; a throw is handled by the caller.
+ */
+async function attemptHandOff(o, deps) {
+  const { board, probe, sleep, now } = deps;
+  const port = o.port;
+  const mine = o.identity !== undefined ? o.identity : boardIdentity(buildIdentity(path.resolve(__dirname, '..')), require('./worldenv').bootedWorld());
+  const startedAt = o.startedAt !== undefined ? o.startedAt : now() - Math.round(process.uptime() * 1000);
+  const deadline = startedAt + HANDOFF_BUDGET_MS;
+  const left = () => Math.max(0, deadline - now());
+  const isMine = (p) => p.answering && Boolean(mine) && p.identity === mine;
+  /* Never STARTS a probe past `until`, so one wait overshoots by at most the
+     probe already in flight (PROBE_TIMEOUT_MS) -- the figure the worst case in
+     HANDOFF_BUDGET_MS is built from. */
+  async function waitUntil(test, ms) {
+    const until = now() + ms;
+    for (;;) {
+      const p = await probe(port);
+      if (test(p)) return p;
+      const rest = until - now();
+      if (rest <= 0) return null;
+      await sleep(Math.min(POLL_INTERVAL_MS, rest));
+    }
+  }
+  const gone = (p) => !p.answering;
+  const serveHere = (because) => ({ serve: true, attempted: true, because });
+
+  const handedOff = { serve: false, exitCode: 0, say: 'Kosmos is running in the background now, and starts by itself when you log in.' };
+
+  let ran = false;
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    if (round > 0 && left() <= 0) break;
+    const p = await probe(port);
+    if (isMine(p)) return ran ? handedOff : { serve: false, exitCode: 0, say: 'Kosmos is already running. Your browser is opening it.' };
+    if (p.answering) {
+      /* Another board answers (another build, or another world). Only the TASK's
+         board can be replaced from here:
+         anything else on the port (a board in another window, or not a board at
+         all) is somebody else's, and serving here reproduces today's message. */
+      if (!board.status().running) return serveHere('something the logon task did not start is already using port ' + port);
+      /* With no time left to start its replacement, a working older board is
+         worth more than a window: keep it, and let this launch report the port. */
+      if (left() <= 0) return serveHere('there was no time left to replace the older Kosmos that is running');
+      await sleep(Math.min(OLD_BOARD_GRACE_MS, left()));
+      const ended = board.end();
+      if (!ended.ok) return serveHere(ended.because);
+      if (!(await waitUntil(gone, Math.max(left(), MIN_PORT_RELEASE_WAIT_MS)))) return serveHere('the older Kosmos did not stop');
+    }
+    if (left() <= 0) break;
+    const r = board.runNow();
+    if (!r.ok) return serveHere(r.because);
+    ran = true;
+    /* `schtasks /Run` reports success for a run that started nothing (measured,
+       win32board.taskXml), so only a board answering as THIS one is proof. Any
+       other board answering instead is a task board that was still booting when we
+       looked -- an older build, or another world -- and the next round replaces it. */
+    const up = await waitUntil((q) => q.answering, left());
+    if (!up) break;
+    if (isMine(up)) return handedOff;
+  }
+  /* Not confirmed. End the task so a late start cannot take the port from the
+     board about to serve here, then let it go. */
+  if (!ran) return serveHere('there was no time left to start the background board');
+  board.end();
+  await waitUntil(gone, Math.max(left(), MIN_PORT_RELEASE_WAIT_MS));
+  return serveHere('the background board did not answer in time');
+}
+
+/**
  * Hand this hand-started board to its logon task, or say why not.
  *
  * Resolves (never rejects) to one of:
@@ -192,9 +275,10 @@ function skipReason(o) {
  *   { serve: true,  attempted: false, because } no hand-off was due; serve here
  *   { serve: true,  attempted: true,  because } one was tried and not confirmed
  *
- * `build` is this process's buildIdentity, computed at start by server.js. The
+ * `identity` is this process's boardIdentity, computed at start by server.js. The
  * rest are seams with real defaults: platform, env, bundle, byTask, live, board
- * (status/end/runNow), probe, sleep, now and startedAt.
+ * (status/end/runNow), probe, sleep, now, startedAt, and `worlds` (the worldenv
+ * and worldbootguard thisBootsWorldAttempt uses).
  */
 async function handOffToTask(opts) {
   const o = opts || {};
@@ -213,69 +297,17 @@ async function handOffToTask(opts) {
     });
     if (skip) return { serve: true, attempted: false, because: skip };
 
-    const port = o.port;
-    const mine = o.identity !== undefined ? o.identity : boardIdentity(buildIdentity(path.resolve(__dirname, '..')), require('./worldenv').bootedWorld());
-    const startedAt = o.startedAt !== undefined ? o.startedAt : now() - Math.round(process.uptime() * 1000);
-    const deadline = startedAt + HANDOFF_BUDGET_MS;
-    const left = () => Math.max(0, deadline - now());
-    const isMine = (p) => p.answering && Boolean(mine) && p.identity === mine;
-    /* Never STARTS a probe past `until`, so one wait overshoots by at most the
-       probe already in flight (PROBE_TIMEOUT_MS) -- the figure the worst case in
-       HANDOFF_BUDGET_MS is built from. */
-    async function waitUntil(test, ms) {
-      const until = now() + ms;
-      for (;;) {
-        const p = await probe(port);
-        if (test(p)) return p;
-        const rest = until - now();
-        if (rest <= 0) return null;
-        await sleep(Math.min(POLL_INTERVAL_MS, rest));
-      }
-    }
-    const gone = (p) => !p.answering;
-    const serveHere = (because) => ({ serve: true, attempted: true, because });
-
-    const handedOff = { serve: false, exitCode: 0, say: 'Kosmos is running in the background now, and starts by itself when you log in.' };
-
-    let ran = false;
-    for (let round = 0; round < MAX_ROUNDS; round++) {
-      if (round > 0 && left() <= 0) break;
-      const p = await probe(port);
-      if (isMine(p)) return ran ? handedOff : { serve: false, exitCode: 0, say: 'Kosmos is already running. Your browser is opening it.' };
-      if (p.answering) {
-        /* Another build answers. Only the TASK's board can be replaced from here:
-           anything else on the port (a board in another window, or not a board at
-           all) is somebody else's, and serving here reproduces today's message. */
-        if (!board.status().running) return serveHere('something the logon task did not start is already using port ' + port);
-        /* With no time left to start its replacement, a working older board is
-           worth more than a window: keep it, and let this launch report the port. */
-        if (left() <= 0) return serveHere('there was no time left to replace the older Kosmos that is running');
-        await sleep(Math.min(OLD_BOARD_GRACE_MS, left()));
-        const ended = board.end();
-        if (!ended.ok) return serveHere(ended.because);
-        if (!(await waitUntil(gone, Math.max(left(), MIN_PORT_RELEASE_WAIT_MS)))) return serveHere('the older Kosmos did not stop');
-      }
-      if (left() <= 0) break;
-      const r = board.runNow();
-      if (!r.ok) return serveHere(r.because);
-      ran = true;
-      /* `schtasks /Run` reports success for a run that started nothing (measured,
-         win32board.taskXml), so only a board answering with THIS build is proof. A
-         board of another build answering instead is a task board that was still
-         booting when we looked; the next round replaces it. */
-      const up = await waitUntil((q) => q.answering, left());
-      if (!up) break;
-      if (isMine(up)) return handedOff;
-    }
-    /* Not confirmed. End the task so a late start cannot take the port from the
-       board about to serve here, then let it go. */
-    if (!ran) return serveHere('there was no time left to start the background board');
-    board.end();
-    await waitUntil(gone, Math.max(left(), MIN_PORT_RELEASE_WAIT_MS));
-    return serveHere('the background board did not answer in time');
+    /* This boot's world attempt comes off BEFORE the task can run (see
+       thisBootsWorldAttempt), and goes back on if this board serves after all. */
+    const attempt = thisBootsWorldAttempt(o.worlds);
+    attempt.retract();
+    const result = await attemptHandOff(o, { board, probe, sleep, now })
+      .catch((err) => ({ serve: true, attempted: true, because: 'the hand-off failed (' + String((err && err.message) || err) + ')' }));
+    if (result.serve) attempt.restore();
+    return result;
   } catch (err) {
     return { serve: true, attempted: true, because: 'the hand-off failed (' + String((err && err.message) || err) + ')' };
   }
 }
 
-module.exports = { handOffToTask, buildIdentity, boardIdentity, forgetThisBootAttempt, BOARD_IDENTITY_HEADER };
+module.exports = { handOffToTask, buildIdentity, boardIdentity, BOARD_IDENTITY_HEADER };
