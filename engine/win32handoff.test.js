@@ -394,7 +394,17 @@ function neverServedWorld() {
   worlds.setActiveWorld(base, side.id);
   worldenv.bootstrapWorldEnv(env);   // THIS launch's boot: records one attempt
   const attempts = () => { try { return JSON.parse(fs.readFileSync(nodePath.join(base, guard.FILE), 'utf8'))[side.id] || 0; } catch { return 0; } };
-  return { base, side, guard, attempts, done: () => fs.rmSync(home, { recursive: true, force: true }) };
+  /* worldenv keeps what it booted in module state and has no reset, so leaving
+     this sandbox would leave every later default-seamed test retracting against a
+     deleted folder. done() boots a live DEFAULT-world sandbox instead (which
+     records nothing), removed when the file ends. */
+  const done = () => {
+    const after = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-handoff-world-570-after-'));
+    worldenv.bootstrapWorldEnv({ AGENT_WORKFORCE_HOME: after, AGENT_WORKFORCE_DATA: after });
+    test.after(() => fs.rmSync(after, { recursive: true, force: true }));
+    fs.rmSync(home, { recursive: true, force: true });
+  };
+  return { base, side, guard, attempts, done };
 }
 
 test('🛑 the task\'s board, started by the hand-off, does NOT abandon a never-served world because of this launch\'s attempt', async () => {
@@ -412,6 +422,16 @@ test('🛑 the task\'s board, started by the hand-off, does NOT abandon a never-
     assert.equal(r.serve, false);
     assert.equal(taskWouldAbandon, false, 'the task board would have abandoned the world over an attempt it never made');
     assert.equal(s.attempts(), 0, 'a successful hand-off leaves no attempt of its own behind');
+  } finally { s.done(); }
+});
+
+test('"already running" takes this launch\'s attempt back and does not put it back: the running board keeps its own books', async () => {
+  const s = neverServedWorld();
+  try {
+    const w = world({ occupant: MINE, taskRunning: true });
+    const r = await handOffToTask(w.opts());
+    assert.match(r.say, /already running/);
+    assert.equal(s.attempts(), 0, 'a launch that served nothing left a failed boot on the world');
   } finally { s.done(); }
 });
 
