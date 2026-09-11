@@ -45,6 +45,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync, spawn } = require('node:child_process');
 const { installedKosmosCli } = require('./clipath');
+const worlds = require('./worlds');
+const launchidentity = require('./launchidentity');
 
 const BOARD_LABEL = 'com.kosmos.board';
 
@@ -265,9 +267,12 @@ function win32CanRestart() {
  */
 function kosmosRestart(cli) {
   const env = { ...process.env };
-  delete env.AGENT_WORKFORCE_DATA;
-  delete env.AGENT_WORKFORCE_PROJECTS;
-  delete env.AGENT_WORKFORCE_WORKERS;
+  for (const k of worlds.WORLD_ROOT_ENV_VARS) delete env[k];
+  /* #1704: and the world itself. A fresh board that inherited KOSMOS_WORLD or the
+     pre-world marker would hand the OLD world to every agent it launches, the same
+     bleed the three deletes above prevent for the data roots. */
+  delete env[worlds.PRE_WORLD_ROOTS_ENV_VAR];
+  delete env[launchidentity.WORLD_ENV_VAR];
   let child;
   try {
     child = spawner(cli, ['restart'], { detached: true, stdio: 'ignore', env });

@@ -44,6 +44,7 @@ const cp = require('node:child_process');
 const win32channel = require('./win32channel');
 const win32launch = require('./win32launch');
 const win32sessions = require('./win32sessions');
+const { specFromArgv } = require('./win32argv');
 
 /* The Mac's ThrottleInterval, in the same units the Mac states it. A crash-loop
    must limp, not spin: without this a agent that dies instantly would be
@@ -194,41 +195,11 @@ function supervise(spec, opts) {
   return handle;
 }
 
-/**
- * The argument vector the Scheduled Task runs.
- *
- * 🔑 POSITIONAL, APPEND-ONLY, EVERY NEW ONE OPTIONAL AND DEFAULTED -- the Mac's
- * contract for `agent-supervisor.sh`, adopted deliberately. There is ONE
- * supervisor for every agent (the per-agent-copy version "shipped every bug N
- * times"), so the per-agent facts have to arrive as arguments, and a task
- * registered last week must keep working when a new argument is added. NEVER
- * REORDER THESE; add to the end.
- *
- *   argv:  <name> <cwd> [model] [configDir] [runner] [claudeBin]
- *
- * 🛑 `claudeBin` IS ARGUMENT SIX, AND IT WAS ADDED BECAUSE THE TASK PATH LOST IT
- * (7c-2). `create.js` resolves the runner's absolute path (`runners.resolveBin`,
- * with the PATHEXT candidates #570 added) and used to hand it straight to
- * `win32launch.launch`. Once the TASK became the launcher, the only facts that
- * survive into the agent are the ones on this line -- and the resolved path was
- * not one of them, so every task-started agent fell back to a bare `claude` and
- * depended on the logon PATH carrying `%USERPROFILE%\.local\bin`. That is exactly
- * the class of assumption this lane keeps being punished for, so the path is
- * carried rather than assumed. A task registered before this argument existed
- * passes five arguments, gets `undefined`, and falls back as it always did.
- */
-function specFromArgv(argv) {
-  const a = Array.isArray(argv) ? argv : [];
-  const at = (i) => (typeof a[i] === 'string' && a[i] !== '' && a[i] !== '-' ? a[i] : undefined);
-  return {
-    name: at(0),
-    cwd: at(1),
-    model: at(2),
-    configDir: at(3),
-    runner: at(4) || 'claude',
-    claudeBin: at(5),
-  };
-}
+/* The argument vector the Scheduled Task runs is parsed by `win32argv.specFromArgv`
+   (required above), which states the positional, append-only contract. It moved
+   into that leaf module (#1704) because the anchored boot shim has to read the
+   agent's world from the same line BEFORE this module's store-using requires
+   load; it is re-exported below so existing callers keep working. */
 
 /**
  * The process entry point.

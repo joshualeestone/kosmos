@@ -230,6 +230,9 @@ test('selfRestart via kosmos STRIPS the world-override env (a switch to default 
   process.env.AGENT_WORKFORCE_PROJECTS = '/old/world/projects';
   process.env.AGENT_WORKFORCE_WORKERS = '/old/world/workers';
   process.env.KOSMOS_HOME = '/keep/me';   // a non-world var must survive
+  // #1704: the world id and the pre-world marker the old board carried.
+  process.env.KOSMOS_WORLD = 'old-world';
+  process.env.KOSMOS_PRE_WORLD_ROOTS = '{"AGENT_WORKFORCE_DATA":null}';
   let spawned = null;
   board.setSpawner((cmd, args, opts) => { spawned = { cmd, args, opts }; return { unref() {} }; });
   const r = board.selfRestart('darwin');
@@ -237,9 +240,12 @@ test('selfRestart via kosmos STRIPS the world-override env (a switch to default 
   assert.equal(spawned.opts.env.AGENT_WORKFORCE_DATA, undefined, 'stripped -> fresh board re-derives from the registry');
   assert.equal(spawned.opts.env.AGENT_WORKFORCE_PROJECTS, undefined);
   assert.equal(spawned.opts.env.AGENT_WORKFORCE_WORKERS, undefined);
+  assert.equal(spawned.opts.env.KOSMOS_WORLD, undefined, '#1704: the old world is not handed to the new board\'s agents');
+  assert.equal(spawned.opts.env.KOSMOS_PRE_WORLD_ROOTS, undefined);
   assert.equal(spawned.opts.env.KOSMOS_HOME, '/keep/me', 'non-world env is preserved');
   delete process.env.AGENT_WORKFORCE_DATA; delete process.env.AGENT_WORKFORCE_PROJECTS;
   delete process.env.AGENT_WORKFORCE_WORKERS; delete process.env.KOSMOS_HOME;
+  delete process.env.KOSMOS_WORLD; delete process.env.KOSMOS_PRE_WORLD_ROOTS;
 });
 
 test('selfRestart via kosmos reports a SYNCHRONOUS spawn throw instead of throwing itself', () => {
