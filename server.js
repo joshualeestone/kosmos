@@ -6223,8 +6223,16 @@ const server = http.createServer((req, res) => {
           }
           sendJson(res, 200, withStopNote({
             removed: gone.removed === true,
+            /* #2684: the DEFAULT is removed by clearing ONLY its oauth identity
+               from <HOME>/.claude.json -- the `.claude` folder and any history in
+               it are KEPT (it is Claude Code's home and may hold other accounts'
+               symlinked history), so the "history goes with it" clause the
+               secondary path carries would be false here. */
             because: gone.removed
-              ? 'That account is deleted from this computer. Its sign-in file is gone, and any history kept only under it goes with it.'
+              ? (gone.wasDefault
+                  ? 'The main Claude connection is removed. Only its sign-in was cleared '
+                    + '-- the Claude folder and any history in it are kept -- so sign in again to reconnect it.'
+                  : 'That account is deleted from this computer. Its sign-in file is gone, and any history kept only under it goes with it.')
               : 'That account was already gone from this computer.',
             accounts: accounts.list(),
           }, stopReport, false));
@@ -6269,9 +6277,17 @@ const server = http.createServer((req, res) => {
         sendJson(res, 200, withStopNote({
           forgotten: out.forgotten === true,
           because: out.forgotten
-            ? 'That account is off the list. Its sign-in file is still on this computer, '
+            ? (out.wasDefault
+              /* #2684: the DEFAULT disconnect clears ONLY the oauth identity from
+                 <HOME>/.claude.json; the `.claude` folder and its history are KEPT
+                 (unlike a secondary, which is renamed aside). So the secondary's
+                 "sign-in file still here / history stops appearing" wording is
+                 false here and gets its own accurate sentence. */
+              ? 'The main Claude connection is off the list. Only its sign-in was cleared '
+                + '-- the Claude folder and any history in it are kept -- so sign in again to reconnect it.'
+              : 'That account is off the list. Its sign-in file is still on this computer, '
               + 'so nothing was deleted. Kosmos stops looking inside it, so any history '
-              + 'kept only there will not appear any more.'
+              + 'kept only there will not appear any more.')
               /* 🔑 NAME WHERE IT WENT. "Still on this computer" is true and
                  unactionable on its own: the engine computes `movedTo` and the
                  route was dropping it, so the one fact that makes a removal

@@ -420,28 +420,54 @@ test('#2570: stopAgents is inert when no agent is on the account', async () => {
   assert.deepEqual(calls, [], 'nothing should have been stopped');
 });
 
-/* 🛑 THE ENGINE'S OTHER REFUSALS DO NOT CARE ABOUT THE AGENTS, AND THIS IS THE
-   ARM FOR IT. `forgetAccount` and `removeAccount` both refuse the DEFAULT folder
-   outright, and that check runs BEFORE their agents check. So without a
-   pre-flight, a request naming the default account stopped every agent on it,
-   for real, recorded each one, and then answered 400 with a refusal that never
-   mentioned the stop. Deterministic. Not reachable from the page (the default
-   row renders no control) and fully reachable from the board API and the CLI. */
-test('#2570 PRE-FLIGHT: a refusal that has nothing to do with the agents stops NOBODY', async () => {
+/* #2684: THE DEFAULT `.claude` IS REMOVABLE NOW, and the agents guard still
+   gates it. Removing the primary connection clears ONLY the `oauthAccount` key
+   from <HOME>/.claude.json (identity) and leaves the `.claude` dir + every other
+   key intact -- so the running-agents refusal is the guard that matters, not a
+   blanket default refusal. Two arms: without `stopAgents` a live agent refuses
+   the removal and NOBODY is stopped (the pre-flight non-acting property survives,
+   now via the agents guard rather than a default guard); with `stopAgents` the
+   agent is stopped and the identity is cleared while the dir survives. This is
+   Josh's #2684 use case: move/stop the agents, then delete the original. */
+test('#2684: the default .claude refuses removal while an agent runs on it, stopping NOBODY', async () => {
   installRunner();
   const dir = nodePath.join(HOME, '.claude');
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(nodePath.join(dir, '.claude.json'),
-    JSON.stringify({ oauthAccount: { emailAddress: 'main@example.com' } }));
+  // The DEFAULT's identity lives BESIDE the dir (configFile: <HOME>/.claude.json),
+  // not inside it -- so list() sees the default and the stop is available.
+  fs.writeFileSync(nodePath.join(HOME, '.claude.json'),
+    JSON.stringify({ oauthAccount: { emailAddress: 'main@example.com' }, numStartups: 9 }));
   agentOn('holmes', dir, 'claude');
-  const r = await del('claude', { dir, stopAgents: true });
+  const r = await del('claude', { dir }); // no stopAgents
   assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
-  assert.match(String(r.json.error), /main Claude folder/,
-    'the answer must be the engine\'s own refusal, not a stop report');
-  assert.deepEqual(calls, [],
-    'AGENTS WERE STOPPED FOR AN ACCOUNT THAT WAS NEVER GOING TO BE DISCONNECTED');
+  assert.match(String(r.json.error), /holmes is set up to run on this account/,
+    'the refusal names the agent, not a blanket default refusal');
+  assert.deepEqual(calls, [], 'nobody stopped without stopAgents');
   assert.ok(!removedNames().includes('holmes'), 'and none was written to the removed list');
-  assert.ok(fs.existsSync(dir), 'the default folder must still be there');
+  assert.ok(fs.existsSync(dir), 'the default folder is untouched');
+  assert.ok(JSON.parse(fs.readFileSync(nodePath.join(HOME, '.claude.json'), 'utf8')).oauthAccount,
+    'the identity is intact on a refusal');
+});
+
+test('#2684: the default .claude is removed by clearing ONLY its oauth identity once its agent is stopped', async () => {
+  installRunner();
+  const dir = nodePath.join(HOME, '.claude');
+  fs.mkdirSync(nodePath.join(dir, 'projects'), { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'projects', 'keep.jsonl'), '{"kept":true}\n');
+  // identity + unrelated config BESIDE the dir, at <HOME>/.claude.json.
+  fs.writeFileSync(nodePath.join(HOME, '.claude.json'),
+    JSON.stringify({ oauthAccount: { emailAddress: 'main@example.com' }, numStartups: 9, mcpServers: { x: { command: 'y' } } }));
+  registeredNotRunning('holmes', dir, 'claude');
+  const r = await del('claude', { dir, stopAgents: true });
+  assert.equal(r.code, 200, 'the default is removable once its agent is stopped. body: ' + JSON.stringify(r.json));
+  assert.deepEqual(r.json.stopped, ['holmes'], 'the agent was really stopped and named');
+  const after = JSON.parse(fs.readFileSync(nodePath.join(HOME, '.claude.json'), 'utf8'));
+  assert.ok(!('oauthAccount' in after), 'ONLY the oauth identity is cleared');
+  assert.equal(after.numStartups, 9, 'unrelated config preserved');
+  assert.deepEqual(after.mcpServers, { x: { command: 'y' } }, 'MCP config preserved');
+  assert.ok(fs.existsSync(dir), 'the .claude dir survives (Claude Code home + any shared history)');
+  assert.equal(fs.readFileSync(nodePath.join(dir, 'projects', 'keep.jsonl'), 'utf8'), '{"kept":true}\n',
+    'history under the dir is untouched');
 });
 
 /* 🛑 THE REFUSAL THE PRE-FLIGHT STRUCTURALLY CANNOT SEE. The engine's identity
@@ -548,23 +574,59 @@ test('#2570: a PARTIAL and a REFUSAL in one batch names BOTH, not just the parti
     'THE REFUSED AGENT VANISHED from the only field the page renders');
 });
 
-/* The OpenAI mirror of the Claude pre-flight arm. It matters on THIS provider
-   specifically because the two doors differ: `removeAccount` refuses the default
-   `.codex` outright while `forgetAccount` does not, so the delete door is the
-   one with a default guard for the pre-flight to find. */
-test('#2570: the OpenAI DELETE door refuses its default account and stops NOBODY', async () => {
+/* #2684: THE OpenAI DELETE DOOR CAN DELETE ITS DEFAULT NOW. Unlike Claude, an
+   OpenAI account's identity and config live inside its own `.codex` dir and
+   disconnect already moves the whole default dir aside, so delete is the same
+   whole-dir rmSync for the default as for a secondary -- gated by the same
+   running-agents guard. Two arms mirror the Claude pair: a registered agent
+   refuses without stopAgents (nobody stopped); with stopAgents the agent is
+   stopped and the default `.codex` is deleted. */
+test('#2684: the Claude DELETE door removes the default by clearing its identity, keeping the folder', async () => {
+  installRunner();
+  const dir = nodePath.join(HOME, '.claude');
+  fs.mkdirSync(nodePath.join(dir, 'projects'), { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'projects', 'keep.jsonl'), '{"kept":true}\n');
+  fs.writeFileSync(nodePath.join(HOME, '.claude.json'),
+    JSON.stringify({ oauthAccount: { emailAddress: 'main@example.com' }, numStartups: 3 }));
+  registeredNotRunning('mycroft', dir, 'claude');
+  const r = await del('claude', { dir, stopAgents: true, remove: true });
+  assert.equal(r.code, 200, 'the default is deletable via the remove door once its agent is stopped. body: ' + JSON.stringify(r.json));
+  assert.equal(r.json.removed, true, 'removed');
+  assert.match(String(r.json.because), /main Claude connection is removed/,
+    'the delete-door message says the folder + history are kept, not that history goes with it');
+  const after = JSON.parse(fs.readFileSync(nodePath.join(HOME, '.claude.json'), 'utf8'));
+  assert.ok(!('oauthAccount' in after), 'identity cleared');
+  assert.equal(after.numStartups, 3, 'unrelated config preserved');
+  assert.ok(fs.existsSync(dir), 'the .claude dir survives the DELETE door too');
+  assert.equal(fs.readFileSync(nodePath.join(dir, 'projects', 'keep.jsonl'), 'utf8'), '{"kept":true}\n',
+    'history kept');
+});
+
+test('#2684: the OpenAI default .codex refuses deletion while an agent is registered on it', async () => {
+  installRunner();
+  const dir = nodePath.join(HOME, '.codex');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'auth.json'), JSON.stringify({ OPENAI_API_KEY: 'sk-test-default' }));
+  registeredNotRunning('codexdefault', dir, 'codex');
+  const r = await del('openai', { dir, remove: true }); // no stopAgents
+  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
+  assert.match(String(r.json.error), /codexdefault is set up to run on this account/,
+    'the refusal names the agent, not a blanket default refusal');
+  assert.deepEqual(calls, [], 'nobody stopped without stopAgents');
+  assert.ok(!removedNames().includes('codexdefault'));
+  assert.ok(fs.existsSync(dir), 'the default account is untouched on a refusal');
+});
+
+test('#2684: the OpenAI default .codex is deleted once its registered agent is stopped', async () => {
   installRunner();
   const dir = nodePath.join(HOME, '.codex');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(nodePath.join(dir, 'auth.json'), JSON.stringify({ OPENAI_API_KEY: 'sk-test-default' }));
   registeredNotRunning('codexdefault', dir, 'codex');
   const r = await del('openai', { dir, stopAgents: true, remove: true });
-  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
-  assert.match(String(r.json.error), /default account cannot be deleted/);
-  assert.deepEqual(calls, [],
-    'AGENTS WERE STOPPED FOR A DEFAULT ACCOUNT THAT WAS NEVER GOING TO BE DELETED');
-  assert.ok(!removedNames().includes('codexdefault'));
-  assert.ok(fs.existsSync(dir), 'the default account must still be there');
+  assert.equal(r.code, 200, 'the default is deletable once its agent is stopped. body: ' + JSON.stringify(r.json));
+  assert.deepEqual(r.json.stopped, ['codexdefault'], 'the agent was stopped and named');
+  assert.ok(!fs.existsSync(dir), 'the default .codex dir is deleted');
 });
 
 /* 🛑 STOPPED + PARTIAL, which is the mixed shape that had no arm. The mixed
