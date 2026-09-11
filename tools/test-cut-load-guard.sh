@@ -55,16 +55,25 @@ out="$(KOSMOS_FAKE_LOAD=20 KOSMOS_CUT_MAX_LOAD=10 kosmos_gate_or_abort "step G" 
 printf '%s\n' "$out" | grep -q "aborting the cut" && ok "gate_or_abort narrates the LOAD-attributed abort (not a test-red)" \
   || bad "gate_or_abort narration missing 'aborting the cut'"
 
-# --- LIVE parse (no fake seam), so a wrong-field regression is caught, not only the fake path.
-# kosmos_box_load_1min must extract sysctl's 1-min field (2), never the `{` or the 5-min load. ---
+# --- LIVE parse (no seam), so the live sysctl path is exercised: it must return a
+# numeric value. A single read, so nothing moves under it. ---
 live_load="$(kosmos_box_load_1min)"
 printf '%s' "$live_load" | grep -qE '^[0-9]+(\.[0-9]+)?$' \
   && ok "kosmos_box_load_1min returns a numeric 1-min load from live sysctl ($live_load)" \
   || bad "kosmos_box_load_1min live parse is non-numeric: [$live_load]"
-sys1="$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')"
-[ -n "$sys1" ] && [ "$live_load" = "$sys1" ] \
-  && ok "the live 1-min load matches sysctl's field 2 directly (guards the field index)" \
-  || bad "live load [$live_load] != sysctl field 2 [$sys1]"
+
+# --- FIELD INDEX, deterministic (#2749). The old arm read the live load a SECOND
+# time (a fresh sysctl) and asserted string-equality with the first read; the
+# 1-min load moves between reads, so a busy box red it for contention, not for a
+# wrong field. Instead hand the function a FIXED raw with three DISTINCT figures
+# via KOSMOS_LOADAVG_RAW and assert it returns field 2 (the 1-min). Distinct
+# fields mean a swap to the `{`, the 5-min or the 15-min is always caught; the
+# fixed input means no moving read; and because the live and seam paths share one
+# extraction, this guards the live field index too. ---
+got="$(KOSMOS_LOADAVG_RAW='{ 1.11 5.55 9.99 }' kosmos_box_load_1min)"
+[ "$got" = "1.11" ] \
+  && ok "kosmos_box_load_1min extracts field 2 (1-min) from the raw vm.loadavg, not field 1/3/4 (got $got)" \
+  || bad "field-index guard: expected 1.11 (field 2 of '{ 1.11 5.55 9.99 }'), got [$got]"
 # kosmos_top_cpu_consumers must skip the ps header row (never emit the PID/COMMAND line).
 top="$(kosmos_top_cpu_consumers 2)"
 printf '%s\n' "$top" | grep -qE '^[[:space:]]*PID' \
