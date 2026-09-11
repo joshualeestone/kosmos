@@ -52,8 +52,10 @@ const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
   /* #2809 (Josh, 2026-09-11, reviewing 0.6.56 live: the fresh-start buttons
      "look terrible" full-width): each of the three now sizes to its content,
      not the full container width. Guards against a re-widen to the full-bleed
-     stack this replaced. Measured against each button's own flex container
-     (`.freshstack`): a content-sized button is well under it; the old
+     stack this replaced. Each button is measured against its own parent flex
+     container (compact+clear share one `.freshstack` div; restart sits in the
+     separate `.field.freshstack` -- both are flex columns via the `.freshstack`
+     rule): a content-sized button is well under its container; the old
      `width:100%` made them equal. 0.9 leaves headroom for the longest label. */
   const widths = await page.evaluate(() => ['d-compact-go', 'd-clear-go', 'd-restart-start'].map((id) => {
     const b = document.getElementById(id); const c = b.parentElement;
