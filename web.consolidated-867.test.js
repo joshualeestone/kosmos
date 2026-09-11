@@ -144,3 +144,17 @@ test('the conversation box fills the available height instead of leaving a gap a
   assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pjmid \.thread \{ min-height: 0; max-height: none; flex: 1 1 auto; border: 0; border-radius: 0; background: none;/,
     'the conversation no longer fills its column as a flat, borderless region (re-boxed, capped, or not flex-grow)');
 });
+
+test('the tab-view dialog is white and agent file cards keep the old dialog gray (#2711 items 6/15)', () => {
+  // Sibling of the consolidated pin above: nothing else catches a tab-view
+  // dialog-fill regression (the browser-checks measure contrast floors, which a
+  // bg swap can pass), so pin both new rules here. They are body:not(.consolidated)
+  // scoped, so consolidated keeps its own fill (asserted above).
+  // Item 6: the project room (.pjmid .thread) is --k-surface (white).
+  assert.match(PAGE, /body:not\(\.consolidated\) \.pjmid \.thread \{ background: var\(--k-surface\); \}/,
+    'the tab-view dialog is no longer white (#2711 item 6)');
+  // Item 15: an agent's file card (.att) gets --k-bg, the light gray the dialog
+  // used to be, so it stays visible on the white dialog.
+  assert.match(PAGE, /body:not\(\.consolidated\) \.pjmid \.thread \.att \{ background: var\(--k-bg\); \}/,
+    'the agent file card lost its --k-bg fill on the white dialog (#2711 item 15)');
+});
