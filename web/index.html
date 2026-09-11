@@ -1464,21 +1464,21 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    node with a callout in his sketch is the HOVER state, not a selection --
    which is better, because the view then has exactly one way of saying "this
    one", and pointing at it is a preview of going there. */
+/* 🛑 THE CALLOUT IS A LABEL, NOT A HIT TARGET (#2683, Josh 2026-09-10). It takes
+   pointer-events:none from the shared rule below. It USED TO override that to
+   `auto` (a separate `.onode .callout { pointer-events: auto; }` rule) so the
+   button-looking callout could be clicked. But the callout is opacity:0 until
+   hover AND positioned ABOVE its node, and an opacity:0 element with
+   pointer-events:auto STILL captures the pointer -- so a node's invisible callout
+   sitting over a NEIGHBOUR's avatar stole the hover, and hovering directly over
+   one avatar lit a neighbour's label (Josh's report). The override is REMOVED, so
+   the callout inherits none: the avatar itself is the hover-and-click target (the
+   orgmap click handler opens on the .onode), and the chevron that made the callout
+   read as a button is gone too, so it no longer invites a click it should not take. */
 .onode .oname, .onode .callout {
   position: absolute; left: 50%; transform: translateX(-50%);
   white-space: nowrap; pointer-events: none;
 }
-/* 🛑 THE CALLOUT IS A LABEL, NOT A HIT TARGET (#2683, Josh 2026-09-10).
-   It was pointer-events:auto so the button-looking callout could be clicked. But
-   the callout is opacity:0 until hover AND positioned ABOVE its node, and an
-   opacity:0 element with pointer-events:auto STILL captures the pointer -- so a
-   node's invisible callout sitting over a NEIGHBOUR's avatar stole the hover, and
-   hovering directly over one avatar lit a neighbour's label (Josh's report). It
-   is pointer-events:none now: the avatar itself is the hover-and-click target
-   (the orgmap click handler opens on the .onode), and the chevron that made the
-   callout read as a button is gone, so it no longer invites a click it should
-   not take. */
-.onode .callout { pointer-events: none; }
 .onode .oname { top: 52px; font: 600 12px var(--font-ui); color: var(--k-ink-2); }
 .onode .co-txt { display: flex; flex-direction: column; gap: 1px; }
 .onode .co-name { font: 600 14px var(--font-ui); }

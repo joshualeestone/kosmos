@@ -383,10 +383,15 @@ test('#2683: the org callout is a non-interactive label, so an invisible callout
      avatar stole the hover, lighting the wrong label. pointer-events:none is the
      fix; the avatar (the .onode button) is the hover-and-click target. If this
      reverts to auto, the neighbour-capture bug returns. */
-  assert.match(PAGE, /\.onode \.callout \{ pointer-events: none; \}/,
-    'the org callout is not pointer-events:none, so an invisible callout can capture hover over a neighbour');
-  assert.doesNotMatch(PAGE, /\.onode \.callout \{ pointer-events: auto; \}/,
-    'the org callout is still pointer-events:auto (the #2683 mis-targeting cause)');
+  // The callout takes pointer-events:none from the shared `.onode .oname, .onode .callout`
+  // rule; #2683 removed the separate `.onode .callout { pointer-events: auto; }` override.
+  assert.match(PAGE, /\.onode \.oname, \.onode \.callout \{[\s\S]*?pointer-events: none;[\s\S]*?\}/,
+    'the shared .oname/.callout rule no longer sets pointer-events:none, so the callout can capture hover');
+  // Line-anchored so the #2683 comment ABOVE the rule (which quotes the old
+   // `.onode .callout { pointer-events: auto; }` verbatim) is not mistaken for a
+   // live rule -- real CSS rules start at column 0, the prose mention does not.
+  assert.doesNotMatch(PAGE, /^\.onode \.callout \{ pointer-events: auto/m,
+    'the pointer-events:auto override is back (the #2683 mis-targeting cause)');
 });
 
 test('the flat-fleet hint stays removed (Josh, 2026-08-31): a deletion needs an absence guard', () => {
