@@ -11789,10 +11789,17 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     </section>
     <section class="dbox">
       <!-- #1722 (Josh, 2026-08-31): a heartbeat that checks which agents are
-           working and asks you to chase anyone that has stopped. The later
+           working and was meant to chase anyone that has stopped. The later
            addition the auto-save control above (#1724) reserved a slot for. On
-           by default (#2013); the interval is adjustable. This is wired: the runner is
-           live (server.js), so the control is not a dead toggle. -->
+           by default (#2013); the interval is adjustable.
+           ⚠️ #2632: the runner is still live (server.js) and computes which
+           agents stopped, but #2623 removed its ONLY delivery path (the
+           check_in that rode the phone-home notify.happened POST), and no
+           in-app channel exists yet, so the result reaches no one. The copy no
+           longer promises a notification it cannot deliver. Hiding the toggle
+           until an in-app delivery channel is built is the fuller fix and is a
+           paint change (paintHeartbeat), routed to Angel; this change is the
+           in-lane copy honesty half. -->
       <!-- #1843 (Josh, #admin 2026-09-02 07:12): the user-facing name is now
            "Prompter", so Settings > Automation reads as two named features a
            person can reason about, the Recommender (what to work on next) and
@@ -11808,8 +11815,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <h3 class="dlab">Prompter</h3>
       <div class="setrow" id="hb-row" style="margin-top:14px;">
         <div><b>Check on your agents</b>
-          <p class="dhint" style="margin:2px 0 0;">Every so often, Kosmos looks at which of your agents are working and asks you to check on any that have stopped. It asks a question, never assumes, because an agent may be mid-something. On by default.</p></div>
-        <button class="toggle" id="hb-toggle" role="switch" aria-label="Ask me to check on any agent that has stopped" hidden><i></i></button>
+          <p class="dhint" style="margin:2px 0 0;">Every so often, Kosmos checks which of your agents have stopped. It can't nudge you about them yet. That part is still being built. On by default.</p></div>
+        <button class="toggle" id="hb-toggle" role="switch" aria-label="Check on your agents" hidden><i></i></button>
       </div>
       <!-- #2623: the "notifications are off" hint was removed with the notify
            phone-home seam (engine/notify.js). -->
