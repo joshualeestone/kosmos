@@ -602,3 +602,67 @@ silently. The runner field now has the same arm, bounded the same way: measured,
 all seven `ok:` sites in `engine/runningas.js` are strict boolean literals and
 none of the `ok: false` shapes carries a `runner`, so this is an unarmed guard
 rather than a live defect.
+
+## Rounds 7 and 8: the verification itself was the thing that lied
+
+### Round 7: a test that could not fail
+
+My account-status arm asserted `connected === null` and `state !== 'none'`. With
+the guard removed, `checkLive` answers UNKNOWN in a sandbox ANYWAY, so both held
+either way and the only thing pinning the fix was the `because` wording. Renaming
+that sentence would have deleted the test silently, and the docstring claimed the
+defect was "a confident connected:false plus a remedy" while the fixture could not
+produce that shape at all.
+
+Rearmed by stubbing `checkLive` to NONE, and verified the only way that counts:
+the mutant now dies on the assertion that DESCRIBES the defect rather than on the
+copy string.
+
+Round 7 also found the guard placed BELOW the no-account return, so it never fired
+for the default-account codex agent, the card's headline shape. Third instance on
+this branch of checking the branch I changed and reporting on the route.
+
+And my own round-6 correction to the web comment was false in the opposite
+direction: `!a.account.isDefault` is `!null` which is TRUE, so a NAMED codex
+account sends its dir, and must.
+
+### Round 8: I verified with a check that could not fail either
+
+⭐ THE SHARPEST FAILURE ON THIS CARD. I ran a script to add `remedy: null`. The
+shell failed to parse the whole command, so the edit never happened. I then
+checked with `grep -c "remedy: null,"`, got `1`, and concluded it had landed. That
+`1` was a PRE-EXISTING `remedy: null` on a different arm of the same route. The
+check could not return the dangerous answer, because the string already existed.
+Then I wrote the claim into a commit message, where it stood as a fact.
+
+⇒ The same discipline this card applies to product assertions applies to the
+one-off greps that verify an edit: ask whether the check can return the dangerous
+answer. A `grep -c` for a string that already exists somewhere in the file cannot.
+Verify by POSITION (read the payload, cite the line) or by a mutant.
+
+Two more, both mine:
+
+- A surviving mutant showed the PAYLOAD half was unarmed: I added an `account` row
+  to the response and asserted nothing about it, so replacing the whole expression
+  with `null` changed nothing any test could see. Both shapes are asserted now.
+- `runnerOf`'s fallback pointed the WRONG WAY and cited a FALSE reason. I claimed
+  a bad store read would take the route down; `create.recordedRunner` says in its
+  own header that it never throws. And `'claude'` on a throw would fall through to
+  the Claude probe and restore the very defect the guard stops, while the sibling
+  in this same file returns `null`, which fires the guard. Now matched, with the
+  unreachability stated rather than an invented justification.
+
+📌 One mutant here is INHERENTLY UNKILLABLE and is recorded rather than papered
+over: because `recordedRunner` never throws, no test can reach that catch, so
+mutating its return value survives by construction. The direction is fixed and the
+unreachability is documented; a test asserting it would have to fake a throw the
+product cannot produce.
+
+### A stale number, and why the property is the right claim
+
+My `Browser-check:` trailer cited "1134926 bytes both sides". The reviewer measured
+1137891; re-measuring now gives 1137421. All three are correct at their moment: the
+figure MOVES WITH EVERY REBASE because main keeps changing `web/index.html`.
+⇒ Cite the PROPERTY (non-comment content identical, with a control that perturbs
+the file and shows codeOnly differing), never the byte count, which is base
+relative and stale the moment anybody merges.
