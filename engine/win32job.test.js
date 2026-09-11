@@ -454,3 +454,102 @@ test('#2614 a registered task with no readable argument line is known:false, not
   const r = job.configDirFor('noargs');
   assert.equal(r.known, false);
 });
+
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * #2717: the configDir PATH is remembered, so `/api/removed` stops spawning a
+ * `schtasks /Query /XML` per removed agent on the board's five-second poll.
+ * Only the PATH is cached; whether the directory still EXISTS is checked live
+ * by the caller on every ask and is not cached here.
+ * ──────────────────────────────────────────────────────────────────────────*/
+function countingRunner(xml) {
+  const calls = { n: 0 };
+  job.setRunner((args) => {
+    if (args.includes('/Query') && args.includes('/XML')) { calls.n += 1; return { ok: true, out: xml }; }
+    return { ok: true, out: '' };
+  });
+  return calls;
+}
+function taskXmlFor(name, configDir) {
+  return job.taskXml(
+    { name, cwd: 'C:\\work', configDir, node: 'C:\\node.exe', supervisor: 'C:\\app\\win32supervisor.js' },
+    { USERNAME: name, USERDOMAIN: 'BOX' });
+}
+
+test('#2717 a second ask does not spawn again, and the answer is the same', () => {
+  const configDir = 'C:\\Users\\kitty\\.claude';
+  const calls = countingRunner(taskXmlFor('kitty', configDir));
+  const first = job.configDirFor('kitty');
+  const second = job.configDirFor('kitty');
+  assert.deepEqual(first, { known: true, configDir });
+  assert.deepEqual(second, first, 'the cached answer differs from the one that was read');
+  /* 🛑 THE ARM THAT MAKES THIS FIX NON-INERT. Without it every assertion here is
+     satisfied by a cache that never stores anything, which is precisely the
+     shape that shipped green elsewhere this week. */
+  assert.equal(calls.n, 1, 'the second ask spawned schtasks again, so nothing is cached');
+});
+
+test('#2717 registering the task again forgets the old path, because the account can change', () => {
+  const calls = countingRunner(taskXmlFor('kitty', 'C:\\Users\\kitty\\.claude'));
+  job.configDirFor('kitty');
+  assert.equal(calls.n, 1);
+  /* `/Create /F` REWRITES the definition, so a re-registered agent can carry a
+     different account. A cache kept across it would hand out the old one, which
+     on a SAFETY check is the worst direction to be wrong in. */
+  job.install({ name: 'kitty', cwd: 'C:\\work', configDir: 'C:\\Users\\kitty\\.other', node: 'C:\\node.exe' });
+  job.configDirFor('kitty');
+  assert.equal(calls.n, 2, 'install did not forget the remembered path');
+});
+
+test('#2717 removing the task forgets its path', () => {
+  const calls = countingRunner(taskXmlFor('kitty', 'C:\\Users\\kitty\\.claude'));
+  job.configDirFor('kitty');
+  assert.equal(calls.n, 1);
+  job.remove('kitty');
+  job.configDirFor('kitty');
+  assert.equal(calls.n, 2, 'remove did not forget the remembered path');
+});
+
+test('#2717 a read that FAILED is never cached, so one bad answer cannot disarm the check forever', () => {
+  /* 🛑 THE DIRECTION THAT MATTERS. `known: false` is a statement about the
+     moment, not about the task. Caching it would turn a single transient
+     schtasks failure into a permanently wrong answer on a safety check. */
+  let n = 0;
+  job.setRunner((args) => {
+    if (!(args.includes('/Query') && args.includes('/XML'))) return { ok: true, out: '' };
+    n += 1;
+    /* ⚠️ NOT a "cannot find" message: `NO_SUCH_TASK` is /cannot find|does not
+       exist/i, so the obvious wording is classified as a KNOWN "no task" answer
+       and is cached on purpose. The first version of this arm used it and failed
+       for that reason, which is the fixture being wrong rather than the code. */
+    return { ok: false, out: 'ERROR: Access is denied.' };
+  });
+  const a = job.configDirFor('kitty');
+  assert.equal(a.known, false, 'the fixture did not produce the unreadable answer this arm is about');
+  job.configDirFor('kitty');
+  assert.equal(n, 2, 'a FAILED read was cached, so a transient error is now permanent');
+});
+
+test('#2717 "there is no task" IS cached, since that is the case a removed agent hits every poll', () => {
+  let n = 0;
+  job.setRunner((args) => {
+    if (!(args.includes('/Query') && args.includes('/XML'))) return { ok: true, out: '' };
+    n += 1;
+    return { ok: false, out: 'ERROR: The system cannot find the task specified.' };
+  });
+  const a = job.configDirFor('kitty');
+  assert.deepEqual(a, { known: true, configDir: null },
+    'the fixture did not produce the no-such-task answer this arm is about');
+  job.configDirFor('kitty');
+  assert.equal(n, 1, 'the no-such-task answer was not cached, so a removed agent still spawns every poll');
+});
+
+test('#2717 swapping the runner clears the cache, so one test cannot answer the next', () => {
+  const first = countingRunner(taskXmlFor('kitty', 'C:\\Users\\kitty\\.claude'));
+  job.configDirFor('kitty');
+  assert.equal(first.n, 1);
+  const second = countingRunner(taskXmlFor('kitty', 'C:\\Users\\kitty\\.second'));
+  assert.deepEqual(job.configDirFor('kitty'), { known: true, configDir: 'C:\\Users\\kitty\\.second' },
+    'the new runner was answered from the previous one cache');
+  assert.equal(second.n, 1, 'the runner swap did not clear the cache');
+});
