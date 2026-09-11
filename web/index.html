@@ -4675,13 +4675,11 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 .cinput:focus { outline: none; }
 .cinput::placeholder { color: var(--k-ink-2); }
 .cpost { flex: 0 0 auto; padding: .5em 1.05em; font-size: .9375rem; }
-.composerhint { margin: 0; font-size: .75rem; color: var(--k-ink-2); }
 /* #761 (Josh, 2026-08-24 21:56: "a little extra space below 'Drop a file
    anywhere'... tighten up that space"): the room's status line sits under
    the composer and, empty, still took its minimum height and margin (33px
    measured). A status line that says nothing takes no room. */
 .pjmid #pj-room-msg:empty { display: none; }
-.composerhint b { font-family: var(--font-mono); font-weight: 700; color: var(--k-ink); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .msg-av { background: rgba(245,245,244,.10); }
   /* #2660: the user-message tint does NOT need a per-selector dark rule here --
@@ -10358,7 +10356,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            exist are both claims, and 0.2.1 shipped on "screens say what is
            true". They arrive together with the attachment work, along with the
            pack's drop-target affordance (`.pjmid .thread.dragging`, :515).
-           The `@` half of the hint IS true today and ships now. -->
+           The `@` picker still opens on typing @ (asserted in
+           web.mention-picker.test.js); the composer hint that named it was
+           removed in #2711 item 9. -->
       <div class="composer">
         <div class="composerbox">
           <!-- ⚠️ THE PLACEHOLDER NAMES THE OUTCOME, THE HINT NAMES THE

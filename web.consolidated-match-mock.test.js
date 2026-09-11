@@ -188,6 +188,11 @@ test('the drop-a-file / @-mention composer hint is gone from both views (#2711 i
   // Josh, 2026-09-10 (#2711 item 9): the hint below the composer is removed
   // outright. It is gone from the markup, so there is no #pj-composerhint left
   // and no consolidated-only rule to hide an element that no longer exists.
+  // Presence control first: the composer region this absence speaks about must
+  // still exist, or the negative assertions below would pass vacuously (e.g. if
+  // the whole composer were renamed or deleted).
+  assert.ok(PAGE.includes('id="pj-post"'),
+    'CONTROL: the composer is gone; the absence below proves nothing');
   assert.ok(!PAGE.includes('id="pj-composerhint"'),
     'the composer hint element is back; #2711 item 9 removed it from both views');
   assert.ok(!/#pj-composerhint \{ display: none; \}/.test(PAGE),
