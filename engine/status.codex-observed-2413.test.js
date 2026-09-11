@@ -113,6 +113,21 @@ test('#2413 perf: a codex pane reads its rollout ONCE per snapshot, not twice (s
     'the rollout was read ' + reads + ' times for one codex pane in one snapshot; the observation arm and the context ring must share a single read');
 });
 
+test('recording is DECOUPLED from the scraped state: a NON-WORKING codex pane with a fresh completion still records an OpenAI ok', () => {
+  // The `ok` comes from a witnessed rollout COMPLETION, not from the pane's current
+  // scraped state -- so a codex agent that just finished a turn and is no longer streaming
+  // is still "recently observed working" and greens. A stateless codex pane classifies
+  // NOT-WORKING (here `unknown`), which is exactly the contrast that matters: recording an
+  // ok for it pins that the OpenAI arm is not coupled to STATE.WORKING. A future edit that
+  // re-coupled it (reading WORKING as the signal) would both narrow the green AND re-open
+  // the #874 false-green door, and this would go red.
+  writeRollout('codexnotworking', Date.now() - 30 * 1000);
+  const board = fleet.install([fleet.agent('codexnotworking', { runner: 'codex', state: 'unknown' })]);
+  assert.notEqual(board.card('codexnotworking').state, 'working', 'fixture is WORKING, so the decoupling assertion is vacuous');
+  assert.equal((observed.read(observed.PROVIDER.OPENAI, 'codexnotworking') || {}).outcome, observed.OUTCOME.OK,
+    'a non-working codex pane with a fresh witnessed completion did not record an OpenAI ok -- recording is wrongly coupled to the WORKING scrape: ' + JSON.stringify(observed.all()));
+});
+
 test('a codex WORKING pane with a STALE rollout completion records NOTHING (self-heals, no permanent green)', () => {
   writeRollout('codexstale', Date.now() - 10 * 60 * 1000); // 10 min ago: past the 5-min freshness window
   const board = fleet.install([fleet.agent('codexstale', { runner: 'codex', state: 'working' })]);
