@@ -24,7 +24,7 @@ grep -qF 'NODE_CACHE="${KOSMOS_NODE_CACHE:-' "$SRC" \
   && ok "cache dir honours KOSMOS_NODE_CACHE" \
   || no "cache dir is not overridable via KOSMOS_NODE_CACHE"
 
-S="$(ln 'SHASUMS256.txt')"                       # the authoritative checksums are fetched
+S="$(ln 'curl -fsSL "$BASE/SHASUMS256.txt"')"    # the authoritative checksums are actually FETCHED (not a comment)
 W="$(ln 'WANT="$(grep')"                         # WANT extracted from them
 H="$(ln 'using cached')"                          # the cache-hit path copies the cached tarball
 V="$(ln 'checksum mismatch on $TARBALL')"         # the final verify's abort message

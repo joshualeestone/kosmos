@@ -528,9 +528,14 @@ else
     # is writable -- an atomic rename so a killed cut never leaves a torn cache file.
     if [ "$(shasum -a 256 "$TMP/$TARBALL" | awk '{print $1}')" = "$WANT" ] \
        && mkdir -p "$NODE_CACHE" 2>/dev/null; then
+      # The trailing `|| :` is LOAD-BEARING under `set -euo pipefail`: an EXISTING but
+      # unwritable cache dir passes the mkdir (already there), then the cp fails and the
+      # cleanup `rm -f` itself returns non-zero (permission denied traversing the dir),
+      # which errexit would turn into a cut abort -- the exact "a cache we cannot write
+      # must never fail a real cut" promise this block makes. `|| :` swallows it.
       { cp "$TMP/$TARBALL" "$NODE_CACHE/.$TARBALL.$$" 2>/dev/null \
           && mv "$NODE_CACHE/.$TARBALL.$$" "$NODE_CACHE/$TARBALL" 2>/dev/null; } \
-        || rm -f "$NODE_CACHE/.$TARBALL.$$" 2>/dev/null
+        || rm -f "$NODE_CACHE/.$TARBALL.$$" 2>/dev/null || :
     fi
   fi
   echo "==> verifying checksum"
