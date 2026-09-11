@@ -9,19 +9,34 @@ else is required to continue.**
     this file              .claude/plans/WINDOWS-ROADMAP.md   <- the whole road
     the keep-alive log     .claude/plans/win32-keepalive-570.md  <- that slice only
 
-## The one-line state (2026-09-11)
+## The one-line state (2026-09-11, ~13:30 UTC)
 
-**7c IS DONE, AND THE REHEARSAL PASSED AS DEFINED: R1-R8, R3 included, and the
-board AND the fleet came back at a real logon, headless** (§2). R3 checked delivery,
-not the agent's answer reaching the board; that gap was BLOCKER 5 (§3c). BLOCKER 2 is off
-the v1 path: Josh approved 2026-09-10 that the first Windows release updates by
-hand, with a real updater as a fast-follow. What is left for v1:
-`kosmos reply/msg/post` on Windows (BLOCKER 5, §3c), a clean-box first run
-(capability 1), and the publish. The launcher hand-off merged as #2752 (2026-09-11).
-installkosmos.com still serves 0.6.37. A zip built from main delivers to agents
-and runs their whole lifecycle on the box. It needed two fixes:
-the launcher hand-off (merged, #2752) and `win32-kosmos-cli-570` (BLOCKER 5).
-See "Do this next".
+**WINDOWS v1 SHIPPED. installkosmos.com serves 0.6.55**, built from main
+`fbe246e0`. `latest-win.json`, the `kosmos-win-x64.zip` alias,
+`kosmos-0.6.55-win-x64.zip` and the served `.sha256` all name, and hash to,
+`062e836ee0df9a919c1563a623417bed182b9afd6aac312d8ef9043928ec796c`. How it got
+there:
+- Baron built it on mortals.
+- The Windows box checked it file by file against its own build of the same sha
+  (132/132 identical).
+- The box then ran it live, installed as a download (Mark of the Web set): Z0-Z6,
+  the two-line answer, and agent-to-agent messaging all passed.
+- It shipped on Josh's go.
+
+The fixes it needed are all merged: #2752 (the launcher hand-off), #2754 (the
+agent's `kosmos` command, BLOCKER 5), #2759 (the README and manifest) and #2756.
+
+**R8b PASSED 2026-09-11: a real reboot on the SHIPPING zip install**, not the
+source checkout (§2). The board and all 5 enabled agents came back unattended, and
+an agent started at logon ANSWERED on the board.
+
+BLOCKER 2 stays off the v1 path: Josh approved 2026-09-10 that v1 updates by hand,
+with a real updater as a fast-follow. What is still open:
+- a clean-box first run (capability 1, §5);
+- a zip that changes the Node runtime cannot be handed off (§5; fix in flight on
+  `win32-anchor-swap-570`);
+- a named world's board token for agents (§5);
+- the `.ps1` execution-policy dependency (§3c).
 
 ## ✅ 7c-2 IS DONE (2026-09-10), AND MEASURED ON THE BOX.
 
@@ -280,10 +295,10 @@ That is the bar. Not "the tests pass".
 | 1 | install + first run | ⚠️ **BLOCKER 3 CLOSED** 2026-09-09 — the card now names the real installer. Kosmos still cannot install Claude Code FOR you; see §3c |
 | 2 | make an agent | ✅ MEASURED |
 | 3 | board + roster | ✅ MEASURED — working/idle from the event stream since 7c-5 (§4); needs_you/blocked still come only from self-reports, as on the Mac |
-| 4 | **talk to it** | ✅ **BLOCKER 1 CLOSED** 2026-09-10 (7c-4) — the board's `chat.deliver` reaches the agent through its supervisor's pipe and it answers; measured live. Its card reads working/idle since 7c-5. **R3 PASSED** in the 7c-6 rehearsal: 3 of 3 agents `placed`, card working -> idle, and the reply is in each agent's transcript. ⚠️ **The answer did NOT reach the board**: R3 read the transcript, and an agent on the Windows zip had no `kosmos reply` (BLOCKER 5, §3c). Fixed on branch `win32-kosmos-cli-570` (not yet merged), verified live with the answer on the board. A crash-resumed agent reports again (#2722), and `/clear` keeps it on the board (#2728) |
+| 4 | **talk to it** | ✅ **BLOCKER 1 CLOSED** 2026-09-10 (7c-4) — the board's `chat.deliver` reaches the agent through its supervisor's pipe and it answers; measured live. Its card reads working/idle since 7c-5. **R3 PASSED** in the 7c-6 rehearsal: 3 of 3 agents `placed`, card working -> idle, and the reply is in each agent's transcript. ⚠️ **The answer did NOT reach the board**: R3 read the transcript, and an agent on the Windows zip had no `kosmos reply` (BLOCKER 5, §3c). ✅ Fixed by #2754 (merged 2026-09-11), verified live with the answer on the board, and again on the shipped 0.6.55 bytes and after a real logon (R8b). A crash-resumed agent reports again (#2722), and `/clear` keeps it on the board (#2728) |
 | 5 | stop/restart/remove/restore | ✅ MEASURED |
-| 6 | survive a reboot | ✅ **MEASURED AT A REAL LOGON 2026-09-11** (R8 of 7c-6). After Josh's reboot, the board and all 5 enabled agents came back unattended: one `conhost --headless` supervisor each, no windows, every card idle, one ownership row per agent (#2737) |
-| 7 | **update the app** | ⚠️ **BLOCKER 2, OFF THE v1 PATH** — Josh approved 2026-09-10: v1 updates by hand, a real updater is a fast-follow. §3a. The ANCHOR (not stranding the fleet) is designed and unit-tested; the UPDATER ITSELF cannot run on Windows at all |
+| 6 | survive a reboot | ✅ **MEASURED AT A REAL LOGON, TWICE.** R8 (2026-09-11, the source checkout): the board and all 5 enabled agents came back unattended, with one `conhost --headless` supervisor each, no windows, every card idle, and one ownership row per agent (#2737). **R8b (2026-09-11, 13:01 UTC, the SHIPPING zip install, fbe246e0):** the same came back, and an agent started at logon ANSWERED. reh-a's two-line reply landed on the board intact, which proves the logon-started supervisor put the zip's `bin\` on the agent's PATH, and reh-a -> reh-b messaging worked |
+| 7 | **update the app** | ⚠️ **BLOCKER 2, OFF THE v1 PATH.** Josh approved 2026-09-10: v1 updates by hand, a real updater is a fast-follow. §3a. The ANCHOR (not stranding the fleet) is designed and unit-tested; the UPDATER ITSELF cannot run on Windows at all. An update by hand has run twice (§5). ⚠️ An update whose zip changes the NODE RUNTIME cannot replace the anchored node.exe while the fleet runs on it (§5) |
 
 🛑 THAT IS FOUR BLOCKERS, NOT ONE (FIVE since 2026-09-11, §3c). This table said "one blocker" on 2026-09-09
 because capability 1 had never been looked at. It has now been traced end to end,
@@ -326,6 +341,12 @@ route's own answer:
                                          idle, board HTTP 200, one ownership row
                                          per agent. The BOARD at a real logon for
                                          the first time.
+    R8b reboot .................. PASS   2026-09-11 13:01 UTC, on the SHIPPING
+                                         zip install (fbe246e0), not the source
+                                         checkout: the same came back, and an
+                                         agent started at logon ANSWERED on the
+                                         board (two lines intact; reh-a -> reh-b
+                                         messaging worked)
 
 ⚠️ AND READ THAT LIST FOR WHAT IT IS. R1–R8 measured the AGENT LIFECYCLE, and it
 is genuinely solid. What it did not touch is everything either side of it: getting
@@ -752,7 +773,7 @@ the removal command.
 task at Josh's reboot, headless. Since #2752 a hand-started board hands itself to
 this task instead of dying with its window.
 
-### BLOCKER 5 — an agent's answer never reached the board (found 2026-09-11; fixed on branch `win32-kosmos-cli-570` (PR #2754), NOT YET MERGED when this was written)
+### BLOCKER 5 — an agent's answer never reached the board (found 2026-09-11; ✅ FIXED by #2754, merged as `fd8a0504`, shipped in 0.6.55)
 
 Every new agent's instructions are written with `kosmosCliShown()` baked in —
 "you can message another agent with `kosmos msg <name> ...`". `engine/clipath.js`
@@ -770,7 +791,7 @@ zip a person could message an agent and never see its answer. The 7c-6 R3 check
 read the answer from the transcript, which is why it passed. `msg`, `post` and
 `react` were also pane-only on the server, and a Windows agent has no pane.
 
-✅ **Fixed on branch `win32-kosmos-cli-570` (not yet merged when written):**
+✅ **Fixed by #2754 (branch `win32-kosmos-cli-570`, merged 2026-09-11):**
 - a Node `kosmos` for agents in the zip's `bin\`, with a `kosmos.ps1` shim for
   PowerShell (the arguments go as JSON in a private temp file the CLI deletes on
   read, never on a command line, at any length) and a `kosmos` shim for Git Bash;
@@ -799,6 +820,16 @@ multi-line answer and ran the tail of a `"...&..."` message as a command.)
 ### What is still open
 
 ✅ Answered 2026-09-10: installkosmos.com serves a Windows zip, 0.6.37 (`/dist/latest-win.json`).
+✅ Since 2026-09-11 (~13:30 UTC) it serves **0.6.55**, built from main `fbe246e0`,
+sha256 `062e836ee0df9a919c1563a623417bed182b9afd6aac312d8ef9043928ec796c`. The
+alias, the versioned zip and the `.sha256` were each downloaded and hashed.
+
+Still open here: the `.ps1` execution-policy dependency above. ⚠️ A PE `kosmos.exe`
+alone would NOT carry an agent's words intact. PowerShell 5.1 drops embedded
+double quotes on ANY native command line (the reason `kosmos.ps1` exists; see its
+header), so a native shim receives an already-mangled argv. Whatever replaces the
+`.ps1` has to keep the arguments off the PowerShell-to-native hop, or only take
+over where scripts are refused.
 
 ---
 
@@ -832,10 +863,34 @@ Honest gaps in this document:
 - **First run / install on Windows is unsurveyed.** Nobody has walked a clean
   Windows box from download to a working board. This is capability #1 and it is
   the only one with no evidence at all.
-- **An update by hand has been run once (2026-09-11), not yet from a real old
-  release.** A candidate zip unpacked over a running install, then Kosmos.exe:
-  the board was replaced in 8.8-9.6s over three runs, and all agents kept running (idle). The
-  in-app updater (capability 7) is still unbuilt.
+- **An update by hand has been run twice (2026-09-11), not yet from a real old
+  release.** Each time a zip was unpacked over a running install, then Kosmos.exe
+  was run:
+  - candidate zips: the board was replaced in 8.8-9.6s over three runs, and all
+    agents kept running (idle);
+  - the shipped 0.6.55 bytes over the same build: they were unpacked as a
+    download (Mark of the Web on every file), Kosmos.exe exited 0 in 3.2s and
+    handed off to the running board, and Z0-Z6 passed after.
+
+  The in-app updater (capability 7) is still unbuilt.
+- **An update that changes the NODE RUNTIME could not be handed off.** The
+  anchored `%LOCALAPPDATA%\Kosmos\runtime\node.exe` is the running interpreter of
+  the task board and every supervisor. `win32anchor.ensureAnchored` copied over it
+  when the size differed, and Windows refuses that copy with EBUSY. So
+  `ensureInstalled` failed, the hand-off was skipped, and the person got "port in
+  use" until the next logon. Creating an agent failed the same way.
+  - Measured 2026-09-11: a running node.exe cannot be overwritten, but it CAN be
+    renamed, and a new file can take its name while it keeps running.
+  - The fix is in flight on `win32-anchor-swap-570`: stage beside, rename the old
+    one aside, rename the new one in, and sweep the retired copies once nothing
+    runs on them.
+- **A named world's board token does not reach its agents.** Only the board
+  process applies a world's `AGENT_WORKFORCE_DATA` (engine/worldenv.js). An
+  agent's supervisor, its `kosmos` CLI and its report hook resolve `store.ROOT`
+  for the DEFAULT world, and read that world's `board.token`. On a board serving a
+  named world they present the wrong token and are refused. This is shared with
+  the Mac clients and `install/kosmos`, not specific to Windows. Nothing in v1
+  lets a Windows person switch worlds by default, but the gap is real.
 - **A broad Mac-only-assumption sweep is in flight.** A targeted sweep for
   tmux/launchctl found `chat.js` (the blocker) and `runningas.js` (degraded) as
   the only live call sites outside already-ported modules. A wider survey — for
@@ -848,15 +903,19 @@ Honest gaps in this document:
 ## 6. Sequencing
 
     DONE   #2537, 7c-1..7c-6 (the table in §3), the supervisor fixes #2722-#2737,
-           and the launcher hand-off #2752
-    NOW    the zip's README and manifest    win32-package-text-570
-           the agent's kosmos command     win32-kosmos-cli-570 (BLOCKER 5, §3c)
-    THEN   first-run survey + fix           (capability 1, a clean box)
-    THEN   Windows release                  Baron builds on mortals from a
-                                            verified sha, this box verifies the
-                                            bytes, and a deploy serves it on
-                                            Josh's go
+           the launcher hand-off #2752, the agent's kosmos command #2754
+           (BLOCKER 5), the README and manifest #2759, R8b (a real logon on
+           the zip install), and THE WINDOWS v1 RELEASE: 0.6.55 served
+           2026-09-11 (Baron built it on mortals, this box verified the
+           bytes and ran them live, and it shipped on Josh's go)
+    NOW    a new Node runtime can update    win32-anchor-swap-570 (§5)
+    THEN   first-run survey + fix           (capability 1, a clean box:
+                                            Windows Sandbox needs admin and a
+                                            reboot, so it waits on Josh)
     LATER  a real updater                   (capability 7, a fast-follow)
+           a named world's board token for agents (§5; shared with the Mac)
+           the .ps1 execution-policy dependency (§3c: a PE shim alone would
+           mangle quotes)
 
 ✅ THE OLD RULE, "NO WINDOWS RELEASE UNTIL 7c LANDS", IS MET: 7c landed and R3
 passed. The gate now is the list above.
