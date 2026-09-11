@@ -7185,7 +7185,12 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
        both join the prelude, and STATE_COPY above gains the 'restarting' key the
        fallback path reads. A stub would let this pass while the shipped helper differed. */
     + pageFnSource('restartingLabel') + '\n'
-    + pageFnSource('stateCopyOf') + '\n';
+    + pageFnSource('stateCopyOf') + '\n'
+    /* #2699: pjMember now also reads cardStOf(m).st === 'attn' to light up ONLY needs_you
+       (the red triangle + red status), so the real cardStOf and its CARD_ST table join the
+       prelude. A stub would let this pass while the shipped needs-you condition differed. */
+    + pageConstSource('CARD_ST') + '\n'
+    + pageFnSource('cardStOf') + '\n';
   const member = pageFunction('pjMember', prelude);
   const toldLine = pageFunction('pjToldLine', TOLD_PRELUDE);
 
