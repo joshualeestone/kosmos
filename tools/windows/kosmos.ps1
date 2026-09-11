@@ -8,16 +8,28 @@
 # `"...&...` as a command (review round 1, measured), and PowerShell 5.1 drops
 # embedded double quotes on any native command line. A FILE, not an environment
 # variable: one variable holds at most ~32K characters, and a room post may be
-# 64 KB (review round 2). The flag tells kosmos-cli.js where to read.
+# 64 KB (review round 2). kosmos-cli.js deletes it as soon as it has read it.
 #
-# Every failure is exit 1 and says so. Without Stop, a missing node.exe was a
-# non-terminating error and `exit $null` reported SUCCESS for a message nobody sent.
-$ErrorActionPreference = 'Stop'
+# Each argument goes as the TEXT the agent typed ([string] keeps `007` and `1kb`,
+# where PowerShell's own number would send 7 and 1024); anything that is not a
+# plain value (a list, a table) goes as itself, so kosmos-cli.js refuses it
+# rather than sending different words (review rounds 2 and 3).
+#
+# Exit codes: the CLI's own (0, 1, 2, 3 for "maybe") come back unchanged, and a
+# failure here is 1 with a sentence. Stop is set ONLY around what this script does
+# itself: under `2>&1` PowerShell turns node's stderr into error records, and Stop
+# there would turn every refusal and every "maybe" into a 1 (review round 3).
 $argvFile = $null
+$code = 1
 try {
+  $node = Join-Path $PSScriptRoot '..\runtime\node.exe'
+  if (-not (Test-Path -LiteralPath $node -PathType Leaf)) { throw "the runtime is missing ($node)" }
+  $words = @(foreach ($a in $args) { if ($null -eq $a -or $a -is [string] -or $a -is [ValueType]) { [string]$a } else { ,$a } })
   $argvFile = [IO.Path]::Combine([IO.Path]::GetTempPath(), 'kosmos-argv-' + [Guid]::NewGuid().ToString('N') + '.json')
-  [IO.File]::WriteAllText($argvFile, (ConvertTo-Json -InputObject @($args) -Compress -Depth 5), (New-Object Text.UTF8Encoding $false))
-  & "$PSScriptRoot\..\runtime\node.exe" "$PSScriptRoot\kosmos-cli.js" --kosmos-argv-file $argvFile
+  $ErrorActionPreference = 'Stop'
+  [IO.File]::WriteAllText($argvFile, (ConvertTo-Json -InputObject $words -Compress -Depth 1), (New-Object Text.UTF8Encoding $false))
+  $ErrorActionPreference = 'Continue'
+  & $node "$PSScriptRoot\kosmos-cli.js" --kosmos-argv-file $argvFile
   $code = $LASTEXITCODE
 } catch {
   [Console]::Error.WriteLine('kosmos could not run: ' + $_.Exception.Message)

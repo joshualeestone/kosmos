@@ -364,6 +364,12 @@ for want in "Kosmos.exe" "open-board.js" "! READ ME FIRST - Windows will warn yo
     *) refuse "the zip is missing $want" ;;
   esac
 done
+# The Git Bash shim has no extension, so " bin/kosmos" alone would also match
+# " bin/kosmos-cli.js" above: it is checked as a whole listing line.
+case "$LISTING" in
+  *" bin/kosmos"$'\n'*) ;;
+  *) refuse "the zip is missing bin/kosmos (the Git Bash shim)" ;;
+esac
 # 🛑 NO TEST FILES, AND THE ENGINE COUNT MUST MATCH THE REPO (Renet's finding).
 # His parallel builder's engine glob had no filter: it staged 137 .js of which
 # only 59 were real modules, so 78 TEST FILES SHIPPED TO USERS.
@@ -373,12 +379,6 @@ done
 # ⇒ So this asserts TWO things that cannot both be satisfied by the same
 # mistake: ZERO test files, and a count that EQUALS the repo rather than clears
 # a floor. Equality is what makes shipping too many as loud as shipping too few.
-# The Git Bash shim has no extension, so " bin/kosmos" alone would also match
-# " bin/kosmos-cli.js" above: it is checked as a whole listing line.
-case "$LISTING" in
-  *" bin/kosmos"$'\n'*) ;;
-  *) refuse "the zip is missing bin/kosmos (the Git Bash shim)" ;;
-esac
 _tests="$(printf '%s\n' "$LISTING" | grep -c '\.test\.js' || true)"
 [ "$_tests" = "0" ] || refuse "the zip ships $_tests test file(s); the engine glob lost its filter"
 _zipmods="$(printf '%s\n' "$LISTING" | grep -c ' app/engine/[^ ]*\.js$' || true)"

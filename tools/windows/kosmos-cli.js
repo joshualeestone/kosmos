@@ -68,7 +68,7 @@ const ARGV_FILE_FLAG = '--kosmos-argv-file';
 
 /**
  * The command's arguments: from kosmos.ps1's file when it sent one, else argv.
- * A bare number becomes its text (PowerShell passes `3` as a number). A LIST or a
+ * kosmos.ps1 sends each plain value as the text the agent typed. A LIST or a
  * TABLE is refused, loudly: PowerShell turns an unquoted `a, b` or `@{...}` into
  * one, and stringifying it would change the agent's words without a sign (review
  * round 2). Throws an Error whose message is the sentence to print.
@@ -76,7 +76,9 @@ const ARGV_FILE_FLAG = '--kosmos-argv-file';
 function argvFrom(argv, readFile) {
   const a = Array.isArray(argv) ? argv : [];
   if (a[0] !== ARGV_FILE_FLAG) return a.map(String);
-  const read = readFile || ((f) => fs.readFileSync(f, 'utf8'));
+  /* Deleted as soon as it is read: a shim killed mid-call (a tool timeout) never
+     runs its own cleanup, and the file holds the agent's words (review round 3). */
+  const read = readFile || ((f) => { const s = fs.readFileSync(f, 'utf8'); try { fs.unlinkSync(f); } catch { /* the shim's finally is the backstop */ } return s; });
   let parsed;
   try { parsed = JSON.parse(String(read(String(a[1] || ''))).replace(/^\uFEFF/, '')); } catch (e) {
     throw new Error('kosmos could not read the arguments PowerShell passed (' + ((e && e.message) || e) + ').');

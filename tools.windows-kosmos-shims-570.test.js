@@ -39,7 +39,16 @@ function zipRoot() {
   fs.writeFileSync(path.join(root, 'bin', 'kosmos'), fs.readFileSync(path.join(__dirname, 'tools', 'windows', 'kosmos.sh'), 'utf8').replace(/\r/g, ''));
   const real = path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js').replace(/\\/g, '\\\\');
   fs.writeFileSync(path.join(root, 'bin', 'kosmos-cli.js'),
-    "try { process.stdout.write(JSON.stringify(require('" + real + "').argvFrom(process.argv.slice(2))) + '\\n'); process.exitCode = 7; } catch (e) { process.stdout.write('ERR ' + e.message + '\\n'); process.exitCode = 2; }\n");
+    [
+      "const fs = require('fs'); const a = process.argv.slice(2);",
+      "const file = a[0] === '--kosmos-argv-file' ? a[1] : null; const existed = file ? fs.existsSync(file) : null;",
+      "try {",
+      "  const w = require('" + real + "').argvFrom(a);",
+      "  process.stdout.write(JSON.stringify(w) + '\\n');",
+      "  if (w[0] === 'maybe') { process.stderr.write('stderr line one\\nstderr line two\\n'); process.exitCode = 3; } else { process.exitCode = 7; }",
+      "} catch (e) { process.stdout.write('ERR ' + e.message + '\\n'); process.exitCode = 2; }",
+      "process.stderr.write('FILE ' + JSON.stringify({ file, existed, after: file ? fs.existsSync(file) : null }) + '\\n');",
+    ].join('\n') + '\n');
   return root;
 }
 
@@ -119,12 +128,34 @@ test('PowerShell: an unquoted table is refused (exit 2), not sent as "[object Ob
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('the temp file is gone after the call', { skip: !ON_WINDOWS && 'Windows only' }, () => {
+test('the argument file exists when the CLI reads it and is gone right after', { skip: !ON_WINDOWS && 'Windows only' }, () => {
   const root = zipRoot();
   try {
-    const before = new Set(fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('kosmos-argv-')));
-    ps(root, ['kosmos reply hello']);
-    const left = fs.readdirSync(os.tmpdir()).filter((f) => f.startsWith('kosmos-argv-') && !before.has(f));
-    assert.deepEqual(left, [], 'the argument file was left behind');
+    const r = ps(root, ['kosmos reply hello']);
+    const info = JSON.parse((/FILE (\{.*\})/.exec(r.stderr) || [])[1] || 'null');
+    assert.ok(info && info.file, 'the shim passed no argument file: ' + r.stderr.slice(0, 200));
+    assert.equal(info.existed, true, 'the file was not there to read');
+    assert.equal(info.after, false, 'the CLI left the file with the agent\'s words on disk');
+    assert.equal(fs.existsSync(info.file), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('PowerShell: the CLI\'s "maybe" (exit 3, on stderr) comes back as 3, redirected or not', { skip: !ON_WINDOWS && 'Windows only' }, () => {
+  /* Review round 3: with Stop in force, `2>&1` turned the first stderr line into
+     a terminating error, and a 3 came back as 1, inviting the duplicate retry. */
+  const root = zipRoot();
+  try {
+    for (const call of ['kosmos maybe x', '$o = kosmos maybe x 2>&1', 'kosmos maybe x 2>$null', '$o = kosmos maybe x *>&1 | Out-String']) {
+      const r = ps(root, [call, '"exit=$LASTEXITCODE"']);
+      assert.equal(r.lines[r.lines.length - 1], 'exit=3', call + ' lost the exit code: ' + r.lines.join(' | ') + ' ' + r.stderr.slice(0, 200));
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('PowerShell: numbers go as the text the agent typed, not PowerShell\'s reading of it', { skip: !ON_WINDOWS && 'Windows only' }, () => {
+  const root = zipRoot();
+  try {
+    const r = ps(root, ['kosmos msg a 007 1kb 2.50 0x10']);
+    assert.deepEqual(JSON.parse(r.lines[0]), ['msg', 'a', '007', '1kb', '2.50', '0x10']);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
