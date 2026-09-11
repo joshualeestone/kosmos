@@ -834,7 +834,19 @@ cmd_post() {
       ;;
     *)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
+      # #2710: the room valve's sentence ends in a period ("...bring you in."),
+      # and this line adds its own -- a doubled ".." on the one refusal an agent
+      # meets most. Strip a trailing period so exactly one terminates the line;
+      # a refusal with no period of its own is unchanged.
+      because="${because%.}"
       say "Not posted: ${because:-we could not tell why}."
+      # #2710: HAND THE TEXT BACK. A post refused by the loop-guard was silently
+      # lost -- the agent composed it, and the only copy left was its own
+      # scrollback, so a substantive post vanished the moment the agent moved on.
+      # Echo it here so it is kept. (An operator clears a loop-guard hold with
+      # `kosmos room reopen <project-id>`, after which this text can be re-posted.)
+      say "Your message was not sent, so here it is to keep and re-post when the room is ready:"
+      printf '%s\n' "$text"
       exit 1
       ;;
   esac
@@ -1144,8 +1156,47 @@ cmd_react() {
 cmd_room() {
   local project
   project="${1:-}"
+  # #2710: `kosmos room reopen <project-id>` clears a room the loop-guard is
+  # holding, so the next post lands, without having to type a content post to
+  # do it. A subverb rather than a flag matches `feedback`'s shape. Edge, on
+  # record: a project whose id is literally "reopen" cannot be READ with
+  # `kosmos room reopen` (it is taken as the subverb); read it from the board.
+  if [ "$project" = "reopen" ]; then
+    local rproj because
+    rproj="${2:-}"
+    if [ -z "$rproj" ]; then
+      say "Usage: kosmos room reopen <project-id>   (clears a room the loop-guard is holding, so the next post lands)"
+      exit 2
+    fi
+    if ! healthy; then
+      say "Kosmos is not running, so the room cannot be reopened. Start it with: kosmos start"
+      exit 1
+    fi
+    local esc_rproj _rbody _rrc=0 _rcode _rbt
+    esc_rproj=$(printf '%s' "$rproj" | sed "s/[^A-Za-z0-9._-]//g")
+    _rbt="$(board_token || true)"   # #1946: board token for an enforcing board; the reopen route is board-token gated
+    # Same rc/http-code capture as the room read below: never a bare
+    # `local _rbody=$(...)` (local's own exit status would mask the curl
+    # failure and the `|| _rrc=$?` would not fire).
+    _rbody=$(kosmos_curl "$_rbt" "" -sS -m 15 -w $'\n%{http_code}' -X POST "$URL/api/project/$esc_rproj/room/reopen" 2>/dev/null) || _rrc=$?
+    if [ "$_rrc" -ne 0 ]; then
+      say "We could not reach Kosmos to reopen that room. Is it running at $URL?"
+      exit 1
+    fi
+    _rcode="${_rbody##*$'\n'}"
+    _rbody="${_rbody%$'\n'*}"
+    case "$_rcode" in
+      2??) say "Reopened $rproj. The loop-guard hold is cleared; the next post to that room will land." ;;
+      404) say "There is no project called \"$rproj\", so there is no room to reopen."; exit 1 ;;
+      *)
+        because=$(printf '%s' "$_rbody" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
+        say "We could not reopen that room${because:+: $because}"
+        exit 1 ;;
+    esac
+    exit 0
+  fi
   if [ -z "$project" ]; then
-    say "Usage: kosmos room <project-id>   (project ids are in your instructions' Your projects section)"
+    say "Usage: kosmos room <project-id>   (read a room; or: kosmos room reopen <project-id> to clear a loop-guard hold)"
     exit 2
   fi
   if ! healthy; then

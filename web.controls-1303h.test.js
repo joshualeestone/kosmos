@@ -19,15 +19,15 @@ test('item 1: the Tasks plus takes the first grid track, so it sits left of the 
   // and the button sat at the far right reading "+ New task".
   assert.match(rule('#pj-tasks-field { grid-template-columns:'), /auto minmax\(0, 1fr\)/,
     'the tracks are back to label-then-button, so the plus returns to the right');
-  assert.match(rule('#pj-tasks-field > #pj-newtask {'), /grid-column: 1/);
+  assert.match(rule('.pj3 #pj-tasks-field > #pj-newtask {'), /grid-column: 1/);
   assert.match(rule('#pj-tasks-field > .dlab { grid-column: 2'), /grid-column: 2/);
 });
 
 test('item 1: it is the rails\' 22x22 glyph, not a worded button', () => {
-  const r = rule('#pj-tasks-field > #pj-newtask {');
+  const r = rule('.pj3 #pj-tasks-field > #pj-newtask {');
   assert.match(r, /width: 22px; height: 22px/, 'the rails draw 22x22 and this no longer matches them');
   assert.match(r, /font-size: 0/, 'the " New task" words are drawn again');
-  assert.match(rule('#pj-tasks-field > #pj-newtask > span {'), /font-size: 15px/,
+  assert.match(rule('.pj3 #pj-tasks-field > #pj-newtask > span {'), /font-size: 15px/,
     'the + glyph lost its own size, so the button is now invisible rather than compact');
 });
 
@@ -41,6 +41,15 @@ test('item 1: it is the rails\' 22x22 glyph, not a worded button', () => {
 test('item 1: the words are still in the DOM, so the button keeps its name', () => {
   assert.match(PAGE, /<button class="btn" id="pj-newtask" type="button"><span aria-hidden="true">\+<\/span> New task<\/button>/,
     'the New task words were deleted from the markup, which removes the accessible name');
+});
+
+// #2711 item 10: the tab view now applies the SAME font-size:0 "+"-only
+// treatment to #pj-add-member (both layouts share the technique). Guard its
+// worded name too, so a future edit that swaps the "+ Add member" text for a
+// bare glyph is caught, exactly as the #pj-newtask test above catches it.
+test('#2711 item 10: the Add member button keeps its worded name in the DOM', () => {
+  assert.match(PAGE, /<button class="btn-quiet pj-addmem" id="pj-add-member" type="button"><span aria-hidden="true">\+<\/span> Add member<\/button>/,
+    'the Add member words were deleted from the markup, which removes the accessible name (font-size:0 hides them visibly, so the text must stay)');
 });
 
 test('item 2: a folded section hides its plus, and only its plus', () => {

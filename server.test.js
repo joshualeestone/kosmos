@@ -147,6 +147,15 @@ process.env.HOME = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-srv-home-'));
 // a real such machine would have. The liveness probe runs the fake claude bin
 // (AGENT_WORKFORCE_CLAUDE_BIN=/bin/echo below) -> not a dead sign-in -> the create
 // proceeds. accounts.js reads the default account's record at <HOME>/.claude.json.
+// #2724: seal the ENGINE's home seam as well as the OS home. `accounts.js` reads
+// `AGENT_WORKFORCE_HOME || os.homedir()`, so with only `$HOME` sealed an ambient
+// `AGENT_WORKFORCE_HOME` sends the account lookup somewhere other than the
+// `.claude.json` seeded on the next line, and the create arms refuse with "no
+// Claude account signed in on this computer". Same suite rule as
+// engine/create.no-account-2145.test.js: an unsealed home reads the operator's
+// real accounts. (The child-process seam probe far below sets its OWN
+// AGENT_WORKFORCE_HOME in the env it spawns with, so it is unaffected by this.)
+process.env.AGENT_WORKFORCE_HOME = process.env.HOME;
 fs.writeFileSync(nodePath.join(process.env.HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'route-test@example.com' } }));
 fs.mkdirSync(nodePath.join(process.env.HOME, '.claude', 'projects'), { recursive: true });
 // ⚠️ AND THE RELEASE HOST. Every /api/status request pokes the update check;
@@ -11358,8 +11367,11 @@ test('#1304: each field takes the best source that has it, and neither hard-null
     /* 🛑 AND THE SANDBOX-SEAM DIVERGENCE, WHICH CANNOT BE TESTED IN THIS PROCESS
        AND WHOSE FIRST VERSION WAS VACUOUS. `accounts` resolves HOME once, AT
        MODULE LOAD, as `AGENT_WORKFORCE_HOME || os.homedir()`. My first attempt
-       guarded on `process.env.AGENT_WORKFORCE_HOME` - which this suite never
-       sets - so the whole arm was skipped and reverting the fix left 249/249
+       guarded on `process.env.AGENT_WORKFORCE_HOME` - which this suite did not
+       set AT THE TIME (#2724 now sets it near the top, so the reasoning recorded
+       here no longer reproduces as written; the arm would no longer skip, and the
+       child-process form below is what keeps it honest either way)
+       - so the whole arm was skipped and reverting the fix left 249/249
        green. An arm that cannot run is an assertion a broken implementation
        satisfies, which is the exact defect the rest of this test exists to close.
        ⇒ Driven in a CHILD PROCESS with the variable set before any require, so

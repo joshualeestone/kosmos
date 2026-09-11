@@ -541,6 +541,16 @@ function rowShaped(m) {
   if (m.kind === 'valve' || m.kind === 'refused') {
     return str(m.from) && str(m.to) && str(m.because);
   }
+  /* #2710: a REOPEN marker. The operator clears a held room's back-and-forth
+     budget so the next post lands. It carries no text and is never rendered in
+     the room (the thread render filters it out); its only job is to move the
+     valve's window mark, exactly as an operator post does, without adding a
+     content row. Given its own read-side rule so a malformed reopen is dropped
+     like every other first-class kind. Always operator: an agent cannot mint
+     one (the route is board-token gated, the operator surface). */
+  if (m.kind === 'reopen') {
+    return str(m.project) && m.operator === true;
+  }
   /* A NOTE is Kosmos itself speaking in a room (#167): the product may say
      something in its own voice; it may never fabricate a message attributed
      to an agent. Same shape as the valve band it renders in. */
@@ -1193,8 +1203,18 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
      the person is told everyone was asked to bring them in and then cannot get
      an answer out of anybody. */
   const windowFrom = now - lim.windowMs;
+  /* #2710: a REOPEN marker moves this mark exactly as an operator post does.
+     The operator post arm is the remedy ARRIVING (a person in and driving);
+     an explicit reopen is the person saying "I have seen the loop, clear it"
+     without having to type a content post into the room to do it. Both reset
+     the arrival budget to the moment they happened; neither can be minted by
+     an agent (operator posts ride the operator route, reopen rows the
+     board-token-gated reopen route). */
   const lastOperatorAt = log.reduce((mark, m) => {
-    if (!m || m.kind !== 'post' || m.operator !== true || m.project !== projectId) return mark;
+    if (!m || m.project !== projectId) return mark;
+    const isOperatorPost = m.kind === 'post' && m.operator === true;
+    const isReopen = m.kind === 'reopen';
+    if (!isOperatorPost && !isReopen) return mark;
     const at2 = Date.parse(m.at);
     return Number.isFinite(at2) && at2 > mark ? at2 : mark;
   }, 0);
@@ -1216,8 +1236,14 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
         + 'Kosmos did not step in, because you have the limit turned off.';
     // Same latest-row rule as the pair dedup: the record's last word for
     // this room must match current behavior; within one state, once.
+    // #2738: dedup from countFrom, not the raw window, so a reopen (or an
+    // operator post) resets the notice baseline exactly as it reset the
+    // arrival budget above. On the common path countFrom === windowFrom, so
+    // this is unchanged; only after a reopen/operator post does a re-loop get
+    // a fresh "stopped again" notice instead of being suppressed by a
+    // pre-reopen valve row.
     const prior = log.filter((m) => m && m.kind === 'valve'
-      && m.project === projectId && Date.parse(m.at) >= now - lim.windowMs);
+      && m.project === projectId && Date.parse(m.at) >= countFrom);
     const latest = prior[prior.length - 1];
     if (!latest || (latest.stopped !== false) !== lim.on) {
       appendLog({ kind: 'valve', from, to: projectId, project: projectId, at, because, stopped: lim.on });
@@ -1230,9 +1256,13 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
          own summons left its only trace inside her terminal). One refused row
          per agent per window, project-stamped so the room can serve it. */
       try {
+        // #2738: from countFrom too, so a reopen/operator post clears the
+        // per-agent refused dedup as well -- a re-offending agent after a
+        // reopen leaves a fresh refused row instead of being swallowed by its
+        // pre-reopen one. Unchanged on the common path (countFrom===windowFrom).
         const already = log.some((m) => m && m.kind === 'refused'
           && m.from === from && m.project === projectId
-          && Date.parse(m.at) >= now - lim.windowMs);
+          && Date.parse(m.at) >= countFrom);
         if (!already) {
           appendLog({ kind: 'refused', from, to: projectId, project: projectId,
             because: 'the room was going back and forth without landing, so Kosmos was holding it for the person', at });
@@ -1839,6 +1869,30 @@ function react({ project, of, emoji, from, operator, members }) {
   return { ok: true, op, emoji: e, of: postId };
 }
 
+/* #2710: reopen a held room. The valve stops a room going back and forth
+   without landing and holds it for the person; before this, the only way to
+   clear that hold was an operator POST (which resets the window) -- there was
+   no way to say "release it" without typing a message into the room, and
+   nothing told the person that a post is what clears it. This is the explicit
+   release: it appends a reopen marker (see rowShaped and the valve's
+   lastOperatorAt reduce) that moves the window mark to now, so the next post
+   lands. It writes NO content and renders nothing in the room.
+
+   OPERATOR SURFACE. The row is always operator: true, and the only route that
+   reaches this is board-token gated -- the same posture as an operator post.
+   An agent cannot reopen a room it is looping in, and even if it could, the
+   valve simply re-fires once the budget is spent again. */
+function reopenRoom(project, at) {
+  const projectId = String(project == null ? '' : project).trim();
+  if (!projectId) return { ok: false, because: 'say which project room to reopen' };
+  if (!/^[A-Za-z0-9._ -]+$/.test(projectId) || projectId.includes(']')) {
+    return { ok: false, because: 'that project id contains characters we cannot read' };
+  }
+  const when = typeof at === 'string' && Number.isFinite(Date.parse(at)) ? at : new Date().toISOString();
+  appendLog({ kind: 'reopen', from: 'you', to: projectId, project: projectId, operator: true, at: when });
+  return { ok: true, at: when };
+}
+
 module.exports = {
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   react, reactionsFor, normalizeReactionEmoji,
@@ -1846,7 +1900,7 @@ module.exports = {
   START, END, blockBody,
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
-  resolveSender, send, sendPost, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
+  resolveSender, send, sendPost, reopenRoom, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests,
 };

@@ -261,6 +261,114 @@ fi
 # layer, 4b's harness), so they self-exclude and are never refused by their own cut.
 kosmos_claim_machine >/dev/null 2>&1 || true
 
+# #2724: GIVE THE CUT AN EMPTY HOME, so its gates stop reading the operator's STORE
+# and ACCOUNTS.
+#
+# ⚠️ NOT "stop reading the live fleet", which is what this comment said first and is an
+# OVERCLAIM. What moves is the data store, the workers root, the Claude accounts and the
+# LaunchAgents WRITES (all of which resolve through AGENT_WORKFORCE_HOME). What does NOT
+# move: the projects root (projects.js:1384, os.homedir), the LaunchAgents READS
+# (machine.js:52 and boardrestart.js:69 use $HOME), the config-root scan (status.js:46
+# has its OWN homeDir() that never consults the variable), and the agent roster, which
+# comes from tmux and is redirected only by AGENT_WORKFORCE_TMUX_BIN. So a cut-time gate
+# can STILL enumerate the live fleet by name. The class is narrowed, not closed.
+#
+# 🛑 AND THAT LIST IS NOT EXHAUSTIVE. Treating it as a closed set is how the next gap
+# gets missed. Two more that ARE measured and are easy to overlook because they are not
+# data roots at all:
+#   openaiaccounts.list()               1 -> 0   (the same shape as the Claude accounts,
+#                                                 and the step-3b argument below rested
+#                                                 only on the Claude half)
+#   runners.resolveBin('claude').present true -> FALSE
+#                                                (BINARY DISCOVERY: under the cut home the
+#                                                 product believes the Claude CLI is not
+#                                                 installed on this machine)
+# Others that resolve through the same seam and were not individually measured:
+# trust.js, subscription.js, codexupdate.js + create.js (.codex), geminisession.js,
+# boardauth.js, runningas.js, worlds.js, delete-leftover.js, connect.js, discover.js.
+# ⇒ ANYTHING resolving a path through AGENT_WORKFORCE_HOME changes during a cut. Ask
+# that question of a gate rather than consulting the table above.
+#
+# 🔑 THE CLASS, not one flaky test. `tools/release.sh` runs on a box that is also
+# running real agents and carrying a live board, roster and data root. Several
+# cut-time gates read that live state instead of the tree they froze, so a cut
+# reds on what the machine happens to be doing. Each instance was fixed as a
+# one-off (the block-delivery harness reading the real you.json #2259; the
+# install-gate running-app dedup #2124; the fleet.install created-agents leak
+# near #2696; the paneless-beat leak #2718) and they keep arriving, because the
+# list is open-ended: ANY new gate that reads the store is a new instance, and it
+# only shows up on the box that carries live state, never on a quiet dev box.
+#
+# 🛑 WHY `AGENT_WORKFORCE_HOME` AND NOT `AGENT_WORKFORCE_DATA`, WHICH IS THE
+# OBVIOUS ONE AND IS WRONG. Measured, whole suite, empty root:
+#   AGENT_WORKFORCE_DATA=<empty>   -> RED, and two of the failures are
+#                                     engine/sandbox.js refusing BY NAME:
+#                                     "Kosmos will not start half-sandboxed".
+#   AGENT_WORKFORCE_HOME=<empty>   -> far fewer, and none of them that refusal.
+# `DATA` is one of the four dirs in sandbox.js's #634 all-or-nothing rule (DATA,
+# PROJECTS, WORKERS, LAUNCH, plus an inert tmux): setting ONE of them is the exact
+# half-sandboxed shape that card was filed about, after a fixture board with two
+# of five knobs set typed into two real agents' terminals. `HOME` is not one of
+# the four, so it cannot trip that rule.
+# ⚠️ AND `DATA` BREAKS TESTS THAT WERE ALREADY ISOLATING CORRECTLY: a large group
+# of discovery tests (#1159, #2243) sandbox themselves THROUGH `AGENT_WORKFORCE_HOME`
+# and derive their data root from it, and an ambient `DATA` overrides that
+# derivation (DATA beats HOME by design in store.dataRootFor), handing them a root
+# inconsistent with their own fixture.
+#
+# ✅ `HOME` is the seam the repo already built for this (store.js #1780): "one var
+# (HOME) isolates BOTH this store and the workers root (create.homeDir)". It sits
+# BELOW `DATA` in precedence, so a test that sets its own `DATA` still wins -- this
+# changes the ambient default without overriding anybody's deliberate sandbox.
+#
+# ⚠️ WHAT THIS DOES NOT ISOLATE, stated so nobody reads it as whole-box isolation:
+# `projectsRoot` has its own var (AGENT_WORKFORCE_PROJECTS) and launchd has
+# AGENT_WORKFORCE_LAUNCH, and BOTH are in the #634 four. Setting either without the
+# other two would be refused, so closing that gap means the full four-plus-tmux
+# sandbox, which is a larger change and needs its own measurement. Named here
+# rather than implied away.
+#
+# The dir is recreated EMPTY at the start of every cut rather than cleaned on exit,
+# so "empty when the gates run" holds without depending on a trap, and a failed
+# cut leaves it behind to inspect. Every gate subprocess inherits it, INCLUDING
+# kosmos_isolation_rerun_verdict -- which matters: the contention rerun must
+# adjudicate the same world the gate ran in, or it is comparing two machines.
+if [ "${KOSMOS_CUT_LIVE_HOME:-0}" != 1 ]; then
+  # 🛑 GUARD THE INPUT, NOT THE DERIVED PATH. An earlier version of this checked
+  # whether "$_cut_home" was `/`, `/tmp` or `$HOME`, which it can NEVER be: the leaf
+  # is always appended, so the case could not fire on any value of TMPDIR and read as
+  # protection while providing none. The shape that actually hurts is a TMPDIR that is
+  # a real directory (TMPDIR=$HOME makes this `rm -rf ~/kosmos-cut-home`), so that is
+  # what is asked about here.
+  _cut_tmp="${TMPDIR:-/tmp}"
+  # Strip EVERY trailing slash, not one: `${x%/}` removes a single one, so `$HOME//`
+  # survived the literal comparison below and reached the `rm -rf`.
+  while [ "$_cut_tmp" != "/" ] && [ "${_cut_tmp%/}" != "$_cut_tmp" ]; do _cut_tmp="${_cut_tmp%/}"; done
+  case "$_cut_tmp" in
+    ''|/) echo "refusing to derive the cut-only home from TMPDIR=$_cut_tmp: this step removes and recreates a leaf inside it. Point TMPDIR at a scratch directory."; exit 1 ;;
+    # A RELATIVE TMPDIR would make AGENT_WORKFORCE_HOME relative, which each gate
+    # subprocess then resolves against its OWN cwd; engine/accounts.js:99 already names
+    # that as a hazard, and store.dataRootFor throws on a non-absolute root part-way
+    # through the cut. Refuse it here, where the message can say why.
+    [!/]*) echo "refusing to derive the cut-only home from a RELATIVE TMPDIR=$_cut_tmp: the exported AGENT_WORKFORCE_HOME would resolve against each gate's own working directory. Point TMPDIR at an absolute scratch directory."; exit 1 ;;
+  esac
+  # 🔑 `-ef` (same file), NOT a string compare. `$HOME` has more than one spelling on
+  # macOS: the firmlink path /System/Volumes/Data/Users/<u> names the same directory as
+  # /Users/<u>, and a literal `case "$HOME"` pattern misses it. tools/lib/board-origin.sh
+  # hit exactly this and uses -ef for the same reason.
+  if [ -e "$_cut_tmp" ] && [ "$_cut_tmp" -ef "$HOME" ]; then
+    echo "refusing to derive the cut-only home from TMPDIR=$_cut_tmp: it is the operator's home directory, and this step removes and recreates a leaf inside it. Point TMPDIR at a scratch directory."; exit 1
+  fi
+  _cut_home="$_cut_tmp/kosmos-cut-home"
+  rm -rf "$_cut_home" && mkdir -p "$_cut_home" || { echo "could not create the cut-only home at $_cut_home"; exit 1; }
+  export AGENT_WORKFORCE_HOME="$_cut_home"
+  # ⚠️ THE EMITTED LINE IS THE ONE A PERSON READS, AND IT IS THE ONE THE FIRST ROUND OF
+  # CORRECTIONS MISSED. The comment fifty lines above was fixed to stop saying "the live
+  # fleet"; this string, which is what actually reaches the operator at cut time, still
+  # said it. Say what moves, and do not imply the roster is isolated: it is not.
+  echo "cut-only home: $AGENT_WORKFORCE_HOME (empty: the store, the accounts and the runner-binary lookup below read no operator state. The agent roster and the config-root scan are NOT isolated by this. KOSMOS_CUT_LIVE_HOME=1 opts out)"
+fi
+
 step "== 1. main, clean, and carrying what you mean to ship =="
 git -C "$REPO" fetch origin -q
 [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD)" = main ] || { echo "not on main"; exit 1; }
@@ -585,7 +693,29 @@ _page_exit=0
 # drift -- and an unverifiable version, which is not verified-pinned -- into a
 # hard stop: the gate exits 2 and the red-gate check below fails the cut.
 # Recover by re-provisioning: bash tools/provision-pw.sh.
-( cd "$REPO" && KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
+# 🛑 STEP 3b DELIBERATELY DOES NOT INHERIT THE CUT HOME (#2724), and this line is the
+# exclusion. `env -u` drops it for this gate only, so the page layer runs exactly as it
+# did before that change.
+#
+# WHY, measured rather than assumed: `AGENT_WORKFORCE_HOME=` appears at exactly two
+# places in tools/browser-checks.sh (the sb4 board, and the #1573 site that runs twice),
+# so THREE boards set it and SIX do not. (An earlier version of this comment said "seven
+# of nine", which was a bad count off a sloppy parse; the direction of the argument is
+# unchanged, the number was simply wrong.) Those six resolve the operator's home, and on
+# this box an empty home takes `accounts.list()` from 5 to 0, `openaiaccounts.list()`
+# from 1 to 0, and `runners.resolveBin('claude').present` from true to FALSE, so the
+# product also stops believing the Claude CLI is installed. engine/create.js refuses a
+# Claude create outright when there is no default account.
+# That would change the behaviour of roughly 25 checks, and the page gate aborts the cut
+# on any red.
+#
+# ⚠️ SO THE CLASS THIS CARD IS ABOUT IS STILL OPEN HERE. It is excluded because it is
+# UNMEASURED, not because it is clean: the gate needs a real browser, which this change's
+# author could not run. Closing it means giving those boards their own sandbox home with
+# a seeded account, the same shape server.projects.test.js already uses, and then RUNNING
+# the page gate. Carded rather than done, and named here so the exclusion cannot be
+# mistaken for coverage.
+( cd "$REPO" && env -u AGENT_WORKFORCE_HOME KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
 grep -E '^PASS |^FAIL |^COULD NOT RUN|^‼️|retried:|all page' "$_page_log" || true
 if [ "$_page_exit" -eq 126 ] || [ "$_page_exit" -eq 127 ]; then echo "the page gate COULD NOT RUN (exit $_page_exit: bash, node or a program it needs is missing or not executable); this is not a red check. Full output: $_page_log"; exit 1; fi
 [ "$_page_exit" -eq 0 ] || { echo "the page checks are red (exit $_page_exit); full output: $_page_log"; exit 1; }

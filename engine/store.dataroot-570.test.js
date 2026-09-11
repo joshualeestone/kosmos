@@ -108,6 +108,13 @@ test('📌 linux is KNOWINGLY unhandled, and this records it rather than hiding 
 test('CONTROL: the live ROOT is built by the same function', () => {
   /* Without this, dataRootFor could be a correct function nothing calls, which
      is a defect I shipped twice this week. */
-  assert.equal(store.ROOT, store.dataRootFor(process.platform, require('node:os').homedir(), process.env),
+  /* #2724: the home input must be the one the PRODUCT resolves, which is
+     `AGENT_WORKFORCE_HOME || os.homedir()` (store.js root()). Hardcoding
+     os.homedir() made this control fail whenever that variable was set by the
+     environment rather than by a fixture -- a false red about ambient state, not
+     about the derivation. The control is unweakened: it still asserts ROOT comes
+     out of dataRootFor and not from some other rule, which is the whole point. */
+  const productHome = process.env.AGENT_WORKFORCE_HOME || require('node:os').homedir();
+  assert.equal(store.ROOT, store.dataRootFor(process.platform, productHome, process.env),
     'ROOT is derived some other way, so every assertion above is about a function the product does not use');
 });

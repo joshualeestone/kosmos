@@ -868,6 +868,22 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    rule and sizes intrinsically. It is here so an account name does not render
    as a stub next to it, and the known cost is that the row wraps. */
 #create-model, #create-account, #create-reports, #d-reports, #d-provider-account, #pj-one-add, #pj-thread-who { flex: 1; min-width: 220px; }
+/* #2697 (Josh, design channel 2026-09-10, on the agent Profile tab): the three
+   Profile fields each ran the full container width. Josh asked for Name ~25%,
+   What they do ~50%, Reports to ~25%, each left-aligned on its own row. Scoped to
+   the detail form's field ids, so every other form's inputs keep flex:1 filling
+   the row. These come after the flex:1 rules above (same id specificity, so source
+   order wins for #d-reports); the shared min-width:220px still floors each field so
+   a narrow panel does not crush them below a usable size. The wrap also keeps the
+   long Name helper from running the full width, per Josh's "wrap Name helper at ~50%". */
+#d-rename { flex: 0 1 25%; }
+#d-role { flex: 0 1 50%; }
+#d-reports { flex: 0 1 25%; }
+/* Spacing above "Reports to": .detail .field zeroes margin-top, and this wrap (unlike
+   its Name/What-they-do siblings) carried no inline margin-top, so its title sat right
+   under the What-they-do input. Match the siblings' 18px. */
+#d-reports-wrap { margin-top: 18px; }
+#d-rename-hint { max-width: 50%; }
 .btn { font: var(--text-body) var(--font-ui); padding: var(--space-4) var(--space-5);
        border-radius: var(--radius-control); border: 0.5px solid var(--border-strong);
        background: var(--bg); color: var(--label); cursor: pointer; }
@@ -3943,6 +3959,23 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    tests pin (the base .pjcard/.pjcol borders above still apply there).
    The backgrounds are left alone here; item 6 handles the dialog fill. */
 body:not(.consolidated) .pjcard, body:not(.consolidated) .pj3 > aside.pjcol:not(.pjsplit), body:not(.consolidated) .pjmid, body:not(.consolidated) .pjmid .thread { border: 0; }
+/* Josh, 2026-09-10 (#2711 item 10): in the tab view, add-a-member and add-a-task
+   are a small 22x22 "+" at the top right of the Members / Tasks head, on the
+   heading's baseline, instead of a full-width button under the list. This is
+   the treatment the consolidated view already uses (kosmos#1303 H), ported here
+   and scoped to body:not(.consolidated); Josh wants BOTH pluses on the RIGHT in
+   the tab view (the consolidated view swaps the Tasks plus to the left, which
+   this does not). The buttons keep their ids/wiring and accessible names; only
+   place and size change. `font-size: 0` on the button hides the worded text
+   while the "+" span keeps its own size, so the accessible name survives (a
+   display:none on the text would take the name with it). */
+body:not(.consolidated) .pjcard-members, body:not(.consolidated) #pj-tasks-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 8px; }
+body:not(.consolidated) .pjcard-members > *, body:not(.consolidated) #pj-tasks-field > * { grid-column: 1 / -1; }
+body:not(.consolidated) .pjcard-members > .dlab, body:not(.consolidated) #pj-tasks-field > .dlab { grid-column: 1; grid-row: 1; margin-bottom: 0; }
+body:not(.consolidated) .pjcard-members > .pj-addmem, body:not(.consolidated) #pj-tasks-field > #pj-newtask { grid-column: 2; grid-row: 1; width: 22px; height: 22px; padding: 0; margin: 0 0 6px; border: 1px solid var(--k-rule); border-radius: 7px; background: var(--k-surface); color: var(--k-ink-2); font-size: 0; line-height: 0; display: grid; place-items: center; }
+body:not(.consolidated) .pjcard-members > .pj-addmem > span, body:not(.consolidated) #pj-tasks-field > #pj-newtask > span { font: 600 15px/1 var(--font-ui); }
+body:not(.consolidated) .pjcard-members > .pj-addmem:hover, body:not(.consolidated) #pj-tasks-field > #pj-newtask:hover { color: var(--k-ink); }
+body:not(.consolidated) .pjcard-members > .pj-members, body:not(.consolidated) #pj-tasks-field > .tkcards { margin-top: 6px; }
 /* Josh, 2026-09-10 (#2711 item 6): the dialog area is white in the tab view,
    not the super-light gray. The .pjmid column is already --k-surface, so the
    thread joins it as one flat white area. Consolidated keeps its own thread
@@ -7913,7 +7946,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          reading it now would not know the agent itself is told. The
          disclaimers stay, because both are still true and both are things
          people worry about. -->
-    <div class="fhint">What you call them here, and what their own instructions will say. It does not change where they live on this computer, or the name other agents use to reach them.</div>
+    <div class="fhint" id="d-rename-hint">What you call them here, and what their own instructions will say. It does not change where they live on this computer, or the name other agents use to reach them.</div>
     <div class="frow">
       <input type="text" id="d-rename" maxlength="80" placeholder="What you call them">
     </div>
@@ -18011,7 +18044,14 @@ function acctReauthChrome(on, email) {
   if (on) {
     t.textContent = 'Sign in again';
     intro.textContent = 'This signs in again as ' + (email || 'this account') + ' and updates the account you already have. It does not make a second one.';
-    warn.innerHTML = '<span class="dwarn-m" aria-hidden="true">&#9888;</span><b>First, sign in as ' + (email || 'this account') + ' in your browser.</b> Kosmos never sees your password.';
+    /* #1760: esc() the email here. This is the one board sink that put a dynamic
+       account string into innerHTML raw -- the intro line above uses textContent,
+       and every other account/name path in this file (acctRowHtml, card, the
+       option lists) already runs through esc(). The email is provider-validated
+       and read off this machine, so a raw concat is only self-XSS today; escaping
+       it removes the file's one output-encoding inconsistency and closes the sink
+       against a future change to where email comes from. */
+    warn.innerHTML = '<span class="dwarn-m" aria-hidden="true">&#9888;</span><b>First, sign in as ' + esc(email || 'this account') + ' in your browser.</b> Kosmos never sees your password.';
     add.textContent = 'Sign in again';
   } else {
     t.textContent = ACCT_ADD_TITLE;
@@ -20385,7 +20425,7 @@ const ROOM_SPOKE_SEEDED = new Set();
    skips it. Listed anyway, because the test above requires every emitted kind
    to be classified, and "unreachable today" is a property of the other file. */
 const ROOM_SPEECH_KINDS = new Set(['message', 'post']);
-const ROOM_NOT_SPEECH = new Set(['refused', 'valve', 'note', 'nudge', 'reaction']);
+const ROOM_NOT_SPEECH = new Set(['refused', 'valve', 'note', 'nudge', 'reaction', 'reopen']);
 // Whether a status tick has ever ANSWERED. [] before the first answer means
 // "not heard yet", not "empty board", and the two must never be conflated
 // (the Recommended pill reads this).

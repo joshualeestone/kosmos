@@ -49,8 +49,9 @@ const promptrequest = require('./promptrequest');
    block can be sent away for good. The flag lives on disk beside the app's
    other remembered answers (seen-version.json, first-run.json), not in the
    browser, because "forever" has to survive a new browser, a new port and
-   the next version. A missing file is the only "not dismissed"; a file we
-   cannot read is one that exists, so the person's answer stands.
+   the next version. Its shape and the full read contract live on `dismissed()`
+   below (#2704: the file now records a SNAPSHOT of what was on offer, so a new
+   agent re-shows the block rather than being hidden forever).
    ⚠️ `store.ROOT` ALONE, #891: `store.ROOT` already resolves
    AGENT_WORKFORCE_DATA (it joins the env var with the app's own
    store leaf (store.APP, 'Kosmos') when set). `process.env.AGENT_WORKFORCE_DATA
@@ -127,17 +128,91 @@ function undecline(dir) {
   return { ok: true, restored: given };
 }
 
-function dismissed() {
-  try { fs.statSync(DISMISS_FILE); return true; } catch (err) {
-    return !(err && err.code === 'ENOENT');
+/**
+ * Has the person sent the found-agents block away, GIVEN what it would show them
+ * right now (#2704)?
+ *
+ * 🛑 THIS USED TO BE A GLOBAL ON/OFF FLAG AND THAT WAS THE BUG. `dismissed()`
+ * returned true whenever `DISMISS_FILE` merely EXISTED, so one "Dismiss forever"
+ * hid EVERY agent found afterwards, forever -- Josh's Liu Kang, added later, never
+ * appeared. Josh's word was "forever", but "forever" meant "everything you are
+ * offering me right now", not "anything you ever find on this computer again".
+ *
+ * ⭐ SO DISMISS IS A SNAPSHOT, NOT A SWITCH. `dismiss()` records the folders that
+ * were on offer at the moment it was pressed; `dismissed()` stays true only while
+ * every folder currently on offer is one of those. A folder that was NOT in the
+ * snapshot -- a genuinely new agent -- flips it back to false and the block returns.
+ *
+ * ⚠️ THE THREE FILE STATES, AND THE SAFE DIRECTION FOR EACH:
+ *   - MISSING (ENOENT): never dismissed -> false (the only file state that is
+ *     UNCONDITIONALLY not dismissed; the VALID state below can also return false).
+ *   - UNREADABLE / not valid JSON: the person's answer stands -> true. A read blip
+ *     must not flash a block somebody deliberately sent away.
+ *   - VALID: dismissed iff the current offer is a subset of the snapshot (so this
+ *     state returns false too whenever a new item is on offer).
+ * An OLD-FORMAT file (pre-#2704: `{dismissedAt}` with no `dirs`) reads as an EMPTY
+ * snapshot, so a machine already dismissed under the old code re-shows its current
+ * agents ONCE (which un-traps it); a fresh dismiss then records the real snapshot.
+ */
+function dismissed(currentDirs) {
+  let snapshot;
+  try {
+    const raw = JSON.parse(fs.readFileSync(DISMISS_FILE, 'utf8'));
+    snapshot = Array.isArray(raw && raw.dirs) ? raw.dirs.filter((d) => typeof d === 'string') : [];
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return false;
+    return true;
   }
+  const cur = Array.isArray(currentDirs) ? currentDirs.filter((d) => typeof d === 'string') : [];
+  return cur.every((d) => snapshot.includes(d));
 }
 
-function dismiss() {
+/**
+ * Record the identities on offer right now as the dismissed snapshot (#2704). A
+ * PURE WRITER: it stores exactly the identities it is handed. The server's dismiss
+ * route builds that set from `candidateDirs` over the current found()/warm-scan
+ * caches; a bare `dismiss()` records an empty snapshot (which then re-shows on the
+ * next candidate), and keeps the no-arg call cheap -- the writer never walks the
+ * filesystem itself.
+ */
+function dismiss(dirs) {
+  const given = Array.isArray(dirs)
+    ? [...new Set(dirs.filter((d) => typeof d === 'string'))]
+    : [];
   fs.mkdirSync(path.dirname(DISMISS_FILE), { recursive: true });
   const tmp = DISMISS_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify({ dismissedAt: new Date().toISOString() }) + '\n');
+  fs.writeFileSync(tmp, JSON.stringify({ dismissedAt: new Date().toISOString(), dirs: given }) + '\n');
   fs.renameSync(tmp, DISMISS_FILE);
+}
+
+/**
+ * The identities a found/scan response WOULD SHOW a person -- the offer whose
+ * members `dismiss`/`dismissed` reason about (#2704). Named agents already under
+ * Kosmos (`already === true`) are never offered, so they are excluded here too.
+ *
+ * 🛑 TWO ROW SHAPES, TWO IDENTITY FIELDS. `agents`, `adoptable` and `candidates`
+ * are FOLDERS -- `folderRow` builds `{dir, ...}`. But `importable` rows are loose
+ * agent FILES -- `looseRow` builds `{file, ...}` with NO `dir`. `importable` is a
+ * dismissed-gated population too (the create import panel's `frImportOffer` hides
+ * on `dismissed`), so a loose file contributes its `file` path as its identity; a
+ * `dir`-only read of importable would silently drop every loose file, leaving the
+ * exact "dismiss hides a whole population forever" trap this card fixes still live
+ * for imports. De-duped so a folder reachable two ways counts once.
+ */
+function candidateDirs(out) {
+  const ids = [];
+  if (out && Array.isArray(out.agents)) {
+    for (const a of out.agents) if (a && a.already !== true && typeof a.dir === 'string') ids.push(a.dir);
+  }
+  for (const key of ['adoptable', 'candidates']) {
+    if (out && Array.isArray(out[key])) {
+      for (const c of out[key]) if (c && typeof c.dir === 'string') ids.push(c.dir);
+    }
+  }
+  if (out && Array.isArray(out.importable)) {
+    for (const c of out.importable) if (c && typeof c.file === 'string') ids.push(c.file);
+  }
+  return [...new Set(ids)];
 }
 
 /**
@@ -1899,6 +1974,7 @@ module.exports = { alreadyIn,
   foundGemini,
   codexIdentity,
   runningUnderName, found, scan, connect, disconnect, dismissed, dismiss, DISMISS_FILE,
+  candidateDirs,
   declined, decline, undecline, DECLINED_FILE,
   // #2125: exposed so a test can assert the AUTO scan roots exclude the
   // TCC-protected home folders (Documents/Downloads/Desktop) while the import
