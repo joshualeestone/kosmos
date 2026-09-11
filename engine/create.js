@@ -857,6 +857,22 @@ function setAccount(name, dir) {
   if (!NAME_RE.test(String(clean == null ? '' : clean))) {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_NAME };
   }
+  /* Read how the agent is started BEFORE resolving an account, so the account
+     is looked up in the runner's OWN world. #2826: a CODEX agent's accounts
+     live in `openaiaccounts` (each is a `~/.codex*` home with its own
+     auth.json), not `accounts.js`, which only ever scans `~/.claude*`.
+     Resolving against `accounts.list()` first refused a real codex account at
+     REFUSE_ACCOUNT before the runner branch below was ever reached -- Dave's
+     actual blocker, measured by April with a discriminating control. */
+  const job = readJob(clean);
+  if (!job) {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `we could not read how ${spoken} is started, so we have not changed it.`,
+    };
+  }
+  if (job.runner === 'codex') return setCodexAccount(clean, spoken, dir, job);
+
   const accounts = require('./accounts');
   const all = accounts.list();
   /* The empty string means "back to the default account", which is a real
@@ -875,19 +891,6 @@ function setAccount(name, dir) {
     };
   }
 
-  const job = readJob(clean);
-  if (!job) {
-    return {
-      outcome: OUTCOME.REFUSED,
-      because: `we could not read how ${spoken} is started, so we have not changed it.`,
-    };
-  }
-  if (job.runner === 'codex') {
-    // Accounts here are Claude accounts (CLAUDE_CONFIG_DIR), which mean
-    // nothing to codex; writing one anyway would claim an account change
-    // that changes nothing (#245 v1).
-    return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on OpenAI, so there is no Claude account to change` };
-  }
   try {
     fs.writeFileSync(plistPath(clean),
       plistFor(clean, job.claude, job.tmux, job.model, acct.isDefault ? null : acct.dir, job.runner), 'utf8');
@@ -932,13 +935,13 @@ function setAccount(name, dir) {
          Code's trust prompt in a TUI nobody can answer. The paired preacceptBypass
          below already creates settings.json on a fresh account, so without this the
          two calls are asymmetric exactly as they were on the create path. Claude-only
-         already (codex is refused above), so no provider guard is needed. */
+         already (a codex agent branched off to setCodexAccount above), so no provider guard is needed. */
       trust = require('./trust').trustFolder(workerDir(clean), { configDir, createIfAbsent: true, agentDefaultAccount: !configDir });
     } catch { trust = { ok: false, because: 'we could not read that account\'s config file' }; }
     /* #1919: the account we are MOVING the agent to needs the Bypass-Permissions pre-accept
        in ITS settings.json too, for the same reason the trust write does -- the agent will
        start under this configDir and meet the one-time consent if the key was never written
-       there. setAccount is already Claude-only (codex is refused above), so no provider
+       there. setAccount is already Claude-only (a codex agent branched off to setCodexAccount above), so no provider
        guard. Best-effort / non-gating, as trustFolder is here: a failed write is a prompt the
        board now renders as needs_you (#1933), not a failed account flip. */
     try {
@@ -947,6 +950,71 @@ function setAccount(name, dir) {
   }
 
   return { outcome: OUTCOME.CREATED, because: null, account: acct, trust, bypass };
+}
+
+/**
+ * Point a CODEX agent at a different OpenAI (codex) account -- the #2826 half of
+ * what `setAccount` does for Claude, split out because the two resolve accounts
+ * in different worlds.
+ *
+ * 🔑 AN ACCOUNT SWAP, NOT A RUNNER SWITCH. `setProvider` owns claude<->codex;
+ * this only changes WHICH codex home a codex agent boots (its `CODEX_HOME`). A
+ * codex account is a `~/.codex*` directory with its own `auth.json`, listed by
+ * `openaiaccounts`, NOT by `accounts.js` (which scans `~/.claude*` only). That
+ * mismatch is exactly why the old `setAccount` refused Dave's account at
+ * REFUSE_ACCOUNT: it resolved every account against the Claude list, so a codex
+ * home was an unknown account before the runner was ever consulted. April
+ * measured this with a discriminating control (#2826).
+ *
+ * The mechanism mirrors `setProvider`'s codex path: resolve the wanted home in
+ * `openaiaccounts.list()`, rewrite the plist through `plistFor` (which writes
+ * the home as `CODEX_HOME` for a codex runner), and trust the worker folder in
+ * the NEW home's `config.toml` -- without it codex boots into the blocking trust
+ * dialog nobody can answer (#245). No `trustFolder`/`preacceptBypass`: those are
+ * Claude `.claude.json` concepts and mean nothing to codex.
+ */
+function setCodexAccount(clean, spoken, dir, job) {
+  const openai = require('./openaiaccounts');
+  const accounts = openai.list();
+  /* The empty string means "back to the default codex home", a real choice --
+     the same convention the Claude path uses. Resolved like `setProvider`'s
+     `wantDir`, because `list()` stores `path.resolve(dir)`; without it an
+     equivalent-but-unnormalised path is refused as a ghost account. */
+  const wanted = dir === '' || dir == null ? null : path.resolve(String(dir));
+  const acct = wanted === null ? accounts.find((a) => a.isDefault) : accounts.find((a) => a.dir === wanted);
+  if (!acct) {
+    return { outcome: OUTCOME.REFUSED, because: REFUSE_ACCOUNT };
+  }
+  /* 🔑 THE DEFAULT ROW WRITES NO CODEX_HOME (#1600), unless an override home is
+     in force. Absent means "follow the machine's default", and stamping the
+     resolved default would pin the agent to it and stop it following a later
+     `CODEX_HOME` change -- the exact divergence #1600 aligned across creation
+     and the provider switch. This is the same expression `setProvider` writes,
+     so the two account-writing paths onto a codex agent agree by construction. */
+  const homeArg = acct.isDefault && !codexHomeOverridden() ? null : acct.dir;
+  try {
+    /* `job.claude` is the recorded runner binary (arg[4]) and `job.model` is
+       kept: an account swap is not a runner or model change. Runner stays codex. */
+    fs.writeFileSync(plistPath(clean),
+      plistFor(clean, job.claude, job.tmux, job.model, homeArg, 'codex'), 'utf8');
+  } catch {
+    return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
+  }
+  /* 🛑 TRUST THE FOLDER IN THE HOME THE AGENT WILL ACTUALLY BOOT, tied to
+     `homeArg` so the plist and the trust write cannot look in different homes:
+     when `homeArg` is null the agent reads `defaultAgentCodexHome()` (`~/.codex`),
+     which is exactly what `trustCodexFolder` resolves for a default account.
+     ⚠️ BEST-EFFORT AND NON-GATING, matching the Claude sibling's #1629 reasoning:
+     the plist is already written, so the swap HAS happened. Refusing here would
+     report failure for a change that took effect; a failed trust is the prompt
+     the person would have met anyway, surfaced (`trust` field) rather than
+     reported as a failed swap. `trust` is null on success, an object on failure. */
+  let trust = null;
+  if (!DRY_RUN) {
+    try { trustCodexFolder(workerDir(clean), homeArg, homeArg === null); }
+    catch { trust = { ok: false, because: 'we could not let the OpenAI runner work in its folder' }; }
+  }
+  return { outcome: OUTCOME.CREATED, because: null, account: acct, trust };
 }
 
 /**
