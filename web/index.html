@@ -4436,12 +4436,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .thread.dragging, #d-dmthread.dragging { outline: 2px dashed var(--gold-deep); outline-offset: -2px; background: rgba(214,166,46,.06); }
 .dm-b { max-width: 92%; padding: 9px 13px; border-radius: 12px; font-size: .9375rem;
   line-height: 1.45;
-  /* #2660 (Josh, 2026-09-10): the agent side carries NO fill -- only the
-     person's OWN message is coloured (`.dm.mine` below). Josh wants his own
-     inputs to be the only thing tinted, so he can slide back to where he last
-     plugged something in and catch up. This drops the old `--k-sunk` agent
-     tint deliberately; the agent row is now plain text, distinguished by the
-     absence of the person's blue rather than by a tint of its own. */
+  /* #2660 then #2805 (Josh): the shared `.dm-b` default stays `transparent`;
+     each side declares its own fill below -- `.dm.mine` the royal-blue wash,
+     `.dm.theirs` a very light gray. #2660 (2026-09-10) had briefly dropped the
+     agent tint so only the person's own message was coloured; #2805
+     (2026-09-11) brings the agent gray back now that the dialog is white
+     (#2711), so an agent message reads as its own bubble again. */
   background: transparent;
   /* #1927: the store keeps paragraph breaks now, so render them. `pre-wrap`
      shows the stored `\n`; `storeText` already collapsed space RUNS, so this
@@ -4452,14 +4452,29 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   white-space: pre-wrap; overflow-wrap: anywhere; }
 /* #2660 (Josh, 2026-09-10): the person's OWN message wears a faint ROYAL BLUE
    (#4171E3), replacing the old gold. Fill only, NO stroke, so a message you
-   posted reads apart from the plain agent rows -- the agent side renders as
-   `.dm.theirs` (dmRow, since #175) and takes the `.dm-b` default, which is now
-   `transparent`, so only `.mine` carries a fill. The colour is the
+   posted reads apart from the agent rows -- the agent side renders as
+   `.dm.theirs` (dmRow, since #175) and, as of #2805, carries its OWN light-gray
+   `--k-sunk` fill (the rule just below), so the two sides are told apart by
+   colour (blue vs gray) rather than by tint-vs-plain. The colour of THIS rule is the
    `--usermsg-tint` token, defined per theme beside --k-sunk (10% light, 15%
    dark), so this ONE rule covers both themes and both surfaces that emit a
    `dm mine` bubble -- the to-agent DM view (dmRow) and the project room. Its
    project-room sibling `.pj-msg` uses the same token below. */
 .dm.mine .dm-b { background: var(--usermsg-tint); }
+/* #2805 (Josh, 2026-09-11): "put a very light gray for messages from the
+   agent" (blue stays for the person's own). The agent side is `.dm.theirs`; it
+   takes `--k-sunk`, the same subtle neutral this row wore BEFORE #2660 removed
+   it -- so this is a restore, not a new colour. `--k-sunk` is defined per theme
+   in the same four blocks as `--usermsg-tint` (5% light, 6% dark, 8% navy), so
+   this ONE rule tints the agent bubble in every theme, mirroring the blue rule
+   above.
+   ⚠️ NOT `--k-bg` (the #2711 file-card gray): #faf9f7 sits on the now-white
+   (`--k-surface`) DM panel and is all but invisible on it -- the exact dissolve
+   the note below records. `--k-sunk` is a neutral tint distinct from the panel
+   colour, so it reads. Inner code pills (`.mdc`/`.mdcb`, themselves `--k-sunk`)
+   stay visible: their own fill composites OVER the bubble's and lands a shade
+   darker, not equal. */
+.dm.theirs .dm-b { background: var(--k-sunk); }
 /* #2067 / #2239: restricted-markdown treatments, on the three agent-dialogue
    surfaces that render them -- the talk thread (.dm-b) and the project message
    list (.pj-msg-text), both via pjRich; and the project ROOM activity thread
@@ -4505,21 +4520,23 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dm-b .mdli.mdlin::before, .pj-msg-text .mdli.mdlin::before, .msg-b .mdli.mdlin::before { content: attr(data-n) "\00a0\00a0"; }
 .dm-b .mdhr, .pj-msg-text .mdhr, .msg-b .mdhr { display: inline-block; width: 100%; margin: 4px 0;
   border-top: 1px solid var(--k-rule); vertical-align: middle; }
-/* 🛑 THERE IS NO RULE FOR `.theirs`, AND ADDING ONE MADE IT WORSE. The first
-   version set `background: var(--k-surface); border: 1px solid var(--k-rule)`
-   — byte-identical to `.dbox`, which is the container it sits in — so the
-   agent's bubble had no bubble at all, only a hairline the same colour as the
-   panel's own edge. It was LESS visible than the default it overrode.
+/* 🛑 A `.theirs` FILL IS RIGHT AS OF #2805 -- BUT ONLY WITH THE RIGHT TOKEN,
+   AND THIS NOTE IS WHY. The agent bubble now carries `--k-sunk` (the rule
+   above). The trap the note guards is still live and is exactly what dictates
+   the token: the first `.theirs` attempt set `background: var(--k-surface);
+   border: 1px solid var(--k-rule)` -- byte-identical to `.dbox`, the container
+   it sits in -- so the bubble had no bubble at all, only a hairline the colour
+   of the panel's own edge. It was LESS visible than the default it overrode.
    ⚠️ THIS FILE ALREADY RECORDS THAT EXACT DEFECT, four hundred lines up: three
    controls "dissolved into their own containers with only a 0.5px border"
-   because they took the surface colour on a surface. I read the note and
-   repeated the mistake in the same file.
-   ✅ The two sides ARE distinguished, now by presence rather than by two
-   tints: as of #2660 the `.dm-b` default is `transparent` (the plain agent
-   row) and `.mine` is the only one that carries a fill (the royal-blue wash).
-   The historical amber `.mine` / `--k-sunk` default this note first described
-   is gone; adding a visible `.theirs` bubble is still the wrong move, for the
-   dissolve reason above. */
+   because they took the surface colour on a surface.
+   ✅ #2805 avoids it by using `--k-sunk` -- a neutral tint that is NOT the panel
+   colour -- and no stroke: the fill alone carries the bubble, and it reads now
+   that #2711 made the dialog white. `--k-bg` (the old dialog gray) would
+   RE-OPEN the dissolve, being all but equal to the white surface; `--k-sunk`
+   does not. So the lesson is unchanged -- do not take the surface colour on a
+   surface -- only its conclusion moved: a tinted `.theirs` bubble is correct,
+   a surface-coloured one is still the mistake. */
 .dm-w { font-size: .75rem; color: var(--k-ink-2); }
 /* ⚠️ THE META LINE FOLLOWS ITS BUBBLE. `.dm.mine` is `align-items: flex-end`,
    which right-aligns the SPAN while it is narrower than the row -- and a
