@@ -11,8 +11,15 @@ delivery states using "session" (the agent's live terminal session), never gloss
   the send-guard line, the pjVerdict row `said`, and the live-line render)
 "session" is the single most-repeated jargon term in the delivery copy, and it is
 UNATTRIBUTED - Josh's #402 ruling was about SILENCE-on-success (the success case is
-already silent), not about the word "session". The room already avoids the jargon, so
-aligning the thread to the room's plain "who" framing follows Josh's own pattern.
+already silent in sendTalk/sendTerm via placedWords), not about the word "session".
+The room RECEIPT (pjReceiptSentence, the multi-agent post) already uses plain language
+("Placed with {names}"), which is the plain reference to align to.
+
+⚠️ CORRECTED (challenge-loop iter 1): "session" was NOT only in the one-agent thread.
+It rendered in the room's own verdict renderers too - pjVerdict rows (the unconfirmed
+"said") and pjSend (the room composer live line: placed, unconfirmed, and lost-contact).
+So the de-jargon had to cover ALL of: sendTalk (one-agent thread), pjVerdict (room rows),
+and pjSend (room composer), not just the failure reason. All are now covered.
 
 ## What changed (surgical; every honesty clause preserved verbatim)
 1. Unconfirmed verdict -> "We could not confirm {name} got that" (was "...that reached

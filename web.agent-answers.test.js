@@ -226,7 +226,7 @@ test('the receipt speaks about what happens next, and is silent when there is no
   // The two failure arms are untouched, and neither carries the time any more.
   const unsure = say({ state: 'unconfirmed', paneState: 'working', paneNote: 'it was mid-task', because: 'we typed it and could not tell whether it arrived' });
   assert.equal(unsure.mark, ' unsure');
-  assert.match(unsure.said, /Could not confirm this reached/);
+  assert.match(unsure.said, /Could not confirm .* got that/);
   assert.match(unsure.said, /\(it was mid-task\)/, 'the note left the arm that still needs it');
   assert.doesNotMatch(unsure.said, /just now|ago| at /, 'the time is inside the sentence as well as on the row');
 
