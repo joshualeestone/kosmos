@@ -80,7 +80,7 @@ function pageScope() {
     'clearInterval', 'EventSource', 'location', 'localStorage',
     src[1] + `
     return { pjJoinNames, pjJoinOr, pjNameOf, pjSilentSince, pjSilences,
-             pjReceiptSentence, pjOldEnoughToJudge, pjRoomRow, PJ_SILENCE_AFTER_MS,
+             pjReceiptSentence, pjOldEnoughToJudge, pjRoomRow, pjFoldRoomRows, PJ_SILENCE_AFTER_MS,
              paintRoom, setProject: (proj) => { PROJECTS = [proj]; PJ_CURRENT = proj.id; } };`,
   )(document, window, {}, () => new Promise(() => {}), () => 0, () => 0, () => {},
     function EventSource() {}, window.location, window.localStorage);
@@ -624,4 +624,98 @@ test('a row kind the route has not grown yet is not counted as an agent speaking
   const rows = [post, { kind: 'notice', from: 'rick', at: ago(4), text: 'something new' }];
   assert.deepEqual(api.pjSilentSince(post, rows, 0).sort(), ['bob', 'johnson', 'rick'],
     'a row kind that is not a post was counted as Rick answering');
+});
+
+/* ── #2700: the refusal pile collapses to one band ─────────────────────────
+   A valve-stopped room refuses every agent that then tries to post, and #315
+   draws each refusal as its own band. In a busy room that is a WALL of
+   near-identical bands (Josh's screenshot: one valve notice + six "X tried to
+   post here and Kosmos stopped it" lines, all repeating one reason).
+   pjFoldRoomRows collapses a consecutive same-reason run into one refused-group
+   row; pjRoomRow draws that as a single band naming every held agent once.
+
+   ⚠️ THE ROW IS THE SHAPE THE ROOM PATH REALLY EMITS. engine/messages.js writes
+   a room refusal as { kind:'refused', from, to:projectId, project, because, at }
+   with ONE fixed `because`, so every refusal in a room shares it and the run
+   groups. The fixture is pinned to that producer, below, so it cannot drift. */
+const REFUSE_WHY = 'the room was going back and forth without landing, so Kosmos was holding it for the person';
+const refused = (who, because) => ({ kind: 'refused', from: who, to: 'proj-1',
+  project: 'proj-1', because: because == null ? REFUSE_WHY : because, at: ago(4) });
+
+test('the refusal fixture is the shape engine/messages.js actually emits', () => {
+  /* Pinned to the producer, exactly as the member fixture is: a fixture free to
+     invent the `because` could pass while the real refusal string drifts, which
+     is the field the fold groups on. */
+  const src = fs.readFileSync(nodePath.join(__dirname, 'engine', 'messages.js'), 'utf8');
+  assert.ok(src.includes("kind: 'refused', from, to: projectId, project: projectId"),
+    'the room refusal row no longer carries from/project the way this fixture assumes');
+  assert.ok(src.includes(REFUSE_WHY),
+    'the room refusal reason changed; REFUSE_WHY here no longer matches the product, so the fold-by-reason test is fiction');
+});
+
+test('a pile of same-reason refusals folds into ONE refused-group naming every held agent', () => {
+  const post = { kind: 'post', operator: true, from: 'you', at: ago(6), outcomes: ALL_PLACED, text: 'anyone?' };
+  const valve = { kind: 'valve', to: 'proj-1', project: 'proj-1', because: 'Kosmos stopped it', at: ago(5) };
+  const folded = api.pjFoldRoomRows([post, valve, refused('rick'), refused('bob'), refused('johnson')]);
+
+  const groups = folded.filter((m) => m.kind === 'refused-group');
+  assert.equal(groups.length, 1, 'the run of three refusals did not collapse to a single band');
+  assert.deepEqual(groups[0].from, ['rick', 'bob', 'johnson'], 'the group dropped or reordered a held agent');
+  assert.equal(folded.filter((m) => m.kind === 'refused').length, 0, 'a refusal escaped the fold and still stands alone');
+  // the post and the valve are untouched: only refusals fold.
+  assert.deepEqual(folded.map((m) => m.kind), ['post', 'valve', 'refused-group'],
+    'the fold disturbed a non-refusal row');
+});
+
+test('the folded band renders once, names every held agent, and gives the reason a single time', () => {
+  const group = { kind: 'refused-group', from: ['rick', 'bob', 'johnson'], because: REFUSE_WHY, at: ago(4) };
+  const html = renderer()(group, P);
+  assert.equal((html.match(/msg-valve/g) || []).length, 1, 'the group drew more than one band');
+  assert.match(html, /Rick, Bob and Johnson tried to post here and Kosmos stopped them:/,
+    'the band did not name every held agent in one line');
+  // The reason appears exactly once -- the whole point is that it stops repeating per agent.
+  assert.equal((html.match(/going back and forth without landing/g) || []).length, 1,
+    'the reason is repeated inside the collapsed band');
+});
+
+test('a lone refusal is left exactly as its own band (a run of one never groups)', () => {
+  const folded = api.pjFoldRoomRows([refused('rick')]);
+  assert.deepEqual(folded.map((m) => m.kind), ['refused'], 'a single refusal was turned into a group');
+  const html = renderer()(folded[0], P);
+  assert.match(html, /Rick tried to post here and Kosmos stopped it:/, 'the single-refusal wording changed');
+});
+
+test('a different reason breaks the run: only the matching neighbours fold', () => {
+  const folded = api.pjFoldRoomRows([refused('rick'), refused('bob'), refused('johnson', 'a different reason')]);
+  assert.deepEqual(folded.map((m) => m.kind), ['refused-group', 'refused'],
+    'a refusal with a different reason was swept into the group');
+  assert.deepEqual(folded[0].from, ['rick', 'bob'], 'the group crossed the reason boundary');
+  assert.equal(folded[1].from, 'johnson', 'the odd-reason refusal was not left standing on its own');
+});
+
+test('a real post between two refusals breaks the run, so neither collapses', () => {
+  const folded = api.pjFoldRoomRows([refused('rick'), said('bob'), refused('johnson')]);
+  assert.deepEqual(folded.map((m) => m.kind), ['refused', 'post', 'refused'],
+    'two refusals split by a real post were folded across it');
+});
+
+test('paintRoom turns the whole wall into a single refusal band on the screen', () => {
+  /* 🛑 THE HOP THAT MATTERS (this file's own lesson): the fold lives at the ONE
+     paintRoom call site, so a pure-function test alone would pass while the
+     wiring was removed. This drives paintRoom and reads what it wrote. */
+  const scope = pageScope();
+  scope.setProject({ id: 'proj-1', name: 'Test project', agents: P.agents });
+  const post = { kind: 'post', operator: true, from: 'you', at: ago(6), outcomes: ALL_PLACED, text: 'anyone there?' };
+  const valve = { kind: 'valve', to: 'proj-1', project: 'proj-1',
+    because: 'This conversation went back and forth for a while without landing, so Kosmos stopped it and asked everyone to bring you in.', at: ago(5) };
+  scope.paintRoom({ ok: true, rows: [post, valve, refused('rick'), refused('bob'), refused('johnson')] });
+  const html = scope.written['pj-room'];
+
+  assert.ok(html && html.length > 0, 'paintRoom wrote nothing, so this tests nothing');
+  assert.equal((html.match(/tried to post here and Kosmos stopped/g) || []).length, 1,
+    'the wall of per-agent refusal bands reached the screen instead of one collapsed band');
+  assert.match(html, /Rick, Bob and Johnson tried to post here and Kosmos stopped them:/,
+    'the collapsed band never reached the screen, or dropped a held agent');
+  // the valve headline still stands on its own, above the collapsed band.
+  assert.match(html, /asked everyone to bring you in/, 'the valve notice was lost in the fold');
 });

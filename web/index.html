@@ -36990,6 +36990,45 @@ function pjReactions(m) {
 function repaintReactions(box, list) {
   if (box) box.innerHTML = rxnsInner(list);
 }
+/* #2700: fold a run of consecutive room refusals that share one reason into a
+   single 'refused-group' row, so a valve-stopped busy room shows ONE band
+   naming every held agent (see the refused-group branch in pjRoomRow) instead
+   of a wall of near-identical ones. The run breaks on a different reason OR any
+   non-refused row between two refusals -- only a true consecutive run of the
+   same refusal collapses, so a refusal separated from others by a real post
+   still stands on its own. Fold only when the run holds 2+ DISTINCT agents: a
+   lone refusal, and the (contract-forbidden but defended) case of one agent
+   refused twice, are left exactly as their own 'refused' rows, so a single held
+   agent renders unchanged. Pure: no globals, no DOM, so the node suite can
+   drive it directly. */
+function pjFoldRoomRows(rows) {
+  const out = [];
+  let i = 0;
+  while (i < rows.length) {
+    const m = rows[i];
+    if (m && m.kind === 'refused') {
+      const because = m.because || '';
+      const froms = [];
+      let j = i;
+      while (j < rows.length && rows[j] && rows[j].kind === 'refused'
+             && (rows[j].because || '') === because) {
+        if (!froms.includes(rows[j].from)) froms.push(rows[j].from);
+        j++;
+      }
+      if (froms.length > 1) {
+        out.push({ kind: 'refused-group', from: froms, because: m.because, at: rows[j - 1].at });
+        i = j;
+        continue;
+      }
+      for (let k = i; k < j; k++) out.push(rows[k]);
+      i = j;
+      continue;
+    }
+    out.push(m);
+    i++;
+  }
+  return out;
+}
 function pjRoomRow(m, p, silent) {
   /* A refusal the room can see (#315): Scarlett tried to answer, was stopped,
      and the only record was inside her own window, so from the outside she
@@ -37009,6 +37048,25 @@ function pjRoomRow(m, p, silent) {
     return '<div class="msg-valve">' + esc(pjNameOf(p, m.from) || m.from)
       + ' tried to post here and Kosmos stopped it: ' + esc(pjSentence(m.because || 'no reason was recorded'))
       + (whenR ? '<span class="msg-t">' + esc(whenR) + '</span>' : '') + '</div>';
+  }
+  if (m.kind === 'refused-group') {
+    /* #2700: a valve-stopped room refuses every agent that then tries to post,
+       and #315 draws each refusal as its own band so no held agent reads as
+       broken from the outside. In a busy room that is a WALL of near-identical
+       bands -- Josh, 2026-09-10: "all of these messages at the bottom ... why
+       did Kosmos stop and ask everyone to bring me in? It's just a string of
+       notifications". pjFoldRoomRows collapses a run of consecutive same-reason
+       refusals into this ONE band, which names every held agent once and gives
+       the reason once: the who-was-held record of #315 is kept, the pile is
+       gone. `from` is the deduped list of held agents; `at` is the LAST hold in
+       the run (a single band spanning several events reads best as "as of when
+       is this still happening", and the headline valve band already carries the
+       window's start). */
+    const whenG = pjWhen(m.at) || '';
+    const names = (m.from || []).map((f) => pjNameOf(p, f) || f);
+    return '<div class="msg-valve">' + esc(pjJoinNames(names))
+      + ' tried to post here and Kosmos stopped them: ' + esc(pjSentence(m.because || 'no reason was recorded'))
+      + (whenG ? '<span class="msg-t">' + esc(whenG) + '</span>' : '') + '</div>';
   }
   if (m.kind === 'valve') {
     /* Reassurance, not an error: the valve is the product doing its job.
@@ -37344,7 +37402,21 @@ function paintRoom(body) {
   const shown = pjRoomFilterRows(allRows, p, PJ_ROOM_QUERY);
   const filtering = PJ_ROOM_QUERY.trim() !== '';
   const silences = pjSilences(allRows, p);
-  const rows = shown.map((m) => pjRoomRow(m, p, silences.get(m)) + pjUnansweredLine(m, p, body.unanswered)).join('');
+  /* #2700: fold consecutive same-reason refusals AFTER filtering, so the fold
+     sees exactly what is on screen -- a search that isolates one held agent
+     leaves a run of one, which does not collapse and renders as its own band.
+     silences and unanswered lines are keyed on posts only, so a synthetic
+     refused-group row (kind !== 'post') draws neither, and nothing is lost.
+     🔑 THE FOLD MUST STAY DOWNSTREAM OF THE UNFOLDED-allRows CONSUMERS, and
+     that ordering is the reason refused-group is NOT in ROOM_NOT_SPEECH. The
+     speech-stamping loop and pjSilences both run earlier and both iterate the
+     raw allRows, so no refused-group ever reaches a ROOM_NOT_SPEECH deny-test
+     or a `ROOM_SPOKE_AT.get(m.from)` lookup. That matters because a
+     refused-group's `from` is an ARRAY of held agents, not a session-name
+     string: were the fold ever hoisted above those loops, the group would read
+     as a single speaker keyed on an array. Keep this the last transform before
+     the render, and those consumers keep seeing only real message kinds. */
+  const rows = pjFoldRoomRows(shown).map((m) => pjRoomRow(m, p, silences.get(m)) + pjUnansweredLine(m, p, body.unanswered)).join('');
   /* An unreadable record is SAID, ahead of whatever could be read --
      no-state-as-silence, the same rule as every list on this app. */
   const note = body.ok === false
