@@ -454,7 +454,7 @@ async function main() {
       // The DETAIL's absence arm, exercised, not inferred from the row's: an
       // undescribed project's detail must hide the element (hidden === true),
       // which is the arm the markup comment says the toggle exists for.
-      await page.click('#pj-back');
+      await page.click('.tab[data-tab="projects"]');
       await page.waitForTimeout(200);
       await page.click('[data-project="reedhandover"]');
       await page.waitForTimeout(300);
@@ -981,7 +981,7 @@ async function main() {
       b.dispatchEvent(new Event('input', { bubbles: true }));
       return PJ_CURRENT;
     });
-    await page.click('#pj-back');
+    await page.click('.tab[data-tab="projects"]');
     await page.waitForTimeout(200);
     await page.click('[data-project="' + draftProject + '"]');
     await page.waitForTimeout(400);
@@ -994,7 +994,7 @@ async function main() {
       b.value = '';
       b.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    await page.click('#pj-back');
+    await page.click('.tab[data-tab="projects"]');
     await page.waitForTimeout(200);
     await page.click('[data-project="hendersonlease"]');
     await page.waitForTimeout(400);
@@ -1121,14 +1121,13 @@ async function main() {
        "the folder is gone". One does not imply the other, which is why this is
        its own pass rather than folded into that one. */
     /* ⚠️ OUT OF SETTINGS FIRST. The pass above leaves the page on the settings
-       VIEW, where `#pj-back` is not on screen -- the first version of this
-       clicked it anyway and Playwright spent its whole timeout waiting for an
-       element that was never going to appear. `#pj-settings-back` is the door
-       out of settings and `#pj-back` is the door out of the project; they are
-       two doors and the check has to walk through both. */
+       VIEW. `#pj-settings-back` is the door out of settings back to the open
+       project, and the Projects tab is the door out of the project to the list
+       (the in-project back arrow was removed in #2711 -- the tab is the route
+       out now); they are two doors and the check has to walk through both. */
     await page.click('#pj-settings-back');
     await page.waitForTimeout(200);
-    await page.click('#pj-back');
+    await page.click('.tab[data-tab="projects"]');
     await page.waitForTimeout(200);
     await page.click('[data-project="quarterclose"]');
     await page.waitForTimeout(400);
@@ -1439,7 +1438,7 @@ async function main() {
         throw new Error('+ Add Member did not reveal the picker with focus on the choice: ' + JSON.stringify(revealed));
       }
       /* 🛑 CLOSE THE DIALOG BEFORE LEAVING, BECAUSE A DIALOG STOPS YOU LEAVING.
-         This used to click straight through to #pj-back with the picker open,
+         This used to click straight out of the project with the picker open,
          which an inline row allowed. The modal's backdrop now intercepts the
          click: Playwright retried for thirty seconds and the check timed out
          with "<div id=\"am-modal\" class=\"rm-back\"> ... intercepts pointer
@@ -1452,7 +1451,7 @@ async function main() {
          the next project must be resting: button there, dialog closed. */
       await page.keyboard.press('Escape');
       await page.waitForTimeout(150);
-      await page.click('#pj-back');
+      await page.click('.tab[data-tab="projects"]');
       await page.waitForTimeout(200);
       await page.click('[data-project="quarterclose"]');
       await page.waitForTimeout(300);

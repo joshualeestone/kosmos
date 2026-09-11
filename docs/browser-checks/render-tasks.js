@@ -297,10 +297,10 @@ const MEMBER = 'taskmate';
     // And with the reveal OFF, the done card is behind the door. The reveal
     // survives same-project Back-and-return by design, so the reset needs a
     // real project SWITCH: bounce through Elsewhere and come back.
-    await p.click('#pj-back');
+    await p.click('.tab[data-tab="projects"]');
     await p.locator('#pj-list').getByText('Elsewhere').first().click();
     await p.waitForSelector('#pj-tasks-field', { state: 'visible', timeout: 10000 });
-    await p.click('#pj-back');
+    await p.click('.tab[data-tab="projects"]');
     await p.locator('#pj-list').getByText('Task Drive').first().click();
     await p.waitForSelector('#pj-tasks-field', { state: 'visible', timeout: 10000 });
     /* kosmos#1009: the UNASSIGNED open task now belongs in the fresh column;
