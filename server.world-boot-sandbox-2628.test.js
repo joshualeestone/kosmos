@@ -49,6 +49,10 @@ function launchEnv() {
     AGENT_WORKFORCE_HOME: HOME,
     AGENT_WORKFORCE_TMUX_BIN: path.join(__dirname, 'test-support', 'fake-tmux.sh'),
     AGENT_WORKFORCE_CLAUDE_CONFIG: path.join(HOME, '.claude.json'),
+    /* Belt and braces: no tmux write even to the stub. (AGENT_WORKFORCE_LAUNCH is
+       deliberately NOT set: it is one of #634's four roots, so setting it alone
+       would make this launch itself half-sandboxed and refused.) */
+    AGENT_WORKFORCE_DRY_RUN: '1',
     PORT: '0',
   });
 }
@@ -91,6 +95,13 @@ test('#2628 A BOARD BOOTS INTO A NAMED WORLD, and serves it', async () => {
         .on('error', () => resolve(''));
     });
     assert.ok(identity.endsWith('@' + WORLD.id), 'the board serves the named world it booted into: ' + JSON.stringify(identity));
+    /* A named world is a REAL board, not a sandboxed fixture: its token is enforced
+       (the token guard reads the same launch env as the boot guard). */
+    const unauthenticated = await new Promise((resolve) => {
+      http.get({ host: '127.0.0.1', port, path: '/api/status' }, (res) => { res.resume(); resolve(res.statusCode); })
+        .on('error', () => resolve(0));
+    });
+    assert.equal(unauthenticated, 403, 'the named world\'s board enforces its token');
   } finally {
     if (child.exitCode === null && child.signalCode === null) {
       const gone = new Promise((resolve) => child.once('exit', resolve));

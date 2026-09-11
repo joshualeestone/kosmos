@@ -89,4 +89,34 @@ guard.
 
 ## Review log
 
-(filled in as the rounds run)
+- **Round 1 (opus).** It found no problem with the audit change, and #634 is
+  preserved. It checked every half-sandbox shape, the in-process path and the
+  test's isolation. Findings:
+  - [BUG] Now that a named world can boot, the Windows boot path derived MACHINE
+    paths from the post-world env. `win32board.ensureInstalled` / `install` /
+    `claimed` / `claim` / `restart` all use `anchorDirFor`, and
+    `win32anchor.anchorDir` honours AGENT_WORKFORCE_DATA. On an installed zip, that
+    means three things:
+    - the logon task is re-registered against a runtime copied under the world;
+    - a claim file is read from the world, so a task the person removed would be
+      re-created;
+    - a restart from a named world (the switch back) logs into a missing folder.
+
+    Fixed:
+    - `worldenv` captures the environment exactly as launched (`launchEnv()`,
+      frozen, taken before any override);
+    - `win32board.machineEnv(o)` defaults every machine path to it (an explicit
+      `env` still wins, and before a boot it is process.env, as before);
+    - `engine/win32board.world-2628.test.js` boots a named world the way server.js
+      does and pins `anchorDirFor`, `install`'s anchor env and `launchEnv`, with a
+      control showing the world env would move them.
+    - PR #2845's marker-aware `anchorDir` fixes the same class another way; the two
+      agree, and this branch must be safe on its own because it may merge first.
+  - [SECURITY, low, pre-existing] The token guard read the post-world env while
+    the boot guard now reads the launch env. `boardauth.enforced` now reads
+    `LAUNCH_ENV_OVERRIDES` too, so there is one input for both. The boot test now
+    also asserts that a named world's board answers 403 without its token.
+  - [NIT] "Set AGENT_WORKFORCE_LAUNCH in the test" was NOT taken as written:
+    LAUNCH is one of #634's four roots, so setting it alone makes the launch itself
+    half-sandboxed and the board would refuse. `AGENT_WORKFORCE_DRY_RUN=1` was
+    added instead, and the reason is in the test.

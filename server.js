@@ -11818,7 +11818,10 @@ function start(port = PORT) {
          fixture board (every test + browser-check) does not enforce and writes
          nothing. Fail CLOSED: if provisioning throws (disk/permission), the board
          stays enforcing with a null token, refusing rather than serving unguarded. */
-      boardAuthState.on = boardauth.enforced(process.env);
+      /* #2628: the SAME launch env the #634 boot guard audits. A named world's roots
+         in process.env must never make a real board read as a sandboxed fixture
+         (and so run token-off); both guards judge "sandboxed" from one input. */
+      boardAuthState.on = boardauth.enforced(LAUNCH_ENV_OVERRIDES);
       if (boardAuthState.on) {
         try {
           boardAuthState.token = boardauth.ensureToken();
