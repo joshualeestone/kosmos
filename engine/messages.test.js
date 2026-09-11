@@ -1074,6 +1074,82 @@ test('the room valve closes across the whole thread regardless of sender, once, 
   });
 });
 
+test('#2710: reopening a held room clears the loop-guard budget so the next post lands', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    // Fill the room to its budget within the window -- the exact loop the valve
+    // holds for. Alternating senders so no PAIR cap fires (same as the valve
+    // test), so the ONLY thing refusing the next post is the room valve.
+    for (let i = 0; i < ROOM_BUDGET / 2; i += 1) {
+      fs.appendFileSync(messages.LOG, JSON.stringify({
+        kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease',
+        from: MEMBERS[i % 3], to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]),
+        text: 'round ' + i, at: new Date(now - 60000).toISOString(), outcomes: {},
+      }) + '\n');
+    }
+    armSender('leo-discord');
+    arm([]);
+    // BEFORE: the valve is holding the room (this is the control -- if this were
+    // already PLACED, the test below would prove nothing about reopen).
+    const held = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'a substantive finding' }, board.agents, MEMBERS);
+    assert.equal(held.state, chat.DELIVERY.COULD_NOT, 'the room was not actually held, so reopen has nothing to clear');
+
+    // REOPEN: an explicit release, writing a marker rather than a content post.
+    const out = messages.reopenRoom('henderson-lease');
+    assert.equal(out.ok, true, 'reopen refused a valid room');
+    const reopens = messages.record().rows.filter((m) => m.kind === 'reopen' && m.project === 'henderson-lease');
+    assert.equal(reopens.length, 1, 'the reopen marker was not written (or written more than once)');
+    assert.equal(reopens[0].operator, true, 'the reopen marker must be an operator row');
+
+    // AFTER: the same post now lands -- the budget is counted from the reopen.
+    chat.resetForTests();
+    armSender('leo-discord');
+    arm([]);
+    const after = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'a substantive finding' }, board.agents, MEMBERS);
+    assert.equal(after.state, chat.DELIVERY.PLACED, 'reopen did not clear the loop-guard hold');
+
+    // A reopen touches ONE room: a different room over budget is still held.
+    wipeLog();
+    for (let i = 0; i < ROOM_BUDGET / 2; i += 1) {
+      fs.appendFileSync(messages.LOG, JSON.stringify({
+        kind: 'post', id: 'm' + (i + 1), project: 'quarter-close',
+        from: MEMBERS[i % 3], to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]),
+        text: 'round ' + i, at: new Date(now - 60000).toISOString(), outcomes: {},
+      }) + '\n');
+    }
+    messages.reopenRoom('henderson-lease');
+    chat.resetForTests();
+    armSender('leo-discord');
+    arm([]);
+    const elsewhere = messages.sendPost({ fromPane: '%7', project: 'quarter-close', text: 'still looping' }, board.agents, MEMBERS);
+    assert.equal(elsewhere.state, chat.DELIVERY.COULD_NOT, 'reopening one room cleared a different room');
+  });
+});
+
+test('#2710: reopenRoom refuses an empty or unreadable project id, and writes nothing', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const empty = messages.reopenRoom('');
+  assert.equal(empty.ok, false, 'an empty project id was accepted');
+  assert.match(String(empty.because || ''), /which project/, 'the refusal does not say what is missing');
+  const bad = messages.reopenRoom('a]b');
+  assert.equal(bad.ok, false, 'a bracket in the id (which would break the envelope grammar) was accepted');
+  const rows = fs.existsSync(messages.LOG) ? messages.record().rows.filter((m) => m.kind === 'reopen') : [];
+  assert.equal(rows.length, 0, 'a refused reopen still wrote a marker');
+});
+
+test('#2710: a reopen row survives the read, a malformed one is dropped, and neither renders in the room', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const at = new Date().toISOString();
+  fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'reopen', from: 'you', to: 'p1', project: 'p1', operator: true, at }) + '\n');
+  // Malformed: an AGENT-minted reopen (no operator flag) must be dropped on read,
+  // the read-side half of "only the operator can reopen".
+  fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'reopen', from: 'leo', to: 'p1', project: 'p1', at }) + '\n');
+  const kept = messages.record().rows.filter((m) => m.kind === 'reopen');
+  assert.equal(kept.length, 1, 'the operator reopen was dropped, or the agent-minted one was kept');
+  assert.equal(kept[0].operator, true, 'the surviving reopen is not the operator row');
+});
+
 test('the two valves compose: room posts do not count toward the pair cap, nor pair messages toward the room', () => {
   withFleet(room3(), (board) => {
     const now = Date.now();
