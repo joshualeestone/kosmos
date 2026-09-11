@@ -4154,7 +4154,13 @@ body:not(.consolidated) .pjmid .thread .att { background: var(--k-bg); }
    is met by the size. The hide-when-empty rule that lived here from #520 is
    gone; the check pins the placeholder on screen. */
 .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
-.pjmidhead:has(.pjhead) .tsearch { flex: 0 1 min(320px, 40%); }
+/* Josh, 2026-09-10 (#2711 item 4): the tab-view conversation search is narrow
+   at rest ("Search"), and widens when the person clicks into it so they have
+   room to type. Scoped to body:not(.consolidated) so the consolidated search
+   keeps its own width (its higher-specificity .pjmidhead .tsearch rule wins
+   there regardless). The transition animates only the basis. */
+body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch { flex: 0 1 min(190px, 30%); transition: flex-basis .15s ease; }
+body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-basis: min(420px, 60%); }
 /* Below 60rem there is not enough room for a title, a description and a
    search box on one line (tab view has no 960px floor the way
    consolidated does, so this has to hold at phone width too, not just
@@ -10366,7 +10372,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           <span class="tsearch-i" aria-hidden="true">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
           </span>
-          <input type="search" id="pj-room-search" placeholder="Search this conversation" aria-label="Search this conversation">
+          <input type="search" id="pj-room-search" placeholder="Search" aria-label="Search this conversation">
         </div>
       </div>
       <!-- THE ROOM (View D): this project's thread, drawn from the record
