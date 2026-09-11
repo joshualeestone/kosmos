@@ -252,4 +252,8 @@ jobs:
             render-worldsw-abandon-2628
             render-worldswitch-2238
             render-worlds-switcher-1704
+            render-account-dup-reauth-2584
+            render-autohello-2686
+            render-firstrun-model-continue-2134
+            render-model-spinners-2365
         run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
