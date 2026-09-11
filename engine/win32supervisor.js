@@ -363,6 +363,20 @@ const NO_STREAM = { started() {}, event() {}, wrote() {}, stopped() {}, rekey() 
 const REKEY_RETRY_MS = 2 * 1000;
 const REKEY_ATTEMPTS = 30;
 
+/* What `claude` answers when asked to `--resume` a session that has no saved
+   conversation -- an agent that never had a turn (#2726). Measured on the box,
+   Claude Code 2.1.268: the resumed child emits ONE `result` event with
+   `is_error: true` and this at the start of an `errors` entry, then exits 1 about
+   a second after it started. */
+const NO_CONVERSATION_PREFIX = 'No conversation found with session ID';
+
+/** Did this stream event say the resumed session has nothing to resume? The
+    structured field, not the stderr text, so a reworded banner cannot fake it. */
+function saysNothingToResume(e) {
+  return Boolean(e) && e.type === 'result' && e.is_error === true && Array.isArray(e.errors)
+    && e.errors.some((m) => typeof m === 'string' && m.startsWith(NO_CONVERSATION_PREFIX));
+}
+
 /** How much of a dying agent's stderr rides on its `died` line. Enough for the
     one sentence that explains a crash; small enough that a chatty agent cannot
     flood the task log through it. */
@@ -512,8 +526,31 @@ function superviseStreaming(spec, opts) {
     onEvent({ action: 'rekeyed', sessionId: id, from: oldId, because: 'its session changed from ' + oldId + ' to ' + id });
   }
 
-  function attach(c, runInstance) {
+  /* An agent that never had a turn has no saved conversation, so `--resume` can
+     never bring it back: measured, it died about a second after every resume, every
+     30s, for good (#2726). Its next start is a birth instead -- a new session, a new
+     ownership row, a new token -- and the dead id's row goes, since nothing can
+     resume it. Only claude's own "no conversation" answer does this; any other
+     death still resumes, so a real conversation is never abandoned over some other
+     error. */
+  function startFreshAfter(deadId) {
+    handle.sessionId = null;
+    if (deadId) {
+      let forgot;
+      try { forgot = sessions.forget(deadId); }
+      catch (err) { forgot = { ok: false, because: 'we could not update the ownership record (' + ((err && err.code) || 'unknown') + ')' }; }
+      if (!forgot || !forgot.ok) {
+        onEvent({ action: 'forget-failed', sessionId: deadId,
+          because: 'its old session ' + deadId + ' is still recorded under its name: ' + ((forgot && forgot.because) || 'unknown') });
+      }
+    }
+    onEvent({ action: 'resume-impossible', sessionId: deadId,
+      because: 'its session ' + deadId + ' has no saved conversation (it never had a turn), so it starts fresh' });
+  }
+
+  function attach(c, runInstance, resumed) {
     child = c;
+    let nothingToResume = false;   // this RESUMED child said its session has no conversation
     /* A new child owns no retry its dead predecessor left pending. The old chain
        already stops on `child === owner`, but the flag would stay set and make
        `followSessionId` swallow this child's genuine `init` for the same id
@@ -529,6 +566,7 @@ function superviseStreaming(spec, opts) {
       const feed = lineReader((line) => {
         if (child !== c) return;
         const e = parseEvent(line);
+        if (resumed && saysNothingToResume(e)) nothingToResume = true;
         followSessionId(e);   // before the state sink, so a rekey lands before the turn's events
         stream.event(e);
       });
@@ -559,9 +597,13 @@ function superviseStreaming(spec, opts) {
            but the task log should show why it is still there. */
         if (retired && retired.ok === false) onEvent({ action: 'token-not-retired', because: retired.because });
       }
-      if (child === c) { child = null; stream.stopped(); }
+      const wasCurrent = child === c;
+      if (wasCurrent) { child = null; stream.stopped(); }
       const said = stderrTail.replace(/\s+/g, ' ').trim();
       onEvent({ action: 'died', code: code === undefined ? null : code, sessionId: handle.sessionId, because: said ? 'it said: ' + said : undefined });
+      /* Only the child that was still the agent decides what the next start is; a
+         replaced child's late death says nothing about its successor's session. */
+      if (nothingToResume && wasCurrent) startFreshAfter(handle.sessionId);
       if (running) schedule();
     };
     c.on('exit', gone);
@@ -642,7 +684,7 @@ function superviseStreaming(spec, opts) {
        already has a process to belong to. Idle: measured, a streaming agent says
        nothing until it is told something, fresh or resumed. */
     stream.started(r.child && r.child.pid, r.sessionId);
-    attach(r.child, r.instance || null);
+    attach(r.child, r.instance || null, Boolean(r.resumed));
     /* A run that could not mint a token still runs, but the board refuses every
        report it sends -- so the task log says why, rather than nothing. */
     onEvent(Object.assign({ action: r.resumed ? 'resumed' : 'started', sessionId: r.sessionId },

@@ -328,6 +328,79 @@ function clearingSupervisor(name, opts) {
   return { h, kids, events, sink, oldId, say };
 }
 
+/* #2726: a resume of a session that has no saved conversation. The shape is the
+   one measured on the box (Claude Code 2.1.268). */
+const NO_CONVERSATION = (id) => ({
+  type: 'result', subtype: 'error_during_execution', is_error: true, num_turns: 0, session_id: id,
+  errors: ['No conversation found with session ID: ' + id],
+});
+
+function resumingSupervisor(name, opts) {
+  const kids = [];
+  const events = [];
+  const asked = [];
+  const firstId = require('node:crypto').randomUUID();
+  win32sessions.record(firstId, { name, runner: 'claude' });
+  const h = sup.superviseStreaming({ name, cwd: 'C:\w', runner: 'claude' }, Object.assign({
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    onEvent: (e) => events.push(e),
+    launch: (spec) => {
+      asked.push(spec.resumeSessionId || null);
+      const c = streamingChild(7100 + kids.length); kids.push(c);
+      const sessionId = spec.resumeSessionId || (kids.length === 1 ? firstId : require('node:crypto').randomUUID());
+      return { ok: true, sessionId, resumed: Boolean(spec.resumeSessionId), child: c };
+    },
+  }, opts));
+  const say = (i, obj) => kids[i].stdout.emit('data', Buffer.from(JSON.stringify(obj) + '\n'));
+  return { h, kids, events, asked, firstId, say };
+}
+
+test('#2726 a resume with NO saved conversation starts fresh instead of resuming forever', () => {
+  const t = resumingSupervisor('nores-1');
+  t.kids[0].die(1);                                   // a crash before any turn: back as a resume
+  assert.deepEqual(t.asked, [null, t.firstId], 'the first return is a resume of the same id');
+  t.say(1, NO_CONVERSATION(t.firstId));               // claude: there is nothing to resume
+  t.kids[1].die(1);
+  assert.deepEqual(t.asked, [null, t.firstId, null], 'the next start is a birth, not the same resume again');
+  assert.equal(win32sessions.isOurs(t.firstId), false, 'the row that nothing can resume is forgotten');
+  const said = t.events.find((e) => e.action === 'resume-impossible');
+  assert.ok(said && said.sessionId === t.firstId && /no saved conversation/.test(said.because), 'and the task log says why');
+  t.h.stop();
+});
+
+test('#2726 a resume that dies for ANY other reason still resumes the same conversation', () => {
+  const t = resumingSupervisor('nores-2');
+  t.kids[0].die(1);
+  t.say(1, { type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['API Error: 529 overloaded'] });
+  t.kids[1].die(1);
+  assert.deepEqual(t.asked, [null, t.firstId, t.firstId], 'a real conversation is never abandoned over another error');
+  assert.equal(win32sessions.isOurs(t.firstId), true, 'and its row stays');
+  assert.ok(!t.events.some((e) => e.action === 'resume-impossible'));
+  t.h.stop();
+});
+
+test('#2726 only a RESUMED run can say there is nothing to resume', () => {
+  const t = resumingSupervisor('nores-3');
+  t.say(0, NO_CONVERSATION(t.firstId));               // a fresh start never keys on it
+  t.kids[0].die(1);
+  assert.deepEqual(t.asked, [null, t.firstId], 'the crash still comes back as a resume');
+  assert.ok(!t.events.some((e) => e.action === 'resume-impossible'));
+  t.h.stop();
+});
+
+test('#2726 a dead id whose row cannot be forgotten is SAID, and the agent still starts fresh', () => {
+  const t = resumingSupervisor('nores-4', {
+    sessions: { record: () => ({ ok: true }), forget: () => ({ ok: false, because: 'the record is busy' }), read: () => ({}) },
+  });
+  t.kids[0].die(1);
+  t.say(1, NO_CONVERSATION(t.firstId));
+  t.kids[1].die(1);
+  assert.deepEqual(t.asked, [null, t.firstId, null]);
+  assert.ok(t.events.some((e) => e.action === 'forget-failed' && /record is busy/.test(e.because)));
+  t.h.stop();
+});
+
 test('#2669 an init with a NEW session id moves ownership, the resume id, and the state file', () => {
   const t = clearingSupervisor('clr-1');
   const newId = require('node:crypto').randomUUID();
