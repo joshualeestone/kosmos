@@ -18,18 +18,23 @@
  * A malformed or unreadable registry FAILS SAFE to the default world, so a broken
  * file can never lock an install out of its own data.
  *
- * SCOPE (v1, this module): the DATA layer -- the registry and the store/projects/
- * workers roots. The agent-process layer (launchd services, AGENT_WORKFORCE_LAUNCH)
- * is a shared system resource that a switch must stop-and-relaunch; that lifecycle
- * rides the board restart on switch (a later slice), so this module does NOT
- * override AGENT_WORKFORCE_LAUNCH -- named-world agents are out of v1 scope and
- * the default world (the only one that runs agents in v1) keeps the legacy path.
+ * SCOPE: the DATA layer -- the registry and the store/projects/workers roots -- AND
+ * (#1704 / #2827) the way an AGENT process learns which world it belongs to. The
+ * board applies its world's roots at boot. On Windows an agent's supervisor gets
+ * the same world through `KOSMOS_WORLD` (launchidentity.js) and applies its roots
+ * with `applyAgentWorldEnv` before its first store-using require, and its hooks
+ * and `kosmos` command inherit them, so its sender token, session records and
+ * board token are its own world's. (The Mac's agents get the same in the Mac
+ * slice, PR1m.) AGENT_WORKFORCE_LAUNCH is still NOT overridden: the
+ * LaunchAgents folder and the task folder are per user, so a named world's agents
+ * are told apart by their launch KEY (launchidentity.launchKey), not by a folder.
  */
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const store = require('./store'); // dataRootFor, safeKey
+const launchidentity = require('./launchidentity'); // WORLD_ENV_VAR, currentWorldId
 
 const DEFAULT_ID = 'default';
 // #1704 item 14.2 (Josh, 2026-09-05): the first/default world is called "Kosmos 1"
@@ -163,6 +168,107 @@ function envOverridesFor(base, world) {
     AGENT_WORKFORCE_PROJECTS: path.join(dir, 'projects'),
     AGENT_WORKFORCE_WORKERS: path.join(dir, 'workers'),
   };
+}
+
+/* The three root variables a world overrides. envOverridesFor sets exactly these
+   (worlds.agentenv-1704.test.js pins the two equal). */
+const WORLD_ROOT_ENV_VARS = Object.freeze(['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_PROJECTS', 'AGENT_WORKFORCE_WORKERS']);
+
+/* 🔑 WHICH WORLD THE ROOTS WERE MOVED FOR, AND WHAT THEY WERE BEFORE, recorded in
+   the environment itself as JSON: `{world, roots}`, with `null` for a root that
+   was unset. Two readers need it:
+   - applyAgentWorldEnv: a marker for THIS world means "already applied", so a
+     child that inherits an applied environment is left alone instead of being
+     moved twice; a marker for ANOTHER world (an environment inherited across a
+     switch) is re-applied from the recorded originals, never from the old
+     world's roots (review round 1);
+   - preWorldEnv: it is how a machine-level path (the Windows anchor, a board
+     restart) tells a WORLD override apart from a test sandbox's own
+     AGENT_WORKFORCE_DATA, which has no marker and must still be honoured. */
+const PRE_WORLD_ROOTS_ENV_VAR = 'KOSMOS_PRE_WORLD_ROOTS';
+
+/* The recorded {world, roots}, or null when there is none or it is unreadable. */
+function readWorldMarker(env) {
+  const raw = env && env[PRE_WORLD_ROOTS_ENV_VAR];
+  if (raw === undefined) return null;
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === 'object' && v.roots && typeof v.roots === 'object' ? v : null;
+  } catch { return null; }
+}
+
+/* Put the recorded original roots back in place and drop the world variables. */
+function restorePreWorldRoots(env, marker) {
+  for (const k of WORLD_ROOT_ENV_VARS) {
+    const v = marker && Object.prototype.hasOwnProperty.call(marker.roots, k) ? marker.roots[k] : null;
+    if (typeof v === 'string') env[k] = v; else delete env[k];
+  }
+  delete env[PRE_WORLD_ROOTS_ENV_VAR];
+  delete env[launchidentity.WORLD_ENV_VAR];
+}
+
+/* Apply one world's roots to `env` in place, recording the originals and the
+   world id. The default world sets nothing and records nothing. */
+function applyWorldEnv(env, base, world) {
+  const overrides = envOverridesFor(base, world);
+  if (!Object.keys(overrides).length) return overrides;
+  const recorded = readWorldMarker(env);
+  let roots = recorded && recorded.roots;
+  if (!roots) {
+    roots = {};
+    for (const k of WORLD_ROOT_ENV_VARS) roots[k] = env[k] === undefined ? null : env[k];
+  }
+  env[PRE_WORLD_ROOTS_ENV_VAR] = JSON.stringify({ world: world.id, roots });
+  for (const k of Object.keys(overrides)) env[k] = overrides[k];
+  env[launchidentity.WORLD_ENV_VAR] = world.id;
+  return overrides;
+}
+
+/*
+ * The ONE agent-side bootstrap (#1704 / #2827). An agent process knows its world
+ * only as `KOSMOS_WORLD`; this turns that into the world's roots, so every module
+ * required AFTER it resolves that world's store. It must run before the first
+ * store-using require, because ~26 modules freeze store.ROOT at require time
+ * (worldenv.js lists them), which is why the Windows boot shim calls it before it
+ * loads the supervisor. The agent's hooks and `kosmos` command inherit the roots
+ * it applied rather than calling it. (The Mac supervisor's token mint will call
+ * it in the Mac slice, PR1m; nothing on the Mac does yet.)
+ *
+ * Reads NO registry, so an agent never contends for its lock: a world's location
+ * is derived from its id alone (worldBaseDir), which also refuses an unsafe id by
+ * throwing -- an agent that cannot enter its world must fail loudly rather than
+ * run quietly against the default world's store.
+ */
+function applyAgentWorldEnv(env) {
+  const e = env || process.env;
+  const id = launchidentity.currentWorldId(e);
+  const recorded = readWorldMarker(e);
+  if (recorded && recorded.world === id) return {};   // inherited, already applied for this world
+  /* A marker for another world, or a default-world process carrying one: go back
+     to the recorded originals first, so the new roots are derived from the real
+     base and never nested inside the old world's. */
+  if (recorded) restorePreWorldRoots(e, recorded);
+  if (id === DEFAULT_ID) return {};
+  return applyWorldEnv(e, baseRoot(e), { id });
+}
+
+/*
+ * A copy of `env` as it was before any world was applied: the recorded roots put
+ * back (unset where they were unset) and the world variables removed. An
+ * environment with no marker keeps its roots, because those were never a world's
+ * (a sandbox, a developer's own AGENT_WORKFORCE_DATA). Used where a path must be
+ * the SAME for every world: the Windows anchor, and a board restart that has to
+ * re-derive its world from the registry.
+ */
+function preWorldEnv(env) {
+  const out = Object.assign({}, env || {});
+  if (out[PRE_WORLD_ROOTS_ENV_VAR] !== undefined) {
+    /* An unreadable marker restores nothing: all three roots go, which is the
+       legacy-root answer, never another world's. */
+    restorePreWorldRoots(out, readWorldMarker(out) || { roots: {} });
+  }
+  delete out[launchidentity.WORLD_ENV_VAR];
+  return out;
 }
 
 /*
@@ -337,9 +443,9 @@ function renameWorld(base, id, newName) {
  */
 function applyActiveWorldEnv(env, base) {
   const e = env || process.env;
-  const overrides = envOverridesFor(base, activeWorld(base));
-  for (const k of Object.keys(overrides)) e[k] = overrides[k];
-  return overrides;
+  /* Through applyWorldEnv, so the board records KOSMOS_WORLD and the pre-world
+     roots exactly as an agent does: one mechanism for both sides (#1704). */
+  return applyWorldEnv(e, base, activeWorld(base));
 }
 
 /*
@@ -460,6 +566,10 @@ module.exports = {
   activeWorld,
   worldBaseDir,
   envOverridesFor,
+  WORLD_ROOT_ENV_VARS,
+  PRE_WORLD_ROOTS_ENV_VAR,
+  applyAgentWorldEnv,
+  preWorldEnv,
   createWorld,
   renameWorld,
   setActiveWorld,

@@ -37,13 +37,25 @@ const os = require('node:os');
 const path = require('node:path');
 
 const win32anchor = require('./win32anchor');
+const launchidentity = require('./launchidentity');
 
 /* One namespace so a person reading Task Scheduler can see what these are, and
    so `list()` can find ours without guessing. The Mac's serviceLabel plays the
    same role. */
 const TASK_PREFIX = 'Kosmos\\agent-';
 
-function taskName(agentName) { return TASK_PREFIX + String(agentName); }
+/* 🔑 KEYED BY WORLD (#1704 / #2828). A task name is machine-wide, but an agent
+   belongs to one Kosmos, so a named world's agent is `Kosmos\agent-<name>+<world>`
+   and the default world's is unchanged. The world is this process's own
+   (launchidentity.currentWorldId: the board's booted world, or the agent's), so
+   every caller that names a task by agent name -- install, disable, enable, end,
+   start, remove, presence, and remove.js / delete-leftover.js through here --
+   reaches THIS world's task and can never reach another Kosmos's agent of the
+   same name. */
+function taskName(agentName, worldId) {
+  const world = worldId === undefined ? launchidentity.currentWorldId() : worldId;
+  return TASK_PREFIX + launchidentity.launchKey(agentName, world);
+}
 
 /* The command seam. Tests replace it; production shells schtasks. Returns
    { ok, out } and never throws, so every caller can report rather than unwind. */
@@ -72,7 +84,7 @@ let runFn = null;
  * STATE only and cannot move the path, so they deliberately do not bust it.
  */
 const CONFIG_DIR_CACHE = new Map();
-function forgetConfigDir(name) { CONFIG_DIR_CACHE.delete(taskName(name)); }
+function forgetConfigDir(name, worldId) { CONFIG_DIR_CACHE.delete(taskName(name, worldId)); }
 /* 🔑 ONE WRITER, so "which answers are cacheable" is decided in a single place
    rather than at each `return`. It takes only `known` answers and hands the
    value straight back, so a call site reads `return rememberConfigDir(n, {...})`
@@ -164,6 +176,12 @@ function taskExec(spec) {
      treats it as a hint rather than a contract, so a path that goes stale between
      now and some logon months from now falls back instead of stranding the agent. */
   const argv = [s.name, s.cwd, s.model || '-', s.configDir || '-', s.runner || 'claude', s.claudeBin || '-'];
+  /* #1704: the seventh is the agent's Kosmos, and only a NAMED one is written, so a
+     default-world task's line is exactly what it was. Exec actions carry no
+     environment, so this line is the only way the world reaches the agent; the
+     anchored boot shim applies it before anything loads (win32anchor.BOOT_JS). */
+  const world = s.world !== undefined ? s.world : launchidentity.currentWorldId();
+  if (!launchidentity.isDefaultWorld(world)) argv.push(world);
   return {
     command: node,
     args: ['"' + supervisor + '"'].concat(argv.map((a) => '"' + String(a) + '"')).join(' '),
@@ -302,6 +320,11 @@ function taskXml(spec, env) {
 function install(spec) {
   const s = spec || {};
   if (!s.name || !s.cwd) return { ok: false, because: 'a job needs an agent name and a folder' };
+  /* 🔑 #1704: THE WORLD IS DECIDED ONCE, HERE, and the task name, the task line
+     and the remembered path all use it. The task's NAME and the world on its
+     LINE must agree, or the supervisor would serve one world's pipe under
+     another world's task and nothing could find it again (review round 1). */
+  const world = s.world !== undefined ? s.world : launchidentity.currentWorldId();
   /* 🛑 #2717: FORGET THE REMEMBERED PATH AT THE TOP, before anything can fail
      partway. `/Create /F` REWRITES the definition, so a re-registered agent can
      carry a different account, and a cache kept across that would hand out the
@@ -311,7 +334,7 @@ function install(spec) {
      re-read, and it removes the reasoning step "did this particular failure
      reach the create?" from a correctness argument. A first version put it
      beside the `/Create` and an early return walked straight past it. */
-  forgetConfigDir(s.name);
+  forgetConfigDir(s.name, world);
   /* 🔑 ANCHOR FIRST, THEN REGISTER, and the order is the point: a task built from
      this app's paths outlives the app. `ensureAnchored` copies node out of the
      extract tree and refreshes the shared engine pointer, so the command written
@@ -339,16 +362,16 @@ function install(spec) {
   let r;
   try {
     try {
-      fs.writeFileSync(xmlAt, Buffer.from('﻿' + taskXml({ ...s, node: anchor.node, supervisor: anchor.boot }, s.env), 'utf16le'));
+      fs.writeFileSync(xmlAt, Buffer.from('﻿' + taskXml({ ...s, world, node: anchor.node, supervisor: anchor.boot }, s.env), 'utf16le'));
     } catch (e) {
       return { ok: false, because: 'we could not write the startup job definition (' + ((e && e.message) || 'no detail') + ')' };
     }
-    r = run(['/Create', '/F', '/TN', taskName(s.name), '/XML', xmlAt]);
+    r = run(['/Create', '/F', '/TN', taskName(s.name, world), '/XML', xmlAt]);
   } finally {
     try { fs.unlinkSync(xmlAt); } catch { /* best effort; it is in the temp root */ }
   }
   if (!r.ok) return { ok: false, because: 'we could not register the startup job (' + (r.out || 'no detail').trim().split('\n')[0] + ')' };
-  return { ok: true, task: taskName(s.name) };
+  return { ok: true, task: taskName(s.name, world) };
 }
 
 /**
@@ -492,7 +515,11 @@ function list() {
     if (!m) continue;
     // Task paths come back rooted ("\Kosmos\agent-ava"); our prefix is not.
     const at = m[1].replace(/^\\+/, '');
-    if (at.startsWith(TASK_PREFIX)) names.add(at.slice(TASK_PREFIX.length));
+    if (!at.startsWith(TASK_PREFIX)) continue;
+    /* #1704: the folder holds every Kosmos's agents; a board lists only its own,
+       so another world's task is neither a member of this fleet nor a "stray". */
+    const name = launchidentity.nameInWorld(at.slice(TASK_PREFIX.length), launchidentity.currentWorldId());
+    if (name) names.add(name);
   }
   return { known: true, names };
 }
@@ -616,7 +643,7 @@ function configDirFor(name) {
   const re = /"([^"]*)"/g;
   let t;
   while ((t = re.exec(argStr)) !== null) tokens.push(t[1]);
-  const { specFromArgv } = require('./win32supervisor');
+  const { specFromArgv } = require('./win32argv');
   const spec = specFromArgv(tokens.slice(2));
   if (spec.name !== name) {
     return rememberConfigDir(name, { known: false, because: 'the task argument line is not the shape we can read a configDir from' });

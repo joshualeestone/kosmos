@@ -51,6 +51,7 @@ const net = require('node:net');
 const path = require('node:path');
 
 const store = require('./store');
+const launchidentity = require('./launchidentity');
 
 /* One namespace, so a person listing pipes can see what these are and nothing
    else can collide with them by accident. */
@@ -79,7 +80,12 @@ const LISTEN_RETRY_LIMIT = 120;
    so two names that differ only in case or punctuation share one pipe -- which is
    exactly as true of their profile, their token and their avatar, and the create
    path refuses such a pair long before this. One key derivation, not a second. */
-function pipePath(name) { return PIPE_PREFIX + store.safeKey(name); }
+/* #1704: a pipe name is machine-wide too, so a named world's agent serves
+   `kosmos-agent-<key>+<world>` (launchidentity.launchKey) and the default world's
+   is unchanged. Built from the safe KEY, never `safeKey(launchKey(...))`, which
+   would strip the separator. The supervisor and the board each use their own
+   world here, and those are the same world by construction. */
+function pipePath(name) { return PIPE_PREFIX + launchidentity.launchKey(store.safeKey(name), launchidentity.currentWorldId()); }
 
 function secretDir() { return path.join(store.ROOT, 'win32-channel'); }
 function secretPath(name) { return path.join(secretDir(), store.safeKey(name) + '.key'); }

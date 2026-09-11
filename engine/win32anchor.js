@@ -55,6 +55,8 @@ const os = require('node:os');
 const path = require('node:path');
 
 const store = require('./store');
+const worlds = require('./worlds');
+const launchidentity = require('./launchidentity');
 
 /**
  * 🛑 ONE SOURCE FOR THE APP DIRECTORY NAME, NEVER A SECOND COPY -- the lesson
@@ -94,7 +96,13 @@ const BOOT_NAME = 'supervisor-boot.js';
  * branch would otherwise go unexercised.
  */
 function anchorDir(platform, home, env) {
-  const e = env || {};
+  /* 🛑 #1704: ONE ANCHOR FOR EVERY WORLD. A board serving a named Kosmos has that
+     world's AGENT_WORKFORCE_DATA in its environment, and honouring it here would
+     put a second 92 MB interpreter and a second engine pointer under the world,
+     which the next update would not refresh. preWorldEnv takes a WORLD override
+     back out (it carries the marker) and leaves a sandbox's own root alone (it
+     does not), so tests still isolate this exactly as before. */
+  const e = worlds.preWorldEnv(env || {});
   const p = platform === 'win32' ? path.win32 : path.posix;
   let base;
   if (e.AGENT_WORKFORCE_DATA) {
@@ -149,7 +157,28 @@ const BOOT_JS = [
   "  process.stderr.write('kosmos: the app this agent was registered against is gone (' + entry + ')\\n');",
   '  process.exit(3);',
   '}',
-  'require(entry).main(process.argv.slice(2));',
+  '/* #1704: the agent\'s Kosmos rides on the task line (win32argv, field 7). Its',
+  '   roots must be in the environment BEFORE the supervisor loads anything that',
+  '   freezes the store root, or it would read the default world\'s store. A',
+  '   default-world task on an engine too old to know about worlds is left alone;',
+  '   a NAMED-world one refuses, because that engine would run it silently in the',
+  '   default world. (Field 7 is checked by hand only for that case: without',
+  '   win32argv.js there is no parser to ask.) */',
+  'const args = process.argv.slice(2);',
+  "const argvAt = path.join(engine, 'win32argv.js');",
+  "const worldsAt = path.join(engine, 'worlds.js');",
+  "const namedWorld = typeof args[6] === 'string' && args[6] !== '' && args[6] !== '-';",
+  'if (namedWorld && !(fs.existsSync(argvAt) && fs.existsSync(worldsAt))) {',
+  "  process.stderr.write('kosmos: this agent belongs to Kosmos ' + JSON.stringify(args[6]) + ', and the app it points at is too old to run it there (' + engine + ')\\n');",
+  '  process.exit(3);',
+  '}',
+  'if (namedWorld) {',
+  '  const world = require(argvAt).specFromArgv(args).world;',
+  '  process.env[' + JSON.stringify(launchidentity.WORLD_ENV_VAR) + '] = world;',
+  '  try { require(worldsAt).applyAgentWorldEnv(process.env); }',
+  "  catch (e) { process.stderr.write('kosmos: this agent could not enter its Kosmos ' + JSON.stringify(world) + ' (' + ((e && e.message) || e) + ')\\n'); process.exit(3); }",
+  '}',
+  'require(entry).main(args);',
   '',
 ].join('\n');
 
