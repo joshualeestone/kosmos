@@ -553,3 +553,22 @@ test('#2717 swapping the runner clears the cache, so one test cannot answer the 
     'the new runner was answered from the previous one cache');
   assert.equal(second.n, 1, 'the runner swap did not clear the cache');
 });
+
+test('#2717 the cached answer is frozen, so one caller cannot poison every later one', () => {
+  /* 🛑 AN UNTESTED INVARIANT IS THE SHAPE THIS CARD KEEPS PRODUCING. Round 2
+     noted that deleting the `Object.freeze` left all arms green, because no
+     caller mutates what it gets today (`remove.js` only reads `.configDir`).
+     That is exactly when it is cheap to pin: before the cache, every call built
+     a fresh object and a caller could scribble on it harmlessly; now they share
+     one, so the first caller to write would change the answer every later caller
+     sees, on a SAFETY check. */
+  const calls = countingRunner(taskXmlFor('kitty', 'C:\\Users\\kitty\\.claude'));
+  const first = job.configDirFor('kitty');
+  assert.ok(Object.isFrozen(first), 'the cached answer is not frozen, so a caller can poison it');
+  /* And the freeze is on the object the CACHE hands back, not merely on a copy:
+     mutating it must not change what the next ask returns. */
+  try { first.configDir = 'C:\\poisoned'; } catch { /* strict mode throws; both are fine */ }
+  assert.equal(job.configDirFor('kitty').configDir, 'C:\\Users\\kitty\\.claude',
+    'a caller mutated the cached answer and the next ask returned the poisoned value');
+  assert.equal(calls.n, 1, 'the second ask spawned again, so this arm is not testing the cache');
+});
