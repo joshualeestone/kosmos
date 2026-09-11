@@ -654,6 +654,50 @@ release_freeze_notice "$SHA" "$BUILD"
 # load there is still inflated by this suite's own just-finished processes, so a
 # second wait would stall on the cut's own residual rather than external load.
 kosmos_gate_or_abort "the gated steps (the suite and the headless page layer)" || exit 1
+# #2760 P1: overlap the node suite (step 3) with the headless render checks (step
+# 3b) when the box has spare cycles, running the suite at LOW priority so the
+# render checks keep scheduling priority and their flake-rate stays near-serial.
+# The two steps are logically independent (the suite needs no browser; the render
+# checks need no suite) and both run on the already-frozen tree, so overlapping
+# them hides the ~277s suite inside the ~949s render window (the measured
+# bottleneck, #2760). DEFAULT SERIAL, OPT-IN via KOSMOS_CUT_PARALLEL=1: with the
+# flag unset -- the default, always, until the render flake-rate has been measured
+# under the overlap -- the cut takes the current serial path and this feature
+# changes NO real cut. The decision lives in tools/lib/cut-load-guard.sh
+# (kosmos_cut_parallel_ok) so it is unit-tested, and is read HERE, right after the
+# entry gate above waited for a quiet box, so the load it reads is of a known-quiet
+# box.
+# 🛑 BOTH GATES STILL RUN AND STILL ABORT ON RED IN BOTH MODES. Only the two RUN
+# commands move; the suite analysis (#2006) and the page analysis below are
+# unchanged and run in the same order (suite first, then page). In parallel mode
+# the #2006 isolation-rerun -- if the concurrently-run suite reds -- runs AFTER
+# both the foreground render and the backgrounded suite finish (a quiet box), so
+# its guarantee (contention makes false reds, never false greens) holds exactly as
+# in serial mode.
+# >>> #2760-P1 gated-steps region START (extracted verbatim by tools/test-cut-parallel-region.sh, which drives it under stubs to prove a red suite or red page still aborts in BOTH modes) >>>
+_cut_parallel=0
+if kosmos_cut_parallel_ok; then _cut_parallel=1; fi
+if [ "$_cut_parallel" = 1 ]; then
+  step "== 3+3b. the suite (nice, overlapped) and the page layer, headless (#2760 P1) =="
+  echo "   #2760 P1: KOSMOS_CUT_PARALLEL=1 and the box has spare cycles -- running the node suite at low priority (nice) CONCURRENTLY with the render checks, which keep scheduling priority. Both gates still run and still abort on red below."
+  _suite_log="$(mktemp)"
+  _suite_exit=0
+  _page_log="$(mktemp)"
+  _page_exit=0
+  # The node suite, backgrounded at the lowest user priority. A `( ... ) &` job
+  # never trips errexit; its exit is reaped by `wait` below. nice -n 19 means the
+  # foreground render checks always win the scheduler, so their timing -- and thus
+  # their flake-rate -- stays near-serial.
+  ( cd "$REPO" && nice -n 19 yarn test >"$_suite_log" 2>&1 ) &
+  _suite_bg_pid=$!
+  # The render checks, foreground at NORMAL priority: the SAME command, env
+  # exclusion (#2724) and strict version pin (#1708) as the serial step 3b below.
+  ( cd "$REPO" && env -u AGENT_WORKFORCE_HOME KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
+  # Reap the backgrounded suite; `|| _suite_exit=$?` captures its exit without
+  # tripping errexit, exactly as the serial `( ... ) || _suite_exit=$?` does.
+  wait "$_suite_bg_pid" || _suite_exit=$?
+fi
+if [ "$_cut_parallel" != 1 ]; then
 step "== 3. the whole suite, on the tree that ships =="
 # 🔑 WHY THE CUT RUNS THE WHOLE SUITE ON MAIN ITSELF, and does not trust the green
 # PR checks of what it bundles (kosmos#1934). A green PR check is a statement about
@@ -675,6 +719,7 @@ step "== 3. the whole suite, on the tree that ships =="
 _suite_log="$(mktemp)"
 _suite_exit=0
 ( cd "$REPO" && yarn test >"$_suite_log" 2>&1 ) || _suite_exit=$?
+fi
 grep -E '^ℹ (tests|pass|fail)' "$_suite_log" || true
 # 📌 AN AUDIT TRAIL, NOT A GUARD (Splinter, 2026-08-25 05:30; the guard reading
 # was withdrawn: this step cannot be skipped, it refuses a red on its own).
@@ -729,6 +774,7 @@ if [ "$_suite_exit" -ne 0 ]; then
 fi
 rm -f "$_suite_log"
 
+if [ "$_cut_parallel" != 1 ]; then
 step "== 3b. the page layer, headless (#39) =="
 # ⚠️ THE PAGE IS PART OF WHAT SHIPS, and `node --test` cannot see it: round
 # 16 of the project-chat review put 18 page mutations through the whole
@@ -771,10 +817,12 @@ _page_exit=0
 # the page gate. Carded rather than done, and named here so the exclusion cannot be
 # mistaken for coverage.
 ( cd "$REPO" && env -u AGENT_WORKFORCE_HOME KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
+fi
 grep -E '^PASS |^FAIL |^COULD NOT RUN|^‼️|retried:|all page' "$_page_log" || true
 if [ "$_page_exit" -eq 126 ] || [ "$_page_exit" -eq 127 ]; then echo "the page gate COULD NOT RUN (exit $_page_exit: bash, node or a program it needs is missing or not executable); this is not a red check. Full output: $_page_log"; exit 1; fi
 [ "$_page_exit" -eq 0 ] || { echo "the page checks are red (exit $_page_exit); full output: $_page_log"; exit 1; }
 rm -f "$_page_log"
+# <<< #2760-P1 gated-steps region END <<<
 
 step "== 3c. the installer .pkg, rebuilt and published only when its inputs changed (#555, #638 B) =="
 # 🛑 THE DOWNLOAD BUTTON SERVES THIS FILE AND NO RELEASE STEP EVER TOUCHED IT.

@@ -90,7 +90,20 @@ cat > "$BUILD/distribution.xml" <<XML
   <background-darkAqua file="background-darkAqua.png" alignment="bottomleft" scaling="none" mime-type="image/png"/>
   <welcome file="welcome.html" mime-type="text/html"/>
   <conclusion file="conclusion.html" mime-type="text/html"/>
-  <options customize="never" require-scripts="false" hostArchitectures="arm64,x86_64"/>
+  <!-- #1562: gate the machine UP FRONT, so an unsupported Mac is refused by
+       macOS Installer with a clear reason BEFORE any download, instead of
+       running setup.sh, hitting its named refusal, and having that reason
+       swallowed into /var/log/install.log while the user sees only the generic
+       "The installation failed." arm64 only (Kosmos ships no x86_64 bundle;
+       the old value also listed x86_64, which let Intel Macs in), and macOS
+       13.5 is the same floor setup.sh enforces (the shipped Node runtime's
+       minos). -->
+  <options customize="never" require-scripts="false" hostArchitectures="arm64"/>
+  <volume-check>
+    <allowed-os-versions>
+      <os-version min="13.5"/>
+    </allowed-os-versions>
+  </volume-check>
   <choices-outline>
     <line choice="default"><line choice="$IDENTIFIER"/></line>
   </choices-outline>
