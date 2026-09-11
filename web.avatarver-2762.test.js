@@ -49,11 +49,22 @@ const PAGE_PATH = path.join(__dirname, 'web', 'index.html');
 /* Comments stripped both directions (#1080's shared helper): this file's prose
    mentions avatar URLs, and a renderer's comment must never satisfy or break an
    assertion about its code. */
-const CODE = codeOnly(fs.readFileSync(PAGE_PATH, 'utf8'));
+const RAW = fs.readFileSync(PAGE_PATH, 'utf8');
+const CODE = codeOnly(RAW);
 
-/* A BARE avatar URL: `/avatar` closing its string literal rather than continuing into
-   a query string. `?v=` (the fix) and `?t=` (a timestamp bust) both continue. */
-const BARE = /\/avatar(["'`])/;
+/* 🛑 A POSITIVE TEST FOR A QUERY STRING, NOT "not followed by a quote".
+   The previous version asked `/\/avatar(["'`])/` and called everything else busted,
+   which FAILS OPEN: anything that is not immediately a quote passes. Measured, these
+   all classified as busted while carrying no query at all:
+       `/avatar${avQ(a)}"`          template interpolation
+       '/avatar' + EOL              the closing quote on the next line
+   And the realistic one, which is the next thing somebody will write when they fix
+   the carded #2770 by routing every avatar URL through one helper:
+       function avQ(row) { return row.avatarVer ? '?v=' + row.avatarVer : ''; }
+   Message rows carry no avatarVer, so that returns '', the URL is bare at runtime, it
+   is painted through paintThreadInto -> setLive, and it is #2762 verbatim.
+   Asking for the `?` instead means every one of those fails CLOSED. */
+const BUSTED = /\/avatar\?/;
 
 /* Lines that carry an avatar URL and are NOT renderings. `fetch(...)` for upload and
    delete puts the same path in a string whose closing quote looks identical.
@@ -66,7 +77,7 @@ const BARE = /\/avatar(["'`])/;
    same "an exemption must not be wider than the thing it names" rule the ALLOWED_BARE
    count guard enforces. */
 const LOOKS_LIKE_MARKUP = /<img|<image|src=|href=/;
-const NOT_A_RENDERING = (line) => /fetch\(/.test(line) && !LOOKS_LIKE_MARKUP.test(line);
+const NOT_A_RENDERING = (line) => /\bfetch\(/.test(line) && !LOOKS_LIKE_MARKUP.test(line);
 
 /**
  * Bare URLs that are FINE, each with the paint call that makes it fine. Keyed on a
@@ -77,6 +88,13 @@ const NOT_A_RENDERING = (line) => /fetch\(/.test(line) && !LOOKS_LIKE_MARKUP.tes
 const ALLOWED_BARE = [
   {
     match: '<image href="/api/agent/${encodeURIComponent(a.sessionName)}/avatar"',
+    /* 🔑 THE PAINT STRING NAMES THE RENDERER, not just the element. An element can be
+       painted from more than one place: `getElementById('alist').innerHTML =` appears
+       TWICE (the lrow paint and an error message), so a guard keyed on the element
+       alone stayed satisfied by the OTHER site when the renderer's own paint was moved
+       behind setLive. Measured: that mutant survived 11/11. Same shape as the
+       ALLOWED_BARE count bug, one field over. */
+    paint: "getElementById('grid').innerHTML = shown.length ? shown.map(card)",
     why: 'face(): the agent-grid SVG ring. Reaches the DOM only through card() -> '
       + "document.getElementById('grid').innerHTML = ..., a direct assignment that "
       + 'recreates the element every poll, and the avatar route is no-store.',
@@ -87,15 +105,19 @@ const ALLOWED_BARE = [
        count is 2. Declared rather than loosened to "one or more": a THIRD copy is a
        new renderer inheriting this exemption, which is the hole the count closes. */
     count: 2,
+    paint: "getElementById('alist').innerHTML = shown.length ? shown.map(lrow)",
     why: "lrow(): the agents list. document.getElementById('alist').innerHTML = ..., "
       + 'a direct assignment, rebuilt every poll.',
   },
   {
     match: "encodeURIComponent(fresh.sessionName) + '/avatar\" alt=\"\"></div>'",
+    paint: '.innerHTML = busyRow(',
     why: 'busyRow(): el.innerHTML = busyRow(...), a direct assignment.',
   },
   {
     match: "encodeURIComponent(m.from) +",
+    /* No `paint:`: this one is NOT excused by a direct assignment. It IS behind a
+       skip and IS stale, which is why it carries a card instead. */
     why: 'pjRoomRow(): room message senders, painted via paintThreadInto -> setLive, '
       + 'so this one IS behind a skip and IS stale. kosmos#2770. A message row is not '
       + 'a member row, so there is no avatarVer to pass through yet; that is the work '
@@ -103,16 +125,25 @@ const ALLOWED_BARE = [
   },
 ];
 
-/** Every line carrying an agent-avatar URL, with its 1-based line number. */
+/* 🛑 LINE NUMBERS COME FROM THE RAW FILE, NOT THE STRIPPED COPY. `codeOnly` DELETES
+   comment lines (44,975 raw -> 23,785 stripped here), so numbering the stripped copy
+   made every location this sweep reports point at unrelated code: the `face` emission
+   was reported as :6640, which in web/index.html is a comment about buttons. The list
+   of locations IS this check's entire output when it fires, so a wrong number is the
+   failure. Raw lines are walked for numbering; the stripped copy decides only whether
+   a line is CODE, which keeps one derivation of comment-stripping (#1080). */
+const CODE_LINES = new Set(CODE.split('\n').map((l) => l.trim()).filter(Boolean));
+
+/** Every line carrying an agent-avatar URL, numbered against web/index.html itself. */
 function avatarLines() {
-  return CODE.split('\n')
+  return RAW.split('\n')
     .map((text, i) => ({ line: i + 1, text: text.trim() }))
     .filter((e) => /\/avatar/.test(e.text))
-    .filter((e) => !/\/api\/you\/avatar/.test(e.text));   // the operator's own picture, its own route and its own version
+    .filter((e) => CODE_LINES.has(e.text));   // drop lines codeOnly removed (comments)
 }
 
 function classify(e) {
-  if (!BARE.test(e.text)) return 'busted';
+  if (BUSTED.test(e.text)) return 'busted';
   if (NOT_A_RENDERING(e.text)) return 'call';
   const hit = ALLOWED_BARE.find((a) => e.text.includes(a.match));
   return hit ? 'allowed' : 'UNCLASSIFIED';
@@ -120,8 +151,12 @@ function classify(e) {
 
 test('#2762: no rendered avatar URL is bare, unless it is listed with a reason', () => {
   const all = avatarLines();
-  assert.ok(all.length >= 8,
-    'the sweep found almost no avatar URLs, so its matcher has probably stopped working: ' + all.length);
+  /* A floor with slack lets a refactor that collapses emissions keep this green. The
+     real count today is 14; assert close to it, and make a DROP say so loudly. */
+  assert.ok(all.length >= 12,
+    'the sweep found ' + all.length + ' avatar URLs and expected at least 12. Either the '
+    + 'matcher stopped working, or emissions were collapsed and this floor needs revisiting '
+    + 'DELIBERATELY rather than by leaving slack.');
 
   const bad = all.filter((e) => classify(e) === 'UNCLASSIFIED');
   assert.deepEqual(bad.map((e) => 'web/index.html:' + e.line + '  ' + e.text.slice(0, 90)), [],
@@ -142,8 +177,8 @@ test('#2762: every ALLOWED_BARE entry still matches something, so the list canno
     assert.ok(hits.length > 0,
       'ALLOWED_BARE entry matches nothing any more: ' + JSON.stringify(a.match)
       + '. It was renamed, deleted, or fixed. Remove the entry so the sweep covers that ground again.');
-    assert.ok(hits.some((e) => BARE.test(e.text)),
-      'ALLOWED_BARE entry no longer matches a BARE url (it has been fixed): ' + JSON.stringify(a.match)
+    assert.ok(hits.some((e) => !BUSTED.test(e.text)),
+      'ALLOWED_BARE entry no longer matches an un-busted url (it has been fixed): ' + JSON.stringify(a.match)
       + '. Remove the entry.');
     /* 🔑 EXACTLY ONE. A carve-out that matches two lines excuses the second one for
        free, which is how a new renderer inherits an old renderer's exemption: it was
@@ -156,6 +191,42 @@ test('#2762: every ALLOWED_BARE entry still matches something, so the list canno
       + '. If a NEW renderer copied this shape it is inheriting an exemption it was never '
       + 'granted; give it its own entry or version its URL. If this renderer legitimately '
       + 'draws N times, set `count`.');
+  }
+});
+
+test('#2762: each carve-out PROVES its reason, so it cannot outlive the paint path', () => {
+  /* The three existing guards catch renamed / deleted / fixed. None catches THE PAINT
+     PATH CHANGING, which is the only way a direct-assignment excuse becomes wrong.
+     Measured on the previous version: rewriting `el.innerHTML = busyRow(...)` to
+     `setLive(el, busyRow(...))` put a real stale face on screen and left the sweep
+     9/9 green, with the entry still reading "a direct assignment, rebuilt every poll".
+     The reason is the whole justification, so it has to be checkable. */
+  for (const a of ALLOWED_BARE) {
+    if (!a.paint) continue;   // the known-stale entry is excused by a card, not a paint call
+    assert.ok(CODE.includes(a.paint),
+      'the paint call that justifies this carve-out is gone: ' + JSON.stringify(a.paint)
+      + '. If that renderer moved behind setLive / setIfChanged / paintThreadInto it is now '
+      + 'STALE and must version its URL (#2762); the entry is no longer true.');
+  }
+});
+
+test('#2762: the operator own picture is versioned too, and that is ASSERTED not assumed', () => {
+  /* 🛑 THE ONE CARVE-OUT WITH NO GUARD. `/api/you/avatar` lines are filtered out of the
+     sweep entirely by avatarLines(), on the grounds that the operator's picture has its
+     own route and its own version. That is true today and nothing kept it true -- and
+     it matters, because `youPicUrl()` is rendered INSIDE pjRoomRow, which the plan
+     itself documents as painted through paintThreadInto -> setLive. Measured: removing
+     the version from youPicUrl left the whole file 9/9 green while putting the exact
+     #2762 defect on the operator's own face, behind the exact same skip. */
+  assert.match(CODE, /function youPicUrl\(\)\s*\{[^}]*\/api\/you\/avatar\?v=/,
+    'youPicUrl no longer versions the operator picture. It is rendered inside pjRoomRow, '
+    + 'which is painted through paintThreadInto -> setLive, so a bare URL there is #2762 '
+    + 'on the operator own face. Either version it or stop filtering /api/you/avatar out '
+    + 'of this sweep.');
+  const youLines = RAW.split('\n').filter((l) => /\/api\/you\/avatar/.test(l) && /<img|src=/.test(l));
+  for (const l of youLines) {
+    assert.ok(/youPicUrl\(\)/.test(l) || /\/avatar\?/.test(l),
+      'a rendered /api/you/avatar URL bypasses youPicUrl() and carries no query: ' + l.trim().slice(0, 100));
   }
 });
 
