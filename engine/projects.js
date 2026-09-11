@@ -1695,14 +1695,19 @@ function create({ name, folder, agents, roster, description, made, parent } = {}
    typed on the create form when there is one (so what they already said persists into
    the folder rather than scrolling away in chat); both fields otherwise carry a prompt
    the person edits. Markdown, because the rooms and dialogs already render it and a
-   person editing it by hand reads it the same way. */
+   person editing it by hand reads it the same way.
+   ⚠️ CALLERS PASS ALREADY-CLEANED name/description; this does NOT neutralise them. The one
+   caller, `create`, hands `title` (cleanName) and `desc` (cleanDescription), both of which
+   have been through `oneLine`/`neutralise`, so a stray newline or marker cannot break the
+   headings. The function is exported for tests; a future direct caller must clean its inputs
+   the same way rather than pass raw user text. */
 const BRIEF_STUB_FILENAME = 'BRIEF.md';
 function briefStubContent({ name, description } = {}) {
   const goal = (typeof description === 'string' && description.trim())
     ? description.trim()
     : '_What is this project for? Replace this line._';
-  return '# ' + String(name || 'This project') + '\n\n'
-    + '## Goal\n\n' + goal + '\n\n'
+  return `# ${String(name || 'This project')}\n\n`
+    + `## Goal\n\n${goal}\n\n`
     + '## Done looks like\n\n'
     + '_How will everyone know this is finished? Replace this line._\n\n'
     + '---\n\n'

@@ -848,14 +848,24 @@ test('the staleness sentence names two or more projects with a real "and", not a
   assert.notEqual(two.id, three.id);
 });
 
-test('nothing is ever written into the user’s project folder', () => {
+test('Kosmos writes ONLY its brief stub into the folder, and nothing of the person’s', () => {
+  // #2706 overturned the old "nothing is ever written" invariant: creating a project now
+  // drops a BRIEF.md stub so agents land with something to read instead of defaulting to
+  // talking. The invariant that survives is narrower and is what this test now pins: Kosmos
+  // adds EXACTLY its own brief and touches nothing the person already had. A UNIQUE folder,
+  // not the shared 'untouched' one, so the assertion does not depend on another test having
+  // seeded a brief here first (which is precisely how the old assertion passed by accident).
   reset();
   agent('mara', '# Mara\n\nYou are the executive assistant.\n');
-  const dir = folder('untouched');
-  const before = fs.readdirSync(dir);
-  projects.create({ name: 'Untouched', folder: dir, agents: ['mara'] });
+  const dir = folder('brief-only');
+  fs.writeFileSync(path.join(dir, 'work.txt'), 'the person’s real work');
+  const before = fs.readdirSync(dir).sort();
+  projects.create({ name: 'Brief only', folder: dir, agents: ['mara'] });
   projects.syncAgent('mara', ROSTER);
-  assert.deepEqual(fs.readdirSync(dir), before, 'the project folder holds their work and nothing of ours');
+  assert.deepEqual(fs.readdirSync(dir).sort(), [projects.BRIEF_STUB_FILENAME, ...before].sort(),
+    'Kosmos added something other than its brief stub, or removed one of the person’s files');
+  assert.equal(fs.readFileSync(path.join(dir, 'work.txt'), 'utf8'), 'the person’s real work',
+    'the person’s own file was modified');
 });
 
 test('the store lives under the sandboxed data root, so nothing here reached the real one', () => {

@@ -71,9 +71,14 @@ today (no special-case), which is harmless (no agents land in it) but slightly i
   no-description case carries a prompt), the no-clobber rule (existing brief preserved
   byte-for-byte and mtime unchanged), best-effort (creation survives a failed write), and
   the return-value contract.
-- Existing projects suites stay green (projects.test.js 136, subprojects 20, open-why 6,
-  server.projects 152) - the BRIEF.md side-effect breaks no folder-listing or
-  empty-folder assertion.
+- One existing test had to be updated: `projects.test.js` had a "nothing is ever written
+  into the user's project folder" invariant, which #2706 deliberately overturns. It is
+  rewritten to the surviving, narrower invariant - Kosmos writes ONLY its brief stub and
+  touches nothing of the person's - and moved off the shared 'untouched' folder onto a unique
+  one (the old assertion passed in the full suite only by accident: an earlier test seeded a
+  brief in that shared folder first, so no-clobber hid the write; in isolation it failed).
+- The other projects suites stay green (subprojects 20, open-why 6, server.projects 152); no
+  other folder-listing or empty-folder assertion is affected.
 
 ## Not done
 
