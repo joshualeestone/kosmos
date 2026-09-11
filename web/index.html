@@ -5088,12 +5088,17 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    before. It lives on the id, not `.pj-screen`, because four surfaces share
    that rule and only this one is the agent page's window. */
 #d-window { max-height: calc(100vh - 220px); }
-/* The pack's Fresh start stack (Josh, 2026-08-23 19:57): three big
-   full-width buttons, one per line, matching his screenshot. */
-.freshstack .btn { display: block; width: 100%; margin-top: 10px;
-                   padding: 14px 16px; text-align: center;
+/* Fresh start actions size to their content, not the full container width
+   (Josh, 2026-09-11 reviewing 0.6.56 live: the buttons "look terrible" full
+   width -- #2809). This reverses the 2026-08-23 full-bleed stack: the three
+   still stack one per line and left-align under the lede, but each is only as
+   wide as its label plus padding. The stack is a flex column with
+   align-items:flex-start so a block button shrinks to its content rather than
+   stretching to the container. */
+.freshstack { margin-top: 2px; display: flex; flex-direction: column;
+              align-items: flex-start; }
+.freshstack .btn { margin-top: 10px; padding: 14px 20px; text-align: center;
                    font-size: 17px; font-weight: 600; }
-.freshstack { margin-top: 2px; }
 /* The three read as ONE stack: the restart container joins at the stack's
    own 10px rhythm, and the empty receipt slots between them take no height
    until they hold a sentence. */
@@ -7777,14 +7782,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            with it; each button's dialog already says what it keeps and loses,
            and two copies of one explanation is one to keep current. Painted by
            resetLabels() on open and after a rename. -->
-      <!-- 🔑 THE PACK'S SHAPE, MATCHED EXACTLY (Josh, 2026-08-23 19:57: "make
-           this look like what the pack design looks like... nice big fat
-           buttons that are all three stacked"). His screenshot carries the
-           pack's colon labels, which SUPERSEDES the 08-22 long-form ruling
-           recorded below; tonight is later and he was pointing at the picture.
-           The lede and the footer are the pack's sentences verbatim; the cost
-           still lives in each button's dialog, which is what the footer
-           promises. -->
+      <!-- 🔑 THE PACK'S SHAPE (Josh, 2026-08-23 19:57): three stacked actions
+           with the pack's colon labels, which SUPERSEDES the 08-22 long-form
+           ruling recorded below. The lede and the footer are the pack's
+           sentences verbatim; the cost still lives in each button's dialog,
+           which is what the footer promises. Only Restart names the agent.
+           ⚠️ THE WIDTH WAS REVERSED (Josh, 2026-09-11, #2809): the 08-23
+           "nice big fat buttons" were FULL-WIDTH, and reviewing 0.6.56 live he
+           ruled they "look terrible" that way. They now size to content (the
+           `.freshstack` CSS is a flex column, align-items:flex-start); still
+           stacked one per line, just no longer full-bleed. -->
       <div class="fhint" id="d-fresh-lede" style="margin-bottom:12px;">Three ways to get it going again, whatever the reason.</div>
       <div class="freshstack">
         <button class="btn" id="d-compact-go" type="button">Compact: summarise and keep going</button>

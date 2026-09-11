@@ -42,13 +42,25 @@ const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
   chk(vis.chooser, 'the pack\u2019s lede is on the Memory tab and names the agent');
   /* The pack's shape, ruled by Josh 2026-08-23 19:57 and pinned the same way
      in regress-a-night.js: one lede that names the agent ("Three ways to get
-     Mara going again"), three fat stacked buttons with the pack's own words,
-     and only Restart names the agent. The older #404 assertion (the agent's
+     Mara going again"), three stacked buttons with the pack's own words, and
+     only Restart names the agent. The older #404 assertion (the agent's
      name on every button) asserted the design this replaced; it was red from
      the moment the pack landed and nobody ran it. Restated to the ruling, not
      to a guess: regress-a-night carries the same pins and is green. */
   chk(vis.names[0] === 'Compact: summarise and keep going' && vis.names[1] === 'Clear: start over, loses what it is holding' && /^Restart: stop and start \S/.test(vis.names[2]),
     'the three buttons carry the pack\u2019s words, and Restart names the agent', JSON.stringify(vis.names));
+  /* #2809 (Josh, 2026-09-11, reviewing 0.6.56 live: the fresh-start buttons
+     "look terrible" full-width): each of the three now sizes to its content,
+     not the full container width. Guards against a re-widen to the full-bleed
+     stack this replaced. Measured against each button's own flex container
+     (`.freshstack`): a content-sized button is well under it; the old
+     `width:100%` made them equal. 0.9 leaves headroom for the longest label. */
+  const widths = await page.evaluate(() => ['d-compact-go', 'd-clear-go', 'd-restart-start'].map((id) => {
+    const b = document.getElementById(id); const c = b.parentElement;
+    return { id, btn: b.getBoundingClientRect().width, container: c.getBoundingClientRect().width };
+  }));
+  chk(widths.every((w) => w.btn > 0 && w.container > 0 && w.btn <= w.container * 0.9),
+    'the three fresh-start buttons size to content, not full width (#2809)', JSON.stringify(widths));
   await page.screenshot({ path: process.env.SHOT || path.join(os.tmpdir(), 'memory-controls.png') });
   await page.click('#d-compact-go'); await page.waitForTimeout(300);
   chk(!(await page.$eval('#chg-modal', (m) => m.hidden)), 'Compact opens a dialog rather than acting');
