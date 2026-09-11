@@ -394,6 +394,28 @@ test('#2669 the retry stops when the child is replaced, and gives up after its a
   u.h.stop();
 });
 
+test('#2669 a NEWER id supersedes a pending retry: the older one is never recorded after it', () => {
+  /* Two /clears in a row: B's record fails, then C arrives before B's retry fires.
+     Retrying B would record it after C and move the resume id back to the wrong
+     conversation (review round 3: the `pendingRekey === id` guard was unpinned). */
+  const recorded = [];
+  const timers = [];
+  const t = clearingSupervisor('clr-8', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: { record: (id) => { recorded.push(id); return { ok: false, because: 'the record is busy' }; }, forget: () => ({ ok: true }), read: () => ({}) },
+  });
+  const B = require('node:crypto').randomUUID();
+  const C = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });
+  t.say(0, { type: 'system', subtype: 'init', session_id: C });
+  const before = recorded.length;
+  timers[0]();                              // B's retry fires after C took over
+  assert.ok(!recorded.slice(before).includes(B), 'the superseded id is not retried');
+  timers[1]();                              // C's own retry still runs
+  assert.ok(recorded.slice(before).includes(C), 'the newest id keeps trying');
+  t.h.stop();
+});
+
 test('#2669 a forget that fails is SAID: the old id still answers to this name', () => {
   const t = clearingSupervisor('clr-7', {
     sessions: { record: () => ({ ok: true }), forget: () => ({ ok: false, because: 'the record is busy' }), read: () => ({}) },

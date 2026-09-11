@@ -47,8 +47,13 @@ const FILE_MODE = 0o600;
    is synchronous and blocks the caller's whole process, and one caller is a
    supervisor's stdout handler, so it is kept far below filelock's 2s default. A
    holder's critical section is one small read and one rename (milliseconds), so
-   250ms still outlasts any live holder. A refusal costs little: a rekey retries on
-   its own, and a create or removal reports the sentence. */
+   250ms still outlasts any live holder. So a refusal needs a holder that died
+   mid-write, whose lock stays until filelock's 10s staleness rule collects it.
+   What each writer does then:
+   - a rekey retries for a minute, and heals;
+   - a create's first launch is refused into the task log, and the create fails
+     with its timeout sentence;
+   - a removal ignores it, leaving a stale row that matches nothing live. */
 const RECORD_LOCK_WAIT_MS = 250;
 
 /* A session id is a UUID from `claude agents --json`. The charset gate keeps a
