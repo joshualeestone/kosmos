@@ -114,6 +114,10 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
           img: body('<img src=x onerror=alert(1)>', N),
           // url preserved
           url: body('see https://x.test/p now', N),
+          // #2701: a GFM table renders as a real table, not literal piped text.
+          table: body('| A | B |\n| :-- | --: |\n| a1 | b1 |', N),
+          // #2701: heading LEVELS emit mdh1..mdh6, so `#` and `######` size apart.
+          heads: body('# H1\n###### H6', N),
         };
       });
       ok(t + ' pjBody/pjProse/esc exist' + (r.bodyExists ? '' : ''));
@@ -123,14 +127,18 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       ok(t + ' empty'); if (!r.empty) bad(t + ' empty', String(r.empty));
       if (/<strong>b<\/strong>/.test(r.bold)) ok(t + ' bold'); else bad(t + ' bold', r.bold);
       if (/<em>b<\/em>/.test(r.italic)) ok(t + ' italic'); else bad(t + ' italic', r.italic);
-      if (/<span class="mdh">Title<\/span>/.test(r.heading) && !/# /.test(r.heading)) ok(t + ' heading (strips #)'); else bad(t + ' heading', r.heading);
+      if (/<span class="mdh mdh1">Title<\/span>/.test(r.heading) && !/# /.test(r.heading)) ok(t + ' heading (strips #, mdh1)'); else bad(t + ' heading', r.heading);
+      // #2701: the table renders, and neither the pipes nor the separator leak as text.
+      if (/<table class="mdtable">/.test(r.table) && /<td[^>]*>a1<\/td>/.test(r.table) && !/\| A \|/.test(r.table) && !/:--/.test(r.table)) ok(t + ' table renders (#2701)'); else bad(t + ' table renders', r.table);
+      // #2701: `#` -> mdh1 and `######` -> mdh6, so heading levels are distinct classes.
+      if (/class="mdh mdh1">H1</.test(r.heads) && /class="mdh mdh6">H6</.test(r.heads)) ok(t + ' heading levels mdh1/mdh6 (#2701)'); else bad(t + ' heading levels', r.heads);
       if (/First\.<br><br>Second\./.test(r.paras)) ok(t + ' paragraph breaks -> <br><br>'); else bad(t + ' paragraph breaks', r.paras);
       if (/<span class="mdli">one<\/span>/.test(r.ul) && !/- one/.test(r.ul)) ok(t + ' unordered list (strips dash)'); else bad(t + ' unordered list', r.ul);
       if (/data-n="1\."/.test(r.ol) && />first<\/span>/.test(r.ol)) ok(t + ' ordered list'); else bad(t + ' ordered list', r.ol);
       if (/<code class="mdc">kosmos open<\/code>/.test(r.codeInline)) ok(t + ' inline code'); else bad(t + ' inline code', r.codeInline);
       if (/<figure class="codeb"><pre>code\nline<\/pre><\/figure>/.test(r.fence) && !/```/.test(r.fence)) ok(t + ' fenced code (no leak, figure kept)'); else bad(t + ' fenced code', r.fence);
       if (/<span class="ref">notes\.md<button class="refgo"/.test(r.chip)) ok(t + ' citation chip survives'); else bad(t + ' citation chip', r.chip);
-      if (/<span class="mdh">See <span class="ref">plan\.md/.test(r.chipInHeading)) ok(t + ' chip inside heading'); else bad(t + ' chip inside heading', r.chipInHeading);
+      if (/<span class="mdh mdh1">See <span class="ref">plan\.md/.test(r.chipInHeading)) ok(t + ' chip inside heading'); else bad(t + ' chip inside heading', r.chipInHeading);
       // room-specific: `>` is literal (escaped), never an .mdq quote span
       if (/&gt; just text/.test(r.gt) && !/mdq/.test(r.gt)) ok(t + ' bare > stays literal (room quote contract)'); else bad(t + ' bare > stays literal', r.gt);
       if (r.hashtag) ok(t + ' no-space hash stays plain'); else bad(t + ' no-space hash stays plain', 'differs from esc');
@@ -152,7 +160,9 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         const id = body.project.id;
         await fetch('/api/project/' + id + '/agent/roomer', { method: 'POST', headers: { 'content-type': 'application/json' } });
         // A markdown room post carrying every element Josh named + a safety control.
-        const text = '# Status\n\nDone **three** things and *one* more:\n- fixed the `bug`\n\n<script>alert(1)</script>\n\nsee https://kosmos.test/pr/42';
+        // #2701: also a table and a level-6 heading, so the painted DOM proves a
+        // real table element and that heading LEVELS render at different sizes.
+        const text = '# Status\n\nDone **three** things and *one* more:\n- fixed the `bug`\n\n| Step | Done |\n| :-- | --: |\n| build | yes |\n\n###### tiny\n\n<script>alert(1)</script>\n\nsee https://kosmos.test/pr/42';
         const r2 = await fetch('/api/project/' + id + '/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
         const j = await r2.json().catch(() => null);
         if (j && j.delivery && j.delivery.state === 'could_not') return { error: 'post refused: ' + j.delivery.because };
@@ -176,6 +186,9 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
         const mdc = b && b.querySelector('.mdc');
         const csH = mdh ? getComputedStyle(mdh) : null;
         const csC = mdc ? getComputedStyle(mdc) : null;
+        // #2701: the level-1 and level-6 headings, for a computed-size comparison.
+        const h1 = b && b.querySelector('.mdh1');
+        const h6 = b && b.querySelector('.mdh6');
         return {
           found: !!b,
           html: b ? b.innerHTML : null,
@@ -190,6 +203,10 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
           rawScriptText: b ? b.innerHTML.includes('<script>alert(1)</script>') : false,
           headingWeight: csH ? csH.fontWeight : null,
           codeBg: csC ? csC.backgroundColor : null,
+          // #2701
+          hasTable: !!(b && b.querySelector('table.mdtable')),
+          h1px: h1 ? parseFloat(getComputedStyle(h1).fontSize) : null,
+          h6px: h6 ? parseFloat(getComputedStyle(h6).fontSize) : null,
         };
       });
       if (dom.found) ok(t + ' DOM: a markdown room bubble exists'); else { bad(t + ' DOM: a markdown room bubble exists', 'no .msg-b with .mdh painted'); await p.close(); continue; }
@@ -197,6 +214,12 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       if (dom.hasStrong) ok(t + ' DOM: bold rendered in room'); else bad(t + ' DOM: bold rendered', dom.html);
       if (dom.hasEm) ok(t + ' DOM: italic rendered in room'); else bad(t + ' DOM: italic rendered', dom.html);
       if (dom.hasLi) ok(t + ' DOM: list rendered in room'); else bad(t + ' DOM: list rendered', dom.html);
+      // #2701: a real table element painted (not literal piped text).
+      if (dom.hasTable) ok(t + ' DOM: table rendered in room (#2701)'); else bad(t + ' DOM: table rendered', dom.html);
+      // #2701: the level-1 heading paints LARGER than the level-6 -- the "different
+      // sizes" complaint, proven by computed CSS rather than by the emitted class.
+      if (dom.h1px && dom.h6px && dom.h1px > dom.h6px) ok(t + ' DOM: heading levels render at different sizes (#2701, ' + dom.h1px + 'px > ' + dom.h6px + 'px)');
+      else bad(t + ' DOM: heading levels different sizes', 'h1=' + dom.h1px + ' h6=' + dom.h6px);
       if (dom.hasCode) ok(t + ' DOM: inline code rendered in room'); else bad(t + ' DOM: inline code rendered', dom.html);
       if (dom.hasLink) ok(t + ' DOM: url autolinked in room'); else bad(t + ' DOM: url autolinked', dom.html);
       if (dom.hasBr) ok(t + ' DOM: paragraph break is a <br> in room'); else bad(t + ' DOM: paragraph break rendered', dom.html);
