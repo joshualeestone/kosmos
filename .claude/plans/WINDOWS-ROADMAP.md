@@ -212,13 +212,14 @@ shared usage before fanning out subagents.
      its own window: closing the window stopped the board, and every relaunch
      after the first logon said "port in use ... Kosmos stopped". Fixed by #2752
      (`win32-launch-handoff-570`, merged): a hand-started board hands itself to its
-     headless logon task and exits. `win32-package-text-570` then brings the zip's README
-     and manifest up to date.
+     headless logon task and exits. `win32-package-text-570` (merged as #2759)
+     then brought the zip's README and manifest up to date.
    - It also found BLOCKER 5 (§3c): an agent's `kosmos reply` did not exist on the
-     zip, so its answer never reached the board. The fix is `win32-kosmos-cli-570`.
-     A candidate built from all three branches passed with the answers on the board.
-   - Merge order: the hand-off, then the kosmos command, then the README (its text
-     describes both).
+     zip, so its answer never reached the board. The fix was `win32-kosmos-cli-570`
+     (merged as #2754). A candidate built from all three branches passed with the
+     answers on the board.
+   - They merged in that order: the hand-off, then the kosmos command, then the
+     README (its text describes both).
    - The handshake, agreed with Baron (2026-09-11):
      1. Baron builds on the Mac release box from a sha this box has verified.
      2. This box verifies those exact bytes.
@@ -820,8 +821,10 @@ Verified live with candidate zips built from all three branches:
 
 Known limit: the PowerShell shim is a `.ps1`, so it runs only where the execution
 policy allows scripts. Claude Code's PowerShell runs with a process-scope Bypass
-(measured), and a person's default Restricted PowerShell would refuse it. A signed
-PE shim is the follow-up. (A first `.cmd` shim was dropped: it kept one line of a
+(measured), and a person's default Restricted PowerShell would refuse it. The
+follow-up is a replacement that keeps the arguments off the PowerShell-to-native
+hop. A PE shim alone would not do that; see "What is still open" below. (A first
+`.cmd` shim was dropped: it kept one line of a
 multi-line answer and ran the tail of a `"...&..."` message as a command.)
 
 ### What is still open
