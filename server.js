@@ -4167,6 +4167,25 @@ const server = http.createServer((req, res) => {
             : ` ${tense} your OpenAI sign-in${whichAcct}.`)
           : '');
         const landedOn = runsOn('It runs on');
+        /* #2790: a ChatGPT sign-in (authMode 'chatgpt') is the ONE OpenAI account
+           Kosmos can never live-check -- openaiaccounts.checkLive returns UNKNOWN
+           for authMode !== 'apikey', because a sign-in hands an id_token, not a
+           bearer key it can test. So an agent can land on a sign-in whose OAuth is
+           dead and sit idle with no red, indistinguishable from a healthy-but-quiet
+           one: the prod-user report this card came from (5 codex agents on a grey
+           "not checked live" sign-in, all idle forever). Say so in the same
+           sentence that names the account, so the person learns WHY the badge is
+           grey and what the checkable path is.
+           🛑 NO BEHAVIOUR CHANGE, ON PURPOSE. This does NOT steer the agent to an
+           API key: a sign-in is often the CHEAPER intended path (a ChatGPT
+           subscription, not per-token billing), so silently moving it would trade a
+           silent failure for a silent bill. It only makes the unverifiability
+           visible. An API-key account IS live-checkable, so it gets no note. */
+        const signInNote = (acct && acct.authMode === 'chatgpt')
+          ? ' Kosmos cannot live-check an OpenAI sign-in, so its status stays'
+            + ' unverified; if it does not respond, switch it to an OpenAI API-key'
+            + ' account, which Kosmos can verify.'
+          : '';
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',
           provider: wrote.provider,
@@ -4175,6 +4194,7 @@ const server = http.createServer((req, res) => {
               + (droppedWords ? `${droppedWords.charAt(0).toUpperCase()}${droppedWords.slice(1)}. ` : '')
               + 'It is starting again now, and it will look idle until you say something to it.'
               + landedOn
+              + signInNote
             : `We saved the switch to ${label}, but could not start it again: ${back.because} `
               + 'It is still running as before until it restarts.'
               /* ⚠️ FUTURE TENSE HERE, NOT `landedOn`'S PRESENT. The plist already
@@ -4183,7 +4203,8 @@ const server = http.createServer((req, res) => {
                  as before. Reusing "It runs on X" would contradict that in the same
                  paragraph, and this is the branch where something already went wrong,
                  which is where a confident-sounding sentence costs most. */
-              + runsOn('When it restarts it will run on'),
+              + runsOn('When it restarts it will run on')
+              + signInNote,
           steps: back.steps || [],
         });
       })
