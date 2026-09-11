@@ -19462,9 +19462,13 @@ document.getElementById('feedback-toggle').addEventListener('click', feedbackTog
    /api/notify-setting) was deleted here too. */
 document.getElementById('eng-toggle').addEventListener('click', engToggleClick);
 
-/* The one place the project page's viewport visibility is decided: the
-   block hides whole unless Engineering mode is on. The question panel
-   is NOT here on purpose -- safety, not chrome. */
+/* The one place the project page's viewport and one-to-one box visibility is
+   decided: both the raw screen (.pj-viewport) and the whole #pj-thread box --
+   the agent picker, the question panel, and the one-to-one composer -- hide
+   unless Engineering mode is on. #2691 (Josh 2026-09-10) removed the earlier
+   Off-mode exception that kept the box up for a waiting agent; a waiting agent
+   is now signalled in the roster and answered through the detail view
+   (#d-qask), which stays visible in Off. */
 function pjApplyEngMode() {
   const vp = document.querySelector('.pj-viewport');
   if (vp) vp.hidden = !ENG_ON;
