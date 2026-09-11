@@ -12179,13 +12179,82 @@ test('#2811: a card with NO runner marker falls back to the launch job, not to t
       'with no launch job, the profile provider was ignored and the stale Claude model came back');
   } finally {
     try { fs.unlinkSync(create.plistPath('jobcodex')); } catch { /* the test may have failed before writing it */ }
-    /* 📌 THE PROFILE IS DELIBERATELY NOT UNLINKED, and this note exists so the
-       next reader does not "fix" it. It lands in the sandboxed store under a
-       name used nowhere else in this file, so it leaks nothing and no other test
-       reads it. Cleaning it up means resolving the profiles directory, and
-       `store.PROFILES` is a STRING evaluated at require time: measured, it reads
-       the operator's REAL store when the sandbox env is not set first. A stray
-       unlink against that path is a real risk taken for a cosmetic tidy. */
+    /* The profile record too. `store.PROFILES` is a GETTER that answers the
+       CURRENT environment (#1443), and this file sets `AGENT_WORKFORCE_DATA`
+       before requiring store, so it resolves inside the sandbox. */
+    try {
+      /* Required HERE: the file's other `storeEngine` is scoped to a later test,
+         so referencing it from this one throws a ReferenceError that this very
+         catch would swallow, leaving a cleanup that silently does nothing and a
+         test that still passes. */
+      fs.rmSync(nodePath.join(require('./engine/store').PROFILES, 'jobcodex.json'));
+    } catch { /* may not exist */ }
+    fleet.restore();
+  }
+});
+
+test('#2811: a DEFAULT-account Codex agent is not handed the operator Claude account', () => {
+  /**
+   * 🛑 THE CARD'S OWN DEFECT, IN THE BRANCH I EXEMPTED BY NAME. A default-account
+   * OpenAI agent launches with NO CODEX_HOME, so its job carries
+   * `configDir: null` and `accountForAgent` falls to the dir-less arm, which
+   * matched on `isDefault` ALONE. Handed the Claude list that is the operator's
+   * own account, so a Codex agent was told it runs on a Claude email with
+   * `isDefault: true`.
+   *
+   * My round-4 comment waved exactly this off ("correct for both providers"),
+   * which is true of the DIR match and false of the DEFAULTNESS match. The
+   * sentence change then made it worse rather than better: "This is a Codex
+   * agent, and it runs on <a Claude email>" contradicts itself in one line.
+   */
+  const { accountForAgent, sentenceForWhoami } = require('./server.js');
+  const create = require('./engine/create');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('defcodex', { state: 'idle' })]);
+    /* A real DEFAULT-row codex job: runner codex, and NO account dir, which is
+       exactly what create.js writes for the default OpenAI row. */
+    fs.writeFileSync(
+      create.plistPath('defcodex'),
+      create.plistFor('defcodex', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, null, 'codex'),
+      'utf8',
+    );
+    const job = create.readJob('defcodex');
+    assert.equal(job.runner, 'codex');
+    assert.equal(job.configDir, null, 'the fixture job carries a dir, so it is not the default-row shape');
+
+    const claudeRows = [{ dir: '/Users/x/.claude', email: 'josh@example.com', label: null, isDefault: true }];
+    const acct = accountForAgent('defcodex', claudeRows);
+    assert.equal(acct, null,
+      'a Codex agent was handed the operator CLAUDE account because the default match ignored the provider');
+
+    /* CONTROL 1: the same job against OPENAI rows still resolves. The gate must
+       select the right provider, not refuse everything. */
+    const openaiRows = [{ dir: '/Users/x/.codex', email: 'dave@example.com', label: null, isDefault: true, provider: 'openai' }];
+    const oacct = accountForAgent('defcodex', openaiRows);
+    assert.equal(oacct && oacct.email, 'dave@example.com',
+      'the codex agent lost its own default OpenAI account, so the gate is too wide');
+
+    /* CONTROL 2: a CLAUDE agent on the default row still gets the Claude account,
+       which is the behaviour every existing caller depends on. */
+    fs.writeFileSync(
+      create.plistPath('defclaude'),
+      create.plistFor('defclaude', '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, null, ''),
+      'utf8',
+    );
+    const cacct = accountForAgent('defclaude', claudeRows);
+    assert.equal(cacct && cacct.email, 'josh@example.com',
+      'a Claude agent on the default row lost its account');
+
+    /* AND THE SENTENCE THAT MADE IT WORSE: no self-contradiction now. */
+    const said = sentenceForWhoami(acct, null, 'codex');
+    assert.doesNotMatch(said, /josh@example\.com/,
+      'the sentence still names a Claude account for a Codex agent');
+    assert.match(said, /^This is a Codex agent/);
+  } finally {
+    for (const n of ['defcodex', 'defclaude']) {
+      try { fs.unlinkSync(create.plistPath(n)); } catch { /* may not have been written */ }
+    }
     fleet.restore();
   }
 });

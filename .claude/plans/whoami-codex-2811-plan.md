@@ -441,3 +441,89 @@ resolves to the OPERATOR'S REAL profiles directory when the sandbox env is not s
 first. A stray unlink against that path is a live destructive risk taken for a
 cosmetic tidy on a record that leaks nothing and no other test reads. Left alone,
 with the reason recorded in the test so the next reader does not re-introduce it.
+
+## Round 5: a BLOCKER, and it was the card's own defect in the branch I exempted by name
+
+Round 5 wrote 12 mutants: 11 dead, 1 equivalent, 0 survivors. It found one
+BLOCKER, two WARNINGs and three NITs. The blocker is the most serious finding on
+this card and it was caused by my round-4 work.
+
+### The blocker
+
+`create.js` writes NO `CODEX_HOME` for the DEFAULT OpenAI row ("THE DEFAULT ROW
+WRITES NO HOME"), so a default-account codex agent's job carries
+`configDir: null`. `accountForAgent` then falls to its dir-less arm, which matched
+on `isDefault` ALONE. Handed the Claude list, that is the operator's own account.
+
+Measured by the reviewer: a codex job resolving to
+`{"dir":"/Users/x/.claude","email":"josh@stonesyndicate.com","isDefault":true}`,
+with the control (same job, runner claude) producing an identical row, so only the
+runner discriminates.
+
+🛑 MY ROUND-4 COMMENT WAVED EXACTLY THIS OFF: "Only this fallback, not the `found`
+branch above: there `isDefault` comes from whichever list matched, which is that
+list's own notion and correct for both providers." True of the DIR match, false of
+the DEFAULTNESS match. Matching on defaultness keeps no provider straight.
+
+⭐ AND THE ROUND-4 SENTENCE MADE IT WORSE, NOT BETTER. Before it the answer was
+plainly wrong ("This agent runs on josh@..."); after it the answer contradicts
+itself inside one line ("This is a Codex agent, and it runs on <a Claude email>").
+The case is reached by every paneless, crashed, win32 or budget-timeout codex
+agent: exactly the population round 4 set out to serve.
+
+The codebase already knew. The #2413 overlay a few hundred lines below says in as
+many words that "a codex agent on the default home maps to the default Claude
+account", and guards its own join by filtering observations per provider. The raw
+mapping in `accountForAgent` was never gated, so every other caller kept the wrong
+row.
+
+Fixed by gating the dir-less match on the provider: OpenAI rows carry
+`provider: 'openai'` and Claude rows carry none, so the lists are separable. The
+dir-matched arm needs no gate, because a codex dir cannot equal a claude row's
+dir. Three arms pin it: the codex agent gets NO row from the Claude list, the same
+agent still resolves against OpenAI rows (so the gate is not simply refusing
+everything), and a Claude agent on the default row is untouched.
+
+### The false measurement, which is worse than the leak it justified
+
+I justified leaving a test record uncleaned by writing that `store.PROFILES` is
+"a STRING evaluated at require time" that "reads the operator's REAL store when
+the sandbox env is not set first". It is an enumerable GETTER that answers the
+CURRENT environment (#1443). I had measured the VALUE with no sandbox env set and
+invented the MECHANISM from it, then wrote that invention into a permanent comment
+telling the next reader not to fix it.
+
+⭐ Measuring a value and inferring a mechanism is not measuring the mechanism. The
+value was right and the explanation was fabricated.
+
+AND THE CLEANUP I THEN WROTE WAS A FALSE GREEN: it referenced a `storeEngine`
+binding scoped to a LATER test, so it threw a ReferenceError that its own `catch`
+swallowed. The cleanup did nothing and the test still passed. Fixed by requiring
+store locally, and verified by checking no file is left behind after a run rather
+than by trusting the pass.
+
+### The composition I named rather than changed
+
+`agentUnder` breaks a same-depth tie toward `claude` on purpose, so an ambiguous
+pane yields a live `claude` that was CHOSEN rather than observed, and
+`resolvedRunner` then prefers it over a plist saying `codex`. Two safeguards
+designed independently, composing without anybody having said so.
+
+Kept, on reachability: live-claude over plist-codex is a real product path
+(`setProvider` rewrites the plist while the running process stays claude until
+restart), and the opposite needs two agent-shaped processes under one pane, which
+the reviewer could not construct from any launch path. Named in the code, with the
+weakest premise stated: "could not construct" is not "cannot exist", and if such a
+topology appears the fix is for `agentUnder` to report that a tie was broken, not
+for this line to distrust every live read.
+
+### Three stale or half-false claims in my own comments, corrected
+
+- `recordedRunner`'s profile fallback fires only when the plist is MISSING.
+  `readJob` floors `runner` at `'claude'`, so a job that merely predates runners
+  answers claude and the profile is never consulted. My comment claimed both.
+- `runnerDisplayName`'s "unreachable" bound is weaker than it read, and this
+  branch is what weakened it: `resolvedRunner` also takes the tmux marker and the
+  plist's ninth argument verbatim.
+- The new no-account foreign sentence asserted "we have no startup file for it" on
+  a path reachable WITH one present. It now names what it cannot tell and stops.
