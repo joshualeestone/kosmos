@@ -48,9 +48,28 @@ function sandbox(prefix) {
   return dir;
 }
 
-/* The env every arm runs under. KOSMOS_CUT_IGNORE_HARNESS is the script's own
-   documented bypass for the live-harness refusal, which sits between the site
-   check and the cut home and would otherwise stop every run here. */
+/* The env every arm runs under.
+
+   Two guards sit between the site check and the cut home and would otherwise stop
+   every run here:
+
+   - the live-HARNESS refusal, bypassed with the script's own documented
+     KOSMOS_CUT_IGNORE_HARNESS.
+   - the live-CUT refusal, which asks `pgrep` whether a `bash tools/release.sh` is
+     running. 🛑 THAT ONE IS NOT HYPOTHETICAL AND IT COST A RED SUITE: these arms
+     PASS ALONE AND FAIL IN THE FULL SUITE, because tools.release-gate.test.js is
+     spawning its own sandbox copies of release.sh concurrently and pgrep sees
+     them. (That file never trips the guard itself: every refusal it asserts
+     happens at the version gate, ABOVE where the guard is even sourced.) So the
+     arms here are pinned to cut-guard.sh's OWN documented seam, KOSMOS_CUT_PROBE
+     ("so the guard can be shown red and green without a cut"), pointed at a stub
+     that reports no cut. That makes these arms independent of whatever else on
+     this shared Mac happens to be running, which a bypass flag would also do but
+     less precisely: the seam exercises the real exclusion logic, the flag skips it.
+
+   HOME is sandboxed too, which also keeps the guard's run-marker directory
+   (${HOME}/.cache/kosmos-run-markers) inside the fixture rather than the
+   operator's real one. */
 function envFor(dir, bin, extra) {
   return {
     ...process.env,
@@ -59,8 +78,16 @@ function envFor(dir, bin, extra) {
     PATH: bin + path.delimiter + process.env.PATH,
     KOSMOS_SITE: path.join(dir, 'site'),
     KOSMOS_CUT_IGNORE_HARNESS: '1',
+    KOSMOS_CUT_PROBE: path.join(dir, 'bin', 'no-cut-probe'),
     ...(extra || {}),
   };
+}
+
+/* rc=1 with no output is cut-guard.sh's "nothing matched", i.e. a clean no-cut. */
+function writeProbe(bin) {
+  const probe = path.join(bin, 'no-cut-probe');
+  fs.writeFileSync(probe, '#!/bin/sh\nexit 1\n');
+  fs.chmodSync(probe, 0o755);
 }
 
 /**
@@ -83,6 +110,7 @@ function runToStep1(extraEnv) {
   fs.writeFileSync(path.join(bin, 'git'),
     '#!/bin/sh\necho "CHILD_SEES=[${AGENT_WORKFORCE_HOME-<unset>}]"\nexit 9\n');
   fs.chmodSync(path.join(bin, 'git'), 0o755);
+  writeProbe(bin);
   const r = spawnSync('bash', [path.join(dir, 'tools', 'release.sh'), '0.6.56'], {
     encoding: 'utf8', cwd: dir, env: envFor(dir, bin, extraEnv),
   });
@@ -136,6 +164,7 @@ test('#2724: a pre-existing cut home is EMPTIED, so one cut cannot read the last
   fs.mkdirSync(bin);
   fs.writeFileSync(path.join(bin, 'git'), '#!/bin/sh\nexit 9\n');
   fs.chmodSync(path.join(bin, 'git'), 0o755);
+  writeProbe(bin);
   const pre = spawnSync('bash', [path.join(dir, 'tools', 'release.sh'), '0.6.56'], {
     encoding: 'utf8', cwd: dir, env: envFor(dir, bin),
   });
