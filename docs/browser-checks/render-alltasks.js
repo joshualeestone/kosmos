@@ -171,10 +171,25 @@ const say = (n, cond, note) => {
        what produced #1346's second number. A fallback to `.tkcard .lav img` would
        silently measure a card on that other page and still report PASS. If the
        scoped selector misses, that is a finding, not something to route around. */
+    /* 🛑 SCOPED TO THE PROJECT'S OWN TASK LIST, NOT THE ALL-TASKS VIEW, and that
+       distinction was measured rather than assumed. #2762 is about `tkFace` in
+       `paintProjectTasks`, which paints `#pj-tasklist` on the project page. The
+       all-tasks screen holds `.tkcard` rows too, but NONE of them carry a `.lav img`:
+       probed live, `#pj-alltasks-view .tkcard .lav img` is 0 while the document has
+       2, and both of those are on the project page behind.
+
+       ⚠️ AN EARLIER VERSION OF THIS ARM QUERIED `#pj-alltasks-view …` WITH AN
+       UNSCOPED FALLBACK, and passed. The scoped half matched nothing; the FALLBACK
+       was doing all the work, so the arm reported a result from a screen it did not
+       name. Removing the fallback (correctly, on review) is what exposed it. A
+       fallback that rescues a wrong selector does not make an arm robust, it makes
+       it untruthful about what it measured. */
     const face = await p.evaluate(() => {
-      const img = document.querySelector('#pj-alltasks-view .tkcard .lav img');
+      const list = document.getElementById('pj-tasklist');
+      const img = list && list.querySelector('.lav img');
       return img ? img.getAttribute('src') : null;
     });
+
     say('the member face renders a picture at all (else the arm below is vacuous)',
       typeof face === 'string' && /\/api\/agent\/[^/]+\/avatar/.test(face), JSON.stringify(face));
     /* 🛑 NON-ZERO, not `\d+`. `?v=0` is what `(m.avatarVer || 0)` yields when the
