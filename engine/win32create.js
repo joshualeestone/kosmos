@@ -94,6 +94,51 @@ const win32sessions = require('./win32sessions');
 const sendertoken = require('./sendertoken');
 
 /**
+ * Mint THIS run's credential: the one mint point for a fresh start AND a resume.
+ *
+ * 🛑 A RESUME NEEDS ONE TOO. A crash-restarted agent was resumed with no token at
+ * all -- `childEnv` deletes the variable on an empty one -- so every self-report it
+ * sent was refused, and a Windows agent has no pane to fall back on. The Mac mints
+ * a fresh token on every launch (`bin/agent-supervisor.sh`); this mirrors it. The
+ * old run's token is not reused: the launcher never holds on to it, and one token
+ * per launch is the design (sendertoken.js), so each run retires only its own.
+ *
+ * Never throws and never refuses a launch: a mint that fails degrades reporting,
+ * and `tokenBecause` says why.
+ *
+ * @returns {{ token: string|null, instance: string|null, tokenBecause: string|null }}
+ */
+function mintForRun(name) {
+  /* try/catch as well as the ok-check: mint reports a busy store or a write
+     fault through `ok`, but this must not be the thing that throws a launch away
+     -- the supervisor's rule, and the reason it swallows there too. */
+  try {
+    const m = sendertoken.mint(name);
+    if (m && m.ok) return { token: m.token, instance: m.instance, tokenBecause: null };
+    return { token: null, instance: null, tokenBecause: (m && m.because) || 'we could not mint a token for that agent' };
+  } catch (e) {
+    return { token: null, instance: null, tokenBecause: 'we could not mint a token for that agent' + ((e && e.code) ? ' (' + e.code + ')' : '') };
+  }
+  // No re-validation of the token's shape, deliberately. The supervisor checks it
+  // is hex because it reads the value back off a SUBPROCESS's stdout, where a stray
+  // warning could land in the variable. This call is in-process and `mint` returns
+  // crypto.randomBytes(...).toString('hex') by construction.
+}
+
+/**
+ * Retire ONE run's credential: the supervisor's death handler at the end of every
+ * run, `abandon` for a fresh start that never started, and the launcher for a
+ * resume whose spawn failed. One function, so the retire-never-revoke rule below
+ * lives in one place.
+ */
+function retireRun(name, instance) {
+  if (!instance) return { ok: true };
+  if (!name) return { ok: false, because: 'we could not tell which agent that run belonged to, so its token is still live' };
+  try { return sendertoken.retire(name, instance); }
+  catch (e) { return { ok: false, because: 'we could not retire that run' + ((e && e.code) ? ' (' + e.code + ')' : '') }; }
+}
+
+/**
  * Mint a session id, record it as Kosmos-owned, and return the launch args that
  * pin it. Call this immediately before spawning the interactive win32 agent.
  *
@@ -144,24 +189,7 @@ function prepareSession(meta) {
      with no row behind it. This way every token that exists has a record, and the
      only asymmetry left (a record with no token) is the degraded-but-visible case
      the header describes, which the board can see and say. */
-  let token = null;
-  let instance = null;
-  let tokenBecause = null;
-  /* try/catch as well as the ok-check: mint reports a busy store or a write
-     fault through `ok`, but this must not be the thing that throws a launch away
-     -- the supervisor's rule, and the reason it swallows there too. */
-  try {
-    const m = sendertoken.mint(name);
-    if (m && m.ok) { token = m.token; instance = m.instance; }
-    else { tokenBecause = (m && m.because) || 'we could not mint a token for that agent'; }
-  } catch (e) {
-    tokenBecause = 'we could not mint a token for that agent' + ((e && e.code) ? ' (' + e.code + ')' : '');
-  }
-  // No re-validation of the token's shape here, deliberately. The supervisor
-  // checks it is hex because it reads the value back off a SUBPROCESS's stdout,
-  // where a stray warning could land in the variable. This call is in-process and
-  // `mint` returns crypto.randomBytes(...).toString('hex') by construction, so a
-  // check here would guard a hazard this path does not have.
+  const { token, instance, tokenBecause } = mintForRun(name);
   return {
     ok: true,
     sessionId,
@@ -222,16 +250,8 @@ function abandon(prepared) {
   /* No instance means no token was minted for this session (the degraded case the
      header describes), so there is nothing to retire and saying so would be
      inventing a failure. An instance with no name cannot be keyed, and that IS a
-     failure worth naming rather than skipping quietly. */
-  let retired = { ok: true };
-  if (instance) {
-    if (!name) {
-      retired = { ok: false, because: 'we could not tell which agent that run belonged to, so its token is still live' };
-    } else {
-      try { retired = sendertoken.retire(name, instance); }
-      catch (e) { retired = { ok: false, because: 'we could not retire that run' + ((e && e.code) ? ' (' + e.code + ')' : '') }; }
-    }
-  }
+     failure worth naming rather than skipping quietly. Both rules live in retireRun. */
+  const retired = retireRun(name, instance);
 
   if (!forgot.ok) return { ok: false, because: forgot.because };
   if (!retired.ok) return { ok: false, because: retired.because };
@@ -311,4 +331,4 @@ function awaitSession(name, opts) {
   return { ok: false, because: 'we set its startup job going, but no agent had started under it yet' };
 }
 
-module.exports = { prepareSession, abandon, awaitSession, knownSessions, setPark };
+module.exports = { prepareSession, abandon, mintForRun, retireRun, awaitSession, knownSessions, setPark };

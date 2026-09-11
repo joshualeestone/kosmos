@@ -23,7 +23,8 @@
  * all. Rather than encode the respawn in a task setting whose semantics differ
  * from KeepAlive's, the loop lives HERE -- respawn and throttle in code, where
  * both are testable from any platform. The task keeps only the half Windows does
- * well: start at logon, and restart the supervisor itself if IT dies.
+ * well: start at logon. Nothing restarts a supervisor that dies -- the task has
+ * no restart-on-failure (`win32job.taskXml`) -- until the next logon.
  *
  *      launchd                          this module
  *      RunAtLoad ......................  Scheduled Task, at-logon trigger
@@ -352,30 +353,6 @@ if (require.main === module) main(process.argv.slice(2));
 
 /* ── the streaming supervisor (7c-1) ───────────────────────────────────────── */
 
-/**
- * Supervise an agent whose PIPES WE HOLD.
- *
- * 🛑 THE ONE PROPERTY THIS TRADES AWAY, AND ITS EXACT SHAPE. `supervise()` above
- * watches a DETACHED agent: it outlives its supervisor, so a supervisor restart
- * ADOPTS it. A piped agent cannot be adopted -- adoption would mean holding a
- * stdin somebody else holds -- so the question is what happens to the agent when
- * its holder dies. Measured on the box rather than reasoned about:
- *
- *      holder closes stdin cleanly  -> agent gone in ~800ms, out of agents --json
- *      holder KILLED, pipes broken  -> agent gone in ~800ms, out of agents --json
- *
- * 🔑 NO ORPHANS, IN EITHER DIRECTION, and that is what makes this design safe.
- * A dead supervisor leaves nothing live to collide with, so the task restarts the
- * supervisor, it finds nothing, and it comes back with `--resume` -- the SAME
- * session id, the same conversation (measured). Adopt-not-replace becomes
- * resume-not-replace without ever risking two agents under one name.
- *
- * ⚠️ SO THE EXIT EVENT IS THE SIGNAL, NOT THE POLL. `supervise()` asks
- * `claude agents --json` every POLL_MS because a detached agent's death is
- * invisible otherwise. Here the child IS ours: its 'exit' fires immediately and
- * cannot be missed, so death is known in milliseconds rather than up to a poll
- * late, and the runner is not asked anything on the happy path.
- */
 /* A stream sink that records nothing: the default, so only `main()` publishes. */
 const NO_STREAM = { started() {}, event() {}, wrote() {}, stopped() {} };
 
@@ -389,6 +366,35 @@ const STDERR_TAIL_CHARS = 500;
     is room enough without leaving a stopped agent up for long. */
 const HOST_GONE_GRACE_MS = 2000;
 
+/**
+ * Supervise an agent whose PIPES WE HOLD.
+ *
+ * 🛑 THE ONE PROPERTY THIS TRADES AWAY, AND ITS EXACT SHAPE. `supervise()` above
+ * watches a DETACHED agent: it outlives its supervisor, so a supervisor restart
+ * ADOPTS it. A piped agent cannot be adopted -- adoption would mean holding a
+ * stdin somebody else holds -- so the question is what happens to the agent when
+ * its holder dies. Measured on the box rather than reasoned about:
+ *
+ *      holder closes stdin cleanly  -> agent gone in ~800ms, out of agents --json
+ *      holder KILLED, pipes broken  -> agent gone in ~800ms, out of agents --json
+ *
+ * 🔑 NO ORPHANS, IN EITHER DIRECTION, and that is what makes this design safe.
+ * A dead supervisor leaves nothing live to collide with. Two different returns
+ * follow from that, and an earlier version of this comment ran them together:
+ *   - an AGENT that dies under a living supervisor is relaunched by it with
+ *     `--resume` -- the SAME session id, the same conversation (measured);
+ *   - a SUPERVISOR that dies is not restarted by anything (the task has no
+ *     restart-on-failure). The next start of its task -- a logon, a restore, a
+ *     restart from the board -- runs `main()`, which mints a NEW session: a fresh
+ *     conversation, as a Mac restart gives.
+ * Neither can put two agents under one name.
+ *
+ * ⚠️ SO THE EXIT EVENT IS THE SIGNAL, NOT THE POLL. `supervise()` asks
+ * `claude agents --json` every POLL_MS because a detached agent's death is
+ * invisible otherwise. Here the child IS ours: its 'exit' fires immediately and
+ * cannot be missed, so death is known in milliseconds rather than up to a poll
+ * late, and the runner is not asked anything on the happy path.
+ */
 function superviseStreaming(spec, opts) {
   const s = spec || {};
   const o = opts || {};
@@ -404,6 +410,12 @@ function superviseStreaming(spec, opts) {
   const readLive = o.liveReader || (() => liveSessions(s.claudeBin));
   /* Asked right before every launch; `main()` answers "is my host still alive". */
   const mayStart = typeof o.mayStart === 'function' ? o.mayStart : () => true;
+  /* How a finished run's credential is retired. Each launch mints one token
+     (win32create.mintForRun); without this every crash-restart would leave one
+     more live credential behind for the agent. Injectable so a test never touches
+     a real token store. */
+  const retireRun = typeof o.retireRun === 'function' ? o.retireRun
+    : (name, instance) => require('./win32create').retireRun(name, instance);
 
   /* Where the agent's working/idle goes (7c-5). The default does nothing, so no
      suite that drives this loop writes state files; `main()` passes the real
@@ -415,7 +427,7 @@ function superviseStreaming(spec, opts) {
   let lastStart = 0;
   const handle = { sessionId: s.resumeSessionId || null };
 
-  function attach(c) {
+  function attach(c, runInstance) {
     child = c;
     /* 🔑 THE EVENT STREAM IS READ, and that is what gives a Windows card its
        working/idle (7c-5): `claude agents --json` lists no status for a
@@ -441,6 +453,17 @@ function superviseStreaming(spec, opts) {
     const gone = (code) => {
       if (handled) return;
       handled = true;
+      /* This run is over whether or not it was already replaced, so its token is
+         retired unconditionally -- retire, never revoke, so the agent's other runs
+         keep theirs. A clean stop ends the child through this same path. */
+      if (runInstance) {
+        let retired;
+        try { retired = retireRun(s.name, runInstance); }
+        catch (e) { retired = { ok: false, because: 'we could not retire its token (' + ((e && e.code) || 'unknown') + ')' }; }
+        /* Said, not swallowed: a token left live only waits out the store's cap,
+           but the task log should show why it is still there. */
+        if (retired && retired.ok === false) onEvent({ action: 'token-not-retired', because: retired.because });
+      }
       if (child === c) { child = null; stream.stopped(); }
       const said = stderrTail.replace(/\s+/g, ' ').trim();
       onEvent({ action: 'died', code: code === undefined ? null : code, sessionId: handle.sessionId, because: said ? 'it said: ' + said : undefined });
@@ -524,8 +547,11 @@ function superviseStreaming(spec, opts) {
        already has a process to belong to. Idle: measured, a streaming agent says
        nothing until it is told something, fresh or resumed. */
     stream.started(r.child && r.child.pid, r.sessionId);
-    attach(r.child);
-    onEvent({ action: r.resumed ? 'resumed' : 'started', sessionId: r.sessionId });
+    attach(r.child, r.instance || null);
+    /* A run that could not mint a token still runs, but the board refuses every
+       report it sends -- so the task log says why, rather than nothing. */
+    onEvent(Object.assign({ action: r.resumed ? 'resumed' : 'started', sessionId: r.sessionId },
+      r.tokenBecause ? { because: 'it has no reporting token: ' + r.tokenBecause } : {}));
   }
 
   /* The Mac's ThrottleInterval, gating the RESTART. A crash-loop must limp, not

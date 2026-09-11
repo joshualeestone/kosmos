@@ -419,6 +419,118 @@ test('#570 headless: a supervisor whose task was ended never starts the agent ag
   h.stop();
 });
 
+test('#570 every finished run retires ITS OWN token: a crash, a relaunch, then a stop', () => {
+  /* Each launch mints a credential for that run (a resume included). Without
+     retiring the dead run's, every crash-restart left one more live token behind
+     for the agent. The death handler retires by the run's own instance, and a
+     clean stop ends the child through that same path. */
+  const kids = [];
+  const retired = [];
+  let n = 0;
+  const h = sup.superviseStreaming({ name: 'tok', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    retireRun: (name, instance) => retired.push(name + '/' + instance),
+    launch: () => { n += 1; const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c, instance: 'inst-' + n }; },
+  });
+  assert.deepEqual(retired, [], 'a live run keeps its token');
+  kids[0].die(1);                                 // crash: relaunches as inst-2
+  assert.deepEqual(retired, ['tok/inst-1'], 'the crashed run\'s token is retired');
+  h.stop();
+  kids[1].die(0);                                 // the stop's exit arrives
+  assert.deepEqual(retired, ['tok/inst-1', 'tok/inst-2'], 'and the stopped run\'s too, exactly once each');
+});
+
+test('#570 a token that cannot be retired is SAID on the task log, not swallowed', () => {
+  for (const retireRun of [
+    () => ({ ok: false, because: 'the token store is busy' }),
+    () => { throw Object.assign(new Error('busy'), { code: 'EBUSY' }); },
+  ]) {
+    const kids = [];
+    const events = [];
+    const h = sup.superviseStreaming({ name: 'stuck', cwd: 'C:\w' }, {
+      liveReader: NOBODY_LIVE,
+      throttleMs: 0, now: () => 0, setTimer: () => {},
+      onEvent: (e) => events.push(e),
+      retireRun,
+      launch: () => { const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c, instance: 'inst-1' }; },
+    });
+    kids[0].die(1);
+    const said = events.find((e) => e.action === 'token-not-retired');
+    assert.ok(said, 'the failure reaches the task log');
+    assert.match(said.because, /store is busy|EBUSY/);
+    h.stop();
+  }
+});
+
+test('#570 a run that got NO token says so when it starts, since the board will refuse its reports', () => {
+  const events = [];
+  const h = sup.superviseStreaming({ name: 'tokenless', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 's', child: fakeChild(), tokenBecause: 'the token store is busy' }),
+  });
+  const started = events.find((e) => e.action === 'started');
+  assert.match(started.because, /no reporting token: the token store is busy/);
+  h.stop();
+});
+
+test('#570 a RESUMED run that got no token says so too -- the crash-restart is the case this branch fixes', () => {
+  const events = [];
+  const kids = [];
+  let n = 0;
+  const h = sup.superviseStreaming({ name: 'tokenless-2', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    onEvent: (e) => events.push(e),
+    launch: (spec) => {
+      n += 1; const c = fakeChild(); kids.push(c);
+      return { ok: true, sessionId: 's', child: c, resumed: Boolean(spec.resumeSessionId),
+        tokenBecause: n === 1 ? null : 'the token store is busy' };
+    },
+  });
+  assert.ok(!('because' in events.find((e) => e.action === 'started')), 'a run WITH a token says nothing extra');
+  kids[0].die(1);                                   // crash: comes back as a resume, with no token
+  const resumed = events.find((e) => e.action === 'resumed');
+  assert.ok(resumed, 'the crash came back as a resume');
+  assert.match(resumed.because, /no reporting token: the token store is busy/);
+  h.stop();
+});
+
+test('#570 the supervisor\'s REAL retire (nothing injected) takes the dead run\'s token out of the store', () => {
+  /* Every other test injects `retireRun`; `main()` injects nothing, so production
+     runs the default. This pins that default against the real (sandboxed) token
+     store (review round 5: replacing it with a no-op stayed green). */
+  const sendertoken = require('./sendertoken');
+  const minted = sendertoken.mint('realretire');
+  assert.equal(minted.ok, true, minted.because);
+  const kids = [];
+  const h = sup.superviseStreaming({ name: 'realretire', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    launch: () => { const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c, instance: minted.instance }; },
+  });
+  assert.ok(sendertoken.live('realretire').includes(minted.instance), 'the token is live while its run is');
+  h.stop();
+  kids[0].die(0);
+  assert.ok(!sendertoken.live('realretire').includes(minted.instance), 'and gone from the store once the run ends');
+});
+
+test('#570 a run that was launched with no token retires nothing', () => {
+  const kids = [];
+  const retired = [];
+  const h = sup.superviseStreaming({ name: 'bare', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    retireRun: (name, instance) => retired.push(instance),
+    launch: () => { const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  kids[0].die(1);
+  assert.deepEqual(retired, []);
+  h.stop();
+});
+
 test('#570 7c-5 a failed write does not mark the agent busy', () => {
   const kids = [];
   const sink = streamSink();

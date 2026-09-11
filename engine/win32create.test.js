@@ -254,6 +254,13 @@ test('#570 Gap-B abandon() retires ONLY this run, leaving the other live run spe
     'the OTHER live run still speaks -- abandoning one launch is not revoking the agent');
 });
 
+test('#570 retireRun: no instance is nothing to retire; no name is a live token we cannot find', () => {
+  assert.deepEqual(win32create.retireRun('anyone', null), { ok: true }, 'a token-less run retires nothing, and that is not a failure');
+  const r = win32create.retireRun('', 'abc123');
+  assert.equal(r.ok, false, 'an instance with no agent name cannot be retired');
+  assert.match(r.because, /still live/, 'and the reason says the token is still out there');
+});
+
 test('#570 Gap-B a token-store fault DEGRADES the session, it does not fail the launch', () => {
   /* The Mac supervisor rule is "a mint is never worth a failed launch", and this
      keeps it -- but the consequence differs here (no pane to fall back to), so
