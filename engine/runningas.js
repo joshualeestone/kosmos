@@ -433,7 +433,11 @@ function runningAsDarwin(session, deps = {}) {
     configDir,
     runner,
     because: codex
-      ? 'this is a Codex agent; which OpenAI account it is signed in as is not read here (kosmos#2790 owns that lookup)'
+      /* No card number in this sentence: it is read by an agent asking who it is,
+         to whom a card number is noise, and #147's gate is right that a number in
+         a comment reads as assigning work. The cross-reference lives in the block
+         comment above, as a record of why this is null rather than a promise. */
+      ? 'this is a Codex agent; which OpenAI account it is signed in as is not read here'
       : null,
   };
 }
