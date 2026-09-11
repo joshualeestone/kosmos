@@ -574,13 +574,6 @@ test('#2570: a PARTIAL and a REFUSAL in one batch names BOTH, not just the parti
     'THE REFUSED AGENT VANISHED from the only field the page renders');
 });
 
-/* #2684: THE OpenAI DELETE DOOR CAN DELETE ITS DEFAULT NOW. Unlike Claude, an
-   OpenAI account's identity and config live inside its own `.codex` dir and
-   disconnect already moves the whole default dir aside, so delete is the same
-   whole-dir rmSync for the default as for a secondary -- gated by the same
-   running-agents guard. Two arms mirror the Claude pair: a registered agent
-   refuses without stopAgents (nobody stopped); with stopAgents the agent is
-   stopped and the default `.codex` is deleted. */
 test('#2684: the Claude DELETE door removes the default by clearing its identity, keeping the folder', async () => {
   installRunner();
   const dir = nodePath.join(HOME, '.claude');
@@ -602,6 +595,13 @@ test('#2684: the Claude DELETE door removes the default by clearing its identity
     'history kept');
 });
 
+/* #2684: THE OpenAI DELETE DOOR CAN DELETE ITS DEFAULT NOW. Unlike Claude, an
+   OpenAI account's identity and config live inside its own `.codex` dir and
+   disconnect already moves the whole default dir aside, so delete is the same
+   whole-dir rmSync for the default as for a secondary -- gated by the same
+   running-agents guard. Two arms mirror the Claude pair: a registered agent
+   refuses without stopAgents (nobody stopped); with stopAgents the agent is
+   stopped and the default `.codex` is deleted. */
 test('#2684: the OpenAI default .codex refuses deletion while an agent is registered on it', async () => {
   installRunner();
   const dir = nodePath.join(HOME, '.codex');

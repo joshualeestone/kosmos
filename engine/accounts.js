@@ -654,7 +654,11 @@ function forgetAccount(dir, usedBy) {
        removed; forgotten:true on both arms because from the person's view the
        primary is gone from the list whether or not there was an identity to
        clear. No movedTo: nothing was renamed aside, so there is nothing to
-       restore to -- re-connecting is a fresh sign-in. */
+       restore to -- re-connecting is a fresh sign-in.
+       📌 defaultCleared distinguishes "we just cleared an identity" (true) from
+       "it was already signed out, nothing to clear" (false). No server/web caller
+       branches on it yet; it is asserted by the tests and kept for a future
+       messaging split (e.g. "signed out" vs "already signed out"). */
     return { ok: true, forgotten: true, wasDefault: true, defaultCleared: res.already !== true, because: null };
   }
 
