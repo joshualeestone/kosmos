@@ -228,4 +228,9 @@ jobs:
             render-claude-connect-choice-2433
             render-picker-provider-2097
             render-openai-only-2096
+            render-inline-field-errors-2606
+            render-disconnect-stop-2570
+            render-plus-gate-1615
+            render-remove-force-2651
+            render-firstrun-connect-fires
         run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
