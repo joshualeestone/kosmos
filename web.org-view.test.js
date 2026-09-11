@@ -385,11 +385,13 @@ test('#2683: the org callout is a non-interactive label, so an invisible callout
      reverts to auto, the neighbour-capture bug returns. */
   // The callout takes pointer-events:none from the shared `.onode .oname, .onode .callout`
   // rule; #2683 removed the separate `.onode .callout { pointer-events: auto; }` override.
-  assert.match(PAGE, /\.onode \.oname, \.onode \.callout \{[\s\S]*?pointer-events: none;[\s\S]*?\}/,
+  // [^}] keeps the match inside the ONE rule block: [\s\S] would bridge across a `}` to a
+  // later rule's pointer-events:none and pass vacuously if the shared rule ever lost it.
+  assert.match(PAGE, /\.onode \.oname, \.onode \.callout \{[^}]*?pointer-events: none;[^}]*?\}/,
     'the shared .oname/.callout rule no longer sets pointer-events:none, so the callout can capture hover');
   // Line-anchored so the #2683 comment ABOVE the rule (which quotes the old
-   // `.onode .callout { pointer-events: auto; }` verbatim) is not mistaken for a
-   // live rule -- real CSS rules start at column 0, the prose mention does not.
+  // `.onode .callout { pointer-events: auto; }` verbatim) is not mistaken for a
+  // live rule -- real CSS rules start at column 0, the prose mention does not.
   assert.doesNotMatch(PAGE, /^\.onode \.callout \{ pointer-events: auto/m,
     'the pointer-events:auto override is back (the #2683 mis-targeting cause)');
 });
