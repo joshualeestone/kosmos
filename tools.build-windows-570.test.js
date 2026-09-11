@@ -162,7 +162,8 @@ test('the package tells the truth about itself', () => {
   /* Board auth ENFORCES on Windows (tools/kosmos-open-board.js), so the bare
      address loads a board that 403s every agent read. Relaunching is the way in. */
   assert.doesNotMatch(WIN, /go to http:\/\/127\.0\.0\.1:%s yourself/, 'the README sends people to the unsigned address as the fix');
-  assert.match(WIN, /If no browser opens, double-click Kosmos\.exe again/, 'the README does not say how to get back in signed in');
+  assert.match(WIN, /If no browser opens, or the board says it is not signed in,/, 'the README does not cover the likelier failure: a browser that opened on a board it is not signed in to');
+  assert.match(WIN, /double-click Kosmos\.exe again\. Typing http/, 'the README does not say how to get back in signed in');
   /* The README names the Task Scheduler folder; it must be the one the tasks
      are actually registered in (win32board.TASK_NAME, win32job.TASK_PREFIX). */
   const folder = require('./engine/win32board').TASK_NAME.split('\\')[0];

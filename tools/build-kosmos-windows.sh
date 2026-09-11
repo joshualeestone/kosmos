@@ -16,14 +16,16 @@
 # It carries the BOARD, a Node runtime, and everything Windows AGENTS need (#570,
 # slice 7c). An agent is a headless Scheduled Task whose supervisor holds the
 # agent's pipes, so the board can make one, show its state, TALK to it, stop,
-# restart, remove and restore it, and the fleet comes back after a reboot. The
+# restart, remove and restore it, and the fleet comes back after a reboot. An
+# agent answers through the `kosmos` command the zip carries in `bin\` (#570,
+# win32-kosmos-cli-570), which is how its reply reaches the board. The
 # first double-click of Kosmos.exe registers the board's own logon task and hands
 # the board to it (engine/win32handoff.js), so the board runs with no window.
 # The agent lifecycle was measured by the R1-R8 rehearsal on a Windows 11 box
 # (from a source checkout, .claude/plans/WINDOWS-ROADMAP.md §2). A zip built by
 # this script was then checked end to end on the same box on 2026-09-11: create,
-# talk, restart, remove, restore, the hand-off, and an update unpacked over the
-# install.
+# talk (the agent's answer reaching the board), restart, remove, restore, the
+# hand-off, and an update unpacked over the install.
 #
 # 🛑 AND IT UPDATES BY HAND. The Mac bundle ships `install/setup.sh`, which is how
 # a Mac install updates itself. There is no Windows equivalent: a person updates
@@ -318,9 +320,9 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
   printf 'Everything Kosmos starts at login is listed in Task Scheduler, in the\r\n'
   printf 'Kosmos folder.\r\n'
   printf '\r\n'
-  printf 'If no browser opens, double-click Kosmos.exe again. The board lives\r\n'
-  printf 'at http://127.0.0.1:%s, but typing that address yourself opens it\r\n' "$PORT_DEFAULT"
-  printf 'without signing you in, so it cannot show your agents.\r\n'
+  printf 'If no browser opens, or the board says it is not signed in,\r\n'
+  printf 'double-click Kosmos.exe again. Typing http://127.0.0.1:%s into a\r\n' "$PORT_DEFAULT"
+  printf 'browser Kosmos has not opened before cannot show your agents.\r\n'
 } > "$STAGE/! READ ME FIRST - Windows will warn you.txt"
 
 # ---- the manifest ----------------------------------------------------------
