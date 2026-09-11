@@ -501,12 +501,39 @@ else
   TARBALL="node-v$NODE_VERSION-darwin-$NARCH.tar.gz"
   BASE="https://nodejs.org/dist/v$NODE_VERSION"
   TMP="$(mktemp -d)"
-  echo "==> downloading node v$NODE_VERSION ($NARCH) from nodejs.org"
-  curl -fL --progress-bar "$BASE/$TARBALL" -o "$TMP/$TARBALL"
+  # A cut re-downloads this ~35 MB runtime every time, though nodejs.org publishes
+  # each version's bytes IMMUTABLY. Cache the VERIFIED tarball across cuts, keyed by
+  # its version+arch name, so a repeat cut skips the download. This is the first
+  # caching lever of the get-cuts-out-faster work (#2760); the per-step wall-time
+  # instrumentation (#2755) gives the before/after.
+  # 🛑 THE CACHE IS A SPEED OPTIMISATION, NEVER A TRUST SHORTCUT. The SHASUMS256 is
+  # always fetched fresh (a few KB) and the bytes ACTUALLY USED -- cached or freshly
+  # downloaded -- are verified against it below before extraction, so a stale, corrupt,
+  # or poisoned cache cannot inject a node: it fails the same checksum and the build
+  # aborts. The cache write is best-effort (a cache dir we cannot write must never fail
+  # a real cut).
+  NODE_CACHE="${KOSMOS_NODE_CACHE:-$HOME/.cache/kosmos-node-runtime}"
+  echo "==> fetching node v$NODE_VERSION ($NARCH) checksums from nodejs.org"
   curl -fsSL "$BASE/SHASUMS256.txt" -o "$TMP/SHASUMS256.txt"
-  echo "==> verifying checksum"
   WANT="$(grep " $TARBALL\$" "$TMP/SHASUMS256.txt" | awk '{print $1}')"
   [ -n "$WANT" ] || { echo "error: $TARBALL not in SHASUMS256.txt" >&2; exit 1; }
+  if [ -f "$NODE_CACHE/$TARBALL" ] \
+     && [ "$(shasum -a 256 "$NODE_CACHE/$TARBALL" 2>/dev/null | awk '{print $1}')" = "$WANT" ]; then
+    echo "==> using cached node v$NODE_VERSION ($NARCH) from $NODE_CACHE"
+    cp "$NODE_CACHE/$TARBALL" "$TMP/$TARBALL"
+  else
+    echo "==> downloading node v$NODE_VERSION ($NARCH) from nodejs.org"
+    curl -fL --progress-bar "$BASE/$TARBALL" -o "$TMP/$TARBALL"
+    # Populate the cache only with bytes that pass the checksum, and only if the cache
+    # is writable -- an atomic rename so a killed cut never leaves a torn cache file.
+    if [ "$(shasum -a 256 "$TMP/$TARBALL" | awk '{print $1}')" = "$WANT" ] \
+       && mkdir -p "$NODE_CACHE" 2>/dev/null; then
+      { cp "$TMP/$TARBALL" "$NODE_CACHE/.$TARBALL.$$" 2>/dev/null \
+          && mv "$NODE_CACHE/.$TARBALL.$$" "$NODE_CACHE/$TARBALL" 2>/dev/null; } \
+        || rm -f "$NODE_CACHE/.$TARBALL.$$" 2>/dev/null
+    fi
+  fi
+  echo "==> verifying checksum"
   GOT="$(shasum -a 256 "$TMP/$TARBALL" | awk '{print $1}')"
   if [ "$WANT" != "$GOT" ]; then
     echo "FAIL: checksum mismatch on $TARBALL" >&2
@@ -515,7 +542,7 @@ else
     exit 1
   fi
   echo "    checksum ok"
-  NODE_SHA="$GOT"   # the bytes that were actually downloaded, for the manifest (#776)
+  NODE_SHA="$GOT"   # the bytes actually used (cached or downloaded), verified, for the manifest (#776)
   tar -xzf "$TMP/$TARBALL" -C "$TMP"
   cp "$TMP/node-v$NODE_VERSION-darwin-$NARCH/bin/node" "$STAGE/runtime/bin/node"
   # ⚠️ Node's LICENSE travels with the binary. It is the single file that
