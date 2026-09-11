@@ -147,6 +147,15 @@ process.env.HOME = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-srv-home-'));
 // a real such machine would have. The liveness probe runs the fake claude bin
 // (AGENT_WORKFORCE_CLAUDE_BIN=/bin/echo below) -> not a dead sign-in -> the create
 // proceeds. accounts.js reads the default account's record at <HOME>/.claude.json.
+// #2724: seal the ENGINE's home seam as well as the OS home. `accounts.js` reads
+// `AGENT_WORKFORCE_HOME || os.homedir()`, so with only `$HOME` sealed an ambient
+// `AGENT_WORKFORCE_HOME` sends the account lookup somewhere other than the
+// `.claude.json` seeded on the next line, and the create arms refuse with "no
+// Claude account signed in on this computer". Same suite rule as
+// engine/create.no-account-2145.test.js: an unsealed home reads the operator's
+// real accounts. (The child-process seam probe far below sets its OWN
+// AGENT_WORKFORCE_HOME in the env it spawns with, so it is unaffected by this.)
+process.env.AGENT_WORKFORCE_HOME = process.env.HOME;
 fs.writeFileSync(nodePath.join(process.env.HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'route-test@example.com' } }));
 fs.mkdirSync(nodePath.join(process.env.HOME, '.claude', 'projects'), { recursive: true });
 // ⚠️ AND THE RELEASE HOST. Every /api/status request pokes the update check;

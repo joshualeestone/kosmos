@@ -261,6 +261,62 @@ fi
 # layer, 4b's harness), so they self-exclude and are never refused by their own cut.
 kosmos_claim_machine >/dev/null 2>&1 || true
 
+# #2724: GIVE THE CUT AN EMPTY HOME, so its gates stop reading the live fleet.
+#
+# 🔑 THE CLASS, not one flaky test. `tools/release.sh` runs on a box that is also
+# running real agents and carrying a live board, roster and data root. Several
+# cut-time gates read that live state instead of the tree they froze, so a cut
+# reds on what the machine happens to be doing. Each instance was fixed as a
+# one-off (the block-delivery harness reading the real you.json #2259; the
+# install-gate running-app dedup #2124; the fleet.install created-agents leak
+# near #2696; the paneless-beat leak #2718) and they keep arriving, because the
+# list is open-ended: ANY new gate that reads the store is a new instance, and it
+# only shows up on the box that carries live state, never on a quiet dev box.
+#
+# 🛑 WHY `AGENT_WORKFORCE_HOME` AND NOT `AGENT_WORKFORCE_DATA`, WHICH IS THE
+# OBVIOUS ONE AND IS WRONG. Measured, whole suite, empty root:
+#   AGENT_WORKFORCE_DATA=<empty>   -> RED, and two of the failures are
+#                                     engine/sandbox.js refusing BY NAME:
+#                                     "Kosmos will not start half-sandboxed".
+#   AGENT_WORKFORCE_HOME=<empty>   -> far fewer, and none of them that refusal.
+# `DATA` is one of the four dirs in sandbox.js's #634 all-or-nothing rule (DATA,
+# PROJECTS, WORKERS, LAUNCH, plus an inert tmux): setting ONE of them is the exact
+# half-sandboxed shape that card was filed about, after a fixture board with two
+# of five knobs set typed into two real agents' terminals. `HOME` is not one of
+# the four, so it cannot trip that rule.
+# ⚠️ AND `DATA` BREAKS TESTS THAT WERE ALREADY ISOLATING CORRECTLY: a large group
+# of discovery tests (#1159, #2243) sandbox themselves THROUGH `AGENT_WORKFORCE_HOME`
+# and derive their data root from it, and an ambient `DATA` overrides that
+# derivation (DATA beats HOME by design in store.dataRootFor), handing them a root
+# inconsistent with their own fixture.
+#
+# ✅ `HOME` is the seam the repo already built for this (store.js #1780): "one var
+# (HOME) isolates BOTH this store and the workers root (create.homeDir)". It sits
+# BELOW `DATA` in precedence, so a test that sets its own `DATA` still wins -- this
+# changes the ambient default without overriding anybody's deliberate sandbox.
+#
+# ⚠️ WHAT THIS DOES NOT ISOLATE, stated so nobody reads it as whole-box isolation:
+# `projectsRoot` has its own var (AGENT_WORKFORCE_PROJECTS) and launchd has
+# AGENT_WORKFORCE_LAUNCH, and BOTH are in the #634 four. Setting either without the
+# other two would be refused, so closing that gap means the full four-plus-tmux
+# sandbox, which is a larger change and needs its own measurement. Named here
+# rather than implied away.
+#
+# The dir is recreated EMPTY at the start of every cut rather than cleaned on exit,
+# so "empty when the gates run" holds without depending on a trap, and a failed
+# cut leaves it behind to inspect. Every gate subprocess inherits it, INCLUDING
+# kosmos_isolation_rerun_verdict -- which matters: the contention rerun must
+# adjudicate the same world the gate ran in, or it is comparing two machines.
+if [ "${KOSMOS_CUT_LIVE_HOME:-0}" != 1 ]; then
+  _cut_home="${TMPDIR:-/tmp}/kosmos-cut-home"
+  case "$_cut_home" in
+    /|//|/tmp|"$HOME") echo "refusing to use $_cut_home as the cut-only home (it is a real directory, not a scratch leaf)"; exit 1 ;;
+  esac
+  rm -rf "$_cut_home" && mkdir -p "$_cut_home" || { echo "could not create the cut-only home at $_cut_home"; exit 1; }
+  export AGENT_WORKFORCE_HOME="$_cut_home"
+  echo "cut-only home: $AGENT_WORKFORCE_HOME (empty, so the gates below read no live fleet state; KOSMOS_CUT_LIVE_HOME=1 opts out)"
+fi
+
 step "== 1. main, clean, and carrying what you mean to ship =="
 git -C "$REPO" fetch origin -q
 [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD)" = main ] || { echo "not on main"; exit 1; }

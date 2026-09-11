@@ -31,6 +31,17 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-projects-'));
 const HOME = path.join(SANDBOX, 'home');
 fs.mkdirSync(HOME, { recursive: true });
 process.env.HOME = HOME;
+// #2724: SEAL THE ENGINE'S HOME SEAM TOO, not only the OS home. `accounts.js`
+// resolves `AGENT_WORKFORCE_HOME || os.homedir()`, so sealing `$HOME` alone
+// leaves the account lookup steerable by an ambient `AGENT_WORKFORCE_HOME` --
+// and then this file's own seeded `.claude.json` below is NOT the file that is
+// read, the create route reports "no Claude account signed in on this computer",
+// and the #166/#732/#2279 arms below 400 instead of 200. That is the suite rule
+// engine/create.no-account-2145.test.js already states in so many words: "an
+// unsealed home reads the operator's real accounts". Sealed here so these arms
+// depend on the fixture rather than on what the machine running them happens to
+// have signed in.
+process.env.AGENT_WORKFORCE_HOME = HOME;
 // #2145: a signed-in DEFAULT Claude account beside the sandbox HOME. The create
 // route now refuses a Claude create on a machine with NO Claude account at all
 // (accountConnectable, the sibling of #1903's dead-account gate). The #166/#732
