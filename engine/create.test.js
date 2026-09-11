@@ -3418,6 +3418,86 @@ test('an account we do not know, and an agent Kosmos did not start, are both ref
   assert.match(nobody.because, /could not read how neverexisted is started/);
 });
 
+/* 🔑 #2826: setAccount can now swap a CODEX agent's OpenAI account, resolving it
+   in openaiaccounts (~/.codex* homes) rather than accounts.js (~/.claude* only).
+   Dave's blocker was that a codex account was refused at REFUSE_ACCOUNT before the
+   runner was ever consulted, because it was looked up in the Claude list. This
+   test drives the whole shape: a named codex account swap writes CODEX_HOME and
+   trusts the new home; the default row writes no CODEX_HOME (#1600); an unknown
+   codex home is refused; and a CLAUDE agent handed a codex dir is STILL refused,
+   because a runner switch is setProvider's job, not this. */
+test('#2826: setAccount swaps a codex agent between OpenAI accounts, and still refuses a claude agent a codex dir', () => {
+  recorder();
+  create.setDryRun(false);
+  /* No override home: the ordinary machine, so the default codex home is
+     ~/.codex under AGENT_WORKFORCE_HOME and codexHomeOverridden() is false. */
+  delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  const home = process.env.AGENT_WORKFORCE_HOME;
+  const defHome = nodePath.join(home, '.codex');
+  const daveHome = nodePath.join(home, '.codex-daveaccount2826');
+  for (const [dir, key] of [[defHome, 'DEFAULT2826'], [daveHome, 'DAVE2826']]) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(nodePath.join(dir, 'auth.json'),
+      JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: `sk-proj-testtest${key}` }), 'utf8');
+  }
+  const openai = require('./openaiaccounts');
+
+  /* THE PREMISES, asserted so a pass cannot come from a missing account: the
+     account layer really reports BOTH homes, dave is NOT the default row, and
+     the two resolve to different directories. */
+  const rows = openai.list();
+  const daveRow = rows.find((a) => fs.realpathSync(a.dir) === fs.realpathSync(daveHome));
+  const defRow = rows.find((a) => a.isDefault);
+  assert.ok(daveRow, `list() does not report the dave codex account: ${rows.map((a) => a.dir).join(', ')}`);
+  assert.equal(daveRow.isDefault, false, 'the labelled dave account must not be the default row');
+  assert.ok(defRow, 'no default OpenAI row exists, so the default-row arm is not exercised');
+  assert.notEqual(fs.realpathSync(defRow.dir), fs.realpathSync(daveHome), 'default and dave must be different homes');
+
+  // A codex agent: born on Claude, switched to OpenAI's default home.
+  const name = 'codexacct2826';
+  assert.equal(create.createAgent({ ...BINS, name, role: 'pm' }).outcome, create.OUTCOME.CREATED);
+  const sw = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN });
+  assert.equal(sw.outcome, create.OUTCOME.CREATED, `switch to openai refused: ${sw.because}`);
+  const idBefore = store.readProfile(name).id;
+  const homeOf = () => (fs.readFileSync(create.plistPath(name), 'utf8')
+    .match(/<key>CODEX_HOME<\/key>\s*<string>([\s\S]*?)<\/string>/) || [])[1];
+  // On the default row it carries no CODEX_HOME (#1600).
+  assert.equal(homeOf(), undefined, 'the switch onto the default row should not pin a CODEX_HOME');
+
+  // SWAP to the named dave account: CODEX_HOME rewritten, runner kept, home trusted.
+  const moved = create.setAccount(name, daveHome);
+  assert.equal(moved.outcome, create.OUTCOME.CREATED, `codex account swap refused: ${moved.because}`);
+  assert.equal(fs.realpathSync(homeOf()), fs.realpathSync(daveHome),
+    'the swap did not write the dave codex home into CODEX_HOME');
+  assert.equal(plistArgs(name)[8], 'codex', 'the account swap must not change the runner');
+  assert.equal(store.readProfile(name).id, idBefore, 'an account swap must not mint a new identity');
+  assert.equal(moved.account.dir, daveRow.dir, 'the result must name the account it actually landed on');
+  assert.match(fs.readFileSync(nodePath.join(daveHome, 'config.toml'), 'utf8'),
+    new RegExp(`\\[projects\\."${require('./trust').canonicalOnDisk(create.workerDir(name)).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\]`),
+    'the swap must trust the folder in the NEW codex home or the agent boots into a blocking dialog');
+
+  // BACK to the default row: no CODEX_HOME again, still codex.
+  const back = create.setAccount(name, '');
+  assert.equal(back.outcome, create.OUTCOME.CREATED, `swap back to default refused: ${back.because}`);
+  assert.equal(homeOf(), undefined, 'swapping back to the default row should clear CODEX_HOME');
+  assert.equal(plistArgs(name)[8], 'codex', 'swapping back must not change the runner');
+
+  // An unknown codex home is refused, and nothing is rewritten.
+  const unknown = create.setAccount(name, nodePath.join(home, '.codex-nosuchaccount'));
+  assert.equal(unknown.outcome, create.OUTCOME.REFUSED);
+  assert.match(unknown.because, /do not know that account/);
+  assert.equal(homeOf(), undefined, 'a refused swap still rewrote the launch file');
+
+  /* CONTROL: a CLAUDE agent handed the same codex dir is STILL refused. A codex
+     home is not a Claude account, and turning a claude agent into a codex one is
+     setProvider's job, so this must never quietly succeed. */
+  const claudeName = 'claudeacct2826';
+  assert.equal(create.createAgent({ ...BINS, name: claudeName, role: 'pm' }).outcome, create.OUTCOME.CREATED);
+  const wrong = create.setAccount(claudeName, daveHome);
+  assert.equal(wrong.outcome, create.OUTCOME.REFUSED);
+  assert.match(wrong.because, /do not know that account/);
+});
+
 test('a new agent can be created on another account, and its history is still shared', () => {
   const { home } = seedAccounts();
   const name = 'bornelsewhere';
@@ -4344,8 +4424,8 @@ test('#1131: a brand new name has no tokens to clear, and that is silent rather 
  *
  * Three refusals were written out at every site that raised them: the name check in
  * `setAccount`/`setProvider`/`setModel` (three copies of ONE validation), the provider
- * check in `setProvider` and `createAgentInner`, the account lookup in `setAccount` and
- * `createAgentInner`. They agreed by coincidence.
+ * check in `setProvider` and `createAgentInner`, the account lookup in `setAccount`,
+ * `setCodexAccount` and `createAgentInner`. They agreed by coincidence.
  *
  * ⚠️ STAKES: this is CONSISTENCY, not security. Unlike `NO_MATCH` in sendertoken.js
  * (#1170/#1175), nothing is hidden by these matching and nothing is disclosed if they
@@ -4368,7 +4448,7 @@ test('each refusal sentence exists exactly once, so no site can reintroduce a co
   for (const [sentence, constant, uses] of [
     ['that is not a name we can act on', 'REFUSE_NAME', 3],
     ['pick a provider from the list', 'REFUSE_PROVIDER', 2],
-    ['we do not know that account on this computer', 'REFUSE_ACCOUNT', 2],
+    ['we do not know that account on this computer', 'REFUSE_ACCOUNT', 3],
   ]) {
     const literals = src.split(`'${sentence}'`).length - 1;
     assert.equal(
