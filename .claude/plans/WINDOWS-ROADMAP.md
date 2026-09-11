@@ -183,7 +183,7 @@ shared usage before fanning out subagents.
 5. **A current Windows build and publish.** The pipeline exists; the site serves
    0.6.37.
    - A zip built from main 6182640d (0.6.55) passed every agent step on the box,
-          unpacked through Explorer's shell with the Mark of the Web set, as a download
+     unpacked through Explorer's shell with the Mark of the Web set, as a download
      would be: sign-in via the #2007 nonce, create, talk (delivery and card state),
      restart, remove, restore, talk again.
    - It found one launcher defect. `Kosmos.exe` ran the board in the foreground of
@@ -749,7 +749,7 @@ the removal command.
 task at Josh's reboot, headless. A hand-started board still dies with its window
 until `win32-launch-handoff-570` lands.
 
-### BLOCKER 5 — an agent's answer never reached the board (found and fixed 2026-09-11)
+### BLOCKER 5 — an agent's answer never reached the board (found 2026-09-11; fixed on branch `win32-kosmos-cli-570`, NOT YET MERGED when this was written)
 
 Every new agent's instructions are written with `kosmosCliShown()` baked in —
 "you can message another agent with `kosmos msg <name> ...`". `engine/clipath.js`
@@ -766,7 +766,7 @@ zip a person could message an agent and never see its answer. The 7c-6 R3 check
 read the answer from the transcript, which is why it passed. `msg`, `post` and
 `react` were also pane-only on the server, and a Windows agent has no pane.
 
-✅ **Fixed by `win32-kosmos-cli-570`:**
+✅ **Fixed on branch `win32-kosmos-cli-570` (not yet merged when written):**
 - a Node `kosmos` for agents in the zip's `bin\`, with a `kosmos.cmd` shim for
   PowerShell and a `kosmos` shim for Git Bash;
 - that folder put first on every agent's PATH by its supervisor;
