@@ -4900,6 +4900,9 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    point: the state signal must not disappear the moment a person points at it. */
 #pj-one-agents .pj-member.pjm-working { background: linear-gradient(rgba(47,125,90,.10), rgba(47,125,90,.10)), var(--k-surface); }
 #pj-one-agents .pj-member.pjm-attn { background: linear-gradient(rgba(179,38,30,.09), rgba(179,38,30,.09)), var(--k-surface); }
+/* Idle is item 16's one deviation from the homepage (which leaves idle white), so
+   it tracks no .acard colour: a neutral gray (the system gray, low alpha) reads as
+   "very light gray" in both themes and sits clear of the --k-sunk hover. */
 #pj-one-agents .pj-member.pjm-idle { background: linear-gradient(rgba(120,120,128,.10), rgba(120,120,128,.10)), var(--k-surface); }
 #pj-one-agents .pj-member.pjm-working[data-agent]:hover { background: linear-gradient(rgba(47,125,90,.16), rgba(47,125,90,.16)), var(--k-surface); }
 #pj-one-agents .pj-member.pjm-attn[data-agent]:hover { background: linear-gradient(rgba(179,38,30,.15), rgba(179,38,30,.15)), var(--k-surface); }

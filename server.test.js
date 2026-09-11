@@ -7390,6 +7390,34 @@ test('#2711 item 16: the three member wash grounds are defined in the CSS, scope
   }
 });
 
+test('#2711 item 16: the working/needs-you member washes stay pinned to the agent-card colours', () => {
+  // Convention #5: the green and red washes are DELIBERATELY the same colours as
+  // the agent homepage cards (.acard.working / .acard.attn), so the two surfaces
+  // read as one system. That is a duplicated fact, and the convention's remedy for
+  // a duplicated fact is a test that pins the copies equal -- otherwise a future
+  // contrast fix to the .acard colours (see #976/#977) would drift the member wash
+  // silently, which no presence test above could catch. Idle is deliberately NOT
+  // pinned: item 16 gives members a gray idle ground where the homepage leaves idle
+  // white, so there is no card colour to track.
+  const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  // The rgba of the rule's `background:` wash. Anchored on `background:` so it
+  // selects the ground rule, not a sibling that only sets border-color -- e.g.
+  // `.acard.attn` has two blocks (one border-color, one background), and the wash
+  // colour lives only in the background one.
+  const washRgba = (sel) => {
+    const rule = page.match(new RegExp(sel.replace(/[.[\]]/g, '\\$&') + ' \\{[^}]*background:[^}]*\\}'));
+    assert.ok(rule, 'wash rule not found: ' + sel);
+    const bg = rule[0].match(/background:[^;}]*/)[0];
+    const rgba = bg.match(/rgba\([^)]*\)/);
+    assert.ok(rgba, 'no rgba in the background of: ' + sel);
+    return rgba[0];
+  };
+  assert.equal(washRgba('#pj-one-agents .pj-member.pjm-working'), washRgba('.acard.working'),
+    'the working member wash drifted from .acard.working; re-pin them or the two greens disagree');
+  assert.equal(washRgba('#pj-one-agents .pj-member.pjm-attn'), washRgba('.acard.attn'),
+    'the needs-you member wash drifted from .acard.attn; re-pin them or the two reds disagree');
+});
+
 test('the free-agent picker names the not-signed-in state distinctly on a 403 (#2023)', () => {
   /* The signin branch of `emptyBecause` had no assertion: the harness above only
      BINDS BOARD_NEEDS_SIGNIN to stop a ReferenceError, it never sets it true and
