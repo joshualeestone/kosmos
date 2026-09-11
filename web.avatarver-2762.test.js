@@ -56,8 +56,17 @@ const CODE = codeOnly(fs.readFileSync(PAGE_PATH, 'utf8'));
 const BARE = /\/avatar(["'`])/;
 
 /* Lines that carry an avatar URL and are NOT renderings. `fetch(...)` for upload and
-   delete puts the same path in a string whose closing quote looks identical. */
-const NOT_A_RENDERING = /fetch\(/;
+   delete puts the same path in a string whose closing quote looks identical.
+
+   🛑 AND THE EXEMPTION IS NARROWED, because `contains fetch(` alone is too broad: a
+   single line can BOTH render markup and call fetch, and would then be exempted while
+   shipping a bare URL. Measured, the loose rule exempts this:
+       el.innerHTML = '<img src="/api/agent/' + n + '/avatar">'; fetch("/x");
+   So a line only counts as a call if it ALSO emits nothing image-shaped. That is the
+   same "an exemption must not be wider than the thing it names" rule the ALLOWED_BARE
+   count guard enforces. */
+const LOOKS_LIKE_MARKUP = /<img|<image|src=|href=/;
+const NOT_A_RENDERING = (line) => /fetch\(/.test(line) && !LOOKS_LIKE_MARKUP.test(line);
 
 /**
  * Bare URLs that are FINE, each with the paint call that makes it fine. Keyed on a
@@ -104,7 +113,7 @@ function avatarLines() {
 
 function classify(e) {
   if (!BARE.test(e.text)) return 'busted';
-  if (NOT_A_RENDERING.test(e.text)) return 'call';
+  if (NOT_A_RENDERING(e.text)) return 'call';
   const hit = ALLOWED_BARE.find((a) => e.text.includes(a.match));
   return hit ? 'allowed' : 'UNCLASSIFIED';
 }
@@ -215,4 +224,15 @@ test('#2762 CONTROL: a correctly VERSIONED renderer is NOT flagged', () => {
     + "  return '<img src=\"/api/agent/' + encodeURIComponent(a.sessionName) + '/avatar?v=' + (a.avatarVer || 0) + '\" alt=\"\">';\n"
     + "}"), 0,
     'a correctly versioned renderer was flagged, so this sweep would fail on correct code');
+});
+
+test('#2762 CONTROL: a line that BOTH renders and fetches is not exempted by the fetch rule', () => {
+  /* The exemption for upload/delete calls must not become a way to carry a bare
+     rendering. Measured: the loose `contains fetch(` rule exempted this line. */
+  const both = `el.innerHTML = '<img src="/api/agent/' + n + '/avatar">'; fetch("/x");`;
+  assert.equal(NOT_A_RENDERING(both), false,
+    'a line that renders a bare avatar URL was exempted merely because it also calls fetch()');
+  const realCall = `    const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/avatar', { method: 'DELETE' });`;
+  assert.equal(NOT_A_RENDERING(realCall), true,
+    'a genuine upload/delete fetch is no longer exempted, so the sweep would flag calls as renderings');
 });
