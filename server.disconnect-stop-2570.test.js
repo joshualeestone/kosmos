@@ -470,6 +470,31 @@ test('#2684: the default .claude is removed by clearing ONLY its oauth identity 
     'history under the dir is untouched');
 });
 
+/* #2684 COVERAGE: a PRODUCTION-shape default agent has NO config dir in its launch
+   file (create.js writes `isDefault ? null : dir`), so `readJob().configDir` is
+   null and the route attributes it to the default ONLY via the `onIt = home ?
+   path=== : isDefault` fallback (server.js ~6012). Every other arm here seeds
+   `configDir === dir`, which exercises the path-compare arm and leaves the fallback
+   untested -- so `: isDefault` -> `: false` would pass green while the default's
+   running-agents guard silently stopped firing in production (the "working agent
+   behaves like a blank one" hazard). This arm seeds the null-configDir shape and
+   pins that the default's guard fires. */
+test('#2684: a default agent with NO configDir is attributed to the default (the isDefault fallback), so disconnect refuses without stopAgents', async () => {
+  installRunner();
+  const dir = nodePath.join(HOME, '.claude');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(HOME, '.claude.json'),
+    JSON.stringify({ oauthAccount: { emailAddress: 'main@example.com' } }));
+  agentOn('mycroft', null, 'claude'); // null configDir == a default agent (no CLAUDE_CONFIG_DIR)
+  const r = await del('claude', { dir }); // no stopAgents
+  assert.equal(r.code, 400, 'a default with a running default agent must refuse. body: ' + JSON.stringify(r.json));
+  assert.match(String(r.json.error), /mycroft is set up to run on this account/,
+    'the null-configDir default agent was NOT attributed to the default: the isDefault fallback is broken');
+  assert.deepEqual(calls, [], 'nobody stopped without stopAgents');
+  assert.ok(JSON.parse(fs.readFileSync(nodePath.join(HOME, '.claude.json'), 'utf8')).oauthAccount,
+    'identity intact on the refusal');
+});
+
 /* 🛑 THE REFUSAL THE PRE-FLIGHT STRUCTURALLY CANNOT SEE. The engine's identity
    guard ("that is not a Claude account on this computer") sits AFTER its agents
    guard in all four functions, and cannot be hoisted: `identityOf` answers null

@@ -136,3 +136,19 @@ test('CONTROL: a SECONDARY account is still deleted by directory removal, not id
   const primary = JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf8'));
   assert.ok(primary.oauthAccount, 'primary identity untouched');
 });
+
+test('#2684: clearing the identity PRESERVES the .claude.json file mode (no 600 -> umask widening)', () => {
+  // The atomic temp+rename would adopt the umask on the temp file; clearDefaultIdentity
+  // stats the original mode and chmods the temp back. A mode-600 .claude.json (it can hold
+  // a token) must stay 600, not widen to 644. This pins that guard.
+  const { home, cfg, dir } = makeHome();
+  fs.chmodSync(cfg, 0o600);
+  const before = fs.statSync(cfg).mode & 0o777;
+  assert.strictEqual(before, 0o600, 'precondition: the fixture .claude.json is mode 600');
+  const res = withHome(home, () => accounts.removeAccount(dir, []));
+  assert.strictEqual(res.ok, true, 'the clear succeeded');
+  assert.strictEqual(res.defaultCleared, true, 'an identity was actually cleared (so a rewrite happened)');
+  const after = fs.statSync(cfg).mode & 0o777;
+  assert.strictEqual(after, 0o600,
+    `the .claude.json mode widened from 600 to ${after.toString(8)} -- the atomic-write temp adopted the umask`);
+});

@@ -284,7 +284,7 @@ let failed = 0;
     };
   }));
   const rrow = (needle) => removeRows.filter((r) => r.row.includes(needle));
-  say('#2264: the DEFAULT Claude account has NO Delete-and-remove (the default cannot be deleted)',
+  say('#2684: the DEFAULT Claude account has NO separate Delete-and-remove (its live Disconnect already clears the identity; a Delete would be byte-identical)',
     rrow('main@example.com').length > 0 && rrow('main@example.com').every((r) => !r.hasRemove),
     JSON.stringify(removeRows));
   say('#2264: the NON-DEFAULT Claude account offers a live Delete-and-remove',

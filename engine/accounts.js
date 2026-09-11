@@ -97,9 +97,10 @@ function isDefaultDir(dir) {
      derivation means using the accessor the rest of this file uses. */
   /* 🛑 BOTH SIDES RESOLVED. This compared a RESOLVED left against an UNRESOLVED
      `path.join(homeDir(), '.claude')`, so under a relative AGENT_WORKFORCE_HOME it
-     answered FALSE for a directory that IS the default. `forgetAccount` refused it
-     correctly anyway because it compares resolved paths, which meant the exported
-     helper and the engine disagreed about the one fact this helper exists to make
+     answered FALSE for a directory that IS the default. `forgetAccount` still
+     handled it correctly (it compares resolved paths for the primary branch),
+     which meant the exported helper and the engine disagreed about the one fact
+     this helper exists to make
      un-re-derivable. `path.resolve` is a no-op on an already absolute path, so the
      ordinary case is unchanged. */
   try { return path.resolve(String(dir)) === path.resolve(homeDir(), '.claude'); } catch { return null; }
@@ -758,10 +759,11 @@ function forgetAccount(dir, usedBy) {
     }
   }
 
-  /* `wasDefault` is a constant here and there is no branch that sets it true:
-     the default is refused above, so it can never reach this line. Kept so the
-     success shape matches `openaiaccounts.forgetAccount`, whose default CAN be
-     forgotten. Said out loud to save the next reader hunting for the branch. */
+  /* `wasDefault` is a constant false here: this is the SECONDARY (rename-aside)
+     path, which the default never reaches -- #2684 handles the default in its own
+     branch above (identity cleared, returns wasDefault:true) rather than falling
+     through to here. Kept so the success shape matches openaiaccounts.forgetAccount.
+     Said out loud to save the next reader hunting for the branch. */
   return { ok: true, forgotten: true, movedTo: target, wasDefault: false, because: null };
 }
 

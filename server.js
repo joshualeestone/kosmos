@@ -5847,15 +5847,18 @@ const server = http.createServer((req, res) => {
    * sentence for it was AMBIGUITY WAS SILENTLY NONE. A Claude route written
    * from the card alone would have had that bug, so it is copied deliberately.
    *
-   * 📌 THE `isDefault` FALLBACK IS CARRIED FOR SYMMETRY WITH THE OPENAI ROUTE
-   * AND IS INERT HERE. A Claude job on the default account carries
-   * `configDir: null` (`create.js:734` writes `acct.isDefault ? null :
-   * acct.dir`), so absence falls back to the isDefault comparison rather than
-   * reading as "no account" -- but that branch can only ADD names to `usedBy`
-   * when `dir` IS the default, and `accounts.forgetAccount` refuses the default
-   * before it ever reads `usedBy`. So no test can exercise it and it cannot
-   * change this route's outcome. It is kept so the two routes stay diffable;
-   * it is not load-bearing, and this comment says so rather than implying it is.
+   * 🛑 THE `isDefault` FALLBACK IS LOAD-BEARING (#2684). A Claude job on the
+   * default account carries `configDir: null` (`create.js` writes
+   * `acct.isDefault ? null : acct.dir`), so absence falls back to the isDefault
+   * comparison and ADDS that agent to `usedBy` when `dir` IS the default. Before
+   * #2684 this was inert because `accounts.forgetAccount` refused the default
+   * outright before reading `usedBy`; NOW the default is removable and
+   * `forgetAccount`/`removeAccount` read `usedBy` (the inlined running-agents
+   * guard), so this fallback is exactly what makes the default's running-agents
+   * guard fire for a real default agent. Do NOT delete it: without it, the default
+   * identity could be cleared while an agent still runs on it (the
+   * working-agent-behaves-like-a-blank-one hazard). Pinned by
+   * server.disconnect-stop-2570.test.js's null-configDir default-agent arm.
    * 📌 `readJob` normalises a MISSING runner to 'claude', because every plist
    * written before runners existed carries no ninth argument -- so the filter
    * below cannot silently skip an old Claude agent. That one IS load-bearing.
@@ -6048,14 +6051,15 @@ const server = http.createServer((req, res) => {
         const stoppable = usedBy.filter((n) => typeof n === 'string' && n);
         if (stoppable.length && !!(body && body.stopAgents === true)) {
           /* 🛑 ASK THE ENGINE FIRST, BECAUSE ITS OTHER REFUSALS DO NOT CARE ABOUT
-             THE AGENTS. `accounts.forgetAccount` refuses the DEFAULT account outright, and
-             refuses a path that is not one of its accounts, and BOTH of those
-             checks run BEFORE its agents check. So without this, a request
-             naming the default account stopped every agent on it, for real, wrote
-             each to the removed list, and then answered 400 with a refusal that
-             never mentioned the stop. Deterministic, not a race. Not reachable
-             from the page (the default row renders no control) and fully
-             reachable from the board API.
+             THE AGENTS. `accounts.forgetAccount` refuses a path that is not one of
+             its accounts BEFORE its agents check. So without this, a request that
+             would be refused for a non-agent reason stopped every agent on it, for
+             real, wrote each to the removed list, and then answered 400 with a
+             refusal that never mentioned the stop. Deterministic, not a race.
+             (#2684: the DEFAULT is no longer a pre-agents refusal -- for the
+             default the running-agents guard IS the guard, inlined first in the
+             primary branch, so a default-with-agents returns a usedBy-carrying
+             refusal that flows into the stop path rather than a bare 400.)
 
              📌 NOT the CLI, which an earlier version of this comment claimed.
              Measured: `stopAgents` appears only in this file, web/index.html,
@@ -6071,12 +6075,12 @@ const server = http.createServer((req, res) => {
              🛑 WHAT IT CATCHES, AND WHAT IT PROVABLY CANNOT, because an earlier
              version of this comment claimed an invariant it does not have and
              claimed it in the UNSAFE direction ("every refusal that does not
-             depend on the agents comes BEFORE the agents guard"). TWO refusals
-             precede the agents guard here and are therefore visible: the path
-             guard and the default-folder guard. (The OpenAI engine has a third,
-             its sign-in-in-progress guard. This one has none, and an earlier
-             version of this paragraph was a verbatim copy of the OpenAI route's
-             that claimed it did.) The IDENTITY refusal ("that is not a
+             depend on the agents comes BEFORE the agents guard"). ONE refusal
+             precedes the agents guard here and is therefore visible: the path
+             guard. (#2684 removed the default-folder guard that used to precede it
+             too; the default is now agents-gated like any other row. The OpenAI
+             engine has a sign-in-in-progress guard before its agents check.) The
+             IDENTITY refusal ("that is not a
              Claude/OpenAI account on this computer") does NOT, in any of the
              four, and it cannot be hoisted: `engine/accounts.js` states why at
              the guard itself, that `identityOf` answers null for a missing
@@ -6122,11 +6126,13 @@ const server = http.createServer((req, res) => {
              neither an oauth account nor an api-key one. So a `~/.claude` whose
              only credential is a stored api key is absent from the list while
              the engine still treats it as a real directory. `dirIsAnAccount`
-             goes false, we decline to stop, and the engine then refuses it
-             anyway under its default-folder guard, so the outcome is right and
-             nothing was stopped for an operation that was never going to run.
-             It fails in the safe direction, and it is API-reachable only, since
-             the page renders no control on the default row.
+             goes false, we decline to stop, and the engine would clear NOTHING
+             anyway (#2684: clearDefaultIdentity finds no oauthAccount and returns
+             a quiet already-cleared success), so the outcome is right and nothing
+             was stopped for an operation that would do nothing. It fails in the
+             safe direction, and it is API-reachable only: this api-key-only
+             default is unlisted, so no control renders for THIS row (a normal
+             oauth default does render a live Disconnect now, #2684).
 
              ⚠️ GUARDED ON EXISTENCE, because a MISSING directory is not in the
              list either and its answer is a quiet SUCCESS rather than a refusal.

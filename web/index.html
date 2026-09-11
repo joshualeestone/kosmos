@@ -16674,6 +16674,15 @@ function accountGroupsHtml(list, rowHtml) {
    newer message, and an earlier version of this held the id as an EXPANDO ON THE
    BUTTON -- which `paintAccounts` destroys wholesale via `box.innerHTML = ...`,
    so after any repaint NOTHING COULD CANCEL IT. Module scope outlives the node. */
+/* #2684: acctSayTimer is now a BENIGN NO-OP. The only writer that ever armed it
+   was the disabled-default Disconnect's click handler, which this change removed
+   (the default Disconnect is a live data-forget control now). Nothing sets the
+   timer any more, so acctSayTimer stays null and acctCancelSay() is a permanent
+   no-op. The ~11 acctCancelSay() call sites and the "60ms deferred refusal" /
+   "aria-disabled button stays pressable" race comments scattered below describe a
+   scenario that can no longer occur; they are harmless (a no-op cannot land a
+   stale write) and were left rather than sweep 11 call sites in the live handler.
+   Tracked as a follow-up cleanup; do NOT trust those local comments over this note. */
 let acctSayTimer = null;
 function acctCancelSay() { if (acctSayTimer) { clearTimeout(acctSayTimer); acctSayTimer = null; } }
 
