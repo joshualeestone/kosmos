@@ -1502,7 +1502,7 @@ if ! bash "$REPO/tools/kosmos-artifact-check.sh" --repo "$MAIN_REPO"; then
   exit 1
 fi
 
-step "== 10. the board on THIS Mac, if it runs from this repo =="
+step "== 10. the board on THIS Mac, if it runs from this repo or the libexec deploy (#1164) =="
 # 🛑 Installs update themselves from what step 9 verified; the developer's own
 # board runs the repo under launchd and never did, so every release left it
 # serving the previous code until somebody noticed (#360). Gated on the job
@@ -1516,6 +1516,39 @@ step "== 10. the board on THIS Mac, if it runs from this repo =="
 # (a genuinely stale board still reds, just later) while a slow-but-fine board no longer
 # false-reds. Costs nothing on a healthy cut (the check exits the instant the board flips),
 # and an operator env override still wins.
+#
+# 🔑 #1164: BEFORE the restart, if THIS Mac's board runs from the LIBEXEC DEPLOY
+# (shape (b) -- WD == install-board.sh's DEST), refresh that deployed copy from THIS
+# cut's tree, so the restart below brings the board back on the code this cut just
+# published rather than the previously deployed version. Three board shapes exist
+# across the fleet and this step must act on ONLY one of them:
+#   (a) repo working tree -- WD == the shared checkout. No deploy: the board already
+#       runs the tree; restart-local-board.sh restarts it (the #360 path). Untouched here.
+#   (b) libexec deploy    -- WD == the DEST below. THIS is the only case that deploys.
+#   (c) end-user bundle    -- runs `/bin/bash .../.local/share/kosmos/bin/kosmos start`;
+#       its launchd job has NO working-directory line, so WD parses EMPTY. Untouched.
+# 🛑 FAIL SAFE: we deploy ONLY when the live job's working directory is EXACTLY the
+# DEST -- any empty/foreign/unrecognised WD (which is what shape (c) and a bundle box
+# like a normal user's Mac present) is left completely alone. We NEVER repoint a
+# repo-tree or bundle board to libexec as a side effect of a cut; an (a)->(b) cutover
+# is a deliberate human step. The shape signal is read the SAME way
+# restart-local-board.sh reads it (launchctl print -> `working directory = `).
+# ⚠️ IF THE DEPLOY FAILS THE CUT REDS (set -e), on purpose: a failed deploy leaves DEST
+# stale, and the restart below verifies the board against DEST's OWN version -- so it
+# would pass a stale board green. Reding here is the only place a failed libexec deploy
+# is caught, exactly as step 11 reds a stale CLI it cannot refresh.
+# 🔑 SOURCE IS THE FROZEN TREE ($REPO == $BUILD here), not $MAIN_REPO: the shared
+# checkout can be fast-forwarded past this cut's sha mid-run (the freeze notice warns of
+# it), which would deploy a version OTHER than the one steps 8-9 just verified -- the
+# same reasoning step 11 uses to source the CLI from the frozen tree.
+_board_libexec="${KOSMOS_BOARD_LIBEXEC:-$HOME/.local/libexec/kosmos-board}"
+_board_info="$(launchctl print "gui/$(id -u)/com.kosmos.board" 2>/dev/null || true)"
+_board_wd="$(printf '%s\n' "$_board_info" | sed -n 's/^[[:space:]]*working directory = //p' | head -1)"
+if [ -n "$_board_wd" ] && [ "$_board_wd" = "$_board_libexec" ]; then
+  step "== 10a. refresh the libexec-deployed board from this cut (#1164) =="
+  echo "   com.kosmos.board runs from the libexec deploy ($_board_libexec); refreshing it from the frozen tree before the restart"
+  bash "$REPO/deploy/install-board.sh" --apply
+fi
 KOSMOS_BOARD_WAIT_SECS="${KOSMOS_BOARD_WAIT_SECS:-120}" bash "$MAIN_REPO/tools/restart-local-board.sh"
 
 step "== 11. the installed kosmos CLI on THIS Mac =="
