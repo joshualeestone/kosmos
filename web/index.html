@@ -34372,7 +34372,13 @@ function tkFace(p, sessionName) {
   if (!shown) return '<span class="lav q" aria-hidden="true">+</span>';
   const m = (p.agents || []).find((a) => a && a.sessionName === sessionName);
   return (m && m.hasAvatar)
-    ? '<span class="lav" aria-hidden="true"><img src="/api/agent/' + encodeURIComponent(sessionName) + '/avatar" alt=""></span>'
+    /* #2762: `?v=` the avatar version, the same fix #2698 made on the org chart.
+       Without it this markup is byte-identical after a profile-image update, the
+       `html !== TK_LIST_HTML` guard below skips the repaint, this <img> is never
+       recreated, and the face stays stale while grid and list (which rebuild their
+       imgs every poll) update. The avatar route is no-store, so a recreated <img>
+       refetches; this only has to make the HTML differ. */
+    ? '<span class="lav" aria-hidden="true"><img src="/api/agent/' + encodeURIComponent(sessionName) + '/avatar?v=' + (m.avatarVer || 0) + '" alt=""></span>'
     : '<span class="lav" aria-hidden="true" style="background:' + discTint(shown)
       + ';color:' + discInk(shown) + '">' + esc(initials(shown)) + '</span>';
 }
