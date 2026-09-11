@@ -42,7 +42,7 @@ was.
   row. Rejected the broader `#pj-one-agents .pj-member { border-color: transparent }`
   for that reason.
 - **Preserve `.pj-member.unseen { border-style: dashed }`.** An unseen member ("we
-  cannot see this agent", web/index.html #33408) is a presence signal on a different
+  cannot see this agent", via the .pj-member.unseen rule) is a presence signal on a different
   axis from the three states, and gets NO wash, its dashed border is its only visual.
   The wash classes and `unseen` are mutually exclusive in the builder (pjm-* is gated
   on `present`), so the scoped rule never touches unseen.

@@ -7444,19 +7444,23 @@ test('#2804: the three washed member states drop the box stroke (colour only), k
   assert.match(page, /\.pj-member \{[^}]*border:\s*0\.5px solid var\(--separator\)/,
     'the base .pj-member stroke was removed too, stripping the stroke off surfaces with no wash to replace it');
   // CONTROL: an unseen member keeps its dashed presence border -- that is the
-  // "we cannot see this agent" signal (#33408), a different dimension from the three
-  // states, and is NOT what Josh asked to drop.
+  // "we cannot see this agent" signal (the .pj-member.unseen rule), a different dimension
+  // from the three states, and is NOT what Josh asked to drop.
   assert.match(page, /\.pj-member\.unseen \{[^}]*border-style:\s*dashed/,
     'the unseen member lost its dashed presence border');
   // CONTROL: a present-but-neutral member inside the MEMBERS panel (restarting/unknown/off ->
   // no pjm-* class, per stClass in the pjMember builder) carries no wash colour and relies on
   // the base stroke to stay visible. The over-application #2804 warns against is a
   // state-UNQUALIFIED rule that strips it. The base-stroke check above cannot catch that (it
-  // asserts the base rule text, which such a rule would leave intact). So assert no rule sets a
-  // transparent border on `#pj-one-agents .pj-member` WITHOUT a state class: the three fix rules
-  // qualify with `.pjm-*`, so they never match `.pj-member` immediately followed by `{`.
-  assert.doesNotMatch(page, /#pj-one-agents \.pj-member\s*\{[^}]*border-color:\s*transparent/,
-    'a state-unqualified #pj-one-agents .pj-member transparent-border rule would strip the stroke from present-but-neutral members (the over-application #2804 warns against)');
+  // asserts the base rule text, which such a rule would leave intact). So assert NO rule touches
+  // `border` at all on `#pj-one-agents .pj-member` WITHOUT a state class -- this catches every
+  // stroke-removal form (border-color: transparent, border: 0, border: none, border-width: 0),
+  // not just the transparent one. The three fix rules qualify with `.pjm-*`, so they never match
+  // `.pj-member` immediately followed by `{`; the `[data-agent]` variants have a `[` before `{`.
+  // Border styling for these members must go through the shared base `.pj-member` rule or the
+  // state-qualified `.pjm-*` rules, never an unqualified `#pj-one-agents .pj-member` rule.
+  assert.doesNotMatch(page, /#pj-one-agents \.pj-member\s*\{[^}]*border/,
+    'a state-unqualified #pj-one-agents .pj-member border rule would strip the stroke from present-but-neutral members (the over-application #2804 warns against)');
 });
 
 test('the free-agent picker names the not-signed-in state distinctly on a 403 (#2023)', () => {
