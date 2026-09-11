@@ -7306,11 +7306,12 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
 
 test('#2711 item 16: pjMember takes a state wash class, for working/needs-you/idle only, and never on an unseen member', () => {
   // Same lift shape as the pjMember test above, plus LROW_WARN (a needs-you
-  // member draws the triangle) and a STATE_COPY stub covering every state this
-  // test constructs -- pjMember reads stateCopyOf(m).label on the present branch,
-  // and the partial stub above only carries idle/restarting/unknown.
+  // member draws the triangle) and a STATE_COPY stub carrying a label for every
+  // state this test constructs -- pjMember reads stateCopyOf(m).label on the
+  // present branch, so an absent key would fall through to STATE_COPY.unknown
+  // rather than fail; the stub names each one so the test does not lean on that.
   const prelude = TOLD_PRELUDE
-    + 'const STATE_COPY = { working: { label: "Working" }, needs_you: { label: "Needs you" }, idle: { label: "Idle" }, stopped: { label: "Not running" }, restarting: { label: "Restarting agent" }, unknown: { label: "Can\'t tell" } };\n'
+    + 'const STATE_COPY = { working: { label: "Working" }, needs_you: { label: "Needs you" }, idle: { label: "Idle" }, rate_limited: { label: "Paused" }, stopped: { label: "Not running" }, restarting: { label: "Restarting agent" }, unknown: { label: "Can\'t tell" } };\n'
     + pageConstSource('DISC_TINTS') + '\n'
     + pageConstSource('DISC_INKS') + '\n'
     // LROW_WARN is a string const (pageConstSource lifts only object/array consts),
@@ -7399,6 +7400,10 @@ test('#2711 item 16: the working/needs-you member washes stay pinned to the agen
   // silently, which no presence test above could catch. Idle is deliberately NOT
   // pinned: item 16 gives members a gray idle ground where the homepage leaves idle
   // white, so there is no card colour to track.
+  // Scope: this pins the base/light rules, which is where both colours live today
+  // (neither .acard nor pjm-* carries a dark-theme background override). If a future
+  // dark override is added to one, it must be added to the other; this pin sees only
+  // the base rule and would not catch a dark-only drift.
   const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   // The rgba of the rule's `background:` wash. Anchored on `background:` so it
   // selects the ground rule, not a sibling that only sets border-color -- e.g.
