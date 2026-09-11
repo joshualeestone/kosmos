@@ -64,6 +64,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       currentSelected: /value="o3"[^>]*selected/.test(sel.innerHTML),
       noClaude: !/Claude|sonnet|opus/i.test(sel.innerHTML),
       current: sel.dataset.current,
+      // #2802: the Connect-an-API-key button must NOT leak into a listable
+      // account (it already has an API key and a real picker).
+      connectHidden: (document.getElementById('d-model-connect') || {}).hidden === true,
     };
 
     // SNAPSHOT-PINNED (#2191): the agent is pinned to a raw dated snapshot that
@@ -87,11 +90,27 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     paintOpenaiDetailModel({ ...agent, plannedModelName: '' }, 'oa1');
     await settle();
     const msg = document.getElementById('d-model-msg') || {};
+    // #2802: the not-an-api-key (ChatGPT subscription) state must be ACTIONABLE,
+    // not just prose. The "Connect an API key" button shows here, and clicking it
+    // opens the Add-a-provider flow (the same #acct-add-modal the Accounts door
+    // opens). The selector itself stays honestly disabled.
+    const connectBtn = document.getElementById('d-model-connect');
+    const connectShown = !!connectBtn && connectBtn.hidden === false;
+    let connectOpensFlow = false;
+    if (connectBtn && connectShown) {
+      connectBtn.click();
+      await settle();
+      const modal = document.getElementById('acct-add-modal');
+      connectOpensFlow = !!modal && modal.hidden === false;
+      if (typeof closeAcctAdd === 'function') { try { closeAcctAdd(); } catch { /* reset only */ } }
+    }
     const notListable = {
       onlyOption: sel.options.length === 1,
       optionText: sel.options[0] ? sel.options[0].textContent : '',
       noClaude: !/Claude|sonnet|opus/i.test(sel.innerHTML),
       msg: msg.textContent || '',
+      connectShown,
+      connectOpensFlow,
     };
 
     // SEQUENCE: the REAL openDetail paint order for a codex agent --
@@ -150,6 +169,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!r.notListable.onlyOption || !/OpenAI picks its own model for now/.test(r.notListable.optionText)) problems.push('NOT LISTABLE: not a single "OpenAI picks its own model for now" option: ' + JSON.stringify(r.notListable.optionText));
     if (!r.notListable.noClaude) problems.push('NOT LISTABLE: a Claude model appears under OpenAI');
     if (!/signed in with ChatGPT/.test(r.notListable.msg)) problems.push('NOT LISTABLE: the reason-keyed note is missing from the msg');
+    if (!r.notListable.connectShown) problems.push('#2802: the "Connect an API key" button is not shown for a not-an-api-key (ChatGPT subscription) account, so the disabled model state is inert prose again');
+    if (!r.notListable.connectOpensFlow) problems.push('#2802: clicking "Connect an API key" does not open the Add-a-provider flow (#acct-add-modal)');
+    if (!r.listable.connectHidden) problems.push('#2802: the "Connect an API key" button leaks into a LISTABLE account (it should be hidden when the account can list models)');
     if (!r.sequence || !r.sequence.ran) {
       problems.push('SEQUENCE: paintModelPicker/paintProviderPicker not both present, so the openDetail order was not exercised');
     } else {
