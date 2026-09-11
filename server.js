@@ -727,7 +727,21 @@ function whoamiFor(card, known, live) {
        then is for `agentUnder` to report that a tie was broken rather than for
        this line to distrust every live read. */
     if (seen && seen.runner) return seen.runner;
-    if (card && card.runner) return card.runner;
+    /* 🛑 POSITIVE EVIDENCE ONLY FROM THE MARKER, because `'claude'` from a card is
+       not a claim, it is a DEFAULT. `status.js:6421` normalises the pane's
+       `@kosmos_runner` as `pane.runner === 'codex' ? 'codex' : 'claude'`, so an
+       agent whose marker was never recorded is indistinguishable from one
+       recorded as claude, and `bin/agent-supervisor.sh` says that failure is real
+       in as many words: "could not record $SESSION's runner -- the board will
+       read it as claude".
+       ⇒ An earlier version took `card.runner` whenever it was truthy, so a CODEX
+       agent with an unrecorded marker and a failed live read resolved to claude,
+       took the stale Claude transcript model, and was never told it is a Codex
+       agent: this card's own defect, with the definitive plist in hand and never
+       opened. `codex` is the only value the marker asserts, so it is the only one
+       trusted here; everything else falls through to the launch job, which does
+       answer definitively and floors at claude anyway. */
+    if (card && card.runner === 'codex') return card.runner;
     /* 🛑 A PANELESS CARD CARRIES `runner: null` BY CONSTRUCTION
        (`engine/status.js:5912`, the only such site), so the marker above
        cannot answer for exactly one of the cases this guard exists for. The
@@ -979,9 +993,9 @@ function runnerDisplayName(runner) {
      reached only for a non-claude one.
      ⚠️ THAT BOUND IS WEAKER THAN AN EARLIER VERSION OF THIS COMMENT CLAIMED, and
      the change that weakened it is on this branch: `resolvedRunner` also takes
-     the tmux marker and the plist's ninth argument VERBATIM, so an unexpected
-     value can reach here from a hand-edited job rather than only from
-     `agentUnder`. Still not a product path, and a raw name is the honest
+     the plist's ninth argument VERBATIM, so an unexpected value can reach here
+     from a HAND-EDITED job. Not from the tmux marker, which `status.js` clamps
+     to codex-or-claude before a card ever carries it. Still not a product path, and a raw name is the honest
      rendering of one. Whoever adds a third
      runner adds its real product name here, which is the point of the map; a
      speculative transform would quietly produce a WRONG name instead of an
@@ -1134,7 +1148,7 @@ function accountForAgent(name, known) {
      `configDir: null` and this falls to the dir-less arm, which matched purely on
      `isDefault`. Handed the CLAUDE list, that is the operator's Claude account:
      a Codex agent told it runs on josh@... with `isDefault: true`.
-     ⭐ The codebase already knew: the #2413 overlay a few hundred lines below
+     ⭐ The codebase already knew: the #2413 overlay further down this file
      says in as many words that "a codex agent on the default home maps to the
      default Claude account", and guards its own join by filtering observations
      per provider. The raw mapping here was never gated, so every OTHER caller
@@ -3683,6 +3697,27 @@ const server = http.createServer((req, res) => {
        launch record, which is "we cannot tell", not "no such agent". Same
        never-a-guessed-negative posture as checkLive below. */
     if (!account) { sendJson(res, 200, { ok: false, because: 'we could not tell which account this agent runs on' }); return; }
+    /* 🛑 `subscription.checkLive` RUNS `claude auth status`, so it is not asked
+       about a non-claude agent. A codex agent on a NAMED OpenAI account reaches
+       here with a row (its `CODEX_HOME` is its `configDir`), so the `!account`
+       guard above does not catch it, and probing a codex home with a Claude
+       command returns NONE: a confident `connected: false` plus a remedy telling
+       the person to re-authenticate from the Accounts tab, about an agent that
+       was never signed out of anything.
+       ⚠️ THE DEFAULT-ACCOUNT CASE IS NOT THE WHOLE CASE, and an earlier note of
+       mine claimed this route was closed by the provider gate alone. That gate
+       fixes the DIR-LESS match; a named codex account has a dir, matches nothing
+       in the Claude list, and arrives here through the fallback with its dir
+       intact. Walking the callers for one branch and claiming the function is
+       what left this open. */
+    if (create.recordedRunner(name) !== 'claude') {
+      sendJson(res, 200, {
+        ok: true, account: { email: account.email, label: account.label, isDefault: account.isDefault === true },
+        state: subscription.STATE.UNKNOWN, connected: null,
+        because: 'this agent does not run on Claude, so whether it is signed in there is not a question about it',
+      });
+      return;
+    }
     const shape = { email: account.email, label: account.label, isDefault: account.isDefault === true };
     subscription.checkLive(account.isDefault ? undefined : { configDir: account.dir })
       .then((live) => {

@@ -527,3 +527,78 @@ for this line to distrust every live read.
   plist's ninth argument verbatim.
 - The new no-account foreign sentence asserted "we have no startup file for it" on
   a path reachable WITH one present. It now names what it cannot tell and stops.
+
+### All five callers, walked this time rather than asserted
+
+My round-4 commit claimed "all five callers are covered" and round 5 falsified it.
+So for the provider gate the claim was checked by reading each one:
+
+| caller | `known` it passes | a codex agent now gets | null-safe? |
+|---|---|---|---|
+| `whoamiFor` | claude rows | null | `rec ? {...} : ...`, explicit |
+| board `accountOf` | claude rows | null | the payload's `account:` already carries null for a non-ours agent |
+| `/api/agent/<n>/account-status` | claude rows | null **only when its account dir is unset** | see the correction below |
+| accounts overlay, ANTHROPIC arm | claude rows | null | `if (!acct \|\| !acct.dir) continue` |
+| accounts overlay, OPENAI arm | openai rows | resolves, unchanged | n/a |
+
+The discriminator was checked at its source rather than assumed: `rowFor` is the
+single OpenAI row builder and always sets `provider: PROVIDER` (`'openai'`), and
+both `listLive` branches (success and degraded) spread `...row`, so the field
+survives every shape. `engine/accounts.js` sets no `provider` at all, so the two
+lists are separable in both directions.
+
+## Round 6: the claim above was HALF TRUE, and that is the finding
+
+Round 6 found two WARNINGs and four NITs. The first warning is the row in the
+table above, and it is worth leaving the correction next to the claim rather than
+editing the claim away.
+
+### I walked one branch and reported the function
+
+The table says `/api/agent/<n>/account-status` gets null and returns before
+`subscription.checkLive`. That is true for a DEFAULT-account codex agent, which is
+the branch the provider gate fixed and the branch I checked. A codex agent on a
+NAMED OpenAI account has a `configDir`, so `accountForAgent` returns a real row,
+the `!account` guard does not fire, and `subscription.checkLive` runs
+`claude auth status` AGAINST A CODEX HOME. It answers NONE, which the route
+renders as a confident `connected: false` plus a remedy telling the person to
+re-authenticate from the Accounts tab, about an agent that was never signed out of
+anything.
+
+⭐ This is the same shape as round 4's "all five callers are covered", which round
+5 falsified: I checked the branch my change touched and reported on the function.
+Walking callers is not walking BRANCHES, and the claim I make has to match the one
+I checked.
+
+Fixed at the route: a non-claude runner is not asked a Claude sign-in question, and
+the answer says so in words rather than returning a false negative.
+
+### The marker's "claude" is a default, not a claim
+
+`engine/status.js` normalises the pane marker as
+`pane.runner === 'codex' ? 'codex' : 'claude'`, so an agent whose `@kosmos_runner`
+was never recorded is INDISTINGUISHABLE from one recorded as claude, and
+`bin/agent-supervisor.sh` says that failure is real: "could not record $SESSION's
+runner -- the board will read it as claude".
+
+`resolvedRunner` took the marker whenever it was truthy, so rung 3 (the launch job,
+which is definitive) was unreachable for every pane card. A codex agent in that
+state with a failed live read resolved to claude, took the stale Claude transcript
+model, and was never told it is a Codex agent: this card's own defect, with the
+plist in hand and never opened.
+
+Now the marker is trusted only as POSITIVE evidence (`=== 'codex'`), because
+`'claude'` there is a default. Everything else falls through to the launch job,
+which answers definitively and floors at claude anyway, so a real Claude agent is
+unaffected.
+
+### And the unarmed guard, armed to this file's own precedent
+
+A reviewer mutated `live.ok === true` to a truthy test and nothing failed. This
+file already carries exactly that arm for the ACCOUNT field (#1409) with the
+reason stated: `setLiveReader` accepts any function without shape-checking its
+return, so the day a fourth producer appears, `=== true` becomes load-bearing
+silently. The runner field now has the same arm, bounded the same way: measured,
+all seven `ok:` sites in `engine/runningas.js` are strict boolean literals and
+none of the `ok: false` shapes carries a `runner`, so this is an unarmed guard
+rather than a live defect.

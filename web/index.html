@@ -29773,13 +29773,20 @@ let OPENAI_DETAIL_GEN = 0;
    falls through to the id for non-Claude models).
    🔑 THE ACCOUNT DIR. a.account is resolved by accountForAgent against the CLAUDE
    account list (server.js). A codex agent WITH its own configDir gets
-   {dir: <that codex dir>, isDefault:false} -- a real OpenAI account the route
-   accepts, so we send it. A DEFAULT-codex agent (configDir null) falls back to the
-   default CLAUDE account {dir: <~/.claude>, isDefault:true}, which is NOT an OpenAI
-   account: sending it would 404 and wrongly park the picker even for a listable
-   API-key default. So on isDefault we send an EMPTY dir and let the route resolve
-   the default OPENAI account. isDefault is the reliable signal: only the
-   Claude-default fallback sets it, a real codex dir resolves isDefault:false. */
+   {dir: <that codex dir>, isDefault:null} -- a real OpenAI account the route
+   accepts, so we send it. A DEFAULT-codex agent (configDir null) gets NO ROW AT
+   ALL: sending the Claude default would 404 and wrongly park the picker even for
+   a listable API-key default, so accountForAgent refuses to hand a codex agent a
+   Claude row. We then send an EMPTY dir and let the route resolve the default
+   OPENAI account.
+   ⚠️ THE READ BELOW IS UNCHANGED AND THE REASONING UNDER IT IS NOT. This block
+   used to say "isDefault is the reliable signal: only the Claude-default fallback
+   sets it". That fallback is gone (#2811): a default-codex agent now yields a
+   null account rather than the operator's Claude one, and a named codex dir
+   carries isDefault:null rather than false. The guard still lands on '' in both
+   cases, now because there is no row and because null is falsy, so nothing here
+   had to change -- but do not reason from the old sentence, which described a
+   mapping the product no longer performs. */
 async function paintOpenaiDetailModel(a, forWhom) {
   const sel = document.getElementById('d-model');
   const go = document.getElementById('d-model-go');
