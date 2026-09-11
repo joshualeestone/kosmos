@@ -188,7 +188,7 @@ test('#2808 runtime: the toggle flips .expanded and its label both ways', () => 
 
 function clearRunner() {
   const body = handlerBody("getElementById('d-qask-clear').addEventListener('click', async () => {");
-  return new Function('document', 'CURRENT', 'fetch', 'paintTalk',
+  return new Function('document', 'CURRENT', 'fetch', 'paintTalk', 'tick',
     '"use strict"; return (async () => {' + body + '})();');
 }
 
@@ -204,8 +204,10 @@ test('#2808 runtime: a successful clear POSTs the route and re-reads the thread'
     };
     const painted = [];
     const paintTalk = async (s, n) => { painted.push([s, n]); };
+    let ticks = 0;
+    const tick = async () => { ticks += 1; };
 
-    await clearRunner()(document, CURRENT, fetchStub, paintTalk);
+    await clearRunner()(document, CURRENT, fetchStub, paintTalk, tick);
 
     assert.equal(posted.length, 1, 'POSTs exactly once');
     assert.equal(posted[0].url, '/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/clear-selfreport',
@@ -213,6 +215,7 @@ test('#2808 runtime: a successful clear POSTs the route and re-reads the thread'
     assert.equal(posted[0].opts.method, 'POST');
     assert.deepEqual(JSON.parse(posted[0].opts.body), { reason: 'operator-dismissed' });
     assert.deepEqual(painted, [[CURRENT.sessionName, CURRENT.name]], 're-reads the agent thread on success');
+    assert.equal(ticks, 1, '#2832: refreshes the board (tick) once on success so "Needs you" clears from the status line');
     assert.equal(els['d-qask-clear-msg'].textContent, 'Clearing this message…',
       'no failure line is written on success (the receipt is the box disappearing)');
     assert.equal(els['d-qask-clear'].disabled, false, 're-enabled in finally');
@@ -227,10 +230,13 @@ test('#2808 runtime: a failed clear surfaces a message and does NOT re-read', as
     const fetchStub = async () => ({ ok: false, json: async () => ({ ok: false, because: 'that could not be cleared' }) });
     const painted = [];
     const paintTalk = async (s, n) => { painted.push([s, n]); };
+    let ticks = 0;
+    const tick = async () => { ticks += 1; };
 
-    await clearRunner()(document, CURRENT, fetchStub, paintTalk);
+    await clearRunner()(document, CURRENT, fetchStub, paintTalk, tick);
 
     assert.equal(painted.length, 0, 'a failed clear does not re-read (no false progress)');
+    assert.equal(ticks, 0, '#2832: a failed clear does not refresh the board either');
     assert.equal(els['d-qask-clear-msg'].textContent, 'that could not be cleared', 'it surfaces the route reason');
     assert.equal(els['d-qask-clear'].disabled, false, 're-enabled for a retry');
   } finally { restore(); }
@@ -243,6 +249,8 @@ test('#2808 runtime: a mid-POST agent switch drops the receipt (capture-and-rech
     const document = { getElementById: (id) => els[id] || null };
     const painted = [];
     const paintTalk = async (s, n) => { painted.push([s, n]); };
+    let ticks = 0;
+    const tick = async () => { ticks += 1; };
     // The person switches to another agent while the POST is in flight: mutate
     // the shared CURRENT object to the other agent's session (the handler reads
     // its param object live).
@@ -251,8 +259,9 @@ test('#2808 runtime: a mid-POST agent switch drops the receipt (capture-and-rech
       return { ok: true, json: async () => ({ ok: true, cleared: true }) };
     };
 
-    await clearRunner()(document, CURRENT, fetchStub, paintTalk);
+    await clearRunner()(document, CURRENT, fetchStub, paintTalk, tick);
 
     assert.equal(painted.length, 0, 'the re-read does not fire for the agent we left');
+    assert.equal(ticks, 0, '#2832: nor does the board refresh, for the agent we left');
   } finally { restore(); }
 });

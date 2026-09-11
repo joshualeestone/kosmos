@@ -27556,6 +27556,12 @@ document.getElementById('d-qask-clear').addEventListener('click', async () => {
         /* Re-read so the cleared question comes off screen at once. The success
            receipt is the box disappearing, so no message is written here. */
         await paintTalk(CURRENT.sessionName, CURRENT.name);
+        /* #2832: also refresh the BOARD, so the "Needs you" indicator comes off
+           the agent's status line immediately instead of lingering until the
+           next 5s poll. paintTalk only re-reads THIS agent's thread; the board
+           roster/counts are painted by tick() (the status poll), so drive one
+           now -- the same await tick() every other post-action refresh uses. */
+        await tick();
       } else {
         msg.textContent = r.because || r.error || 'We could not clear this message.';
       }
