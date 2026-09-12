@@ -424,16 +424,21 @@ function runningAsWin32(session, deps = {}) {
      the way `claude agents --json` enumerates claude ones); it is not blocked on
      being unable to test win32, which this repo does routinely through injected
      deps.
-     📌 AND WINDOWS IS NOT SILENT ABOUT THE RUNNER, which an earlier version of
-     this note said. Measured, for a codex-MARKED card with a win32 live answer:
-         wire `runner` field -> null   (this arm carries no runner key)
-         resolvedRunner      -> "codex" (from the @kosmos_runner marker)
-         sentence            -> "This is a Codex agent, and we cannot tell which
-                                 account it runs on, and its model is gpt-5.6."
-     So the JSON field is null and the surface a person reads still names the
-     provider, off the marker rather than off the live process. Saying "whoami
-     reports null for it on Windows" was true of one field and false of the
-     answer, which is the shape this card keeps producing. */
+     📌 WINDOWS IS SILENT ABOUT THE PROVIDER, and this note has now been wrong in
+     BOTH directions about that. It first said whoami "reports null for it on
+     Windows" (true of the JSON field, read as true of the answer). The correction
+     then claimed the sentence still names the provider off the `@kosmos_runner`
+     marker, which was measured on a card shape WINDOWS CANNOT PRODUCE.
+     Every rung of `resolvedRunner` is macOS-only, and this repo says so itself:
+       - the marker is a TMUX format (`#{@kosmos_runner}`), and `win32create.js`
+         states "Windows has no tmux and no launchd";
+       - `recordedRunner` -> `readJob` reads `~/Library/LaunchAgents`, launchd;
+       - its profile fallback needs a written `provider`, and `win32create.js`
+         writes none (zero occurrences).
+     ⇒ On a real Windows box every rung floors at `'claude'`, so `resolvedRunner`
+     is `'claude'` and the sentence names no provider at all. A codex agent there
+     is not told it is one. That is the honest statement, and it makes the gap
+     above WIDER, not narrower: the ownership join is one part of it. */
   if (!entry) return { ok: false, because: `no session called ${session} that Kosmos owns on this computer` };
   return win32Answer(entry, cmdlines([entry.pid]));
 }
@@ -484,6 +489,10 @@ function armFor(deps) {
  * no runner. Measured:
  *     cmdline `C:\Users\x\codex.exe --model gpt-5.6`
  *       -> model "gpt-5.6", and no `runner` key
+ *     ⚠️ THAT MEASUREMENT INJECTS A CODEX COMMAND LINE PAST THE OWNERSHIP JOIN,
+ *     which the note below explains a real codex agent never gets past. It is
+ *     cited only to show the command line is in hand, and is not a reachable
+ *     product state.
  * ⇒ The material is present and the derivation was never built. `runnerNamed` is
  * darwin-only on purpose (it matches a POSIX executable path and carries no
  * `.exe` arm), so win32 would need its own first-token match.

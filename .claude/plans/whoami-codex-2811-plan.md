@@ -51,11 +51,15 @@ running", and `kosmos whoami` could not name the agent at all.
 
   🛑 THIS PARAGRAPH WAS WRONG TWICE AND IS KEPT WITH ITS CORRECTIONS, because both
   errors are the ones this card produced most:
-  1. "`server.js` reports null there" is true of the JSON `runner` field and FALSE
-     of the answer a person reads. Measured: a codex-MARKED card on win32 resolves
-     to `"codex"` off the `@kosmos_runner` marker and the sentence says "This is a
-     Codex agent". Windows is not silent about the provider; only the live-process
-     field is.
+  1. "`server.js` reports null there" is true of the JSON `runner` field, and my
+     CORRECTION to it was worse: I wrote that the sentence still names the
+     provider off the `@kosmos_runner` marker, measured on a card shape WINDOWS
+     CANNOT PRODUCE. Every rung of `resolvedRunner` is macOS-only (the marker is a
+     tmux format and `win32create.js` says "Windows has no tmux and no launchd";
+     `readJob` reads `~/Library/LaunchAgents`; `win32create` writes no profile
+     provider at all). On a real Windows box every rung floors at `'claude'`, so
+     Windows IS silent about the provider. Wrong in both directions before it was
+     right.
   2. "I have no Windows box to measure" is not the reason and is not true of this
      repo, which builds and tests the whole win32 arm through injected deps on
      Macs. The real reason a runner derivation is absent from `win32Answer` is
@@ -168,8 +172,12 @@ Kosmos owns on this computer", which is false. The ownership join is
 `win32live.byName()`, whose only source is `claude agents --json`; it has no codex
 arm, and Windows does launch codex agents. This is a different defect with a
 different fix: the darwin arm reads a PROCESS TREE and needed a wider match, while
-this arm needs a SECOND ENUMERATION SOURCE, which cannot be designed against a
-machine nobody here can measure on. Now named in the code at the refusal site
+this arm needs a SECOND ENUMERATION SOURCE. (An earlier version of this line
+added "which cannot be designed against a machine nobody here can measure on".
+That is not the reason and is not true of this repo, which builds and tests the
+whole win32 arm through injected deps on Macs. It survived as a FOURTH copy 122
+lines below the one corrected first, in a commit that claimed all three were
+fixed.) Now named in the code at the refusal site
 rather than left to be rediscovered.
 
 **A runner path containing a space** is unmatchable, since the command is split on
