@@ -115,13 +115,15 @@ const MAX_LOCK_ATTEMPTS = 3;
 /** How many dead clear claims one clear steps past before giving up. Each is left by a clearer
     that died inside a microsecond window, so even one is rare. */
 const MAX_CLEAR_CLAIM_STEPS = 8;
-/**
- * How far apart two readings of this computer's boot time may be and still be the same boot. The
- * boot time is derived, not read: the wall clock minus the uptime, two clocks read a moment apart,
- * and the wall clock can be stepped by time sync. Two minutes absorbs that, and a lock from a boot
- * before the last restart is earlier by the whole of that boot's uptime, which is far more.
- */
-const BOOT_TIME_TOLERANCE_MS = 2 * 60 * 1000;
+/** How long the one `tasklist` lookup of a lock owner's program may take. It answers in well under
+    a second; a slow machine or a scanner can stretch that, and a lookup that runs out holds the
+    lock (the safe direction). */
+const PROCESS_IMAGE_LOOKUP_TIMEOUT_MS = 5 * 1000;
+/** Tries at removing the lock on release, this far apart. A scanner or backup tool that opens the
+    file without delete sharing lets go within moments; one that holds it longer leaves the lock to
+    the next prepare in this board (releaseLock). */
+const LOCK_RELEASE_TRIES = 3;
+const LOCK_RELEASE_WAIT_MS = 50;
 /** A lock that exists but cannot be read is read again this many times, this far apart, before it
     is called broken: a lock that is being deleted cannot be opened for a moment (Windows answers
     EPERM for a file whose delete is pending), and a broken one stays unreadable. */
@@ -324,23 +326,26 @@ function preconditionRefusal(root, env, home) {
  * What a lock file (or a clear claim, which has the same shape) on disk says about its owner, by
  * the lock's one rule:
  *   - an owner that is verifiably RUNNING holds it, whatever its age. A running prepare is
- *     bounded by its own download and time caps, and a hung one lets go when its process exits;
+ *     bounded by its own download and time caps, and a hung one lets go when its process exits.
+ *     The one exception: the lock names the program that took it (`exe`) and the process now
+ *     running under that pid is verifiably a DIFFERENT program. Windows hands a dead pid to a new
+ *     process within a few hundred process starts, so a prepare killed by a restart can leave a
+ *     lock whose pid a long-lived service now has; that lock is dead (pidNowBelongsToAnotherProgram);
  *   - an owner that is verifiably GONE does not;
  *   - an owner that cannot be verified -- the file is unreadable, names no pid, or the pid check
  *     itself errors -- falls to the age rule: an unreadable file is held for
  *     UNREADABLE_LOCK_GRACE_MS after it was written, any other for STALE_LOCK_MS after the
  *     earlier of its `at` and the file's own mtime (so an `at` in the future cannot hold forever).
- * Before the owner is asked about at all: a lock stamped with a boot of this computer before the
- * current one is dead, whatever its pid, because no process survives a restart and Windows hands
- * a dead pid to a new process soon enough that a long-lived service can end up with it. A lock
- * with no `boot` (the first format) skips this and keeps the rules above.
+ * 🛑 NO WALL-CLOCK ARITHMETIC EVER OVERRULES A LIVE OWNER. A clock can be stepped by hours while a
+ * prepare runs (time sync after a logon), and a live owner must never lose its lock to that.
  * A lock that is a folder, or that stays unreadable while it exists, is `broken`: nothing can tell
  * whose it is, and it is never removed automatically.
+ * `judge` is `{ clock, processImage, log }`, from takeLock.
  * Returns `{ gone }`, `{ broken, why }`, or `{ held, text, pid, why }`; `text` is the exact
  * contents read.
  */
-function readLock(lockPath, clock) {
-  const c = clock || SYSTEM_CLOCK;
+function readLock(lockPath, judge) {
+  const c = judge.clock;
   let st;
   let text = null;
   for (let tries = 1; ; tries += 1) {
@@ -361,33 +366,71 @@ function readLock(lockPath, clock) {
   }
   const pid = Number.isInteger(body.pid) && body.pid > 0 ? body.pid : null;
   const at = Number(body.at);
-  if (fromAnEarlierBoot(body, c)) return { held: false, text, pid, why: 'from before this computer last started' };
   const owner = pid ? win32orphan.pidState(pid) : 'unknown';
-  if (owner === 'alive') return { held: true, text, pid, why: 'its process is running' };
+  if (owner === 'alive') {
+    const other = pidNowBelongsToAnotherProgram(pid, body.exe, judge);
+    if (other) return { held: false, text, pid, why: `its process id now belongs to another program (${other})` };
+    return { held: true, text, pid, why: 'its process is running' };
+  }
   if (owner === 'gone') return { held: false, text, pid, why: 'no longer running' };
   const written = Number.isFinite(at) ? Math.min(at, st.mtimeMs) : st.mtimeMs;
   const recent = c.now() - written < STALE_LOCK_MS;
   return { held: recent, text, pid, why: recent ? 'recent, and its owner cannot be checked' : 'old, and its owner cannot be checked' };
 }
 
-/** The clocks the lock reads: the wall clock and this computer's uptime. A seam for the suite. */
-const SYSTEM_CLOCK = Object.freeze({ now: () => Date.now(), uptimeSeconds: () => os.uptime() });
-function bootTimeMs(clock) { return clock.now() - clock.uptimeSeconds() * 1000; }
+/** The wall clock the age rule reads. A seam for the suite; it never decides a live owner's lock. */
+const SYSTEM_CLOCK = Object.freeze({ now: () => Date.now() });
+
+/** The program this process is, as a lock records it (`exe`) and as `tasklist` names a process. */
+const OWN_PROCESS_IMAGE = path.basename(process.execPath).toLowerCase();
 
 /**
- * Was this lock written during an earlier boot of this computer? Both of its stamps must say so:
- * its `boot` is earlier than this boot by more than BOOT_TIME_TOLERANCE_MS, and its `at` is before
- * this boot began. The second is free for a real earlier boot (its lock was written before the
- * restart), and it means a wall clock stepped forward while a prepare runs cannot make that
- * prepare's lock look old unless the step is larger than the whole uptime at which it was taken.
+ * The program image `tasklist` reports for `pid` ("node.exe"), or null when its answer has no row
+ * for that pid (the process has gone, or the answer is not the CSV asked for).
  */
-function fromAnEarlierBoot(body, clock) {
-  const boot = Number(body.boot);
-  const at = Number(body.at);
-  if (!Number.isFinite(boot) || !Number.isFinite(at)) return false;
-  const bootNow = bootTimeMs(clock);
-  return boot < bootNow - BOOT_TIME_TOLERANCE_MS && at < bootNow;
+function processImageFromTasklist(output, pid) {
+  for (const line of String(output).split(/\r?\n/)) {
+    const row = /^"([^"]+)","(\d+)"/.exec(line.trim());
+    if (row && Number(row[2]) === pid) return row[1];
+  }
+  return null;
 }
+function processImageByTasklist(pid) {
+  const out = cp.execFileSync('tasklist.exe', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'], {
+    encoding: 'utf8', timeout: PROCESS_IMAGE_LOOKUP_TIMEOUT_MS, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  return processImageFromTasklist(out, pid);
+}
+/** Windows only: elsewhere a lock keeps the plain pid rule. */
+const DEFAULT_PROCESS_IMAGE = process.platform === 'win32' ? processImageByTasklist : null;
+
+/**
+ * Is the live process with this pid verifiably a different program from the one that took the lock
+ * (`stamped`, its `exe`)? Returns that program's name, or null. Every doubt holds the lock:
+ *   - a lock with no `exe` (an earlier format), or no lookup on this platform: null;
+ *   - a lookup that fails, times out or cannot be read: null, and the code is logged;
+ *   - the same program: null. Another node.exe that was handed the pid holds the lock until it
+ *     exits, which is the residual, in the safe direction.
+ */
+function pidNowBelongsToAnotherProgram(pid, stamped, judge) {
+  if (typeof stamped !== 'string' || !stamped || typeof judge.processImage !== 'function') return null;
+  let image;
+  try { image = judge.processImage(pid); } catch (e) {
+    judge.log(`could not check which program process ${pid} is (code=${(e && e.code) || 'unknown'}); holding its lock`);
+    return null;
+  }
+  if (typeof image !== 'string' || !image) {
+    judge.log(`could not check which program process ${pid} is (code=unparsed); holding its lock`);
+    return null;
+  }
+  return image.toLowerCase() === stamped.toLowerCase() ? null : image.toLowerCase();
+}
+
+/**
+ * The exact text of a lock this process took and then could not remove on release (releaseLock),
+ * or null. The next takeLock in this process treats a lock with exactly these bytes as stale.
+ */
+let leftBehindLockText = null;
 
 const SLEEP_CELL = new Int32Array(new SharedArrayBuffer(4));
 function sleepSync(ms) { Atomics.wait(SLEEP_CELL, 0, 0, ms); }
@@ -472,12 +515,12 @@ function publishByLink(draft, name, log) {
  * deleted, so no two clearers can disagree about which claim is current. The holder's sweep in
  * prepare() removes the leftovers.
  */
-function clearStaleLock(lockPath, stale, draft, log, hooks, clock) {
+function clearStaleLock(lockPath, stale, draft, log, hooks, judge) {
   let key = crypto.createHash('sha256').update(String(stale.text)).digest('hex');
   for (let step = 0; step < MAX_CLEAR_CLAIM_STEPS; step += 1) {
     const claim = `${lockPath}.${key.slice(0, 16)}.clearing`;
     if (!publishByLink(draft, claim, log)) {
-      const other = readLock(claim, clock);
+      const other = readLock(claim, judge);
       if (other.gone) continue;
       if (other.broken) refuse(brokenLockRefusal(claim, other.why));
       if (other.held) refuse(`another update is already being prepared (process ${other.pid || 'unknown'} is clearing an old lock)`);
@@ -490,6 +533,7 @@ function clearStaleLock(lockPath, stale, draft, log, hooks, clock) {
       if (now === null || now !== stale.text) return;
       if (typeof hooks.beforeRemove === 'function') hooks.beforeRemove();
       fs.unlinkSync(lockPath);
+      if (stale.text === leftBehindLockText) leftBehindLockText = null;
       log(`cleared a stale prepare lock (process ${stale.pid || 'unknown'}, ${stale.why})`);
     } finally {
       removeOwnLeftover(claim, 'its clear claim', log);
@@ -508,36 +552,48 @@ function clearStaleLock(lockPath, stale, draft, log, hooks, clock) {
  * reader ever sees a lock without its owner in it. A lock that readLock calls stale is removed
  * only through clearStaleLock; a lock with a running owner never is.
  *
- * The lock carries this computer's boot time (`boot`), so a lock left by a prepare that a restart
- * killed is dead whatever became of its pid (readLock).
+ * The lock names the program that took it (`exe`), so a lock whose pid Windows has since handed
+ * to a different program is dead (readLock).
+ *
+ * A lock with exactly the text of one this process could not remove on release
+ * (leftBehindLockText) is stale, and is cleared through the claim like any other. Only a finished
+ * prepare in this process wrote those bytes, and `preparing` rules out a running one here.
  *
  * `hooks.beforeClear` (between judging a lock stale and claiming it) and `hooks.beforeRemove`
  * (holding the claim, after reading the stale lock again and before removing it) are test seams
- * for the races; `hooks.clock` ({ now, uptimeSeconds }) stands in for the system's clocks.
+ * for the races; `hooks.clock` ({ now }) stands in for the wall clock, and `hooks.processImage`
+ * (pid => program name) for the `tasklist` lookup (null turns the check off).
  *
  * Removing the draft afterwards can fail (another prepare's sweep removing it at the same moment);
  * that is logged and never turns a lock this prepare took into a throw.
  */
 function takeLock(lockPath, log, hooks) {
   const h = hooks || {};
-  const clock = h.clock || SYSTEM_CLOCK;
-  const now = clock.now();
+  const judge = {
+    clock: h.clock || SYSTEM_CLOCK,
+    processImage: h.processImage !== undefined ? h.processImage : DEFAULT_PROCESS_IMAGE,
+    log,
+  };
+  const now = judge.clock.now();
   const unique = `${process.pid}-${now}-${crypto.randomBytes(4).toString('hex')}`;
   const draft = `${lockPath}.${unique}.draft`;
-  const text = JSON.stringify({ pid: process.pid, at: now, boot: bootTimeMs(clock), token: unique });
+  const text = JSON.stringify({ pid: process.pid, at: now, exe: OWN_PROCESS_IMAGE, token: unique });
   fs.writeFileSync(draft, text, { flag: 'wx' });
   try {
     for (let attempt = 0; attempt < MAX_LOCK_ATTEMPTS; attempt += 1) {
       if (publishByLink(draft, lockPath, log)) return text;
-      const seen = readLock(lockPath, clock);
+      let seen = readLock(lockPath, judge);
       if (seen.gone) continue;
+      if (seen.held && leftBehindLockText !== null && seen.text === leftBehindLockText) {
+        seen = { ...seen, held: false, why: 'left behind by an earlier prepare in this board that could not remove it' };
+      }
       if (seen.broken) {
         log(`the prepare lock ${seen.why}${seen.code ? ` (code=${seen.code})` : ''}`);
         refuse(brokenLockRefusal(lockPath, seen.why));
       }
       if (seen.held) refuse(`another update is already being prepared (${seen.pid ? 'process ' + seen.pid : 'its lock is ' + seen.why})`);
       if (typeof h.beforeClear === 'function') h.beforeClear();
-      clearStaleLock(lockPath, seen, draft, log, h, clock);
+      clearStaleLock(lockPath, seen, draft, log, h, judge);
     }
     refuse('another update is already being prepared');
   } finally {
@@ -565,12 +621,35 @@ function sweepLockLeftovers(work, inWork, log) {
   }
 }
 
-/** Release the lock only if it is still the one this prepare took. */
+/**
+ * Release the lock only if it is still the one this prepare took.
+ *
+ * A scanner or backup tool can hold the file without delete sharing, so the read and the removal
+ * are tried LOCK_RELEASE_TRIES times. If the lock still cannot be removed it would name this
+ * board's own live process and refuse every later prepare here until a restart, so its exact text
+ * is remembered (leftBehindLockText) for the next takeLock in this process to clear through the
+ * claim. Failures are logged by code, since the raw errors name internal paths.
+ */
 function releaseLock(lockPath, text, log) {
-  let now = null;
-  try { now = fs.readFileSync(lockPath, 'utf8'); } catch { return; }
-  if (now !== text) { log('the prepare lock was taken over while this prepare ran; leaving it'); return; }
-  fs.rmSync(lockPath, { force: true });
+  for (let tries = 1; ; tries += 1) {
+    let now = null;
+    try { now = fs.readFileSync(lockPath, 'utf8'); } catch (e) {
+      if (e && e.code === 'ENOENT') return;
+      log(`could not read the prepare lock to release it (code=${(e && e.code) || 'unknown'}, try ${tries} of ${LOCK_RELEASE_TRIES})`);
+    }
+    if (now !== null && now !== text) { log('the prepare lock was taken over while this prepare ran; leaving it'); return; }
+    if (now === text) {
+      try { fs.rmSync(lockPath, { force: true }); return; } catch (e) {
+        log(`could not remove the prepare lock (code=${(e && e.code) || 'unknown'}, try ${tries} of ${LOCK_RELEASE_TRIES})`);
+      }
+    }
+    if (tries >= LOCK_RELEASE_TRIES) {
+      leftBehindLockText = text;
+      log('left the prepare lock behind; the next prepare in this board clears it');
+      return;
+    }
+    sleepSync(LOCK_RELEASE_WAIT_MS);
+  }
 }
 
 /* ─── the network ────────────────────────────────────────────────────────────────────────── */
@@ -941,7 +1020,7 @@ async function cliMain(argv, write) {
 
 module.exports = {
   prepare, cliMain, runStagedNode, stagedNodeLaunch, workGuard, takeLock, sweepLockLeftovers, resolveWorld,
-  BOOT_TIME_TOLERANCE_MS,
+  processImageFromTasklist,
   REQUIRED_ENTRIES, ENTRIES, WORK_DIRNAME, DEFAULT_LIMITS, STAGED_NODE_ENV_KEYS,
 };
 

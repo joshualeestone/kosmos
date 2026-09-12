@@ -977,40 +977,155 @@ test('the holder\'s sweep is best-effort for every error: EIO and a stray folder
   assert.equal(sweepLines.some((l) => l.includes(c.work)), false, 'the sweep names entries, never full paths');
 });
 
-test('the lock: a lock from before this computer last started is dead, even with a running pid', T, () => {
-  const bootedHoursAgo = (hours) => ({ now: () => Date.now(), uptimeSeconds: () => hours * 3600 });
-  const clock = bootedHoursAgo(1);
-  const bootNow = Date.now() - 3600 * 1000;
-  const tolerance = win32update.BOOT_TIME_TOLERANCE_MS;
-  /* process.pid is running: the stand-in for a service that was handed the dead prepare's pid. */
+const OWN_IMAGE = path.basename(process.execPath).toLowerCase();
+const heldByThisProcess = new RegExp(`^another update is already being prepared \\(process ${process.pid}\\)$`);
+
+test('the lock: a live pid that now belongs to another program is dead, and is cleared through the claim', T, () => {
+  /* process.pid is running: the stand-in for a service that Windows handed a dead prepare's pid. */
+  const { d, lock } = lockDir();
+  fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, at: Date.now(), exe: 'node.exe' }));
+  const asked = [];
+  const log = [];
+  let claimHeldAtRemoval = false;
+  const text = win32update.takeLock(lock, (l) => log.push(l), {
+    processImage: (pid) => { asked.push(pid); return 'svchost.exe'; },
+    beforeRemove: () => { claimHeldAtRemoval = fs.readdirSync(d).some((n) => n.endsWith('.clearing')); },
+  });
+  assert.equal(fs.readFileSync(lock, 'utf8'), text);
+  assert.equal(asked[0], process.pid, 'the live pid was looked up');
+  assert.ok(claimHeldAtRemoval, 'removed only under its claim');
+  assert.ok(log.includes(`cleared a stale prepare lock (process ${process.pid}, its process id now belongs to another program (svchost.exe))`), log.join('\n'));
+  assert.deepEqual(fs.readdirSync(d), ['prepare.lock']);
+});
+
+test('the lock: a live pid of the same program, a lookup that fails or cannot be read, or a lock with no exe, all hold', T, () => {
   const cases = [
-    { name: 'two days before this boot', boot: hoursAgo(50), at: hoursAgo(49), held: false },
-    { name: 'just past the tolerance', boot: bootNow - tolerance - 30000, at: bootNow - 10000, held: false },
-    { name: 'within the tolerance (jitter in the derived boot time)', boot: bootNow - tolerance + 30000, at: bootNow - 10000, held: true },
-    { name: 'this boot', boot: bootNow, at: hoursAgo(0.5), held: true },
-    /* The wall clock stepped two hours forward while this prepare ran: its boot now looks two
-       hours early, but it was taken half an hour ago, after the boot the clocks now derive. */
-    { name: 'a clock stepped forward', boot: hoursAgo(3), at: hoursAgo(0.5), held: true },
-    { name: 'the first format, with no boot', at: hoursAgo(49), held: true },
+    { name: 'the same program, in other letters', exe: 'node.exe', lookup: () => 'NODE.EXE' },
+    { name: 'a lookup that times out', exe: 'node.exe', lookup: () => { throw Object.assign(new Error('spawnSync tasklist.exe ETIMEDOUT'), { code: 'ETIMEDOUT' }); }, logs: `could not check which program process ${process.pid} is (code=ETIMEDOUT); holding its lock` },
+    { name: 'an answer that cannot be read', exe: 'node.exe', lookup: () => null, logs: `could not check which program process ${process.pid} is (code=unparsed); holding its lock` },
+    { name: 'a lock with no exe', lookup: () => { throw new Error('a lock with no exe must not be looked up'); } },
   ];
   for (const k of cases) {
     const { lock } = lockDir();
-    fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, at: k.at, ...(k.boot !== undefined ? { boot: k.boot } : {}) }));
+    const seeded = JSON.stringify({ pid: process.pid, at: Date.now(), ...(k.exe ? { exe: k.exe } : {}) });
+    fs.writeFileSync(lock, seeded);
     const log = [];
-    if (k.held) {
-      assert.throws(() => win32update.takeLock(lock, (l) => log.push(l), { clock }), new RegExp(`already being prepared \\(process ${process.pid}\\)`), k.name);
-    } else {
-      const text = win32update.takeLock(lock, (l) => log.push(l), { clock });
-      assert.equal(fs.readFileSync(lock, 'utf8'), text, k.name);
-      assert.ok(log.some((l) => l === `cleared a stale prepare lock (process ${process.pid}, from before this computer last started)`), `${k.name}\n${log.join('\n')}`);
-    }
+    assert.throws(() => win32update.takeLock(lock, (l) => log.push(l), { processImage: k.lookup }), (e) => heldByThisProcess.test(e.message), k.name);
+    assert.equal(fs.readFileSync(lock, 'utf8'), seeded, `${k.name}: untouched`);
+    if (k.logs) assert.ok(log.includes(k.logs), `${k.name}\n${log.join('\n')}`);
   }
-  /* Every lock carries the boot it was taken in. */
+});
+
+test('the lock: a wall clock stepped forward never takes a live owner\'s lock', T, () => {
+  /* Round 4 SAFETY 1: the owner took the lock a minute after the computer started (a logon
+     auto-install), then time sync stepped the clock forward. Its process is still running. */
   const { lock } = lockDir();
-  const body = JSON.parse(win32update.takeLock(lock, () => {}, { clock: { now: () => 5_000_000, uptimeSeconds: () => 1000 } }));
-  assert.equal(body.boot, 4_000_000);
-  assert.equal(body.at, 5_000_000);
-  assert.ok(Math.abs(JSON.parse(win32update.takeLock(lockDir().lock, () => {})).boot - (Date.now() - os.uptime() * 1000)) < 5000, 'the real clocks by default');
+  const sameProgram = () => OWN_IMAGE;
+  const mine = win32update.takeLock(lock, () => {}, { clock: { now: () => Date.now(), uptimeSeconds: () => 60 }, processImage: sameProgram });
+  for (const stepMs of [3 * 60 * 1000, 2 * 60 * 60 * 1000]) {
+    const stepped = { now: () => Date.now() + stepMs, uptimeSeconds: () => 61 };
+    assert.throws(() => win32update.takeLock(lock, () => {}, { clock: stepped, processImage: sameProgram }), (e) => heldByThisProcess.test(e.message), `a step of ${stepMs} ms`);
+    assert.equal(fs.readFileSync(lock, 'utf8'), mine, 'the live owner keeps it');
+  }
+});
+
+test('the lock names the program that took it, and tasklist\'s answer is read for exactly that pid', T, () => {
+  const body = JSON.parse(win32update.takeLock(lockDir().lock, () => {}));
+  assert.equal(body.exe, OWN_IMAGE);
+  assert.equal(body.pid, process.pid);
+  assert.equal('boot' in body, false, 'no wall-clock stamp decides anything');
+  const read = win32update.processImageFromTasklist;
+  assert.equal(read('"node.exe","1234","Console","1","45,000 K"\r\n', 1234), 'node.exe');
+  assert.equal(read('"svchost.exe","12340","Services","0","9,000 K"\r\n', 1234), null, 'another pid');
+  assert.equal(read('INFO: No tasks are running which match the specified criteria.\r\n', 1234), null);
+  assert.equal(read('', 1234), null);
+});
+
+test('the lock: on Windows the real lookup tells a different program apart; elsewhere the plain pid rule holds', T, () => {
+  const { lock } = lockDir();
+  fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, at: Date.now(), exe: 'not-this-program.exe' }));
+  const log = [];
+  if (ON_WINDOWS) {
+    win32update.takeLock(lock, (l) => log.push(l));
+    assert.ok(log.includes(`cleared a stale prepare lock (process ${process.pid}, its process id now belongs to another program (${OWN_IMAGE}))`), log.join('\n'));
+  } else {
+    assert.throws(() => win32update.takeLock(lock, (l) => log.push(l)), (e) => heldByThisProcess.test(e.message));
+  }
+});
+
+test('the lock: a lock the release could not remove is released on a retry, or cleared by the next prepare in this board', T, async () => {
+  const isLock = (p) => path.basename(String(p)) === 'prepare.lock';
+  /* Held by a scanner for a moment: the second try removes it. */
+  const once = freshCase();
+  let failures = 0;
+  const r1 = await withStubAsync('rmSync', (real, p, o) => {
+    if (isLock(p) && failures < 1) { failures += 1; throw codeError('EPERM', p); }
+    return real(p, o);
+  }, () => win32update.prepare(prepareOpts(once, site(bundleZip()))));
+  assert.equal(r1.ok, true, JSON.stringify(r1));
+  assert.equal(failures, 1, 'the control: the first removal failed');
+  assert.deepEqual(workHolds(once), ['prepare-status.json', 'staged'], 'released on the retry');
+  assert.ok(once.log.includes('could not remove the prepare lock (code=EPERM, try 1 of 3)'), once.log.join('\n'));
+
+  /* Held for longer: the lock is left naming this live board, and the next prepare here stages. */
+  const c = freshCase();
+  const r2 = await withStubAsync('rmSync', (real, p, o) => {
+    if (isLock(p)) throw codeError('EPERM', p);
+    return real(p, o);
+  }, () => win32update.prepare(prepareOpts(c, site(bundleZip()))));
+  assert.equal(r2.ok, true, JSON.stringify(r2));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(c.work, 'prepare.lock'), 'utf8')).pid, process.pid, 'the control: the lock was left behind');
+  assert.ok(c.log.includes('left the prepare lock behind; the next prepare in this board clears it'), c.log.join('\n'));
+  assert.equal(c.log.filter((l) => /prepare lock/.test(l)).some((l) => l.includes(c.work)), false, 'failures are logged by code, not path');
+  c.log.length = 0;
+  const r3 = await win32update.prepare(prepareOpts(c, site(bundleZip())));
+  assert.equal(r3.ok, true, JSON.stringify(r3));
+  assert.ok(c.log.some((l) => /^cleared a stale prepare lock \(process \d+, left behind by an earlier prepare in this board that could not remove it\)$/.test(l)), c.log.join('\n'));
+  assert.deepEqual(workHolds(c), ['prepare-status.json', 'staged']);
+});
+
+test('the lock: a release that cannot read the lock logs the code, and the next prepare in this board still stages', T, async () => {
+  const c = freshCase();
+  const lockInWork = path.resolve(path.join(c.work, 'prepare.lock'));
+  const r1 = await withStubAsync('readFileSync', (real, p, o) => {
+    if (path.resolve(String(p)) === lockInWork) throw codeError('EPERM', p);
+    return real(p, o);
+  }, () => win32update.prepare(prepareOpts(c, site(bundleZip()))));
+  assert.equal(r1.ok, true, JSON.stringify(r1));
+  for (const n of [1, 2, 3]) assert.ok(c.log.includes(`could not read the prepare lock to release it (code=EPERM, try ${n} of 3)`), c.log.join('\n'));
+  assert.equal(c.log.filter((l) => /prepare lock/.test(l)).some((l) => l.includes(c.work)), false, 'logged by code, not path');
+  assert.equal((await win32update.prepare(prepareOpts(c, site(bundleZip())))).ok, true, 'not wedged');
+});
+
+test('the lock: a name that stays busy on a drive that can link gives up within its bounds and leaves no probe', T, () => {
+  const count = (target, busy) => {
+    const tally = { links: 0, probes: 0 };
+    const stub = (real, from, to) => {
+      tally.links += 1;
+      if (String(to).endsWith('.probe')) { tally.probes += 1; return real(from, to); }
+      if (busy(String(to))) throw codeError('EPERM', to);
+      return real(from, to);
+    };
+    return { tally, stub, target };
+  };
+  /* The lock's own name: MAX_LOCK_ATTEMPTS (3) looks, one probe each. */
+  const a = lockDir();
+  const onLock = count(a.lock, (to) => path.resolve(to) === path.resolve(a.lock));
+  withStub('linkSync', onLock.stub, () => {
+    assert.throws(() => win32update.takeLock(a.lock, () => {}), (e) => e.message === 'another update is already being prepared');
+  });
+  assert.deepEqual(onLock.tally, { links: 6, probes: 3 });
+  assert.deepEqual(fs.readdirSync(a.d), [], 'no draft and no probe left');
+
+  /* A clear claim's name: MAX_CLEAR_CLAIM_STEPS (8) steps, one probe each. */
+  const b = lockDir();
+  fs.writeFileSync(b.lock, JSON.stringify({ pid: deadPid(), at: Date.now() }));
+  const onClaim = count(b.lock, (to) => to.endsWith('.clearing'));
+  withStub('linkSync', onClaim.stub, () => {
+    assert.throws(() => win32update.takeLock(b.lock, () => {}), (e) => e.message === 'another update is already being prepared (an old lock could not be cleared)');
+  });
+  assert.deepEqual(onClaim.tally, { links: 17, probes: 8 }, 'one link at the lock, then 8 claim links and 8 probes');
+  assert.deepEqual(fs.readdirSync(b.d), ['prepare.lock'], 'the stale lock stays, and no probe is left');
 });
 
 test('the lock: a lock removed between the look and the read is gone, not unreadable', T, () => {
