@@ -1,41 +1,42 @@
 /**
- * Screen 2 (Access) shows ONE compact macOS-style permission prompt with the
- * Allow button ringed, not the old three-card stacked fan (0.6.39 #8, Josh's
- * fresh-account test, screen 9.50.20).
+ * Screen 2 (Access) shows SIX macOS-style permission previews, grouped and
+ * labeled by the app that actually raises each prompt: Terminal (Documents /
+ * Downloads / Desktop) and Kosmos (Documents / Downloads / Desktop). #2910
+ * (Josh 6.59): "Three for Kosmos and three for Terminal, all six in a row...
+ * Right now we show that it's Terminal asking for access on that screen but then
+ * when it pops up, it's actually Kosmos asking for it. We really need both so
+ * let's ask for both."
  *
- * Josh's ask (via Mona's #8 spec): replace the three vertically reproduced
- * dialogs (Documents / Downloads / Desktop) with ONE simplified, smaller,
- * horizontal box styled like the real macOS prompt the person will actually
- * see, verbatim "\"Terminal\" would like to access files in your folders.", the
- * two Don't Allow / Allow buttons, and a ring drawn around Allow so the person
- * clicks Allow rather than Don't Allow.
+ * FILENAME IS HISTORICAL. This check began at 0.6.39 #8 asserting ONE box
+ * ("onebox") that replaced a three-card fan; #2910 reverses that to six labeled
+ * previews. The name is kept so the browser-check surface map / count gates do
+ * not churn on a rename; the arms below assert the six-ask layout.
  *
- * This is the preview (`.s2-dlg-fan`, aria-hidden). Josh, 2026-09-08: its Allow is
- * now a live mouse affordance (`.s2-mockallow`) that forwards into the real
- * file-access flow, asserted below; the keyboard/AT grant path stays the real
- * `.s2-gate-row` Allow Access button, whose click wiring this check does not assert
- * (that is pinned in engine/machine.a11y-1344.test.js).
+ * This is the preview cluster (`.s2-dlg-fan`, aria-hidden). Each preview's mock
+ * Allow keeps `.s2-mockallow`, so a click forwards into the one real
+ * file-access flow (the #fr-pane-2 handler targets the single `.s2-allow`); the
+ * keyboard/AT grant path stays the real `.s2-gate-row` Allow Access button,
+ * whose click wiring this check does not assert (pinned in
+ * engine/machine.a11y-1344.test.js).
  *
  * WHY A SOURCE TEST CANNOT SEE THE RING. The ring is a `::after` pseudo-element
  * on `.s2-db.s2-hl` -- a computed result. A rule that loses the cascade, or a
  * wrong token, reads in the diff like a rule that works; only reading the
  * computed `::after` border tells them apart.
  *
- * Arms (each reds against the pre-#8 three-card page):
- *  1. STRUCTURE: exactly one `.s2-dlg` inside `.s2-dlg-fan` (was three).
- *  2. COPY: the single `.s2-say` is the verbatim generalized line, and the old
- *     per-folder strings (Documents/Downloads/Desktop folder) are gone.
- *  3. BUTTONS: a "Don't Allow" and an "Allow" button both render.
- *  4. RING: the Allow button's `::after` draws a solid gold ring (the callout),
- *     and Allow is the blue macOS default button. The three-card page had no
- *     ::after ring, so this arm reds there.
- *
- * Later arms (not part of the pre-#8 comparison):
- *  - COMPACT COPY (#768): the box copy renders at the compact dialog size
- *    (~13px/600), not the 17px/400 first-run body.
- *  - MOCK AFFORDANCE (Josh 2026-09-08): the mock "Allow" is a live clickable
- *    affordance (`.s2-mockallow` + `cursor:pointer`), the render half of the
- *    mock-forward behaviour whose click logic lives in machine.a11y-1344.test.js.
+ * Arms:
+ *  1. STRUCTURE: exactly six `.s2-dlg`, in two `.s2-appgrp` groups.
+ *  2. LABELS: the two group labels name Terminal and Kosmos.
+ *  3. MISLABEL FIXED: at least one preview names Kosmos (was only "Terminal"),
+ *     and the old generic "...in your folders." line is gone.
+ *  4. COVERAGE: each app covers Documents, Downloads and Desktop.
+ *  5. COMPACT COPY: a preview line renders at the compact dialog size (~12-13px,
+ *     weight 600), not the 17px/400 first-run body.
+ *  6. BUTTONS: every preview renders a "Don't Allow" and an "Allow".
+ *  7. MOCK AFFORDANCE: every Allow is a live affordance (`.s2-mockallow` +
+ *     cursor:pointer).
+ *  8. RING: every Allow draws a solid gold `::after` ring and is the blue macOS
+ *     default button.
  *
  * HERMETIC: loads web/index.html over file://, boots no server. Everything it
  * reads is static markup + computed style, so it sits in the browser-checks.sh
@@ -58,7 +59,7 @@ catch {
 
 const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 const ENGINES = ['chromium', 'webkit'];
-const VERBATIM = '"Terminal" would like to access files in your folders.';
+const FOLDERS = ['Documents', 'Downloads', 'Desktop'];
 
 const results = [];
 function check(name, pass, detail) {
@@ -106,74 +107,105 @@ function isBlue(rgb) {
       return { ok: true };
     });
     if (!pre.ok) {
-      check(`${engine}: the access dialog preview is reachable`, false, JSON.stringify(pre));
+      check(`${engine}: the access dialog previews are reachable`, false, JSON.stringify(pre));
       await browser.close();
       continue;
     }
 
-    const state = await page.evaluate((VERBATIM) => {
+    const state = await page.evaluate(() => {
       const fan = document.querySelector('#fr-pane-2 .s2-dlg-fan') || document.querySelector('.s2-dlg-fan');
-      const dlgs = fan ? fan.querySelectorAll('.s2-dlg') : [];
-      const says = fan ? Array.from(fan.querySelectorAll('.s2-say')).map((p) => p.textContent.trim()) : [];
-      const allow = fan ? Array.from(fan.querySelectorAll('.s2-db')).find((b) => /^Allow$/.test(b.textContent.trim())) : null;
-      const deny = fan ? Array.from(fan.querySelectorAll('.s2-db')).find((b) => /Don't Allow/.test(b.textContent.trim())) : null;
+      const dlgs = fan ? Array.from(fan.querySelectorAll('.s2-dlg')) : [];
+      const groups = fan ? Array.from(fan.querySelectorAll('.s2-appgrp')) : [];
+      const labels = fan ? Array.from(fan.querySelectorAll('.s2-applbl')).map((p) => p.textContent.trim()) : [];
+      const says = dlgs.map((d) => { const p = d.querySelector('.s2-say'); return p ? p.textContent.trim() : ''; });
+      // Per-app say-lines: read the group label's app name, then the folder copy of each dialog under it.
+      const perApp = groups.map((g) => {
+        const lbl = g.querySelector('.s2-applbl');
+        const app = lbl ? lbl.textContent.trim().split(/\s|\(/)[0] : '';
+        const lines = Array.from(g.querySelectorAll('.s2-say')).map((p) => p.textContent.trim());
+        return { app, lines };
+      });
+
+      const allows = dlgs.map((d) => Array.from(d.querySelectorAll('.s2-db')).find((b) => /^Allow$/.test(b.textContent.trim())) || null);
+      const denies = dlgs.map((d) => Array.from(d.querySelectorAll('.s2-db')).find((b) => /Don't Allow/.test(b.textContent.trim())) || null);
+
       const sayEl = fan ? fan.querySelector('.s2-say') : null;
       const sayCs = sayEl ? getComputedStyle(sayEl) : null;
-      let ring = null, allowBg = null, allowSized = false;
-      if (allow) {
-        const af = getComputedStyle(allow, '::after');
-        ring = { content: af.content, bw: af.borderTopWidth, bs: af.borderTopStyle, bc: af.borderTopColor };
-        allowBg = getComputedStyle(allow).backgroundColor;
-        const r = allow.getBoundingClientRect();
-        allowSized = r.width > 0 && r.height > 0;
-      }
+
+      const allowInfo = allows.map((a) => {
+        if (!a) return null;
+        const af = getComputedStyle(a, '::after');
+        const r = a.getBoundingClientRect();
+        return {
+          mock: a.classList.contains('s2-mockallow'),
+          cursor: getComputedStyle(a).cursor,
+          bg: getComputedStyle(a).backgroundColor,
+          sized: r.width > 0 && r.height > 0,
+          ring: { content: af.content, bw: af.borderTopWidth, bs: af.borderTopStyle, bc: af.borderTopColor },
+        };
+      });
+
       return {
         dlgCount: dlgs.length,
+        groupCount: groups.length,
+        labels,
         says,
-        hasVerbatim: says.length === 1 && says[0] === VERBATIM,
-        oldFolderCopy: says.some((s) => /Documents folder|Downloads folder|Desktop folder/.test(s)),
-        hasAllow: Boolean(allow),
-        hasDeny: Boolean(deny),
+        perApp,
+        oldGenericCopy: says.some((s) => /in your folders\.?$/.test(s)),
+        namesKosmos: says.some((s) => /"Kosmos"/.test(s)),
+        namesTerminal: says.some((s) => /"Terminal"/.test(s)),
+        denyCount: denies.filter(Boolean).length,
+        allowCount: allows.filter(Boolean).length,
         sayPx: sayCs ? parseFloat(sayCs.fontSize) : null,
         sayWeight: sayCs ? String(sayCs.fontWeight) : null,
-        allowSized, allowBg, ring,
-        allowMock: allow ? allow.classList.contains('s2-mockallow') : false,
-        allowCursor: allow ? getComputedStyle(allow).cursor : null,
+        allowInfo,
       };
-    }, VERBATIM);
+    });
 
-    check(`${engine}: exactly ONE dialog card (was three)`,
-      state.dlgCount === 1, `count ${state.dlgCount}`);
+    check(`${engine}: exactly SIX dialog previews in two groups (was one)`,
+      state.dlgCount === 6 && state.groupCount === 2,
+      `dlgs ${state.dlgCount}, groups ${state.groupCount}`);
 
-    check(`${engine}: the box carries the verbatim generalized copy, per-folder copy gone`,
-      state.hasVerbatim && !state.oldFolderCopy, JSON.stringify(state.says));
+    check(`${engine}: the two group labels name Terminal and Kosmos`,
+      state.labels.length === 2
+        && state.labels.some((l) => /^Terminal/.test(l))
+        && state.labels.some((l) => /^Kosmos/.test(l)),
+      JSON.stringify(state.labels));
 
-    // The box copy must render at the compact dialog size (~13px / .8125rem, weight 600),
-    // NOT the 17px/400 first-run body <p> that `#firstrun .fr-body p` imposes on a bare
-    // class. Reds if the .s2-say specificity is dropped back below (1,1,1).
-    check(`${engine}: the box copy is compact dialog-sized (~13px, weight 600), not the overlay 17px/400 body`,
-      state.sayPx !== null && state.sayPx >= 12 && state.sayPx <= 14 && state.sayWeight === '600',
+    // The mislabel Josh reported: the screen said only "Terminal" while the real prompt is often
+    // Kosmos. Fixed = both apps are named AND the old generic "...in your folders." line is gone.
+    check(`${engine}: mislabel fixed - both Terminal and Kosmos are named, the old generic line is gone`,
+      state.namesTerminal && state.namesKosmos && !state.oldGenericCopy,
+      `terminal ${state.namesTerminal}, kosmos ${state.namesKosmos}, oldGeneric ${state.oldGenericCopy}`);
+
+    // Each app's three previews cover Documents, Downloads and Desktop, and name their own app.
+    const coverageOk = state.perApp.length === 2 && state.perApp.every((g) =>
+      FOLDERS.every((f) => g.lines.some((l) => new RegExp('"' + g.app + '".*' + f + ' folder').test(l))));
+    check(`${engine}: each app (Terminal, Kosmos) covers Documents, Downloads and Desktop`,
+      coverageOk, JSON.stringify(state.perApp));
+
+    check(`${engine}: preview copy is compact dialog-sized (~12-13px, weight 600), not the overlay 17px/400 body`,
+      state.sayPx !== null && state.sayPx >= 11.5 && state.sayPx <= 14 && state.sayWeight === '600',
       `sayPx ${state.sayPx}, weight ${state.sayWeight}`);
 
-    check(`${engine}: both Don't Allow and Allow buttons render`,
-      state.hasDeny && state.hasAllow && state.allowSized,
-      `deny ${state.hasDeny}, allow ${state.hasAllow}, sized ${state.allowSized}`);
+    check(`${engine}: every preview renders a Don't Allow and an Allow`,
+      state.denyCount === 6 && state.allowCount === 6,
+      `deny ${state.denyCount}, allow ${state.allowCount}`);
 
-    // Josh 2026-09-08 (blue-Allow, no card): people click the mock "Allow" (they read it as the real macOS button),
-    // so it is a live mouse affordance -- it carries the .s2-mockallow hook and a
-    // pointer cursor. The click BEHAVIOUR (it routes through the real Allow Access
-    // button and is guarded against re-firing) is pinned in engine/machine.a11y-1344
-    // .test.js; this arm verifies the RENDERED affordance. Reds if the class or the
-    // cursor is dropped (the mock going back to inert art).
-    check(`${engine}: the mock Allow is a live clickable affordance (.s2-mockallow + cursor:pointer)`,
-      state.allowMock && state.allowCursor === 'pointer',
-      `mock ${state.allowMock}, cursor ${state.allowCursor}`);
+    // Josh 2026-09-08: people click the mock "Allow" (they read it as the real macOS button), so
+    // every one is a live mouse affordance (.s2-mockallow + pointer). The click BEHAVIOUR is pinned
+    // in engine/machine.a11y-1344.test.js; this arm verifies the RENDERED affordance across all six.
+    const allMock = state.allowInfo.length === 6 && state.allowInfo.every((a) => a && a.mock && a.cursor === 'pointer' && a.sized);
+    check(`${engine}: every mock Allow is a live clickable affordance (.s2-mockallow + cursor:pointer)`,
+      allMock, JSON.stringify(state.allowInfo.map((a) => a && { mock: a.mock, cursor: a.cursor })));
 
-    // Non-vacuous first: the ring pseudo must actually exist, then be a gold solid ring.
-    const ringPresent = state.ring && state.ring.content && state.ring.content !== 'none' && parseFloat(state.ring.bw) >= 1;
-    check(`${engine}: Allow is ringed (solid gold ::after) and is the blue default button`,
-      ringPresent && state.ring.bs === 'solid' && isGold(state.ring.bc) && isBlue(state.allowBg),
-      `ring ${JSON.stringify(state.ring)}, allowBg ${state.allowBg}`);
+    // Non-vacuous: the ring pseudo must actually exist on every Allow, then be a gold solid ring on a blue button.
+    const allRinged = state.allowInfo.length === 6 && state.allowInfo.every((a) => {
+      const present = a && a.ring && a.ring.content && a.ring.content !== 'none' && parseFloat(a.ring.bw) >= 1;
+      return present && a.ring.bs === 'solid' && isGold(a.ring.bc) && isBlue(a.bg);
+    });
+    check(`${engine}: every Allow is ringed (solid gold ::after) and is the blue default button`,
+      allRinged, JSON.stringify(state.allowInfo.map((a) => a && { ring: a.ring, bg: a.bg })));
 
     await browser.close();
   }

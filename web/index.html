@@ -9100,9 +9100,27 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            file-access flow (.s2-mockallow), so it is no longer purely illustrative;
            the keyboard/AT path stays the real Allow Access button in the
            .s2-gate-row below. */
-        .s2-dlg-fan{display:flex;justify-content:center;margin:2px 0 16px}
+        /* #2910 (Josh 6.59): the person will see SIX real macOS prompts, three from Terminal
+           and three from Kosmos, one per folder. Show all six, grouped and labeled by the app
+           that actually raises them, so the screen matches what pops up (the old single box said
+           "Terminal" while the real prompt is often Kosmos). Two labeled groups, three compact
+           previews each; the row wraps at narrow widths so it never overflows the pane. */
+        .s2-dlg-fan{display:flex;flex-direction:column;gap:14px;align-items:stretch;margin:2px 0 16px}
+        .s2-appgrp{display:flex;flex-direction:column;gap:7px}
+        .s2-applbl{font:650 .75rem var(--font-ui,-apple-system,sans-serif);letter-spacing:.02em;
+          color:var(--k-ink,#14161a);margin:0}
+        .s2-applbl .s2-appcount{font-weight:500;color:var(--k-ink-soft,#6b7078)}
+        /* three per group across one row on the onboarding pane (~552px), collapsing to
+           two then one as the width narrows -- auto-fit tiles as many >=150px columns as fit. */
+        .s2-dlgrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}
         .s2-dlg{width:320px;max-width:100%;text-align:left;border-radius:12px;padding:16px 18px 14px;
           background:#ececec;border:1px solid #d8d6d2;color:#1c1b19;box-shadow:0 10px 26px rgba(0,0,0,.18)}
+        /* compact within the six-up grid: the grid column sets the width, so drop the fixed 320px */
+        .s2-dlgrow .s2-dlg{width:auto;min-width:0;max-width:none;padding:12px 13px 11px;
+          border-radius:10px;box-shadow:0 6px 16px rgba(0,0,0,.14)}
+        .s2-dlgrow .s2-dlg-head{gap:9px;margin:0 0 11px}
+        .s2-dlgrow .s2-fold{width:28px;height:28px}
+        #firstrun .fr-body .s2-dlgrow p.s2-say{font-size:.75rem}
         .s2-dlg-head{display:flex;align-items:flex-start;gap:11px;margin:0 0 14px}
         .s2-fold{flex:none;width:34px;height:34px;border-radius:7px;position:relative;
           background:linear-gradient(160deg,#7cc0ff,#3f92f0)}
@@ -9147,13 +9165,63 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p>In order to put agents to work, you will need to grant them access to files, apps, and other parts of your computer.</p>
         <p>When prompted, click Allow.</p>
 
+        <!-- #2910: six previews, grouped by the app macOS names in each prompt. Terminal's three
+             (tmux runs under it) and Kosmos's three. aria-hidden: the real focusable grant is the
+             .s2-gate-row button below; these are a mouse-only preview of what will pop up. Each
+             mock Allow keeps .s2-mockallow, so a click forwards into the one real file-access flow
+             (the #fr-pane-2 click handler targets the single .s2-allow). -->
         <div class="s2-dlg-fan" aria-hidden="true">
-          <div class="s2-dlg">
-            <div class="s2-dlg-head">
-              <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
-              <p class="s2-say">"Terminal" would like to access files in your folders.</p>
+          <div class="s2-appgrp">
+            <p class="s2-applbl">Terminal <span class="s2-appcount">(3 folders)</span></p>
+            <div class="s2-dlgrow">
+              <div class="s2-dlg">
+                <div class="s2-dlg-head">
+                  <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
+                  <p class="s2-say">"Terminal" would like to access files in your Documents folder.</p>
+                </div>
+                <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
+              </div>
+              <div class="s2-dlg">
+                <div class="s2-dlg-head">
+                  <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
+                  <p class="s2-say">"Terminal" would like to access files in your Downloads folder.</p>
+                </div>
+                <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
+              </div>
+              <div class="s2-dlg">
+                <div class="s2-dlg-head">
+                  <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
+                  <p class="s2-say">"Terminal" would like to access files in your Desktop folder.</p>
+                </div>
+                <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
+              </div>
             </div>
-            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
+          </div>
+          <div class="s2-appgrp">
+            <p class="s2-applbl">Kosmos <span class="s2-appcount">(3 folders)</span></p>
+            <div class="s2-dlgrow">
+              <div class="s2-dlg">
+                <div class="s2-dlg-head">
+                  <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
+                  <p class="s2-say">"Kosmos" would like to access files in your Documents folder.</p>
+                </div>
+                <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
+              </div>
+              <div class="s2-dlg">
+                <div class="s2-dlg-head">
+                  <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
+                  <p class="s2-say">"Kosmos" would like to access files in your Downloads folder.</p>
+                </div>
+                <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
+              </div>
+              <div class="s2-dlg">
+                <div class="s2-dlg-head">
+                  <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
+                  <p class="s2-say">"Kosmos" would like to access files in your Desktop folder.</p>
+                </div>
+                <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
+              </div>
+            </div>
           </div>
         </div>
 
