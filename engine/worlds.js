@@ -20,12 +20,14 @@
  *
  * SCOPE: the DATA layer -- the registry and the store/projects/workers roots -- AND
  * (#1704 / #2827) the way an AGENT process learns which world it belongs to. The
- * board applies its world's roots at boot. On Windows an agent's supervisor gets
- * the same world through `KOSMOS_WORLD` (launchidentity.js) and applies its roots
- * with `applyAgentWorldEnv` before its first store-using require, and its hooks
- * and `kosmos` command inherit them, so its sender token, session records and
- * board token are its own world's. (The Mac's agents get the same in the Mac
- * slice, PR1m.) AGENT_WORKFORCE_LAUNCH is still NOT overridden: the
+ * board applies its world's roots at boot. An agent gets the same world through
+ * `KOSMOS_WORLD` (launchidentity.js) and applies its roots with
+ * `applyAgentWorldEnv` before its first store-using require: on Windows the
+ * anchored boot shim does it from field 7 of the task's argument line (#2845),
+ * and on the Mac `agent-supervisor.sh` does it before its sender-token mint and
+ * hands the pane the roots (#2874). Its hooks and `kosmos` command inherit them,
+ * so its sender token, session records and board token are its own world's.
+ * AGENT_WORKFORCE_LAUNCH is still NOT overridden: the
  * LaunchAgents folder and the task folder are per user, so a named world's agents
  * are told apart by their launch KEY (launchidentity.launchKey), not by a folder.
  */
@@ -230,9 +232,10 @@ function applyWorldEnv(env, base, world) {
  * required AFTER it resolves that world's store. It must run before the first
  * store-using require, because ~26 modules freeze store.ROOT at require time
  * (worldenv.js lists them), which is why the Windows boot shim calls it before it
- * loads the supervisor. The agent's hooks and `kosmos` command inherit the roots
- * it applied rather than calling it. (The Mac supervisor's token mint will call
- * it in the Mac slice, PR1m; nothing on the Mac does yet.)
+ * loads the supervisor (#2845), and the Mac's `agent-supervisor.sh` calls it (in
+ * a child node) and exports the roots before its token mint requires
+ * sendertoken.js (#2874). The agent's hooks and `kosmos` command inherit the
+ * roots it applied rather than calling it.
  *
  * Reads NO registry, so an agent never contends for its lock: a world's location
  * is derived from its id alone (worldBaseDir), which also refuses an unsafe id by
