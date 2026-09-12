@@ -212,6 +212,7 @@ const status = require('./status');
 // one"), and the gate was checking the wrong thing to enforce it.
 const store = require('./store');
 const sendertoken = require('./sendertoken');
+const ping = require('./ping');
 
 /* 🛑 A FUNCTION, NOT A CONST (#1432). Frozen at require time this read past
    the sandbox seam: a caller setting the seam AFTER requiring this module
@@ -2952,6 +2953,9 @@ function createAgent(opts) {
       ? (store.readProfile(out.name).id || null)
       : null,
   });
+  if (out && out.outcome === OUTCOME.CREATED && !DRY_RUN) {
+    ping.agentCreated({ wanted: true });
+  }
   return out;
 }
 function createAgentInner(opts) {
