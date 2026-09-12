@@ -245,8 +245,24 @@ function root() {
   maybeMigrateLegacyStore();
   return dataRootFor(process.platform, process.env.AGENT_WORKFORCE_HOME || os.homedir(), process.env);
 }
-function avatarsDir() { return path.join(root(), 'avatars'); }
-function profilesDir() { return path.join(root(), 'profiles'); }
+/* The store's two per-agent folders, named ONCE (#1704 PR4). worlds.js builds the
+   same folders for a Kosmos this process is not serving (worldProfilesDir /
+   worldAvatarsDir), and a second spelling there would drift from this one. */
+const PROFILES_DIRNAME = 'profiles';
+const AVATARS_DIRNAME = 'avatars';
+function avatarsDir() { return path.join(root(), AVATARS_DIRNAME); }
+function profilesDir() { return path.join(root(), PROFILES_DIRNAME); }
+
+/* The folder agents' working folders live under, for a given environment and home.
+   ONE formula (#1704 PR4): create.workersDir() asks it for this process, and
+   worlds.worldWorkersDir asks it for another Kosmos (that world's env overrides laid
+   over the pre-world env). Pure: it reads only what it is handed. Joined with the
+   platform's own joiner, like dataRootFor (#1732: never the ambient path.join on a
+   home argument); the running platform by default, so it is what it always was. */
+function workersRootFor(env, home, platform = process.platform) {
+  const e = env || {};
+  return e.AGENT_WORKFORCE_WORKERS || joinerFor(platform).join(home, 'work', 'workers');
+}
 
 function ensure(dir) {
   fs.mkdirSync(dir, { recursive: true });
@@ -271,15 +287,19 @@ const ALLOWED_IMAGES = {
   'image/gif': '.gif',
 };
 
-function avatarPath(name) {
+/* The avatar file for `name` inside `dir`, or null. The ONE lookup (one file per
+   agent, `<safeKey>.<ext>`), so importing an agent from another Kosmos's avatars
+   folder finds it the way this store does (#1704 PR4). */
+function avatarPathIn(dir, name) {
   const key = safeKey(name);
   try {
-    for (const f of fs.readdirSync(avatarsDir())) {
-      if (f.startsWith(key + '.')) return path.join(avatarsDir(), f);
+    for (const f of fs.readdirSync(dir)) {
+      if (f.startsWith(key + '.')) return path.join(dir, f);
     }
   } catch { /* no avatars yet */ }
   return null;
 }
+function avatarPath(name) { return avatarPathIn(avatarsDir(), name); }
 
 /**
  * A version that CHANGES whenever this agent's stored avatar changes (#2698).
@@ -398,8 +418,12 @@ function removeAvatar(name) {
  * *is*. It is new metadata the user supplies, and it is what makes "Project
  * Manager" mean something the product can act on later.
  */
+/* A profile's FILE NAME, not its path (#1704 PR4): importing an agent into another
+   Kosmos writes this name into THAT Kosmos's profiles folder, so the formula is
+   shared rather than spelled twice. The path stays private (see the exports note). */
+function profileFileName(name) { return safeKey(name) + '.json'; }
 function profilePath(name) {
-  return path.join(profilesDir(), safeKey(name) + '.json');
+  return path.join(profilesDir(), profileFileName(name));
 }
 
 function readProfile(name) {
@@ -417,6 +441,17 @@ function readProfile(name) {
    and mints, and a future identity field is added in a single place rather than in
    two that can disagree. */
 const IDENTITY_KEYS = ['id', 'idInstall'];
+
+/* #1704 PR4 (review round 3): where a copied agent came from, as
+   `{ kosmos: <source world id>, id: <the source profile's own id> }`. The source's
+   `id` is the stable identity (it survives renames); the copy mints its own fresh
+   `id` like any agent, so this is the ONLY link back. It is not an identity field --
+   stripIdentity leaves it -- and each import writes it afresh, so a copy of a copy
+   points at the Kosmos it was last copied from. Its own key rather than adopt.js's
+   flat `origin` tag: `origin` names HOW an agent came to be (created / adopted),
+   this names WHICH agent in WHICH Kosmos, and an import leaves `origin` as copied.
+   Read by worldimport to keep a manager that was imported earlier. */
+const IMPORTED_FROM_KEY = 'importedFrom';
 
 /* Remove the identity fields from a profile object IN PLACE, so the next writeProfile
    MINTS a fresh id instead of carrying an old one over -- the decided restore
@@ -521,7 +556,7 @@ function writeSettings(patch) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarVersion, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings };
+module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarPathIn, avatarVersion, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers

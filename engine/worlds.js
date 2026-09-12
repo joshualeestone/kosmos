@@ -463,96 +463,46 @@ function worldStoreRoot(base, world) {
 }
 
 function worldProfilesDir(base, world) {
-  return path.join(worldStoreRoot(base, world), 'profiles');
+  return path.join(worldStoreRoot(base, world), store.PROFILES_DIRNAME);
+}
+
+function worldAvatarsDir(base, world) {
+  return path.join(worldStoreRoot(base, world), store.AVATARS_DIRNAME);
+}
+
+/*
+ * #1704 PR4: the folder a world's agents' working folders live under, by the ONE
+ * formula (store.workersRootFor) the running process uses for its own world. The
+ * environment is the one BEFORE any world was applied (preWorldEnv), with this
+ * world's overrides laid over it -- exactly what a board booted into that world
+ * would see -- so a named world lands under its base and the default world under
+ * the person's own workers root, whichever world this process is serving.
+ */
+function worldWorkersDir(base, world, env) {
+  const e = Object.assign(preWorldEnv(env || process.env), envOverridesFor(base, world));
+  return store.workersRootFor(e, e.AGENT_WORKFORCE_HOME || os.homedir());
 }
 
 /* What counts as a profile file, named ONCE so agentCount (which reports the number)
-   and importAgents (which copies them) can never disagree about it. A profile is
+   and engine/worldimport.js (which lists and copies them) can never disagree about it. A profile is
    `<safeKey(name)>.json`; the store writes a `<name>.json.tmp` mid-write, which
    `.endsWith('.json')` correctly excludes (it ends with .tmp). */
 function isProfileFile(f) { return f.endsWith('.json'); }
 
 /*
- * How many agents a world holds: the count of profile JSONs under its store.
- * Read-only and total: a missing or unreadable profiles dir is 0 agents, never a
+ * The agent names a world holds: one per profile JSON under its store, sorted.
+ * Read-only and total: a missing or unreadable profiles dir is no agents, never a
  * throw -- a world that has never held an agent has no profiles dir, and that is
- * zero, not an error.
+ * none, not an error. A profile is `<safeKey(name)>.json`, so the name is the file
+ * name less `.json`. (#1704 PR4: this replaced agentCount and the whole-world,
+ * first-wins importAgents. engine/worldimport.js now lists and copies agents one at
+ * a time from these names, so there is one import path, not two.)
  */
-function agentCount(base, world) {
+function worldProfileNames(base, world) {
   let entries;
   try { entries = fs.readdirSync(worldProfilesDir(base, world)); }
-  catch { return 0; }
-  return entries.filter(isProfileFile).length;
-}
-
-/*
- * Copy the agents (profiles) of one or more SOURCE worlds into a TARGET world's
- * profiles dir. COPY, never move: a source file is read and never modified, renamed
- * or deleted (Angel's ruled copy-not-move default, kosmos#2563). Semantics:
- *   - A source id is honored only if it names a real registered world; an unknown
- *     or malformed id is counted in `unknownSources` and skipped, never joined into
- *     a path (worldBaseDir re-guards CLEAN_ID regardless).
- *   - FIRST-WINS on collision: a profile whose filename already exists in the target
- *     (because the target already holds it, or an earlier source in the list supplied
- *     it) is left untouched and counted in `skipped`. Source order is the tiebreak.
- *   - A profile that could not be copied (unparseable JSON, a read/write/rename error)
- *     is counted in `failed`, kept DISTINCT from `skipped` so a caller can tell an
- *     intentional collision-skip ("already there, by design") from a real failure and
- *     surface them differently.
- *   - Each copy is temp-file + rename, so a concurrent reader of the target never
- *     sees a half-written profile.
- * Returns { copied, skipped, failed, unknownSources }. Does NOT make the imported
- * agents run (named-world agents are out of v1 launch scope, worlds.js SCOPE note) --
- * it brings the roster/config across; running follows the world-scoped-launch slice.
- */
-function importAgents(base, targetWorld, sourceWorldIds) {
-  const result = { copied: 0, skipped: 0, failed: 0, unknownSources: 0 };
-  if (!targetWorld || !Array.isArray(sourceWorldIds) || sourceWorldIds.length === 0) return result;
-  const reg = readRegistry(base);
-  const targetDir = worldProfilesDir(base, targetWorld);
-  fs.mkdirSync(targetDir, { recursive: true });
-  // Dedupe the source ids: a repeated id would otherwise re-scan the same world and
-  // count its already-copied files as `skipped` on the second pass, overcounting.
-  for (const rawId of new Set(sourceWorldIds)) {
-    const src = reg.worlds.find((w) => w.id === rawId);
-    if (!src || src.id === targetWorld.id) {
-      // Unknown/malformed id -> count it; importing a world from itself is a no-op we
-      // do not count as unknown (the id is real), just skip it.
-      if (!src) result.unknownSources += 1;
-      continue;
-    }
-    const srcDir = worldProfilesDir(base, src);
-    let files;
-    try { files = fs.readdirSync(srcDir).filter(isProfileFile); }
-    catch { files = []; } // a source with no profiles dir contributes nothing, not an error
-    for (const file of files) {
-      const dst = path.join(targetDir, file);
-      if (fs.existsSync(dst)) { result.skipped += 1; continue; } // first-wins
-      const tmp = dst + `.${process.pid}.tmp`;
-      try {
-        // A profile copied into a NEW Kosmos is a SEPARATE agent, so strip its identity
-        // via store.stripIdentity (store OWNS the identity-field set, so this cannot
-        // drift from what writeProfile mints/restores if that set ever grows). The
-        // imported agent then mints a FRESH id on its first store.writeProfile -- the
-        // decided restore convention. A byte copy would carry the source id over, and
-        // because the import is same-install, store's remint-on-different-install rule
-        // would NOT fire, silently conflating the two agents to any future id-based
-        // feature. Reading + re-serializing also means a corrupt (unparseable) source
-        // profile is skipped rather than copied verbatim.
-        const prof = store.stripIdentity(JSON.parse(fs.readFileSync(path.join(srcDir, file), 'utf8')));
-        fs.writeFileSync(tmp, JSON.stringify(prof, null, 2));
-        fs.renameSync(tmp, dst);
-        result.copied += 1;
-      } catch (_e) {
-        try { fs.unlinkSync(tmp); } catch (_u) { /* best effort */ }
-        // A single unreadable/corrupt/unwritable profile must not abort the whole
-        // import or orphan the created world; count it as FAILED (distinct from an
-        // intentional collision `skipped`) and keep going.
-        result.failed += 1;
-      }
-    }
-  }
-  return result;
+  catch { return []; }
+  return entries.filter(isProfileFile).map((f) => f.slice(0, -'.json'.length)).sort();
 }
 
 module.exports = {
@@ -576,6 +526,7 @@ module.exports = {
   applyActiveWorldEnv,
   worldStoreRoot,
   worldProfilesDir,
-  agentCount,
-  importAgents,
+  worldAvatarsDir,
+  worldWorkersDir,
+  worldProfileNames,
 };

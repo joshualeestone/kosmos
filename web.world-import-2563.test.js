@@ -1,213 +1,224 @@
 "use strict";
 /**
- * #2563: "Add my agents from an existing Kosmos" at create time (web UI slice).
+ * #2563 + #1704 PR4: the New Kosmos step, "Add my agents from" (web UI).
  *
- * These run the SHIPPED functions from web/index.html against a fake document, so what is
- * under test is the code that ships, not a paraphrase. The engine endpoints
- * (GET /api/worlds/list, POST /api/worlds { importAgentsFrom }) are LIVE on main (merged as
- * the #2563 engine slice), so a checked create really copies agent profiles. The load-bearing
- * web behaviour here is: the control renders from a list when there IS one, HIDES itself when
- * the list is empty/absent (the graceful-degrade for a board that cannot answer), and the
- * create payload carries importAgentsFrom ONLY when the person actually checked a Kosmos.
+ * Josh: "when I'm creating the new KOSMOS, I can add agents to it that are my existing
+ * agents from another KOSMOS right there when I create it. Or I can just skip and not add
+ * any." These run the SHIPPED functions from web/index.html against a fake document
+ * (test-support/fake-dom), so what is under test is the code that ships. The load-bearing
+ * behaviour: one group per Kosmos with one box per agent, the Kosmos box ticks its agents,
+ * Skip clears, the create payload carries `importAgents` ONLY when something is ticked, and
+ * what the import did is said rather than closed over.
  *
  *   node --test web.world-import-2563.test.js
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const nodePath = require('node:path');
+const { makeDom } = require('./test-support/fake-dom');
 
-const PAGE = fs.readFileSync('web/index.html', 'utf8');
-const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
+const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 
 function slice(name) {
-  // Anchor on the `async` variant first so the extracted source keeps its `async`
-  // keyword (worldImportFetch/worldAddSubmit are async; dropping `async` makes their
-  // `await` a syntax error). Falls back to a plain function (worldImportRender).
-  let at = SCRIPT.indexOf('async function ' + name + '(');
-  if (at < 0) at = SCRIPT.indexOf('function ' + name + '(');
+  let at = PAGE.indexOf('async function ' + name + '(');
+  if (at < 0) at = PAGE.indexOf('function ' + name + '(');
   assert.ok(at >= 0, name + ' moved or renamed; re-anchor this test');
-  return SCRIPT.slice(at, SCRIPT.indexOf('\n}\n', at) + 2);
+  return PAGE.slice(at, PAGE.indexOf('\n}\n', at) + 2);
 }
 const RENDER = slice('worldImportRender');
+const PICKS = slice('worldImportPicks');
+const CLEAR = slice('worldImportClear');
+const OUTCOME = slice('worldImportOutcome');
 const FETCH = slice('worldImportFetch');
 const SUBMIT = slice('worldAddSubmit');
+const SKIP = slice('worldAddSkip');
+const AS_SENTENCE = slice('asSentence');   // the page's one sentence-dressing, which the outcome uses
 
-// A minimal fake element: enough for worldImportRender (createElement + property sets +
-// appendChild) and for reading the result back.
-function fakeEl() {
-  return {
-    _children: [], className: '', type: '', value: '', textContent: '', hidden: false,
-    appendChild(c) { this._children.push(c); return c; },
-  };
-}
+const WORLDS = [
+  { id: 'w1', name: 'Client work', agents: [{ name: 'ava', displayName: 'Ava', because: null }, { name: 'bo', displayName: 'bo', because: null }] },
+  { id: 'w2', name: 'Side project', agents: [{ name: 'cy', displayName: 'Cy', because: null }, { name: 'x', displayName: 'x', because: 'its name cannot be used to start it in another Kosmos' }] },
+  { id: 'w3', name: 'Fresh', agents: [] },
+];
 
-function runRender(worlds) {
-  const listEl = fakeEl();
-  const wrapEl = fakeEl();
-  const document = { createElement: () => fakeEl() };
-  const wrap = `${RENDER}\n worldImportRender(_worlds, _list, _wrap);`;
+function render(worlds, excludeId) {
+  const dom = makeDom();
+  const list = dom.add('world-add-import-list');
+  const wrap = dom.add('world-add-import', 'div', { hidden: true });
   // eslint-disable-next-line no-new-func
-  new Function('document', '_worlds', '_list', '_wrap', wrap)(document, worlds, listEl, wrapEl);
-  return { listEl, wrapEl };
+  const fns = new Function('document', `${RENDER}\n${PICKS}\n${CLEAR}\nreturn { worldImportRender, worldImportPicks, worldImportClear };`)(dom.document);
+  fns.worldImportRender(worlds, list, wrap, excludeId);
+  return { dom, list, wrap, fns };
 }
+const headBox = (group) => group.children[0].children[0];
+const headText = (group) => group.children[0].children[1].textContent;
+const agentBoxes = (group) => group.children[1].children.map((row) => row.children[0]);
+const agentText = (group) => group.children[1].children.map((row) => row.children[1].textContent);
+const box = (list, from, name) => list.querySelectorAll('.world-import-cb').find((c) => c.dataset.from === from && c.value === name);
 
-test('#2563: an empty list HIDES the control (the graceful-degrade before the engine lands)', () => {
+test('an empty, missing or all-excluded list HIDES the control (the board could not answer)', () => {
   for (const empty of [[], null, undefined]) {
-    const { listEl, wrapEl } = runRender(empty);
-    assert.equal(wrapEl.hidden, true, 'the control did not hide for ' + JSON.stringify(empty));
-    assert.equal(listEl._children.length, 0, 'rows were rendered for an empty list');
+    const { list, wrap } = render(empty);
+    assert.equal(wrap.hidden, true, 'the control did not hide for ' + JSON.stringify(empty));
+    assert.equal(list.children.length, 0);
   }
+  assert.equal(render([WORLDS[0]], 'w1').wrap.hidden, true, 'a list holding only the Kosmos being added to has nothing to offer');
 });
 
-test('#2563: a populated list renders one labelled checkbox per Kosmos with its agent count', () => {
-  const { listEl, wrapEl } = runRender([
-    { id: 'w1', name: 'Client work', agentCount: 2 },
-    { id: 'w2', name: 'Side project', agentCount: 1 },
-    { id: 'w3', name: 'Fresh', agentCount: 0 },
-  ]);
-  assert.equal(wrapEl.hidden, false, 'the control stayed hidden with Kosmoses to import from');
-  assert.equal(listEl._children.length, 3, 'expected one row per Kosmos');
-
-  const row0 = listEl._children[0];
-  const cb0 = row0._children[0];
-  const txt0 = row0._children[1];
-  assert.equal(cb0.type, 'checkbox', 'the control is not a checkbox');
-  assert.equal(cb0.value, 'w1', 'the checkbox value is not the world id (needed for importAgentsFrom)');
-  assert.equal(txt0.textContent, 'Client work (2 agents)', 'the row label/count is wrong');
-  // Singular vs plural, and the zero case.
-  assert.equal(listEl._children[1]._children[1].textContent, 'Side project (1 agent)', 'singular agent count');
-  assert.equal(listEl._children[2]._children[1].textContent, 'Fresh (0 agents)', 'zero-agent count');
+test('one group per Kosmos, headed by a box that says how many agents it holds', () => {
+  const { list, wrap } = render(WORLDS);
+  assert.equal(wrap.hidden, false);
+  const groups = list.children;
+  assert.equal(groups.length, 3);
+  assert.deepEqual(groups.map(headText), ['Client work (2 agents)', 'Side project (2 agents)', 'Fresh (0 agents)']);
+  const head = headBox(groups[0]);
+  assert.equal(head.type, 'checkbox');
+  assert.equal(head.className, 'world-import-all');
+  assert.equal(head.value, 'w1');
+  assert.equal(headBox(groups[2]).disabled, true, 'a Kosmos with no agents offers nothing to tick');
+  assert.equal(groups[0].children[0].tagName, 'LABEL', 'the head is a label wrapping its box, so its text is the box\'s name');
 });
 
-// A row is a <label> that wraps the checkbox + text, so the count text is the checkbox's
-// accessible name and the whole row is a click target (AA). Assert that structure.
-test('#2563: each row is a label wrapping the checkbox and its text (accessible name)', () => {
-  const { listEl } = runRender([{ id: 'w1', name: 'A', agentCount: 3 }]);
-  const row = listEl._children[0];
-  assert.equal(row.className, 'world-import-row');
-  assert.equal(row._children.length, 2, 'a row must hold exactly the checkbox and its label span');
-  assert.equal(row._children[0].type, 'checkbox');
-  assert.equal(row._children[1].textContent, 'A (3 agents)');
+test('one box per agent: its value is the name, it knows its Kosmos, its label is the display name', () => {
+  const { list } = render(WORLDS);
+  const [g1, g2] = list.children;
+  assert.deepEqual(agentBoxes(g1).map((b) => [b.className, b.type, b.value, b.dataset.from]),
+    [['world-import-cb', 'checkbox', 'ava', 'w1'], ['world-import-cb', 'checkbox', 'bo', 'w1']]);
+  assert.deepEqual(agentText(g1), ['Ava', 'bo']);
+  assert.equal(g1.children[1].getAttribute('role'), 'group');
+  assert.equal(g1.children[1].getAttribute('aria-label'), 'Agents in Client work');
+  // An agent that cannot be added is shown, disabled, with the reason.
+  assert.equal(agentBoxes(g2)[1].disabled, true);
+  assert.equal(agentText(g2)[1], 'x (its name cannot be used to start it in another Kosmos)');
+});
+
+test('the Kosmos box ticks every agent it can, and shows part-ticked when only some are', () => {
+  const { list } = render(WORLDS);
+  const g2 = list.children[1];
+  headBox(g2).click();
+  assert.deepEqual(agentBoxes(g2).map((b) => b.checked), [true, false], 'the disabled agent must never be ticked');
+  headBox(g2).click();
+  assert.deepEqual(agentBoxes(g2).map((b) => b.checked), [false, false]);
+
+  const g1 = list.children[0];
+  agentBoxes(g1)[0].click();
+  assert.equal(headBox(g1).indeterminate, true, 'one of two ticked is part-ticked');
+  assert.equal(headBox(g1).checked, false);
+  agentBoxes(g1)[1].click();
+  assert.equal(headBox(g1).checked, true, 'all ticked ticks the Kosmos box');
+  assert.equal(headBox(g1).indeterminate, false);
+});
+
+test('the Kosmos being added to is left out of its own picker', () => {
+  const { list } = render(WORLDS, 'w2');
+  assert.deepEqual(list.children.map(headText), ['Client work (2 agents)', 'Fresh (0 agents)']);
+});
+
+test('picks are [{from, name}] of the ticked, enabled agents; Skip\'s clear unticks everything', () => {
+  const { list, fns } = render(WORLDS);
+  box(list, 'w1', 'bo').click();
+  box(list, 'w2', 'cy').click();
+  assert.deepEqual(fns.worldImportPicks(list), [{ from: 'w1', name: 'bo' }, { from: 'w2', name: 'cy' }]);
+  fns.worldImportClear(list);
+  assert.deepEqual(fns.worldImportPicks(list), []);
+  assert.equal(list.querySelectorAll('input[type="checkbox"]').some((c) => c.checked || c.indeterminate), false);
 });
 
 async function runFetch(fetchStub) {
-  const wrap = `${FETCH}\n return worldImportFetch();`;
   // eslint-disable-next-line no-new-func
-  return new Function('fetch', wrap)(fetchStub);
+  return new Function('fetch', `${FETCH}\n return worldImportFetch();`)(fetchStub);
 }
 
-test('#2563: worldImportFetch returns the worlds on 200 and [] on ANY failure', async () => {
-  const ok = await runFetch(async () => ({
-    ok: true, json: async () => ({ worlds: [{ id: 'w1', name: 'A', agentCount: 2 }, { id: 'w2', name: 'B' }] }),
-  }));
-  assert.deepEqual(ok.map((w) => w.id), ['w1', 'w2'], 'valid worlds were dropped');
-
-  assert.deepEqual(await runFetch(async () => ({ ok: false, json: async () => ({}) })), [], 'a non-2xx (absent endpoint) must yield []');
-  assert.deepEqual(await runFetch(async () => ({ ok: true, json: async () => { throw new Error('bad'); } })), [], 'an unparseable body must yield []');
-  assert.deepEqual(await runFetch(async () => { throw new Error('network'); }), [], 'a network error must yield []');
-  // A junk shape (no worlds array) yields [], and entries missing id/name are filtered out.
-  assert.deepEqual(await runFetch(async () => ({ ok: true, json: async () => ({ worlds: 'nope' }) })), [], 'a non-array worlds must yield []');
+test('worldImportFetch returns the worlds on 200 and [] on ANY failure', async () => {
+  const ok = await runFetch(async () => ({ ok: true, json: async () => ({ worlds: [{ id: 'w1', name: 'A', agents: [] }, { id: 'w2', name: 'B' }] }) }));
+  assert.deepEqual(ok.map((w) => w.id), ['w1', 'w2']);
+  assert.deepEqual(await runFetch(async () => ({ ok: false, json: async () => ({}) })), []);
+  assert.deepEqual(await runFetch(async () => ({ ok: true, json: async () => { throw new Error('bad'); } })), []);
+  assert.deepEqual(await runFetch(async () => { throw new Error('network'); }), []);
+  assert.deepEqual(await runFetch(async () => ({ ok: true, json: async () => ({ worlds: 'nope' }) })), []);
 });
 
-async function runSubmit(nameValue, checkedIds) {
-  const captured = {};
-  const boxes = checkedIds.map((id) => ({ value: id, checked: true }))
-    .concat([{ value: 'unchecked', checked: false }]); // a present-but-unchecked box must be excluded
-  const els = {
-    'world-add-name': { value: nameValue },
-    'world-add-go': { disabled: false },
-    'world-add-msg': { textContent: '' },
-  };
-  const document = {
-    getElementById: (id) => els[id],
-    querySelectorAll: (sel) => {
-      assert.equal(sel, '#world-add-import-list .world-import-cb', 'submit read the wrong selector');
-      return boxes;
-    },
-  };
-  const fetchStub = async (url, opts) => { captured.url = url; captured.body = JSON.parse(opts.body); return { ok: true, json: async () => ({}) }; };
-  const wrap = `${SUBMIT}\n return worldAddSubmit();`;
+async function submit({ name = 'Gamma', tick = [], response = { ok: true, world: { id: 'gamma', name: 'Gamma' } }, skip = false } = {}) {
+  const { dom, list } = render(WORLDS);
+  for (const [from, agent] of tick) box(list, from, agent).click();
+  const input = dom.add('world-add-name', 'input', { value: name });
+  const go = dom.add('world-add-go', 'button');
+  const msg = dom.add('world-add-msg');
+  const cancel = dom.add('world-add-cancel', 'button', { textContent: 'Cancel' });
+  const seen = { url: null, posted: null, closed: false, switched: false };
+  const fetchStub = async (url, opts) => { seen.url = url; seen.posted = JSON.parse(opts.body); return { ok: true, json: async () => response }; };
   // eslint-disable-next-line no-new-func
-  await new Function('document', 'fetch', 'worldAddClose', 'worldsFetch', 'worldswOpen', wrap)(
-    document, fetchStub, () => {}, async () => {}, () => {},
+  const fns = new Function('document', 'fetch', 'worldAddClose', 'worldsFetch', 'worldswOpen',
+    `${AS_SENTENCE}\n${PICKS}\n${CLEAR}\n${OUTCOME}\n${SKIP}\n${SUBMIT}\nreturn { worldAddSubmit, worldAddSkip };`)(
+    dom.document, fetchStub, () => { seen.closed = true; }, async () => {}, () => { seen.switched = true; },
   );
-  return captured;
+  if (skip) fns.worldAddSkip();
+  await fns.worldAddSubmit();
+  return { seen, msg, go, cancel, input, dom };
 }
 
-test('#2563: the create payload carries importAgentsFrom ONLY when a Kosmos is checked', async () => {
-  const withImport = await runSubmit('My Kosmos', ['w1', 'w2']);
-  assert.equal(withImport.url, '/api/worlds');
-  assert.deepEqual(withImport.body, { name: 'My Kosmos', importAgentsFrom: ['w1', 'w2'] },
-    'checked Kosmoses must be sent as importAgentsFrom (and an unchecked box excluded)');
+test('the create payload carries importAgents ONLY when an agent is ticked; nothing ticked, or Skip, is exactly { name }', async () => {
+  const withPicks = await submit({ tick: [['w1', 'ava'], ['w2', 'cy']], response: { ok: true, world: { id: 'gamma', name: 'Gamma' }, imported: { copied: [], refused: [], started: [], waiting: [], later: [] } } });
+  assert.equal(withPicks.seen.url, '/api/worlds');
+  assert.deepEqual(withPicks.seen.posted, { name: 'Gamma', importAgents: [{ from: 'w1', name: 'ava' }, { from: 'w2', name: 'cy' }] });
 
-  const noImport = await runSubmit('Plain', []);
-  assert.deepEqual(noImport.body, { name: 'Plain' },
-    'with nothing checked the payload must be byte-identical to today ({ name }), no importAgentsFrom key');
-  assert.equal(Object.prototype.hasOwnProperty.call(noImport.body, 'importAgentsFrom'), false,
-    'importAgentsFrom must be absent, not present-and-empty, so existing create behaviour is untouched');
+  const plain = await submit({ name: 'Plain' });
+  assert.deepEqual(plain.seen.posted, { name: 'Plain' });
+  assert.equal(Object.prototype.hasOwnProperty.call(plain.seen.posted, 'importAgents'), false);
+
+  const skipped = await submit({ name: 'Skipped', tick: [['w1', 'ava']], skip: true });
+  assert.deepEqual(skipped.seen.posted, { name: 'Skipped' }, 'Skip must mean "add none"');
 });
 
-// Run worldAddSubmit against a chosen 200 response body and observe what the UI did (message,
-// whether it closed/switched, the button state). The engine returns `imported` on a
-// create-with-import; the slice must surface a genuine import failure rather than close silently.
-async function runSubmitOutcome(nameValue, checkedIds, responseBody) {
-  const captured = { closed: false, switched: false };
-  const boxes = checkedIds.map((id) => ({ value: id, checked: true }));
-  const els = {
-    'world-add-name': { value: nameValue },
-    'world-add-go': { disabled: false },
-    'world-add-msg': { textContent: '' },
-  };
-  const document = { getElementById: (id) => els[id], querySelectorAll: () => boxes };
-  const fetchStub = async () => ({ ok: true, json: async () => responseBody });
-  const wrap = `${SUBMIT}\n return worldAddSubmit();`;
-  // eslint-disable-next-line no-new-func
-  await new Function('document', 'fetch', 'worldAddClose', 'worldsFetch', 'worldswOpen', wrap)(
-    document, fetchStub, () => { captured.closed = true; }, async () => {}, () => { captured.switched = true; },
-  );
-  return { els, captured };
-}
+test('Skip hands focus to Create when it can be pressed, and to the name when it cannot', () => {
+  for (const [goDisabled, want] of [[false, 'world-add-go'], [true, 'world-add-name']]) {
+    const { dom } = render(WORLDS);
+    dom.add('world-add-name', 'input');
+    dom.add('world-add-go', 'button', { disabled: goDisabled });
+    // eslint-disable-next-line no-new-func
+    new Function('document', `${CLEAR}\n${SKIP}\nworldAddSkip();`)(dom.document);
+    assert.equal(dom.focused().id, want);
+  }
+});
 
-test('#2563: a create whose import FAILED surfaces the outcome and does not close silently', async () => {
-  // Hard failure: the engine caught importAgents throwing -> imported.error, 0 copied.
-  const hard = await runSubmitOutcome('New', ['w1'],
-    { ok: true, world: { id: 'wn', name: 'New' }, imported: { copied: 0, skipped: 0, failed: 0, unknownSources: 0, error: true } });
-  assert.match(hard.els['world-add-msg'].textContent, /created, but its agents could not be imported/,
-    'a hard import failure must be announced, not swallowed');
-  assert.equal(hard.captured.closed, false, 'the modal must stay open so the person sees the import failure');
-  assert.equal(hard.els['world-add-go'].disabled, true, 'Create stays disabled (the Kosmos exists; re-submit would duplicate the name)');
+test('what the import did is SAID: an agent that starts when the new Kosmos opens keeps the dialog open with that sentence, and Cancel becomes Done', async () => {
+  const r = await submit({ tick: [['w1', 'ava']], response: { ok: true, world: { id: 'gamma', name: 'Gamma' },
+    imported: { copied: [{ from: 'w1', name: 'ava', displayName: 'Ava' }], refused: [], started: [], waiting: [], later: ['ava'] } } });
+  assert.equal(r.msg.textContent, 'Your Kosmos was created. Added Ava to Gamma. Ava starts when you open Gamma.');
+  assert.equal(r.seen.closed, false, 'an agent that is not running yet was closed over as if it were running');
+  assert.equal(r.dom.focused() && r.dom.focused().id, 'world-add-cancel', 'focus was left on Create, which is now disabled');
+  assert.equal(r.cancel.textContent, 'Done');
+  assert.equal(r.go.disabled, true, 'a re-press would try to make the same Kosmos again');
+});
 
-  // Partial failure: some copied, at least one profile failed to copy.
-  const partial = await runSubmitOutcome('New', ['w1'],
-    { ok: true, world: {}, imported: { copied: 2, skipped: 0, failed: 1, unknownSources: 0 } });
-  assert.match(partial.els['world-add-msg'].textContent, /some agents could not be copied/,
-    'a partial import failure must be surfaced');
-  assert.equal(partial.captured.closed, false, 'a partial failure keeps the modal open too');
+test('a refused agent is named with its reason; a thrown import and an unreadable answer are said too', async () => {
+  const refused = await submit({ tick: [['w1', 'ava']], response: { ok: true, world: { id: 'gamma', name: 'Gamma' },
+    imported: { copied: [], refused: [{ from: 'w1', name: 'ava', because: 'Gamma already has an agent called ava' }], started: [], waiting: [], later: [] } } });
+  assert.equal(refused.msg.textContent, 'Your Kosmos was created. Not added: ava, because Gamma already has an agent called ava.');
 
-  // Full success: closes + opens the switcher exactly as before, no lingering error.
-  const ok = await runSubmitOutcome('New', ['w1'],
-    { ok: true, world: {}, imported: { copied: 3, skipped: 0, failed: 0, unknownSources: 0 } });
-  assert.equal(ok.captured.closed, true, 'a fully-successful import closes the modal as before');
-  assert.equal(ok.captured.switched, true, 'and opens the switcher');
+  const thrown = await submit({ tick: [['w1', 'ava']], response: { ok: true, world: {}, imported: { copied: [], refused: [], started: [], waiting: [], later: [], error: true } } });
+  assert.match(thrown.msg.textContent, /could not finish adding its agents\. Some may have been added/,
+    'a failure that can come after some agents were copied must not say none were added');
 
-  // copied === 0 with no error/failed/unknownSources (all selected Kosmoses were empty) is NOT a
-  // failure -- it must take the normal success path, not the surface-the-failure path.
-  const empty = await runSubmitOutcome('New', ['w1'],
-    { ok: true, world: {}, imported: { copied: 0, skipped: 0, failed: 0, unknownSources: 0 } });
-  assert.equal(empty.captured.closed, true,
-    'copied 0 with no error/failed (an empty source Kosmos) is success, not a failure to surface');
+  const unknown = await submit({ tick: [['w1', 'ava']], response: { ok: true, world: {} } });
+  assert.match(unknown.msg.textContent, /could not confirm whether its agents were added/);
+  assert.equal(unknown.seen.closed, false);
+});
 
-  // Unknown outcome: a 200 whose body carries no readable `imported` (a truncated/proxied response,
-  // or an unexpected shape) must NOT close as full success -- we asked to import and cannot confirm
-  // it ran. Mirrors the !res.ok branch's defensive parsing.
-  const unknown = await runSubmitOutcome('New', ['w1'], { ok: true, world: {} });
-  assert.match(unknown.els['world-add-msg'].textContent, /could not confirm whether its agents were imported/,
-    'a 200 with no readable imported result must surface an unknown-outcome message, not silent success');
-  assert.equal(unknown.captured.closed, false, 'an unconfirmable import keeps the modal open');
+test('only when every agent is starting now does the dialog close and open the switcher, as before', async () => {
+  const r = await submit({ tick: [['w1', 'ava']], response: { ok: true, world: { id: 'gamma', name: 'Gamma' },
+    imported: { copied: [{ from: 'w1', name: 'ava', displayName: 'Ava' }], refused: [], started: ['ava'], waiting: [], later: [] } } });
+  assert.equal(r.seen.closed, true);
+  assert.equal(r.seen.switched, true);
+});
 
-  // skipped-only (a profile whose name the target already holds) is NOT a failure -> success path.
-  const skipped = await runSubmitOutcome('New', ['w1'],
-    { ok: true, world: {}, imported: { copied: 1, skipped: 2, failed: 0, unknownSources: 0 } });
-  assert.equal(skipped.captured.closed, true,
-    'skipped>0 with no error/failed/unknownSources is success (deliberately excluded from the failure condition)');
+test('the step keeps Josh\'s wording and layout, and Skip is always there', () => {
+  const modal = PAGE.slice(PAGE.indexOf('<div class="rm-back" id="world-add-modal"'), PAGE.indexOf('<div class="rm-back" id="world-rename-modal"'));
+  assert.match(modal, /<h2 class="rm-title" id="world-add-t">New Kosmos<\/h2>/);
+  assert.match(modal, /id="world-add-import-lab">Add my agents from</);
+  assert.match(modal, /Bring copies of another Kosmos's agents into this one\. They stay in the original too\./);
+  assert.match(modal, /<button class="btn" id="world-add-skip" type="button">Skip<\/button>/);
+  assert.doesNotMatch(modal.match(/id="world-add-skip"[^>]*>/)[0], /disabled/, 'Skip must never be disabled');
+  assert.match(modal, /id="world-add-import-list" role="group" aria-labelledby="world-add-import-lab"/);
+  assert.match(PAGE, /getElementById\('world-add-skip'\)\.addEventListener\('click', worldAddSkip\)/, 'Skip is not wired');
 });

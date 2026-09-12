@@ -76,9 +76,24 @@ test('world-guard-lift-1704: no named-world spawn refusal remains, and no resume
   for (const call of opened) {
     assert.match(call, /\(\s*\)$/, `${call} passes a gate: a resume on opening a Kosmos starts that Kosmos's own agents`);
   }
+  /* #1704 PR4: an import into the OPEN Kosmos starts by the same resume, handed only
+     the names it copied: no gate of its own, named Kosmos or not. */
+  const imports = code.match(/worldstarts\.startImported\([^)]*\)/g) || [];
+  assert.deepEqual(imports, ['worldstarts.startImported(names)'],
+    'the import no longer starts through worldstarts, or it passes a gate again');
   const engine = fs.readFileSync(nodePath.join(__dirname, 'engine', 'worldstarts.js'), 'utf8');
   assert.doesNotMatch(engine, /bootedWorld|DEFAULT_ID|spawnRefusal|currentWorldId|KOSMOS_WORLD/,
     'engine/worldstarts derives a world (or a spawn rule) itself instead of acting through remove.jobFor\'s keyed identity');
+  /* And the importer decides nothing about who may start: it copies and records. */
+  const importer = fs.readFileSync(nodePath.join(__dirname, 'engine', 'worldimport.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  assert.doesNotMatch(importer, /bootedWorld|DEFAULT_ID|spawnRefusal|startImported|installJob/,
+    'engine/worldimport decides or performs a start; that is worldstarts\' job');
+  const routeAt = code.indexOf('function importIntoWorld(');
+  assert.ok(routeAt >= 0, 'importIntoWorld moved or was renamed; re-anchor this test');
+  const importRoute = code.slice(routeAt, code.indexOf('\nfunction ', routeAt + 1));
+  assert.doesNotMatch(importRoute, /Refusal|barred/, 'an import into a Kosmos that is not open asks a named-world rule again');
+  assert.match(importRoute, /imported\.later = names/, 'an import into a Kosmos that is not open no longer starts when it opens');
 });
 
 test('#1228: toldOverride can reuse a store list a caller already holds', () => {

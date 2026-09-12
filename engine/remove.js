@@ -68,7 +68,8 @@ const OUTCOME = { REMOVED: 'removed', RESTORED: 'restored', RESTARTED: 'restarte
  * and the day somebody does, the removed list silently stops being found — a
  * board that quietly un-hides every removed agent, with nothing to explain it.
  */
-const REMOVED_FILE = path.join(store.ROOT, 'removed.json');
+const REMOVED_FILENAME = 'removed.json';
+const REMOVED_FILE = path.join(store.ROOT, REMOVED_FILENAME);
 
 /* ── the runner seam ─────────────────────────────────────────────────────── */
 
@@ -201,10 +202,10 @@ function readRemoved() {
 /** Sentinel: the file is there and we could not read it. NOT the same as absent. */
 const UNREADABLE = Symbol('removed-list-unreadable');
 
-function readRemovedForWrite() {
+function readRemovedForWrite(file = REMOVED_FILE) {
   let raw;
   try {
-    raw = fs.readFileSync(REMOVED_FILE, 'utf8');
+    raw = fs.readFileSync(file, 'utf8');
   } catch (err) {
     // ENOENT is the ordinary first-run case: nothing has ever been removed.
     if (err && err.code === 'ENOENT') return [];
@@ -241,11 +242,17 @@ function writeRemoved(list) {
  * removal promises will not happen — so a caller that is about to act gets the
  * failure rather than an empty list, and can refuse.
  */
-function removedNames() {
-  const got = readRemovedForWrite();
+function removedNamesFrom(file) {
+  const got = readRemovedForWrite(file);
   if (got === UNREADABLE) return { ok: false, names: [] };
   return { ok: true, names: got.map((r) => r.name) };
 }
+function removedNames() { return removedNamesFrom(REMOVED_FILE); }
+
+/* The same answer for ANOTHER Kosmos, whose store this process is not serving
+   (#1704 PR4): importing an agent from a Kosmos must not offer or copy one the
+   person removed there. Same parser, same "could not read" answer. */
+function removedNamesIn(storeRoot) { return removedNamesFrom(path.join(storeRoot, REMOVED_FILENAME)); }
 
 /** Is this agent currently removed from Kosmos? */
 function isRemoved(name) {
@@ -488,7 +495,10 @@ function sessionOps(platform, tmuxBin) {
   };
 }
 
-function jobFor(name, platform) {
+/* `worldId` (#1704 PR4 review round 3): the same answer about ANOTHER Kosmos --
+   an import asks it of the Kosmos it copies INTO, which is not always the one this
+   board serves. Absent means this process's own world, which is every other caller. */
+function jobFor(name, platform, worldId) {
   const clean = create.cleanName(name);
   /* 🔑 ON WINDOWS THE JOB IS A SCHEDULED TASK, and there is no file to stat. The
      registration itself is the record, so `status` answers the question
@@ -497,11 +507,11 @@ function jobFor(name, platform) {
      platform the honest answer is "that is not how it starts" -- `jobOps`
      provides `startableGone` so nobody has to infer it from a null. */
   if ((platform || process.platform) === 'win32') {
-    const st = win32job.status(clean);
-    return st.registered ? { label: win32job.taskName(clean), plist: null, ours: true } : null;
+    const st = win32job.status(clean, worldId);
+    return st.registered ? { label: win32job.taskName(clean, worldId), plist: null, ours: true } : null;
   }
   const candidates = [
-    { label: create.serviceLabel(clean), plist: create.plistPath(clean), ours: true },
+    { label: create.serviceLabel(clean, worldId), plist: create.plistPath(clean, worldId), ours: true },
   ];
   /* 🛑 THE LEGACY `com.<name>.discord` JOB IS KOSMOS 1'S, AND THIS IS THE ONE PLACE
      THAT SAYS SO (#1704). Its label carries no world key, so it predates every named
@@ -509,7 +519,7 @@ function jobFor(name, platform) {
      Remove there switched it off (and a Restore switched it back on) whenever that
      world had no keyed plist of its own for the name: a half-failed create, a
      same-name import, or a plist deleted by hand. So a named Kosmos never sees it. */
-  if (launchidentity.isDefaultWorld(launchidentity.currentWorldId())) {
+  if (launchidentity.isDefaultWorld(worldId === undefined ? launchidentity.currentWorldId() : worldId)) {
     candidates.push({
       label: `com.${clean}.discord`,
       plist: path.join(path.dirname(create.plistPath(clean)), `com.${clean}.discord.plist`),
@@ -686,7 +696,19 @@ function recordRemoval(clean, job, stopped, shownAs, leftRunningByChoice) {
   } catch {
     return false;
   }
+  forgetPendingStart(clean);
   return isRemoved(clean);
+}
+
+/* #1704 PR4 review round 3 (10): a removed agent comes off its Kosmos's list of
+   agents to start (world-starts.json: one a switch paused, or one an import copied
+   in that has not started yet). The start pass already skips removed names, but
+   until it runs the settings pane listed the agent as waiting, and a restore before
+   then would have started it. Required at call time: worldstarts requires this
+   module, so a top-level require would be a cycle. */
+function forgetPendingStart(clean) {
+  try { require('./worldstarts').forgetEntries([clean]); }
+  catch (err) { process.stderr.write(`Kosmos removed ${clean} but could not take it off its list of agents to start (${(err && err.code) || 'unknown'}); the next start pass skips it.\n`); }
 }
 
 /**
@@ -1899,6 +1921,7 @@ module.exports = {
   forget,
   isRemoved,
   removedNames,
+  removedNamesIn,   // #1704 PR4: another Kosmos's removed list, for the import
   removedAgents,
   restoreBlockedByMissingAccountDir,   // #2615: the screen and the refusal read ONE predicate
   jobFor,

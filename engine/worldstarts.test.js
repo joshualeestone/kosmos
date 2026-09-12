@@ -45,6 +45,7 @@ let failing = [];           // substrings of a command that should fail
 let onFirstCall = null;     // runs once, before the first command is answered
 let macDisabled = new Set(); // agents launchd reports switched off (print-disabled)
 let winDisabled = new Set(); // agents whose Scheduled Task reports Disabled
+let winMissing = new Set();  // agents with no Scheduled Task at all (an import's first start)
 
 function answerMac(file, args) {
   const line = [nodePath.basename(file), ...args].join(' ');
@@ -61,6 +62,7 @@ function answerWin(args) {
   if (onFirstCall) { const f = onFirstCall; onFirstCall = null; f(); }
   calls.push(line);
   if (args[0] === '/Query') {
+    if ([...winMissing].some((n) => args.includes(win32job.taskName(n)))) return { ok: false, out: 'ERROR: The system cannot find the file specified.' };
     const off = [...winDisabled].some((n) => args.includes(win32job.taskName(n)));
     return { ok: true, out: off ? 'Status: Disabled\n' : 'Status: Ready\n' };
   }
@@ -104,7 +106,7 @@ const writeRecord = (entries) => {
 
 test.beforeEach(() => {
   calls = []; failing = []; onFirstCall = null;
-  macDisabled = new Set(); winDisabled = new Set();
+  macDisabled = new Set(); winDisabled = new Set(); winMissing = new Set();
   remove.setRunner(answerMac);
   create.setRunner(answerCreate);
   win32job.setRunner(answerWin);
@@ -546,6 +548,167 @@ test('R3: an agent an EARLIER pause stopped is in paused but NOT in stoppedNow (
   assert.deepEqual(out.stoppedNow, ['bo']);
 });
 
+/* ── #1704 PR4: imported agents start through the same resume ─────────── */
+
+const importEntry = (name, extra = {}) => ({ name, why: 'imported', at: new Date().toISOString(), from: 'src', runner: 'claude', ...extra });
+function withInstallJob(fake, fn) {
+  const real = create.installJob;
+  create.installJob = fake;
+  try { return fn(); } finally { create.installJob = real; }
+}
+
+test('PR4: an imported agent\'s first start is installJob, handed the runner, model and account the import read', () => {
+  writeRecord([importEntry('dee', { runner: 'codex', model: 'gpt-5', configDir: '/Users/x/.codex-work' }), importEntry('eli')]);
+  const got = [];
+  const r = withInstallJob((name, opts) => { got.push({ name, opts }); return { ok: true, started: true }; },
+    () => worldstarts.resumePaused({ platform: MAC }));
+  assert.deepEqual(r.resumed, ['dee', 'eli']);
+  assert.deepEqual(got, [
+    { name: 'dee', opts: { platform: MAC, runner: 'codex', model: 'gpt-5', configDir: '/Users/x/.codex-work' } },
+    { name: 'eli', opts: { platform: MAC } },
+  ]);
+  assert.deepEqual(readRecord().entries, [], 'a started import stayed on the list to start');
+});
+
+test('PR4 (Mac, end to end in dry-run): the copy\'s Claude folder is trusted, then installJob enables and bootstraps its job', () => {
+  fs.mkdirSync(create.workerDir('fae'), { recursive: true });
+  writeRecord([importEntry('fae')]);
+  const seen = [];
+  create.setRunner((file, args) => { seen.push([nodePath.basename(file), ...args].join(' ')); return answerCreate(file, args); });
+  create.setDryRun(true);
+  try {
+    const r = worldstarts.resumePaused({ platform: MAC });
+    assert.deepEqual(r.held, []);
+    assert.deepEqual(r.resumed, ['fae']);
+    assert.ok(seen.includes(`launchctl enable gui/${UID}/${create.serviceLabel('fae')}`), 'no enable: ' + JSON.stringify(seen));
+    assert.ok(seen.includes(`launchctl bootstrap gui/${UID} ${create.plistPath('fae')}`), 'no bootstrap: ' + JSON.stringify(seen));
+    const cfg = fs.readFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, 'utf8');
+    assert.ok(cfg.includes('fae') && cfg.includes('hasTrustDialogAccepted'),
+      'the copy\'s new folder was not trusted, so it would park on Claude\'s trust prompt');
+  } finally {
+    create.setDryRun(false);
+    create.setRunner(answerCreate);
+  }
+});
+
+test('PR4: an imported agent whose job already exists (a restart after a lost record write) is enabled and started, not reinstalled', () => {
+  writeRecord([importEntry('ava')]);
+  const r = withInstallJob(() => { throw new Error('installJob must not run for an agent that has a job'); },
+    () => worldstarts.resumePaused({ platform: MAC }));
+  assert.deepEqual(r.resumed, ['ava']);
+  assert.deepEqual(calls, [
+    `launchctl enable gui/${UID}/${create.serviceLabel('ava')}`,
+    `launchctl bootstrap gui/${UID} ${create.plistPath('ava')}`,
+  ]);
+});
+
+test('PR4: a job registered but not started keeps its entry, with the sentence, for the next pass', () => {
+  writeRecord([importEntry('gil')]);
+  const r = withInstallJob(() => ({ ok: true, started: false }), () => worldstarts.resumePaused({ platform: MAC }));
+  assert.deepEqual(r.resumed, []);
+  assert.equal(r.held[0].because, 'we could not start gil now; it starts at your next login');
+  assert.equal(readRecord().entries[0].because, 'we could not start gil now; it starts at your next login');
+});
+
+test('PR4: startImported starts only the IMPORTED names it is given', () => {
+  writeRecord([{ name: 'bo', why: 'paused', at: new Date().toISOString() }, importEntry('ava'), importEntry('cy')]);
+  const r = worldstarts.startImported(['ava', 'bo'], { platform: MAC });
+  assert.deepEqual(r.resumed, ['ava'], 'a paused agent was started as if it had been imported');
+  assert.equal(calls.some((c) => c.includes('.bo') || c.includes('.cy')), false);
+  assert.deepEqual(readRecord().entries.map((e) => e.name), ['bo', 'cy']);
+});
+
+test('post-lift: startImported takes no gate beyond live execution -- a named Kosmos\'s import starts at once', () => {
+  writeRecord([importEntry('dee')]);
+  const got = [];
+  const r = withInstallJob((name) => { got.push(name); return { ok: true, started: true }; },
+    () => worldstarts.startImported(['dee'], { platform: MAC }));
+  assert.deepEqual(r.resumed, ['dee']);
+  assert.deepEqual(got, ['dee'], 'an import into the open Kosmos was held instead of started');
+});
+
+test('R3 (5): a trust write that throws is logged with its code -- never the account folder -- and the start goes on', () => {
+  const trust = require('./trust');
+  const realTrust = trust.trustFolder;
+  trust.trustFolder = () => { const e = new Error('denied'); e.code = 'EACCES'; throw e; };
+  writeRecord([importEntry('tee', { configDir: nodePath.join(SANDBOX, 'acct-secret') })]);
+  const real = process.stderr.write;
+  const lines = [];
+  process.stderr.write = (chunk) => { lines.push(String(chunk)); return true; };
+  let r;
+  try {
+    r = withInstallJob(() => ({ ok: true, started: true }), () => worldstarts.startImported(['tee'], { platform: MAC }));
+  } finally {
+    process.stderr.write = real;
+    trust.trustFolder = realTrust;
+  }
+  assert.deepEqual(r.resumed, ['tee'], 'a failed trust write stopped the start');
+  assert.ok(lines.some((l) => l.includes('tee') && l.includes('EACCES')), 'the trust failure was silent: ' + lines.join(''));
+  assert.equal(lines.join('').includes('acct-secret'), false, 'an account folder was logged');
+});
+
+test('R3 (10): forgetEntries takes a name off the list to start; importsWaitingIn skips a name on that Kosmos\'s removed list', () => {
+  writeRecord([importEntry('ava'), importEntry('bo')]);
+  fs.mkdirSync(nodePath.dirname(remove.REMOVED_FILE), { recursive: true });
+  fs.writeFileSync(remove.REMOVED_FILE, JSON.stringify([{ name: 'bo' }]));
+  assert.deepEqual(worldstarts.importsWaitingIn(nodePath.dirname(worldstarts.RECORD_FILE)).map((e) => e.name), ['ava'],
+    'a removed agent is still listed as waiting');
+  worldstarts.forgetEntries(['ava']);
+  assert.deepEqual(readRecord().entries.map((e) => e.name), ['bo']);
+});
+
+test('R4: forgetEntries drops only the named entry, whatever its reason -- a paused and an imported agent under other names stay', () => {
+  const at = new Date().toISOString();
+  writeRecord([{ name: 'pat', why: 'paused', at }, importEntry('imo')]);
+  worldstarts.forgetEntries(['pat']);
+  assert.deepEqual(readRecord().entries.map((e) => [e.name, e.why]), [['imo', 'imported']], 'removing one agent took another agent\'s entry');
+  writeRecord([{ name: 'pat', why: 'paused', at }, importEntry('imo')]);
+  worldstarts.forgetEntries(['imo']);
+  assert.deepEqual(readRecord().entries.map((e) => [e.name, e.why]), [['pat', 'paused']]);
+  worldstarts.forgetEntries(['nobody']);
+  assert.deepEqual(readRecord().entries.map((e) => e.name), ['pat'], 'forgetting a name with no entry changed the list');
+});
+
+test('post-lift: an entry still carrying a pre-lift named-world sentence is read with no reason, not shown as barred', () => {
+  const stale = [
+    'Agents do not run in a named Kosmos yet, so it waits there and starts on its own once they can.',
+    'Kosmos is running a named world, which does not run agents yet. Switch back to Kosmos 1 (the default world) to create agents.',
+  ];
+  writeRecord([importEntry('old1', { because: stale[0] }), importEntry('old2', { because: stale[1] }), importEntry('real', { because: 'we could not start real now; it starts at your next login' })]);
+  assert.deepEqual(worldstarts.importsWaitingIn(nodePath.dirname(worldstarts.RECORD_FILE)), [
+    { name: 'old1', because: null },
+    { name: 'old2', because: null },
+    { name: 'real', because: 'we could not start real now; it starts at your next login' },
+  ]);
+});
+
+test('PR4: live execution OFF holds imported agents with a sentence that does not claim nothing changed', () => {
+  liveExec.resetForTests();
+  writeRecord([importEntry('dee')]);
+  const r = withInstallJob(() => { throw new Error('installJob ran with live execution off'); },
+    () => worldstarts.startImported(['dee'], { platform: MAC }));
+  assert.equal(r.held[0].because, 'Kosmos is not allowed to start agents from here, so it has not been started yet');
+  assert.match(String(r.refused), /test process/);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(readRecord().entries.map((e) => e.name), ['dee'], 'it must stay recorded for the next boot');
+});
+
+test('PR4: recordImport writes into ANOTHER Kosmos\'s store; importsWaitingIn reads it back; a same-name entry is replaced', () => {
+  const root = fs.mkdtempSync(nodePath.join(SANDBOX, 'other-kosmos-'));
+  assert.deepEqual(worldstarts.recordImport(root, { name: 'zed', from: 'default', runner: 'claude', model: null, configDir: null }), { ok: true });
+  assert.deepEqual(worldstarts.recordImport(root, { name: 'zed', from: 'default', runner: 'codex', model: 'gpt-5' }), { ok: true });
+  const entries = JSON.parse(fs.readFileSync(worldstarts.recordFileIn(root), 'utf8')).entries;
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].runner, 'codex');
+  assert.equal(entries[0].model, 'gpt-5');
+  assert.deepEqual(worldstarts.importsWaitingIn(root), [{ name: 'zed', because: null }]);
+  assert.equal(fs.existsSync(worldstarts.RECORD_FILE), false, 'the booted world\'s record was written instead');
+  // An unreadable record there is refused, never overwritten.
+  fs.writeFileSync(worldstarts.recordFileIn(root), '{ not json');
+  assert.equal(worldstarts.recordImport(root, { name: 'amy', from: 'default', runner: 'claude' }).ok, false);
+  assert.equal(fs.readFileSync(worldstarts.recordFileIn(root), 'utf8'), '{ not json');
+});
+
 test('an unreadable record is refused, never rewritten from empty', () => {
   fs.mkdirSync(nodePath.dirname(worldstarts.RECORD_FILE), { recursive: true });
   fs.writeFileSync(worldstarts.RECORD_FILE, '{ not json');
@@ -554,4 +717,22 @@ test('an unreadable record is refused, never rewritten from empty', () => {
   assert.match(out.notPaused[0].because, /could not read the list/);
   assert.equal(calls.some((c) => /disable|bootout/.test(c)), false, 'nothing may stop without its entry written first');
   assert.equal(fs.readFileSync(worldstarts.RECORD_FILE, 'utf8'), '{ not json', 'the unreadable record was overwritten');
+});
+
+test('R1 TEST-GAP (Windows, the path this box ships): no task yet -> the folder is trusted on its account, then installJob gets the win32 spec', () => {
+  winMissing.add('wen');
+  fs.mkdirSync(create.workerDir('wen'), { recursive: true });
+  const account = nodePath.join(SANDBOX, 'acct-wen');
+  fs.mkdirSync(account, { recursive: true });
+  writeRecord([importEntry('wen', { model: 'claude-opus-4', configDir: account })]);
+  const got = [];
+  const r = withInstallJob((name, opts) => { got.push({ name, opts }); return { ok: true, started: true }; },
+    () => worldstarts.startImported(['wen'], { platform: WIN }));
+  assert.deepEqual(r.held, []);
+  assert.deepEqual(r.resumed, ['wen']);
+  assert.ok(calls.some((c) => c.includes('/Query') && c.includes(win32job.taskName('wen'))), 'the start never looked for the task');
+  assert.equal(calls.some((c) => /\/Change|\/Run/.test(c)), false, 'a task that is not there was enabled or run');
+  assert.deepEqual(got, [{ name: 'wen', opts: { platform: WIN, model: 'claude-opus-4', configDir: account } }]);
+  const cfg = fs.readFileSync(nodePath.join(account, '.claude.json'), 'utf8');
+  assert.ok(cfg.includes('wen') && cfg.includes('hasTrustDialogAccepted'), 'the copy was not trusted on the account it will run on');
 });

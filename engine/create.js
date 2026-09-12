@@ -230,7 +230,7 @@ function homeDir() { return process.env.AGENT_WORKFORCE_HOME || os.homedir(); }
    time, so making homeDir() lazy moved the freeze up one level rather
    than removing it: measured, `create.workerDir()` still returned the
    real machine with the seam set after require. */
-function workersDir() { return process.env.AGENT_WORKFORCE_WORKERS || path.join(homeDir(), 'work', 'workers'); }
+function workersDir() { return store.workersRootFor(process.env, homeDir()); }
 /* 🛑 A FUNCTION (#1432). As a const this CALLED `homeDir()` at require
    time, so making homeDir() lazy moved the freeze up one level rather
    than removing it: measured, `create.workerDir()` still returned the
@@ -563,6 +563,12 @@ function nameProblem(raw) {
 function agentDirRecorded(name) {
   let dir;
   try { dir = store.readProfile(name).dir; } catch { return null; }
+  return usableRecordedDir(dir);
+}
+/* The validation above, on a folder value already in hand. Exported so importing an
+   agent from ANOTHER Kosmos (engine/worldimport.js) finds its brief by the same rule,
+   reading that Kosmos's profile rather than this store's (#1704 PR4). */
+function usableRecordedDir(dir) {
   if (typeof dir !== 'string' || !dir || !path.isAbsolute(dir)) return null;
   let st;
   try { st = fs.lstatSync(dir); } catch { return null; }
@@ -656,16 +662,19 @@ function nameUsable(raw) {
  * defaults to the real platform, so production is unchanged. Same shape as
  * `installJob`'s `opts.platform`, `remove.jobFor` and `store.dataRootFor`.
  */
-function jobPresence(name, platform) {
+/* `worldId` (#1704 PR4): the same question about ANOTHER Kosmos, under that world's
+   launch key -- an import asks it of the Kosmos it is copying INTO, which is not
+   always the one this process serves. Absent means this process's own world. */
+function jobPresence(name, platform, worldId) {
   if ((platform || process.platform) === 'win32') {
     /* require at CALL time, matching win32RegisterJob below: this module is
        required by half the engine and win32job pulls in the anchor. */
     let p;
-    try { p = require('./win32job').presence(name); } catch { return 'unknown'; }
+    try { p = require('./win32job').presence(name, worldId); } catch { return 'unknown'; }
     if (!p.known) return 'unknown';
     return p.registered ? 'yes' : 'no';
   }
-  try { fs.statSync(plistPath(name)); return 'yes'; } catch (e) {
+  try { fs.statSync(plistPath(name, worldId)); return 'yes'; } catch (e) {
     // Only ENOENT is evidence of absence; EACCES and a broken directory are not.
     return (e && e.code === 'ENOENT') ? 'no' : 'unknown';
   }
@@ -835,10 +844,12 @@ function plannedModelArg(name) {
  * author of the third field having to find and patch two call sites. Tonight's
  * own lesson, twice over: a new sibling does not inherit the guard.
  */
-function readJob(name) {
+/* `worldId` (#1704 PR4): read ANOTHER Kosmos's job, whose label carries that world's
+   key. Absent means this process's own world, which is every caller before import. */
+function readJob(name, worldId) {
   if (!NAME_RE.test(String(name == null ? '' : name))) return null;
   let text;
-  try { text = fs.readFileSync(plistPath(name), 'utf8'); } catch { return null; }
+  try { text = fs.readFileSync(plistPath(name, worldId), 'utf8'); } catch { return null; }
   const block = text.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/);
   const args = block ? [...block[1].matchAll(/<string>([\s\S]*?)<\/string>/g)].map((x) => unxml(x[1])) : [];
   // 0 bash, 1 supervisor, 2 name, 3 worker dir, 4 runner-bin, 5 tmux,
@@ -4272,6 +4283,7 @@ module.exports = {
   SERVICE_LABEL_PREFIX,
   parseServiceLabel,
   workerDir,
+  usableRecordedDir,
   /* #923: the ONE home resolver (AGENT_WORKFORCE_HOME || os.homedir(), #1780),
      exported so server.js's startup chdir reuses it rather than deriving
      os.homedir() a second time (server.js:477-486 names that anti-pattern), and

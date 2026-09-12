@@ -70,6 +70,7 @@ const {
 } = require('./engine/status');
 const removal = require('./engine/remove');
 const worldstarts = require('./engine/worldstarts'); // #1704 PR3: pause/resume a Kosmos's agents across a switch
+const worldimport = require('./engine/worldimport'); // #1704 PR4: copy agents from one Kosmos into another
 
 /* #2128: does this MACHINE currently depend on a Claude subscription? The
    "cannot reach a Claude subscription" banner (renderConnection) must fire only
@@ -268,6 +269,47 @@ function worldCreateReason(e) {
   const m = String((e && e.message) || '');
   if (/invalid agent name/i.test(m)) return 'that is not a name we can use for a Kosmos (use letters, numbers, - or _)';
   return m || 'we could not create that Kosmos';
+}
+/* #1704 PR4: copy the picked agents into Kosmos `targetId`, then start them the ONE
+   way agents start when their Kosmos opens (engine/worldstarts). Shared by the create
+   route and the settings route, so the two cannot answer differently. Returns null
+   for a Kosmos that does not exist.
+   `imported`: copied [{from,name,displayName}], refused [{from,name,because}],
+   started [names] (now: the target is the Kosmos this board is serving, named or
+   not), waiting [{name,because}] (recorded; its start was tried and held, with the
+   reason), later [names] (recorded; it starts when that Kosmos next opens).
+   world-guard-lift-1704 lifted #2849's named-world rule, so no import waits on it:
+   a Kosmos's agents are started by its own board, through its world-keyed launch
+   identity, whichever Kosmos it is.
+   `opts.legacy` (a page from before, importAgentsFrom) adds the counts that page
+   reads -- `failed` and `unknownSources` -- so it reports a refusal rather than
+   closing as a clean import (review round 1, C). */
+const IMPORT_CLEARED_BECAUSE = 'it is on this Kosmos\'s list of removed agents, so it was not started; restore it to run it';
+function importIntoWorld(base, targetId, picks, opts = {}) {
+  const r = worldimport.importAgents(base, targetId, picks);
+  if (!r.ok) return null;
+  const names = r.copied.map((c) => c.name);
+  const imported = { copied: r.copied, refused: r.refused, started: [], waiting: [], later: [] };
+  if (opts.legacy) {
+    imported.unknownSources = r.unknownSources;
+    imported.failed = r.refused.length - r.unknownSources;
+  }
+  if (names.length) {
+    /* The board is serving the Kosmos it booted into; an unbootstrapped board (a
+       unit test) serves the default one, whose store is the one it reads. */
+    const serving = require('./engine/worldenv').bootedWorld() || worlds.DEFAULT_ID;
+    if (serving === r.world.id) {
+      const s = worldstarts.startImported(names);
+      imported.started = s.resumed;
+      /* A cleared import is copied and NOT started (review round 1, A): said, never
+         silent. The importer refuses such a name up front; this covers a removal
+         that lands between the copy and the start. */
+      imported.waiting = s.held.concat((s.cleared || []).map((name) => ({ name, because: IMPORT_CLEARED_BECAUSE })));
+    } else {
+      imported.later = names;
+    }
+  }
+  return { world: r.world, imported };
 }
 /* #2066: which channel this build was FETCHED from (staging vs prod), for the
    board's build marker. It is NOT baked into the artifact -- #2036's invariant is
@@ -3039,18 +3081,17 @@ const server = http.createServer((req, res) => {
     }
     return;
   }
-  /* #2563: the create-a-new-Kosmos "add my agents from" selector needs the user's
-     Kosmoses WITH a per-world agent count. The sibling GET /api/worlds returns the
-     registry pointers (active/booted) the switcher needs; this returns the counted
-     list Angel's web slice populates the selector from. Read-only. */
+  /* #2563 / #1704 PR4: the "add agents from another Kosmos" picker (the New Kosmos
+     step and every Kosmos's settings cog) draws from this: each Kosmos with the
+     agents a person can pick from it, one by one, and the agents waiting to start
+     in it. The sibling GET /api/worlds returns the registry pointers (active/booted)
+     the switcher needs. Read-only. Each waiting agent carries its own reason, the
+     one its last start attempt recorded, or none when that Kosmos simply has not
+     been opened since it was copied in. */
   if (pathname === '/api/worlds/list' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const base = worldBase();
-      sendJson(res, 200, {
-        worlds: worlds.listWorlds(base).map((w) => ({
-          id: w.id, name: w.name, agentCount: worlds.agentCount(base, w),
-        })),
-      });
+      sendJson(res, 200, { worlds: worldimport.listForPicker(base) });
     } catch (_e) {
       sendJson(res, 500, { because: 'the world registry is not readable on this machine' });
     }
@@ -3065,18 +3106,27 @@ const server = http.createServer((req, res) => {
         // A base error is a SERVER condition (broken login env), not a bad request:
         // 500, and never leak the internal dataRootFor message through worldCreateReason.
         try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+        /* #1704 PR4: which agents to bring in, validated BEFORE the Kosmos is made,
+           so a malformed request creates nothing. `importAgents:[{from,name}]` picks
+           them one by one; `importAgentsFrom:[ids]` (a page from before) means every
+           agent of each. Neither is a plain create, byte-for-byte as before. */
+        const asked = worldimport.picksFromBody(base, body);
+        if (!asked.ok) { sendJson(res, 400, { ok: false, because: asked.because }); return; }
         let world;
         try { world = worlds.createWorld(base, body.name); }
         catch (e) { sendJson(res, 400, { ok: false, because: worldCreateReason(e) }); return; }
-        // #2563: optionally import agents from existing Kosmos(es) into the new one
-        // (copy-not-move; sources untouched). An import failure must NOT fail the
-        // create -- the world already exists, so a thrown copy would orphan it; report
-        // what imported instead. Absent/empty importAgentsFrom is a plain create, so
-        // this is byte-for-byte the old behaviour for every existing caller.
+        /* An import failure must NOT fail the create: the Kosmos already exists, so
+           a thrown copy would orphan it. Each agent is copied or refused with its
+           own sentence; a throw past that is reported as `error` and logged. */
         let imported = null;
-        if (Array.isArray(body.importAgentsFrom) && body.importAgentsFrom.length > 0) {
-          try { imported = worlds.importAgents(base, world, body.importAgentsFrom); }
-          catch (_e) { imported = { copied: 0, skipped: 0, failed: 0, unknownSources: 0, error: true }; }
+        if (asked.picks.length) {
+          try { imported = importIntoWorld(base, world.id, asked.picks, { legacy: asked.legacy }).imported; }
+          catch (err) {
+            /* Review round 3 (9): the throw can land AFTER some agents were copied in,
+               so neither this line nor the page may say none were added. */
+            process.stderr.write(`Kosmos created ${world.id} but could not finish adding its agents (some may have been added): ${String((err && err.message) || err)}\n`);
+            imported = { copied: [], refused: [], started: [], waiting: [], later: [], error: true };
+          }
         }
         sendJson(res, 200, imported ? { ok: true, world, imported } : { ok: true, world });
       })
@@ -3220,6 +3270,54 @@ const server = http.createServer((req, res) => {
             catch { /* best effort: a failed stop leaves the board serving the old world, still honest via restartRequired */ }
           }, 500);
         }
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  /* #1704 PR4: "add agents from another Kosmos", from a Kosmos's settings cog.
+     Body {id, importAgents:[{from, name}]}. Refused, with a sentence, when the
+     request names no Kosmos (400), no agents (400) or a Kosmos that does not exist
+     (404). Each agent is then copied or refused on its own (a name already taken,
+     an unknown or same Kosmos, one that cannot be read); when not one could be
+     added the answer is a 409 carrying why, with the per-agent detail. */
+  if (pathname === '/api/worlds/import' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { ok: false, because: 'we could not read that request' }); return; }
+        const id = typeof body.id === 'string' ? body.id.trim() : '';
+        if (!id) { sendJson(res, 400, { ok: false, because: 'say which Kosmos to add agents to (an id)' }); return; }
+        let base;
+        try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+        const asked = worldimport.picksFromBody(base, body);
+        if (!asked.ok) { sendJson(res, 400, { ok: false, because: asked.because }); return; }
+        /* Review round 2: ONE shape per route. The whole-Kosmos `importAgentsFrom`
+           form exists only for a New Kosmos page loaded before this change (POST
+           /api/worlds, which answers it in the counts that page reads). This route
+           is new, and the page's only call to it sends `importAgents`, so no old page
+           can be relying on the legacy body here: it is refused, rather than accepted
+           and answered in a shape its sender cannot read. */
+        if (asked.legacy) { sendJson(res, 400, { ok: false, because: 'add agents to a Kosmos one at a time, each by the Kosmos it is in and its name' }); return; }
+        if (!asked.picks.length) { sendJson(res, 400, { ok: false, because: 'choose at least one agent to add' }); return; }
+        let done;
+        try { done = importIntoWorld(base, id, asked.picks); }
+        catch (err) {
+          process.stderr.write(`Kosmos could not add agents to ${id}: ${String((err && err.message) || err)}\n`);
+          sendJson(res, 500, { ok: false, because: 'we could not add those agents' });
+          return;
+        }
+        if (!done) { sendJson(res, 404, { ok: false, because: 'there is no Kosmos with that id on this machine' }); return; }
+        if (!done.imported.copied.length) {
+          const only = done.imported.refused.length === 1 ? done.imported.refused[0] : null;
+          sendJson(res, 409, {
+            ok: false,
+            because: only ? `${only.name || 'that agent'} was not added: ${only.because}` : 'none of those agents could be added',
+            world: done.world,
+            imported: done.imported,
+          });
+          return;
+        }
+        sendJson(res, 200, { ok: true, world: done.world, imported: done.imported });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
