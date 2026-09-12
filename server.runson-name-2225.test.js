@@ -138,7 +138,7 @@ test('#2225: the FOUND branch reads the sidecar too, so the field is on both bra
   assert.equal(rec.name, 'Lead Squad', 'the found branch did not read the sidecar: ' + JSON.stringify(rec));
 });
 
-test('#2225 PARITY CONTROL: the whoami route exposes name on EVERY account branch, or none', () => {
+test('#2225 PARITY CONTROL: the whoami RECORD path exposes name (the live branches are pinned elsewhere)', () => {
   /* A REAL card from test-support/fleet (the fixture-discipline test refuses a
      hand-built one). The fleet agent `codexnamed` gives a card whose sessionName
      is `codexnamed`, which resolves to the codex job + sidecar `bornCodex` wrote
@@ -168,7 +168,16 @@ test('#2225 PARITY CONTROL: the whoami route exposes name on EVERY account branc
        went red immediately. All THREE constructions carry it now (both live
        branches and the record projection), which is what makes flipping this
        assertion legitimate rather than convenient.
-       ⇒ So this stays a PARITY control; only the direction changed. */
+       ⇒ So this stays a PARITY control; only the direction changed.
+       🛑 AND THE TITLE NAMES THE BRANCH THIS BODY ACTUALLY DRIVES. My first flip
+       called it "EVERY account branch, or none" while the body exercises only the
+       RECORD path (`{ ok: false, … }`). Round 35 measured the consequence: deleting
+       `name` from the `seen.account` live branch left the whole suite GREEN, because
+       `#1304`'s sibling parity builds its live answer as `{ ok: true, account: null }`
+       -- the OTHER live branch. A title claiming a scope its body does not drive is
+       the same defect this card has been finding in comments all week, in a test
+       name. The live branches are pinned by `#1304` (configDir branch) and by
+       `#2811 PARITY: the live branch that HAS an account` (the account branch). */
     assert.ok('name' in out.account,
       'the whoami route dropped `name`, so a NAMED codex account is told we cannot identify it: ' + JSON.stringify(out.account));
     assert.equal(out.account.name, 'Design Team',
