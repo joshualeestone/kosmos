@@ -1583,6 +1583,9 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
        font-size: .75rem; font-weight: 700; color: #fff; line-height: 1;
        background: #b3261e; clip-path: polygon(50% 4%, 96% 92%, 4% 92%);
        padding-top: 5px; }
+/* #2863: the unread-DM tally glyph. Muted, like the .rest idle mark, not the
+   red .haz alert: the count is the signal, the bubble is just the subject. */
+.dmtile-g { width: 16px; height: 16px; flex: 0 0 16px; display: grid; place-items: center; color: var(--k-ink-2); }
 .act { display: inline-flex; align-items: flex-end; gap: 2px; height: 10px; }
 .act i { width: 3px; height: 3px; border-radius: 50%; background: #2f7d5a;
          animation: work 1.1s ease-in-out infinite; }
@@ -12679,6 +12682,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <span class="haz" aria-hidden="true">!</span>
       <b id="st-attn-noproj" data-count="attn-noproj">0</b><span class="slab">No project</span>
     </div>
+    <!-- #2863 (Josh): the unread direct-message tally, the rollup of the
+         per-agent DM bubbles, so at a glance you see how many messages are
+         waiting across the fleet ("tally those at the top... so you can see
+         where notifications are happening and need you"). Hidden at zero, the
+         same grammar the attention tiles use, so a quiet board is unchanged. A
+         message-bubble glyph rather than the .haz alert mark: unread DMs point
+         you somewhere, they are not a fault. NOT part of the Working+Idle=Agents
+         arithmetic, so it sits after the state tiles as its own signal. -->
+    <div class="stat" id="st-dm-tile" hidden title="Unread direct messages from your agents">
+      <span class="dmtile-g" aria-hidden="true"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h11a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H6.5L3.5 14v-3H2.5a1 1 0 0 1-1-1v-5.5a1 1 0 0 1 1-1z"/></svg></span>
+      <b id="st-dm" data-count="dm">0</b><span class="slab">Messages</span>
+    </div>
   </div>
   <div class="viewtoggle" role="group" aria-label="How to show agents" data-scope="agents">
     <button class="vt on" type="button" data-layout="grid" aria-pressed="true" aria-label="Show agents as a grid" title="Show agents as a grid">
@@ -15735,6 +15750,23 @@ async function tick() {
        /api/status counts alongside `needsYou`. */
     document.getElementById('st-attn-noproj').textContent = String(c.needsYouUnattributed || 0);
     document.getElementById('st-attn-noproj-tile').hidden = !c.needsYouUnattributed;
+    /* #2863: the unread-DM tally, summed client-side from the fleet (a.dmUnread)
+       exactly as Working/Idle are counted from data.agents rather than trusting a
+       second server derivation. A null dmUnread (unknown, mirroring p.unread null)
+       contributes 0, never a guess. Hidden at zero, the same grammar as the
+       attention tiles above. */
+    const dmTotal = data.agents.reduce((n, a) => {
+      /* Exclude the agent whose thread is open (CURRENT), the SAME suppression the
+         per-agent badge applies (dmBadge), so the tally and the badges agree on
+         the thread you are reading. Explicit here, not left to rely on paintTalk
+         having zeroed that agent's dmUnread earlier in this same tick -- two
+         derivations of the one "unread" fact must not drift on execution order. */
+      if (CURRENT && a && CURRENT.sessionName === a.sessionName) return n;
+      const v = Number(a && a.dmUnread);
+      return n + (Number.isFinite(v) && v > 0 ? v : 0);
+    }, 0);
+    document.getElementById('st-dm').textContent = String(dmTotal);
+    document.getElementById('st-dm-tile').hidden = dmTotal <= 0;
     /* #734 (Josh, 2026-08-24 21:08: "remove this text at the top and make
        sure that it's not open for other things to populate into"): the loose
        line under the counts is gone and so is its slot. The facts it carried
@@ -15929,6 +15961,12 @@ async function tick() {
        count from the last good tick cannot linger beside a `?`. */
     document.getElementById('st-attn-noproj').textContent = '?';
     document.getElementById('st-attn-noproj-tile').hidden = true;
+    /* #2863: a failed poll cannot count unread DMs either. Hidden rather than a
+       standing count, the same choice the red tiles make here: a stale "5
+       Messages" from the last good tick would claim something this poll cannot
+       stand behind. */
+    document.getElementById('st-dm').textContent = '?';
+    document.getElementById('st-dm-tile').hidden = true;
     /* The residual summary is a claim from the last successful tick (or the
        boot "Loading…"): "N we could not read" beside the failure card is a
        count this poll cannot stand behind -- the same rule as the tiles
