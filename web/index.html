@@ -36950,10 +36950,11 @@ function paintOneProject() {
   const p = pjById(PJ_CURRENT);
   if (!p) { pjView('list'); PJ_CURRENT = null; pjMarkOpen(null); return; }
   document.getElementById('pj-one-name').textContent = p.name;
-  /* #2487: the parent trail (where this project sits) above the name, and the
-     sub-projects section below the head. Both derive from the same tree the list
-     cards use -- pjAncestry for the trail, a direct-children filter for the
-     section -- so the detail page and the list can never disagree. The rows carry
+  /* #2487, now the #2928 breadcrumb: the location trail (where this project sits)
+     above the name, and the sub-projects section below the head. Both derive from
+     the same tree the list cards use -- pjAncestry for the breadcrumb, a
+     direct-children filter for the section -- so the detail page and the list can
+     never disagree. The rows carry
      `data-project` like the cards, but #pj-one-subprojects lives in #pj-one-view,
      a SIBLING of #pj-list, so the list's click delegate never sees it: a dedicated
      delegate on #pj-one-subprojects (search for it below) opens them. */
@@ -36968,7 +36969,11 @@ function paintOneProject() {
   const crumbEl = document.getElementById('pj-crumb');
   if (crumbEl) {
     const chain = pjAncestry(p).concat([p.name]);
-    const sep = '<span class="pj-crumb-sep" aria-hidden="true"> / </span>';
+    /* The visible " / " is aria-hidden, so a vh comma rides alongside it to give a
+       screen reader an announced separation ("Kosmos, App, Mobile") rather than one
+       unbroken run -- the same pairing the card ancestry chain uses (search
+       pj-anc-sep). */
+    const sep = '<span class="pj-crumb-sep" aria-hidden="true"> / </span><span class="vh">, </span>';
     crumbEl.innerHTML = chain.map((n) => esc(n)).join(sep);
   }
   const subsEl = document.getElementById('pj-one-subprojects');

@@ -56,4 +56,4 @@ Project detail shows a top-left back chevron (up one nesting level, or to the li
 ## Weakest premise
 That nesting-based back (not a literal last-screen history) is what Josh means by "prior screen." Mitigated: it matches the breadcrumb, needs no fragile history stack, and is a one-line change if he wants literal history later.
 
-## STATUS: plan only, code NOT yet applied. Branch backcrumb-2928 off origin/main (89418102). Next session: apply edits 1-4, do the test/gate work, run /challenge-loop, PR.
+## STATUS: code applied and committed on branch backcrumb-2928 (rebased onto current origin/main). Edits 1-4, the test/gate work (render-subprojects-1994.js updated: reads #pj-crumb, asserts the full ordered chain, clicks #pj-back and asserts navigation up/to-list), and web.consolidated-980.test.js count guard (5 -> 6) are all in. Full suite green. Challenge-loop in progress; PR to follow on convergence.

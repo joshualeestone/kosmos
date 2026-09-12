@@ -210,6 +210,10 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // / Mobile", current project included) beside a back chevron, replacing #2487's
     // ancestor-only #pj-one-parent trail.
     ok(t + ' detail: breadcrumb shows the full nested chain + back chevron', anc.detailErr === null && anc.hasBack === true && /Kosmos/.test(anc.crumbText || '') && /App/.test(anc.crumbText || '') && /Mobile/.test(anc.crumbText || ''), JSON.stringify({ err: anc.detailErr, back: anc.hasBack, txt: anc.crumbText }));
+    // The chain must read root-to-current IN ORDER, not merely contain the names:
+    // a garbled or reversed concatenation ("Mobile ... App ... Kosmos") would pass a
+    // bare substring check but is the dangerous answer this asserts against.
+    ok(t + ' detail: breadcrumb reads root-to-current in order', anc.detailErr === null && (anc.crumbText || '').indexOf('Kosmos') < (anc.crumbText || '').indexOf('App') && (anc.crumbText || '').indexOf('App') < (anc.crumbText || '').indexOf('Mobile'), JSON.stringify({ txt: anc.crumbText }));
     // #2928: clicking the back chevron NAVIGATES (the card's core behavior), not
     // merely renders. A subproject goes UP to its parent; a top-level goes to the list.
     ok(t + ' #2928 back: clicking the chevron on a subproject opens its parent', anc.detailErr === null && anc.backSubCurrent === 'app' && anc.backSubView === 'one', JSON.stringify({ err: anc.detailErr, cur: anc.backSubCurrent, view: anc.backSubView }));
