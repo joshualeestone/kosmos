@@ -54,16 +54,25 @@ the strip, so nothing changes for it in either view.
 Added Layer 1e to `docs/browser-checks/render-subprojects-1994.js` (already
 wired into `tools/browser-checks.sh`), driving the shipped `placeProjectHead` +
 `placeSubProjects` + `paintOneProject` against a real parent/child fixture:
+- placement (consolidated): the strip nests into `.pjmid`, directly after the header.
+- placement (consolidated): the header drops its rule and the strip carries it (one line).
+- content sanity (consolidated): the strip still lists its sub-project.
 - CONTROL (tab): the strip stays above the grid in `#pj-one-view`.
-- consolidated: the strip nests into `.pjmid`, directly after the header.
-- consolidated: the strip still lists its sub-project.
-- consolidated: the header drops its rule and the strip carries it (one line).
-- CONTROL: a leaf project hides the strip, so the header keeps its own rule.
+- CONTROL (leaf): a leaf project hides the strip, so the header keeps its own rule.
 
-Proven red-capable: neutering the consolidated move reddens exactly the six
-consolidated assertions (the two controls stay green). Full node suite
-(`tools/run-tests.sh`) run. Screenshot captured confirming the parent name is
-the clean top header with the sub-project nested beneath.
+Added Layer 4 to the same check to cover the WIRING through the real caller: it
+drives `showTab` itself (the one production caller of `placeSubProjects`) at a
+consolidated width and asserts the strip lands in `.pjmid`, then flips the layout
+and asserts it is restored to `#pj-one-view`. Without this the direct-call layer
+would prove the function works but not that the shipped code invokes it, so a
+deleted call line would stay green.
+
+Proven red-capable: neutering the consolidated move reddens the two placement
+assertions per theme plus, via Layer 4, the two `showTab`-wiring placement
+assertions; the tab-view control, the leaf control, and the content-sanity
+assertion stay green. Full node suite (`tools/run-tests.sh`) run. Screenshot
+captured confirming the parent name is the clean top header with the sub-project
+nested beneath.
 
 ## Weakest premise
 

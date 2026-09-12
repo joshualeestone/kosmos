@@ -407,6 +407,51 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // CONTROL: top-level MUST omit parent, not send parent:null (absent-not-null discipline).
     ok(t + ' top-level create OMITS parent (absent, not null)', create.topLevel && !('parent' in create.topLevel), JSON.stringify(create.topLevel));
 
+    // ---- Layer 4: #2848 the WIRING, through the real caller (showTab) ----
+    // Layer 1e drives placeSubProjects() directly, which proves the function moves
+    // the strip -- but not that the shipped code ever calls it. The one production
+    // caller is showTab (it runs placeSubProjects(cons) keyed on the same cons that
+    // toggles body.consolidated). If that call line were deleted or its flag
+    // desynced, production would never nest the strip while every Layer 1e assertion
+    // stayed green. So drive showTab itself and assert the strip lands correctly in
+    // BOTH effective views. Runs last in the theme so showTab's rail/board side
+    // effects cannot disturb the earlier layers.
+    const wiring = await page.evaluate(() => {
+      const mk = (id, name, parent) => ({ id, name, parent: parent || null, parentName: parent ? 'Kosmos' : null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('k', 'Kosmos'), mk('app', 'App', 'k')];
+      PJ_SORT = 'az';
+      const out = {};
+      const subs = document.getElementById('pj-one-subprojects');
+      const oneView = document.getElementById('pj-one-view');
+      const midCol = oneView.querySelector('.pjmid');
+      try {
+        placeProjectHead();
+        PJ_CURRENT = 'k';
+        if (typeof pjView === 'function') pjView('one');
+        paintOneProject();
+        // The viewport is 1200px wide (>= the 960 consolidated floor), so with
+        // data-layout=consolidated showTab computes cons=true and must nest the strip.
+        document.documentElement.setAttribute('data-layout', 'consolidated');
+        document.body.classList.remove('consolidated');   // let showTab re-add it
+        showTab('projects');
+        out.consBody = document.body.classList.contains('consolidated');
+        out.consSubsInMid = subs.parentElement === midCol;
+        // Flip to the tab layout through the same caller: cons=false, strip restored.
+        document.documentElement.setAttribute('data-layout', 'tabs');
+        showTab('projects');
+        out.tabBody = document.body.classList.contains('consolidated');
+        out.tabSubsInOneView = subs.parentElement === oneView;
+        out.err = null;
+      } catch (e) { out.err = String(e && e.message || e); }
+      return out;
+    });
+    // showTab actually flipped the effective view (control: the two body states differ).
+    ok(t + ' #2848 wiring CONTROL: showTab toggles body.consolidated (true then false)', wiring.err === null && wiring.consBody === true && wiring.tabBody === false, JSON.stringify(wiring));
+    // and the SAME call nested the strip into .pjmid under consolidated ...
+    ok(t + ' #2848 wiring: showTab (consolidated) nests the strip into .pjmid', wiring.err === null && wiring.consSubsInMid === true, JSON.stringify(wiring));
+    // ... and restored it to #pj-one-view under the tab layout.
+    ok(t + ' #2848 wiring: showTab (tab) restores the strip to #pj-one-view', wiring.err === null && wiring.tabSubsInOneView === true, JSON.stringify(wiring));
+
     await page.close();
   }
   await browser.close();
