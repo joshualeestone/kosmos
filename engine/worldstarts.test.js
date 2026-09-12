@@ -627,6 +627,36 @@ test('post-lift: startImported takes no gate beyond live execution -- a named Ko
   assert.deepEqual(got, ['dee'], 'an import into the open Kosmos was held instead of started');
 });
 
+test('R3 (5): a trust write that throws is logged with its code -- never the account folder -- and the start goes on', () => {
+  const trust = require('./trust');
+  const realTrust = trust.trustFolder;
+  trust.trustFolder = () => { const e = new Error('denied'); e.code = 'EACCES'; throw e; };
+  writeRecord([importEntry('tee', { configDir: nodePath.join(SANDBOX, 'acct-secret') })]);
+  const real = process.stderr.write;
+  const lines = [];
+  process.stderr.write = (chunk) => { lines.push(String(chunk)); return true; };
+  let r;
+  try {
+    r = withInstallJob(() => ({ ok: true, started: true }), () => worldstarts.startImported(['tee'], { platform: MAC }));
+  } finally {
+    process.stderr.write = real;
+    trust.trustFolder = realTrust;
+  }
+  assert.deepEqual(r.resumed, ['tee'], 'a failed trust write stopped the start');
+  assert.ok(lines.some((l) => l.includes('tee') && l.includes('EACCES')), 'the trust failure was silent: ' + lines.join(''));
+  assert.equal(lines.join('').includes('acct-secret'), false, 'an account folder was logged');
+});
+
+test('R3 (10): forgetEntries takes a name off the list to start; importsWaitingIn skips a name on that Kosmos\'s removed list', () => {
+  writeRecord([importEntry('ava'), importEntry('bo')]);
+  fs.mkdirSync(nodePath.dirname(remove.REMOVED_FILE), { recursive: true });
+  fs.writeFileSync(remove.REMOVED_FILE, JSON.stringify([{ name: 'bo' }]));
+  assert.deepEqual(worldstarts.importsWaitingIn(nodePath.dirname(worldstarts.RECORD_FILE)).map((e) => e.name), ['ava'],
+    'a removed agent is still listed as waiting');
+  worldstarts.forgetEntries(['ava']);
+  assert.deepEqual(readRecord().entries.map((e) => e.name), ['bo']);
+});
+
 test('post-lift: an entry still carrying a pre-lift named-world sentence is read with no reason, not shown as barred', () => {
   const stale = [
     'Agents do not run in a named Kosmos yet, so it waits there and starts on its own once they can.',

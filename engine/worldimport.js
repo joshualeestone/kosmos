@@ -43,6 +43,8 @@ const create = require('./create');
 const remove = require('./remove');
 const worldstarts = require('./worldstarts');
 const win32job = require('./win32job');
+const projects = require('./projects');   // the managed projects section's own remover
+const reports = require('./reports');     // the "Who you report to" section's own body
 
 /* The most agents one request may add (review round 1). The copy runs inside the
    request, one agent after another, so this bounds one request's work. A person's
@@ -170,11 +172,24 @@ function launchSpecOf(name, sourceWorldId, profile, platform) {
   return { runner: profile && profile.provider === 'openai' ? 'codex' : 'claude', model: null, configDir: null };
 }
 
+/* Review round 3 (5): one stderr line for a refusal that came from an ERROR -- not
+   an ordinary refusal such as a name already taken -- with which import, which step,
+   the error code and the path it concerned, so it can be traced from the log alone.
+   Never the brief's words, the picture's bytes, or the account folder a job carries. */
+function logImportError(ctx, step, err, where) {
+  process.stderr.write(`Kosmos import refused: source=${ctx.src.id} target=${ctx.dst.id} name=${ctx.name} step=${step}`
+    + ` code=${(err && err.code) || 'unknown'}${where ? ` path=${where}` : ''}\n`);
+}
+
 /* Take back out what this import wrote for one agent, newest first. Only paths it
-   created are ever listed, so this can never remove something that was there. */
-function undo(made) {
+   created are ever listed, so this can never remove something that was there. A
+   removal that fails (on Windows, an antivirus or indexer holding the file: EBUSY,
+   EPERM) is SAID, with the path, never swallowed: what it leaves behind holds the
+   name, and the next try refuses naming that path (review round 3, item 3). */
+function undo(made, ctx) {
   for (const p of made.slice().reverse()) {
-    try { fs.rmSync(p.path, { recursive: p.dir === true, force: true }); } catch { /* best effort */ }
+    try { fs.rmSync(p.path, { recursive: p.dir === true, force: true }); }
+    catch (err) { logImportError(ctx, 'rollback', err, p.path); }
   }
 }
 
@@ -187,25 +202,42 @@ function copyOne(base, src, dst, name, opts) {
   const platform = opts.platform || process.platform;
   if (!create.NAME_RE.test(name)) return { ok: false, because: badNameBecause() };
 
+  const ctx = { src, dst, name };
   const removed = remove.removedNamesIn(worlds.worldStoreRoot(base, src));
-  if (!removed.ok) return { ok: false, because: `we could not check whether it was removed from ${src.name}` };
+  if (!removed.ok) {
+    logImportError(ctx, 'source-removed-list', null, worlds.worldStoreRoot(base, src));
+    return { ok: false, because: `we could not check whether it was removed from ${src.name}` };
+  }
   if (removed.names.includes(name)) return { ok: false, because: `it was removed from ${src.name}` };
 
   const fileName = store.profileFileName(name);
+  const sourceProfile = path.join(worlds.worldProfilesDir(base, src), fileName);
   let profile;
   try {
-    profile = JSON.parse(fs.readFileSync(path.join(worlds.worldProfilesDir(base, src), fileName), 'utf8'));
+    profile = JSON.parse(fs.readFileSync(sourceProfile, 'utf8'));
   } catch (err) {
-    return { ok: false, because: err && err.code === 'ENOENT' ? `we could not find it in ${src.name}` : `we could not read it in ${src.name}` };
+    if (err && err.code === 'ENOENT') return { ok: false, because: `we could not find it in ${src.name}` };
+    logImportError(ctx, 'source-profile', err, sourceProfile);
+    return { ok: false, because: `we could not read it in ${src.name}` };
   }
   if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return { ok: false, because: `we could not read it in ${src.name}` };
 
   const spec = launchSpecOf(name, src.id, profile, platform);
   const briefName = create.briefFilename(spec.runner);
   const sourceFolder = create.usableRecordedDir(profile.dir) || path.join(worlds.worldWorkersDir(base, src, env), name);
+  const sourceBrief = path.join(sourceFolder, briefName);
   let brief;
-  try { brief = fs.readFileSync(path.join(sourceFolder, briefName)); }
-  catch { return { ok: false, because: `we could not read its instructions in ${src.name}` }; }
+  try {
+    /* Review round 3 (1): the Kosmos-managed PROJECTS section does not come along.
+       It lists the SOURCE Kosmos's project folders and `kosmos post/task` ids the
+       target does not have, so the copy would work in, and post to, another
+       Kosmos's projects. projects.removeBlock is that section's own remover; the
+       target's project sync writes it again once the copy joins a project there. */
+    brief = projects.removeBlock(fs.readFileSync(sourceBrief, 'utf8'));
+  } catch (err) {
+    logImportError(ctx, 'source-brief', err, sourceBrief);
+    return { ok: false, because: `we could not read its instructions in ${src.name}` };
+  }
   const sourceAvatar = store.avatarPathIn(worlds.worldAvatarsDir(base, src), name);
 
   /* Nothing is overwritten, ever: a profile, a folder or a picture under this name
@@ -215,14 +247,21 @@ function copyOne(base, src, dst, name, opts) {
   const folder = path.join(worlds.worldWorkersDir(base, dst, env), name);
   const profileFile = path.join(profilesDir, fileName);
   const taken = `${dst.name} already has an agent called ${name}`;
-  if (fs.existsSync(profileFile) || fs.existsSync(folder) || store.avatarPathIn(avatarsDir, name)) {
-    return { ok: false, because: taken };
+  if (fs.existsSync(profileFile) || store.avatarPathIn(avatarsDir, name)) return { ok: false, because: taken };
+  if (fs.existsSync(folder)) {
+    /* Review round 3 (3): a folder with no agent behind it -- most often what an
+       earlier import's rollback could not remove. Said as what it is, and where, so
+       the person can see why the name is held and clear it. */
+    return { ok: false, because: `${dst.name} already has a folder called ${name} (${folder}) with no agent behind it; if an earlier import left it there, remove it and try again` };
   }
   /* Review round 1 (A): a name the person REMOVED from the target is taken there
      too, profile or not. Copied in, the start would find it on the removed list,
      clear it and start nothing, and the copy would sit hidden behind an "Added". */
   const removedThere = remove.removedNamesIn(worlds.worldStoreRoot(base, dst));
-  if (!removedThere.ok) return { ok: false, because: `we could not check whether ${dst.name} has a removed agent called ${name}` };
+  if (!removedThere.ok) {
+    logImportError(ctx, 'target-removed-list', null, worlds.worldStoreRoot(base, dst));
+    return { ok: false, because: `we could not check whether ${dst.name} has a removed agent called ${name}` };
+  }
   if (removedThere.names.includes(name)) {
     return { ok: false, because: `${dst.name} has a removed agent called ${name}; restore that one there instead` };
   }
@@ -232,8 +271,17 @@ function copyOne(base, src, dst, name, opts) {
      create.jobPresence, the one answer to "does this name have a job", in the
      target's world; an answer it could not get refuses rather than guesses. */
   const job = create.jobPresence(name, platform, dst.id);
-  if (job === 'unknown') return { ok: false, because: `we could not check whether anything is already set to start as ${name} in ${dst.name}` };
-  if (job === 'yes') return { ok: false, because: `${dst.name} already has something set to start as ${name}` };
+  if (job === 'unknown') {
+    logImportError(ctx, 'target-job', null, null);
+    return { ok: false, because: `we could not check whether anything is already set to start as ${name} in ${dst.name}` };
+  }
+  /* Review round 3 (B): and whatever else main's ONE rule for "which jobs does
+     this name have" (remove.jobFor) finds in the target's world: the legacy
+     `com.<name>.discord` job, which it offers in the default Kosmos only. Asked of
+     that rule rather than re-stated here, so the two can never disagree. */
+  if (job === 'yes' || remove.jobFor(name, platform, dst.id)) {
+    return { ok: false, because: `${dst.name} already has something set to start as ${name}` };
+  }
 
   const made = [];
   try {
@@ -244,7 +292,15 @@ function copyOne(base, src, dst, name, opts) {
     if (sourceAvatar) {
       fs.mkdirSync(avatarsDir, { recursive: true });
       const avatarCopy = path.join(avatarsDir, path.basename(sourceAvatar));
-      fs.copyFileSync(sourceAvatar, avatarCopy, fs.constants.COPYFILE_EXCL);
+      try {
+        fs.copyFileSync(sourceAvatar, avatarCopy, fs.constants.COPYFILE_EXCL);
+      } catch (err) {
+        /* Review round 3 (4): a copy that failed partway may have left a partial
+           picture, which is OURS to take back out. EEXIST means the file at that
+           path is someone else's, and it stays. */
+        if (!err || err.code !== 'EEXIST') made.push({ path: avatarCopy });
+        throw err;
+      }
       made.push({ path: avatarCopy });
     }
     /* A separate agent: store.stripIdentity drops exactly the fields writeProfile
@@ -260,19 +316,58 @@ function copyOne(base, src, dst, name, opts) {
     fs.renameSync(tmp, profileFile);
     made.push({ path: profileFile });
   } catch (err) {
-    undo(made);
+    undo(made, ctx);
     if (err && err.code === 'EEXIST') return { ok: false, because: taken };
+    logImportError(ctx, 'copy', err, err && err.path);
     return { ok: false, because: `we could not copy it into ${dst.name} (${(err && err.code) || 'unknown'})` };
   }
 
-  const noted = worldstarts.recordImport(worlds.worldStoreRoot(base, dst), {
+  const recordAt = worlds.worldStoreRoot(base, dst);
+  const noted = worldstarts.recordImport(recordAt, {
     name, from: src.id, runner: spec.runner, model: spec.model, configDir: spec.configDir,
   });
   if (!noted.ok) {
-    undo(made);
+    undo(made, ctx);
+    logImportError(ctx, 'record', noted, worldstarts.recordFileIn(recordAt));
     return { ok: false, because: `${noted.because}, so it was not added` };
   }
-  return { ok: true, displayName: typeof profile.displayName === 'string' && profile.displayName.trim() ? profile.displayName.trim() : name };
+  return {
+    ok: true,
+    displayName: typeof profile.displayName === 'string' && profile.displayName.trim() ? profile.displayName.trim() : name,
+    // For settleManagers, after every pick is in.
+    profileFile, briefFile: path.join(folder, briefName), reportsTo: profile.reportsTo,
+  };
+}
+
+/**
+ * Review round 3 (2): a copy's manager comes along, or it has none. `reportsTo`
+ * names an agent by its machine name, and in the target that name is either the
+ * manager copied in THIS request -- kept, so the line survives -- or someone else,
+ * possibly a different agent that merely shares the name, whom the copy would
+ * escalate to as a stranger. A same-name agent already in the target cannot be told
+ * apart from that stranger, so it does not count. A manager that did not come along
+ * is cleared (`reportsTo: null`), and the copy's "Who you report to" section is
+ * written again from the cleared record (reports.blockBody), so its brief names the
+ * person instead. A failure here is logged; the copy stands.
+ */
+function settleManagers(copiedHere, dst) {
+  const names = new Set(copiedHere.map((c) => c.name));
+  for (const c of copiedHere) {
+    if (typeof c.reportsTo !== 'string' || !c.reportsTo.trim() || names.has(c.reportsTo)) continue;
+    try {
+      const profile = JSON.parse(fs.readFileSync(c.profileFile, 'utf8'));
+      profile.reportsTo = null;
+      const tmp = `${c.profileFile}.${process.pid}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify(profile, null, 2));
+      fs.renameSync(tmp, c.profileFile);
+      const text = fs.readFileSync(c.briefFile, 'utf8');
+      if (text.includes(reports.START)) {
+        fs.writeFileSync(c.briefFile, projects.spliceBlock(text, reports.blockBody(profile), reports.START, reports.END), 'utf8');
+      }
+    } catch (err) {
+      logImportError({ src: { id: c.from }, dst, name: c.name }, 'manager', err, c.profileFile);
+    }
+  }
 }
 
 /**
@@ -290,6 +385,7 @@ function importAgents(base, targetId, picks, opts = {}) {
   const copied = [];
   const refused = [];
   const claimed = new Set();
+  const copiedHere = [];
   let unknownSources = 0;
   for (const pick of picks || []) {
     const from = pick && pick.from;
@@ -309,7 +405,9 @@ function importAgents(base, targetId, picks, opts = {}) {
     if (!r.ok) { refused.push({ from, name, because: r.because }); continue; }
     claimed.add(name);
     copied.push({ from, name, displayName: r.displayName });
+    copiedHere.push({ from, name, profileFile: r.profileFile, briefFile: r.briefFile, reportsTo: r.reportsTo });
   }
+  settleManagers(copiedHere, world);
   return { ok: true, world, copied, refused, unknownSources };
 }
 

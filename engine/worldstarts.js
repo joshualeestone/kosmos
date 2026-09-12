@@ -151,7 +151,7 @@ function recordImport(storeRoot, entry) {
   const file = recordFileIn(storeRoot);
   const existing = readRecordForWrite(file);
   if (existing === UNREADABLE) {
-    return { ok: false, because: 'we could not read the list of agents waiting to start there' };
+    return { ok: false, code: 'UNREADABLE', because: 'we could not read the list of agents waiting to start there' };
   }
   const next = { name: entry.name, why: WHY_IMPORTED, at: new Date().toISOString(), from: entry.from, runner: entry.runner };
   if (entry.model) next.model = entry.model;
@@ -159,9 +159,22 @@ function recordImport(storeRoot, entry) {
   try {
     writeRecord(existing.filter((e) => e.name !== entry.name).concat([next]), file);
   } catch (err) {
-    return { ok: false, because: `we could not note that it should start there (${(err && err.code) || 'unknown'})` };
+    return { ok: false, code: (err && err.code) || 'unknown', because: `we could not note that it should start there (${(err && err.code) || 'unknown'})` };
   }
   return { ok: true };
+}
+
+/**
+ * Review round 3 (10): take these names off the booted Kosmos's list of agents to
+ * start -- called by remove.js when an agent is removed, so a removed agent is not
+ * listed as waiting and a restore cannot start it on the strength of an old entry.
+ * An unreadable list is left alone: the start pass still skips removed names.
+ */
+function forgetEntries(names) {
+  const drop = new Set(names || []);
+  const existing = readRecordForWrite();
+  if (existing === UNREADABLE || !existing.some((e) => drop.has(e.name))) return;
+  writeRecord(existing.filter((e) => !drop.has(e.name)));
 }
 
 /**
@@ -188,7 +201,12 @@ function reasonStillTrue(because) {
 function importsWaitingIn(storeRoot) {
   const got = readRecordForWrite(recordFileIn(storeRoot));
   if (got === UNREADABLE) return [];
-  return got.filter((e) => e.why === WHY_IMPORTED).map((e) => ({ name: e.name, because: reasonStillTrue(e.because) }));
+  /* Review round 3 (10): an agent the person removed there is not waiting for
+     anything, whatever its entry says; the start pass drops it. */
+  const removed = remove.removedNamesIn(storeRoot);
+  const gone = new Set(removed.ok ? removed.names : []);
+  return got.filter((e) => e.why === WHY_IMPORTED && !gone.has(e.name))
+    .map((e) => ({ name: e.name, because: reasonStillTrue(e.because) }));
 }
 
 /* ── the gate ────────────────────────────────────────────────────────────── */
@@ -415,7 +433,12 @@ function firstStartOfImport(entry, platform) {
   if (runner !== 'codex') {
     try {
       require('./trust').trustFolder(create.workerDir(entry.name), { configDir, createIfAbsent: true, agentDefaultAccount: !configDir });
-    } catch { /* another tool's file; an agent that asks once is not a failed start */ }
+    } catch (err) {
+      /* Not a failed start -- an agent that asks once is not one -- but SAID (review
+         round 3, item 5), so a trust prompt that parks the agent can be traced to the
+         write that failed. The code only: never the account folder. */
+      process.stderr.write(`Kosmos could not pre-answer the folder-trust question for ${entry.name} (${(err && err.code) || 'unknown'}); it may ask once when it starts.\n`);
+    }
   }
   let out;
   try {
@@ -571,6 +594,7 @@ module.exports = {
   recordFileIn,
   recordImport,
   importsWaitingIn,
+  forgetEntries,
   pauseForSwitch,
   resumePaused,
   resumeNames,

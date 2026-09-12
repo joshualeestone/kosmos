@@ -351,6 +351,35 @@ He confirmed this shape:
     identical.
   - So there is no branch-only failure, and nothing needed checking on main.
 
+### Post-lift rebase and round 3 validation (on main `e07ec774`)
+
+- **The post-lift rebase commit:** the targeted suites and inventories passed 180 of
+  180 before it was committed.
+- **After the round-3 fixes:** 189 of 189 targeted pass. This covers
+  `worldimport`, `worldstarts`, the three route suites (main's switch suite
+  included), the two web import suites, both modal sweeps, `open-sentence`,
+  `one-derivation`, `engine.reachable`, `fixture-discipline`, `worldenv-order`,
+  `platform-gate-wiring`, the #1732 coupling audit and `win32-separator-guard`.
+- **Controls.** 16 perturbations, each reverting one fix, all went red:
+  - the projects section kept;
+  - managers not settled, and a same-name stranger kept as manager;
+  - a failed rollback silent, and a leftover folder refused as an agent;
+  - a partial picture not rolled back;
+  - an error refusal not logged, and a failed trust write silent;
+  - the legacy job not asked of `remove.jobFor`, and `jobFor` ignoring the world
+    asked about;
+  - the page saying none were added;
+  - removal leaving the pending start, and a removed agent listed as waiting;
+  - and three post-lift ones: a gate on the import start, a not-open Kosmos
+    waiting instead of `later`, and a pre-lift sentence still shown.
+- **The full test list, in the foreground, compared by NAME with a clean detached
+  main `e07ec774` worktree (removed afterwards):**
+  - `engine/` half: main fails 418 of 3534 and the branch 418 of 3573. That is 417
+    unique names on each side and identical sets.
+  - The root half: main fails 404 of 2853 and the branch 404 of 2878. That is 405
+    unique names on each side and identical sets.
+  - So there is no branch-only failure.
+
 ## Review log
 
 - **Round 1 (coordinator, at `2a1c41cf`; rebased onto main `136172a7`).**
@@ -421,6 +450,45 @@ He confirmed this shape:
     main's again.
   - B's legacy-candidate reuse of `remove.jobFor` lands with round 3, below.
 
+- **Round 3 (coordinator, at `b3a63d51`; fixed after the post-lift rebase).**
+  - [BUG 1] The copied brief carried the source Kosmos's projects section (its
+    folders, and `kosmos post/task` ids the target lacks).
+    `projects.removeBlock` now takes it out of the copy. The source is untouched,
+    and the target's project sync writes the section again when the copy joins a
+    project there.
+  - [BUG 2] A dangling `reportsTo`.
+    - After the pick loop, `settleManagers` keeps `reportsTo` only when the
+      manager is copied in the SAME request.
+    - Otherwise it sets `reportsTo: null` and re-splices the copy's reports section
+      from `reports.blockBody`, which then names the person.
+    - A same-name agent already in the target is treated as a stranger and not
+      kept: nothing on disk tells it apart from a different agent that shares
+      the name.
+  - [BUG 3] A failed rollback was silent and then blocked the name. Each failed
+    removal is now logged with its path and code. A folder with no agent behind it
+    is refused as exactly that, with its path.
+  - [NIT 4] A partial avatar copy is added to the rollback on any non-EEXIST error.
+  - [CONV 5] One stderr line per refusal that came from an error (source, target,
+    name, step, code, path), never the brief, the picture or an account folder.
+    The trust-write catch in `firstStartOfImport` now logs its code.
+  - [CONV 6] The stale caching comment in `win32job.taskSpec` is deleted.
+  - [CONV 7] The two `docs/browser-checks/README.md` rows are rewritten (per-agent
+    groups with `importAgents`; a cog on every Kosmos opening the settings pane).
+  - [NIT 8] The route sentence reads "...each by the Kosmos it is in and its name".
+  - [NIT 9] A create whose import throws says some agents may have been added and
+    to check its settings, in the page and in the log.
+  - [B, post-lift] The collision check reuses main's `remove.jobFor`. It gained an
+    optional `worldId`, as did `win32job.status`, and offers the legacy
+    `com.<name>.discord` job in the default Kosmos only.
+  - [Q10] Can a person remove an imported agent that has not started? YES.
+    - `remove.plan`'s `exists()` counts its worker folder, and removal takes the
+      jobless arm ("not set to start on its own").
+    - The gap: its `world-starts.json` entry stayed until the next start pass
+      dropped it as `cleared`. Until then the settings pane showed it as waiting,
+      and a restore before that pass would have started it.
+    - Fixed: `recordRemoval` calls `worldstarts.forgetEntries([name])`, and
+      `importsWaitingIn` skips names on that store's removed list.
+
 ## Rebase TODO (DONE in the post-lift rebase above; kept as the record of what it covered)
 
 - **Everything tied to `namedWorldSpawnRefusal` goes:**
@@ -448,12 +516,8 @@ He confirmed this shape:
    runner seam. The live start is for macOS CI and a Mac builder. On this box, the
    Windows live check is: import an agent from a named Kosmos into the open Kosmos
    1, and see it start and answer in its board thread.
-2. **The brief is copied verbatim.** Its Kosmos-managed project block still names
-   the SOURCE Kosmos's project folders, because projects are per Kosmos, until the
-   agent is added to a project in the target and the block is re-synced. It is
-   stated here as a follow-up, not hidden.
-3. **`reportsTo` may name an agent that was not imported.** It is kept, so importing
-   the manager too keeps the line, and the org chart shows nobody above them
-   otherwise.
+2. (The original items 2 and 3 -- the brief's projects section copied verbatim, and
+   a `reportsTo` naming an agent that was not imported -- were fixed in review
+   round 3; see the review log.)
 4. **`win32job.taskSpec` refactors `configDirFor`'s parse**, which is a safety check
    with a cache. The existing `configDirFor` suites must stay green unchanged.

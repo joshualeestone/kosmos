@@ -196,7 +196,8 @@ test('a refused agent is named with its reason; a thrown import and an unreadabl
   assert.equal(refused.msg.textContent, 'Your Kosmos was created. Not added: ava, because Gamma already has an agent called ava.');
 
   const thrown = await submit({ tick: [['w1', 'ava']], response: { ok: true, world: {}, imported: { copied: [], refused: [], started: [], waiting: [], later: [], error: true } } });
-  assert.match(thrown.msg.textContent, /created, but its agents could not be added/);
+  assert.match(thrown.msg.textContent, /could not finish adding its agents\. Some may have been added/,
+    'a failure that can come after some agents were copied must not say none were added');
 
   const unknown = await submit({ tick: [['w1', 'ava']], response: { ok: true, world: {} } });
   assert.match(unknown.msg.textContent, /could not confirm whether its agents were added/);

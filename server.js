@@ -3122,7 +3122,9 @@ const server = http.createServer((req, res) => {
         if (asked.picks.length) {
           try { imported = importIntoWorld(base, world.id, asked.picks, { legacy: asked.legacy }).imported; }
           catch (err) {
-            process.stderr.write(`Kosmos created ${world.id} but could not add its agents: ${String((err && err.message) || err)}\n`);
+            /* Review round 3 (9): the throw can land AFTER some agents were copied in,
+               so neither this line nor the page may say none were added. */
+            process.stderr.write(`Kosmos created ${world.id} but could not finish adding its agents (some may have been added): ${String((err && err.message) || err)}\n`);
             imported = { copied: [], refused: [], started: [], waiting: [], later: [], error: true };
           }
         }
@@ -3295,7 +3297,7 @@ const server = http.createServer((req, res) => {
            is new, and the page's only call to it sends `importAgents`, so no old page
            can be relying on the legacy body here: it is refused, rather than accepted
            and answered in a shape its sender cannot read. */
-        if (asked.legacy) { sendJson(res, 400, { ok: false, because: 'add agents to a Kosmos one at a time, each as the Kosmos it is in and its name (importAgents)' }); return; }
+        if (asked.legacy) { sendJson(res, 400, { ok: false, because: 'add agents to a Kosmos one at a time, each by the Kosmos it is in and its name' }); return; }
         if (!asked.picks.length) { sendJson(res, 400, { ok: false, because: 'choose at least one agent to add' }); return; }
         let done;
         try { done = importIntoWorld(base, id, asked.picks); }

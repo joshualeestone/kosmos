@@ -252,6 +252,28 @@ test('R1 (A): an import the start CLEARED is reported, never counted as simply a
   }
 });
 
+test('R3 (10): an imported agent that has not started yet CAN be removed, and removal takes it off the list to start', async () => {
+  seed('alphaworld', 'ned');
+  liveExec.resetForTests();   // the start is held, so ned is copied and recorded but not started
+  const r = await post('/api/worlds/import', { id: 'default', importAgents: [{ from: 'alphaworld', name: 'ned' }] });
+  liveExec.allowLiveExecution();
+  assert.equal(r.status, 200, r.body.because);
+  assert.deepEqual(r.body.imported.waiting.map((w) => w.name), ['ned'], 'the control: ned is copied and not started');
+  try {
+    const done = remove.remove('ned', { platform: 'darwin' });
+    assert.notEqual(done.outcome, remove.OUTCOME.REFUSED, 'an unstarted import could not be removed: ' + done.because);
+    assert.deepEqual(recordOf('default').filter((e) => e.name === 'ned'), [], 'the removal left it on the list to start');
+    const list = await fetch(base + '/api/worlds/list').then((x) => x.json());
+    assert.equal(list.worlds.find((w) => w.id === 'default').waiting.some((w) => w.name === 'ned'), false, 'a removed agent is still shown as waiting');
+    // This suite shares one store, so earlier tests' held entries may start here; only ned matters.
+    const later = worldstarts.resumePaused();
+    assert.equal(later.resumed.includes('ned'), false, 'a removed agent was started later anyway');
+    assert.equal(installs.some((i) => i.name === 'ned'), false, 'a removed agent was set up to start');
+  } finally {
+    fs.rmSync(remove.REMOVED_FILE, { force: true });
+  }
+});
+
 test('GET /api/worlds/list: every Kosmos, its agents to pick from (removed ones left out), and what waits in it', async () => {
   seed('default', 'hal');
   seed('default', 'ivy');

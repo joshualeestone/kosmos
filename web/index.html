@@ -18897,7 +18897,8 @@ async function worldAddSubmit() {
           // A 200 with no readable `imported`: we asked to import and CANNOT confirm it.
           msg.textContent = 'Your Kosmos was created, but we could not confirm whether its agents were added. Open its settings (the cog next to it) to add any that are missing.';
         } else if (imp.error) {
-          msg.textContent = 'Your Kosmos was created, but its agents could not be added. You can add them from its settings (the cog next to it).';
+          // The failure can come after some were copied in, so this never says none were.
+          msg.textContent = 'Your Kosmos was created, but we could not finish adding its agents. Some may have been added: open its settings (the cog next to it) to check, and add any that are missing.';
         } else {
           msg.textContent = 'Your Kosmos was created. ' + worldImportOutcome(imp, createdName);
         }

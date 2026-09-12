@@ -63,7 +63,9 @@ test('a complete copy: profile (fresh identity), avatar and brief land in the ta
   const { base, env, opts, def } = setup();
   const dst = worlds.createWorld(base, 'Client work');
   seedAgent(base, env, def, 'ava', {
-    profile: { displayName: 'Ava', role: 'Analyst', reportsTo: 'you', provider: 'claude', doctrineVersion: 3, id: 'deadbeef0001', idInstall: 'inst-1' },
+    // No reportsTo here: server.js stores a manager's name or null (the person), and
+    // a manager that does not come along is its own test (R3 item 2).
+    profile: { displayName: 'Ava', role: 'Analyst', provider: 'claude', doctrineVersion: 3, id: 'deadbeef0001', idInstall: 'inst-1' },
     avatar: PNG,
   });
   const srcProfile = nodePath.join(worlds.worldProfilesDir(base, def), 'ava.json');
@@ -77,7 +79,7 @@ test('a complete copy: profile (fresh identity), avatar and brief land in the ta
   assert.deepEqual(r.copied, [{ from: 'default', name: 'ava', displayName: 'Ava' }]);
 
   const copy = readJson(nodePath.join(worlds.worldProfilesDir(base, dst), 'ava.json'));
-  assert.deepEqual(copy, { displayName: 'Ava', role: 'Analyst', reportsTo: 'you', provider: 'claude', doctrineVersion: 3 },
+  assert.deepEqual(copy, { displayName: 'Ava', role: 'Analyst', provider: 'claude', doctrineVersion: 3 },
     'the copy keeps everything a person set, and carries no identity: it mints its own on its first write');
   const folder = nodePath.join(worlds.worldWorkersDir(base, dst, env), 'ava');
   assert.ok(folder.startsWith(worlds.worldBaseDir(base, dst)), 'the copy works in a folder of its own, inside the target Kosmos');
@@ -212,7 +214,10 @@ test('a name already in the target is refused, and nothing there is overwritten:
   const r = worldimport.importAgents(base, dst.id, ['ava', 'bo', 'cy'].map((name) => ({ from: 'default', name })), opts);
   assert.deepEqual(r.copied, []);
   assert.deepEqual(r.refused.map((x) => x.name), ['ava', 'bo', 'cy']);
-  for (const x of r.refused) assert.equal(x.because, `Client work already has an agent called ${x.name}`);
+  assert.equal(r.refused[0].because, 'Client work already has an agent called ava');
+  assert.equal(r.refused[1].because, `Client work already has a folder called bo (${boFolder}) with no agent behind it; if an earlier import left it there, remove it and try again`,
+    'a folder with no agent behind it must be named as what it is, and where');
+  assert.equal(r.refused[2].because, 'Client work already has an agent called cy');
   assert.equal(fs.readFileSync(nodePath.join(worlds.worldProfilesDir(base, dst), 'ava.json'), 'utf8'), '{"displayName":"Theirs"}');
   assert.deepEqual(fs.readdirSync(boFolder), ['notes.txt']);
   assert.equal(fs.existsSync(nodePath.join(worlds.worldWorkersDir(base, dst, env), 'ava')), false, 'a refused import left a folder');
@@ -458,5 +463,156 @@ test('R1: a readable job decides the runner, over the profile\'s provider', () =
     assert.ok(fs.existsSync(nodePath.join(worlds.worldWorkersDir(base, dst, env), 'rae', 'CLAUDE.md')));
   } finally {
     fs.rmSync(create.plistPath('rae', src.id), { force: true });
+  }
+});
+
+/* ── review round 3 ───────────────────────────────────────────────────── */
+
+function captureStderr(fn) {
+  const real = process.stderr.write;
+  const lines = [];
+  process.stderr.write = (chunk) => { lines.push(String(chunk)); return true; };
+  try { return { result: fn(), lines }; } finally { process.stderr.write = real; }
+}
+const workerBrief = (base, env, world, name, file = 'CLAUDE.md') => nodePath.join(worlds.worldWorkersDir(base, world, env), name, file);
+
+test('R3 (1): the copy\'s brief loses the SOURCE Kosmos\'s projects section; the source keeps it', () => {
+  const projects = require('./projects');
+  const { base, env, opts, def } = setup();
+  const dst = worlds.createWorld(base, 'Dest');
+  const withBlock = projects.spliceBlock('# ava\nMy own words.\n', 'Your projects:\n- src-proj, at /the/source/folder (kosmos post src1)', projects.BLOCK_START, projects.BLOCK_END);
+  assert.ok(withBlock.includes(projects.BLOCK_START), 'the control: the source brief carries the section');
+  seedAgent(base, env, def, 'ava', { brief: withBlock });
+  const r = worldimport.importAgents(base, dst.id, [{ from: 'default', name: 'ava' }], opts);
+  assert.deepEqual(r.refused, []);
+  const copy = fs.readFileSync(workerBrief(base, env, dst, 'ava'), 'utf8');
+  assert.equal(copy.includes(projects.BLOCK_START), false, 'the copy carries the source Kosmos\'s projects section');
+  assert.equal(copy.includes('src-proj'), false);
+  assert.ok(copy.includes('My own words.'), 'the person\'s own words went with it');
+  assert.equal(fs.readFileSync(workerBrief(base, env, def, 'ava'), 'utf8'), withBlock, 'the source brief was changed');
+});
+
+test('R3 (2): a manager that comes along keeps the line; one that does not is cleared -- even when the target has a same-name stranger', () => {
+  const projects = require('./projects');
+  const reports = require('./reports');
+  const { base, env, opts, def } = setup();
+  const briefFor = (name) => projects.spliceBlock(`# ${name}\n`, reports.blockBody({ reportsTo: 'boss' }), reports.START, reports.END);
+  seedAgent(base, env, def, 'boss', { profile: { displayName: 'Boss' } });
+  seedAgent(base, env, def, 'ann', { profile: { displayName: 'Ann', reportsTo: 'boss' }, brief: briefFor('ann') });
+  const readCopy = (w, n) => readJson(nodePath.join(worlds.worldProfilesDir(base, w), n + '.json'));
+  const escalatesToBoss = (text) => /You report to \*\*[Bb]oss\*\*/.test(text);
+
+  // (a) The manager comes along in the same request: the line survives, untouched.
+  const together = worlds.createWorld(base, 'Together');
+  worldimport.importAgents(base, together.id, [{ from: 'default', name: 'boss' }, { from: 'default', name: 'ann' }], opts);
+  assert.equal(readCopy(together, 'ann').reportsTo, 'boss');
+  assert.equal(fs.readFileSync(workerBrief(base, env, together, 'ann'), 'utf8'), briefFor('ann'), 'the line was rewritten although the manager came along');
+
+  // (b) Alone: cleared, and the section now names the person.
+  const alone = worlds.createWorld(base, 'Alone');
+  worldimport.importAgents(base, alone.id, [{ from: 'default', name: 'ann' }], opts);
+  assert.equal(readCopy(alone, 'ann').reportsTo, null, 'the copy keeps a manager who is not in its Kosmos');
+  const aloneBrief = fs.readFileSync(workerBrief(base, env, alone, 'ann'), 'utf8');
+  assert.ok(aloneBrief.includes(reports.START), 'the control: the section is still there');
+  assert.equal(escalatesToBoss(aloneBrief), false, 'the copy still escalates to a manager who is not there');
+  assert.match(aloneBrief, /directly/);
+
+  // (c) The target already has a DIFFERENT agent called boss: it must not become ann's manager.
+  const stranger = worlds.createWorld(base, 'Stranger');
+  seedAgent(base, env, stranger, 'boss', { profile: { displayName: 'Another Boss' } });
+  worldimport.importAgents(base, stranger.id, [{ from: 'default', name: 'ann' }], opts);
+  assert.equal(readCopy(stranger, 'ann').reportsTo, null, 'a different agent that shares the name became the copy\'s manager');
+  assert.equal(escalatesToBoss(fs.readFileSync(workerBrief(base, env, stranger, 'ann'), 'utf8')), false);
+
+  assert.equal(readCopy(def, 'ann').reportsTo, 'boss', 'the source agent was changed');
+});
+
+test('R3 (3): a rollback that cannot remove the folder SAYS so, and the next try names the leftover folder', () => {
+  const { base, env, opts, def } = setup();
+  const dst = worlds.createWorld(base, 'Dest');
+  seedAgent(base, env, def, 'ava');
+  const recordAt = worldstarts.recordFileIn(worlds.worldStoreRoot(base, dst));
+  fs.mkdirSync(recordAt, { recursive: true });   // an unreadable record: the copy is rolled back
+  const folder = nodePath.join(worlds.worldWorkersDir(base, dst, env), 'ava');
+  const realRm = fs.rmSync;
+  fs.rmSync = (p, o) => {
+    if (p === folder) { const e = new Error('busy'); e.code = 'EBUSY'; throw e; }   // an antivirus holding it
+    return realRm(p, o);
+  };
+  let first;
+  let lines;
+  try {
+    ({ result: first, lines } = captureStderr(() => worldimport.importAgents(base, dst.id, [{ from: 'default', name: 'ava' }], opts)));
+  } finally {
+    fs.rmSync = realRm;
+  }
+  assert.deepEqual(first.copied, []);
+  assert.ok(lines.some((l) => l.includes('step=rollback') && l.includes('code=EBUSY') && l.includes(folder)),
+    'a rollback that could not remove the folder was silent: ' + lines.join(''));
+  assert.ok(fs.existsSync(folder), 'the control: the folder really was left behind');
+
+  fs.rmSync(recordAt, { recursive: true, force: true });   // the record is fine again
+  const again = worldimport.importAgents(base, dst.id, [{ from: 'default', name: 'ava' }], opts);
+  assert.match(again.refused[0].because, /already has a folder called ava .* with no agent behind it/);
+  assert.ok(again.refused[0].because.includes(folder), 'the refusal does not say where the leftover folder is');
+});
+
+test('R3 (4): a picture copy that fails partway leaves no partial picture behind', () => {
+  const store = require('./store');
+  const { base, env, opts, def } = setup();
+  const dst = worlds.createWorld(base, 'Dest');
+  seedAgent(base, env, def, 'ava', { avatar: PNG });
+  const realCopy = fs.copyFileSync;
+  fs.copyFileSync = (from, to) => {
+    fs.writeFileSync(to, PNG.subarray(0, 3));   // a partial write
+    const e = new Error('io'); e.code = 'EIO'; throw e;
+  };
+  let r;
+  try {
+    r = captureStderr(() => worldimport.importAgents(base, dst.id, [{ from: 'default', name: 'ava' }], opts)).result;
+  } finally {
+    fs.copyFileSync = realCopy;
+  }
+  assert.deepEqual(r.copied, []);
+  assert.match(r.refused[0].because, /could not copy it into Dest \(EIO\)/);
+  assert.equal(store.avatarPathIn(worlds.worldAvatarsDir(base, dst), 'ava'), null, 'a partial picture was left behind');
+  assert.equal(fs.existsSync(nodePath.join(worlds.worldWorkersDir(base, dst, env), 'ava')), false);
+});
+
+test('R3 (5): an error refusal logs one line -- source, target, name, step, code, path -- never the brief; an ordinary refusal logs nothing', () => {
+  const { base, env, opts, def } = setup();
+  const dst = worlds.createWorld(base, 'Dest');
+  seedAgent(base, env, def, 'ava', { brief: 'SECRET-BRIEF-WORDS\n' });
+  const recordAt = worldstarts.recordFileIn(worlds.worldStoreRoot(base, dst));
+  fs.mkdirSync(recordAt, { recursive: true });
+  const failed = captureStderr(() => worldimport.importAgents(base, dst.id, [{ from: 'default', name: 'ava' }], opts));
+  const line = failed.lines.find((l) => l.startsWith('Kosmos import refused:') && l.includes('step=record'));
+  assert.ok(line, 'no log line for a refusal that came from an error: ' + failed.lines.join(''));
+  assert.match(line, /^Kosmos import refused: source=default target=dest name=ava step=record code=UNREADABLE path=\S/);
+  assert.equal(failed.lines.join('').includes('SECRET-BRIEF-WORDS'), false, 'the brief\'s words were logged');
+
+  fs.rmSync(recordAt, { recursive: true, force: true });
+  assert.deepEqual(worldimport.importAgents(base, dst.id, [{ from: 'default', name: 'ava' }], opts).refused, [], 'the control: it copies once the record is fine');
+  const ordinary = captureStderr(() => worldimport.importAgents(base, dst.id, [{ from: 'default', name: 'ava' }], opts));
+  assert.match(ordinary.result.refused[0].because, /already has an agent called ava/);
+  assert.equal(ordinary.lines.some((l) => l.startsWith('Kosmos import refused:')), false, 'an ordinary refusal was logged as an error');
+});
+
+test('R3 (B): the legacy com.<name>.discord job takes the name in Kosmos 1 (main\'s one rule, remove.jobFor), not in a named Kosmos', () => {
+  const { base, env, opts } = setup();
+  const src = worlds.createWorld(base, 'Src');
+  const dst = worlds.createWorld(base, 'Dest');
+  seedAgent(base, env, src, 'lee');
+  const discord = nodePath.join(nodePath.dirname(create.plistPath('lee', 'default')), 'com.lee.discord.plist');
+  fs.mkdirSync(nodePath.dirname(discord), { recursive: true });
+  fs.writeFileSync(discord, '<plist/>');
+  try {
+    const intoKosmos1 = worldimport.importAgents(base, 'default', [{ from: src.id, name: 'lee' }], opts);
+    assert.deepEqual(intoKosmos1.copied, []);
+    assert.equal(intoKosmos1.refused[0].because, 'Kosmos 1 already has something set to start as lee');
+    const intoNamed = worldimport.importAgents(base, dst.id, [{ from: src.id, name: 'lee' }], opts);
+    assert.deepEqual(intoNamed.copied.map((c) => c.name), ['lee'], 'a Kosmos 1-only legacy job took the name in a named Kosmos');
+  } finally {
+    fs.rmSync(discord, { force: true });
   }
 });

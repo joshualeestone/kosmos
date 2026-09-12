@@ -534,8 +534,8 @@ function list() {
  * and there both "no job" and "we could not see one" lead to the same act. Use
  * `presence` wherever the answer becomes a sentence somebody reads.
  */
-function status(name) {
-  const p = presence(name);
+function status(name, worldId) {
+  const p = presence(name, worldId);
   return p.registered ? { registered: true, enabled: p.enabled } : { registered: false };
 }
 
@@ -607,11 +607,6 @@ function xmlUnescape(v) {
 function taskSpec(name, worldId) {
   const r = run(['/Query', '/TN', taskName(name, worldId), '/XML']);
   if (!r.ok) {
-    /* Cached like any other KNOWN answer: "there is no task" is as stable as a
-       path, and it is the case a REMOVED agent whose task is already gone hits
-       on every single poll. Leaving it uncached would have left the spawn this
-       card is about in place for exactly those agents. `install` re-registering
-       one busts it. */
     if (NO_SUCH_TASK.test(r.out || '')) return { known: true, registered: false };
     return { known: false, because: (r.out || '').trim().split('\n')[0] || 'schtasks would not answer' };
   }
