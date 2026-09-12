@@ -11359,8 +11359,12 @@ const server = http.createServer((req, res) => {
         sendJson(res, 200, { ok: true });
       } catch (err) {
         const msg = String((err && err.message) || '');
-        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
-          { error: msg || 'we could not record that message' });
+        // A failed append is a server-side (disk/IO) condition, not a bad request,
+        // so it is a 500; a missing project/task is a 404; everything else (empty
+        // or over-length text) is a 400 malformed request.
+        const code = /we could not record that message/.test(msg) ? 500
+          : (/no project by that name|no task by that number/.test(msg) ? 404 : 400);
+        sendJson(res, code, { error: msg || 'we could not record that message' });
       }
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
