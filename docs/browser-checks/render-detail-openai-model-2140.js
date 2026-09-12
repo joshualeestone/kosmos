@@ -237,7 +237,33 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       };
     }
 
-    return { listable, snapshotPinned, notListable, sequence, hideCoverage, usableGate };
+    // #2802 SIBLING-REASON COVERAGE. The show gate's because-half is
+    // `/not an api key/i`. Prove it EXCLUDES the OTHER not-listable reasons -- a
+    // rejected/forbidden key -- whose real remedy is reconnect, not connect-an-api-
+    // key. usable stays true here (ours+recorded), so this isolates the because-half
+    // from the usable-half above. Show the button via a not-an-api-key paint, then
+    // repaint the SAME agent with a real 401-rejected-key because: the button must
+    // go hidden because the because no longer matches. (The string is the literal
+    // one engine/openaiaccounts.js:1552 emits for an invalid_api_key 401.)
+    let siblingReasonGate = { ran: false };
+    {
+      CURRENT = { sessionName: 'oa1' };
+      window.fetch = async () => ({ ok: true, json: async () => ({ ok: false, because: 'this sign-in cannot list models yet; it is not an api key' }) });
+      paintOpenaiDetailModel({ sessionName: 'oa1', isNamedOurs: true, provider: 'openai', account: { dir: '/home/.codex' }, plannedModelName: '' }, 'oa1');
+      await settle();
+      const shownGoingIn = (document.getElementById('d-model-connect') || {}).hidden === false;
+      window.fetch = async () => ({ ok: true, json: async () => ({ ok: false, because: "this account's API key was rejected by OpenAI (401)" }) });
+      paintOpenaiDetailModel({ sessionName: 'oa1', isNamedOurs: true, provider: 'openai', account: { dir: '/home/.codex' }, plannedModelName: '' }, 'oa1');
+      await settle();
+      const cb = document.getElementById('d-model-connect');
+      siblingReasonGate = {
+        ran: true,
+        shownGoingIn,
+        hiddenForRejectedKey: !!cb && cb.hidden === true,
+      };
+    }
+
+    return { listable, snapshotPinned, notListable, sequence, hideCoverage, usableGate, siblingReasonGate };
   });
 
   await browser.close();
@@ -259,7 +285,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!/signed in with ChatGPT/.test(r.notListable.msg)) problems.push('NOT LISTABLE: the reason-keyed note is missing from the msg');
     if (!r.notListable.connectShown) problems.push('#2802: the "Connect an API key" button is not shown for a not-an-api-key (ChatGPT subscription) account, so the disabled model state is inert prose again');
     if (!r.notListable.connectOpensFlow) problems.push('#2802: clicking "Connect an API key" does not open the Add-a-provider flow (#acct-add-modal)');
-    if (!r.notListable.connectFocusReturns) problems.push('#2802: closing the modal opened from the Model tab did NOT return focus to the Connect button (it strands on <body>, since #acct-add-open is display:none outside Settings -- the #1918 stranded-focus class)');
+    if (r.notListable.connectShown && !r.notListable.connectFocusReturns) problems.push('#2802: closing the modal opened from the Model tab did NOT return focus to the Connect button (it strands on <body>, since #acct-add-open is display:none outside Settings -- the #1918 stranded-focus class)');
     if (!r.listable.connectHidden) problems.push('#2802: the "Connect an API key" button leaks into a LISTABLE account (it should be hidden when the account can list models)');
     if (!r.hideCoverage || !r.hideCoverage.ran) {
       problems.push('#2802 coverage: the hide-path coverage block did not run');
@@ -276,6 +302,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       if (!r.usableGate.shownGoingIn) problems.push('#2802 coverage: the button was not shown by the ours not-listable paint, so the not-ours hide assertion is vacuous');
       if (!r.usableGate.hiddenForNotOurs) problems.push('#2802 coverage: the Connect button SHOWS for a not-ours (usable=false) not-an-api-key agent -- the `usable &&` half of the show gate is not enforced');
       if (!r.usableGate.refusalShown) problems.push('#2802 coverage: a not-ours account did not show the refusal sentence, so the usable=false path was not exercised');
+    }
+    if (!r.siblingReasonGate || !r.siblingReasonGate.ran) {
+      problems.push('#2802 coverage: the sibling-reason coverage block did not run');
+    } else {
+      if (!r.siblingReasonGate.shownGoingIn) problems.push('#2802 coverage: the button was not shown by the not-an-api-key paint, so the sibling-reason hide assertion is vacuous');
+      if (!r.siblingReasonGate.hiddenForRejectedKey) problems.push('#2802 coverage: the Connect button SHOWS for a rejected-key (401) account -- the `not an api key` half of the show gate does not exclude the sibling not-listable reasons (whose remedy is reconnect, not connect-an-api-key)');
     }
     if (!r.sequence || !r.sequence.ran) {
       problems.push('SEQUENCE: paintModelPicker/paintProviderPicker not both present, so the openDetail order was not exercised');
