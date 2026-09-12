@@ -193,18 +193,23 @@ test('#2906/8: a NON-codex runner FAILS CLOSED and never reads a codex rollout u
   assert.equal(status.readCodexContext('india').tokens, null, 'a non-codex runner -> no codex read, no board-account leak');
 });
 
-test('#2906/9: a codex job whose workdir cannot be resolved FAILS CLOSED (the !dir arm)', () => {
-  // The guard is `!dir`. A valid codex launch job exists, but no profile means workerDir()
-  // throws and dir is null -- the reader must fail closed rather than read anything.
+test('#2906/9: if workerDir throws, the reader FAILS CLOSED (the !dir arm)', () => {
+  // The guard is `try { dir = create.workerDir(name); } catch { dir = null; } if (!dir || ...)`.
+  // create.workerDir currently always returns a string for any name (it never returns falsy and
+  // never throws for a plain string), so the ONLY way to reach the !dir arm is workerDir itself
+  // throwing -- e.g. its internal agentDirRecorded()/workersDir() failing. Force that and assert
+  // the reader reads nothing, using a positive control so the stub is provably the only variable.
   const wd = path.join(SB, 'work', 'juliet');
-  fs.mkdirSync(wd, { recursive: true });
-  fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
-  fs.writeFileSync(
-    create.plistPath('juliet'),
-    create.plistFor('juliet', CLAUDE_BIN, TMUX_BIN, null, HOME_B, 'codex'), // a real codex job...
-    'utf8',
-  );
-  // ...but NO profile is written, so create.workerDir('juliet') cannot resolve a dir.
-  writeRolloutIn(HOME_B, wd, 88888, 258400);       // a rollout that WOULD match if dir resolved
-  assert.equal(status.readCodexContext('juliet').tokens, null, 'unresolvable workdir -> fail closed, no read');
+  codexAgent('juliet', wd, HOME_B);                // a valid codex agent + a matching rollout
+  writeRolloutIn(HOME_B, wd, 88888, 258400);
+  // CONTROL: with workerDir working, this exact setup DOES read the rollout.
+  assert.equal(status.readCodexContext('juliet').tokens, 88888, 'control: a resolvable workdir reads the rollout');
+  // ...so a throwing workerDir is the only difference, and it must fail closed rather than read.
+  const origWorkerDir = create.workerDir;
+  create.workerDir = () => { throw new Error('simulated workerDir failure'); };
+  try {
+    assert.equal(status.readCodexContext('juliet').tokens, null, 'workerDir throw -> dir null -> fail closed, no read');
+  } finally {
+    create.workerDir = origWorkerDir;
+  }
 });

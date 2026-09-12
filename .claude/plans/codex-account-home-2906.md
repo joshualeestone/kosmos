@@ -36,7 +36,7 @@ sessions to another, even when metadata collides.
 
 ## Tests
 
-`engine/status.codex-account-home-2906.test.js` (7 regression tests):
+`engine/status.codex-account-home-2906.test.js` (9 regression tests):
 
 1. an explicit account home reads only that home, never the board process account
 2. two Codex agents on separate homes each get their own usage in one snapshot
@@ -45,6 +45,8 @@ sessions to another, even when metadata collides.
 5. backward compatibility: `codexsession.read` with no home keeps the process-default home
 6. no cross-account bleed: same workdir metadata in two non-board homes reads only the agent account
 7. a matched rollout with no token count is "not yet measured", then gains usage after a turn
+8. a non-codex runner FAILS CLOSED and never reads a codex rollout under any home
+9. if `workerDir` throws, the reader FAILS CLOSED (the `!dir` arm, forced via a stub with a positive control)
 
 Plus additive coverage in the existing `2257` and `2413` suites for the new
 optional-`home` signatures.
