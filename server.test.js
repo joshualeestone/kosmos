@@ -12382,11 +12382,28 @@ test('#2811: a DEFAULT-account Codex agent is not handed the operator Claude acc
     assert.equal(cacct && cacct.email, 'josh@example.com',
       'a Claude agent on the default row lost its account');
 
-    /* AND THE SENTENCE THAT MADE IT WORSE: no self-contradiction now. */
+    /* AND THE SENTENCE THAT MADE IT WORSE: no self-contradiction now.
+       🔑 WHAT THIS LINE ACTUALLY GUARDS, because its old message overstated it.
+       `acct` is asserted null 20 lines above, so "a Codex agent is not handed the
+       Claude account" is already guarded THERE, and a mutant of the provider gate
+       reds that assertion and never reaches this one. What is left for this line
+       is narrower and still worth having: `sentenceForWhoami` must source the
+       account ONLY from its argument. MEASURED, both ways:
+         mutant: a fallback when `account` is null  -> THIS line reds
+         mutant: re-derive via `accounts.list()`    -> this line stays green (the
+                 fixture's row is a local array, not on disk), 4 other arms red
+       so it is killable but narrow, and the message now says which. */
     const said = sentenceForWhoami(acct, null, 'codex');
     assert.doesNotMatch(said, /josh@example\.com/,
-      'the sentence still names a Claude account for a Codex agent');
+      'sentenceForWhoami produced a Claude account from somewhere other than its account argument, which was null');
     assert.match(said, /^This is a Codex agent/);
+
+    /* CONTROL 3, and it is what makes the line above discriminating: the SAME
+       regex against the SAME rows for a CLAUDE agent DOES match. Without it,
+       `doesNotMatch` passing proves nothing about whether the pattern can fire. */
+    const saidClaude = sentenceForWhoami(cacct, null, 'claude');
+    assert.match(saidClaude, /josh@example\.com/,
+      'CONTROL: the email pattern cannot fire at all, so the doesNotMatch above is vacuous');
   } finally {
     for (const n of ['defcodex', 'defclaude']) {
       try { fs.unlinkSync(create.plistPath(n)); } catch { /* may not have been written */ }
@@ -12600,9 +12617,22 @@ test('#2811: a stale CLAUDE transcript does not supply the model for a CODEX age
   /**
    * 🛑 THE CONTRADICTION THIS CHANGE MADE REACHABLE. `readModel` is a Claude
    * transcript reader and it is the PREFERRED source. `create.setProvider`
-   * switches an agent claude -> codex by rewriting the plist and nothing else, so
-   * the agent keeps its name and therefore its workdir, and the OLD Claude
-   * transcript stays findable. While the live reader refused for codex there was
+   * switches an agent claude -> codex without moving anything the transcript
+   * lookup keys on: it rewrites the plist, renames the brief CLAUDE.md <->
+   * AGENTS.md (`create.js:1386`), and writes the profile's provider
+   * (`create.js:1389`). The rename happens INSIDE `workerDir(clean)` and the name
+   * never changes, so the workdir is the same afterwards and the OLD Claude
+   * transcript stays findable.
+   * ⚠️ THIS SENTENCE SAID "a plist rewrite and nothing else" FOR 22 ROUNDS, and
+   * it is `setProvider`'s own header repeated. It is measurably false: the other
+   * two statements sit a dozen lines below that header. `server.js:887` and the
+   * plan corrected it at ROUND 2 and this third copy stood until round 23.
+   * ⭐ The CONCLUSION survives either way (the transcript stays findable), which
+   * is exactly why the false premise read as confirmation and nobody re-opened
+   * `setProvider`. A sentence is not checked by the truth of what it concludes.
+   * 📌 And the profile write is not a detail here: it is the SOLE rung that names
+   * the provider on Windows (see `engine/runningas.js`), so "nothing else" denied
+   * the existence of the mechanism this card depends on. While the live reader refused for codex there was
    * no contradiction to have; making it answer is what put a true runner beside a
    * stale model, inside one payload.
    *
