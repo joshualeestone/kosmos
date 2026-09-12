@@ -27912,15 +27912,19 @@ document.addEventListener('keydown', (e) => {
    otherwise. Both facts are the removal dialog's, learned there first. #2831: also
    exclude a HIDDEN button -- during the interstitial the confirm controls are
    display:none, and focusing one silently no-ops, which used to leave the trap
-   pointing at nothing. Excluding hidden makes `reachable` empty then, so Tab
-   correctly does nothing rather than aiming focus at an invisible control. */
+   pointing at nothing. Excluding hidden makes `reachable` empty then. This modal
+   has no `inert` background, so the trap is enforced ONLY by this handler: when
+   there is no reachable control (the interstitial), a bare `return` would let the
+   browser's default Tab move focus onto the board behind the dialog. So preventDefault
+   and keep focus put -- Tab does nothing rather than escaping the aria-modal. Reachable
+   is only ever empty during the interstitial; rst-keep is visible and enabled otherwise. */
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Tab') return;
   const box = document.getElementById('rst-modal');
   if (box.hidden) return;
   const reachable = [document.getElementById('rst-keep'), document.getElementById('rst-go')]
     .filter((el) => !el.disabled && !el.hidden);
-  if (!reachable.length) return;
+  if (!reachable.length) { e.preventDefault(); return; }
   const order = e.shiftKey ? reachable.slice().reverse() : reachable;
   const inside = box.contains(document.activeElement);
   if (!inside || document.activeElement === order[order.length - 1]) {
