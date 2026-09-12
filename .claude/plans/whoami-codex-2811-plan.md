@@ -1642,3 +1642,82 @@ the runner can never slide into the model's slot. A codex plist always carries t
 at the product, a competent adversarial reviewer found nothing in it. Pointed at my prose, six
 consecutive rounds found something. **The defect density was never in the change; it was in what I
 wrote about the change.**
+
+## Round 30: the first PRODUCT defect in many rounds, and it was my change's blast radius
+
+**[MAJOR] A default-account Codex agent's detail panel said "We cannot tell which account this one
+uses" - the exact sentence this branch declares false for that agent class.**
+
+`accountForAgent`'s provider gate is GLOBAL, not whoami-local. The board route resolves every
+card's account against `accounts.list()` (Claude rows, which carry no `provider`), so the gate's
+`find` looks for an OpenAI row among Claude rows and returns `null`. `paintAccountPicker` reads
+`ours = !!acct`, and that `null` lands on the unqualified sentence.
+
+⭐ **I fixed that exact wording on the account-status route and missed this one.** `server.js` says
+of it, in as many words: *"which is false: we CAN tell. The job says codex and the absent home IS
+the default OpenAI home."* The change's blast radius reached a second user-facing surface and left
+the card's own defect there: an absence of evidence rendered as a finding.
+
+⚠️ **NOT a net regression** - before the change the panel handed a codex agent the operator's
+CLAUDE account and ARMED the Move control, which is worse. It was an INCOMPLETE fix.
+
+✅ **FIXED rather than deferred**, which was a judgment call. Deferral was defensible on the net
+improvement, but the card exists to stop Kosmos saying false things about codex agents, and this
+sentence is the ONLY thing that surface says about a whole agent class.
+📌 **Inlined `a.runner === 'codex'` rather than calling the existing `providerOf` helper**: that
+helper is a `const` declared ~440 lines BELOW this function, so a reference sits in the temporal
+dead zone until evaluation reaches it. Every call path today is a runtime event so it would work,
+but "works because nothing calls it early" is a reachability argument, and this file already
+carries notes about those going stale.
+
+### The browser check, and the three wrong probes it took to write
+
+`docs/browser-checks/render-codex-account-picker-2811.js` (annotates `d-account-msg` for the #2518
+surface gate). It PASSES on the fix and FAILS with the exact wrong sentence when the fix is
+reverted, with a claude-runner CONTROL proving the branch is reached either way.
+
+🛑 **All three failed probes were MY INSTRUMENT, not the product, and each is recorded in the
+check so the next person does not repeat them:**
+1. **Both arms in one page load** -> the second call bumps `ACCT_PICKER_EPOCH`, so the FIRST
+   agent's continuation aborts rather than painting onto a panel the person has switched away
+   from. The guard working exactly as documented.
+2. **A settle loop that never settled** -> the branch condition is `!msg.textContent`, and
+   `'Checking…'` fails it.
+3. **`CURRENT` unset** -> past the awaited fetch, `if (!CURRENT || CURRENT.sessionName !==
+   forAgent) return;` fires, so it returns BEFORE clearing the placeholder and the sentence never
+   paints.
+
+⭐ **The third one matters beyond this check. The reviewer's finding came from a SLICED function
+run standalone, which bypasses that guard entirely.** Their conclusion was right and their path was
+not the path the page takes. **A slice proves what the code says; only a render proves what a
+person sees** - which is the #1720 gate's whole argument, arriving from the other direction.
+
+### The repo caught me shipping an UNARMED GUARD, in the artifact added to close a gap
+
+The suite reds on the new browser check, three times over, and every one was a registration guard:
+
+| guard | what it caught |
+|---|---|
+| `tools.browser-checks-wired.test.js` | the check exists and **is never run by the runner** |
+| `browser-checks-indexed.test.js` | it is not in the README (then: my prose broke the index) |
+| `browser-checks-reason-grep.test.js` | two pinned emit-site counts drifted |
+
+⭐ **This is `a-test-nothing-runs-is-an-unarmed-guard` caught by machinery rather than by me.** I
+wrote a check, ran it by hand, saw it pass and fail correctly, and would have committed something
+the runner never executes. **"I ran it" and "it runs" are different claims**, and only the second
+one survives me.
+
+📌 **Both pinned counts were set BY MEASUREMENT, not prediction**: ran the test, read 100 and 71,
+confirmed each new site emits a single-line quotable `FAIL`, then updated the constants with the
+reason. That test states why it is an equality rather than a floor: **a matcher that drifted to
+zero would examine nothing and pass.**
+
+📌 **The check was hardened on the way**: it had no top-level `.catch`, so an unhandled rejection
+would surface as a stack trace the gate cannot quote instead of a quotable failure. That is why
+the catch count moved by two rather than one.
+
+⭐ **And the last failure is the whole lesson in miniature.** My README row said
+"`server.js`'s account-status route" - and the indexer parses backticked names in that column as
+SCRIPT REFERENCES, so prose mentioning another file registered as a missing script. **A
+documentation format can be a parser, and prose written into it is input.** The row now names
+other files without backticks and says why.

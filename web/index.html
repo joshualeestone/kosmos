@@ -30292,7 +30292,27 @@ async function paintAccountPicker(a) {
   sel.disabled = !ours;
   go.disabled = !ours || !sel.value;
   if (msg && !msg.textContent && !ours) {
-    msg.textContent = 'We cannot tell which account this one uses, so it cannot be moved from here.';
+    /* 🛑 #2811: A CODEX AGENT REACHES THIS BRANCH FOR A DIFFERENT REASON, AND THE
+       UNQUALIFIED SENTENCE IS FALSE ABOUT IT. This route resolves the account with
+       `accountForAgent` against the CLAUDE list, and that function now refuses to
+       hand a codex agent a Claude row, so a DEFAULT-account codex agent lands here
+       with `acct === null`. That null means "no CLAUDE account", not "we cannot
+       tell": we can tell, and `server.js`'s account-status route says so in as many
+       words for the identical wording it used to carry.
+       ⇒ Saying "we cannot tell" here would be the card's own defect one surface
+       over: an absence of evidence rendered as a finding. The second clause stays
+       for both, because `movable` is the Claude list and a codex agent genuinely
+       cannot be moved from here.
+       ⚠️ INLINED RATHER THAN VIA `providerOf`, WHICH IS THE SAME TEST: that helper is a
+       `const` declared ~440 lines BELOW this function, so a reference here sits in the
+       temporal dead zone until module evaluation reaches it. Every call path today is
+       a runtime event, so it would work -- but "would work because nothing calls it
+       early" is a reachability argument, and this file already carries several notes
+       about those going stale. `a.runner === 'codex'` is the same idiom used at the
+       two other runner reads in this file. */
+    msg.textContent = (a && a.runner === 'codex')
+      ? 'This is a Codex agent, so it does not run on a Claude account and cannot be moved from here.'
+      : 'We cannot tell which account this one uses, so it cannot be moved from here.';
   } else if (msg && !msg.textContent && signedOut) {
     /* #1492: surface the fix at the point of pain. A signed-out account is why a
        stranded agent will not run, and the move above is the way off it (or sign
