@@ -15,9 +15,10 @@ it here); the MISLABEL is a real defect to fix now; the install-time disclosure
 
 ## Scope (comment-only; NO behavior, NO default, NO user-facing string change)
 
-Fix the "opt-in" mislabels of this send path to match the opt-out behavior. Six
-comment sites across five files (the initial three, plus feedbackpull.js and the
-ping.js header found in challenge-loop iter 1, plus install/kosmos found in iter 2):
+Fix the "opt-in" mislabels of this send path to match the opt-out behavior. Seven
+comment sites across six files (the initial three, plus feedbackpull.js and the
+ping.js header found in challenge-loop iter 1, plus install/kosmos and feedback.js
+found in the iter-2 proactive sweep):
 
 1. `server.js:410` -- the require comment: "the opt-in-gated send layer" ->
    "daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in".
@@ -38,6 +39,10 @@ ping.js header found in challenge-loop iter 1, plus install/kosmos found in iter
    opt-in" -> "... toggle -- DEFAULT-ON / opt-out (#2013/#2957), NOT opt-in". (The
    rest of that comment already said "ships ON by default ... opt-OUT" correctly;
    only the opening word was wrong.)
+7. `engine/feedback.js:13` -- "The opt-in switch governs TRANSMISSION only" ->
+   "The send switch (default-on / opt-out, #2013) governs TRANSMISSION only", and
+   "reads a send/opt-in flag" -> "reads a send flag". (This file stores locally
+   regardless of the switch; the switch is the send toggle, not an opt-in.)
 
 Note on the surviving "opt-in" references NOT changed: server.js:4757, server.js:12406,
 feedbacksend.js:68/422 each pair "opt-in" with an explicit "default ON / opts out",
