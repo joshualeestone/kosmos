@@ -1566,10 +1566,11 @@ cmd_task() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos task <list|add|close>"
+      say "Usage: kosmos task <list|add|close|message>"
       say "  kosmos task list <project-id>                                 list this project's tasks"
       say "  kosmos task add  <project-id> \"<what the task is>\" [\"more detail\"]  add one (quote each part)"
       say "  kosmos task close <project-id> <task-number>                  close one (number is from list)"
+      say "  kosmos task message <project-id> <task-number> \"<what to say>\"  say something in a task's conversation"
       say "  (project ids are in your instructions' Your projects section.)"
       exit 2 ;;
     # Validate the subcommand AND its required args BEFORE the health check, the same order
@@ -1582,8 +1583,11 @@ cmd_task() {
     close)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task close <project-id> <task-number>   (the number is shown by kosmos task list)"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
+    message)
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; } || { say "Usage: kosmos task message <project-id> <task-number> \"<what to say>\""; exit 2; }
+      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
     *)
-      say "Unknown: kosmos task $sub. Try: list | add | close"
+      say "Unknown: kosmos task $sub. Try: list | add | close | message"
       exit 2 ;;
   esac
   if ! healthy; then
@@ -1649,6 +1653,32 @@ cmd_task() {
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
           say "Kosmos could not close that task: ${because:-it did not say why}."; exit 1 ;;
         *) say "Kosmos gave an answer we could not read when closing that task."; exit 1 ;;
+      esac
+      ;;
+    message)
+      # Say something in a task's conversation. Records it on the task and delivers a
+      # notification to the agents assigned to that task. Fold every arg after the
+      # number into the text, so an unquoted multi-word message is not word-split away
+      # (the same treatment `add` gives its detail).
+      local project num text; project="${1:-}"; num="${2:-}"
+      shift 2 2>/dev/null || true; text="$*"
+      local esc_text esc_pane
+      esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
+      # from_pane lets the board resolve WHO is sending, so the sender is not notified
+      # about its own message (the same field `add` sends).
+      esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      local rc=0 body
+      body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/message" \
+        -H 'content-type: application/json' \
+        --data "{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
+      [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to send that message. Is it running at $URL?"; exit 1; }
+      # Success is the board's own {"ok":true,...} shape, not merely the absence of an error.
+      case "$body" in
+        '{"ok":'*) say "Message recorded on task $num of ${project:-the project}; any agents assigned to it were notified." ;;
+        '{"error":'*)
+          local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+          say "Kosmos refused that message: ${because:-it did not say why}."; exit 1 ;;
+        *) say "Kosmos gave an answer we could not read when sending that message."; exit 1 ;;
       esac
       ;;
   esac

@@ -438,16 +438,16 @@ function setDue(projectId, n, dueDate) {
 
 /* #768: record a free-text message on a task's conversation -- the WRITE half of
    #992's transcript (the read half is the activity list, engine/taskchat.js read()).
-   It RECORDS ONLY: it does not deliver the message to any agent. Josh's #768 ask is a
-   task conversation "like the project dialog", which is two-way; this is the first
-   step of it (a recorded message stream), and two-way delivery to the task's people
-   is a deliberately-separate later piece, because delivering to a live agent is a
-   real side-effect that wants its own design (who receives it) and its own valve.
-   A message is validated non-empty here and the task must exist -- a message to a
-   missing project/task is a 404, never a stray transcript file. taskchat.record
-   bounds and single-lines the text itself, and returns false (never throws) on a
-   write failure, which for a user-initiated message is surfaced rather than
-   swallowed (the message IS the operation, unlike a lifecycle side-record). */
+   THIS FUNCTION only RECORDS; DELIVERY to the task's agents happens at the server
+   route (POST .../message), which has the roster and calls chat.deliver to the
+   assignees (Josh, 2026-09-12: "only to the agents assigned to the task"). Keeping
+   delivery in the route mirrors the room, whose delivery also lives at its route
+   with the roster, and keeps this engine function pure. A message is validated
+   non-empty here and the task must exist -- a message to a missing project/task is a
+   404, never a stray transcript file. taskchat.record bounds and single-lines the
+   text itself, and returns false (never throws) on a write failure, which for a
+   user-initiated message is surfaced rather than swallowed (the message IS the
+   operation, unlike a lifecycle side-record). */
 function say(projectId, n, text) {
   const t = (typeof text === 'string' ? text : '').trim();
   if (!t) throw new Error('a message cannot be empty');

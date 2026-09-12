@@ -1003,6 +1003,31 @@ function policySummaries(r) {
     chars: p.text.length, opening: p.text.slice(0, 240),
   }));
 }
+/* #768: the task-message valve. A message typed on the board (the operator) is
+   never limited, but a PROCESS (an agent running `kosmos task message`) is, so a
+   looping agent cannot spam a task's people. This is a rate limit, so an in-memory
+   rolling window is sufficient (a restart resets it, which only ever frees a caller,
+   never wrongly blocks one) -- unlike the task-CREATION valve, which counts persisted
+   tasks because those must survive a restart. CAP process task-messages per hour,
+   fleet-wide, matching the task-creation valve's spirit. */
+/* `>= 0`, not `|| 30`: an operator who sets the cap to 0 to silence agent
+   task-messages entirely means 0, and `Number("0") || 30` would give 30 -- the
+   same env-0 footgun this file already guards against elsewhere with a range check. */
+const TASK_MSG_CAP_PER_HOUR = (() => {
+  const n = Number(process.env.AGENT_WORKFORCE_TASK_MSG_CAP);
+  return Number.isFinite(n) && n >= 0 ? n : 30;
+})();
+const TASK_MSG_WINDOW_MS = 3600000;
+let taskMessageSends = [];
+function taskMessageValveTripped() {
+  const cutoff = Date.now() - TASK_MSG_WINDOW_MS;
+  taskMessageSends = taskMessageSends.filter((t) => t >= cutoff);
+  return taskMessageSends.length >= TASK_MSG_CAP_PER_HOUR;
+}
+function taskMessageValveRecord() {
+  taskMessageSends.push(Date.now());
+}
+
 function safeRoster() {
   try {
     const board = snapshot();
@@ -11341,22 +11366,86 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  /* #768: record a free-text message on a task's conversation. Body { text }.
-     tasks.say validates (empty -> 400, missing project/task -> 404) and records it
-     via engine/taskchat.js, so it shows in the task's activity (the read side, the
-     /activity route above). Record-only: it is not delivered to any agent yet
-     (two-way delivery is a later, separate piece -- see tasks.say's header). */
+  /* #768: record a free-text message on a task's conversation, then DELIVER it to the
+     agents assigned to the task. Body { text, from_pane? }. tasks.say validates
+     (empty -> 400, missing project/task -> 404) and records it via engine/taskchat.js
+     (the read side is the /activity route above). Delivery goes to the assignees only
+     (Josh, 2026-09-12), through chat.deliver, and the sender (when it is a known agent,
+     resolved from from_pane) is excluded so it is not notified about its own message --
+     the same exclusion the room does (engine/messages.js sendPost filters `from`). */
   const taskSay = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/message$/);
   if (taskSay && req.method === 'POST') {
     const id = decodeSegment(taskSay[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    /* Who is sending: the screen (the operator's board) or a process (an agent
+       running `kosmos task message`). The header is the browser's, not the body's,
+       so a process cannot mint the screen posture. Only a process is rate-valved. */
+    const viaScreen = isViaScreen(req);
     readBody(req).then((raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      /* The valve, before the record+deliver: a looping agent must not be able to
+         spam a task's people. Counted for PROCESS senders only; the operator is
+         never valved (the person driving is the remedy, not the hazard -- the same
+         posture as the task-creation and room valves). */
+      if (!viaScreen && taskMessageValveTripped()) {
+        sendJson(res, 429, { error: 'agents have sent many task messages in the last hour, so Kosmos is pausing agent task messages; the person can still send from the screen' });
+        return;
+      }
       try {
-        tasks.say(id, taskSay[2], body.text);
-        sendJson(res, 200, { ok: true });
+        const t = tasks.say(id, taskSay[2], body.text);
+        /* Deliver to the agents ASSIGNED to the task (Josh, 2026-09-12: "only to
+           the agents assigned to the task"), never the whole project. The full
+           message lives in the task record (say, above); what an assignee receives
+           is a short NOTIFICATION -- a preview plus how to reply INTO the task --
+           so the task transcript stays the single source of truth and the delivered
+           line never bumps chat's length cap. chat.deliver carries the rails
+           (addressable, the trust-dialog guard, body validation); every task route
+           that notifies people goes through the same roster. */
+        const roster = safeRoster();
+        const named = tasks.whoOf(t);
+        const chat = require('./engine/chat');
+        const proj = projects.get(id);
+        /* Strip the framing double-quote (and newlines defensively) from anything
+           that rides inside the delivered line's own quotes, the same guard the
+           sibling delivery path heardBy uses: chat.cleanMessage collapses newlines
+           but does NOT remove a `"`, so a message or project name containing one
+           would break the "<preview>" framing and the reply instruction that an
+           assignee parses. */
+        const clean = (s) => String(s == null ? '' : s).replace(/[\r\n"]/g, ' ');
+        const projName = clean((proj && proj.name) || id);
+        const rawPreview = clean(body.text);
+        const preview = rawPreview.length > 140 ? rawPreview.slice(0, 140) + '...' : rawPreview;
+        /* Resolve the sender from its pane, the same header-trusted way taskMake
+           resolves a paneCard. Two uses: exclude the sender from the recipients (an
+           agent that runs `kosmos task message` should not be notified about its own
+           message), and NAME it in the notification so a co-assignee can see which
+           colleague spoke -- the room does the same (its pane envelope names `from`).
+           The operator has no pane here and is not on `named` anyway. */
+        const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
+        const senderCard = fromPane ? roster.find((c) => c && c.target === fromPane) : null;
+        const senderName = clean(senderCard && senderCard.sessionName);
+        const recipients = senderName ? named.filter((m) => m !== senderName) : named;
+        const who = viaScreen ? 'The person' : (senderName || 'An agent');
+        /* Built once: nothing in the line depends on the recipient. `id` is cleaned
+           for consistency with the other interpolated values, though a stored project
+           id is a slug that cannot contain a quote or newline in the first place. */
+        const line = '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' said: "' + preview
+          + '" - reply in the task: kosmos task message ' + clean(id) + ' ' + t.number + ' "..."';
+        /* `delivered`, not `told`: the sibling task routes (close/reopen/parts) return
+           `told` as a SINGLE instruction-sync verdict; this is a per-assignee list of
+           chat.deliver outcomes, a different shape, so it takes a different name rather
+           than overloading `told` with two meanings (convention #5). */
+        const delivered = [];
+        for (const one of recipients) {
+          let outcome;
+          try { outcome = chat.deliver(one, line, roster); }
+          catch (e) { outcome = { state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: String((e && e.message) || 'we could not reach that agent') }; }
+          delivered.push({ agent: one, state: outcome && outcome.state, because: outcome && outcome.because });
+        }
+        if (!viaScreen) taskMessageValveRecord();
+        sendJson(res, 200, { ok: true, delivered });
       } catch (err) {
         const msg = String((err && err.message) || '');
         // A failed append is a server-side (disk/IO) condition, not a bad request,

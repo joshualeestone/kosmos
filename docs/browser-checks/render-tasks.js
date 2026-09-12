@@ -235,6 +235,11 @@ const MEMBER = 'taskmate';
     // inert placeholder before the write path existed).
     if (!(await p.locator('.tkconvcol .tkcompose #tk-say').isVisible())) die('the middle-column composer input (#tk-say) is missing');
     if (!(await p.locator('.tkconvcol .tkcompose #tk-say-go').isVisible())) die('the middle-column composer Send button (#tk-say-go) is missing');
+    /* #768 two-way: the composer note states the message reaches the assigned agents
+       (it was "not sent to an agent yet" while the composer was record-only). Pin the
+       rendered copy so the promise the page makes stays true to what the route does. */
+    const composeNote = (await shown(p.locator('.tkconvcol .tkcompose-note'))).replace(/\s+/g, ' ').trim();
+    if (!/sent to the agents assigned to the task/.test(composeNote)) die('the composer note no longer says the message is sent to the assigned agents: ' + composeNote);
     // Spec line 5: nothing on the task page says "member". The noun is parts.
     const viewText = (await shown(p.locator('#pj-task-view'))).toLowerCase();
     if (/\bmembers?\b/.test(viewText)) die('the task page says "member"; #768 is parts, not a membership feature: ' + viewText.slice(0, 200));

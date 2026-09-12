@@ -5,8 +5,10 @@
  * task's conversation -- the WRITE half of #992's transcript (the read half is
  * the /activity route, covered by server.task-activity-768.test.js). This proves
  * the HTTP surface: a valid message records and reads back as a 'said' event with
- * its text; an empty message is refused (400); a missing project/task is a 404
- * rather than a stray transcript file. It is record-only -- no agent delivery.
+ * its text AND is delivered to the agents assigned to the task (named in `delivered`);
+ * an empty/over-length message is refused (400); a missing project/task is a 404
+ * rather than a stray transcript file. The rate valve is covered separately in
+ * server.task-msg-valve-768.test.js.
  *
  * ⚠️ SANDBOX EVERY ROOT BEFORE ANY REQUIRE. HOME included, per the sibling
  * server.task-activity-768.test.js.
@@ -41,10 +43,12 @@ const fleet = require('./test-support/fleet');
 let base;
 let projectId;
 let taskNum;
+let monaTarget;
 test.before(async () => {
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
   const roster = fleet.install([fleet.agent('mona', { state: 'idle' })]).agents;
+  monaTarget = (roster.find((c) => c.sessionName === 'mona') || {}).target;
   const a = projects.create({ name: 'Alpha' });
   projects.addAgent(a.id, 'mona', roster);
   const made = tasks.create(a.id, { sentence: 'Write the copy', who: 'mona' }, roster);
@@ -71,16 +75,54 @@ test('a message records and reads back as a said event with its text', async () 
   assert.equal(said[0].text, 'checked the draft with the client', 'the message text did not round-trip');
 });
 
-test('the response is the record-only shape -- no delivery fields (pins the decision)', async () => {
-  // The defining decision of this change is record-only: a message is NOT delivered
-  // to any agent. The delivering task routes (close/reopen/parts) return a `told`
-  // field naming who was notified; `say` must not. This pins the record-only HTTP
-  // contract: a future edit that wires delivery the way those routes do (surfacing
-  // `told`) breaks this. It does not by itself prove no side-channel delivery, but
-  // it guards the contract against the most likely regression.
-  const res = await say(projectId, taskNum, { text: 'a note, delivered to nobody' });
+test('a message is DELIVERED to the agents assigned to the task (Josh 2026-09-12)', async () => {
+  // The task has mona assigned (whoOf -> [mona]), so a message must be delivered to
+  // her and the response must name her in `delivered`. Delivery goes through chat.deliver
+  // against the fake-tmux fixture (no live pane is touched). The point pinned here is
+  // that the response is now the two-way shape (ok + delivered naming the assignee), not
+  // the earlier record-only {ok:true}.
+  const res = await say(projectId, taskNum, { text: 'please review the draft' });
+  assert.equal(res.status, 200, 'a valid message should be accepted');
   const out = await res.json();
-  assert.deepEqual(out, { ok: true }, 'the message response carried more than the record-only {ok:true} (a told/heard/task field would mean delivery leaked in)');
+  assert.equal(out.ok, true);
+  assert.ok(Array.isArray(out.delivered), 'the response must carry a delivered list of who was notified');
+  const monaDelivered = out.delivered.find((r) => r && r.agent === 'mona');
+  assert.ok(monaDelivered, 'the task assignee (mona) was not among those delivered to: ' + JSON.stringify(out.delivered));
+  // Assert the RAIL actually fired, not just that routing picked the right agent: the
+  // state must be a real chat.DELIVERY verdict, which is only produced by chat.deliver
+  // itself. Under the sandbox's DRY_RUN=1 that verdict is `could_not` ("without
+  // permission to touch agents") -- deliberately, so a test never types into a real
+  // pane -- so we cannot assert a live `placed` here; asserting the outcome is one of
+  // chat.deliver's own states (with a `because`) proves the route invoked the rail
+  // rather than fabricating a delivered entry.
+  assert.ok(['placed', 'unconfirmed', 'could_not'].includes(monaDelivered.state),
+    'the assignee got something other than a real chat.deliver verdict: ' + JSON.stringify(monaDelivered));
+  assert.equal(typeof monaDelivered.because === 'string' || monaDelivered.because === undefined, true);
+});
+
+test('the sender is excluded: an assignee posting via its own pane is not notified about its own message', async () => {
+  // mona is the sole assignee. When the post carries from_pane = mona's pane, mona
+  // resolves as the sender and is filtered out, so delivered is empty (nobody else is
+  // on the task) -- the same self-exclusion the room does. The message still records.
+  assert.ok(monaTarget, 'the fixture did not give mona a pane target');
+  const res = await say(projectId, taskNum, { text: 'a note from mona herself', from_pane: monaTarget });
+  assert.equal(res.status, 200);
+  const out = await res.json();
+  assert.deepEqual(out.delivered, [], 'the sender (mona) was notified about her own message: ' + JSON.stringify(out.delivered));
+  const body = await activity(projectId, taskNum);
+  assert.ok(body.events.some((e) => e.kind === 'said' && e.text === 'a note from mona herself'), 'the sender\'s own message was not recorded');
+});
+
+test('a message to a task with NO assignees delivers to nobody (empty delivered), still records', async () => {
+  // whoOf is empty -> no delivery, but the message is still recorded on the task.
+  const made = tasks.create(projectId, { sentence: 'unassigned task' });
+  const res = await say(projectId, made.number, { text: 'nobody is on this one' });
+  assert.equal(res.status, 200);
+  const out = await res.json();
+  assert.equal(out.ok, true);
+  assert.deepEqual(out.delivered, [], 'a task with no assignees should notify nobody');
+  const body = await activity(projectId, made.number);
+  assert.ok(body.events.some((e) => e.kind === 'said' && e.text === 'nobody is on this one'), 'the message was not recorded');
 });
 
 test('an empty (or whitespace) message is refused with 400 and records nothing', async () => {
