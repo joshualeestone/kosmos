@@ -419,10 +419,21 @@ function runningAsWin32(session, deps = {}) {
      records which), so Kosmos owns a session it then says it does not own.
      ⇒ NOT fixed on this branch, and the reason is that it is a different defect
      with a different fix: the darwin arm reads a PROCESS TREE and needed a wider
-     match, while this arm needs a SECOND ENUMERATION SOURCE for codex sessions,
-     which cannot be designed against a machine nobody here can measure on. The
-     same reason `win32Answer` carries no `runner` and `/api/whoami` reports null
-     for it on Windows: an unmeasured guess is what this module exists to remove. */
+     match, while this arm needs a SECOND ENUMERATION SOURCE for codex sessions.
+     That source is a real piece of work (something must enumerate codex sessions
+     the way `claude agents --json` enumerates claude ones); it is not blocked on
+     being unable to test win32, which this repo does routinely through injected
+     deps.
+     📌 AND WINDOWS IS NOT SILENT ABOUT THE RUNNER, which an earlier version of
+     this note said. Measured, for a codex-MARKED card with a win32 live answer:
+         wire `runner` field -> null   (this arm carries no runner key)
+         resolvedRunner      -> "codex" (from the @kosmos_runner marker)
+         sentence            -> "This is a Codex agent, and we cannot tell which
+                                 account it runs on, and its model is gpt-5.6."
+     So the JSON field is null and the surface a person reads still names the
+     provider, off the marker rather than off the live process. Saying "whoami
+     reports null for it on Windows" was true of one field and false of the
+     answer, which is the shape this card keeps producing. */
   if (!entry) return { ok: false, because: `no session called ${session} that Kosmos owns on this computer` };
   return win32Answer(entry, cmdlines([entry.pid]));
 }

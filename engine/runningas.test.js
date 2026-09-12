@@ -299,9 +299,14 @@ test('#2811: the ANSWER SHAPE is pinned per path, because the docstring claims o
       name + ': the answer shape drifted from the documented one (a `runner: null` counts as a key here)');
   }
 
-  /* A CONTROL ON THE TABLE ITSELF: the three shapes must actually differ, or every
-     row could be satisfied by one answer and the table would prove nothing. */
-  assert.notEqual(BASE + ',runner', BASE);
+  /* A CONTROL ON THE TABLE ITSELF: the expected shapes must actually differ, or
+     every row could be satisfied by one answer and the table would prove nothing.
+     🛑 ONE ASSERTION, NOT TWO. The pair used to include
+     `assert.notEqual(BASE + ',runner', BASE)`, which CANNOT FAIL: a concatenation
+     never equals its own operand. Measured over 36 BASE/REFUSAL combinations it
+     fired 0 times while this sibling fired 6. That is the same unfailable-arm
+     defect removed three lines above it, shipped in the very comment claiming to
+     guard the table. */
   assert.notEqual(REFUSAL, BASE);
 });
 

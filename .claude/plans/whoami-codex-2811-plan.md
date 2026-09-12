@@ -46,10 +46,22 @@ running", and `kosmos whoami` could not name the agent at all.
 - **Did not touch the win32 arm.** It never matches a process name at all: its
   pid comes from Kosmos's own ownership record, its `account` is already null
   with a stated reason, and `modelIn` parses `--model` off the command line,
-  which is runner agnostic. It therefore carries no `runner`, and `server.js`
-  reports null there. Deriving one from a Windows command-line string (quoted
-  paths with spaces) is exactly the fragile first-token extraction I have no
-  Windows box to measure.
+  which is runner agnostic. It therefore carries no `runner`, so the wire field is
+  null there.
+
+  🛑 THIS PARAGRAPH WAS WRONG TWICE AND IS KEPT WITH ITS CORRECTIONS, because both
+  errors are the ones this card produced most:
+  1. "`server.js` reports null there" is true of the JSON `runner` field and FALSE
+     of the answer a person reads. Measured: a codex-MARKED card on win32 resolves
+     to `"codex"` off the `@kosmos_runner` marker and the sentence says "This is a
+     Codex agent". Windows is not silent about the provider; only the live-process
+     field is.
+  2. "I have no Windows box to measure" is not the reason and is not true of this
+     repo, which builds and tests the whole win32 arm through injected deps on
+     Macs. The real reason a runner derivation is absent from `win32Answer` is
+     that a codex agent never REACHES it: `win32live.byName()` enumerates
+     `claude agents --json` and has no codex source, so such an agent is refused
+     upstream. The work is one gap and it is upstream.
 
 ## Round 1: what the challenge loop changed
 
