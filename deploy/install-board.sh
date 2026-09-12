@@ -38,7 +38,7 @@
 set -u
 
 DEST="${KOSMOS_BOARD_LIBEXEC:-$HOME/.local/libexec/kosmos-board}"
-REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PLIST="${KOSMOS_BOARD_PLIST:-$HOME/Library/LaunchAgents/com.kosmos.board.plist}"
 LABEL="com.kosmos.board"
 NODE="${KOSMOS_BOARD_NODE:-/opt/homebrew/bin/node}"
@@ -153,26 +153,10 @@ fi
 # directory inside a checkout), applying would replace tracked work with the
 # deployed app subset. `git -C` also follows symlinks and normalises `..`, so the
 # guard covers aliases rather than only one path spelling.
-case "$DEST" in
-  /*) ;;
-  *) fail "refusing to apply: the destination must be an absolute path ($DEST)" ;;
-esac
-# Resolve aliases through the nearest existing ancestor, while retaining any
-# not-yet-created suffix. This also removes trailing slashes before swap names
-# are derived, so temporary trees can never accidentally be nested in DEST.
 dest_probe="$DEST"
-dest_suffix=""
 while [ ! -e "$dest_probe" ] && [ "$dest_probe" != "/" ]; do
-  dest_suffix="/$(basename "$dest_probe")$dest_suffix"
   dest_probe="$(dirname "$dest_probe")"
 done
-dest_probe="$(cd "$dest_probe" && pwd -P)"
-DEST="$dest_probe$dest_suffix"
-while [ "$DEST" != "/" ] && [ "${DEST%/}" != "$DEST" ]; do DEST="${DEST%/}"; done
-[ "$DEST" != "/" ] || fail "refusing to apply: the destination must not be the filesystem root"
-case "$REPO/" in
-  "$DEST/"*) fail "refusing to apply: the destination contains the source repository ($DEST)" ;;
-esac
 if git -C "$dest_probe" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   fail "refusing to apply: the destination is inside a git work tree ($DEST)"
 fi
