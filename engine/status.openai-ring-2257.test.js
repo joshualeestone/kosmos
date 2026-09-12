@@ -36,10 +36,23 @@ process.env.AGENT_WORKFORCE_DATA = STORE;
 const store = require('./store');
 const codexsession = require('./codexsession');
 const status = require('./status');
+const create = require('./create');
 
 const NAME = 'ben-the-cat';
 const WORKDIR = path.join(SB, 'work', 'ben');
 fs.mkdirSync(WORKDIR, { recursive: true });
+
+/* #2906: the ring reader now resolves the agent's OWN Codex account home from its
+   launch job before reading. Give this agent a DEFAULT-account codex job so readJob
+   resolves with runner 'codex' and a null configDir; the reader then uses
+   defaultAgentCodexHome() (= AGENT_WORKFORCE_CODEX_HOME = CODEX_HOME here), which is
+   exactly where these rollouts are written -- so the ring reads as before. */
+fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+fs.writeFileSync(
+  create.plistPath(NAME),
+  create.plistFor(NAME, path.join(SB, 'claude'), path.join(SB, 'tmux'), null, null, 'codex'),
+  'utf8',
+);
 
 // A faithful rollout: session_meta (launch cwd), task_started (window), then TWO
 // token_count events. total_token_usage is CUMULATIVE (climbs); last_token_usage

@@ -56,6 +56,16 @@ function writeRollout(name, completedAt) {
   const wd = create.workerDir(name);
   assert.ok(wd, 'workerDir refused the name ' + name);
   fs.mkdirSync(wd, { recursive: true });
+  /* #2906: the reader now resolves the agent's OWN Codex account home from its launch
+     job. Give this agent a DEFAULT-account codex job (null configDir) so readJob
+     resolves; the reader then uses defaultAgentCodexHome() (= AGENT_WORKFORCE_CODEX_HOME
+     here), which is where these rollouts are written. */
+  fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+  fs.writeFileSync(
+    create.plistPath(name),
+    create.plistFor(name, path.join(SANDBOX, 'claude'), path.join(SANDBOX, 'tmux'), null, null, 'codex'),
+    'utf8',
+  );
   const day = path.join(process.env.AGENT_WORKFORCE_CODEX_HOME, 'sessions', '2026', '09', '11');
   fs.mkdirSync(day, { recursive: true });
   const rows = [

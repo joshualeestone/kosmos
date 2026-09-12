@@ -48,11 +48,15 @@ const { NO_READING } = require('./status');
    than the launch path WROTE to. */
 const HOME = () => codexupdate.defaultHome();
 
-const SESSIONS = () => path.join(HOME(), 'sessions');
+/* #2906: an OPTIONAL explicit home. Callers that pass one read THAT account's
+   sessions; callers that omit it keep the process-default home, so every existing
+   direct caller is unchanged. The status reader passes the target agent's own
+   account home so a multi-account agent is not read against the board's account. */
+const SESSIONS = (home) => path.join(home || HOME(), 'sessions');
 
 /** Every rollout file, newest first by name (the name carries the timestamp). */
-function rollouts() {
-  const root = SESSIONS();
+function rollouts(home) {
+  const root = SESSIONS(home);
   const out = [];
   const walk = (dir, depth) => {
     let entries;
@@ -100,10 +104,10 @@ function metaOf(file) {
  * in. Anything else -- a name, a title, a pane id -- is a coincidence the agent
  * could change.
  */
-function forWorkdir(dir) {
+function forWorkdir(dir, home) {
   if (!dir) return null;
   const want = path.resolve(dir);
-  for (const file of rollouts()) {
+  for (const file of rollouts(home)) {
     const meta = metaOf(file);
     if (!meta || !meta.cwd) continue;
     /* #2417: canonicalOnDisk (realpathSync.native) on BOTH sides, not plain realpathSync.
@@ -126,8 +130,8 @@ function forWorkdir(dir) {
  * ⚠️ EVERY FIELD IS null WHEN UNKNOWN, never a default. A model of "unknown"
  * and a context window of 0 would each render as a fact somebody could act on.
  */
-function read(dir) {
-  const found = forWorkdir(dir);
+function read(dir, home) {
+  const found = forWorkdir(dir, home);
   if (!found) return { found: false, because: NO_READING.NO_TRANSCRIPT };
   let lines = [];
   try { lines = fs.readFileSync(found.file, 'utf8').split('\n'); } catch {
