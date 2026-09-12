@@ -91,7 +91,7 @@ function chk(ok, label, extra) {
       let r = await rects();
       chk(r.talk.h > 0, `[${theme}] landing: Talk has height`, String(r.talk.h));
       chk(SECTIONS.filter((k) => k !== 'talk').every((k) => r[k].h === 0),
-        `[${theme}] control: the other six sections measure zero before any click`,
+        `[${theme}] control: the other seven sections measure zero before any click`,
         JSON.stringify(Object.fromEntries(SECTIONS.map((k) => [k, r[k].h]))));
 
       const names = await page.evaluate(() => ({
