@@ -41,7 +41,7 @@ Not CI-allowlisted (matches render-pj-clear-2575's precedent; runs at the cut).
    table row `` `render-qask-clear-2808.js` ``.
 3. `browser-checks-selectors.test.js` - every `#id` queried
    (`d-qask`, `d-qask-text`, `d-qask-expand`, `d-qask-clear`, `d-qask-clear-msg`,
-   `d-talk-box`, `panel-detail`) already exists in `web/index.html`. Free.
+   `panel-detail`, `firstrun`) already exists in `web/index.html`. Free.
 4. `browser-checks-reason-grep.test.js` - the ternary `check()` emit is not a
    counted finding-emit SHAPE, so `EXPECTED_SITES` is unchanged by this check.
    The `could not start a browser` launch catch IS a counted catch/launch site,
