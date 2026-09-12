@@ -116,6 +116,44 @@ GRACE=45s / THROTTLE=180s / StartInterval are picked before seeing Josh's board.
 the real failure has a longer legit boot time or a specific zombie-port signature, these
 are one-line tunings. The design (marker + grace + throttle) is invariant to them.
 
+## Post-review additions (Josh's live box, relayed by Splinter 2026-09-12)
+
+Two requirements came from Josh's actual affected machine, plus one review edge:
+
+- **Gate on the existing "come back after restart" control, not a new toggle.** That
+  control is a machine-STATE check (engine/machine.js `restartCheck`, detail verbatim
+  "They come back on their own after this computer restarts", and `boardAutostartCheck`
+  #2397), green when the board login job is registered - it is not user-toggleable.
+  Josh's "checked-but-broken" was that indicator green (plists present) while the
+  mechanism did not deliver. The honest gate is therefore the board login job's
+  PRESENCE: setup.sh passes the resolved board plist path as the watchdog's third
+  argument, and the watchdog stays out if that plist is gone (auto-start off / mid-
+  uninstall). No new toggle; the watchdog makes the existing indicator true. Splinter
+  confirmed this mapping. (Minor follow-up he suggested, non-blocking: make that
+  indicator read as status rather than a checkbox - a separate card.)
+- **Crash-loop guard.** Josh's board.log showed 23 "server exited unexpectedly" in a
+  burst - the board CRASHES, it does not merely fail to start once. A throttle-only
+  kickstart would thrash it. The watchdog now tracks a consecutive-failure count that
+  resets when the board becomes healthy: the wait between restarts grows with the count
+  (backoff), and after MAX_FAILS (5) restarts that never held it stops restarting,
+  raises a `logs/board-watchdog.alert` marker, and holds for a long COOLDOWN (3600s)
+  before trying one more burst. So a crash-looping board is bounded, not thrashed.
+  ⇒ THE COLD-START-ONLY WATCHDOG MUST NOT SHIP before this guard - on Josh's crash-
+  looping box a throttle-only kickstart would hammer him.
+- **Reboot-reset (iteration-2 review).** The state file survives reboots, so a
+  `down_since` from before shutdown would make the first post-boot run see a huge
+  elapsed time and fire immediately, concurrent with the login job's own boot start
+  (and would carry a pre-reboot crash streak forward). The watchdog reads the machine
+  boot time (`sysctl kern.boottime`) and discards any state older than it, so a reboot
+  is a clean fresh chance.
+
+State values are numeric-guarded so a truncated/hand-edited state file self-corrects
+rather than feeding a bad number into the arithmetic. All of the above are covered by
+tools/test-board-watchdog-2955.sh (settings-gate, backoff, crash-loop, cooldown retry,
+reboot reset, corrupt state).
+
 ## Delivery
-kosmos (agent-workforce). Ships in the release bundle via build-kosmos-bundle.sh. PR to
-Splinter for Josh, staging-first, reboot-verification as the prod gate.
+kosmos (agent-workforce). Ships in the release bundle via build-kosmos-bundle.sh and
+the board deploy via deploy/install-board.sh (parity), recorded macOS-only in the
+windows-parity map. PR to Splinter for Josh, staging-first, with Baron Draxum's
+reboot-verification (4 arms, must log in) as the explicit prod gate.

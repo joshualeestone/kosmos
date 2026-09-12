@@ -3893,6 +3893,7 @@ if mkdir -p "$_launch_dir" 2>/dev/null && cat > "$_wd_plist.new" <<PLIST
     <string>/bin/bash</string>
     <string>$(_xmlq "$KOSMOS_HOME/app/bin/board-watchdog.sh")</string>
     <string>$(_xmlq "$KOSMOS_HOME")</string>
+    <string>$(_xmlq "$_board_plist")</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -3904,6 +3905,9 @@ $_extra_env_kv  </dict>
   <key>AssociatedBundleIdentifiers</key>
   <array><string>com.chaoskosmos.kosmos</string></array>
   <key>RunAtLoad</key><true/>
+  <!-- 30s pairs with the watchdog's 45s grace: the board must be unanswering
+       across at least two of these wakeups before the first restart, which covers
+       a legitimate login-time start binding the port (cmd_start waits ~15s). -->
   <key>StartInterval</key><integer>30</integer>
   <key>StandardOutPath</key><string>$(_xmlq "$KOSMOS_HOME/logs/board-watchdog.log")</string>
   <key>StandardErrorPath</key><string>$(_xmlq "$KOSMOS_HOME/logs/board-watchdog.log")</string>

@@ -1,7 +1,9 @@
 #!/bin/bash
 # #2955: drive the REAL bin/board-watchdog.sh against a stub `kosmos` CLI and a
-# fake KOSMOS_HOME, asserting the marker / grace / throttle logic. No real sleeps:
-# elapsed time is simulated by pre-writing the state file with aged timestamps.
+# fake KOSMOS_HOME, asserting the gates (deliberate-stop marker, board-login-job
+# presence) and the grace / backoff / crash-loop / reboot-reset logic. No real
+# sleeps: elapsed time is simulated by pre-writing the state file with aged
+# timestamps.
 set -u
 cd "$(dirname "$0")/.." || exit 1
 WD="$PWD/bin/board-watchdog.sh"
@@ -9,9 +11,10 @@ fails=0
 ok()   { echo "PASS  $1"; }
 bad()  { echo "FAIL  $1"; fails=1; }
 
-# A throwaway KOSMOS_HOME with a stub CLI. The stub answers `status` from a flag
-# file (present => healthy/exit 0) and records every `start` (and marks healthy,
-# as a real successful start would).
+# A throwaway KOSMOS_HOME with a stub CLI and a board login-job plist (so gate 2
+# passes by default). The stub answers `status` from a flag file (present =>
+# healthy/exit 0) and records every `start` (and marks healthy, as a real
+# successful start would).
 new_home() {
   local h; h="$(mktemp -d)"
   mkdir -p "$h/bin" "$h/logs"
@@ -25,80 +28,94 @@ case "$1" in
 esac
 STUB
   chmod +x "$h/bin/kosmos"
+  : > "$h/board.plist"          # the board login job "exists" -> gate 2 passes
   printf '%s' "$h"
 }
 starts() { local h="$1"; [ -f "$h/.stub-start-calls" ] && wc -l < "$h/.stub-start-calls" | tr -d ' ' || echo 0; }
-run_wd() { local h="$1"; KOSMOS_WATCHDOG_GRACE=45 KOSMOS_WATCHDOG_THROTTLE=180 bash "$WD" "$h" >/dev/null 2>&1; }
+# $1 home ; passes home + the board plist path as argv, like the installed plist does.
+run_wd() { local h="$1"; KOSMOS_WATCHDOG_GRACE=45 KOSMOS_WATCHDOG_THROTTLE=180 KOSMOS_WATCHDOG_MAX_FAILS=5 KOSMOS_WATCHDOG_COOLDOWN=3600 bash "$WD" "$h" "$h/board.plist" >/dev/null 2>&1; }
 now() { date +%s; }
+# down_since must be AFTER boot or the reboot-reset fires; "100s ago" is safely
+# post-boot on any machine that has been up longer than that (the test host has).
+recent_down() { echo "$(( $(now) - 100 ))"; }
 
-# 1. Deliberate-stop marker present -> never starts, whatever the port says.
-H="$(new_home)"; : > "$H/board.stopped"    # down (no .stub-healthy) AND marker set
-run_wd "$H"
-[ "$(starts "$H")" = 0 ] && ok "marker present: no start" || bad "marker present: started anyway"
-rm -rf "$H"
+# 1. Deliberate-stop marker present -> never starts.
+H="$(new_home)"; : > "$H/board.stopped"
+run_wd "$H"; [ "$(starts "$H")" = 0 ] && ok "marker present: no start" || bad "marker present: started anyway"; rm -rf "$H"
 
-# 2. Healthy -> no start, and any down streak is cleared.
-H="$(new_home)"; : > "$H/.stub-healthy"
-printf 'down_since=%s\nlast_kickstart=0\n' "$(( $(now) - 999 ))" > "$H/logs/board-watchdog.state"
+# 2. Board login job ABSENT (auto-restart off / mid-uninstall) -> stays out.
+H="$(new_home)"; rm -f "$H/board.plist"
+run_wd "$H"; [ "$(starts "$H")" = 0 ] && ok "no board login job: stays out (settings-gate)" || bad "no board login job: started anyway"; rm -rf "$H"
+
+# 3. Healthy -> no start, down streak + fail count cleared, alert removed.
+H="$(new_home)"; : > "$H/.stub-healthy"; : > "$H/logs/board-watchdog.alert"
+printf 'down_since=%s\nlast_kickstart=0\nfail_count=3\n' "$(recent_down)" > "$H/logs/board-watchdog.state"
 run_wd "$H"
 [ "$(starts "$H")" = 0 ] && ok "healthy: no start" || bad "healthy: started anyway"
-grep -q '^down_since=$' "$H/logs/board-watchdog.state" && ok "healthy: down streak cleared" || bad "healthy: down_since not cleared"
+grep -q '^down_since=$' "$H/logs/board-watchdog.state" && grep -q '^fail_count=0$' "$H/logs/board-watchdog.state" && ok "healthy: down streak + fail count cleared" || bad "healthy: state not cleared"
+[ ! -f "$H/logs/board-watchdog.alert" ] && ok "healthy: crash-loop alert cleared" || bad "healthy: alert not cleared"
 rm -rf "$H"
 
-# 3. Down, first observation -> no start yet, down_since recorded (grace begins).
-H="$(new_home)"                             # down, no state
-run_wd "$H"
-[ "$(starts "$H")" = 0 ] && ok "first down: no start" || bad "first down: started too early"
+# 4. Down, first observation -> no start, down_since recorded.
+H="$(new_home)"
+run_wd "$H"; [ "$(starts "$H")" = 0 ] && ok "first down: no start" || bad "first down: started too early"
 [ -n "$(grep '^down_since=' "$H/logs/board-watchdog.state" | cut -d= -f2)" ] && ok "first down: down_since set" || bad "first down: down_since not set"
 rm -rf "$H"
 
-# 4. Down, still within the grace window -> no start (a legit start may be booting).
-H="$(new_home)"
-printf 'down_since=%s\nlast_kickstart=0\n' "$(( $(now) - 10 ))" > "$H/logs/board-watchdog.state"   # 10s < GRACE 45
-run_wd "$H"
-[ "$(starts "$H")" = 0 ] && ok "within grace: no start" || bad "within grace: started too early"
-rm -rf "$H"
+# 5. Down, within grace -> no start.
+H="$(new_home)"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\n' "$(( $(now) - 10 ))" > "$H/logs/board-watchdog.state"
+run_wd "$H"; [ "$(starts "$H")" = 0 ] && ok "within grace: no start" || bad "within grace: started too early"; rm -rf "$H"
 
-# 5. Down, past grace, not throttled -> starts.
-H="$(new_home)"
-printf 'down_since=%s\nlast_kickstart=0\n' "$(( $(now) - 100 ))" > "$H/logs/board-watchdog.state"  # 100s > GRACE 45
+# 6. Down, past grace, not throttled -> starts, fail_count increments.
+H="$(new_home)"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\n' "$(recent_down)" > "$H/logs/board-watchdog.state"
 run_wd "$H"
 [ "$(starts "$H")" = 1 ] && ok "past grace, unthrottled: started" || bad "past grace, unthrottled: did not start ($(starts "$H"))"
+grep -q '^fail_count=1$' "$H/logs/board-watchdog.state" && ok "restart increments fail_count" || bad "fail_count not incremented"
 rm -rf "$H"
 
-# 6. Down, past grace, but throttled (recent kickstart) -> no start.
-H="$(new_home)"
-printf 'down_since=%s\nlast_kickstart=%s\n' "$(( $(now) - 100 ))" "$(( $(now) - 10 ))" > "$H/logs/board-watchdog.state"  # last kick 10s ago < THROTTLE 180
+# 7. Down, past grace, within backoff window -> no start (throttle grows with fails).
+H="$(new_home)"; printf 'down_since=%s\nlast_kickstart=%s\nfail_count=1\n' "$(recent_down)" "$(( $(now) - 10 ))" > "$H/logs/board-watchdog.state"
+run_wd "$H"; [ "$(starts "$H")" = 0 ] && ok "within backoff: no start" || bad "within backoff: started despite throttle"; rm -rf "$H"
+
+# 8. Crash-loop: fail_count >= MAX_FAILS, recent kickstart -> no start, alert raised.
+H="$(new_home)"; printf 'down_since=%s\nlast_kickstart=%s\nfail_count=5\n' "$(recent_down)" "$(( $(now) - 10 ))" > "$H/logs/board-watchdog.state"
 run_wd "$H"
-[ "$(starts "$H")" = 0 ] && ok "throttled: no start" || bad "throttled: started despite throttle"
+[ "$(starts "$H")" = 0 ] && ok "crash-loop past MAX_FAILS: no start" || bad "crash-loop: kept restarting"
+[ -f "$H/logs/board-watchdog.alert" ] && ok "crash-loop: alert raised" || bad "crash-loop: no alert raised"
 rm -rf "$H"
 
-# 7. No CLI at all (broken install) -> silent no-op, no crash.
-H="$(mktemp -d)"; mkdir -p "$H/logs"
-run_wd "$H"; rc=$?
-[ "$rc" = 0 ] && ok "missing CLI: silent no-op" || bad "missing CLI: nonzero exit $rc"
+# 9. Crash-loop cooldown elapsed -> one more burst is allowed (starts again).
+H="$(new_home)"; printf 'down_since=%s\nlast_kickstart=%s\nfail_count=5\n' "$(recent_down)" "$(( $(now) - 4000 ))" > "$H/logs/board-watchdog.state"
+run_wd "$H"; [ "$(starts "$H")" = 1 ] && ok "crash-loop after cooldown: retries" || bad "crash-loop after cooldown: did not retry ($(starts "$H"))"; rm -rf "$H"
+
+# 10. Reboot reset: down_since predates boot -> streak discarded, no immediate start.
+H="$(new_home)"; printf 'down_since=1000000000\nlast_kickstart=1000000000\nfail_count=9\n' > "$H/logs/board-watchdog.state"
+run_wd "$H"
+[ "$(starts "$H")" = 0 ] && ok "reboot reset: stale streak does not fire immediately" || bad "reboot reset: fired on stale down_since"
+grep -q '^fail_count=0$' "$H/logs/board-watchdog.state" && ok "reboot reset: fail count cleared" || bad "reboot reset: fail count not cleared"
 rm -rf "$H"
+
+# 11. Non-numeric state does not crash the arithmetic; treated as fresh.
+H="$(new_home)"; printf 'down_since=garbage\nlast_kickstart=x\nfail_count=y\n' > "$H/logs/board-watchdog.state"
+run_wd "$H"; rc=$?
+[ "$rc" = 0 ] && ok "corrupt state: no crash" || bad "corrupt state: nonzero exit $rc"
+rm -rf "$H"
+
+# 12. No CLI at all (broken install) -> silent no-op.
+H="$(mktemp -d)"; mkdir -p "$H/logs"; : > "$H/board.plist"
+run_wd "$H"; rc=$?; [ "$rc" = 0 ] && ok "missing CLI: silent no-op" || bad "missing CLI: nonzero exit $rc"; rm -rf "$H"
 
 # ---- the CLI's marker wiring, against the REAL install/kosmos --------------
-# Isolated with KOSMOS_HOME (all paths + the marker resolve under it) and an
-# unused KOSMOS_PORT (so healthy() cannot latch onto a real board that happens
-# to be running on this machine's default port during the test).
 CLI="$PWD/install/kosmos"
 FREEPORT=39517
 
-# 8. cmd_start clears the marker EARLY -- even when the start then FAILS. This is
-#    the load-bearing invariant (Baron): a start that fails to bind (the #2955
-#    reboot case) must still retire the deliberate-stop intent, or the watchdog
-#    stays suppressed forever. We force a guaranteed failure by pointing at a home
-#    with no runtime, so cmd_start dies at the NODE check -- AFTER its top-of-
-#    function marker clear.
+# 13. cmd_start clears the marker EARLY -- even when the start then FAILS.
 H="$(mktemp -d)"; mkdir -p "$H/logs"; : > "$H/board.stopped"
 KOSMOS_HOME="$H" KOSMOS_PORT="$FREEPORT" bash "$CLI" start >/dev/null 2>&1 || true
-[ ! -f "$H/board.stopped" ] && ok "cmd_start clears the marker even when start fails" || bad "cmd_start left the marker after a failed start (watchdog would stay suppressed)"
+[ ! -f "$H/board.stopped" ] && ok "cmd_start clears the marker even when start fails" || bad "cmd_start left the marker after a failed start"
 rm -rf "$H"
 
-# 9. cmd_stop writes the marker (the not-running branch: an explicit stop records
-#    the intent so the watchdog does not "recover" what the user turned off).
+# 14. cmd_stop writes the marker (not-running branch).
 H="$(mktemp -d)"; mkdir -p "$H/logs"
 KOSMOS_HOME="$H" KOSMOS_PORT="$FREEPORT" bash "$CLI" stop >/dev/null 2>&1 || true
 [ -f "$H/board.stopped" ] && ok "cmd_stop writes the deliberate-stop marker" || bad "cmd_stop did not write the marker"
