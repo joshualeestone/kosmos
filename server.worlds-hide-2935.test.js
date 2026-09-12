@@ -149,6 +149,17 @@ test('a bootout that fails after a landed disable re-enables the job (left clean
   assert.deepEqual(r.body.agents.kept, ['fi']);
 });
 
+test('with live execution NOT armed, the stop is refused: nothing is shelled and every agent is kept (the win32 safety gate)', async () => {
+  const id = seedNamedWorldWithAgent('Unarmed Space', 'gu');
+  liveExec.resetForTests();   // un-arm: win32job shells schtasks with no self-gate, so the stop MUST refuse here
+  const r = await hide({ id });
+  assert.equal(r.status, 200, 'a refused stop must not fail the hide');
+  assert.ok(!listIds().includes(id), 'the world was hidden regardless of the stop outcome');
+  assert.deepEqual(calls, [], 'the stop shelled a command with live execution unarmed -- the gate is not firing');
+  assert.deepEqual(r.body.agents.stopped, []);
+  assert.deepEqual(r.body.agents.kept, ['gu']);
+});
+
 test('the default Kosmos cannot be hidden: 400, and it stays listed', async () => {
   const r = await hide({ id: 'default' });
   assert.equal(r.status, 400);

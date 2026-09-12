@@ -435,6 +435,9 @@ function pauseForSwitch(agents, opts = {}) {
  * win32 stop that skipped this check would fire real scheduled-task commands in an unarmed process.
  * `pauseForSwitch` gates for the same reason. When live execution is not armed, nothing is touched
  * and every agent is reported kept.
+ *
+ * Unlike `pauseForSwitch` this paints no `disruption` "Restarting" state: a hidden Kosmos is
+ * filtered out of `listWorlds`, so there is no board card to paint over. That omission is deliberate.
  */
 function stopWorldAgents(names, worldId, opts = {}) {
   const platform = platformFor(opts);
