@@ -1093,9 +1093,29 @@ function setCodexAccount(clean, spoken, dir, job) {
  * nothing to codex, so the switch DROPS them rather than smuggling them,
  * and says so in its result so the route can say so in words.
  *
- * The mechanism is a plist rewrite through the one writer (`plistFor`) and
- * nothing else: no record is copied, moved, or stamped, because nothing
- * about the agent's memory lives in the launch file.
+ * 🛑 THE MECHANISM IS THREE WRITES, NOT ONE. This header said "a plist rewrite
+ * through the one writer (`plistFor`) and nothing else: no record is copied,
+ * moved, or stamped", and every clause of that is false:
+ *   1. the plist rewrite through `plistFor`                      (true)
+ *   2. the brief is RENAMED, CLAUDE.md <-> AGENTS.md, a dozen lines below this
+ *      sentence -- so a record IS moved
+ *   3. `store.writeProfile(clean, { provider })` -- so a record IS stamped
+ * ⚠️ AND IT WAS NEVER TRUE. `git log -S` puts the `writeProfile` call in 8fe044b8,
+ * the SAME commit that wrote this header (2026-08-24); the brief rename arrived
+ * later (a98e282e, #2245, 2026-09-05) and widened an error that already existed.
+ * A sentence written beside the code it describes is not thereby checked against
+ * it.
+ * 📌 WHY IT MATTERED ENOUGH TO CORRECT RATHER THAN LEAVE. #2811 quoted this
+ * header to justify trusting that the workdir survives a provider switch. The
+ * CONCLUSION is right (the rename is inside `workerDir(clean)` and the name never
+ * changes, so the workdir and its Claude transcript survive) which is exactly why
+ * three copies of the false premise read as confirmation for 22 rounds. Worse,
+ * claim 3 is the profile provider, which is the SOLE rung naming the provider on
+ * Windows (`engine/runningas.js`): "nothing else" denied a mechanism the product
+ * depends on.
+ * ⇒ What IS true, and it is the property callers actually need: nothing that
+ * moves is outside `workerDir(clean)`, and the agent's NAME never changes, so
+ * every lookup keyed on the name or the workdir resolves the same afterwards.
  */
 function setProvider(name, provider, opts) {
   const clean = cleanName(name);

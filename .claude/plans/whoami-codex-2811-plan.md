@@ -129,6 +129,13 @@ in `whoamiFor`. `create.setProvider` switches an agent claude to codex by
 rewriting the plist and nothing else, so the agent keeps its name and therefore
 its workdir, and the old Claude transcript stays findable.
 
+🛑 **ROUND 2 FALSIFIED THE "nothing else" HALF, AND THE SENTENCE IS LEFT ABOVE AS
+THE DATED RECORD OF WHAT I BELIEVED.** `setProvider` also renames the brief
+CLAUDE.md <-> AGENTS.md and writes the profile provider. See "A premise of mine
+that was measurably false" below, and the corrected header in `engine/create.js`
+(round 23). The CONCLUSION stands (workdir and transcript survive); only the
+premise was wrong, which is exactly why three copies of it survived 22 rounds.
+
 My stated non-goal was "the live reader refuses rather than reporting a wrong
 model, so there is nothing to fix". **This change removed that refusal, which is
 what made the wrong model reachable.** The result was a Codex agent answering
@@ -247,7 +254,8 @@ pinned by a test so it is a checked contract rather than an unread extra.
 
 - **The model half of the card is still not reproduced.** I have no codex agent on
   this box, so the blocker's reproduction path is derived from source
-  (`setProvider` rewrites the plist and nothing else, so the workdir and therefore
+  (`setProvider` rewrites the plist and nothing else 🛑 **FALSE, see round 2's
+  correction below; the conclusion is unaffected**, so the workdir and therefore
   the transcript survive), not measured end to end. The guard is right either way,
   since a Claude transcript is not evidence about a codex process, but the
   SYMPTOM's existence is reasoned.
@@ -964,3 +972,78 @@ the same answer shape" and "exactly this shape" about the same pair of arms.
 lives in the MEANING. Sweeping for one phrasing of a belief finds the instances
 that happen to share your wording and silently misses the rest, which is why the
 durable fix is an assertion rather than a better sweep.
+
+## Round 23: the SOURCE of a premise I corrected at round 2, and an over-claimed message
+
+Two findings from the reviewer, both verified against the source before acting, plus one
+they did not name that the first finding led to.
+
+### The reviewer's [MAJOR], confirmed
+
+`server.test.js` still said `setProvider` "switches an agent claude -> codex by rewriting
+the plist and nothing else". `setProvider` spans `create.js:1064` with no function boundary
+before 1400, and two more statements sit inside it: the brief rename CLAUDE.md <-> AGENTS.md
+(1386) and `store.writeProfile(clean, { provider })` (1389).
+
+I corrected this exact sentence in `server.js` and in this plan at **round 2** (`git log -S`
+names `1d1fa7bd`); the third copy, written at round 1 (`67bf1a29`), stood for 22 rounds.
+
+### The reviewer's [NIT], HALF right, and the half that was wrong matters
+
+They said `assert.doesNotMatch(said, /josh@example.com/)` cannot fail, because `acct` is
+asserted null 20 lines above. I measured instead of agreeing:
+
+```
+mutant: a fallback in sentenceForWhoami when `account` is null
+        -> kills THAT line by name (operator: 'doesNotMatch')
+mutant: re-derive via `accounts.list()` when `account` is null
+        -> that line stays GREEN (the fixture's rows are a local array, not on
+           disk); 4 other arms red
+```
+
+So it is killable, but far narrower than its message claimed. ⭐ **Their reasoning named only
+mutants of `accountForAgent`, and correctly showed those red the earlier assertion first. They
+did not consider mutants of the OTHER function on the same line.** The line's message now says
+what it actually guards, and CONTROL 3 was added: the same regex against the same rows for a
+CLAUDE agent DOES match, so a passing `doesNotMatch` now proves the pattern can fire.
+
+### What the MAJOR led to, which the reviewer did not name
+
+A wrap-normalised sweep for `plist … nothing else` found the **source**: `setProvider`'s own
+header in `engine/create.js`, a file this change never edits. Every clause of it is false, and
+`git log -S` dates it:
+
+```
+"no record is copied, moved, or stamped"   written  8fe044b8  2026-08-24
+store.writeProfile(clean, { provider })    added    8fe044b8  2026-08-24   <- SAME COMMIT
+fs.renameSync(oldBrief, newBrief)          added    a98e282e  2026-09-05
+```
+
+⭐ **It was never true.** The profile write landed in the same commit as the sentence denying
+it; the brief rename twelve days later widened an error that already existed. **A sentence
+written beside the code it describes is not thereby checked against it.**
+
+⭐ **And the third write is this card's own mechanism.** The profile `provider` is the SOLE rung
+naming the runner on Windows (round 22). "Nothing else" denied the existence of the thing the
+product depends on, in the header of the function that writes it.
+
+### The durable fix, again an assertion rather than a sentence
+
+`engine/create.setprovider-writes-2811.test.js`: one test, three writes, each with the fixture's
+PRE state asserted first so a setProvider that did nothing reds all three.
+
+```
+MUTANT: delete the brief rename    -> "write 2: the brief was renamed to AGENTS.md"   RED
+MUTANT: delete the profile write   -> "write 3: the profile provider was stamped"     RED
+```
+
+It also pins the property the false premise was standing in for: everything that moves stays
+inside `workerDir(name)` and the name never changes, which is the real reason a workdir-keyed
+Claude transcript survives the switch and this card's stale-model guard is necessary.
+
+The two earlier copies in this plan are LEFT IN PLACE with a correction stamped on each: they
+are the dated record of what I believed, and rewriting them would erase the evidence that the
+belief persisted across three files and 22 rounds.
+
+⇒ **Eight claims on this card are now assertions.** Every one I fixed in prose has rotted. None
+converted to an assertion has.
