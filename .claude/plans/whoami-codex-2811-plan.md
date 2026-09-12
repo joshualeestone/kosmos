@@ -1856,9 +1856,14 @@ the runner's other readers. Asking that question of my own fix, unprompted, is w
 
 Asked of my own change rather than waiting for round 32 to ask it:
 
-**Server side: exactly ONE consumer.** `grep` for `snap.agents` in `server.js` returns the board
-map itself and one comment. Nothing else server-side reads that population, so filling `runner`
-there reaches no other backend path.
+**Server side: ~~exactly ONE consumer~~ TWO.** 🛑 **ROUND 33 FALSIFIED THIS AND THE INSTRUMENT IS
+WHY IT READ CLEAN.** I grepped for `snap.agents`; the second consumer is
+`someAgentNeedsClaude(agents.concat(offline))`, which reads the LOCAL BINDING `agents` and never
+mentions `snap.agents`. **The pattern was right about what it matched and wrong about the question
+it was asked** - this card's signature error, committed by the very enumeration written to prevent
+it. `dependsOnClaude` gates the "cannot reach a Claude subscription" banner (#2128), and the fill
+changes its answer (measured: `someAgentNeedsClaude([{runner:null}])` is true,
+`([{runner:'codex'}])` is false).
 
 **The card SHAPE is unchanged, and that separation is deliberate.** My `engine/status.js` diff is
 COMMENT-ONLY (3 insertions, 1 deletion, all prose): `panelessCard` still emits `runner: null`. The
@@ -1917,3 +1922,107 @@ sharing a safeKey make the remote card take the local agent's provider. My gate 
 that - it fills precisely when a local record exists, which is the collision case. It is a
 pre-existing ambiguity in the safeKey namespace that this change makes reachable for one more
 field, and it is recorded rather than quietly inherited.
+
+### Why only ONE of the two rows is gated, checked before being asked
+
+Round 32 gated the PANELESS fill (return null when this Mac holds no record) and left the OFFLINE
+row ungated. That reads as the exact inconsistency round 32 had just fixed, so I traced it rather
+than waiting to be asked:
+
+```
+offline rows  <- register.survey() -> known() -> fs.readdirSync(store.PROFILES)
+paneless rows <- panelessKeys      -> the SENDER-TOKEN store (beat-known, possibly remote)
+```
+
+⇒ **An offline row exists BECAUSE a profile file does.** The record is present by construction, so
+there is nothing for a gate to decline, and `recordedRunner`'s floor is correct there: a profile
+that records no provider IS claude, which is the documented "absent means claude, as everywhere".
+A paneless row carries no such guarantee.
+
+**Same derivation, different population guarantee, so only one needs the gate.** Written into the
+code beside the gate, because the next reader sees two sibling expressions and one guard, and the
+absence of a reason is what makes that look like a bug.
+
+
+## Round 33: two of my own claims falsified, and the more useful one is about a harm I invented
+
+**[MAJOR 1] My reader enumeration was incomplete, and the instrument is the story.** See the
+correction stamped on that section above: `someAgentNeedsClaude` reads the local binding `agents`,
+so a grep keyed on `snap.agents` could not see it. ⭐ **An enumeration is only as wide as the token
+you searched for, and I chose the token from the code I had just written rather than from the
+question.**
+
+**[MAJOR 2, and it corrects my REASONING rather than my code] I justified the round-32 gate with a
+harm the fill did not introduce.** I wrote that an unconditional fill "hands a remote codex agent
+the Claude model list -- the #2167 shape restored one population over". Measured false, by render:
+
+```
+runner=null   -> "We cannot tell which account this one uses…"      providerOf: anthropic
+runner=claude -> "We cannot tell which account this one uses…"      providerOf: anthropic
+runner=codex  -> "This is a Codex agent, so it does not run on…"    providerOf: openai
+null === claude ?  true
+```
+
+All four web readers of `a.runner` are `=== 'codex'` EQUALITY tests, so `null` and `'claude'` are
+indistinguishable at every one; `someAgentNeedsClaude` counts an unknown runner (`''` / `'claude'`)
+the same as null. **That agent rendered identically before the fill existed.** The third arm
+(`codex`) is what makes the identity a measurement rather than a dead probe.
+
+✅ **The gate STAYS, on the ground that survives measurement**, and the code now says so: it is a
+WIRE-CONTRACT fix, not a behaviour fix. `panelessCard` legislates that null is "a display default
+we inherit and not a claim this card makes", and a payload should not assert what this Mac cannot
+know even where no reader currently reads the difference.
+
+⭐ **A FIX JUSTIFIED BY A HARM THAT DOES NOT EXIST IS THE THING THIS CARD KEEPS CATCHING, AND I
+PRODUCED ONE WHILE FIXING ONE.** The remedy is not to drop the fix but to state the reason that is
+true. I removed the claim rather than softening it: softening would have left a smaller version of
+the same invented harm.
+
+### Round 33's third finding: I traced ONE source and pronounced on the population, for the third time
+
+The justification I wrote THIS ROUND for not gating the offline row - "an offline row EXISTS
+BECAUSE a profile file does, so the record is present by construction" - is measurably false:
+
+```
+register.survey()  = known()  (profile-backed, profile: true)
+                   + strays() (pushed second,  profile: false)
+the offline filter = (k.folder || k.job)        <- never mentions a profile
+```
+
+A folder-only stray reaches that list with no job and no profile and floored to a positive
+`'claude'`, **under a comment asserting the case cannot arise**. I read `known()` and stopped.
+
+⭐ **THAT IS THE SAME ERROR AS MAJOR 1 AN HOUR EARLIER (a grep keyed on `snap.agents` that could
+not see a consumer reading `agents`) AND AS THE trustCodexFolder CALL SITES IN ROUND 26.** Three
+instances, one shape: **trace one source, pronounce on the population.** Writing the rule down has
+not stopped me producing it; what stops it is removing the thing that needs justifying.
+
+✅ **So both rows now share ONE GATED HELPER.** There is no longer an asymmetry to explain
+correctly or otherwise. The mutant restoring the ungated derivation reds TWO arms - the
+disagreement arm and the new stray arm - each by its own message.
+
+📌 **The stray arm reproduces the reviewer's own fixture discipline**: their first probe returned
+`SURVEY ROW: undefined` until they added the birth-log tie, which is what proves the sweep was
+REACHED rather than vacuously empty. A folder alone is not a stray (the tie exists so a checkout
+dropped under a once-used name does not become one), so the arm writes both halves and asserts the
+controls - no job, no profile provider, and `recordedRunner` still flooring at claude - BEFORE the
+claim.
+
+### And the exhaustive answer to "does any consumer distinguish null from 'claude'?"
+
+Asked of the reviewer because it is a stronger statement than the finding, and worth recording
+rather than assuming. **Six readers, and NONE distinguishes them:**
+
+| reader | test |
+|---|---|
+| web "OpenAI Codex" model label | `a.runner === 'codex'` |
+| web `paintOpenaiDetailModel` delegation | `a.provider === 'openai' \|\| a.runner === 'codex'` |
+| web `paintAccountPicker` sentence | `a.runner === 'codex'` (rendered) |
+| web `providerOf` | `a.runner === 'codex' ? …` (rendered) |
+| server `someAgentNeedsClaude` | `a.runner !== 'codex'` (measured) |
+| `tools/capture-agent-card.js` | `card.runner === 'codex'` |
+
+⇒ **The gate changes no behaviour anywhere today.** It is kept because `panelessCard` legislates
+that null is "a display default we inherit and not a claim this card makes", and a payload should
+not assert what this Mac cannot know. **That is the whole reason, and it is the one that survives
+measurement.**

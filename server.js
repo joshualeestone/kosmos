@@ -2723,11 +2723,32 @@ const server = http.createServer((req, res) => {
            TWO sources, and only one is local. `createdSource` is a plist this Mac
            wrote; `panelessKeys` enumerates the SENDER-TOKEN store, which is the
            beat-known remote/win32 case the contract paragraph is written about.
-           For a remote CODEX agent an unconditional fill says 'claude', which
-           hands it the Claude model list again -- the #2167 shape this card exists
-           to close, restored one population over.
+           🛑 AND THIS GATE CHANGES NO RENDERED BEHAVIOUR TODAY. An earlier version
+           of this comment claimed an unconditional fill "hands a remote codex agent
+           the Claude model list, the #2167 shape restored one population over".
+           MEASURED FALSE: all four web readers of `a.runner` are `=== 'codex'`
+           equality tests, so `null` and `'claude'` are indistinguishable at every
+           one, and `someAgentNeedsClaude` counts an unknown runner ('' / 'claude')
+           the same as null. That agent rendered identically before the fill existed.
+           ⇒ The gate is a WIRE-CONTRACT fix, not a behaviour fix, and it is kept on
+           that ground alone: `panelessCard` legislates that null is a default we
+           inherit and not a claim, and a payload should not assert what this Mac
+           cannot know even where no reader currently reads the difference. A fix
+           justified by a harm that does not exist is the thing this card keeps
+           catching, so the real reason is written here instead.
            ⇒ The gate asks whether a record EXISTS before asking what it says, so
-           `recordedRunner` stays the ONE derivation and null stays available. */
+           `recordedRunner` stays the ONE derivation and null stays available.
+           🛑 AND THE OFFLINE ROW USES THIS SAME HELPER, after a false start worth
+           recording. I first left that row ungated and justified it: "an offline row
+           EXISTS BECAUSE a profile file does, so the record is present by
+           construction". MEASURABLY FALSE. `register.survey()` builds from `known()`
+           (profile-backed) AND THEN PUSHES `strays()`, stamped `profile: false`; the
+           offline filter is `(k.folder || k.job)` and never mentions a profile. So a
+           folder-only stray reaches that list with no job and no profile, and floored
+           to a positive 'claude' under a comment asserting the case cannot arise.
+           ⇒ I traced ONE source (`known()`) and pronounced on the population, which
+           is this card's signature error and the reason both rows now share one
+           helper: there is no asymmetry left to justify wrongly. */
         try {
           const job = create.readJob(a.sessionName);
           const recorded = job || ((store.readProfile(a.sessionName) || {}).provider);
@@ -3054,7 +3075,7 @@ const server = http.createServer((req, res) => {
                    of the two: the plist is the launch truth, as this file says
                    everywhere else, and the profile is the fallback when there is
                    no job to read. */
-                runner: (() => { try { return create.recordedRunner(k.name); } catch { return (profile.provider === 'openai') ? 'codex' : 'claude'; } })(),
+                runner: runnerOfCard({ sessionName: k.name, runner: null }),
                 account: accountOf(k.name),
                 commitments: commitments.read(k.name),
                 instructions: projects.toldOverride(instructions.staleness(k.name), k.name),
