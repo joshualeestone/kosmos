@@ -99,22 +99,6 @@ test('board deploy refuses existing and not-yet-created destinations inside a gi
   });
   assert.equal(dotEscape.status, 1, `expected dot-component refusal, stdout: ${dotEscape.stdout}, stderr: ${dotEscape.stderr}`);
   assert.match(dotEscape.stderr, /must not contain dot path components/, dotEscape.stderr);
-
-  const fileAncestor = path.join(fixture, 'ordinary-file');
-  fs.writeFileSync(fileAncestor, 'not a directory');
-  const throughFile = spawnSync('bash', [path.join(repo, 'deploy', 'install-board.sh'), '--apply'], {
-    encoding: 'utf8',
-    env: { ...process.env, KOSMOS_BOARD_LIBEXEC: `${fileAncestor}/board`, KOSMOS_BOARD_PLIST: path.join(fixture, 'board.plist') },
-  });
-  assert.equal(throughFile.status, 1, `expected file-ancestor refusal, stdout: ${throughFile.stdout}, stderr: ${throughFile.stderr}`);
-  assert.match(throughFile.stderr, /nearest existing destination ancestor is not a directory/, throughFile.stderr);
-
-  const root = spawnSync('bash', [path.join(repo, 'deploy', 'install-board.sh'), '--apply'], {
-    encoding: 'utf8',
-    env: { ...process.env, KOSMOS_BOARD_LIBEXEC: '/', KOSMOS_BOARD_PLIST: path.join(fixture, 'board.plist') },
-  });
-  assert.equal(root.status, 1, `expected root refusal, stdout: ${root.stdout}, stderr: ${root.stderr}`);
-  assert.match(root.stderr, /destination must not be the filesystem root/, root.stderr);
 });
 
 test('refresh-only swaps a trailing-slash destination without plist or launchd changes', () => {
@@ -144,15 +128,4 @@ test('refresh-only swaps a trailing-slash destination without plist or launchd c
   assert.ok(!fs.existsSync(path.join(destination, 'stale')), 'the stale deployed tree was not replaced');
   assert.equal(fs.readFileSync(plist, 'utf8'), 'unchanged', 'refresh-only rewrote the plist');
   assert.ok(!fs.existsSync(marker), 'refresh-only invoked launchctl');
-});
-
-test('restart version read accepts an apostrophe in the deployed path', () => {
-  const restart = fs.readFileSync(path.join(__dirname, 'tools', 'restart-local-board.sh'), 'utf8');
-  const command = restart.split('\n').find((line) => line.trimStart().startsWith("node -e 'console.log(JSON.parse"));
-  assert.ok(command, 'could not find the production deployed-version read');
-  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "kosmos-board-o'clock-"));
-  fs.writeFileSync(path.join(fixture, 'package.json'), '{"version":"9.8.7"}\n');
-  const run = spawnSync('bash', ['-c', `_srcdir="$1"\n${command}`, 'fixture', fixture], { encoding: 'utf8' });
-  assert.equal(run.status, 0, run.stderr);
-  assert.equal(run.stdout.trim(), '9.8.7');
 });

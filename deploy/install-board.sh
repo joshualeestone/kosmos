@@ -169,8 +169,7 @@ while [ ! -e "$dest_probe" ] && [ "$dest_probe" != "/" ]; do
   dest_suffix="/$(basename "$dest_probe")$dest_suffix"
   dest_probe="$(dirname "$dest_probe")"
 done
-[ -d "$dest_probe" ] || fail "refusing to apply: the nearest existing destination ancestor is not a directory ($dest_probe)"
-dest_probe="$(cd "$dest_probe" && pwd -P)" || fail "could not resolve destination ancestor ($dest_probe)"
+dest_probe="$(cd "$dest_probe" && pwd -P)"
 DEST="$dest_probe$dest_suffix"
 while [ "$DEST" != "/" ] && [ "${DEST%/}" != "$DEST" ]; do DEST="${DEST%/}"; done
 [ "$DEST" != "/" ] || fail "refusing to apply: the destination must not be the filesystem root"

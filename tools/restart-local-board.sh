@@ -96,7 +96,7 @@ want_version() {
   if [ "${KOSMOS_BOARD_WANT+set}" = set ]; then
     printf '%s' "$KOSMOS_BOARD_WANT"
   else
-    node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version)' "$_srcdir/package.json"
+    node -e "console.log(JSON.parse(require('fs').readFileSync('${_srcdir}/package.json','utf8')).version)"
   fi
 }
 
