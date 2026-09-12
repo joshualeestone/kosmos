@@ -217,6 +217,59 @@ test('#2811: a BARE executable name is matched, not only a path', () => {
     'a name merely starting or ending with the runner name was matched');
 });
 
+test('#2811: the ANSWER SHAPE is pinned per path, because the docstring claims one', () => {
+  /* 🛑 THE DOCSTRING LISTS KEY-SETS PER PATH AND NOTHING CHECKED THEM. It has
+     been wrong three times about one field: unconditional (wrong for win32),
+     then "darwin arm only" (wrong for darwin's refusals), then right. Each
+     correction was narrower than the last and still too wide, because each was
+     generalised from the paths I happened to drive.
+     ⇒ A field list is a claim, and this file demands elsewhere that a claim be
+     "a checked value rather than decoration". These arms make the documented
+     matrix fail when it drifts, instead of asking a reader to believe it. */
+  const keys = (r) => Object.keys(r).sort().join(',');
+  const BASE = 'account,because,configDir,model,ok,organization';
+
+  const liveCodex = runningAs('s', {
+    platform: 'darwin',
+    panes: new Map([['s', 100]]),
+    procs: new Map([
+      [100, { ppid: 1, command: '/bin/zsh' }],
+      [101, { ppid: 100, command: '/opt/homebrew/bin/codex' }],
+    ]),
+    envOf: () => 'CODEX_HOME=/Users/x/.codex',
+    identityOf: () => ({ email: 'a@b.c' }),
+  });
+  assert.equal(keys(liveCodex), BASE + ',runner',
+    'a successful darwin read no longer carries the documented key set');
+
+  /* A darwin REFUSAL carries no runner: there is no process to name. */
+  const noAgent = runningAs('s', {
+    platform: 'darwin',
+    panes: new Map([['s', 100]]),
+    procs: new Map([[100, { ppid: 1, command: '/bin/zsh' }]]),
+  });
+  assert.equal(noAgent.ok, false);
+  assert.equal(Object.prototype.hasOwnProperty.call(noAgent, 'runner'), false,
+    'a darwin refusal grew a runner key, which the docstring says is absent');
+
+  /* win32 carries no runner on ANY path: success or refusal. */
+  const winOk = runningAs('a', {
+    platform: 'win32',
+    live: () => new Map([['a', { name: 'a', pid: 4242 }]]),
+    cmdlines: () => new Map([[4242, 'claude --model m']]),
+  });
+  assert.equal(winOk.ok, true);
+  assert.equal(keys(winOk), BASE, 'the win32 success shape drifted from the documented one');
+  assert.equal(Object.prototype.hasOwnProperty.call(winOk, 'runner'), false,
+    'win32 grew a runner key; the docstring says ABSENT, not null');
+
+  const winRefuse = runningAs('a', {
+    platform: 'win32', live: () => null, cmdlines: () => new Map(),
+  });
+  assert.equal(winRefuse.ok, false);
+  assert.equal(Object.prototype.hasOwnProperty.call(winRefuse, 'runner'), false);
+});
+
 /* ───────────────── #2811, the node-fronting launcher ─────────────────
  * MEASURED, and recorded here because the WRONG conclusion is the intuitive one
  * and I drew it first. `/opt/homebrew/bin/codex` (the npm/homebrew launcher that

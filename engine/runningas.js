@@ -379,9 +379,14 @@ function win32Answer(entry, cmds) {
        📌 TWO CLAUSES OF THIS COMMENT WERE KILLED BY #2811 and are corrected here
        rather than left: it used to say this shape is one "which the darwin arm
        never does", and that `server.js` "reads only ok/account/configDir/model".
-       The darwin arm now returns exactly this shape for a codex agent (see the
-       `because` at the end of `runningAsDarwin`, which cites this block as its
+       The darwin arm now returns a `because` ON A SUCCESSFUL READ for a codex
+       agent too (see the end of `runningAsDarwin`, which cites this block as its
        precedent), and `server.js` also reads `runner` off the live answer.
+       ⚠️ THE SAME PATTERN, NOT THE SAME SHAPE. The two answers differ: darwin
+       carries `runner` and a real `configDir`, this arm carries neither. Said
+       exactly, because an earlier version of this sentence claimed "exactly this
+       shape" while the docstring above denied shape equality, so one file
+       asserted both.
        Nothing renders `because` when `ok` is true today, so it remains additive
        rather than a contract change for the existing reader. */
     because: WIN32_NO_ACCOUNT,
@@ -552,8 +557,9 @@ function runningAsDarwin(session, deps = {}) {
     configDir,
     runner,
     because: codex
-      /* ⚠️ `because` ON A SUCCESSFUL READ, the same shape `win32Answer` returns
-         and for the same reason: `ok` means the look happened, and the sentence
+      /* ⚠️ `because` ON A SUCCESSFUL READ, the same PATTERN `win32Answer` uses
+         (not the same shape: see the docstring's per-path key lists) and for the
+         same reason: `ok` means the look happened, and the sentence
          names the HALF of the question this answer does not carry, so a caller
          rendering it says something true instead of inventing a reason.
          📌 AND THE SAME HONEST LIMIT, stated rather than implied: nothing renders
