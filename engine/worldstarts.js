@@ -459,7 +459,9 @@ function stopWorldAgents(names, worldId, opts = {}) {
     // Disable FIRST. On a failed disable do NOT bootout: killing the running job while it stays
     // enabled would let the next login silently restart an agent of a Kosmos the user just hid.
     if (!actSucceeded(() => ops.disable(name, job))) { kept.push(name); continue; }
-    // The KeepAlive supervisor and the running session are two processes, so end both.
+    // The KeepAlive supervisor and the running session are two processes, so end both. On win32
+    // stopNow (schtasks /End on the world-keyed task) is the real stop; the session-end uses the
+    // launchKey, the same identifier pauseForSwitch passes, so this path does not diverge from it.
     const down = actSucceeded(() => ops.stopNow(name, job))
       && actSucceeded(() => sessions.end(launchidentity.launchKey(name, worldId)));
     if (down) { stopped.push(name); continue; }

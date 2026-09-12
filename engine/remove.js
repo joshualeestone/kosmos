@@ -398,15 +398,19 @@ function existsExactly(full) {
  */
 function jobOps(platform) {
   if ((platform || process.platform) === 'win32') {
+    /* Pass the job's world through to win32job (its `worldId`, resolved by jobFor): otherwise
+       every act re-derives the task from currentWorldId() and targets the BOOTED world, which is
+       wrong whenever the job names a non-current world (#2935's hide of a non-active Kosmos). The
+       Mac branch already gets this right because it acts on the world-keyed `job.label`. */
     return {
       win32: true,
-      disable: (name) => Boolean(win32job.disable(name).ok),
-      stopNow: (name) => Boolean(win32job.end(name).ok),
-      enable: (name) => Boolean(win32job.enable(name).ok),
-      startNow: (name) => Boolean(win32job.start(name).ok),
+      disable: (name, job) => Boolean(win32job.disable(name, job && job.worldId).ok),
+      stopNow: (name, job) => Boolean(win32job.end(name, job && job.worldId).ok),
+      enable: (name, job) => Boolean(win32job.enable(name, job && job.worldId).ok),
+      startNow: (name, job) => Boolean(win32job.start(name, job && job.worldId).ok),
       /* The Mac asks whether the plist is still on disk; the analog is whether
          the task is still registered. Same question, different substrate. */
-      startableGone: (name) => win32job.status(name).registered !== true,
+      startableGone: (name, job) => win32job.status(name, job && job.worldId).registered !== true,
     };
   }
   return {
@@ -507,8 +511,12 @@ function jobFor(name, platform, worldId) {
      platform the honest answer is "that is not how it starts" -- `jobOps`
      provides `startableGone` so nobody has to infer it from a null. */
   if ((platform || process.platform) === 'win32') {
-    const st = win32job.status(clean, worldId);
-    return st.registered ? { label: win32job.taskName(clean, worldId), plist: null, ours: true } : null;
+    // Resolve the world here so the job carries a CONCRETE id: jobOps' win32 acts pass it back to
+    // win32job (disable/end/enable), which would otherwise re-derive the task from currentWorldId()
+    // and hit the booted world's task -- wrong whenever the caller names a non-current world (#2935).
+    const wid = worldId === undefined ? launchidentity.currentWorldId() : worldId;
+    const st = win32job.status(clean, wid);
+    return st.registered ? { label: win32job.taskName(clean, wid), plist: null, ours: true, worldId: wid } : null;
   }
   const candidates = [
     { label: create.serviceLabel(clean, worldId), plist: create.plistPath(clean, worldId), ours: true },

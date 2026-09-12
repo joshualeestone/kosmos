@@ -149,6 +149,35 @@ test('a bootout that fails after a landed disable re-enables the job (left clean
   assert.deepEqual(r.body.agents.kept, ['fi']);
 });
 
+test('on Windows the stop targets the HIDDEN world\'s keyed scheduled task, never the booted world\'s', async () => {
+  const win32job = require('./engine/win32job');
+  const win32stop = require('./engine/win32stop');
+  const id = seedNamedWorldWithAgent('Win Space', 'wi');
+  const winCalls = [];
+  win32job.setRunner((args) => {
+    winCalls.push(['schtasks', ...args].join(' '));
+    return args[0] === '/Query' ? { ok: true, out: 'Status: Ready\n' } : { ok: true, out: 'SUCCESS' };
+  });
+  win32stop.setLive(() => new Map());   // nothing live under any name: the end state
+  worldstarts.setPlatformForTests('win32');
+  try {
+    const r = await hide({ id });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(!listIds().includes(id), 'the world was not hidden');
+    // The disable + end must name the hidden world's KEYED task (agent-wi+<id>). Before the fix the
+    // win32 job acts re-derived the task from currentWorldId() (the booted world), so a same-named
+    // agent in the ACTIVE world would have been stopped instead, and the hidden one left running.
+    assert.ok(winCalls.includes(`schtasks /Change /TN Kosmos\\agent-wi+${id} /DISABLE`), 'disable did not target the world-keyed task: ' + JSON.stringify(winCalls));
+    assert.ok(winCalls.includes(`schtasks /End /TN Kosmos\\agent-wi+${id}`), 'end did not target the world-keyed task: ' + JSON.stringify(winCalls));
+    assert.deepEqual(winCalls.filter((c) => /agent-wi(?!\+)/.test(c)), [], 'a bare (booted-world) task was targeted: ' + JSON.stringify(winCalls));
+    assert.deepEqual(r.body.agents.stopped, ['wi']);
+  } finally {
+    worldstarts.setPlatformForTests('darwin');
+    win32job.setRunner(null);
+    win32stop.setLive(null);
+  }
+});
+
 test('with live execution NOT armed, the stop is refused: nothing is shelled and every agent is kept (the win32 safety gate)', async () => {
   const id = seedNamedWorldWithAgent('Unarmed Space', 'gu');
   liveExec.resetForTests();   // un-arm: win32job shells schtasks with no self-gate, so the stop MUST refuse here

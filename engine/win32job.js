@@ -378,15 +378,20 @@ function install(spec) {
  * Stop this agent ACROSS LOGINS. Disabling rather than deleting mirrors
  * `launchctl disable`: the job stays on disk so a later `enable` restores it,
  * and `remove.js` on the Mac records prior state for exactly that reason.
+ *
+ * `worldId` (like `taskName`'s) targets a SPECIFIC world's task; omit it for the
+ * board's current world. It is load-bearing for #2935's hide, which stops the
+ * agents of a NON-current (hidden) world -- without it every act would resolve
+ * against `currentWorldId()` and hit the booted world's same-named task instead.
  */
-function disable(name) {
-  const r = run(['/Change', '/TN', taskName(name), '/DISABLE']);
+function disable(name, worldId) {
+  const r = run(['/Change', '/TN', taskName(name, worldId), '/DISABLE']);
   if (!r.ok) return { ok: false, because: 'we could not stop it from starting again (' + (r.out || '').trim().split('\n')[0] + ')' };
   return { ok: true };
 }
 
-function enable(name) {
-  const r = run(['/Change', '/TN', taskName(name), '/ENABLE']);
+function enable(name, worldId) {
+  const r = run(['/Change', '/TN', taskName(name, worldId), '/ENABLE']);
   if (!r.ok) return { ok: false, because: 'we could not set it to start again (' + (r.out || '').trim().split('\n')[0] + ')' };
   return { ok: true };
 }
@@ -402,8 +407,8 @@ function enable(name) {
  * `remove.js` already documents for the Mac (disable first, so a login in the
  * window between the two cannot bring it back).
  */
-function end(name) {
-  const r = run(['/End', '/TN', taskName(name)]);
+function end(name, worldId) {
+  const r = run(['/End', '/TN', taskName(name, worldId)]);
   /* A task that is not running is the end state we wanted -- the same posture the
      Mac takes toward launchd's exit 3 ("no such service"). */
   if (!r.ok && !/not running|cannot find|does not exist/i.test(r.out || '')) {
@@ -417,8 +422,8 @@ function end(name) {
  * half of a restore. `enable` alone would leave the agent off until the person
  * next signed in, which is not what "start it again" says.
  */
-function start(name) {
-  const r = run(['/Run', '/TN', taskName(name)]);
+function start(name, worldId) {
+  const r = run(['/Run', '/TN', taskName(name, worldId)]);
   if (!r.ok) return { ok: false, because: 'we could not start it again now (' + (r.out || '').trim().split('\n')[0] + ')' };
   return { ok: true };
 }
