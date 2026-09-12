@@ -48,6 +48,7 @@ board_shape_working_dir() {
 # launchd-canonicalization divergence is ever observed on a Mac, THIS one function is the
 # single place to add normalization, and both callers get it at once.
 board_shape_of() {
+  local _bs_wd _bs_repo _bs_libexec   # self-contained: safe for a future non-subshell caller
   _bs_wd="$1"; _bs_repo="$2"; _bs_libexec="$3"
   if [ -n "$_bs_wd" ] && [ "$_bs_wd" = "$_bs_repo" ]; then
     printf 'repo\n'
