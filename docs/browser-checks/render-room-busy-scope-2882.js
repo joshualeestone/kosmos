@@ -86,8 +86,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   }
 
   if (fails.length) {
-    console.error('FAIL  render-room-busy-scope-2882:');
-    for (const f of fails) console.error('  - ' + f);
+    console.error('render-room-busy-scope-2882: ' + fails.length + ' problem(s)');
+    for (const f of fails) console.error('  FAIL  ' + f);
     process.exit(1);
   }
   console.log('PASS  render-room-busy-scope-2882: the room working-line is scoped to its own project '
