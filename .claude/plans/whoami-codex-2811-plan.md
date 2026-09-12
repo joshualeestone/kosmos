@@ -2449,3 +2449,26 @@ found defects in my descriptions; rounds 29-38 found defects at readers the chan
 the guards around it; round 39 found none. **That is the shape of a loop that has converged, and
 continuing past it would cost more than it returns** - the branch is 49 ahead and 107 BEHIND, and
 main has moved 319 files since the merge-base.
+
+## Post-rebase: which cited shas survived, checked rather than assumed
+
+Rebased onto `origin/main` 2026-09-12 (50 commits over 107; main had moved 319 files). Bulletin
+`a-rebase-orphans-every-recorded-run` says a sha in a table is not a claim anybody re-checks, so
+every 8-hex string in this plan was tested with `git merge-base --is-ancestor`:
+
+| sha | status | what it supports |
+|---|---|---|
+| `8fe044b8` | **ANCESTOR** | "the `writeProfile` call landed in the SAME commit as the header" - still verifiable |
+| `a98e282e` | **ANCESTOR** | "#2245 routed the brief to AGENTS.md" - still verifiable |
+| `1d1fa7bd`, `67bf1a29`, `c32b1c7a` | **ORPHANED** | this branch's own round commits, rewritten by the rebase |
+
+⇒ **The claims that matter are the two ANCESTORS**, because those are the provenance arguments
+about main's history (when the plist runner arg landed, when the profile write landed). Those are
+unaffected and still checkable by anyone.
+📌 The orphaned three are references to my own earlier round commits. Their CONTENT survives in the
+rebased equivalents and in this file; the old hashes live on in the `prerebase-2811` tag. Recorded
+rather than silently dangling, because a reader who tries one and gets "unknown revision" would
+reasonably wonder what else in this file rotted.
+
+**Post-rebase suite: `SUITE_EXIT=0`, 6622 tests (main brought 381 more), 6613 pass, 0 fail, 9
+skipped, cut guard 0 failures.**
