@@ -618,7 +618,12 @@ function readLog() {
 
 function appendLog(entry) {
   fs.mkdirSync(path.dirname(LOG), { recursive: true });
-  fs.appendFileSync(LOG, JSON.stringify(entry) + '\n');
+  // #1760 hardening: the message log holds conversation content (which can quote a
+  // credential an agent pasted). Create it mode 0600 so it is owner-only even under
+  // a non-default data root outside ~/Library. Mode applies on create; an existing
+  // log keeps its mode, but the data ROOT is now 0700 (store.ensure), which is the
+  // load-bearing traversal barrier.
+  fs.appendFileSync(LOG, JSON.stringify(entry) + '\n', { mode: 0o600 });
 }
 
 function pairKey(a, b) {
@@ -857,7 +862,7 @@ function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster)
     const spillFile = path.join(SPILL_DIR, id + '.txt');
     try {
       fs.mkdirSync(SPILL_DIR, { recursive: true });
-      fs.writeFileSync(spillFile, cleaned + '\n');
+      fs.writeFileSync(spillFile, cleaned + '\n', { mode: 0o600 }); // #1760: owner-only spill
     } catch {
       return refuse(toName, 'that message is long enough to need a file, and we could not write one');
     }
@@ -1319,7 +1324,7 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
     const spillFile = path.join(SPILL_DIR, id + '.txt');
     try {
       fs.mkdirSync(SPILL_DIR, { recursive: true });
-      fs.writeFileSync(spillFile, cleaned + '\n');
+      fs.writeFileSync(spillFile, cleaned + '\n', { mode: 0o600 }); // #1760: owner-only spill
     } catch {
       return refuse('that post is long enough to need a file, and we could not write one');
     }

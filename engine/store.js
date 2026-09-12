@@ -266,6 +266,18 @@ function workersRootFor(env, home, platform = process.platform) {
 
 function ensure(dir) {
   fs.mkdirSync(dir, { recursive: true });
+  /* #1760 hardening: pin the data ROOT owner-only (0700). On the default install
+     ~/Library is already 0700, but a NON-default data root (an AGENT_WORKFORCE_HOME
+     override outside ~/Library) would otherwise inherit the umask default and be
+     readable by other local accounts. Idempotent + best-effort, and computed WITHOUT
+     the legacy migration root() runs, so ensure() stays side-effect-free beyond the
+     dir it makes. Mirrors filelock.js, which already chmods its lock dir owner-only. */
+  try {
+    fs.chmodSync(
+      dataRootFor(process.platform, process.env.AGENT_WORKFORCE_HOME || os.homedir(), process.env),
+      0o700,
+    );
+  } catch { /* a read-only root, a race, or a non-POSIX platform is not fatal */ }
   return dir;
 }
 
