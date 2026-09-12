@@ -925,8 +925,9 @@ Honest gaps in this document:
   its own folder and a world-keyed task name, and starts through
   `engine/worldstarts.js` when its Kosmos opens. On Windows the source's model and
   account are read back from its task's argument line (`win32job.taskSpec`).
-  While named worlds may not run agents (#2849), an import into one waits, and the
-  settings pane says so.
+  An import into the Kosmos that is open starts at once. One into a Kosmos that is
+  not open is recorded there and starts when that Kosmos next opens, and that
+  Kosmos's settings pane shows what is waiting to start in it.
 - **A broad Mac-only-assumption sweep is in flight.** A targeted sweep for
   tmux/launchctl found `chat.js` (the blocker) and `runningas.js` (degraded) as
   the only live call sites outside already-ported modules. A wider survey — for

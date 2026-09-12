@@ -186,6 +186,7 @@ test('what the import did is SAID: an agent that starts when the new Kosmos open
     imported: { copied: [{ from: 'w1', name: 'ava', displayName: 'Ava' }], refused: [], started: [], waiting: [], later: ['ava'] } } });
   assert.equal(r.msg.textContent, 'Your Kosmos was created. Added Ava to Gamma. Ava starts when you open Gamma.');
   assert.equal(r.seen.closed, false, 'an agent that is not running yet was closed over as if it were running');
+  assert.equal(r.dom.focused() && r.dom.focused().id, 'world-add-cancel', 'focus was left on Create, which is now disabled');
   assert.equal(r.cancel.textContent, 'Done');
   assert.equal(r.go.disabled, true, 'a re-press would try to make the same Kosmos again');
 });

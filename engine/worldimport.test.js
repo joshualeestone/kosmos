@@ -527,6 +527,50 @@ test('R3 (2): a manager that comes along keeps the line; one that does not is cl
   assert.equal(readCopy(def, 'ann').reportsTo, 'boss', 'the source agent was changed');
 });
 
+test('R4: a chain A->B->C with only A and C imported: A\'s manager B is not there, so A reports to the person', () => {
+  const { base, env, opts, def } = setup();
+  seedAgent(base, env, def, 'cee', { profile: { displayName: 'C', id: 'cee000000001' } });
+  seedAgent(base, env, def, 'bee', { profile: { displayName: 'B', reportsTo: 'cee', id: 'bee000000001' } });
+  seedAgent(base, env, def, 'ayy', { profile: { displayName: 'A', reportsTo: 'bee', id: 'ayy000000001' } });
+  const dst = worlds.createWorld(base, 'Dest');
+  const r = worldimport.importAgents(base, dst.id, [{ from: 'default', name: 'ayy' }, { from: 'default', name: 'cee' }], opts);
+  assert.deepEqual(r.copied.map((c) => c.name), ['ayy', 'cee']);
+  const profileOf = (n) => readJson(nodePath.join(worlds.worldProfilesDir(base, dst), n + '.json'));
+  assert.equal(profileOf('ayy').reportsTo, null, 'A kept a manager (B) who was not imported; C does not stand in for B');
+  assert.equal(profileOf('cee').reportsTo, undefined, 'C reports to nobody in the source and must not be given one');
+});
+
+test('R4: a cycle A<->B imported together terminates, and each keeps the other (rule a)', () => {
+  const { base, env, opts, def } = setup();
+  seedAgent(base, env, def, 'ayy', { profile: { displayName: 'A', reportsTo: 'bee', id: 'ayy000000001' } });
+  seedAgent(base, env, def, 'bee', { profile: { displayName: 'B', reportsTo: 'ayy', id: 'bee000000001' } });
+  const dst = worlds.createWorld(base, 'Dest');
+  const r = worldimport.importAgents(base, dst.id, [{ from: 'default', name: 'ayy' }, { from: 'default', name: 'bee' }], opts);
+  assert.deepEqual(r.copied.map((c) => c.name), ['ayy', 'bee'], 'the import did not finish');
+  const profileOf = (n) => readJson(nodePath.join(worlds.worldProfilesDir(base, dst), n + '.json'));
+  assert.equal(profileOf('ayy').reportsTo, 'bee');
+  assert.equal(profileOf('bee').reportsTo, 'ayy');
+});
+
+test('R4: two target copies claiming the SAME source manager are ambiguous: the line is cleared, never guessed', () => {
+  const { base, env, opts, def } = setup();
+  seedAgent(base, env, def, 'mara', { profile: { displayName: 'Mara', id: 'ma4a00000001' } });
+  seedAgent(base, env, def, 'rook', { profile: { displayName: 'Rook', reportsTo: 'mara', id: '400c00000001' } });
+  const dst = worlds.createWorld(base, 'Dest');
+  const claim = { kosmos: 'default', id: 'ma4a00000001' };
+  fs.mkdirSync(worlds.worldProfilesDir(base, dst), { recursive: true });
+  for (const n of ['mara', 'maratwo']) fs.writeFileSync(nodePath.join(worlds.worldProfilesDir(base, dst), n + '.json'), JSON.stringify({ displayName: 'Mara', importedFrom: claim }));
+  worldimport.importAgents(base, dst.id, [{ from: 'default', name: 'rook' }], opts);
+  assert.equal(readJson(nodePath.join(worlds.worldProfilesDir(base, dst), 'rook.json')).reportsTo, null,
+    'two copies claim to be Mara and one was picked anyway');
+  // The control: with only ONE of them, the same provenance is a match.
+  const one = worlds.createWorld(base, 'One');
+  fs.mkdirSync(worlds.worldProfilesDir(base, one), { recursive: true });
+  fs.writeFileSync(nodePath.join(worlds.worldProfilesDir(base, one), 'mara.json'), JSON.stringify({ displayName: 'Mara', importedFrom: claim }));
+  worldimport.importAgents(base, one.id, [{ from: 'default', name: 'rook' }], opts);
+  assert.equal(readJson(nodePath.join(worlds.worldProfilesDir(base, one), 'rook.json')).reportsTo, 'mara');
+});
+
 test('R3 (2a): a manager with NO source id (never minted) that comes along in the same request keeps the line', () => {
   const { base, env, opts, def } = setup();
   // Profiles written without the store carry no id, so provenance cannot match them.

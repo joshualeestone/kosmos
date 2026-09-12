@@ -18904,6 +18904,8 @@ async function worldAddSubmit() {
         }
         document.getElementById('world-add-cancel').textContent = 'Done';
         go.disabled = true;
+        // Create is now disabled, so focus is re-homed on the way out, as the other end states do.
+        document.getElementById('world-add-cancel').focus();
         return;
       }
     }

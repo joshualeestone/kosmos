@@ -274,6 +274,32 @@ test('R3 (10): an imported agent that has not started yet CAN be removed, and re
   }
 });
 
+test('R4: editing an imported agent\'s role, name and manager through PUT /api/agent/:name/profile keeps its importedFrom', async () => {
+  seed('alphaworld', 'pia', { profile: { displayName: 'Pia', id: 'p1a000000001' } });
+  const r = await post('/api/worlds/import', { id: 'default', importAgents: [{ from: 'alphaworld', name: 'pia' }] });
+  assert.equal(r.status, 200, r.body.because);
+  const before = JSON.parse(fs.readFileSync(profileIn('default', 'pia'), 'utf8'));
+  assert.deepEqual(before.importedFrom, { kosmos: 'alphaworld', id: 'p1a000000001' }, 'the control: the copy carries its provenance');
+  // The profile route writes only for an agent the roster shows as ours.
+  if (board) board.restore();
+  board = fleet.install([fleet.agent('probe', { state: 'idle' }), fleet.agent('pia', { state: 'idle' })]);
+  try {
+    const put = await fetch(base + '/api/agent/pia/profile', {
+      method: 'PUT', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ role: 'Planner', displayName: 'Pia Two', reportsTo: 'probe' }),
+    });
+    assert.equal(put.status, 200, await put.text());
+    const after = JSON.parse(fs.readFileSync(profileIn('default', 'pia'), 'utf8'));
+    assert.equal(after.role, 'Planner');
+    assert.equal(after.displayName, 'Pia Two');
+    assert.equal(after.reportsTo, 'probe');
+    assert.deepEqual(after.importedFrom, before.importedFrom, 'editing the profile lost where the agent came from');
+  } finally {
+    board.restore();
+    board = fleet.install([fleet.agent('probe', { state: 'idle' })]);
+  }
+});
+
 test('GET /api/worlds/list: every Kosmos, its agents to pick from (removed ones left out), and what waits in it', async () => {
   seed('default', 'hal');
   seed('default', 'ivy');

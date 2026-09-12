@@ -259,10 +259,13 @@ He confirmed this shape:
     into another Kosmos. The path itself stays private.
   - `test-support/fake-dom.js`: one fake document for the two web suites that run
     the page's shipped functions.
-- **The New Kosmos step closes on its own only when every agent started NOW.** A
-  new Kosmos is always a named world, so while #2849 holds, a create with picks
-  always ends waiting. The dialog then stays open with the outcome sentence, and
-  Cancel reads Done.
+- **The New Kosmos step closes on its own only when every agent started NOW, which
+  on that route never happens.** The reason is structural, not a gate. A
+  brand-new Kosmos is never the Kosmos the board booted into, so `importIntoWorld`
+  (server.js) never takes its "serving this Kosmos" branch for it, `started` is
+  never filled, and every agent picked lands in `later`. The dialog therefore always
+  stays open with the outcome sentence ("...starts when you open..."), Cancel reads
+  Done, and focus moves to Done.
 - **The settings pane keeps the rename modal's ids.** `world-rename-*` is unchanged
   and the picker is `world-set-*`, so the rename wiring, its Escape and the
   modal-way-out sweep are untouched. No new modal is added: the sweep's count is
@@ -510,6 +513,34 @@ He confirmed this shape:
       and a restore before that pass would have started it.
     - Fixed: `recordRemoval` calls `worldstarts.forgetEntries([name])`, and
       `importsWaitingIn` skips names on that store's removed list.
+
+- **Round 4 (coordinator, at `2602fd55`: no bugs; rebased onto main `cd805ca5`).**
+  - [CONVENTION] WINDOWS-ROADMAP's IMPORT note now describes the post-lift
+    behaviour. An import into the open Kosmos starts at once. One into a Kosmos
+    that is not open is recorded and starts when it opens, and its settings pane
+    shows what is waiting.
+  - [TEST-GAP] `forgetEntries` is pinned: it drops only the named entry, with a
+    paused and an imported agent under other names, and a missing name changes
+    nothing.
+  - [TEST-GAP] `resolveManagers`:
+    - a chain A->B->C with only A and C imported: A is cleared (rule c), because C
+      does not stand in for B;
+    - a cycle A<->B imported together terminates, and each keeps the other (rule
+      a).
+  - [TEST-GAP] `PUT /api/agent/:name/profile` on an imported agent keeps
+    `importedFrom` while role, displayName and reportsTo change. That holds
+    because `store.writeProfile` merges, and a test now pins it.
+  - [NIT, decided] Two target copies claiming the SAME source manager are
+    AMBIGUOUS. Rule (b) now matches only when exactly one does, and otherwise
+    clears (rule c) rather than keeping whichever name sorted last. Nothing
+    distinguishes the two, and a wrong manager is worse than none. Pinned with a
+    control that one claimant still matches.
+  - [NIT] New Kosmos: once the outcome is shown and Create is disabled, focus moves
+    to Done (the relabelled Cancel), as in the other end states. A web test and a
+    browser-check assertion cover it.
+  - [NIT] The "As built" note is corrected. New Kosmos never closes on its own
+    because a brand-new Kosmos is never the booted one, so `started` is never
+    filled on that route. It was never the #2849 gate.
 
 ## Rebase TODO (DONE in the post-lift rebase above; kept as the record of what it covered)
 

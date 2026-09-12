@@ -379,6 +379,11 @@ function resolveManagers(base, known, dst, copiedHere) {
   if (!copiedHere.some((c) => typeof c.reportsTo === 'string' && c.reportsTo.trim())) return;
   const removed = remove.removedNamesIn(worlds.worldStoreRoot(base, dst));
   const gone = new Set(removed.ok ? removed.names : []);
+  /* Every target agent per provenance pair -- ALL of them, not the last one read
+     (review round 4): two copies claiming the same source agent (made by hand, or
+     by a tool outside Kosmos) leave no way to tell which one is that manager, so
+     such a match is AMBIGUOUS and resolves like no match at all (rule c), rather
+     than by whichever name happened to sort last. */
   const hereByOrigin = new Map();
   for (const name of worlds.worldProfileNames(base, dst)) {
     if (gone.has(name)) continue;
@@ -386,7 +391,10 @@ function resolveManagers(base, known, dst, copiedHere) {
     try { p = JSON.parse(fs.readFileSync(path.join(worlds.worldProfilesDir(base, dst), store.profileFileName(name)), 'utf8')); }
     catch { p = null; }
     const from = p && p[store.IMPORTED_FROM_KEY];
-    if (from && typeof from.kosmos === 'string' && typeof from.id === 'string' && from.id) hereByOrigin.set(originKey(from.kosmos, from.id), name);
+    if (from && typeof from.kosmos === 'string' && typeof from.id === 'string' && from.id) {
+      const key = originKey(from.kosmos, from.id);
+      hereByOrigin.set(key, (hereByOrigin.get(key) || []).concat([name]));
+    }
   }
   for (const c of copiedHere) {
     const managerName = typeof c.reportsTo === 'string' ? c.reportsTo.trim() : '';
@@ -402,7 +410,8 @@ function resolveManagers(base, known, dst, copiedHere) {
       const mp = JSON.parse(fs.readFileSync(path.join(worlds.worldProfilesDir(base, src), store.profileFileName(managerName)), 'utf8'));
       managerId = mp && typeof mp.id === 'string' && mp.id ? mp.id : null;
     } catch { managerId = null; }
-    const managerHere = managerId ? (hereByOrigin.get(originKey(c.from, managerId)) || null) : null;   // (b)
+    const matches = managerId ? (hereByOrigin.get(originKey(c.from, managerId)) || []) : [];
+    const managerHere = matches.length === 1 ? matches[0] : null;   // (b); none or ambiguous -> (c)
     if (managerHere === managerName) continue;
     try { rewriteManager(c, managerHere); }                                                            // (c), or (b) renamed
     catch (err) { logImportError({ src: { id: c.from }, dst, name: c.name }, 'manager', err, c.profileFile); }

@@ -122,6 +122,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const modalStillOpen = !document.getElementById('world-add-modal').hidden;
     const outcome = document.getElementById('world-add-msg').textContent;
     const cancelText = document.getElementById('world-add-cancel').textContent;
+    const focusAfterOutcome = document.activeElement && document.activeElement.id;
 
     // ---- Scenario S: Skip clears, and Create sends { name } alone ----
     worldAddOpen();
@@ -141,7 +142,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     await sleep(200);
     const hiddenWhenAbsent = wrap().hidden;
 
-    return { shown, focusOnName, groupInfo, distinctFromDisk, firstBoth, secondPartial, submitted, modalStillOpen, outcome, cancelText, cancelReset, tickedAfterSkip, skippedBody, hiddenWhenAbsent };
+    return { shown, focusOnName, groupInfo, distinctFromDisk, firstBoth, secondPartial, submitted, modalStillOpen, outcome, cancelText, focusAfterOutcome, cancelReset, tickedAfterSkip, skippedBody, hiddenWhenAbsent };
   });
 
   await browser.close();
@@ -164,6 +165,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!r.modalStillOpen) problems.push('agents that WAIT were closed over as if they were running: the dialog must stay open and say so');
     if (r.outcome.indexOf('Ava, Bo, Cy start when you open Imported.') === -1) problems.push('the outcome must say the agents start when the new Kosmos is opened, got ' + JSON.stringify(r.outcome));
     if (r.cancelText !== 'Done') problems.push('once the Kosmos exists, Cancel must read Done, got ' + JSON.stringify(r.cancelText));
+    if (r.focusAfterOutcome !== 'world-add-cancel') problems.push('once the outcome is shown, focus must move to Done (Create is disabled), got ' + JSON.stringify(r.focusAfterOutcome));
     if (r.cancelReset !== 'Cancel') problems.push('a reopened New Kosmos must read Cancel again, got ' + JSON.stringify(r.cancelReset));
     if (r.tickedAfterSkip !== 0) problems.push('Skip must clear every tick, ' + r.tickedAfterSkip + ' stayed');
     if (!r.skippedBody || JSON.stringify(r.skippedBody) !== JSON.stringify({ name: 'Skipped' })) problems.push('after Skip, Create must POST exactly { name }, got ' + JSON.stringify(r.skippedBody));

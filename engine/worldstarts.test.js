@@ -657,6 +657,18 @@ test('R3 (10): forgetEntries takes a name off the list to start; importsWaitingI
   assert.deepEqual(readRecord().entries.map((e) => e.name), ['bo']);
 });
 
+test('R4: forgetEntries drops only the named entry, whatever its reason -- a paused and an imported agent under other names stay', () => {
+  const at = new Date().toISOString();
+  writeRecord([{ name: 'pat', why: 'paused', at }, importEntry('imo')]);
+  worldstarts.forgetEntries(['pat']);
+  assert.deepEqual(readRecord().entries.map((e) => [e.name, e.why]), [['imo', 'imported']], 'removing one agent took another agent\'s entry');
+  writeRecord([{ name: 'pat', why: 'paused', at }, importEntry('imo')]);
+  worldstarts.forgetEntries(['imo']);
+  assert.deepEqual(readRecord().entries.map((e) => [e.name, e.why]), [['pat', 'paused']]);
+  worldstarts.forgetEntries(['nobody']);
+  assert.deepEqual(readRecord().entries.map((e) => e.name), ['pat'], 'forgetting a name with no entry changed the list');
+});
+
 test('post-lift: an entry still carrying a pre-lift named-world sentence is read with no reason, not shown as barred', () => {
   const stale = [
     'Agents do not run in a named Kosmos yet, so it waits there and starts on its own once they can.',
