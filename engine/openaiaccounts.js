@@ -26,6 +26,9 @@ const crypto = require('node:crypto');
 const subscription = require('./subscription');
 const inflight = require('./inflight');
 const runners = require('./runners');
+// #2790: the codex-doctor-backed sign-in liveness. Top-level (no cycle: codexsigninlive
+// requires only ./runners, never this module).
+const codexsigninlive = require('./codexsigninlive');
 
 /* 🛑 A FUNCTION, NOT A CONST (#1337, found by Angel reviewing this branch).
    Frozen at require time, this made `list()` DISAGREE WITH ITSELF: the default
@@ -1136,9 +1139,14 @@ async function askModels(key) {
 /**
  * `identityOf()`'s file-read answer, but confirmed live with OpenAI.
  *
- * @returns {Promise<{state: string, plan: null, because: string, checkedLive: true}>}
+ * @param {string} dir  the codex/openai home to check.
+ * @param {{cached?: boolean}} [opts]  #1921: `cached:true` makes the chatgpt live check a
+ *   NON-BLOCKING cache read (codexsigninlive.livenessCached, grey on a cold miss) for the HTTP
+ *   render path; omitted/false awaits a fresh handshake (codexauthprobe + create.accountConnectable).
+ * @returns {Promise<{state: string, plan: null, because: string, checkedLive: true, reauthRequired?: boolean}>}
  */
-async function checkLive(dir) {
+async function checkLive(dir, opts) {
+  opts = opts || {};
   const STATE = subscription.STATE;
   const got = readAuthFile(dir);
   /* ⚠️ ABSENT AND UNREADABLE ARE TWO DIFFERENT FACTS. No file at all is a
@@ -1148,7 +1156,9 @@ async function checkLive(dir) {
      genuinely cannot tell, and asserting NONE for it would be exactly the
      false negative this whole feature exists to prevent. */
   if (got.kind === 'absent') {
-    return { state: STATE.NONE, plan: null, checkedLive: true, because: 'nobody has signed in to this account yet' };
+    // #2790 outcome (c): never signed in. NONE + reauthRequired:false is what ICK's driver
+    // reads to offer a FRESH "sign in" rather than the "sign in again" a dead sign-in (b) gets.
+    return { state: STATE.NONE, plan: null, checkedLive: true, reauthRequired: false, because: 'nobody has signed in to this account yet' };
   }
   if (got.kind === 'unreadable') {
     return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because: 'we could not read this account\'s settings' };
@@ -1167,16 +1177,18 @@ async function checkLive(dir) {
     return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because: 'we could not find a usable sign-in in this account\'s settings' };
   }
   if (who.authMode !== 'apikey') {
-    /* #2790 Phase 2: the ONE offline signal that a ChatGPT-subscription sign-in is
-       actually DEAD. codex's ChatGPT-mode auth hands us an id_token (an identity claim),
-       not a bearer credential testable against /v1/models -- and the pane cannot separate
-       a dead 401 from a transient reconnect 401 (codexauthprobe.js) -- so there is no
-       live check and no reliable scrape. But the id_token carries
-       `chatgpt_subscription_active_until`, the subscription's own validity end that OpenAI
-       writes and refreshes; a value in the PAST is a lapsed subscription with no ambiguity,
-       so we can red the badge on it -- but ONLY when the token is itself still VALID
-       (`exp` in the future), so an idle-but-working sub whose short token merely expired
-       is not false-reddened (see chatgptSubscriptionWindow). */
+    /* A ChatGPT sign-in has TWO independent liveness signals for THIS branch, and we use the
+       CHEAP, unambiguous one FIRST, then fall through to the live handshake for the rest.
+
+       (1) #2790 Phase 2 -- the OFFLINE, provable-lapse signal (merged to main from the
+       subscription-expiry lane). codex's ChatGPT-mode auth hands us an id_token (an identity
+       claim), not a bearer credential testable against /v1/models. But the id_token carries
+       `chatgpt_subscription_active_until`, the subscription's own validity end OpenAI writes and
+       refreshes; a value in the PAST is a lapsed subscription with no ambiguity, so we red the
+       badge on it WITHOUT any network call -- but ONLY when the token is itself still VALID
+       (`exp` in the future), so an idle-but-working sub whose short token merely expired is not
+       false-reddened (see chatgptSubscriptionWindow). It runs first because when it fires it is
+       both free and certain, sparing the ~20s handshake below. */
     const win = chatgptSubscriptionWindow(got.data);
     const nowMs = Date.now();
     if (win && win.activeUntil !== null && win.exp !== null
@@ -1186,14 +1198,60 @@ async function checkLive(dir) {
         because: 'this ChatGPT subscription has lapsed (its active-until date has passed)',
       };
     }
-    /* ⚠️ UNKNOWN, NOT NONE, AND NOT A GUESSED CONNECTED EITHER, for everything else:
-       an absent/unparseable window, or one that is still open. codex's id_token is an
-       identity claim, not a bearer credential we can verify, so a badge this codebase
-       cannot actually check must never claim it did -- and a false red (telling a working
-       sub it is broken) is the inverted #874 harm. Fail-open to grey on all doubt. */
+
+    /* (2) #2790 -- the LIVE signal, for everything the offline check leaves open (an absent or
+       still-open window, or a lapsed-but-expired-token sub the offline check conservatively
+       skips). Not a raw GET /v1/models (the id_token is not a bearer key), but codex's OWN
+       `codex doctor --json`, which runs a live WS handshake to chatgpt.com/backend-api with the
+       sign-in's credentials -- closing the silent-failure this card is about: a dead sign-in that
+       left agents Idle with no red. engine/codexsigninlive maps the doctor's
+       websocket_reachability check to live/dead/unknown (cached per codex-home, off-tick), and it
+       NEVER reports dead on a network fault (the #1930 never-false-red rule): 'dead' needs the
+       endpoint reachable, so a refused handshake can only be the credential.
+       🔑 THREE DISTINGUISHABLE OUTCOMES (kosmos#2338, Ice Cream Kitty's driver + green-badge +
+       tier consumers read these verbatim). subscription.STATE has no reauth value, so the
+       signed-in-but-dead (b) vs never-signed-in (c) split rides on `reauthRequired`:
+         live    -> CONNECTED                     (green badge; codexauthprobe -> HEALTHY)
+         dead    -> NONE + reauthRequired:true     ("sign in again"; codexauthprobe -> EXPIRED, reddens)
+         unknown -> UNKNOWN                        (network/uncheckable; no driver action, no red)
+       The never-signed-in (c) case is the `got.kind === 'absent'` return above (NONE,
+       reauthRequired:false); it does not reach here because there is no auth file to parse.
+       📌 `reauthRequired` is CHATGPT-SCOPED: it is meaningful only for a sign-in (this branch
+       and the absent case). An apikey account has no "sign in again", so its returns leave the
+       field unset (falsy), and ICK's driver keys on `authMode === 'chatgpt'` before reading it.
+       ⏱ LATENCY, STATED HONESTLY (the #1885/#1921 off-tick rule). `liveness` runs `codex doctor`,
+       a live handshake, so on a COLD cache checkLive here blocks up to codexsigninlive.TIMEOUT_MS
+       (~20s) where it used to return UNKNOWN instantly. Bounded: a HEALTHY sign-in handshakes in
+       under a second (only a DEAD/slow one waits out the timeout, and there the caller is about to
+       learn it is broken), it is cached per home for one TTL, and codexauthprobe already warms the
+       cache off the request path for any account with a running agent. One aligned
+       consequence to know: create.accountConnectable (#1903) now gets a REAL verdict for a sign-in
+       instead of a fail-open UNKNOWN, so creating an agent on a confirmed-dead sign-in can now be
+       refused rather than silently bound -- which is exactly the silent-binding this card is about.
+       🔑 #1921 RENDER SPLIT: the HTTP/badge render path (listLive) passes { cached:true } and reads
+       the NON-BLOCKING cached verdict (codexsigninlive.livenessCached -- grey on a cold miss),
+       so an /api/accounts render NEVER waits on codex doctor. The awaited fresh handshake is kept
+       only for the callers that must have a real verdict now: codexauthprobe (which WARMS the cache
+       off the request path) and create.accountConnectable. So the board's 5s tick and every HTTP
+       render stay off the handshake; only the warmer and the connectable pre-flight reach it. */
+    const live = opts.cached
+      ? codexsigninlive.livenessCached(dir).verdict
+      : await codexsigninlive.liveness(dir);
+    if (live === 'live') {
+      return { state: STATE.CONNECTED, plan: null, checkedLive: true, reauthRequired: false, because: 'the OpenAI sign-in reached ChatGPT, so it is working' };
+    }
+    if (live === 'dead') {
+      // Says what was OBSERVED (codex could not reach OpenAI with this sign-in), not a claim we
+      // cannot prove offline (the credential is revoked) -- a persistent WSS block reads dead too.
+      return { state: STATE.NONE, plan: null, checkedLive: true, reauthRequired: true, because: 'signed in, but Codex could not reach OpenAI with this sign-in; try signing in again' };
+    }
+    /* ⚠️ UNKNOWN, NOT NONE, AND NOT A GUESSED CONNECTED EITHER, for everything else: liveness
+       could not reach ChatGPT (network/uncheckable) and the offline window did not fire. A badge
+       this codebase cannot actually verify must never claim it did -- a false red (telling a
+       working sub it is broken) is the inverted #874 harm. Fail-open to grey on all doubt. */
     return {
-      state: STATE.UNKNOWN, plan: null, checkedLive: true,
-      because: 'this sign-in method is not yet checked live; it may or may not still work',
+      state: STATE.UNKNOWN, plan: null, checkedLive: true, reauthRequired: false,
+      because: 'we could not reach ChatGPT to check this sign-in, so we cannot say whether it works',
     };
   }
   // The key, from the SAME parsed read readAuthFile() already did above --
@@ -1610,7 +1668,9 @@ async function listLiveNow() {
       // never rejects by contract) -- the same self-reference #881's
       // accounts.js/subscription.js pair relies on, applied within one file
       // since this module has no separate consumer to require it through.
-      return { ...row, connection: await module.exports.checkLive(row.dir) };
+      // #1921: the render sweep reads the NON-BLOCKING cached liveness (grey on a cold miss);
+      // codexauthprobe warms the cache off the request path. An HTTP render never awaits a handshake.
+      return { ...row, connection: await module.exports.checkLive(row.dir, { cached: true }) };
     } catch {
       return {
         ...row,

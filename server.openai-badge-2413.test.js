@@ -48,6 +48,7 @@ const create = require('./engine/create');
 const subscription = require('./engine/subscription');
 const openai = require('./engine/openaiaccounts');
 const observed = require('./engine/observed');
+const codexsigninlive = require('./engine/codexsigninlive');
 
 // --- Claude side: one default account + its agent (for the cross-provider isolation test).
 fs.writeFileSync(nodePath.join(HOME, '.claude.json'),
@@ -92,7 +93,15 @@ test.after(() => {
   openai.setFetcher(null);
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
-test.beforeEach(() => observed._clearForTest());
+test.beforeEach(() => {
+  observed._clearForTest();
+  // #1921: the render path reads codexsigninlive's CACHE (livenessCached), never a live handshake.
+  // Reset it so the chatgpt row resolves UNKNOWN (cold miss -> grey) deterministically, independent
+  // of anything a prior test or a warmer left in the cache. This is what un-flaked the CONTROL /
+  // GREY-PRESERVED tests: before the render swap they awaited a real doctor handshake on a fake
+  // token (dead), and the 20s timeout made them race.
+  codexsigninlive.resetForTest();
+});
 
 async function rows() {
   const res = await fetch(base + '/api/accounts');
@@ -111,7 +120,7 @@ test('CONTROL: the default OpenAI account is a chatgpt subscription (state unkno
   const r = await rows();
   assert.ok(r.sub, 'the chatgpt-subscription OpenAI row is missing');
   assert.ok(r.key, 'the API-key OpenAI row is missing');
-  assert.equal(r.sub.connection.state, 'unknown', 'a chatgpt sign-in cannot be live-checked, so its state is UNKNOWN');
+  assert.equal(r.sub.connection.state, 'unknown', 'the render path reads the non-blocking liveness cache, so a cold-cache chatgpt row is UNKNOWN (grey) here (#1921); the live verdict arrives via codexauthprobe warming, not the render');
   assert.equal(r.key.connection.state, 'connected', 'the API-key account passed the /v1/models check');
   // No observation seeded yet: neither OpenAI row carries a server badge.
   assert.equal(r.sub.connection.badge, undefined, 'the subscription row must NOT carry a badge before any traffic is observed');

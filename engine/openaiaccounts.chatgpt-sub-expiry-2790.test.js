@@ -28,6 +28,17 @@ process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 
 const openai = require('./openaiaccounts');
 const subscription = require('./subscription');
+const codexsigninlive = require('./codexsigninlive');
+
+// These are OFFLINE-signal tests: they exercise the subscription-window path of checkLive alone.
+// Since #2790 gave that chatgpt branch a SECOND, live signal (the `codex doctor` handshake that
+// runs when the offline window does not fire), neutralize the live check to 'unknown' so a verdict
+// here reflects the offline logic and never races a real subprocess. 'unknown' is the faithful
+// neutral: it makes checkLive fall through to its shared UNKNOWN return exactly as when no live
+// signal is available -- which is what every "stays UNKNOWN" assertion below means. The lapsed-sub
+// test still reds, because the offline window fires and returns NONE before the live check is reached.
+test.beforeEach(() => { codexsigninlive.resetForTest(); codexsigninlive.setRunner(() => Promise.resolve({ ok: false })); });
+test.after(() => { codexsigninlive.resetForTest(); });
 
 const FUTURE_ISO = '2099-01-01T00:00:00.000Z';
 const PAST_ISO = '2020-01-01T00:00:00.000Z';
