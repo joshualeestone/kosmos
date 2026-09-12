@@ -122,6 +122,7 @@ function trustDialogHold(card, seen, capture) {
 }
 const leftover = require('./engine/delete-leftover');
 const firstrun = require('./engine/firstrun');
+const ping = require('./engine/ping');
 const platformGate = require('./engine/platform');
 const discover = require('./engine/discover');
 const subscription = require('./engine/subscription');
@@ -7924,6 +7925,9 @@ const server = http.createServer((req, res) => {
     catch (err) {
       sendJson(res, 500, { error: 'we could not remember that you have set this up', detail: String(err && err.message || err) });
       return;
+    }
+    if (ok) {
+      try { ping.installCreated(); } catch { /* fire-and-forget, never block onboarding */ }
     }
     /* #2279: seed the welcome home HERE, on first-run completion, so it is on
        the board the moment onboarding ends -- regardless of whether the person

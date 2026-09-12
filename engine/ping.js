@@ -55,15 +55,16 @@ const endpoint = () => process.env.AGENT_WORKFORCE_PING_URL || DEFAULT_ENDPOINT;
 function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
-    if (err && err.code === 'ENOENT') return { on: true, installId: null, ok: true };
-    return { on: false, installId: null, ok: false };
+    if (err && err.code === 'ENOENT') return { on: true, installId: null, installPingSent: false, ok: true };
+    return { on: false, installId: null, installPingSent: false, ok: false };
   }
   let parsed;
-  try { parsed = JSON.parse(raw); } catch { return { on: false, installId: null, ok: false }; }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { on: false, installId: null, ok: false };
+  try { parsed = JSON.parse(raw); } catch { return { on: false, installId: null, installPingSent: false, ok: false }; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { on: false, installId: null, installPingSent: false, ok: false };
   return {
     on: typeof parsed.on === 'boolean' ? parsed.on : true,
     installId: typeof parsed.installId === 'string' && parsed.installId ? parsed.installId : null,
+    installPingSent: typeof parsed.installPingSent === 'boolean' ? parsed.installPingSent : false,
     ok: true,
   };
 }
@@ -129,6 +130,29 @@ function agentCreated({ wanted } = {}) {
   } catch { /* nothing here may reach the caller */ }
 }
 
+function installCreated() {
+  try {
+    if (!sender && underTest()) return;
+    const pref = read();
+    if (!pref.on) return;
+    if (pref.installPingSent) return;
+    const body = JSON.stringify(payload());
+    const post = sender || ((url, init) => fetch(url, init));
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 3000);
+    Promise.resolve(post(endpoint(), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+      signal: ctl.signal,
+    })).catch(() => { /* fire and forget */ })
+      .finally(() => {
+        clearTimeout(timer);
+        write({ installPingSent: true });
+      });
+  } catch { /* nothing here may reach the caller */ }
+}
+
 function setSender(f) { sender = f; }
 
-module.exports = { FILE, read, setOn, installId, payload, agentCreated, setSender, underTest, DEFAULT_ENDPOINT };
+module.exports = { FILE, read, setOn, installId, payload, agentCreated, installCreated, setSender, underTest, DEFAULT_ENDPOINT };
