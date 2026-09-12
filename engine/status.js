@@ -4603,10 +4603,22 @@ function readContext(agentName, model, exactSession) {
    readCodexContext used to do inline, including the {found:false} fallbacks for an
    unresolvable folder or a read that throws. */
 function readCodexSession(agentName) {
+  const create = require('./create');
   let dir;
-  try { dir = require('./create').workerDir(agentName); } catch { dir = null; }
-  if (!dir) return { found: false };
-  try { return require('./codexsession').read(dir); }
+  try { dir = create.workerDir(agentName); } catch { dir = null; }
+  /* #2906: read the TARGET agent's OWN Codex account home, not the board process's.
+     The status reader runs under the board's CODEX_HOME; a multi-account agent records
+     its rollout under its own account home (the launch job's CODEX_HOME, surfaced as
+     job.configDir), so reading the board's home returned found:false ("Not yet read")
+     for a live agent on another account. Resolve the agent's launch job and read its
+     home. FAIL CLOSED -- never fall back to the board's account -- when the job is
+     missing, malformed, or not a codex runner; a null configDir is a DEFAULT-account
+     codex agent, which resolves through defaultAgentCodexHome() (never the board's). */
+  let job;
+  try { job = create.readJob(agentName); } catch { job = null; }
+  if (!dir || !job || job.runner !== 'codex') return { found: false };
+  const home = job.configDir || create.defaultAgentCodexHome();
+  try { return require('./codexsession').read(dir, home); }
   catch { return { found: false }; }
 }
 
