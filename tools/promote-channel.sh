@@ -18,6 +18,11 @@
 # staging machine, or use --force after a HAND verification (which never overrides a
 # provably-broken board - exit 1 is always a refusal).
 #
+# ONE SNAPSHOT (both families). The staging pointer is copied ONCE, at the start, and every
+# field, the gate, and the promoted copy come from that snapshot. A staging publish that lands
+# while a gate runs therefore cannot put an unapproved, unverified pointer onto prod; if the
+# staging pointer changed during the promote, the promote refuses with nothing written.
+#
 # THE WINDOWS FAMILY (--family win). The same pointer copy for Windows:
 # `dist/latest-win-staging.json` (written by publish-kosmos-windows.sh, whose default channel
 # is staging) onto `dist/latest-win.json`, with the same bare-filename, sidecar-verify and
@@ -27,16 +32,20 @@
 # (--force is refused for this family):
 #   1. JOSH'S GO FOR THIS EXACT BUILD: --approved-version <V> --approved-sha <sha256>, which
 #      must equal the staging pointer (his rule, 2026-09-12: everything goes to staging, and to
-#      prod only after his approval). Missing or mismatched means a refusal before any write.
-#      The approval is logged (the version, the sha and a UTC time; never who typed it) to
-#      stdout and to $KOSMOS_WIN_PROMOTE_LOG (default $HOME/.claude/logs/win-promote-approvals.log).
+#      prod only after his approval), and --approval-ref <Slack message ts or permalink> naming
+#      the message where he gave it. Anything missing or mismatched is a refusal before any
+#      write. The approval is logged (the version, the sha, the reference, the verification
+#      record's path and sha256, and a UTC time; never who typed it) to the approval log
+#      (tools/lib/win-approval.sh). A log that cannot be written is a refusal too.
 #      🛑 THIS RECORDS A HUMAN DECISION; IT IS NOT A CHECK. An agent must NEVER pass these flags
-#      without Josh's recorded go for this exact sha (a message from him naming it). The flags
-#      prove only that someone typed the sha; the rule is that Josh decided.
-#   2. THIS BOX'S VERIFICATION RECORD: tools/win-staging-verified.sh (0 pass / 1 fail or
-#      ambiguous -> refuse / 2 no record -> HOLD). Its header defines where the record lives
-#      and its shape. The record names the same sha, so the approval, the record and the
-#      pointer all name one build.
+#      without Josh's recorded go for this exact sha (the message --approval-ref names). The
+#      flags prove only that someone typed the sha; the rule is that Josh decided.
+#   2. THE VERIFICATION RECORD: tools/win-staging-verified.sh (0 pass / 1 fail or ambiguous ->
+#      refuse / 2 no record -> HOLD). Its header defines where the record lives and its shape.
+#      The record names the same sha, so the approval, the record and the pointer all name one
+#      build. It is written on the Windows box; when the promote runs elsewhere (the site
+#      checkout is on the Mac), the record is copied there by hand, and the record sha256 in the
+#      approval log is the link back to the file the Windows box wrote.
 # The Mac promote has no approval flag today; this is Windows-only.
 #
 # Usage:
@@ -45,29 +54,32 @@
 #             which is per-account and usually NOT 16180). Also settable via KOSMOS_PORT.
 #             Give the port so a wrong-port HOLD does not push you toward --force, which
 #             bypasses the gate entirely.
-#   tools/promote-channel.sh <site-checkout> --family win --approved-version <V> --approved-sha <sha256>
+#   tools/promote-channel.sh <site-checkout> --family win --approved-version <V> \
+#       --approved-sha <sha256> --approval-ref <Slack message ts or permalink>
 #             (only on Josh's go for that exact build; see above)
 # Overrides (mainly for the test):
 #   KOSMOS_PROMOTE_GATE_CMD   the experience gate to run (default: bash <repo>/tools/staging-experience-check.sh)
 #   (the Windows gate has no command override: it is always tools/win-staging-verified.sh)
 set -uo pipefail
 
-SITE=""; FORCE=0; PORT=""; FAMILY="mac"; APPROVED_VERSION=""; APPROVED_SHA=""
+SITE=""; FORCE=0; PORT=""; FAMILY="mac"; APPROVED_VERSION=""; APPROVED_SHA=""; APPROVAL_REF=""
 while [ $# -gt 0 ]; do
   a="$1"; shift
   case "$a" in
     --force) FORCE=1 ;;
-    --family|--approved-version|--approved-sha)
+    --family|--approved-version|--approved-sha|--approval-ref)
       [ $# -gt 0 ] || { echo "promote-channel: $a needs a value" >&2; exit 1; }
       case "$a" in
         --family) FAMILY="$1" ;;
         --approved-version) APPROVED_VERSION="$1" ;;
         --approved-sha) APPROVED_SHA="$1" ;;
+        --approval-ref) APPROVAL_REF="$1" ;;
       esac
       shift ;;
     --family=*) FAMILY="${a#--family=}" ;;
     --approved-version=*) APPROVED_VERSION="${a#--approved-version=}" ;;
     --approved-sha=*) APPROVED_SHA="${a#--approved-sha=}" ;;
+    --approval-ref=*) APPROVAL_REF="${a#--approval-ref=}" ;;
     -*) echo "promote-channel: unknown option $a" >&2; exit 1 ;;
     *)
       if [ -z "$SITE" ]; then SITE="$a"
@@ -80,10 +92,10 @@ while [ $# -gt 0 ]; do
 done
 case "$FAMILY" in
   mac)
-    [ -z "$APPROVED_VERSION$APPROVED_SHA" ] || { echo "promote-channel: --approved-version/--approved-sha are for --family win only (the Mac promote is gated by its experience and agent-spawn gates)" >&2; exit 1; } ;;
+    [ -z "$APPROVED_VERSION$APPROVED_SHA$APPROVAL_REF" ] || { echo "promote-channel: --approved-version/--approved-sha/--approval-ref are for --family win only (the Mac promote is gated by its experience and agent-spawn gates)" >&2; exit 1; } ;;
   win)
     [ "$FORCE" = 0 ] || { echo "promote-channel: --force is refused for --family win - neither Josh's go nor the Windows verification record can be forced." >&2; exit 1; }
-    [ -z "$PORT" ] || { echo "promote-channel: --family win takes no [port] (its gate reads this box's verification record, not a board)" >&2; exit 1; } ;;
+    [ -z "$PORT" ] || { echo "promote-channel: --family win takes no [port] (its gate reads the verification record, not a board)" >&2; exit 1; } ;;
   *) echo "promote-channel: --family must be 'mac' or 'win' (got '$FAMILY')" >&2; exit 1 ;;
 esac
 SITE="${SITE:-${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}}"
@@ -102,10 +114,17 @@ fi
 STAGING="$SITE/dist/$STAGING_NAME"
 [ -f "$STAGING" ] || { echo "promote-channel: no $STAGING - publish a staging pointer first ($STAGING_PUBLISHER)" >&2; exit 1; }
 
+# THE SNAPSHOT (see the header): taken once; the live staging path is only compared against it
+# again right before the write.
+SNAP="$(mktemp "${TMPDIR:-/tmp}/promote-channel-staging.XXXXXX")" || { echo "promote-channel: could not make a temp file for the staging snapshot" >&2; exit 1; }
+PTMP=""
+trap 'rm -f "$SNAP" ${PTMP:+"$PTMP"}' EXIT   # a signal mid-promote must not leak either temp
+cp "$STAGING" "$SNAP" || { echo "promote-channel: could not snapshot $STAGING" >&2; exit 1; }
+
 # Read a pointer's fields via node (exact JSON, never a sed heuristic). read_field reads the
-# staging pointer; read_pointer_field <file> <field> reads any.
+# staging SNAPSHOT; read_pointer_field <file> <field> reads any.
 read_pointer_field() { node -e 'try{process.stdout.write(String(JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8"))[process.argv[2]]||""))}catch{}' "$1" "$2" 2>/dev/null || true; }
-read_field() { read_pointer_field "$STAGING" "$1"; }
+read_field() { read_pointer_field "$SNAP" "$1"; }
 V="$(read_field version)"; SHA="$(read_field sha256)"; ARTIFACT="$(read_field "$ARTIFACT_FIELD")"
 
 # Defense in depth on a prod path: artifact/manifest names come from the staging pointer and
@@ -207,46 +226,65 @@ else
   # GATE 1: JOSH'S GO FOR THIS EXACT BUILD. A recorded human decision, not a check (see the
   # header). The refusal names the version and the pointer, never the sha to paste: the approval
   # has to come from Josh's message, not from this script's output.
-  if [ -z "$APPROVED_VERSION" ] || [ -z "$APPROVED_SHA" ]; then
-    echo "promote-channel: REFUSING - Josh's go is required. A Windows promote needs his explicit approval for this exact build ($V, the sha256 in $STAGING), passed as --approved-version <V> --approved-sha <sha256>. Pass it only once he has approved that sha; nothing was written." >&2
+  . "$(cd "$(dirname "$0")" && pwd)/lib/win-approval.sh"
+  if [ -z "$APPROVED_VERSION" ] || [ -z "$APPROVED_SHA" ] || [ -z "$APPROVAL_REF" ]; then
+    echo "promote-channel: REFUSING - Josh's go is required. A Windows promote needs his explicit approval for this exact build ($V, the sha256 in $STAGING), passed as --approved-version <V> --approved-sha <sha256> --approval-ref <the Slack ts or permalink of his message>. Pass it only once he has approved that sha; nothing was written." >&2
     exit 1
   fi
   [ "$APPROVED_SHA" = "$SHA" ] || { echo "promote-channel: REFUSING - the approval names sha256 $APPROVED_SHA, which is not the staged build's ($STAGING). Josh's go covers one exact build; nothing was written." >&2; exit 1; }
   [ "$APPROVED_VERSION" = "$V" ] || { echo "promote-channel: REFUSING - the approval names version $APPROVED_VERSION, but the staged build is $V. Josh's go covers one exact build; nothing was written." >&2; exit 1; }
-  APPROVAL_LOG="${KOSMOS_WIN_PROMOTE_LOG:-$HOME/.claude/logs/win-promote-approvals.log}"
-  APPROVAL_AT="$(date -u +%FT%TZ)"
-  echo "promote-channel: Josh's go recorded: $APPROVAL_AT family=win version=$V sha256=$SHA approval=given"
-  { mkdir -p "$(dirname "$APPROVAL_LOG")" && printf '%s family=win version=%s sha256=%s approval=given\n' "$APPROVAL_AT" "$V" "$SHA" >> "$APPROVAL_LOG"; } 2>/dev/null \
-    || echo "promote-channel: WARNING could not append the approval to $APPROVAL_LOG (the line above is the record)" >&2
+  win_approval_ref_ok "$APPROVAL_REF" || { echo "promote-channel: REFUSING - --approval-ref '$APPROVAL_REF' is not a Slack message ts or permalink (letters, digits and . _ : / ? = & % # + - only). Nothing was written." >&2; exit 1; }
 
-  # GATE 2: THIS BOX'S VERIFICATION RECORD for the same sha. Never forceable: 1 refuses, 2 HOLDS.
+  # GATE 2: THE VERIFICATION RECORD for the same sha, read from the SNAPSHOT. Never forceable:
+  # 1 refuses, 2 HOLDS. On a pass the gate names the record it read and that record's sha256.
   WIN_GATE="$(cd "$(dirname "$0")" && pwd)/win-staging-verified.sh"
-  echo "promote-channel: running the Windows verification gate: bash $WIN_GATE $STAGING"
-  bash "$WIN_GATE" "$STAGING"; WIN_RC=$?
+  echo "promote-channel: running the Windows verification gate on the snapshot of $STAGING_NAME: bash $WIN_GATE"
+  WIN_GATE_OUT="$(bash "$WIN_GATE" "$SNAP" 2>&1)"; WIN_RC=$?
+  printf '%s\n' "$WIN_GATE_OUT"
   case "$WIN_RC" in
-    0) echo "promote-channel: Windows gate PASSED - this box's verification record passes $V ($SHA)." ;;
+    0) echo "promote-channel: Windows gate PASSED - the verification record passes $V ($SHA)." ;;
     1) echo "promote-channel: Windows gate FAILED (exit 1) - the verification record fails or is ambiguous. REFUSING to promote; nothing overrides this." >&2; exit 1 ;;
-    2) echo "promote-channel: Windows gate cannot tell (exit 2) - no verification record for this build on this box. HOLDING. Verify the staged build on the Windows box first; this cannot be forced." >&2; exit 2 ;;
+    2) echo "promote-channel: Windows gate cannot tell (exit 2) - no verification record for this build here. HOLDING. Verify the staged build on the Windows box first (and copy its record here if the promote runs elsewhere); this cannot be forced." >&2; exit 2 ;;
     *) echo "promote-channel: Windows gate returned an unexpected code ($WIN_RC) - refusing to promote on an ambiguous result" >&2; exit 1 ;;
   esac
+  RECORD_LINE="$(printf '%s\n' "$WIN_GATE_OUT" | sed -n 's/^win-staging-verified: record_sha256=\([0-9a-f]\{64\}\) record=\(.*\)$/\1 \2/p' | head -1)"
+  RECORD_SHA="${RECORD_LINE%% *}"; RECORD_PATH="${RECORD_LINE#* }"
+  [ -n "$RECORD_LINE" ] && [ -n "$RECORD_SHA" ] && [ -n "$RECORD_PATH" ] || { echo "promote-channel: the Windows gate passed but did not name the record it read - refusing on an ambiguous result; nothing was written." >&2; exit 1; }
 fi
 
-# Promote: copy the staging pointer to prod. A pointer copy - the artifact bytes are already
+# THE STAGING POINTER MUST NOT HAVE MOVED. The gates passed for the snapshot's build; if a
+# staging publish landed meanwhile, refuse rather than promote something nobody re-checked.
+cmp -s "$STAGING" "$SNAP" || { echo "promote-channel: REFUSING - $STAGING_NAME changed while the promote ran (a new staging publish?). The gates passed for the build it named at the start ($V), not for what it names now. Nothing was written; re-run the promote for the build you mean." >&2; exit 1; }
+
+if [ "$FAMILY" = win ]; then
+  # Record Josh's go BEFORE any write; an approval that cannot be logged was not given. The record
+  # path goes last because it may contain spaces.
+  APPROVAL_LINE="$(date -u +%FT%TZ) family=win path=promote version=$V sha256=$SHA approval_ref=$APPROVAL_REF record_sha256=$RECORD_SHA approval=given record=$RECORD_PATH"
+  win_append_approval_line "$APPROVAL_LINE" || { echo "promote-channel: REFUSING - could not record Josh's go in $WIN_APPROVAL_LOG (an approval that is not logged is not given). Nothing was written." >&2; exit 1; }
+  echo "promote-channel: Josh's go recorded in $WIN_APPROVAL_LOG: $APPROVAL_LINE"
+fi
+
+# Promote: copy the staging SNAPSHOT to prod. A pointer copy - the artifact bytes are already
 # served and unchanged; only which pointer prod fetches changes. Written ATOMICALLY (temp in
 # the same dir + rename): latest.json is the prod pointer every install fetches, so an
 # interrupted write must never leave it truncated. rename(2) within one directory is atomic.
+# The temp copy is proven to BE the verified snapshot before it replaces prod.
 PTMP="$(mktemp "$SITE/dist/.$PROD_NAME.XXXXXX")" || { echo "promote-channel: could not make a temp file in $SITE/dist" >&2; exit 1; }
-trap 'rm -f "$PTMP"' EXIT   # a signal between mktemp and the rename must not leak the temp
-cp "$STAGING" "$PTMP" && mv "$PTMP" "$SITE/dist/$PROD_NAME" \
-  || { echo "promote-channel: could not write $PROD_NAME" >&2; rm -f "$PTMP"; exit 1; }
-# Prove the promote landed: the prod pointer now names the same artifact + sha as staging.
+cp "$SNAP" "$PTMP" || { echo "promote-channel: could not write $PROD_NAME" >&2; exit 1; }
+if ! cmp -s "$SNAP" "$PTMP" || [ "$(read_pointer_field "$PTMP" "$ARTIFACT_FIELD")" != "$ARTIFACT" ] || [ "$(read_pointer_field "$PTMP" sha256)" != "$SHA" ]; then
+  echo "promote-channel: the temp copy of the verified staging pointer does not read back as it (a faulty filesystem?) - refusing; $PROD_NAME was not touched." >&2
+  exit 1
+fi
+mv "$PTMP" "$SITE/dist/$PROD_NAME" || { echo "promote-channel: could not write $PROD_NAME" >&2; exit 1; }
+PTMP=""
+# Prove the promote landed: the prod pointer now names the same artifact + sha as the snapshot.
 PROD_ART="$(read_pointer_field "$SITE/dist/$PROD_NAME" "$ARTIFACT_FIELD")"
 PROD_SHA="$(read_pointer_field "$SITE/dist/$PROD_NAME" sha256)"
-[ "$PROD_ART" = "$ARTIFACT" ] && [ "$PROD_SHA" = "$SHA" ] || { echo "promote-channel: $PROD_NAME was written but does not read back as the promoted pointer (unexpected - a faulty filesystem?). It now holds a copy of the verified staging pointer." >&2; exit 1; }
-# Windows: the promoted pointer must be the staging pointer byte for byte (one writer,
+[ "$PROD_ART" = "$ARTIFACT" ] && [ "$PROD_SHA" = "$SHA" ] || { echo "promote-channel: $PROD_NAME was renamed into place from the verified snapshot but does not read back as it (a faulty filesystem?). Check $PROD_NAME by hand before any deploy." >&2; exit 1; }
+# Windows: the promoted pointer must be the snapshot byte for byte (one writer,
 # tools/lib/write-latest-win-pointer.js, wrote it for both channels).
 if [ "$FAMILY" = win ]; then
-  cmp -s "$STAGING" "$SITE/dist/$PROD_NAME" || { echo "promote-channel: $PROD_NAME is not a byte-for-byte copy of $STAGING_NAME (unexpected - a faulty filesystem?)." >&2; exit 1; }
+  cmp -s "$SNAP" "$SITE/dist/$PROD_NAME" || { echo "promote-channel: $PROD_NAME is not a byte-for-byte copy of the verified $STAGING_NAME snapshot (a faulty filesystem?). Check it by hand before any deploy." >&2; exit 1; }
 fi
 
 # #2036: refresh the unversioned prod alias (kosmos-<arch>.tar.gz) to the promoted bytes. The
@@ -273,6 +311,9 @@ cp "$SITE/dist/$ARTIFACT" "$SITE/dist/$ALIAS" || { echo "promote-channel: could 
 . "$(cd "$(dirname "$0")" && pwd)/lib/sha256-name.sh"
 sha256_publish_as "$SITE/dist/$ARTIFACT.sha256" "$SITE/dist/$ALIAS.sha256" "$ALIAS" \
   || { echo "promote-channel: could not write $ALIAS.sha256 (the alias may be half-refreshed)" >&2; exit 1; }
+# The refreshed alias must hold the PROMOTED bytes (the sha the snapshot names), not whatever the
+# versioned name held a moment ago.
+[ "$(awk 'NR==1{print $1}' "$SITE/dist/$ALIAS.sha256")" = "$SHA" ] || { echo "promote-channel: the refreshed alias $ALIAS does not hash to the promoted sha $SHA - refresh it by hand before any deploy" >&2; exit 1; }
 echo "   refreshed the prod alias $ALIAS to $V"
 
 echo "promote-channel: PROMOTED $V to prod - $PROD_NAME now points at the exact bytes staging verified ($ARTIFACT)."
@@ -280,7 +321,8 @@ echo "   -> $(cat "$SITE/dist/$PROD_NAME")"
 echo "promote-channel: the next site deploy publishes the prod pointer. No rebuild happened."
 
 if [ "$FAMILY" = win ]; then
-  { printf '%s family=win version=%s sha256=%s promoted=yes\n' "$(date -u +%FT%TZ)" "$V" "$SHA" >> "$APPROVAL_LOG"; } 2>/dev/null || true
+  win_append_approval_line "$(date -u +%FT%TZ) family=win path=promote version=$V sha256=$SHA approval_ref=$APPROVAL_REF promoted=yes" \
+    || echo "promote-channel: WARNING could not append the promote outcome to $WIN_APPROVAL_LOG (the approval line above is recorded; the promote happened)" >&2
   # A Windows-only promote does not move latest.json, so deploy-site.sh --promote (which exists to
   # publish a MOVED latest.json) would refuse it as "nothing to promote"; a plain --publish carries
   # the committed Windows files (they are tracked, shipped by git archive).

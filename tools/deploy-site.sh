@@ -225,6 +225,8 @@ if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
   else
     echo "deploy-site: no committed dist/latest-win.json -- using the fallback \$WINZIP=$WINZIP, which may be stale (#2008/#2571). Land latest-win.json (tools/publish-kosmos-windows.sh) so the current name is derived." >&2
   fi
+else
+  echo "deploy-site: KOSMOS_WIN_ZIP=$WINZIP overrides the derivation from latest-win.json (the operator escape hatch)." >&2
 fi
 # The STAGED Windows build. Every Windows cut goes to staging first (Josh, 2026-09-12), so a
 # committed latest-win-staging.json names a versioned zip that must SHIP with its sidecar and the

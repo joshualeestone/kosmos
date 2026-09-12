@@ -6,14 +6,17 @@
 #       sidecar, and latest-win-staging.json. The alias, its sidecar and latest-win.json are NOT
 #       touched, so the download button and every prod reader stay on the current build until
 #       `promote-channel.sh --family win` moves them on Josh's go.
-#   prod: the #2008 behaviour, unchanged -- BOTH a stable unversioned ALIAS (kosmos-win-<arch>.zip,
-#       what the download button points at, like /dist/Kosmos.pkg for Mac) AND the versioned copy,
-#       with sha256 sidecars and a latest-win.json manifest.
+#   prod: the BREAK-GLASS, gated. The #2008 outputs -- BOTH a stable unversioned ALIAS
+#       (kosmos-win-<arch>.zip, what the download button points at, like /dist/Kosmos.pkg for Mac)
+#       AND the versioned copy, with sha256 sidecars and a latest-win.json manifest -- written only
+#       with Josh's go for this exact zip (KOSMOS_WIN_PROD_APPROVED_SHA + KOSMOS_WIN_PROD_APPROVAL_REF,
+#       logged before anything is copied; see THE BREAK-GLASS below).
 #
 # WHY staging is the default. The fleetwide rule (Josh, 2026-09-12): every release cut goes to
 # STAGING first, is verified, and only goes to PROD after his approval. Writing prod directly was
-# the only thing this script could do, so Windows could not follow the rule. KOSMOS_CUT_CHANNEL=prod
-# is kept as the escape hatch (today's direct-to-prod path).
+# the only thing this script could do, so Windows could not follow the rule. The channel variable
+# is KOSMOS_WIN_CUT_CHANNEL -- not the Mac cut's KOSMOS_CUT_CHANNEL, which release.sh defaults to
+# prod and which this script ignores.
 #
 # WHY an unversioned alias. build-kosmos-windows.sh already emits kosmos-win-<arch>.zip, but
 # the release path never publishes a Windows zip (tools/lib/site-deploy.sh carries only
@@ -31,7 +34,10 @@
 # couple a Windows artifact staging step to a production deploy it has no reason to own.
 #
 # Usage:
-#   [KOSMOS_CUT_CHANNEL=staging|prod] tools/publish-kosmos-windows.sh <built-zip> [<version>]
+#   tools/publish-kosmos-windows.sh <built-zip> [<version>]                      (staging)
+#   KOSMOS_WIN_CUT_CHANNEL=prod KOSMOS_WIN_PROD_APPROVED_SHA=<sha256 Josh approved> \
+#     KOSMOS_WIN_PROD_APPROVAL_REF=<Slack ts or permalink of his message> \
+#     tools/publish-kosmos-windows.sh <built-zip> [<version>]                    (the break-glass)
 #     <built-zip>  the kosmos-win-<arch>.zip produced by build-kosmos-windows.sh
 #     <version>    optional; default is read from the zip's OWN app/package.json (the version
 #                  the build baked in), so the versioned name and the pointer name the
@@ -45,17 +51,20 @@ ZIP="${1:-}"
 
 SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 ARCH="${KOSMOS_WIN_ARCH:-x64}"
-# Which channel this publish writes: the release.sh shape (the same variable, the same two values,
-# the same refusal), so an operator reads one vocabulary for both families. The DEFAULT differs on
-# purpose: release.sh still defaults to prod (Splinter's invariant for the Mac consume side), while
-# a Windows publish defaults to staging. tools.publish-windows-2008.test.js pins the two
-# vocabularies equal. Validated here, before anything is staged.
-CUT_CHANNEL="${KOSMOS_CUT_CHANNEL:-staging}"
+# Which channel this publish writes: KOSMOS_WIN_CUT_CHANNEL, deliberately NOT the Mac cut's
+# KOSMOS_CUT_CHANNEL. That one defaults to prod in release.sh, so sharing it meant an operator who
+# exported it for a Mac cut silently published Windows straight to prod. The same two values and
+# the same refusal as release.sh, so an operator reads one vocabulary (tools.publish-windows-2008
+# .test.js pins the two equal); the default is staging. Validated here, before anything is staged.
+CUT_CHANNEL="${KOSMOS_WIN_CUT_CHANNEL:-staging}"
 case "$CUT_CHANNEL" in
   staging) POINTER_FILE="latest-win-staging.json" ;;
   prod)    POINTER_FILE="latest-win.json" ;;
-  *) echo "publish-win: KOSMOS_CUT_CHANNEL must be 'staging' or 'prod' (got '$CUT_CHANNEL')" >&2; exit 1 ;;
+  *) echo "publish-win: KOSMOS_WIN_CUT_CHANNEL must be 'staging' or 'prod' (got '$CUT_CHANNEL')" >&2; exit 1 ;;
 esac
+if [ -n "${KOSMOS_CUT_CHANNEL:-}" ] && [ -z "${KOSMOS_WIN_CUT_CHANNEL:-}" ]; then
+  echo "publish-win: NOTE KOSMOS_CUT_CHANNEL=$KOSMOS_CUT_CHANNEL is the Mac cut's channel and is ignored here; this Windows publish goes to $CUT_CHANNEL (KOSMOS_WIN_CUT_CHANNEL chooses it)." >&2
+fi
 [ -d "$SITE/dist" ] || { echo "publish-win: no $SITE/dist (is the site checkout present?)" >&2; exit 1; }
 # node is always needed (the pointer); guarded up front so a missing node fails BEFORE
 # anything is staged rather than after.
@@ -129,6 +138,34 @@ if [ "$CUT_CHANNEL" = prod ] && [ "$VERSIONED_PREEXISTED" = yes ] && [ -f "$SITE
     echo "publish-win: NOTICE re-publishing already-present version $VERSION repoints the alias $ALIAS off the current $PREV_V (the button will serve $VERSION after the next deploy). Re-staging an existing build is usually a sidecar fix, not a release -- if you meant to release, bump the version." >&2
   fi
 fi
+
+# THE BREAK-GLASS. A direct prod publish (KOSMOS_WIN_CUT_CHANNEL=prod) skips staging, the Windows
+# verification record and the promote, so it needs Josh's go for these exact bytes:
+# KOSMOS_WIN_PROD_APPROVED_SHA must equal this zip's sha256, and KOSMOS_WIN_PROD_APPROVAL_REF names
+# his message (a Slack ts or permalink). It exists for what the staging loop cannot do, such as a
+# rollback to a build from before this scheme (which has no verification record). The approval is
+# logged like a promote's (path=direct) BEFORE anything is copied; a log that cannot be written
+# refuses. 🛑 An agent never sets these without Josh's recorded go for this exact sha.
+if [ "$CUT_CHANNEL" = prod ]; then
+  . "$(cd "$(dirname "$0")" && pwd)/lib/win-approval.sh"
+  # From stdin: no file name in the output, so no platform's name-escaping (GNU prefixes a line
+  # with "\" for a name containing a backslash) can leak into the digest.
+  ZIP_SHA="$(shasum -a 256 < "$ZIP" | awk '{print $1}')"
+  if [ -z "${KOSMOS_WIN_PROD_APPROVED_SHA:-}" ] || [ -z "${KOSMOS_WIN_PROD_APPROVAL_REF:-}" ]; then
+    echo "publish-win: REFUSING - Josh's go is required for a direct prod publish (KOSMOS_WIN_CUT_CHANNEL=prod skips staging and the verification). Set KOSMOS_WIN_PROD_APPROVED_SHA to the sha256 he approved and KOSMOS_WIN_PROD_APPROVAL_REF to his message's Slack ts or permalink, only once he has given it. Nothing was staged." >&2
+    exit 1
+  fi
+  [ "$KOSMOS_WIN_PROD_APPROVED_SHA" = "$ZIP_SHA" ] || { echo "publish-win: REFUSING - KOSMOS_WIN_PROD_APPROVED_SHA ($KOSMOS_WIN_PROD_APPROVED_SHA) is not this zip's sha256. Josh's go covers one exact build; nothing was staged." >&2; exit 1; }
+  win_approval_ref_ok "$KOSMOS_WIN_PROD_APPROVAL_REF" || { echo "publish-win: REFUSING - KOSMOS_WIN_PROD_APPROVAL_REF '$KOSMOS_WIN_PROD_APPROVAL_REF' is not a Slack message ts or permalink (letters, digits and . _ : / ? = & % # + - only). Nothing was staged." >&2; exit 1; }
+  win_append_approval_line "$(date -u +%FT%TZ) family=win path=direct version=$VERSION sha256=$ZIP_SHA approval_ref=$KOSMOS_WIN_PROD_APPROVAL_REF approval=given" \
+    || { echo "publish-win: REFUSING - could not record Josh's go in $WIN_APPROVAL_LOG (an approval that is not logged is not given). Nothing was staged." >&2; exit 1; }
+  echo "publish-win: ==========================================================================" >&2
+  echo "publish-win: BREAK-GLASS: a DIRECT PROD publish of $VERSION ($ZIP_SHA)." >&2
+  echo "publish-win: It skips staging, the Windows verification record and the promote." >&2
+  echo "publish-win: Josh's go ($KOSMOS_WIN_PROD_APPROVAL_REF) is logged in $WIN_APPROVAL_LOG." >&2
+  echo "publish-win: ==========================================================================" >&2
+fi
+
 # Stage the names this channel owns from the one built zip. COPY, not link: the site deploy carries
 # files, and a hard link would break once the shared dist is overwritten in place by a later publish.
 # prod stages the alias (first, as it always has) and the versioned copy; staging stages ONLY the
@@ -179,6 +216,5 @@ else
   echo "   manifest:  $POINTER_FILE -> $(cat "$SITE/dist/$POINTER_FILE")"
   echo "   untouched: $ALIAS, its sidecar and latest-win.json (prod stays on its current build)."
   echo "publish-win: next: commit these and deploy (tools/deploy-site.sh) so the staged build is served, verify it on the Windows box (which writes its verification record), then, ONLY on Josh's go for this exact build:"
-  echo "   tools/promote-channel.sh <site> --family win --approved-version <V> --approved-sha <the sha256 he approved>"
-  echo "publish-win: (KOSMOS_CUT_CHANNEL=prod publishes straight to prod, today's escape hatch.)"
+  echo "   tools/promote-channel.sh <site> --family win --approved-version <V> --approved-sha <the sha256 he approved> --approval-ref <his message's Slack ts or permalink>"
 fi

@@ -181,6 +181,10 @@ run "$S" "$L" KOSMOS_WIN_ZIP="kosmos-1.2.3-win-x64.zip"
 has "$out" "derived the Windows zip" \
   && bad "override still ran the derivation" \
   || pass "override: an explicit KOSMOS_WIN_ZIP skips the derivation"
+# ...and the override was really in force (not an early crash that also derives nothing).
+has "$out" "KOSMOS_WIN_ZIP=kosmos-1.2.3-win-x64.zip overrides the derivation" \
+  && pass "override: the run names the overriding zip kosmos-1.2.3-win-x64.zip" \
+  || bad "override: the output never names kosmos-1.2.3-win-x64.zip (an early crash?); out=$out"
 
 # 5) MALFORMED MANIFEST (red): latest-win.json present but with no "versioned"/"sha256" -> REFUSE.
 read -r S L <<<"$(make_site nofields)"

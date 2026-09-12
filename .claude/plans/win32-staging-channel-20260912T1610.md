@@ -115,6 +115,60 @@ Also note: `KOSMOS_CUT_CHANNEL` is shared with `release.sh`, so an operator who 
   served-verified, with a missing-sidecar control.
 - Each new assertion is shown red with its change reverted.
 
+## Review log
+
+### Round 1 (reviewed at `4b70d096`; rebased onto main `3f8797b6`, S1 #2938)
+
+Confirmed sound: the gates bind correctly, the Mac promote is unchanged, and the winderive
+`run()` fix is right. Fixed:
+
+1. **SAFETY, a race.** The promote read the staging pointer once, the gate re-read it by path, and
+   `cp "$STAGING"` copied whatever was there at the moment of writing, with the read-back check
+   only after the `mv`. A staging publish landing mid-gate could put an unapproved build on
+   `latest-win.json` (the reviewer reproduced it). The Mac path had the same race on main.
+   - Now, for both families: the staging pointer is snapshotted once, and every field, the Windows
+     gate, and the promoted copy come from the snapshot.
+   - The promote refuses, with nothing written, if the live pointer no longer equals the
+     snapshot.
+   - The temp copy is checked against the snapshot (bytes and fields) before the `mv`.
+   - The alias's sha is checked against the promoted sha.
+   - The post-`mv` error text is corrected.
+   - Arms: a `bash` wrapper lands a 3.0.0 staging publish mid-gate (Windows), and a stub gate
+     rewrites the pointer (Mac).
+2. **POLICY, the ungated prod channel.** `KOSMOS_WIN_CUT_CHANNEL=prod` is now a gated break-glass
+   (kept for rollbacks to builds from before this scheme, which have no verification record):
+   - it needs `KOSMOS_WIN_PROD_APPROVED_SHA`, which must equal the zip's sha256, and
+     `KOSMOS_WIN_PROD_APPROVAL_REF`, both checked before any copy;
+   - a `path=direct` line goes to the approval log (and refuses if unwritable);
+   - it prints a loud banner.
+   This supersedes "prod: today's behaviour, byte for byte" above: the prod outputs are
+   unchanged, but writing them needs Josh's go.
+3. **POLICY, the shared variable.** The channel is now `KOSMOS_WIN_CUT_CHANNEL`. The Mac cut's
+   `KOSMOS_CUT_CHANNEL` defaults to prod in `release.sh`, so exporting it for a Mac cut silently
+   published Windows to prod. It is now ignored here, with a note. This supersedes every
+   `KOSMOS_CUT_CHANNEL` mention above, including "Callers affected", and the vocabulary test pins
+   the two variables' values equal.
+4. **POLICY, anchored approvals.**
+   - `--approval-ref <Slack ts or permalink>` is required on `promote --family win` (and
+     `KOSMOS_WIN_PROD_APPROVAL_REF` on the break-glass).
+   - The approval line now logs the ref, the verification record's path, and the sha256 of the
+     exact record bytes the gate validated (the gate prints them on a pass).
+   - `tools/lib/win-approval.sh` is the one place for the log path, the ref rule and the append.
+   - The docs say the promote runs where the site checkout lives (the Mac), that the record is
+     hand-copied there, and that the logged record sha256 is the link back.
+5. **BUG.** An unwritable approval log now refuses before any write (it had only warned, and the
+   promote went ahead).
+6. **NIT.** `dist-retention.sh --json` emits `staged_version` only when a staging pointer exists.
+7. **NIT.** The docs now say that a bad committed `latest-win-staging.json` makes every
+   `deploy-site.sh` run refuse, a Mac `--promote` included, and that this fail-closed behaviour
+   is deliberate.
+8. **TEST GAP.**
+   - `deploy-site.sh` now names a `KOSMOS_WIN_ZIP` override when it is in force, and winderive
+     arm 4 asserts that name, so an early crash cannot pass.
+   - New arms cover the race, the break-glass (refused without an approved sha, a ref, or a
+     writable log; allowed and logged with them), the renamed variable, the required ref, and
+     the unwritable log.
+
 ## Not tested here
 
 The Windows box runs these through Git Bash with `zip`/`shasum` shims; the Mac (bash

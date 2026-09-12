@@ -149,6 +149,7 @@ js="$(bash "$TOOL" --dist "$D" --keep 2 --json 2>/dev/null)"
 if command -v node >/dev/null 2>&1; then
   echo "$js" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const o=JSON.parse(s);if(o.served_version==="0.6.22"&&Array.isArray(o.prune_versions)&&o.prune_versions.includes("0.6.20"))process.exit(0);process.exit(1)})' \
     && ok "--json: valid JSON, names served + prune list" || no "--json: bad JSON or wrong fields -- $js"
+  echo "$js" | grep -q '"staged_version"' && no "--json: emits staged_version with no staging pointer (output must be unchanged)" || ok "--json: no staged_version without a staging pointer (output unchanged)"
 else
   echo "$js" | grep -q '"served_version":"0.6.22"' && ok "--json: names served version" || no "--json: missing served -- $js"
 fi

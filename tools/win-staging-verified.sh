@@ -73,10 +73,16 @@ fi
 
 # Validate the record exactly (node parses JSON; no sed heuristics). Node's own exit codes:
 # 0 pass, 3 ambiguous, 4 fail. Anything else (a crash) is ambiguous too.
+# The FIRST line node prints is the sha256 of the exact record bytes it validated (empty when the
+# file could not be read), so the promote logs a hash of the record that actually decided.
 VERDICT="$(node -e '
   const [file, wantVersion, wantSha] = process.argv.slice(1);
+  let bytes;
+  try { bytes = require("node:fs").readFileSync(file); }
+  catch (error) { process.stdout.write("\nthe record is unreadable (" + error.message + ")"); process.exit(3); }
+  process.stdout.write(require("node:crypto").createHash("sha256").update(bytes).digest("hex") + "\n");
   let record;
-  try { record = JSON.parse(require("node:fs").readFileSync(file, "utf8")); }
+  try { record = JSON.parse(bytes.toString("utf8")); }
   catch (error) { process.stdout.write("the record is unreadable (" + error.message + ")"); process.exit(3); }
   if (!record || typeof record !== "object" || Array.isArray(record)) { process.stdout.write("the record is not a JSON object"); process.exit(3); }
   const problems = [];
@@ -92,8 +98,16 @@ VERDICT="$(node -e '
   process.stdout.write(summary);
 ' "$RECORD" "$V" "$SHA" 2>&1)"
 NODE_RC=$?
+RECORD_DIGEST="${VERDICT%%$'\n'*}"; VERDICT="${VERDICT#*$'\n'}"
+case "$RECORD_DIGEST" in
+  *[!0-9a-f]*|'') [ "$NODE_RC" = 0 ] && NODE_RC=3 && VERDICT="its bytes could not be hashed" ;;
+esac
 case "$NODE_RC" in
-  0) say "win-staging-verified: PASS - the record $RECORD says $V ($SHA) passed: $VERDICT."; exit 0 ;;
+  0)
+    # The promote logs this line (the record that decided, and a hash of its exact bytes), which is
+    # the link back to the file the Windows box wrote when the record was copied to another box.
+    say "win-staging-verified: record_sha256=$RECORD_DIGEST record=$RECORD"
+    say "win-staging-verified: PASS - the record $RECORD says $V ($SHA) passed: $VERDICT."; exit 0 ;;
   4) say "win-staging-verified: FAIL - the record $RECORD says $V ($SHA) FAILED: $VERDICT. Refusing." >&2; exit 1 ;;
   *) say "win-staging-verified: the record $RECORD is ambiguous: $VERDICT. Refusing to treat it as a pass." >&2; exit 1 ;;
 esac

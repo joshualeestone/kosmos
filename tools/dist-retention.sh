@@ -270,8 +270,14 @@ process_family() {
   # ---- report ----
   if [ "$JSON" -eq 1 ]; then
     local jfirst=1 jv
-    FAMILY_JSON="$(printf '"dist":"%s","served_version":"%s","staged_version":"%s","found":%d,"keep":%d,"retained":%d,"prune_versions":[' \
-      "$DIST" "$SERVED_VERSION" "$STAGED_VERSION" "$NVER" "$KEEP" "$RETAINED")"
+    # "staged_version" appears only when the family HAS a staging pointer, so a dist without one
+    # emits exactly the JSON it did before the staging channel existed.
+    local STAGED_JSON=""
+    if [ -n "$STAGED_POINTER" ] && [ -f "$DIST/$STAGED_POINTER" ]; then
+      STAGED_JSON="$(printf '"staged_version":"%s",' "$STAGED_VERSION")"
+    fi
+    FAMILY_JSON="$(printf '"dist":"%s","served_version":"%s",%s"found":%d,"keep":%d,"retained":%d,"prune_versions":[' \
+      "$DIST" "$SERVED_VERSION" "$STAGED_JSON" "$NVER" "$KEEP" "$RETAINED")"
     for v in "${PRUNE_VERSIONS[@]:-}"; do
       [ -n "$v" ] || continue
       [ "$jfirst" -eq 1 ] || FAMILY_JSON="${FAMILY_JSON},"; jfirst=0

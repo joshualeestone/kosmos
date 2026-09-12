@@ -39,14 +39,24 @@ function fixtureZip(dir, version) {
   return zip;
 }
 
-// The channel is an environment variable, so an operator's exported KOSMOS_CUT_CHANNEL must not
-// leak into an arm that tests the DEFAULT. Every run starts from the inherited environment minus
-// the channel; an arm that wants prod says so with PROD.
-const PROD = { KOSMOS_CUT_CHANNEL: 'prod' };
-function publishEnvironment(site, extraEnv) {
-  const env = { ...process.env, KOSMOS_SITE: site };
-  delete env.KOSMOS_CUT_CHANNEL;
-  return { ...env, ...extraEnv };
+// The channel is an environment variable, so an operator's exported KOSMOS_WIN_CUT_CHANNEL (or the
+// Mac cut's KOSMOS_CUT_CHANNEL, or a break-glass approval) must not leak into an arm. Every run
+// starts from the inherited environment minus those; an arm that wants prod says so with PROD.
+const PROD = { KOSMOS_WIN_CUT_CHANNEL: 'prod' };
+// A prod publish is the BREAK-GLASS: it needs Josh's go for its exact zip. The #2008 arms test what
+// a prod publish WRITES, not the approval, so the helper supplies the approval for the zip being
+// published unless an arm sets the variables itself (an explicit '' withholds one). Approvals go to
+// a throwaway log, never the operator's.
+const TEST_APPROVAL_LOG = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pubwin-approvals-')), 'approvals.log');
+function publishEnvironment(site, extraEnv, zip) {
+  const env = { ...process.env, KOSMOS_SITE: site, KOSMOS_WIN_PROMOTE_LOG: TEST_APPROVAL_LOG };
+  for (const name of ['KOSMOS_CUT_CHANNEL', 'KOSMOS_WIN_CUT_CHANNEL', 'KOSMOS_WIN_PROD_APPROVED_SHA', 'KOSMOS_WIN_PROD_APPROVAL_REF']) delete env[name];
+  const merged = { ...env, ...extraEnv };
+  if (merged.KOSMOS_WIN_CUT_CHANNEL === 'prod') {
+    if (!('KOSMOS_WIN_PROD_APPROVED_SHA' in extraEnv) && zip && fs.existsSync(zip)) merged.KOSMOS_WIN_PROD_APPROVED_SHA = sha256OfFile(zip);
+    if (!('KOSMOS_WIN_PROD_APPROVAL_REF' in extraEnv)) merged.KOSMOS_WIN_PROD_APPROVAL_REF = 'test-approval-ref';
+  }
+  return merged;
 }
 
 function run(zip, site, extraEnv = {}, versionArg) {
@@ -54,9 +64,15 @@ function run(zip, site, extraEnv = {}, versionArg) {
   // default: it skips the unzip + in-zip package.json read entirely.
   const argv = versionArg === undefined ? [SCRIPT, zip] : [SCRIPT, zip, versionArg];
   return execFileSync('sh', argv, {
-    env: publishEnvironment(site, extraEnv),
+    env: publishEnvironment(site, extraEnv, zip),
     encoding: 'utf8',
   });
+}
+
+// Like run(), but returns the whole result (status, stdout, stderr) and never throws, for the arms
+// that assert a refusal's message or a success's stderr.
+function runResult(zip, site, extraEnv = {}) {
+  return spawnSync('sh', [SCRIPT, zip], { env: publishEnvironment(site, extraEnv, zip), encoding: 'utf8' });
 }
 
 function freshSite() {
@@ -69,7 +85,7 @@ function freshSite() {
 // NOTICE-on-stderr arm can assert what was and was not printed. Asserts a clean exit itself.
 function runCaptureStderr(zip, site, extraEnv = {}) {
   const r = spawnSync('sh', [SCRIPT, zip], {
-    env: publishEnvironment(site, extraEnv),
+    env: publishEnvironment(site, extraEnv, zip),
     encoding: 'utf8',
   });
   assert.equal(r.status, 0, `publish must succeed; stderr:\n${r.stderr}`);
@@ -341,11 +357,80 @@ test('one pointer writer: the staging pointer and the prod pointer for one build
     'the staging pointer must equal the prod pointer byte for byte');
 });
 
-test('an unknown KOSMOS_CUT_CHANNEL is refused before anything is staged', () => {
+test('an unknown KOSMOS_WIN_CUT_CHANNEL is refused before anything is staged', () => {
   const site = freshSite();
-  assert.throws(() => run(fixtureZipIn('7.0.0'), site, { KOSMOS_CUT_CHANNEL: 'Prod' }),
-    /KOSMOS_CUT_CHANNEL must be 'staging' or 'prod' \(got 'Prod'\)/, 'a mistyped channel must be refused, not guessed');
+  assert.throws(() => run(fixtureZipIn('7.0.0'), site, { KOSMOS_WIN_CUT_CHANNEL: 'Prod' }),
+    /KOSMOS_WIN_CUT_CHANNEL must be 'staging' or 'prod' \(got 'Prod'\)/, 'a mistyped channel must be refused, not guessed');
   assert.deepEqual(fs.readdirSync(path.join(site, 'dist')), [], 'a refused channel must stage nothing');
+});
+
+test('the Mac cut\'s KOSMOS_CUT_CHANNEL=prod does NOT move Windows prod: a bare publish still stages', () => {
+  // The shared variable defaults to prod in release.sh. When it was shared, an operator who
+  // exported it for a Mac cut published Windows straight to prod with no log line.
+  const site = freshSite();
+  const dist = path.join(site, 'dist');
+  run(fixtureZipIn('1.0.0'), site, PROD);
+  const prodBefore = fs.readFileSync(path.join(dist, 'latest-win.json'));
+  const r = runResult(fixtureZipIn('2.0.0'), site, { KOSMOS_CUT_CHANNEL: 'prod' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(fs.readFileSync(path.join(dist, 'latest-win.json')), prodBefore, 'latest-win.json must not move');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dist, 'latest-win-staging.json'), 'utf8')).version, '2.0.0', 'it staged instead');
+  assert.match(r.stderr, /KOSMOS_CUT_CHANNEL=prod is the Mac cut's channel and is ignored here/, 'the operator is told the variable was ignored');
+});
+
+// ---------------------------------------------------------------------------------------------
+// The break-glass: KOSMOS_WIN_CUT_CHANNEL=prod needs Josh's go for this exact zip, logged first.
+// ---------------------------------------------------------------------------------------------
+
+function freshApprovalLog() {
+  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pubwin-log-')), 'approvals.log');
+}
+
+test('break-glass: a direct prod publish without Josh\'s go for this exact zip is refused, staging and logging nothing', () => {
+  const zip = fixtureZipIn('8.0.0');
+  const sha = sha256OfFile(zip);
+  const refusals = [
+    { label: 'no approved sha', env: { KOSMOS_WIN_PROD_APPROVED_SHA: '' }, message: /Josh's go is required/ },
+    { label: 'no approval reference', env: { KOSMOS_WIN_PROD_APPROVAL_REF: '' }, message: /Josh's go is required/ },
+    { label: 'another build\'s sha', env: { KOSMOS_WIN_PROD_APPROVED_SHA: '0'.repeat(64) }, message: /is not this zip's sha256/ },
+    { label: 'a reference that is not a Slack ts or permalink', env: { KOSMOS_WIN_PROD_APPROVAL_REF: 'josh said yes' }, message: /is not a Slack message ts or permalink/ },
+  ];
+  for (const { label, env, message } of refusals) {
+    const site = freshSite();
+    const log = freshApprovalLog();
+    const r = runResult(zip, site, { ...PROD, KOSMOS_WIN_PROMOTE_LOG: log, ...env });
+    assert.notEqual(r.status, 0, `${label}: must refuse`);
+    assert.match(r.stderr, message, `${label}: must say why`);
+    assert.deepEqual(fs.readdirSync(path.join(site, 'dist')), [], `${label}: must stage nothing`);
+    assert.ok(!fs.existsSync(log), `${label}: must log no approval`);
+    // The approval has to come from Josh's message, so no refusal hands out the sha to paste.
+    assert.ok(!r.stderr.includes(sha), `${label}: must not print the zip's sha to paste`);
+  }
+});
+
+test('break-glass: an approval that cannot be logged is refused, staging nothing', () => {
+  const site = freshSite();
+  const notADirectory = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'pubwin-log-')), 'a-file');
+  fs.writeFileSync(notADirectory, '');
+  const r = runResult(fixtureZipIn('8.1.0'), site, { ...PROD, KOSMOS_WIN_PROMOTE_LOG: path.join(notADirectory, 'approvals.log') });
+  assert.notEqual(r.status, 0, 'an unwritable approval log must refuse');
+  assert.match(r.stderr, /could not record Josh's go/);
+  assert.deepEqual(fs.readdirSync(path.join(site, 'dist')), [], 'a refusal must stage nothing');
+});
+
+test('break-glass: with the approved sha and a reference it publishes prod, logs path=direct first, and prints a banner', () => {
+  const site = freshSite();
+  const log = freshApprovalLog();
+  const zip = fixtureZipIn('8.2.0');
+  const sha = sha256OfFile(zip);
+  const ref = 'https://kosmos.slack.com/archives/C0/p1789228393821399';
+  const r = runResult(zip, site, { ...PROD, KOSMOS_WIN_PROMOTE_LOG: log, KOSMOS_WIN_PROD_APPROVED_SHA: sha, KOSMOS_WIN_PROD_APPROVAL_REF: ref });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(site, 'dist', 'latest-win.json'), 'utf8')).version, '8.2.0');
+  assert.match(fs.readFileSync(log, 'utf8'),
+    new RegExp(`^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z family=win path=direct version=8\\.2\\.0 sha256=${sha} approval_ref=${ref.replace(/[.?/]/g, '\\$&')} approval=given$`, 'm'),
+    'the approval is logged with the version, the sha, the reference and a UTC time (never a name)');
+  assert.match(r.stderr, /BREAK-GLASS: a DIRECT PROD publish of 8\.2\.0/, 'a direct prod publish is loud');
 });
 
 test('the channel vocabulary is release.sh\'s: the same values, with a staging default here', () => {
@@ -361,6 +446,6 @@ test('the channel vocabulary is release.sh\'s: the same values, with a staging d
   assert.deepEqual(channelArms('tools/release.sh'), ['prod', 'staging']);
   assert.deepEqual(channelArms('tools/publish-kosmos-windows.sh'), channelArms('tools/release.sh'),
     'publish-kosmos-windows.sh must accept exactly the channels release.sh accepts');
-  assert.match(fs.readFileSync(SCRIPT, 'utf8'), /CUT_CHANNEL="\$\{KOSMOS_CUT_CHANNEL:-staging\}"/,
-    'a Windows publish defaults to staging');
+  assert.match(fs.readFileSync(SCRIPT, 'utf8'), /CUT_CHANNEL="\$\{KOSMOS_WIN_CUT_CHANNEL:-staging\}"/,
+    'a Windows publish reads its OWN variable, KOSMOS_WIN_CUT_CHANNEL, and defaults to staging');
 });
