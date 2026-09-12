@@ -127,6 +127,21 @@ validate_dest() {
   case "$_repo_real/" in
     "$_dest_real/"*) fail "destination '$_dest_real' is at or above the source repo '$_repo_real'; the swap would move the source aside" ;;
   esac
+
+  # refuse to swap aside an existing NON-EMPTY directory that is not itself a prior
+  # board install. The apply/refresh does `mv "$DEST" "$DEST.old.$$"` and then
+  # `rm -rf` that old tree, so pointing $DEST at an existing populated directory (a
+  # misconfigured KOSMOS_BOARD_LIBEXEC=$HOME, /usr, /Applications) would rename it
+  # aside and DELETE it. A real board install carries server.js -- the file the
+  # plist's ProgramArguments points at -- so require that marker before we are
+  # willing to move a populated directory out of the way. A destination that does
+  # not exist yet (first adoption) or is empty is safe to swap and is allowed.
+  if [ -e "$_dest_real" ]; then
+    [ -d "$_dest_real" ] || fail "destination '$_dest_real' exists and is not a directory"
+    if [ -n "$(ls -A "$_dest_real" 2>/dev/null)" ] && [ ! -e "$_dest_real/server.js" ]; then
+      fail "destination '$_dest_real' is a non-empty directory that is not a board install (no server.js); refusing to move it aside and delete it -- point KOSMOS_BOARD_LIBEXEC at a fresh path or an existing board tree"
+    fi
+  fi
 }
 validate_dest
 

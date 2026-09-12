@@ -89,6 +89,14 @@ refuses "the source repo itself is refused"              "$FAKE_REPO"           
 refuses "a destination inside the source repo is refused" "$FAKE_REPO/sub"      "source repo or inside it"
 refuses "a destination ABOVE the source repo is refused" "$TMP"                 "at or above the source"
 
+# an existing NON-EMPTY directory that is not a board install must be refused: the
+# apply swap would `mv` it aside and then `rm -rf` it, so a misconfigured
+# KOSMOS_BOARD_LIBEXEC=$HOME (or /usr, /Applications) would delete it. server.js is
+# the board-install marker; a populated directory lacking it is refused.
+mkdir -p "$TMP/not-a-board"
+touch "$TMP/not-a-board/some-users-file"
+refuses "a non-empty non-board destination is refused"  "$TMP/not-a-board"     "not a board install|no server.js"
+
 # ---- acceptances -----------------------------------------------------------
 mkdir -p "$TMP/good-parent"
 accepts "a clean sibling destination is accepted"        "$TMP/good-parent/board"
@@ -100,6 +108,16 @@ accepts "an apostrophe in the destination is handled"    "$TMP/o'brien/board"
 # a destination that does not exist yet, whose parent does not exist yet either,
 # is fine as long as its nearest EXISTING ancestor is a safe directory:
 accepts "a deep not-yet-created destination is accepted" "$TMP/good-parent/a/b/c/board"
+
+# an EMPTY existing directory is safe to swap (nothing is lost) and is accepted:
+mkdir -p "$TMP/empty-dest"
+accepts "an empty existing destination is accepted"      "$TMP/empty-dest"
+
+# an existing directory that IS a prior board install (carries server.js) is a
+# legitimate refresh target and is accepted:
+mkdir -p "$TMP/prior-board"
+touch "$TMP/prior-board/server.js"
+accepts "an existing board install (has server.js) is accepted" "$TMP/prior-board"
 
 echo
 if [ "$fails" -eq 0 ]; then
