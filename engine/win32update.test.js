@@ -660,24 +660,121 @@ test('B0: leftovers of an earlier attempt are cleared before a new one', T, asyn
 function lockDir() { const d = fs.mkdtempSync(path.join(SANDBOX, 'lock-')); return { d, lock: path.join(d, 'prepare.lock') }; }
 const deadPid = () => cp.spawnSync(process.execPath, ['-e', '']).pid;
 
-test('the lock: one held by a live process refuses; a dead or too-old one is cleared', T, async () => {
+const hoursAgo = (hours) => Date.now() - hours * 60 * 60 * 1000;
+function seedLock(c, body) {
+  fs.mkdirSync(c.work, { recursive: true });
+  fs.writeFileSync(path.join(c.work, 'prepare.lock'), JSON.stringify(body));
+}
+
+test('the lock: a running owner holds it whatever its age; a gone owner does not, whatever its age', T, async () => {
   const c1 = freshCase();
-  fs.mkdirSync(c1.work);
-  fs.writeFileSync(path.join(c1.work, 'prepare.lock'), JSON.stringify({ pid: process.pid, at: Date.now() }));
+  seedLock(c1, { pid: process.pid, at: Date.now() });
   await refusedWith(c1, null, new RegExp(`another update is already being prepared \\(process ${process.pid}\\)`));
   assert.deepEqual(workHolds(c1), ['prepare.lock'], "another prepare's lock is not ours to clear, and no status is written over its work");
 
+  /* Three hours old, far past STALE_LOCK_MS, and its owner still runs: still held. */
   const c2 = freshCase();
-  fs.mkdirSync(c2.work);
-  fs.writeFileSync(path.join(c2.work, 'prepare.lock'), JSON.stringify({ pid: deadPid(), at: Date.now() }));
-  assert.equal((await win32update.prepare(prepareOpts(c2, site(bundleZip())))).ok, true);
-  assert.ok(c2.log.some((l) => /cleared a stale prepare lock \(process \d+, no longer running\)/.test(l)), c2.log.join('\n'));
+  seedLock(c2, { pid: process.pid, at: hoursAgo(3) });
+  await refusedWith(c2, null, new RegExp(`another update is already being prepared \\(process ${process.pid}\\)`));
+  assert.deepEqual(workHolds(c2), ['prepare.lock'], 'a running owner\'s lock is never moved or removed');
 
-  const c3 = freshCase();
-  fs.mkdirSync(c3.work);
-  fs.writeFileSync(path.join(c3.work, 'prepare.lock'), JSON.stringify({ pid: process.pid, at: Date.now() - 3 * 60 * 60 * 1000 }));
-  assert.equal((await win32update.prepare(prepareOpts(c3, site(bundleZip())))).ok, true);
-  assert.ok(c3.log.some((l) => /cleared a stale prepare lock .*too old/.test(l)));
+  for (const at of [Date.now(), hoursAgo(3)]) {
+    const c = freshCase();
+    seedLock(c, { pid: deadPid(), at });
+    assert.equal((await win32update.prepare(prepareOpts(c, site(bundleZip())))).ok, true);
+    assert.ok(c.log.some((l) => /cleared a stale prepare lock \(process \d+, no longer running\)/.test(l)), c.log.join('\n'));
+  }
+});
+
+test('the lock: an owner that cannot be verified falls to the age rule', T, () => {
+  const win32orphan = require('./win32orphan');
+  const realState = win32orphan.pidState;
+  win32orphan.pidState = () => 'unknown';
+  try {
+    const { lock } = lockDir();
+    fs.writeFileSync(lock, JSON.stringify({ pid: 4242, at: Date.now() }));
+    assert.throws(() => win32update.takeLock(lock, () => {}), /already being prepared \(process 4242\)/, 'recent: held');
+    fs.writeFileSync(lock, JSON.stringify({ pid: 4242, at: hoursAgo(3) }));
+    const log = [];
+    const text = win32update.takeLock(lock, (l) => log.push(l));
+    assert.equal(fs.readFileSync(lock, 'utf8'), text, 'old: cleared and taken');
+    assert.ok(log.some((l) => /cleared a stale prepare lock \(process 4242, old, and its owner cannot be checked\)/.test(l)), log.join('\n'));
+  } finally {
+    win32orphan.pidState = realState;
+  }
+  /* No pid at all is the same case, judged by its `at`. */
+  const { lock } = lockDir();
+  fs.writeFileSync(lock, JSON.stringify({ at: Date.now() }));
+  assert.throws(() => win32update.takeLock(lock, () => {}), /already being prepared \(its lock is recent, and its owner cannot be checked\)/);
+  fs.writeFileSync(lock, JSON.stringify({ at: hoursAgo(3) }));
+  assert.doesNotThrow(() => win32update.takeLock(lock, () => {}));
+});
+
+test('the lock: pidState keeps the doubt that pidAlive resolves toward alive', T, () => {
+  const win32orphan = require('./win32orphan');
+  const throwing = (code) => () => { throw Object.assign(new Error(code), { code }); };
+  assert.equal(win32orphan.pidState(1, throwing('ESRCH')), 'gone');
+  assert.equal(win32orphan.pidState(1, throwing('EPERM')), 'alive');
+  assert.equal(win32orphan.pidState(1, throwing('EWHATEVER')), 'unknown');
+  assert.equal(win32orphan.pidState(1, () => true), 'alive');
+  assert.equal(win32orphan.pidAlive(1, throwing('EWHATEVER')), true, 'pidAlive is unchanged');
+  assert.equal(win32orphan.pidAlive(1, throwing('ESRCH')), false);
+});
+
+test('the lock: a drive without hard links is refused in words, and only the error code is logged', T, async () => {
+  const c = freshCase();
+  const realLink = fs.linkSync;
+  fs.linkSync = (from, to) => {
+    throw Object.assign(new Error(`EPERM: operation not permitted, link '${from}' -> '${to}'`), { code: 'EPERM' });
+  };
+  let r;
+  try { r = await win32update.prepare(prepareOpts(c, site(bundleZip()))); } finally { fs.linkSync = realLink; }
+  assert.equal(r.ok, false);
+  assert.match(r.because, /^Kosmos could not take its update lock: this drive can't make the hard links the updater needs \(common on FAT32 or exFAT drives\), so update by hand, or keep Kosmos on an NTFS drive$/);
+  assert.doesNotMatch(r.because, /EPERM|draft|prepare\.lock|kosmos-update/, 'no raw error and no internal path');
+  assert.ok(c.log.includes('could not take the prepare lock: link failed with code=EPERM'), c.log.join('\n'));
+  assert.equal(c.log.some((l) => l.includes('.draft')), false, 'the log names the code, not the paths');
+  assert.deepEqual(workHolds(c), [], 'nothing left behind: no draft, no lock, and no status over work it never held');
+});
+
+test('the lock: once held, the leftovers of attempts that died mid-lock are swept', T, async () => {
+  const c = freshCase();
+  fs.mkdirSync(c.work);
+  const strays = [
+    'prepare.lock.123-1700000000000-abcd1234.draft',
+    'prepare.lock.0123456789abcdef.clearing',
+    'prepare.lock.456-1700000000000-ef567890.cleared',
+  ];
+  for (const name of strays) fs.writeFileSync(path.join(c.work, name), JSON.stringify({ pid: deadPid(), at: Date.now() }));
+  assert.equal((await win32update.prepare(prepareOpts(c, site(bundleZip())))).ok, true);
+  assert.deepEqual(workHolds(c), ['prepare-status.json', 'staged'], 'only the outcome and the staged build remain');
+});
+
+test('the lock: a clear claim left by a clearer that died is stepped past, never deleted by a clearer', T, () => {
+  const { lock } = lockDir();
+  const stale = JSON.stringify({ pid: deadPid(), at: Date.now() });
+  fs.writeFileSync(lock, stale);
+  const deadClaim = `${lock}.${sha256(stale).slice(0, 16)}.clearing`;
+  fs.writeFileSync(deadClaim, JSON.stringify({ pid: deadPid(), at: Date.now() }));
+  const text = win32update.takeLock(lock, () => {});
+  assert.equal(fs.readFileSync(lock, 'utf8'), text);
+  assert.ok(fs.existsSync(deadClaim), "the dead claim is left for the holder's sweep");
+});
+
+test('the lock: a third prepare arriving while a stale lock is being removed cannot become a second holder', T, () => {
+  const { d, lock } = lockDir();
+  fs.writeFileSync(lock, JSON.stringify({ pid: deadPid(), at: Date.now() }));
+  let third = null;
+  const mine = win32update.takeLock(lock, () => {}, {
+    /* After this prepare has read the stale lock again and before it removes it: the moment a
+       clearer without the claim would remove whatever lock had just replaced the stale one. */
+    beforeRemove: () => {
+      try { win32update.takeLock(lock, () => {}); third = 'took the lock'; } catch (e) { third = e.message; }
+    },
+  });
+  assert.match(third, /already being prepared \(process \d+ is clearing an old lock\)/);
+  assert.equal(fs.readFileSync(lock, 'utf8'), mine, 'exactly one holder');
+  assert.deepEqual(fs.readdirSync(d), ['prepare.lock']);
 });
 
 test('the lock: an empty lock that was only just written is held; an old empty one is cleared', T, () => {
@@ -705,16 +802,35 @@ test('the lock is published whole: its name only ever appears as a link to a fin
   assert.deepEqual(fs.readdirSync(d), ['prepare.lock'], 'and the draft is gone');
 });
 
-test('the lock: a stale lock replaced by a live one between the look and the clear is put back, not deleted', T, () => {
+test('the lock: a stale lock another prepare clears and takes first stays that prepare\'s', T, () => {
   const { d, lock } = lockDir();
   fs.writeFileSync(lock, JSON.stringify({ pid: deadPid(), at: Date.now() }));
-  const live = JSON.stringify({ pid: process.pid, at: Date.now(), token: 'the other clearer' });
+  let other = null;
   assert.throws(() => win32update.takeLock(lock, () => {}, {
-    /* Another prepare cleared the same stale lock and took the name first. */
-    beforeClear: () => { fs.rmSync(lock); fs.writeFileSync(lock, live); },
+    /* Between this prepare judging the lock stale and claiming it, another prepare clears the
+       same lock and takes the name. */
+    beforeClear: () => { other = win32update.takeLock(lock, () => {}); },
   }), new RegExp(`already being prepared \\(process ${process.pid}\\)`));
-  assert.equal(fs.readFileSync(lock, 'utf8'), live, "the other prepare's lock is still in place");
-  assert.deepEqual(fs.readdirSync(d), ['prepare.lock'], 'nothing of this attempt is left behind');
+  assert.ok(other, 'the control: the other prepare really did take the lock');
+  assert.equal(fs.readFileSync(lock, 'utf8'), other, "the other prepare's lock is untouched");
+  assert.deepEqual(fs.readdirSync(d), ['prepare.lock'], 'nothing of either attempt is left behind');
+});
+
+test('the lock: a prepare whose draft a holder swept refuses as busy, not as a drive problem', T, () => {
+  const { lock } = lockDir();
+  const realLink = fs.linkSync;
+  /* The holder's sweep removes this prepare's draft just before its link. */
+  fs.linkSync = (from) => {
+    fs.rmSync(from, { force: true });
+    throw Object.assign(new Error('ENOENT: no such file or directory, link'), { code: 'ENOENT' });
+  };
+  const log = [];
+  try {
+    assert.throws(() => win32update.takeLock(lock, (l) => log.push(l)), (e) => e.message === 'another update is already being prepared');
+  } finally {
+    fs.linkSync = realLink;
+  }
+  assert.equal(log.some((l) => /link failed/.test(l)), false, 'not reported as a drive that cannot link');
 });
 
 test('the lock: prepares racing to clear one stale lock, in separate processes, leave exactly one holder', { timeout: 30000 }, async () => {

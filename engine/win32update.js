@@ -101,12 +101,20 @@ const STAGED_NODE_TIMEOUT_MS = 20 * 1000;
 /** Free space needed next to ROOT, as a multiple of the zip: the zip itself, the unpacked tree
     (about 2.7x), and room left over for the person's own work. */
 const DISK_HEADROOM_MULTIPLE = 4;
-/** A lock older than a whole prepare can take belongs to a prepare that is not coming back. */
+/** The age after which a lock whose owner CANNOT BE VERIFIED (no pid, or a pid check that errors)
+    is taken as stale: twice the longest a whole prepare can take. A lock whose owner is verifiably
+    running is never stale, whatever its age (see readLock). */
 const STALE_LOCK_MS = 2 * MAX_DOWNLOAD_MS;
 /** A lock whose contents cannot be read is taken as held while it is this young. The lock is
     published whole (a hard link to a finished file), so an unreadable one is damaged or from
     something else, and a few seconds is ample for any writer to be done with it. */
 const UNREADABLE_LOCK_GRACE_MS = 5 * 1000;
+/** Tries at the lock before refusing: enough to take it after clearing one stale lock, or after
+    losing a race to a clearer, without spinning. */
+const MAX_LOCK_ATTEMPTS = 3;
+/** How many dead clear claims one clear steps past before giving up. Each is left by a clearer
+    that died inside a microsecond window, so even one is rare. */
+const MAX_CLEAR_CLAIM_STEPS = 8;
 /**
  * The only environment the staged node.exe is run with. It is a freshly downloaded binary, and
  * the board's own environment can carry credentials (an API key, a token) and a NODE_OPTIONS that
@@ -300,34 +308,116 @@ function preconditionRefusal(root, env, home) {
 
 /* ─── the lock ───────────────────────────────────────────────────────────────────────────── */
 
-/** What a lock file on disk says: `{ gone }`, or `{ held, pid, why }`. */
+/**
+ * What a lock file (or a clear claim, which has the same shape) on disk says about its owner, by
+ * the lock's one rule:
+ *   - an owner that is verifiably RUNNING holds it, whatever its age. A running prepare is
+ *     bounded by its own download and time caps, and a hung one lets go when its process exits;
+ *   - an owner that is verifiably GONE does not;
+ *   - an owner that cannot be verified -- the file is unreadable, names no pid, or the pid check
+ *     itself errors -- falls to the age rule: an unreadable file is held for
+ *     UNREADABLE_LOCK_GRACE_MS after it was written, any other for STALE_LOCK_MS after its `at`.
+ * Returns `{ gone }`, or `{ held, text, pid, why }`; `text` is the exact contents read.
+ */
 function readLock(lockPath) {
   let st;
   try { st = fs.statSync(lockPath); } catch { return { gone: true }; }
-  const body = readJson(lockPath);
-  if (!body || !Number.isInteger(body.pid)) {
+  let text = null;
+  try { text = fs.readFileSync(lockPath, 'utf8'); } catch { text = null; }
+  let body = null;
+  try { body = JSON.parse(text); } catch { body = null; }
+  if (!body || typeof body !== 'object') {
     const young = Date.now() - st.mtimeMs < UNREADABLE_LOCK_GRACE_MS;
-    return { held: young, pid: null, why: young ? 'unreadable, and only just written' : 'unreadable' };
+    return { held: young, text, pid: null, why: young ? 'unreadable, and only just written' : 'unreadable, and not new' };
   }
-  const alive = win32orphan.pidAlive(body.pid);
-  const fresh = Number(body.at) > Date.now() - STALE_LOCK_MS;
-  return { held: alive && fresh, pid: body.pid, why: alive ? 'too old' : 'no longer running' };
+  const pid = Number.isInteger(body.pid) && body.pid > 0 ? body.pid : null;
+  const owner = pid ? win32orphan.pidState(pid) : 'unknown';
+  if (owner === 'alive') return { held: true, text, pid, why: 'its process is running' };
+  if (owner === 'gone') return { held: false, text, pid, why: 'no longer running' };
+  const at = Number(body.at);
+  const recent = Date.now() - (Number.isFinite(at) ? at : st.mtimeMs) < STALE_LOCK_MS;
+  return { held: recent, text, pid, why: recent ? 'recent, and its owner cannot be checked' : 'old, and its owner cannot be checked' };
+}
+
+const HARD_LINK_REFUSAL = "Kosmos could not take its update lock: this drive can't make the hard links the updater needs (common on FAT32 or exFAT drives), so update by hand, or keep Kosmos on an NTFS drive";
+
+/**
+ * Publish `draft` under `name` by hard link: atomic, and EEXIST when the name is taken. Returns
+ * true when published, false when taken. Any other failure refuses with a sentence and logs only
+ * the error code, because the raw error names internal paths. FAT32 and exFAT have no hard links
+ * (EPERM, EXDEV or ENOTSUP, depending on the driver).
+ */
+function publishByLink(draft, name, log) {
+  try {
+    fs.linkSync(draft, name);
+    return true;
+  } catch (e) {
+    const code = (e && e.code) || 'unknown';
+    if (code === 'EEXIST') return false;
+    /* The draft itself is gone: a prepare that holds the lock swept it, so one is running. */
+    if (code === 'ENOENT' && !fs.existsSync(draft)) refuse('another update is already being prepared');
+    log(`could not take the prepare lock: link failed with code=${code}`);
+    return refuse(HARD_LINK_REFUSAL);
+  }
+}
+
+/**
+ * Remove a stale lock, and only that exact lock.
+ *
+ * 🛑 NOTHING IS MOVED ASIDE. Renaming the shared name aside and reading it again cannot be made
+ * safe: a second prepare can clear the same stale lock and link its own before the rename, the
+ * rename then moves that LIVE lock, a third prepare links into the gap, and the restore can only
+ * fail, leaving two holders. So instead:
+ *   1. take the CLAIM for this exact lock, `<lock>.<hash of its contents>.clearing`, published by
+ *      link, so one prepare holds it; every prepare that judged the same lock stale computes the
+ *      same name;
+ *   2. holding it, read the lock again; if it is not byte for byte the lock judged stale, leave
+ *      it (somebody else replaced it) and let the caller start over;
+ *   3. otherwise unlink it. Nothing can have removed or replaced it in between: removing needs
+ *      this claim, and a new lock can only be linked once the name is free.
+ * A claim lives for microseconds. One left by a clearer that died is judged like a lock
+ * (readLock). A dead one is stepped PAST, with the next claim name hashing it in, and never
+ * deleted, so no two clearers can disagree about which claim is current. The holder's sweep in
+ * prepare() removes the leftovers.
+ */
+function clearStaleLock(lockPath, stale, draft, log, hooks) {
+  let key = crypto.createHash('sha256').update(String(stale.text)).digest('hex');
+  for (let step = 0; step < MAX_CLEAR_CLAIM_STEPS; step += 1) {
+    const claim = `${lockPath}.${key.slice(0, 16)}.clearing`;
+    if (!publishByLink(draft, claim, log)) {
+      const other = readLock(claim);
+      if (other.gone) continue;
+      if (other.held) refuse(`another update is already being prepared (process ${other.pid || 'unknown'} is clearing an old lock)`);
+      key = crypto.createHash('sha256').update(key + String(other.text)).digest('hex');
+      continue;
+    }
+    try {
+      let now = null;
+      try { now = fs.readFileSync(lockPath, 'utf8'); } catch { now = null; }
+      if (now === null || now !== stale.text) return;
+      if (typeof hooks.beforeRemove === 'function') hooks.beforeRemove();
+      fs.unlinkSync(lockPath);
+      log(`cleared a stale prepare lock (process ${stale.pid || 'unknown'}, ${stale.why})`);
+    } finally {
+      fs.rmSync(claim, { force: true });
+    }
+    return;
+  }
+  refuse('another update is already being prepared (an old lock could not be cleared)');
 }
 
 /**
  * Take the prepare lock, or refuse. Returns the exact text written, so release can tell the lock
  * is still this prepare's.
  *
- * The lock is PUBLISHED WHOLE: its contents are written to a draft file first and the draft is
+ * The lock is PUBLISHED WHOLE: its contents go into a draft file first, and the draft is
  * hard-linked to the lock's name, which either succeeds atomically or fails with EEXIST. So no
- * reader ever sees a lock without its owner in it.
+ * reader ever sees a lock without its owner in it. A lock that readLock calls stale is removed
+ * only through clearStaleLock; a lock with a running owner never is.
  *
- * A stale lock is cleared by RENAMING it to a name only this prepare uses and reading it again
- * there. If what was moved turns out to be a live lock (another prepare cleared the stale one and
- * took the name between this one's look and its rename), it is put back and this prepare refuses.
- * Nothing ever deletes a lock it has not first moved out of the shared name.
- *
- * `hooks.beforeClear` is a test seam: it runs between reading a stale lock and moving it.
+ * `hooks.beforeClear` (between judging a lock stale and claiming it) and `hooks.beforeRemove`
+ * (holding the claim, after reading the stale lock again and before removing it) are test seams
+ * for the races.
  */
 function takeLock(lockPath, log, hooks) {
   const h = hooks || {};
@@ -336,32 +426,13 @@ function takeLock(lockPath, log, hooks) {
   const text = JSON.stringify({ pid: process.pid, at: Date.now(), token: unique });
   fs.writeFileSync(draft, text, { flag: 'wx' });
   try {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      try {
-        fs.linkSync(draft, lockPath);
-        return text;
-      } catch (e) {
-        if (!e || e.code !== 'EEXIST') throw e;
-      }
+    for (let attempt = 0; attempt < MAX_LOCK_ATTEMPTS; attempt += 1) {
+      if (publishByLink(draft, lockPath, log)) return text;
       const seen = readLock(lockPath);
       if (seen.gone) continue;
       if (seen.held) refuse(`another update is already being prepared (${seen.pid ? 'process ' + seen.pid : 'its lock is ' + seen.why})`);
       if (typeof h.beforeClear === 'function') h.beforeClear();
-      const aside = `${lockPath}.${unique}.cleared`;
-      try {
-        fs.renameSync(lockPath, aside);
-      } catch (e) {
-        if (e && e.code === 'ENOENT') continue;
-        throw e;
-      }
-      const moved = readLock(aside);
-      if (moved.held) {
-        try { fs.linkSync(aside, lockPath); } catch { /* the name is taken again: someone holds it either way */ }
-        fs.rmSync(aside, { force: true });
-        refuse(`another update is already being prepared (process ${moved.pid})`);
-      }
-      log(`cleared a stale prepare lock (process ${seen.pid}, ${seen.why})`);
-      fs.rmSync(aside, { force: true });
+      clearStaleLock(lockPath, seen, draft, log, h);
     }
     refuse('another update is already being prepared');
   } finally {
@@ -667,6 +738,12 @@ async function prepare(opts) {
       refuse(`the updater's folder ${work} leads somewhere else`);
     }
     lockText = takeLock(inWork(lockPath), log, o.lockHooks);
+    /* Now that this prepare HOLDS the lock, sweep what attempts that died mid-lock left beside
+       it: drafts, clear claims, and asides from the lock's first design. Only a holder may: a
+       racer whose draft this removes refuses as busy (publishByLink). */
+    for (const name of fs.readdirSync(work)) {
+      if (name.startsWith(LOCK_NAME + '.')) fs.rmSync(inWork(path.join(work, name)), { force: true });
+    }
     /* Whatever an earlier attempt left. Both are WORK's own. */
     fs.rmSync(inWork(ctx.part), { force: true });
     fs.rmSync(inWork(ctx.staged), { recursive: true, force: true });
