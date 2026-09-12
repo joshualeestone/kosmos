@@ -14200,3 +14200,58 @@ test('#2811: a falsy configDir must NOT let the process CWD name the account, be
     try { fsX.rmSync(probe, { recursive: true, force: true }); } catch { /* best effort */ }
   }
 });
+
+test('#2811: live branch 1 READS the sidecar, it does not just return null', () => {
+  /**
+   * 🛑 THE GUARD WAS PINNED; THE READ WAS NOT. Rounds 35 and 36 were both about this
+   * one field. Round 35 added `seen.configDir ? readName(seen.configDir) : null` and
+   * round 36 pinned the GUARD half (falsy dir => null). Replacing the WHOLE
+   * expression with the literal `null` still left the suite 291/291 GREEN, because
+   * the only two arms driving this branch both assert `name === null`:
+   *   - `#2811 PARITY…` drives it with `configDir = ~/.claude` (no sidecar)
+   *   - `#2811: a falsy configDir…` drives it with `configDir = null`
+   * One of them even says "THE VALUE HERE IS EXPECTED TO BE NULL" -- which DOCUMENTS
+   * the blind spot rather than covering it, and makes `name: null` the ATTRACTIVE
+   * tidy-up rather than an unlikely one.
+   *
+   * ⚠️ LATENT TODAY, AND THE REASON IS MEASURED, NOT ASSUMED: `engine/runningas.js`
+   * has `const id = codex ? null : identityOf(configDir)`, so a CODEX read never
+   * supplies `seen.account`, and branch 1 is reachable only for Claude agents, where
+   * `readName` returns null for every dir. It diverges the moment #2790 lands a
+   * codex account lookup -- which is precisely when nobody will be looking at this
+   * line.
+   */
+  const { whoamiFor, sentenceForWhoami } = require('./server.js');
+  const openaiAccounts = require('./engine/openaiaccounts');
+  const fsX = require('node:fs');
+  const osX = require('node:os');
+  const nodePathX = require('node:path');
+
+  const dir = fsX.realpathSync(fsX.mkdtempSync(nodePathX.join(osX.tmpdir(), 'b1read-2811-')));
+  let board;
+  try {
+    fsX.writeFileSync(nodePathX.join(dir, '.kosmos-name'), 'Work', 'utf8');
+    /* FIXTURE CONTROL: the sidecar must be readable, or `name === 'Work'` below
+       could never hold and the arm would red for the wrong reason. */
+    assert.equal(openaiAccounts.readName(dir), 'Work',
+      'the fixture sidecar is not readable, so this arm cannot discriminate');
+
+    board = fleet.install([fleet.agent('b1read2811', { state: 'idle' })]);
+    const card = board.agents.find((a) => a && a.name === 'b1read2811');
+    assert.ok(card, 'the fixture produced no card');
+
+    /* Branch 1: the live reader supplies an account AND a dir that HAS a name. */
+    const out = whoamiFor(card, [], { ok: true, account: 'dave@example.com', model: null, configDir: dir });
+    assert.ok(out.account, 'the live-with-account branch returned no account');
+    assert.equal(out.account.name, 'Work',
+      'live branch 1 does not READ the sidecar, so its `name` could be the constant null and nothing would notice');
+
+    /* AND THE CONSEQUENCE A PERSON SEES: `name` leads the chain, so reading it
+       changes the sentence. Without this the arm pins a field nobody renders. */
+    assert.match(sentenceForWhoami(out.account, null, 'codex'), /runs on Work/,
+      'the sidecar name does not reach the sentence, so reading it changes nothing a person sees');
+  } finally {
+    if (board) board.restore();
+    try { fsX.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+});
