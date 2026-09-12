@@ -323,18 +323,34 @@ board_token() {
   # Guard with -f before -x: a directory carries the executable (traversable) bit, so an
   # unguarded -x test on a path accepts a directory and we would then try to exec one. The
   # installer runnable-guard test enforces the -f-then-x form repo-wide.
-  _node="$NODE"; { [ -f "$_node" ] && [ -x "$_node" ]; } || _node="$(command -v node 2>/dev/null || true)"
-  [ -n "$_node" ] || return 1
-  # Only the installed candidate is existence-checked; the source fallback is assigned
-  # unconditionally because the `require()` below fails closed either way (2>/dev/null
-  # || return 1), so a third layout would just need its own branch here.
-  _storemod="$KOSMOS_HOME/app/engine/store"
-  [ -f "$_storemod.js" ] || _storemod="$KOSMOS_HOME/engine/store"
+  _node="$(kosmos_engine_node)" || return 1
+  _storemod="$(kosmos_engine_module store)"
   _root="$("$_node" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$_storemod" 2>/dev/null)" || return 1
   [ -n "$_root" ] || return 1
   _tok="$(cat "$_root/board.token" 2>/dev/null)" || return 1
   [ -n "$_tok" ] || return 1
   printf '%s' "$_tok"
+}
+
+# The node that runs an engine module from this shell, and where that module is.
+# Extracted from board_token (kosmos#2644, whose reasoning is above) when the
+# outbox keep (#1704 PR2) became a second caller, so the two layouts are decided
+# in one place. The installed bundle's node first; a system node when it is absent
+# or not runnable (a source checkout, a partial install).
+kosmos_engine_node() {
+  local _node="$NODE"
+  { [ -f "$_node" ] && [ -x "$_node" ]; } || _node="$(command -v node 2>/dev/null || true)"
+  [ -n "$_node" ] || return 1
+  printf '%s' "$_node"
+}
+# $1 = the module name without `.js`. Only the installed candidate is
+# existence-checked; the source fallback is returned unconditionally because every
+# caller's `require()` / run fails closed on a missing module, so a third layout
+# would just need its own branch here.
+kosmos_engine_module() {
+  local _mod="$KOSMOS_HOME/app/engine/$1"
+  [ -f "$_mod.js" ] || _mod="$KOSMOS_HOME/engine/$1"
+  printf '%s' "$_mod"
 }
 
 # #1970: run curl with the board/agent auth tokens delivered OFF the command
@@ -355,22 +371,57 @@ board_token() {
 # removed before returning (the curl runs in an `if` so its failure does not
 # skip the cleanup under `set -e`). Returns 99 if the temp file cannot be made,
 # which fails closed: an enforcing request is not sent without its token.
+#
+# #1704 PR2: every call ALSO names this agent's Kosmos (`x-kosmos-world`, the
+# name engine/launchidentity.js WORLD_HEADER holds; a test pins the two equal),
+# so a board serving ANOTHER Kosmos answers 421 instead of refusing the agent as
+# a stranger. So the header file is written on every call now, token or not, and
+# a temp file that cannot be made fails every call closed (99), not only the
+# token-bearing ones. The world is KOSMOS_WORLD reduced to a world id's own
+# characters (a newline must never start a second header), `default` when absent.
 kosmos_curl() {
   local _bt="$1" _tok="$2"; shift 2
-  if [ -z "$_bt" ] && [ -z "$_tok" ]; then
-    curl "$@" || return $?
-    return 0
-  fi
-  local _hf _rc
+  local _hf _rc _world
+  _world="$(printf '%s' "${KOSMOS_WORLD:-}" | tr -cd 'A-Za-z0-9_-')"
+  [ -n "$_world" ] || _world=default
   _hf="$(mktemp "${TMPDIR:-/tmp}/kosmos-auth.XXXXXX")" || return 99
   chmod 600 "$_hf" || { rm -f "$_hf"; return 99; }
   {
+    printf 'x-kosmos-world: %s\n' "$_world"
     if [ -n "$_bt" ];  then printf 'x-kosmos-board-token: %s\n' "$_bt"; fi
     if [ -n "$_tok" ]; then printf 'x-kosmos-agent-token: %s\n' "$_tok"; fi
   } >> "$_hf" || { rm -f "$_hf"; return 99; }
   if curl -H @"$_hf" "$@"; then _rc=0; else _rc=$?; fi
   rm -f "$_hf"
   return "$_rc"
+}
+
+# #1704 PR2: the board answered `{"wrongWorld":true,...}` (421): it is serving
+# another Kosmos than this agent's. Keep the send in this agent's OWN Kosmos
+# (engine/outbox.js), for the board that serves it to deliver once it is open. The
+# JSON body this command already built reaches node through a mode-600 temp file,
+# never argv: it is the agent's words (#1970). Says the outbox's own sentence and
+# exits with its code: 0 kept, 1 not kept.
+#   $1 = reply | msg | post     $2 = the JSON body the board was sent
+keep_in_outbox() {
+  local _node _bf _said _rc=0
+  _node="$(kosmos_engine_node)" || {
+    say "Your Kosmos is not the one open right now, and we could not find node to keep this for later, so it was not kept. Send it again once your Kosmos is open."
+    exit 1
+  }
+  _bf="$(mktemp "${TMPDIR:-/tmp}/kosmos-outbox.XXXXXX")" || {
+    say "Your Kosmos is not the one open right now, and we could not make a file to keep this in, so it was not kept. Send it again once your Kosmos is open."
+    exit 1
+  }
+  if ! { chmod 600 "$_bf" && printf '%s' "$2" > "$_bf"; }; then
+    rm -f "$_bf"
+    say "Your Kosmos is not the one open right now, and we could not write this down to keep it, so it was not kept. Send it again once your Kosmos is open."
+    exit 1
+  fi
+  _said="$("$_node" "$(kosmos_engine_module outbox).js" keep "$1" "$_bf" 2>&1)" || _rc=$?
+  rm -f "$_bf"
+  say "${_said:-Your Kosmos is not the one open right now, and keeping this for later said nothing, so it may not have been kept.}"
+  exit "$_rc"
 }
 
 running_pid() {
@@ -642,12 +693,15 @@ cmd_msg() {
   # "could not reach" is a wrong diagnosis for a reachable server that
   # refused. Only a transport failure gets the unreachable sentence.
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
+  local _data="{\"to\":\"$esc_to\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}"
   body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/msg" \
     -H 'content-type: application/json' \
-    --data "{\"to\":\"$esc_to\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
+    --data "$_data" 2>/dev/null) || {
     say "We could not reach Kosmos to send that. Is it running at $URL?"
     exit 1
   }
+  # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
+  case "$body" in '{"wrongWorld":true'*) keep_in_outbox msg "$_data" ;; esac
   case "$body" in
     *'"error"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
@@ -708,12 +762,15 @@ cmd_reply() {
   # refuses on an enforcing board (a bare pane is the cross-account spoof path).
   # Inert (omitted) when empty -- a non-enforcing board writes no token file.
   local _bt; _bt="$(board_token || true)"
+  local _data="{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}"
   body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/reply" \
     -H 'content-type: application/json' \
-    --data "{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
+    --data "$_data" 2>/dev/null) || {
     say "We could not reach Kosmos to keep that. Is it running at $URL?"
     exit 1
   }
+  # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
+  case "$body" in '{"wrongWorld":true'*) keep_in_outbox reply "$_data" ;; esac
   case "$body" in
     *'"error"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
@@ -801,9 +858,10 @@ cmd_post() {
   # below never ran, the very branch that exists to stop a duplicate post, and the
   # unreachable message regressed to a silent abort. (#2321; same fix cmd_react took.)
   local rc=0
+  local _data="{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}"
   body=$(kosmos_curl "$_bt" "" -sS -m 120 -X POST "$URL/api/post" \
     -H 'content-type: application/json' \
-    --data "{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
+    --data "$_data" 2>/dev/null) || rc=$?
   if [ "$rc" -eq 28 ]; then
     say "Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it."
     exit 3
@@ -811,6 +869,8 @@ cmd_post() {
     say "We could not reach Kosmos to post that. Is it running at $URL?"
     exit 1
   fi
+  # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
+  case "$body" in '{"wrongWorld":true'*) keep_in_outbox post "$_data" ;; esac
   # ⚠️ Globs are ANCHORED on the top-level keys. The post response embeds
   # `outcomes`, an object keyed by AGENT NAMES -- an agent named "state"
   # or "error" would otherwise put the matching substring into the body
@@ -1011,6 +1071,11 @@ cmd_report() {
     say "We could not reach Kosmos to record that. Is it running at $URL?"
     exit 1
   }
+  # #1704 PR2: the board is serving another Kosmos. A report is not kept: the
+  # state this agent was in while its Kosmos was closed is stale by the time it
+  # opens. The sentence equals engine/outbox.js WRONG_WORLD_SENTENCES.staleReport
+  # (cli.world-outbox-1704.test.js pins the two).
+  case "$body" in '{"wrongWorld":true'*) say "Not recorded: your Kosmos is not the one open right now, and this report would be out of date by the time it is."; exit 0 ;; esac
   case "$body" in
     *'"error"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
@@ -1122,6 +1187,11 @@ cmd_react() {
     say "We could not reach Kosmos to keep that reaction. Is it running at $URL?"
     exit 1
   fi
+  # #1704 PR2: the board is serving another Kosmos. A reaction is not kept: it
+  # toggles room state this agent cannot see from here. The sentence equals
+  # engine/outbox.js WRONG_WORLD_SENTENCES.notOpen (cli.world-outbox-1704.test.js
+  # pins the two).
+  case "$body" in '{"wrongWorld":true'*) say "Your Kosmos is not the one open right now, so that could not be done. Try again once it is open."; exit 1 ;; esac
   # The route answers 200 even for a refusal (a room-state answer read off `ok`),
   # and 400 {"error":...} only for an unreadable request. The verdict globs are
   # anchored on the leading keys -- success is `{"ok":true,"op":add|remove...}`

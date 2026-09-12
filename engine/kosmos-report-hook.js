@@ -209,6 +209,11 @@ async function deliver(report, io) {
   const headers = { 'content-type': 'application/json' };
   if (o.boardToken) headers['x-kosmos-board-token'] = o.boardToken;
   if (o.agentToken) headers['x-kosmos-agent-token'] = o.agentToken;
+  /* #1704 PR2: name this agent's Kosmos, so a board serving ANOTHER one answers
+     421 (wrongWorld) rather than refusing the report as a stranger's. `main`
+     passes the process's own world; a caller that passes none is the default. */
+  const { WORLD_HEADER, worldIdOrDefault } = require('./launchidentity');
+  headers[WORLD_HEADER] = worldIdOrDefault(o.world);
   const doFetch = o.fetchImpl || ((typeof fetch === 'function') ? fetch : null);
   if (!doFetch) return { ok: false, error: 'no fetch available' };
   const ctl = new AbortController();
@@ -227,7 +232,12 @@ async function deliver(report, io) {
     // surfaces this too): a refusal carries "error", a not-recorded carries
     // "because". Either is the actionable sentence; a bare status is not.
     const m = body.match(/"error"\s*:\s*"([^"]*)"/) || body.match(/"because"\s*:\s*"([^"]*)"/);
-    return { ok: !!(res && res.ok) && recorded, status: res && res.status, recorded, body, because: m ? m[1] : '' };
+    /* #1704 PR2: the board is serving ANOTHER Kosmos (421 wrongWorld). Nothing is
+       kept for later -- a state this agent was in while its Kosmos was closed is
+       stale by the time it opens -- and it is not a failure to tell the person
+       about, so `main` stays silent on it. */
+    const wrongWorld = Boolean(res) && res.status === 421 && /"wrongWorld"\s*:\s*true/.test(body);
+    return { ok: !!(res && res.ok) && recorded, status: res && res.status, recorded, body, because: m ? m[1] : '', wrongWorld };
   } catch (err) {
     return { ok: false, error: (err && err.message) ? err.message : String(err) };
   } finally {
@@ -322,9 +332,13 @@ async function main(io) {
     fetchImpl: o.fetchImpl,
     timeoutMs: o.timeoutMs || timeoutFor(report),
     fromPane: env.TMUX_PANE || '',
+    world: require('./launchidentity').currentWorldId(env),
   });
 
-  if (report.loud && !verdict.ok) {
+  /* #1704 PR2: a board serving another Kosmos (421) is not reporting being off:
+     this agent's own Kosmos is simply not the one open, and a report is not kept
+     for later. Silent, like every non-loud event. */
+  if (report.loud && !verdict.ok && !verdict.wrongWorld) {
     // SessionStart: say it once, out loud, the way the bash hook does -- and
     // surface the SERVER'S reason when it gave one. A 200-with-recorded:false
     // (e.g. the board is enforcing and the agent token was missing) must NOT
