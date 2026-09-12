@@ -25,7 +25,7 @@
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-chatgpt-signin-no-name-2913.js
  */
 
-// Browser-check-surface: acct-openai-sub-step acct-openai-sub-label acct-openai-sub-go fr-openai-sub-step fr-openai-sub-label fr-openai-sub-go acct-claude-key-label acct-openai-label
+// Browser-check-surface: acct-openai-sub-step acct-openai-sub-go fr-openai-sub-step fr-openai-sub-go acct-claude-key-label acct-openai-label
 
 const nodePath = require('node:path');
 
