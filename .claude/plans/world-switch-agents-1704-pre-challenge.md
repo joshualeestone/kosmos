@@ -89,4 +89,7 @@ Fix:
 - Two node web tests are red without the resets.
 - Local results: the web and switch suites are 65/65. CI is the real signal for the
   browser check.
-- A focused review of this delta follows.
+- A focused review of this delta (sonnet) found **NO NEW FINDINGS**. It confirmed
+  the diagnosis. `worldswSwitchGo` captures `agents` into the POST body before the
+  reset, and no error path re-shows the modal. The "exactly three places" test
+  guards the invariant (27/27).
