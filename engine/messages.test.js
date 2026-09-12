@@ -884,6 +884,90 @@ test('a post fans out to every member, mentioned as a request and the rest MARKE
   });
 });
 
+/* ── #2908: reply_expected / --no-reply (break the ack-of-an-ack loop) ──────────
+ * An addressed @mention is delivered with a "to answer, run: kosmos post <p>" clause, so an
+ * acknowledgement addressed by name forces the recipient to acknowledge the acknowledgement,
+ * forever. reply_expected:false makes an addressed arrival an acknowledgement: the envelope and
+ * words are unchanged (still foreground), but the answer clause becomes "FYI, no reply requested"
+ * and the intent is persisted. It is set only by the caller (--no-reply), never inferred from prose. */
+const addressedTo = (tmux, marker) => tmux.sends().map((a) => a[5])
+  .filter((t) => typeof t === 'string' && t.startsWith('['))
+  .find((t) => t.startsWith(marker));
+
+test('#2908: reply_expected:false swaps the addressed answer clause to a no-reply note, keeping the envelope', () => {
+  withFleet(room3(), (board) => {
+    armSender('leo-discord');
+    const tmux = arm([]);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks @mara, got it', replyExpected: false }, board.agents, MEMBERS);
+    assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+    const toMara = addressedTo(tmux, '[message from your colleague');
+    assert.match(toMara, /^\[message from your colleague leo · m\d+ · project henderson-lease · FYI, no reply requested\] /,
+      'the mentioned recipient did not get the no-reply note');
+    assert.ok(!/to answer, run: kosmos post/.test(toMara), 'the answer command must not ride a no-reply post');
+    assert.ok(/thanks @mara, got it/.test(toMara), 'the words and the foreground envelope must be kept');
+  });
+});
+
+test('#2908: omitted reply_expected keeps the answer clause (default is reply-required, unchanged)', () => {
+  withFleet(room3(), (board) => {
+    armSender('leo-discord');
+    const tmux = arm([]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'have a look @mara' }, board.agents, MEMBERS);
+    const toMara = addressedTo(tmux, '[message from your colleague');
+    assert.match(toMara, / · to answer, run: kosmos post henderson-lease\] /, 'an ordinary mention must still carry the answer clause');
+    assert.ok(!/no reply requested/.test(toMara), 'no no-reply note should appear when the flag is absent');
+  });
+});
+
+test('#2908: reply_expected:true keeps the answer clause (explicit true == default)', () => {
+  withFleet(room3(), (board) => {
+    armSender('leo-discord');
+    const tmux = arm([]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'have a look @mara', replyExpected: true }, board.agents, MEMBERS);
+    const toMara = addressedTo(tmux, '[message from your colleague');
+    assert.match(toMara, / · to answer, run: kosmos post henderson-lease\] /, 'explicit reply_expected:true must behave like the default');
+  });
+});
+
+test('#2908: reply_expected:false is persisted on the room record; an ordinary post carries no such field', () => {
+  withFleet(room3(), (board) => {
+    armSender('leo-discord');
+    arm([]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'ack @mara', replyExpected: false }, board.agents, MEMBERS);
+    armSender('leo-discord');
+    arm([]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'question @mara?' }, board.agents, MEMBERS);
+    const rows = messages.record().rows.filter((m) => m.kind === 'post');
+    assert.equal(rows[0].replyExpected, false, 'the no-reply intent was not persisted');
+    assert.equal(Object.prototype.hasOwnProperty.call(rows[1], 'replyExpected'), false,
+      'an ordinary post must not gain a replyExpected field (default is byte-unchanged)');
+  });
+});
+
+test('#2908: a background (unmentioned) recipient is unaffected by reply_expected:false', () => {
+  withFleet(room3(), (board) => {
+    armSender('leo-discord');
+    const tmux = arm([]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks @mara', replyExpected: false }, board.agents, MEMBERS);
+    const toApril = addressedTo(tmux, '[background from your colleague');
+    assert.match(toApril, / · not addressed to you\] /, 'the background marker must be unchanged');
+    assert.ok(!/no reply requested|to answer, run/.test(toApril), 'a background arrival carries neither an answer clause nor a no-reply note');
+  });
+});
+
+test('#2908: no-reply is NEVER inferred from prose - "no reply needed" in the text still gets the answer clause', () => {
+  withFleet(room3(), (board) => {
+    armSender('leo-discord');
+    const tmux = arm([]);
+    // The exact failure the card names: adding "no reply needed" to the body does NOT stop the loop.
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'no reply needed @mara, just an ack' }, board.agents, MEMBERS);
+    const toMara = addressedTo(tmux, '[message from your colleague');
+    assert.match(toMara, / · to answer, run: kosmos post henderson-lease\] /,
+      'prose must not be read as reply-intent - only the explicit flag suppresses the answer clause');
+    assert.ok(!/no reply requested/.test(toMara), 'the no-reply note must come from the flag, never from matching prose');
+  });
+});
+
 // #2442: a removed agent is not a room participant. Josh, 2026-09-07: "if you
 // delete an agent, he still has access to a project room." remove() keeps the
 // name in the project record (so restore re-admits it), so sendPost/react filter

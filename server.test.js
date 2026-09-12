@@ -263,6 +263,22 @@ async function req(path, options) {
 
 const postJson = (path, obj) => req(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj) });
 
+// #2908: /api/post validates reply_expected as an OPTIONAL strict boolean, as a request-shape
+// check before any roster/project work. A non-boolean is refused with 400 rather than coerced --
+// a truthy "false" string must never read as reply-required. A boolean or an omitted field passes
+// validation (delivery may still be a 200 could_not for a missing project; the point is: not a 400).
+test('#2908: POST /api/post refuses a non-boolean reply_expected with 400; boolean/omitted passes validation', async () => {
+  const badString = await postJson('/api/post', { project: 'no-such-project', text: 'y', reply_expected: 'false' });
+  assert.equal(badString.status, 400, 'a STRING reply_expected must be refused, not coerced');
+  assert.match(badString.body, /reply_expected must be true or false/, 'the refusal must name the field');
+  const badNumber = await postJson('/api/post', { project: 'no-such-project', text: 'y', reply_expected: 1 });
+  assert.equal(badNumber.status, 400, 'a NUMERIC reply_expected must be refused too (no truthiness coercion)');
+  const okBool = await postJson('/api/post', { project: 'no-such-project', text: 'y', reply_expected: false });
+  assert.notEqual(okBool.status, 400, 'a boolean reply_expected must pass validation');
+  const omitted = await postJson('/api/post', { project: 'no-such-project', text: 'y' });
+  assert.notEqual(omitted.status, 400, 'omitting reply_expected must be accepted (current behavior)');
+});
+
 // #1704 slice 2: the /api/worlds registry routes (sandboxed via AGENT_WORKFORCE_DATA above).
 test('#1704: GET /api/worlds lists the default world; POST creates one without switching', async () => {
   const before = JSON.parse((await req('/api/worlds')).body);

@@ -1462,7 +1462,7 @@ function keepAgentReply(who, text, at) {
  * order the route has always answered in), or null for the pane path. Returns the
  * delivery verdict.
  */
-function sendRoomPostAsAgent({ fromPane, sender, project, text }, roster) {
+function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected }, roster) {
   let found = null;
   try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
   if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
@@ -1482,6 +1482,7 @@ function sendRoomPostAsAgent({ fromPane, sender, project, text }, roster) {
     // machine keys on. Both, from the same record, so they cannot drift.
     projectName: found.name,
     text,
+    replyExpected,
   }, roster, members);
 }
 
@@ -9037,6 +9038,17 @@ const server = http.createServer((req, res) => {
           bad.status = 400;
           throw bad;
         }
+        /* #2908: reply_expected is an OPTIONAL strict boolean, validated as a request-shape check
+           BEFORE the roster/project side-effects. Omitted keeps the current reply-required
+           behavior; false marks the post an acknowledgement (no answer clause, persisted). A
+           non-boolean is refused rather than coerced -- a truthy string like "false" must not
+           silently read as reply-required, and inferring intent from a loose value is the
+           ambiguity this field exists to remove. */
+        if ('reply_expected' in body && typeof body.reply_expected !== 'boolean') {
+          const bad = new Error('reply_expected must be true or false');
+          bad.status = 400;
+          throw bad;
+        }
         const roster = safeRoster();
         if (roster === null) {
           sendJson(res, 200, { delivery: { state: 'could_not', because: 'we could not check which agents are running, so nothing was posted' } });
@@ -9052,6 +9064,7 @@ const server = http.createServer((req, res) => {
           sender: senderFromAgentToken(req, body, roster),
           project: body.project,
           text: body.text,
+          replyExpected: body.reply_expected,
         }, roster);
         /* #2623: the phone seam (engine/notify.js) was deleted. A post that
            reached the room is delivered on the board as before; it no longer
