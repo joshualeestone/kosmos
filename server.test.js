@@ -14255,3 +14255,58 @@ test('#2811: live branch 1 READS the sidecar, it does not just return null', () 
     try { fsX.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
   }
 });
+
+test('#2811: a LIVE pane marker beats the record on the board row, so a mid-switch agent is not renamed early', async () => {
+  /**
+   * 🛑 THE PRECEDENCE, WHICH THE COMMENT CLAIMED AND NOTHING ASSERTED. `runnerOfCard`
+   * is `if (a.runner) return a.runner;` before consulting `create.recordedRunner`,
+   * and its comment says "a live pane's own runner is the better evidence and must
+   * not be overwritten by a record that a switch could have made stale in the other
+   * direction". Replacing that guard with `if (false)` -- i.e. ALWAYS consult the
+   * record, which is exactly what "one fact, one place, use recordedRunner" reads as
+   * -- left the suite fully green.
+   *
+   * ⚠️ REACHABLE ON EVERY PANED CARD, not a corner: `engine/status.js` normalises a
+   * pane to `pane.runner === 'codex' ? 'codex' : 'claude'`, never null, so the guard
+   * fires for all of them and the mutant reroutes all of them through the record.
+   *
+   * 🔑 AND THE DISAGREEMENT WINDOW IS REAL. `setProvider` rewrites the plist and the
+   * profile but does NOT write the tmux marker -- `bin/agent-supervisor.sh` writes
+   * `@kosmos_runner` at agent START. So between a claude->codex switch and the next
+   * restart, the record says codex while the pane marker still says claude. The
+   * board must report what is RUNNING, not what is scheduled to run.
+   */
+  const create = require('./engine/create');
+  const store = require('./engine/store');
+  const fsX = require('node:fs');
+  const name = 'midswitch2811';
+  let board;
+  try {
+    /* The RECORD says codex... */
+    fsX.mkdirSync(create.AGENTS_DIR, { recursive: true });
+    fsX.writeFileSync(create.plistPath(name),
+      create.plistFor(name, '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, null, 'codex'), 'utf8');
+    store.writeProfile(name, { provider: 'openai' });
+
+    /* ...while the LIVE pane marker still says claude, which is the state a
+       mid-switch agent is in until it restarts. */
+    board = fleet.install([fleet.agent(name, { state: 'idle' })]);
+    const card = board.agents.find((a) => a && a.name === name);
+    assert.ok(card, 'the fixture produced no card');
+
+    /* THE FIXTURE'S OWN CONTROLS, asserted before the claim: the two sources must
+       actually disagree, or this arm passes under either precedence. */
+    assert.equal(card.runner, 'claude', 'the pane marker is not claude, so the sources do not disagree');
+    assert.equal(create.recordedRunner(name), 'codex', 'the record is not codex, so the sources do not disagree');
+
+    const body = JSON.parse((await req('/api/status')).body);
+    const row = ((body && body.agents) || []).find((r) => r && (r.sessionName === name || r.name === name));
+    assert.ok(row, 'the seeded agent produced no board row');
+
+    assert.equal(row.runner, 'claude',
+      'the board took the RECORD over the live pane marker, so an agent mid-switch is renamed before it restarts');
+  } finally {
+    if (board) board.restore();
+    try { fsX.unlinkSync(create.plistPath(name)); } catch { /* may not exist */ }
+  }
+});
