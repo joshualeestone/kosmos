@@ -4356,6 +4356,22 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .msg-av img { width: 100%; height: 100%; object-fit: cover; }
 .msg-av.mine { background: var(--k-ink); color: var(--k-bg); }
 .msg-b { flex: 1; min-width: 0; }
+/* #2918 (Josh, 2026-09-12 6.59 QA): the operator's OWN post reads like an iOS
+   text-message conversation. Agent posts keep avatar+name on the LEFT with the
+   message to the right (the default .msg row); the operator's own post is the
+   mirror -- avatar+name on the RIGHT, message to the left of it, "in kind of the
+   opposite order". Three rules, all scoped to .msg.you so an agent's row is
+   untouched: row-reverse floats the avatar to the right and the body to its left;
+   the body becomes a flex column that right-aligns and shrinks each child (so the
+   .msg-bd bubble hugs the right and wraps to its content instead of spanning the
+   full width); and reversing .msg-h puts the name nearest the avatar on the right,
+   mirroring the agent side where the name sits nearest the left avatar. Text inside
+   the bubble stays left-to-right (the p is not re-aligned). Both surfaces Josh named
+   -- the tab-view dialog and the consolidated project view -- share this same .msg
+   markup, so one rule set covers both. */
+.msg.you { flex-direction: row-reverse; }
+.msg.you .msg-b { display: flex; flex-direction: column; align-items: flex-end; }
+.msg.you .msg-h { flex-direction: row-reverse; }
 /* #2806 (Josh, 2026-09-11): the room message BODY box. The person's own post
    (.msg.you) wears the royal-blue --usermsg-tint; an agent's wears the light-gray
    --k-sunk -- the SAME two tokens the DM bubble already uses (.dm.mine / .dm.theirs),
