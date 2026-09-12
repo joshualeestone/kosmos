@@ -99,6 +99,14 @@ run_wd "$H"
 [ "$(starts "$H")" = 0 ] && ok "escalation does not also call kosmos start" || bad "escalation also called kosmos start"
 rm -rf "$H"
 
+# 6c. Prior failure but launchctl CANNOT drive the job (kickstart exits non-zero,
+#     e.g. the job is not loaded) -> fall back to a plain kosmos start.
+H="$(new_home)"; printf '#!/bin/bash\nexit 1\n' > "$H/bin/launchctl"; chmod +x "$H/bin/launchctl"
+printf 'down_since=%s\nlast_kickstart=%s\nfail_count=2\n' "$(recent_down)" "$(( $(now) - 600 ))" > "$H/logs/board-watchdog.state"
+run_wd "$H"
+[ "$(starts "$H")" = 1 ] && ok "escalation falls back to kosmos start when launchctl fails" || bad "escalation fallback did not start ($(starts "$H"))"
+rm -rf "$H"
+
 # 7. Down, past grace, within backoff window -> no start (throttle grows with fails).
 H="$(new_home)"; printf 'down_since=%s\nlast_kickstart=%s\nfail_count=1\n' "$(recent_down)" "$(( $(now) - 10 ))" > "$H/logs/board-watchdog.state"
 run_wd "$H"; [ "$(starts "$H")" = 0 ] && ok "within backoff: no start" || bad "within backoff: started despite throttle"; rm -rf "$H"
@@ -114,11 +122,14 @@ rm -rf "$H"
 H="$(new_home)"; printf 'down_since=%s\nlast_kickstart=%s\nfail_count=5\n' "$(recent_down)" "$(( $(now) - 4000 ))" > "$H/logs/board-watchdog.state"
 run_wd "$H"; [ "$(starts "$H")" = 1 ] && ok "crash-loop after cooldown: retries" || bad "crash-loop after cooldown: did not retry ($(starts "$H"))"; rm -rf "$H"
 
-# 10. Reboot reset: down_since predates boot -> streak discarded, no immediate start.
-H="$(new_home)"; printf 'down_since=1000000000\nlast_kickstart=1000000000\nfail_count=9\n' > "$H/logs/board-watchdog.state"
+# 10. Reboot reset: down_since predates boot -> streak discarded, no immediate start,
+#     and a pre-reboot crash-loop alert is cleared.
+H="$(new_home)"; : > "$H/logs/board-watchdog.alert"
+printf 'down_since=1000000000\nlast_kickstart=1000000000\nfail_count=9\n' > "$H/logs/board-watchdog.state"
 run_wd "$H"
 [ "$(starts "$H")" = 0 ] && ok "reboot reset: stale streak does not fire immediately" || bad "reboot reset: fired on stale down_since"
 grep -q '^fail_count=0$' "$H/logs/board-watchdog.state" && ok "reboot reset: fail count cleared" || bad "reboot reset: fail count not cleared"
+[ ! -f "$H/logs/board-watchdog.alert" ] && ok "reboot reset: stale alert cleared" || bad "reboot reset: alert not cleared"
 rm -rf "$H"
 
 # 11. Non-numeric state does not crash the arithmetic; treated as fresh.
