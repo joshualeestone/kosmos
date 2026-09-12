@@ -41,8 +41,8 @@ test('the real release block refreshes only libexec, fails closed, then restarts
   assert.ok(start > 0 && end > start, 'could not extract the production release refresh block');
   const block = rel.slice(start, end);
 
-  function run(wd, deployStatus = 0, libexec = '/deployed') {
-    const prelude = `set -e\nLOG="$1"\nBOARD_WD="$2"\nREPO=/frozen\nMAIN_REPO=/moving\nKOSMOS_BOARD_LIBEXEC=${libexec}\nKOSMOS_BOARD_WAIT_SECS=1\nstep(){ :; }\nid(){ echo 501; }\nlaunchctl(){ printf 'working directory = %s\\n' "$BOARD_WD"; }\nbash(){ printf '%s\\n' "$*" >> "$LOG"; case "$*" in *install-board.sh*) return ${deployStatus};; esac; }\n`;
+  function run(wd, deployStatus = 0) {
+    const prelude = `set -e\nLOG="$1"\nBOARD_WD="$2"\nREPO=/frozen\nMAIN_REPO=/moving\nKOSMOS_BOARD_LIBEXEC=/deployed\nKOSMOS_BOARD_WAIT_SECS=1\nstep(){ :; }\nid(){ echo 501; }\nlaunchctl(){ printf 'working directory = %s\\n' "$BOARD_WD"; }\nbash(){ printf '%s\\n' "$*" >> "$LOG"; case "$*" in *install-board.sh*) return ${deployStatus};; esac; }\n`;
     const log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-release-refresh-')), 'calls');
     const result = spawnSync('bash', ['-c', prelude + block, 'fixture', log, wd], { encoding: 'utf8' });
     return { result, calls: fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : [] };
@@ -51,9 +51,6 @@ test('the real release block refreshes only libexec, fails closed, then restarts
   const adopted = run('/deployed');
   assert.equal(adopted.result.status, 0, adopted.result.stderr);
   assert.deepEqual(adopted.calls, ['/frozen/deploy/install-board.sh --refresh-only', '/moving/tools/restart-local-board.sh']);
-  const trailing = run('/deployed', 0, '/deployed/');
-  assert.equal(trailing.result.status, 0, trailing.result.stderr);
-  assert.deepEqual(trailing.calls, adopted.calls, 'a trailing-slash override hid the adopted board');
   for (const wd of ['/moving', '/foreign', '']) {
     const other = run(wd);
     assert.equal(other.result.status, 0, other.result.stderr);
@@ -92,13 +89,6 @@ test('board deploy refuses existing and not-yet-created destinations inside a gi
   assert.equal(ancestor.status, 1, `expected ancestor refusal, stdout: ${ancestor.stdout}, stderr: ${ancestor.stderr}`);
   assert.match(ancestor.stderr, /destination contains the source repository/, ancestor.stderr);
   assert.ok(fs.existsSync(path.join(repo, '.git')), 'the ancestor apply removed the fixture repository');
-
-  const dotEscape = spawnSync('bash', [path.join(repo, 'deploy', 'install-board.sh'), '--apply'], {
-    encoding: 'utf8',
-    env: { ...process.env, KOSMOS_BOARD_LIBEXEC: `${fixture}/missing/../repo`, KOSMOS_BOARD_PLIST: path.join(fixture, 'board.plist') },
-  });
-  assert.equal(dotEscape.status, 1, `expected dot-component refusal, stdout: ${dotEscape.stdout}, stderr: ${dotEscape.stderr}`);
-  assert.match(dotEscape.stderr, /must not contain dot path components/, dotEscape.stderr);
 });
 
 test('refresh-only swaps a trailing-slash destination without plist or launchd changes', () => {

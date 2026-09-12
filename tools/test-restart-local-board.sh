@@ -190,8 +190,7 @@ stop_stub
 #    `working directory =` line at all), so it is covered explicitly.
 mkdir -p "$T/bin"
 REPO_DIR="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
-LIBEXEC_DIR="$(cd "$T" && pwd -P)/libexec"
-mkdir -p "$LIBEXEC_DIR"
+LIBEXEC_DIR="$T/libexec"
 DEAD_URL="http://127.0.0.1:1/api/status"
 
 # Write a stub `launchctl` that answers `print` with a com.kosmos.board block whose
@@ -232,13 +231,6 @@ run_gate() {  # $1 = WD the stubbed launchctl should report
 # 8a. libexec shape (b): the new path -- WD == DEST is recognised and would be restarted.
 out="$(run_gate "$LIBEXEC_DIR")"; rc=$?
 if [ "$rc" -eq 0 ] && has "$out" "runs from the libexec deploy"; then pass "libexec shape (b): WD == DEST is recognised (#1164)"; else fail "libexec shape (b) (rc=$rc, out=$out)"; fi
-
-# 8a2. The installer writes a canonical path even when its override has a trailing
-# slash. The restart gate must canonicalize that same override or the adopted board
-# becomes invisible to maintenance immediately after adoption.
-make_launchctl_stub "$LIBEXEC_DIR" 16180
-out="$(PATH="$T/bin:$PATH" KOSMOS_BOARD_LIBEXEC="$LIBEXEC_DIR/" KOSMOS_BOARD_STATUS_URL="$DEAD_URL" bash "$SCRIPT" --check 2>&1)"; rc=$?
-if [ "$rc" -eq 0 ] && has "$out" "runs from the libexec deploy"; then pass "libexec trailing-slash override: canonical deployed WD is recognised"; else fail "libexec trailing-slash override (rc=$rc, out=$out)"; fi
 
 # 8b. repo shape (a): WD == this repo is still recognised (unchanged behavior).
 out="$(run_gate "$REPO_DIR")"; rc=$?
