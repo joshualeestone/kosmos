@@ -290,13 +290,21 @@ function stopHiddenWorldAgents(base, world) {
       let job = null;
       try { job = removal.jobFor(name, platform, world.id); } catch { job = null; }
       if (!job || job.ours === false) { kept.push(name); continue; }
-      // Disable BEFORE bootout: a login between them would bring it back (remove.js's window).
-      const off = ops.disable(name, job) !== false;
-      const down = ops.stopNow(name, job) !== false;
-      // Best-effort: end the running session too. The job's disable+bootout is the definitive
-      // reversible stop, so classification turns on that; ending the session is cleanup.
-      try { sessions.end(launchidentityModule.launchKey(name, world.id)); } catch { /* best-effort */ }
-      if (off && down) stopped.push(name); else kept.push(name);
+      // Disable FIRST, and if it fails do NOT boot the job out. The sibling stop
+      // (worldstarts.pauseForSwitch) skips stopNow on a failed disable for a precise reason:
+      // killing the running job now while it stays ENABLED leaves a "stopped but still enabled"
+      // state, so the next login silently restarts an agent of a Kosmos the user just hid. Leave
+      // it running and report it kept instead.
+      if (ops.disable(name, job) === false) { kept.push(name); continue; }
+      // Disable landed. Boot it out and end its session (the KeepAlive supervisor is one process,
+      // the running session another). If either fails, the agent is still running but now
+      // disabled: re-enable it so it is left cleanly running rather than half-off, matching
+      // pauseForSwitch's rollback, and report it kept.
+      let down = ops.stopNow(name, job) !== false;
+      if (down) { try { down = sessions.end(launchidentityModule.launchKey(name, world.id)) !== false; } catch { down = false; } }
+      if (down) { stopped.push(name); continue; }
+      try { ops.enable(name, job); } catch { /* best-effort rollback */ }
+      kept.push(name);
     } catch { kept.push(name); }
   }
   return { stopped, kept };

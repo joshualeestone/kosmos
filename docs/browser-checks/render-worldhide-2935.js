@@ -68,7 +68,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
         let id = '';
         try { id = JSON.parse(body).id; } catch { id = ''; }
         // The active/booted world is refused server-side; the client must surface the reason.
-        if (id === 'booted') return Promise.resolve({ ok: false, status: 409, json: async () => ({ error: 'world in use', because: 'Switch to another Kosmos before hiding this one.' }) });
+        // The `because` is the REAL server string (server.js /api/worlds/hide EACTIVE branch),
+        // verbatim, so this check also fails if the two drift apart.
+        if (id === 'booted') return Promise.resolve({ ok: false, status: 409, json: async () => ({ error: 'world in use', because: 'switch to another Kosmos before hiding this one' }) });
         return Promise.resolve({ ok: true, json: async () => ({ ok: true, world: { id, hiddenAt: '2026-09-12T00:00:00.000Z' } }) });
       }
       return Promise.resolve({ ok: false, json: async () => ({}) });   // GET /api/worlds: leave the rows as rendered
@@ -167,7 +169,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!n.modalClosedAfterHide) problems.push('after a successful hide the settings modal must close');
     if (!n.refetchedAfterHide) problems.push('after a successful hide the switcher must refetch the list');
     const b = r.booted || {};
-    if (b.msg !== 'Switch to another Kosmos before hiding this one.') problems.push('the route\'s refusal reason must surface: ' + JSON.stringify(b.msg));
+    if (b.msg !== 'switch to another Kosmos before hiding this one') problems.push('the route\'s refusal reason must surface: ' + JSON.stringify(b.msg));
     if (!b.stillOpen) problems.push('a refused hide must leave the settings modal open so the reason is readable');
   }
 

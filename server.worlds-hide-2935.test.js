@@ -114,6 +114,33 @@ test('a stop that fails still hides the Kosmos (the agent-stop can never fail th
   assert.deepEqual(r.body.agents.kept, ['cy']);
 });
 
+test('a failed DISABLE does not boot the job out -- no killed-now-but-still-enabled resurrection window', async () => {
+  const id = seedNamedWorldWithAgent('Third Space', 'eb');
+  failing = ['disable'];   // the disable cannot land
+  const r = await hide({ id });
+  assert.equal(r.status, 200, 'a failed agent-stop must not fail the hide');
+  assert.ok(!listIds().includes(id), 'the world was hidden regardless of the stop outcome');
+  // Killing the session while the job stays enabled would let a login restart it: so if disable
+  // fails, bootout (and the session-end) must NOT run, and the agent is reported kept.
+  assert.ok(!calls.some((c) => c.startsWith('launchctl bootout')), 'bootout ran after a failed disable: ' + JSON.stringify(calls));
+  assert.ok(!calls.some((c) => c.includes('kill-session')), 'the session was ended after a failed disable: ' + JSON.stringify(calls));
+  assert.deepEqual(r.body.agents.stopped, []);
+  assert.deepEqual(r.body.agents.kept, ['eb']);
+});
+
+test('a bootout that fails after a landed disable re-enables the job (left cleanly running, reported kept)', async () => {
+  const id = seedNamedWorldWithAgent('Fourth Space', 'fi');
+  failing = ['bootout'];   // disable lands, bootout does not
+  const r = await hide({ id });
+  assert.equal(r.status, 200);
+  assert.ok(!listIds().includes(id), 'the world was hidden regardless of the stop outcome');
+  const label = `gui/${process.getuid()}/com.kosmos.agent.fi+${id}`;
+  assert.ok(calls.includes(`launchctl disable ${label}`), 'the disable never ran, so this test proves nothing');
+  assert.ok(calls.includes(`launchctl enable ${label}`), 'a failed bootout did not re-enable the job, leaving it disabled-but-running');
+  assert.deepEqual(r.body.agents.stopped, []);
+  assert.deepEqual(r.body.agents.kept, ['fi']);
+});
+
 test('the default Kosmos cannot be hidden: 400, and it stays listed', async () => {
   const r = await hide({ id: 'default' });
   assert.equal(r.status, 400);
