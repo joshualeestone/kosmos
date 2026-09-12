@@ -2290,3 +2290,80 @@ reds by name.
 delete `isDefault` (red, so the branch is reachable), unguard the ternary (green, the gap). **Two
 red and one green again**, which is how you prove the hole is in the coverage and not in the
 instrument.
+
+### Is the accumulated suite OVER-FITTED? Measured, not assumed
+
+I asked round 37's reviewer to argue the 40+ `#2811` arms are too many, and formed my own answer
+first. **The test of over-fitting is not the arm count; it is how many arms ONE mutant reds.** A
+suite asserting the same fact repeatedly reds a crowd; a well-factored one reds the arms that
+guard distinct consequences.
+
+```
+MUTANT remove the provider gate in accountForAgent   ->  2 arms red
+MUTANT floor resolvedRunner at 'claude'              ->  8 #2811 arms red
+```
+
+**Two is obviously fine. Eight needed checking**, so I listed them rather than trusting the
+number, and they assert EIGHT DIFFERENT CONSEQUENCES of one central value:
+
+| arm | what it guards |
+|---|---|
+| whoami carries the RUNNER | the wire field |
+| a DEAD Codex agent / its old Claude model | the record's model |
+| the profile provider names the runner | the Windows rung |
+| a card with NO runner marker | the launch-job fallback |
+| a LIVE claude beats a stale codex marker | the OPPOSITE direction |
+| an UNRECORDED marker does not read as claude | the marker's absence |
+| a Codex agent with NO live read | the sentence |
+| a stale CLAUDE transcript | the model guard |
+
+⇒ **Correct coupling to a central value, not eight tests of one fact.** `resolvedRunner` is what
+the whole card turns on, so everything downstream of it should move when it does.
+
+⭐ **The distinction worth keeping: over-fitting is N arms asserting THE SAME fact; a wide blast
+radius from one value is N arms asserting DIFFERENT consequences OF that fact.** The mutant count
+alone cannot tell them apart - you have to read which arms fell. I nearly recorded "8 is too many"
+before doing that.
+
+## Round 37: the THIRD distinct gap on ONE LINE, and the progression is the lesson
+
+| round | what it added | what it left unpinned |
+|---|---|---|
+| 35 | the `configDir ? readName(...) : null` guard | the guard itself |
+| 36 | an arm pinning the GUARD (falsy dir => null) | the **read** |
+| 37 | - | replacing the WHOLE expression with `null` was GREEN |
+
+**[MAJOR] Nothing pinned the read.** Both arms that drive live branch 1 assert `name === null`, and
+one of them says so in its own comment: *"THE VALUE HERE IS EXPECTED TO BE NULL."*
+
+⭐ **That DOCUMENTS the blind spot rather than covering it, and it makes `name: null` the
+ATTRACTIVE tidy-up rather than an unlikely one** - a future reader finds two tests agreeing the
+value is null and concludes the expression is pointless. My round-36 three-mutant control set had
+the same hole: delete the key / delete a sibling / unguard the ternary, and NONE of them
+substitutes a constant for the read.
+
+⚠️ **Latent today, and the reviewer MEASURED why rather than asserting it**: `engine/runningas.js`
+has `const id = codex ? null : identityOf(configDir)`, so a codex read never supplies
+`seen.account`; branch 1 is Claude-only, where `readName` returns null for every dir. **It diverges
+the moment #2790 lands a codex account lookup** - which is exactly when nobody will be looking at
+this line.
+
+✅ New arm drives branch 1 with a dir that HAS a sidecar and asserts `name === 'Work'`, then
+asserts the SENTENCE says "runs on Work" - because pinning a field nobody renders would be the same
+mistake one layer down. Three arms on one field now, each killing a different mutant:
+
+```
+delete the key                      -> "#2811 PARITY: the live branch that HAS an account…"
+unguard the falsy dir               -> "a falsy configDir let readName resolve the PROCESS CWD…"
+replace the read with a constant    -> "live branch 1 does not READ the sidecar…"
+```
+
+⭐ **THE GENERAL SHAPE, AND IT IS WHY THREE ROUNDS WERE NEEDED FOR ONE LINE: an expression has more
+than one thing to get wrong, and an arm that pins one of them reads as if it pinned all.** Key
+presence, the guard, and the read are three independent claims about
+`seen.configDir ? readName(seen.configDir) : null`. Each needed its own mutant, and each time I
+believed the line was covered.
+
+📌 Round 37 also CONFIRMED the round-36 arm sound: CWD restored in `finally` before
+`board.restore()`, `fleet.install` has no `process.cwd()` dependence, it is the last test in a file
+node runs in its own process, and my "295" was 290 + 5 rather than a drifted count.
