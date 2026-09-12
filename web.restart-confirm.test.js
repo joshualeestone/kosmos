@@ -135,10 +135,37 @@ test('every accidental dismissal lands on leaving it running', () => {
      the reason it can afford to be loud. */
   assert.match(SCRIPT, /getElementById\('rst-modal'\)\.addEventListener\('click'[\s\S]{0,200}closeRestartModal/,
     'clicking the backdrop does not leave it running');
-  assert.match(SCRIPT, /if \(!document\.getElementById\('rst-modal'\)\.hidden\) closeRestartModal\(\)/,
+  assert.match(SCRIPT, /if \(!document\.getElementById\('rst-modal'\)\.hidden && !RST_BUSY\) closeRestartModal\(\)/,
     'Escape does not leave it running');
   assert.match(page.lift(SCRIPT, 'openRestartModal'), /getElementById\('rst-keep'\)\.focus\(\)/,
     'the dialog opens with focus on the destructive answer');
+});
+
+/* #2831: once the restart is POSTed and the K-loader interstitial is holding, a
+   dismissal is a lie -- "leave it running" is no longer an available outcome, so
+   Escape and the backdrop must NOT close the modal mid-restart. This is the same
+   gate the model/provider changeDialog puts on its own Escape (goBtn.disabled),
+   and this path reuses that flow's loader, so it reuses its exit rule. Asserted as
+   the presence of the RST_BUSY guard on BOTH exits, and that the flag is actually
+   raised while the interstitial holds and lowered when it ends. */
+test('during the restart interstitial, Escape and the backdrop do not dismiss (#2831)', () => {
+  /* Both exits carry the busy guard, not just one -- the backdrop and Escape lose
+     the same thing, so guarding one only would leave the other able to close onto
+     the board while the restart proceeds behind it. */
+  assert.match(SCRIPT, /if \(e\.target\.id === 'rst-modal' && !RST_BUSY\) closeRestartModal\(\)/,
+    'the backdrop still closes during the restart hold');
+  assert.match(SCRIPT, /if \(!document\.getElementById\('rst-modal'\)\.hidden && !RST_BUSY\) closeRestartModal\(\)/,
+    'Escape still closes during the restart hold');
+  /* The flag is real: raised entering the interstitial and lowered on every exit
+     (the success tail and the shared restoreConfirm for refusal/error), so it does
+     not latch true and wedge the dialog shut after the restart resolves. */
+  const go = SCRIPT.slice(SCRIPT.indexOf("getElementById('rst-go').addEventListener"));
+  const body = go.slice(0, go.indexOf('\n});'));
+  assert.match(body, /RST_BUSY = true;/, 'the busy flag is never raised, so the exits never gate');
+  assert.match(body, /RST_BUSY = false;/, 'the busy flag is never lowered, so the dialog latches shut');
+  /* openRestartModal also lowers it, so a dialog reopened after any path starts unblocked. */
+  assert.match(page.lift(SCRIPT, 'openRestartModal'), /RST_BUSY = false;/,
+    'a fresh open does not inherit a stuck busy flag');
 });
 
 test('the commitment text is escaped, because an agent wrote it', () => {

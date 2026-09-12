@@ -27859,6 +27859,14 @@ function restartCost(shown, rec) {
 
 let RST_FOR = null;      // the button that opened it, so the receipt lands there
 let RST_RETURN = null;   // focus goes back where it came from
+/* #2831: true while the restart is in flight and the K-loader interstitial holds.
+   Once the restart has been POSTed there is nothing left to cancel, so Escape and
+   the backdrop must NOT close the modal: "leave it running" is no longer an
+   available outcome, and a key that silently means the opposite of what it says is
+   worse than one that does nothing. This is the same gate the model/provider
+   changeDialog puts on its own Escape (`goBtn.disabled`); this path reuses that
+   flow's loader, so it must reuse its exit rule too. */
+let RST_BUSY = false;
 
 function openRestartModal(btn, name) {
   const card = (LAST || []).find((a) => a && a.sessionName === name) || CURRENT;
@@ -27878,6 +27886,7 @@ function openRestartModal(btn, name) {
   document.getElementById('rst-small').hidden = false;
   document.getElementById('rst-cost').hidden = false;
   document.getElementById('rst-keep').hidden = false;
+  RST_BUSY = false;   // #2831: a fresh open is never mid-restart
   const go = document.getElementById('rst-go');
   go.hidden = false;
   go.disabled = false;
@@ -27908,24 +27917,31 @@ function closeRestartModal() {
 document.getElementById('rst-keep').addEventListener('click', closeRestartModal);
 /* Backdrop and Escape both mean leave it running. Every accidental dismissal
    lands on the harmless answer, which is what makes the dialog safe to be
-   loud. */
+   loud. #2831: EXCEPT while RST_BUSY -- once the restart is POSTed and the
+   K-loader is holding, dismissing would not cancel it (it is already happening),
+   so both exits no-op rather than closing onto the board while the operation and
+   its receipt continue behind. Same rule as changeDialog's `goBtn.disabled` gate. */
 document.getElementById('rst-modal').addEventListener('click', (e) => {
-  if (e.target.id === 'rst-modal') closeRestartModal();
+  if (e.target.id === 'rst-modal' && !RST_BUSY) closeRestartModal();
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (!document.getElementById('rst-modal').hidden) closeRestartModal();
+  if (!document.getElementById('rst-modal').hidden && !RST_BUSY) closeRestartModal();
 });
 /* Focus stays in the dialog while it is open, and the ends are the buttons that
    can actually TAKE focus: a disabled one is not in the tab order, and treating
    it as an end leaks a Tab to the board behind an `aria-modal` that promises
-   otherwise. Both facts are the removal dialog's, learned there first. */
+   otherwise. Both facts are the removal dialog's, learned there first. #2831: also
+   exclude a HIDDEN button -- during the interstitial the confirm controls are
+   display:none, and focusing one silently no-ops, which used to leave the trap
+   pointing at nothing. Excluding hidden makes `reachable` empty then, so Tab
+   correctly does nothing rather than aiming focus at an invisible control. */
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Tab') return;
   const box = document.getElementById('rst-modal');
   if (box.hidden) return;
   const reachable = [document.getElementById('rst-keep'), document.getElementById('rst-go')]
-    .filter((el) => !el.disabled);
+    .filter((el) => !el.disabled && !el.hidden);
   if (!reachable.length) return;
   const order = e.shiftKey ? reachable.slice().reverse() : reachable;
   const inside = box.contains(document.activeElement);
@@ -28001,7 +28017,9 @@ document.getElementById('rst-go').addEventListener('click', async () => {
   };
   const clearLoader = () => { document.getElementById('rst-msg').innerHTML = ''; };
   // Enter the interstitial: hide the confirm content, mount + drive the branded loader.
+  // RST_BUSY gates the Escape/backdrop exits (the restart is now committed).
   go.disabled = true;
+  RST_BUSY = true;
   showConfirm(false);
   document.getElementById('rst-msg').innerHTML = RESTART_BUSY_HTML;
   const kcv = document.getElementById('rst-msg').querySelector('canvas.chg-restart-k');
@@ -28012,7 +28030,7 @@ document.getElementById('rst-go').addEventListener('click', async () => {
      always holds RESTART_HOLD_MS. Same test seam the model/provider interstitial uses. */
   const holdMs = (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS);
   // The confirm view, restored so the person can retry after a refusal or an error.
-  const restoreConfirm = () => { clearLoader(); showConfirm(true); go.textContent = wasGo; go.disabled = false; };
+  const restoreConfirm = () => { RST_BUSY = false; clearLoader(); showConfirm(true); go.textContent = wasGo; go.disabled = false; };
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/restart', { method: 'POST' });
     const out = await res.json().catch(() => null);
@@ -28088,14 +28106,26 @@ document.getElementById('rst-go').addEventListener('click', async () => {
        site and the synchronous write this replaced: on the detail page the note
        stays connected through tick, so it must not sit blank during that fetch. */
     showNote('Restarted. Waking them…');
-    /* Tear the loader down and restore the confirm view before closing (openRestartModal
-       also resets these on the next open; restoring here keeps a reopen clean either way,
-       and the innerHTML clear detaches the loader canvas so its rAF loop bails at once). */
-    clearLoader();
-    showConfirm(true);
-    go.textContent = wasGo;
-    go.disabled = false;
-    closeRestartModal();
+    /* #2831: only mutate the shared modal DOM if this handler still owns it. RST_BUSY
+       now blocks an Escape/backdrop dismissal during the hold, so in practice RST_FOR
+       is still `btn` here -- but the modal (rst-msg/rst-keep/rst-go/rst-modal) is a
+       singleton, so if any future path did let a newer openRestartModal replace it
+       mid-hold, tearing down the loader / restoring the confirm view / closing would
+       stomp that newer modal. Re-checking ownership makes the tail a no-op in that
+       case rather than a silent stomp. The receipt (showNote, guarded on CURRENT) and
+       the wake hello are unaffected -- they are owed regardless of what is on screen. */
+    const stillMine = (RST_FOR === btn);
+    if (stillMine) {
+      /* Tear the loader down and restore the confirm view before closing (openRestartModal
+         also resets these on the next open; the innerHTML clear detaches the loader canvas
+         so its rAF loop bails at once). */
+      RST_BUSY = false;
+      clearLoader();
+      showConfirm(true);
+      go.textContent = wasGo;
+      go.disabled = false;
+      closeRestartModal();
+    }
     await tick();
     /* autoHelloAfterRestart resolves the note to "said hello" once the agent is
        back, or to the manual line if it does not come back in time. Fire-and-forget:

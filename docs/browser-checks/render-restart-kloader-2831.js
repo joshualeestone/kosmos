@@ -154,12 +154,23 @@ function initStub() {
     // sawUnready guard never observes the gap and falls to the manual line. Same value
     // render-autohello-2686's success arm uses, for the same reason.
     window.__readyAfterCalls = 2; window.__statusSinceRestart = 0;
-    window.__kosmosRestartHoldMs = 300;   // long enough to observe the held interstitial, fast to pass
+    // 800ms hold: comfortably longer than the box's worst-case click latency, so the
+    // interstitial reliably outlives the observe step below even under heavy contention.
+    // (A tight hold raced: page.click itself can resolve late enough on a loaded box that
+    // the hold elapses before the capture, false-redding a correct handler.)
+    window.__kosmosRestartHoldMs = 800;
     document.querySelector('#__ah .instr-restart-note').textContent = '';
     openRestartModal(document.querySelector('#__ah [data-restart-agent]'), 'april');
   });
   await page.click('#rst-go');
-  await page.waitForTimeout(80);   // interstitial up, well inside the 300ms hold
+  // Race-free: wait for the interstitial to actually appear rather than a fixed sleep, then a
+  // short beat so startKLoader's rAF has painted a frame before loaderPaints() reads pixels.
+  await page.waitForFunction(
+    () => !document.getElementById('rst-modal').hidden
+      && !!document.querySelector('#rst-modal #rst-msg canvas.chg-restart-k'),
+    { timeout: 3000 },
+  ).catch(() => {});
+  await page.waitForTimeout(120);
   const busy = await page.evaluate(() => ({
     modalOpen: document.getElementById('rst-modal').hidden === false,
     hasCanvas: !!document.querySelector('#rst-modal #rst-msg canvas.chg-restart-k'),
@@ -200,6 +211,46 @@ function initStub() {
   check('SUCCESS: the receipt reaches the placed line WITH the say-hello nudge (#2831)', done.note === PLACED, JSON.stringify(done.note));
   check('SUCCESS: the modal closes and the loader canvas is DETACHED afterwards (its rAF loop bails, no leak)',
     done.modalHidden && done.canvasDetached, JSON.stringify(done));
+
+  // ---- Arm 1b: DISMISSAL IS BLOCKED WHILE THE INTERSTITIAL HOLDS (#2831 W1). The restart is
+  //             already POSTed, so Escape and a backdrop click must NOT close the modal -- "leave
+  //             it running" is no longer available. A long hold gives a comfortable window to try
+  //             both, then the restart is allowed to complete normally.
+  await page.evaluate(() => {
+    window.__posted = [];
+    window.__restartOutcome = 'restarted';
+    window.__readyAfterCalls = 2; window.__statusSinceRestart = 0;
+    window.__kosmosRestartHoldMs = 900;   // comfortable window to attempt a dismissal mid-hold
+    document.querySelector('#__ah .instr-restart-note').textContent = '';
+    openRestartModal(document.querySelector('#__ah [data-restart-agent]'), 'april');
+  });
+  await page.click('#rst-go');
+  await page.waitForTimeout(120);           // inside the 900ms hold, interstitial up
+  await page.keyboard.press('Escape');      // must be a no-op while RST_BUSY
+  await page.evaluate(() => {                // backdrop click must be a no-op too
+    const m = document.getElementById('rst-modal');
+    m.dispatchEvent(new MouseEvent('click', { bubbles: true }));   // e.target === #rst-modal
+  });
+  await page.waitForTimeout(60);
+  const duringDismiss = await page.evaluate(() => ({
+    modalOpen: document.getElementById('rst-modal').hidden === false,
+    loaderStillUp: /Restarting the agent/i.test(document.getElementById('rst-msg').innerHTML),
+    busyFlag: (typeof RST_BUSY !== 'undefined') ? RST_BUSY : null,
+  }));
+  // Then let it finish and confirm it still resolves normally (the guard did not wedge it shut).
+  await page.waitForFunction(() => {
+    const t = (document.querySelector('#__ah .instr-restart-note') || {}).textContent || '';
+    return t && !/Waking them/.test(t);
+  }, { timeout: 4000 }).catch(() => {});
+  const afterDismiss = await page.evaluate(() => ({
+    modalHidden: document.getElementById('rst-modal').hidden === true,
+    busyFlag: (typeof RST_BUSY !== 'undefined') ? RST_BUSY : null,
+    note: (document.querySelector('#__ah .instr-restart-note') || {}).textContent || '',
+  }));
+  check('DISMISS-BLOCKED: Escape and a backdrop click during the hold do NOT close the modal (the restart is committed)',
+    duringDismiss.modalOpen && duringDismiss.loaderStillUp && duringDismiss.busyFlag === true, JSON.stringify(duringDismiss));
+  check('DISMISS-BLOCKED: after the restart resolves the modal closes and the busy flag is cleared (the guard did not wedge it shut)',
+    afterDismiss.modalHidden && afterDismiss.busyFlag === false && afterDismiss.note === PLACED, JSON.stringify(afterDismiss));
 
   // ---- Arm 2: REFUSED. No hold on failure -- the failure line shows at once even with a LONG
   //             hold set, the confirm controls come back, and no loader canvas is left mounted.
