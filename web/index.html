@@ -2067,6 +2067,19 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 .usage-money-basis b { color: var(--k-ink); }
 .usage-meas { margin: 24px 0 0; }
 .usage-meas h4 { color: var(--k-ink); font: 600 .9375rem var(--font-ui); margin: 0 0 10px; }
+/* #2840: the scrollable usage-history list (Mona's token-value design, ported to the
+   app's --k-* tokens). A fixed-height scroll box; the header sticks. Same right-aligned
+   tabular numerics as .usage-table so magnitudes line up. */
+.usage-hist { margin: 24px 0 0; }
+.usage-hist h4 { color: var(--k-ink); font: 600 .9375rem var(--font-ui); margin: 0 0 6px; }
+#usage-history { margin-top: 12px; border: 1px solid var(--k-rule); border-radius: 12px; max-height: 520px; overflow-y: auto; }
+.uhrow { display: grid; grid-template-columns: 1.1fr 1.3fr 1fr 1fr; gap: 10px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--k-rule); font-size: .84rem; }
+.uhrow:first-child { border-top: none; }
+.uhrow.uhhead { position: sticky; top: 0; background: var(--k-bg); font-size: .7rem; text-transform: uppercase; letter-spacing: .07em; color: var(--k-ink-2); font-weight: 600; z-index: 1; }
+.uhrow .uh-d { font-weight: 600; color: var(--k-ink); }
+.uhrow .uh-m { color: var(--k-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uhrow .uh-n { text-align: right; font-variant-numeric: tabular-nums; color: var(--k-ink-2); }
+.uhrow .uh-stub { font-style: italic; }
 .dstack { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 14px; }
 .dstack > .dbox { align-self: stretch; }
 /* The agent page's left nav (Mona Lisa's agent-page mock, 2026-08-22). A
@@ -12176,6 +12189,19 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <!-- Filled by usageLegendHtml() from the shared USAGE_CLASS_COLORS, so the
              swatches cannot drift from the polyline colors they explain. -->
         <div id="usage-legend" class="usage-legend"></div>
+      </div>
+      <!-- #2840 (Mona's 0.6.57 token-value design): the scrollable usage-history
+           list, above the estimate note. Newest day+model first, fixed-height
+           scroll. Day / Model / Total tokens / Value.
+           🛑 THE VALUE COLUMN IS STUBBED (renders "pending", never a live $)
+           pending Josh's ruling on the blend-vs-output headline: the design
+           derives Value from a BLENDED total of all four classes, which #2617
+           deliberately refused (cache_read ~440x output). The real math drops in
+           at usageHistoryHtml once he decides. See .claude/plans/token-value-2840.md. -->
+      <div class="usage-hist">
+        <h4>Usage history</h4>
+        <p class="dhint">Your most recent days, newest first. It scrolls when the history runs long. Value is pending a pricing decision.</p>
+        <div id="usage-history"></div>
       </div>
       <!-- The engineering-equivalent line, quoted against OUTPUT tokens and
            saying so in the sentence itself. It sits BELOW the cards and chart on
@@ -23836,6 +23862,49 @@ function usageTableHtml(byDay) {
     + '<th>Day</th><th>Model</th><th>Input</th><th>Output</th><th>Cache written</th><th>Cache read</th>'
     + '</tr></thead><tbody>' + rows.join('') + '</tbody></table>';
 }
+/* #2840: compact token count for the usage-history list (Mona's design uses B/M/K
+   abbreviations so hundreds of scrolling rows stay legible). The full number rides
+   the row's title attr, so precision is one hover away and #2617's "shown in full"
+   value is not lost. Pure + node-tested. */
+function usageAbbr(n) {
+  const v = Number(n) || 0;
+  if (v >= 1e9) return (v / 1e9).toFixed(v >= 1e10 ? 0 : 1) + 'B';
+  if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+  if (v >= 1e3) return (v / 1e3).toFixed(0) + 'K';
+  return String(v);
+}
+/* 🛑 THE VALUE COLUMN STUB (#2840). The design derives a per-row dollar Value from a
+   BLENDED total of all four token classes; #2617 deliberately refused to blend
+   (cache_read ~440x output, so a blended figure is ~440x too large, and its money box
+   is output-only "so a large number is never turned into a large dollar amount it did
+   not earn"). Blend-vs-output is a Josh call on his #1 demo headline, unsettled as this
+   ships. So Value renders a visible "pending", never a live number. Replace this with
+   the real per-row math once Josh rules (and pin it in the node test then). */
+const USAGE_VALUE_STUB = '<span class="uh-stub" title="Value is pending a pricing decision (kosmos#2840)">pending</span>';
+/* #2840: the scrollable usage-history list -- one row per day+model, newest first,
+   matching Mona's 0.6.57 token-value design. Day / Model / Total tokens / Value.
+   Total is the row's own 4-class sum (a labeled per-row breakdown, not the single
+   blended HEADLINE #2617 rejects); Value is stubbed (see USAGE_VALUE_STUB). Pure so
+   the node test can lift it out and run it against a fixture, like its siblings. */
+function usageHistoryHtml(byDay) {
+  const days = Object.keys(byDay || {}).sort().reverse();
+  const rows = [];
+  for (const day of days) {
+    const models = byDay[day] || {};
+    for (const model of Object.keys(models).sort()) {
+      const b = models[model] || {};
+      const total = (Number(b.input_tokens) || 0) + (Number(b.output_tokens) || 0)
+        + (Number(b.cache_creation_input_tokens) || 0) + (Number(b.cache_read_input_tokens) || 0);
+      rows.push('<div class="uhrow"><div class="uh-d">' + esc(day) + '</div>'
+        + '<div class="uh-m">' + esc(model) + '</div>'
+        + '<div class="uh-n" title="' + usageNum(total) + '">' + esc(usageAbbr(total)) + '</div>'
+        + '<div class="uh-n">' + USAGE_VALUE_STUB + '</div></div>');
+    }
+  }
+  if (!rows.length) return '';
+  return '<div class="uhrow uhhead"><div>Day</div><div>Model</div><div class="uh-n">Total tokens</div><div class="uh-n">Value</div></div>'
+    + rows.join('');
+}
 let USAGE_BUSY = false;
 async function paintUsage() {
   const msg = document.getElementById('usage-msg');
@@ -23845,6 +23914,7 @@ async function paintUsage() {
   const legend = document.getElementById('usage-legend');
   const money = document.getElementById('usage-worth');
   const box = document.getElementById('usage-table');
+  const history = document.getElementById('usage-history'); // #2840: the scrollable usage-history list
   if (!msg || !box || USAGE_BUSY) return;
   USAGE_BUSY = true;
   msg.textContent = 'Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.';
@@ -23863,6 +23933,7 @@ async function paintUsage() {
       if (chartWrap) chartWrap.hidden = true;
       if (money) money.innerHTML = '';
       box.innerHTML = '';
+      if (history) history.innerHTML = '';
       return;
     }
     const totals = usageTotals(byDay);
@@ -23873,6 +23944,7 @@ async function paintUsage() {
     if (chartWrap) chartWrap.hidden = !svg;
     if (money) money.innerHTML = usageMoneyHtml(totals);
     box.innerHTML = usageTableHtml(byDay);
+    if (history) history.innerHTML = usageHistoryHtml(byDay);
     if (!box.innerHTML) {
       msg.textContent = 'No usage recorded in the last fourteen days.';
       if (cards) cards.innerHTML = '';
@@ -23880,6 +23952,7 @@ async function paintUsage() {
       if (legend) legend.innerHTML = '';
       if (chartWrap) chartWrap.hidden = true;
       if (money) money.innerHTML = '';
+      if (history) history.innerHTML = '';
       return;
     }
     /* Said plainly rather than implied: this counts what was found on this
@@ -23897,6 +23970,7 @@ async function paintUsage() {
     if (chartWrap) chartWrap.hidden = true;
     if (money) money.innerHTML = '';
     box.innerHTML = '';
+    if (history) history.innerHTML = '';
   } finally {
     USAGE_BUSY = false;
   }
