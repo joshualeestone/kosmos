@@ -15,14 +15,14 @@ it here); the MISLABEL is a real defect to fix now; the install-time disclosure
 
 ## Scope (comment-only; NO behavior, NO default, NO user-facing string change)
 
-Fix the "opt-in" mislabels of this send path to match the opt-out behavior. Seven
+Fix the "opt-in" mislabels of this send path to match the opt-out behavior. Eight
 comment sites across six files (the initial three, plus feedbackpull.js and the
-ping.js header found in challenge-loop iter 1, plus install/kosmos and feedback.js
-found in the iter-2 proactive sweep):
+ping.js header found in iter 1, install/kosmos and feedback.js found in the iter-2
+proactive sweep, and a second server.js site found in iter 4):
 
 1. `server.js:410` -- the require comment: "the opt-in-gated send layer" ->
    "daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in".
-2. `engine/ping.js:22-26` -- the installId privacy comment. It falsely reassured
+2. `engine/ping.js:24-31` -- the installId privacy comment. It falsely reassured
    that installId is "read only by features the person opted into" and "None of
    those send it anywhere the person did not ask for". Corrected: installId leaves
    the Mac BY DEFAULT via the default-on feedback report until the person opts out;
@@ -43,11 +43,20 @@ found in the iter-2 proactive sweep):
    "The send switch (default-on / opt-out, #2013) governs TRANSMISSION only", and
    "reads a send/opt-in flag" -> "reads a send flag". (This file stores locally
    regardless of the switch; the switch is the send toggle, not an opt-in.)
+8. `server.js:4785` -- the LOCAL feedback route comment "this route never touches
+   a send/opt-in flag" -> "never touches the send flag (default-on / opt-out, #2013)".
+   Same bare phrase as feedback.js:13, in the sibling local-read route.
 
 Note on the surviving "opt-in" references NOT changed: server.js:4757, server.js:12406,
 feedbacksend.js:68/422 each pair "opt-in" with an explicit "default ON / opts out",
 which is the repo's accepted "default-checked opt-in" terminology, so they are accurate
 in context and left as-is. Only the BARE, unqualified "opt-in" labels were mislabels.
+
+One bare instance is DELIBERATELY left for a follow-up: `feedbacksend.js:344`
+("a send only happens when the opt-in is on") is unqualified, but feedbacksend.js is
+the DEFAULT's own file, kept untouched here so this label-only PR does not intersect
+the default change (Josh's call). Noted on card #2957 for a follow-up sweep of
+feedbacksend.js's own internal "opt-in" phrasings once the default is ruled.
 
 ## Explicitly out of scope
 
