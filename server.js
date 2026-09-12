@@ -262,6 +262,45 @@ const worlds = require('./engine/worlds'); // #1704: the multiple-Kosmos registr
    /api/worlds routes fall back to the live baseRoot -- correct then because no
    override was set. `worldRegistryBase` is declared at the top of the file. */
 function worldBase() { return worldRegistryBase || worlds.baseRoot(process.env); }
+const launchidentityModule = require('./engine/launchidentity'); // #2935: the world-keyed launchKey, to end a hidden world's sessions
+/* #2935: hiding a Kosmos STOPS (never deletes) its agents, so they do not keep running for a
+   Kosmos that is no longer on the list. Reversible and best-effort, deliberately SEPARATE from the
+   hide: the hide is already complete and reversible without it (files + jobs stay on disk), so a
+   failure here never fails the hide. Each agent's launch job is disabled (a login cannot revive it)
+   and booted out (its KeepAlive supervisor stops respawning it), cross-platform via the remove.js
+   primitives -- the same reversible stop `worldstarts.pauseForSwitch` performs on a switch-away,
+   minus its paused-record: a hidden Kosmos is never the booted one, so that record would land in
+   the wrong world's store, and Josh ruled no restore. The already-running session is a separate
+   process, so it is also ended, keyed by launchKey and `=`-anchored (an exact match, or a clean
+   "already gone" -- it can never end another agent's session). `unsafeToActOn` and jobFor's
+   `ours` guard keep it from ever touching the operator's own PM or a job Kosmos did not write.
+   Returns { stopped: [names], kept: [names] } for the response and the log. */
+function stopHiddenWorldAgents(base, world) {
+  const stopped = [];
+  const kept = [];
+  let names = [];
+  try { names = worlds.worldProfileNames(base, world) || []; }
+  catch { return { stopped, kept }; }
+  const platform = process.platform;
+  const ops = removal.jobOps(platform);
+  const sessions = removal.sessionOps(platform);
+  for (const name of names) {
+    try {
+      if (removal.unsafeToActOn(name)) { kept.push(name); continue; }
+      let job = null;
+      try { job = removal.jobFor(name, platform, world.id); } catch { job = null; }
+      if (!job || job.ours === false) { kept.push(name); continue; }
+      // Disable BEFORE bootout: a login between them would bring it back (remove.js's window).
+      const off = ops.disable(name, job) !== false;
+      const down = ops.stopNow(name, job) !== false;
+      // Best-effort: end the running session too. The job's disable+bootout is the definitive
+      // reversible stop, so classification turns on that; ending the session is cleanup.
+      try { sessions.end(launchidentityModule.launchKey(name, world.id)); } catch { /* best-effort */ }
+      if (off && down) stopped.push(name); else kept.push(name);
+    } catch { kept.push(name); }
+  }
+  return { stopped, kept };
+}
 /* #1704: translate engine.worlds errors into something a person creating a Kosmos
    can read. store.safeKey (reused for the world id) throws "invalid agent name",
    which is wrong wording for a world; the others are already clear. */
@@ -3415,14 +3454,13 @@ const server = http.createServer((req, res) => {
           if (code === 'EWORLDLOCK') { sendJson(res, 409, { ok: false, because: 'another Kosmos operation is in progress, try again in a moment' }); return; }
           sendJson(res, 500, { ok: false, because: 'we could not hide that Kosmos' }); return;
         }
-        /* TODO(#2935 next step, in this branch): STOP (not delete) this world's agents so they do
-           not keep running for a hidden Kosmos -- Josh left the agent handling to the builder (Q2),
-           reversible. Cross-platform via the remove.js primitives (jobOps: launchctl disable+bootout
-           on Mac, schtasks /Change /DISABLE + /End on Windows), enumerating agents whose launchKey
-           carries this world's id (launchidentity.launchKey / parseKey). It is deliberately SEPARATE
-           from the hide itself: the hide is complete and reversible without it (files + agents stay
-           on disk), so the agent-stop must be best-effort and never fail the hide. Not yet wired. */
-        sendJson(res, 200, { ok: true, world });
+        /* STOP (not delete) this world's agents so they do not keep running for a hidden Kosmos.
+           Best-effort and reversible; it can never fail the hide (the hide already succeeded above,
+           and stopHiddenWorldAgents swallows its own errors). See its definition for the model. */
+        let agents = { stopped: [], kept: [] };
+        try { agents = stopHiddenWorldAgents(base, world); }
+        catch (err) { process.stderr.write(`Kosmos hid ${world.id} but could not stop its agents: ${String((err && err.message) || err)}\n`); }
+        sendJson(res, 200, { ok: true, world, agents });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
