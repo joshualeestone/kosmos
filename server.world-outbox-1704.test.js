@@ -93,17 +93,25 @@ test('CONTROL: an absent header is today\'s behaviour, and a same-world header i
   }
 });
 
-test('a never-booted board is the default world: default (or empty) passes, a named Kosmos is refused', async () => {
-  stubBooted(null);
-  const named = await post('/api/reply', { [WORLD_HEADER]: 'default' }, {});
-  await named.text();
-  assert.notEqual(named.status, 421);
-  const empty = await post('/api/reply', { [WORLD_HEADER]: '' }, {});
-  await empty.text();
-  assert.notEqual(empty.status, 421, 'an empty world is the default world, exactly as KOSMOS_WORLD="" is');
+test('the default world: "default" or an empty header passes, a named Kosmos is refused', async () => {
+  stubBooted('default');
+  for (const named of ['default', '']) {
+    const r = await post('/api/reply', { [WORLD_HEADER]: named }, {});
+    await r.text();
+    assert.notEqual(r.status, 421, JSON.stringify(named) + ' is the default world, exactly as KOSMOS_WORLD="" is');
+  }
   const other = await post('/api/reply', { [WORLD_HEADER]: 'mars' }, {});
   assert.equal(other.status, 421);
   assert.equal((await other.json()).serving, 'default');
+});
+
+test('a never-booted board (bootedWorld null) is "unknown", worldenv\'s own rule, so it refuses nothing (review round 1)', async () => {
+  stubBooted(null);
+  for (const named of ['default', '', 'mars']) {
+    const r = await post('/api/reply', { [WORLD_HEADER]: named }, {});
+    await r.text();
+    assert.notEqual(r.status, 421, 'an unknown booted world cannot be a mismatch (' + JSON.stringify(named) + ')');
+  }
 });
 
 test('a route that is not an agent send ignores the header (kosmos open\'s board-nonce carries it too)', async () => {
@@ -209,4 +217,20 @@ test('drain: a kept post goes through the same function as /api/post (the same a
   assert.equal(value.waiting, 1);
   assert.ok(log.includes(live.delivery.because), 'the drain met the route\'s own refusal: ' + log);
   clearOutbox();
+}));
+
+test('drain: a pass stops at its cap, and the next pass carries on where it stopped (review round 1)', () => withFleet(() => {
+  clearOutbox();
+  outbox.keep({ verb: 'reply', body: { text: 'first of two' }, from: 'ava' });
+  outbox.keep({ verb: 'reply', body: { text: 'second of two' }, from: 'ava' });
+  const first = drainOutboxNow({ maxDeliveries: 1 });
+  assert.equal(first.delivered, 1);
+  assert.ok(first.next, 'the board hears where to carry on');
+  assert.equal(outbox.list().length, 1, 'the rest waits for the next pass');
+  const second = drainOutboxNow({ after: first.next, maxDeliveries: 1 });
+  assert.equal(second.delivered, 1);
+  assert.equal(second.next, null);
+  assert.deepEqual(outbox.list(), []);
+  const texts = chat.readThread(chat.DIRECT, 'ava').messages.map((m) => m.text);
+  assert.ok(texts.includes('first of two') && texts.includes('second of two'));
 }));

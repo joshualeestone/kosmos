@@ -31,6 +31,15 @@ function clear() { fs.rmSync(outbox.outboxDir(), { recursive: true, force: true 
 function names() { try { return fs.readdirSync(outbox.outboxDir()).sort(); } catch { return []; } }
 const quiet = () => {};
 
+/* An entry with a chosen id, so a test that depends on send order does not rest
+   on two keeps landing in different milliseconds. */
+function plant(n, entry) {
+  fs.mkdirSync(outbox.outboxDir(), { recursive: true });
+  const id = String(1700000000000 + n) + '-' + String(n).padStart(8, '0');
+  fs.writeFileSync(path.join(outbox.outboxDir(), id + '.json'), JSON.stringify({ at: new Date().toISOString(), ...entry }));
+  return id;
+}
+
 test('keep writes one owner-only entry under store.ROOT/outbox, and list and remove round-trip it', () => {
   clear();
   assert.equal(outbox.outboxDir(), path.join(store.ROOT, 'outbox'), 'the outbox lives in this world\'s own store');
@@ -56,7 +65,7 @@ test('list is oldest first, ignores what is not an entry, and reports a damaged 
   fs.writeFileSync(path.join(outbox.outboxDir(), second.id + '.json.kosmos-1-t0-1-1.tmp'), '{}');
   fs.writeFileSync(path.join(outbox.outboxDir(), '0000000000001-deadbeef.json'), 'not json');
   const listed = outbox.list();
-  assert.deepEqual(listed.map((x) => x.id), ['0000000000001-deadbeef', first.id, second.id]);
+  assert.deepEqual(listed.map((x) => x.id), ['0000000000001-deadbeef', ...[first.id, second.id].sort()]);
   assert.equal(listed[0].entry, null);
   assert.match(listed[0].because, /not JSON/);
 });
@@ -94,14 +103,15 @@ test('a full outbox refuses the next keep with a sentence and keeps everything i
   clear();
 });
 
-test('from: the launch token wins, the pane is the fallback, and neither is a refusal', () => {
+test('from: the launch token wins, an agent\'s pane is the fallback, and neither is a refusal', () => {
   const minted = sendertoken.mint('ava');
   assert.equal(minted.ok, true);
   assert.deepEqual(outbox.resolveKeepSender({ KOSMOS_AGENT_TOKEN: minted.token }), { ok: true, name: 'ava' });
 
+  store.writeProfile('bo', { displayName: 'Bo' });
   const asked = [];
   const viaPane = outbox.resolveKeepSender({ TMUX_PANE: '%3' }, { paneSession: (p) => { asked.push(p); return { ok: true, session: 'bo' }; } });
-  assert.deepEqual(viaPane, { ok: true, name: 'bo' });
+  assert.deepEqual(viaPane, { ok: true, name: 'bo' }, 'an agent\'s own window: its session has a profile in this Kosmos');
   assert.deepEqual(asked, ['%3'], 'the pane asked is the one the agent runs in');
 
   const unknown = outbox.resolveKeepSender({ KOSMOS_AGENT_TOKEN: 'ab'.repeat(32), TMUX_PANE: '%3' }, { paneSession: () => ({ ok: true, session: 'bo' }) });
@@ -115,6 +125,25 @@ test('from: the launch token wins, the pane is the fallback, and neither is a re
   assert.equal(kept.ok, true);
   assert.equal(outbox.list()[0].entry.from, 'ava', 'the sender is decided at keep time, from the agent\'s own credential');
   clear();
+});
+
+test('a person\'s own tmux window is not an agent: the keep is refused, nothing is kept, and the command exits 1 (review round 1)', () => {
+  clear();
+  const personsWindow = { paneSession: () => ({ ok: true, session: 'josh-work' }) };
+  const refused = outbox.resolveKeepSender({ TMUX_PANE: '%9' }, personsWindow);
+  assert.equal(refused.ok, false, 'a window whose session has no profile in this Kosmos is not an agent');
+  assert.match(refused.because, /not one of your agents/);
+
+  const kept = outbox.keepFromClient({ verb: 'msg', body: { to: 'bo', text: 'from a person' }, env: { TMUX_PANE: '%9' }, seams: personsWindow });
+  assert.equal(kept.ok, false);
+  assert.deepEqual(outbox.list(), [], 'no "Kept." for a send the drain would only drop');
+
+  const bodyFile = path.join(SANDBOX, 'person-body.json');
+  fs.writeFileSync(bodyFile, JSON.stringify({ text: 'from a person', from_pane: '%9' }));
+  const said = [];
+  assert.equal(outbox.runKeepCommand(['keep', 'reply', bodyFile], { env: { TMUX_PANE: '%9' }, seams: personsWindow, out: (s) => said.push(s) }), 1);
+  assert.match(said[0], /not one of your agents/);
+  assert.deepEqual(outbox.list(), []);
 });
 
 test('runKeepCommand (install/kosmos\'s way in): the body comes from a file, the file is deleted, and the kept sentence is printed', () => {
@@ -146,9 +175,9 @@ test('drain: delivered is removed, a retry stays, and a msg is retried until it 
     deliverMsg: () => { tries += 1; return tries === 1 ? { outcome: 'retry', because: 'bo is not running' } : { outcome: 'delivered' }; },
     log: quiet,
   };
-  assert.deepEqual(outbox.drain(handlers), { delivered: 0, dropped: 0, waiting: 1 });
+  assert.deepEqual(outbox.drain(handlers), { delivered: 0, dropped: 0, waiting: 1, next: null });
   assert.equal(outbox.list().length, 1, 'a message that could not be placed yet is kept for the next drain');
-  assert.deepEqual(outbox.drain(handlers), { delivered: 1, dropped: 0, waiting: 0 });
+  assert.deepEqual(outbox.drain(handlers), { delivered: 1, dropped: 0, waiting: 0, next: null });
   assert.deepEqual(outbox.list(), []);
 });
 
@@ -185,4 +214,47 @@ test('drain: a dropped verdict removes, a damaged file is dropped, a throw is re
   assert.equal(given.dropped, 1);
   assert.deepEqual(expired, [['bo', 'bo is not running']]);
   assert.deepEqual(outbox.list(), []);
+});
+
+test('drain: a pass hands at most its cap to delivery, says where it stopped, and later passes deliver the rest (review round 1)', () => {
+  clear();
+  for (let i = 0; i < 5; i += 1) plant(i, { verb: 'reply', body: { text: 'r' + i }, from: 'ava' });
+  const delivered = [];
+  const handlers = { knownAgent: () => true, deliverReply: (e) => { delivered.push(e.body.text); return { outcome: 'delivered' }; }, log: quiet, maxDeliveries: 2 };
+  const first = outbox.drain(handlers);
+  assert.equal(first.delivered, 2);
+  assert.ok(first.next, 'a pass that stopped at its cap says where to carry on');
+  assert.equal(outbox.list().length, 3, 'the rest wait, untouched');
+  const second = outbox.drain({ ...handlers, after: first.next });
+  assert.equal(second.delivered, 2);
+  const third = outbox.drain({ ...handlers, after: second.next });
+  assert.equal(third.delivered, 1);
+  assert.equal(third.next, null, 'nothing left, so no next pass');
+  assert.deepEqual(delivered, ['r0', 'r1', 'r2', 'r3', 'r4'], 'oldest first, each once');
+  assert.deepEqual(outbox.list(), []);
+
+  for (let i = 0; i < outbox.MAX_DELIVERIES_PER_PASS + 3; i += 1) plant(i, { verb: 'reply', body: { text: 'd' + i }, from: 'ava' });
+  const byDefault = outbox.drain({ knownAgent: () => true, deliverReply: () => ({ outcome: 'delivered' }), log: quiet });
+  assert.equal(byDefault.delivered, outbox.MAX_DELIVERIES_PER_PASS, 'the default cap is the named constant');
+  assert.ok(byDefault.next);
+  clear();
+});
+
+test('drain: entries still waiting for a retry do not starve the ones behind them', () => {
+  clear();
+  for (let i = 0; i < 3; i += 1) plant(i, { verb: 'msg', body: { to: 'bo', text: 'm' + i }, from: 'ava' });
+  plant(3, { verb: 'reply', body: { text: 'the answer' }, from: 'ava' });
+  const handlers = {
+    knownAgent: () => true,
+    deliverMsg: () => ({ outcome: 'retry', because: 'bo is not running' }),
+    deliverReply: () => ({ outcome: 'delivered' }),
+    log: quiet,
+    maxDeliveries: 2,
+  };
+  const first = outbox.drain(handlers);
+  assert.deepEqual([first.delivered, first.waiting], [0, 2]);
+  const second = outbox.drain({ ...handlers, after: first.next });
+  assert.equal(second.delivered, 1, 'the reply behind two stuck messages is delivered in the same sweep');
+  assert.equal(outbox.list().length, 3, 'the stuck messages are still kept for a retry');
+  clear();
 });

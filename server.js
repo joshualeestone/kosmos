@@ -1367,15 +1367,22 @@ const WRONG_WORLD_STATUS = 421;
  * Loopback only: a network peer never learns the booted world this way. Nothing
  * new leaks to a local one either, since `x-kosmos-board: build@world` already
  * publishes the booted world on `GET /`. The booted world is read per request
- * (worldenv.bootedWorld; null before a boot is the default world).
+ * (worldenv.bootedWorld), and worldenv's own rule decides a null one: "unknown",
+ * not the default. That is only a board that was never bootstrapped (a unit
+ * test); a real boot always records a world, the default one on any failure.
+ * Unknown cannot be a mismatch, so it refuses nothing (review round 1). The
+ * header is read through the one rule every client applies
+ * (launchidentity.worldIdForHeader).
  */
 function wrongWorldRefusal(req, pathname) {
   if (!WORLD_CHECKED_AGENT_ROUTES.has(`${req.method} ${pathname}`)) return null;
   if (!isLoopbackPeer(req)) return null;
   const named = req.headers && req.headers[launchidentity.WORLD_HEADER];
   if (named === undefined) return null;
-  const serving = launchidentity.worldIdOrDefault(require('./engine/worldenv').bootedWorld());
-  if (launchidentity.worldIdOrDefault(String(named).trim()) === serving) return null;
+  const booted = require('./engine/worldenv').bootedWorld();
+  if (booted === null || booted === undefined) return null;
+  const serving = launchidentity.worldIdOrDefault(booted);
+  if (launchidentity.worldIdForHeader(named) === serving) return null;
   return {
     wrongWorld: true,
     serving,
@@ -1457,8 +1464,13 @@ function outboxOutcomeOf(delivery) {
  * through the same functions the routes use. A kept sender is trusted as the
  * name it was kept under once the drain has checked it is an agent here; its
  * card is the token path's paneless shape.
+ *
+ * One pass: `pass` ({after, maxDeliveries}, both optional) is handed to
+ * outbox.drain, which delivers at most outbox.MAX_DELIVERIES_PER_PASS entries and
+ * returns `next` when it stopped at that cap (startOutboxDrain carries on from
+ * there). Returns outbox.drain's summary.
  */
-function drainOutboxNow() {
+function drainOutboxNow(pass) {
   let roster;   // read once per drain, and only when a msg or a post needs it
   const rosterNow = () => (roster === undefined ? (roster = safeRoster()) : roster);
   const senderFor = (name) => ({ ok: true, card: { sessionName: name, isNamedOurs: true } });
@@ -1497,26 +1509,46 @@ function drainOutboxNow() {
     onExpired: (entry, because) => {
       if (entry.verb === 'msg') notDelivered(entry, 'it could not be placed for a week (' + because + ')');
     },
+    after: pass && pass.after,
+    maxDeliveries: pass && pass.maxDeliveries,
   });
 }
 
 /* How often a serving board looks for kept sends. A minute: the nudge sweep's
    cadence, and a kept reply waits at most this long after its Kosmos is opened
-   again (the first drain runs as soon as the board is up). */
+   again (the first sweep runs as soon as the board is up). */
 const OUTBOX_DRAIN_INTERVAL_MS = 60 * 1000;
 
-/* Start draining: once now, then every OUTBOX_DRAIN_INTERVAL_MS. Called from the
-   real-start path only, once the board is listening; never at require, so a
-   route test that requires this file drains nothing unless it asks to. */
+/* Start draining: a sweep now, then one every OUTBOX_DRAIN_INTERVAL_MS. A sweep is
+   a chain of passes of at most outbox.MAX_DELIVERIES_PER_PASS deliveries each,
+   every pass continuing where the last stopped, on the next turn of the event loop
+   (setImmediate), so the board serves requests between passes instead of holding
+   them for a whole outbox (review round 1). A tick that finds a sweep still
+   running skips it, so two sweeps never interleave. Called from the real-start
+   path only, once the board is listening; never at require, so a route test that
+   requires this file drains nothing unless it asks to. */
 function startOutboxDrain() {
-  const run = () => {
-    try { drainOutboxNow(); } catch (err) {
+  let sweeping = false;
+  const runPass = (after) => {
+    let summary = null;
+    try { summary = drainOutboxNow({ after }); } catch (err) {
       process.stderr.write(`Kosmos outbox: the drain failed and will run again in a minute: ${String(err && err.message)}\n`);
     }
+    if (summary && summary.next) {
+      const more = setImmediate(() => runPass(summary.next));
+      if (more && typeof more.unref === 'function') more.unref();
+      return;
+    }
+    sweeping = false;
   };
-  const first = setTimeout(run, 0);
+  const sweep = () => {
+    if (sweeping) return;
+    sweeping = true;
+    runPass(undefined);
+  };
+  const first = setTimeout(sweep, 0);
   if (first && typeof first.unref === 'function') first.unref();
-  const every = setInterval(run, OUTBOX_DRAIN_INTERVAL_MS);
+  const every = setInterval(sweep, OUTBOX_DRAIN_INTERVAL_MS);
   if (every && typeof every.unref === 'function') every.unref();
 }
 

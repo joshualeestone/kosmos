@@ -26,10 +26,11 @@
  *
  * ⚠️ `from` IS DECIDED AT KEEP TIME, in the agent's process, from the same
  * credentials its live sends present: the launch token first
- * (sendertoken.resolveName), else the tmux session its pane is in. It is not a
- * credential check at drain time: the drain only checks that the name is an
- * agent in the Kosmos it drains. That is the same-account trust the board.token
- * class already rests on (see the plan's "weakest part").
+ * (sendertoken.resolveName), else the tmux session its pane is in, and a pane
+ * only when that session is an agent in this store. It is not a credential check
+ * at drain time: the drain only checks that the name is an agent in the Kosmos it
+ * drains. That is the same-account trust the board.token class already rests on
+ * (see the plan's "weakest part").
  */
 
 const fs = require('node:fs');
@@ -64,6 +65,16 @@ const MAX_ENTRY_BYTES = 96 * 1024;
    (a marker in the text, a project that is gone). */
 const OUTBOX_RETRY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
+/* How many sends one drain pass hands to delivery. A msg or a post is tmux work
+   on the board's one thread, and a Codex recipient adds chat's blocking
+   CODEX_ENTER_GAP_MS pause per send, all right as the person reopens the Kosmos;
+   a full outbox (500) in one pass could hold every request for many seconds
+   (review round 1). 20 keeps a pass short. A pass that stops at the cap returns
+   where it stopped (`next`), and the board runs the rest from there on the next
+   turn of its event loop (server.js startOutboxDrain), so entries still waiting
+   for a retry cannot starve newer ones. */
+const MAX_DELIVERIES_PER_PASS = 20;
+
 /* Owner-only, as every other secret-bearing store write: an entry holds the
    agent's words. */
 const DIR_MODE = 0o700;
@@ -88,6 +99,13 @@ const WRONG_WORLD_SENTENCES = Object.freeze({
 });
 
 const NO_SENDER = 'We could not tell which agent this is from, so it was not kept. Send it again once your Kosmos is open.';
+
+/* Review round 1: a person typing `kosmos reply` in their OWN tmux window meets
+   the same 421 an agent does (every call names a Kosmos, `default` without
+   KOSMOS_WORLD). Keeping it under their window's name printed "Kept." for a send
+   the drain then drops as not an agent. Before this branch the pane route
+   refused it with a sentence; this is that refusal. */
+const NOT_AN_AGENT_WINDOW = 'This window is not one of your agents, so nothing was kept. The Kosmos open right now is a different one; send this from an agent, or from the Kosmos that is open.';
 
 function outboxDir() { return path.join(store.ROOT, OUTBOX_DIRNAME); }
 
@@ -208,7 +226,10 @@ function remove(id) {
  *    presented and does not resolve is a refusal, never a fall back to the pane:
  *    the no-downgrade rule server.js's resolveAgentSender keeps.
  * 2. Else the tmux session of TMUX_PANE, through the same messages.paneSession the
- *    pane route uses (the Mac).
+ *    pane route uses (the Mac), and only when that session has a profile in THIS
+ *    store: a person's own tmux window is not an agent, and is refused (review
+ *    round 1). The pane route's own tie is the roster, which a board serving
+ *    another Kosmos cannot give; the profile is this Kosmos's record of its agents.
  * 3. Else nobody: refused with a sentence.
  *
  * `seams` ({resolveName, paneSession}) is for tests; both default to the real
@@ -228,8 +249,10 @@ function resolveKeepSender(env, seams) {
   if (pane) {
     const paneSession = s.paneSession || ((p) => require('./messages').paneSession(p));
     const found = paneSession(pane);
-    if (found && found.ok && SENDER_NAME_RE.test(String(found.session))) return { ok: true, name: String(found.session) };
-    return { ok: false, because: NO_SENDER };
+    if (!(found && found.ok && SENDER_NAME_RE.test(String(found.session)))) return { ok: false, because: NO_SENDER };
+    const name = String(found.session);
+    if (Object.keys(store.readProfile(name)).length === 0) return { ok: false, because: NOT_AN_AGENT_WINDOW };
+    return { ok: true, name };
   }
   return { ok: false, because: NO_SENDER };
 }
@@ -251,19 +274,26 @@ const settledButNotRemoved = new Set();
 const lastRetryReason = new Map();
 
 /**
- * Deliver what this Kosmos has kept, through the caller's delivery functions.
- * Each `deliverX(entry)` returns `{ outcome: 'delivered' | 'dropped' | 'retry',
- * because }`; `knownAgent(name)` says whether a name is an agent in this Kosmos.
- * A `from` that is not is dropped. `onExpired(entry, because)` hears an entry
- * given up after OUTBOX_RETRY_MAX_AGE_MS. `log(line)` defaults to stderr; no line
- * carries a send's text. Returns `{ delivered, dropped, waiting }`.
+ * One drain pass: deliver what this Kosmos has kept, through the caller's
+ * delivery functions. Each `deliverX(entry)` returns `{ outcome: 'delivered' |
+ * 'dropped' | 'retry', because }`; `knownAgent(name)` says whether a name is an
+ * agent in this Kosmos. A `from` that is not is dropped. `onExpired(entry,
+ * because)` hears an entry given up after OUTBOX_RETRY_MAX_AGE_MS. `log(line)`
+ * defaults to stderr; no line carries a send's text.
+ *
+ * At most `maxDeliveries` (default MAX_DELIVERIES_PER_PASS) entries are handed to
+ * a deliverer per pass, starting after the id `after` when given. A pass that
+ * stops at the cap returns `next`, the id to continue after; otherwise `next` is
+ * null. Returns `{ delivered, dropped, waiting, next }`.
  */
 function drain(handlers) {
   const h = handlers || {};
   const log = h.log || ((line) => process.stderr.write('Kosmos outbox: ' + line + '\n'));
   const now = typeof h.now === 'function' ? h.now() : Date.now();
+  const cap = (Number.isInteger(h.maxDeliveries) && h.maxDeliveries > 0) ? h.maxDeliveries : MAX_DELIVERIES_PER_PASS;
+  const after = typeof h.after === 'string' ? h.after : '';
   const deliverers = { reply: h.deliverReply, msg: h.deliverMsg, post: h.deliverPost };
-  const summary = { delivered: 0, dropped: 0, waiting: 0 };
+  const summary = { delivered: 0, dropped: 0, waiting: 0, next: null };
 
   const finish = (id, dropLine) => {
     if (dropLine) { summary.dropped += 1; log('dropped ' + dropLine); }
@@ -279,7 +309,10 @@ function drain(handlers) {
     log('could not read the outbox at ' + outboxDir() + ' (' + ((e && e.code) || (e && e.message) || 'unknown') + '); nothing was delivered this time');
     return summary;
   }
+  let handed = 0;
+  let lastHanded = null;
   for (const { id, entry, because } of listed) {
+    if (after && id <= after) continue;
     if (settledButNotRemoved.has(id)) { finish(id, null); continue; }
     if (!entry) { finish(id, id + ': ' + because); continue; }
     const tag = entry.verb + ' ' + id + ' from ' + entry.from;
@@ -289,6 +322,9 @@ function drain(handlers) {
     }
     const deliver = deliverers[entry.verb];
     if (typeof deliver !== 'function') { finish(id, tag + ': this board cannot deliver a ' + entry.verb); continue; }
+    if (handed >= cap) { summary.next = lastHanded; break; }
+    handed += 1;
+    lastHanded = id;
     let verdict;
     try { verdict = deliver(entry) || {}; } catch (e) {
       verdict = { outcome: 'retry', because: 'delivering it failed (' + ((e && e.message) || e) + ')' };
@@ -347,6 +383,7 @@ function runKeepCommand(argv, io) {
 module.exports = {
   keep, list, remove, drain, keepFromClient, resolveKeepSender, runKeepCommand, outboxDir,
   KEPT_VERBS, WRONG_WORLD_SENTENCES, MAX_ENTRIES, MAX_TOTAL_BYTES, MAX_ENTRY_BYTES, OUTBOX_RETRY_MAX_AGE_MS,
+  MAX_DELIVERIES_PER_PASS,
 };
 
 if (require.main === module) {
