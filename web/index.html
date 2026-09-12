@@ -3890,6 +3890,24 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated .pjmidhead .tsearch { flex-shrink: 0; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .dname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   html[data-layout="consolidated"] body.consolidated #pj-one-name + .pj-desc, html[data-layout="consolidated"] body.consolidated #pj-one-made { margin-top: 1px; }
+  /* #2848: the sub-projects strip, now nested under the name (placeSubProjects
+     moves it into .pjmid right after the header), reads as PART of that header
+     rather than a second bar. Two moves make it one header block:
+       - the header drops its own full-bleed rule while a strip follows it, and
+         the strip carries the rule beneath both -- so the name and its
+         sub-projects sit above a single line, not two;
+       - the strip goes compact and indented (a quiet caption, tight rows set in
+         from the title) so it reads as nested beneath the title, not competing
+         with it.
+     A project with no sub-projects hides the strip ([hidden]), so the :has()
+     rules never fire and the header is exactly as before. */
+  html[data-layout="consolidated"] body.consolidated .pjmid:has(> #pj-one-subprojects:not([hidden])) .pjmidhead { border-bottom: 0; margin-bottom: 4px; padding-bottom: 4px; }
+  html[data-layout="consolidated"] body.consolidated .pjmid > #pj-one-subprojects:not([hidden]) { margin: 0 -16px 12px; padding: 0 16px 10px; border-bottom: 1px solid var(--k-rule); }
+  html[data-layout="consolidated"] body.consolidated #pj-one-subprojects .dlab { margin: 0 0 5px; }
+  html[data-layout="consolidated"] body.consolidated #pj-one-subprojects .pj-subrows { gap: 4px; }
+  html[data-layout="consolidated"] body.consolidated #pj-one-subprojects .pj-subrow { padding: 6px 10px; border-radius: 8px; margin-left: 12px; }
+  html[data-layout="consolidated"] body.consolidated #pj-one-subprojects .pj-subrow-n { font-size: .8125rem; }
+  html[data-layout="consolidated"] body.consolidated #pj-one-subprojects .pj-subrow-m { font-size: .75rem; }
   html[data-layout="consolidated"] body.consolidated #rail-agents, html[data-layout="consolidated"] body.consolidated > #panel-projects, html[data-layout="consolidated"] body.consolidated > #alist { padding-top: 6px; }
   /* #520 piece eight (Josh, toward the mock): the member rows lose their box
      and go flat and quiet like the agents rail, and the add/remove controls
@@ -15949,6 +15967,12 @@ function showTab(tab) {
   const cons = layoutConsolidated() && (tab === 'agents' || tab === 'projects');
   const wasCons = document.body.classList.contains('consolidated');
   document.body.classList.toggle('consolidated', cons);
+  // #2848: nest the project's sub-projects strip under the name in the
+  // consolidated view, restore it above the grid in the tab view. Here because
+  // this is the one place that knows the effective view (the resize re-check
+  // and every tab switch pass through it), keyed on the same `cons` the body
+  // class uses so the DOM move and the consolidated CSS never disagree.
+  placeSubProjects(cons);
   // #980: the search placeholder follows the EFFECTIVE view, set in the
   // one place that decides it (this toggle re-runs on tab switches and on
   // the resize re-check), never the saved layout alone -- a consolidated
@@ -28064,6 +28088,34 @@ function placeProjectHead() {
   const mid = document.querySelector('#pj-one-view .pjmidhead');
   if (!head || !mid) return;
   if (head.parentElement !== mid) mid.insertBefore(head, mid.firstChild);
+}
+/* #2848 (Josh, 0.6.57 staging review: "we've got to figure out the sub-project
+   view because it's breaking this across the top of this thing"). In the
+   CONSOLIDATED view the sub-projects strip used to render above the whole .pj3
+   grid, so a project with a sub-project stacked three separate bars across the
+   top -- a "1 sub-project" label, the child row, and the project name (the name
+   lives in the conversation column's header, .pjmidhead, since #761). This nests
+   the strip directly under that header instead, so the parent title and its
+   sub-projects read as ONE header. The move is confined to a single grid cell
+   (.pjmid), so it does not disturb the .pj3 column ordering #2487 was careful to
+   protect. Reversible and idempotent: in the tab view (not flagged, and its
+   balanced 3-column layout does not break) the strip is restored to its original
+   slot, before .pj3 in #pj-one-view. Gated on body.consolidated, which is exactly
+   the scope the CSS below keys on, so DOM placement and styling stay in lockstep.
+   Called from showTab, the one chokepoint that reflects the EFFECTIVE view (the
+   saved layout AND the 960px width gate, resize included). */
+function placeSubProjects(consolidated) {
+  const oneView = document.getElementById('pj-one-view');
+  const subs = document.getElementById('pj-one-subprojects');
+  if (!oneView || !subs) return;
+  const midHead = oneView.querySelector('.pjmidhead');
+  const pj3 = oneView.querySelector('.pj3');
+  if (!midHead || !pj3) return;
+  if (consolidated) {
+    if (subs.parentElement !== midHead.parentElement) midHead.insertAdjacentElement('afterend', subs);
+  } else {
+    if (subs.parentElement !== oneView) oneView.insertBefore(subs, pj3);
+  }
 }
 /* 🔑 SELECT, THEN ACTIVATE (kosmos#1216). A tile used to save and apply on
    click; Josh asked for the press to be the commitment. */
