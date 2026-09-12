@@ -104,6 +104,25 @@ test('the post and react routes resolve a token sender through the same helper',
   assert.match(react, /senderFromAgentToken\(req, body, roster\) \|\| messages\.resolveSender/);
 });
 
+test('#2908: reply_expected threads route -> sendRoomPostAsAgent -> sendPost, AND the outbox drain forwards it', () => {
+  /* Same wiring-assertion approach as the test above (a full room fixture is heavy; the behavior
+     of replyExpected:false -> no-reply note is proven directly against sendPost in
+     engine/messages.test.js). What this pins is the THREADING, including the outbox drain, which a
+     blind review found dropping the field (a kept `kosmos post --no-reply` replayed on drain would
+     otherwise be reply-required again and reopen the ack loop for the kept-agent case). */
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const post = src.slice(src.indexOf("pathname === '/api/post'"), src.indexOf("pathname === '/api/react'"));
+  // The route validates reply_expected as a strict boolean (refuse non-boolean) and passes it through.
+  assert.match(post, /'reply_expected' in body && typeof body\.reply_expected !== 'boolean'/);
+  assert.match(post, /replyExpected: body\.reply_expected/);
+  // The shared helper forwards it to sendPost.
+  const shared = src.slice(src.indexOf('function sendRoomPostAsAgent('), src.indexOf('function agentBelongsToThisKosmos('));
+  assert.match(shared, /messages\.sendPost\(\{[^}]*\breplyExpected,/);
+  // THE DRAIN forwards it too: this arm reds if deliverPost drops entry.body.reply_expected.
+  const drain = src.slice(src.indexOf('deliverPost: (entry) =>'), src.indexOf('onExpired:'));
+  assert.match(drain, /replyExpected: entry\.body\.reply_expected/, 'the outbox drain must forward reply_expected, or a kept --no-reply post replays reply-required');
+});
+
 test('sendPost and send use a sender the route already resolved, and resolve from the pane otherwise', (t) => {
   /* The card comes from test-support/fleet, never typed by hand (fixture-discipline). */
   const board = fleet.install([fleet.agent('leo', { state: 'idle' })]);
