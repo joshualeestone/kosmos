@@ -168,6 +168,9 @@ validate_dest() {
   # marker meaningfully narrows the data-loss vector. A directory missing either marker
   # is refused (the safe direction: point the operator at a fresh path).
   if [ -e "$_dest_real" ]; then
+    # Under normal flow this is unreachable (an existing non-directory $DEST was already
+    # refused by the earlier ancestor check), so it is a TOCTOU backstop: if the dir is
+    # swapped for a file between that check and here, fail rather than proceed.
     [ -d "$_dest_real" ] || fail "destination '$_dest_real' exists and is not a directory"
     # Enumerate the contents. An enumeration FAILURE (a root-owned or otherwise
     # unreadable directory) must fail CLOSED: we cannot prove it empty or a board,
