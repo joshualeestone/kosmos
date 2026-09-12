@@ -37,6 +37,36 @@ test('hiding a world drops it from listWorlds but keeps the registry row (store 
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });
 
+test('the on-disk store survives a hide -- the "your files stay" promise, pinned by a real file', () => {
+  const base = freshBase();
+  try {
+    const a = worlds.createWorld(base, 'Alpha');
+    // Drop a real file into the world's store, so we test the promise (files stay) rather than
+    // only the registry mechanism. The store dir is where the hint copy says the files remain.
+    const storeRoot = worlds.worldStoreRoot(base, a);
+    fs.mkdirSync(storeRoot, { recursive: true });
+    const marker = path.join(storeRoot, 'kept.txt');
+    fs.writeFileSync(marker, 'the user\'s data');
+
+    worlds.hideWorld(base, a.id);
+
+    assert.ok(fs.existsSync(marker), 'hiding deleted a file in the store; the "your files stay" promise is broken');
+    assert.equal(fs.readFileSync(marker, 'utf8'), 'the user\'s data', 'the store file survived but its contents did not');
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+test('a hidden world cannot be switched to -- it is not-found (ENOWORLD), never "active but invisible"', () => {
+  const base = freshBase();
+  try {
+    const a = worlds.createWorld(base, 'Alpha');
+    worlds.hideWorld(base, a.id);
+    // readRegistry keeps the row, but setActiveWorld must treat a hidden world as gone: without
+    // this, POST /api/worlds/active {hiddenId} would boot into a world filtered out of the list.
+    assert.throws(() => worlds.setActiveWorld(base, a.id), (e) => e.code === 'ENOWORLD');
+    assert.equal(worlds.activeWorld(base).id, worlds.DEFAULT_ID, 'a refused switch still moved the active world');
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});
+
 test('the default Kosmos cannot be hidden', () => {
   const base = freshBase();
   try {

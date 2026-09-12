@@ -376,7 +376,15 @@ function createWorld(base, name) {
 function setActiveWorld(base, id) {
   return withRegistryLock(base, () => {
     const reg = readRegistry(base);
-    if (!reg.worlds.some((w) => w.id === id)) {
+    // #2935: readRegistry KEEPS hidden rows (so the store pointer survives), but a hidden
+    // Kosmos is off the user's list and there is no restore, so it must not be switchable
+    // either -- otherwise POST /api/worlds/active {hiddenId} would boot into an "active but
+    // invisible" world. To every caller a hidden world is gone, so it is the SAME not-found
+    // as a missing one (ENOWORLD -> the route's 404), which also matches the pause branch's
+    // listWorlds `known` check. Guarded here, the one chokepoint, so the invariant holds for
+    // every caller rather than each route re-deriving it (Repo Convention: one derivation).
+    const world = reg.worlds.find((w) => w.id === id);
+    if (!world || world.hiddenAt) {
       // Typed so a caller (e.g. the /api/worlds/active route) can classify this
       // as not-found WITHOUT matching on the message text -- the message is for a
       // person and is free to change; the code is the contract.
