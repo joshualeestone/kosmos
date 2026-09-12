@@ -820,6 +820,10 @@ function whoamiFor(card, known, live) {
           label: null,
           organization: seen.organization || null,
           dir: seen.configDir || null,
+          /* #2811: same key as the other two constructions. `#1304` asserts the two
+             readers return the SAME FIELD SET, and it caught this when the name was
+             added to only one of them -- which is the parity that test exists for. */
+          name: openaiAccounts.readName(seen.configDir),
           isDefault: isDefaultDir(seen.configDir),
         },
         from: 'process',
@@ -846,6 +850,14 @@ function whoamiFor(card, known, live) {
       return {
         value: {
           email: null, label: null, organization: null, dir: seen.configDir,
+          /* 🛑 #2811: THE LIVE READER MUST ANSWER THIS THE SAME WAY THE RECORD
+             READER DOES. `accountForAgent` computes `readName(dir)`; without it
+             here, the SAME named codex account read "Work" when the record
+             answered and "an account we cannot identify (…)" when the live read
+             did -- the answer flipping on which reader happened to win, which is
+             the defect class this whole endpoint exists to remove. Null for every
+             Claude dir, so this is a no-op there. */
+          name: openaiAccounts.readName(seen.configDir),
           isDefault: claudeDir ? isDefaultDir(seen.configDir) : null,
         },
         from: 'process',
@@ -859,7 +871,10 @@ function whoamiFor(card, known, live) {
          differs by reader is a second, accidental channel saying the same
          thing differently. */
       value: rec
-        ? { email: rec.email, label: rec.label, organization: rec.organization || null, dir: rec.dir, isDefault: rec.isDefault }
+        /* 🛑 #2811: `rec.name` IS CARRIED. `accountForAgent` computes it on both its
+           branches and this projection used to DROP it one function later, which is
+           why a NAMED codex account was told "an account we cannot identify". */
+        ? { email: rec.email, label: rec.label, organization: rec.organization || null, dir: rec.dir, name: rec.name || null, isDefault: rec.isDefault }
         : null,
       from: 'record',
     };
@@ -1035,10 +1050,23 @@ function runnerDisplayName(runner) {
 }
 
 function sentenceForWhoami(account, model, runner) {
-  const acct = account && account.email ? account.email
-    : account && account.label ? account.label
-      : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
-        : null;
+  /* 🛑 #2811: THE NAME LEADS, AND ITS ABSENCE HERE WAS THE CARD'S OWN COMPLAINT
+     STRING. `accountForAgent` already computes `name: openaiAccounts.readName(dir)`
+     on BOTH its branches, and every other surface leads with it (`acctParenthetical`
+     is `acct.name || acct.email || acct.label`). This chain skipped it, so a person
+     who had NAMED their OpenAI account read "Work" on the detail panel and "an
+     account we cannot identify (/Users/x/.codex-work2)" from `kosmos whoami`, in the
+     same minute, about the same account.
+     ⚠️ NEWLY REACHABLE BY THIS BRANCH, not pre-existing noise: `readName` is null
+     for every Claude dir (the comment at `accountForAgent` says so), so the rung
+     could never have fired while the live reader refused for codex and synthesised
+     `~/.claude`. Putting a CODEX dir here -- the only kind that carries a
+     `.kosmos-name` sidecar -- is what made the gap visible. */
+  const acct = account && account.name ? account.name
+    : account && account.email ? account.email
+      : account && account.label ? account.label
+        : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
+          : null;
   const parts = [];
   /* 🛑 ONE FORM, NOT TWO, AND THE SECOND ONE WAS DEAD. This used to branch on
      the source so the reason would match the reader that failed. A reviewer

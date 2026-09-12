@@ -13991,3 +13991,100 @@ test('#2811: a STRAY offline row (a folder with no job and no profile) keeps run
     try { fsX.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
   }
 });
+
+test('#2811: a NAMED Codex account is called by its name, not "an account we cannot identify"', () => {
+  /**
+   * 🛑 THE CARD'S LITERAL COMPLAINT STRING. #2811 is titled "... and can't identify
+   * the .codex account", and `sentenceForWhoami`'s fallback chain went
+   * email -> label -> "an account we cannot identify (<dir>)" with NO `name` rung --
+   * while `accountForAgent` computes `name: openaiAccounts.readName(dir)` on BOTH
+   * its branches and every other surface leads with it (`acctParenthetical` is
+   * `acct.name || acct.email || acct.label`).
+   *
+   * So a person who had NAMED their OpenAI account read "Work" on the detail panel
+   * and "an account we cannot identify (/Users/x/.codex-work2)" from `kosmos whoami`,
+   * in the same minute, about the same account.
+   *
+   * ⚠️ NEWLY REACHABLE BY THIS BRANCH: `readName` is null for every Claude dir, so
+   * the rung could never fire while the live reader refused for codex and
+   * synthesised `~/.claude`. A CODEX dir is the only kind carrying a `.kosmos-name`
+   * sidecar.
+   */
+  const { sentenceForWhoami } = require('./server.js');
+  const DIR = '/Users/x/.codex-work2';
+
+  const named = sentenceForWhoami({ dir: DIR, name: 'Work', email: null, label: null, isDefault: null }, null, 'codex');
+  assert.match(named, /runs on Work/, 'a NAMED codex account is not called by its name');
+  assert.doesNotMatch(named, /cannot identify/,
+    'a named codex account is still told we cannot identify it, which is this card\'s own complaint string');
+
+  /* CONTROL 1: the SAME object with no name must still produce the old sentence,
+     else the rung is not what changed the answer and this arm proves nothing. */
+  const unnamed = sentenceForWhoami({ dir: DIR, name: null, email: null, label: null, isDefault: null }, null, 'codex');
+  assert.match(unnamed, /an account we cannot identify \(\/Users\/x\/\.codex-work2\)/,
+    'CONTROL: without a name the sentence no longer says "cannot identify", so the name rung is not the discriminator');
+
+  /* CONTROL 2: the name must LEAD, matching `acctParenthetical`'s order. With both
+     present, a chain that put email first would silently disagree with every other
+     surface in the product. */
+  const both = sentenceForWhoami({ dir: DIR, name: 'Work', email: 'dave@example.com', label: null, isDefault: null }, null, 'codex');
+  assert.match(both, /runs on Work/, 'the name does not LEAD over the email, so whoami disagrees with every other surface');
+});
+
+test('#2811: the account NAME survives the route, not just the sentence function', () => {
+  /**
+   * 🛑 THE GAP IN MY OWN FIRST ARM FOR THIS. The arm above calls
+   * `sentenceForWhoami` DIRECTLY with a named account, so it proves the sentence
+   * CAN name one -- not that the route DELIVERS the name to it. The actual defect
+   * was one function later: `whoamiFor`'s record projection rebuilt the account as
+   * `{ email, label, organization, dir, isDefault }` and dropped `rec.name`, so the
+   * name `accountForAgent` had just computed never reached the sentence.
+   *
+   * ⚠️ A function-level arm cannot see a wiring defect, and this card's own history
+   * says so: the same "computed, then dropped one layer on" shape is what rounds 30
+   * to 33 kept finding at the NEXT READER. This arm is the wiring assertion.
+   */
+  const { whoamiFor } = require('./server.js');
+  const openaiAccounts = require('./engine/openaiaccounts');
+  const fsX = require('node:fs');
+  const nodePathX = require('node:path');
+  const create = require('./engine/create');
+  const store = require('./engine/store');
+
+  const name = 'namedgpt2811';
+  const dir = nodePathX.join(process.env.AGENT_WORKFORCE_HOME || require('node:os').homedir(), '.codex-work2-2811');
+  let board;
+  try {
+    fsX.mkdirSync(dir, { recursive: true });
+    fsX.writeFileSync(nodePathX.join(dir, 'auth.json'),
+      JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtesttesttest2811' }), 'utf8');
+    /* The NAME is a sidecar the person typed. Written through the product's own
+       writer if it has one, else the file the reader reads. */
+    fsX.writeFileSync(nodePathX.join(dir, '.kosmos-name'), 'Work', 'utf8');
+
+    /* CONTROL ON THE FIXTURE: the reader must actually see the name, or every
+       assertion below is about a sidecar nothing reads. */
+    assert.equal(openaiAccounts.readName(dir), 'Work',
+      'the fixture sidecar is not readable by readName, so this arm measures nothing');
+
+    fsX.mkdirSync(create.AGENTS_DIR, { recursive: true });
+    fsX.writeFileSync(create.plistPath(name),
+      create.plistFor(name, '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, dir, 'codex'), 'utf8');
+    store.writeProfile(name, { provider: 'openai' });
+
+    board = fleet.install([fleet.agent(name, { state: 'unknown', runner: 'codex' })]);
+    const card = board.agents.find((a) => a && a.name === name);
+    assert.ok(card, 'the fixture produced no card');
+
+    /* No live read, so the RECORD path answers -- which is the path that dropped
+       the name. */
+    const out = whoamiFor(card, [], { ok: false, because: 'no pane on this computer' });
+    assert.ok(out.account, 'the record path returned no account, so the arm measures nothing');
+    assert.equal(out.account.name, 'Work',
+      'the route dropped the account name between accountForAgent and its answer, so the sentence can never say it');
+  } finally {
+    if (board) board.restore();
+    try { fsX.unlinkSync(create.plistPath(name)); } catch { /* may not exist */ }
+    try { fsX.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+});

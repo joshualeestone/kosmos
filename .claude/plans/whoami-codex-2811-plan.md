@@ -2026,3 +2026,146 @@ rather than assuming. **Six readers, and NONE distinguishes them:**
 that null is "a display default we inherit and not a claim this card makes", and a payload should
 not assert what this Mac cannot know. **That is the whole reason, and it is the one that survives
 measurement.**
+
+## Does the CARD's own complaint map to named assertions? Checked, complaint by complaint
+
+Thirty-three rounds is a process fact, not evidence the card is done. The card's title names THREE
+things, so the honest check is whether each maps to an arm that fails when the fix is removed.
+**41 `#2811` arms pass across `server.test.js`, `engine/runningas.test.js`,
+`engine/win32roster.test.js` and `engine/create.setprovider-writes-2811.test.js`.** Mapped:
+
+**"reports wrong provider"**
+- the sentence a Codex agent reads back actually says Codex
+- a Codex agent with NO live read is still told it is a Codex agent
+- whoami carries the RUNNER the live read found
+- the profile provider names the runner with NO launch job (the Windows state)
+- a card with NO runner marker falls back to the launch job, not the transcript
+- an UNRECORDED runner marker does not read as claude when the job says codex
+- a LIVE claude process beats a stale codex marker (the other direction)
+- CONTROL: a CLAUDE live read still names its runner
+
+**"+ model" (the half that is easy to forget, and the card names it)**
+- a stale CLAUDE transcript does not supply the model for a CODEX agent
+- a DEAD Codex agent is not handed its old Claude model by the record
+- a LIVE claude process beats a stale codex marker, AND KEEPS ITS MODEL
+- the model is read in BOTH spellings, because the product writes both
+- 📌 and, found in round 32 by asking who reads the field round 31 filled: a PANELESS codex agent
+  was being handed the CLAUDE MODEL LIST on its detail panel (#2167's shape). Closed.
+
+**"can't identify the .codex account"**
+- a codex dir is not scored as a claude account
+- the RECORD account path does not score a codex dir as a non-default Claude account
+- a DEFAULT-account Codex agent is not handed the operator Claude account
+- account-status does not run a CLAUDE auth probe against a codex agent, named OR default
+- 📌 and round 30's: the detail panel no longer tells that agent "we cannot tell which account this
+  one uses", pinned by a browser check that reds when the fix is reverted
+
+⇒ **Every clause of the card's title has at least one arm whose mutant is recorded.** That is the
+statement worth making at PR time, rather than the round count.
+
+## Round 34: the card's LITERAL complaint string, unfixed until now
+
+**[MAJOR] A NAMED Codex account was still told "an account we cannot identify (…)".**
+`sentenceForWhoami`'s chain was email -> label -> that string, with **no `name` rung** - while
+`accountForAgent` computes `name: openaiAccounts.readName(dir)` on BOTH its branches and every
+other surface leads with it (`acctParenthetical` is `acct.name || acct.email || acct.label`).
+
+⭐ **So a person who had NAMED their OpenAI account read "Work" on the detail panel and "an account
+we cannot identify (/Users/x/.codex-work2)" from `kosmos whoami`, in the same minute, about the
+same account.** #2811 is titled *"...and can't identify the .codex account"*. **That sentence is
+the card.**
+
+⚠️ **NEWLY REACHABLE BY THIS BRANCH.** `readName` is null for every Claude dir - the comment in
+`accountForAgent` says so in as many words - so the rung could never fire while the live reader
+refused for codex and synthesised `~/.claude`. Putting a CODEX dir into that sentence, which is
+what this change does, is what made the gap visible.
+
+✅ **BOTH readers fixed, because the gap had two different causes:**
+- the RECORD path computed `name` and threw it away one function later
+- the LIVE path never asked for it at all
+Left half-fixed, the same account would have been named or not depending on which reader won -
+**the answer flipping on which reader happened to answer, which is the defect class this endpoint
+exists to remove.**
+
+```
+MUTANT remove the name rung        -> "a NAMED codex account is not called by its name"
+MUTANT put the name AFTER email    -> "the name does not LEAD over the email, so whoami disagrees
+                                       with every other surface"
+```
+
+📌 **The ordering mutant is not pedantry.** `acctParenthetical` is `name || email || label`; a
+chain that put email first would silently disagree with every other surface in the product, which
+is precisely how this card started.
+
+⭐ **AND IT SURVIVED 33 ROUNDS OF REVIEW, INCLUDING MY OWN COMPLAINT-BY-COMPLAINT MAP WRITTEN THIS
+MORNING.** That map listed four arms under "can't identify the .codex account" and I read it as
+complete. Every one of them asserts that a codex dir is not scored as a CLAUDE account - the
+negative. **None asserts what the sentence says when we CAN identify the account.** A map of
+what is guarded is not a map of what the card asked for, and I built the first while believing I
+had built the second.
+
+
+### And my fix for it was PARTIAL, caught twice in fifteen minutes
+
+**The suite caught it first.** I added `name` to ONE live branch; `#1304: each field takes the best
+source that has it` went red with *"the two readers return different field sets for the same
+account"*. There are **THREE** account constructions in `whoamiFor`, and the one I had not changed
+was the **record projection** - which is where the name was being dropped in the first place. **My
+fix missed the actual defect and changed a sibling instead.**
+
+⭐ That test exists for exactly this parity, and it earned its keep: a shape divergence I
+introduced while fixing a shape divergence.
+
+**Then a gap NO test caught, because I had not written one.** My first arm called
+`sentenceForWhoami` DIRECTLY with a named account. That proves the sentence CAN name one; it does
+not prove the ROUTE delivers the name to it. **A function-level arm cannot see a wiring defect** -
+and "computed here, dropped one layer on" is precisely the shape rounds 30 to 33 kept finding at
+the next reader. I reproduced it inside my own test.
+
+✅ Two arms now, with distinct jobs and distinct mutants:
+
+```
+remove the name rung          -> "a NAMED codex account is not called by its name"
+put name after email          -> "the name does not LEAD over the email…"
+drop rec.name from the route  -> "the route dropped the account name between accountForAgent
+                                  and its answer, so the sentence can never say it"
+```
+
+📌 The wiring arm asserts `readName(dir) === 'Work'` on the fixture BEFORE anything else, so a
+sidecar nothing reads cannot make the whole arm vacuous.
+
+⇒ **The general rule this earns: when a value is computed in one function and consumed in another,
+the assertion belongs at the CONSUMER'S ENTRY POINT, not at the consumer.** Testing the consumer
+proves it can use the value; only the entry point proves it receives one.
+
+
+### A test told its own successor how to change it, and that is why flipping it was legitimate
+
+The full suite then red on `server.runson-name-2225.test.js`:
+**"#2225 PARITY CONTROL: the whoami route hand-picks fields and does NOT expose name"** - a
+DELIBERATE decision I had just contradicted. Its comment, written at #2225:
+
+> "The board carries `name`; this route deliberately drops it. **If a future change wants the
+> whoami sentence to show the name, it must add `name` to ALL of this route's account branches
+> (parity), not just this one -- and this control is where that intent is stated.**"
+
+**#2811 is that change, and the condition it set is the one that actually bit me.** My first
+attempt added `name` to ONE branch and `#1304`'s field-set parity test went red within the minute.
+
+✅ Flipped the direction, kept it a PARITY control: it now asserts `name` is present AND carries
+the sidecar the person typed, with the history recorded in place.
+
+🛑 **THE DISTINCTION I WANT TO BE HELD TO: changing a test to make a fix pass is usually the wrong
+move.** It is right here for two specific reasons, and neither is "the fix seemed correct":
+1. **the test itself documented the condition** under which it should change, and
+2. **an INDEPENDENT test (`#1304`) enforces that condition**, so the parity claim does not rest on
+   my say-so.
+Without (2) I would be taking my own word for it - which is precisely what a parity control exists
+to prevent.
+
+⭐ **And the general lesson is about how to WRITE a control: this one was inverted, and it still
+did its job, because it stated the intent and the migration path rather than just the assertion.**
+A control that says only "not present" gets deleted by the next person with a reason. A control
+that says "not present, and here is exactly what you must do if you ever need it present" gets
+UPDATED correctly instead. I have written several assertions on this card; none of them does that,
+and this is the model to copy.
