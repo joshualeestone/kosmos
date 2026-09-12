@@ -103,9 +103,15 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     // A NAMED Kosmos: the hide section shows, with files-stay-accessible copy and a two-step confirm.
     namedCog.click();
     await sleep(80);
+    const hideSec = $('world-hide-section');
+    const labId = hideSec.getAttribute('aria-labelledby');
     out.named = {
       open: !$('world-rename-modal').hidden,
       hideShown: !$('world-hide-section').hidden,
+      // #2935 a11y: the section is a labelled group, so a screen reader announces the "Hide this
+      // Kosmos" heading around the buttons a sighted user reads it above.
+      hideRole: hideSec.getAttribute('role'),
+      hideLabelText: labId && $(labId) ? $(labId).textContent : null,
       hint: $('world-hide-hint').textContent,
       confirmSay: $('world-hide-confirm-say').textContent,
       step1Before: !$('world-hide-step1').hidden,
@@ -158,6 +164,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const n = r.named || {};
     if (!n.open) problems.push('the named Kosmos\'s cog did not open its settings');
     if (!n.hideShown) problems.push('a named Kosmos\'s settings must offer a hide section');
+    if (n.hideRole !== 'group' || n.hideLabelText !== 'Hide this Kosmos') {
+      problems.push('the hide section must be a group labelled "Hide this Kosmos" for screen readers: ' + JSON.stringify({ role: n.hideRole, label: n.hideLabelText }));
+    }
     if (!/not deleted/.test(n.hint || '') || !/stay in your Kosmos folder/.test(n.hint || '')) {
       problems.push('the hide copy must state the files are not deleted and where they stay: ' + JSON.stringify(n.hint));
     }

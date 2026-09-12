@@ -30,6 +30,8 @@ const remove = require('./engine/remove');
 const create = require('./engine/create');
 const store = require('./engine/store');
 const worlds = require('./engine/worlds');
+const worldstarts = require('./engine/worldstarts');
+const liveExec = require('./engine/live-execution');
 const { start, server } = require('./server');
 
 if (typeof process.getuid !== 'function') process.getuid = () => 501;
@@ -70,10 +72,16 @@ test.before(async () => {
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
   remove.setRunner(runner);
+  // stopWorldAgents is live-execution-gated and platform-injectable (win32job shells schtasks
+  // without a gate). Force the darwin path so remove.setRunner intercepts every command
+  // regardless of the host, and arm live execution so the gate lets the (fully stubbed) stop run.
+  worldstarts.setPlatformForTests('darwin');
 });
-test.beforeEach(() => { calls = []; failing = []; });
+test.beforeEach(() => { calls = []; failing = []; liveExec.allowLiveExecution(); });
 test.after(() => {
   remove.resetForTests();
+  worldstarts.setPlatformForTests(null);
+  liveExec.resetForTests();
   try { server.close(); } catch { /* best effort */ }
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });

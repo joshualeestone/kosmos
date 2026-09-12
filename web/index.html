@@ -8705,8 +8705,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          hide is deliberate; the confirm copy states the files remain accessible and where. Nothing
          is deleted (soft), so a plain confirm is enough (Josh: no type-the-name). No undo control
          (Josh: "no restore a kosmos"). -->
-    <div class="field world-import" id="world-hide-section" hidden>
-      <span class="flabel tk-lab">Hide this Kosmos</span>
+    <div class="field world-import" id="world-hide-section" role="group" aria-labelledby="world-hide-lab" aria-describedby="world-hide-hint" hidden>
+      <span class="flabel tk-lab" id="world-hide-lab">Hide this Kosmos</span>
       <p class="rm-small" id="world-hide-hint">This removes it from your Kosmoses list and stops its agents. Your agents, projects, and files are not deleted: they stay in your Kosmos folder on this computer. This cannot be undone from here.</p>
       <div class="world-import-acts" id="world-hide-step1">
         <button class="btn" id="world-hide-go" type="button">Hide from my Kosmoses list</button>

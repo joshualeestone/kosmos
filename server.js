@@ -262,52 +262,18 @@ const worlds = require('./engine/worlds'); // #1704: the multiple-Kosmos registr
    /api/worlds routes fall back to the live baseRoot -- correct then because no
    override was set. `worldRegistryBase` is declared at the top of the file. */
 function worldBase() { return worldRegistryBase || worlds.baseRoot(process.env); }
-const launchidentityModule = require('./engine/launchidentity'); // #2935: the world-keyed launchKey, to end a hidden world's sessions
 /* #2935: hiding a Kosmos STOPS (never deletes) its agents, so they do not keep running for a
-   Kosmos that is no longer on the list. Reversible and best-effort, deliberately SEPARATE from the
-   hide: the hide is already complete and reversible without it (files + jobs stay on disk), so a
-   failure here never fails the hide. Each agent's launch job is disabled (a login cannot revive it)
-   and booted out (its KeepAlive supervisor stops respawning it), cross-platform via the remove.js
-   primitives -- the same reversible stop `worldstarts.pauseForSwitch` performs on a switch-away,
-   minus its paused-record: a hidden Kosmos is never the booted one, so that record would land in
-   the wrong world's store, and Josh ruled no restore. The already-running session is a separate
-   process, so it is also ended, keyed by launchKey and `=`-anchored (an exact match, or a clean
-   "already gone" -- it can never end another agent's session). `unsafeToActOn` and jobFor's
-   `ours` guard keep it from ever touching the operator's own PM or a job Kosmos did not write.
-   Returns { stopped: [names], kept: [names] } for the response and the log. */
+   Kosmos that is no longer on the list. This enumerates the world's agents and hands the actual
+   stop to worldstarts.stopWorldAgents, which owns the reversible, live-execution-gated,
+   platform-injectable stop (the same machinery pauseForSwitch uses, minus the paused-record).
+   Deliberately SEPARATE from the hide: the hide is already complete and reversible without it
+   (files + jobs stay on disk), so a failure here never fails the hide. Returns
+   { stopped: [names], kept: [names] } for the response and the log. */
 function stopHiddenWorldAgents(base, world) {
-  const stopped = [];
-  const kept = [];
   let names = [];
   try { names = worlds.worldProfileNames(base, world) || []; }
-  catch { return { stopped, kept }; }
-  const platform = process.platform;
-  const ops = removal.jobOps(platform);
-  const sessions = removal.sessionOps(platform);
-  for (const name of names) {
-    try {
-      if (removal.unsafeToActOn(name)) { kept.push(name); continue; }
-      let job = null;
-      try { job = removal.jobFor(name, platform, world.id); } catch { job = null; }
-      if (!job || job.ours === false) { kept.push(name); continue; }
-      // Disable FIRST, and if it fails do NOT boot the job out. The sibling stop
-      // (worldstarts.pauseForSwitch) skips stopNow on a failed disable for a precise reason:
-      // killing the running job now while it stays ENABLED leaves a "stopped but still enabled"
-      // state, so the next login silently restarts an agent of a Kosmos the user just hid. Leave
-      // it running and report it kept instead.
-      if (ops.disable(name, job) === false) { kept.push(name); continue; }
-      // Disable landed. Boot it out and end its session (the KeepAlive supervisor is one process,
-      // the running session another). If either fails, the agent is still running but now
-      // disabled: re-enable it so it is left cleanly running rather than half-off, matching
-      // pauseForSwitch's rollback, and report it kept.
-      let down = ops.stopNow(name, job) !== false;
-      if (down) { try { down = sessions.end(launchidentityModule.launchKey(name, world.id)) !== false; } catch { down = false; } }
-      if (down) { stopped.push(name); continue; }
-      try { ops.enable(name, job); } catch { /* best-effort rollback */ }
-      kept.push(name);
-    } catch { kept.push(name); }
-  }
-  return { stopped, kept };
+  catch { return { stopped: [], kept: [] }; }
+  return worldstarts.stopWorldAgents(names, world.id);
 }
 /* #1704: translate engine.worlds errors into something a person creating a Kosmos
    can read. store.safeKey (reused for the world id) throws "invalid agent name",

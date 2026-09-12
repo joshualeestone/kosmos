@@ -348,7 +348,15 @@ function createWorld(base, name) {
   if (id === DEFAULT_ID) throw new Error(`world id "${DEFAULT_ID}" is reserved`);
   return withRegistryLock(base, () => {
     const reg = readRegistry(base);
-    if (reg.worlds.some((w) => w.id === id)) throw new Error(`a world "${id}" already exists`);
+    const clash = reg.worlds.find((w) => w.id === id);
+    if (clash) {
+      // #2935: a hidden Kosmos keeps its registry row (its store must survive), so its id stays
+      // taken even though it is off the list. Say that plainly rather than "a world X already
+      // exists", which reads as an internal error about a Kosmos the person can no longer see.
+      // There is no restore, so the resolution is a different name, not un-hiding the old one.
+      if (clash.hiddenAt) throw new Error(`you hid a Kosmos named "${clash.name}", and its files are still on this computer, so pick a different name for the new one`);
+      throw new Error(`a world "${id}" already exists`);
+    }
     const dir = path.join(base, WORLDS_SUBDIR, id);
     // Make the world's subtrees up front so a switch never lands on a missing dir.
     // #2439: the store leaf MUST match what dataRootFor appends for this world

@@ -87,6 +87,17 @@ test('the active world cannot be hidden -- you must switch away first', () => {
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });
 
+test('creating a Kosmos whose name matches a HIDDEN one says so plainly, not "already exists"', () => {
+  const base = freshBase();
+  try {
+    const a = worlds.createWorld(base, 'Client Work');
+    worlds.hideWorld(base, a.id);
+    // The hidden row keeps the id taken, so a re-create collides -- but the message must name the
+    // hidden Kosmos and point at a different name, not read as an internal "a world X already exists".
+    assert.throws(() => worlds.createWorld(base, 'Client Work'), (e) => /you hid a Kosmos named "Client Work"/.test(e.message) && /pick a different name/.test(e.message));
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});
+
 test('hiding a world that does not exist is ENOWORLD', () => {
   const base = freshBase();
   try {
