@@ -171,3 +171,20 @@ test('#1968: the bridge sends NO board-token header when there is no token file'
     fsB.rmSync(data, { recursive: true, force: true });
   }
 });
+
+/* #1704 PR2: the bridge names this agent's Kosmos, so a board serving ANOTHER
+ * Kosmos answers 421 rather than refusing the report as a stranger's. The data
+ * root is sandboxed so the bridge's board-token read never reaches a real store. */
+test('#1704: the bridge names this agent\'s Kosmos, and says default when KOSMOS_WORLD is absent', async () => {
+  const { WORLD_HEADER } = require('./engine/launchidentity');
+  const data = fsB.mkdtempSync(nodePath.join(osB.tmpdir(), 'aw-1704-bridge-'));
+  try {
+    const named = await drive(TURN, { AGENT_WORKFORCE_DATA: data, KOSMOS_WORLD: 'test' });
+    assert.equal(named.length, 1, 'the bridge did not report at all');
+    assert.equal(named[0].headers[WORLD_HEADER], 'test');
+    const plain = await drive(TURN, { AGENT_WORKFORCE_DATA: data, KOSMOS_WORLD: '' });
+    assert.equal(plain[0].headers[WORLD_HEADER], 'default');
+  } finally {
+    fsB.rmSync(data, { recursive: true, force: true });
+  }
+});

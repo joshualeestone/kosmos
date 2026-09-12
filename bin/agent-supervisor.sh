@@ -327,10 +327,14 @@ if [ -z "$adopt" ]; then
           }
         } catch (e) { /* an unenterable world must not fail the launch: nothing is
           exported, so this pane and the mint below both fall back to the default
-          store roots -- one consistent unit, never a split brain (the hooks and
-          the kosmos CLI read the roots we hand the pane, not KOSMOS_WORLD, so no
-          consumer re-derives a different world). KOSMOS_WORLD rides from a
-          create.js-validated plist, so this is defence, not an expected path. */ }
+          store roots -- one consistent unit for everything that reads store.ROOT
+          (the hooks, the kosmos CLI, the token). The one reader of KOSMOS_WORLD
+          itself is the x-kosmos-world header (#1704 PR2), which still names this
+          world, and that disagreement is harmless: the default board answers 421,
+          the send is kept in the DEFAULT outbox those roots point at, and that
+          same board drains it within a minute -- where the send went before, just
+          later. KOSMOS_WORLD rides from a create.js-validated plist, so this is
+          defence, not an expected path. */ }
       ' "$_eng/worlds.js" 2>/dev/null || true)
     fi
     # The mint needs BOTH the engine (for sendertoken.js) and a node. No engine

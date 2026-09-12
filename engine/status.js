@@ -881,15 +881,14 @@ function parsePanes(out) {
       raw[col.key] = col.rest ? parts.slice(i).join('\t') : parts[i];
     });
     const session = raw.session || '';
-    /* #1704: a board's roster is its OWN Kosmos. nameInWorld maps the session's
-       launch key to the bare agent name IN THIS WORLD, or null for another
-       Kosmos's session (dropped in the filter below). The -discord strip runs on
-       the resulting NAME, never on the raw session: a world id can end in
-       `-discord` (CLEAN_ID allows it), so stripping it off the session first
-       would mangle `ava+qa-discord` into `ava+qa`. */
-    const inWorld = launchidentity.nameInWorld(session, launchidentity.currentWorldId());
+    /* #1704: a board's roster is its OWN Kosmos. agentNameFromSession maps the
+       session's launch key to the bare agent name IN THIS WORLD, then strips a
+       Discord bridge's -discord (on the NAME, never the raw session; see there),
+       or answers null for another Kosmos's session (dropped in the filter below).
+       One function, shared with the outbox's keep-time sender (#1704 PR2), so the
+       name a kept send is filed under is the name this roster shows. */
     return {
-      name: inWorld === null ? null : inWorld.replace(/-discord$/, ''),
+      name: launchidentity.agentNameFromSession(session, launchidentity.currentWorldId()),
       session,
       // Kept, not just folded into `target`: choosing one pane per session
       // needs to compare indexes, and re-parsing them back out of the target
@@ -1102,12 +1101,14 @@ function isNamedOurs(pane) {
   // What the claim actually buys is that it DIES WITH THE SESSION: there is no
   // stale record for a stranger to inherit later, which is the failure a claims
   // file on disk would have had.
-  const claim = String(pane.claim || '').trim();
-  if (claim && claim === String(pane.session || '')) return true;
-
-  // The legacy arm: the existing fleet carries the suffix and no claim, and
-  // must keep working untouched.
-  return /-discord$/.test(String(pane.session || ''));
+  //
+  // The legacy arm: the existing fleet carries the `-discord` suffix and no
+  // claim, and must keep working untouched.
+  //
+  // Both arms are ONE function, launchidentity.paneSessionIsOurs, which the
+  // outbox keep also uses to accept a profile-less agent window (#1704 PR2), so
+  // the keep and this roster tie cannot drift apart.
+  return launchidentity.paneSessionIsOurs(pane.session, pane.claim);
 }
 
 /**

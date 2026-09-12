@@ -27,6 +27,14 @@
  * agent-token check come from engine/kosmos-report-hook.js, the Windows client
  * that already delivers every self-report, so there is one copy of each.
  *
+ * 🔑 EVERY REQUEST NAMES THIS AGENT'S KOSMOS (#1704 PR2, `x-kosmos-world`). A board
+ * serving ANOTHER Kosmos answers the five agent sends (report, reply, msg, post,
+ * react) with 421 `{wrongWorld:true}`. Then a reply, a msg or a post is kept in
+ * this agent's own Kosmos (engine/outbox.js) and the board that serves it
+ * delivers it later, so the command exits 0; a report is dropped as stale (exit 0,
+ * one line); a react exits 1 with a sentence. The board sends no 421 on any other
+ * route, so no other verb handles one.
+ *
  * Exit codes follow install/kosmos: 0 done, 1 failed or refused, 2 usage,
  * 3 "maybe" -- never 1 for a maybe, which would invite the duplicate a retry
  * sends. One deliberate difference: a TIMEOUT on msg or reply is also 3 here (the
@@ -48,6 +56,12 @@ function engineDir(here) {
    the room-sized window install/kosmos gives it (-m 120); everything else -m 15. */
 const REQUEST_TIMEOUT_MS = 15000;
 const POST_TIMEOUT_MS = 120000;
+
+/* The board's answer when it is serving another Kosmos than the one this agent
+   is in (server.js, 421 Misdirected Request). Node's fetch retries a 421 once on
+   a fresh connection (RFC 9110 allows it); the board's refusal has no side
+   effect, so that costs one extra round trip and nothing else. */
+const WRONG_WORLD_STATUS = 421;
 
 /* install/kosmos's own usage lines, verb for verb. */
 const USAGE = {
@@ -80,7 +94,7 @@ function argvFrom(argv, readFile) {
      runs its own cleanup, and the file holds the agent's words (review round 3). */
   const read = readFile || ((f) => { const s = fs.readFileSync(f, 'utf8'); try { fs.unlinkSync(f); } catch { /* the shim's finally is the backstop */ } return s; });
   let parsed;
-  try { parsed = JSON.parse(String(read(String(a[1] || ''))).replace(/^\uFEFF/, '')); } catch (e) {
+  try { parsed = JSON.parse(String(read(String(a[1] || ''))).replace(BYTE_ORDER_MARK_AT_START, '')); } catch (e) {
     throw new Error('kosmos could not read the arguments PowerShell passed (' + ((e && e.message) || e) + ').');
   }
   if (!Array.isArray(parsed)) throw new Error('kosmos could not read the arguments PowerShell passed (not a list).');
@@ -90,13 +104,20 @@ function argvFrom(argv, readFile) {
     return String(x);
   });
 }
+/* PowerShell 5.1 writes the argv file with a UTF-8 byte order mark, which
+   JSON.parse refuses. Built from its code point, never typed as the character:
+   a literal U+FEFF in this source is invisible, and an editor that strips it
+   would turn the pattern into /^/ and break every Windows command (review round 1). */
+const BYTE_ORDER_MARK_AT_START = new RegExp('^' + String.fromCharCode(0xFEFF));
+
 /* cmd_room's and cmd_task's sanitizer, exactly: a project id keeps only
    [A-Za-z0-9._-], so `kosmos room <id>` and `kosmos task <id>` reach one route. */
 function projectSlug(id) { return String(id || '').replace(/[^A-Za-z0-9._-]/g, ''); }
 
 /**
- * Run one command. `io` carries every seam: env, fetch, out/err writers, and the
- * hook module (url, board token, agent token). Resolves to an exit code.
+ * Run one command. `io` carries every seam: env, fetch, out/err writers, the
+ * hook module (url, board token, agent token), and the outbox module. Resolves
+ * to an exit code.
  */
 async function main(argv, io) {
   const o = io || {};
@@ -105,6 +126,11 @@ async function main(argv, io) {
   const err = o.err || ((s) => process.stderr.write(s + '\n'));
   const doFetch = o.fetch || fetch;
   const hook = o.hook || require(path.join(engineDir(), 'kosmos-report-hook.js'));
+  /* A leaf with no requires, so loading it here freezes nothing. */
+  const identity = require(path.join(engineDir(), 'launchidentity.js'));
+  /* Required only on a 421: it reads store.ROOT, which this agent's environment
+     already points at its own Kosmos. */
+  const outbox = () => o.outbox || require(path.join(engineDir(), 'outbox.js'));
   const url = o.url || hook.resolveUrl(env, -1);
   let args;
   try { args = argvFrom(argv, o.readFile); } catch (e) { err(String(e.message)); return 2; }
@@ -117,9 +143,12 @@ async function main(argv, io) {
 
   /* Both credentials ride in headers, never in argv or a file. The board token is
      needed on an enforcing board (Windows always enforces); the agent token names
-     the sender. Either may be absent: the board says what it refuses. */
+     the sender. Either may be absent: the board says what it refuses. The world
+     header is always sent: it is how a board serving another Kosmos knows to say
+     so rather than refuse the agent as a stranger. */
   function headersFor(withAgent) {
     const h = { 'content-type': 'application/json' };
+    h[identity.WORLD_HEADER] = identity.worldHeaderValue(env);
     const bt = hook.readBoardToken();
     if (bt) h['x-kosmos-board-token'] = bt;
     const at = withAgent ? hook.agentToken(env) : null;
@@ -150,13 +179,24 @@ async function main(argv, io) {
   }
   const unreachable = (what) => { err('We could not reach Kosmos to ' + what + '. Is it running at ' + url + '?'); return 1; };
   const refusedBy = (r) => (r.json && typeof r.json.error === 'string') ? clause(r.json.error) : null;
+  /* The board is serving another Kosmos than this agent's. */
+  const wrongWorld = (r) => r.reached && r.status === WRONG_WORLD_STATUS && Boolean(r.json) && r.json.wrongWorld === true;
+  /* reply / msg / post on a 421: keep it in this agent's Kosmos for later. */
+  const keepForLater = (sendVerb, body) => {
+    const kept = outbox().keepFromClient({ verb: sendVerb, body, env });
+    if (!kept.ok) { err(kept.because); return 1; }
+    out(outbox().WRONG_WORLD_SENTENCES.kept);
+    return 0;
+  };
 
   if (verb === 'msg') {
     const to = args.shift();
     const text = args.join(' ');
     if (!to || !text) { err(USAGE.msg); return 2; }
-    const r = await call('POST', '/api/msg', { to, text, from_pane: '' });
+    const body = { to, text, from_pane: '' };
+    const r = await call('POST', '/api/msg', body);
     if (!r.reached) return r.timedOut ? maybe(err, 'Kosmos was slow to answer and we stopped waiting. The message may have been delivered; check with them before sending it again.') : unreachable('send that');
+    if (wrongWorld(r)) return keepForLater('msg', body);
     if (refusedBy(r)) { err('Kosmos refused that request: ' + refusedBy(r) + '.'); return 1; }
     const d = (r.json && r.json.delivery) || {};
     if (d.state === 'placed') { out('Placed with ' + to + '.'); return 0; }
@@ -168,8 +208,10 @@ async function main(argv, io) {
   if (verb === 'reply') {
     const text = args.join(' ');
     if (!text) { err(USAGE.reply); return 2; }
-    const r = await call('POST', '/api/reply', { text, from_pane: '' });
+    const body = { text, from_pane: '' };
+    const r = await call('POST', '/api/reply', body);
     if (!r.reached) return r.timedOut ? maybe(err, 'Kosmos was slow to answer and we stopped waiting. Your answer may have been kept; check your conversation before sending it again.') : unreachable('keep that');
+    if (wrongWorld(r)) return keepForLater('reply', body);
     if (refusedBy(r)) { err('Kosmos refused that: ' + refusedBy(r) + '.'); return 1; }
     if (r.json && r.json.kept === true) { out('Answered. It is in their conversation with you.'); return 0; }
     err('That was not kept: ' + (clause(r.json && r.json.because) || 'we could not tell why') + '.');
@@ -186,8 +228,10 @@ async function main(argv, io) {
     const project = args.shift();
     const text = args.join(' ');
     if (!project || !text) { err(USAGE.post); return 2; }
-    const r = await call('POST', '/api/post', { project, text, from_pane: '' }, { timeoutMs: POST_TIMEOUT_MS });
+    const body = { project, text, from_pane: '' };
+    const r = await call('POST', '/api/post', body, { timeoutMs: POST_TIMEOUT_MS });
     if (!r.reached) return r.timedOut ? maybe(err, 'Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it.') : unreachable('post that');
+    if (wrongWorld(r)) return keepForLater('post', body);
     if (refusedBy(r)) { err('Kosmos refused that request: ' + refusedBy(r) + '.'); return 1; }
     const d = (r.json && r.json.delivery) || {};
     if (d.state === 'placed') { out('Posted to ' + project + '. Everyone on it has it waiting.'); return 0; }
@@ -201,6 +245,8 @@ async function main(argv, io) {
     if (!project || !of || !emoji) { err(USAGE.react); return 2; }
     const r = await call('POST', '/api/react', { project, of, emoji, from_pane: '' });
     if (!r.reached) return r.timedOut ? maybe(err, 'Kosmos was slow to answer and we stopped waiting. Your reaction may have landed; check the room before reacting again, because reacting again takes it back off.') : unreachable('react');
+    /* Not kept: a reaction toggles room state this agent cannot see from here. */
+    if (wrongWorld(r)) { err(outbox().WRONG_WORLD_SENTENCES.notOpen); return 1; }
     if (refusedBy(r)) { err('Kosmos refused that: ' + refusedBy(r) + '.'); return 1; }
     /* install/kosmos's sentences: the route TOGGLES, so the agent must hear which. */
     if (r.json && r.json.ok && r.json.op === 'remove') { out('Took your ' + emoji + ' back off that post.'); return 0; }
@@ -236,6 +282,9 @@ async function main(argv, io) {
     }
     const r = await call('POST', '/api/report', { state, text, on: f.on, owner: f.owner, until: f.until, project: f.project, auto: f.auto, from_pane: '' });
     if (!r.reached) return unreachable('record that');
+    /* Dropped, not kept: a state this agent was in while its Kosmos was closed is
+       stale by the time it opens. Exit 0, because nothing went wrong. */
+    if (wrongWorld(r)) { out(outbox().WRONG_WORLD_SENTENCES.staleReport); return 0; }
     if (refusedBy(r)) { err('Kosmos refused that: ' + refusedBy(r) + '.'); return 1; }
     if (r.json && r.json.recorded === true) { out('Recorded. The board reads it from here.'); return 0; }
     err('That was not recorded: ' + (clause(r.json && r.json.because) || 'we could not tell why') + '.');
