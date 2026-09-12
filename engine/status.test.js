@@ -5573,3 +5573,43 @@ test('#1704 a DEFAULT-world claimed agent stays recognised (claim === session ==
     if (saved === undefined) delete process.env.KOSMOS_WORLD; else process.env.KOSMOS_WORLD = saved;
   }
 });
+
+// #1704: two Kosmos worlds run on one shared tmux server, so `list-panes -a`
+// returns both. A board world-filters the OTHER world's panes out of its roster,
+// but they are perfectly READABLE and must NOT inflate `rejected` -- otherwise
+// the board raises a false "N lines of the window list could not be read" alarm
+// the moment a second world is running (readPanes derives `rejected` from
+// isParseable, not lines-minus-panes, exactly to avoid this).
+test('#1704 readPanes does not count another Kosmos\'s panes as unreadable', () => {
+  const { readPanes } = require('./status');
+  const saved = process.env.KOSMOS_WORLD;
+  delete process.env.KOSMOS_WORLD;   // the default board
+  try {
+    const mine = { session: 'ava', pane: '0.0', command: '2.1.212', inMode: '0', claim: 'ava', title: 'Working' };
+    const other = { session: 'bob+qa', pane: '0.0', command: '2.1.212', inMode: '0', claim: 'bob+qa', title: 'Working' };
+    const out = [mine, other].map((v) => PANE_COLUMNS.map((c) => v[c.key]).join('\t')).join('\n');
+    const r = readPanes(out);
+    assert.equal(r.panes.length, 1, 'the default board rosters only its own agent');
+    assert.equal(r.panes[0].name, 'ava');
+    assert.equal(r.rejected, 0, 'the other Kosmos\'s readable pane is not an unreadable line');
+    assert.deepEqual(r.rejectedLines, [], 'and the count and its sample agree (both from isParseable)');
+    // Control: a genuinely mangled line IS still rejected.
+    const bad = readPanes(out + '\nthis\tis\tnot\ta\tvalid\tpane\tline\ttoo\tmany');
+    assert.equal(bad.rejected, 1, 'a truly unparseable line is still counted');
+  } finally {
+    if (saved === undefined) delete process.env.KOSMOS_WORLD; else process.env.KOSMOS_WORLD = saved;
+  }
+});
+
+test('#1704 a world id ending in -discord does not mangle the roster name', () => {
+  const saved = process.env.KOSMOS_WORLD;
+  process.env.KOSMOS_WORLD = 'qa-discord';   // a world id CLEAN_ID permits, ending in -discord
+  try {
+    const v = { session: 'ava+qa-discord', pane: '0.0', command: '2.1.212', inMode: '0', claim: 'ava+qa-discord', title: 'x' };
+    const [got] = parsePanes(PANE_COLUMNS.map((c) => v[c.key]).join('\t'));
+    assert.ok(got, 'the agent is not dropped');
+    assert.equal(got.name, 'ava', 'the +world is parsed before -discord is stripped, so ava is not mangled to ava+qa');
+  } finally {
+    if (saved === undefined) delete process.env.KOSMOS_WORLD; else process.env.KOSMOS_WORLD = saved;
+  }
+});

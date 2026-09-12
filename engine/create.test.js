@@ -5072,3 +5072,28 @@ test('#2250 CONTROL: no plist and no profile defaults to claude, and an unusable
   assert.equal(create.recordedRunner('../evil'), 'claude',
     'a traversal-shaped name resolves to claude rather than building a path or throwing');
 });
+
+test('#1704 a NAMED-world launch hands the pane its Kosmos: KOSMOS_WORLD + the world store roots', () => {
+  // The named-world twin of the #587 default-world pane-env test, through the same
+  // shipped-script harness. The supervisor resolves KOSMOS_WORLD into the world's
+  // store roots and pushes them (and KOSMOS_WORLD) onto the pane, so a named-world
+  // agent's `kosmos` CLI and hooks reach ITS store rather than the default one.
+  const savedWorld = process.env.KOSMOS_WORLD;
+  process.env.KOSMOS_WORLD = 'qa';   // the board serves the qa Kosmos -> the job's session is keyed
+  let set;
+  try {
+    set = runLauncher({ claim: 'probe+qa', paneCommands: ['-zsh', 'bash'],
+      env: { CLAUDE_CONFIG_DIR: undefined, CODEX_HOME: undefined, KOSMOS_PORT: undefined, KOSMOS_WORLD: 'qa' } });
+  } finally {
+    if (savedWorld === undefined) delete process.env.KOSMOS_WORLD; else process.env.KOSMOS_WORLD = savedWorld;
+  }
+  assert.ok(set.newSession, 'nothing was launched');
+  assert.ok(set.newSession.includes('probe+qa'),
+    'the tmux session is the launch key: ' + JSON.stringify(set.newSession));
+  const passed = set.newSession.filter((a, i, all) => i > 0 && all[i - 1] === '-e');
+  assert.ok(passed.includes('KOSMOS_WORLD=qa'),
+    'the pane is handed its Kosmos id: ' + JSON.stringify(passed));
+  const dataVar = passed.find((v) => v.startsWith('AGENT_WORKFORCE_DATA='));
+  assert.ok(dataVar && dataVar.includes(nodePath.join('worlds', 'qa')),
+    'the pane reaches the qa world store, not the default: ' + dataVar);
+});

@@ -845,17 +845,23 @@ function isParseable(line) {
 function readPanes(out) {
   if (!out) return { panes: [], rejected: 0, rejectedLines: [] };
   const lines = out.trim().split('\n').filter(Boolean);
-  // ⚠️ Counted from what actually PARSED, not from a second application of the
-  // filter. Two derivations of "how many did we lose" can drift the moment
-  // `parsePanes` drops a line for any other reason.
   const panes = parsePanes(out);
-  /* #734: the lines themselves ride along (bounded: three, one line each,
-     160 chars), so the board can SHOW what it could not read rather than
-     only count it. A count says the fleet is short; the line says which
-     pane, which is the only way anyone finds it. A pane title is text an
-     agent wrote and this reaches a screen, hence the bound. */
-  const rejectedLines = lines.filter((l) => !isParseable(l)).slice(0, 3).map((l) => oneLine(l, 160));
-  return { panes, rejected: lines.length - panes.length, rejectedLines };
+  /* 🛑 #1704: "rejected" is the count of lines we genuinely COULD NOT READ (they
+     fail isParseable), NOT `lines.length - panes.length`. parsePanes now drops a
+     line for THREE reasons -- unparseable, the board's own sign-in session, and
+     (new) every OTHER Kosmos's panes, since `list-panes -a` enumerates the whole
+     shared tmux server. The last two are deliberate EXCLUSIONS, not read
+     failures, so lines-minus-panes would raise a false "N lines could not be
+     read" alarm the moment two worlds run on one Mac. Deriving `rejected` and
+     `rejectedLines` from the SAME isParseable pass also means the count and its
+     shown sample can never drift (they did, once this filter grew a third
+     reason -- the exact drift the old lines-minus-panes comment feared).
+     #734: the lines ride along (bounded: three, one line each, 160 chars) so the
+     board can SHOW what it could not read, not only count it -- a title is text
+     an agent wrote and reaches a screen, hence the bound. */
+  const unparseable = lines.filter((l) => !isParseable(l));
+  const rejectedLines = unparseable.slice(0, 3).map((l) => oneLine(l, 160));
+  return { panes, rejected: unparseable.length, rejectedLines };
 }
 
 /**
