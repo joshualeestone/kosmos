@@ -7,14 +7,26 @@ else is required to continue.**
     already on main        7c-1..7c-6 (#2601, #2661, #2672, #2756), headless tasks
                            (#2714), the supervisor fixes #2722, #2728, #2731,
                            #2737, the launcher hand-off #2752, the agent's
-                           kosmos command #2754 and the zip text #2759.
+                           kosmos command #2754, the zip text #2759, R8b's
+                           record #2823, the anchor swap #2825, and the
+                           multi-Kosmos set for agents (#1704: #2845, #2852,
+                           #2874, #2877, #2879, #2886, #2892).
                            Windows v1 is SERVED as 0.6.55 (below)
     this file              .claude/plans/WINDOWS-ROADMAP.md   <- the whole road
     the keep-alive log     .claude/plans/win32-keepalive-570.md  <- that slice only
 
-## The one-line state (2026-09-11, ~13:30 UTC)
+## The one-line state (2026-09-12, ~16:00 UTC)
 
-**WINDOWS v1 SHIPPED. installkosmos.com serves 0.6.55**, built from main
+**MAIN NOW RUNS AGENTS IN A SECOND KOSMOS, MEASURED LIVE ON THE BOX: 18/18 on
+main `5aa75512` (0.6.59), 2026-09-12 (§5).** The #1704 set gives each Kosmos's
+agents that Kosmos's board token, task and pipe. It also lets a switch pause or
+keep the old Kosmos's agents, holds a kept agent's sends until its Kosmos opens,
+and imports agents from one Kosmos into another. The anchor swap (#2825) is on
+main too. Neither has reached Windows users yet: installkosmos.com still serves
+0.6.55 (`latest-win.json`, fetched 2026-09-12), and the next Windows cut goes to
+STAGING first (the handshake under "Do this next").
+
+**WINDOWS v1 SHIPPED 2026-09-11. installkosmos.com serves 0.6.55**, built from main
 `fbe246e0`. `latest-win.json`, the `kosmos-win-x64.zip` alias,
 `kosmos-0.6.55-win-x64.zip` and the served `.sha256` all name, and hash to,
 `062e836ee0df9a919c1563a623417bed182b9afd6aac312d8ef9043928ec796c`. How it got
@@ -36,11 +48,16 @@ an agent started at logon ANSWERED on the board.
 
 BLOCKER 2 stays off the v1 path: Josh approved 2026-09-10 that v1 updates by hand,
 with a real updater as a fast-follow. What is still open:
-- a clean-box first run (capability 1, §5);
-- a zip that changes the Node runtime cannot be handed off (§5; fix in flight on
-  `win32-anchor-swap-570`);
-- a named world's board token for agents (§5);
-- the `.ps1` execution-policy dependency (§3c).
+- a clean-box first run (capability 1, §5). It waits on Josh, because Windows
+  Sandbox needs admin and a reboot;
+- the real updater (capability 7, a fast-follow);
+- the `.ps1` execution-policy dependency (§3c);
+- a live Mac import-and-start, queued for a Mac tester (§5);
+- no way to delete a Kosmos, on any platform (§5).
+
+✅ Closed since 2026-09-11: a zip that changes the Node runtime can now be handed
+off (#2825, §5), and a named world's agents get that world's board token (the
+#1704 set, §5).
 
 ## ✅ 7c-2 IS DONE (2026-09-10), AND MEASURED ON THE BOX.
 
@@ -202,8 +219,9 @@ shared usage before fanning out subagents.
    (ownership rows pruned).
 5. ✅ **A current Windows build and publish: DONE 2026-09-11.** #2752, #2754 and
    #2759 merged. 0.6.55 (main `fbe246e0`) is served, after Baron's bytes passed
-   the handshake below on this box (see the one-line state). What remains is NOW
-   in §6: `win32-anchor-swap-570`. The history follows.
+   the handshake below on this box (see the one-line state). The anchor swap
+   that followed merged as #2825 (§5). What remains is in §6. The history
+   follows.
    - A zip built from main 6182640d (0.6.55) passed every agent step on the box,
      unpacked through Explorer's shell with the Mark of the Web set, as a download
      would be: sign-in via the #2007 nonce, create, talk (delivery and card state),
@@ -224,6 +242,15 @@ shared usage before fanning out subagents.
      1. Baron builds on the Mac release box from a sha this box has verified.
      2. This box verifies those exact bytes.
      3. A deploy serves it, on Josh's explicit go.
+   - 🛑 SINCE 2026-09-12, EVERY CUT GOES TO STAGING FIRST, WINDOWS INCLUDED.
+     This is Josh's fleetwide rule: a cut is served on STAGING and verified
+     there, and only then goes to PROD. So step 3 serves staging first, and prod
+     follows once staging is verified. ⚠️ The channel tooling covers only the Mac
+     tarball: `tools/promote-channel.sh` promotes `dist/latest-staging.json` to
+     `dist/latest.json` (`docs/staging-channel.md`).
+     `tools/publish-kosmos-windows.sh` writes only `dist/latest-win.json`, and
+     nothing in `tools/` writes a Windows staging pointer. So a Windows cut has
+     no staging pointer of its own yet.
 6. Still unmeasured:
    - the named pipe's default DACL;
    - a first run on a CLEAN Windows box (capability 1). This box is not admin,
@@ -306,7 +333,7 @@ That is the bar. Not "the tests pass".
 | 4 | **talk to it** | ✅ **BLOCKER 1 CLOSED** 2026-09-10 (7c-4) — the board's `chat.deliver` reaches the agent through its supervisor's pipe and it answers; measured live. Its card reads working/idle since 7c-5. **R3 PASSED** in the 7c-6 rehearsal: 3 of 3 agents `placed`, card working -> idle, and the reply is in each agent's transcript. ⚠️ **The answer did NOT reach the board**: R3 read the transcript, and an agent on the Windows zip had no `kosmos reply` (BLOCKER 5, §3c). ✅ Fixed by #2754 (merged 2026-09-11), verified live with the answer on the board, and again on the shipped 0.6.55 bytes and after a real logon (R8b). A crash-resumed agent reports again (#2722), and `/clear` keeps it on the board (#2728) |
 | 5 | stop/restart/remove/restore | ✅ MEASURED |
 | 6 | survive a reboot | ✅ **MEASURED AT A REAL LOGON, TWICE.** R8 (2026-09-11, the source checkout): the board and all 5 enabled agents came back unattended, with one `conhost --headless` supervisor each, no windows, every card idle, and one ownership row per agent (#2737). **R8b (2026-09-11, 13:01 UTC, the SHIPPING zip install, fbe246e0):** the same came back, and an agent started at logon ANSWERED. reh-a's two-line reply landed on the board intact, which proves the logon-started supervisor put the zip's `bin\` on the agent's PATH, and reh-a -> reh-b messaging worked |
-| 7 | **update the app** | ⚠️ **BLOCKER 2, OFF THE v1 PATH.** Josh approved 2026-09-10: v1 updates by hand, a real updater is a fast-follow. §3a. The ANCHOR (not stranding the fleet) is designed and unit-tested; the UPDATER ITSELF cannot run on Windows at all. An update by hand has run twice (§5). ⚠️ An update whose zip changes the NODE RUNTIME cannot replace the anchored node.exe while the fleet runs on it (§5) |
+| 7 | **update the app** | ⚠️ **BLOCKER 2, OFF THE v1 PATH.** Josh approved 2026-09-10: v1 updates by hand, a real updater is a fast-follow. §3a. The ANCHOR (not stranding the fleet) is designed and unit-tested; the UPDATER ITSELF cannot run on Windows at all. An update by hand has run twice (§5). ✅ Since #2825, an update whose zip changes the NODE RUNTIME can replace the anchored node.exe while the fleet runs on it. That is on main, not yet in a served zip (§5) |
 
 🛑 THAT IS FOUR BLOCKERS, NOT ONE (FIVE since 2026-09-11, §3c). This table said "one blocker" on 2026-09-09
 because capability 1 had never been looked at. It has now been traced end to end,
@@ -564,10 +591,11 @@ and a screen calling it broken.
   question is answered and the answer is no: the Windows bundle ships no
   `bin\kosmos` of any spelling, so `installedKosmosCli()` is null there BY
   CONSTRUCTION — a true negative, now documented in `clipath.js`, that routes to
-  a real mechanism instead of a dead end. See §3c. (Until `win32-kosmos-cli-570`
-  merges: that branch ships `bin\kosmos` as the AGENT's command, with no board verbs,
-  so `installedKosmosCli()` is no longer null on a Windows bundle; `boardrestart.js`
-  still never asks it on win32.)
+  a real mechanism instead of a dead end. See §3c. (Since `win32-kosmos-cli-570`
+  merged as #2754, the zip ships `bin\kosmos` as the AGENT's command, with no board
+  verbs. So `installedKosmosCli()` is no longer null on a Windows bundle.
+  `boardrestart.js` still never asks it on win32, because `canSelfRestart` returns
+  at its win32 check first: `engine/boardrestart.js:33-36`, :208.)
 - `engine/terminal.js` — "open the agent's terminal" shells `osascript`. Fails
   honestly with a raw ENOENT sentence. Consistent with 7c: there is no pty to
   attach to, so this may simply not exist on Windows.
@@ -883,41 +911,73 @@ Honest gaps in this document:
     handed off to the running board, and Z0-Z6 passed after.
 
   The in-app updater (capability 7) is still unbuilt.
-- **An update that changes the NODE RUNTIME cannot be handed off (on main, and
-  in 0.6.55).** The anchored `%LOCALAPPDATA%\Kosmos\runtime\node.exe` is the
-  running interpreter of the task board and every supervisor.
-  `win32anchor.ensureAnchored` copies over it when the size differs, and Windows
-  refuses that copy with EBUSY. So `ensureInstalled` fails, the hand-off is
-  skipped, and the person gets "port in use" until the next logon. Creating an
-  agent fails the same way.
+- ✅ **RESOLVED ON MAIN by #2825 (03b99146, 2026-09-11): an update that changes
+  the NODE RUNTIME can be handed off.** The anchored
+  `%LOCALAPPDATA%\Kosmos\runtime\node.exe` is the running interpreter of the task
+  board and every supervisor. Before #2825, `win32anchor.ensureAnchored` copied
+  over it when the size differed, and Windows refused that copy with EBUSY. So
+  `ensureInstalled` failed, the hand-off was skipped, and the person got "port in
+  use" until the next logon. Creating an agent failed the same way. The served
+  0.6.55 still behaves that way.
   - Measured 2026-09-11: a running node.exe cannot be overwritten, but it CAN be
     renamed, and a new file can take its name while it keeps running.
-  - The fix is in flight on `win32-anchor-swap-570`: stage beside, rename the old
-    one aside, rename the new one in, and sweep the retired copies once nothing
+  - The fix: `replaceInterpreter` (`engine/win32anchor.js:259`) stages the new
+    copy beside the old, renames the old one aside and renames the new one in.
+    `retireLeftoverInterpreters` (:303) sweeps the retired copies once nothing
     runs on them.
-- **A named world's board token does not reach its agents.** Only the board
-  process applies a world's `AGENT_WORKFORCE_DATA` (engine/worldenv.js). An
-  agent's supervisor, its `kosmos` CLI and its report hook resolve `store.ROOT`
-  for the DEFAULT world, and read that world's `board.token`. On a board serving a
-  named world they present the wrong token and are refused. That is what the
-  code says; it has not been measured yet.
+  - ⚠️ Proven by `engine/win32anchor.test.js` against a real running copy of
+    node.exe (all 16 win32 engine suites, 341/341 on the box, per #2825). The
+    live swap on the box's REAL anchor was not run (#2825, "Not done here"), and
+    no served Windows zip carries the fix yet.
+- ✅ **RESOLVED ON MAIN (2026-09-11/12, the #1704 set): a named world's agents
+  get that world's board token.** History: only the board applied a world's
+  `AGENT_WORKFORCE_DATA`. So a named world's supervisor, `kosmos` CLI and report
+  hook read the DEFAULT world's `board.token`, sender tokens and Windows session
+  records, and were refused. It was reachable from the v1 switcher on every
+  platform. What closed it:
+  - #2845 (a677a0b5): Windows agents learn their Kosmos, with per-Kosmos task and
+    pipe names. The world rides on the task line, and the anchored boot shim
+    applies it (`worlds.applyAgentWorldEnv`) before the supervisor loads
+    (`engine/win32anchor.js:175-180`);
+  - #2852 (fd19bb6e): a board can boot into a named world;
+  - #2874 (1b3b81b0): the same on the Mac. `bin/agent-supervisor.sh:318-324`
+    applies the world, and each pane gets `KOSMOS_WORLD` (:450);
+  - #2877 (e1e91030): a switch asks whether to pause this Kosmos's agents or keep
+    them running;
+  - #2879 (136172a7): a board serving another Kosmos answers a kept-running
+    agent's send with 421 `wrongWorld` (`server.js:1401-1437`). The send is kept
+    in the agent's own Kosmos's outbox (`engine/outbox.js`), and that Kosmos's
+    board drains the outbox when it opens;
+  - #2886 (e07ec774): lifts #2849's named-world spawn guard (718c72b8), so a named
+    Kosmos starts and pauses its own agents;
+  - #2892 (5aa75512): import at New Kosmos and from a settings cog (below).
 
-  ⚠️ IT IS NOT ONE TOKEN. The per-run SENDER token (`engine/sendertoken.js`, whose
-  store freezes `store.ROOT/sendertokens` at require) is minted by the supervisor
-  into the DEFAULT world's store. A named-world board resolves it from the world's
-  own store and finds nothing. The same applies to the Windows session and state
-  records (`win32sessions.js`, `win32streamstate.js`), which the roster and capture
-  read. So fixing `board.token` alone would not close the gap. The agent side
-  needs the world's data root (worlds.envOverridesFor) before its first
-  store-using require. The gap is shared with the Mac clients
-  and `install/kosmos`, so it is not specific to Windows. ⚠️ It is REACHABLE from
-  the normal v1 install:
-  - the board shows the world switcher and "New Kosmos" on every platform
-    (`web/index.html`);
-  - a switch restarts the board through its logon task (`engine/boardrestart.js`,
-    win32 arm).
+  ✅ **MEASURED LIVE 2026-09-12: 18/18** on main `5aa75512` (0.6.59), run from a
+  worktree against the box's real board, tasks and agents. The script is
+  `C:\Users\joshu\kosmos-scripts\live-1704-check.js`, and its log is
+  `live-1704-log.txt` beside it. Every verdict read `schtasks`, the disk or a GET
+  route, never the route's own answer:
 
-  So a person who makes a second Kosmos and switches to it would hit it.
+      1      the board runs the new build on Kosmos 1
+      2a-2d  a Kosmos "Live1704" made with reh-a imported: it is not open,
+             reh-a waits for it, the copy is in its store, and Kosmos 1's reh-a
+             is untouched
+      3a-3c  a PAUSE switch into it: the board reboots there, Kosmos 1's tasks
+             are Disabled and stopped, and the imported reh-a starts under its
+             world-keyed task (Kosmos\agent-reh-a+live1704)
+      4      an agent created there runs under a world-keyed task, and no
+             Kosmos 1 task is made
+      5      reh-b, imported from the cog into the open Kosmos, starts at once
+      6a-6c  a KEEP switch back: Kosmos 1's paused tasks are re-enabled and
+             Running, and Live1704's agents are still the same processes
+      7a-7c  the outbox: Kosmos 1's board answers reh-a's reply with 421, the
+             reply is kept in Live1704's outbox, and the switch back delivers it
+             into reh-a's thread
+      8a-8b  a clean restore: the run's agents are removed, and the box is as
+             it was
+
+  Left on the box: the Live1704 Kosmos itself, because nothing can delete a
+  Kosmos (see "Nothing can delete a Kosmos" below).
 
   📌 IMPORT (#1704 PR4, `world-import-agents-1704`). Agents can be copied from one
   Kosmos into another, at New Kosmos or from any Kosmos's settings cog
@@ -930,6 +990,18 @@ Honest gaps in this document:
   says why. One into a Kosmos that is not open is recorded there and starts when
   that Kosmos next opens, and that Kosmos's settings pane shows what is waiting to
   start in it.
+
+  ⚠️ STILL UNEXERCISED: a live Mac import-and-start. #2892 proves the Mac start
+  path (folder trust, `installJob`, launchctl) only through the runner seam. A
+  live run is queued for a Mac tester (#2892, "Needs Angel (live Mac)").
+- **Nothing can delete a Kosmos, on any platform.** `engine/worlds.js` creates a
+  Kosmos (`createWorld`, :340), switches to it (`setActiveWorld`, :370) and
+  renames it (`renameWorld`, :410), and exports no delete. No `/api/worlds*`
+  route in `server.js` deletes one either. The routes are list (:3083, :3116),
+  create (:3125), switch (:3176), import (:3308) and rename (:3356). So a test
+  or unwanted Kosmos stays in the switcher for good. This is not
+  Windows-specific. The live check's Live1704 stays on this box because of it,
+  along with its removed agents' disabled tasks (the log's "left behind" line).
 - **A broad Mac-only-assumption sweep is in flight.** A targeted sweep for
   tmux/launchctl found `chat.js` (the blocker) and `runningas.js` (degraded) as
   the only live call sites outside already-ported modules. A wider survey — for
@@ -947,16 +1019,22 @@ Honest gaps in this document:
            the zip install), and THE WINDOWS v1 RELEASE: 0.6.55 served
            2026-09-11 (Baron built it on mortals, this box verified the
            bytes and ran them live, and it shipped on Josh's go)
-    NOW    a new Node runtime can update    win32-anchor-swap-570 (§5)
-    NEXT   a named world's board token      (§5: reachable from the v1 switcher;
-           for agents                        shared with the Mac, so designed
-                                             with it)
+           a new Node runtime can update: #2825 (§5; on main, not yet served)
+           a named world's agents get its board token: the #1704 set #2845,
+           #2852, #2874, #2877, #2879, #2886, #2892, live 18/18 on
+           5aa75512 (§5)
+    FOLLOW-UP  deleting a Kosmos            (§5: no route and no engine
+                                             function; cross-platform)
+               a live Mac import-and-start  (§5: queued for a Mac tester)
     THEN   first-run survey + fix           (capability 1, a clean box:
                                             Windows Sandbox needs admin and a
                                             reboot, so it waits on Josh)
     LATER  a real updater                   (capability 7, a fast-follow)
            the .ps1 execution-policy dependency (§3c: a PE shim alone would
            mangle quotes)
+
+    Every cut that ships any of this goes to STAGING first, then PROD (see
+    the handshake under "Do this next").
 
 ✅ THE OLD RULE, "NO WINDOWS RELEASE UNTIL 7c LANDS", IS MET: 7c landed and R3
 passed. The gate now is the list above.
