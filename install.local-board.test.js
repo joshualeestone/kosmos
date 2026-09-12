@@ -71,14 +71,51 @@ test('board deploy refuses existing and not-yet-created destinations inside a gi
   execFileSync('git', ['-C', repo, 'add', '.']);
   execFileSync('git', ['-C', repo, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture']);
 
-  for (const destination of [repo, path.join(repo, 'not-created', 'board')]) {
+  for (const destination of [repo, `${repo}/`, path.join(repo, 'not-created', 'board')]) {
     const run = spawnSync('bash', [path.join(repo, 'deploy', 'install-board.sh'), '--apply'], {
       encoding: 'utf8',
       env: { ...process.env, KOSMOS_BOARD_LIBEXEC: destination, KOSMOS_BOARD_PLIST: path.join(fixture, 'board.plist') },
     });
     assert.equal(run.status, 1, `expected refusal for ${destination}, stdout: ${run.stdout}, stderr: ${run.stderr}`);
-    assert.match(run.stderr, /destination is inside a git work tree/, run.stderr);
+    assert.match(run.stderr, /destination (?:is inside a git work tree|contains the source repository)/, run.stderr);
     assert.ok(!fs.existsSync(path.join(repo, 'not-created')), 'the apply created a nested destination inside the fixture repository');
   }
   assert.ok(fs.existsSync(path.join(repo, '.git')), 'the apply replaced the fixture repository');
+
+  const ancestor = spawnSync('bash', [path.join(repo, 'deploy', 'install-board.sh'), '--apply'], {
+    encoding: 'utf8',
+    env: { ...process.env, KOSMOS_BOARD_LIBEXEC: fixture, KOSMOS_BOARD_PLIST: path.join(fixture, 'board.plist') },
+  });
+  assert.equal(ancestor.status, 1, `expected ancestor refusal, stdout: ${ancestor.stdout}, stderr: ${ancestor.stderr}`);
+  assert.match(ancestor.stderr, /destination contains the source repository/, ancestor.stderr);
+  assert.ok(fs.existsSync(path.join(repo, '.git')), 'the ancestor apply removed the fixture repository');
+});
+
+test('refresh-only swaps a trailing-slash destination without plist or launchd changes', () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-board-refresh-'));
+  const source = path.join(fixture, 'source');
+  const destination = path.join(fixture, 'deployed');
+  fs.mkdirSync(path.join(source, 'deploy'), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, 'deploy', 'install-board.sh'), path.join(source, 'deploy', 'install-board.sh'));
+  for (const name of ['server.js', 'package.json']) fs.copyFileSync(path.join(__dirname, name), path.join(source, name));
+  fs.cpSync(path.join(__dirname, 'engine'), path.join(source, 'engine'), { recursive: true });
+  fs.cpSync(path.join(__dirname, 'web'), path.join(source, 'web'), { recursive: true });
+  fs.mkdirSync(path.join(source, 'bin'), { recursive: true });
+  for (const name of ['agent-supervisor.sh', 'codex-report-bridge.js']) fs.copyFileSync(path.join(__dirname, 'bin', name), path.join(source, 'bin', name));
+  fs.mkdirSync(destination);
+  fs.writeFileSync(path.join(destination, 'stale'), 'old');
+  const plist = path.join(fixture, 'board.plist');
+  fs.writeFileSync(plist, 'unchanged');
+  const launchctl = path.join(fixture, 'launchctl');
+  fs.writeFileSync(launchctl, '#!/bin/sh\nprintf called > "$KOSMOS_LAUNCHCTL_MARKER"\nexit 91\n', { mode: 0o755 });
+  const marker = path.join(fixture, 'launchctl-called');
+  const run = spawnSync('bash', [path.join(source, 'deploy', 'install-board.sh'), '--refresh-only'], {
+    encoding: 'utf8',
+    env: { ...process.env, PATH: `${fixture}:${process.env.PATH}`, KOSMOS_LAUNCHCTL_MARKER: marker, KOSMOS_BOARD_LIBEXEC: `${destination}/`, KOSMOS_BOARD_PLIST: plist },
+  });
+  assert.equal(run.status, 0, `refresh failed, stdout: ${run.stdout}, stderr: ${run.stderr}`);
+  assert.ok(fs.existsSync(path.join(destination, 'server.js')), 'the refreshed app was not installed');
+  assert.ok(!fs.existsSync(path.join(destination, 'stale')), 'the stale deployed tree was not replaced');
+  assert.equal(fs.readFileSync(plist, 'utf8'), 'unchanged', 'refresh-only rewrote the plist');
+  assert.ok(!fs.existsSync(marker), 'refresh-only invoked launchctl');
 });
