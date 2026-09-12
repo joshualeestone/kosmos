@@ -99,6 +99,12 @@ fi
 PORT="${KOSMOS_PORT:-$_kosmos_default_port}"
 URL="http://127.0.0.1:$PORT"
 PIDFILE="$KOSMOS_HOME/board.pid"
+# #2955: the deliberate-stop marker the board watchdog reads. `kosmos stop` writes
+# it (before it kills), `kosmos start` clears it (at the very top, before any bind
+# that can fail). While it is present the watchdog leaves the board alone, so a
+# stop stays stopped; once any start clears it the watchdog resumes recovering a
+# board that has died. See bin/board-watchdog.sh.
+STOP_MARKER="$KOSMOS_HOME/board.stopped"
 LOG_DIR="$KOSMOS_HOME/logs"
 BOARD_LOG="$LOG_DIR/board.log"
 
@@ -445,6 +451,15 @@ running_pid() {
 }
 
 cmd_start() {
+  # #2955: clear the deliberate-stop marker EARLY -- before the healthy check and
+  # the bind below that can fail. Starting means "I want it running", which retires
+  # the stop intent whatever happens next. This ORDER is load-bearing: a start that
+  # FAILS to bind port 16180 (the exact reboot case this watchdog exists for) must
+  # STILL clear the marker, or the watchdog stays suppressed and the board never
+  # recovers -- the bug would survive its own fix. A login-job start on the next
+  # reboot clears it too, so a deliberate stop is per-session, matching the board's
+  # existing RunAtLoad-relaunches-on-login behaviour.
+  rm -f "$STOP_MARKER" 2>/dev/null || true
   if healthy; then
     say "Kosmos is already running at $URL"
     return 0
@@ -491,6 +506,12 @@ cmd_start() {
 cmd_stop() {
   local pid
   if pid="$(running_pid)"; then
+    # #2955: write the deliberate-stop marker BEFORE the kill, so the board's own
+    # port-going-dead moment does not trip the watchdog into treating this stop as
+    # a crash and restarting what the user just asked to stop. `kosmos start`
+    # clears it again. `:` truncates/creates the file with nothing in it -- its
+    # presence is the whole signal.
+    : > "$STOP_MARKER" 2>/dev/null || true
     # ⚠️ The pidfile is pid-scoped and the health check is port-scoped, and
     # they can disagree: with KOSMOS_PORT pointed elsewhere, status says
     # "not running" while the recorded process is alive on its original
@@ -524,6 +545,12 @@ cmd_stop() {
     # by hand, or the pidfile is gone. Say what is true instead of guessing.
     die "Something is answering at $URL but it was not started by this command, so it was left alone."
   else
+    # #2955: already down, but the user explicitly asked to stop it, so record
+    # that intent too -- otherwise the watchdog would "recover" a board the user
+    # just told us they want off. The foreign-board branch above deliberately does
+    # NOT write it: that board is not ours to mark, and our watchdog would refuse
+    # to start over a stranger's port anyway.
+    : > "$STOP_MARKER" 2>/dev/null || true
     say "Kosmos is not running."
   fi
 }

@@ -83,6 +83,13 @@ grep -q "content=\"$_ver\"" "$STAGE/app/web/index.html" || {
 echo "==> baked version $_ver into the page"
 cp "$REPO/bin/agent-supervisor.sh" "$STAGE/app/bin/"
 chmod +x "$STAGE/app/bin/agent-supervisor.sh"
+# #2955: the board watchdog. The macOS installer (install/setup.sh) registers a
+# com.kosmos.board.watchdog LaunchAgent that runs this on an interval to bring the
+# board back after a reboot when it failed to come up (the board's own login job
+# is RunAtLoad + no KeepAlive, so nothing else does). Ships in app/bin beside the
+# supervisor; the plist points at $KOSMOS_HOME/app/bin/board-watchdog.sh.
+cp "$REPO/bin/board-watchdog.sh" "$STAGE/app/bin/"
+chmod +x "$STAGE/app/bin/board-watchdog.sh"
 # 🛑 EVERY runtime file engine/create.js resolves under bin/ ships, by name
 # (this file's explicit-list rule). The codex notify bridge was resolved by
 # create.js since #245 and never copied here: served 0.5.23 could not create a
