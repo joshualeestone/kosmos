@@ -425,31 +425,53 @@ function runningAsWin32(session, deps = {}) {
      being unable to test win32, which this repo does routinely through injected
      deps.
      📌 WINDOWS DOES NAME THE PROVIDER, THROUGH THE PROFILE, and this note has
-     been wrong THREE TIMES about which rung does it. Recorded in full because the
+     been wrong FIVE TIMES about which rung does it. Recorded in full because the
      wrong versions were each plausible and a reader who sees only this one cannot
-     tell which stones were already turned over:
+     tell which stones were already turned over. (Rungs are named, not numbered:
+     the numbering below moved once, and a history written in stale numbers is a
+     sixth wrong version waiting to happen.)
        v1 "whoami reports null for it on Windows"   - true of the JSON field,
           read as true of the answer.
        v2 "the sentence names it off the @kosmos_runner marker" - measured on a
           card shape Windows cannot produce (no tmux).
-       v3 "every rung floors at claude"             - I retired rung 1 and
-          ASSUMED rungs 2 and 3 followed.
-       v4 "rung 3 fires, rung 1 does not"           - I then verified rung 3 and
-          ASSUMED rung 1 still did not, having only checked that tmux is absent.
-     ⭐ FOUR TIMES, ONE PATTERN: each version verified the rung it had just been
-     shown and inferred the rest. The fix is not a fifth sentence.
-     Traced and measured, rung by rung. TWO of the three fire on Windows:
-       rung 1  `card.runner`  -> FIRES. Not via tmux (there is none) but via the
-               win32 ROSTER: `server.js` does, under `process.platform === 'win32'`,
-               `status.setPaneSource(win32roster.make())`, and `win32roster` emits
-               a synthetic PANE_COLUMNS row whose `runner` column is `rec.runner`
-               from the win32 sessions record. The engine parses it exactly as it
-               parses a tmux pane.
-       rung 2  `readJob` -> `~/Library/LaunchAgents` -> null; launchd is macOS.
-       rung 3  `store.readProfile(name).provider`    -> FIRES. Measured with no
-               plist at all, which IS the Windows state:
-                 profile.provider = openai  ->  recordedRunner = "codex"
-                 control, no provider written ->  "claude"
+       v3 "every rung floors at claude"             - retired the MARKER and
+          ASSUMED the rest followed.
+       v4 "the profile fires, the marker does not"  - verified the profile,
+          ASSUMED the marker still did not, having only checked that tmux is
+          absent.
+       v5 "the MARKER fires too, via the roster"    - measured the roster's runner
+          COLUMN and claimed what happens to a Windows codex AGENT, on a fixture
+          that lists a codex session in `claude agents --json`.
+     ⭐ FIVE TIMES, ONE PATTERN: each version verified the rung it had just been
+     shown and inferred the rest. The fix is not a sixth sentence. Both halves are
+     now ASSERTIONS: the profile rung by a test in `server.test.js`, and the
+     roster's non-firing by `#2811` in `engine/win32roster.test.js`, whose control
+     emits the row once the LIVE LIST names the session.
+     Traced rung by rung, in `resolvedRunner`'s own order. EXACTLY ONE fires for a
+     Codex agent on Windows:
+       rung 1  `seen.runner` (the live read) -> no. `win32Answer` carries no
+               `runner` key at all.
+       rung 2  `card.runner` (the marker) -> NO, and this is where v5 was wrong.
+               The win32 pane source IS installed (`server.js` does
+               `status.setPaneSource(win32roster.make())` under
+               `process.platform === 'win32'`) and its row DOES carry a `runner`
+               column, but `make()` iterates ONLY over `claude agents --json`
+               (`const agents = run(); for (const a of agents)`), and that command
+               has no codex arm, as this file says forty lines above. A recorded
+               codex session it does not list produces NO ROW, so no pane and no
+               `card.runner`.
+       rung 3  `create.recordedRunner`, which is itself two reads:
+                 a) `readJob` -> `~/Library/LaunchAgents` -> null; launchd is macOS
+                 b) `store.readProfile(name).provider` -> FIRES. Measured with no
+                    plist, which IS the Windows state:
+                      profile.provider = openai   ->  recordedRunner "codex"
+                      control, none written       ->  "claude"
+     ⇒ The PROFILE is the sole rung on Windows. The conclusion is unchanged (a
+     Windows OpenAI agent IS told it is a Codex agent) which is exactly why v5 was
+     invisible: a wrong sentence that SUPPORTS the right conclusion reads as
+     confirmation. v5's evidence was `win32roster.test.js`, whose fixture puts a
+     codex session INSIDE the claude agents list, a state the platform cannot
+     produce.
      ⇒ Rung 3 is a plain JSON read with NO platform dependency, and the provider
      reaching it is written by SHARED code: `create.js`'s `createAgentInner` (the
      win32 create path calls it) and `engine/discover.js` on connect, which
