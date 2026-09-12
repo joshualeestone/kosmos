@@ -34,6 +34,14 @@ const taskchat = require('./taskchat');
 
 const SENTENCE_MAX = 200;
 const DETAIL_MAX = 2000;
+// #768: the cap on a task-conversation message. 2000 matches the project room's
+// composer (#d-say maxlength) and DETAIL_MAX, and sits under taskchat's generic
+// FIELD_MAX (4000) so a valid message is never silently truncated on the way to
+// disk. say() REFUSES over-length input rather than leaning on that truncation --
+// the same lesson as the older maxlength-vs-engine mismatch: the client limit and
+// the engine limit must agree, or a caller past the client one saves less than it
+// thinks it did.
+const MESSAGE_MAX = 2000;
 
 const WHO_MAX = 80;
 
@@ -443,6 +451,7 @@ function setDue(projectId, n, dueDate) {
 function say(projectId, n, text) {
   const t = (typeof text === 'string' ? text : '').trim();
   if (!t) throw new Error('a message cannot be empty');
+  if (t.length > MESSAGE_MAX) throw new Error(`keep the message to ${MESSAGE_MAX} characters or fewer`);
   // Resolve READ-ONLY (projects.get), not via projects.mutate as setDue does: a
   // message records to the transcript (taskchat) and changes nothing on the
   // project, so writing the project file back would be a needless write. Existence
@@ -701,4 +710,4 @@ function claimFor(task, reading, opts) {
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR,
-  SENTENCE_MAX, DETAIL_MAX, WHO_MAX };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX };
