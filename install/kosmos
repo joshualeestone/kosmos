@@ -829,11 +829,17 @@ cmd_post() {
         ;;
     esac
   done
+  # #2908: --no-reply marks the post an acknowledgement (reply_expected:false), so a mentioned
+  # recipient reads it in the foreground but is NOT told to answer -- this is what breaks the
+  # ack-of-an-ack loop. Leading flag only (kosmos post --no-reply <project> <text>); anywhere else
+  # it is treated as message text, the same recoverable tradeoff the --file scan above takes.
+  local no_reply=0
+  if [ "${1:-}" = "--no-reply" ]; then no_reply=1; shift; fi
   project="${1:-}"
   shift 2>/dev/null || true
   text="$*"
   if [ -z "$project" ] || [ -z "$text" ]; then
-    say "Usage: kosmos post <project-id> <what you want to tell the room>  (text only; file attachments are not supported yet, kosmos#1955)"
+    say "Usage: kosmos post [--no-reply] <project-id> <what you want to tell the room>  (text only; file attachments are not supported yet, kosmos#1955)"
     exit 2
   fi
   if ! healthy; then
@@ -860,7 +866,11 @@ cmd_post() {
   # below never ran, the very branch that exists to stop a duplicate post, and the
   # unreachable message regressed to a silent abort. (#2321; same fix cmd_react took.)
   local rc=0
-  local _data="{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}"
+  # #2908: send reply_expected:false only when --no-reply was given; omitted otherwise, so the
+  # route sees the field only in the no-reply case (omitted = current reply-required behavior).
+  local _reply_field=""
+  [ "$no_reply" -eq 1 ] && _reply_field=',"reply_expected":false'
+  local _data="{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"$_reply_field}"
   body=$(kosmos_curl "$_bt" "" -sS -m 120 -X POST "$URL/api/post" \
     -H 'content-type: application/json' \
     --data "$_data" 2>/dev/null) || rc=$?

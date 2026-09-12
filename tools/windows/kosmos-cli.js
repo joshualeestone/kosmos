@@ -225,10 +225,16 @@ async function main(argv, io) {
       err('Text only for now: kosmos post <project-id> <text>');
       return 2;
     }
+    // #2908: --no-reply (leading flag) marks the post an acknowledgement (reply_expected:false),
+    // so a mentioned recipient reads it in the foreground but is not told to answer -- breaking
+    // the ack-of-an-ack loop. Matches install/kosmos: leading flag, sent only when present.
+    let noReply = false;
+    if (args[0] === '--no-reply') { noReply = true; args.shift(); }
     const project = args.shift();
     const text = args.join(' ');
     if (!project || !text) { err(USAGE.post); return 2; }
     const body = { project, text, from_pane: '' };
+    if (noReply) body.reply_expected = false;
     const r = await call('POST', '/api/post', body, { timeoutMs: POST_TIMEOUT_MS });
     if (!r.reached) return r.timedOut ? maybe(err, 'Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it.') : unreachable('post that');
     if (wrongWorld(r)) return keepForLater('post', body);

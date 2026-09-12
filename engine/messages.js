@@ -1045,7 +1045,7 @@ function _roomMembers(members) {
   return { members: members.filter((m) => !gone.has(clean(m))), ok: true };
 }
 
-function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer }, roster, members) {
+function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected }, roster, members) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
      composer through the server, which is the operator's own surface),
@@ -1382,9 +1382,20 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
      * because "nothing anywhere says the two strings are one project". This
      * envelope now does, adjacently, which is the only place they meet.
      */
+    /* #2908: reply_expected:false makes an ADDRESSED arrival an acknowledgement rather than a
+       request, so the answer clause becomes a no-reply note instead of the "run: kosmos post"
+       command. This breaks the ack-of-an-ack loop: an @mention still arrives in the foreground
+       (the envelope and the words are unchanged) but the recipient is not instructed to answer.
+       Only the ADDRESSED clause changes -- background arrivals already carry no answer line, so a
+       false reply-intent leaves them exactly as before. Default (undefined) and true are the
+       existing behavior; the flag never INFERS from prose, it is set only by the caller (#2908's
+       kosmos post --no-reply / reply_expected:false). */
+    const answerClause = replyExpected === false
+      ? ' \u00b7 FYI, no reply requested'
+      : ' \u00b7 to answer, run: kosmos post ' + projectId;
     const answer = operator === true
-      ? ' \u00b7 to answer, run: kosmos post ' + projectId
-      : (mentioned.has(name) ? ' \u00b7 to answer, run: kosmos post ' + projectId : '');
+      ? answerClause
+      : (mentioned.has(name) ? answerClause : '');
     const envelope = (operator === true
       ? (mentioned.has(name)
         ? '[message from your operator \u00b7 ' + id + ' \u00b7 project ' + shownProject + answer + ']'
@@ -1455,6 +1466,10 @@ function sendPost({ fromPane, sender: resolvedSender, project, projectName, text
        one. */
     ...(mentioned.size ? { mentioned: [...mentioned] } : {}),
     ...(operator === true ? { operator: true } : {}),
+    /* #2908: persist the reply-intent when it was explicitly false, so the room record carries
+       "this was an acknowledgement, no reply was requested". Omitted for the default/true case so
+       an ordinary post's record is byte-unchanged (a strict boolean === false, never a truthy). */
+    ...(replyExpected === false ? { replyExpected: false } : {}),
     ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}),
     ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
   /* The aggregate state is a SUMMARY, not the receipt: the receipt
