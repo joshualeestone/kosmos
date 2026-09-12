@@ -172,4 +172,22 @@ async function livenessDetailed(dir, nowMs) {
  */
 async function liveness(dir, nowMs) { return (await livenessDetailed(dir, nowMs)).verdict; }
 
-module.exports = { liveness, livenessDetailed, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
+/**
+ * livenessCached(dir, nowMs?) -> { verdict, cause }. The NON-BLOCKING read for the badge render
+ * path (kosmos#1921): the FRESH cached result if there is one, else { verdict:'unknown',
+ * cause:'indeterminate' } -- and it NEVER runs `codex doctor`. It is synchronous and has NO side
+ * effect (it does not spawn and does not kick a warm), so `/api/accounts` can read a chatgpt row's
+ * verdict and return immediately (grey on a cold miss) without ever blocking on the 1.8-20s
+ * handshake. The off-tick warm is codexauthprobe's job (it calls the AWAITING liveness/checkLive to
+ * fill this same cache), so the next render is warm; a truly idle account nobody probes stays grey,
+ * which is honest. Contrast liveness()/livenessDetailed(), which DO run a fresh doctor on a cold
+ * miss -- create.accountConnectable and codexauthprobe want that real, awaited verdict.
+ */
+function livenessCached(dir, nowMs) {
+  const now = typeof nowMs === 'number' ? nowMs : Date.now();
+  const cur = cache.get(homeKey(dir));
+  if (cur && (now - cur.at) < TTL_MS) return { verdict: cur.verdict, cause: cur.cause };
+  return { verdict: 'unknown', cause: 'indeterminate' };
+}
+
+module.exports = { liveness, livenessDetailed, livenessCached, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
