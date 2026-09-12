@@ -15330,7 +15330,7 @@ async function tick() {
      */
     if (PJ_CURRENT) {
       const openProject = pjById(PJ_CURRENT);
-      if (openProject) paintRoomBusy((openProject.agents || []).map((a) => (a && a.sessionName) || a));
+      if (openProject) paintRoomBusy((openProject.agents || []).map((a) => (a && a.sessionName) || a), openProject.id);
     }
     /* #761 (Josh, 2026-08-24 21:56: "I have to hard refresh the page to get
        files in this project to refresh"): the files card painted once, on
@@ -21094,7 +21094,7 @@ function busyRow(fresh, name) {
  * gives: a member we cannot read, a member that is gone, and a poll that has
  * not landed yet all render empty. Only `working` produces a line.
  */
-function paintRoomBusy(members) {
+function paintRoomBusy(members, projectId) {
   const el = document.getElementById('pj-busy');
   if (!el) return;
   const names = Array.isArray(members) ? members : [];
@@ -21103,7 +21103,27 @@ function paintRoomBusy(members) {
      order. */
   const working = names
     .map((n) => (LAST || []).find((a) => a && a.sessionName === n))
-    .filter((a) => a && a.state === 'working')
+    /* #2882 (sibling of #2837): SCOPE the room's "working" signal to THIS
+       project. The bug was reading the UNSCOPED global `state === 'working'`,
+       which lit an agent as working in EVERY room it is a member of while it
+       was really working in just one -- the identical over-claim #2837 removed
+       for the project-overview pill, one surface over. `stateProject` (the
+       field #2837 carries onto the working state, served on every agent card by
+       engine/status.js) names the project the work is attributable to, so we
+       light the agent here ONLY when that is THIS room's project.
+       🔑 UNDER-CLAIM ON PURPOSE for an unattributed working agent
+       (`stateProject === null`): it shows in NO room rather than the wrong one.
+       That is this indicator's stated safe direction (see the #1150 note just
+       below, "the under-claim matters more"), and it trades the misleading
+       over-claim for a quiet miss. #2837's sole-active-membership fallback --
+       attribute an unattributed working agent to its one project -- is
+       DELIBERATELY NOT reimplemented here: that computation lives in
+       engine/projects.js and duplicating it in the web layer is the
+       two-copies-of-one-fact drift this repo pays for. The room's recovery of
+       those cases should reuse #2837's engine computation (exposed as a
+       per-member flag both the overview pill and this line read), as a
+       follow-up once #2837 lands -- not a second copy here. */
+    .filter((a) => a && a.state === 'working' && a.stateProject === projectId)
     /* #1150. Drop an agent whose message reached this page AFTER the snapshot
        we are painting from. The state is not wrong, it is OLDER THAN THE REPLY
        ALREADY ON SCREEN, and asserting it there is what made the indicator look
@@ -36211,8 +36231,10 @@ function paintOneProject() {
   // pack comparison surfaced). Mixed or singleton rosters keep per-member.
   const roster = p.agents || [];
   /* #176's room half, painted from the SAME roster the members column is drawn
-     from a line below, so the two cannot disagree about who is on the project. */
-  paintRoomBusy(roster.map((a) => (a && a.sessionName) || a));
+     from a line below, so the two cannot disagree about who is on the project.
+     #2882: pass this project's id so the room's working signal is scoped to work
+     attributable to THIS project (see paintRoomBusy). */
+  paintRoomBusy(roster.map((a) => (a && a.sessionName) || a), p.id);
   const sharedTold = pjSharedTold(roster);
   setIfChanged(document.getElementById('pj-one-agents'), roster.length
     ? roster.map((m) => pjMember(m, !!sharedTold, true)).join('')
