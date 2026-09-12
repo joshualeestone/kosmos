@@ -251,7 +251,7 @@ test('R3: the rollback starts only what THIS request stopped, never an agent an 
   assert.equal(r.status, 409, 'the control: the switch failed, so the rollback ran');
   assert.equal(calls.some((c) => c.startsWith('launchctl enable') || c.startsWith('launchctl bootstrap')), false,
     'the rollback started an agent the person had asked, twice, to keep paused');
-  assert.deepEqual(record().map((e) => e.name), ['ava'], 'the earlier pause entry was dropped');
+  assert.deepEqual(record().map((e) => e.name), ['ava'], 'the earlier pause entry must be KEPT, not dropped, by a rollback that did not stop it');
 });
 
 test('R3: a pause from a named Kosmos with an unreadable roster is the same 503, not a silent empty list', async () => {

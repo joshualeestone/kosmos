@@ -242,3 +242,19 @@ only the minimal choice added.
    `notPaused` and said nothing.**
    - Fix: `roster === null` is now the same 503 on both branches.
    - Test: route R3, using `fleet.blind()`.
+
+### Round 4 (sonnet): NO NEW FINDINGS beyond one NIT, which is fixed. Converged.
+
+- It verified all four round-3 fixes:
+  - a held entry is restored when a fresh disable fails, on both arms;
+  - the rollback resumes only `stoppedNow`, and `stoppedNow` never reaches the
+    HTTP response;
+  - the Windows R2 sequence;
+  - the unconditional 503 for an unreadable roster.
+- It traced every entry-state transition, the registry-lock rollback with a
+  fast-path entry, and the response contract. It ran the inventories (reachable,
+  one-derivation, platform-gate-wiring, modal-way-out, worldenv-order,
+  fixture-discipline) green.
+- [NIT] The R3 route test's assertion message said "the earlier pause entry was
+  dropped", while the assertion proves it was KEPT. The message now states what
+  the test proves.
