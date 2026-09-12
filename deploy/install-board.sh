@@ -228,7 +228,7 @@ say "app files that would be installed:"
 say "  server.js, package.json"
 say "  engine/*.js excluding *.test.js"
 say "  web/ (whole)"
-say "  bin/agent-supervisor.sh, bin/codex-report-bridge.js"
+say "  bin/agent-supervisor.sh, bin/codex-report-bridge.js, bin/board-watchdog.sh"
 say "  assets/Kosmos.icns when present"
 echo
 
@@ -242,6 +242,13 @@ stage_app() {
   cp -R "$REPO/web" "$_d/web" || return 1
   cp "$REPO/bin/agent-supervisor.sh" "$_d/bin/" || return 1
   chmod +x "$_d/bin/agent-supervisor.sh"
+  # #2955: staged for parity with the release bundle (the board deploy and the
+  # bundle must carry the same app files, tools/test-board-deploy-manifest.sh).
+  # The watchdog itself is a macOS launchd mechanism a server deploy never
+  # registers, so it is inert here, but a deployed board must not be missing an
+  # app file the bundle ships.
+  cp "$REPO/bin/board-watchdog.sh" "$_d/bin/" || return 1
+  chmod +x "$_d/bin/board-watchdog.sh"
   cp "$REPO/bin/codex-report-bridge.js" "$_d/bin/" || return 1
   chmod +x "$_d/bin/codex-report-bridge.js"
   if [ -f "$REPO/assets/Kosmos.icns" ]; then
