@@ -12115,6 +12115,51 @@ test('#2811: a DEAD Codex agent is not handed its old Claude model by the record
   }
 });
 
+test('#2811: the profile provider names the runner with NO launch job, which is the Windows state', () => {
+  /**
+   * 🛑 THIS PINS THE RUNG THAT THREE WRONG COMMENTS TURNED ON. `recordedRunner`
+   * tries the launch job, then `store.readProfile(name).provider`. On Windows
+   * there is no `~/Library/LaunchAgents`, so the job read returns null and the
+   * PROFILE is the only rung left. It is a plain JSON read with no platform
+   * dependency, and the provider reaching it is written by shared code
+   * (`createAgentInner`, which the win32 create path calls, and `discover.js`,
+   * which contains zero platform branches).
+   *
+   * ⇒ A Windows OpenAI agent IS told it is a Codex agent. A comment on this
+   * branch claimed the opposite three times, each version plausible, each
+   * generalised from the one rung I had just been shown. A sentence could not
+   * hold that fact still; this can.
+   */
+  const { whoamiFor } = require('./server.js');
+  const create = require('./engine/create');
+  const storeEngine2 = require('./engine/store');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('profileonly', { state: 'idle' })]);
+    const realCard = board.agents.find((a) => a && a.name === 'profileonly');
+    /* No marker and no job: exactly what a Windows card carries. */
+    const card = { ...realCard, runner: null };
+    assert.equal(create.readJob('profileonly'), null,
+      'a launch job exists, so this is not the no-plist state the arm is about');
+
+    /* CONTROL FIRST: with no provider written, the fallback floors at claude. */
+    storeEngine2.writeProfile('profileonly', {});
+    assert.equal(create.recordedRunner('profileonly'), 'claude',
+      'the floor is not claude, so the arm below cannot show the provider doing the work');
+
+    storeEngine2.writeProfile('profileonly', { provider: 'openai' });
+    assert.equal(create.recordedRunner('profileonly'), 'codex',
+      'the profile provider no longer names the runner with no launch job present');
+
+    const out = whoamiFor(card, [], { ok: false, because: 'no pane on this computer' });
+    assert.equal(out.resolvedRunner, 'codex',
+      'an agent known only by its profile provider resolved to claude');
+  } finally {
+    try { fs.rmSync(nodePath.join(require('./engine/store').PROFILES, 'profileonly.json')); } catch { /* may not exist */ }
+    fleet.restore();
+  }
+});
+
 test('#2811: a card with NO runner marker falls back to the launch job, not to the transcript', () => {
   /**
    * 🛑 THE CASE THE MARKER CANNOT ANSWER. A paneless card carries `runner: null`
