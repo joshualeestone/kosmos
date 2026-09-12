@@ -5103,10 +5103,15 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 /* Idle is item 16's one deviation from the homepage (which leaves idle white), so
    it tracks no .acard colour: a neutral gray (the system gray, low alpha) reads as
    "very light gray" in both themes and sits clear of the --k-sunk hover. */
-#pj-one-agents .pj-member.pjm-idle { background: linear-gradient(rgba(120,120,128,.10), rgba(120,120,128,.10)), var(--k-surface); }
+/* #2920 (Josh 6.59 QA): "the gray behind agents when they're idle is just a
+   little too dark ... a little bit lighter". The idle overlay was 10% of a
+   mid-gray on the surface; lightened to 7% so the idle row reads a touch
+   closer to the panel (rendered ~rgb(242) -> ~rgb(246) on white). Hover kept
+   proportionally above the rest state. */
+#pj-one-agents .pj-member.pjm-idle { background: linear-gradient(rgba(120,120,128,.07), rgba(120,120,128,.07)), var(--k-surface); }
 #pj-one-agents .pj-member.pjm-working[data-agent]:hover { background: linear-gradient(rgba(47,125,90,.16), rgba(47,125,90,.16)), var(--k-surface); }
 #pj-one-agents .pj-member.pjm-attn[data-agent]:hover { background: linear-gradient(rgba(179,38,30,.15), rgba(179,38,30,.15)), var(--k-surface); }
-#pj-one-agents .pj-member.pjm-idle[data-agent]:hover { background: linear-gradient(rgba(120,120,128,.16), rgba(120,120,128,.16)), var(--k-surface); }
+#pj-one-agents .pj-member.pjm-idle[data-agent]:hover { background: linear-gradient(rgba(120,120,128,.12), rgba(120,120,128,.12)), var(--k-surface); }
 /* #2804 (Josh, testing 0.6.56): the three state washes carry the meaning, so the box
    needs no stroke -- "I do not want to have the 1px stroke around these agents, whether
    they're active, inactive, or need help. It should only be the color: the light gray,
