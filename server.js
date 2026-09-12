@@ -1020,11 +1020,12 @@ function sentenceForWhoami(account, model, runner) {
      measured that the process form is UNREACHABLE: `runningAs`'s DARWIN arm sets
      `configDir` on every successful read, so a `process` account always carries
      at least a directory, `acct` below is always truthy, and the branch could
-     never be pushed.
-     📌 "always sets" is what this said, and the win32 arm does not: a successful
-     read there carries `configDir: null`. The conclusion survives, because that
-     arm never supplies an account either, so it cannot reach this branch at all. Mutation, with a control: making the process form throw
+     never be pushed. Mutation, with a control: making the process form throw
      left 249/249 green; making the record form throw failed 1.
+     📌 "always sets" is what this used to say unscoped, and the win32 arm does
+     not: a successful read there carries `configDir: null`. The conclusion above
+     survives, because that arm never supplies an account either, so it cannot
+     reach this branch at all.
 
      ⇒ A comment describing behaviour the code cannot produce is worse than no
      comment, so the branch is gone rather than left as decoration. If a future

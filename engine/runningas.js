@@ -464,8 +464,32 @@ function armFor(deps) {
  * `runner` ON A SUCCESSFUL DARWIN READ ONLY (#2811: which agent runtime the live
  * process actually is, so a caller never has to infer the provider from a
  * directory name). Everywhere else the key is ABSENT, not null: a refusal has no
- * process to name, and the win32 arm identifies an agent through an ownership
- * record with no codex source, so it has nothing to report rather than a null.
+ * process to name, and the win32 arm DOES NOT DERIVE A RUNNER AT ALL.
+ *
+ * 🛑 THAT IS A GAP, NOT AN ABSENCE OF EVIDENCE, and an earlier version of this
+ * paragraph said the arm "has no codex source, so it has nothing to report".
+ * False: `win32Answer` holds the agent's full command line and already parses it,
+ * so it will read a model straight out of a CODEX command line and still report
+ * no runner. Measured:
+ *     cmdline `C:\Users\x\codex.exe --model gpt-5.6`
+ *       -> model "gpt-5.6", and no `runner` key
+ * ⇒ The material is present and the derivation was never built. `runnerNamed` is
+ * darwin-only on purpose (it matches a POSIX executable path and carries no
+ * `.exe` arm), so win32 would need its own first-token match.
+ *
+ * 📌 AND BUILDING IT HERE WOULD BE DEAD CODE TODAY, which is the real reason it
+ * is absent and not the one first written here ("nobody can run it" is wrong:
+ * this repo builds and tests the whole win32 arm through injected deps on Macs).
+ * A codex agent never REACHES `win32Answer`. The ownership join upstream,
+ * `win32live.byName()`, enumerates `claude agents --json` and contains no codex
+ * source at all, so a codex agent fails the `!entry` check above and is refused
+ * with "no session called ... that Kosmos owns on this computer". The measurement
+ * above reaches this arm only by injecting a codex command line past that join.
+ * ⇒ The win32 gap is ONE gap and it is upstream: teach the ownership join about
+ * codex, and a runner derivation here becomes both reachable and worth writing.
+ * Named so the next reader sees the order of the work rather than a platform
+ * limit: a Codex agent on win32 is still invisible to this reader, which is this
+ * card's own bug on the other platform.
  *
  * 📌 EVERY PATH DRIVEN, NOT GENERALISED. An earlier version of this paragraph was
  * right about the arms and wrong about refusals, and the one before it was wrong

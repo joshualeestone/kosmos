@@ -289,11 +289,14 @@ test('#2811: the ANSWER SHAPE is pinned per path, because the docstring claims o
 
   for (const [name, want, deps] of paths) {
     const r = runningAs('s', deps);
-    assert.equal(keys(r), want, name + ': the answer shape drifted from the documented one');
-    if (!want.includes('runner')) {
-      assert.equal(Object.prototype.hasOwnProperty.call(r, 'runner'), false,
-        name + ': grew a `runner` key; the docstring says ABSENT, not null');
-    }
+    /* `Object.keys` lists an own key whose value is null or undefined, so this one
+       assertion already catches a `runner: null` sneaking onto a refusal. An
+       earlier version added a `hasOwnProperty` arm below it that could never fail
+       (the keys check reds first), and whose message implied the opposite, that
+       the keys check was null-blind. A vacuous assertion that teaches a future
+       reader something false is worse than no assertion. */
+    assert.equal(keys(r), want,
+      name + ': the answer shape drifted from the documented one (a `runner: null` counts as a key here)');
   }
 
   /* A CONTROL ON THE TABLE ITSELF: the three shapes must actually differ, or every
