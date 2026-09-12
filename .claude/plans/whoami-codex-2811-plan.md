@@ -1568,3 +1568,77 @@ just missing a section nobody was counting.
 obvious leftover would have destroyed the only copy, silently, in the same minute I wrote a
 paragraph about checking that a record survives elsewhere before removing it.
 ⇒ **Do not run a file-appending background job and a foreground edit against the same file.**
+
+## Round 29: the sentence about not enumerating the callers got the count wrong
+
+**[MAJOR] "the other three callers" is four.** `trustCodexFolder` is EXPORTED
+(`engine/create.js`, the module exports), and `server.js`'s trust route calls it live inside the
+`job.runner === 'codex'` branch. Measured, every non-test call site in the REPO:
+
+```
+engine/create.js  setCodexAccount    catch -> trust:{ok:false}, returns CREATED
+engine/create.js  setProvider        catch -> REFUSED                 <- this one
+engine/create.js  adoption path      catch {} swallowed
+engine/create.js  createAgentInner   inside step() -> PARTIAL + rollBack
+server.js         POST trust route   catch -> trusted:{wrote:false, because}
+```
+
+⭐ **The sentence that got the count wrong is the one that exists to say I stopped enumerating
+them because every version of that description has been wrong.** I grepped ONE FILE and pronounced
+on the repo, inside the sentence about not doing that.
+
+✅ **Fixed by DELETING THE NUMBER, not correcting it.** Corrected to "four" it would be true today
+and wrong at the next call site. ⇒ **A NUMBER IS AN ENUMERATION IN MINIATURE** - the same shape as
+round 28's "a ranking is an enumeration that survived the deletion of the enumeration". Both hide
+as a single word where a list would have been noticed.
+
+**[MAJOR, and right in substance while overstated in form] The `workerDir` assertion's message
+named an event it cannot see.** `create.workerDir` consults `agentDirRecorded`, which reads
+`store.readProfile(name).dir`; `setProvider` writes only `{ provider }` and `writeProfile` MERGES,
+so no `dir` is ever recorded and both sides are the same pure path join. **A real move on disk does
+NOT red that line** (the reviewer's probe moved the directory and the assertion still passed); a
+move is caught by the `deepEqual`, as a CREATED/DELETED pair.
+
+⚠️ **But it is NOT a tautology, and I said so back with the measurement rather than accepting the
+stronger wording.** Mutation asserted applied:
+
+```
+store.writeProfile(clean, { provider })  ->  { provider, dir: os.tmpdir() }
+APPLIED  ->  fail 1, AssertionError on that exact line
+```
+
+⭐ **Why their control returned "not killable" while mine returned "killable": we aimed at
+different subjects.** Their probe tested the directory-MOVE reading, which the line genuinely
+cannot see; my mutant tested the RECORDED-dir reading, which it can. **Their instrument was right
+about the claim they tested, and the line has a different subject** - which is this card's own
+signature error, arriving from the reviewer's side this time. The message now names the one
+perturbation that reds it.
+
+### Round 29's verification list is the first real independent audit of the PRODUCT code
+
+Worth recording separately from the findings, because twenty-eight rounds had concentrated on my
+descriptions and the guards around them. Round 29's brief pointed away from `setProvider`'s header
+and at the change itself, and the reviewer audited it properly:
+
+- `agentUnder`'s BFS rewrite: level/`fallback`/`seen` structure walked for cycle safety, duplicate
+  `next` entries, and pids missing from `procs`; equivalent to the old FIFO on a tree, with the
+  documented claude-wins-same-depth tie rule intact.
+- `modelIn`'s widened alternation traced against `--model=x`, `--model x`, `-m x` and the
+  near-miss `--model-foo bar` (correctly no match: `-m` cannot start mid-token behind `(?:^|\s)`).
+- Every cross-file claim I had made about OTHER files re-verified at the source:
+  `agent-supervisor.sh` uses `-m` for codex and `--model` for claude; `win32launch.js` pushes
+  `--model` for both; `status.isCodexCommand` is exact-match so it could not have been reused;
+  `status.js` clamps the marker to codex-or-claude; the paneless card is its only `runner: null`
+  site; `engine/accounts.js` emits no `provider` key.
+
+⭐ **AND THEY CHASED A REGRESSION LEAD AND CLOSED IT, which is the most valuable thing in the
+list.** The suspicion: a codex agent whose plist predates the ninth argument would read back
+`runner: 'claude'` (the `readJob` floor), flip `foreign` to false, and break the OpenAI overlay
+join. **Not reachable, and I verified it myself rather than taking it:** `plistFor` writes
+`<string>codex</string>` for every codex job AND writes the model line too (empty when unset) so
+the runner can never slide into the model's slot. A codex plist always carries the ninth argument.
+
+📌 **This is the answer to "is the loop finding real defects or just churning my prose?"** Pointed
+at the product, a competent adversarial reviewer found nothing in it. Pointed at my prose, six
+consecutive rounds found something. **The defect density was never in the change; it was in what I
+wrote about the change.**

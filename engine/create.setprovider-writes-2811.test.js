@@ -183,6 +183,9 @@ test('#2811: the EXACT SET of paths setProvider writes, enumerated by measuremen
      `assert.equal(outside.length, 3)` here would be decoration wearing the
      costume of a guard. This file's whole point is that the enumeration is
      measured, and a restatement of a measured thing is the failure mode again.
+     📌 "What replaces them can fail" below was true but underspecified, and a
+     reviewer read it as a claim that the line detects a directory move. Each
+     replacement now names the ONE perturbation that reds it.
 
      ⚠️ I wrote that vacuous count, and a worse one beside it, in the same session
      that removed two others: `assert.equal(create.readJob(name).name || name,
@@ -190,8 +193,17 @@ test('#2811: the EXACT SET of paths setProvider writes, enumerated by measuremen
      (claude, tmux, model, configDir, runner), so it read `undefined || name`
      against `name` - a literal tautology, carrying a message about a product
      property. Both are gone. What replaces them can fail: */
+  /* 🔑 WHAT THIS LINE CAN AND CANNOT SEE, because its old message named an event it
+     cannot detect ("the worker directory MOVED"). `create.workerDir` consults
+     `agentDirRecorded`, which reads `store.readProfile(name).dir`; `setProvider`
+     writes only `{ provider }` and `writeProfile` MERGES, so no `dir` is ever
+     recorded and both sides are the same pure path join. A real move ON DISK
+     therefore does NOT red this line -- it is caught by the `deepEqual` above, as a
+     CREATED/DELETED pair.
+     ⚠️ It is NOT vacuous, though: MEASURED, a mutant making `setProvider` record a
+     `dir` reds it by name. So it guards exactly one thing, and now says so. */
   assert.equal(create.workerDir(name), dir,
-    'the worker directory MOVED, so a workdir-keyed transcript lookup no longer resolves');
+    'setProvider RECORDED a worker directory, so a workdir-keyed lookup would resolve somewhere new');
 });
 
 test('#2811: WHICH of the four writes can abort the switch, asserted rather than described', (t) => {

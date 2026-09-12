@@ -1108,8 +1108,11 @@ function setCodexAccount(clean, spoken, dir, job) {
  *   3. the brief RENAME, CLAUDE.md <-> AGENTS.md                 best-effort
  *   4. `store.writeProfile(clean, { provider })`                 best-effort
  * ⚠️ Gating is a property of the CALL SITE, not of `trustCodexFolder`. This is
- * `setProvider`'s answer; the other three callers differ, and are not described
- * here because every version of that description has been wrong.
+ * `setProvider`'s answer; the OTHER callers differ, and are not described or
+ * counted here because every version of that description has been wrong -- most
+ * recently the count itself, which said "three" when `trustCodexFolder` is
+ * EXPORTED and `server.js`'s trust route is a fifth live caller. A number is an
+ * enumeration in miniature, so there is no number.
  *
  * 🛑 TWO FUNCTIONS, ONE WORD APART, AND IT IS WORTH KNOWING BEFORE YOU READ ANY
  * "the trust write" COMMENT IN THIS FILE: `trustFolder` (the CLAUDE one, in
