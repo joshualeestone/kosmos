@@ -134,9 +134,9 @@ validate_dest() {
   # exactly what this script exists to prevent (the board would serve from a git
   # tree again, the #1051 bug). Checked from the nearest existing ancestor.
   # NOTE: this refusal fails OPEN if git is absent/errors (the `if` is simply false).
-  # That is acceptable because the script already hard-depends on git for the
-  # source-tree cleanliness check below, so a git-less box cannot run an --apply at
-  # all; and the data-critical repo-equality/ancestry refusals use pwd -P, not git.
+  # That is acceptable because the data-critical refusals -- repo-equality/ancestry and
+  # the non-board marker -- use pwd -P and file tests, not git, so they still fire on a
+  # git-less box. Only this defense-in-depth #1051 check relaxes.
   if git -C "$_anc_real" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     fail "destination is inside a git working tree ('$_anc_real'); the board must NOT run from a checkout -- set KOSMOS_BOARD_LIBEXEC to a path outside any git working tree"
   fi

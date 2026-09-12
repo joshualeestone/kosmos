@@ -95,7 +95,11 @@ the swap, before any plist/launchctl, so the case stays hermetic. Wired into
 - The emptiness test uses `ls -A`, a BSD/GNU extension outside strict POSIX. macOS is
   the sole target and its `ls` supports `-A`, so it is kept as-is. It captures `ls`'s
   exit status (not only its output), so an unreadable directory (execute-only /
-  root-owned) fails CLOSED rather than being misread as empty and swapped.
+  root-owned) fails CLOSED rather than being misread as empty and swapped. Because
+  `-A` counts dotfiles, a Finder-touched existing dir carrying only a `.DS_Store` (and
+  no `server.js`+`engine/`) is treated as non-empty and refused. That only over-refuses
+  in the safe direction (the error names the way out), and the swap target is normally
+  created by the script itself, so it is left as-is.
 - The empty-`$DEST` guard (`[ -n "$DEST" ] || fail`) cannot fire today because the
   `${KOSMOS_BOARD_LIBEXEC:-<default>}` substitution replaces both unset and empty with
   the default; it is kept as cheap defense-in-depth against a future change to how
