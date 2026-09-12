@@ -79,9 +79,11 @@ refuses "a relative destination is refused"              "relative/board"       
 # (an EMPTY KOSMOS_BOARD_LIBEXEC is not testable here: the script's
 #  ${KOSMOS_BOARD_LIBEXEC:-<default>} substitutes the default for an empty value,
 #  so an empty env var yields the valid default rather than an empty DEST.)
-refuses "a '.' path component is refused"                "$TMP/./board"         "'\.' or '\.\.' path components|path components"
+refuses "a '.' path component is refused"                "$TMP/./board"         "path components"
 refuses "a '..' path component is refused"               "$TMP/sub/../board"    "path components"
 refuses "a file ancestor is refused"                     "$TMP/afile/board"     "not a directory"
+# $DEST itself being an existing plain file (not merely a file ANCESTOR of $DEST):
+refuses "an existing plain-file destination is refused"  "$TMP/afile"           "already exists and is not a directory"
 refuses "a destination inside a git worktree is refused" "$GITTREE/board"       "git working tree"
 
 # repo-equality / ancestry, asserted against the NON-git fake source:
@@ -118,6 +120,24 @@ accepts "an empty existing destination is accepted"      "$TMP/empty-dest"
 mkdir -p "$TMP/prior-board"
 touch "$TMP/prior-board/server.js"
 accepts "an existing board install (has server.js) is accepted" "$TMP/prior-board"
+
+# ---- the refusal must hold under --apply, the path this feature protects -----
+# Every case above drives the DRY RUN. validate_dest runs unconditionally BEFORE
+# the apply/staging, so a refusal must also fire under --apply and leave the
+# destination byte-for-byte untouched (proving nothing was moved aside or deleted).
+# If a future edit moved validate_dest below the apply/staging, this is the case
+# that would go red while the dry-run cases stayed green.
+mkdir -p "$TMP/apply-guard"
+touch "$TMP/apply-guard/precious"
+APPLY_OUT="$(KOSMOS_BOARD_LIBEXEC="$TMP/apply-guard" sh "$SCRIPT" --apply 2>&1)"; APPLY_RC=$?
+remaining="$(ls -A "$TMP/apply-guard" 2>/dev/null | tr '\n' ',')"
+if [ "$APPLY_RC" -eq 1 ] \
+   && printf '%s' "$APPLY_OUT" | grep -qiE "not a board install|no server.js" \
+   && [ "$remaining" = "precious," ]; then
+  ok "under --apply a non-board dest is refused and left untouched"
+else
+  bad "under --apply a non-board dest is refused and left untouched (rc=$APPLY_RC, remaining=$remaining)"
+fi
 
 echo
 if [ "$fails" -eq 0 ]; then

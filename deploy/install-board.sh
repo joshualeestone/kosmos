@@ -75,6 +75,10 @@ validate_dest() {
 
   # reject a '.' or '..' path component. Normalizing them would require the path to
   # exist; refusing is unambiguous and a real destination never carries them.
+  # The wrapping "/...$DEST.../" adds leading+trailing slashes so a component at the
+  # very start or end still matches the */./* and */../* patterns (a bare "." or a
+  # trailing "/.." would otherwise miss); $DEST is already absolute so the extra
+  # leading slash only ever collapses harmlessly.
   case "/$DEST/" in
     */./*|*/../*) fail "destination must not contain '.' or '..' path components: '$DEST'" ;;
   esac
@@ -92,6 +96,15 @@ validate_dest() {
   # reject the filesystem root explicitly -- "mv / /.old.$$" is catastrophic.
   [ "$DEST" != "/" ] || fail "refusing the filesystem root as a destination"
 
+  # reject a destination that already exists but is not a directory. The swap
+  # cannot sensibly replace a plain file, and without this the ancestor walk below
+  # stops at $DEST itself and reports it as a non-directory "ancestor" of itself,
+  # which reads wrong. (An existing symlink-to-file follows the link and is caught
+  # here too; a not-yet-created $DEST is handled by the ancestor walk.)
+  if [ -e "$DEST" ] && [ ! -d "$DEST" ]; then
+    fail "destination '$DEST' already exists and is not a directory"
+  fi
+
   # find the nearest EXISTING ancestor: $DEST itself may not exist yet on a first
   # adoption, nor its parent, so walk up until something exists.
   _anc="$DEST"
@@ -104,9 +117,9 @@ validate_dest() {
   [ -d "$_anc" ] || fail "the nearest existing ancestor of '$DEST' is not a directory: '$_anc'"
 
   # canonicalize the existing ancestor (pwd -P reports the physical dir, resolving
-  # symlinks in the path) and re-append the
-  # not-yet-created tail, so the repo/worktree comparisons below see real paths
-  # rather than symlink aliases that would slip past a string compare.
+  # symlinks in the path) and re-append the not-yet-created tail, so the
+  # repo/worktree comparisons below see real paths rather than symlink aliases
+  # that would slip past a string compare.
   _anc_real="$(cd "$_anc" 2>/dev/null && pwd -P)" || fail "could not resolve the destination's ancestor '$_anc'"
   _dest_real="$_anc_real${DEST#"$_anc"}"
   _repo_real="$(cd "$REPO" 2>/dev/null && pwd -P)" || fail "could not resolve the source repo '$REPO'"

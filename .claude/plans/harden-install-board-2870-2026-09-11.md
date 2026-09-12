@@ -28,13 +28,21 @@ before `--apply`:
 - reject the filesystem root explicitly (`mv / /.old.$$` is catastrophic);
 - walk up to the nearest EXISTING ancestor (the dest and its parent may not exist on
   a first adoption) and fail closed if it is a file or unresolvable;
-- canonicalize that ancestor with `cd -P` + `pwd -P` and re-append the not-yet-created
+- canonicalize that ancestor with `cd` + `pwd -P` and re-append the not-yet-created
   tail, so symlink aliases cannot slip past the string comparisons;
+- reject a destination that already EXISTS but is not a directory (the swap cannot
+  sensibly replace a plain file);
 - reject a destination inside a git working tree (installing into a checkout is the
   exact #1051 hazard this script prevents);
 - reject a destination equal to, inside, or above the source repo (equal/above means
   the swap would move the source out from under us; inside means the board would serve
-  from the checkout again).
+  from the checkout again);
+- reject an existing NON-EMPTY directory that is not itself a prior board install
+  (no `server.js` marker). The apply swap does `mv "$DEST" "$DEST.old.$$"` then
+  `rm -rf` that old tree, so a misconfigured `KOSMOS_BOARD_LIBEXEC=$HOME` (or `/usr`,
+  `/Applications`) would rename that directory aside and delete it. A first adoption
+  (dest absent) or an empty existing dir is safe to swap and is allowed. (Added by the
+  challenge-loop after two blind reviews independently flagged the destructive-swap gap.)
 
 `validate_dest` runs in the MAIN shell (not a captured `$(...)` subshell) so that
 `fail()`'s `exit 1` is terminal rather than exiting only a subshell.
