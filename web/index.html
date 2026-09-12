@@ -79,6 +79,13 @@
      definition, not just the defence its source happened to carry. The
      fallbacks stay at the usage sites anyway, verbatim from the pack. */
   --k-sunk: rgba(20,22,26,.05);
+  /* #2947 (Josh, 2026-09-12): the agent message bubble is an ultra-light CREAM,
+     not the neutral --k-sunk gray, leaning into the warm ground. Defined per
+     theme like --k-sunk beside it so light/dark flip. Navy keeps --k-sunk (its
+     bluish inset is that world's own language, out of scope). The subtle
+     per-message variation is a color-mix nudge of THIS token (see .dm.theirs
+     .dm-b[data-am] below), so it stays theme-aware. */
+  --agent-msg: #f7f4ec;
   /* #2660: the wash behind the PERSON'S OWN messages (royal blue #4171E3 =
      rgb 65,113,227). One token, defined per theme like --k-sunk beside it, so
      the two selectors that use it (.dm.mine .dm-b, .pj-msg) stay a single
@@ -297,6 +304,7 @@
     /* The inverse: a raised-looking wash on the dark ground, because a
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
+    --agent-msg: #221f1a;  /* #2947: the dark-mode cream (warm, a touch above the surface) */
     /* #2660: 15% in dark, up from 10% light, so the wash stays legible. */
     --usermsg-tint: rgba(65,113,227,.15);
     /* #980: the consolidated side tones' dark twins, the mock's line 25. */
@@ -4367,19 +4375,25 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    the wrapper only for non-empty body content), so there is no empty tinted box. */
 .msg-bd { padding: 8px 12px; border-radius: 12px; }
 .msg.you .msg-bd { background: var(--usermsg-tint); }
-.msg:not(.you) .msg-bd { background: var(--k-sunk); }
+/* #2947: cream, per-message variation via [data-am] (rules beside the DM bubble).
+   background-COLOR, not the `background` shorthand, so the #2921 hover overlay
+   (a background-IMAGE on .msg:hover .msg-bd) composites on top of the cream
+   instead of being cleared by a shorthand -- true even for a [data-am] shade,
+   whose higher specificity would otherwise win the background-image too. */
+.msg:not(.you) .msg-bd { background-color: var(--agent-msg); }
 /* #2921 (Josh, 2026-09-12 6.59 QA): a very subtle darker active-state on hover, so
    a hovered post reads as "you are on this one" alongside the reaction bar that
    already fades in (.msg:hover .rxn-quick below, which this leaves untouched). The
    cue is a translucent mid-gray overlay laid over the resting bubble via
    background-image -- NOT a new background token -- so it composites on top of
-   whichever fill the bubble already wears (--usermsg-tint for .msg.you, --k-sunk for
-   an agent's) and ONE rule covers both variants without repeating the per-variant
-   tokens. Mid-gray (Apple system gray 120,120,128, the same overlay colour #2920
-   used for the idle-agent hover) darkens a light bubble and lifts a dark one, so the
-   delta stays visible in BOTH themes instead of vanishing on dark. Kept light (.08)
-   per Josh's "very subtle"; the exact intensity is his in-app josh-review call and is
-   a one-number nudge. Only .msg-bd (the body box) takes it; a bodyless row has none. */
+   whichever fill the bubble already wears (--usermsg-tint for .msg.you, the cream
+   --agent-msg for an agent's) and ONE rule covers both variants without repeating
+   the per-variant tokens. Mid-gray (Apple system gray 120,120,128, the same overlay
+   colour #2920 used for the idle-agent hover) darkens a light bubble and lifts a
+   dark one, so the delta stays visible in BOTH themes instead of vanishing on dark.
+   Kept light (.08) per Josh's "very subtle"; the exact intensity is his in-app
+   josh-review call and is a one-number nudge. Only .msg-bd (the body box) takes it;
+   a bodyless row has none. */
 .msg:hover .msg-bd { background-image: linear-gradient(rgba(120,120,128,.08), rgba(120,120,128,.08)); }
 .msg-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
 .msg-h b { font-size: .9375rem; }
@@ -4612,7 +4626,18 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    colour, so it reads. Inner code pills (`.mdc`/`.mdcb`, themselves `--k-sunk`)
    stay visible: their own fill composites OVER the bubble's and lands a shade
    darker, not equal. */
-.dm.theirs .dm-b { background: var(--k-sunk); }
+.dm.theirs .dm-b { background-color: var(--agent-msg); }
+/* #2947 (Josh, 2026-09-12): a subtle per-message variation on the cream, "so
+   subtle you don't necessarily notice it but it creates a break in a single
+   hex". Each agent bubble gets a stable data-am (0..4) from its message id (set
+   in dmRow / pjMsg), and each shade is a tiny color-mix nudge of the cream
+   token, so it stays theme-aware (the mix is of --agent-msg, which flips per
+   theme). data-am="0" (or absent) is the base above. The nudges are 1.5-4%,
+   below the just-noticeable threshold on a single bubble. */
+.dm.theirs .dm-b[data-am="1"], .msg:not(.you) .msg-bd[data-am="1"] { background-color: color-mix(in srgb, var(--agent-msg), #000 2%); }
+.dm.theirs .dm-b[data-am="2"], .msg:not(.you) .msg-bd[data-am="2"] { background-color: color-mix(in srgb, var(--agent-msg), #fff 2%); }
+.dm.theirs .dm-b[data-am="3"], .msg:not(.you) .msg-bd[data-am="3"] { background-color: color-mix(in srgb, var(--agent-msg), #000 4%); }
+.dm.theirs .dm-b[data-am="4"], .msg:not(.you) .msg-bd[data-am="4"] { background-color: color-mix(in srgb, var(--agent-msg), #fff 1.5%); }
 /* #2067 / #2239: restricted-markdown treatments, on the three agent-dialogue
    surfaces that render them -- the talk thread (.dm-b) and the project message
    list (.pj-msg-text), both via pjRich; and the project ROOM activity thread
@@ -7093,6 +7118,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     /* The inverse: a raised-looking wash on the dark ground, because a
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
+    --agent-msg: #221f1a;  /* #2947: the dark-mode cream (warm, a touch above the surface) */
     /* #2660: 15% in dark, up from 10% light, so the wash stays legible. */
     --usermsg-tint: rgba(65,113,227,.15);
     /* #980: the consolidated side tones' dark twins, the mock's line 25. */
@@ -7240,6 +7266,7 @@ body.plus-active {
   --k-bg: #132140; --k-surface: #1c2c4f; --k-ink: #E6EBF7; --k-ink-2: #9fb0d0;
   --k-rule: #22345a; --k-track: rgba(120,150,200,.24); --k-knob: #cdd8ef;
   --k-sunk: rgba(120,150,200,.08); --k-side: #0b1428; --k-side-2: #0a1120;
+  --agent-msg: var(--k-sunk);  /* #2947: navy keeps its bluish inset, cream is out of scope for this world */
   --usermsg-tint: rgba(65,113,227,.15); /* #2660: 15% on the navy ground, as in dark */
   --k-optline: #5f7099;
   /* --label/--bg system */
@@ -22196,8 +22223,14 @@ function dmRow(m, name) {
      `at`, the anchor matches the FIRST -- a drift of at most one adjacent row,
      no worse than the pixel offset it replaces. */
   const midOf = (r) => esc(String((r && (r.id || r.at)) || ''));
+  /* #2947: a stable per-message shade (0..4) so the cream agent bubble carries a
+     subtle variation that never shimmers on a repaint (it is keyed on the
+     message id, not re-rolled per poll). Inlined, not a shared helper, because
+     dmRow is lifted and eval'd in isolation by web.links-everywhere /
+     web.agent-answers, where an external helper call is an undefined reference. */
+  const amShade = (r) => { const s = midOf(r); let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h) % 5; };
   if (m && m.from) {
-    return '<div class="dm theirs" data-mid="' + midOf(m) + '"><div class="dm-b">' + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
+    return '<div class="dm theirs" data-mid="' + midOf(m) + '"><div class="dm-b" data-am="' + amShade(m) + '">' + pjRich(pjWords(m)) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + '</div>'
       + '<span class="dm-w">' + esc(dmWho(m.from, name)) + pjWhenPart(m.at) + '</span></div>';
   }
   const v = pjVerdict(m, name);
@@ -38687,6 +38720,11 @@ function pjRoomRow(m, p, silent) {
      than an empty tinted box. #2805 gave the DM its gray; the room uses a different
      class (`.msg-b`) that never got either color, so both sides are new here. */
   const bd = pjRoomBody(m, p) + pjPreviewCard(m.preview) + pjAttachmentCards(m);
+  /* #2947: the same stable per-message cream shade the DM bubble uses (dmRow),
+     for an agent's ROOM message. Only .msg:not(.you) .msg-bd[data-am] picks it
+     up, so it is inert on the person's own (blue) bubble. Inlined, not a shared
+     helper, for the same isolation-lift reason dmRow records. */
+  const amSeed = String((m && (m.id || m.at)) || ''); let amH = 0; for (let ai = 0; ai < amSeed.length; ai++) amH = (amH * 31 + amSeed.charCodeAt(ai)) | 0; const amRoom = Math.abs(amH) % 5;
   return '<div class="msg' + (isOp ? ' you' : '') + '">' + av
     + '<div class="msg-b"><div class="msg-h"><b>' + esc(name) + '</b>'
     /* #1703: the agent's title beside the name, before the timestamp. `card` is
@@ -38698,7 +38736,7 @@ function pjRoomRow(m, p, silent) {
        renders no span rather than an empty one. */
     + (card && card.role ? '<small class="msg-role">' + esc(roleLine({ role: card.role }, ROLE_TITLES)) + '</small>' : '')
     + '<span class="msg-t">' + esc(pjWhen(m.at) || '') + '</span></div>'
-    + (bd ? '<div class="msg-bd">' + bd + '</div>' : '') + pjReactions(m) + receipt + '</div></div>';
+    + (bd ? '<div class="msg-bd" data-am="' + amRoom + '">' + bd + '</div>' : '') + pjReactions(m) + receipt + '</div></div>';
 }
 
 /**
