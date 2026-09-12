@@ -177,6 +177,19 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         out.topCrumbText = (document.getElementById('pj-crumb') || {}).textContent;
         PJ_CURRENT = 'gc'; paintOneProject();   // gc is a leaf (no children)
         out.leafSubsHidden = document.getElementById('pj-one-subprojects').hidden;
+        // #2928: the back chevron NAVIGATES, it is not just present. A subproject
+        // goes UP one nesting level (openProject on the parent); a top-level project
+        // returns to the list. Click it and assert the resulting state, mirroring the
+        // sub-row click above (which proves openProject fires in this harness). This
+        // is the card's core deliverable, so a green presence check was not enough.
+        PJ_CURRENT = 'mob'; paintOneProject();          // mob's parent is app
+        document.getElementById('pj-back').click();
+        out.backSubCurrent = PJ_CURRENT;                // expect 'app'
+        out.backSubView = PJ_VIEW;                       // expect 'one'
+        PJ_CURRENT = 'k'; paintOneProject();            // k is top-level (no parent)
+        document.getElementById('pj-back').click();
+        out.backTopCurrent = PJ_CURRENT;                // expect null (back to list)
+        out.backTopView = PJ_VIEW;                       // expect 'list'
         out.detailErr = null;
       } catch (e) { out.detailErr = String(e && e.message || e); }
       return out;
@@ -197,6 +210,10 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // / Mobile", current project included) beside a back chevron, replacing #2487's
     // ancestor-only #pj-one-parent trail.
     ok(t + ' detail: breadcrumb shows the full nested chain + back chevron', anc.detailErr === null && anc.hasBack === true && /Kosmos/.test(anc.crumbText || '') && /App/.test(anc.crumbText || '') && /Mobile/.test(anc.crumbText || ''), JSON.stringify({ err: anc.detailErr, back: anc.hasBack, txt: anc.crumbText }));
+    // #2928: clicking the back chevron NAVIGATES (the card's core behavior), not
+    // merely renders. A subproject goes UP to its parent; a top-level goes to the list.
+    ok(t + ' #2928 back: clicking the chevron on a subproject opens its parent', anc.detailErr === null && anc.backSubCurrent === 'app' && anc.backSubView === 'one', JSON.stringify({ err: anc.detailErr, cur: anc.backSubCurrent, view: anc.backSubView }));
+    ok(t + ' #2928 back: clicking the chevron on a top-level project returns to the list', anc.detailErr === null && anc.backTopCurrent === null && anc.backTopView === 'list', JSON.stringify({ err: anc.detailErr, cur: anc.backTopCurrent, view: anc.backTopView }));
     ok(t + ' detail: sub-projects section lists a direct child', anc.detailErr === null && anc.subsHidden === false && anc.subKid === true, JSON.stringify({ err: anc.detailErr, h: anc.subsHidden, kid: anc.subKid }));
     ok(t + ' detail: a sub-project row OPENS on click (its own delegate, not the list’s)', anc.detailErr === null && anc.opened === true, JSON.stringify({ err: anc.detailErr, opened: anc.opened }));
     ok(t + ' detail: a top-level project shows just its own name as the single crumb (no ancestor separators)', anc.detailErr === null && /Kosmos/.test(anc.topCrumbText || '') && !/\//.test(anc.topCrumbText || ''), JSON.stringify({ err: anc.detailErr, txt: anc.topCrumbText }));
