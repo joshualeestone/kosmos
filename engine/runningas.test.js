@@ -239,10 +239,23 @@ test('#2811: the ANSWER SHAPE is pinned per path, because the docstring claims o
      than passing quietly, which is correct: an unreadable contract is not a
      satisfied one. */
   const src = fs.readFileSync(require.resolve('./runningas.js'), 'utf8');
-  const documented = src.match(/darwin ok:true\s+->\s+([a-z,]+)/i);
-  assert.ok(documented, 'the docstring no longer states a darwin ok:true key list, so nothing documents the shape');
-  assert.equal(documented[1], BASE + ',runner',
+  /* 🛑 ALL THREE ROWS, NOT THE FIRST ONE. An earlier version parsed only
+     `darwin ok:true` while its comment claimed it guarded the matrix, so two
+     mutants rewriting the OTHER rows to assert the exact opposite ("runner is
+     null", "also carries runner") passed. Worse, the revert this guard exists to
+     catch was in those two rows: it was aimed at the only line that had never
+     been wrong. */
+  const row = (label) => {
+    const m = src.match(new RegExp(label + '\\s+->\\s+([^\\n]+)'));
+    assert.ok(m, 'the docstring no longer states a `' + label + '` row, so nothing documents that path');
+    return m[1].trim();
+  };
+  assert.equal(row('darwin ok:true'), BASE + ',runner',
     'the docstring and this test disagree about the darwin success shape');
+  assert.equal(row('darwin ok:false'), 'no `runner` key',
+    'the docstring no longer says a darwin REFUSAL omits `runner`, which the arms below assert');
+  assert.equal(row('win32  every path'), 'no `runner` key',
+    'the docstring no longer says the win32 arm omits `runner` on every path');
 
   /* 🛑 EVERY RETURN PATH, NOT THE ONES I HAPPENED TO DRIVE. An earlier version of
      this test pinned TWO of the nine and its commit claimed the whole matrix was
