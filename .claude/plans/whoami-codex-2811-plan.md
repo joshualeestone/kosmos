@@ -849,3 +849,50 @@ The sweep found it, printed it, and I fixed a different hit from the same run
 see. This one failed because the command saw perfectly and the reader did not.
 A sweep is not evidence until its output has been read line by line, and a
 17-hit list is exactly the length that feels skimmable.
+
+## Rounds 14 and 15: the remedy was the defect
+
+### One field, three wrong docstrings, each narrower than the last
+
+`runningAs`'s documented return shape was wrong three rounds running:
+
+| round | claimed | wrong because |
+|---|---|---|
+| 13 | lists `runner` unconditionally | win32 never carries it |
+| 14 | "darwin arm only" | darwin's REFUSALS do not carry it either |
+| 15 | "successful darwin read only" | correct, and still only prose |
+
+Every correction was generalised from the paths I had just been shown. A PARTIAL
+verification feels identical to a complete one, and "I drove it" sounds like proof
+regardless of how many paths were driven.
+
+### The fix that mattered was not a better sentence
+
+Round 15's third finding is the one that breaks the cycle, and it is a criticism
+of my REMEDY rather than my code: the measured matrix was recorded in a COMMENT
+and nothing kept it true. No test asserted the key-set on either arm. "Driven on
+both arms rather than read" was accurate the moment it was written and decayed
+immediately, in a file that demands the opposite standard eighty lines down
+("Asserted in `runningas.test.js` so it is a checked value rather than
+decoration").
+
+⇒ That is why the same docstring was wrong three times. Each fix produced a better
+SENTENCE, and a sentence is the thing that goes stale. The matrix is now a test
+(`the ANSWER SHAPE is pinned per path`): four paths asserted, and mutants that add
+a `runner` key to a darwin refusal or to a win32 success both go red.
+
+⭐ A CLAIM THAT MATTERS NEEDS AN ASSERTION, NOT A CLEARER PARAGRAPH. Everything
+this card fixed in prose stayed fixed only until the next change; the two things
+converted into tests (the codex `because`, and now the answer shape) cannot
+silently rot.
+
+### A sweep keyed to a phrase cannot find a paraphrase
+
+Round 15's blocker was `exactly this shape` while round 14 had swept for
+`same answer shape` and corrected a different line. One file asserted both "NOT
+the same answer shape" and "exactly this shape" about the same pair of arms.
+
+⇒ The wrap trap in different clothes. A pattern matches a SPELLING; the claim
+lives in the MEANING. Sweeping for one phrasing of a belief finds the instances
+that happen to share your wording and silently misses the rest, which is why the
+durable fix is an assertion rather than a better sweep.
