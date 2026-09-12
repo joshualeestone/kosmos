@@ -535,6 +535,13 @@ cmd_stop() {
     # "something is answering that this command did not start". The pidfile is
     # the only handle we have on it, so a failed stop KEEPS it and says so.
     if kill -0 "$pid" 2>/dev/null; then
+      # #2955: the stop did NOT succeed -- the board is still alive. We wrote the
+      # deliberate-stop marker before the kill (so the port dropping mid-kill would
+      # not look like a crash); undo that now, because the board was not actually
+      # stopped. Leaving the marker set here would suppress the watchdog forever, so
+      # if this still-running board later died for an unrelated reason nothing would
+      # recover it -- reintroducing the exact #2955 failure by another door.
+      rm -f "$STOP_MARKER" 2>/dev/null || true
       say "Could not stop it. Something is still running as $pid."
       exit 1
     fi

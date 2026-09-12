@@ -2112,8 +2112,15 @@ chk "#918 scenario-D (default KOSMOS_HOME) install exits 0" "rc_ok $RC"
 HOME="$D918_HOME_D" "$D918_HOME_D/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "the port is genuinely free before #918's uninstall runs" "wait_port_free"
 
+# #2955: each install now writes a SECOND plist too -- the board watchdog
+# (com.kosmos.board.watchdog[.<hash>].plist) -- which the bare `com.kosmos.board*`
+# glob also matches. Count the BOARD labels by excluding the watchdog ones, so this
+# assertion keeps meaning "four distinct board labels" rather than silently counting
+# eight. The watchdog count is asserted on its own line just below.
 chk "four distinct board labels (three suffixed, one bare default) are registered in the shared launch dir before anything is torn down" \
-  "[ \"\$(ls \"$D918_LAUNCH\"/com.kosmos.board*.plist 2>/dev/null | wc -l | tr -d ' ')\" = 4 ]"
+  "[ \"\$(ls \"$D918_LAUNCH\"/com.kosmos.board*.plist 2>/dev/null | grep -v watchdog | wc -l | tr -d ' ')\" = 4 ]"
+chk "#2955: each of those installs also registered its board watchdog job (four watchdog plists)" \
+  "[ \"\$(ls \"$D918_LAUNCH\"/com.kosmos.board.watchdog*.plist 2>/dev/null | wc -l | tr -d ' ')\" = 4 ]"
 
 # 🔑 CHALLENGE-LOOP ITERATION 2: a plist shaped nothing like this file's own
 # writer produces -- ProgramArguments[1] is exactly "/bin/kosmos", no home

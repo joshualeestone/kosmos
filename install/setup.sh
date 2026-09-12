@@ -1354,6 +1354,16 @@ uninstall() {
       # loop only ever considers a SUFFIXED label -- a genuine sweep candidate,
       # never the one real board every normal install has.
       _orphan_label="$(basename "$_orphan_plist" .plist)"
+      # #2955: the BARE-DEFAULT watchdog label (com.kosmos.board.watchdog, no #883
+      # hash) DOES match this glob, unlike the bare-default board label -- so the
+      # one real watchdog every normal install has would otherwise be a sweep
+      # candidate, protected only by the runtime liveness check below rather than by
+      # the lexical exclusion the default board plist enjoys. Skip it explicitly to
+      # restore that two-layer protection: it is either this install's own (already
+      # removed above, before the sweep) or the live default install's (which must
+      # never be swept from under it). A SUFFIXED walk watchdog still flows through
+      # the liveness check like any other orphan.
+      [ "$_orphan_label" = com.kosmos.board.watchdog ] && continue
       # KOSMOS_HOME survives in exactly one place in this plist: the second
       # ProgramArguments string (the install path's own heredoc, above, never
       # writes it into EnvironmentVariables). PlistBuddy is the standard,
