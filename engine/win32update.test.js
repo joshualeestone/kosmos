@@ -833,6 +833,237 @@ test('the lock: a prepare whose draft a holder swept refuses as busy, not as a d
   assert.equal(log.some((l) => /link failed/.test(l)), false, 'not reported as a drive that cannot link');
 });
 
+const codeError = (code, file) => Object.assign(new Error(`${code}, Permission denied: \\\\?\\${file} '\\\\?\\${file}'`), { code });
+/** Run `fn` with fs[name] replaced by `stub(real, ...args)`, and put it back whatever happens. */
+function withStub(name, stub, fn) {
+  const real = fs[name];
+  fs[name] = function stubbed(...args) { return stub.call(this, real.bind(fs), ...args); };
+  try { return fn(); } finally { fs[name] = real; }
+}
+async function withStubAsync(name, stub, fn) {
+  const real = fs[name];
+  fs[name] = function stubbed(...args) { return stub.call(this, real.bind(fs), ...args); };
+  try { return await fn(); } finally { fs[name] = real; }
+}
+
+test('the lock: a swept draft is busy whatever code the link fails with, EPERM included', T, () => {
+  /* Windows answers a link whose source is being deleted with EPERM about as often as ENOENT. */
+  for (const code of ['ENOENT', 'EPERM']) {
+    const { lock } = lockDir();
+    const log = [];
+    withStub('linkSync', (real, from) => { fs.rmSync(from, { force: true }); throw codeError(code, from); }, () => {
+      assert.throws(() => win32update.takeLock(lock, (l) => log.push(l)), (e) => e.message === 'another update is already being prepared', code);
+    });
+    assert.equal(log.some((l) => /link failed/.test(l)), false, `${code}: not reported as a drive that cannot link`);
+  }
+  /* The draft is swept while the drive is being probed: still busy, not a drive problem. */
+  const { lock } = lockDir();
+  let calls = 0;
+  withStub('linkSync', (real, from) => {
+    calls += 1;
+    if (calls === 2) fs.rmSync(from, { force: true });
+    throw codeError('EPERM', from);
+  }, () => {
+    assert.throws(() => win32update.takeLock(lock, () => {}), (e) => e.message === 'another update is already being prepared');
+  });
+  assert.equal(calls, 2, 'the control: the probe ran');
+});
+
+test('the lock: a link that fails on a drive that can link looks again instead of blaming the drive', T, () => {
+  const { d, lock } = lockDir();
+  const log = [];
+  let calls = 0;
+  /* The first link over the lock's name fails (a lock whose delete is pending cannot be linked over). */
+  const text = withStub('linkSync', (real, from, to) => {
+    calls += 1;
+    if (calls === 1) throw codeError('EPERM', to);
+    return real(from, to);
+  }, () => win32update.takeLock(lock, (l) => log.push(l)));
+  assert.equal(fs.readFileSync(lock, 'utf8'), text, 'taken on the next look');
+  assert.ok(log.some((l) => /link failed with code=EPERM on a drive that can link; looking again/.test(l)), log.join('\n'));
+  assert.equal(log.some((l) => /could not take the prepare lock/.test(l)), false);
+  assert.deepEqual(fs.readdirSync(d), ['prepare.lock'], 'the probe and the draft are gone');
+});
+
+test('the lock: a draft that cannot be removed never turns a refusal into a raw error', T, () => {
+  const { d, lock } = lockDir();
+  fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, at: Date.now() }));
+  const log = [];
+  withStub('rmSync', (real, p, o) => {
+    if (String(p).endsWith('.draft')) throw codeError('EPERM', p);
+    return real(p, o);
+  }, () => {
+    assert.throws(() => win32update.takeLock(lock, (l) => log.push(l)), (e) => e.message === `another update is already being prepared (process ${process.pid})`);
+  });
+  assert.ok(log.some((l) => /^could not remove its lock draft \(code=EPERM\)/.test(l)), log.join('\n'));
+  assert.equal(log.some((l) => l.includes(d) || l.includes('.draft')), false, 'the log names the code, not the path');
+});
+
+test('the lock: a draft that cannot be removed after the lock was taken leaves it taken, held and released', T, async () => {
+  const { lock } = lockDir();
+  let tripped = false;
+  const text = withStub('rmSync', (real, p, o) => {
+    if (!tripped && String(p).endsWith('.draft')) { tripped = true; throw codeError('EPERM', p); }
+    return real(p, o);
+  }, () => win32update.takeLock(lock, () => {}));
+  assert.ok(tripped, 'the control: the removal failed');
+  assert.equal(fs.readFileSync(lock, 'utf8'), text, 'the lock is this caller\'s');
+
+  /* The whole prepare: it stages, and it lets go of the lock, so the board is not wedged. */
+  const c = freshCase();
+  let trippedInPrepare = false;
+  const r = await withStubAsync('rmSync', (real, p, o) => {
+    if (!trippedInPrepare && String(p).endsWith('.draft')) { trippedInPrepare = true; throw codeError('EPERM', p); }
+    return real(p, o);
+  }, () => win32update.prepare(prepareOpts(c, site(bundleZip()))));
+  assert.ok(trippedInPrepare, 'the control: the removal failed');
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(workHolds(c), ['prepare-status.json', 'staged'], 'the lock was released and the draft swept');
+  assert.ok(c.log.some((l) => /^could not remove its lock draft \(code=EPERM\)/.test(l)), c.log.join('\n'));
+  assert.equal((await win32update.prepare(prepareOpts(freshCase(), site(bundleZip())))).ok, true, 'and the next prepare runs');
+});
+
+test('the lock: a clear claim that cannot be removed leaves the lock taken', T, () => {
+  const { lock } = lockDir();
+  fs.writeFileSync(lock, JSON.stringify({ pid: deadPid(), at: Date.now() }));
+  let tripped = false;
+  const log = [];
+  const text = withStub('rmSync', (real, p, o) => {
+    if (!tripped && String(p).endsWith('.clearing')) { tripped = true; throw codeError('EPERM', p); }
+    return real(p, o);
+  }, () => win32update.takeLock(lock, (l) => log.push(l)));
+  assert.ok(tripped, 'the control: the removal failed');
+  assert.equal(fs.readFileSync(lock, 'utf8'), text);
+  assert.ok(log.some((l) => /^could not remove its clear claim \(code=EPERM\)/.test(l)), log.join('\n'));
+});
+
+test('the lock: the holder\'s sweep leaves an entry something else is removing, and the prepare goes on', T, async () => {
+  const c = freshCase();
+  fs.mkdirSync(c.work);
+  const busy = 'prepare.lock.123-1700000000000-abcd1234.draft';
+  const gone = 'prepare.lock.0123456789abcdef.clearing';
+  for (const name of [busy, gone]) fs.writeFileSync(path.join(c.work, name), JSON.stringify({ pid: deadPid(), at: Date.now() }));
+  const r = await withStubAsync('rmSync', (real, p, o) => {
+    if (path.basename(String(p)) === busy) throw codeError('EPERM', p);
+    return real(p, o);
+  }, () => win32update.prepare(prepareOpts(c, site(bundleZip()))));
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(workHolds(c), [busy, 'prepare-status.json', 'staged'].sort(), 'the busy entry is left for later, the other swept');
+  assert.ok(c.log.includes('left a leftover beside the prepare lock for later (code=EPERM)'), c.log.join('\n'));
+  assert.equal(c.log.some((l) => l.includes(busy)), false, 'the log names the code, not the entry');
+
+  /* Any other failure is a real one. */
+  const { d } = lockDir();
+  fs.writeFileSync(path.join(d, busy), '');
+  withStub('rmSync', (real, p) => { throw codeError('EIO', p); }, () => {
+    assert.throws(() => win32update.sweepLockLeftovers(d, win32update.workGuard(d), () => {}), (e) => e.code === 'EIO');
+  });
+});
+
+test('the lock: a lock from before this computer last started is dead, even with a running pid', T, () => {
+  const bootedHoursAgo = (hours) => ({ now: () => Date.now(), uptimeSeconds: () => hours * 3600 });
+  const clock = bootedHoursAgo(1);
+  const bootNow = Date.now() - 3600 * 1000;
+  const tolerance = win32update.BOOT_TIME_TOLERANCE_MS;
+  /* process.pid is running: the stand-in for a service that was handed the dead prepare's pid. */
+  const cases = [
+    { name: 'two days before this boot', boot: hoursAgo(50), at: hoursAgo(49), held: false },
+    { name: 'just past the tolerance', boot: bootNow - tolerance - 30000, at: bootNow - 10000, held: false },
+    { name: 'within the tolerance (jitter in the derived boot time)', boot: bootNow - tolerance + 30000, at: bootNow - 10000, held: true },
+    { name: 'this boot', boot: bootNow, at: hoursAgo(0.5), held: true },
+    /* The wall clock stepped two hours forward while this prepare ran: its boot now looks two
+       hours early, but it was taken half an hour ago, after the boot the clocks now derive. */
+    { name: 'a clock stepped forward', boot: hoursAgo(3), at: hoursAgo(0.5), held: true },
+    { name: 'the first format, with no boot', at: hoursAgo(49), held: true },
+  ];
+  for (const k of cases) {
+    const { lock } = lockDir();
+    fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, at: k.at, ...(k.boot !== undefined ? { boot: k.boot } : {}) }));
+    const log = [];
+    if (k.held) {
+      assert.throws(() => win32update.takeLock(lock, (l) => log.push(l), { clock }), new RegExp(`already being prepared \\(process ${process.pid}\\)`), k.name);
+    } else {
+      const text = win32update.takeLock(lock, (l) => log.push(l), { clock });
+      assert.equal(fs.readFileSync(lock, 'utf8'), text, k.name);
+      assert.ok(log.some((l) => l === `cleared a stale prepare lock (process ${process.pid}, from before this computer last started)`), `${k.name}\n${log.join('\n')}`);
+    }
+  }
+  /* Every lock carries the boot it was taken in. */
+  const { lock } = lockDir();
+  const body = JSON.parse(win32update.takeLock(lock, () => {}, { clock: { now: () => 5_000_000, uptimeSeconds: () => 1000 } }));
+  assert.equal(body.boot, 4_000_000);
+  assert.equal(body.at, 5_000_000);
+  assert.ok(Math.abs(JSON.parse(win32update.takeLock(lockDir().lock, () => {})).boot - (Date.now() - os.uptime() * 1000)) < 5000, 'the real clocks by default');
+});
+
+test('the lock: a lock removed between the look and the read is gone, not unreadable', T, () => {
+  const { lock } = lockDir();
+  fs.writeFileSync(lock, JSON.stringify({ pid: process.pid, at: Date.now() }));
+  let tripped = false;
+  const text = withStub('readFileSync', (real, p, o) => {
+    if (!tripped && path.resolve(String(p)) === path.resolve(lock)) {
+      tripped = true;
+      fs.rmSync(lock);
+      throw codeError('ENOENT', p);
+    }
+    return real(p, o);
+  }, () => win32update.takeLock(lock, () => {}));
+  assert.ok(tripped, 'the control: the read raced the removal');
+  assert.equal(fs.readFileSync(lock, 'utf8'), text, 'taken on the next look');
+});
+
+test('the lock: an owner that cannot be checked is aged from the earlier of its at and its file, so a future at cannot hold forever', T, () => {
+  const win32orphan = require('./win32orphan');
+  const realState = win32orphan.pidState;
+  win32orphan.pidState = () => 'unknown';
+  try {
+    const { lock } = lockDir();
+    fs.writeFileSync(lock, JSON.stringify({ pid: 4242, at: Date.now() + 100 * 365 * 24 * 3600 * 1000 }));
+    assert.throws(() => win32update.takeLock(lock, () => {}), /already being prepared \(process 4242\)/, 'a new file: held');
+    const threeHoursAgo = new Date(hoursAgo(3));
+    fs.utimesSync(lock, threeHoursAgo, threeHoursAgo);
+    const log = [];
+    const text = win32update.takeLock(lock, (l) => log.push(l));
+    assert.equal(fs.readFileSync(lock, 'utf8'), text);
+    assert.ok(log.some((l) => /cleared a stale prepare lock \(process 4242, old, and its owner cannot be checked\)/.test(l)), log.join('\n'));
+  } finally {
+    win32orphan.pidState = realState;
+  }
+});
+
+test('the lock: a lock file that is a folder, or stays unreadable, is named as the problem and left alone', T, () => {
+  const folder = lockDir();
+  fs.mkdirSync(folder.lock);
+  const log = [];
+  assert.throws(() => win32update.takeLock(folder.lock, (l) => log.push(l)), (e) => e.message === `Kosmos could not take its update lock: the lock file ${folder.lock} is a folder, not a file, so the updater cannot tell whether another update is running. Remove that file by hand, then try again`);
+  assert.ok(fs.statSync(folder.lock).isDirectory(), 'never removed automatically');
+  assert.deepEqual(fs.readdirSync(folder.d), ['prepare.lock']);
+
+  const denied = lockDir();
+  fs.writeFileSync(denied.lock, JSON.stringify({ pid: deadPid(), at: hoursAgo(3) }));
+  const deniedLog = [];
+  withStub('readFileSync', (real, p, o) => {
+    if (path.resolve(String(p)) === path.resolve(denied.lock)) throw codeError('EPERM', p);
+    return real(p, o);
+  }, () => {
+    assert.throws(() => win32update.takeLock(denied.lock, (l) => deniedLog.push(l)), /the lock file .*prepare\.lock cannot be read, so the updater cannot tell whether another update is running\. Remove that file by hand/);
+  });
+  assert.ok(deniedLog.includes('the prepare lock cannot be read (code=EPERM)'), deniedLog.join('\n'));
+  assert.ok(fs.existsSync(denied.lock), 'never removed automatically');
+
+  /* Unreadable for a moment (a lock whose delete is pending): read again, and judged as usual. */
+  const blip = lockDir();
+  fs.writeFileSync(blip.lock, JSON.stringify({ pid: process.pid, at: Date.now() }));
+  let reads = 0;
+  withStub('readFileSync', (real, p, o) => {
+    if (path.resolve(String(p)) === path.resolve(blip.lock) && (reads += 1) === 1) throw codeError('EPERM', p);
+    return real(p, o);
+  }, () => {
+    assert.throws(() => win32update.takeLock(blip.lock, () => {}), new RegExp(`already being prepared \\(process ${process.pid}\\)`));
+  });
+  assert.equal(reads, 2, 'the control: read again after the first failure');
+});
+
 test('the lock: prepares racing to clear one stale lock, in separate processes, leave exactly one holder', { timeout: 30000 }, async () => {
   const { d, lock } = lockDir();
   fs.writeFileSync(lock, JSON.stringify({ pid: deadPid(), at: Date.now() }));
