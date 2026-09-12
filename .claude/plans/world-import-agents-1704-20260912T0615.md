@@ -251,6 +251,74 @@ He confirmed this shape:
 `fixture-discipline`, `server.worldenv-order`, `engine/platform-gate-wiring`. Also
 `web.modal-way-out-1316`, whose modal count must not change: no new modal is added.
 
+## As built (notes against the design above)
+
+- **Extra single sources beyond the plan:**
+  - `store.profileFileName(name)`: the profile file name, which the import writes
+    into another Kosmos. The path itself stays private.
+  - `test-support/fake-dom.js`: one fake document for the two web suites that run
+    the page's shipped functions.
+- **The New Kosmos step closes on its own only when every agent started NOW.** A
+  new Kosmos is always a named world, so while #2849 holds, a create with picks
+  always ends waiting. The dialog then stays open with the outcome sentence, and
+  Cancel reads Done.
+- **The settings pane keeps the rename modal's ids.** `world-rename-*` is unchanged
+  and the picker is `world-set-*`, so the rename wiring, its Escape and the
+  modal-way-out sweep are untouched. No new modal is added: the sweep's count is
+  unchanged.
+
+## Validation (Windows box)
+
+- **Baseline.** On `e1e91030`, the 12 affected suites passed 100 of 100.
+- **The branch.** The new and updated suites plus the root inventories pass 141 of
+  141, and `engine/worldstarts.test.js` passes 33 of 33. The root inventories are
+  `engine.reachable`, `one-derivation`, `fixture-discipline`,
+  `server.worldenv-order`, `engine/platform-gate-wiring`, `web.modal-way-out-1316`
+  and `web.world-switch-agents-1704`.
+- **Controls.** 21 perturbations, each reverting one fix, ran against its own tests,
+  and all 21 went red. They cover:
+  - keeping `dir`;
+  - no avatar copy;
+  - no collision check;
+  - no rollback;
+  - the Mac or Windows source spec read in the wrong world;
+  - removed agents offered;
+  - the first start skipped;
+  - the spawn rule ignored;
+  - the gate removed;
+  - no waiting sentence;
+  - a named target not asked the rule;
+  - the list dropping the sentence;
+  - the default workers ignoring the pre-world env;
+  - no cog on Kosmos 1;
+  - the payload always sent;
+  - Skip a no-op;
+  - the Kosmos box a no-op;
+  - rename offered for Kosmos 1;
+  - no Tab trap;
+  - waiting agents closed over.
+- **Wider suites that touch the refactored helpers** (`create`, `remove`,
+  `win32job`, `store`, `worlds`, `register`, `discover`, `trust`, `server.test`,
+  and others): the only failing names not also failing on main are the old #2563
+  whole-world import tests, which this branch rewrites.
+- **Browser checks.** Playwright is not on this box. Both checks pass
+  `node --check`. macOS CI runs them.
+- **The full test list** (`engine/*.test.js` plus `*.test.js`): main `e1e91030`
+  fails 822 of 6313, all Mac or tmux assumptions. Comparing failing NAMES, the
+  first branch run failed three tests that main does not, and all three are fixed:
+  - `web.modal-exit-1438`: the settings pane's first `rm-acts` row held only
+    "Save name". The rename button row now uses the picker's actions class, so
+    the dialog's actions row is the one with Close.
+  - `web.open-sentence-1199`: two new inline sentence-capitalizers. Both now go
+    through the page's `asSentence`.
+  - `engine/windows-coupling-audit-1732`: `store.workersRootFor` joined `home`
+    with the ambient `path.join`. It now uses `joinerFor(platform)`, like
+    `dataRootFor`, on the running platform by default.
+- **A flake.** `engine/commitments.test.js` "a reader never observes a torn record
+  while writers are racing" failed once in the full run and passed on rerun. It
+  touches nothing here.
+- **After the fixes,** the 20 affected and inventory suites pass 200 of 200.
+
 ## Weakest part
 
 1. **Nothing can prove a start into a named Kosmos works end to end in this PR.**

@@ -73,6 +73,7 @@ board-auth model, install/update, multi-world ("Kosmos") switching, and provider
 | Change the board UI | `web/index.html` (single page); a committed change here needs a browser-check assertion or a `Browser-check:` trailer |
 | Find the data root / Application Support path | `engine/store.js` (`store.ROOT`) |
 | Work on multi-Kosmos switching | `engine/worlds.js`, `engine/worldenv.js`, `engine/worldbootguard.js`, `engine/boardrestart.js`; the switch route in `server.js` (`/api/worlds/active`) |
+| Work on a Kosmos's agents (named worlds) | `engine/launchidentity.js` (the world-keyed task / label / session key), `engine/worldstarts.js` (starting a Kosmos's paused and imported agents when it opens), `engine/worldimport.js` (copying agents from one Kosmos into another); the routes `/api/worlds/import` and `/api/worlds/list`, and `namedWorldSpawnRefusal` in `server.js` |
 | Add a provider session reader | `engine/claudeaccounts.js`, `engine/codexsession.js`, `engine/authprobe.js` |
 | Change the installer | `install/setup.sh`, `install/kosmos` |
 | Cut a release | `tools/release.sh`, `tools/build-*-bundle.sh` |

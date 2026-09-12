@@ -1,17 +1,22 @@
 'use strict';
 
 /**
- * Pausing a Kosmos's agents on a world switch, and bringing them back when that
- * Kosmos is opened again (#1704, plan world-agents-1704 section 4).
+ * Starting a Kosmos's agents when that Kosmos is opened: the ones a world switch
+ * PAUSED (#1704, plan world-agents-1704 section 4) and the ones an import COPIED in
+ * (#1704 PR4, section 6). One record, one resume, two reasons.
  *
  * Josh's decision: the switch dialog ASKS EACH TIME. "Keep them running" changes
  * nothing here. "Pause this Kosmos's agents" stops them, remembers them, and
- * starts them again the next time the board boots into this Kosmos.
+ * starts them again the next time the board boots into this Kosmos. And an agent
+ * imported into a Kosmos "runs when its Kosmos is opened": at once if that Kosmos
+ * is the one open, otherwise when its board next boots.
  *
- * 🔑 THE RECORD LIVES IN THE BOOTED WORLD'S STORE, `<store.ROOT>/world-starts.json`.
- * At pause time the booted world is the one being LEFT; at boot time it is the
- * one being OPENED. So one path serves both halves, with no cross-world path
- * arithmetic, and each Kosmos only ever resumes its own agents.
+ * 🔑 THE RECORD LIVES IN THE STORE OF THE KOSMOS WHOSE AGENTS IT NAMES,
+ * `<store>/world-starts.json`. At pause time the booted world is the one being
+ * LEFT; at boot time it is the one being OPENED; so those two use `store.ROOT`. An
+ * import writes into the TARGET Kosmos's store (`recordFileIn`), which is
+ * `store.ROOT` itself when the target is the open one. Each Kosmos only ever starts
+ * its own agents.
  *
  * 🔑 A PAUSE IS NOT A REMOVAL. It reuses remove.js's per-platform acts (the job's
  * disable/stop and the session end, in that order), and never writes the removed
@@ -19,14 +24,21 @@
  * that makes a pause stick: without it the logon trigger (RunAtLoad on a Mac) would
  * start the agent again while another Kosmos is the one showing.
  *
+ * 🔑 AN IMPORTED AGENT HAS NO JOB YET. Its start is `create.installJob` (the same
+ * door "Set them to start at login" and a connected folder go through), handed the
+ * runner, model and account read from the SOURCE Kosmos's job at import time and
+ * kept on the entry, because the target has no job to read them from. A Claude
+ * folder is trusted first, exactly as createAgent trusts the folder it makes: the
+ * copy's folder is new, and nothing on the Mac adopt path answers that prompt.
+ *
  * ⚠️ WRITE-AHEAD. An agent's entry is written BEFORE anything is stopped, so there
  * is no instant at which an agent is stopped and nothing remembers to start it.
  * An entry comes back out only for an agent that is provably still set to start on
- * its own.
+ * its own, or has been started.
  *
  * ⚠️ GATED BY LIVE EXECUTION HERE, not only below. `engine/win32job.js` shells
  * schtasks without consulting the gate, so this module checks
- * `liveExecutionAllowed()` itself before it touches any job.
+ * `liveExecutionAllowed()` itself before it touches any job, folder trust or start.
  */
 
 const fs = require('node:fs');
@@ -38,8 +50,14 @@ const win32job = require('./win32job');
 const disruption = require('./disruption');
 const liveExec = require('./live-execution');
 
-/** Where the record lives: the booted world's store (see the header). */
-const RECORD_FILE = path.join(store.ROOT, 'world-starts.json');
+/** The record's file name, inside the store of the Kosmos it belongs to. */
+const RECORD_FILENAME = 'world-starts.json';
+
+/** The record of the Kosmos whose store is `storeRoot` (see the header). */
+function recordFileIn(storeRoot) { return path.join(storeRoot, RECORD_FILENAME); }
+
+/** The booted world's own record. */
+const RECORD_FILE = recordFileIn(store.ROOT);
 
 /**
  * The two answers the switch dialog offers, as the route accepts them. The route
@@ -54,11 +72,13 @@ const AGENT_CHOICES = Object.freeze({ PAUSE: 'pause', KEEP: 'keep' });
  */
 const DEFAULT_AGENT_CHOICE = AGENT_CHOICES.KEEP;
 
-/** Why an entry is in the record. PR4 adds 'imported'; only 'paused' is acted on here. */
+/** Why an entry is in the record: a switch paused it, or an import copied it in. */
 const WHY_PAUSED = 'paused';
+const WHY_IMPORTED = 'imported';
+const EVERY_WHY = new Set([WHY_PAUSED, WHY_IMPORTED]);
 
 /**
- * The disruption cause written while an agent is taken down or brought back.
+ * The disruption cause written while a PAUSED agent is taken down or brought back.
  * `disruption.CAUSES` has no pause cause, and an unknown cause is stored as
  * 'restart' anyway, which the board renders as "Restarting".
  * ⚠️ THAT LABEL IS NOT ALWAYS TRUE, and the gaps are stated rather than hidden:
@@ -70,7 +90,8 @@ const WHY_PAUSED = 'paused';
  *  - NOT true of a resume of an agent that was in fact still running (an entry
  *    left behind when a record write failed): it paints "Restarting" briefly
  *    over a running agent.
- * A pause-specific cause and its board copy are a separate card.
+ * A pause-specific cause and its board copy are a separate card. An IMPORTED
+ * agent's first start is not a restart, so it writes none.
  */
 const DISRUPTION_CAUSE = 'restart';
 
@@ -88,13 +109,13 @@ function platformFor(opts) { return (opts && opts.platform) || platformOverride 
 
 /**
  * The entries, keeping "we could not read it" as its own answer. A writer that
- * started from an empty list after a failed read would drop every OTHER paused
+ * started from an empty list after a failed read would drop every OTHER recorded
  * agent, and those are then never started again -- so writers refuse instead.
  */
-function readRecordForWrite() {
+function readRecordForWrite(file = RECORD_FILE) {
   let raw;
   try {
-    raw = fs.readFileSync(RECORD_FILE, 'utf8');
+    raw = fs.readFileSync(file, 'utf8');
   } catch (err) {
     if (err && err.code === 'ENOENT') return [];
     return UNREADABLE;
@@ -109,14 +130,63 @@ function readRecordForWrite() {
 }
 
 /** Written beside and renamed, so a reader never sees half a record. */
-function writeRecord(entries) {
-  fs.mkdirSync(path.dirname(RECORD_FILE), { recursive: true });
-  const tmp = `${RECORD_FILE}.${process.pid}.new`;
+function writeRecord(entries, file = RECORD_FILE) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.new`;
   fs.writeFileSync(tmp, `${JSON.stringify({ entries }, null, 2)}\n`, 'utf8');
-  fs.renameSync(tmp, RECORD_FILE);
+  fs.renameSync(tmp, file);
+}
+
+/**
+ * #1704 PR4: note that an agent just copied into the Kosmos whose store is
+ * `storeRoot` should start when that Kosmos is opened. `entry` is `{name, from,
+ * runner, model, configDir}`: the launch spec read from the source's job, which
+ * the target has no other way to learn. An earlier entry of the same name is
+ * replaced (an import is refused on a name already in the target, so that is only
+ * ever a leftover). Returns `{ok: true}` or `{ok: false, because}`; the importer
+ * takes the copy back out on a refusal, so no agent is ever copied in with nothing
+ * set to start it.
+ */
+function recordImport(storeRoot, entry) {
+  const file = recordFileIn(storeRoot);
+  const existing = readRecordForWrite(file);
+  if (existing === UNREADABLE) {
+    return { ok: false, because: 'we could not read the list of agents waiting to start there' };
+  }
+  const next = { name: entry.name, why: WHY_IMPORTED, at: new Date().toISOString(), from: entry.from, runner: entry.runner };
+  if (entry.model) next.model = entry.model;
+  if (entry.configDir) next.configDir = entry.configDir;
+  try {
+    writeRecord(existing.filter((e) => e.name !== entry.name).concat([next]), file);
+  } catch (err) {
+    return { ok: false, because: `we could not note that it should start there (${(err && err.code) || 'unknown'})` };
+  }
+  return { ok: true };
+}
+
+/**
+ * The imported agents of the Kosmos whose store is `storeRoot` that have not
+ * started yet, `[{name, because}]`, where `because` is the plain sentence of why
+ * one is still waiting (null when it has simply not been opened since). The
+ * settings pane shows these, so an import into a Kosmos whose agents may not run
+ * yet stays visibly waiting rather than silently absent. An unreadable record
+ * lists none: this is a display, not an act.
+ */
+function importsWaitingIn(storeRoot) {
+  const got = readRecordForWrite(recordFileIn(storeRoot));
+  if (got === UNREADABLE) return [];
+  return got.filter((e) => e.why === WHY_IMPORTED).map((e) => ({ name: e.name, because: e.because || null }));
 }
 
 /* ── the gate ────────────────────────────────────────────────────────────── */
+
+/* What a person is told when live execution refuses, per act. A resume's refusal
+   must not say "nothing was changed": an imported agent's copy is already in
+   place, and it is only the START that did not happen. */
+const GATE_REFUSALS = Object.freeze({
+  pause: 'Kosmos is not allowed to start or stop agents from here, so nothing was changed',
+  resume: 'Kosmos is not allowed to start agents from here, so it has not been started yet',
+});
 
 /**
  * Null when live execution is armed; otherwise the refusal, with nothing done.
@@ -134,10 +204,7 @@ function liveExecutionRefusal(action, names) {
   } catch (err) {
     detail = String((err && err.message) || err);
   }
-  return {
-    because: 'Kosmos is not allowed to start or stop agents from here, so nothing was changed',
-    detail,
-  };
+  return { because: GATE_REFUSALS[action] || GATE_REFUSALS.resume, detail };
 }
 
 /** Runs one platform act; a throw is a failed act, never an unwound caller. */
@@ -319,12 +386,49 @@ function pauseForSwitch(agents, opts = {}) {
   return { paused, notPaused, stoppedNow };
 }
 
-/* ── resume ──────────────────────────────────────────────────────────────── */
+/* ── start ───────────────────────────────────────────────────────────────── */
 
 /**
- * Start again the paused agents of the booted Kosmos, optionally only `onlyNames`.
- * Every act goes through the agent's world-keyed launch identity (remove.jobFor ->
- * create.serviceLabel / win32job.taskName), so a named Kosmos starts only its own.
+ * The first start of an imported agent, which has no job yet: trust its folder
+ * for Claude (createAgent's own call and arguments, #1629/#2129), then
+ * `create.installJob` with the launch spec kept on the entry. Returns the sentence
+ * of why it did not start, or null when it did. An installJob that registered
+ * the job but could not start it now still leaves a job that starts at login, and
+ * the entry stays so the next pass starts it through the enable-and-start path.
+ */
+function firstStartOfImport(entry, platform) {
+  const runner = entry.runner === 'codex' ? 'codex' : 'claude';
+  const configDir = typeof entry.configDir === 'string' && entry.configDir ? entry.configDir : null;
+  if (runner !== 'codex') {
+    try {
+      require('./trust').trustFolder(create.workerDir(entry.name), { configDir, createIfAbsent: true, agentDefaultAccount: !configDir });
+    } catch { /* another tool's file; an agent that asks once is not a failed start */ }
+  }
+  let out;
+  try {
+    out = create.installJob(entry.name, {
+      platform,
+      ...(runner === 'codex' ? { runner: 'codex' } : {}),
+      ...(entry.model ? { model: entry.model } : {}),
+      ...(configDir ? { configDir } : {}),
+    });
+  } catch (err) {
+    return `we could not set ${entry.name} up to start (${String((err && err.message) || err)})`;
+  }
+  if (!out || !out.ok) return `we could not set ${entry.name} up to start: ${(out && out.because) || 'no reason was given'}`;
+  if (out.started === false) return `we could not start ${entry.name} now; it starts at your next login`;
+  return null;
+}
+
+/**
+ * Start the recorded agents of the booted Kosmos -- optionally only `onlyNames`,
+ * and only entries whose reason is in `opts.whys` (default: every reason).
+ *
+ * `opts.spawnRefusal` is server.js's `namedWorldSpawnRefusal`, passed IN rather
+ * than re-derived here: "may agents start in the booted world" has one answer
+ * (#2849), and while it refuses, every entry is held with its `waiting` sentence
+ * (the plain one for a held start) so the agents come back at the first boot after
+ * the rule is lifted.
  *
  * Returns `{resumed: [names], held: [{name, because}], cleared: [names]}`.
  * `cleared` names removed agents, whose entries are dropped because the removal
@@ -332,16 +436,17 @@ function pauseForSwitch(agents, opts = {}) {
  */
 function resumeEntries(onlyNames, opts = {}) {
   const platform = platformFor(opts);
+  const whys = opts.whys || EVERY_WHY;
   const resumed = [];
   const held = [];
   const cleared = [];
 
   const existing = readRecordForWrite();
   if (existing === UNREADABLE) {
-    return { resumed, held, cleared, because: 'we could not read the list of paused agents' };
+    return { resumed, held, cleared, because: 'we could not read the list of agents waiting to start' };
   }
-  const targets = existing.filter((e) => e.why === WHY_PAUSED && (!onlyNames || onlyNames.has(e.name)));
-  /* Before the gate and the refusal: no paused agents is the normal case, and it
+  const targets = existing.filter((e) => whys.has(e.why) && (!onlyNames || onlyNames.has(e.name)));
+  /* Before the gate and the refusal: nothing waiting is the normal case, and it
      must cost nothing and say nothing. */
   if (targets.length === 0) return { resumed, held, cleared };
 
@@ -350,9 +455,19 @@ function resumeEntries(onlyNames, opts = {}) {
     try {
       writeRecord(entries);
     } catch (err) {
-      process.stderr.write(`Kosmos could not update its list of paused agents (${(err && err.code) || 'unknown'}); an agent already started may be started again at the next boot.\n`);
+      process.stderr.write(`Kosmos could not update its list of agents waiting to start (${(err && err.code) || 'unknown'}); an agent already started may be started again at the next boot.\n`);
     }
   };
+
+  const refused = typeof opts.spawnRefusal === 'function' ? opts.spawnRefusal() : null;
+  if (refused) {
+    const because = String(refused.waiting || refused.error || 'agents cannot start in this Kosmos yet');
+    const names = new Set(targets.map((t) => t.name));
+    entries = entries.map((e) => (names.has(e.name) ? { ...e, because } : e));
+    for (const t of targets) held.push({ name: t.name, because });
+    writeBack();
+    return { resumed, held, cleared };
+  }
 
   const gate = liveExecutionRefusal('resume', targets.map((t) => t.name));
   if (gate) {
@@ -382,7 +497,9 @@ function resumeEntries(onlyNames, opts = {}) {
     let job = null;
     try { job = remove.jobFor(t.name, platform); } catch { job = null; }
     let because = null;
-    if (!job) {
+    if (!job && t.why === WHY_IMPORTED) {
+      because = firstStartOfImport(t, platform);
+    } else if (!job) {
       because = `we could not find how Kosmos starts ${t.name}`;
     } else if (job.ours === false) {
       /* remove.jobFor's legacy `com.<name>.discord` candidate (Kosmos 1 only): a
@@ -400,7 +517,7 @@ function resumeEntries(onlyNames, opts = {}) {
       held.push({ name: t.name, because });
       continue;
     }
-    disruption.begin(t.name, DISRUPTION_CAUSE);
+    if (t.why === WHY_PAUSED) disruption.begin(t.name, DISRUPTION_CAUSE);
     entries = entries.filter((e) => e.name !== t.name);
     resumed.push(t.name);
   }
@@ -408,15 +525,26 @@ function resumeEntries(onlyNames, opts = {}) {
   return { resumed, held, cleared };
 }
 
-/** Every paused agent of the booted Kosmos. */
+/** Every recorded agent of the booted Kosmos: paused ones and imported ones. */
 function resumePaused(opts) { return resumeEntries(null, opts); }
 
 /**
- * Only these names: the switch route's rollback, undoing its own pause when the
- * switch itself then failed. The board is still serving the Kosmos those agents
- * were running in a moment ago, so it is an undo rather than a start.
+ * Only these PAUSED names: the switch route's rollback, undoing its own pause when
+ * the switch itself then failed. The board is still serving the Kosmos those
+ * agents were running in a moment ago, so it is an undo rather than a start.
  */
-function resumeNames(names, opts) { return resumeEntries(new Set(names || []), opts); }
+function resumeNames(names, opts) {
+  return resumeEntries(new Set(names || []), { ...(opts || {}), whys: new Set([WHY_PAUSED]) });
+}
+
+/**
+ * #1704 PR4: only these IMPORTED names, when they were just copied into the
+ * Kosmos this board is serving ("if it is the one open, they start now"). The
+ * same resume as a boot; the caller passes the same spawn rule the boot does.
+ */
+function startImported(names, opts) {
+  return resumeEntries(new Set(names || []), { ...(opts || {}), whys: new Set([WHY_IMPORTED]) });
+}
 
 /**
  * The boot half: called once the real board is listening, after live execution
@@ -424,10 +552,10 @@ function resumeNames(names, opts) { return resumeEntries(new Set(names || []), o
  */
 function drainAtBoot(opts) {
   const result = resumePaused(opts);
-  if (result.because) process.stderr.write(`Kosmos could not bring back this Kosmos's paused agents: ${result.because}.\n`);
-  if (result.resumed.length) process.stdout.write(`Kosmos started ${result.resumed.length} paused agent(s) again: ${result.resumed.join(', ')}\n`);
+  if (result.because) process.stderr.write(`Kosmos could not start this Kosmos's waiting agents: ${result.because}.\n`);
+  if (result.resumed.length) process.stdout.write(`Kosmos started ${result.resumed.length} waiting agent(s): ${result.resumed.join(', ')}\n`);
   if (result.held.length) {
-    process.stderr.write(`Kosmos left ${result.held.length} paused agent(s) off for now. First: ${result.held[0].name} - ${result.held[0].because}\n`);
+    process.stderr.write(`Kosmos left ${result.held.length} agent(s) waiting for now. First: ${result.held[0].name} - ${result.held[0].because}\n`);
   }
   return result;
 }
@@ -436,9 +564,13 @@ module.exports = {
   AGENT_CHOICES,
   DEFAULT_AGENT_CHOICE,
   RECORD_FILE,
+  recordFileIn,
+  recordImport,
+  importsWaitingIn,
   pauseForSwitch,
   resumePaused,
   resumeNames,
+  startImported,
   drainAtBoot,
   setPlatformForTests,
 };

@@ -309,12 +309,11 @@ test('a switch to the booted NAMED Kosmos resumes its own paused agent on its ke
   }
   assert.equal(r.status, 200);
   assert.equal(r.body.restartRequired, false, 'the control: a no-op switch');
-  assert.deepEqual(calls, [
-    `launchctl enable gui/${process.getuid()}/com.kosmos.agent.${key}`,
-    `launchctl bootstrap gui/${process.getuid()} ${plist}`,
-  ], 'the named Kosmos\'s paused agent was not started again');
-  assert.match(plist, /com\.kosmos\.agent\.ava\+alphaworld\.plist$/);
-  assert.deepEqual(record(), [], 'a resumed agent is cleared');
+  assert.deepEqual(calls, [], 'a held agent must not be enabled or started');
+  const entries = record();
+  assert.deepEqual(entries.map((e) => e.name), ['ava'], 'the entry stays, for when the rule is lifted');
+  // #1704 PR4: a held start carries the one spawn rule's `waiting` sentence.
+  assert.match(entries[0].because, /named Kosmos/);
 });
 
 /* ── review round 3 ───────────────────────────────────────────────────── */

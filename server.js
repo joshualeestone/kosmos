@@ -70,6 +70,7 @@ const {
 } = require('./engine/status');
 const removal = require('./engine/remove');
 const worldstarts = require('./engine/worldstarts'); // #1704 PR3: pause/resume a Kosmos's agents across a switch
+const worldimport = require('./engine/worldimport'); // #1704 PR4: copy agents from one Kosmos into another
 
 /* #2128: does this MACHINE currently depend on a Claude subscription? The
    "cannot reach a Claude subscription" banner (renderConnection) must fire only
@@ -268,6 +269,63 @@ function worldCreateReason(e) {
   const m = String((e && e.message) || '');
   if (/invalid agent name/i.test(m)) return 'that is not a name we can use for a Kosmos (use letters, numbers, - or _)';
   return m || 'we could not create that Kosmos';
+}
+/* #2827: named worlds do not run agents in v1. engine/worlds.js scopes named-world
+   agents OUT -- it overrides AGENT_WORKFORCE_DATA/WORKERS/PROJECTS for a named world
+   but deliberately NOT AGENT_WORKFORCE_LAUNCH -- so an agent created while the board
+   is booted into a named world is only half redirected: its data + board token
+   (store.ROOT/board.token) sit under the named world's roots while its launch env
+   does not, and the board token it presents is refused, so its reports and replies
+   fail. Nothing enforced the rule, so both spawn routes now do: they refuse when the
+   board BOOTED into a named world (the world that actually runs agents; a switch only
+   records activeWorldId and needs a restart, so bootedWorld -- not activeWorld -- is
+   what determines whether a spawn would be broken). Returns a refusal {code, error}
+   to send, or null to allow. bootedWorld() is null on a never-bootstrapped unit board
+   (allow, so fixtures are unaffected) and DEFAULT_ID for the default world (allow). */
+/* #1704 PR4: `worldId` asks the SAME question about a Kosmos this board is not
+   serving (an import into it); absent, it is the booted world, which is what every
+   other caller means (worldstarts calls it with no argument). `waiting` is the
+   plain sentence for a start that is HELD rather than a create that is refused:
+   worldstarts writes it on the entries it holds, and the import reports it, so a
+   person reads one sentence for one fact. */
+const NAMED_WORLD_WAITING = 'Agents do not run in a named Kosmos yet, so it waits there and starts on its own once they can.';
+function namedWorldSpawnRefusal(worldId) {
+  const world = worldId === undefined ? require('./engine/worldenv').bootedWorld() : worldId;
+  if (!world || world === worlds.DEFAULT_ID) return null;
+  return {
+    code: 409,
+    error: 'Kosmos is running a named world, which does not run agents yet. '
+      + 'Switch back to Kosmos 1 (the default world) to create agents.',
+    waiting: NAMED_WORLD_WAITING,
+  };
+}
+/* #1704 PR4: copy the picked agents into Kosmos `targetId`, then start them the ONE
+   way agents start when their Kosmos opens (engine/worldstarts), behind the one
+   spawn rule above. Shared by the create route and the settings route, so the two
+   cannot answer differently. Returns null for a Kosmos that does not exist.
+   `imported`: copied [{from,name,displayName}], refused [{from,name,because}],
+   started [names] (now, in the open Kosmos), waiting [{name,because}] (recorded,
+   held with a sentence), later [names] (recorded; start when that Kosmos opens). */
+function importIntoWorld(base, targetId, picks) {
+  const r = worldimport.importAgents(base, targetId, picks);
+  if (!r.ok) return null;
+  const names = r.copied.map((c) => c.name);
+  const imported = { copied: r.copied, refused: r.refused, started: [], waiting: [], later: [] };
+  if (names.length) {
+    /* The board is serving the Kosmos it booted into; an unbootstrapped board (a
+       unit test) serves the default one, whose store is the one it reads. */
+    const serving = require('./engine/worldenv').bootedWorld() || worlds.DEFAULT_ID;
+    if (serving === r.world.id) {
+      const s = worldstarts.startImported(names, { spawnRefusal: namedWorldSpawnRefusal });
+      imported.started = s.resumed;
+      imported.waiting = s.held;
+    } else {
+      const barred = namedWorldSpawnRefusal(r.world.id);
+      if (barred) imported.waiting = names.map((name) => ({ name, because: barred.waiting }));
+      else imported.later = names;
+    }
+  }
+  return { world: r.world, imported };
 }
 /* #2066: which channel this build was FETCHED from (staging vs prod), for the
    board's build marker. It is NOT baked into the artifact -- #2036's invariant is
@@ -3039,17 +3097,21 @@ const server = http.createServer((req, res) => {
     }
     return;
   }
-  /* #2563: the create-a-new-Kosmos "add my agents from" selector needs the user's
-     Kosmoses WITH a per-world agent count. The sibling GET /api/worlds returns the
-     registry pointers (active/booted) the switcher needs; this returns the counted
-     list Angel's web slice populates the selector from. Read-only. */
+  /* #2563 / #1704 PR4: the "add agents from another Kosmos" picker (the New Kosmos
+     step and every Kosmos's settings cog) draws from this: each Kosmos with the
+     agents a person can pick from it, one by one, and the agents waiting to start
+     in it. The sibling GET /api/worlds returns the registry pointers (active/booted)
+     the switcher needs. Read-only. A waiting agent that has no sentence yet is
+     given the one spawn rule's `waiting` sentence when that Kosmos may not run
+     agents, so the pane never says "starts when opened" about one that will not. */
   if (pathname === '/api/worlds/list' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const base = worldBase();
       sendJson(res, 200, {
-        worlds: worlds.listWorlds(base).map((w) => ({
-          id: w.id, name: w.name, agentCount: worlds.agentCount(base, w),
-        })),
+        worlds: worldimport.listForPicker(base).map((w) => {
+          const barred = namedWorldSpawnRefusal(w.id);
+          return { ...w, waiting: w.waiting.map((x) => ({ name: x.name, because: x.because || (barred ? barred.waiting : null) })) };
+        }),
       });
     } catch (_e) {
       sendJson(res, 500, { because: 'the world registry is not readable on this machine' });
@@ -3065,18 +3127,25 @@ const server = http.createServer((req, res) => {
         // A base error is a SERVER condition (broken login env), not a bad request:
         // 500, and never leak the internal dataRootFor message through worldCreateReason.
         try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+        /* #1704 PR4: which agents to bring in, validated BEFORE the Kosmos is made,
+           so a malformed request creates nothing. `importAgents:[{from,name}]` picks
+           them one by one; `importAgentsFrom:[ids]` (a page from before) means every
+           agent of each. Neither is a plain create, byte-for-byte as before. */
+        const asked = worldimport.picksFromBody(base, body);
+        if (!asked.ok) { sendJson(res, 400, { ok: false, because: asked.because }); return; }
         let world;
         try { world = worlds.createWorld(base, body.name); }
         catch (e) { sendJson(res, 400, { ok: false, because: worldCreateReason(e) }); return; }
-        // #2563: optionally import agents from existing Kosmos(es) into the new one
-        // (copy-not-move; sources untouched). An import failure must NOT fail the
-        // create -- the world already exists, so a thrown copy would orphan it; report
-        // what imported instead. Absent/empty importAgentsFrom is a plain create, so
-        // this is byte-for-byte the old behaviour for every existing caller.
+        /* An import failure must NOT fail the create: the Kosmos already exists, so
+           a thrown copy would orphan it. Each agent is copied or refused with its
+           own sentence; a throw past that is reported as `error` and logged. */
         let imported = null;
-        if (Array.isArray(body.importAgentsFrom) && body.importAgentsFrom.length > 0) {
-          try { imported = worlds.importAgents(base, world, body.importAgentsFrom); }
-          catch (_e) { imported = { copied: 0, skipped: 0, failed: 0, unknownSources: 0, error: true }; }
+        if (asked.picks.length) {
+          try { imported = importIntoWorld(base, world.id, asked.picks).imported; }
+          catch (err) {
+            process.stderr.write(`Kosmos created ${world.id} but could not add its agents: ${String((err && err.message) || err)}\n`);
+            imported = { copied: [], refused: [], started: [], waiting: [], later: [], error: true };
+          }
         }
         sendJson(res, 200, imported ? { ok: true, world, imported } : { ok: true, world });
       })
@@ -3220,6 +3289,47 @@ const server = http.createServer((req, res) => {
             catch { /* best effort: a failed stop leaves the board serving the old world, still honest via restartRequired */ }
           }, 500);
         }
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  /* #1704 PR4: "add agents from another Kosmos", from a Kosmos's settings cog.
+     Body {id, importAgents:[{from, name}]}. Refused, with a sentence, when the
+     request names no Kosmos (400), no agents (400) or a Kosmos that does not exist
+     (404). Each agent is then copied or refused on its own (a name already taken,
+     an unknown or same Kosmos, one that cannot be read); when not one could be
+     added the answer is a 409 carrying why, with the per-agent detail. */
+  if (pathname === '/api/worlds/import' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { ok: false, because: 'we could not read that request' }); return; }
+        const id = typeof body.id === 'string' ? body.id.trim() : '';
+        if (!id) { sendJson(res, 400, { ok: false, because: 'say which Kosmos to add agents to (an id)' }); return; }
+        let base;
+        try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+        const asked = worldimport.picksFromBody(base, body);
+        if (!asked.ok) { sendJson(res, 400, { ok: false, because: asked.because }); return; }
+        if (!asked.picks.length) { sendJson(res, 400, { ok: false, because: 'choose at least one agent to add' }); return; }
+        let done;
+        try { done = importIntoWorld(base, id, asked.picks); }
+        catch (err) {
+          process.stderr.write(`Kosmos could not add agents to ${id}: ${String((err && err.message) || err)}\n`);
+          sendJson(res, 500, { ok: false, because: 'we could not add those agents' });
+          return;
+        }
+        if (!done) { sendJson(res, 404, { ok: false, because: 'there is no Kosmos with that id on this machine' }); return; }
+        if (!done.imported.copied.length) {
+          const only = done.imported.refused.length === 1 ? done.imported.refused[0] : null;
+          sendJson(res, 409, {
+            ok: false,
+            because: only ? `${only.name || 'that agent'} was not added: ${only.because}` : 'none of those agents could be added',
+            world: done.world,
+            imported: done.imported,
+          });
+          return;
+        }
+        sendJson(res, 200, { ok: true, world: done.world, imported: done.imported });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;

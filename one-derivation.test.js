@@ -69,16 +69,25 @@ test('#1228: every instructions.staleness() call is wrapped in toldOverride', ()
 test('world-guard-lift-1704: no named-world spawn refusal remains, and no resume takes a second rule', () => {
   const server = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
   const code = server.replace(/\/\*[\s\S]*?\*\//g, '');
-  assert.doesNotMatch(code, /namedWorldSpawnRefusal|spawnRefusal/,
-    'server.js carries a named-world spawn rule again, beside the world-keyed launch identity');
-  const opened = code.match(/worldstarts\.(drainAtBoot|resumePaused)\([^)]*\)/g) || [];
-  assert.ok(opened.length >= 2, `found ${opened.length} resume-on-open calls; expected the boot drain and the no-op switch`);
+  /* #1704 PR4: an import into the open Kosmos starts its agents by the same resume
+     (startImported), so it is held to the same rule. */
+  const opened = code.match(/worldstarts\.(drainAtBoot|resumePaused|startImported)\([^)]*\)/g) || [];
+  assert.ok(opened.length >= 3, `found ${opened.length} start-on-open calls; expected the boot drain, the no-op switch and the import`);
+  assert.ok(opened.some((c) => c.startsWith('worldstarts.startImported(')), 'the import no longer starts through worldstarts');
   for (const call of opened) {
     assert.match(call, /\(\s*\)$/, `${call} passes a gate: a resume on opening a Kosmos starts that Kosmos's own agents`);
   }
   const engine = fs.readFileSync(nodePath.join(__dirname, 'engine', 'worldstarts.js'), 'utf8');
-  assert.doesNotMatch(engine, /bootedWorld|DEFAULT_ID|spawnRefusal|currentWorldId|KOSMOS_WORLD/,
-    'engine/worldstarts derives a world (or a spawn rule) itself instead of acting through remove.jobFor\'s keyed identity');
+  assert.doesNotMatch(engine, /bootedWorld|DEFAULT_ID/,
+    'engine/worldstarts re-derives the named-world rule instead of taking the one it is handed');
+  /* And the importer decides nothing about who may start: it copies and records. The
+     route asks the one rule about a target it is not serving. */
+  const importer = fs.readFileSync(nodePath.join(__dirname, 'engine', 'worldimport.js'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  assert.doesNotMatch(importer, /bootedWorld|DEFAULT_ID|spawnRefusal|startImported|installJob/,
+    'engine/worldimport decides or performs a start; that is worldstarts\' job, behind the one rule');
+  const importRoute = code.slice(code.indexOf('function importIntoWorld('), code.indexOf('function importIntoWorld(') + 1600);
+  assert.match(importRoute, /namedWorldSpawnRefusal\(r\.world\.id\)/, 'an import into a Kosmos that is not open does not ask the one rule whether it may run');
 });
 
 test('#1228: toldOverride can reuse a store list a caller already holds', () => {

@@ -68,7 +68,8 @@ const OUTCOME = { REMOVED: 'removed', RESTORED: 'restored', RESTARTED: 'restarte
  * and the day somebody does, the removed list silently stops being found — a
  * board that quietly un-hides every removed agent, with nothing to explain it.
  */
-const REMOVED_FILE = path.join(store.ROOT, 'removed.json');
+const REMOVED_FILENAME = 'removed.json';
+const REMOVED_FILE = path.join(store.ROOT, REMOVED_FILENAME);
 
 /* ── the runner seam ─────────────────────────────────────────────────────── */
 
@@ -201,10 +202,10 @@ function readRemoved() {
 /** Sentinel: the file is there and we could not read it. NOT the same as absent. */
 const UNREADABLE = Symbol('removed-list-unreadable');
 
-function readRemovedForWrite() {
+function readRemovedForWrite(file = REMOVED_FILE) {
   let raw;
   try {
-    raw = fs.readFileSync(REMOVED_FILE, 'utf8');
+    raw = fs.readFileSync(file, 'utf8');
   } catch (err) {
     // ENOENT is the ordinary first-run case: nothing has ever been removed.
     if (err && err.code === 'ENOENT') return [];
@@ -241,11 +242,17 @@ function writeRemoved(list) {
  * removal promises will not happen — so a caller that is about to act gets the
  * failure rather than an empty list, and can refuse.
  */
-function removedNames() {
-  const got = readRemovedForWrite();
+function removedNamesFrom(file) {
+  const got = readRemovedForWrite(file);
   if (got === UNREADABLE) return { ok: false, names: [] };
   return { ok: true, names: got.map((r) => r.name) };
 }
+function removedNames() { return removedNamesFrom(REMOVED_FILE); }
+
+/* The same answer for ANOTHER Kosmos, whose store this process is not serving
+   (#1704 PR4): importing an agent from a Kosmos must not offer or copy one the
+   person removed there. Same parser, same "could not read" answer. */
+function removedNamesIn(storeRoot) { return removedNamesFrom(path.join(storeRoot, REMOVED_FILENAME)); }
 
 /** Is this agent currently removed from Kosmos? */
 function isRemoved(name) {
@@ -1899,6 +1906,7 @@ module.exports = {
   forget,
   isRemoved,
   removedNames,
+  removedNamesIn,   // #1704 PR4: another Kosmos's removed list, for the import
   removedAgents,
   restoreBlockedByMissingAccountDir,   // #2615: the screen and the refusal read ONE predicate
   jobFor,

@@ -918,6 +918,15 @@ Honest gaps in this document:
     win32 arm).
 
   So a person who makes a second Kosmos and switches to it would hit it.
+
+  📌 IMPORT (#1704 PR4, `world-import-agents-1704`). Agents can be copied from one
+  Kosmos into another, at New Kosmos or from any Kosmos's settings cog
+  (`engine/worldimport.js`). Each copy is complete (profile, avatar, brief), gets
+  its own folder and a world-keyed task name, and starts through
+  `engine/worldstarts.js` when its Kosmos opens. On Windows the source's model and
+  account are read back from its task's argument line (`win32job.taskSpec`).
+  While named worlds may not run agents (#2849), an import into one waits, and the
+  settings pane says so.
 - **A broad Mac-only-assumption sweep is in flight.** A targeted sweep for
   tmux/launchctl found `chat.js` (the blocker) and `runningas.js` (degraded) as
   the only live call sites outside already-ported modules. A wider survey — for

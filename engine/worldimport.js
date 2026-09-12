@@ -1,0 +1,277 @@
+'use strict';
+
+/**
+ * Bringing agents from one Kosmos into another (#2563, #1704 PR4; plan
+ * world-import-agents-1704).
+ *
+ * Josh: "when I'm creating the new KOSMOS, I can add agents to it that are my
+ * existing agents from another KOSMOS right there when I create it. Or I can just
+ * skip and not add any. I can always get back to that pane if I go to the little
+ * settings cog next to that particular KOSMOS."
+ *
+ * 🔑 ONE AGENT AT A TIME, AND EACH ONE IS A COMPLETE COPY. For every agent picked:
+ * its profile (with a fresh identity and WITHOUT its working `dir`), its avatar,
+ * and its brief (CLAUDE.md, or AGENTS.md for a codex agent) land in the target
+ * Kosmos's own store and in a new folder of its own there. The source is only ever
+ * read. The copy is a separate agent: it mints its own id on its first profile
+ * write, and its launch identity is keyed by the target world
+ * (launchidentity.launchKey), so it can never share a task, label or session with
+ * the agent it was copied from.
+ *
+ * 🔑 ALL OR NOTHING, PER AGENT. The folder, the brief, the avatar and the profile
+ * are written in that order, and the start record last. A failure at any step takes
+ * back out what THIS import wrote for that agent and refuses it with a sentence.
+ * An agent is never half copied, and never copied with nothing set to start it.
+ *
+ * 🔑 IT STARTS WHEN ITS KOSMOS OPENS, THROUGH engine/worldstarts. This module only
+ * RECORDS the start (with the runner, model and account read from the source's own
+ * job, because the target has no job to read them from). The route then starts it
+ * at once if the target is the open Kosmos, or leaves it for that Kosmos's boot --
+ * both through worldstarts, and both behind server.js's one spawn rule (#2849).
+ * Nothing here starts, trusts or touches a job.
+ *
+ * ⚠️ NOT IN worlds.js, ON PURPOSE. worlds.js is required by engine/worldenv before
+ * any world's roots are applied, and this module needs create/remove/worldstarts,
+ * which freeze store.ROOT at require. server.js requires this after worldenv.
+ */
+
+const fs = require('node:fs');
+const path = require('node:path');
+const store = require('./store');
+const worlds = require('./worlds');
+const create = require('./create');
+const remove = require('./remove');
+const worldstarts = require('./worldstarts');
+const win32job = require('./win32job');
+
+/* ── what can be offered ─────────────────────────────────────────────────── */
+
+/* The sentence for an agent whose name cannot become a job in another Kosmos. */
+function badNameBecause() { return 'its name cannot be used to start it in another Kosmos'; }
+
+/**
+ * The agents of `world` a person can pick, `[{name, displayName, because}]`, one
+ * per profile in its store. `because` is null for an agent that can be added and
+ * the plain reason otherwise (the picker shows it, disabled). Agents the person
+ * REMOVED from that Kosmos are left out entirely: to them those agents are gone,
+ * and offering them would bring back what removal promised was gone. A removed
+ * list that cannot be read hides nothing (the board's own posture); the import
+ * itself refuses on it.
+ */
+function importableAgents(base, world) {
+  const removed = remove.removedNamesIn(worlds.worldStoreRoot(base, world));
+  const gone = new Set(removed.ok ? removed.names : []);
+  const out = [];
+  for (const name of worlds.worldProfileNames(base, world)) {
+    if (gone.has(name)) continue;
+    let prof = null;
+    try { prof = JSON.parse(fs.readFileSync(path.join(worlds.worldProfilesDir(base, world), store.profileFileName(name)), 'utf8')); }
+    catch { prof = null; }
+    const shown = prof && typeof prof.displayName === 'string' && prof.displayName.trim() ? prof.displayName.trim() : name;
+    let because = null;
+    if (!prof || typeof prof !== 'object') because = 'we could not read it';
+    else if (!create.NAME_RE.test(name)) because = badNameBecause();
+    out.push({ name, displayName: shown, because });
+  }
+  return out;
+}
+
+/**
+ * Every Kosmos, with the agents a person can pick from it and the agents waiting
+ * to start in it: what the New Kosmos step and the settings pane both draw from.
+ * `agentCount` is the number of agents SHOWN, so the "Client work (2 agents)"
+ * label and the boxes beneath it can never disagree.
+ */
+function listForPicker(base) {
+  return worlds.listWorlds(base).map((w) => {
+    const agents = importableAgents(base, w);
+    return {
+      id: w.id,
+      name: w.name,
+      agentCount: agents.length,
+      agents,
+      waiting: worldstarts.importsWaitingIn(worlds.worldStoreRoot(base, w)),
+    };
+  });
+}
+
+/* ── the request ─────────────────────────────────────────────────────────── */
+
+/**
+ * The picks a request asks for, validated. `importAgents: [{from, name}]` is the
+ * form: one entry per agent. `importAgentsFrom: [worldId]` is the form a page
+ * loaded before this change sends (a whole Kosmos per id), and it means every
+ * agent that Kosmos can offer. Neither present is no import at all.
+ * Returns `{ok: true, picks}` or `{ok: false, because}`.
+ */
+function picksFromBody(base, body) {
+  const b = body || {};
+  if (b.importAgents !== undefined) {
+    const list = b.importAgents;
+    const wellFormed = Array.isArray(list) && list.every((p) => p && typeof p.from === 'string' && p.from.trim()
+      && typeof p.name === 'string' && p.name.trim());
+    if (!wellFormed) return { ok: false, because: 'say which agents to add, each as the Kosmos it is in and its name' };
+    return { ok: true, picks: list.map((p) => ({ from: p.from.trim(), name: p.name.trim() })) };
+  }
+  if (b.importAgentsFrom !== undefined) {
+    const ids = b.importAgentsFrom;
+    if (!Array.isArray(ids) || !ids.every((id) => typeof id === 'string')) {
+      return { ok: false, because: 'say which Kosmoses to add agents from' };
+    }
+    const known = worlds.listWorlds(base);
+    const picks = [];
+    for (const id of new Set(ids)) {
+      const w = known.find((x) => x.id === id);
+      if (!w) { picks.push({ from: id, name: null }); continue; }   // refused below, as an unknown Kosmos
+      for (const a of importableAgents(base, w)) if (!a.because) picks.push({ from: id, name: a.name });
+    }
+    return { ok: true, picks };
+  }
+  return { ok: true, picks: [] };
+}
+
+/* ── the copy ────────────────────────────────────────────────────────────── */
+
+/**
+ * The runner, model and account the source agent starts with, read from its own
+ * job in ITS Kosmos (the target has none yet). The profile's `provider` is the
+ * fallback for the runner -- the answer register.repair uses -- and an unreadable
+ * job leaves model and account unset, which installJob then says out loud
+ * (its `guessed`) rather than inventing.
+ */
+function launchSpecOf(name, sourceWorldId, profile, platform) {
+  const runner = profile && profile.provider === 'openai' ? 'codex' : 'claude';
+  if (platform === 'win32') {
+    const t = win32job.taskSpec(name, sourceWorldId);
+    if (t.known && t.registered && t.spec) {
+      return { runner: t.spec.runner === 'codex' ? 'codex' : runner, model: t.spec.model || null, configDir: t.spec.configDir || null };
+    }
+    return { runner, model: null, configDir: null };
+  }
+  const job = create.readJob(name, sourceWorldId);
+  if (job) return { runner: job.runner === 'codex' ? 'codex' : runner, model: job.model || null, configDir: job.configDir || null };
+  return { runner, model: null, configDir: null };
+}
+
+/* Take back out what this import wrote for one agent, newest first. Only paths it
+   created are ever listed, so this can never remove something that was there. */
+function undo(made) {
+  for (const p of made.slice().reverse()) {
+    try { fs.rmSync(p.path, { recursive: p.dir === true, force: true }); } catch { /* best effort */ }
+  }
+}
+
+/**
+ * Copy one agent from `src` into `dst`, completely, or refuse. Returns
+ * `{ok: true, displayName}` or `{ok: false, because}`.
+ */
+function copyOne(base, src, dst, name, opts) {
+  const env = opts.env || process.env;
+  const platform = opts.platform || process.platform;
+  if (!create.NAME_RE.test(name)) return { ok: false, because: badNameBecause() };
+
+  const removed = remove.removedNamesIn(worlds.worldStoreRoot(base, src));
+  if (!removed.ok) return { ok: false, because: `we could not check whether it was removed from ${src.name}` };
+  if (removed.names.includes(name)) return { ok: false, because: `it was removed from ${src.name}` };
+
+  const fileName = store.profileFileName(name);
+  let profile;
+  try {
+    profile = JSON.parse(fs.readFileSync(path.join(worlds.worldProfilesDir(base, src), fileName), 'utf8'));
+  } catch (err) {
+    return { ok: false, because: err && err.code === 'ENOENT' ? `we could not find it in ${src.name}` : `we could not read it in ${src.name}` };
+  }
+  if (!profile || typeof profile !== 'object' || Array.isArray(profile)) return { ok: false, because: `we could not read it in ${src.name}` };
+
+  const spec = launchSpecOf(name, src.id, profile, platform);
+  const briefName = create.briefFilename(spec.runner);
+  const sourceFolder = create.usableRecordedDir(profile.dir) || path.join(worlds.worldWorkersDir(base, src, env), name);
+  let brief;
+  try { brief = fs.readFileSync(path.join(sourceFolder, briefName)); }
+  catch { return { ok: false, because: `we could not read its instructions in ${src.name}` }; }
+  const sourceAvatar = store.avatarPathIn(worlds.worldAvatarsDir(base, src), name);
+
+  /* Nothing is overwritten, ever: a profile, a folder or a picture under this name
+     in the target means the name is taken there. */
+  const profilesDir = worlds.worldProfilesDir(base, dst);
+  const avatarsDir = worlds.worldAvatarsDir(base, dst);
+  const folder = path.join(worlds.worldWorkersDir(base, dst, env), name);
+  const profileFile = path.join(profilesDir, fileName);
+  const taken = `${dst.name} already has an agent called ${name}`;
+  if (fs.existsSync(profileFile) || fs.existsSync(folder) || store.avatarPathIn(avatarsDir, name)) {
+    return { ok: false, because: taken };
+  }
+
+  const made = [];
+  try {
+    fs.mkdirSync(path.dirname(folder), { recursive: true });
+    fs.mkdirSync(folder);   // not recursive: it fails if the folder appeared meanwhile
+    made.push({ path: folder, dir: true });
+    fs.writeFileSync(path.join(folder, briefName), brief, { flag: 'wx' });
+    if (sourceAvatar) {
+      fs.mkdirSync(avatarsDir, { recursive: true });
+      const avatarCopy = path.join(avatarsDir, path.basename(sourceAvatar));
+      fs.copyFileSync(sourceAvatar, avatarCopy, fs.constants.COPYFILE_EXCL);
+      made.push({ path: avatarCopy });
+    }
+    /* A separate agent: store.stripIdentity drops exactly the fields writeProfile
+       mints (store owns that set), and `dir` goes because it points at the SOURCE
+       agent's folder -- kept, the copy would work in the other agent's folder. */
+    const copy = store.stripIdentity({ ...profile });
+    delete copy.dir;
+    fs.mkdirSync(profilesDir, { recursive: true });
+    const tmp = `${profileFile}.${process.pid}.tmp`;
+    made.push({ path: tmp });
+    fs.writeFileSync(tmp, JSON.stringify(copy, null, 2));
+    if (fs.existsSync(profileFile)) { const e = new Error('taken'); e.code = 'EEXIST'; throw e; }
+    fs.renameSync(tmp, profileFile);
+    made.push({ path: profileFile });
+  } catch (err) {
+    undo(made);
+    if (err && err.code === 'EEXIST') return { ok: false, because: taken };
+    return { ok: false, because: `we could not copy it into ${dst.name} (${(err && err.code) || 'unknown'})` };
+  }
+
+  const noted = worldstarts.recordImport(worlds.worldStoreRoot(base, dst), {
+    name, from: src.id, runner: spec.runner, model: spec.model, configDir: spec.configDir,
+  });
+  if (!noted.ok) {
+    undo(made);
+    return { ok: false, because: `${noted.because}, so it was not added` };
+  }
+  return { ok: true, displayName: typeof profile.displayName === 'string' && profile.displayName.trim() ? profile.displayName.trim() : name };
+}
+
+/**
+ * Copy the picked agents into the Kosmos `targetId`. Every pick is copied or
+ * refused with a sentence; one refusal never stops the others.
+ * Returns `{ok: false, code: 'ENOWORLD'}` for a target that does not exist, or
+ * `{ok: true, world, copied: [{from, name, displayName}], refused: [{from, name, because}]}`.
+ * Starting them is the caller's (see the header).
+ */
+function importAgents(base, targetId, picks, opts = {}) {
+  const known = worlds.listWorlds(base);
+  const world = known.find((w) => w.id === targetId);
+  if (!world) return { ok: false, code: 'ENOWORLD' };
+  const copied = [];
+  const refused = [];
+  const claimed = new Set();
+  for (const pick of picks || []) {
+    const from = pick && pick.from;
+    const name = pick && pick.name;
+    const src = known.find((w) => w.id === from);
+    if (!src) { refused.push({ from, name, because: 'there is no Kosmos with that id on this machine' }); continue; }
+    if (src.id === world.id) { refused.push({ from, name, because: `it is already in ${world.name}` }); continue; }
+    if (claimed.has(name)) {
+      refused.push({ from, name, because: `another agent called ${name} is already being added to ${world.name}` });
+      continue;
+    }
+    const r = copyOne(base, src, world, String(name), opts);
+    if (!r.ok) { refused.push({ from, name, because: r.because }); continue; }
+    claimed.add(name);
+    copied.push({ from, name, displayName: r.displayName });
+  }
+  return { ok: true, world, copied, refused };
+}
+
+module.exports = { importableAgents, listForPicker, picksFromBody, importAgents };

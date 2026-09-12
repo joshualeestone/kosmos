@@ -1323,6 +1323,13 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .world-import-row { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: .9375rem; }
 .world-import-cb { flex: none; }
 .world-import-name { color: var(--k-ink); }
+/* #1704 PR4: one group per Kosmos -- its own checkbox (ticks every agent in it) and,
+   indented beneath, one checkbox per agent. An agent that cannot be added is shown
+   disabled with its reason, in the secondary ink. */
+.world-import-group { display: flex; flex-direction: column; gap: 4px; }
+.world-import-agents { display: flex; flex-direction: column; gap: 4px; padding-left: 24px; }
+.world-import-cb:disabled + .world-import-name { color: var(--k-ink-2); }
+.world-import-acts { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-2); }
 /* #2238: a non-active row is a native <button> switch control. Reset the button
    chrome (border/background/text-align/width) so it matches the div rows; the base
    .worldsw-row rule already supplies display/font/color. The active row is a div. */
@@ -8617,6 +8624,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <span class="flabel tk-lab" id="world-add-import-lab">Add my agents from</span>
       <p class="rm-small" id="world-add-import-hint">Bring copies of another Kosmos's agents into this one. They stay in the original too.</p>
       <div class="world-import-list" id="world-add-import-list" role="group" aria-labelledby="world-add-import-lab"></div>
+      <!-- #1704 PR4 (Josh: "Or I can just skip and not add any"): Skip is always there.
+           It clears every tick, so Create makes the Kosmos with no agents. -->
+      <div class="world-import-acts">
+        <button class="btn" id="world-add-skip" type="button">Skip</button>
+      </div>
     </div>
     <div class="rm-acts" style="margin-top: var(--space-6);">
       <button class="btn" id="world-add-cancel" type="button">Cancel</button>
@@ -8625,18 +8637,39 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <div class="fmsg" id="world-add-msg" role="alert" aria-live="assertive"></div>
   </div>
 </div>
-<!-- #1704 item 14.1: rename a Kosmos (name only; its structure is untouched). -->
+<!-- #1704 item 14.1 + PR4: a Kosmos's settings, opened by the cog beside EVERY Kosmos
+     in the switcher (Josh: "I can always get back to that pane if I go to the little
+     settings cog next to that particular KOSMOS"). Rename (name only; its structure is
+     untouched) is hidden for Kosmos 1, whose name is fixed. "Add agents from another
+     Kosmos" is the same picker as the New Kosmos step: POST /api/worlds/import. -->
 <div class="rm-back" id="world-rename-modal" hidden>
-  <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="world-rename-t" aria-describedby="world-rename-in">
-    <h2 class="rm-title" id="world-rename-t">Rename Kosmos</h2>
-    <p class="rm-small" id="world-rename-in">This changes the name only. Its agents, projects, files, and settings stay exactly where they are.</p>
-    <div class="field">
-      <label class="flabel tk-lab" for="world-rename-name">Name</label>
-      <input class="tk-inp" id="world-rename-name" type="text" maxlength="60" placeholder="e.g. Client work" autocomplete="off">
+  <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="world-rename-t" aria-describedby="world-set-import-hint">
+    <h2 class="rm-title" id="world-rename-t">Kosmos settings</h2>
+    <div id="world-rename-section">
+      <p class="rm-small" id="world-rename-in">This changes the name only. Its agents, projects, files, and settings stay exactly where they are.</p>
+      <div class="field">
+        <label class="flabel tk-lab" for="world-rename-name">Name</label>
+        <input class="tk-inp" id="world-rename-name" type="text" maxlength="60" placeholder="e.g. Client work" autocomplete="off">
+      </div>
+      <!-- Not an rm-acts row: the dialog's own actions row (with Close, the way out,
+           #1438) is the one at the bottom; this is the rename section's button. -->
+      <div class="world-import-acts">
+        <button class="btn uprime" id="world-rename-go" type="button" disabled>Save name</button>
+      </div>
+    </div>
+    <div class="field world-import" id="world-set-import" hidden>
+      <span class="flabel tk-lab" id="world-set-import-lab">Add agents from another Kosmos</span>
+      <p class="rm-small" id="world-set-import-hint">Bring copies of another Kosmos's agents into this one. They stay in the original too.</p>
+      <p class="rm-small" id="world-set-waiting" hidden></p>
+      <div class="world-import-list" id="world-set-import-list" role="group" aria-labelledby="world-set-import-lab"></div>
+      <p class="rm-small" id="world-set-import-none" hidden>Your other Kosmoses have no agents to add yet.</p>
+      <div class="world-import-acts">
+        <button class="btn" id="world-set-skip" type="button">Skip</button>
+        <button class="btn uprime" id="world-set-add" type="button" disabled>Add agents</button>
+      </div>
     </div>
     <div class="rm-acts" style="margin-top: var(--space-6);">
-      <button class="btn" id="world-rename-cancel" type="button">Cancel</button>
-      <button class="btn uprime" id="world-rename-go" type="button" disabled>Save name</button>
+      <button class="btn" id="world-rename-cancel" type="button">Close</button>
     </div>
     <div class="fmsg" id="world-rename-msg" role="alert" aria-live="assertive"></div>
   </div>
@@ -18384,18 +18417,18 @@ function worldswRender(data) {
     nm.textContent = wname;
     row.append(check, nm);
     entry.appendChild(row);
-    // The default world ('default') keeps its fixed "Kosmos 1" name (#2317), so it
-    // gets no rename cog. Every other world does: tapping it opens the rename modal.
-    if (w.id !== 'default') {
-      const cog = document.createElement('button');
-      cog.type = 'button';
-      cog.className = 'worldsw-cog';
-      cog.setAttribute('aria-label', 'Rename ' + wname);
-      cog.title = 'Rename';
-      cog.textContent = '⚙︎';   // gear, text presentation (VS15); aria-label carries the meaning
-      cog.addEventListener('click', (e) => { e.stopPropagation(); worldRenameOpen(w.id, wname); });
-      entry.appendChild(cog);
-    }
+    // #1704 PR4 (Josh: "the little settings cog next to that particular KOSMOS"):
+    // EVERY world gets the cog, Kosmos 1 included. It opens that Kosmos's settings:
+    // rename (hidden for the default world, whose "Kosmos 1" name is fixed, #2317)
+    // and "add agents from another Kosmos".
+    const cog = document.createElement('button');
+    cog.type = 'button';
+    cog.className = 'worldsw-cog';
+    cog.setAttribute('aria-label', 'Settings for ' + wname);
+    cog.title = 'Settings';
+    cog.textContent = '⚙︎';   // gear, text presentation (VS15); aria-label carries the meaning
+    cog.addEventListener('click', (e) => { e.stopPropagation(); worldRenameOpen(w.id, wname); });
+    entry.appendChild(cog);
     list.appendChild(entry);
   }
   sw.hidden = false;
@@ -18660,6 +18693,8 @@ function worldAddOpen() {
   input.value = '';
   document.getElementById('world-add-go').disabled = true;
   document.getElementById('world-add-msg').textContent = '';
+  // #1704 PR4: a create that showed its import outcome relabels Cancel to Done.
+  document.getElementById('world-add-cancel').textContent = 'Cancel';
   // #2563: reset the "add my agents from" control, then populate it. worldImportRender
   // shows it whenever /api/worlds/list returns any Kosmos (always at least the default), and
   // hides it only when the list is empty -- which in practice means a failed/absent endpoint,
@@ -18691,32 +18726,120 @@ async function worldImportFetch() {
     return list.filter((w) => w && w.id != null && typeof w.name === 'string');
   } catch { return []; }
 }
-/* #2563: render the import checkboxes. SELF-CONTAINED (no out-of-scope helper) because the
-   node suite eval-extracts this function and would throw ReferenceError on any external
-   call. An empty/missing list hides the whole control -- the null case is a real state, not
-   an error. Each row is a <label> wrapping the checkbox + text, so the count is the
-   accessible name and the whole row is a click target (AA). */
-function worldImportRender(worlds, listEl, wrapEl) {
+/* #2563 / #1704 PR4: render the "add agents from another Kosmos" picker: one group per
+   Kosmos (except `excludeId`, the Kosmos being added TO), headed by a checkbox labelled
+   "<Kosmos> (N agents)" that ticks every agent in it, and beneath it one checkbox per
+   agent (Josh: pick "individual existing agents"). The head shows indeterminate when only
+   some are ticked. An agent the server says cannot be added is shown disabled with its
+   reason. SELF-CONTAINED (no out-of-scope helper) because the node suite eval-extracts
+   this function. An empty/missing list hides the whole control -- the null case is a real
+   state (the endpoint could not answer), not an error. Every row is a <label> wrapping its
+   checkbox + text, so the text is the accessible name and the whole row a click target. */
+function worldImportRender(worlds, listEl, wrapEl, excludeId) {
   if (!listEl || !wrapEl) return;
   listEl.textContent = '';
-  const usable = Array.isArray(worlds) ? worlds.filter((w) => w && w.id != null) : [];
+  const usable = Array.isArray(worlds) ? worlds.filter((w) => w && w.id != null && w.id !== excludeId) : [];
   if (!usable.length) { wrapEl.hidden = true; return; }
   for (const w of usable) {
-    const n = Number(w.agentCount) || 0;
-    const row = document.createElement('label');
-    row.className = 'world-import-row';
-    const cb = document.createElement('input');
-    cb.type = 'checkbox';
-    cb.className = 'world-import-cb';
-    cb.value = String(w.id);
+    const agents = Array.isArray(w.agents) ? w.agents.filter((a) => a && typeof a.name === 'string' && a.name) : [];
+    const n = agents.length;
+    const group = document.createElement('div');
+    group.className = 'world-import-group';
+    const head = document.createElement('label');
+    head.className = 'world-import-row';
+    const all = document.createElement('input');
+    all.type = 'checkbox';
+    all.className = 'world-import-all';
+    all.value = String(w.id);
     const txt = document.createElement('span');
     txt.className = 'world-import-name';
     txt.textContent = String(w.name) + ' (' + n + (n === 1 ? ' agent' : ' agents') + ')';
-    row.appendChild(cb);
-    row.appendChild(txt);
-    listEl.appendChild(row);
+    head.appendChild(all);
+    head.appendChild(txt);
+    group.appendChild(head);
+    const sub = document.createElement('div');
+    sub.className = 'world-import-agents';
+    sub.setAttribute('role', 'group');
+    sub.setAttribute('aria-label', 'Agents in ' + String(w.name));
+    const pickable = [];
+    const sync = () => {
+      const on = pickable.filter((c) => c.checked).length;
+      all.checked = pickable.length > 0 && on === pickable.length;
+      all.indeterminate = on > 0 && on < pickable.length;
+    };
+    for (const a of agents) {
+      const row = document.createElement('label');
+      row.className = 'world-import-row world-import-agent';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'world-import-cb';
+      cb.value = a.name;
+      cb.dataset.from = String(w.id);
+      const nm = document.createElement('span');
+      nm.className = 'world-import-name';
+      nm.textContent = String(a.displayName || a.name) + (a.because ? ' (' + a.because + ')' : '');
+      if (a.because) cb.disabled = true;
+      else { pickable.push(cb); cb.addEventListener('change', sync); }
+      row.appendChild(cb);
+      row.appendChild(nm);
+      sub.appendChild(row);
+    }
+    all.disabled = pickable.length === 0;
+    all.addEventListener('change', () => {
+      for (const c of pickable) c.checked = all.checked;
+      all.indeterminate = false;
+    });
+    group.appendChild(sub);
+    listEl.appendChild(group);
   }
   wrapEl.hidden = false;
+}
+/* #1704 PR4: the agents ticked in a picker, as the routes take them: [{from, name}]. */
+function worldImportPicks(listEl) {
+  if (!listEl) return [];
+  return Array.from(listEl.querySelectorAll('.world-import-cb'))
+    .filter((c) => c.checked && !c.disabled)
+    .map((c) => ({ from: c.dataset.from, name: c.value }));
+}
+/* #1704 PR4: Skip -- clear every tick in a picker (the Kosmos heads included). */
+function worldImportClear(listEl) {
+  if (!listEl) return;
+  for (const c of listEl.querySelectorAll('input[type="checkbox"]')) { c.checked = false; c.indeterminate = false; }
+}
+/* #1704 PR4: one plain paragraph for what an import did, from the route's `imported`
+   ({copied, refused, started, waiting, later}). The reasons come from the server (the
+   waiting one is the one spawn rule's own sentence), so this only joins them. */
+function worldImportOutcome(imported, kosmosName) {
+  const imp = imported || {};
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  const copied = arr(imp.copied);
+  const shownAs = {};
+  for (const c of copied) shownAs[c.name] = c.displayName || c.name;
+  const names = (list) => list.map((n) => shownAs[n] || n).join(', ');
+  const where = kosmosName || 'this Kosmos';
+  const parts = [];
+  if (copied.length) parts.push('Added ' + copied.map((c) => c.displayName || c.name).join(', ') + ' to ' + where + '.');
+  const started = arr(imp.started);
+  if (started.length) parts.push(names(started) + (started.length === 1 ? ' is' : ' are') + ' starting now.');
+  const later = arr(imp.later);
+  if (later.length) parts.push(names(later) + (later.length === 1 ? ' starts' : ' start') + ' when you open ' + where + '.');
+  const groups = [];
+  for (const w of arr(imp.waiting)) {
+    const why = (w && w.because) || '';
+    let g = groups.find((x) => x.why === why);
+    if (!g) { g = { why, list: [] }; groups.push(g); }
+    g.list.push(w.name);
+  }
+  for (const g of groups) parts.push(('Waiting: ' + names(g.list) + '. ' + asSentence(g.why)).trim());
+  for (const r of arr(imp.refused)) parts.push('Not added: ' + ((r && r.name) || 'an agent') + ', because ' + String((r && r.because) || 'it could not be copied').replace(/[.]$/, '') + '.');
+  return parts.join(' ');
+}
+/* #1704 PR4: the New Kosmos step's Skip. Clears the picks and hands focus to Create. */
+function worldAddSkip() {
+  worldImportClear(document.getElementById('world-add-import-list'));
+  const go = document.getElementById('world-add-go');
+  if (go && !go.disabled) go.focus();
+  else document.getElementById('world-add-name').focus();
 }
 function worldAddClose() {
   document.getElementById('world-add-modal').hidden = true;
@@ -18730,14 +18853,12 @@ async function worldAddSubmit() {
   if (!name) { msg.textContent = 'Give your Kosmos a name.'; input.focus(); return; }
   go.disabled = true;
   msg.textContent = '';
-  // #2563: the checked Kosmoses to import agents from. Added to the payload ONLY when
-  // non-empty, so a create with no selection sends exactly today's { name } body. When it IS
-  // present, the live engine (POST /api/worlds honouring importAgentsFrom) COPIES those
-  // Kosmoses' agent profiles into the new one -- a real, file-writing effect, not a no-op.
-  const importAgentsFrom = Array.from(
-    document.querySelectorAll('#world-add-import-list .world-import-cb')
-  ).filter((c) => c.checked).map((c) => c.value);
-  const payload = importAgentsFrom.length ? { name, importAgentsFrom } : { name };
+  // #1704 PR4: the agents ticked one by one, as [{from, name}]. Added to the payload ONLY
+  // when non-empty, so a create with nothing ticked (or after Skip) sends exactly { name }.
+  // When present, the server COPIES each agent completely into the new Kosmos and records
+  // it to start when that Kosmos opens -- a real, file-writing effect, not a no-op.
+  const importAgents = worldImportPicks(document.getElementById('world-add-import-list'));
+  const payload = importAgents.length ? { name, importAgents } : { name };
   try {
     const res = await fetch('/api/worlds', {
       method: 'POST',
@@ -18750,38 +18871,29 @@ async function worldAddSubmit() {
       go.disabled = false;
       return;
     }
-    // #2563: surface the import OUTCOME instead of closing silently as full success. The create
-    // succeeded either way, but the engine returns `imported` {copied,skipped,failed,
-    // unknownSources,error}; a genuine import problem -- the whole import threw (error), a profile
-    // failed to copy (failed), or a selected source was not found (unknownSources) -- must be
-    // shown, or a person who checked a Kosmos silently gets a new one missing its agents. (copied
-    // === 0 is NOT a failure on its own: selecting only empty Kosmoses legitimately copies nothing;
-    // neither is `skipped`, a profile whose name the target already holds.)
-    if (importAgentsFrom.length) {
+    // #1704 PR4: say what the import did instead of closing as if everything is running. The
+    // create succeeded either way; the server answers `imported` {copied, refused, started,
+    // waiting, later}. Only when every agent is starting NOW does the dialog close as before.
+    // Anything else -- one refused, one waiting (a new Kosmos's agents wait while #2849 holds
+    // named Kosmoses), one that starts when the Kosmos is opened -- is said in the alert, and
+    // Cancel becomes Done. Create stays disabled so a re-press cannot duplicate the Kosmos just
+    // made (a same-name retry is refused by the server anyway).
+    if (importAgents.length) {
       const imp = body && body.imported;
-      if (!imp) {
-        // A 200 whose body did not parse or carried no readable `imported` means we asked to
-        // import but CANNOT confirm the outcome, so do not close as full success -- mirror the
-        // !res.ok branch's defensive parsing. Unreachable against today's server (its sendJson
-        // always emits valid JSON), kept for parity so a truncated/proxied 200 is never read as a
-        // clean import.
-        await worldsFetch().catch(() => {});
-        msg.textContent = 'Your Kosmos was created, but we could not confirm whether its agents were imported. Open the new Kosmos and add any that are missing.';
-        go.disabled = true;
-        return;
-      }
-      if (imp.error || imp.failed > 0 || imp.unknownSources > 0) {
+      const createdName = (body && body.world && body.world.name) || name;
+      const arr = (v) => (Array.isArray(v) ? v : []);
+      const allStarted = !!imp && !imp.error && !arr(imp.refused).length && !arr(imp.waiting).length && !arr(imp.later).length;
+      if (!allStarted) {
         await worldsFetch().catch(() => {});   // the new Kosmos DOES exist -- reflect it in the list
-        const copied = Number(imp.copied) || 0;
-        msg.textContent = imp.error
-          ? 'Your Kosmos was created, but its agents could not be imported. You can add them from the new Kosmos.'
-          : 'Your Kosmos was created' + (copied ? ' with ' + copied + (copied === 1 ? ' agent' : ' agents') : '')
-            + ', but some agents could not be copied. You can add the rest from the new Kosmos.';
-        // Disable Create now so an immediate re-press cannot duplicate the Kosmos that was just
-        // created; the alert (role=alert) announces what happened and Cancel/backdrop/Escape dismiss.
-        // (Editing the name re-enables Create via the pre-existing name-input listener -- that is
-        // fine: a deliberate second create is a normal new-Kosmos action, and a same-name retry is
-        // caught by the !res.ok branch above, so this is not relied on as a hard guarantee.)
+        if (!imp) {
+          // A 200 with no readable `imported`: we asked to import and CANNOT confirm it.
+          msg.textContent = 'Your Kosmos was created, but we could not confirm whether its agents were added. Open its settings (the cog next to it) to add any that are missing.';
+        } else if (imp.error) {
+          msg.textContent = 'Your Kosmos was created, but its agents could not be added. You can add them from its settings (the cog next to it).';
+        } else {
+          msg.textContent = 'Your Kosmos was created. ' + worldImportOutcome(imp, createdName);
+        }
+        document.getElementById('world-add-cancel').textContent = 'Done';
         go.disabled = true;
         return;
       }
@@ -18872,21 +18984,112 @@ function worldswSwitchGo() {
   WORLD_SWITCH_NAME = null;
   if (id) worldswSwitch(id, name, agents);
 }
+/* #1704 PR4: the cog opens this Kosmos's SETTINGS (the rename modal, grown): rename,
+   hidden for Kosmos 1 whose name is fixed, and "add agents from another Kosmos" -- the
+   same picker as the New Kosmos step, listing every OTHER Kosmos. WORLD_SETTINGS_NAME
+   is the name the outcome sentence speaks; worldSettingsGen drops a list that comes back
+   after the pane was closed or reopened for another Kosmos. */
+let WORLD_SETTINGS_NAME = null;
+let worldSettingsGen = 0;
 function worldRenameOpen(id, name) {
   worldswClose();
   WORLD_RENAME_ID = id;
+  WORLD_SETTINGS_NAME = name || 'Kosmos';
+  const isDefault = id === 'default';
   const input = document.getElementById('world-rename-name');
   input.value = name || '';
   document.getElementById('world-rename-go').disabled = !input.value.trim();
   document.getElementById('world-rename-msg').textContent = '';
-  document.getElementById('world-rename-t').textContent = 'Rename ' + (name || 'Kosmos');
+  document.getElementById('world-rename-t').textContent = (name || 'Kosmos') + ' settings';
+  document.getElementById('world-rename-section').hidden = isDefault;
+  document.getElementById('world-set-import').hidden = true;
+  document.getElementById('world-set-import-list').textContent = '';
+  document.getElementById('world-set-import-none').hidden = true;
+  document.getElementById('world-set-waiting').hidden = true;
+  document.getElementById('world-set-add').disabled = true;
   document.getElementById('world-rename-modal').hidden = false;
-  input.focus();
-  input.select();
+  // Focus the first thing to do: the name for a Kosmos that can be renamed, else Close
+  // (the picker arrives a moment later, and Tab reaches it from there).
+  if (isDefault) {
+    document.getElementById('world-rename-cancel').focus();
+  } else {
+    input.focus();
+    input.select();
+  }
+  const gen = ++worldSettingsGen;
+  worldImportFetch().then((worlds) => {
+    if (gen !== worldSettingsGen || WORLD_RENAME_ID !== id) return;
+    worldSettingsRender(worlds, id);
+  }).catch(() => {});
+}
+/* #1704 PR4: draw the settings pane's picker and its "waiting" line from the list. An
+   empty list means the endpoint could not answer, so the section stays hidden. */
+function worldSettingsRender(worlds, id) {
+  const wrap = document.getElementById('world-set-import');
+  const list = document.getElementById('world-set-import-list');
+  const all = Array.isArray(worlds) ? worlds.filter((w) => w && w.id != null) : [];
+  worldImportRender(all, list, wrap, id);
+  if (!all.length) { wrap.hidden = true; return; }
+  wrap.hidden = false;   // shown even with no other Kosmos: the waiting line and the reason live here
+  const others = all.filter((w) => w.id !== id);
+  document.getElementById('world-set-import-none').hidden = others.some((w) => Array.isArray(w.agents) && w.agents.length);
+  const here = all.find((w) => w.id === id);
+  const waiting = document.getElementById('world-set-waiting');
+  waiting.textContent = worldSettingsWaitingNote(here && here.waiting);
+  waiting.hidden = !waiting.textContent;
+  worldSettingsSelectionChanged();
+}
+/* #1704 PR4: the agents copied into this Kosmos that have not started, and why, in the
+   words the server gave (the #2849 wait is the one spawn rule's own sentence). */
+function worldSettingsWaitingNote(waiting) {
+  const list = Array.isArray(waiting) ? waiting.filter((w) => w && w.name) : [];
+  if (!list.length) return '';
+  const why = list.find((w) => w.because);
+  return 'Waiting to start here: ' + list.map((w) => w.name).join(', ') + '. '
+    + (why ? asSentence(String(why.because)) : 'They start when this Kosmos is opened.');
+}
+function worldSettingsSelectionChanged() {
+  document.getElementById('world-set-add').disabled = !worldImportPicks(document.getElementById('world-set-import-list')).length;
+}
+/* #1704 PR4: Skip in the settings pane -- clear the picks, focus Close. */
+function worldSettingsSkip() {
+  worldImportClear(document.getElementById('world-set-import-list'));
+  worldSettingsSelectionChanged();
+  document.getElementById('world-rename-cancel').focus();
+}
+async function worldSettingsAddSubmit() {
+  const id = WORLD_RENAME_ID;
+  const kosmosName = WORLD_SETTINGS_NAME;
+  const list = document.getElementById('world-set-import-list');
+  const add = document.getElementById('world-set-add');
+  const msg = document.getElementById('world-rename-msg');
+  const importAgents = worldImportPicks(list);
+  if (!id || !importAgents.length) return;
+  add.disabled = true;
+  msg.textContent = '';
+  try {
+    const res = await fetch('/api/worlds/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id, importAgents }),
+    });
+    const body = await res.json().catch(() => null);
+    msg.textContent = body && body.imported
+      ? worldImportOutcome(body.imported, kosmosName)
+      : ((body && body.because) || 'Could not add those agents. Try again.');
+    // Redraw: the agents just added now belong to this Kosmos, and the waiting line moves.
+    const worlds = await worldImportFetch();
+    if (WORLD_RENAME_ID === id) worldSettingsRender(worlds, id);
+  } catch {
+    msg.textContent = 'Could not reach Kosmos. Try again.';
+    worldSettingsSelectionChanged();
+  }
 }
 function worldRenameClose() {
   document.getElementById('world-rename-modal').hidden = true;
   WORLD_RENAME_ID = null;
+  WORLD_SETTINGS_NAME = null;
+  worldSettingsGen += 1;   // a list still in flight must not draw into a closed pane
   document.getElementById('worldsw-btn').focus();
 }
 async function worldRenameSubmit() {
@@ -18938,6 +19141,13 @@ async function worldRenameSubmit() {
   rin.addEventListener('input', () => { document.getElementById('world-rename-go').disabled = !rin.value.trim(); });
   rin.addEventListener('keydown', (e) => { if (e.key === 'Enter' && rin.value.trim() && !document.getElementById('world-rename-go').disabled) { e.preventDefault(); worldRenameSubmit(); } });
   document.getElementById('world-rename-modal').addEventListener('click', (e) => { if (e.target.id === 'world-rename-modal') worldRenameClose(); });
+  // #1704 PR4: Skip in both panes, and the settings pane's "Add agents". A tick anywhere
+  // in the settings picker (a Kosmos head's change bubbles here after its own handler has
+  // ticked its agents) re-decides whether Add is enabled.
+  document.getElementById('world-add-skip').addEventListener('click', worldAddSkip);
+  document.getElementById('world-set-skip').addEventListener('click', worldSettingsSkip);
+  document.getElementById('world-set-add').addEventListener('click', worldSettingsAddSubmit);
+  document.getElementById('world-set-import-list').addEventListener('change', worldSettingsSelectionChanged);
   // #6: the switch-confirm modal, wired the same way (Cancel/backdrop/Esc close it,
   // "Restart Kosmos" runs the real switch).
   document.getElementById('world-switch-cancel').addEventListener('click', worldswSwitchCancel);
@@ -35766,10 +35976,18 @@ document.addEventListener('keydown', (e) => {
        group is ONE tab stop (listed by its first radio; see sameStop below), and Restart
        drops out while it is disabled, until a choice is made. */
     ['world-switch-modal', ['world-switch-pause', 'world-switch-cancel', 'world-switch-go'], 'world-switch-cancel'],
+    /* #1704 PR4: a Kosmos's settings (the rename modal, grown). Its stops cannot be
+       listed by id -- the picker holds one checkbox per agent, and the rename section is
+       hidden for Kosmos 1 -- so `null` means every enabled control inside it that is not
+       under a hidden section, in DOM order. Home is Close, the safe way out. */
+    ['world-rename-modal', null, 'world-rename-cancel'],
   ]) {
     const back = document.getElementById(backId);
     if (back.hidden) continue;
-    const stops = stopIds.map((id) => document.getElementById(id)).filter((el) => el && !el.disabled);
+    const stops = (stopIds
+      ? stopIds.map((id) => document.getElementById(id))
+      : Array.from(back.querySelectorAll('button, input, select, textarea')))
+      .filter((el) => el && !el.disabled && !(stopIds === null && el.closest('[hidden]')));
     const order = e.shiftKey ? stops.slice().reverse() : stops;
     if (!order.length) { e.preventDefault(); return; }
     const inside = back.contains(document.activeElement);

@@ -596,20 +596,22 @@ function xmlUnescape(v) {
  * stale configDir in a safety check is worse than a bounded spawn); the batched
  * read is tracked in #2717.
  */
-function configDirFor(name) {
-  /* #2717: a remembered PATH answers without a spawn. Existence is not cached
-     and is still checked by the caller on every ask. */
-  const cached = CONFIG_DIR_CACHE.get(taskName(name));
-  if (cached) return cached;
-  const r = run(['/Query', '/TN', taskName(name), '/XML']);
+/* #1704 PR4: the read and parse, factored out of configDirFor so importing an agent
+   can read the whole spec (runner, model, account) of ANOTHER Kosmos's task
+   (`worldId`). `{known: true, registered: false}` when there is no such task;
+   `{known: false, because}` when it could not be read or is not a shape we
+   understand; `{known: true, registered: true, spec}` otherwise. Uncached: the
+   cache below belongs to configDirFor's per-poll answer. */
+function taskSpec(name, worldId) {
+  const r = run(['/Query', '/TN', taskName(name, worldId), '/XML']);
   if (!r.ok) {
     /* Cached like any other KNOWN answer: "there is no task" is as stable as a
        path, and it is the case a REMOVED agent whose task is already gone hits
        on every single poll. Leaving it uncached would have left the spawn this
        card is about in place for exactly those agents. `install` re-registering
        one busts it. */
-    if (NO_SUCH_TASK.test(r.out || '')) return rememberConfigDir(name, { known: true, configDir: null });
-    return rememberConfigDir(name, { known: false, because: (r.out || '').trim().split('\n')[0] || 'schtasks would not answer' });
+    if (NO_SUCH_TASK.test(r.out || '')) return { known: true, registered: false };
+    return { known: false, because: (r.out || '').trim().split('\n')[0] || 'schtasks would not answer' };
   }
   /* WARNING: schtasks /Query /XML output encoding is NOT guaranteed utf8, and run()
      decodes as utf8. Two defenses, for two different reports, because guessing the
@@ -629,7 +631,7 @@ function configDirFor(name) {
   /* A registered task whose definition carries no argument line we can read is not a
      shape we understand, so admit it (known:false) rather than asserting a confident
      "no configDir" the way an absent task legitimately can. */
-  if (!m) return rememberConfigDir(name, { known: false, because: 'the task definition had no argument line we could read' });
+  if (!m) return { known: false, because: 'the task definition had no argument line we could read' };
   const argStr = xmlUnescape(m[1]);
   /* A U+FFFD in the argument line means the utf8 decode hit bytes it could not
      represent -- a UTF-16 report whose NON-ASCII path (an accented account folder)
@@ -637,7 +639,7 @@ function configDirFor(name) {
      silently wrong configDir that the (usually ASCII) name self-check below would not
      catch, so refuse to guess rather than block or allow a restore on it. */
   if (argStr.indexOf('\uFFFD') !== -1) {
-    return rememberConfigDir(name, { known: false, because: 'the task argument line came back in an encoding we could not decode cleanly' });
+    return { known: false, because: 'the task argument line came back in an encoding we could not decode cleanly' };
   }
   const tokens = [];
   const re = /"([^"]*)"/g;
@@ -646,13 +648,27 @@ function configDirFor(name) {
   const { specFromArgv } = require('./win32argv');
   const spec = specFromArgv(tokens.slice(2));
   if (spec.name !== name) {
-    return rememberConfigDir(name, { known: false, because: 'the task argument line is not the shape we can read a configDir from' });
+    return { known: false, because: 'the task argument line is not the shape we can read a configDir from' };
   }
-  return rememberConfigDir(name, { known: true, configDir: spec.configDir || null });
+  return { known: true, registered: true, spec };
+}
+
+function configDirFor(name) {
+  /* #2717: a remembered PATH answers without a spawn. Existence is not cached
+     and is still checked by the caller on every ask. */
+  const cached = CONFIG_DIR_CACHE.get(taskName(name));
+  if (cached) return cached;
+  const read = taskSpec(name);
+  if (!read.known) return rememberConfigDir(name, { known: false, because: read.because });
+  /* "There is no task" is as stable as a path, and it is the case a REMOVED agent
+     whose task is already gone hits on every single poll, so it is cached like
+     any other known answer. `install` re-registering one busts it. */
+  if (!read.registered) return rememberConfigDir(name, { known: true, configDir: null });
+  return rememberConfigDir(name, { known: true, configDir: read.spec.configDir || null });
 }
 
 module.exports = {
   TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape, xmlUnescape, headlessExec,
-  install, disable, enable, end, start, remove, status, presence, list, configDirFor,
+  install, disable, enable, end, start, remove, status, presence, list, configDirFor, taskSpec,
   setRunner, setAnchorer,
 };

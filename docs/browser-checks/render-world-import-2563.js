@@ -1,27 +1,29 @@
 'use strict';
 
 /**
- * kosmos#2563: "Add my agents from an existing Kosmos" on the create-a-new-Kosmos modal.
+ * kosmos#2563 + #1704 PR4: "Add my agents from" on the New Kosmos dialog, one agent at a time.
  *
- * The web slice adds an OPT-IN import selector to #world-add-modal: worldAddOpen() fetches
- * GET /api/worlds/list and worldImportRender() draws one checkbox per OTHER Kosmos (name +
- * agent count); worldAddSubmit() adds importAgentsFrom:[...] to the POST /api/worlds body
- * when boxes are checked. The engine endpoints are LIVE on main (the #2563 engine slice), so
- * the load-bearing behaviour is: the control shows when the list HAS entries, HIDES when the
- * list endpoint is absent (the graceful-degrade for a board that cannot answer), and a checked
- * selection reaches the create payload. The render/fetch/submit units are covered by
- * web.world-import-2563.test.js; this proves a real DOM does it end to end.
+ * Josh: "when I'm creating the new KOSMOS, I can add agents to it that are my existing agents
+ * from another KOSMOS right there when I create it. Or I can just skip and not add any."
  *
- * Two scenarios, hermetic (file://), fetch stubbed:
- *  - A (list present): GET /api/worlds/list -> two Kosmoses. Opening the create modal shows
- *    the control with one labelled checkbox each ("Client work (2 agents)", "Side project
- *    (1 agent)"), the checkbox value is the world id, and checking both then submitting sends
- *    importAgentsFrom:['w1','w2'] on POST /api/worlds.
- *  - B (endpoint unreachable): GET /api/worlds/list -> 404 (a board that cannot answer).
- *    Opening the modal leaves #world-add-import HIDDEN, so the create flow is exactly today's.
+ * worldAddOpen() fetches GET /api/worlds/list and worldImportRender() draws one GROUP per
+ * Kosmos: a box labelled "<Kosmos> (N agents)" that ticks every agent in it, and beneath it one
+ * box per agent. worldAddSubmit() sends importAgents:[{from, name}] ONLY when something is
+ * ticked; Skip clears every tick. This proves a real DOM does it end to end (the render / fetch
+ * / submit units are covered by web.world-import-2563.test.js).
  *
- * CONTROL (red before #2563): on the pre-slice page #world-add-import / worldAddOpen's fetch
- * do not exist, so reading .hidden on the absent element throws and the check reds.
+ * Three scenarios, hermetic (file://), fetch stubbed:
+ *  - A (list present): two Kosmoses. The groups show with their labelled boxes; the first
+ *    Kosmos's box ticks both its agents; one agent of the second is ticked by itself (its
+ *    Kosmos box goes part-ticked); Create posts exactly those three picks. The answer says they
+ *    wait (a new Kosmos is a named one, #2849), so the dialog stays open with that sentence and
+ *    Cancel reads Done.
+ *  - S (Skip): reopened, an agent ticked, then the real Skip button: nothing is ticked and
+ *    Create posts { name } with no importAgents.
+ *  - B (endpoint unreachable): GET /api/worlds/list -> 404. #world-add-import stays HIDDEN.
+ *
+ * CONTROL: on the pre-PR4 page the rows are one checkbox per KOSMOS (value = world id, no
+ * .world-import-all / per-agent boxes, no Skip), so the group and payload checks red.
  *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-world-import-2563.js
@@ -37,6 +39,7 @@ catch {
 }
 
 const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
+const WAITING = 'Agents do not run in a named Kosmos yet, so it waits there and starts on its own once they can.';
 
 (async () => {
   let browser;
@@ -50,11 +53,10 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
   await page.goto('file://' + PAGE);
 
-  const r = await page.evaluate(async () => {
+  const r = await page.evaluate(async ([waitingSentence]) => {
     const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
     const wrap = () => document.getElementById('world-add-import');
-    const wrapHidden = () => wrap().hidden;
-    const rows = () => [...document.querySelectorAll('#world-add-import-list .world-import-row')];
+    const groups = () => [...document.querySelectorAll('#world-add-import-list .world-import-group')];
     const waitFor = async (pred, capMs) => {
       const end = Date.now() + capMs;
       while (Date.now() < end) { if (pred()) return true; await sleep(15); }
@@ -70,18 +72,20 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       if (url.indexOf('/api/worlds/list') !== -1 && method === 'GET') {
         if (listMode === 'absent') return Promise.resolve({ ok: false, status: 404, json: async () => ({}) });
         return Promise.resolve({ ok: true, status: 200, json: async () => ({ worlds: [
-          { id: 'w1', name: 'Client work', agentCount: 2 },
-          { id: 'w2', name: 'Side project', agentCount: 1 },
+          { id: 'w1', name: 'Client work', agentCount: 2, agents: [{ name: 'ava', displayName: 'Ava', because: null }, { name: 'bo', displayName: 'Bo', because: null }], waiting: [] },
+          { id: 'w2', name: 'Side project', agentCount: 2, agents: [{ name: 'cy', displayName: 'Cy', because: null }, { name: 'dee', displayName: 'Dee', because: null }], waiting: [] },
         ] }) });
       }
       if (/\/api\/worlds$/.test(url.split('?')[0]) && method === 'POST') {
         postBody = JSON.parse((opts && opts.body) || '{}');
-        // Mirror the live engine: a create WITH importAgentsFrom comes back with a successful
-        // `imported` result (both checked Kosmoses' agents copied), so scenario A exercises the
-        // normal success path rather than the unconfirmable-outcome branch.
-        const n = Array.isArray(postBody.importAgentsFrom) ? postBody.importAgentsFrom.length : 0;
-        const imported = n ? { copied: 2, skipped: 0, failed: 0, unknownSources: 0 } : null;
-        return Promise.resolve({ ok: true, status: 200, json: async () => (imported ? { ok: true, world: { id: 'wnew', name: postBody.name }, imported } : { ok: true, world: { id: 'wnew', name: postBody.name } }) });
+        const picks = Array.isArray(postBody.importAgents) ? postBody.importAgents : [];
+        const imported = picks.length ? {
+          copied: picks.map((p) => ({ from: p.from, name: p.name, displayName: p.name.charAt(0).toUpperCase() + p.name.slice(1) })),
+          refused: [], started: [], later: [],
+          waiting: picks.map((p) => ({ name: p.name, because: waitingSentence })),
+        } : null;
+        const world = { id: 'wnew', name: postBody.name };
+        return Promise.resolve({ ok: true, status: 200, json: async () => (imported ? { ok: true, world, imported } : { ok: true, world }) });
       }
       if (url.indexOf('/api/worlds') !== -1 && method === 'GET') {
         return Promise.resolve({ ok: true, status: 200, json: async () => ({ worlds: [{ id: 'w1', name: 'Client work' }], activeWorldId: 'w1' }) });
@@ -90,59 +94,81 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     };
     if (typeof worldAddOpen !== 'function') return { error: 'worldAddOpen is not a function' };
     if (typeof worldAddSubmit !== 'function') return { error: 'worldAddSubmit is not a function' };
-    // Stub the post-create side effects so a hermetic submit does not throw on the switcher.
     if (typeof worldswOpen !== 'function') window.worldswOpen = () => {};
 
-    // ---- Scenario A: the list has other Kosmoses -> one labelled checkbox each ----
+    // ---- Scenario A: groups, the Kosmos box, one agent alone, Create, and the outcome said ----
     listMode = 'two';
     worldAddOpen();
-    const shown = await waitFor(() => !wrapHidden() && rows().length === 2, 2000);
-    const rowInfo = rows().map((row) => ({
-      label: (row.querySelector('.world-import-name') || {}).textContent || '',
-      value: (row.querySelector('.world-import-cb') || {}).value || '',
-      isCheckbox: (row.querySelector('.world-import-cb') || {}).type === 'checkbox',
+    const shown = await waitFor(() => !wrap().hidden && groups().length === 2, 2000);
+    const focusOnName = document.activeElement && document.activeElement.id === 'world-add-name';
+    const groupInfo = groups().map((g) => ({
+      head: (g.querySelector('.world-import-all + .world-import-name') || {}).textContent || '',
+      headValue: (g.querySelector('.world-import-all') || {}).value || '',
+      agents: [...g.querySelectorAll('.world-import-cb')].map((cb) => ({ value: cb.value, from: cb.dataset.from, label: (cb.nextElementSibling || {}).textContent || '', isCheckbox: cb.type === 'checkbox', labelled: !!cb.closest('label') })),
     }));
-    // #2563 (a-render-check-that-asserts-existence-passes-the-wrong-asset): prove this check is
-    // asserting the WORLD-import control, not the pre-existing DISK find-agents panel
-    // (#import-found). The world control must be a distinct element and its checkboxes must be
-    // scoped to it, never descendants of the disk panel -- else a rename/collision could let the
-    // existence assertions above false-pass on the wrong asset.
     const diskPanel = document.getElementById('import-found');
-    const worldPanel = document.getElementById('world-add-import');
-    const worldCbs = Array.from(document.querySelectorAll('#world-add-import-list .world-import-cb'));
-    const distinctFromDisk = !!worldPanel && worldPanel !== diskPanel
-      && worldCbs.length > 0
-      && worldCbs.every((cb) => worldPanel.contains(cb) && !(diskPanel && diskPanel.contains(cb)));
-    // Check both, name it, submit -> the create payload must carry both world ids.
-    for (const cb of document.querySelectorAll('#world-add-import-list .world-import-cb')) cb.checked = true;
+    const worldCbs = [...document.querySelectorAll('#world-add-import-list input[type="checkbox"]')];
+    const distinctFromDisk = !!wrap() && wrap() !== diskPanel && worldCbs.length > 0
+      && worldCbs.every((cb) => wrap().contains(cb) && !(diskPanel && diskPanel.contains(cb)));
+
+    const [g1, g2] = groups();
+    g1.querySelector('.world-import-all').click();
+    const firstBoth = [...g1.querySelectorAll('.world-import-cb')].every((cb) => cb.checked);
+    g2.querySelector('.world-import-cb[value="cy"]').click();
+    const secondPartial = g2.querySelector('.world-import-all').indeterminate === true;
     document.getElementById('world-add-name').value = 'Imported';
     postBody = null;
     await worldAddSubmit();
-    const submittedImport = postBody && postBody.importAgentsFrom ? postBody.importAgentsFrom.slice() : null;
+    const submitted = postBody && postBody.importAgents ? postBody.importAgents.slice() : null;
+    const modalStillOpen = !document.getElementById('world-add-modal').hidden;
+    const outcome = document.getElementById('world-add-msg').textContent;
+    const cancelText = document.getElementById('world-add-cancel').textContent;
+
+    // ---- Scenario S: Skip clears, and Create sends { name } alone ----
+    worldAddOpen();
+    await waitFor(() => !wrap().hidden && groups().length === 2, 2000);
+    const cancelReset = document.getElementById('world-add-cancel').textContent;
+    groups()[0].querySelector('.world-import-cb[value="ava"]').click();
+    document.getElementById('world-add-skip').click();
+    const tickedAfterSkip = [...document.querySelectorAll('#world-add-import-list input[type="checkbox"]')].filter((cb) => cb.checked || cb.indeterminate).length;
+    document.getElementById('world-add-name').value = 'Skipped';
+    postBody = null;
+    await worldAddSubmit();
+    const skippedBody = postBody;
 
     // ---- Scenario B: the endpoint is absent -> control stays hidden (graceful degrade) ----
     listMode = 'absent';
     worldAddOpen();
-    await sleep(200);   // let the fetch reject + render run
-    const hiddenWhenAbsent = wrapHidden();
+    await sleep(200);
+    const hiddenWhenAbsent = wrap().hidden;
 
-    return { shown, rowInfo, submittedImport, hiddenWhenAbsent, distinctFromDisk };
-  });
+    return { shown, focusOnName, groupInfo, distinctFromDisk, firstBoth, secondPartial, submitted, modalStillOpen, outcome, cancelText, cancelReset, tickedAfterSkip, skippedBody, hiddenWhenAbsent };
+  }, [WAITING]);
 
   await browser.close();
 
   const problems = [];
   if (r.error) problems.push('the check could not run: ' + r.error);
   if (!r.error) {
-    if (!r.shown) problems.push('with GET /api/worlds/list returning two Kosmoses, opening the create modal must SHOW #world-add-import with one row each, but it did not');
-    const info = r.rowInfo || [];
-    if ((info[0] || {}).label !== 'Client work (2 agents)') problems.push('the first row label/count is wrong: got "' + ((info[0] || {}).label) + '", expected "Client work (2 agents)"');
-    if ((info[1] || {}).label !== 'Side project (1 agent)') problems.push('the second row label/count is wrong (singular agent): got "' + ((info[1] || {}).label) + '", expected "Side project (1 agent)"');
-    if ((info[0] || {}).value !== 'w1' || (info[1] || {}).value !== 'w2') problems.push('a checkbox value is not the world id (needed for importAgentsFrom): got ' + JSON.stringify(info.map((i) => i.value)));
-    if (!info.every((i) => i.isCheckbox)) problems.push('the import rows must be real checkboxes');
-    if (JSON.stringify(r.submittedImport) !== JSON.stringify(['w1', 'w2'])) problems.push('checking both Kosmoses and creating must POST importAgentsFrom:["w1","w2"], got ' + JSON.stringify(r.submittedImport));
-    if (!r.hiddenWhenAbsent) problems.push('THE GRACEFUL DEGRADE: when GET /api/worlds/list is unreachable (404, a board that cannot answer), #world-add-import must stay HIDDEN so the create flow is unchanged, but it was shown');
-    if (!r.distinctFromDisk) problems.push('THE WRONG-ASSET GUARD: the world-import control (#world-add-import + its .world-import-cb boxes) must be a DISTINCT element from the disk find-agents panel (#import-found), with its checkboxes scoped to it, so these assertions cannot false-pass on the wrong panel; it was not');
+    if (!r.shown) problems.push('with GET /api/worlds/list returning two Kosmoses, opening New Kosmos must SHOW #world-add-import with one group each, but it did not');
+    if (!r.focusOnName) problems.push('opening New Kosmos must put focus in the name field');
+    const g = r.groupInfo || [];
+    if ((g[0] || {}).head !== 'Client work (2 agents)' || (g[1] || {}).head !== 'Side project (2 agents)') problems.push('each Kosmos box must read "<Kosmos> (N agents)", got ' + JSON.stringify(g.map((x) => x.head)));
+    if ((g[0] || {}).headValue !== 'w1') problems.push('the Kosmos box value is not the world id');
+    const a = (g[0] || {}).agents || [];
+    if (JSON.stringify(a.map((x) => [x.value, x.from, x.label])) !== JSON.stringify([['ava', 'w1', 'Ava'], ['bo', 'w1', 'Bo']])) problems.push('the first Kosmos\'s agent boxes are wrong (value = name, data-from = Kosmos, label = display name): ' + JSON.stringify(a));
+    if (!g.every((x) => x.agents.every((y) => y.isCheckbox && y.labelled))) problems.push('every agent must be a real checkbox inside its label');
+    if (!r.distinctFromDisk) problems.push('THE WRONG-ASSET GUARD: the Kosmos picker must be distinct from the disk find-agents panel (#import-found), with its boxes scoped to it');
+    if (!r.firstBoth) problems.push('ticking a Kosmos box must tick every agent in it');
+    if (!r.secondPartial) problems.push('one of two agents ticked must show its Kosmos box part-ticked (indeterminate)');
+    if (JSON.stringify(r.submitted) !== JSON.stringify([{ from: 'w1', name: 'ava' }, { from: 'w1', name: 'bo' }, { from: 'w2', name: 'cy' }])) problems.push('Create must POST importAgents for exactly the ticked agents, got ' + JSON.stringify(r.submitted));
+    if (!r.modalStillOpen) problems.push('agents that WAIT were closed over as if they were running: the dialog must stay open and say so');
+    if (r.outcome.indexOf('Waiting: Ava, Bo, Cy.') === -1 || r.outcome.indexOf(WAITING) === -1) problems.push('the outcome must name the waiting agents and give the plain sentence, got ' + JSON.stringify(r.outcome));
+    if (r.cancelText !== 'Done') problems.push('once the Kosmos exists, Cancel must read Done, got ' + JSON.stringify(r.cancelText));
+    if (r.cancelReset !== 'Cancel') problems.push('a reopened New Kosmos must read Cancel again, got ' + JSON.stringify(r.cancelReset));
+    if (r.tickedAfterSkip !== 0) problems.push('Skip must clear every tick, ' + r.tickedAfterSkip + ' stayed');
+    if (!r.skippedBody || JSON.stringify(r.skippedBody) !== JSON.stringify({ name: 'Skipped' })) problems.push('after Skip, Create must POST exactly { name }, got ' + JSON.stringify(r.skippedBody));
+    if (!r.hiddenWhenAbsent) problems.push('THE GRACEFUL DEGRADE: when GET /api/worlds/list is unreachable, #world-add-import must stay HIDDEN');
   }
 
   console.log('  ' + JSON.stringify(r));
