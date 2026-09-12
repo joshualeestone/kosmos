@@ -79,7 +79,18 @@ const PORT = freePort();
     // Save round trip: rename, verify it lands everywhere.
     await p.fill('#pjs-name', 'Settings Drive Renamed');
     await p.click('#pjs-save');
-    await p.waitForFunction(() => { const m = document.getElementById('pjs-msg'); return m.getBoundingClientRect().height > 0 && m.innerText.trim() === 'Saved.'; }, null, { timeout: 10000 });
+    // #2923: the save confirmation now lands to the LEFT of the button in
+    // #pjs-save-live (Josh: "Saved." below the button was easy to miss), not in
+    // the after-button #pjs-msg slot. Assert it shows there, sits left of the
+    // button, and is NOT duplicated below.
+    await p.waitForFunction(() => { const m = document.getElementById('pjs-save-live'); return m && m.getBoundingClientRect().height > 0 && m.innerText.trim() === 'Saved.'; }, null, { timeout: 10000 });
+    const savedPos = await p.evaluate(() => {
+      const s = document.getElementById('pjs-save-live').getBoundingClientRect();
+      const b = document.getElementById('pjs-save').getBoundingClientRect();
+      return { statusRight: s.right, btnLeft: b.left };
+    });
+    if (!(savedPos.statusRight <= savedPos.btnLeft + 1)) die('the "Saved." status is not to the LEFT of the Save changes button: ' + JSON.stringify(savedPos));
+    if ((await p.locator('#pjs-msg').innerText()).trim() === 'Saved.') die('"Saved." is still duplicated below the button (#pjs-msg)');
     const back = (await shown(p.locator('#pj-settings-backname'))).trim();
     if (back !== 'Settings Drive Renamed') die('the back link did not pick up the rename');
     await p.click('#pj-settings-back');
