@@ -71,6 +71,18 @@ test('a message records and reads back as a said event with its text', async () 
   assert.equal(said[0].text, 'checked the draft with the client', 'the message text did not round-trip');
 });
 
+test('the response is the record-only shape -- no delivery fields (pins the decision)', async () => {
+  // The defining decision of this change is record-only: a message is NOT delivered
+  // to any agent. The delivering task routes (close/reopen/parts) return a `told`
+  // field naming who was notified; `say` must not. This pins the record-only HTTP
+  // contract: a future edit that wires delivery the way those routes do (surfacing
+  // `told`) breaks this. It does not by itself prove no side-channel delivery, but
+  // it guards the contract against the most likely regression.
+  const res = await say(projectId, taskNum, { text: 'a note, delivered to nobody' });
+  const out = await res.json();
+  assert.deepEqual(out, { ok: true }, 'the message response carried more than the record-only {ok:true} (a told/heard/task field would mean delivery leaked in)');
+});
+
 test('an empty (or whitespace) message is refused with 400 and records nothing', async () => {
   const before = (await activity(projectId, taskNum)).events.filter((e) => e.kind === 'said').length;
   const res = await say(projectId, taskNum, { text: '   ' });
