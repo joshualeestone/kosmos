@@ -127,9 +127,6 @@ const BOOT_TIME_TOLERANCE_MS = 2 * 60 * 1000;
     EPERM for a file whose delete is pending), and a broken one stays unreadable. */
 const UNREADABLE_LOCK_CONFIRM_TRIES = 3;
 const UNREADABLE_LOCK_CONFIRM_WAIT_MS = 20;
-/** The codes a leftover beside the lock can fail to be removed with because something else is
-    removing or holding it at that moment: another prepare's own cleanup, or a scanner. */
-const LEFTOVER_BUSY_CODES = Object.freeze(['ENOENT', 'EPERM', 'EBUSY', 'EACCES']);
 /**
  * The only environment the staged node.exe is run with. It is a freshly downloaded binary, and
  * the board's own environment can carry credentials (an API key, a token) and a NODE_OPTIONS that
@@ -551,16 +548,19 @@ function takeLock(lockPath, log, hooks) {
 /**
  * Once a prepare HOLDS the lock, remove what attempts that died mid-lock left beside it: drafts,
  * clear claims, link probes, and asides from the lock's first design. Only a holder may: a racer
- * whose draft this removes refuses as busy (publishByLink). Another prepare's own cleanup can be
- * removing the same file at that moment, so an entry that fails with one of LEFTOVER_BUSY_CODES is
- * logged by its code and left; anything else is a real failure and is thrown.
+ * whose draft this removes refuses as busy (publishByLink).
+ *
+ * 🧹 BEST-EFFORT FOR EVERY ERROR. This is housekeeping, and it runs in a prepare that already holds
+ * the lock, so nothing it meets may fail that prepare: another prepare's cleanup removing the same
+ * file (EPERM), a scanner holding it, a stray folder with a leftover's name, even EIO. Real disk
+ * trouble surfaces in the download and staging that follow. Each failure is logged by its code and
+ * the entry's own name (never the full path) and the entry is left.
  */
 function sweepLockLeftovers(work, inWork, log) {
   for (const name of fs.readdirSync(work)) {
     if (!name.startsWith(LOCK_NAME + '.')) continue;
     try { fs.rmSync(inWork(path.join(work, name)), { force: true }); } catch (e) {
-      if (!LEFTOVER_BUSY_CODES.includes(e && e.code)) throw e;
-      log(`left a leftover beside the prepare lock for later (code=${e.code})`);
+      log(`left a leftover beside the prepare lock for later (code=${(e && e.code) || 'unknown'} entry=${name})`);
     }
   }
 }

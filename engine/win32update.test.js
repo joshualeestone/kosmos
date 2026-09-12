@@ -951,15 +951,30 @@ test('the lock: the holder\'s sweep leaves an entry something else is removing, 
   }, () => win32update.prepare(prepareOpts(c, site(bundleZip()))));
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.deepEqual(workHolds(c), [busy, 'prepare-status.json', 'staged'].sort(), 'the busy entry is left for later, the other swept');
-  assert.ok(c.log.includes('left a leftover beside the prepare lock for later (code=EPERM)'), c.log.join('\n'));
-  assert.equal(c.log.some((l) => l.includes(busy)), false, 'the log names the code, not the entry');
+  assert.ok(c.log.includes(`left a leftover beside the prepare lock for later (code=EPERM entry=${busy})`), c.log.join('\n'));
+  assert.equal(c.log.filter((l) => l.startsWith('left a leftover')).some((l) => l.includes(c.work)), false, 'the sweep names the entry, never its full path');
+});
 
-  /* Any other failure is a real one. */
-  const { d } = lockDir();
-  fs.writeFileSync(path.join(d, busy), '');
-  withStub('rmSync', (real, p) => { throw codeError('EIO', p); }, () => {
-    assert.throws(() => win32update.sweepLockLeftovers(d, win32update.workGuard(d), () => {}), (e) => e.code === 'EIO');
-  });
+test('the holder\'s sweep is best-effort for every error: EIO and a stray folder are logged, left, and the prepare goes on', T, async () => {
+  const c = freshCase();
+  fs.mkdirSync(c.work);
+  const failing = 'prepare.lock.789-1700000000000-0badc0de.draft';
+  const folder = 'prepare.lock.not-a-file';
+  fs.writeFileSync(path.join(c.work, failing), '');
+  fs.mkdirSync(path.join(c.work, folder));
+  fs.writeFileSync(path.join(c.work, folder, 'inside.txt'), 'kept');
+  const r = await withStubAsync('rmSync', (real, p, o) => {
+    if (path.basename(String(p)) === failing) throw codeError('EIO', p);
+    return real(p, o);
+  }, () => win32update.prepare(prepareOpts(c, site(bundleZip()))));
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.deepEqual(workHolds(c), [folder, failing, 'prepare-status.json', 'staged'].sort(), 'both entries are left as they were');
+  assert.ok(fs.existsSync(path.join(c.work, folder, 'inside.txt')), 'the folder is never removed with its contents');
+  assert.ok(c.log.includes(`left a leftover beside the prepare lock for later (code=EIO entry=${failing})`), c.log.join('\n'));
+  assert.ok(c.log.some((l) => l.startsWith('left a leftover beside the prepare lock for later (code=') && l.endsWith(` entry=${folder})`)), c.log.join('\n'));
+  const sweepLines = c.log.filter((l) => l.startsWith('left a leftover'));
+  assert.equal(sweepLines.length, 2, sweepLines.join('\n'));
+  assert.equal(sweepLines.some((l) => l.includes(c.work)), false, 'the sweep names entries, never full paths');
 });
 
 test('the lock: a lock from before this computer last started is dead, even with a running pid', T, () => {
