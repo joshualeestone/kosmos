@@ -972,19 +972,28 @@ function describe(project, roster, all) {
      project is unambiguously working IN it, so the overview lights that project
      even when the report named none; a working agent in several projects that
      named none cannot be attributed to any, so it lights none rather than every
-     one -- Josh's bug. Fail-open: with no list to count against (never on the
-     real path), treat as sole so the tile still lights rather than going dark. */
+     one -- Josh's bug. */
   const activeMembershipCount = (sessionName) => (Array.isArray(all)
     ? all.filter((pp) => pp && pp.archived !== true && (pp.agents || []).includes(sessionName)).length
     : 0);
-  /* `project.archived !== true` is load-bearing, not tidiness. `activeMembershipCount`
-     counts only NON-archived projects, so for an agent whose sole active membership is
-     project A, describing an ARCHIVED project B the same agent also belongs to computes
-     count 1 (it counted A) and would light B too -- the same global working fact lighting
-     two tiles, which is the exact bug this card fixes. Gating on the described project's own
-     archived state confines the sole-membership fallback to active projects, where "sole
-     active membership" actually means "this project". */
-  const soleActiveMembership = (m) => project.archived !== true && activeMembershipCount(m.sessionName) <= 1;
+  /* Two guards, both load-bearing:
+     - `project.archived !== true`: `activeMembershipCount` counts only NON-archived
+       projects, so for an agent whose sole active membership is project A, describing an
+       ARCHIVED project B the same agent also belongs to computes count 1 (it counted A) and
+       would light B too -- the same global working fact lighting two tiles, the exact bug
+       this card fixes. Gating on the described project's own archived state confines the
+       fallback to active projects, where "sole active membership" actually means "this one".
+     - `Array.isArray(all)`: FAIL CLOSED, not open. `all` is always an array on the real
+       path (list()/get() pass readAll(), and describe is unexported), so this changes
+       nothing observable today. But if a future caller ever passed a non-array `all`,
+       firing the sole-membership fallback anyway would silently re-light EVERY project a
+       working agent belongs to -- reintroducing precisely the over-claim #2837 removes.
+       When membership cannot be computed we do NOT claim sole membership; the attributed
+       arm (a report that named THIS project) still lights the right one. Not-claiming is
+       the honest failure for a card about not over-claiming. */
+  const soleActiveMembership = (m) => project.archived !== true
+    && Array.isArray(all)
+    && activeMembershipCount(m.sessionName) <= 1;
 
   return {
     ...project,
