@@ -2699,15 +2699,41 @@ const server = http.createServer((req, res) => {
          ⇒ So the runner has to travel for a paneless row too, and the derivation
          is not new: the offline list below already does exactly this, from the
          profile, with the reason stated there -- "a stopped agent has no pane to
-         have recorded it, so the profile's provider is the record". A paneless
-         row is the same case. `create.recordedRunner` is that read, used here
-         rather than restated so there is ONE definition.
+         have recorded it, so the record is the answer". A paneless row is the
+         same case, and both now call `create.recordedRunner` so there is ONE
+         definition. ⚠️ That was NOT true when this comment was first written: the
+         offline row restated a weaker, profile-only rule, so the two disagreed
+         whenever plist and profile diverged. The sentence described the intention
+         and the code did something else; both were changed to match it.
          ⚠️ ONLY WHEN ABSENT. A live pane's own runner is the better evidence and
          must not be overwritten by a record that a switch could have made stale
          in the other direction. */
       const runnerOfCard = (a) => {
         if (a.runner) return a.runner;
-        try { return create.recordedRunner(a.sessionName); } catch { return null; }
+        /* 🛑 ONLY WHEN THIS MAC ACTUALLY HOLDS A RECORD. `create.recordedRunner`
+           FLOORS at 'claude' and cannot say "unknown": `readJob` floors its
+           `runner` and the profile arm ends `provider === 'openai' ? 'codex' :
+           'claude'`. So calling it unconditionally answered 'claude' for an agent
+           this Mac has no job and no profile for -- and `panelessCard`'s own
+           contract legislates against exactly that: "runner is null because the
+           token store does not record one -- the screen's fallback will read that
+           as Anthropic, which is A DISPLAY DEFAULT WE INHERIT AND NOT A CLAIM THIS
+           CARD MAKES."
+           ⚠️ THE POPULATION IS REAL, not a hypothetical: paneless rows come from
+           TWO sources, and only one is local. `createdSource` is a plist this Mac
+           wrote; `panelessKeys` enumerates the SENDER-TOKEN store, which is the
+           beat-known remote/win32 case the contract paragraph is written about.
+           For a remote CODEX agent an unconditional fill says 'claude', which
+           hands it the Claude model list again -- the #2167 shape this card exists
+           to close, restored one population over.
+           ⇒ The gate asks whether a record EXISTS before asking what it says, so
+           `recordedRunner` stays the ONE derivation and null stays available. */
+        try {
+          const job = create.readJob(a.sessionName);
+          const recorded = job || ((store.readProfile(a.sessionName) || {}).provider);
+          if (!recorded) return null;
+          return create.recordedRunner(a.sessionName);
+        } catch { return null; }
       };
       const agents = snap.agents.filter((a) => !gone.has(a.sessionName)).map((a) => ({
         ...a,
@@ -3010,10 +3036,25 @@ const server = http.createServer((req, res) => {
                 id: store.agentId(k.name),
                 /* #246: which runner this agent runs on, for the switch
                    screen. A stopped agent has no pane to have recorded it,
-                   so the profile's provider (written at creation and at
-                   every switch) is the record; absent means claude, as
-                   everywhere. */
-                runner: (profile.provider === 'openai') ? 'codex' : 'claude',
+                   so the RECORD is the answer; absent means claude, as
+                   everywhere.
+                   🛑 #2811: THIS READ USED TO BE `profile.provider === 'openai'`,
+                   AND ITS PANELESS SIBLING IN THE SAME PAYLOAD NOW USES
+                   `create.recordedRunner`. Two derivations of one fact, and they
+                   DISAGREE: `recordedRunner` is PLIST-FIRST (`readJob().runner`,
+                   which floors at 'claude'), consulting the profile only when no
+                   job parses. So for an agent whose plist says codex and whose
+                   profile still says anthropic -- a state this branch's own
+                   `setprovider-writes` EACCES arm constructs and asserts, since
+                   the profile write is best-effort -- the paneless row said codex
+                   and this one said claude, for the SAME AGENT at different
+                   moments (the two populations are mutually exclusive per poll
+                   but an agent moves between them as its beat lapses).
+                   ⇒ Unified on `recordedRunner`, which is also the MORE correct
+                   of the two: the plist is the launch truth, as this file says
+                   everywhere else, and the profile is the fallback when there is
+                   no job to read. */
+                runner: (() => { try { return create.recordedRunner(k.name); } catch { return (profile.provider === 'openai') ? 'codex' : 'claude'; } })(),
                 account: accountOf(k.name),
                 commitments: commitments.read(k.name),
                 instructions: projects.toldOverride(instructions.staleness(k.name), k.name),
