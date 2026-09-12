@@ -127,6 +127,12 @@ function initStub() {
   await page.evaluate(() => {
     RESTART_READY_WINDOW_MS = 800;
     RESTART_READY_POLL_MS = 60;
+    // #2831: the rst-go path now holds the branded K-loader interstitial for the
+    // RESTART_HOLD_MS floor (4400ms) before the auto-hello receipt runs. These arms
+    // wait only 4000ms for the note, so shorten the hold to 0 via the same test seam
+    // the model/provider interstitial uses -- this check is about the auto-hello, not
+    // the loader timing (render-restart-kloader-2831.js covers the loader).
+    window.__kosmosRestartHoldMs = 0;
     LAST = [{ sessionName: 'april', name: 'April', displayName: 'April', role: 'a researcher' }];
     // The open agent is april, so the rst-go receipt's CURRENT.sessionName===name
     // guard passes and the note writes. Arm 8 changes this mid-wait to prove the
@@ -143,7 +149,8 @@ function initStub() {
   });
 
   const NOTE = '#__ah .instr-restart-note';
-  const SAID = 'Restarted, and said hello to wake them.';
+  // #2831: the placed-success line now also nudges the person to say hello themselves.
+  const SAID = 'Restarted, and said hello to wake them. Say hello when you want to talk to them.';
   const MANUAL = 'Restarted. You will need to say ‘hello’ to wake them.';
 
   // Drive the REAL rst-go confirm for the __ah button, wait for the note to

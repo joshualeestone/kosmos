@@ -8519,7 +8519,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          is static because it is true of every restart, and it sits in the
          dialog because that is where the footer sends people to learn the
          cost. rst-small above stays the per-agent part: what is in flight. -->
-    <p class="rm-small">They come back with nothing in their memory, and anything they were part way through ends, including anything they agreed to and have not done yet. Their instructions and their files are untouched.</p>
+    <p class="rm-small" id="rst-cost">They come back with nothing in their memory, and anything they were part way through ends, including anything they agreed to and have not done yet. Their instructions and their files are untouched.</p>
     <div class="rm-acts">
       <button class="btn" id="rst-keep" type="button">Leave it running</button>
       <button class="btn" id="rst-go" type="button">Restart</button>
@@ -27870,7 +27870,16 @@ function openRestartModal(btn, name) {
   ul.innerHTML = cost.list.map((c) => '<li>' + esc(typeof c === 'string' ? c : (c && c.text) || '') + '</li>').join('');
   ul.hidden = cost.list.length === 0;
   document.getElementById('rst-msg').textContent = '';
+  /* #2831: a prior restart may have hidden the confirm content to show the
+     K-into-circle loader interstitial. Reset those flags here (the same shape as
+     changeDialog resetting keep/goBtn/sm at its top) so every open starts from
+     the confirm view, whatever the last run left behind. rst-list.hidden is set
+     from the cost just above and is not reset here. */
+  document.getElementById('rst-small').hidden = false;
+  document.getElementById('rst-cost').hidden = false;
+  document.getElementById('rst-keep').hidden = false;
   const go = document.getElementById('rst-go');
+  go.hidden = false;
   go.disabled = false;
   go.textContent = 'Restart ' + shown;
   RST_FOR = btn;
@@ -27883,6 +27892,14 @@ function openRestartModal(btn, name) {
 
 function closeRestartModal() {
   document.getElementById('rst-modal').hidden = true;
+  /* #2831: DETACH any loader interstitial mounted in rst-msg on close, not just
+     hide the modal -- the branded K loader's rAF loop self-terminates on
+     `!cv.isConnected`, but hiding the modal leaves the canvas CONNECTED and the
+     loop running. This mirrors changeDialog's #2692 teardown, so an Escape or
+     backdrop dismissal DURING the hold cannot leak an animating canvas. Harmless
+     on every other close (the receipt lands on the note, never in rst-msg; a
+     refused restart keeps the modal open and does not reach here). */
+  document.getElementById('rst-msg').innerHTML = '';
   RST_FOR = null;
   if (RST_RETURN && RST_RETURN.focus) RST_RETURN.focus();
   RST_RETURN = null;
@@ -27963,9 +27980,39 @@ document.getElementById('rst-go').addEventListener('click', async () => {
   const name = btn && btn.dataset.restartAgent;
   if (!name) return;
   const go = document.getElementById('rst-go');
-  go.disabled = true;
   const wasGo = go.textContent;
-  go.textContent = 'Restarting…';
+  /* #2831 (Josh, 0.6.57 review, 2026-09-11): "if i restart an agent from here, it
+     should show the animated K to circle, send an auto hello, and tell the user to
+     say hello to wake the agent." The auto-hello (#2686) already fires below; the K
+     loader already exists (startKLoader) and already plays during a model/provider
+     change (changeDialog's RESTART_BUSY_HTML interstitial). The delta is to play it
+     on THIS explicit path too. It is a pure INTERSTITIAL: while the restart is in
+     flight the confirm content is hidden and the branded loader holds on the
+     RESTART_HOLD_MS floor (one whole K-into-circle animation, #2692); the success
+     receipt still lands on the page via the untouched #2686 split below. */
+  const keep = document.getElementById('rst-keep');
+  const list = document.getElementById('rst-list');
+  const small = document.getElementById('rst-small');
+  const cost = document.getElementById('rst-cost');
+  const listWasHidden = list.hidden;   // the cost-based state to restore on a retry
+  const showConfirm = (on) => {
+    small.hidden = !on; cost.hidden = !on; keep.hidden = !on; go.hidden = !on;
+    list.hidden = on ? listWasHidden : true;
+  };
+  const clearLoader = () => { document.getElementById('rst-msg').innerHTML = ''; };
+  // Enter the interstitial: hide the confirm content, mount + drive the branded loader.
+  go.disabled = true;
+  showConfirm(false);
+  document.getElementById('rst-msg').innerHTML = RESTART_BUSY_HTML;
+  const kcv = document.getElementById('rst-msg').querySelector('canvas.chg-restart-k');
+  if (kcv) startKLoader(kcv);
+  const busyStart = Date.now();
+  /* Read the hold at click time so a hermetic browser-check can shorten it via
+     window.__kosmosRestartHoldMs (a number); undefined in prod, so a real restart
+     always holds RESTART_HOLD_MS. Same test seam the model/provider interstitial uses. */
+  const holdMs = (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS);
+  // The confirm view, restored so the person can retry after a refusal or an error.
+  const restoreConfirm = () => { clearLoader(); showConfirm(true); go.textContent = wasGo; go.disabled = false; };
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/restart', { method: 'POST' });
     const out = await res.json().catch(() => null);
@@ -27986,9 +28033,11 @@ document.getElementById('rst-go').addEventListener('click', async () => {
     if (!took) {
       /* The engine's own sentence, which distinguishes "we could not close its
          window" from "launchd refused" -- different facts a person acts on
-         differently. */
-      go.textContent = wasGo;
-      go.disabled = false;
+         differently.
+         #2831: tear the loader down and restore the confirm view first (no hold
+         on failure -- the person needs the controls back to retry), THEN write
+         the refusal where they are looking. */
+      restoreConfirm();
       /* 🛑 THE REFUSAL STAYS IN THE DIALOG rather than closing onto the page
          behind it. `remove.js` refuses a restart with a sentence that names
          the reason and the remedy, and closing first would put that sentence
@@ -28002,6 +28051,12 @@ document.getElementById('rst-go').addEventListener('click', async () => {
       document.getElementById('rst-msg').textContent = restartFailureLine(out);
       return;
     }
+    /* #2831: hold the loader for the remainder of the floor so the K-into-circle
+       plays in full (a fast restart otherwise flashes it), THEN hand off to the
+       existing #2686 receipt. The interstitial stays until the POST resolves (the
+       await above) AND at least holdMs, exactly the model/provider flow's shape. */
+    const wait = Math.max(0, holdMs - (Date.now() - busyStart));
+    if (wait > 0) await new Promise((r) => setTimeout(r, wait));
     /* ⚠️ NO SUCCESS SENTENCE ON THE NOTICE, AND ONE ON THE PANEL, which is the
        same rule rather than two. The notice's receipt is that it DISAPPEARS:
        the poll repaints it from the record and a restarted agent's
@@ -28033,23 +28088,27 @@ document.getElementById('rst-go').addEventListener('click', async () => {
        site and the synchronous write this replaced: on the detail page the note
        stays connected through tick, so it must not sit blank during that fetch. */
     showNote('Restarted. Waking them…');
+    /* Tear the loader down and restore the confirm view before closing (openRestartModal
+       also resets these on the next open; restoring here keeps a reopen clean either way,
+       and the innerHTML clear detaches the loader canvas so its rAF loop bails at once). */
+    clearLoader();
+    showConfirm(true);
     go.textContent = wasGo;
-    /* ⚠️ RE-ENABLED. Every other exit from this handler puts the button back and
-       this one did not, so a modal reopened after a successful restart came up
-       with a dead primary. */
     go.disabled = false;
     closeRestartModal();
     await tick();
     /* autoHelloAfterRestart resolves the note to "said hello" once the agent is
-       back, or to the old manual line if it does not come back in time.
-       Fire-and-forget: the handler's UI work (modal closed, button restored) is
-       already done. */
+       back, or to the manual line if it does not come back in time. Fire-and-forget:
+       the handler's UI work (loader torn down, modal closed) is already done.
+       #2831: the placed line now also nudges the person to say hello themselves --
+       Josh wants the auto-hello (which wakes them) AND the person told to say hello.
+       The manual line already nudged; this makes the success line do it too, framed
+       so it does not contradict the "we said hello" #2686 keeps for honesty. */
     autoHelloAfterRestart(name, showNote,
-      'Restarted, and said hello to wake them.',
+      'Restarted, and said hello to wake them. Say hello when you want to talk to them.',
       'Restarted. You will need to say ‘hello’ to wake them.');
   } catch {
-    go.textContent = wasGo;
-    go.disabled = false;
+    restoreConfirm();
     document.getElementById('rst-msg').textContent = 'We could not reach Kosmos to restart them.';
   }
 });
