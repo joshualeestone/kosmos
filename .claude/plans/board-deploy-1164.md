@@ -2,8 +2,8 @@
 
 Card: #1164. Branch: `board-deploy-1164`. Date: 2026-09-11.
 
-The detailed implementation and handoff record is in `PLAN-1164.md` at the
-repository root. This branch implements Model B from that record.
+This branch implements Model B: release-wired maintenance after a human has
+explicitly adopted the libexec deployment on a box.
 
 ## Intended result
 
