@@ -15,20 +15,34 @@ it here); the MISLABEL is a real defect to fix now; the install-time disclosure
 
 ## Scope (comment-only; NO behavior, NO default, NO user-facing string change)
 
-Fix the three "opt-in" mislabels to match the opt-out behavior:
+Fix the "opt-in" mislabels of this send path to match the opt-out behavior. Six
+comment sites across five files (the initial three, plus feedbackpull.js and the
+ping.js header found in challenge-loop iter 1, plus install/kosmos found in iter 2):
 
 1. `server.js:410` -- the require comment: "the opt-in-gated send layer" ->
-   "the daily-report send layer -- DEFAULT-ON / opt-out (#2013), NOT opt-in".
+   "daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in".
 2. `engine/ping.js:22-26` -- the installId privacy comment. It falsely reassured
    that installId is "read only by features the person opted into" and "None of
    those send it anywhere the person did not ask for". Corrected: installId leaves
    the Mac BY DEFAULT via the default-on feedback report until the person opts out;
    the store use never leaves the Mac. This is the most important fix -- the old
    text was a false privacy reassurance in the install-fingerprint documentation.
-3. `web/index.html:12220` -- HTML comment opening "the daily product-feedback report
+3. `engine/ping.js:4` -- the header line "Nothing here leaves the Mac." tightened:
+   this file sends nothing itself (#2623), but the id it makes can leave via the
+   default-on feedback report -- so the absolute claim would mislead a skimmer.
+4. `engine/feedbackpull.js:8` -- the loop-overview comment "(opt-in gated, ...)"
+   -> "(DEFAULT-ON / opt-out per #2013, secrets + home-paths scrubbed)".
+5. `install/kosmos:1410` -- "Transmission is a separate, opt-in-gated slice." ->
+   names engine/feedbacksend.js and "DEFAULT-ON / opt-out per #2013, not opt-in".
+6. `web/index.html:12220` -- HTML comment opening "the daily product-feedback report
    opt-in" -> "... toggle -- DEFAULT-ON / opt-out (#2013/#2957), NOT opt-in". (The
    rest of that comment already said "ships ON by default ... opt-OUT" correctly;
    only the opening word was wrong.)
+
+Note on the surviving "opt-in" references NOT changed: server.js:4757, server.js:12406,
+feedbacksend.js:68/422 each pair "opt-in" with an explicit "default ON / opts out",
+which is the repo's accepted "default-checked opt-in" terminology, so they are accurate
+in context and left as-is. Only the BARE, unqualified "opt-in" labels were mislabels.
 
 ## Explicitly out of scope
 
