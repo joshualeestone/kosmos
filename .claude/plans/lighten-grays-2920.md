@@ -15,7 +15,7 @@ Josh, 6.59 QA notes 2026-09-12 (verbatim): "I feel like the gray behind agents w
 The `.pjm-idle` overlay lives in `background-image` (the `background` gradient shorthand leaves `background-color` as the surface), so it is read from `getComputedStyle().backgroundImage` (the same fallback `render-projects.js` already uses for `.bar.unknown`), NOT `backgroundColor`. The change touches the `#pj-one-agents` surface, which the surface-map gate (#2518) maps to `render-member-modal.js` (it declares `Browser-check-surface: pj-one-agents`). So `render-member-modal.js` gets a real, falsifiable assertion: it injects a clean `.pj-member.pjm-idle` probe into `#pj-one-agents` and asserts the computed `backgroundImage` carries `rgba(120, 120, 128, 0.07)` and no longer the old `0.1`. That both satisfies the surface gate and makes the "lighter" claim self-verifying in CI, so the earlier `Browser-check:` trailer is superseded. `server.test.js` guards the `pjm-idle` CLASS assignment (unaffected).
 
 ## Done-condition
-The idle-agent member row reads a touch lighter (idle `.07`, hover `.12`); no other surface changes; full suite green; CI green.
+The idle-agent member row reads a touch lighter (idle `.07`, hover `.13`); no other surface changes; full suite green; CI green.
 
 ## Weakest premise
 That `.pjm-idle` (the project-members roster) is the "gray behind agents when they're idle" Josh means. It is the only idle-keyed background in web/index.html; the state border (`.st-idle`) is not a fill. If he meant a different surface, this is a one-line redirect.
