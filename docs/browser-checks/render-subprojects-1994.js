@@ -1,8 +1,10 @@
 'use strict';
-// Browser-check-surface: pj-parent pjsub
+// Browser-check-surface: pj-parent pjsub pj-one-subprojects
 // (#2518) the distinctive web/index.html tokens this check asserts (the ancestry/parent
-// chip + the sub-projects line); a change to them must update this check at PR time. #2487
-// changed pj-parent to a full ancestry line and staled this check's exact-match to the cut.
+// chip + the sub-projects line + the detail/consolidated sub-projects strip); a change to
+// them must update this check at PR time. #2487 changed pj-parent to a full ancestry line
+// and staled this check's exact-match to the cut; #2848 added the consolidated placement of
+// pj-one-subprojects (Layer 1e), so a change to where that strip lives must update it too.
 /* #1994: sub-projects UI: a project can name a parent, shown as a tree in the
  * wide Projects tab (indent) and, #2487, a full ancestry line ("Kosmos › App",
  * middle-elided past depth two) with decorative depth dots everywhere narrow, plus
@@ -219,6 +221,74 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     });
     ok(t + ' rail (consolidated): the ancestry line renders and is displayed', /Kosmos/.test(rail.txt) && /App/.test(rail.txt) && rail.disp !== 'none', JSON.stringify(rail));
 
+    // ---- Layer 1e: #2848 the CONSOLIDATED sub-project HEADER ----
+    // Josh, 0.6.57 review: the sub-project view was "breaking across the top" --
+    // a project with a sub-project stacked three bars (a "1 sub-project" label,
+    // the child row, and the project name, which lives in the conversation
+    // header since #761). placeSubProjects nests the strip UNDER that header in
+    // the consolidated view so the two read as ONE header; the tab view keeps
+    // the strip above the grid, where #2487 put it. Drives the SHIPPED
+    // placeProjectHead + placeSubProjects + paintOneProject against a real
+    // parent/child fixture in the real page.
+    const subhead = await page.evaluate(() => {
+      const mk = (id, name, parent) => ({ id, name, parent: parent || null, parentName: parent ? 'Kosmos' : null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('k', 'Kosmos'), mk('app', 'App', 'k')];   // k has one sub-project (app); app is a leaf
+      PJ_SORT = 'az';
+      const out = {};
+      const oneView = document.getElementById('pj-one-view');
+      const subs = document.getElementById('pj-one-subprojects');
+      const pj3 = oneView.querySelector('.pj3');
+      const midCol = oneView.querySelector('.pjmid');
+      const midHead = oneView.querySelector('.pjmidhead');
+      const origLayout = document.documentElement.getAttribute('data-layout');
+      const origHidden = oneView.hidden;
+      try {
+        placeProjectHead();                 // the name moves into .pjmidhead, as in production
+        oneView.hidden = false;             // so the computed-style reads below are used values, not display:none
+        // CONTROL (tab view): the strip stays in #pj-one-view, above the grid --
+        // its original #2487 slot. This is the state #2848 changes for consolidated.
+        document.documentElement.setAttribute('data-layout', 'tabs');
+        document.body.classList.remove('consolidated');
+        placeSubProjects(false);
+        PJ_CURRENT = 'k'; paintOneProject();
+        out.tabParent = subs.parentElement === oneView;
+        // DOCUMENT_POSITION_FOLLOWING on compareDocumentPosition(pj3) => pj3 follows subs, i.e. the strip precedes the grid.
+        out.tabBeforeGrid = !!(subs.compareDocumentPosition(pj3) & Node.DOCUMENT_POSITION_FOLLOWING);
+        // CONSOLIDATED: the strip nests into .pjmid, right after the header, so
+        // the name is the top of one header block and the strip sits beneath it.
+        document.documentElement.setAttribute('data-layout', 'consolidated');
+        document.body.classList.add('consolidated');
+        placeSubProjects(true);
+        PJ_CURRENT = 'k'; paintOneProject();
+        out.consParent = subs.parentElement === midCol;
+        out.afterHead = midHead.nextElementSibling === subs;
+        out.subsHidden = subs.hidden;
+        out.hasKid = !!subs.querySelector('.pj-subrow[data-project="app"]');
+        // One line under both: the header drops its own bottom rule while a
+        // visible strip follows, and the strip carries the rule.
+        out.headBorder = getComputedStyle(midHead).borderBottomWidth;
+        out.stripBorder = getComputedStyle(subs).borderBottomWidth;
+        // CONTROL that the rule is CONDITIONAL: a leaf project (app, no children)
+        // hides the strip, so the :has() does not fire and the header keeps its rule.
+        PJ_CURRENT = 'app'; paintOneProject();
+        out.leafSubsHidden = subs.hidden;
+        out.leafHeadBorder = getComputedStyle(midHead).borderBottomWidth;
+        out.err = null;
+      } catch (e) { out.err = String(e && e.message || e); }
+      // restore for later layers (they run in the tab context)
+      document.documentElement.setAttribute('data-layout', origLayout || 'tabs');
+      document.body.classList.remove('consolidated');
+      placeSubProjects(false);
+      oneView.hidden = origHidden;
+      return out;
+    });
+    ok(t + ' #2848 CONTROL (tab): the strip stays above the grid in #pj-one-view', subhead.err === null && subhead.tabParent === true && subhead.tabBeforeGrid === true, JSON.stringify(subhead));
+    ok(t + ' #2848 consolidated: the strip nests into the conversation column (.pjmid)', subhead.err === null && subhead.consParent === true, JSON.stringify(subhead));
+    ok(t + ' #2848 consolidated: the strip sits directly after the header, not above it', subhead.err === null && subhead.afterHead === true, JSON.stringify(subhead));
+    ok(t + ' #2848 consolidated: the strip still lists its sub-project', subhead.err === null && subhead.subsHidden === false && subhead.hasKid === true, JSON.stringify(subhead));
+    ok(t + ' #2848 consolidated: header drops its rule, the strip carries it (one line under both)', subhead.err === null && subhead.headBorder === '0px' && subhead.stripBorder === '1px', JSON.stringify(subhead));
+    ok(t + ' #2848 CONTROL: a leaf hides the strip, so the header keeps its own rule', subhead.err === null && subhead.leafSubsHidden === true && subhead.leafHeadBorder === '1px', JSON.stringify(subhead));
+
     // ---- Layer 2: the set-parent select ----
     const select = await page.evaluate(() => {
       const mk = (id, name, parent, parentName, archived) => ({ id, name, parent: parent || null, parentName: parentName || null, archived: !!archived, summary: {}, agents: [], description: '', unread: 0 });
@@ -336,6 +406,51 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' a chosen parent is sent in the create body', create.withParent && create.withParent.parent === 'k', JSON.stringify(create.withParent));
     // CONTROL: top-level MUST omit parent, not send parent:null (absent-not-null discipline).
     ok(t + ' top-level create OMITS parent (absent, not null)', create.topLevel && !('parent' in create.topLevel), JSON.stringify(create.topLevel));
+
+    // ---- Layer 4: #2848 the WIRING, through the real caller (showTab) ----
+    // Layer 1e drives placeSubProjects() directly, which proves the function moves
+    // the strip -- but not that the shipped code ever calls it. The one production
+    // caller is showTab (it runs placeSubProjects(cons) keyed on the same cons that
+    // toggles body.consolidated). If that call line were deleted or its flag
+    // desynced, production would never nest the strip while every Layer 1e assertion
+    // stayed green. So drive showTab itself and assert the strip lands correctly in
+    // BOTH effective views. Runs last in the theme so showTab's rail/board side
+    // effects cannot disturb the earlier layers.
+    const wiring = await page.evaluate(() => {
+      const mk = (id, name, parent) => ({ id, name, parent: parent || null, parentName: parent ? 'Kosmos' : null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('k', 'Kosmos'), mk('app', 'App', 'k')];
+      PJ_SORT = 'az';
+      const out = {};
+      const subs = document.getElementById('pj-one-subprojects');
+      const oneView = document.getElementById('pj-one-view');
+      const midCol = oneView.querySelector('.pjmid');
+      try {
+        placeProjectHead();
+        PJ_CURRENT = 'k';
+        if (typeof pjView === 'function') pjView('one');
+        paintOneProject();
+        // The viewport is 1200px wide (>= the 960 consolidated floor), so with
+        // data-layout=consolidated showTab computes cons=true and must nest the strip.
+        document.documentElement.setAttribute('data-layout', 'consolidated');
+        document.body.classList.remove('consolidated');   // let showTab re-add it
+        showTab('projects');
+        out.consBody = document.body.classList.contains('consolidated');
+        out.consSubsInMid = subs.parentElement === midCol;
+        // Flip to the tab layout through the same caller: cons=false, strip restored.
+        document.documentElement.setAttribute('data-layout', 'tabs');
+        showTab('projects');
+        out.tabBody = document.body.classList.contains('consolidated');
+        out.tabSubsInOneView = subs.parentElement === oneView;
+        out.err = null;
+      } catch (e) { out.err = String(e && e.message || e); }
+      return out;
+    });
+    // showTab actually flipped the effective view (control: the two body states differ).
+    ok(t + ' #2848 wiring CONTROL: showTab toggles body.consolidated (true then false)', wiring.err === null && wiring.consBody === true && wiring.tabBody === false, JSON.stringify(wiring));
+    // and the SAME call nested the strip into .pjmid under consolidated ...
+    ok(t + ' #2848 wiring: showTab (consolidated) nests the strip into .pjmid', wiring.err === null && wiring.consSubsInMid === true, JSON.stringify(wiring));
+    // ... and restored it to #pj-one-view under the tab layout.
+    ok(t + ' #2848 wiring: showTab (tab) restores the strip to #pj-one-view', wiring.err === null && wiring.tabSubsInOneView === true, JSON.stringify(wiring));
 
     await page.close();
   }
