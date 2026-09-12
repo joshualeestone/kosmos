@@ -13937,3 +13937,57 @@ test('#2811: a paneless row for an agent this Mac has NO record of keeps runner 
     status.setCreatedSource(null);
   }
 });
+
+test('#2811: a STRAY offline row (a folder with no job and no profile) keeps runner null, not a claimed claude', async () => {
+  /**
+   * 🛑 THE POPULATION A FALSE PREMISE SAID COULD NOT EXIST. I first left the
+   * offline row ungated and justified it: "an offline row EXISTS BECAUSE a profile
+   * file does, so the record is present by construction." Measurably false.
+   * `register.survey()` builds from `known()` (profile-backed) AND THEN PUSHES
+   * `strays()`, stamped `profile: false`, and the offline filter is
+   * `(k.folder || k.job)` -- it never mentions a profile. So a folder-only stray
+   * reaches that list with NO job and NO profile and floored to a positive 'claude'.
+   *
+   * ⭐ I traced ONE source (`known()`) and pronounced on the population. Both rows
+   * now share one gated helper, so there is no asymmetry left to justify wrongly,
+   * and this arm is what keeps that true.
+   *
+   * 📌 THE VALUE IS UNCHANGED FROM origin/main (the old profile-only expression
+   * also floored at claude), so this is a wire-contract fix, not a regression fix.
+   */
+  const create = require('./engine/create');
+  const store = require('./engine/store');
+  const fsX = require('node:fs');
+  const nodePathX = require('node:path');
+  const name = 'straygpt2811';
+  const dir = create.workerDir(name);
+  try {
+    /* A stray needs BOTH halves: the folder, and a birth line tying it to a real
+       creation. The folder alone is not a stray (a checkout dropped under a once-used
+       name must not become one), which is the tie `strays()` documents. */
+    fsX.mkdirSync(dir, { recursive: true });
+    fsX.mkdirSync(nodePathX.dirname(create.createdLogFile()), { recursive: true });
+    fsX.appendFileSync(create.createdLogFile(),
+      JSON.stringify({ name, outcome: create.OUTCOME.CREATED, at: new Date().toISOString() }) + '\n', 'utf8');
+
+    /* CONTROLS, asserted before the claim so a silently-empty fixture cannot pass:
+       this Mac must hold NO job and NO profile provider for the name, and the floor
+       must be what would otherwise answer. */
+    assert.equal(create.readJob(name), null, 'this Mac holds a launch job for the stray, so the arm measures nothing');
+    assert.equal((store.readProfile(name) || {}).provider, undefined, 'a profile provider exists, so the arm measures nothing');
+    assert.equal(create.recordedRunner(name), 'claude', 'recordedRunner no longer floors at claude, so there is nothing to decline');
+
+    const body = JSON.parse((await req('/api/status')).body);
+    const row = ((body && body.agents) || []).find((r) => r && (r.sessionName === name || r.name === name));
+
+    /* POPULATION FLOOR: it must be the OFFLINE row, not the paneless one, or this
+       measures the population that already had the gate. */
+    assert.ok(row, 'the stray produced no board row, so the sweep was not reached and this arm measures nothing');
+    assert.equal(row.running, false, 'the row is running, so it is not the offline row');
+
+    assert.equal(row.runner, null,
+      'a stray offline row claims a runner this Mac has no record of, which is the positive claim the paneless gate refuses one field over');
+  } finally {
+    try { fsX.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+});
