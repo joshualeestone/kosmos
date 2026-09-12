@@ -74,7 +74,11 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
         if (id === 'booted') return Promise.resolve({ ok: false, status: 409, json: async () => ({ error: 'world in use', because: 'switch to another Kosmos before hiding this one' }) });
         return Promise.resolve({ ok: true, json: async () => ({ ok: true, world: { id, hiddenAt: '2026-09-12T00:00:00.000Z' } }) });
       }
-      return Promise.resolve({ ok: false, json: async () => ({}) });   // GET /api/worlds: leave the rows as rendered
+      // worldsFetch (the switcher refetch after a successful hide) hits PLAIN /api/worlds, a
+      // different endpoint from /api/worlds/list (the settings picker, fired on modal open). Serve
+      // it so the refetch actually renders and the post-hide assertion below is not vacuous.
+      if (/\/api\/worlds(?:\?|$)/.test(u)) return Promise.resolve({ ok: true, json: async () => ({ worlds: LIST.worlds.map((w) => ({ id: w.id, name: w.name })), activeWorldId: 'booted' }) });
+      return Promise.resolve({ ok: false, json: async () => ({}) });
     };
 
     worldswRender({ worlds: LIST.worlds.map((w) => ({ id: w.id, name: w.name })), activeWorldId: 'booted' });
@@ -132,10 +136,15 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     await sleep(40);
     $('world-hide-really').click();
     await sleep(120);
-    const hid = calls.find((c) => c.url.indexOf('/api/worlds/hide') !== -1 && c.method === 'POST');
+    const hidIdx = calls.findIndex((c) => c.url.indexOf('/api/worlds/hide') !== -1 && c.method === 'POST');
+    const hid = hidIdx >= 0 ? calls[hidIdx] : null;
     try { out.named.hideBody = hid ? JSON.parse(hid.body) : null; } catch { out.named.hideBody = null; }
     out.named.modalClosedAfterHide = $('world-rename-modal').hidden;
-    out.named.refetchedAfterHide = calls.some((c) => c.url.indexOf('/api/worlds/list') !== -1);
+    // Scoped to AFTER the hide POST, and matched against PLAIN /api/worlds (worldsFetch), never
+    // /api/worlds/list (which fires on modal open, before the hide): otherwise the assertion passes
+    // even if the refetch is deleted. `(?:\?|$)` keeps /api/worlds/list and /api/worlds/hide out.
+    out.named.refetchedAfterHide = hidIdx >= 0
+      && calls.slice(hidIdx + 1).some((c) => /\/api\/worlds(?:\?|$)/.test(c.url) && c.method !== 'POST');
 
     // The active/booted world: the route refuses, and the reason must surface (modal stays open).
     bootedCog.click();
