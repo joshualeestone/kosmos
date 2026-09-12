@@ -12,13 +12,35 @@ const store = require('./engine/store');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const nodePath = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, execFile } = require('node:child_process');
+const { promisify } = require('node:util');
 
+const execFileAsync = promisify(execFile);
 const BRIDGE = nodePath.join(__dirname, 'bin', 'codex-report-bridge.js');
 
-/** Run the bridge once against a stub board; return what the board saw. */
+/** Run the bridge once against a stub board; return what the board saw.
+ *
+ * The spawn is ASYNC (execFileAsync) and NOT execFileSync, and this is
+ * load-bearing rather than a style choice (#2895). The bridge's report is a
+ * fetch to the stub board running in THIS process; a synchronous spawn blocks
+ * this process's event loop for the whole life of the child, so the stub can
+ * only ever answer the request if libuv happens to service the default loop's
+ * handles from inside spawnSync's internal wait -- which it does under a light
+ * load and stops doing under a heavy one. When it stops, the child's fetch gets
+ * no response, hits the bridge's 5s TIMEOUT_MS abort, and the board records
+ * nothing: `seen.length === 0`, a false failure whose executed bytes are
+ * identical to a passing run (that identical-bytes-yet-flakes shape is exactly
+ * what #2895 measured). Spawning async keeps the loop free, so the stub answers
+ * concurrently with the child's fetch and delivery is deterministic.
+ *
+ * The child exits only after its fetch settles, and on success the board's
+ * request handler pushes to `seen` before it writes the response (so before the
+ * fetch resolves, so before the child exits). Awaiting the child is therefore a
+ * sufficient barrier: when it returns, a delivered report is already in `seen`
+ * and an ignored event (the early-return path, no fetch) left it empty. No
+ * timer, no race. */
 function drive(eventJson, env = {}) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const seen = [];
     const server = http.createServer((req, res) => {
       let body = '';
@@ -31,11 +53,14 @@ function drive(eventJson, env = {}) {
     });
     server.listen(0, '127.0.0.1', () => {
       const port = server.address().port;
-      execFileSync(process.execPath, [BRIDGE, eventJson], {
+      execFileAsync(process.execPath, [BRIDGE, eventJson], {
         env: { ...process.env, KOSMOS_PORT: String(port), TMUX_PANE: '%77', ...env },
-      });
-      // The bridge's fetch is async past main(); give it a beat, then close.
-      setTimeout(() => server.close(() => resolve(seen)), 300);
+      }).then(
+        // The bridge's cardinal rule is to exit 0 no matter what, so a non-zero
+        // exit here is a real regression worth surfacing, not swallowing.
+        () => server.close(() => resolve(seen)),
+        (err) => server.close(() => reject(err)),
+      );
     });
   });
 }
