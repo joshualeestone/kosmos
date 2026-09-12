@@ -24,7 +24,7 @@ test('saw records ok and 401, keyed by (provider, agent), with the timestamp giv
 
 test('#2413: observations are provider-qualified -- the same agent name never crosses providers', () => {
   // A codex agent on the default home records configDir=null, which accountForAgent
-  // maps to the DEFAULT CLAUDE account (status.js:6209). Without the provider in the
+  // USED to map to the DEFAULT CLAUDE account (#2811 gated it). Without the provider in the
   // key, an OpenAI ok for "sub" would be read by the Claude overlay and green a Claude
   // account. Keying by (provider, agent) keeps them separate.
   observed.saw(OPENAI, 'sub', OK, 1000);

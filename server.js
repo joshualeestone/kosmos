@@ -1148,11 +1148,13 @@ function accountForAgent(name, known) {
      `configDir: null` and this falls to the dir-less arm, which matched purely on
      `isDefault`. Handed the CLAUDE list, that is the operator's Claude account:
      a Codex agent told it runs on josh@... with `isDefault: true`.
-     ⭐ The codebase already knew: the #2413 overlay further down this file
-     says in as many words that "a codex agent on the default home maps to the
-     default Claude account", and guards its own join by filtering observations
-     per provider. The raw mapping here was never gated, so every OTHER caller
-     still got the wrong row.
+     ⭐ The codebase already knew, and said so in the #2413 overlay further down
+     this file: "a codex agent on the default home maps to the default Claude
+     account". That sentence was TRUE WHEN WRITTEN and this change is what makes
+     it false, so it is quoted here as the prior diagnosis rather than as current
+     behaviour, and the overlay's own copy is corrected. The overlay guarded its
+     join by filtering observations per provider; the raw mapping here was never
+     gated, so every OTHER caller still got the wrong row.
      🛑 AND I WAVED THIS OFF BY NAME. My round-4 comment said only the fallback
      needed guarding because "there `isDefault` comes from whichever list matched,
      which is that list's own notion and correct for both providers". That is true
@@ -5427,7 +5429,9 @@ const server = http.createServer((req, res) => {
           // #2413: the Claude overlay reads ONLY anthropic observations. An OpenAI
           // observation resolved against the CLAUDE account list would green a Claude
           // account it has nothing to do with (a codex agent on the default home maps to
-          // the default Claude account -- status.js's own note). The provider is in the
+          // the default Claude account -- status.js's own note, true when written).
+          // #2811 gated that dir-less match, so it now maps to NOTHING; this filter
+          // is kept as defence in depth rather than removed. The provider is in the
           // observation key precisely so this join stays on one provider's rows.
           if (o.provider !== observed.PROVIDER.ANTHROPIC) continue;
           const acct = accountForAgent(o.agent, knownAccts);

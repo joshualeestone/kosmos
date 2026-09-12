@@ -8,7 +8,8 @@
  *
  *   1. The observation is PROVIDER-QUALIFIED (PROVIDER.OPENAI), never PROVIDER.ANTHROPIC.
  *      A codex agent on the default home records configDir=null, which accountForAgent
- *      maps to the DEFAULT CLAUDE account; without the provider tag its `ok` would green
+ *      USED to map to the DEFAULT CLAUDE account (#2811 gated it); without the
+ *      provider tag its `ok` would green
  *      a Claude account it has nothing to do with.
  *
  *   2. The `ok` is recorded from a WITNESSED ROLLOUT COMPLETION (a token_count carrying

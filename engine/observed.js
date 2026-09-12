@@ -38,8 +38,8 @@ const OUTCOME = Object.freeze({ OK: 'ok', REJECTED: '401' });
  * and the badge overlay for the OpenAI rows are two different joins over two different
  * account lists; without the provider in the key, an OpenAI agent's `ok` could resolve
  * against the Claude account list (a codex agent on the default home records
- * configDir=null, which accountForAgent maps to the DEFAULT CLAUDE account -- see
- * status.js:6209) and green a Claude account it has nothing to do with. Keying by
+ * configDir=null, which accountForAgent USED to map to the DEFAULT CLAUDE account)
+ * and green a Claude account it has nothing to do with. Keying by
  * (provider, agent) makes an OpenAI observation reachable ONLY from the OpenAI overlay
  * and a Claude observation ONLY from the Claude one -- the isolation the two-derivations
  * habit this codebase warns about would otherwise break.
