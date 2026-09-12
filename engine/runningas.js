@@ -424,21 +424,42 @@ function runningAsWin32(session, deps = {}) {
      the way `claude agents --json` enumerates claude ones); it is not blocked on
      being unable to test win32, which this repo does routinely through injected
      deps.
-     📌 WINDOWS IS SILENT ABOUT THE PROVIDER, and this note has now been wrong in
-     BOTH directions about that. It first said whoami "reports null for it on
-     Windows" (true of the JSON field, read as true of the answer). The correction
-     then claimed the sentence still names the provider off the `@kosmos_runner`
-     marker, which was measured on a card shape WINDOWS CANNOT PRODUCE.
-     Every rung of `resolvedRunner` is macOS-only, and this repo says so itself:
-       - the marker is a TMUX format (`#{@kosmos_runner}`), and `win32create.js`
-         states "Windows has no tmux and no launchd";
-       - `recordedRunner` -> `readJob` reads `~/Library/LaunchAgents`, launchd;
-       - its profile fallback needs a written `provider`, and `win32create.js`
-         writes none (zero occurrences).
-     ⇒ On a real Windows box every rung floors at `'claude'`, so `resolvedRunner`
-     is `'claude'` and the sentence names no provider at all. A codex agent there
-     is not told it is one. That is the honest statement, and it makes the gap
-     above WIDER, not narrower: the ownership join is one part of it. */
+     📌 WINDOWS DOES NAME THE PROVIDER, THROUGH THE PROFILE, and this note has
+     been wrong THREE TIMES about which rung does it. Recorded in full because the
+     wrong versions were each plausible and a reader who sees only this one cannot
+     tell which stones were already turned over:
+       v1 "whoami reports null for it on Windows"   - true of the JSON field,
+          read as true of the answer.
+       v2 "the sentence names it off the @kosmos_runner marker" - measured on a
+          card shape Windows cannot produce (no tmux).
+       v3 "every rung floors at claude"             - I retired rung 1 and
+          ASSUMED rungs 2 and 3 followed.
+       v4 "rung 3 fires, rung 1 does not"           - I then verified rung 3 and
+          ASSUMED rung 1 still did not, having only checked that tmux is absent.
+     ⭐ FOUR TIMES, ONE PATTERN: each version verified the rung it had just been
+     shown and inferred the rest. The fix is not a fifth sentence.
+     Traced and measured, rung by rung. TWO of the three fire on Windows:
+       rung 1  `card.runner`  -> FIRES. Not via tmux (there is none) but via the
+               win32 ROSTER: `server.js` does, under `process.platform === 'win32'`,
+               `status.setPaneSource(win32roster.make())`, and `win32roster` emits
+               a synthetic PANE_COLUMNS row whose `runner` column is `rec.runner`
+               from the win32 sessions record. The engine parses it exactly as it
+               parses a tmux pane.
+       rung 2  `readJob` -> `~/Library/LaunchAgents` -> null; launchd is macOS.
+       rung 3  `store.readProfile(name).provider`    -> FIRES. Measured with no
+               plist at all, which IS the Windows state:
+                 profile.provider = openai  ->  recordedRunner = "codex"
+                 control, no provider written ->  "claude"
+     ⇒ Rung 3 is a plain JSON read with NO platform dependency, and the provider
+     reaching it is written by SHARED code: `create.js`'s `createAgentInner` (the
+     win32 create path calls it) and `engine/discover.js` on connect, which
+     contains zero occurrences of win32/darwin/process.platform. So a Windows
+     OpenAI agent whose profile was written IS told it is a Codex agent; only the
+     live-process `runner` field is null there.
+     ⚠️ "win32create.js writes no provider" is true and IRRELEVANT: that file is
+     session-id pinning CALLED FROM `create.js`, not the win32 substitute for it.
+     Checking it and concluding about the platform is exactly the error a reviewer
+     had NAMED as their own weakest premise two rounds earlier. */
   if (!entry) return { ok: false, because: `no session called ${session} that Kosmos owns on this computer` };
   return win32Answer(entry, cmdlines([entry.pid]));
 }

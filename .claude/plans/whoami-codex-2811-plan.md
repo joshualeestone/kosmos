@@ -54,12 +54,40 @@ running", and `kosmos whoami` could not name the agent at all.
   1. "`server.js` reports null there" is true of the JSON `runner` field, and my
      CORRECTION to it was worse: I wrote that the sentence still names the
      provider off the `@kosmos_runner` marker, measured on a card shape WINDOWS
-     CANNOT PRODUCE. Every rung of `resolvedRunner` is macOS-only (the marker is a
-     tmux format and `win32create.js` says "Windows has no tmux and no launchd";
-     `readJob` reads `~/Library/LaunchAgents`; `win32create` writes no profile
-     provider at all). On a real Windows box every rung floors at `'claude'`, so
-     Windows IS silent about the provider. Wrong in both directions before it was
-     right.
+     CANNOT PRODUCE (no tmux). I then said every rung is macOS-only, having
+     retired rung 1 and ASSUMED rungs 2 and 3 followed.
+     ⇒ AND THEN A FOURTH TIME. v4 said rung 3 fires and rung 1 does not, having
+     checked only that tmux is absent. Rung 1 fires too, through a substitute I
+     never looked for: `server.js` does, under `process.platform === 'win32'`,
+     `status.setPaneSource(win32roster.make())`, and that roster emits a synthetic
+     PANE_COLUMNS row whose `runner` column is `rec.runner` from the win32
+     sessions record. The engine parses it exactly as it parses a tmux pane.
+
+     TRACED, ALL THREE RUNGS. Two of them fire on Windows:
+       rung 1 `card.runner`                     FIRES, via the win32 roster
+       rung 2 `readJob` -> ~/Library/LaunchAgents   no, launchd is macOS
+       rung 3 `store.readProfile().provider`    FIRES, plain JSON, platform-free
+                                                writers (`createAgentInner`, which
+                                                the win32 create path calls, and
+                                                `discover.js`, zero platform
+                                                branches). Measured with no plist:
+                                                provider openai -> "codex";
+                                                control, none -> "claude".
+     So a Windows OpenAI agent IS told it is a Codex agent, by two independent
+     rungs; only the live-process `runner` field is null there.
+
+     ⭐ FOUR VERSIONS, ONE ERROR. Each verified the rung it had just been shown
+     and INFERRED the rest: v1 the JSON field, v2 the marker, v3 tmux, v4 the
+     profile. Every version was measured and every version was wrong, because the
+     measurement was never the SCOPE of the claim. That is the whole lesson of
+     this card in one sentence, and it is why the durable fixes here are
+     assertions: the profile rung is pinned by a test whose mutant dies, and the
+     answer shape by a table over every return path.
+     "win32create.js writes no provider" is true and IRRELEVANT: that file is
+     session-id pinning called from `create.js`, not the win32 substitute for it.
+     ⭐ Now an ASSERTION, not a sentence: `server.test.js` pins the profile rung,
+     and a mutant flooring it at claude reds it. Three prose versions could not
+     hold this fact still.
   2. "I have no Windows box to measure" is not the reason and is not true of this
      repo, which builds and tests the whole win32 arm through injected deps on
      Macs. The real reason a runner derivation is absent from `win32Answer` is
