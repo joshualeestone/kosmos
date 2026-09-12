@@ -67,7 +67,10 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       frSubGoKept: has('fr-openai-sub-go'),
       frSubNoOptionalCopy: stepText('fr-openai-sub-step').indexOf('name is optional') === -1,
       // CONTROL: the API-key steps KEEP their name field (a key has no email to pull).
+      // Both key steps, because the OpenAI one shares the "openai" prefix and sits in the
+      // same modal -- it is the sibling most at risk of an accidental over-removal.
       claudeKeyLabelKept: has('acct-claude-key-label'),
+      openaiKeyLabelKept: has('acct-openai-label'),
     };
   });
   await browser.close();
@@ -81,7 +84,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   if (!r.frSubNoOptionalCopy) problems.push('the first-run subscription step still shows the "name is optional" copy');
   if (!r.acctSubGoKept) problems.push('the Settings "Sign in with ChatGPT" button (#acct-openai-sub-go) is missing -- the removal took too much');
   if (!r.frSubGoKept) problems.push('the first-run "Sign in with ChatGPT" button (#fr-openai-sub-go) is missing -- the removal took too much');
-  if (!r.claudeKeyLabelKept) problems.push('CONTROL FAILED: the Anthropic API-key name field (#acct-claude-key-label) was also removed -- #2913 is subscription-only; a key has no email to pull');
+  if (!r.claudeKeyLabelKept) problems.push('CONTROL FAILED: the Anthropic API-key name field (acct-claude-key-label) was also removed -- #2913 is subscription-only; a key has no email to pull');
+  if (!r.openaiKeyLabelKept) problems.push('CONTROL FAILED: the OpenAI API-key name field (acct-openai-label) was also removed -- #2913 is subscription-only; the OpenAI key step keeps its name too');
 
   console.log('  ' + JSON.stringify(r));
   if (problems.length) {
