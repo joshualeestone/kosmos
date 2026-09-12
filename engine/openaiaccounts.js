@@ -400,7 +400,15 @@ function forgetAccount(dir, usedBy) {
        returns `that is not an OpenAI account on this computer`, while the control
        inside home returns `ok:true`. That is a live control that can never act,
        which is the shape this file refuses elsewhere. It PREDATES this change and
-       is not fixed here; it is carded rather than widened silently. */
+       is not fixed here; it is carded rather than widened silently.
+       ⚠️ #2941: the "caller OMITS / states the history sentence" framing above is
+       PRE-#2941 and describes the OLD OpenAI removal copy. The OpenAI caller no
+       longer gates its codex-history sentence on this flag (it discloses
+       unconditionally now, because status.readCodexSession reads every account's
+       own home since #2906). So this flag must still be COMPUTED correctly, but
+       its live consumer is the Claude default-recovery path, not the OpenAI
+       history sentence -- the wrong-in-both-directions argument is about the flag,
+       which is unchanged; only its OpenAI consequence is historical. */
     wasDefault: clean === path.resolve(defaultDir()),
     because: null,
   };
