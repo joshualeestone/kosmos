@@ -39,8 +39,24 @@ correct; the fix is to give the state a real next step instead of only prose.
   the NOT-LISTABLE case it now asserts the button shows and, on click, opens
   `#acct-add-modal`; in the LISTABLE case it asserts the button stays hidden.
   Green headless (connectShown/connectOpensFlow true, connectHidden true).
-- Full web suite 1284/1284, browser-check guard tests (selectors/emit-count/
-  indexed) green. No surface-map token hit.
+- Challenge-loop hardening added three more coverage blocks to the same check, each
+  proven red-capable by reverting the code under test:
+  - `hideCoverage`: shows the button, then exercises BOTH hide paths so removing
+    either reds the check - a LISTABLE repaint (the per-paint default-hide) and an
+    openDetail switch to a Claude agent (the on-open reset that stops the button
+    lingering under the Claude model tab).
+  - `usableGate`: paints a NOT-OURS agent whose reason also matches "not an api
+    key" and asserts the button stays hidden and the refusal note shows, so the
+    `usable &&` half of the show gate is enforced (dropping it reds the check).
+  - `connectFocusReturns`: closing the modal opened from the Model tab returns
+    focus to the Connect button, not to the display:none Accounts door (the #1918
+    stranded-focus class). Backed by a module-level `ACCT_ADD_RETURN_FOCUS` set in
+    `openAcctAdd` and read in `closeAcctAdd`; the lifted `closeAcctAdd`/`openAcctAdd`
+    unit tests inject that global as a param.
+  - Also null-guarded the `#d-model-connect` listener wiring so a future rename
+    cannot throw and halt the rest of the top-level listener registration.
+- Full web suite green (6234 tests, 0 fail), browser-check guard tests
+  (selectors/emit-count/indexed) green. No surface-map token hit.
 
 ## Decisions / rejected alternatives
 
