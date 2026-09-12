@@ -5455,6 +5455,27 @@ const server = http.createServer((req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
     return;
   }
+  if (pathname === '/api/ping-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const r = ping.read();
+      sendJson(res, 200, { on: r.on, ok: r.ok });
+    } catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/ping-setting' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const saved = ping.setOn(typeof body.on === 'boolean' ? body.on : undefined);
+        if (saved && !saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        const r = ping.read();
+        sendJson(res, 200, { on: r.on, ok: r.ok });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
   if (pathname === '/api/history' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { sendJson(res, 200, forget.summary()); }
     catch { sendJson(res, 500, { error: 'we could not look at your history' }); }
