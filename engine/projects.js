@@ -983,9 +983,9 @@ function describe(project, roster, all) {
        would light B too -- the same global working fact lighting two tiles, the exact bug
        this card fixes. Gating on the described project's own archived state confines the
        fallback to active projects, where "sole active membership" actually means "this one".
-     - `Array.isArray(all)`: FAIL CLOSED, not open. `all` is always an array on the real
-       path (list()/get() pass readAll(), and describe is unexported), so this changes
-       nothing observable today. But if a future caller ever passed a non-array `all`,
+     - `Array.isArray(all)`: FAIL CLOSED, not open. Every in-repo caller passes an array
+       (list()/get() pass readAll()), so this changes nothing observable on the real path.
+       But `describe` is exported, so a future or test caller could pass a non-array `all`;
        firing the sole-membership fallback anyway would silently re-light EVERY project a
        working agent belongs to -- reintroducing precisely the over-claim #2837 removes.
        When membership cannot be computed we do NOT claim sole membership; the attributed
