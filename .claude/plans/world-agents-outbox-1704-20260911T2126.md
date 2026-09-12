@@ -203,6 +203,28 @@ on an enforcing board), and is lost. This slice makes nothing sent get lost:
     "Mac agents have no KOSMOS_WORLD until PR1m" prose is corrected in
     outbox.js, launchidentity.js's header and this plan.
 
+- **Round 3 (coordinator review of PR2).** Round 2's fixes hold. Fixed:
+  - [BUG] The keep refused a live legacy Discord agent the drain accepts. The
+    drain takes a sender with a profile OR a tied card; the keep's pane path took
+    a profile only, so a never-adopted `claudebot-discord` (its own launch
+    script, no token, no profile, tied by the `-discord` rule alone) was told
+    "This window is not one of your agents" and nothing was kept. The keep now
+    accepts a profile, or a pane that is ours by the roster's own name rule. That
+    rule (a `@kosmos_agent` claim equal to the session, or a `-discord` session)
+    is extracted from `status.isNamedOurs` into
+    `launchidentity.paneSessionIsOurs`, which `isNamedOurs` now calls; the claim
+    is read with `messages.paneClaim`, beside `paneSession`. Tested: a
+    profile-less `-discord` window is kept and delivered by the drain; a claimed
+    window is kept and a wrong or absent claim refused; a source pin keeps
+    `isNamedOurs` delegating.
+  - [NIT] `bin/agent-supervisor.sh`'s #2874 comment said the hooks and the CLI
+    read the roots, not KOSMOS_WORLD; the world header reads KOSMOS_WORLD. It now
+    says so, and why the one disagreement (a world that cannot be entered keeps
+    KOSMOS_WORLD with the default roots) is harmless: the default board answers
+    421, the send is kept in the default outbox and drained within a minute.
+  - [NIT] outbox.js credited refusing another Kosmos's session to round 1; it was
+    round 2.
+
 ## Weakest part
 
 Trusting `from`. It rests on same-account files: the token store and the pane both

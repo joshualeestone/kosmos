@@ -251,3 +251,21 @@ test('drain: a Discord-bridged agent\'s reply, kept from its own window, reaches
   assert.ok(chat.readThread(chat.DIRECT, 'ava').messages.some((m) => m.text === 'from the discord window'));
   assert.deepEqual(outbox.list(), []);
 }));
+
+test('drain: a live legacy Discord agent with no profile and no token is kept from its window and delivered (review round 3)', () => withFleet(() => {
+  clearOutbox();
+  /* fleet.agent('bo') runs in `bo-discord` with no claim and, in this sandbox, no
+     profile: the board ties it by the -discord rule alone, as a never-adopted
+     legacy bot running from its own launch script is tied. */
+  assert.equal(Object.keys(store.readProfile('bo')).length, 0, 'the scenario: no profile');
+  const kept = outbox.keepFromClient({
+    verb: 'reply', body: { text: 'from a legacy bot', from_pane: '%3' },
+    env: { TMUX_PANE: '%3', KOSMOS_WORLD: '' },
+    seams: { paneSession: () => ({ ok: true, session: 'bo-discord' }), paneClaim: () => '' },
+  });
+  assert.equal(kept.ok, true, JSON.stringify(kept));
+  assert.equal(outbox.list()[0].entry.from, 'bo');
+  assert.equal(drainOutboxNow().delivered, 1, 'the drain accepts it by its tied card, as the keep now does');
+  assert.ok(chat.readThread(chat.DIRECT, 'bo').messages.some((m) => m.text === 'from a legacy bot'));
+  assert.deepEqual(outbox.list(), []);
+}));

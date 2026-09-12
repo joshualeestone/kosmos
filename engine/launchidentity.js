@@ -136,8 +136,23 @@ function agentNameFromSession(session, worldId) {
   return inWorld === null ? null : inWorld.replace(DISCORD_SESSION_SUFFIX, '');
 }
 
+/** Whether a tmux session is one of ours by the NAME rule: its `@kosmos_agent`
+    claim equals the session itself (the claim Kosmos stamps on a session it
+    runs, with the raw session, so `<name>+<world>` for a named world), or the
+    session carries a Discord bridge's `-discord` suffix (the legacy fleet, which
+    has no claim). The ONE rule status.isNamedOurs ties a roster card by (its
+    comment says why each arm is evidence, and what it does not defend against),
+    and the outbox keep accepts a profile-less window by (review round 3), so a
+    live legacy `*-discord` agent the drain will deliver for is kept, not refused. */
+function paneSessionIsOurs(session, claim) {
+  const s = String(session == null ? '' : session);
+  const c = String(claim == null ? '' : claim).trim();
+  if (c && c === s) return true;
+  return DISCORD_SESSION_SUFFIX.test(s);
+}
+
 module.exports = {
   WORLD_ENV_VAR, DEFAULT_WORLD_ID, WORLD_SEPARATOR, WORLD_HEADER, WORLD_HEADER_CHARSET,
   isDefaultWorld, worldIdOrDefault, currentWorldId, worldIdForHeader, worldHeaderValue,
-  launchKey, parseKey, nameInWorld, agentNameFromSession,
+  launchKey, parseKey, nameInWorld, agentNameFromSession, paneSessionIsOurs,
 };

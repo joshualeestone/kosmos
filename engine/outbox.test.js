@@ -129,7 +129,7 @@ test('from: the launch token wins, an agent\'s pane is the fallback, and neither
 
 test('a person\'s own tmux window is not an agent: the keep is refused, nothing is kept, and the command exits 1 (review round 1)', () => {
   clear();
-  const personsWindow = { paneSession: () => ({ ok: true, session: 'josh-work' }) };
+  const personsWindow = { paneSession: () => ({ ok: true, session: 'josh-work' }), paneClaim: () => '' };
   const refused = outbox.resolveKeepSender({ TMUX_PANE: '%9' }, personsWindow);
   assert.equal(refused.ok, false, 'a window whose session has no profile in this Kosmos is not an agent');
   assert.match(refused.because, /not one of your agents/);
@@ -295,4 +295,39 @@ test('a named Kosmos\'s agent window (<name>+<world>) is kept under the bare nam
   assert.equal(kept.ok, true);
   assert.equal(outbox.list()[0].entry.from, 'ava');
   clear();
+});
+
+// ── review round 3: the keep accepts exactly what the drain accepts ──
+
+test('a live legacy Discord agent with no token and no profile is kept, as the drain would accept it (review round 3)', () => {
+  clear();
+  assert.equal(Object.keys(store.readProfile('claudebot')).length, 0, 'the scenario: never adopted, so no profile');
+  const legacy = { paneSession: () => ({ ok: true, session: 'claudebot-discord' }), paneClaim: () => '' };
+  assert.deepEqual(outbox.resolveKeepSender({ TMUX_PANE: '%6', KOSMOS_WORLD: '' }, legacy), { ok: true, name: 'claudebot' });
+  const kept = outbox.keepFromClient({ verb: 'reply', body: { text: 'from a legacy bot' }, env: { TMUX_PANE: '%6', KOSMOS_WORLD: '' }, seams: legacy });
+  assert.equal(kept.ok, true, JSON.stringify(kept));
+  assert.equal(outbox.list()[0].entry.from, 'claudebot');
+  clear();
+});
+
+test('a profile-less window is kept when its @kosmos_agent claim is its own session, and refused when the claim is absent or names another (review round 3)', () => {
+  clear();
+  const claimed = (claim) => ({ paneSession: () => ({ ok: true, session: 'zed' }), paneClaim: () => claim });
+  assert.deepEqual(outbox.resolveKeepSender({ TMUX_PANE: '%7' }, claimed('zed')), { ok: true, name: 'zed' });
+  assert.equal(outbox.resolveKeepSender({ TMUX_PANE: '%7' }, claimed('someone-else')).ok, false, 'a claim naming another session is somebody else\'s claim');
+  assert.equal(outbox.resolveKeepSender({ TMUX_PANE: '%7' }, claimed('')).ok, false, 'no claim and no -discord: not ours');
+  const namedWorldClaim = { paneSession: () => ({ ok: true, session: 'zed+qa' }), paneClaim: () => 'zed+qa' };
+  assert.deepEqual(outbox.resolveKeepSender({ TMUX_PANE: '%7', KOSMOS_WORLD: 'qa' }, namedWorldClaim), { ok: true, name: 'zed' },
+    'the claim carries the raw session, the launch key, in a named world');
+});
+
+test('paneSessionIsOurs is the tie status.isNamedOurs applies, not a second copy of it', () => {
+  const { paneSessionIsOurs } = require('./launchidentity');
+  assert.equal(paneSessionIsOurs('angel-discord', ''), true);
+  assert.equal(paneSessionIsOurs('zed', 'zed'), true);
+  assert.equal(paneSessionIsOurs('zed', 'other'), false);
+  assert.equal(paneSessionIsOurs('zed', ''), false);
+  const statusSource = fs.readFileSync(path.join(__dirname, 'status.js'), 'utf8');
+  assert.match(statusSource, /function isNamedOurs\(pane\) \{[\s\S]*?return launchidentity\.paneSessionIsOurs\(pane\.session, pane\.claim\);\n\}/,
+    'status.isNamedOurs must delegate to launchidentity.paneSessionIsOurs, so the keep and the roster cannot drift');
 });

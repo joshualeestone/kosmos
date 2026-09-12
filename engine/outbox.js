@@ -234,16 +234,20 @@ function remove(id) {
  * 2. Else the tmux session of TMUX_PANE, through the same messages.paneSession the
  *    pane route uses (the Mac), named by launchidentity.agentNameFromSession in
  *    this process's own world -- the rule status.parsePanes names roster cards by,
- *    so `angel-discord` is `angel` and a named world's `ava+qa` is `ava` (review
- *    round 2) -- and kept only when that name has a profile in THIS store: a
- *    person's own tmux window is not an agent, and neither is another Kosmos's
- *    session (review round 1). The pane route's own tie is the roster, which a
- *    board serving another Kosmos cannot give; the profile is this Kosmos's record
- *    of its agents.
+ *    so `angel-discord` is `angel` and a named world's `ava+qa` is `ava` -- and
+ *    another Kosmos's session names nobody and is refused (review round 2). The
+ *    window is kept when it is an agent by the same test the drain applies
+ *    (server.js agentBelongsToThisKosmos: a profile, OR a tied card): a profile
+ *    for that name in THIS store, or a session that is ours by the roster's own
+ *    name rule, launchidentity.paneSessionIsOurs (its `@kosmos_agent` claim is
+ *    the session, or it is a legacy `*-discord` session), which is how a live
+ *    legacy Discord agent with no token and no profile is kept rather than
+ *    refused (review round 3). A person's own tmux window is none of these, and
+ *    is refused (review round 1).
  * 3. Else nobody: refused with a sentence.
  *
- * `seams` ({resolveName, paneSession}) is for tests; both default to the real
- * modules, required only on the arm that needs them.
+ * `seams` ({resolveName, paneSession, paneClaim}) is for tests; each defaults to
+ * the real module, required only on the arm that needs it.
  */
 function resolveKeepSender(env, seams) {
   const e = env || process.env;
@@ -260,10 +264,13 @@ function resolveKeepSender(env, seams) {
     const paneSession = s.paneSession || ((p) => require('./messages').paneSession(p));
     const found = paneSession(pane);
     if (!(found && found.ok && found.session)) return { ok: false, because: NO_SENDER };
-    const name = launchidentity.agentNameFromSession(String(found.session), launchidentity.currentWorldId(e));
+    const session = String(found.session);
+    const name = launchidentity.agentNameFromSession(session, launchidentity.currentWorldId(e));
     if (name === null || !SENDER_NAME_RE.test(name)) return { ok: false, because: NOT_AN_AGENT_WINDOW };
-    if (Object.keys(store.readProfile(name)).length === 0) return { ok: false, because: NOT_AN_AGENT_WINDOW };
-    return { ok: true, name };
+    if (Object.keys(store.readProfile(name)).length > 0) return { ok: true, name };
+    const paneClaim = s.paneClaim || ((p) => require('./messages').paneClaim(p));
+    if (launchidentity.paneSessionIsOurs(session, paneClaim(pane))) return { ok: true, name };
+    return { ok: false, because: NOT_AN_AGENT_WINDOW };
   }
   return { ok: false, because: NO_SENDER };
 }

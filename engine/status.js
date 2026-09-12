@@ -1101,12 +1101,14 @@ function isNamedOurs(pane) {
   // What the claim actually buys is that it DIES WITH THE SESSION: there is no
   // stale record for a stranger to inherit later, which is the failure a claims
   // file on disk would have had.
-  const claim = String(pane.claim || '').trim();
-  if (claim && claim === String(pane.session || '')) return true;
-
-  // The legacy arm: the existing fleet carries the suffix and no claim, and
-  // must keep working untouched.
-  return /-discord$/.test(String(pane.session || ''));
+  //
+  // The legacy arm: the existing fleet carries the `-discord` suffix and no
+  // claim, and must keep working untouched.
+  //
+  // Both arms are ONE function, launchidentity.paneSessionIsOurs, which the
+  // outbox keep also uses to accept a profile-less agent window (#1704 PR2), so
+  // the keep and this roster tie cannot drift apart.
+  return launchidentity.paneSessionIsOurs(pane.session, pane.claim);
 }
 
 /**
