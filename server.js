@@ -69,6 +69,7 @@ const {
   ASKING_GENERIC,
 } = require('./engine/status');
 const removal = require('./engine/remove');
+const worldstarts = require('./engine/worldstarts'); // #1704 PR3: pause/resume a Kosmos's agents across a switch
 
 /* #2128: does this MACHINE currently depend on a Claude subscription? The
    "cannot reach a Claude subscription" banner (renderConnection) must fire only
@@ -2878,18 +2879,21 @@ const server = http.createServer((req, res) => {
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
   }
-  /* #1704 slice 2b-ii: switch the active world. This records activeWorldId in the
-     registry (worlds.setActiveWorld) and reports restartRequired. It deliberately
-     does NOT stop-and-relaunch the board: a world's env overrides (the data /
-     projects / workers roots) are applied ONCE at board startup by
-     worlds.applyActiveWorldEnv, so a running board keeps serving the PREVIOUS
-     world's roots until it restarts. That stop-and-relaunch lifecycle -- and the
-     per-world launchd agents that ride it -- is the next slice; this route is the
-     registry switch plus the honest restartRequired signal the switcher UI needs,
-     with no board self-restart merged (which would be a fleet-affecting action on
-     a shared box). worldBase() is the pre-override registry base captured at
-     start(), so the switch operates on the registry regardless of which world is
-     active. */
+  /* #1704: switch the active world. Body {id, agents: 'pause'|'keep'}.
+     A world's env overrides (the data / projects / workers roots) are applied ONCE
+     at board startup, so a running board keeps serving the world it BOOTED into
+     until it restarts; this route records the new activeWorldId, answers, and then
+     self-restarts the board when it safely can (#2238 below).
+     PR3 (Josh: the dialog asks each time): `agents` says what happens to the
+     agents of the Kosmos being LEFT. 'keep' leaves them running, exactly as every
+     switch did before (an absent value means 'keep', for a page loaded before this
+     existed). 'pause' stops them BEFORE the switch is recorded
+     (engine/worldstarts.pauseForSwitch: remembered in the left world's store,
+     disabled so a login cannot revive them), and the board brings them back when
+     it next boots into that world (drainAtBoot, in the real-start block). If
+     recording the switch then fails, the agents just paused are started again.
+     worldBase() is the pre-override registry base captured at start(), so the
+     switch operates on the registry regardless of which world is active. */
   if (pathname === '/api/worlds/active' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
@@ -2900,13 +2904,73 @@ const server = http.createServer((req, res) => {
         // world is NOT-FOUND (404). They are different failures and the switcher UI
         // acts on them differently (fix the request vs refresh the world list).
         if (!id) { sendJson(res, 400, { ok: false, because: 'say which Kosmos to switch to (an id)' }); return; }
+        const agentsChoice = body.agents === undefined ? worldstarts.DEFAULT_AGENT_CHOICE : body.agents;
+        if (!Object.values(worldstarts.AGENT_CHOICES).includes(agentsChoice)) {
+          sendJson(res, 400, { ok: false, because: 'say whether to pause this Kosmos\'s agents or keep them running (agents: "pause" or "keep")' });
+          return;
+        }
         let base;
         // A base error is a SERVER condition (broken login env), not a bad request:
         // 500, and never leak the internal dataRootFor message.
         try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+        /* Judged BEFORE the switch, because a pause has to happen before it.
+           setActiveWorld matches ids exactly (worlds.js: w.id === id) and returns
+           that world, so the requested id is the canonical one it would return. */
+        const bootedId = require('./engine/worldenv').bootedWorld();
+        const isNoop = bootedId != null && bootedId === id;
+        let pause = { paused: [], notPaused: [], stoppedNow: [] };
+        if (!isNoop && agentsChoice === worldstarts.AGENT_CHOICES.PAUSE) {
+          /* Refuse a pause for a world that does not exist rather than stop agents
+             for a switch that is about to 404. setActiveWorld still classifies the
+             race where it disappears in between (the rollback below). */
+          let known;
+          try { known = worlds.listWorlds(base).some((w) => w.id === id); }
+          catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+          if (!known) { sendJson(res, 404, { ok: false, because: 'there is no Kosmos with that id on this machine' }); return; }
+          /* safeRoster(): removed agents are already off it, so a pause never
+             touches an agent Kosmos has told the person is gone. */
+          const roster = safeRoster();
+          /* Review round 1: NO PAUSE FROM A WORLD WHOSE AGENTS MAY NOT RUN (#2849,
+             the ONE rule, reused). While #2849 refuses, a named world runs no
+             agents of its own, so it has nothing to pause. It was worse before Mac
+             identity was world-keyed (#2874): a named board's roster showed the
+             DEFAULT world's agents, and remove.jobFor found their plists, so a pause
+             stopped Kosmos 1's agents while recording them in the named world's
+             store, where #2849 then held them forever. So every agent keeps
+             running, is listed, and the switch proceeds. ⚠️ REVISIT when #2849 is
+             lifted: with both platforms now world-keyed (#2845, #2874), this
+             condition should then simply go. */
+          /* An unreadable roster is a 503 on both branches below: a pause the
+             person asked for must not come back as a silent empty list. */
+          if (roster === null) {
+            sendJson(res, 503, { ok: false, because: 'we could not see which agents are running in this Kosmos, so nothing was paused or switched. Try again, or keep them running' });
+            return;
+          }
+          const agentsBarred = namedWorldSpawnRefusal();
+          if (agentsBarred) {
+            pause = {
+              paused: [],
+              notPaused: roster.map((a) => ({ name: a.sessionName, because: `${a.sessionName} keeps running: agents cannot be paused from a named Kosmos yet` })),
+              stoppedNow: [],
+            };
+          } else {
+            pause = worldstarts.pauseForSwitch(roster.map((a) => ({ name: a.sessionName, session: a.session, tied: a.isNamedOurs })));
+          }
+        }
         let world;
         try { world = worlds.setActiveWorld(base, id); }
         catch (e) {
+          /* The switch did not happen, so the agents THIS request stopped go back
+             to running in the Kosmos the board is still serving. stoppedNow, not
+             paused: `paused` also names agents an EARLIER pause-switch of this
+             Kosmos stopped (a board that could not restart itself), and the person
+             asked for those paused too (review round 3). Not gated by the
+             named-world spawn rule: this undoes our own stop of agents that were
+             running here a moment ago. */
+          if (pause.stoppedNow.length) {
+            const undone = worldstarts.resumeNames(pause.stoppedNow);
+            if (undone.held.length) process.stderr.write(`Kosmos could not start ${undone.held.length} agent(s) again after a failed switch. First: ${undone.held[0].name} - ${undone.held[0].because}\n`);
+          }
           // Classify by the engine's typed error CODE, never its message text --
           // the message is person-facing and free to change; the code is the
           // contract (see worlds.js). ENOWORLD: the id names no world (not-found).
@@ -2935,13 +2999,23 @@ const server = http.createServer((req, res) => {
                reports restarting:false and the switcher UI asks for a MANUAL restart
                -- never a bare exit that would brick it (engine/boardrestart is the
                conservative, fail-safe guard; see its header). */
-        const bootedId = require('./engine/worldenv').bootedWorld();
-        // Compare against the CANONICAL id setActiveWorld returned (world.id), not the
-        // raw request `id`, so a no-op is judged on the id the board actually booted vs
-        // the one now active -- robust to any id normalization setActiveWorld may do.
-        const isNoop = bootedId != null && bootedId === world.id;
+        /* A switch to the world this board is serving. The page never sends one in
+           its normal flow (the current world's row is not a button, #2454b); it
+           is reached by a direct API call, or by a page whose list still marks the
+           registry pointer after a switch on a board that could not restart
+           itself. If an earlier pause-switch on such a board stopped this world's
+           agents, they are "opened again" here, and no boot is coming to bring
+           them back. Costs nothing when nothing is paused. Held, like the boot
+           drain, while agents may not start in this world (#2849, one derivation). */
+        if (isNoop) {
+          const back = worldstarts.resumePaused({ spawnRefusal: namedWorldSpawnRefusal });
+          if (back.held.length) process.stderr.write(`Kosmos left ${back.held.length} paused agent(s) off. First: ${back.held[0].name} - ${back.held[0].because}\n`);
+        }
         const restarting = !isNoop && require('./engine/boardrestart').canSelfRestart().canRestart;
-        sendJson(res, 200, { ok: true, world, restartRequired: !isNoop, restarting });
+        sendJson(res, 200, {
+          ok: true, world, restartRequired: !isNoop, restarting,
+          agents: agentsChoice, paused: pause.paused, notPaused: pause.notPaused,
+        });
         /* AFTER the response has been sent, restart the board so it comes back on the
            new world. The delay lets the 200 flush to the client first, because the
            restart kills the very connection that asked for the switch. selfRestart
@@ -12324,6 +12398,14 @@ if (require.main === module) {
       // would announce itself on port 0.
       process.stdout.write(`Kosmos on http://127.0.0.1:${server.address().port}\n`);
       process.stdout.write('Local only. It writes, and it has no login yet.\n');
+      /* #1704 PR3: start again the agents a pause-switch stopped when this Kosmos
+         was left. Here, not in start(): live execution is armed above and the board
+         is listening, and routing tests that call start() never reach this. Held
+         while agents may not start in this world, by the SAME rule the spawn
+         routes use (#2849, one derivation). Not fatal: a board that could not
+         resume an agent still serves, and the entry is retried next boot. */
+      try { worldstarts.drainAtBoot({ spawnRefusal: namedWorldSpawnRefusal }); }
+      catch (err) { process.stderr.write(`Kosmos could not bring back this Kosmos's paused agents: ${String(err && err.message)}\n`); }
     }).catch((err) => {
       // Say what to do rather than name an exception. A raw EADDRINUSE stack is
       // exactly what start()'s promise exists to replace, and leaving this
