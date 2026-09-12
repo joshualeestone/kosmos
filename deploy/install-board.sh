@@ -103,7 +103,8 @@ validate_dest() {
   [ -e "$_anc" ] || fail "no existing ancestor of '$DEST' could be resolved"
   [ -d "$_anc" ] || fail "the nearest existing ancestor of '$DEST' is not a directory: '$_anc'"
 
-  # canonicalize the existing ancestor (cd -P resolves symlinks) and re-append the
+  # canonicalize the existing ancestor (pwd -P reports the physical dir, resolving
+  # symlinks in the path) and re-append the
   # not-yet-created tail, so the repo/worktree comparisons below see real paths
   # rather than symlink aliases that would slip past a string compare.
   _anc_real="$(cd "$_anc" 2>/dev/null && pwd -P)" || fail "could not resolve the destination's ancestor '$_anc'"
