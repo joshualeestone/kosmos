@@ -14,10 +14,10 @@
  *
  * 🔑 THE AGENT'S OWN STORE, NOT THE BOARD'S. The client runs inside the agent's
  * process tree, whose environment already points store.ROOT at the agent's world
- * (on Windows the boot shim applies it; the Mac is PR1m, where every agent is in
- * the default world). So `<store.ROOT>/outbox/` is exactly the store the right
- * board drains once it is serving that world again. store.ROOT is read at each
- * call, never frozen at require.
+ * (on Windows the boot shim applies it; on the Mac the supervisor hands each pane
+ * KOSMOS_WORLD and the world's store roots, #2874). So `<store.ROOT>/outbox/` is
+ * exactly the store the right board drains once it is serving that world again.
+ * store.ROOT is read at each call, never frozen at require.
  *
  * WHAT IS KEPT: a reply, a msg or a post. A report is NOT kept -- a state the
  * agent was in while its Kosmos was closed is stale by the time it opens -- and
@@ -26,11 +26,11 @@
  *
  * ⚠️ `from` IS DECIDED AT KEEP TIME, in the agent's process, from the same
  * credentials its live sends present: the launch token first
- * (sendertoken.resolveName), else the tmux session its pane is in, and a pane
- * only when that session is an agent in this store. It is not a credential check
- * at drain time: the drain only checks that the name is an agent in the Kosmos it
- * drains. That is the same-account trust the board.token class already rests on
- * (see the plan's "weakest part").
+ * (sendertoken.resolveName), else the tmux session its pane is in, named the way
+ * the board names it and only when that name is an agent in this store. It is
+ * not a credential check at drain time: the drain only checks that the name is
+ * an agent in the Kosmos it drains. That is the same-account trust the
+ * board.token class already rests on (see the plan's "weakest part").
  */
 
 const fs = require('node:fs');
@@ -38,6 +38,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const store = require('./store');
 const securewrite = require('./securewrite');
+const launchidentity = require('./launchidentity');
 
 /* Under store.ROOT, beside the other per-world records. */
 const OUTBOX_DIRNAME = 'outbox';
@@ -220,16 +221,25 @@ function remove(id) {
 /**
  * Which agent is keeping this, decided in the agent's own process from the same
  * credentials its live sends present. `{ ok:true, name }` or `{ ok:false, because }`.
+ * The name is always the bare name the board files the agent under (its profile,
+ * its roster card, its thread), so the drain's "is this an agent here" check and
+ * the delivery see the same name.
  *
  * 1. The launch token (Windows, and Mac agents minted since #1077), through
- *    sendertoken.resolveName against this world's token store. A token that is
- *    presented and does not resolve is a refusal, never a fall back to the pane:
- *    the no-downgrade rule server.js's resolveAgentSender keeps.
+ *    sendertoken.resolveName against this world's token store. The supervisor
+ *    mints it under the bare roster name already (#2874: the session without
+ *    `+<world>`, then without `-discord`). A token that is presented and does not
+ *    resolve is a refusal, never a fall back to the pane: the no-downgrade rule
+ *    server.js's resolveAgentSender keeps.
  * 2. Else the tmux session of TMUX_PANE, through the same messages.paneSession the
- *    pane route uses (the Mac), and only when that session has a profile in THIS
- *    store: a person's own tmux window is not an agent, and is refused (review
- *    round 1). The pane route's own tie is the roster, which a board serving
- *    another Kosmos cannot give; the profile is this Kosmos's record of its agents.
+ *    pane route uses (the Mac), named by launchidentity.agentNameFromSession in
+ *    this process's own world -- the rule status.parsePanes names roster cards by,
+ *    so `angel-discord` is `angel` and a named world's `ava+qa` is `ava` (review
+ *    round 2) -- and kept only when that name has a profile in THIS store: a
+ *    person's own tmux window is not an agent, and neither is another Kosmos's
+ *    session (review round 1). The pane route's own tie is the roster, which a
+ *    board serving another Kosmos cannot give; the profile is this Kosmos's record
+ *    of its agents.
  * 3. Else nobody: refused with a sentence.
  *
  * `seams` ({resolveName, paneSession}) is for tests; both default to the real
@@ -249,8 +259,9 @@ function resolveKeepSender(env, seams) {
   if (pane) {
     const paneSession = s.paneSession || ((p) => require('./messages').paneSession(p));
     const found = paneSession(pane);
-    if (!(found && found.ok && SENDER_NAME_RE.test(String(found.session)))) return { ok: false, because: NO_SENDER };
-    const name = String(found.session);
+    if (!(found && found.ok && found.session)) return { ok: false, because: NO_SENDER };
+    const name = launchidentity.agentNameFromSession(String(found.session), launchidentity.currentWorldId(e));
+    if (name === null || !SENDER_NAME_RE.test(name)) return { ok: false, because: NOT_AN_AGENT_WINDOW };
     if (Object.keys(store.readProfile(name)).length === 0) return { ok: false, because: NOT_AN_AGENT_WINDOW };
     return { ok: true, name };
   }

@@ -258,3 +258,41 @@ test('drain: entries still waiting for a retry do not starve the ones behind the
   assert.equal(outbox.list().length, 3, 'the stuck messages are still kept for a retry');
   clear();
 });
+
+// ── review round 2: the session a pane is in, named the way the board names it ──
+
+test('agentNameFromSession is the board\'s roster rule: +world off in its own Kosmos, then -discord; another Kosmos\'s session is null', () => {
+  const { agentNameFromSession } = require('./launchidentity');
+  assert.equal(agentNameFromSession('angel-discord', 'default'), 'angel', 'a Discord bridge\'s session is filed under the bare name');
+  assert.equal(agentNameFromSession('angel', 'default'), 'angel');
+  assert.equal(agentNameFromSession('ava+qa', 'qa'), 'ava', 'a named Kosmos\'s session in its own Kosmos');
+  assert.equal(agentNameFromSession('ava+qa', 'default'), null, 'another Kosmos\'s session');
+  assert.equal(agentNameFromSession('ava', 'qa'), null, 'a default-world session is not a named Kosmos\'s agent');
+  assert.equal(agentNameFromSession('sales-bot+qa-discord', 'qa-discord'), 'sales-bot', 'the -discord strip runs on the name, never the session');
+});
+
+test('a Discord-bridged agent\'s window is kept under its bare name, the name its profile and the board use (review round 2)', () => {
+  clear();
+  store.writeProfile('angel', { displayName: 'Angel' });
+  const bridged = { paneSession: () => ({ ok: true, session: 'angel-discord' }) };
+  // #2874's supervisor hands a default-world pane an explicitly EMPTY KOSMOS_WORLD.
+  assert.deepEqual(outbox.resolveKeepSender({ TMUX_PANE: '%4', KOSMOS_WORLD: '' }, bridged), { ok: true, name: 'angel' });
+  const kept = outbox.keepFromClient({ verb: 'reply', body: { text: 'from discord' }, env: { TMUX_PANE: '%4', KOSMOS_WORLD: '' }, seams: bridged });
+  assert.equal(kept.ok, true, JSON.stringify(kept));
+  assert.equal(outbox.list()[0].entry.from, 'angel', 'the entry carries the bare name, so the drain\'s agent check sees the profile');
+  clear();
+});
+
+test('a named Kosmos\'s agent window (<name>+<world>) is kept under the bare name in its own Kosmos, and refused from any other (review round 2)', () => {
+  clear();
+  store.writeProfile('ava', { displayName: 'Ava' });
+  const namedWorldPane = { paneSession: () => ({ ok: true, session: 'ava+qa' }) };
+  assert.deepEqual(outbox.resolveKeepSender({ TMUX_PANE: '%5', KOSMOS_WORLD: 'qa' }, namedWorldPane), { ok: true, name: 'ava' });
+  const elsewhere = outbox.resolveKeepSender({ TMUX_PANE: '%5', KOSMOS_WORLD: '' }, namedWorldPane);
+  assert.equal(elsewhere.ok, false, 'a process in the default Kosmos is not the qa Kosmos\'s ava');
+  assert.match(elsewhere.because, /not one of your agents/);
+  const kept = outbox.keepFromClient({ verb: 'msg', body: { to: 'bo', text: 'x' }, env: { TMUX_PANE: '%5', KOSMOS_WORLD: 'qa' }, seams: namedWorldPane });
+  assert.equal(kept.ok, true);
+  assert.equal(outbox.list()[0].entry.from, 'ava');
+  clear();
+});

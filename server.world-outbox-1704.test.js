@@ -234,3 +234,20 @@ test('drain: a pass stops at its cap, and the next pass carries on where it stop
   const texts = chat.readThread(chat.DIRECT, 'ava').messages.map((m) => m.text);
   assert.ok(texts.includes('first of two') && texts.includes('second of two'));
 }));
+
+test('drain: a Discord-bridged agent\'s reply, kept from its own window, reaches its bare name\'s thread (review round 2)', () => withFleet(() => {
+  clearOutbox();
+  /* fleet.agent('ava') runs in the session `ava-discord`, as a real Discord-bridged
+     agent does, and its card is filed under `ava`. */
+  store.writeProfile('ava', { displayName: 'Ava' });
+  const kept = outbox.keepFromClient({
+    verb: 'reply', body: { text: 'from the discord window', from_pane: '%2' },
+    env: { TMUX_PANE: '%2', KOSMOS_WORLD: '' },
+    seams: { paneSession: () => ({ ok: true, session: 'ava-discord' }) },
+  });
+  assert.equal(kept.ok, true, JSON.stringify(kept));
+  assert.equal(outbox.list()[0].entry.from, 'ava');
+  assert.equal(drainOutboxNow().delivered, 1, 'the drain\'s agent check sees the same name the keep stored');
+  assert.ok(chat.readThread(chat.DIRECT, 'ava').messages.some((m) => m.text === 'from the discord window'));
+  assert.deepEqual(outbox.list(), []);
+}));

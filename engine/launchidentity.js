@@ -24,14 +24,15 @@
  * lands: a Scheduled Task name (schtasks forbids `\ / : * ? " < > |`) and a named
  * pipe.
  *
- * 📌 HOW A PROCESS KNOWS ITS WORLD: `KOSMOS_WORLD` in its environment, absent for
- * the default world. The board sets it when it boots into a named world
- * (worlds.applyActiveWorldEnv). On Windows every agent-side process has it before
- * its first store-using require: the anchored boot shim reads it from the task's
- * argument line and applies it (worlds.applyAgentWorldEnv), and the agent's hooks
- * and `kosmos` command inherit it. (The Mac's agents get it in the Mac slice,
- * PR1m.) So a module that names a task or a pipe asks `currentWorldId()` and
- * never needs a world passed in.
+ * 📌 HOW A PROCESS KNOWS ITS WORLD: `KOSMOS_WORLD` in its environment, absent (or
+ * empty) for the default world. The board sets it when it boots into a named
+ * world (worlds.applyActiveWorldEnv). On Windows every agent-side process has it
+ * before its first store-using require: the anchored boot shim reads it from the
+ * task's argument line and applies it (worlds.applyAgentWorldEnv). On the Mac the
+ * supervisor hands each pane KOSMOS_WORLD (empty for the default world) and the
+ * world's store roots (#2874). The agent's hooks and `kosmos` command inherit it.
+ * So a module that names a task or a pipe asks `currentWorldId()` and never
+ * needs a world passed in.
  *
  * A LEAF, WITH NO REQUIRES: the anchored boot shim and worlds.js both load it
  * before any module that freezes store.ROOT.
@@ -57,6 +58,11 @@ const WORLD_SEPARATOR = '+';
    store.ROOT. install/kosmos writes the same name in shell; a test pins the two
    equal. */
 const WORLD_HEADER = 'x-kosmos-world';
+
+/* A Discord-bridged agent runs in a tmux session named `<name>-discord`, and is
+   filed everywhere else (its profile, its roster card, its thread) under the bare
+   `<name>`. The board has always stripped it without requiring it. */
+const DISCORD_SESSION_SUFFIX = /-discord$/;
 
 function isDefaultWorld(worldId) {
   return worldId === undefined || worldId === null || worldId === '' || worldId === DEFAULT_WORLD_ID;
@@ -118,8 +124,20 @@ function nameInWorld(key, worldId) {
   return parsed.worldId === want ? parsed.name : null;
 }
 
+/** The agent a tmux session is, as this Kosmos files it: the session's name in
+    `worldId` (nameInWorld; null for another Kosmos's session), then without a
+    Discord bridge's `-discord`. The ONE rule status.parsePanes names a roster card
+    by and the outbox names a kept send's sender by (review round 2).
+    ⚠️ The strip runs on the NAME, never the raw session: a world id can end in
+    `-discord` (CLEAN_ID allows it), so stripping the session first would mangle
+    `ava+qa-discord` into `ava+qa`. */
+function agentNameFromSession(session, worldId) {
+  const inWorld = nameInWorld(session, worldId);
+  return inWorld === null ? null : inWorld.replace(DISCORD_SESSION_SUFFIX, '');
+}
+
 module.exports = {
   WORLD_ENV_VAR, DEFAULT_WORLD_ID, WORLD_SEPARATOR, WORLD_HEADER, WORLD_HEADER_CHARSET,
   isDefaultWorld, worldIdOrDefault, currentWorldId, worldIdForHeader, worldHeaderValue,
-  launchKey, parseKey, nameInWorld,
+  launchKey, parseKey, nameInWorld, agentNameFromSession,
 };

@@ -176,6 +176,33 @@ on an enforcing board), and is lost. This slice makes nothing sent get lost:
     every JS client and the board; a test pins the shell's `tr` set to the
     constant, and a bash run shows both strip the same odd value identically.
 
+- **Round 2 (coordinator review of PR2).** All six round-1 fixes confirmed. The
+  branch was rebased onto main `a184f039`, which carries #2874 (Angel's PR1m, Mac
+  world identity, `1b3b81b0`), with no conflicts. Fixed:
+  - [BUG] The pane fallback refused every Discord-bridged agent, and after #2874
+    every named-world pane. It checked the profile of the RAW tmux session, and
+    a Discord bridge's session is `<name>-discord` while its profile and roster
+    name are `<name>`; a named world's session is `<name>+<world>`. The board's
+    roster rule (nameInWorld, then strip `-discord`, on the name) is extracted
+    from `status.parsePanes` into `launchidentity.agentNameFromSession`, which
+    `parsePanes` now calls. The keep names the pane's session by it in the
+    keeper's own world, checks that name's profile, and stores that name as
+    `from`, so the drain's agent check (profile or tied card) sees the name the
+    board uses. Another Kosmos's session names nobody and is refused. The token
+    path is unchanged: #2874's supervisor mints under the bare roster name
+    already. Tested: a `-discord` pane is kept as the bare name and delivered by
+    the drain; `ava+qa` is kept as `ava` in qa and refused from the default
+    world; a non-agent pane is still refused.
+  - [STALE] #2874 gives every Mac pane `KOSMOS_WORLD` (explicitly empty for the
+    default world) and its world's store roots, and mints the token into the
+    world's store. Checked on that path: the empty value is the default world in
+    both the shell and the JS header rule (tested before, and now also at keep
+    time); a named-world pane sends its own world, is let through by its own
+    board and gets 421 from another; its keep lands in its world's store under
+    its bare name. No behaviour differed beyond the pane-name bug above. The
+    "Mac agents have no KOSMOS_WORLD until PR1m" prose is corrected in
+    outbox.js, launchidentity.js's header and this plan.
+
 ## Weakest part
 
 Trusting `from`. It rests on same-account files: the token store and the pane both
@@ -185,9 +212,10 @@ file naming another agent; the drain only checks that the name is an agent in
 this Kosmos. That is no weaker than a pane-derived report, but it is not a
 credential check.
 
-Second: the Mac. Mac agents carry no `KOSMOS_WORLD` yet (PR1m), so every Mac agent
-says `default`. On a Mac board serving a named world, a default-world agent's send
-is now kept (was a 403 and lost), which is the point. A Mac agent created in a
-named world cannot exist yet (#2849 refuses the spawn), so none is misrouted. The
-shell path is exercised here in Git Bash with a stub curl; the real Mac curl and
-bash 3.2 are for macOS CI.
+Second: the Mac. Since #2874 every Mac pane carries its own `KOSMOS_WORLD` (empty
+for the default world) and its world's store roots, so a Mac agent names its own
+Kosmos exactly as a Windows one does, keeps into its own world's store, and the
+pane fallback names its window by the board's own roster rule
+(`launchidentity.agentNameFromSession`). The shell path is exercised here in Git
+Bash with a stub curl; the real Mac curl, bash 3.2 and a live tmux pane are for
+macOS CI.
