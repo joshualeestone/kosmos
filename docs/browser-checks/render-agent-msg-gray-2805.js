@@ -14,11 +14,18 @@
  * came back from; (b) NOT the person's blue; (c) distinct from the DM panel it
  * sits on -- i.e. it did not dissolve into the surface, the trap web/index.html
  * already records (a `.theirs` fill that took `--k-surface` was invisible); and
- * (d) a NEUTRAL gray, not a tint. It does NOT pin `--k-sunk`'s exact rgba: Josh
- * can retune the gray and this stays green, while a regression to transparent,
- * to the blue, or to the surface colour reds it. Measured IN THE PAGE (computed
- * backgrounds composited over what is behind them), so it is render-mode
- * independent -- headed and headless agree.
+ * (d) #2947: a WARM cream (R >= G >= B), not the neutral gray it started as and
+ * not the person's blue. It does NOT pin an exact rgba: Josh can retune the
+ * cream and this stays green, while a regression to transparent, to the blue,
+ * to the surface colour, or back to a neutral/cool gray reds it. Measured IN THE
+ * PAGE (computed backgrounds composited over what is behind them), so it is
+ * render-mode independent -- headed and headless agree.
+ *
+ * #2947 (Josh, 2026-09-12): the agent bubble moved from the neutral --k-sunk
+ * gray to an ultra-light cream (--agent-msg), with a subtle per-message shade
+ * (data-am 0..4, a color-mix nudge) so a wall of bubbles stops reading as one
+ * flat hex. This check now also probes that mechanism: same data-am -> same
+ * shade (stable), different data-am -> different shade (variation), all cream.
  *
  * It loads the page over file:// and answers the thread poll from a fixture,
  * the same posture as render-talk.js: the paint is what `node --test` cannot
@@ -40,13 +47,20 @@ const chk = (ok, label, extra) => {
   if (!ok) fail.push(label);
 };
 
-/* rgb/rgba string -> [r,g,b,a]. "transparent" and rgba(...,0) both give a=0. */
+/* rgb/rgba string -> [r,g,b,a]. "transparent" and rgba(...,0) both give a=0.
+   #2947: Chromium serializes a color-mix() result (the per-message cream shade)
+   as `color(srgb r g b [/ a])` with 0..1 components, NOT `rgb(0..255)`. Without
+   scaling those, spread/delta collapse to ~0 and every arm passes VACUOUSLY, so
+   detect the srgb form and lift the three components to 0..255 (the alpha, if
+   present after the slash, stays 0..1). */
 function parse(c) {
   if (Array.isArray(c)) return c.length > 3 ? c.slice(0, 4) : [c[0], c[1], c[2], 1];
   if (!c || c === 'transparent') return [0, 0, 0, 0];
+  const srgb = /^color\(\s*srgb\b/i.test(c);
   const n = (c.match(/[\d.]+/g) || []).map(Number);
   if (n.length < 3) return [0, 0, 0, 0];
-  return [n[0], n[1], n[2], n.length > 3 ? n[3] : 1];
+  const s = srgb ? 255 : 1;
+  return [n[0] * s, n[1] * s, n[2] * s, n.length > 3 ? n[3] : 1];
 }
 /* fg over bg -> composited [r,g,b] (fg alpha applied). Either arg may be a
    color string OR an already-parsed [r,g,b] triple, so composites can chain. */
@@ -162,11 +176,39 @@ const FX = {
         chk(delta(over(m.theirsBg, surface), surface) >= 4,
           `${t} the agent bubble reads against the DM panel (did not dissolve into the surface)`,
           `theirs=${m.theirsBg} panel=${m.talkBoxBg}`);
-        // (d) a neutral gray, not a tint. Generous tolerance so a retune of the
-        // exact gray stays green; a coloured wash (e.g. reusing the blue) reds.
-        chk(spread(over(m.theirsBg, surface)) <= 12,
-          `${t} the agent bubble is a neutral gray, not a tint`,
-          `composited spread=${spread(over(m.theirsBg, surface)).toFixed(1)}`);
+        // (d) #2947: a WARM cream, not a neutral gray and not a loud tint. The
+        // composited bubble reads warm (R >= G >= B, with a real red-over-blue
+        // margin), which is the opposite of the neutral --k-sunk gray (whose
+        // faint cool cast makes B the highest channel) and of the person's blue
+        // (B dominant). The spread stays small so it is still ultra-light and
+        // subtle. A regression to the old gray, or to the blue, reds this.
+        const cream = over(m.theirsBg, surface);
+        chk(cream[0] >= cream[1] && cream[1] >= cream[2] && (cream[0] - cream[2]) >= 2 && spread(cream) <= 20,
+          `${t} the agent bubble is a warm cream (R>=G>=B), not a neutral gray or the blue`,
+          `composited=[${cream.map((x) => x.toFixed(1)).join(', ')}]`);
+      }
+
+      // #2947: the per-message VARIATION mechanism, probed deterministically so
+      // it does not depend on which shades the fixture's two messages hashed to.
+      // Same data-am must render the SAME shade (stable, no shimmer on repaint);
+      // different data-am must render DIFFERENT shades (the "break in a single
+      // hex" Josh asked for); and every shade stays a warm cream.
+      const vary = await page.evaluate(() => {
+        const host = document.getElementById('d-dmthread');
+        const shadeOf = (am) => {
+          const row = document.createElement('div'); row.className = 'dm theirs';
+          const b = document.createElement('div'); b.className = 'dm-b';
+          if (am != null) b.setAttribute('data-am', String(am));
+          b.textContent = 'x'; row.appendChild(b); host.appendChild(row);
+          const c = getComputedStyle(b).backgroundColor; row.remove(); return c;
+        };
+        return { a1: shadeOf(1), a1b: shadeOf(1), a3: shadeOf(3), a0: shadeOf(0) };
+      });
+      chk(vary.a1 === vary.a1b, `${t} the same data-am renders the same shade (stable, no shimmer)`, vary.a1);
+      chk(vary.a1 !== vary.a3, `${t} different data-am render different shades (a break in the single hex)`, `am1=${vary.a1} am3=${vary.a3}`);
+      for (const [k, c] of [['am1', vary.a1], ['am3', vary.a3], ['am0(base)', vary.a0]]) {
+        const p = parse(c);
+        chk(p[0] >= p[1] && p[1] >= p[2] && (p[0] - p[2]) >= 2, `${t} shade ${k} is a warm cream`, c);
       }
 
       chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
