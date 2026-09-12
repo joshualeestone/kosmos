@@ -527,6 +527,29 @@ test('#2837: a working agent lights only the project it is working in, not every
   assert.equal(list2.find((p) => p.id === solo.id).summary.working, 1, 'the sole-membership control is unaffected by the attribution');
 });
 
+test('#2837: a screen-led working carry (started report naming a project + working screen) lights that project only', () => {
+  reset();
+  /* The #1995 shape: the report says started/idle while the SCREEN shows working. The
+     scraped-working carry (workingProjectFromScreen) must attribute the work to the project
+     the report named, so a two-project agent lights only the one it started on -- exercised
+     end-to-end here rather than only at the status-reconcile level. */
+  const selfreport = require('./selfreport');
+  const alpha = projects.create({ name: 'Alpha', folder: folder('alpha'), agents: ['zeta'] });
+  const beta = projects.create({ name: 'Beta', folder: folder('beta'), agents: ['zeta'] });
+  // zeta is in TWO projects, so sole-membership does not apply; its report is a `started`
+  // naming Alpha while its screen shows working.
+  assert.equal(selfreport.record('zeta', { state: 'started', project: alpha.id }).recorded, true);
+  const roster = cards([fleet.agent('zeta', { state: 'working' })]);
+  const list = projects.list(roster);
+  const alphaRow = list.find((p) => p.id === alpha.id);
+  const betaRow = list.find((p) => p.id === beta.id);
+  assert.equal(alphaRow.agents.find((a) => a.sessionName === 'zeta').state, 'working', 'the screen shows working');
+  assert.equal(alphaRow.agents.find((a) => a.sessionName === 'zeta').stateProject, alpha.id,
+    'the started report carried its project onto the working-screen state (workingProjectFromScreen)');
+  assert.equal(alphaRow.summary.working, 1, 'Alpha lights: the screen-led carry attributes the work to the named project');
+  assert.equal(betaRow.summary.working, 0, 'the control: Beta stays dark though zeta is a member, because the carry named Alpha');
+});
+
 test('a member we can see but cannot READ is counted as unseen, not as fine', () => {
   reset();
   // ⚠️ THE SUMMARY'S OWN BLIND SPOT. `unseen` counted only members with no card
