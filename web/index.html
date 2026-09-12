@@ -8270,7 +8270,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   <div class="fmsg" id="d-role-msg"></div>
   </section>
   </section>
-  <section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Advanced" data-tied="1" hidden>
+  <!-- #2916: the nav PILL is renamed "Advanced", but this region keeps aria-label "Terminal" to
+       match its own content (the "This agent's Terminal" heading + Open Terminal controls) -- same
+       convention as d-sec-model staying "Model" under the "Model and Memory" pill. -->
+  <section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-tied="1" hidden>
 
   <!-- #5 insurance + terminal-window actions (Josh 0.6.44). These sit ABOVE the window
        box (which hides when the capture cannot land) on purpose: an agent stuck at the
