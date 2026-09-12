@@ -114,7 +114,7 @@ validate_dest() {
   # exactly what this script exists to prevent (the board would serve from a git
   # tree again, the #1051 bug). Checked from the nearest existing ancestor.
   if git -C "$_anc_real" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    fail "destination is inside a git working tree ('$_anc_real'); the board must NOT run from a checkout"
+    fail "destination is inside a git working tree ('$_anc_real'); the board must NOT run from a checkout -- set KOSMOS_BOARD_LIBEXEC to a path outside any git working tree"
   fi
 
   # reject a destination equal to, inside, or ABOVE the source repo. Equal/above
