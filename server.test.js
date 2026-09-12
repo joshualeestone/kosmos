@@ -13785,4 +13785,64 @@ test('#2863: an agent\'s DM replies surface as a.dmUnread, cleared by POST /api/
 test('#2863: a name the thread store cannot key is a 400 from POST /api/agent/<name>/seen', async () => {
   const bad = await postJson('/api/agent/bad.name/seen', {});
   assert.equal(bad.status, 400, 'a name safeKey rejects maps BAD_THREAD -> 400');
+test('#2811: a PANELESS codex agent carries runner "codex" on the board, so the panel can qualify its sentence', async () => {
+  /**
+   * 🛑 THE CASE ROUND 30's FIX DID NOT REACH. `paintAccountPicker` qualifies its
+   * "we cannot tell which account" sentence only when it can SEE the agent is
+   * codex, and the page's only provider signal is `a.runner`. `panelessCard`
+   * hardcodes `runner: null` (`engine/status.js`, its only such site) because a
+   * card with no pane has no `@kosmos_runner` to read. So a default-account codex
+   * agent created and not yet started reached the panel with BOTH null, and was
+   * told the sentence this card exists to remove.
+   *
+   * ⚠️ BRANCH-CAUSED: before this change the dir-less match handed that agent the
+   * operator's CLAUDE row, so `account` was truthy and the panel wrote nothing.
+   *
+   * 🔑 THE PANELESS ROW IS FORCED THROUGH THE PRODUCT'S OWN SEAM, `setCreatedSource`,
+   * which is how production gets these rows (`server.js` wires
+   * `createdroster.make()` on non-win32). An earlier version of this arm seeded a
+   * plist and hit the route instead: the row came back `running: false`, i.e. the
+   * OFFLINE population, which already derived the runner from the profile before
+   * this change. That test PASSED AND SO DID THE MUTANT -- it measured code this
+   * change did not touch. This seam is what makes the row land in `snap.agents`,
+   * the population the fix is in.
+   */
+  const create = require('./engine/create');
+  const store = require('./engine/store');
+  const status = require('./engine/status');
+  const fsX = require('node:fs');
+  const made = [];
+  const seed = (name, runner) => {
+    fsX.mkdirSync(create.AGENTS_DIR, { recursive: true });
+    fsX.writeFileSync(create.plistPath(name),
+      create.plistFor(name, '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, null, runner), 'utf8');
+    store.writeProfile(name, { provider: runner === 'codex' ? 'openai' : 'anthropic' });
+    made.push(name);
+    return name;
+  };
+  try {
+    seed('pnlgpt', 'codex');
+    seed('pnlcl', 'claude');            // CONTROL, seeded identically
+    status.setCreatedSource(() => ['pnlgpt', 'pnlcl']);
+
+    const body = JSON.parse((await req('/api/status')).body);
+    const row = (n) => ((body && body.agents) || []).find((r) => r && (r.sessionName === n || r.name === n));
+
+    /* POPULATION FLOOR, and it is the assertion the previous version of this arm
+       lacked: the row must be the PANELESS one (no session), not the offline row,
+       or this measures a population the change does not touch. */
+    assert.ok(row('pnlgpt'), 'the created source produced no board row, so this arm measures nothing');
+    assert.equal(row('pnlgpt').session, null,
+      'the row carries a session, so it is not the paneless card and this arm is measuring the wrong population');
+
+    assert.equal(row('pnlgpt').runner, 'codex',
+      'a PANELESS codex agent reaches the board with no runner, so the detail panel cannot tell it is codex and tells it we cannot identify its account');
+    /* CONTROL: the same seam for a claude agent must NOT come back codex, else the
+       fallback answers codex for everyone and discriminates nothing. */
+    assert.equal(row('pnlcl').runner, 'claude',
+      'the runner fallback answered codex for a CLAUDE agent, so it is not reading the record');
+  } finally {
+    status.setCreatedSource(null);
+    for (const n of made) { try { fsX.unlinkSync(create.plistPath(n)); } catch { /* may not exist */ } }
+  }
 });
