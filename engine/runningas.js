@@ -24,9 +24,10 @@
  * ⚠️ THREE TRAPS, ALL OF WHICH PRODUCED CLEAN, PLAUSIBLE, UNIFORM WRONG ANSWERS
  * while this was being investigated, two of them by the people investigating it:
  *
- *   1. The pane's direct child is the `bun` discord plugin, NOT `claude`. Reading
- *      it gives `<no --model flag>` for every agent, which looks like a finding.
- *      The claude process is a descendant, so the pid tree has to be walked.
+ *   1. The pane's direct child is the `bun` discord plugin, NOT the agent.
+ *      Reading it gives `<no --model flag>` for every agent, which looks like a
+ *      finding. The agent process (claude, or codex since #2811) is a
+ *      descendant, so the pid tree has to be walked.
  *   2. There are TWO `.claude.json` files. The default account's record sits
  *      BESIDE the config dir at `~/.claude.json` (132KB, written continuously);
  *      `~/.claude/.claude.json` is 624 bytes, carries no `oauthAccount`, and had
@@ -64,8 +65,9 @@
  * bun plugin, and it has no win32 counterpart because the problem does not exist.
  *
  * 🛑 THE ACCOUNT IS NOT KNOWABLE LIVE ON WINDOWS, AND THIS ARM SAYS SO RATHER
- * THAN GUESSING. On a Mac the account is `CLAUDE_CONFIG_DIR` in the process
- * ENVIRONMENT (trap 3), read with `ps -Eww`. Windows has no supported way for an
+ * THAN GUESSING. On a Mac the account is an environment variable on the process
+ * (trap 3), read with `ps -Eww`: `CLAUDE_CONFIG_DIR` for a claude agent and
+ * `CODEX_HOME` for a codex one since #2811. Windows has no supported way for an
  * ordinary process to read another process's environment -- Win32_Process
  * exposes CommandLine and not the environment block -- so the variable is
  * invisible here. ⚠️ AND ITS ABSENCE IS NOT EVIDENCE. Darwin may fall back to

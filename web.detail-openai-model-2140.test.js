@@ -129,16 +129,20 @@ test('#2140 S2 LISTABLE: the detail picker shows the account models + "Let OpenA
 });
 
 test('#2140 S2 default-codex (isDefault account) sends an EMPTY dir so the route resolves the default OpenAI account', async () => {
-  // accountForAgent resolves a default-codex agent (configDir null) to the default
-  // CLAUDE account {dir: ~/.claude, isDefault:true}, which is not an OpenAI account.
-  // The picker must NOT send that dir (it would 404); it sends empty so the server
-  // resolves the default OpenAI account. isDefault is the signal.
+  // The picker must not send a Claude dir for an OpenAI agent (it would 404); it
+  // sends empty so the server resolves the default OpenAI account.
+  // ⚠️ THE FIXTURE BELOW HAND-BUILDS `{dir: ~/.claude, isDefault:true}` and this
+  // comment used to explain it as what accountForAgent returns for a
+  // default-codex agent. #2811 gated that dir-less match, so the real product now
+  // returns NO ROW for such an agent. The fixture is kept because it still
+  // exercises the branch under test (an isDefault account must send an empty
+  // dir), but it is now a hand-made shape rather than one the product produces.
   const r = await run({
     agent: openaiAgent(CARDS.ours, { account: { dir: '/home/.claude', isDefault: true }, plannedModelName: 'o3' }),
     fetchOk: true,
     fetchBody: { ok: true, models: [{ key: 'o3', provider: 'openai', label: 'o3', arg: 'o3', why: 'A reasoning model.' }] },
   });
-  assert.match(r.calls.fetchUrl, /\/api\/accounts\/openai\/models\?dir=$/, 'an isDefault (Claude-default fallback) account must send an EMPTY dir, not the Claude dir');
+  assert.match(r.calls.fetchUrl, /\/api\/accounts\/openai\/models\?dir=$/, 'an isDefault account must send an EMPTY dir, not the Claude dir');
   assert.match(r.els['d-model'].innerHTML, /value="o3"/, 'the default account\'s models still render (the picker is not parked)');
   assert.doesNotMatch(r.els['d-model'].innerHTML, /Claude|sonnet|opus/i, 'no Claude model appears for a default-codex agent');
 });
