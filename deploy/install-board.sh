@@ -143,6 +143,14 @@ if [ "$APPLY" -eq 0 ]; then
 fi
 
 # ---- apply -----------------------------------------------------------------
+# The destination must never be a repository path. The swap below replaces the
+# destination tree wholesale; if an override points at this checkout (or any
+# directory inside a checkout), applying would replace tracked work with the
+# deployed app subset. `git -C` also follows symlinks and normalises `..`, so the
+# guard covers aliases rather than only one path spelling.
+if git -C "$DEST" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  fail "refusing to apply: the destination is inside a git work tree ($DEST)"
+fi
 tmp="$DEST.new.$$"
 rm -rf "$tmp" || fail "could not clear $tmp"
 ver="$(stage_app "$tmp")" || { rm -rf "$tmp"; fail "staging failed; nothing was changed"; }
