@@ -12640,12 +12640,17 @@ test('#2811: a stale CLAUDE transcript does not supply the model for a CODEX age
    * not itself MOVED and the agent's NAME does not change, so the workdir is the
    * same afterwards and the OLD Claude transcript stays findable.
    * ⚠️ THIS SENTENCE SAID "a plist rewrite and nothing else" FOR 22 ROUNDS, and
-   * it is `setProvider`'s own header repeated. It is measurably false: the other
-   * other statements sit 322 and 325 lines below `function setProvider` (measured,
-   * and the same at the merge-base). `server.js` and the plan corrected the
+   * it is `setProvider`'s own header repeated. It is measurably false: the brief
+   * rename and the profile write sit 322 and 325 lines below `function
+   * setProvider`, and the trust write 245 lines below it (measured, and the first
+   * two are the same at the merge-base). `server.js` and the plan corrected the
    * sentence at ROUND 2 and this third copy stood until round 23.
+   * 📌 Those distances are from a NAMED anchor on purpose: an edit above
+   * `function setProvider` moves the anchor and its targets together, so they stay
+   * exact. A distance from a LINE NUMBER does not, and one in the plan rotted
+   * inside the commit that wrote it.
    * ⚠️ AND THE COUNT IS FOUR, NOT THREE: round 24 measured a fourth write
-   * (`trustCodexFolder`, the only non-best-effort one). Do not take a count from
+   * (`trustCodexFolder`). Do not take a count from
    * any prose here; `engine/create.setprovider-writes-2811.test.js` enumerates the
    * set by measurement and reds when it changes.
    * ⭐ The CONCLUSION survives either way (the transcript stays findable), which
