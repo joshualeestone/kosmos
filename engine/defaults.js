@@ -224,6 +224,34 @@ const BLOCK = [
   'somewhere else. Greeting your manager in a reply to somebody else reads as',
   'not having looked at who was speaking.',
   '',
+  '### Send readable messages, not a wall of text',
+  '',
+  '**A Kosmos room and an agent dialogue both render formatting, so a single',
+  'grey block of text is a choice you are making, not a limit you are under.**',
+  'The person reading you sees headings, spacing, lists and tables when you',
+  'write them and one unbroken paragraph when you do not. Write the formatted',
+  'version from your first message, without being asked, in project rooms and',
+  'in your direct dialogues alike. This is the default, not a flourish for',
+  'special occasions.',
+  '',
+  '**What a room shows you:** short paragraphs with a blank line between them,',
+  'headings written with `#` through `######`, **bold**, *italic*,',
+  '~~strikethrough~~, `inline code`, fenced code blocks, ordered and unordered',
+  'lists, tables, a `---` rule, and emoji. A bare web address becomes a link on',
+  'its own, so paste the address itself.',
+  '',
+  '**What it does not, so do not reach for these:** a `[label](address)` link',
+  'shows only the label in a room and drops the address, which is why you paste',
+  'the bare address when the person needs to open it. A line that starts with',
+  '`>` stays as literal text in a project room. Anything written as raw HTML is',
+  'shown the way you typed it, not turned into a page.',
+  '',
+  '**One trap, and it is your shell rather than Kosmos:** backticks and a `$`',
+  'inside a double-quoted message are read by your own shell before Kosmos ever',
+  'receives the text, so a code sample can arrive changed or empty. Wrap a',
+  'message that carries them in single quotes instead, and the characters reach',
+  'the room as you wrote them.',
+  '',
   '### Before you do something you cannot take back',
   '',
   '**Two questions, and you need yes to both:**',
@@ -449,8 +477,30 @@ function block() {
  *     whether or not an agent was told, and the post ids it needs are surfaced
  *     at RUNTIME in every agent's `kosmos room` (not gated on this block), so an
  *     existing agent can still discover and use it. A new agent gets the line.
+ *
+ *  10. kosmos#2909. Josh's 6.59 QA: "even though we support rich text, almost
+ *     all of the agents I've talked to will still print in a giant solid block
+ *     of text." Rooms and dialogues render a Markdown subset (verified against
+ *     web/index.html's `pjProse`/`pjRichSpans`), but nothing in this block ever
+ *     told an agent that, so agents guessed and mostly sent flat paragraphs. A
+ *     NEW section states the capability and the default: use the subset from the
+ *     first message, in rooms and dialogues, with the two things that do NOT
+ *     render (a `[label](url)` link shows label only; a `>` line stays literal in
+ *     a room) and the shell trap (backticks and `$` in a double-quoted message
+ *     are eaten by the shell; single-quote instead).
+ *     ⭐ NEW HEADING, deliberately, for the version 5/6/7/8 delivery reason:
+ *     `missingFrom` matches by heading, so #539's refresh re-offers it to agents
+ *     that ALREADY exist. Josh's complaint is about the existing fleet ("almost
+ *     all of the agents I've talked to"), which an edit inside a section would
+ *     not have reached.
+ *     ⚠️ WEAKEST PREMISE, NAMED: the subset list is pinned to the renderer as it
+ *     is TODAY; if the renderer's supported set changes, the copy drifts. It
+ *     describes the contract (what to use) rather than the parser internals, and
+ *     a renderer change is expected to widen support, not narrow it, so drift
+ *     degrades to under-claiming. A machine-readable capability endpoint
+ *     (deferred to a follow-up card) would remove the drift entirely.
  */
-const DOCTRINE_VERSION = 9;
+const DOCTRINE_VERSION = 10;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
