@@ -61,6 +61,10 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 LABEL="com.kosmos.board"
+# #2860: the ONE board deploy-shape classifier, shared with tools/release.sh so the two
+# cannot drift. Sourced unguarded under set -e: a lib this script cannot load should
+# abort, not silently fall back to a private copy of the derivation.
+. "$REPO/tools/lib/board-shape.sh"
 CHECK=0
 [ "${1:-}" = "--check" ] && CHECK=1
 
@@ -220,7 +224,7 @@ if [ -z "$INFO" ]; then
   echo "   no ${LABEL} job on this Mac, so nothing to restart (an installed Kosmos updates itself)"
   exit 0
 fi
-WD="$(printf '%s\n' "$INFO" | sed -n 's/^[[:space:]]*working directory = //p' | head -1)"
+WD="$(board_shape_working_dir "$INFO")"
 # 🔑 SHAPE DETECTION (#1164). com.kosmos.board runs in one of three shapes across
 # the fleet, told apart by the launchd job's WORKING DIRECTORY:
 #   (a) repo working tree -- WD == this checkout. The #360 hazard; a restart brings
@@ -237,15 +241,14 @@ WD="$(printf '%s\n' "$INFO" | sed -n 's/^[[:space:]]*working directory = //p' | 
 # POSITIVELY match to (a) or (b) -- shape (c), an empty WD, or anything unrecognised
 # -- is left completely alone (exit 0). Bouncing a bundle board would disrupt a Mac
 # that is using Kosmos normally, so an unknown shape is a silent no-op, never a guess.
-LIBEXEC="${KOSMOS_BOARD_LIBEXEC:-$HOME/.local/libexec/kosmos-board}"
-if [ -n "$WD" ] && [ "$WD" = "$REPO" ]; then
-  BOARD_SRC="$REPO"; SHAPE_DESC="this repo (${REPO})"
-elif [ -n "$WD" ] && [ "$WD" = "$LIBEXEC" ]; then
-  BOARD_SRC="$LIBEXEC"; SHAPE_DESC="the libexec deploy (${LIBEXEC})"
-else
-  echo "   ${LABEL} runs from ${WD:-<unknown>}, which is neither this repo (${REPO}) nor the libexec deploy (${LIBEXEC}); leaving it alone"
-  exit 0
-fi
+LIBEXEC="$(board_shape_libexec_default)"
+case "$(board_shape_of "$WD" "$REPO" "$LIBEXEC")" in
+  repo)    BOARD_SRC="$REPO";    SHAPE_DESC="this repo (${REPO})" ;;
+  libexec) BOARD_SRC="$LIBEXEC"; SHAPE_DESC="the libexec deploy (${LIBEXEC})" ;;
+  *)
+    echo "   ${LABEL} runs from ${WD:-<unknown>}, which is neither this repo (${REPO}) nor the libexec deploy (${LIBEXEC}); leaving it alone"
+    exit 0 ;;
+esac
 PORT="$(printf '%s\n' "$INFO" | sed -n 's/.*PORT => \([0-9]*\).*/\1/p' | head -1)"
 [ -n "$PORT" ] || PORT=16180
 STATUS_URL="${KOSMOS_BOARD_STATUS_URL:-http://127.0.0.1:${PORT}/api/status}"

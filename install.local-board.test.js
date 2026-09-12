@@ -21,9 +21,16 @@ test('the release refreshes an adopted libexec board from the frozen tree before
   const rel = fs.readFileSync(path.join(__dirname, 'tools', 'release.sh'), 'utf8');
   const served = rel.indexOf('REPO="$REPO" bash "$REPO/tools/verify-served.sh"');
   const deploy = rel.indexOf('bash "$REPO/deploy/install-board.sh" --refresh-only');
-  const restart = rel.indexOf('tools/restart-local-board.sh');
+  // Anchor on the actual restart INVOCATION, not a bare `tools/restart-local-board.sh`
+  // mention: #2860 added a comment naming that path earlier in the file, and indexOf
+  // returns the first hit, which would put `restart` before `deploy` and false-fail.
+  const restart = rel.indexOf('$MAIN_REPO/tools/restart-local-board.sh');
   assert.ok(served > 0 && deploy > served && restart > deploy, 'served check, libexec deploy, and restart are not ordered safely');
-  assert.match(rel, /\[ -n "\$_board_wd" \] && \[ "\$_board_wd" = "\$_board_libexec" \]/, 'the release deploy is not gated on a positive libexec working-directory match');
+  // #2860: the inline `[ -n "$_board_wd" ] && [ "$_board_wd" = "$_board_libexec" ]` gate
+  // moved into the shared classifier tools/lib/board-shape.sh. release.sh acts on shape
+  // (b) only, so it passes an empty repo arg and the deploy is gated on the classifier
+  // returning `libexec` -- the same positive-libexec-working-directory match as before.
+  assert.match(rel, /\[ "\$\(board_shape_of "\$_board_wd" "" "\$_board_libexec"\)" = libexec \]/, 'the release deploy is not gated on a positive libexec working-directory match');
   assert.doesNotMatch(rel, /bash "\$MAIN_REPO\/deploy\/install-board\.sh" --refresh-only/, 'the deploy came from the moving shared checkout instead of the frozen tree');
   assert.ok(!/if bash "\$REPO\/tools\/verify-served\.sh"; then exit 0; fi/.test(rel), 'the served check still exits the release before the restart can run');
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
