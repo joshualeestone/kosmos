@@ -8892,12 +8892,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            wait, with no code field in Kosmos. Kosmos never sees the password. -->
       <div id="acct-openai-sub-step" hidden>
         <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your ChatGPT subscription.</b> Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</p>
-        <div class="frow" style="margin-top:8px;">
-          <input type="text" id="acct-openai-sub-label" autocomplete="off" maxlength="40"
-                 aria-label="A name for this account (optional)" placeholder="A name, if you want one">
-        </div>
-        <p class="dhint" style="margin:6px 0 0;">The name is optional. It is only so you can tell this account
-          apart from another one later.</p>
+        <!-- #2913: no name field here. The subscription sign-in pulls in the account's
+             email automatically, and that is what tells one subscription account apart
+             from another -- so asking for a name is extra work for nothing. (The API-key
+             steps keep their name field: a pasted key carries no email to pull.) -->
         <div class="frow" style="margin-top:12px;">
           <button class="btn uprime" id="acct-openai-sub-go" type="button">Sign in with ChatGPT</button>
         </div>
@@ -9633,11 +9631,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
                 </div>
                 <div id="fr-openai-sub-step" hidden class="fr-confirm" role="group" aria-labelledby="fr-openai-sub-t">
                   <p class="fr-confirm-t" id="fr-openai-sub-t"><b>Sign in with your ChatGPT subscription.</b> Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</p>
-                  <div class="frow" style="margin-top:8px;">
-                    <input type="text" id="fr-openai-sub-label" autocomplete="off" maxlength="40"
-                           aria-label="A name for this account (optional)" placeholder="A name, if you want one">
-                  </div>
-                  <p class="dhint" style="margin:6px 0 0;">The name is optional. It is only so you can tell this account apart from another one later.</p>
+                  <!-- #2913: no name field -- the subscription sign-in pulls the account's
+                       email automatically, and that distinguishes accounts (mirror of the
+                       Settings acct-openai-sub-step). -->
                   <div class="frow" style="margin-top:12px;">
                     <button class="btn uprime" id="fr-openai-sub-go" type="button">Sign in with ChatGPT</button>
                   </div>
@@ -19620,21 +19616,18 @@ function acctOpenaiSubWatch() {
    exactly like a key connect, differing only in the sentence. */
 async function acctOpenaiSubConnected(account) {
   ACCT_OPENAI_SUB_SESSION = null;
-  const labelField = document.getElementById('acct-openai-sub-label');
-  const enteredLabel = labelField ? labelField.value.trim() : '';
-  if (labelField) labelField.value = '';
+  // #2913: no name field any more -- the account is identified by its own email.
   const email = account && account.email;
   const goldBox = frCheckRow({ state: 'ok', title: 'OpenAI GPT Codex is connected',
     detail: 'Signed in with a ChatGPT subscription.' + (email ? ' (' + email + ')' : '') });
   const msg = document.getElementById('acct-openai-msg');
   if (msg) msg.textContent = 'Checking the connection…';
   await paintAccounts();
-  acctShowSuccess(enteredLabel || (email ? 'your ChatGPT subscription (' + email + ')' : 'your ChatGPT subscription'), goldBox);
+  acctShowSuccess(email ? 'your ChatGPT subscription (' + email + ')' : 'your ChatGPT subscription', goldBox);
 }
 document.getElementById('acct-openai-sub-go').addEventListener('click', async (e) => {
   const go = e.currentTarget;
   const msg = document.getElementById('acct-openai-msg');
-  const labelField = document.getElementById('acct-openai-sub-label');
   go.disabled = true;
   if (msg) msg.textContent = 'Starting the sign-in…';
   try {
@@ -19644,7 +19637,9 @@ document.getElementById('acct-openai-sub-go').addEventListener('click', async (e
       // #2568/#2584: on a reauth, ACCT_OPENAI_REAUTH_DIR names the account to sign in
       // again AS; the engine promotes into it only on an identity match. Absent on a
       // fresh add (openAcctAdd clears it), so this is never accidentally a reauth.
-      body: JSON.stringify({ mode: 'browser', label: (labelField && labelField.value.trim()) || undefined, reauthDir: ACCT_OPENAI_REAUTH_DIR || undefined }),
+      // #2913: no label -- the subscription flow no longer collects a name; the account's
+      // own email distinguishes it. The engine treats an absent label as unnamed.
+      body: JSON.stringify({ mode: 'browser', reauthDir: ACCT_OPENAI_REAUTH_DIR || undefined }),
     });
     const out = await res.json().catch(() => null);
     if (!res.ok) {
@@ -44117,8 +44112,7 @@ async function frOpenaiSubConnected(_account) {
   // rather than Settings' fuller "Signed in ... (email)" line. The parameter is kept
   // for signature-parity with the Settings mirror acctOpenaiSubConnected(account).
   ACCT_OPENAI_SUB_SESSION = null;
-  const labelField = document.getElementById('fr-openai-sub-label');
-  if (labelField) labelField.value = '';
+  // #2913: no name field -- the subscription account is identified by its email.
   const sub = document.getElementById('fr-openai-sub-step'); if (sub) sub.hidden = true;
   const pick = document.getElementById('fr-openai-pick'); if (pick) pick.hidden = true;
   // paintAccounts refreshes the row list; frPaintOpenai paints the SAME gold
@@ -44132,7 +44126,6 @@ document.getElementById('fr-openai-pick-key').addEventListener('click', () => fr
 document.getElementById('fr-openai-sub-go').addEventListener('click', async (e) => {
   const go = e.currentTarget;
   const msg = document.getElementById('fr-openai-msg');
-  const labelField = document.getElementById('fr-openai-sub-label');
   go.disabled = true;
   if (msg) { msg.className = 'dhint'; msg.textContent = 'Starting the sign-in…'; }
   try {
@@ -44141,7 +44134,8 @@ document.getElementById('fr-openai-sub-go').addEventListener('click', async (e) 
       headers: { 'content-type': 'application/json' },
       // First-run is a FRESH add only -- no reauthDir (that is a Settings "Sign in
       // again" concern); the engine treats an absent reauthDir as a new account.
-      body: JSON.stringify({ mode: 'browser', label: (labelField && labelField.value.trim()) || undefined }),
+      // #2913: no label -- the subscription flow no longer collects a name.
+      body: JSON.stringify({ mode: 'browser' }),
     });
     const out = await res.json().catch(() => null);
     if (!res.ok || !out || !out.sessionId) {
