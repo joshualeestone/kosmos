@@ -3942,8 +3942,9 @@ if [ "$_wd_ok" = yes ]; then
   elif [ "$_wd_ok" = later ]; then
     info "note: macOS did not accept the watchdog item just now; it is written and loads at your next login"
   else
-    ok
+    info "Kosmos will bring the board back if it stops after a restart"
   fi
+  ok
 else
   # Not fatal: the board still starts at login and reopening the icon still starts
   # it; the person only loses the automatic recovery this job would have added.

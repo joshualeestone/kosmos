@@ -41,6 +41,12 @@ KOSMOS_BIN="$KOSMOS_HOME/bin/kosmos"
 # The deliberate-stop marker (`kosmos stop` writes it, `kosmos start` clears it).
 STOP_MARKER="$KOSMOS_HOME/board.stopped"
 
+# The board's launchd label (derived from its plist name), and the launchctl to
+# drive it. Used only for the wedged-port escalation below. The seam lets the test
+# point launchctl at a stub; production uses the real one.
+BOARD_LABEL="$(basename "$BOARD_PLIST" .plist)"
+LAUNCHCTL="${KOSMOS_WATCHDOG_LAUNCHCTL:-/bin/launchctl}"
+
 STATE_DIR="$KOSMOS_HOME/logs"
 STATE="$STATE_DIR/board-watchdog.state"
 LOG="$STATE_DIR/board-watchdog.log"
@@ -55,10 +61,13 @@ ALERT="$STATE_DIR/board-watchdog.alert"
 # stop and alert, and only try again after COOLDOWN -- so a board that dies on every
 # start cannot thrash. Conservative defaults, tunable via the env; they change the
 # pace, never the logic.
-GRACE="${KOSMOS_WATCHDOG_GRACE:-45}"
-THROTTLE="${KOSMOS_WATCHDOG_THROTTLE:-180}"
-MAX_FAILS="${KOSMOS_WATCHDOG_MAX_FAILS:-5}"
-COOLDOWN="${KOSMOS_WATCHDOG_COOLDOWN:-3600}"
+# A non-numeric override falls back to the default rather than feeding junk into the
+# arithmetic (the persisted state values get the same treatment via num() below).
+numdef() { case "$1" in ''|*[!0-9]*) printf '%s' "$2" ;; *) printf '%s' "$1" ;; esac; }
+GRACE="$(numdef "${KOSMOS_WATCHDOG_GRACE:-}" 45)"
+THROTTLE="$(numdef "${KOSMOS_WATCHDOG_THROTTLE:-}" 180)"
+MAX_FAILS="$(numdef "${KOSMOS_WATCHDOG_MAX_FAILS:-}" 5)"
+COOLDOWN="$(numdef "${KOSMOS_WATCHDOG_COOLDOWN:-}" 3600)"
 
 now() { date +%s; }
 
@@ -110,8 +119,10 @@ DOWN_SINCE_RAW="$(state_get down_since)"
 # The state file survives reboots. If down_since predates the current boot it is
 # stale: on the first post-boot run the elapsed time would look huge (defeating the
 # grace window) and a pre-reboot crash streak would carry over. A reboot is a fresh
-# chance, so reset the whole streak. (If boot time cannot be read we simply skip
-# this and rely on grace as before.)
+# chance, so reset the whole streak. (If boot time cannot be read -- essentially
+# never on stock macOS -- the reset is skipped and a pre-reboot down_since can carry
+# in: the worst case is one redundant, idempotent kosmos start on the first post-boot
+# run, since cmd_start no-ops when the board is already answering.)
 BOOT="$(boot_epoch)"
 if [ -n "$BOOT" ] && [ -n "$DOWN_SINCE_RAW" ] && [ "$(num "$DOWN_SINCE_RAW")" -lt "$BOOT" ]; then
   DOWN_SINCE_RAW=""; LAST_KICK=0; FAILS=0
@@ -159,10 +170,27 @@ WAIT="$((THROTTLE * (FAILS + 1)))"
 [ "$((NOW - LAST_KICK))" -lt "$WAIT" ] && exit 0
 
 # --- restart ----------------------------------------------------------------
-log "board unanswering for $((NOW - DOWN_SINCE))s (failure $((FAILS + 1))); running 'kosmos start'"
-bash "$KOSMOS_BIN" start >> "$LOG" 2>&1 || true
+# First attempt: a plain `kosmos start`. It is idempotent, needs no launchd, and
+# handles the primary #2955 case (board cleanly dead, port free) without touching
+# the fragile stop/start path.
+#
+# Escalation (a prior restart did not hold -> FAILS >= 1): the port is likely held
+# by a wedged board process that exited "clean" from launchd's view but whose
+# detached child still serves 16180 (observed on the Mortals box: job state
+# not-running, last exit 0, yet a node listener persists). `kosmos start` refuses a
+# held port, so instead `launchctl kickstart -k` the board's own login job -- that
+# kills the job and the child launchd still tracks, then re-runs its `kosmos start`.
+# This is the recovery that cleared Josh's box. It falls back to `kosmos start` if
+# launchctl cannot drive the job (e.g. the job is not loaded), which is the case
+# `kosmos start` is better at anyway.
+if [ "$FAILS" -ge 1 ] && "$LAUNCHCTL" kickstart -k "gui/$(/usr/bin/id -u)/$BOARD_LABEL" >> "$LOG" 2>&1; then
+  log "board unanswering for $((NOW - DOWN_SINCE))s (failure $((FAILS + 1))); kickstart -k $BOARD_LABEL (port may be wedged)"
+else
+  log "board unanswering for $((NOW - DOWN_SINCE))s (failure $((FAILS + 1))); running kosmos start"
+  bash "$KOSMOS_BIN" start >> "$LOG" 2>&1 || true
+fi
 # Count the attempt for the backoff/crash-loop guard; keep the down streak (the next
-# run clears it, the fail count, and the alert if the start took hold and the board
-# now answers).
+# run clears it, the fail count, and the alert if the restart took hold and the
+# board now answers).
 state_put "$DOWN_SINCE" "$NOW" "$((FAILS + 1))"
 exit 0

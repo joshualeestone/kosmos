@@ -29,22 +29,40 @@ esac
 STUB
   chmod +x "$h/bin/kosmos"
   : > "$h/board.plist"          # the board login job "exists" -> gate 2 passes
+  # Stub launchctl for the wedged-port escalation: records kickstart and, like a
+  # successful re-run of the login job's `kosmos start`, marks the board healthy.
+  cat > "$h/bin/launchctl" <<'LC'
+#!/bin/bash
+H="$(cd "$(dirname "$0")/.." && pwd)"
+echo "$*" >> "$H/.stub-launchctl-calls"
+case "$1" in kickstart) : > "$H/.stub-healthy" ;; esac
+exit 0
+LC
+  chmod +x "$h/bin/launchctl"
   printf '%s' "$h"
 }
 starts() { local h="$1"; [ -f "$h/.stub-start-calls" ] && wc -l < "$h/.stub-start-calls" | tr -d ' ' || echo 0; }
+kicks()  { local h="$1"; if [ -f "$h/.stub-launchctl-calls" ]; then grep -c kickstart "$h/.stub-launchctl-calls" 2>/dev/null; else echo 0; fi; }
 # $1 home ; passes home + the board plist path as argv, like the installed plist does.
-run_wd() { local h="$1"; KOSMOS_WATCHDOG_GRACE=45 KOSMOS_WATCHDOG_THROTTLE=180 KOSMOS_WATCHDOG_MAX_FAILS=5 KOSMOS_WATCHDOG_COOLDOWN=3600 bash "$WD" "$h" "$h/board.plist" >/dev/null 2>&1; }
+run_wd() { local h="$1"; KOSMOS_WATCHDOG_GRACE=45 KOSMOS_WATCHDOG_THROTTLE=180 KOSMOS_WATCHDOG_MAX_FAILS=5 KOSMOS_WATCHDOG_COOLDOWN=3600 KOSMOS_WATCHDOG_LAUNCHCTL="$h/bin/launchctl" bash "$WD" "$h" "$h/board.plist" >/dev/null 2>&1; }
 now() { date +%s; }
 # down_since must be AFTER boot or the reboot-reset fires; "100s ago" is safely
 # post-boot on any machine that has been up longer than that (the test host has).
 recent_down() { echo "$(( $(now) - 100 ))"; }
 
-# 1. Deliberate-stop marker present -> never starts.
+# The gate tests seed a down streak already PAST grace, so that WITHOUT the gate the
+# watchdog would restart here (as tests 6+ show it does). Only the gate keeps it out,
+# so the "no start" assertion is contingent on the gate rather than on the harmless
+# first-observation branch (which would pass whether the gate exists or not).
+# 1. Deliberate-stop marker present -> never starts, even with the board long down.
 H="$(new_home)"; : > "$H/board.stopped"
+printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\n' "$(recent_down)" > "$H/logs/board-watchdog.state"
 run_wd "$H"; [ "$(starts "$H")" = 0 ] && ok "marker present: no start" || bad "marker present: started anyway"; rm -rf "$H"
 
-# 2. Board login job ABSENT (auto-restart off / mid-uninstall) -> stays out.
+# 2. Board login job ABSENT (auto-restart off / mid-uninstall) -> stays out, even
+#    with the board long down.
 H="$(new_home)"; rm -f "$H/board.plist"
+printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\n' "$(recent_down)" > "$H/logs/board-watchdog.state"
 run_wd "$H"; [ "$(starts "$H")" = 0 ] && ok "no board login job: stays out (settings-gate)" || bad "no board login job: started anyway"; rm -rf "$H"
 
 # 3. Healthy -> no start, down streak + fail count cleared, alert removed.
@@ -71,6 +89,14 @@ H="$(new_home)"; printf 'down_since=%s\nlast_kickstart=0\nfail_count=0\n' "$(rec
 run_wd "$H"
 [ "$(starts "$H")" = 1 ] && ok "past grace, unthrottled: started" || bad "past grace, unthrottled: did not start ($(starts "$H"))"
 grep -q '^fail_count=1$' "$H/logs/board-watchdog.state" && ok "restart increments fail_count" || bad "fail_count not incremented"
+rm -rf "$H"
+
+# 6b. A prior restart did not hold (FAILS>=1), past the (grown) backoff -> escalate
+# to `launchctl kickstart -k` for the wedged-port case, NOT a plain `kosmos start`.
+H="$(new_home)"; printf 'down_since=%s\nlast_kickstart=%s\nfail_count=2\n' "$(recent_down)" "$(( $(now) - 600 ))" > "$H/logs/board-watchdog.state"
+run_wd "$H"
+[ "$(kicks "$H")" -ge 1 ] && ok "prior failure: escalates to kickstart -k" || bad "prior failure: did not kickstart ($(kicks "$H"))"
+[ "$(starts "$H")" = 0 ] && ok "escalation does not also call kosmos start" || bad "escalation also called kosmos start"
 rm -rf "$H"
 
 # 7. Down, past grace, within backoff window -> no start (throttle grows with fails).
