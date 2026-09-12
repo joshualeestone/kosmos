@@ -28175,6 +28175,11 @@ function placeAppSettings(consolidated) {
    project views), keeps the projects list beside it, and paints the settings the
    same way the tab path does -- minus the tab switch that drops body.consolidated. */
 function openConsolidatedSettings() {
+  // This shows settings WITHOUT re-adding body.consolidated, so it is only correct while
+  // the consolidated layout is already on. The one caller (#rail-me-go) gates on
+  // layoutConsolidated(), but guard it here too so the function cannot render settings
+  // into #panel-projects without the consolidated grid CSS if a future caller forgets.
+  if (!layoutConsolidated()) return;
   placeAppSettings(true);
   document.getElementById('panel-projects').hidden = false;
   for (const v of ['one', 'add', 'settings', 'task', 'docs', 'alltasks']) {
@@ -28184,6 +28189,12 @@ function openConsolidatedSettings() {
   document.getElementById('pj-list-view').hidden = false;   // keep the projects column
   document.getElementById('panel-settings').hidden = false;
   paintSettings();
+  // settingsOpen -> settingsGo -> syncUrl writes the address from PJ_VIEW/PJ_CURRENT, which
+  // still name the last project view, so the URL keeps saying ?tab=projects&project=<id> while
+  // settings shows. That is deliberate: this consolidated settings view is a transient action,
+  // not a deep-linkable screen -- a reload restores the project (the durable state), not the
+  // settings overlay. PJ_VIEW is intentionally left unchanged rather than given an
+  // 'appsettings' value that syncUrl and every PJ_VIEW reader would then have to learn.
   settingsOpen(SETTINGS_SEC);
   syncPlusChrome();
 }

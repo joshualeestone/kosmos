@@ -32,17 +32,23 @@ the same reuse the View-All views (`#pj-alltasks-view`, `#pj-docs-view`) already
    lazily on the first move). Reversible and idempotent. Called from `showTab`, keyed on
    the same `cons` flag that toggles `body.consolidated`, so a resize or layout switch
    moves it back.
-2. `#rail-me-go` routes by layout: in the consolidated view it keeps `body.consolidated`,
-   ensures `#panel-projects` is shown, moves settings in, shows it via `pjView('appsettings')`,
-   and paints the settings + the current section; in the tab view it keeps the existing
-   behavior (click the settings tab).
-3. `pjView` learns the `appsettings` view: it shows `#panel-settings` when
-   `which === 'appsettings'` and hides it otherwise (guarded to when the panel is actually
-   relocated into `#panel-projects`), exactly like the `pj-*-view` divs. The projects
-   list stays visible beside it (the existing `which !== 'list'` rule). Navigating to a
-   project (`pjView('one')`) hides settings, so the projects list is the natural way back.
-4. `syncUrl` treats `appsettings` like `list` (writes no project sub-view), so the URL
-   does not falsely claim a project view while settings is showing.
+2. `#rail-me-go` routes by layout: in the consolidated view it calls
+   `openConsolidatedSettings()` (keeps `body.consolidated`, ensures `#panel-projects` is
+   shown, hides the project display views, keeps `#pj-list-view`, shows the relocated
+   `#panel-settings`, and paints the settings + the current section); in the tab view it
+   keeps the existing behavior (click the settings tab). `openConsolidatedSettings` guards
+   on `layoutConsolidated()` so it cannot render settings without the consolidated grid CSS.
+3. The open is deliberately NOT routed through `pjView` (which carries `syncUrl`/`PJ_VIEW`
+   side effects). Instead `openConsolidatedSettings` does its own display-column swap, and
+   `pjView` gains one small change: on ANY project navigation it HIDES the relocated
+   `#panel-settings` (guarded to when the panel is actually inside `#panel-projects`), so
+   clicking a project in the list restores the project view over settings. There is no
+   `'appsettings'` view value; `pjView`'s own view loop is unchanged.
+4. `syncUrl`/`PJ_VIEW` are intentionally left untouched. `PJ_VIEW` keeps its last project
+   value while settings shows, so the URL keeps saying `?tab=projects&project=<id>`. This
+   consolidated settings view is a transient action, not a deep-linkable screen: a reload
+   restores the project (the durable state), not the settings overlay. Leaving `PJ_VIEW`
+   alone avoids teaching `syncUrl` and every `PJ_VIEW` reader a new value for a transient.
 5. CSS (consolidated only): fit `#panel-settings .dbody` into the display column width
    (its tab-view layout is a fixed 34rem centered column, too wide for the column), and
    give it the same scroll treatment as the other display views.
