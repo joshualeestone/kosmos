@@ -188,28 +188,97 @@ test('with live execution OFF a pause refuses: nothing stopped, every agent in n
 
 /* ── review round 1 ───────────────────────────────────────────────────── */
 
-// The route and namedWorldSpawnRefusal both read worldenv.bootedWorld at call time,
-// so patching the cached module's export makes this board "booted into" a world.
+// The route reads worldenv.bootedWorld at call time, so patching the cached
+// module's export makes this board "booted into" a world. KOSMOS_WORLD is what a
+// real boot into that world also sets (worlds.applyWorldEnv), and what every
+// launch identity (launchidentity.currentWorldId) is keyed by.
 async function bootedInto(worldId, fn) {
   const real = worldenv.bootedWorld;
+  const savedWorld = process.env.KOSMOS_WORLD;
   worldenv.bootedWorld = () => worldId;
-  try { return await fn(); } finally { worldenv.bootedWorld = real; }
+  process.env.KOSMOS_WORLD = worldId;
+  try { return await fn(); } finally {
+    worldenv.bootedWorld = real;
+    if (savedWorld === undefined) delete process.env.KOSMOS_WORLD; else process.env.KOSMOS_WORLD = savedWorld;
+  }
 }
+/* The named world's own `ava`: a keyed plist and a running keyed session, tied by
+   Kosmos's claim. Built while booted into it, since both are keyed by that world. */
+function namedWorldAva(worldId) {
+  const key = `ava+${worldId}`;
+  fs.writeFileSync(create.plistPath('ava'), '<plist/>');
+  board = fleet.install([{ ...fleet.agent('ava', { state: 'idle' }), session: key, claim: key }]);
+  return key;
+}
+function backToKosmos1(worldId) {
+  fs.rmSync(nodePath.join(nodePath.dirname(create.plistPath('ava')), `${create.serviceLabel('ava', worldId)}.plist`), { force: true });
+  board = fleet.install([fleet.agent('ava', { state: 'idle' })]);
+}
+/* A command naming Kosmos 1's `ava`: its bare label or plist, its bare task, or
+   its bare tmux session target. */
+const NAMES_DEFAULT_AVA = /com\.kosmos\.agent\.ava(?!\+)|\\agent-ava(?!\+)|=ava(?![+\w-])/;
 const seedPaused = (names) => {
   fs.mkdirSync(nodePath.dirname(worldstarts.RECORD_FILE), { recursive: true });
   fs.writeFileSync(worldstarts.RECORD_FILE, JSON.stringify({ entries: names.map((name) => ({ name, why: 'paused', at: new Date().toISOString() })) }));
 };
 
-test('R1-1: a pause from a NAMED Kosmos (agents may not run there, #2849) stops nothing, lists everyone, and still switches', async () => {
-  const r = await bootedInto('alphaworld', () => post({ id: 'default', agents: 'pause' }));
-  assert.equal(r.status, 200, 'the switch must still proceed');
-  assert.equal(r.body.restartRequired, true, 'the control: this was a REAL switch, where a pause would otherwise run');
-  assert.deepEqual(r.body.paused, []);
-  assert.deepEqual(r.body.notPaused.map((n) => n.name), ['ava']);
-  assert.match(r.body.notPaused[0].because, /cannot be paused from a named Kosmos/);
-  assert.deepEqual(calls, [], 'on a Mac this would stop the DEFAULT Kosmos\'s agents and strand them');
-  assert.equal(record(), null, 'nothing may be recorded into the named world\'s store');
+/* ── world-guard-lift-1704: a named Kosmos pauses and resumes its OWN agents ── */
+
+test('a pause from a NAMED Kosmos (Mac) pauses that Kosmos\'s own agent on its keyed label and session, never Kosmos 1\'s', async () => {
+  // Kosmos 1's ava has its bare plist on disk (test.before): the control that must stay untouched.
+  assert.ok(fs.existsSync(nodePath.join(nodePath.dirname(create.plistPath('ava')), 'com.kosmos.agent.ava.plist')));
+  let key;
+  let r;
+  try {
+    r = await bootedInto('alphaworld', () => {
+      key = namedWorldAva('alphaworld');
+      return post({ id: 'default', agents: 'pause' });
+    });
+  } finally {
+    backToKosmos1('alphaworld');
+  }
+  assert.equal(r.status, 200);
+  assert.equal(r.body.restartRequired, true, 'the control: a REAL switch, where a pause runs');
+  assert.deepEqual(r.body.paused, ['ava'], 'the named Kosmos\'s agent was not paused: ' + JSON.stringify(r.body.notPaused));
+  assert.deepEqual(r.body.notPaused, []);
+  assert.equal(calls[0], `launchctl disable gui/${process.getuid()}/com.kosmos.agent.${key}`, 'disable first, on this world\'s label');
+  assert.ok(calls.includes(`launchctl bootout gui/${process.getuid()}/com.kosmos.agent.${key}`));
+  // The tmux binary here is test-support/fake-tmux.sh, so match the act, not the file.
+  assert.ok(calls.some((c) => c.endsWith(`kill-session -t =${key}`)), 'this world\'s own session was not ended: ' + JSON.stringify(calls));
+  assert.deepEqual(calls.filter((c) => NAMES_DEFAULT_AVA.test(c)), [], 'a pause from a named Kosmos reached Kosmos 1\'s ava');
+  assert.deepEqual(record().map((e) => e.name), ['ava'], 'recorded in the booted (named) world\'s store, for its boot drain');
   assert.equal(activeWorldId(), 'default');
+});
+
+test('a pause from a NAMED Kosmos (Windows) disables and ends only that Kosmos\'s keyed task', async () => {
+  const win32job = require('./engine/win32job');
+  const win32stop = require('./engine/win32stop');
+  const winCalls = [];
+  win32job.setRunner((args) => {
+    winCalls.push(['schtasks', ...args].join(' '));
+    return args[0] === '/Query' ? { ok: true, out: 'Status: Ready\n' } : { ok: true, out: 'SUCCESS' };
+  });
+  win32stop.setLive(() => new Map());   // nothing live under any name: the end state
+  worldstarts.setPlatformForTests('win32');
+  let r;
+  try {
+    r = await bootedInto('alphaworld', () => {
+      namedWorldAva('alphaworld');
+      return post({ id: 'default', agents: 'pause' });
+    });
+  } finally {
+    worldstarts.setPlatformForTests('darwin');
+    win32job.setRunner(null);
+    win32stop.setLive(null);
+    backToKosmos1('alphaworld');
+  }
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.paused, ['ava'], JSON.stringify(r.body.notPaused));
+  assert.deepEqual(winCalls.filter((c) => !c.includes('/Query')), [
+    'schtasks /Change /TN Kosmos\\agent-ava+alphaworld /DISABLE',
+    'schtasks /End /TN Kosmos\\agent-ava+alphaworld',
+  ]);
+  assert.deepEqual(winCalls.filter((c) => NAMES_DEFAULT_AVA.test(c)), [], 'a pause from a named Kosmos reached Kosmos 1\'s task');
 });
 
 test('R1-5: a switch to the booted world resumes this world\'s paused agents (enable, then start)', async () => {
@@ -224,15 +293,28 @@ test('R1-5: a switch to the booted world resumes this world\'s paused agents (en
   assert.deepEqual(record(), [], 'a resumed agent is cleared');
 });
 
-test('R1-5: that resume is held while agents may not start in the booted world (#2849)', async () => {
+test('a switch to the booted NAMED Kosmos resumes its own paused agent on its keyed label and plist', async () => {
   seedPaused(['ava']);
-  const r = await bootedInto('alphaworld', () => post({ id: 'alphaworld', agents: 'keep' }));
+  let key;
+  let plist;
+  let r;
+  try {
+    r = await bootedInto('alphaworld', () => {
+      key = namedWorldAva('alphaworld');
+      plist = create.plistPath('ava');
+      return post({ id: 'alphaworld', agents: 'keep' });
+    });
+  } finally {
+    backToKosmos1('alphaworld');
+  }
   assert.equal(r.status, 200);
   assert.equal(r.body.restartRequired, false, 'the control: a no-op switch');
-  assert.deepEqual(calls, [], 'a held agent must not be enabled or started');
-  const entries = record();
-  assert.deepEqual(entries.map((e) => e.name), ['ava'], 'the entry stays, for when the rule is lifted');
-  assert.match(entries[0].because, /named world/);
+  assert.deepEqual(calls, [
+    `launchctl enable gui/${process.getuid()}/com.kosmos.agent.${key}`,
+    `launchctl bootstrap gui/${process.getuid()} ${plist}`,
+  ], 'the named Kosmos\'s paused agent was not started again');
+  assert.match(plist, /com\.kosmos\.agent\.ava\+alphaworld\.plist$/);
+  assert.deepEqual(record(), [], 'a resumed agent is cleared');
 });
 
 /* ── review round 3 ───────────────────────────────────────────────────── */

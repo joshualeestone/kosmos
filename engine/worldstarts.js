@@ -159,14 +159,21 @@ function actSucceeded(act) {
  * Mac: launchd's per-user overrides, one probe for the fleet
  * (`create.disabledJobs`, passed in as `macOff`). Windows: the task's own state.
  * Both fail soft to "not off", which pauses it -- the behaviour before this check.
+ *
+ * ⚠️ THE MAC ASKS ABOUT THE JOB'S OWN LAUNCH KEY, not the bare name.
+ * `disabledJobs` lists every Kosmos's keys (`ava`, `ava+test`), so asking for
+ * `ava` from world `test` read Kosmos 1's agent. The key is read off `job.label`,
+ * the very label the pause would disable, so the check and the act name one job.
  */
 function switchedOffOnMac(platform) { return platform === 'win32' ? null : create.disabledJobs(); }
-function jobIsSwitchedOff(name, platform, macOff) {
+function jobIsSwitchedOff(name, job, platform, macOff) {
   if (platform === 'win32') {
     const st = win32job.status(name);
     return st.registered === true && st.enabled === false;
   }
-  return macOff.has(name);
+  const label = String((job && job.label) || '');
+  return label.startsWith(create.SERVICE_LABEL_PREFIX)
+    && macOff.has(label.slice(create.SERVICE_LABEL_PREFIX.length));
 }
 
 /* ── pause ───────────────────────────────────────────────────────────────── */
@@ -241,7 +248,7 @@ function pauseForSwitch(agents, opts = {}) {
       notPaused.push({ name: c.name, because: `${c.name} was not started by Kosmos, so we could not pause it and it keeps running` });
       continue;
     }
-    if (!heldForRetry.has(c.name) && jobIsSwitchedOff(c.name, platform, macOff)) {
+    if (!heldForRetry.has(c.name) && jobIsSwitchedOff(c.name, job, platform, macOff)) {
       // An earlier pause of this same Kosmos (a board that could not restart
       // itself, paused twice): it IS paused, and its entry stands as written.
       if (alreadyPaused.has(c.name)) paused.push(c.name);
@@ -320,11 +327,8 @@ function pauseForSwitch(agents, opts = {}) {
 
 /**
  * Start again the paused agents of the booted Kosmos, optionally only `onlyNames`.
- *
- * `opts.spawnRefusal` is server.js's `namedWorldSpawnRefusal`, passed IN rather
- * than re-derived here: "may agents start in the booted world" has one answer
- * (#2849), and while it refuses, every entry is held with its sentence so the
- * agents come back at the first boot after the rule is lifted.
+ * Every act goes through the agent's world-keyed launch identity (remove.jobFor ->
+ * create.serviceLabel / win32job.taskName), so a named Kosmos starts only its own.
  *
  * Returns `{resumed: [names], held: [{name, because}], cleared: [names]}`.
  * `cleared` names removed agents, whose entries are dropped because the removal
@@ -353,16 +357,6 @@ function resumeEntries(onlyNames, opts = {}) {
       process.stderr.write(`Kosmos could not update its list of paused agents (${(err && err.code) || 'unknown'}); an agent already started may be started again at the next boot.\n`);
     }
   };
-
-  const refused = typeof opts.spawnRefusal === 'function' ? opts.spawnRefusal() : null;
-  if (refused) {
-    const because = String(refused.error || 'agents cannot start in this Kosmos yet');
-    const names = new Set(targets.map((t) => t.name));
-    entries = entries.map((e) => (names.has(e.name) ? { ...e, because } : e));
-    for (const t of targets) held.push({ name: t.name, because });
-    writeBack();
-    return { resumed, held, cleared };
-  }
 
   const gate = liveExecutionRefusal('resume', targets.map((t) => t.name));
   if (gate) {
@@ -394,6 +388,12 @@ function resumeEntries(onlyNames, opts = {}) {
     let because = null;
     if (!job) {
       because = `we could not find how Kosmos starts ${t.name}`;
+    } else if (job.ours === false) {
+      /* remove.jobFor's legacy `com.<name>.discord` candidate: a launchd job some
+         other tool wrote, under an unkeyed label that no Kosmos but the default
+         one can own. The pause refuses it; so does the resume, or a named Kosmos
+         would switch on and start a job outside it. */
+      because = `${t.name} is started by something other than Kosmos, so we left it alone`;
     } else if (!actSucceeded(() => ops.enable(t.name, job))) {
       because = `we could not set ${t.name} to start on its own again`;
     } else if (!actSucceeded(() => ops.startNow(t.name, job))) {
