@@ -1,0 +1,13 @@
+# Android / Gradle build outputs
+.gradle/
+build/
+local.properties
+
+# Keystores must never be committed
+*.jks
+*.keystore
+
+# IDE
+.idea/
+*.iml
+captures/
