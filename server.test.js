@@ -3278,14 +3278,13 @@ test('the detail panel carries the explanation the card gave up', () => {
      is unaffected, which is the whole point of the guard. */
   const reported = drive('finished responding', true);
   assert.equal(reported.hidden, true, 'a reported state must hide the duplicate lower status');
-  /* #1996: a reported MULTI-LINE because cannot fit d-task's one nowrap line, so
-     the #1841 suppression lifts and this surface shows it in full. The single-line
-     reported case just above still hides -- d-task shows that one whole. */
+  /* #2833 (Josh, 2026-09-11): #d-task no longer renders on the header, so this line now
+     hides for a reported MULTI-LINE because too (it was kept visible by #1996 only because
+     #d-task truncated the single line). The Talk section's "waiting on an answer" box carries
+     the full multi-line text, so the header stays Title and Model only. */
   const reportedMulti = drive('blocked on the deploy\n\nwaiting for the cert to be signed', true);
-  assert.equal(reportedMulti.hidden, false,
-    'a reported MULTI-LINE because must stay visible: d-task truncates it to one line, so this is its only full surface');
-  assert.ok(reportedMulti.textContent.includes('\n'),
-    'the full multi-line because must reach the surface with its breaks, not flattened to one line');
+  assert.equal(reportedMulti.hidden, true,
+    'a reported because (single- or multi-line) must hide on the header now that #d-task is gone (#2833)');
 });
 
 test('the settings screen renders the engine\'s three answers', () => {
@@ -3448,6 +3447,9 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
      textContent to escaped innerHTML -- the drive reads innerHTML and supplies
      the real `esc` the line now calls. */
   const esc = pageFunction('esc');
+  /* #2833: the meta line now calls acctChosenName(a) for the Account segment, so the
+     lifted slice needs it supplied the same way roleLine/modelLine are. */
+  const acctChosenName = pageFunction('acctChosenName');
   const drive = (card) => {
     const el = { innerHTML: 'seeded' };
     // `runs` is hoisted above the meta line so the meta line and the Runs on box
@@ -3463,8 +3465,8 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
        meta line now calls `roleLine(a, ROLE_TITLES)`, and null is the state the
        page holds until the roles route answers -- so this drives the fallback
        path, which is the one whose capitals the assertion below is about. */
-    new Function('document', 'a', 'modelLine', 'roleLine', 'runsOnLine', 'ROLE_TITLES', 'esc', script.slice(from, end))(
-      { getElementById: () => el }, card, modelLine, roleLine, runsOnLine, null, esc);
+    new Function('document', 'a', 'modelLine', 'roleLine', 'runsOnLine', 'ROLE_TITLES', 'esc', 'acctChosenName', script.slice(from, end))(
+      { getElementById: () => el }, card, modelLine, roleLine, runsOnLine, null, esc, acctChosenName);
     return el.innerHTML;
   };
   const surfaced = drive({ role: 'archive worker', modelName: 'Claude Opus 5', nameDerived: false, state: 'working' });
@@ -3474,8 +3476,8 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
     'a display name that IS the machine name carries no disclosure on the panel');
   assert.doesNotMatch(surfaced, /machine name/,
     'the panel still says "machine name", which is a code word a stranger has never met (#684)');
-  assert.match(surfaced, /<b>Archive worker<\/b> · Claude Opus 5 · /,
-    'CONTROL: the meta line lost its role and model, so the disclosure assertion floats free');
+  assert.match(surfaced, /<b>Archive worker<\/b> · Anthropic \/ Claude · Claude Opus 5 · /,
+    'CONTROL: the meta line lost its role, provider, or model, so the disclosure assertion floats free (#2833)');
   /* #1841: the role is bold and the model is NOT. Exactly one <b>, wrapping the
      first segment; the model sits outside it. */
   assert.equal((surfaced.match(/<b>/g) || []).length, 1, 'the meta line bolds more than the role');
@@ -3498,10 +3500,29 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
   // `R`, not `r`: a one-character parsed role is sentence-cased like any other,
   // which is the boundary case for a `charAt(0).toUpperCase()` on a length-1
   // string and is worth having land here rather than nowhere.
-  assert.match(drive({ role: 'r', modelName: 'Fable 5', nameDerived: true, state: 'working' }), /<b>R<\/b> · Claude Fable 5/,
+  assert.match(drive({ role: 'r', modelName: 'Fable 5', nameDerived: true, state: 'working' }), /<b>R<\/b> · Anthropic \/ Claude · Claude Fable 5/,
     'the panel model line diverged from the card on a provider-less name');
-  assert.match(drive({ role: 'r', modelName: null, nameDerived: true, state: 'unknown' }), /<b>R<\/b> · Unknown Model/,
+  assert.match(drive({ role: 'r', modelName: null, nameDerived: true, state: 'unknown' }), /<b>R<\/b> · Anthropic \/ Claude · Unknown Model/,
     'a missing model is silently omitted on the panel while the card says Unknown Model');
+  /* #2833 (Josh, 2026-09-11): Title · Provider · Account · Model. Provider and Model are
+     always present; the Account segment appears only when there is a human-readable account
+     identity and DEGRADES OUT otherwise, so the line never carries a dangling separator. */
+  // OpenAI provider label, and an account NAME shows as the Account segment.
+  // Pins Provider (OpenAI) + Account (the chosen name), not the model derivation (modelLine
+  // prefixes a bare name, which is a separate concern the assertions above already cover).
+  assert.match(drive({ role: 'coder', provider: 'openai', name: 'work-openai', modelName: 'GPT-5', nameDerived: true }),
+    /<b>Coder<\/b> · OpenAI · work-openai · /,
+    'an OpenAI agent with a chosen account name must read Title · OpenAI · <name> · Model');
+  // An account EMAIL shows when there is no chosen name.
+  assert.match(drive({ role: 'coder', email: 'josh@stuff.io', modelName: 'Claude Opus 5', nameDerived: true }),
+    /<b>Coder<\/b> · Anthropic \/ Claude · josh@stuff\.io · Claude Opus 5/,
+    'a Claude agent with an account email must show it as the Account segment');
+  // Graceful degradation: no name, no email, no key -> the Account segment is omitted, with
+  // no doubled or dangling separator. This is the default-Claude / broken-Codex (#2811) case.
+  const noAcct = drive({ role: 'coder', modelName: 'Claude Opus 5', nameDerived: true });
+  assert.match(noAcct, /<b>Coder<\/b> · Anthropic \/ Claude · Claude Opus 5/,
+    'with no resolvable account the line is Title · Provider · Model, Account omitted');
+  assert.doesNotMatch(noAcct, / ·  · /, 'a missing Account left a dangling doubled separator');
   /* 🛑 #1841 THE ROLE-LESS ARM, and it is the one the bold could regress on.
      roleLine returns '' for an agent with no role, and a bold keyed to
      post-filter position 0 would then wrap the MODEL -- exactly "bold the title
@@ -3509,7 +3530,7 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
      appears at all. The control beside it proves the model still renders. */
   const roleless = drive({ role: '', modelName: 'Claude Opus 5', nameDerived: true, state: 'working' });
   assert.doesNotMatch(roleless, /<b>/, 'a role-less agent bolded the model, which "bold the title only" forbids');
-  assert.equal(roleless, 'Claude Opus 5', 'CONTROL: the model still renders for a role-less agent');
+  assert.equal(roleless, 'Anthropic / Claude · Claude Opus 5', 'CONTROL: the provider and model still render for a role-less agent (#2833)');
 });
 
 test('the narrow-screen menu keeps the keyboard: forward in on open, back to the burger on choose and Escape', () => {
@@ -8741,7 +8762,7 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   // own earlier in the file, and a forward search finds that one.
   const from = script.lastIndexOf('  const copy = stateCopyOf(a)', dmAt);
   assert.ok(from > -1 && from < dmAt, 'the state copy lookup moved away from the badge');
-  const TAIL = 'dtask.hidden = !dtask.textContent;';
+  const TAIL = 'dtask.hidden = !dtask.textContent || (a.stateReported === true);';
   const end = script.indexOf(TAIL, from);
   assert.ok(end > from, 'the detail task line vanished');
   const body = script.slice(from, end + TAIL.length);
@@ -8772,6 +8793,15 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   // stuck ON. So the header shows the badge and nothing beside it.
   assert.equal(needs.task.textContent, '', 'needs_you still showed the frozen title as its task');
   assert.equal(needs.task.hidden, true, 'the empty task line was not hidden');
+
+  /* #2833 (Josh, 2026-09-11): a REPORTED state's self-reported message is now HIDDEN on the
+     header even though taskLine still returns it (the Talk section's waiting box carries it).
+     A NON-reported reason (rate_limited, below) stays visible -- that is the distinction. */
+  const reportedNeeds = drive({ state: 'needs_you', because: 'Research Kerry Pickrell: two location details', stateReported: true });
+  assert.notEqual(reportedNeeds.task.textContent, '',
+    'CONTROL: taskLine must still return the reported because, or the hide assertion below is vacuous');
+  assert.equal(reportedNeeds.task.hidden, true,
+    'a reported state must hide its self-reported quote on the header (#2833): it duplicates the waiting box');
 
   /**
    * 🛑 AND THE HEADER SAYS WHAT THE CARD SAYS. Both derive the task line from
