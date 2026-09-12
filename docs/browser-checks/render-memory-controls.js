@@ -33,7 +33,8 @@ const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
   await page.goto(URL + '/?tab=detail&agent=mara', { waitUntil: 'networkidle' }); await page.waitForTimeout(1500);
   if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(300); }
   await page.waitForSelector('#panel-detail:not([hidden])', { timeout: 8000 });
-  await page.click('#d-nav [data-go="memory"]'); await page.waitForTimeout(600);
+  // #2916: Memory folded under the "Model and Memory" pill (data-go="model"); its section + controls are unchanged.
+  await page.click('#d-nav [data-go="model"]'); await page.waitForTimeout(600);
   const vis = await page.evaluate(() => {
     const v = (id) => { const e = document.getElementById(id); return !!e && !e.hidden && e.offsetParent !== null; };
     return { compact: v('d-compact-go'), clear: v('d-clear-go'), restart: v('d-restart-start'), chooser: /Three ways to get .{1,40} going again/.test(document.getElementById('d-sec-memory').innerText), names: ['d-compact-go', 'd-clear-go', 'd-restart-start'].map((id) => document.getElementById(id).textContent) };

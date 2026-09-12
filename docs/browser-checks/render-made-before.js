@@ -152,7 +152,7 @@ function chk(ok, label, extra) {
       'the stopped explainer names the way in without telling anyone to stop a stopped agent', gone.why);
     chk(/Add it from Found agents/.test(gone.msg) && !/Stop it/.test(gone.msg),
       'the stopped picker refusal matches', gone.msg);
-    await page.click('#d-nav button[data-go="memory"]');
+    await page.click('#d-nav button[data-go="model"]');   // #2916: Memory now folded under the Model and Memory pill
     await page.waitForTimeout(300);
     const mem = await page.evaluate(() => { const el = document.getElementById('d-memory'); return el.getBoundingClientRect().height > 0 ? el.innerText : ''; });
     chk(/memory was never recorded/.test(mem), 'the stopped memory box says never recorded', mem.slice(0, 120));

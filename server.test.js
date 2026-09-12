@@ -8746,11 +8746,23 @@ test('the agent detail page is eight sections behind a nav, in the ruled order',
                           raw.indexOf('<section class="panel" id="panel-settings"'));
   const nav = panel.slice(panel.indexOf('<nav class="snav" id="d-nav"'), panel.indexOf('</nav>'));
   const gos = [...nav.matchAll(/<button type="button" data-go="([a-z]+)"/g)].map((m) => m[1]);
-  // Skills joined after Instructions (#477): what it reads at boot, then what it can do, then who it is.
-  assert.deepEqual(gos, ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'],
-    'the nav order moved; the mock reads Talk, Model, Memory, Instructions, Profile, Terminal, then Remove after a rule');
+  // #2916 (Josh 6.59): Memory folds under the "Model and Memory" pill and Skills under
+  // "Instructions", so neither has a pill of its own; the "Terminal" pill is renamed "Advanced".
+  // The pill order a person sees:
+  assert.deepEqual(gos, ['talk', 'model', 'instr', 'profile', 'term', 'remove'],
+    'the nav pill order moved; the pills read Talk, Model and Memory, Instructions, Profile, Advanced, Remove');
+  // The pill LABELS Josh asked for, and the two folded pills absent by name.
+  assert.match(nav, /data-go="model"[^>]*>Model and Memory</, 'the model pill is not labelled "Model and Memory"');
+  assert.match(nav, /data-go="term"[^>]*>Advanced</, 'the Terminal pill was not renamed "Advanced"');
+  assert.doesNotMatch(nav, /data-go="memory"/, 'a standalone Memory pill is back');
+  assert.doesNotMatch(nav, /data-go="skills"/, 'a standalone Skills pill is back');
   const secs = [...panel.matchAll(/<section class="dsec" id="d-sec-[a-z]+" data-sec="([a-z]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(secs, gos, 'the sections are not in the order the nav lists them');
+  // The eight sections are unchanged and still in reading order; the folded pair sits right after
+  // the section it folds under (memory after model, skills after instr).
+  assert.deepEqual(secs, ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'],
+    'the section order moved');
+  // Pills are the sections minus the folded pair, in the same relative order.
+  assert.deepEqual(secs.filter((s) => gos.includes(s)), gos, 'the pills are not in section order');
   // ⚠️ The control: the old grid no longer exists in this panel, so a revival
   // of it here would be a second layout under the nav.
   assert.ok(!panel.includes('class="dgrid"'), 'the detail panel grew a grid back under the nav');

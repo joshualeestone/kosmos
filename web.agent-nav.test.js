@@ -60,7 +60,18 @@ test('only Talk is on screen before a click, and every section can be reached fr
   assert.equal(secs.length, 8, 'the page has ' + secs.length + ' sections, not eight');
   assert.deepEqual(secs.filter((s) => !s.hidden).map((s) => s.key), ['talk'], 'the landing is not Talk alone');
   const gos = [...PANEL.matchAll(/data-go="([a-z]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(new Set(gos), new Set(secs.map((s) => s.key)), 'a section has no pill, or a pill has no section');
+  // #2916: pills are now a SUBSET of sections -- memory folds under the 'model' pill (Model and
+  // Memory) and skills under 'instr' (Instructions), so those two sections have no pill of their
+  // own but are still reached. Every section must be reachable, every pill must point at a real
+  // section, and exactly memory+skills are the folded pair.
+  const FOLD = { memory: 'model', skills: 'instr' };  // a folded section -> the pill that reveals it
+  for (const s of secs) {
+    const pill = FOLD[s.key] || s.key;
+    assert.ok(gos.includes(pill), s.key + ' is not reachable from any pill (expected pill: ' + pill + ')');
+  }
+  assert.ok(gos.every((g) => secs.some((s) => s.key === g)), 'a pill points at no section');
+  assert.deepEqual(secs.map((s) => s.key).filter((k) => !gos.includes(k)).sort(), ['memory', 'skills'],
+    'the folded set changed; #2916 folds exactly memory (under Model and Memory) and skills (under Instructions)');
   for (const s of secs) {
     assert.match(PANEL, new RegExp('id="d-sec-' + s.key + '" data-sec="' + s.key + '" tabindex="-1"'), s.key + ' cannot take focus, so a click strands the keyboard on the nav');
   }
