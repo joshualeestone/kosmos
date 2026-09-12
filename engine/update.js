@@ -32,34 +32,91 @@ const DEFAULT_BASE = 'https://installkosmos.com/dist';
 const TTL = 15 * 60 * 1000;
 const FETCH_TIMEOUT = 3000;
 
-let base = process.env.AGENT_WORKFORCE_RELEASE_BASE || DEFAULT_BASE;
+/* The release host. AGENT_WORKFORCE_RELEASE_BASE is the old name and still wins, on every OS:
+   server.test.js, the browser-check sandboxes and engine/selfcheck.js aim a board at a dead
+   host through it, so dropping it anywhere would let those runs fetch the real site. It is a
+   test seam nobody is told to set, not an opt-in. KOSMOS_RELEASE_BASE is the name
+   install/setup.sh reads, so an operator who points the installer at a mirror points this
+   check at the same mirror. Read on each look rather than frozen at require. */
+let baseOverride = null;       // tests inject via setBase; null means the environment decides
+function releaseBase() {
+  return baseOverride || process.env.AGENT_WORKFORCE_RELEASE_BASE || process.env.KOSMOS_RELEASE_BASE || DEFAULT_BASE;
+}
+let platformOverride = null;   // tests inject; null means this process's platform
+function updatePlatform() { return platformOverride || process.platform; }
 let fetcher = null;            // tests inject; null means global fetch
-// #2036: which pointer this machine's channel fetches. DEFAULT prod (latest.json) -- every
-// existing install stays byte-for-byte on today's path; ONLY an explicit staging channel
-// changes it. A staging-channel machine (AGENT_WORKFORCE_UPDATE_CHANNEL=staging) fetches
-// latest-staging.json, so it updates to staging builds BEFORE they are promoted to prod. The
-// pointer names a versioned artifact (setup.sh prefers kosmos-<V>-arm64 over the shared alias),
-// so staging and prod machines pull DIFFERENT bytes. Any value other than 'staging' is prod.
+// #2036: which channel this machine follows. DEFAULT prod -- every existing install stays
+// byte-for-byte on today's path; ONLY an explicit staging channel changes it. A staging-channel
+// machine fetches the staging pointer, so it sees staging builds BEFORE they are promoted to
+// prod. The pointer names a versioned artifact, so staging and prod machines pull DIFFERENT
+// bytes. Any value other than 'staging' -- including unset -- is prod.
 // 🛑 This is the consume half of the #2036 loop and is the client update path -- a bug here is
 // the 0.6.25 class itself. It is opt-in and default-prod until the loop is proven end-to-end on
 // a real fresh machine (see tools/release.sh + docs); the default channel does not move here.
-function updateChannel() {
-  // Honor either env name so an operator who sets KOSMOS_UPDATE_CHANNEL on an existing box (the
-  // name setup.sh reads, and the one this poller forwards to the spawned installer) is not
-  // silently ignored by the auto-updater. AGENT_WORKFORCE_ prefix wins, matching this module's
-  // AGENT_WORKFORCE_RELEASE_BASE convention. Any value other than 'staging' -- including unset --
-  // resolves to prod.
-  const c = process.env.AGENT_WORKFORCE_UPDATE_CHANNEL || process.env.KOSMOS_UPDATE_CHANNEL;
-  return c === 'staging' ? 'staging' : 'prod';
+function updateChannel(platform = updatePlatform(), env = process.env) {
+  /* The Mac honours either name so an operator who sets KOSMOS_UPDATE_CHANNEL (the name setup.sh
+     reads, and the one this poller forwards to the spawned installer) is not silently ignored;
+     the AGENT_WORKFORCE_ prefix wins there, as it always has.
+     🛑 WINDOWS READS ONLY KOSMOS_UPDATE_CHANNEL. On Windows every AGENT_WORKFORCE_* variable is a
+     LAUNCH override (server.js LAUNCH_ENV_OVERRIDES, win32handoff.overriddenBy): a launch that
+     carries one keeps its own window instead of handing off to the logon task. An updater
+     opt-in under that prefix would quietly turn every launch into an override. */
+  const chosen = platform === 'win32'
+    ? env.KOSMOS_UPDATE_CHANNEL
+    : (env.AGENT_WORKFORCE_UPDATE_CHANNEL || env.KOSMOS_UPDATE_CHANNEL);
+  return chosen === 'staging' ? 'staging' : 'prod';
 }
-function updatePointer() {
-  return updateChannel() === 'staging' ? 'latest-staging.json' : 'latest.json';
+/* The published pointer files, per platform family and channel. The Mac pair is the #2036 pair
+   release.sh writes; the Windows pair is what publish-kosmos-windows.sh writes (latest-win.json)
+   and what its staging cut will write (latest-win-staging.json). Before this table a Windows
+   board read the MAC pointer, which names a Mac build and version. */
+const UPDATE_POINTERS = Object.freeze({
+  win32: Object.freeze({ prod: 'latest-win.json', staging: 'latest-win-staging.json' }),
+  darwin: Object.freeze({ prod: 'latest.json', staging: 'latest-staging.json' }),
+});
+/** THE one rule for which pointer a platform on a channel reads. Anything that is not win32
+    reads the Mac pair, which is exactly what every platform read before. */
+function pointerFor(platform, channel) {
+  const family = platform === 'win32' ? UPDATE_POINTERS.win32 : UPDATE_POINTERS.darwin;
+  return channel === 'staging' ? family.staging : family.prod;
+}
+/** The full pointer URL this board's looks fetch, for the look itself and for the boot log. */
+function pointerUrl() {
+  return `${releaseBase()}/${pointerFor(updatePlatform(), updateChannel())}`;
+}
+/* sha256 as publish-kosmos-windows.sh writes it (shasum -a 256): 64 hex digits. */
+const SHA256_HEX = /^[0-9a-fA-F]{64}$/;
+/** The immutable name publish-kosmos-windows.sh gives a Windows build (`VERSIONED`). */
+function windowsBuildName(version, arch) { return `kosmos-${version}-win-${arch}.zip`; }
+/** The mutable alias the site's Windows download button serves (`ALIAS` in the publish script),
+    derived here rather than read from the manifest's `artifact`, which moves with every publish. */
+function windowsAliasName(arch) { return `kosmos-win-${arch}.zip`; }
+/**
+ * What a fetched pointer body says, or null when it cannot be trusted.
+ *
+ * Mac: today's rule, unchanged -- a string numeric x.y.z `version`; the result is `{version}`.
+ * Windows: the version rule, PLUS a 64-hex `sha256`, PLUS `versioned` naming exactly the build
+ * for that version on THIS machine's arch. A build for another arch fails that name check, so it
+ * is never offered here. `artifact` (the alias) is never read.
+ * A null is `readable: false` on the look: no offer, and never "Up to date".
+ */
+function readManifest(platform, body, arch = process.arch) {
+  if (!body || typeof body !== 'object') return null;
+  const version = typeof body.version === 'string' && parts(body.version) ? body.version : null;
+  if (!version) return null;
+  if (platform !== 'win32') return { version };
+  if (typeof body.sha256 !== 'string' || !SHA256_HEX.test(body.sha256)) return null;
+  if (body.versioned !== windowsBuildName(version, arch)) return null;
+  return { version, sha256: body.sha256.toLowerCase(), versioned: body.versioned };
 }
 // reached: did the LAST look actually get an answer from the host?
 // "could not reach the update server" must never render as "up to date",
 // so the cache carries the distinction rather than flattening both into
-// latest: null. at 0 means we have never looked.
-let cache = { at: 0, latest: null, reached: false, readable: false };
+// latest: null. at 0 means we have never looked. latest is the validated
+// manifest (readManifest), and base/channel record where that look went, so an
+// offer built from it (manualOffer) points at the same host the look read.
+function emptyCache() { return { at: 0, latest: null, reached: false, readable: false, base: null, channel: null }; }
+let cache = emptyCache();
 let inFlight = null;
 let installRunner = null;   // tests inject; production spawns the real installer
 // Read lazily through a function rather than required at the top, so a test can
@@ -89,7 +146,40 @@ function newer(a, b) {
  * published, else null. Never touches the network.
  */
 function available() {
-  return (cache.latest && newer(cache.latest, RUNNING)) ? { version: cache.latest } : null;
+  return (cache.latest && newer(cache.latest.version, RUNNING)) ? { version: cache.latest.version } : null;
+}
+
+let windowsBundleRootFn = null; // tests inject; production asks win32board for the real layout
+function windowsBundleRoot() {
+  if (windowsBundleRootFn) return windowsBundleRootFn();
+  /* Required here, not at the top: win32board pulls in the anchor chain, and this module is
+     required early by server.js, machine.js and selfcheck.js. By the time a look can make an
+     offer the board is up and the require is cheap and cached. */
+  return require('./win32board').bundleRoot({ platform: updatePlatform() });
+}
+
+/**
+ * The Windows manual offer, before the in-app updater is armed: `{version, download}` when this
+ * is a Windows bundle and the Windows pointer names a build newer than this one, else null.
+ *
+ * 🛑 THIS IS WHAT REPLACES THE FALSE "UP TO DATE." A Windows bundle has no installedRoot() (it
+ * ships runtime\node.exe, not runtime/bin/node), so the install offer (`update` on the status
+ * payload) is null there by design -- the Install route refuses on Windows. Without this the card
+ * had only "Up to date." to say while a newer Windows build sat on the site.
+ * The version gate is available(), the same newer() comparison the Mac offer rides.
+ * `download` is built from the base and channel the LOOK used: prod is the alias the site's
+ * button serves, staging is the staged versioned zip (the alias always names the prod build).
+ */
+function manualOffer() {
+  if (updatePlatform() !== 'win32') return null;
+  const avail = available();
+  if (!avail) return null;
+  if (!windowsBundleRoot()) return null;
+  const from = cache.base || releaseBase();
+  const download = cache.channel === 'staging'
+    ? `${from}/${cache.latest.versioned}`
+    : `${from}/${windowsAliasName(process.arch)}`;
+  return { version: avail.version, download };
 }
 
 /** Refresh the cache if stale. Returns immediately; errors stay internal. */
@@ -169,8 +259,14 @@ async function refresh() {
   const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT);
   const started = Date.now();
   let landed = false;
+  /* ONE URL per look. A staging pointer that cannot be reached, or cannot be read, is that
+     look's answer (no offer); it is never retried against prod, which would put a
+     staging-channel machine back on the prod build without saying so. */
+  const platform = updatePlatform();
+  const channel = updateChannel(platform);
+  const lookBase = releaseBase();
   try {
-    const res = await doFetch(`${base}/${updatePointer()}`, { signal: ctl.signal, cache: 'no-store' });
+    const res = await doFetch(`${lookBase}/${pointerFor(platform, channel)}`, { signal: ctl.signal, cache: 'no-store' });
     if (res) {
       // ANY response object means the host was reached; reached false is
       // reserved for silence (throws, timeouts, DNS). readable means the
@@ -180,8 +276,8 @@ async function refresh() {
       // never "up to date" (the false sentence this module exists to
       // prevent).
       const body = res.ok ? await res.json().catch(() => null) : null;
-      const v = body && typeof body.version === 'string' && parts(body.version) ? body.version : null;
-      cache = { at: Date.now(), latest: v, reached: true, readable: v !== null };
+      const latest = readManifest(platform, body);
+      cache = { at: Date.now(), latest, reached: true, readable: latest !== null, base: lookBase, channel };
       landed = true;
     }
   } finally {
@@ -198,7 +294,7 @@ async function refresh() {
     // TTL window; the next successful look restores it. Deliberate, and
     // 24x more visible now that the TTL is 15 minutes and checkNow can
     // hit this stamp from a button press while offline.
-    if (!landed) cache = { at: started, latest: null, reached: false, readable: false };
+    if (!landed) cache = { at: started, latest: null, reached: false, readable: false, base: lookBase, channel };
   }
   maybeAutoInstall();
 }
@@ -279,7 +375,7 @@ async function checkNow() {
       .finally(() => { inFlight = null; });
   }
   await inFlight;
-  return { running: RUNNING, latest: cache.latest, reached: cache.reached === true, readable: cache.readable === true };
+  return { running: RUNNING, latest: cache.latest ? cache.latest.version : null, reached: cache.reached === true, readable: cache.readable === true };
 }
 
 /**
@@ -314,8 +410,11 @@ function setupUrl() {
      the update is FOR, so the same update retried hits the same cache
      entry rather than minting one per attempt. Harmless to any origin:
      a query on a static file is ignored where there is no cache. */
+  /* Design finding 8: this read `cache.latest.version` while `cache.latest` was a bare string,
+     so `v` was always '' and the cache-buster never applied. The cache now holds the manifest
+     object, so it does. */
   const v = cache && cache.latest && cache.latest.version ? String(cache.latest.version) : '';
-  return base.replace(/\/dist\/?$/, '') + '/setup' + (v ? '?v=' + encodeURIComponent(v) : '');
+  return releaseBase().replace(/\/dist\/?$/, '') + '/setup' + (v ? '?v=' + encodeURIComponent(v) : '');
 }
 
 /**
@@ -723,22 +822,26 @@ function beginInstall(opts) {
     // #2036: pass the channel so the spawned setup.sh re-reads the SAME pointer this refresh
     // decided on. Without it, a staging update would fetch latest-staging.json here but setup.sh
     // would re-fetch latest.json and install the PROD artifact -- a split-brain update.
-    env: { ...process.env, KOSMOS_RELEASE_BASE: base, KOSMOS_UPDATE_CHANNEL: updateChannel() },
+    env: { ...process.env, KOSMOS_RELEASE_BASE: releaseBase(), KOSMOS_UPDATE_CHANNEL: updateChannel() },
   });
   wireChild(child, opts);
   child.unref();
 }
 
 /* Test hooks. Production code never calls these. */
-function setBase(b) { base = b || (process.env.AGENT_WORKFORCE_RELEASE_BASE || DEFAULT_BASE); }
+function setBase(b) { baseOverride = b || null; }
+function setPlatform(p) { platformOverride = p || null; }
+function setWindowsBundleRoot(f) { windowsBundleRootFn = f; }
 function setInstallRunner(f) { installRunner = f; }
 function setAutoPref(f) { autoPrefFn = f; }
 function setInstalledRoot(f) { installedRootFn = f; }
 function setFetcher(f) { fetcher = f; }
-function resetCache() { cache = { at: 0, latest: null, reached: false, readable: false }; inFlight = null; installStarted = false; autoFailedAt = 0; lastAttempt = null; }
+function resetCache() { cache = emptyCache(); inFlight = null; installStarted = false; autoFailedAt = 0; lastAttempt = null; }
 
 module.exports = {
   available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
+  pointerFor, pointerUrl, readManifest, updateChannel, releaseBase, manualOffer, // the per-platform check (win32-update-check)
+  setPlatform, setWindowsBundleRoot,
   updateAbort, // #2055: the durable board-would-not-pause abort marker ({count,reason,port,ts} or null)
   installStartedFile, // #1728: the durable in-flight marker path (tests + direct readers)
   selfInstallRefusal, // #570: null where self-update works, else the sentence to show

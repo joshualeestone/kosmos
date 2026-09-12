@@ -391,6 +391,8 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    after: one line at the settings width. */
 #upd-btn { white-space: nowrap; }
 .upd-line:empty { display: none; }
+.upd-channel { display: block; margin-top: 4px; font-weight: 600; color: var(--label-3); }
+#upd-download { white-space: nowrap; text-decoration: none; }
   /* ⚠️ A SENTENCE, so it keeps a measure while the chrome around it stops
      having one. A line of body text the width of a 1760px window loses the
      eye on the return sweep. */
@@ -12287,8 +12289,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            state and one of them would eventually be wrong. -->
       <div class="setrow" id="upd-row">
         <div><b id="build"></b>
+          <small id="upd-channel" class="upd-channel" hidden>Staging channel</small>
           <b id="upd-line" role="status" class="upd-line"></b></div>
         <button class="btn-quiet" type="button" id="upd-btn" hidden>Check for Update</button>
+        <!-- win32-update-check: the Windows manual offer's link (a real <a>, so the browser
+             downloads the zip). paintUpdateCard shows it only in the manual arm. -->
+        <a class="btn-quiet" id="upd-download" href="#" target="_blank" rel="noopener" hidden>Download</a>
       </div>
       <!-- 🛑 THIS ROW USED TO BE A SWITCH THAT COULD NOT MOVE. It read "Tell me
            when there is a new version", with a hint underneath admitting
@@ -14794,7 +14800,7 @@ let UPD_CHECKING = false;
 /* Has the person pressed the button in this session? Gates the resting
    "Up to date." only; see the arm that reads it. */
 let UPD_ASKED = false;
-function paintUpdateCard(running, offer, look) {
+function paintUpdateCard(running, offer, look, manual, channel) {
   if (UPD_CHECKING) return;
   const line = document.getElementById('upd-line');
   const btn = document.getElementById('upd-btn');
@@ -14817,10 +14823,31 @@ function paintUpdateCard(running, offer, look) {
   const putBtn = (text) => { if (btn.textContent !== text) btn.textContent = text; };
   btn.hidden = false;
   btn.disabled = false;
+  /* The channel is never silent: a staging board says so on the card (the status payload's
+     updateChannel). The Download link belongs to the manual arm only, so every paint starts it
+     hidden. Both looked up and guarded, because a harness that stubs only the line and the
+     button must keep working. */
+  const chan = document.getElementById('upd-channel');
+  if (chan) chan.hidden = channel !== 'staging';
+  const dl = document.getElementById('upd-download');
+  if (dl) dl.hidden = true;
   if (offer && offer.version) {
     put(v + 'Version ' + offer.version + ' is ready.');
     putBtn('Update');
     btn.dataset.act = 'update';
+  } else if (manual && manual.version && manual.download) {
+    /* 🛑 WINDOWS, BEFORE THE IN-APP UPDATER IS ARMED (win32-update-check). A Windows bundle
+       cannot take the install offer above (the install route refuses there), so a newer Windows
+       build arrives as `manual`, and this arm is what stands where the false "Up to date." used
+       to. It is news a person needs without asking, like the offer arm, so it is not gated on
+       UPD_ASKED. The act is the link: the check button stands down so the card offers one thing. */
+    put(v + 'Version ' + manual.version + ' is ready. Download it, unpack it over your Kosmos folder, then double-click Kosmos.exe.');
+    btn.hidden = true;
+    btn.dataset.act = 'check';
+    if (dl) {
+      if (dl.getAttribute('href') !== manual.download) dl.setAttribute('href', manual.download);
+      dl.hidden = false;
+    }
   } else if (look && look.looked === false) {
     // The first look is still in flight: say Checking, never a failure
     // that has not happened (boot rendered "could not reach" for the
@@ -14994,7 +15021,7 @@ async function updCheckNowClick() {
     btn.focus();
     return;
   }
-  paintUpdateCard(out.running || LAST_VERSION, out.offer, { reached: !!out.reached, readable: !!out.readable, looked: true });
+  paintUpdateCard(out.running || LAST_VERSION, out.offer, { reached: !!out.reached, readable: !!out.readable, looked: true }, out.manual, out.channel);
   // The Later note is gone, so a live offer returns to the toast too.
   renderUpdateToast(out.offer);
   // The keyboard's place is restored: disabling the focused button had
@@ -15011,7 +15038,11 @@ async function updCheckNowClick() {
      page has no beforeunload, so anything typed and unsent is gone.
      ⚠️ The accessibility reason for the refocus still holds for every other
      outcome, which is why this is a narrow exception rather than a removal. */
-  if (btn.dataset.act !== 'reload') btn.focus();
+  /* A press that turned the card into the Windows manual offer hid this button; focus stays
+     off the Download link on purpose, for the same reason as the Reload exception: a repeat of
+     the press just made would start a download nobody asked for. The live region reads the
+     sentence. */
+  if (!btn.hidden && btn.dataset.act !== 'reload') btn.focus();
 }
 document.getElementById('upd-btn').addEventListener('click', updCheckNowClick);
 
@@ -15484,7 +15515,7 @@ async function tick() {
     updateRecPill();
     renderUpdateToast(data.update);
     paintUpdateAbort(data.updateAbort); // #2055: null-when-healthy; renders only on this successful read
-    paintUpdateCard(data.version, data.update, data.updateLook);
+    paintUpdateCard(data.version, data.update, data.updateLook, data.updateManual, data.updateChannel);
     updatedNoteOnce(data.version);
     LAST_VERSION = data.version || LAST_VERSION;
     LAST_BOOTED_AT = data.bootedAt || LAST_BOOTED_AT;
@@ -16644,7 +16675,7 @@ async function paintSettings() {
   }
   try {
     const st = await (await fetch('/api/status')).json();
-    paintUpdateCard(st.version, st.update, st.updateLook);
+    paintUpdateCard(st.version, st.update, st.updateLook, st.updateManual, st.updateChannel);
   } catch {
     // The card keeps its last honest paint; the poll repaints it.
   }
