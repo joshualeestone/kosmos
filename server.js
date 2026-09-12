@@ -728,7 +728,7 @@ function whoamiFor(card, known, live) {
        this line to distrust every live read. */
     if (seen && seen.runner) return seen.runner;
     /* 🛑 POSITIVE EVIDENCE ONLY FROM THE MARKER, because `'claude'` from a card is
-       not a claim, it is a DEFAULT. `status.js:6421` normalises the pane's
+       not a claim, it is a DEFAULT. `status.js` normalises the pane's
        `@kosmos_runner` as `pane.runner === 'codex' ? 'codex' : 'claude'`, so an
        agent whose marker was never recorded is indistinguishable from one
        recorded as claude, and `bin/agent-supervisor.sh` says that failure is real
@@ -743,7 +743,7 @@ function whoamiFor(card, known, live) {
        answer definitively and floors at claude anyway. */
     if (card && card.runner === 'codex') return card.runner;
     /* 🛑 A PANELESS CARD CARRIES `runner: null` BY CONSTRUCTION
-       (`engine/status.js:5912`, the only such site), so the marker above
+       (`engine/status.js`, its only `runner: null` site), so the marker above
        cannot answer for exactly one of the cases this guard exists for. The
        plist does not depend on a pane, and `accountForAgent` already reads it
        on every request, so this costs nothing and closes the gap.
@@ -3730,7 +3730,15 @@ const server = http.createServer((req, res) => {
     if (runnerOf(name) !== 'claude') {
       sendJson(res, 200, {
         ok: true,
-        account: account ? { email: account.email, label: account.label, isDefault: account.isDefault === true } : null,
+        /* 🛑 `account.isDefault` PASSED THROUGH, NOT COERCED. `accountForAgent`
+           returns `null` here on purpose for a foreign dir, because scoring a
+           codex home against `$HOME/.claude` and reporting `false` reads as "on a
+           NON-default account" and implies a named alternate that does not exist.
+           The sibling arms below coerce with `=== true`, which is a genuine no-op
+           for them because a Claude row's `isDefault` is always a real boolean.
+           Copying that coercion here threw the null away, which is the FOURTH
+           sibling of this one fact on this branch. */
+        account: account ? { email: account.email, label: account.label, isDefault: account.isDefault } : null,
         state: subscription.STATE.UNKNOWN,
         connected: null,
         /* Null, the same value the two sibling `ok: true` returns give whenever

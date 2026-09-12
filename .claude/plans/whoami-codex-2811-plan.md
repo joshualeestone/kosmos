@@ -346,7 +346,7 @@ code on this branch and the one I was least able to review impartially.
 ### The finding
 
 My guard's comment named "a paneless agent" as a case it covered. It did not.
-`engine/status.js:5912` sets `runner: null` on every paneless card, and it is the
+`engine/status.js` sets `runner: null` on every paneless card, and it is the
 only such site, so the `@kosmos_runner` marker is absent for exactly that case:
 `configuredRunner` was null, `foreignRunner` false, and a stale Claude transcript
 model went out unopposed. The crashed-pane half worked (a pane card keeps its
@@ -371,7 +371,7 @@ arm.
 
 The new arm writes a REAL plist with the product's own `create.plistFor` rather
 than hand-rolled XML, and derives its paneless card by nulling `runner` on a
-genuine fleet card (which is exactly what `status.js:5912` emits) rather than
+genuine fleet card (which is exactly what `status.js` emits) rather than
 building one, which `fixture-discipline.test.js` exists to refuse. Its control runs
 first and asserts the record CAN answer before the job exists, so the arm cannot
 pass merely because the transcript was unreadable.
@@ -666,3 +666,44 @@ figure MOVES WITH EVERY REBASE because main keeps changing `web/index.html`.
 ⇒ Cite the PROPERTY (non-comment content identical, with a control that perturbs
 the file and shows codeOnly differing), never the byte count, which is base
 relative and stale the moment anybody merges.
+
+## Round 9: the third site of one fact, and a claim that goes stale by construction
+
+### I copied a sibling without checking the sibling's precondition
+
+`accountForAgent` returns `isDefault: null` for a codex dir ON PURPOSE: `false`
+reads as "on a NON-default account" and implies a named alternate that does not
+exist. My round-8 codex short-circuit then copied the neighbouring arms'
+`isDefault: account.isDefault === true`, which is a genuine NO-OP for them because
+a Claude row's `isDefault` is always a real boolean, and so silently flattened the
+deliberate null back to false. Then my new assertion pinned `false`, cementing the
+exact value this branch exists to remove.
+
+⭐ THIRD SITE OF ONE FACT on this branch: the live path (round 3), the record
+fallback (round 4), this short-circuit (round 9). Each time the shape was
+"borrowed a pattern from a sibling whose precondition did not hold here". The
+duplicated `--model` regex in round 2 is the same shape in a different file.
+
+### Line numbers are a claim that goes stale by construction
+
+Five cited line numbers in `engine/status.js` were off by exactly 13, and wrong
+against the merge-base too, so two rebases had never re-derived them. The CONTENT
+of all three claims was true.
+
+⇒ Rather than correct the numbers, they are gone. "`engine/status.js`'s only
+`runner: null` site" survives a rebase; `status.js:5912` cannot. A citation whose
+truth depends on nobody editing a file above it is a claim I have to re-verify
+forever, and this card has already shown I do not.
+
+Two citations the reviewer measured as EXACT (`engine/status.js:682`,
+`engine/create.js:837`) are kept, and the plan's record of the earlier `:680`
+correction keeps its number because naming the wrong one is the point of that
+sentence.
+
+### Deliberately not changed
+
+`ok: true` with `account: null` is a shape no prior `ok: true` on this route could
+emit. It is the honest answer for a default-account codex agent (we know what it
+runs on, and it has no Claude account row), and `grep -rn account-status web/
+install/` finds no consumer, so it is latent rather than live. Recorded here so the
+next reader does not have to re-derive that it was considered.
