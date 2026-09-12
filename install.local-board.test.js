@@ -23,15 +23,17 @@ test('the release refreshes an adopted libexec board from the frozen tree before
   const served = rel.indexOf('REPO="$REPO" bash "$REPO/tools/verify-served.sh"');
   const deploy = rel.indexOf('bash "$REPO/deploy/install-board.sh" --apply');
   const restart = rel.indexOf('tools/restart-local-board.sh');
+  const gate = rel.indexOf('if [ -n "$_board_wd" ] && [ "$_board_wd" = "$_board_libexec" ]; then');
+  const gateEnd = rel.indexOf('\nfi', gate);
   assert.ok(served > 0 && deploy > served && restart > deploy, 'served check, libexec deploy, and restart are not ordered safely');
-  assert.match(rel, /\[ -n "\$_board_wd" \] && \[ "\$_board_wd" = "\$_board_libexec" \]/, 'the release deploy is not gated on a positive libexec working-directory match');
+  assert.ok(gate > served && deploy > gate && deploy < gateEnd && gateEnd < restart, 'the frozen-tree deploy is not inside the positive libexec working-directory gate');
   assert.doesNotMatch(rel, /bash "\$MAIN_REPO\/deploy\/install-board\.sh" --apply/, 'the deploy came from the moving shared checkout instead of the frozen tree');
   assert.ok(!/if bash "\$REPO\/tools\/verify-served\.sh"; then exit 0; fi/.test(rel), 'the served check still exits the release before the restart can run');
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   assert.match(pkg.scripts["test:shell"], /bash -n tools\/restart-local-board\.sh/, 'the step is not syntax-checked by yarn test');
 });
 
-test('board deploy refuses a destination inside a git work tree before replacing anything', () => {
+test('board deploy refuses existing and not-yet-created destinations inside a git work tree', () => {
   const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-board-dest-'));
   const repo = path.join(fixture, 'repo');
   fs.mkdirSync(path.join(repo, 'deploy'), { recursive: true });
@@ -41,11 +43,14 @@ test('board deploy refuses a destination inside a git work tree before replacing
   execFileSync('git', ['-C', repo, 'add', '.']);
   execFileSync('git', ['-C', repo, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture']);
 
-  const run = spawnSync('bash', [path.join(repo, 'deploy', 'install-board.sh'), '--apply'], {
-    encoding: 'utf8',
-    env: { ...process.env, KOSMOS_BOARD_LIBEXEC: repo, KOSMOS_BOARD_PLIST: path.join(fixture, 'board.plist') },
-  });
-  assert.equal(run.status, 1, `expected refusal, stdout: ${run.stdout}, stderr: ${run.stderr}`);
-  assert.match(run.stderr, /destination is inside a git work tree/, run.stderr);
+  for (const destination of [repo, path.join(repo, 'not-created', 'board')]) {
+    const run = spawnSync('bash', [path.join(repo, 'deploy', 'install-board.sh'), '--apply'], {
+      encoding: 'utf8',
+      env: { ...process.env, KOSMOS_BOARD_LIBEXEC: destination, KOSMOS_BOARD_PLIST: path.join(fixture, 'board.plist') },
+    });
+    assert.equal(run.status, 1, `expected refusal for ${destination}, stdout: ${run.stdout}, stderr: ${run.stderr}`);
+    assert.match(run.stderr, /destination is inside a git work tree/, run.stderr);
+    assert.ok(!fs.existsSync(path.join(repo, 'not-created')), 'the apply created a nested destination inside the fixture repository');
+  }
   assert.ok(fs.existsSync(path.join(repo, '.git')), 'the apply replaced the fixture repository');
 });
