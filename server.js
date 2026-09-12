@@ -1522,6 +1522,25 @@ function withUnread(list) {
   return (list || []).map((p) => ({ ...p, unread: counts === null ? null : (counts[p.id] || 0) }));
 }
 
+/* #2863: every agent on the wire carries its unread-DM count, derived HERE from
+   the DIRECT threads and the per-agent read cursor, the exact analog of
+   withUnread for projects. Keyed by `sessionName` because that is what the DM
+   thread is filed under (POST /api/reply records via chat.appendMessage(DIRECT,
+   sender.card.sessionName)). null when the count is unknown (unreadable cursor /
+   chats dir, or that one thread) -- unknown is not zero -- and never a 500: an
+   agents list that failed because a badge could not be computed would be the
+   wrong thing to lose. A per-agent null in the map passes through as null. */
+function withDmUnread(list) {
+  let counts = null;
+  try { counts = chat.dmUnreadAll(); } catch { counts = null; }
+  return (list || []).map((a) => {
+    if (counts === null) return { ...a, dmUnread: null };
+    const key = a && (a.sessionName || a.name);
+    const v = key != null && Object.prototype.hasOwnProperty.call(counts, key) ? counts[key] : 0;
+    return { ...a, dmUnread: v };
+  });
+}
+
 function decodeSegment(segment) {
   try {
     return decodeURIComponent(segment);
@@ -2520,7 +2539,7 @@ const server = http.createServer((req, res) => {
          false and the banner stays down. */
       const dependsOnClaude = someAgentNeedsClaude(agents.concat(offline));
       body = JSON.stringify({
-        ...snap, agents: agents.concat(offline), counts, connection, version, dependsOnClaude,
+        ...snap, agents: withDmUnread(agents.concat(offline)), counts, connection, version, dependsOnClaude,
         /* #2066: the build marker reads (version, sourceChannel). Channel rides
            the 5s status tick the board already polls -- one file read, defaulting
            to 'prod', so a prod board is unchanged and a staging board is loud. */
@@ -10370,6 +10389,28 @@ const server = http.createServer((req, res) => {
     try { at = messages.markSeen(id); }
     catch (err) { sendJson(res, 500, { error: String((err && err.message) || 'we could not record that') }); return; }
     sendJson(res, 200, { seen: at, unread: 0 });
+    return;
+  }
+
+  /* #2863: the person opened this agent's 1:1 DM thread; move its read cursor so
+     the agent's replies before now stop counting. The exact analog of the room
+     /seen above, keyed by agent instead of project. POST, behind the same
+     cross-site write guard. The count itself is server-derived (see
+     withDmUnread); this only moves the cursor. A malformed agent name is a 400
+     (markDmSeen throws BAD_THREAD), any other write failure a 500 -- the sibling
+     shape. */
+  const dmSeen = pathname.match(/^\/api\/agent\/([^/]+)\/seen$/);
+  if (dmSeen && req.method === 'POST') {
+    const name = decodeSegment(dmSeen[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let at;
+    try { at = chat.markDmSeen(name); }
+    catch (err) {
+      const code = (err && err.code === 'BAD_THREAD') ? 400 : 500;
+      sendJson(res, code, { error: String((err && err.message) || 'we could not record that') });
+      return;
+    }
+    sendJson(res, 200, { seen: at, dmUnread: 0 });
     return;
   }
 
