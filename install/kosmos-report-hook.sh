@@ -14,7 +14,9 @@
 #   PermissionRequest -> needs_you, with the command in the sentence
 #                        (fires BEFORE the box renders; the Notification
 #                        hook is ~6 seconds late by design and is unused)
-#   Stop              -> idle     (never erases a standing blocked/needs_you, #900)
+#   Stop              -> idle     (never erases a DELIBERATE blocked/needs_you or
+#                        an auto blocked; DOES clear a standing auto needs_you, a
+#                        permission prompt, once the turn moves on; #900/#1949/#2456)
 #   StopFailure       -> blocked --on "provider api (<kind>)" --owner provider
 #   SessionEnd        -> stopped
 #
@@ -28,18 +30,26 @@
 # line alone, because it was added for #900's rule rather than for what it
 # means, and selfreport.record now PERSISTS that mark (#1453).
 #
-# The guard is scoped to `auto === true && (state === 'idle' || state ===
-# 'working')` (#900 refused `idle`; #1949 added `working`). It refuses ONLY
-# those two over a standing waiting state. What --auto also changes is that the
-# record can now say who wrote a line.
+# The guard fires for `auto === true && (state === 'idle' || 'working' ||
+# 'needs_you')` (#900 refused `idle`; #1949 added `working`; #2456 added an auto
+# `needs_you` clobber-guard). It refuses those over a standing PROTECTED wait --
+# a deliberate blocked/needs_you, a legacy unmarked line, or an auto `blocked` --
+# but NOT over a standing auto `needs_you`, which a permission prompt writes and
+# which the following auto idle/working is meant to clear. What --auto also
+# changes is that the record can now say who wrote a line.
 #
-# 🛑 THE GUARD MAY REFUSE AN AUTOMATIC `idle` OR `working`, AND NO MORE. `working`
-# was added in #1949 because this hook fires it on EVERY PreToolUse, so an
-# allowed automatic `working` erased a standing needs_you within seconds. Do NOT
-# widen it to `started`/`stopped` (one-time transitions) or `needs_you`/`blocked`
-# (themselves waiting reports): a rule that refused every automatic write would
-# strand the agent blocked forever. The escape stays the discriminator `auto`,
-# not the word: an AGENT-written report of ANY state still lands.
+# 🛑 THE GUARD REFUSES AN AUTOMATIC `idle`, `working`, OR `needs_you` OVER A
+# PROTECTED WAIT, AND NO MORE. `working` was added in #1949 because this hook
+# fires it on EVERY PreToolUse, so an allowed automatic `working` erased a
+# standing needs_you within seconds; #2456 added `needs_you` so a permission
+# prompt cannot CLOBBER a deliberate one. Do NOT widen it to `started`/`stopped`
+# (one-time transitions) or to an INCOMING auto `blocked` (a provider outage that
+# should surface even over a standing wait): a rule that refused every automatic
+# write would strand the agent blocked forever. Two escapes preserve that: an
+# AGENT-written report of ANY state still lands (the discriminator is `auto`, not
+# the word), and the "protected wait" carve-out means a standing AUTO `needs_you`
+# -- the permission prompt itself -- is NOT protected, so the following auto
+# idle/working clears it once the turn moves on.
 #
 # 🛑 AND THE SEVENTH WAS MISSING FOR A DAY, WHICH IS WHY THE COUNT IS WRITTEN
 # OUT HERE. The `started` call is inside a COMMAND SUBSTITUTION, because it is

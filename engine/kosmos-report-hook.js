@@ -32,9 +32,12 @@
  *   SessionEnd        -> stopped
  *
  * EVERY event sends auto:true -- the machine wrote this, not the agent. The
- * board's reconcileReport refuses ONLY an automatic idle/working over a standing
- * waiting state (#900/#1949), server-side; the client just sends auto, exactly
- * as the bash hook passes --auto.
+ * board's reconcileReport (#900/#1949/#2456) refuses an automatic idle/working
+ * -- and an automatic needs_you -- over a standing DELIBERATE wait (and over an
+ * auto `blocked`, a provider outage that does not auto-resolve), server-side;
+ * but it lets an auto idle/working CLEAR a standing auto `needs_you` (this
+ * PermissionRequest prompt), so the prompt stops sticking once the turn moves
+ * on. The client just sends auto, exactly as the bash hook passes --auto.
  *
  * 🛑 FAIL-SAFE: a reporting bug must never break an agent. Every path resolves
  * to exit 0. Only SessionStart -- the once-per-session event whose stdout is a
