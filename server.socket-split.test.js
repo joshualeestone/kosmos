@@ -131,13 +131,16 @@ const page = require('./test-support/page');
 const PAGE_SCRIPT = page.scriptOf(fs.readFileSync(nodePath.join(REPO, 'web', 'index.html'), 'utf8'));
 
 function renderOffline(which, a) {
-  const fn = new Function('a', 'esc', 'GLYPH', 'PRESSAY', 'STATE_COPY', 'roleLine', 'discTint', 'discInk', 'initials', 'ROLE_TITLES',
-    `${page.lift(PAGE_SCRIPT, 'face')}\n${page.lift(PAGE_SCRIPT, which)}\nreturn ${which}(a);`);
+  /* #2863: card() now reaches for dmBadge (the unread-DM bubble), which reads
+     the CURRENT global -- lift it like face, and pass CURRENT (null: no agent
+     open in this isolated render) as an arg so the eval has both. */
+  const fn = new Function('a', 'esc', 'GLYPH', 'PRESSAY', 'STATE_COPY', 'roleLine', 'discTint', 'discInk', 'initials', 'ROLE_TITLES', 'CURRENT',
+    `${page.lift(PAGE_SCRIPT, 'face')}\n${page.lift(PAGE_SCRIPT, 'dmBadge')}\n${page.lift(PAGE_SCRIPT, which)}\nreturn ${which}(a);`);
   return fn(a, (x) => String(x == null ? '' : x),
     { stopped: '<span class="stop"></span>', unknown: '<span class="qmark">?</span>' },
     { off: 'Not running' },
     { unknown: { label: 'PAGES-OWN-UNKNOWN-WORD' }, stopped: { label: 'Not running' } },
-    (x) => x.role || '', () => '#eee', () => '#111', (n) => n[0], null);
+    (x) => x.role || '', () => '#eee', () => '#111', (n) => n[0], null, null);
 }
 
 test('#668: the card and the row wear the could-not-check pill, not a confident "Not running"', () => {
