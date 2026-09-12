@@ -37,14 +37,19 @@ grep -qE '^[[:space:]]*unset.*[[:space:]]AGENT_WORKFORCE_CODEX_HOME([[:space:]]|
   && pass "run-tests.sh unsets AGENT_WORKFORCE_CODEX_HOME (the sandbox seam)" \
   || fail "run-tests.sh no longer unsets AGENT_WORKFORCE_CODEX_HOME"
 
-# The strip must precede the node --test invocation, or the tests still inherit the
-# ambient value. Assert the unset line comes before the `node --test` line.
+# The strip must precede the node suite -- the FIRST test invocation, since
+# `yarn -s test:shell` runs after it in run-tests.sh, so preceding the node suite
+# guarantees preceding test:shell too. The node pattern is pinned to the real
+# invocation (`node --test` with KOSMOS_TEST_FILES), NOT a bare `node --test`, so a
+# comment that mentions `node --test` above the strip cannot red this falsely. (An
+# earlier version also matched `yarn test:shell`, which matched this very file's
+# run-tests.sh comment and false-failed -- pinning to the node invocation avoids it.)
 uln="$(grep -nE '^[[:space:]]*unset.*CODEX_HOME' "$RT" | head -1 | cut -d: -f1)"
-nln="$(grep -nE 'node --test' "$RT" | head -1 | cut -d: -f1)"
+nln="$(grep -nE 'node --test.*KOSMOS_TEST_FILES' "$RT" | head -1 | cut -d: -f1)"
 if [ -n "$uln" ] && [ -n "$nln" ] && [ "$uln" -lt "$nln" ]; then
-  pass "the strip (line $uln) precedes node --test (line $nln)"
+  pass "the strip (line $uln) precedes the node suite (line $nln), which runs before test:shell"
 else
-  fail "the CODEX_HOME strip does not precede node --test (unset=$uln node=$nln)"
+  fail "the CODEX_HOME strip does not precede the node suite (unset=$uln node=$nln)"
 fi
 
 # Behavioral leg: with BOTH names set on invocation, the same `unset` the runner uses
