@@ -103,6 +103,28 @@ test('a send that lands after the person left the task does NOT clear the shared
   } finally { delete globalThis.TK_OPEN; }
 });
 
+test('opening a task clears a leftover composer draft + refusal band (no cross-task carry)', async () => {
+  // #tk-say / #tk-say-msg are static markup, so an unsent draft or stale error from
+  // the last task would persist into the next one and could be sent under the wrong
+  // task. openTaskPage must clear both. Run the real openTaskPage against stubs.
+  const say = { value: 'a draft I never sent for the last task' };
+  const sayMsg = { textContent: 'a stale refusal from the last task' };
+  const els = {
+    'tk-say': say, 'tk-say-msg': sayMsg, 'tk-msg': { textContent: '' },
+    'tk-activity': { innerHTML: '' }, 'tk-back': { focus() {} },
+  };
+  const doc = { getElementById: (id) => els[id] || null };
+  const project = { id: 'p1', tasks: [{ number: 5, sentence: 'a task' }] };
+  const src = fnSource('openTaskPage');
+  const openTaskPage = new Function(
+    'document', 'pjById', 'PJ_CURRENT', 'paintTaskPage', 'paintTaskActivity', 'pjView',
+    'var TK_OPEN = null;\n' + src + '\n; return openTaskPage;',
+  )(doc, () => project, project.id, () => {}, () => {}, () => {});
+  openTaskPage(5);
+  assert.equal(say.value, '', 'the leftover draft was not cleared on opening the task');
+  assert.equal(sayMsg.textContent, '', 'the stale refusal band was not cleared on opening the task');
+});
+
 test('a send that stays on the same task DOES clear the input (guard control)', async () => {
   // The control that proves the test above is not vacuous: with no task switch,
   // the same handler reaches the clear and empties the input.
