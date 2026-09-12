@@ -47,6 +47,10 @@ const CHECK_PERFORMERS = Object.freeze(['automated', 'operator']);
 const RECORD_RESULTS = Object.freeze(['pass', 'fail']);
 /** A staged build's sha256 becomes part of the record's file name, so it must be exactly this. */
 const RECORD_SHA256 = /^[0-9a-f]{64}$/;
+/** manifest.json source_sha as build-kosmos-windows.sh writes it (`git rev-parse HEAD`). The writer
+    passes the manifest check only on such a commit, so a pass record naming anything else was not
+    written by it. */
+const SOURCE_COMMIT = /^[0-9a-f]{40}$/;
 
 /** Where records live on this box. KOSMOS_WIN_VERIFY_DIR (tests, or a record copied to the
     promoting box) wins; on Windows it is beside the Kosmos anchor (%LOCALAPPDATA%\Kosmos); on any
@@ -96,6 +100,7 @@ function validateRecord(record, { version, sha256 }) {
   if (record.sha256 !== sha256) problems.push(`its sha256 (${record.sha256}) is not the pointer sha256`);
   if (record.version !== version) problems.push(`its version (${record.version}) is not the pointer version ${version}`);
   if (typeof record.source_sha !== 'string' || !record.source_sha) problems.push('it names no source_sha');
+  else if (record.result === 'pass' && !SOURCE_COMMIT.test(record.source_sha)) problems.push(`it says pass, but its source_sha ${JSON.stringify(record.source_sha)} is not a commit`);
   if (typeof record.at !== 'string' || !record.at) problems.push('it names no time (at)');
   if (!RECORD_RESULTS.includes(record.result)) problems.push(`its result is ${JSON.stringify(record.result)}, not pass or fail`);
   if (!Array.isArray(record.checks) || record.checks.length === 0) {
@@ -125,6 +130,6 @@ function summarizeChecks(checks) {
 }
 
 module.exports = {
-  REQUIRED_CHECKS, CHECK_RESULTS, CHECK_PERFORMERS, RECORD_SHA256,
+  REQUIRED_CHECKS, CHECK_RESULTS, CHECK_PERFORMERS, RECORD_SHA256, SOURCE_COMMIT,
   recordDirectory, recordFileName, recordPath, deriveRecordResult, buildRecord, validateRecord, summarizeChecks,
 };

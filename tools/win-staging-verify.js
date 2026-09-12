@@ -24,8 +24,9 @@
  *      --force-rewrite.
  *
  * DRY RUN unless --yes. Exit: 0 the record passes (written, or would be); 1 it fails (written, or
- * would be); 2 nothing could be decided (the base is unreachable, the pointer is unusable, or some
- * check has not run and none failed); 3 usage, or a refusal to overwrite an existing record.
+ * would be); 2 nothing could be decided (the base is unreachable or answers 408/429/5xx, a
+ * transfer timed out, the pointer is unusable, or some check has not run and none failed), and no
+ * record is written; 3 usage, or a refusal to overwrite an existing record.
  *
  *   node tools/win-staging-verify.js                      # V1 now, and the V2 checklist
  *   node tools/win-staging-verify.js --yes --attest install=pass --attest z-checks=pass \
@@ -59,8 +60,12 @@ const DEFAULT_CAPS = Object.freeze({
 });
 /** The arch build-kosmos-windows.sh builds by default (KOSMOS_WIN_ARCH overrides it there too). */
 const DEFAULT_WINDOWS_ARCH = 'x64';
-/** manifest.json source_sha as build-kosmos-windows.sh writes it: `git rev-parse HEAD`. */
-const SOURCE_COMMIT = /^[0-9a-f]{40}$/;
+/** The arch becomes part of the temp zip's file name, so it is a plain token (x64, arm64). */
+const WINDOWS_ARCH = /^[a-z0-9_]+$/;
+/** HTTP answers that say the host is struggling, not that the build is wrong: a check cannot be
+    failed on them, so they end the run as "cannot tell" like a timeout does. */
+function isTransientHttpStatus(status) { return status === 408 || status === 429 || status >= 500; }
+const { SOURCE_COMMIT } = recordSpec;
 /** What the record's source_sha says when the bytes did not yield a trustworthy commit. */
 const UNKNOWN_SOURCE = 'unknown';
 const MANIFEST_ENTRY = 'manifest.json';
@@ -98,7 +103,7 @@ async function fetchWithCaps(url, { fetchImpl, maxBytes, timeoutMs, log, sink })
     }
     if (!response.ok) {
       if (response.body) await response.body.cancel().catch(() => {});
-      return { ok: false, transient: false, error: `${url} answered HTTP ${response.status}` };
+      return { ok: false, transient: isTransientHttpStatus(response.status), error: `${url} answered HTTP ${response.status}` };
     }
     const declaredLength = Number(response.headers.get('content-length'));
     if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
@@ -406,6 +411,7 @@ async function main(argv, { env = process.env, fetchImpl = globalThis.fetch, std
 
   const base = update.releaseBase();
   const arch = env.KOSMOS_WIN_ARCH || DEFAULT_WINDOWS_ARCH;
+  if (!WINDOWS_ARCH.test(arch)) { stderr(`win-staging-verify: KOSMOS_WIN_ARCH ${JSON.stringify(arch)} is not an arch like x64\n${USAGE}`); return 3; }
   const log = (line) => stderr(`win-staging-verify: ${line}`);
   const verification = await verifyStagedBuild({ base, fetchImpl, arch, tmpRoot, caps, log });
   if (verification.verdict === 'cannot-tell') {

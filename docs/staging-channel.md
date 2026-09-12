@@ -185,10 +185,48 @@ A Windows build follows the same rule: staging first, prod only after Josh's go.
     means missing fields, a zip that is not committed, or bytes that disagree with its sha256.
   - Fix it by re-running the staging publish (or removing that pointer) and committing, before
     any deploy. A staging pointer that cannot be verified is never deployed around.
-- **Verify it on the Windows box.** The box's verify script writes a record at
-  `%LOCALAPPDATA%\Kosmos\release-verify\win-staging-<sha256>.json`, shaped
-  `{version, sha256, source_sha, checks, at, result}`. `tools/win-staging-verified.sh` reads it:
-  0 pass, 1 fail or ambiguous, 2 no record (HOLD).
+- **Verify it on the Windows box: `node tools/win-staging-verify.js`.** It only writes the
+  verification record. It never publishes, deploys, promotes or installs anything.
+  - **The record is specified once.** `tools/lib/win-staging-record.js` defines the required
+    checks, the record path, how the record is built and how it is validated. The writer and the
+    gate (`tools/win-staging-verified.sh`) both use it.
+  - **Where the record goes:** `<dir>/win-staging-<sha256>.json`, where `<dir>` is
+    `$KOSMOS_WIN_VERIFY_DIR`, else `%LOCALAPPDATA%\Kosmos\release-verify`, else
+    `$HOME/.local/state/kosmos/release-verify`.
+  - **Its shape:** `{version, sha256, source_sha, checks: [{id, label, by, result, detail}], at,
+    result}`. Every required check is listed once. `by` is fixed per check (`automated` or
+    `operator`). `result` is `pass` only when every check passed.
+  - **V1 (automated, read-only):**
+    - Fetches `latest-win-staging.json` from the release base (`KOSMOS_RELEASE_BASE`, else the
+      real site) and validates it with `engine/update.js`'s own Windows rule.
+    - Streams the versioned zip into a temp file while hashing it, capped in bytes and time. The
+      temp file is deleted afterwards.
+    - `sha`: the computed sha256, the pointer's and the `.sha256` sidecar's must agree.
+    - `manifest`: the zip's own `manifest.json` must name the pointer's version, `win32`, the arch
+      and a clean 40-hex `source_sha`. That commit becomes the record's `source_sha`.
+    - If the host cannot be reached, a transfer times out, or the host answers 408, 429 or 5xx,
+      the result is "cannot tell" (exit 2). No record is written.
+  - **V2 (operator-attested):** `install` (Explorer unpack plus `Kosmos.exe`), `z-checks`
+    (`kosmos-scripts\e2e-zip.js`, Z0-Z6), `multiline` and `msg`.
+    - The script prints the checklist. A person runs it and records each answer with
+      `--attest <id>=pass|fail`.
+    - An un-attested check is `not-run`, never `pass`. An automated check cannot be attested.
+    - Running a second Kosmos can move `engine-path` (which the logon tasks run), so the checklist
+      says to note it first and put it back afterwards. Automating V2 is a later slice.
+  - **Dry run unless `--yes`.** With `--yes` the record is written atomically (a 0600 temp file in
+    the same directory, then a link or rename).
+    - An existing record for the same sha is never replaced without `--force-rewrite`, and a
+      replacement is logged.
+    - An undecided record (no check failed, but some did not run) is refused, so the gate stays at
+      HOLD instead of turning it into a refusal.
+  - **Writer exit codes:** 0 pass, 1 fail, 2 cannot tell or undecided, 3 usage or a refused
+    overwrite.
+  - **On a written pass**, it prints the record path, the sha256 of the record's bytes (post it
+    with the result) and the `promote-channel.sh --family win` line. That line leaves
+    `--approval-ref` for Josh.
+  - **The gate** reads the record: 0 pass, 1 fail or ambiguous, 2 no record (HOLD). A record
+    whose `result` its checks do not support, or that lists an unknown or duplicated check, is
+    ambiguous.
 - **Where the promote runs, and how the record gets there.** The promote rewrites the SITE
   CHECKOUT's `dist/`, so it runs where that checkout lives: today the Mac release box
   (`$HOME/work/chaoskosmos-site`), not the Windows box.
@@ -245,3 +283,6 @@ is done.
   setup selectors + restore cleanup), `tools/test-staging-channel-2036.sh` (pointer/promote tools,
   both gate arms), `tools/test-staging-agent-online-check.sh` (the agent-spawn gate's
   online/wedge/refuse discrimination, red-capable via the `KOSMOS_AOC_CURL` transport seam).
+- Windows: `tools/test-promote-channel-win.sh` (the gate's 0/1/2 arms and the promote), and
+  `tools.win-staging-verify.test.js` (the record writer against a local host, round-tripped
+  through the real gate).
