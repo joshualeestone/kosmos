@@ -1338,6 +1338,188 @@ function sendJson(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
+/* ---- #1704 PR2 (plan §5): a kept-running agent's sends are never lost ------
+   On a world switch the person may keep a Kosmos's agents running. Board tokens
+   are per world, so a kept-running agent's reply reached the board serving
+   ANOTHER Kosmos, was refused as a stranger's, and was gone. Now every agent-side
+   request names its Kosmos (launchidentity.WORLD_HEADER); this board answers a
+   mismatch with 421 before any token check; the client keeps the send in its own
+   Kosmos (engine/outbox.js); and whichever board serves that Kosmos drains it. */
+const launchidentity = require('./engine/launchidentity');
+const outbox = require('./engine/outbox');
+
+/* The agent routes a world mismatch is refused on. Only these: install/kosmos
+   sends the header on EVERY call, including person-side ones such as `kosmos
+   open`'s board-nonce run from a terminal with no KOSMOS_WORLD, and those must
+   never be refused for it. */
+const WORLD_CHECKED_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply', 'POST /api/msg', 'POST /api/post', 'POST /api/react']);
+
+/* 421 Misdirected Request: the request is well formed and was sent to a server
+   that cannot answer for it, which is exactly "this board is serving another
+   Kosmos". No other route answers it, so a client can key on it without
+   mistaking a refusal of another kind. */
+const WRONG_WORLD_STATUS = 421;
+
+/**
+ * The 421 answer when a loopback agent route names a Kosmos this board is not
+ * serving, or null to carry on. An ABSENT header (the web page, an older client)
+ * is always null, so every caller that predates the header behaves as it did.
+ * Loopback only: a network peer never learns the booted world this way. Nothing
+ * new leaks to a local one either, since `x-kosmos-board: build@world` already
+ * publishes the booted world on `GET /`. The booted world is read per request
+ * (worldenv.bootedWorld; null before a boot is the default world).
+ */
+function wrongWorldRefusal(req, pathname) {
+  if (!WORLD_CHECKED_AGENT_ROUTES.has(`${req.method} ${pathname}`)) return null;
+  if (!isLoopbackPeer(req)) return null;
+  const named = req.headers && req.headers[launchidentity.WORLD_HEADER];
+  if (named === undefined) return null;
+  const serving = launchidentity.worldIdOrDefault(require('./engine/worldenv').bootedWorld());
+  if (launchidentity.worldIdOrDefault(String(named).trim()) === serving) return null;
+  return {
+    wrongWorld: true,
+    serving,
+    because: 'That came from an agent in a different Kosmos from the one open right now, so this board did not take it.',
+  };
+}
+
+/* The checks a reply's text must pass before it is kept: chat's message rules,
+   then the delivery-marker impersonation refusal. One function, so /api/reply and
+   the outbox drain refuse exactly the same replies. */
+function agentReplyProblem(text) {
+  return chat.messageProblem(text) || messages.markerProblem(text) || null;
+}
+
+/* Record an agent's reply in its thread with the person: the one write both
+   /api/reply and the outbox drain make, so a drained reply is exactly a reply.
+   `at` is the original send time for a drained reply, now for the route. */
+function keepAgentReply(who, text, at) {
+  return chat.appendMessage(chat.DIRECT, who, {
+    text,
+    at: at || new Date().toISOString(),
+    from: who,
+  });
+}
+
+/**
+ * An agent's post into a project room: the project lookup, its member list and
+ * the send, shared by /api/post and the outbox drain so the two cannot disagree
+ * about which rooms exist or who is in them. `sender` is a resolved sender, a
+ * token refusal (`{ok:false}`, reported after the project check, which is the
+ * order the route has always answered in), or null for the pane path. Returns the
+ * delivery verdict.
+ */
+function sendRoomPostAsAgent({ fromPane, sender, project, text }, roster) {
+  let found = null;
+  try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
+  if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
+  // An archived project still accepts posts, a RECORDED trade: the
+  // archive hides a project from the list and stops it counting,
+  // and nothing else in the app gates behavior on it (an archived
+  // project's detail is still reachable and its members are still
+  // its members). If archive ever comes to mean "closed", this is
+  // the line that changes.
+  const members = (found.agents || []).map((a) => a.sessionName);
+  if (sender && !sender.ok) return { state: 'could_not', because: sender.because };
+  return messages.sendPost({
+    fromPane,
+    sender,
+    project: found.id,
+    // The NAME for the envelope the agent reads, the id for everything a
+    // machine keys on. Both, from the same record, so they cannot drift.
+    projectName: found.name,
+    text,
+  }, roster, members);
+}
+
+/* Is this name an agent in the Kosmos this board serves? A profile in this
+   world's store (so a stopped agent still counts), or a tied card on the roster
+   (so an adopted agent with no profile still counts). The drain's gate for a kept
+   send's sender and for a kept message's recipient. */
+function agentBelongsToThisKosmos(name) {
+  const n = String(name == null ? '' : name).trim();
+  if (!n) return false;
+  if (Object.keys(store.readProfile(n)).length > 0) return true;
+  return knownAgent(n);
+}
+
+/* A delivery verdict as the drain's outcome. `unconfirmed` counts as delivered:
+   the text may already be in the recipient's composer, and re-sending it is the
+   duplicate every client's "do not re-send" sentence exists to stop. */
+function outboxOutcomeOf(delivery) {
+  const state = delivery && delivery.state;
+  if (state === chat.DELIVERY.PLACED || state === chat.DELIVERY.UNCONFIRMED) return { outcome: 'delivered' };
+  return { outcome: 'retry', because: (delivery && delivery.because) || 'it could not be placed' };
+}
+
+/**
+ * Deliver the sends this Kosmos's agents kept while another Kosmos was open,
+ * through the same functions the routes use. A kept sender is trusted as the
+ * name it was kept under once the drain has checked it is an agent here; its
+ * card is the token path's paneless shape.
+ */
+function drainOutboxNow() {
+  let roster;   // read once per drain, and only when a msg or a post needs it
+  const rosterNow = () => (roster === undefined ? (roster = safeRoster()) : roster);
+  const senderFor = (name) => ({ ok: true, card: { sessionName: name, isNamedOurs: true } });
+  /* A kept msg's recipient, read one way for the check and for the note. */
+  const recipientOf = (entry) => String(entry.body.to == null ? '' : entry.body.to).trim();
+  const notDelivered = (entry, clauseText) => messages.logRefusedSend(entry.from,
+    recipientOf(entry) || '(nobody named)',
+    'your message to ' + (recipientOf(entry) || 'nobody') + ' was not delivered: ' + clauseText);
+  return outbox.drain({
+    knownAgent: agentBelongsToThisKosmos,
+    deliverReply: (entry) => {
+      const problem = agentReplyProblem(entry.body.text);
+      if (problem) return { outcome: 'dropped', because: problem };
+      const kept = keepAgentReply(entry.from, entry.body.text, entry.at);
+      return kept.recorded === true ? { outcome: 'delivered' } : { outcome: 'retry', because: kept.because };
+    },
+    deliverMsg: (entry) => {
+      const to = recipientOf(entry);
+      if (!agentBelongsToThisKosmos(to)) {
+        notDelivered(entry, (to || 'that name') + ' is not in this Kosmos');
+        return { outcome: 'dropped', because: (to || 'the recipient') + ' is not in this Kosmos' };
+      }
+      const now = rosterNow();
+      if (now === null) return { outcome: 'retry', because: 'we could not check which agents are running' };
+      return outboxOutcomeOf(messages.send({
+        sender: senderFor(entry.from), to, text: entry.body.text, inReplyTo: entry.body.in_reply_to,
+      }, now));
+    },
+    deliverPost: (entry) => {
+      const now = rosterNow();
+      if (now === null) return { outcome: 'retry', because: 'we could not check which agents are running' };
+      return outboxOutcomeOf(sendRoomPostAsAgent({
+        sender: senderFor(entry.from), project: entry.body.project, text: entry.body.text,
+      }, now));
+    },
+    onExpired: (entry, because) => {
+      if (entry.verb === 'msg') notDelivered(entry, 'it could not be placed for a week (' + because + ')');
+    },
+  });
+}
+
+/* How often a serving board looks for kept sends. A minute: the nudge sweep's
+   cadence, and a kept reply waits at most this long after its Kosmos is opened
+   again (the first drain runs as soon as the board is up). */
+const OUTBOX_DRAIN_INTERVAL_MS = 60 * 1000;
+
+/* Start draining: once now, then every OUTBOX_DRAIN_INTERVAL_MS. Called from the
+   real-start path only, once the board is listening; never at require, so a
+   route test that requires this file drains nothing unless it asks to. */
+function startOutboxDrain() {
+  const run = () => {
+    try { drainOutboxNow(); } catch (err) {
+      process.stderr.write(`Kosmos outbox: the drain failed and will run again in a minute: ${String(err && err.message)}\n`);
+    }
+  };
+  const first = setTimeout(run, 0);
+  if (first && typeof first.unref === 'function') first.unref();
+  const every = setInterval(run, OUTBOX_DRAIN_INTERVAL_MS);
+  if (every && typeof every.unref === 'function') every.unref();
+}
+
 /* ⚠️ ONE OF FIVE COPIES OF THE PINNED 16180 LITERAL (#910: here,
    `install/kosmos`, `install/setup.sh`, `install/pkg-scripts/postinstall`,
    and native-app/main.swift's `kosmosDefaultPort()`) -- but this is the
@@ -1953,6 +2135,17 @@ const server = http.createServer((req, res) => {
   const remoteRefusal = remoteWriteGuard(req, pathname);
   if (remoteRefusal) {
     sendJson(res, 403, { error: remoteRefusal });
+    return;
+  }
+
+  /* #1704 PR2: BEFORE the board-token gate below, on purpose. A kept-running
+     agent presents ITS Kosmos's board token, which this board would refuse as
+     another account's (403) and the send would be lost; answering "wrong world"
+     first is what lets the agent keep it for later instead. Only the five agent
+     routes, only loopback, only when the header is present (wrongWorldRefusal). */
+  const worldRefusal = wrongWorldRefusal(req, pathname);
+  if (worldRefusal) {
+    sendJson(res, WRONG_WORLD_STATUS, worldRefusal);
     return;
   }
 
@@ -8342,18 +8535,17 @@ const server = http.createServer((req, res) => {
         }
         // Refused before anything is looked up, exactly as the operator's own
         // send is: a message we would never keep should not cost a roster read.
-        const problem = chat.messageProblem(body.text);
+        /* agentReplyProblem also runs the same impersonation refusal msg and post
+           run. This route kept a reply carrying a delivery marker until #145's
+           review caught it: the colleagues block promises the refusal on every
+           send path, and this was the path that broke the promise.
+           Bare 400, no logged refusal row, deliberately: the messageProblem
+           refusal is equally bare (attribution would cost a roster read before
+           refusing), and the block's warning is the compensating control that
+           reaches the agent BEFORE the guard. The outbox drain (#1704 PR2) runs
+           the same function, so a kept reply is refused exactly as a live one. */
+        const problem = agentReplyProblem(body.text);
         if (problem) { const bad = new Error(problem); bad.status = 400; throw bad; }
-        /* The same impersonation refusal msg and post run. This route kept a
-           reply carrying a delivery marker until #145's review caught it: the
-           colleagues block promises the refusal on every send path, and this
-           was the path that broke the promise.
-           Bare 400, no logged refusal row, deliberately: this route's
-           messageProblem refusal is equally bare (attribution would cost a
-           roster read before refusing), and the block's warning is the
-           compensating control that reaches the agent BEFORE the guard. */
-        const marker = messages.markerProblem(body.text);
-        if (marker) { const bad = new Error(marker); bad.status = 400; throw bad; }
 
         const roster = safeRoster();
         if (roster === null) {
@@ -8380,12 +8572,7 @@ const server = http.createServer((req, res) => {
         if (!sender.ok) { sendJson(res, 200, { kept: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
-        const at = new Date().toISOString();
-        const kept = chat.appendMessage(chat.DIRECT, who, {
-          text: body.text,
-          at,
-          from: who,
-        });
+        const kept = keepAgentReply(who, body.text);
         /* #2623: the phone seam (engine/notify.js) was deleted. The reply is
            recorded for the person's own thread as before; nothing leaves the Mac. */
         sendJson(res, 200, {
@@ -8751,33 +8938,17 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, { delivery: { state: 'could_not', because: 'we could not check which agents are running, so nothing was posted' } });
           return;
         }
-        let found = null;
-        try { found = projects.get(String(body.project == null ? '' : body.project).trim(), roster); } catch { found = null; }
-        if (!found) {
-          sendJson(res, 200, { delivery: { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' } });
-          return;
-        }
-        // An archived project still accepts posts, a RECORDED trade: the
-        // archive hides a project from the list and stops it counting,
-        // and nothing else in the app gates behavior on it (an archived
-        // project's detail is still reachable and its members are still
-        // its members). If archive ever comes to mean "closed", this is
-        // the line that changes.
-        const members = (found.agents || []).map((a) => a.sessionName);
-        const tokenSender = senderFromAgentToken(req, body, roster);
-        if (tokenSender && !tokenSender.ok) {
-          sendJson(res, 200, { delivery: { state: 'could_not', because: tokenSender.because } });
-          return;
-        }
-        const delivery = messages.sendPost({
+        /* #1704 PR2: the project lookup, its members and the send are ONE
+           function the outbox drain shares (sendRoomPostAsAgent), so a kept post
+           reaches exactly the room a live one would. The token sender is resolved
+           here and refused inside it, after the project check: the order this
+           route has always answered in. */
+        const delivery = sendRoomPostAsAgent({
           fromPane: body.from_pane,
-          sender: tokenSender,
-          project: found.id,
-          // The NAME for the envelope the agent reads, the id for everything a
-          // machine keys on. Both, from the same record, so they cannot drift.
-          projectName: found.name,
+          sender: senderFromAgentToken(req, body, roster),
+          project: body.project,
           text: body.text,
-        }, roster, members);
+        }, roster);
         /* #2623: the phone seam (engine/notify.js) was deleted. A post that
            reached the room is delivered on the board as before; it no longer
            POSTs anything off the Mac. */
@@ -12406,6 +12577,11 @@ if (require.main === module) {
          resume an agent still serves, and the entry is retried next boot. */
       try { worldstarts.drainAtBoot({ spawnRefusal: namedWorldSpawnRefusal }); }
       catch (err) { process.stderr.write(`Kosmos could not bring back this Kosmos's paused agents: ${String(err && err.message)}\n`); }
+      /* #1704 PR2: deliver what this Kosmos's agents kept while another Kosmos
+         was open. Here, on the real-start path only: after allowLiveExecution()
+         above, once the board is listening, and never in a test that merely
+         requires this file. */
+      startOutboxDrain();
     }).catch((err) => {
       // Say what to do rather than name an exception. A raw EADDRINUSE stack is
       // exactly what start()'s promise exists to replace, and leaving this
@@ -12425,6 +12601,9 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  /* #1704 PR2: exported so a test can run one outbox drain against a sandboxed
+     board; production starts it from the real-start path (startOutboxDrain). */
+  drainOutboxNow,
   /* #2128: exported so the four dependsOnClaude cases (some non-codex agent,
      every agent codex, no agents, a configured account that no longer forces it)
      are pinned DIRECTLY, without an HTTP harness that cannot inject agents. */
