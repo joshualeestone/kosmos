@@ -38,13 +38,18 @@
 # which the following auto idle/working is meant to clear. What --auto also
 # changes is that the record can now say who wrote a line.
 #
-# 🛑 THE GUARD MAY REFUSE AN AUTOMATIC `idle` OR `working`, AND NO MORE. `working`
-# was added in #1949 because this hook fires it on EVERY PreToolUse, so an
-# allowed automatic `working` erased a standing needs_you within seconds. Do NOT
-# widen it to `started`/`stopped` (one-time transitions) or `needs_you`/`blocked`
-# (themselves waiting reports): a rule that refused every automatic write would
-# strand the agent blocked forever. The escape stays the discriminator `auto`,
-# not the word: an AGENT-written report of ANY state still lands.
+# 🛑 THE GUARD REFUSES AN AUTOMATIC `idle`, `working`, OR `needs_you` OVER A
+# PROTECTED WAIT, AND NO MORE. `working` was added in #1949 because this hook
+# fires it on EVERY PreToolUse, so an allowed automatic `working` erased a
+# standing needs_you within seconds; #2456 added `needs_you` so a permission
+# prompt cannot CLOBBER a deliberate one. Do NOT widen it to `started`/`stopped`
+# (one-time transitions) or to an INCOMING auto `blocked` (a provider outage that
+# should surface even over a standing wait): a rule that refused every automatic
+# write would strand the agent blocked forever. Two escapes preserve that: an
+# AGENT-written report of ANY state still lands (the discriminator is `auto`, not
+# the word), and the "protected wait" carve-out means a standing AUTO `needs_you`
+# -- the permission prompt itself -- is NOT protected, so the following auto
+# idle/working clears it once the turn moves on.
 #
 # 🛑 AND THE SEVENTH WAS MISSING FOR A DAY, WHICH IS WHY THE COUNT IS WRITTEN
 # OUT HERE. The `started` call is inside a COMMAND SUBSTITUTION, because it is

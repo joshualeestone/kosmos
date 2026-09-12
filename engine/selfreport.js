@@ -152,7 +152,11 @@ function record(sessionName, entry) {
     };
   }
   /* 🛑 #900/#1949: AN AUTOMATIC `idle` OR `working` MAY NOT ERASE A DELIBERATE
-     `blocked` OR `needs_you`. The Stop hook fires at the end of EVERY turn and
+     `blocked` OR `needs_you`. (#2456 extends this rule below: an auto `needs_you`
+     may not erase a deliberate wait either, and an AUTO wait that is itself a
+     `needs_you` -- a permission prompt -- is NOT protected. Read to the #2456
+     paragraph for the current, full gate before relying on this heading.)
+     The Stop hook fires at the end of EVERY turn and
      writes idle, and the report hook fires working on EVERY PreToolUse, so a
      waiting state an agent filed mid-turn survived only until its own next
      command, seconds later. Latest-report-wins then rendered an agent waiting
