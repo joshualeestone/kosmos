@@ -742,8 +742,8 @@ function logFile(name) { return path.join(workerDir(name), 'start.log'); }
    never reach another Kosmos's agent of the same name. An explicit world wins (a
    named remove acting on a specific world). */
 /* The world-INDEPENDENT launchd namespace. serviceLabel builds on it, and the
-   stray sweeps (createdroster / register / delete-leftover) that ENUMERATE every
-   Kosmos agent's plist match on it and then attribute each to a world. They
+   stray sweeps (createdroster / register) that ENUMERATE every Kosmos agent's
+   plist match on it and then attribute each to a world. They
    cannot use serviceLabel('') for the prefix any more, because that is now
    world-dependent (a named board's serviceLabel('') is `...agent.+<world>`). */
 const SERVICE_LABEL_PREFIX = 'com.kosmos.agent.';
