@@ -1450,6 +1450,18 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    overflow:hidden does not clip it. */
 .onode.onode-working .face { box-shadow: 0 0 16px 5px rgba(47,125,90,.55); }
 .onode.onode-attn .face { box-shadow: 0 0 16px 6px rgba(179,38,30,.6); }
+/* Dark theme: the light-mode greens/reds read low-contrast on the dark ground,
+   so swap to the lighter state family the rest of the UI uses in dark (working
+   rgba(121,197,157), needs-you rgba(255,140,130) -- the same values .astate.st-
+   working / .acard.attn switch to). Both dark paths, mirroring how .onode .face's
+   own dark background is defined twice: the prefers-color-scheme media query for
+   system-default dark, and :root[data-theme="dark"] for the explicit toggle. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .onode.onode-working .face { box-shadow: 0 0 16px 5px rgba(121,197,157,.6); }
+  :root:not([data-theme="light"]) .onode.onode-attn .face { box-shadow: 0 0 16px 6px rgba(255,140,130,.6); }
+}
+:root[data-theme="dark"] .onode.onode-working .face { box-shadow: 0 0 16px 5px rgba(121,197,157,.6); }
+:root[data-theme="dark"] .onode.onode-attn .face { box-shadow: 0 0 16px 6px rgba(255,140,130,.6); }
 /* #2577: needs-you as a corner badge (the list row's exact warning glyph, reused
    verbatim as ONODE_WARN), top-right and overlapping the avatar edge so it never
    sits where the old ring was and reads alongside the context gauge. ~43% of the
@@ -20159,8 +20171,11 @@ function paintOrg() {
     /* #2839 (Josh): a working agent gets a green glow on the org chart, a
        needs-you agent a red one, so you can see the fleet's state at a glance.
        Same state model as the cards (cardStOf): green = working, red = attn
-       (needs you), nothing else glows. needsYou wins where both could read, so
-       the rare red signal is never hidden by working (the #2146 precedence). */
+       (needs you), nothing else glows. cardStOf(a).st is single-valued, so
+       working and attn are mutually exclusive; the ternary lists attn first as
+       plain defensive ordering. An agent that is needs-you while also active
+       (#2146 activeWhileWaiting) reads st 'attn', so it glows red, which is the
+       signal that matters -- the working glyph still rides alongside elsewhere. */
     const working = cardStOf(a).st === 'working';
     const glowCls = needsYou ? ' onode-attn' : working ? ' onode-working' : '';
     const shown = a.name || a.sessionName;

@@ -29,10 +29,11 @@ test('the org node derives a state-glow class from the shared card-state table',
      the glow cannot drift from the card/list/detail state colours. */
   assert.match(paint, /const working = cardStOf\(a\)\.st === 'working';/,
     'working state is not derived from the shared cardStOf table');
-  /* needsYou wins the glow (red over green), so the rare needs-you signal is
-     never suppressed by a working state (#2146 precedence). */
+  /* attn is listed first (defensive ordering). working and attn are mutually
+     exclusive via single-valued cardStOf, so this is not a live precedence; a
+     needs-you-while-active agent reads st 'attn' and glows red regardless. */
   assert.match(paint, /const glowCls = needsYou \? ' onode-attn' : working \? ' onode-working' : '';/,
-    'the glow class is not needsYou-first (attn) then working, else none');
+    'the glow class is not attn-first then working, else none');
 });
 
 test('the node button gets the glow class', () => {
