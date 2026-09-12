@@ -18869,7 +18869,7 @@ document.getElementById('acct-add-open').addEventListener('click', openAcctAdd);
 // #2802: the Model tab's "Connect an API key" action (shown for a ChatGPT-
 // subscription agent whose models cannot be listed) opens the same Add-a-provider
 // flow, so the disabled model state has a real next step instead of only prose.
-document.getElementById('d-model-connect').addEventListener('click', openAcctAdd);
+{ const c = document.getElementById('d-model-connect'); if (c) c.addEventListener('click', openAcctAdd); }
 document.getElementById('acct-add-close').addEventListener('click', closeAcctAdd);
 document.getElementById('acct-success-close').addEventListener('click', closeAcctAdd);
 document.getElementById('acct-add-modal').addEventListener('click', (e) => { if (e.target.id === 'acct-add-modal') closeAcctAdd(); });

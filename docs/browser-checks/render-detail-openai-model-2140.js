@@ -149,7 +149,51 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       };
     }
 
-    return { listable, snapshotPinned, notListable, sequence };
+    // #2802 ARMED RESET COVERAGE. The listable.connectHidden and notListable
+    // assertions above each read the button's state at one moment; neither proves
+    // the code that HIDES a previously-shown button actually runs, so removing
+    // either reset left this check green. Show the button (not-listable), then
+    // exercise BOTH hide paths so a dropped reset reds the check:
+    //  (a) paintOpenaiDetailModel's per-paint default-hide -> repaint LISTABLE;
+    //  (b) openDetail's on-open reset -> switch to a CLAUDE agent, whose paint never
+    //      runs the OpenAI painter, so ONLY the on-open reset can hide the button.
+    let hideCoverage = { ran: false };
+    {
+      CURRENT = { sessionName: 'oa1' };
+      window.fetch = async () => ({ ok: true, json: async () => ({ ok: false, because: 'this sign-in cannot list models yet; it is not an api key' }) });
+      paintOpenaiDetailModel({ ...agent, plannedModelName: '' }, 'oa1');
+      await settle();
+      const shownGoingIn = (document.getElementById('d-model-connect') || {}).hidden === false;
+
+      // (a) a LISTABLE repaint must hide it (the painter's own default-hide).
+      window.fetch = async () => ({ ok: true, json: async () => ({ ok: true, models: [
+        { key: 'o3', provider: 'openai', label: 'o3', arg: 'o3', why: 'A reasoning model.' },
+      ] }) });
+      paintOpenaiDetailModel({ ...agent, plannedModelName: 'o3' }, 'oa1');
+      await settle();
+      const hidByListableRepaint = (document.getElementById('d-model-connect') || {}).hidden === true;
+
+      // re-show (not-listable) so (b) also starts from a visible button.
+      window.fetch = async () => ({ ok: true, json: async () => ({ ok: false, because: 'this sign-in cannot list models yet; it is not an api key' }) });
+      paintOpenaiDetailModel({ ...agent, plannedModelName: '' }, 'oa1');
+      await settle();
+      const reShown = (document.getElementById('d-model-connect') || {}).hidden === false;
+
+      // (b) switch to a CLAUDE agent through the REAL openDetail; the OpenAI painter
+      //     never runs for a Claude agent, so only the on-open reset can hide it.
+      const openDetailUsable = (typeof openDetail === 'function' && typeof LAST !== 'undefined' && Array.isArray(LAST));
+      let hidByClaudeSwitch = false;
+      if (openDetailUsable) {
+        const claudeAgent = { sessionName: 'cl1', name: 'ClaudeOne', isNamedOurs: true, provider: 'anthropic', account: { dir: '', isDefault: true }, plannedModelName: 'sonnet' };
+        LAST.length = 0; LAST.push(claudeAgent);
+        openDetail('cl1', 'model');
+        await settle();
+        hidByClaudeSwitch = (document.getElementById('d-model-connect') || {}).hidden === true;
+      }
+      hideCoverage = { ran: true, shownGoingIn, hidByListableRepaint, reShown, openDetailUsable, hidByClaudeSwitch };
+    }
+
+    return { listable, snapshotPinned, notListable, sequence, hideCoverage };
   });
 
   await browser.close();
@@ -172,6 +216,15 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!r.notListable.connectShown) problems.push('#2802: the "Connect an API key" button is not shown for a not-an-api-key (ChatGPT subscription) account, so the disabled model state is inert prose again');
     if (!r.notListable.connectOpensFlow) problems.push('#2802: clicking "Connect an API key" does not open the Add-a-provider flow (#acct-add-modal)');
     if (!r.listable.connectHidden) problems.push('#2802: the "Connect an API key" button leaks into a LISTABLE account (it should be hidden when the account can list models)');
+    if (!r.hideCoverage || !r.hideCoverage.ran) {
+      problems.push('#2802 coverage: the hide-path coverage block did not run');
+    } else {
+      if (!r.hideCoverage.shownGoingIn) problems.push('#2802 coverage: the button was not shown by the not-listable paint, so the (a) hide assertion below is vacuous');
+      if (!r.hideCoverage.hidByListableRepaint) problems.push('#2802 coverage: a LISTABLE repaint did not hide the Connect button -- paintOpenaiDetailModel\'s per-paint default-hide is not firing, so the button would leak across an OpenAI account switch');
+      if (!r.hideCoverage.reShown) problems.push('#2802 coverage: the button did not re-show for the second not-listable paint, so the (b) openDetail-switch assertion below is vacuous');
+      if (!r.hideCoverage.openDetailUsable) problems.push('#2802 coverage: openDetail/LAST were not drivable, so the on-open reset (the OpenAI->Claude linger) could not be exercised');
+      else if (!r.hideCoverage.hidByClaudeSwitch) problems.push('#2802 coverage: switching to a Claude agent via openDetail did NOT hide the Connect button -- the on-open reset is not firing, so the button lingers under the Claude model tab');
+    }
     if (!r.sequence || !r.sequence.ran) {
       problems.push('SEQUENCE: paintModelPicker/paintProviderPicker not both present, so the openDetail order was not exercised');
     } else {
