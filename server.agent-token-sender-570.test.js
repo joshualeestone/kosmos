@@ -93,8 +93,13 @@ test('the post and react routes resolve a token sender through the same helper',
      engine half (sendPost honouring a resolved sender) is tested directly below. */
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const post = src.slice(src.indexOf("pathname === '/api/post'"), src.indexOf("pathname === '/api/react'"));
-  assert.match(post, /senderFromAgentToken\(req, body, roster\)/);
-  assert.match(post, /sender: tokenSender/);
+  /* #1704 PR2: the route hands the token sender to sendRoomPostAsAgent (shared
+     with the outbox drain), which refuses a token that did not resolve after the
+     project check and otherwise passes it to sendPost. Pin both halves. */
+  assert.match(post, /sendRoomPostAsAgent\(\{[^}]*sender: senderFromAgentToken\(req, body, roster\)/);
+  const shared = src.slice(src.indexOf('function sendRoomPostAsAgent('), src.indexOf('function agentBelongsToThisKosmos('));
+  assert.match(shared, /if \(sender && !sender\.ok\) return \{ state: 'could_not', because: sender\.because \}/);
+  assert.match(shared, /messages\.sendPost\(\{[^}]*\bsender,/);
   const react = src.slice(src.indexOf("pathname === '/api/react'"), src.indexOf('/api/agent/:name/conversation'));
   assert.match(react, /senderFromAgentToken\(req, body, roster\) \|\| messages\.resolveSender/);
 });

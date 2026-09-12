@@ -881,15 +881,24 @@ function parsePanes(out) {
       raw[col.key] = col.rest ? parts.slice(i).join('\t') : parts[i];
     });
     const session = raw.session || '';
-    /* #1704: a board's roster is its OWN Kosmos. nameInWorld maps the session's
-       launch key to the bare agent name IN THIS WORLD, or null for another
-       Kosmos's session (dropped in the filter below). The -discord strip runs on
-       the resulting NAME, never on the raw session: a world id can end in
-       `-discord` (CLEAN_ID allows it), so stripping it off the session first
-       would mangle `ava+qa-discord` into `ava+qa`. */
-    const inWorld = launchidentity.nameInWorld(session, launchidentity.currentWorldId());
+    /* #1704: a board's roster is its OWN Kosmos. agentNameFromSession maps the
+       session's launch key to the bare agent name IN THIS WORLD, then strips a
+       Discord bridge's -discord (on the NAME, never the raw session; see there),
+       or answers null for another Kosmos's session (dropped in the filter below).
+       One function, shared with the outbox's keep-time sender (#1704 PR2), so the
+       name a kept send is filed under is the name this roster shows.
+       ⚠️ EXCEPT A WINDOWS ROW, which is already this Kosmos's: win32roster emits
+       only sessions recorded in THIS world's store (store.ROOT/win32-sessions),
+       under the agent's plain name. Keying it again dropped every Windows row on a
+       named-world board, which then could not see, pause, restart or message any
+       of its agents. So a Windows row is named in the world its plain name reads
+       as (the default one): the same function, -discord strip and all, without the
+       second world filter. */
+    const rowWorld = require('./win32roster').isWin32Pane(raw)
+      ? launchidentity.DEFAULT_WORLD_ID
+      : launchidentity.currentWorldId();
     return {
-      name: inWorld === null ? null : inWorld.replace(/-discord$/, ''),
+      name: launchidentity.agentNameFromSession(session, rowWorld),
       session,
       // Kept, not just folded into `target`: choosing one pane per session
       // needs to compare indexes, and re-parsing them back out of the target
@@ -1102,12 +1111,14 @@ function isNamedOurs(pane) {
   // What the claim actually buys is that it DIES WITH THE SESSION: there is no
   // stale record for a stranger to inherit later, which is the failure a claims
   // file on disk would have had.
-  const claim = String(pane.claim || '').trim();
-  if (claim && claim === String(pane.session || '')) return true;
-
-  // The legacy arm: the existing fleet carries the suffix and no claim, and
-  // must keep working untouched.
-  return /-discord$/.test(String(pane.session || ''));
+  //
+  // The legacy arm: the existing fleet carries the `-discord` suffix and no
+  // claim, and must keep working untouched.
+  //
+  // Both arms are ONE function, launchidentity.paneSessionIsOurs, which the
+  // outbox keep also uses to accept a profile-less agent window (#1704 PR2), so
+  // the keep and this roster tie cannot drift apart.
+  return launchidentity.paneSessionIsOurs(pane.session, pane.claim);
 }
 
 /**
@@ -5674,6 +5685,27 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     return { ...scraped, reported: false, conflict: 'its screen shows a question its reports do not mention', project: p, projectInferred: p !== null };
   }
 
+  /* #2837: a WORKING state carries the project the report attributes it to, the
+     same way #763 (above) does for needs_you, so the project overview can light
+     only the project a working agent is working in rather than every project it
+     belongs to. Freshness-gated exactly like #763 -- a stale naming (a report
+     older than the working-decay window) must not attribute today's work, so a
+     stale report yields a null project and the overview falls back to
+     sole-membership. Null when the report named none.
+     ONE derivation, not two (two derivations of one fact is this codebase's
+     most-shipped defect): `screenLed` selects the ONLY difference, which is in
+     `projectInferred`. When the WORKING state comes from the report itself, the
+     report's own flag decides whether the naming was inherited. When it comes
+     from the SCREEN beside an idle/started report (the scraped-WORKING fallback),
+     the project is carried from a separate report, so attributing it to this
+     state is always an inference -- matching rule 3's scraped-needs_you shape. */
+  const workingProject = (screenLed) => {
+    const atP = Date.parse(reported.at || '');
+    const freshP = Number.isFinite(atP) && (nowMs - atP) <= REPORT_WORKING_DECAY_MS;
+    const p = (freshP && typeof reported.project === 'string' && reported.project) ? reported.project : null;
+    return { project: p, projectInferred: p !== null && (screenLed || reported.projectInferred === true) };
+  };
+
   if (reported.state === 'working') {
     const at = Date.parse(reported.at || '');
     const stale = !Number.isFinite(at) || (nowMs - at) > REPORT_WORKING_DECAY_MS;
@@ -5694,7 +5726,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          prompt -- the exact sentence this branch's chat half exists to remove,
          reappearing in the one arm the feature is for. Measured across all five
          report arms; this was the only one that lost it. */
-      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null, backgroundWait: scraped.backgroundWait === true };
+      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null, backgroundWait: scraped.backgroundWait === true, ...workingProject(false) };
     }
     // Rule 5: the comparison happens BEFORE the decay.
     if (scraped.state === STATE.WORKING) {
@@ -5752,10 +5784,16 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          background agent is still running" -- the board conflates the two. That
          is a fleet-wide precedence change affecting every agent, so it is NOT
          made unilaterally from this card. Raised rather than taken. */
+      /* #2837: `workingProject(true)` here resolves to a NULL project by
+         construction -- this branch is reached only when the working report is
+         already `stale`, and the helper's freshness gate is that same staleness,
+         so a stale naming never attributes (which is the correct behaviour: a
+         stale report must not attribute today's work). Kept as `workingProject`
+         rather than a bare literal so all working returns share one shape. */
       if (scraped.backgroundWait === true) {
-        return { ...scraped, reported: false, conflict: null };
+        return { ...scraped, reported: false, conflict: null, ...workingProject(true) };
       }
-      return { ...scraped, reported: false, conflict: 'its reports stopped arriving while its screen still shows work, so the reporter may be broken' };
+      return { ...scraped, reported: false, conflict: 'its reports stopped arriving while its screen still shows work, so the reporter may be broken', ...workingProject(true) };
     }
     return {
       state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE,
@@ -5832,9 +5870,9 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
        📌 Identical reasoning to rule 5's exemption above, one branch over, and the
        same structural flag rather than a sentence match so the two cannot drift. */
     if (scraped.backgroundWait === true) {
-      return { ...scraped, reported: false, conflict: null };
+      return { ...scraped, reported: false, conflict: null, ...workingProject(true) };
     }
-    return { ...scraped, reported: false, conflict: 'its screen shows it is working while its last report said it was at rest' };
+    return { ...scraped, reported: false, conflict: 'its screen shows it is working while its last report said it was at rest', ...workingProject(true) };
   }
   // `idle`, and `started` with nothing after it: at rest either way.
   return { state: STATE.IDLE, confidence: CONFIDENCE.STRUCTURED, because: said('it is at rest and nothing is needed'), reported: true, conflict: null };
@@ -6458,8 +6496,10 @@ function snapshot() {
       task: taskLine(pane.title),
       state: status.state,
       stateConfidence: status.confidence,
-      /* #763: which project a reported needs_you is about; null for a scraped
-         question and for a report that named no project. */
+      /* #763/#2837: which project the state is about -- a reported needs_you
+         question (#763), or, since #2837, a working state (so the project
+         overview lights only the project a working agent is working in). Null
+         for a scraped question and for a state that named no project. */
       stateProject: (typeof status.project === 'string' && status.project) ? status.project : null,
       /* true when no report attributed THIS question to that project: the
          project came from an earlier report (the hook's question, or a

@@ -69,6 +69,7 @@ const {
   ASKING_GENERIC,
 } = require('./engine/status');
 const removal = require('./engine/remove');
+const worldstarts = require('./engine/worldstarts'); // #1704 PR3: pause/resume a Kosmos's agents across a switch
 
 /* #2128: does this MACHINE currently depend on a Claude subscription? The
    "cannot reach a Claude subscription" banner (renderConnection) must fire only
@@ -267,27 +268,6 @@ function worldCreateReason(e) {
   const m = String((e && e.message) || '');
   if (/invalid agent name/i.test(m)) return 'that is not a name we can use for a Kosmos (use letters, numbers, - or _)';
   return m || 'we could not create that Kosmos';
-}
-/* #2827: named worlds do not run agents in v1. engine/worlds.js scopes named-world
-   agents OUT -- it overrides AGENT_WORKFORCE_DATA/WORKERS/PROJECTS for a named world
-   but deliberately NOT AGENT_WORKFORCE_LAUNCH -- so an agent created while the board
-   is booted into a named world is only half redirected: its data + board token
-   (store.ROOT/board.token) sit under the named world's roots while its launch env
-   does not, and the board token it presents is refused, so its reports and replies
-   fail. Nothing enforced the rule, so both spawn routes now do: they refuse when the
-   board BOOTED into a named world (the world that actually runs agents; a switch only
-   records activeWorldId and needs a restart, so bootedWorld -- not activeWorld -- is
-   what determines whether a spawn would be broken). Returns a refusal {code, error}
-   to send, or null to allow. bootedWorld() is null on a never-bootstrapped unit board
-   (allow, so fixtures are unaffected) and DEFAULT_ID for the default world (allow). */
-function namedWorldSpawnRefusal() {
-  const booted = require('./engine/worldenv').bootedWorld();
-  if (!booted || booted === worlds.DEFAULT_ID) return null;
-  return {
-    code: 409,
-    error: 'Kosmos is running a named world, which does not run agents yet. '
-      + 'Switch back to Kosmos 1 (the default world) to create agents.',
-  };
 }
 /* #2066: which channel this build was FETCHED from (staging vs prod), for the
    board's build marker. It is NOT baked into the artifact -- #2036's invariant is
@@ -1337,6 +1317,220 @@ function sendJson(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
+/* ---- #1704 PR2 (plan §5): a kept-running agent's sends are never lost ------
+   On a world switch the person may keep a Kosmos's agents running. Board tokens
+   are per world, so a kept-running agent's reply reached the board serving
+   ANOTHER Kosmos, was refused as a stranger's, and was gone. Now every agent-side
+   request names its Kosmos (launchidentity.WORLD_HEADER); this board answers a
+   mismatch with 421 before any token check; the client keeps the send in its own
+   Kosmos (engine/outbox.js); and whichever board serves that Kosmos drains it. */
+const launchidentity = require('./engine/launchidentity');
+const outbox = require('./engine/outbox');
+
+/* The agent routes a world mismatch is refused on. Only these: install/kosmos
+   sends the header on EVERY call, including person-side ones such as `kosmos
+   open`'s board-nonce run from a terminal with no KOSMOS_WORLD, and those must
+   never be refused for it. */
+const WORLD_CHECKED_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply', 'POST /api/msg', 'POST /api/post', 'POST /api/react']);
+
+/* 421 Misdirected Request: the request is well formed and was sent to a server
+   that cannot answer for it, which is exactly "this board is serving another
+   Kosmos". No other route answers it, so a client can key on it without
+   mistaking a refusal of another kind. */
+const WRONG_WORLD_STATUS = 421;
+
+/**
+ * The 421 answer when a loopback agent route names a Kosmos this board is not
+ * serving, or null to carry on. An ABSENT header (the web page, an older client)
+ * is always null, so every caller that predates the header behaves as it did.
+ * Loopback only: a network peer never learns the booted world this way. Nothing
+ * new leaks to a local one either, since `x-kosmos-board: build@world` already
+ * publishes the booted world on `GET /`. The booted world is read per request
+ * (worldenv.bootedWorld), and worldenv's own rule decides a null one: "unknown",
+ * not the default. That is only a board that was never bootstrapped (a unit
+ * test); a real boot always records a world, the default one on any failure.
+ * Unknown cannot be a mismatch, so it refuses nothing (review round 1). The
+ * header is read through the one rule every client applies
+ * (launchidentity.worldIdForHeader).
+ */
+function wrongWorldRefusal(req, pathname) {
+  if (!WORLD_CHECKED_AGENT_ROUTES.has(`${req.method} ${pathname}`)) return null;
+  if (!isLoopbackPeer(req)) return null;
+  const named = req.headers && req.headers[launchidentity.WORLD_HEADER];
+  if (named === undefined) return null;
+  const booted = require('./engine/worldenv').bootedWorld();
+  if (booted === null || booted === undefined) return null;
+  const serving = launchidentity.worldIdOrDefault(booted);
+  if (launchidentity.worldIdForHeader(named) === serving) return null;
+  return {
+    wrongWorld: true,
+    serving,
+    because: 'That came from an agent in a different Kosmos from the one open right now, so this board did not take it.',
+  };
+}
+
+/* The checks a reply's text must pass before it is kept: chat's message rules,
+   then the delivery-marker impersonation refusal. One function, so /api/reply and
+   the outbox drain refuse exactly the same replies. */
+function agentReplyProblem(text) {
+  return chat.messageProblem(text) || messages.markerProblem(text) || null;
+}
+
+/* Record an agent's reply in its thread with the person: the one write both
+   /api/reply and the outbox drain make, so a drained reply is exactly a reply.
+   `at` is the original send time for a drained reply, now for the route. */
+function keepAgentReply(who, text, at) {
+  return chat.appendMessage(chat.DIRECT, who, {
+    text,
+    at: at || new Date().toISOString(),
+    from: who,
+  });
+}
+
+/**
+ * An agent's post into a project room: the project lookup, its member list and
+ * the send, shared by /api/post and the outbox drain so the two cannot disagree
+ * about which rooms exist or who is in them. `sender` is a resolved sender, a
+ * token refusal (`{ok:false}`, reported after the project check, which is the
+ * order the route has always answered in), or null for the pane path. Returns the
+ * delivery verdict.
+ */
+function sendRoomPostAsAgent({ fromPane, sender, project, text }, roster) {
+  let found = null;
+  try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
+  if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
+  // An archived project still accepts posts, a RECORDED trade: the
+  // archive hides a project from the list and stops it counting,
+  // and nothing else in the app gates behavior on it (an archived
+  // project's detail is still reachable and its members are still
+  // its members). If archive ever comes to mean "closed", this is
+  // the line that changes.
+  const members = (found.agents || []).map((a) => a.sessionName);
+  if (sender && !sender.ok) return { state: 'could_not', because: sender.because };
+  return messages.sendPost({
+    fromPane,
+    sender,
+    project: found.id,
+    // The NAME for the envelope the agent reads, the id for everything a
+    // machine keys on. Both, from the same record, so they cannot drift.
+    projectName: found.name,
+    text,
+  }, roster, members);
+}
+
+/* Is this name an agent in the Kosmos this board serves? A profile in this
+   world's store (so a stopped agent still counts), or a tied card on the roster
+   (so an adopted agent with no profile still counts). The drain's gate for a kept
+   send's sender and for a kept message's recipient. */
+function agentBelongsToThisKosmos(name) {
+  const n = String(name == null ? '' : name).trim();
+  if (!n) return false;
+  if (Object.keys(store.readProfile(n)).length > 0) return true;
+  return knownAgent(n);
+}
+
+/* A delivery verdict as the drain's outcome. `unconfirmed` counts as delivered:
+   the text may already be in the recipient's composer, and re-sending it is the
+   duplicate every client's "do not re-send" sentence exists to stop. */
+function outboxOutcomeOf(delivery) {
+  const state = delivery && delivery.state;
+  if (state === chat.DELIVERY.PLACED || state === chat.DELIVERY.UNCONFIRMED) return { outcome: 'delivered' };
+  return { outcome: 'retry', because: (delivery && delivery.because) || 'it could not be placed' };
+}
+
+/**
+ * Deliver the sends this Kosmos's agents kept while another Kosmos was open,
+ * through the same functions the routes use. A kept sender is trusted as the
+ * name it was kept under once the drain has checked it is an agent here; its
+ * card is the token path's paneless shape.
+ *
+ * One pass: `pass` ({after, maxDeliveries}, both optional) is handed to
+ * outbox.drain, which delivers at most outbox.MAX_DELIVERIES_PER_PASS entries and
+ * returns `next` when it stopped at that cap (startOutboxDrain carries on from
+ * there). Returns outbox.drain's summary.
+ */
+function drainOutboxNow(pass) {
+  let roster;   // read once per drain, and only when a msg or a post needs it
+  const rosterNow = () => (roster === undefined ? (roster = safeRoster()) : roster);
+  const senderFor = (name) => ({ ok: true, card: { sessionName: name, isNamedOurs: true } });
+  /* A kept msg's recipient, read one way for the check and for the note. */
+  const recipientOf = (entry) => String(entry.body.to == null ? '' : entry.body.to).trim();
+  const notDelivered = (entry, clauseText) => messages.logRefusedSend(entry.from,
+    recipientOf(entry) || '(nobody named)',
+    'your message to ' + (recipientOf(entry) || 'nobody') + ' was not delivered: ' + clauseText);
+  return outbox.drain({
+    knownAgent: agentBelongsToThisKosmos,
+    deliverReply: (entry) => {
+      const problem = agentReplyProblem(entry.body.text);
+      if (problem) return { outcome: 'dropped', because: problem };
+      const kept = keepAgentReply(entry.from, entry.body.text, entry.at);
+      return kept.recorded === true ? { outcome: 'delivered' } : { outcome: 'retry', because: kept.because };
+    },
+    deliverMsg: (entry) => {
+      const to = recipientOf(entry);
+      if (!agentBelongsToThisKosmos(to)) {
+        notDelivered(entry, (to || 'that name') + ' is not in this Kosmos');
+        return { outcome: 'dropped', because: (to || 'the recipient') + ' is not in this Kosmos' };
+      }
+      const now = rosterNow();
+      if (now === null) return { outcome: 'retry', because: 'we could not check which agents are running' };
+      return outboxOutcomeOf(messages.send({
+        sender: senderFor(entry.from), to, text: entry.body.text, inReplyTo: entry.body.in_reply_to,
+      }, now));
+    },
+    deliverPost: (entry) => {
+      const now = rosterNow();
+      if (now === null) return { outcome: 'retry', because: 'we could not check which agents are running' };
+      return outboxOutcomeOf(sendRoomPostAsAgent({
+        sender: senderFor(entry.from), project: entry.body.project, text: entry.body.text,
+      }, now));
+    },
+    onExpired: (entry, because) => {
+      if (entry.verb === 'msg') notDelivered(entry, 'it could not be placed for a week (' + because + ')');
+    },
+    after: pass && pass.after,
+    maxDeliveries: pass && pass.maxDeliveries,
+  });
+}
+
+/* How often a serving board looks for kept sends. A minute: the nudge sweep's
+   cadence, and a kept reply waits at most this long after its Kosmos is opened
+   again (the first sweep runs as soon as the board is up). */
+const OUTBOX_DRAIN_INTERVAL_MS = 60 * 1000;
+
+/* Start draining: a sweep now, then one every OUTBOX_DRAIN_INTERVAL_MS. A sweep is
+   a chain of passes of at most outbox.MAX_DELIVERIES_PER_PASS deliveries each,
+   every pass continuing where the last stopped, on the next turn of the event loop
+   (setImmediate), so the board serves requests between passes instead of holding
+   them for a whole outbox (review round 1). A tick that finds a sweep still
+   running skips it, so two sweeps never interleave. Called from the real-start
+   path only, once the board is listening; never at require, so a route test that
+   requires this file drains nothing unless it asks to. */
+function startOutboxDrain() {
+  let sweeping = false;
+  const runPass = (after) => {
+    let summary = null;
+    try { summary = drainOutboxNow({ after }); } catch (err) {
+      process.stderr.write(`Kosmos outbox: the drain failed and will run again in a minute: ${String(err && err.message)}\n`);
+    }
+    if (summary && summary.next) {
+      const more = setImmediate(() => runPass(summary.next));
+      if (more && typeof more.unref === 'function') more.unref();
+      return;
+    }
+    sweeping = false;
+  };
+  const sweep = () => {
+    if (sweeping) return;
+    sweeping = true;
+    runPass(undefined);
+  };
+  const first = setTimeout(sweep, 0);
+  if (first && typeof first.unref === 'function') first.unref();
+  const every = setInterval(sweep, OUTBOX_DRAIN_INTERVAL_MS);
+  if (every && typeof every.unref === 'function') every.unref();
+}
+
 /* ⚠️ ONE OF FIVE COPIES OF THE PINNED 16180 LITERAL (#910: here,
    `install/kosmos`, `install/setup.sh`, `install/pkg-scripts/postinstall`,
    and native-app/main.swift's `kosmosDefaultPort()`) -- but this is the
@@ -1520,6 +1714,25 @@ function withUnread(list) {
   let counts = null;
   try { counts = messages.unreadAll(); } catch { counts = null; }
   return (list || []).map((p) => ({ ...p, unread: counts === null ? null : (counts[p.id] || 0) }));
+}
+
+/* #2863: every agent on the wire carries its unread-DM count, derived HERE from
+   the DIRECT threads and the per-agent read cursor, the exact analog of
+   withUnread for projects. Keyed by `sessionName` because that is what the DM
+   thread is filed under (POST /api/reply records via chat.appendMessage(DIRECT,
+   sender.card.sessionName)). null when the count is unknown (unreadable cursor /
+   chats dir, or that one thread) -- unknown is not zero -- and never a 500: an
+   agents list that failed because a badge could not be computed would be the
+   wrong thing to lose. A per-agent null in the map passes through as null. */
+function withDmUnread(list) {
+  let counts = null;
+  try { counts = chat.dmUnreadAll(); } catch { counts = null; }
+  return (list || []).map((a) => {
+    if (counts === null) return { ...a, dmUnread: null };
+    const key = a && (a.sessionName || a.name);
+    const v = key != null && Object.prototype.hasOwnProperty.call(counts, key) ? counts[key] : 0;
+    return { ...a, dmUnread: v };
+  });
 }
 
 function decodeSegment(segment) {
@@ -1933,6 +2146,17 @@ const server = http.createServer((req, res) => {
   const remoteRefusal = remoteWriteGuard(req, pathname);
   if (remoteRefusal) {
     sendJson(res, 403, { error: remoteRefusal });
+    return;
+  }
+
+  /* #1704 PR2: BEFORE the board-token gate below, on purpose. A kept-running
+     agent presents ITS Kosmos's board token, which this board would refuse as
+     another account's (403) and the send would be lost; answering "wrong world"
+     first is what lets the agent keep it for later instead. Only the five agent
+     routes, only loopback, only when the header is present (wrongWorldRefusal). */
+  const worldRefusal = wrongWorldRefusal(req, pathname);
+  if (worldRefusal) {
+    sendJson(res, WRONG_WORLD_STATUS, worldRefusal);
     return;
   }
 
@@ -2520,7 +2744,7 @@ const server = http.createServer((req, res) => {
          false and the banner stays down. */
       const dependsOnClaude = someAgentNeedsClaude(agents.concat(offline));
       body = JSON.stringify({
-        ...snap, agents: agents.concat(offline), counts, connection, version, dependsOnClaude,
+        ...snap, agents: withDmUnread(agents.concat(offline)), counts, connection, version, dependsOnClaude,
         /* #2066: the build marker reads (version, sourceChannel). Channel rides
            the 5s status tick the board already polls -- one file read, defaulting
            to 'prod', so a prod board is unchanged and a staging board is loud. */
@@ -2859,18 +3083,21 @@ const server = http.createServer((req, res) => {
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
   }
-  /* #1704 slice 2b-ii: switch the active world. This records activeWorldId in the
-     registry (worlds.setActiveWorld) and reports restartRequired. It deliberately
-     does NOT stop-and-relaunch the board: a world's env overrides (the data /
-     projects / workers roots) are applied ONCE at board startup by
-     worlds.applyActiveWorldEnv, so a running board keeps serving the PREVIOUS
-     world's roots until it restarts. That stop-and-relaunch lifecycle -- and the
-     per-world launchd agents that ride it -- is the next slice; this route is the
-     registry switch plus the honest restartRequired signal the switcher UI needs,
-     with no board self-restart merged (which would be a fleet-affecting action on
-     a shared box). worldBase() is the pre-override registry base captured at
-     start(), so the switch operates on the registry regardless of which world is
-     active. */
+  /* #1704: switch the active world. Body {id, agents: 'pause'|'keep'}.
+     A world's env overrides (the data / projects / workers roots) are applied ONCE
+     at board startup, so a running board keeps serving the world it BOOTED into
+     until it restarts; this route records the new activeWorldId, answers, and then
+     self-restarts the board when it safely can (#2238 below).
+     PR3 (Josh: the dialog asks each time): `agents` says what happens to the
+     agents of the Kosmos being LEFT. 'keep' leaves them running, exactly as every
+     switch did before (an absent value means 'keep', for a page loaded before this
+     existed). 'pause' stops them BEFORE the switch is recorded
+     (engine/worldstarts.pauseForSwitch: remembered in the left world's store,
+     disabled so a login cannot revive them), and the board brings them back when
+     it next boots into that world (drainAtBoot, in the real-start block). If
+     recording the switch then fails, the agents just paused are started again.
+     worldBase() is the pre-override registry base captured at start(), so the
+     switch operates on the registry regardless of which world is active. */
   if (pathname === '/api/worlds/active' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
@@ -2881,13 +3108,60 @@ const server = http.createServer((req, res) => {
         // world is NOT-FOUND (404). They are different failures and the switcher UI
         // acts on them differently (fix the request vs refresh the world list).
         if (!id) { sendJson(res, 400, { ok: false, because: 'say which Kosmos to switch to (an id)' }); return; }
+        const agentsChoice = body.agents === undefined ? worldstarts.DEFAULT_AGENT_CHOICE : body.agents;
+        if (!Object.values(worldstarts.AGENT_CHOICES).includes(agentsChoice)) {
+          sendJson(res, 400, { ok: false, because: 'say whether to pause this Kosmos\'s agents or keep them running (agents: "pause" or "keep")' });
+          return;
+        }
         let base;
         // A base error is a SERVER condition (broken login env), not a bad request:
         // 500, and never leak the internal dataRootFor message.
         try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+        /* Judged BEFORE the switch, because a pause has to happen before it.
+           setActiveWorld matches ids exactly (worlds.js: w.id === id) and returns
+           that world, so the requested id is the canonical one it would return. */
+        const bootedId = require('./engine/worldenv').bootedWorld();
+        const isNoop = bootedId != null && bootedId === id;
+        let pause = { paused: [], notPaused: [], stoppedNow: [] };
+        if (!isNoop && agentsChoice === worldstarts.AGENT_CHOICES.PAUSE) {
+          /* Refuse a pause for a world that does not exist rather than stop agents
+             for a switch that is about to 404. setActiveWorld still classifies the
+             race where it disappears in between (the rollback below). */
+          let known;
+          try { known = worlds.listWorlds(base).some((w) => w.id === id); }
+          catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+          if (!known) { sendJson(res, 404, { ok: false, because: 'there is no Kosmos with that id on this machine' }); return; }
+          /* safeRoster(): removed agents are already off it, so a pause never
+             touches an agent Kosmos has told the person is gone. */
+          const roster = safeRoster();
+          /* A pause from a NAMED Kosmos pauses that Kosmos's own agents, the same
+             as from Kosmos 1. Everything it touches is this world's: the roster
+             holds only this world's sessions (status.parsePanes on a Mac, this
+             world's session record on Windows), and pauseForSwitch reaches each
+             agent through its world-keyed launch identity
+             (launchidentity.launchKey) and records it in this world's store. */
+          /* An unreadable roster is a 503: a pause the person asked for must not
+             come back as a silent empty list. */
+          if (roster === null) {
+            sendJson(res, 503, { ok: false, because: 'we could not see which agents are running in this Kosmos, so nothing was paused or switched. Try again, or keep them running' });
+            return;
+          }
+          pause = worldstarts.pauseForSwitch(roster.map((a) => ({ name: a.sessionName, session: a.session, tied: a.isNamedOurs })));
+        }
         let world;
         try { world = worlds.setActiveWorld(base, id); }
         catch (e) {
+          /* The switch did not happen, so the agents THIS request stopped go back
+             to running in the Kosmos the board is still serving. stoppedNow, not
+             paused: `paused` also names agents an EARLIER pause-switch of this
+             Kosmos stopped (a board that could not restart itself), and the person
+             asked for those paused too (review round 3). Not gated by the
+             named-world spawn rule: this undoes our own stop of agents that were
+             running here a moment ago. */
+          if (pause.stoppedNow.length) {
+            const undone = worldstarts.resumeNames(pause.stoppedNow);
+            if (undone.held.length) process.stderr.write(`Kosmos could not start ${undone.held.length} agent(s) again after a failed switch. First: ${undone.held[0].name} - ${undone.held[0].because}\n`);
+          }
           // Classify by the engine's typed error CODE, never its message text --
           // the message is person-facing and free to change; the code is the
           // contract (see worlds.js). ENOWORLD: the id names no world (not-found).
@@ -2916,13 +3190,22 @@ const server = http.createServer((req, res) => {
                reports restarting:false and the switcher UI asks for a MANUAL restart
                -- never a bare exit that would brick it (engine/boardrestart is the
                conservative, fail-safe guard; see its header). */
-        const bootedId = require('./engine/worldenv').bootedWorld();
-        // Compare against the CANONICAL id setActiveWorld returned (world.id), not the
-        // raw request `id`, so a no-op is judged on the id the board actually booted vs
-        // the one now active -- robust to any id normalization setActiveWorld may do.
-        const isNoop = bootedId != null && bootedId === world.id;
+        /* A switch to the world this board is serving. The page never sends one in
+           its normal flow (the current world's row is not a button, #2454b); it
+           is reached by a direct API call, or by a page whose list still marks the
+           registry pointer after a switch on a board that could not restart
+           itself. If an earlier pause-switch on such a board stopped this world's
+           agents, they are "opened again" here, and no boot is coming to bring
+           them back. Costs nothing when nothing is paused. */
+        if (isNoop) {
+          const back = worldstarts.resumePaused();
+          if (back.held.length) process.stderr.write(`Kosmos left ${back.held.length} paused agent(s) off. First: ${back.held[0].name} - ${back.held[0].because}\n`);
+        }
         const restarting = !isNoop && require('./engine/boardrestart').canSelfRestart().canRestart;
-        sendJson(res, 200, { ok: true, world, restartRequired: !isNoop, restarting });
+        sendJson(res, 200, {
+          ok: true, world, restartRequired: !isNoop, restarting,
+          agents: agentsChoice, paused: pause.paused, notPaused: pause.notPaused,
+        });
         /* AFTER the response has been sent, restart the board so it comes back on the
            new world. The delay lets the 200 flush to the client first, because the
            restart kills the very connection that asked for the switch. selfRestart
@@ -3269,10 +3552,6 @@ const server = http.createServer((req, res) => {
           throw new Error('we could not read that request');
         }
 
-        // #2827: named worlds do not run agents in v1 -- refuse before writing anything.
-        const nw = namedWorldSpawnRefusal();
-        if (nw) { sendJson(res, nw.code, { error: nw.error }); return; }
-
         /**
          * ⚠️ The projects the new agent should join are validated HERE,
          * BEFORE the engine writes anything: a refusal after the folder
@@ -3549,10 +3828,6 @@ const server = http.createServer((req, res) => {
           sendJson(res, 400, { error: 'we could not read that request' });
           return;
         }
-
-        // #2827: named worlds do not run agents in v1 -- refuse before spawning a team.
-        const nw = namedWorldSpawnRefusal();
-        if (nw) { sendJson(res, nw.code, { error: nw.error }); return; }
 
         const members = Array.isArray(body.members) ? body.members : null;
 
@@ -3928,10 +4203,6 @@ const server = http.createServer((req, res) => {
   if (rs && req.method === 'POST') {
     const name = decodeSegment(rs[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    // #2827: restore re-enables the agent's launch job, so it runs again -- a spawn.
-    // In a named world its board token would be refused, so refuse the restore there.
-    const nwr = namedWorldSpawnRefusal();
-    if (nwr) { sendJson(res, nwr.code, { error: nwr.error }); return; }
     let back;
     try { back = removal.restore(name); }
     catch (err) { sendJson(res, 500, { error: 'we could not put this agent back', detail: String(err && err.message || err) }); return; }
@@ -6720,10 +6991,6 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { ok: false, because: 'we could not read that request' }); return; }
-        // #2827: connecting a discovered agent INSTALLS a launch job and STARTS it,
-        // so it is a spawn -- refuse it in a named world just like the create routes.
-        const nw = namedWorldSpawnRefusal();
-        if (nw) { sendJson(res, nw.code, { ok: false, because: nw.error }); return; }
         /* 🔑 THE FIRST AGENT BRINGS ITS OWN HOME, WHETHER IT WAS MADE OR IMPORTED
            (#1349). The seed lived only in the create route, so a person whose
            first agents are IMPORTED landed on an empty Projects tab -- the first
@@ -8249,18 +8516,17 @@ const server = http.createServer((req, res) => {
         }
         // Refused before anything is looked up, exactly as the operator's own
         // send is: a message we would never keep should not cost a roster read.
-        const problem = chat.messageProblem(body.text);
+        /* agentReplyProblem also runs the same impersonation refusal msg and post
+           run. This route kept a reply carrying a delivery marker until #145's
+           review caught it: the colleagues block promises the refusal on every
+           send path, and this was the path that broke the promise.
+           Bare 400, no logged refusal row, deliberately: the messageProblem
+           refusal is equally bare (attribution would cost a roster read before
+           refusing), and the block's warning is the compensating control that
+           reaches the agent BEFORE the guard. The outbox drain (#1704 PR2) runs
+           the same function, so a kept reply is refused exactly as a live one. */
+        const problem = agentReplyProblem(body.text);
         if (problem) { const bad = new Error(problem); bad.status = 400; throw bad; }
-        /* The same impersonation refusal msg and post run. This route kept a
-           reply carrying a delivery marker until #145's review caught it: the
-           colleagues block promises the refusal on every send path, and this
-           was the path that broke the promise.
-           Bare 400, no logged refusal row, deliberately: this route's
-           messageProblem refusal is equally bare (attribution would cost a
-           roster read before refusing), and the block's warning is the
-           compensating control that reaches the agent BEFORE the guard. */
-        const marker = messages.markerProblem(body.text);
-        if (marker) { const bad = new Error(marker); bad.status = 400; throw bad; }
 
         const roster = safeRoster();
         if (roster === null) {
@@ -8287,12 +8553,7 @@ const server = http.createServer((req, res) => {
         if (!sender.ok) { sendJson(res, 200, { kept: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
-        const at = new Date().toISOString();
-        const kept = chat.appendMessage(chat.DIRECT, who, {
-          text: body.text,
-          at,
-          from: who,
-        });
+        const kept = keepAgentReply(who, body.text);
         /* #2623: the phone seam (engine/notify.js) was deleted. The reply is
            recorded for the person's own thread as before; nothing leaves the Mac. */
         sendJson(res, 200, {
@@ -8658,33 +8919,17 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, { delivery: { state: 'could_not', because: 'we could not check which agents are running, so nothing was posted' } });
           return;
         }
-        let found = null;
-        try { found = projects.get(String(body.project == null ? '' : body.project).trim(), roster); } catch { found = null; }
-        if (!found) {
-          sendJson(res, 200, { delivery: { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' } });
-          return;
-        }
-        // An archived project still accepts posts, a RECORDED trade: the
-        // archive hides a project from the list and stops it counting,
-        // and nothing else in the app gates behavior on it (an archived
-        // project's detail is still reachable and its members are still
-        // its members). If archive ever comes to mean "closed", this is
-        // the line that changes.
-        const members = (found.agents || []).map((a) => a.sessionName);
-        const tokenSender = senderFromAgentToken(req, body, roster);
-        if (tokenSender && !tokenSender.ok) {
-          sendJson(res, 200, { delivery: { state: 'could_not', because: tokenSender.because } });
-          return;
-        }
-        const delivery = messages.sendPost({
+        /* #1704 PR2: the project lookup, its members and the send are ONE
+           function the outbox drain shares (sendRoomPostAsAgent), so a kept post
+           reaches exactly the room a live one would. The token sender is resolved
+           here and refused inside it, after the project check: the order this
+           route has always answered in. */
+        const delivery = sendRoomPostAsAgent({
           fromPane: body.from_pane,
-          sender: tokenSender,
-          project: found.id,
-          // The NAME for the envelope the agent reads, the id for everything a
-          // machine keys on. Both, from the same record, so they cannot drift.
-          projectName: found.name,
+          sender: senderFromAgentToken(req, body, roster),
+          project: body.project,
           text: body.text,
-        }, roster, members);
+        }, roster);
         /* #2623: the phone seam (engine/notify.js) was deleted. A post that
            reached the room is delivered on the board as before; it no longer
            POSTs anything off the Mac. */
@@ -9276,11 +9521,6 @@ const server = http.createServer((req, res) => {
      the set the GET above reports, so the two can never describe different
      work. A body would let a caller name an agent the survey refused. */
   if (pathname === '/api/register' && req.method === 'POST') {
-    // #2827: register.repair installs the missing launch job for every jobless agent
-    // and STARTS it (create.installJob) -- a spawn. In a named world those agents'
-    // board tokens would be refused, so refuse the repair there too.
-    const nwreg = namedWorldSpawnRefusal();
-    if (nwreg) { sendJson(res, nwreg.code, { error: nwreg.error }); return; }
     try {
       /* The model each one LAST RAN AS, which is the only surviving record of
          it: the model an agent was SET to run on lived in the job that does not
@@ -10370,6 +10610,28 @@ const server = http.createServer((req, res) => {
     try { at = messages.markSeen(id); }
     catch (err) { sendJson(res, 500, { error: String((err && err.message) || 'we could not record that') }); return; }
     sendJson(res, 200, { seen: at, unread: 0 });
+    return;
+  }
+
+  /* #2863: the person opened this agent's 1:1 DM thread; move its read cursor so
+     the agent's replies before now stop counting. The exact analog of the room
+     /seen above, keyed by agent instead of project. POST, behind the same
+     cross-site write guard. The count itself is server-derived (see
+     withDmUnread); this only moves the cursor. A malformed agent name is a 400
+     (markDmSeen throws BAD_THREAD), any other write failure a 500 -- the sibling
+     shape. */
+  const dmSeen = pathname.match(/^\/api\/agent\/([^/]+)\/seen$/);
+  if (dmSeen && req.method === 'POST') {
+    const name = decodeSegment(dmSeen[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let at;
+    try { at = chat.markDmSeen(name); }
+    catch (err) {
+      const code = (err && err.code === 'BAD_THREAD') ? 400 : 500;
+      sendJson(res, code, { error: String((err && err.message) || 'we could not record that') });
+      return;
+    }
+    sendJson(res, 200, { seen: at, dmUnread: 0 });
     return;
   }
 
@@ -12283,6 +12545,18 @@ if (require.main === module) {
       // would announce itself on port 0.
       process.stdout.write(`Kosmos on http://127.0.0.1:${server.address().port}\n`);
       process.stdout.write('Local only. It writes, and it has no login yet.\n');
+      /* #1704 PR3: start again the agents a pause-switch stopped when this Kosmos
+         was left. Here, not in start(): live execution is armed above and the board
+         is listening, and routing tests that call start() never reach this. Not
+         fatal: a board that could not resume an agent still serves, and the entry
+         is retried next boot. */
+      try { worldstarts.drainAtBoot(); }
+      catch (err) { process.stderr.write(`Kosmos could not bring back this Kosmos's paused agents: ${String(err && err.message)}\n`); }
+      /* #1704 PR2: deliver what this Kosmos's agents kept while another Kosmos
+         was open. Here, on the real-start path only: after allowLiveExecution()
+         above, once the board is listening, and never in a test that merely
+         requires this file. */
+      startOutboxDrain();
     }).catch((err) => {
       // Say what to do rather than name an exception. A raw EADDRINUSE stack is
       // exactly what start()'s promise exists to replace, and leaving this
@@ -12302,6 +12576,9 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  /* #1704 PR2: exported so a test can run one outbox drain against a sandboxed
+     board; production starts it from the real-start path (startOutboxDrain). */
+  drainOutboxNow,
   /* #2128: exported so the four dependsOnClaude cases (some non-codex agent,
      every agent codex, no agents, a configured account that no longer forces it)
      are pinned DIRECTLY, without an HTTP harness that cannot inject agents. */

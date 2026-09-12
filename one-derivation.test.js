@@ -60,6 +60,27 @@ test('#1228: every instructions.staleness() call is wrapped in toldOverride', ()
     'the instructions route serves a raw verdict, so renderStale\'s told branch is unreachable from its own endpoint');
 });
 
+/* world-guard-lift-1704: "which Kosmos's agents does this board act on" has ONE
+   answer, the booted world's launch key (launchidentity.currentWorldId, read through
+   create.serviceLabel / win32job.taskName). #2849's second rule, "a named world may
+   not start agents", is lifted on every route, so no spawn path and no resume may
+   carry a named-world refusal again, and engine/worldstarts may not decide a world
+   itself: it acts only through the keyed identity remove.jobFor hands it. */
+test('world-guard-lift-1704: no named-world spawn refusal remains, and no resume takes a second rule', () => {
+  const server = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
+  const code = server.replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.doesNotMatch(code, /namedWorldSpawnRefusal|spawnRefusal/,
+    'server.js carries a named-world spawn rule again, beside the world-keyed launch identity');
+  const opened = code.match(/worldstarts\.(drainAtBoot|resumePaused)\([^)]*\)/g) || [];
+  assert.ok(opened.length >= 2, `found ${opened.length} resume-on-open calls; expected the boot drain and the no-op switch`);
+  for (const call of opened) {
+    assert.match(call, /\(\s*\)$/, `${call} passes a gate: a resume on opening a Kosmos starts that Kosmos's own agents`);
+  }
+  const engine = fs.readFileSync(nodePath.join(__dirname, 'engine', 'worldstarts.js'), 'utf8');
+  assert.doesNotMatch(engine, /bootedWorld|DEFAULT_ID|spawnRefusal|currentWorldId|KOSMOS_WORLD/,
+    'engine/worldstarts derives a world (or a spawn rule) itself instead of acting through remove.jobFor\'s keyed identity');
+});
+
 test('#1228: toldOverride can reuse a store list a caller already holds', () => {
   const projects = require('./engine/projects');
   /* `describe` is handed the store list `list()` already read. If the override

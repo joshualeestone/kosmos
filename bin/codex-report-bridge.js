@@ -104,6 +104,16 @@ function main() {
     if (typeof boardTok === 'string' && boardTok) headers['x-kosmos-board-token'] = boardTok;
   } catch { /* a missed board token must never become a failed turn */ }
 
+  /* #1704 PR2: name this agent's Kosmos (`default` when KOSMOS_WORLD is absent),
+     so a board serving ANOTHER Kosmos answers 421 instead of refusing the report
+     as a stranger's. Nothing is kept on a 421: a report is stale by the time its
+     Kosmos opens, so it costs one report, exactly as a down board does. Guarded
+     by this file's cardinal rule, like the token read above. */
+  try {
+    const launchidentity = require('../engine/launchidentity');
+    headers[launchidentity.WORLD_HEADER] = launchidentity.worldHeaderValue(process.env);
+  } catch { /* a missed world header must never become a failed turn */ }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   fetch(`http://127.0.0.1:${port}/api/report`, {

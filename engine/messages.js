@@ -329,6 +329,20 @@ function paneSession(paneId) {
   }
 }
 
+/* #1704 PR2 (review round 3): the `@kosmos_agent` claim on the session a pane is
+   in -- the claim arm of status.isNamedOurs -- for the outbox keep, which has no
+   roster to read it from. '' when the session carries none or tmux cannot say:
+   the name rule then falls to its `-discord` arm, and a window that is neither
+   is refused with a sentence, so an unreadable claim is never read as "ours". */
+function paneClaim(paneId) {
+  try {
+    return execFileSync(tmuxBin(), ['display-message', '-p', '-t', paneId, '#{@kosmos_agent}'],
+      { encoding: 'utf8', timeout: 5000 }).trim();
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Who is sending, derived from the pane. Returns { ok, card } or
  * { ok:false, because }. The roster row must be TIED (isNamedOurs): an
@@ -635,6 +649,35 @@ function pairCount(log, a, b, now, windowMs = limits.WINDOW_MS) {
 }
 
 /**
+ * Record that an agent's send was refused, attributed to it, once per
+ * sender-recipient-because per window: every refusal an agent meets is an event
+ * (the clean-chat rule), invisible in the raw pane unless someone was watching.
+ * `send()` logs each of its refusals through this, and the outbox drain (#1704
+ * PR2) logs a kept message it cannot deliver through it too, so that note lands
+ * in the same record the screens already read.
+ *
+ * The logged `to` is capped: it is unvalidated caller input (a 1MB recipient
+ * string is not a recipient), and each distinct value is a fresh dedup key. The
+ * caller's VERDICT never depends on this write -- chat.appendMessage's own
+ * never-throws-on-a-full-store contract is the house standard, and the sharpest
+ * case is the spill exit, whose refusal fires BECAUSE the store could not be
+ * written and must not then throw writing to the same store. The dedup read fails
+ * open like the rest of the read side (recorded trade): a transient read error
+ * can cost one duplicate row, never a lost verdict.
+ */
+function logRefusedSend(from, toWho, because, at) {
+  const toLogged = String(toWho).slice(0, 120);
+  const when = at || new Date().toISOString();
+  try {
+    const now2 = Date.parse(when);
+    const already = readLog().some((m) => m && m.kind === 'refused'
+      && m.from === from && m.to === toLogged && m.because === because
+      && Date.parse(m.at) >= now2 - limits.WINDOW_MS);
+    if (!already) appendLog({ kind: 'refused', from, to: toLogged, because, at: when });
+  } catch { /* the record is best-effort; the verdict is not */ }
+}
+
+/**
  * Send one addressed message from the agent owning `fromPane` to `to`.
  *
  * Returns { state: 'placed'|'unconfirmed'|'could_not', because, id, at } --
@@ -662,24 +705,7 @@ function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster)
      an unresolved sender has no conversation to appear in, and logging
      anonymous knocks would let any local process grow the record. */
   const refuse = (toWho, because) => {
-    /* The logged `to` is capped: it is unvalidated caller input (a 1MB
-       recipient string is not a recipient), and each distinct value is a
-       fresh dedup key. The VERDICT always returns whatever happens to the
-       record -- chat.appendMessage's own never-throws-on-a-full-store
-       contract is the house standard, and the sharpest case is the spill
-       exit, whose refusal fires BECAUSE the store could not be written
-       and must not then throw writing to the same store. The dedup read
-       fails open like the rest of the read side (recorded trade): a
-       transient read error can cost one duplicate row, never a lost
-       verdict. */
-    const toLogged = String(toWho).slice(0, 120);
-    try {
-      const now2 = Date.parse(at);
-      const already = readLog().some((m) => m && m.kind === 'refused'
-        && m.from === from && m.to === toLogged && m.because === because
-        && Date.parse(m.at) >= now2 - limits.WINDOW_MS);
-      if (!already) appendLog({ kind: 'refused', from, to: toLogged, because, at });
-    } catch { /* the record is best-effort; the verdict is not */ }
+    logRefusedSend(from, toWho, because, at);
     return { state: chat.DELIVERY.COULD_NOT, because, id: null, at };
   };
   /* ⚠️ The sender's NAME rides inside the envelope's bracket grammar, and
@@ -1904,7 +1930,7 @@ module.exports = {
   START, END, blockBody,
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
-  resolveSender, send, sendPost, reopenRoom, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
+  resolveSender, paneSession, paneClaim, send, logRefusedSend, sendPost, reopenRoom, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests,
 };

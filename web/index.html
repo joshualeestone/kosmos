@@ -1331,6 +1331,9 @@ button.worldsw-row:hover { background: var(--k-sunk); }
 button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 /* #2238: the honest post-switch status banner. A world's roots load only on board
    boot, so switching needs a board restart; this banner says so (no auto-restart). */
+/* #1704 PR3: the switch dialog's pause/keep choice. A fieldset, so its UA chrome goes. */
+.worldsw-agents { border: 0; padding: 0; margin: var(--space-4) 0 0; min-width: 0; display: grid; gap: var(--space-2); }
+.worldsw-agent-choice { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .worldsw-restart { margin-top: 4px; padding: 8px;
   border-top: 0.5px solid var(--separator); font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
 /* 🔑 8px BECAUSE THE ELEMENT ALREADY CHOSE 8px, not because somebody picked a
@@ -1438,6 +1441,28 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
      side), paired with inset like .dring/.lring/.agauge svg rather than left to
      inset alone, so a viewBox-only SVG is never a zero-size node. */
   position: absolute; inset: -5px; width: 54px; height: 54px; pointer-events: none; display: block;
+}
+/* #2839 (Josh, 0.6.57 live review): "a green glow behind them [working] and a
+   red glow to ones that need you". A soft halo behind the face disc, in the SAME
+   state colours the cards use (green rgba(47,125,90) for working, red
+   rgba(179,38,30) for needs-you), so the org chart reads the fleet's state at a
+   glance. Glow only: no hard ring, so it sits behind the context gauge (.oring)
+   rather than competing with it. Only these two states glow; idle/paused/
+   stopped/unknown/restarting stay quiet, the same "red is rare so it lands" rule
+   the cards follow. The box-shadow renders outside the disc, so `.face`'s
+   overflow:hidden does not clip it. */
+.onode.onode-working .face { box-shadow: 0 0 16px 5px rgba(47,125,90,.55); }
+.onode.onode-attn .face { box-shadow: 0 0 16px 6px rgba(179,38,30,.6); }
+/* Dark theme: the light-mode greens/reds read low-contrast on the dark ground,
+   so swap to the lighter state family the rest of the UI uses in dark (working
+   rgba(121,197,157), needs-you rgba(255,140,130) -- the same values .astate.st-
+   working / .acard.attn switch to). Write ONLY the prefers-color-scheme rule
+   here; tools/sync-forced-theme.js generates its :root[data-theme="dark"] twin
+   into the forced-dark region below (do not hand-write that twin -- it must be
+   generated, or web.theme.test.js reds on the region being out of step). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .onode.onode-working .face { box-shadow: 0 0 16px 5px rgba(121,197,157,.6); }
+  :root:not([data-theme="light"]) .onode.onode-attn .face { box-shadow: 0 0 16px 6px rgba(255,140,130,.6); }
 }
 /* #2577: needs-you as a corner badge (the list row's exact warning glyph, reused
    verbatim as ONODE_WARN), top-right and overlapping the avatar edge so it never
@@ -1909,6 +1934,25 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
             font-variant-numeric: tabular-nums;
             color: #fff; background: #b3261e; border-radius: 100px;
             padding: .12rem .42rem; border: 2px solid var(--k-surface); }
+/* #2863 (Josh): the unread-DM bubble, top-right on the agent card. Same
+   red-bubble shape as .membadge, one channel over. Absolute so it never shifts
+   the card's flow; pointer-events:none so it never eats the card click. */
+.dmbadge { position: absolute; top: -6px; right: -6px; pointer-events: none;
+           font: 700 .6875rem var(--k-mono);
+           font-variant-numeric: tabular-nums;
+           color: #fff; background: #b3261e; border-radius: 100px;
+           padding: .12rem .42rem; border: 2px solid var(--k-surface); }
+/* The card's memory badge sits top-right too; on the rare agent that is both
+   near-full on memory AND has unread DMs, drop the memory badge below the DM
+   bubble so they stack rather than overlap. The DM bubble keeps the corner
+   because "someone is waiting on you" outranks "memory is nearly full". The list
+   row has no membadge (it uses a memory bar), so it needs no such rule. */
+/* :not(.unk) is load-bearing: the unknown-memory badge (.membadge.unk) is
+   anchored to the BOTTOM of the gauge (bottom:-15px, top:auto), a different
+   corner entirely, so it never collides with the DM bubble. Only the plain
+   near-full number badge sits top-right where the DM bubble does. Offsetting
+   the .unk one too would give it both a top and a bottom and stretch it tall. */
+.agauge:has(.dmbadge) .membadge:not(.unk) { top: 24px; }
 .ansgo { margin-left: auto; font-size: .8125rem; font-weight: 600; color: var(--k-ink-2);
          border: 0; background: none;
          /* One padding declaration only: a second one in this same rule was
@@ -6242,6 +6286,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   :root:not([data-theme="light"]) .bar i.high { background: #ff8c82; }
   :root:not([data-theme="light"]) .haz { background: #ff8c82; color: #0c0d0f; }
   :root:not([data-theme="light"]) .membadge { background: #ff8c82; color: #0c0d0f; }
+  :root:not([data-theme="light"]) .dmbadge { background: #ff8c82; color: #0c0d0f; }
   :root:not([data-theme="light"]) .astate.st-working { border-color: rgba(121,197,157,.62); }
   :root:not([data-theme="light"]) .astate.st-paused, :root:not([data-theme="light"]) .astate.st-stopped { border-color: rgba(245,245,244,.32); }
   :root:not([data-theme="light"]) .astate.st-idle { border-color: rgba(245,245,244,.32); }
@@ -7040,6 +7085,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 :root[data-theme="dark"] .apphead .tab.on { background: rgba(245,245,244,.08); }
 }
 
+:root[data-theme="dark"] .onode.onode-working .face { box-shadow: 0 0 16px 5px rgba(121,197,157,.6); }
+:root[data-theme="dark"] .onode.onode-attn .face { box-shadow: 0 0 16px 6px rgba(255,140,130,.6); }
+
 :root[data-theme="dark"] .onode .face { background: #3a3d42; }
 
 :root[data-theme="dark"] .chk.ok .chk-m { color: var(--gold-deep); }
@@ -7100,6 +7148,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 :root[data-theme="dark"] .bar i.high { background: #ff8c82; }
 :root[data-theme="dark"] .haz { background: #ff8c82; color: #0c0d0f; }
 :root[data-theme="dark"] .membadge { background: #ff8c82; color: #0c0d0f; }
+:root[data-theme="dark"] .dmbadge { background: #ff8c82; color: #0c0d0f; }
 :root[data-theme="dark"] .astate.st-working { border-color: rgba(121,197,157,.62); }
 :root[data-theme="dark"] .astate.st-paused, :root[data-theme="dark"] .astate.st-stopped { border-color: rgba(245,245,244,.32); }
 :root[data-theme="dark"] .astate.st-idle { border-color: rgba(245,245,244,.32); }
@@ -8597,9 +8646,17 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
 <div class="rm-back" id="world-switch-modal" hidden>
   <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="world-switch-t">
     <h2 class="rm-title" id="world-switch-t">Restart Kosmos in order to switch to a different Kosmos</h2>
+    <!-- #1704 PR3 (Josh: ask each time): what happens to the agents of the Kosmos being
+         left. Neither is preselected and Restart stays disabled until one is chosen
+         (worldswAgentsChoiceChanged). The legend names the group for a screen reader. -->
+    <fieldset class="worldsw-agents" id="world-switch-agents">
+      <legend class="vh">What happens to this Kosmos's agents</legend>
+      <label class="worldsw-agent-choice"><input type="radio" name="world-switch-agents" id="world-switch-pause" value="pause"> Pause this Kosmos's agents</label>
+      <label class="worldsw-agent-choice"><input type="radio" name="world-switch-agents" id="world-switch-keep" value="keep"> Keep them running</label>
+    </fieldset>
     <div class="rm-acts" style="margin-top: var(--space-6);">
       <button class="btn" id="world-switch-cancel" type="button">Cancel</button>
-      <button class="btn uprime" id="world-switch-go" type="button">Restart Kosmos</button>
+      <button class="btn uprime" id="world-switch-go" type="button" disabled>Restart Kosmos</button>
     </div>
   </div>
 </div>
@@ -14004,6 +14061,24 @@ function staleBadge(a) {
     + `><span class="vh">${w.lead} ${w.tail}</span>${icon('alert')}</span>`;
 }
 
+/* #2863 (Josh): the red numbered bubble for unread direct messages from an
+   agent, top-right on the agent card in the grid, so you can see who is
+   notifying you without opening each thread. (The list-view badge, the org node
+   and the top tallies are the follow-up: the default list's .lav is
+   overflow:hidden and unpositioned, so it needs its own placement, not this
+   corner badge.) Mirrors the project p.unread
+   precedent: `a.dmUnread` is the count from the engine (server withDmUnread,
+   Angel #2881), null when unknown -> no badge; and the agent you are READING now
+   (CURRENT) is suppressed here exactly as the open project shows 0, so the badge
+   does not flicker back on the poll between opening the thread and the /seen
+   clear landing. Same red-bubble shape as .membadge. */
+function dmBadge(a) {
+  const n = Number(a && a.dmUnread);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  if (CURRENT && a && CURRENT.sessionName === a.sessionName) return '';
+  const s = n > 99 ? '99+' : String(n);
+  return '<span class="dmbadge" aria-label="' + s + ' unread ' + (n === 1 ? 'message' : 'messages') + '">' + s + '</span>';
+}
 function card(a) {
   /**
    * 🛑 AN AGENT THAT IS NOT RUNNING GETS A DIFFERENT CARD, not this one with
@@ -14050,7 +14125,7 @@ function card(a) {
            text is PRESSAY.off, which is the same words as the pill two rows
            down, so a screen reader announced "Not running" twice per card. The
            pill is the one that carries it. -->
-      <span class="pres off" aria-hidden="true"></span></div>
+      <span class="pres off" aria-hidden="true"></span>${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
     <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
     <div class="astate ${split ? 'st-unknown' : 'st-stopped'}">${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b></div>
@@ -14109,7 +14184,7 @@ function card(a) {
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
 
   return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}">
-    <div class="agauge">${ring(a)}${pres}${badge}</div>
+    <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
     <div class="astate st-${m.st}">${glyphOf(a)}<b>${esc(copy.label)}</b>${answer}</div>
@@ -18319,13 +18394,23 @@ let WORLDSW_RECONNECTING = false;
 // focus to it after worldsFetch rebuilds (and drops) the clicked row. Shared so
 // worldswReconnect's timeout path does not re-implement it.
 function worldswFocusTrigger() { const btn = document.getElementById('worldsw-btn'); if (btn) btn.focus(); }
-async function worldswSwitch(id, name) {
+/* #1704 PR3: one terse sentence for agents a pause-switch could not stop (they keep
+   running). Empty when every agent paused, or on a keep-running switch. */
+function worldswNotPausedNote(notPaused) {
+  const names = Array.isArray(notPaused) ? notPaused.map((n) => n && n.name).filter(Boolean) : [];
+  if (!names.length) return '';
+  return 'Still running, could not be paused: ' + names.join(', ') + '.';
+}
+async function worldswSwitch(id, name, agents) {
   if (WORLDSW_SWITCHING) return;
   const banner = document.getElementById('worldsw-restart');
   const bmsg = document.getElementById('worldsw-restart-msg');
   // role=status announces a mutation only while the region is IN the a11y tree, so
   // UNHIDE first, then set the text (setting text on a hidden region can go unspoken).
-  const say = (t) => { banner.hidden = false; bmsg.textContent = t; };
+  // #1704 PR3: once the switch answers, `note` (agents that could not be paused)
+  // leads every later line, so it survives the reconnect's own status updates.
+  let note = '';
+  const say = (t) => { banner.hidden = false; bmsg.textContent = note ? note + ' ' + t : t; };
   WORLDSW_SWITCHING = true;
   // #2628: capture the switch-initiation time NOW, before the POST that triggers the board
   // restart. The restarted board stamps lastAbandonedWorld.at only AFTER this, so an abandon
@@ -18340,7 +18425,9 @@ async function worldswSwitch(id, name) {
       res = await fetch('/api/worlds/active', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id }),
+        // #1704 PR3: the dialog's pause/keep answer. Omitted only when a caller gave
+        // none, which the server reads as keep (its behaviour before the choice).
+        body: JSON.stringify(agents ? { id, agents } : { id }),
       });
     } catch {
       // #6: the switch is now invoked from the confirm modal, and worldswSwitchGo hides
@@ -18367,6 +18454,7 @@ async function worldswSwitch(id, name) {
     // server is authoritative if a concurrent rename happened) for both the id the
     // reconnect polls on and the name shown.
     const okBody = await res.json().catch(() => null);
+    note = worldswNotPausedNote(okBody && okBody.notPaused);
     const world = okBody && okBody.world;
     // The server judged the no-op against the CANONICAL world.id (not the raw request
     // id), and /api/status.activeWorldId reports that same canonical id, so the poll
@@ -18700,6 +18788,9 @@ function worldswConfirmSwitch(id, name) {
      inline copy that carried it). */
   document.getElementById('world-switch-t').textContent =
     'Restart Kosmos in order to switch to a different Kosmos' + (name ? ' ' + name : '');
+  /* #1704 PR3: Josh asked for the choice EACH TIME, so a reopened dialog never
+     carries the last answer forward, and Restart waits for one. */
+  worldswResetAgentsChoice();
   document.getElementById('world-switch-modal').hidden = false;
   /* Initial focus lands on Cancel, not "Restart Kosmos": #6 exists to make switching a
      DELIBERATE act (Josh's complaint was that switching happened silently/inline), so a
@@ -18709,19 +18800,39 @@ function worldswConfirmSwitch(id, name) {
 }
 function worldswSwitchCancel() {
   document.getElementById('world-switch-modal').hidden = true;
+  worldswResetAgentsChoice();
   WORLD_SWITCH_ID = null;
   WORLD_SWITCH_NAME = null;
   /* Back to the trigger: the clicked row may have been dropped/rebuilt by a refetch,
      and the menu is still open behind the modal. */
   document.getElementById('worldsw-btn').focus();
 }
+/* #1704 PR3: the pause/keep answer, or null while neither is chosen. */
+function worldswAgentsChoice() {
+  const picked = document.querySelector('input[name="world-switch-agents"]:checked');
+  return picked ? picked.value : null;
+}
+function worldswAgentsChoiceChanged() {
+  document.getElementById('world-switch-go').disabled = !worldswAgentsChoice();
+}
+/* #1704 PR3: the ONE reset of the pause/keep question: both radios unchecked and
+   Restart disabled. Every open and every close of the dialog calls it, so the
+   dialog never shows, or keeps while hidden, an earlier answer. */
+function worldswResetAgentsChoice() {
+  for (const radio of document.querySelectorAll('input[name="world-switch-agents"]')) radio.checked = false;
+  worldswAgentsChoiceChanged();
+}
 function worldswSwitchGo() {
+  const agents = worldswAgentsChoice();
+  // Restart is disabled until a choice is made; this refuses a programmatic click too.
+  if (!agents) return;
   const id = WORLD_SWITCH_ID;
   const name = WORLD_SWITCH_NAME;
   document.getElementById('world-switch-modal').hidden = true;
+  worldswResetAgentsChoice();   // the answer was read above; the closed dialog keeps none
   WORLD_SWITCH_ID = null;
   WORLD_SWITCH_NAME = null;
-  if (id) worldswSwitch(id, name);
+  if (id) worldswSwitch(id, name, agents);
 }
 function worldRenameOpen(id, name) {
   worldswClose();
@@ -18793,6 +18904,7 @@ async function worldRenameSubmit() {
   // "Restart Kosmos" runs the real switch).
   document.getElementById('world-switch-cancel').addEventListener('click', worldswSwitchCancel);
   document.getElementById('world-switch-go').addEventListener('click', worldswSwitchGo);
+  for (const radio of document.querySelectorAll('input[name="world-switch-agents"]')) radio.addEventListener('change', worldswAgentsChoiceChanged);
   document.getElementById('world-switch-modal').addEventListener('click', (e) => { if (e.target.id === 'world-switch-modal') worldswSwitchCancel(); });
   // Outside-click closes the menu.
   document.addEventListener('click', (e) => {
@@ -20145,6 +20257,16 @@ function paintOrg() {
        and the resting states (idle, paused, stopped, #2019 restarting) carry no
        badge: present-and-quiet with their context ring, matching the list row. */
     const needsYou = cardStOf(a).st === 'attn';
+    /* #2839 (Josh): a working agent gets a green glow on the org chart, a
+       needs-you agent a red one, so you can see the fleet's state at a glance.
+       Same state model as the cards (cardStOf): green = working, red = attn
+       (needs you), nothing else glows. cardStOf(a).st is single-valued, so
+       working and attn are mutually exclusive; the ternary lists attn first as
+       plain defensive ordering. An agent that is needs-you while also active
+       (#2146 activeWhileWaiting) reads st 'attn', so it glows red, which is the
+       signal that matters -- the working glyph still rides alongside elsewhere. */
+    const working = cardStOf(a).st === 'working';
+    const glowCls = needsYou ? ' onode-attn' : working ? ' onode-working' : '';
     const shown = a.name || a.sessionName;
     const face = a.hasAvatar
       /* #2698: `?v=` the avatar version so a changed picture changes this markup.
@@ -20159,7 +20281,7 @@ function paintOrg() {
          transparency Josh asked us to remove. */
       : '<span class="oinit">' + esc(initials(shown)) + '</span>';
     const tint = a.hasAvatar ? '' : ' style="background:' + discTint(shown) + ';color:' + discInk(shown) + '"';
-    nodes.push('<button class="onode" type="button" data-agent="' + esc(a.sessionName) + '"'
+    nodes.push('<button class="onode' + glowCls + '" type="button" data-agent="' + esc(a.sessionName) + '"'
       + ' style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px"'
       /* #2577: the badge's own aria-label is inert inside a button that has its
          own aria-label (the accessible name comes from the attribute alone, not
@@ -21872,6 +21994,25 @@ function paintTalkThread(body, name) {
 async function paintTalk(sessionName, agentName) {
   const box = document.getElementById('d-talk-box');
   if (!box) return;
+  /* #2863: reading an agent's thread clears its unread-DM count. This mirrors
+     the project /seen precisely, and BOTH halves matter: paintTalk re-runs on
+     every ~5s poll while the panel is open, so an ungated POST would do a full
+     dm-seen.json read+write every tick for as long as the thread is open. Gate
+     it -- fire /seen ONLY when there is unread to clear, and zero the local copy
+     first (like the project's `p.unread = 0`) so the next poll's re-run sees 0
+     and does not re-fire. dmBadge already suppresses the badge for the open
+     agent, so the hide is immediate; /seen advances the engine's DM cursor
+     (Angel #2881) so it stays cleared after you navigate away. The body is read
+     and dropped -- the #39 networkidle rule (a Response nobody consumes stalls
+     networkidle until GC), which the project /seen and the whats-new fetch also
+     follow. A 404/borrowed-name agent never reaches here (its rec has no unread). */
+  const dmRec = Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === sessionName) : null;
+  if (dmRec && dmRec.dmUnread > 0) {
+    dmRec.dmUnread = 0;
+    fetch('/api/agent/' + encodeURIComponent(sessionName) + '/seen', { method: 'POST' })
+      .then((r) => r.text())
+      .catch(() => { /* the next open tells it again */ });
+  }
   // The INSTR_LOAD/CONVO_LOAD pattern: two fetches for the SAME agent (A, B, A
   // quickly) pass the sessionName guard both times, and the older answer must
   // not paint last.
@@ -35558,11 +35699,13 @@ document.addEventListener('keydown', (e) => {
        while it is disabled on an empty name, so Tab cycles name<->Cancel until a
        name is typed, then includes Create. */
     ['world-add-modal', ['world-add-name', 'world-add-cancel', 'world-add-go'], 'world-add-name'],
-    /* #6: the switch-confirm dialog declares aria-modal, so it gets a real trap over its
-       two buttons (Cancel, Restart Kosmos), in DOM order. Home is Cancel -- the safe/back
-       choice, matching doc-keep -- and worldswConfirmSwitch also opens initial focus on
-       Cancel (a reflexive Enter cancels rather than restarting; see the comment there). */
-    ['world-switch-modal', ['world-switch-cancel', 'world-switch-go'], 'world-switch-cancel'],
+    /* #6: the switch-confirm dialog declares aria-modal, so it gets a real trap, in DOM
+       order. Home is Cancel -- the safe/back choice, matching doc-keep -- and
+       worldswConfirmSwitch also opens initial focus on Cancel (a reflexive Enter cancels
+       rather than restarting; see the comment there). #1704 PR3: the pause/keep radio
+       group is ONE tab stop (listed by its first radio; see sameStop below), and Restart
+       drops out while it is disabled, until a choice is made. */
+    ['world-switch-modal', ['world-switch-pause', 'world-switch-cancel', 'world-switch-go'], 'world-switch-cancel'],
   ]) {
     const back = document.getElementById(backId);
     if (back.hidden) continue;
@@ -35571,9 +35714,16 @@ document.addEventListener('keydown', (e) => {
     if (!order.length) { e.preventDefault(); return; }
     const inside = back.contains(document.activeElement);
     if (!inside) { e.preventDefault(); document.getElementById(home).focus(); return; }
-    if (document.activeElement === order[order.length - 1]) {
+    /* A radio group is a single tab stop whichever radio holds focus, so any radio of
+       the listed radio's group counts as that stop, and wrapping onto a group lands
+       on its checked radio when there is one. */
+    const sameStop = (el, stop) => el === stop
+      || (!!el && stop.type === 'radio' && el.type === 'radio' && el.name === stop.name);
+    if (sameStop(document.activeElement, order[order.length - 1])) {
       e.preventDefault();
-      order[0].focus();
+      const first = order[0];
+      const checked = first.type === 'radio' ? back.querySelector('input[type="radio"][name="' + first.name + '"]:checked') : null;
+      (checked || first).focus();
     }
     return;
   }

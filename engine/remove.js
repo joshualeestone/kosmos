@@ -48,6 +48,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const create = require('./create');
+const launchidentity = require('./launchidentity'); // #1704: this board's Kosmos, and the key separator
 const win32job = require('./win32job'); // #570: the Scheduled Task that stands in for a launchd job
 const win32stop = require('./win32stop'); // #570: ending the agent process, where a Mac ends a tmux session
 const sendertoken = require('./sendertoken'); // #2323: a removed agent's token must stop working
@@ -501,12 +502,20 @@ function jobFor(name, platform) {
   }
   const candidates = [
     { label: create.serviceLabel(clean), plist: create.plistPath(clean), ours: true },
-    {
+  ];
+  /* 🛑 THE LEGACY `com.<name>.discord` JOB IS KOSMOS 1'S, AND THIS IS THE ONE PLACE
+     THAT SAYS SO (#1704). Its label carries no world key, so it predates every named
+     Kosmos and belongs to the default one's fleet. Offered in a named Kosmos, a
+     Remove there switched it off (and a Restore switched it back on) whenever that
+     world had no keyed plist of its own for the name: a half-failed create, a
+     same-name import, or a plist deleted by hand. So a named Kosmos never sees it. */
+  if (launchidentity.isDefaultWorld(launchidentity.currentWorldId())) {
+    candidates.push({
       label: `com.${clean}.discord`,
       plist: path.join(path.dirname(create.plistPath(clean)), `com.${clean}.discord.plist`),
       ours: false,
-    },
-  ];
+    });
+  }
   // ⚠️ `existsExactly`, not `existsSync`: see its note. A case-variant spelling
   // resolves to the REAL agent's plist here and then every step below acts on
   // the variant, disabling a launchd label that does not exist while the real
@@ -787,6 +796,12 @@ function unsafeToActOn(name) {
   if (name === '.' || name === '..') return `${name} is not a name we can act on safely`;
   // A leading dash reads as a flag to launchctl and tmux alike.
   if (name.startsWith('-')) return `${name} is not a name we can act on safely`;
+  /* #1704: the separator of a launch KEY (`<name>+<world>`). No agent name can hold
+     it (create's NAME_RE), so a name that does is another Kosmos's key, and acting
+     on it would reach that Kosmos's agent from this board. */
+  if (name.includes(launchidentity.WORLD_SEPARATOR)) {
+    return `${name} names an agent in another Kosmos, so we cannot act on it from this one`;
+  }
   // Long enough for any real session, short enough not to be a filesystem
   // problem in its own right.
   if (name.length > 200) return 'that name is too long for us to act on';

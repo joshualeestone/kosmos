@@ -3731,7 +3731,11 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
     const end = script.indexOf('\n}', script.indexOf('</div>`;', lrowAt)) + 2;
     assert.ok(from > -1 && lrowAt > from && end > lrowAt, 'renderer block not found');
     // eslint-disable-next-line no-new-func
-    const api = new Function(script.slice(from, end) + '\n; return { card, lrow };')();
+    /* #2863: the slice now includes dmBadge (declared just above card), which
+       reads the CURRENT global -- declared far below this slice and so not
+       captured. Inject CURRENT (null: no agent open in this isolated render) so
+       a future card fixture with dmUnread > 0 does not throw ReferenceError. */
+    const api = new Function('CURRENT', script.slice(from, end) + '\n; return { card, lrow };')(null);
     /**
      * A copy of a row with something changed, still strict.
      *
@@ -12910,4 +12914,55 @@ test('#1724: the settings route captures the auto-handoff setting and refuses a 
   } finally {
     store.writeSettings({ autohandoff: null, timezone: null });
   }
+});
+
+// #2863: a.dmUnread on the fleet payload + its /seen clear. This is the WIRING
+// test the chat.js unit suite cannot give: that withDmUnread actually reaches
+// the /api/status payload and that POST /api/agent/<name>/seen is a live route.
+// The counting/edge logic itself is pinned in engine/chat.dm-unread-2863.test.js.
+test('#2863: an agent\'s DM replies surface as a.dmUnread, cleared by POST /api/agent/<name>/seen', async (t) => {
+  const chat = require('./engine/chat');
+  const made = fleet.install([fleet.agent('april', { state: 'idle', displayName: 'April', role: 'a tester' })]);
+  t.after(() => made.restore());
+
+  // Two replies FROM the agent land in the operator's DIRECT thread; the
+  // operator's own message (no `from`) must never count.
+  const t1 = '2026-09-11T00:00:00.000Z';
+  const t2 = '2026-09-11T02:00:00.000Z';
+  assert.equal(chat.appendMessage(chat.DIRECT, 'april', { text: 'one', at: t1, from: 'april' }).recorded, true);
+  assert.equal(chat.appendMessage(chat.DIRECT, 'april', { text: 'two', at: t2, from: 'april' }).recorded, true);
+  assert.equal(chat.appendMessage(chat.DIRECT, 'april', { text: 'from the person', at: t2 }).recorded, true);
+
+  const board = await req('/api/status');
+  assert.match(board.type, /application\/json/, 'the status engine returned a board');
+  const boardAgents = JSON.parse(board.body).agents || [];
+  const april = boardAgents.find((a) => a.sessionName === 'april');
+  assert.ok(april, 'the fixture reached the board: ' + board.body.slice(0, 200));
+  assert.equal(april.dmUnread, 2, 'two agent replies count; the operator message does not');
+  // Blanket shape assertion (mirrors #670's unread loop): EVERY agent on the wire
+  // must carry a well-typed dmUnread, not just the seeded row, so a payload that
+  // drops the field for some agents cannot pass on the one row this test seeds.
+  for (const a of boardAgents) {
+    assert.ok('dmUnread' in a, 'every agent carries dmUnread: ' + a.sessionName);
+    assert.ok(a.dmUnread === null || typeof a.dmUnread === 'number',
+      'dmUnread is a number or null for ' + a.sessionName + ' (got ' + JSON.stringify(a.dmUnread) + ')');
+  }
+
+  const seen = await postJson('/api/agent/april/seen', {});
+  assert.equal(seen.status, 200, 'the clear route answered 200');
+  assert.equal(JSON.parse(seen.body).dmUnread, 0, 'the clear route reports the reset count');
+
+  const after = await req('/api/status');
+  const april2 = (JSON.parse(after.body).agents || []).find((a) => a.sessionName === 'april');
+  assert.equal(april2.dmUnread, 0, 'the payload now carries the cleared count');
+});
+
+// #2863: the /seen route's error mapping, exercised through HTTP (the engine-layer
+// BAD_THREAD refusal is unit-tested in engine/chat.dm-unread-2863.test.js; this
+// pins that the ROUTE maps it to 400). `bad.name` is a single path segment (no
+// slash, so no URL-normalization ambiguity) that safeKey rejects (dot stripped ->
+// `badname` != `bad.name`), so markDmSeen throws BAD_THREAD.
+test('#2863: a name the thread store cannot key is a 400 from POST /api/agent/<name>/seen', async () => {
+  const bad = await postJson('/api/agent/bad.name/seen', {});
+  assert.equal(bad.status, 400, 'a name safeKey rejects maps BAD_THREAD -> 400');
 });
