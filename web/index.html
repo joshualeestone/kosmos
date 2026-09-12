@@ -22850,11 +22850,22 @@ function openDetail(sessionName, section, fromProject) {
      role-less agent gets an unbolded "model · disclosure", as it read before
      this change. */
   const roleSeg = roleLine(a, ROLE_TITLES);
+  /* #2833 (Josh, 2026-09-11): the header subtitle reads Title · Provider · Account · Model.
+     🔑 Provider and Account come from the SHARED derivations this same panel already uses, not
+     a second copy: `providerOf` (reads the card's `a.runner`) and `acctParenthetical` (reads the
+     card's nested `a.account`, the same value the Runs-on box shows). `a` here is an agent CARD,
+     so the account is NOT at the top level -- `a.name` is the agent's own display name, not an
+     account. `acctParenthetical` returns '' when nothing identifies the account (a default
+     account, or an unresolved Codex account per #2811), so the segment degrades out with no
+     dangling separator. Provider and Model are always shown. Middot separator, not a new glyph. */
+  const providerLabel = providerOf(a) === 'openai' ? 'OpenAI' : 'Anthropic';
+  const acctIdent = acctParenthetical(a);
   const metaParts = [];
   if (roleSeg) metaParts.push('<b>' + esc(roleSeg) + '</b>');
-  for (const p of [runs.name, a.nameDerived ? null : 'no name was chosen for it, so this is the one it runs under']) {
-    if (p) metaParts.push(esc(p));
-  }
+  metaParts.push(esc(providerLabel));
+  if (acctIdent) metaParts.push(esc(acctIdent));
+  if (runs.name) metaParts.push(esc(runs.name));
+  if (!a.nameDerived) metaParts.push(esc('no name was chosen for it, so this is the one it runs under'));
   document.getElementById('d-meta').innerHTML = metaParts.join(' · ');
   const copy = stateCopyOf(a);
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
@@ -22877,15 +22888,16 @@ function openDetail(sessionName, section, fromProject) {
      a task line would restate the badge; this panel shows nothing rather than
      that. Since #209 the card, too, shows nothing here rather than a frozen
      title, so the two surfaces no longer diverge on what "no task" looks like. */
+  /* #2833 (Josh, 2026-09-11): hide the self-reported quote under the name ONLY for needs_you.
+     A needs-you agent's message is already shown by the Talk section's "waiting on an answer"
+     box (Josh: "redundant and adds clutter... I only want to see the Title and Model there").
+     🛑 Scoped to needs_you, NOT to every reported state: that box is gated on needs_you, so a
+     reported BLOCKED agent's substantive reason has no other surface and must stay. A
+     non-reported reason (rate_limited's "Looks like a usage limit") also stays. taskLine is
+     UNCHANGED, so the cards that share it are unaffected. */
   const dtask = document.getElementById('d-task');
-  /* THE SAME derivation the card uses, called not copied, so the two cannot say
-     different things about one agent (the split this whole area keeps paying
-     for). Since #209 that derivation no longer includes the frozen pane title,
-     so the header shows a state's own honest reason (rate_limited, and since
-     #874, auth_failed) and otherwise nothing, which this panel already
-     prefers to a restated badge. */
   dtask.textContent = taskLine(a);
-  dtask.hidden = !dtask.textContent;
+  dtask.hidden = !dtask.textContent || (a.state === 'needs_you');
   /* The lede names the AGENT rather than saying "this agent", which is the
      pack's wording and the same substitution the rest of this panel already
      makes. `textContent`, so a name is never markup.
@@ -22921,20 +22933,13 @@ function openDetail(sessionName, section, fromProject) {
      it the sentence it is. Nothing else about the words changes. */
   const reason = String(a.because || '').trim();
   why.textContent = reason ? reason.charAt(0).toUpperCase() + reason.slice(1) + (/[.!?]$/.test(reason) ? '' : '.') : '';
-  /* #1841 (Josh, 2026-09-02): status was reported twice -- the top line already
-     carries the reported sentence (d-task quotes a.because when stateReported),
-     and this line restated it capitalized below. When the state is REPORTED, the
-     top line owns it, so this duplicate is suppressed. When it is NOT reported,
-     this is the sole honest "why we cannot vouch" explanation and stays -- that
-     is the whole point of the line, so it is hidden by duplication, never by
-     removal. */
-  /* #1996: #1841 suppressed this line when the state is REPORTED, because d-task
-     already carries the reported sentence and the two would duplicate. That holds
-     for a SINGLE-LINE because, which d-task shows whole. A MULTI-LINE because
-     cannot fit d-task's one nowrap line -- d-task truncates it -- so this becomes
-     the only surface that can show it in full, and the pair is a summary-vs-full
-     split rather than the exact duplicate #1841 removed. Keep it visible then. */
-  why.hidden = !why.textContent || (a.stateReported === true && !reason.includes('\n'));
+  /* #1841 (Josh, 2026-09-02) hides this for a reported SINGLE-LINE because (d-task carries it);
+     #1996 keeps it for a reported MULTI-LINE because (d-task truncates to one line).
+     #2833 (Josh, 2026-09-11): ALSO hide it for needs_you -- d-task no longer shows a needs-you
+     quote and the Talk waiting box does, so a multi-line needs_you because must not reappear
+     here. Other reported states keep the #1841/#1996 behavior, and the NON-reported "why we
+     cannot vouch" line (#569) is untouched: it is the sole surface for that. */
+  why.hidden = !why.textContent || (a.state === 'needs_you') || (a.stateReported === true && !reason.includes('\n'));
   /* ⚠️ TEXT, NEVER MARKUP. This is pane content: whatever happens to be on
      somebody's terminal, on its way to a product surface. `textContent` is the
      escape, and the engine has already trimmed and capped it. */
