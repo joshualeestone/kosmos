@@ -18,6 +18,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const store = require('./store');
+const launchidentity = require('./launchidentity'); // #1704: this board's Kosmos, and the roster key
 const selfreport = require('./selfreport');
 const wouldping = require('./wouldping');
 const observed = require('./observed');
@@ -874,8 +875,15 @@ function parsePanes(out) {
       raw[col.key] = col.rest ? parts.slice(i).join('\t') : parts[i];
     });
     const session = raw.session || '';
+    /* #1704: a board's roster is its OWN Kosmos. nameInWorld maps the session's
+       launch key to the bare agent name IN THIS WORLD, or null for another
+       Kosmos's session (dropped in the filter below). The -discord strip runs on
+       the resulting NAME, never on the raw session: a world id can end in
+       `-discord` (CLEAN_ID allows it), so stripping it off the session first
+       would mangle `ava+qa-discord` into `ava+qa`. */
+    const inWorld = launchidentity.nameInWorld(session, launchidentity.currentWorldId());
     return {
-      name: session.replace(/-discord$/, ''),
+      name: inWorld === null ? null : inWorld.replace(/-discord$/, ''),
       session,
       // Kept, not just folded into `target`: choosing one pane per session
       // needs to compare indexes, and re-parsing them back out of the target
@@ -934,7 +942,7 @@ function parsePanes(out) {
      The guard stays even though parse-fed flows can no longer reach it:
      it is the defence for any caller handing a pane-shaped object that
      did not come through this parse. */
-  }).filter((p) => p.session !== connect.SESSION);
+  }).filter((p) => p.session !== connect.SESSION && p.name !== null);
 }
 
 /**
