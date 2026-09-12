@@ -2,14 +2,21 @@
 
 ## Source
 
-My own #1760 pre-beta audit finding (message-store at-rest slice): `store.ROOT`
-(~/Library/Application Support/Kosmos) is NOT explicitly chmod'd 0700, and the
-message log / spill files are written at the default mode. On the default install
-macOS's ~/Library is already 0700, but a NON-default data root (an
-`AGENT_WORKFORCE_DATA` / `AGENT_WORKFORCE_HOME` override outside ~/Library -- a
-shared dir, /tmp, an external volume) would leave the message store readable by
-other local macOS accounts. Splinter approved building it (small, safe, reversible;
-staging-first deploy, Josh-gated).
+My own #1760 pre-beta audit finding (message-store at-rest slice), REFRAMED honestly
+after a challenge-loop review: the message log / spill files are written at the
+default mode, and a NON-default data root (`AGENT_WORKFORCE_DATA`/`AGENT_WORKFORCE_HOME`
+outside macOS's already-0700 ~/Library) can be world-readable to other local accounts.
+
+CORRECTION to my original slice: it claimed `store.ROOT` is "NOT explicitly chmod'd
+0700". That was incomplete -- `boardauth.js:332` (`mkdirSync store.ROOT mode:0700`)
+and `:348` (`chmodSync store.ROOT 0700`) ALREADY pin the root 0700 on board startup.
+So on a running board the root IS owner-only. This change's real added value is
+therefore (1) extending the 0700 pin to ALL store-write contexts -- including a CLI
+write (`kosmos feedback`) that creates the store before any board runs, which
+boardauth's startup path does not cover -- and (2) the message-file 0600, which is
+genuinely new (the message files were at default mode). It ships as defense-in-depth
+plus the new message-0600, NOT as fixing an unprotected root. Splinter approved
+building it (small, safe, reversible; staging-first deploy, Josh-gated).
 
 ## Change (small, reversible, best-effort)
 
