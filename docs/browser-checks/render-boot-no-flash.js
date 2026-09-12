@@ -35,7 +35,15 @@ async function coverIsOccluding(page) {
       up: true,
       opaque: s.background !== 'transparent' && s.opacity === '1' && s.display !== 'none',
       fixed: s.position === 'fixed',
-      covers: r.left <= 0 && r.top <= 0 && r.right >= window.innerWidth && r.bottom >= window.innerHeight,
+      // getBoundingClientRect() reports layout-viewport coordinates (scrollbar
+      // gutter excluded), so the cover's right/bottom must be compared against
+      // document.documentElement.clientWidth/clientHeight -- the matching
+      // layout-viewport measure. window.innerWidth/innerHeight include the
+      // scrollbar gutter, so a correct full-viewport cover false-fails "covers"
+      // by exactly the scrollbar width whenever a scrollbar is present.
+      covers: r.left <= 0 && r.top <= 0
+        && r.right >= document.documentElement.clientWidth
+        && r.bottom >= document.documentElement.clientHeight,
       z: Number(s.zIndex) || 0,
     };
   });
