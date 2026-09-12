@@ -1,6 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
 const { runningAs, everyone, agentUnder } = require('./runningas');
 
 /**
@@ -229,45 +230,63 @@ test('#2811: the ANSWER SHAPE is pinned per path, because the docstring claims o
   const keys = (r) => Object.keys(r).sort().join(',');
   const BASE = 'account,because,configDir,model,ok,organization';
 
-  const liveCodex = runningAs('s', {
-    platform: 'darwin',
-    panes: new Map([['s', 100]]),
-    procs: new Map([
-      [100, { ppid: 1, command: '/bin/zsh' }],
-      [101, { ppid: 100, command: '/opt/homebrew/bin/codex' }],
-    ]),
-    envOf: () => 'CODEX_HOME=/Users/x/.codex',
-    identityOf: () => ({ email: 'a@b.c' }),
-  });
-  assert.equal(keys(liveCodex), BASE + ',runner',
-    'a successful darwin read no longer carries the documented key set');
+  /* 🛑 THE DOCSTRING IS READ, NOT TRUSTED. Pinning the code against a list
+     hardcoded HERE leaves the docstring free to drift, which is not a
+     hypothetical: that paragraph silently reverted to an older, wrong version on
+     this very branch and nothing went red, because no test was looking at it.
+     So the documented matrix is parsed out of the source and compared to what the
+     function really returns. If the line is reworded or removed this FAILS rather
+     than passing quietly, which is correct: an unreadable contract is not a
+     satisfied one. */
+  const src = fs.readFileSync(require.resolve('./runningas.js'), 'utf8');
+  const documented = src.match(/darwin ok:true\s+->\s+([a-z,]+)/i);
+  assert.ok(documented, 'the docstring no longer states a darwin ok:true key list, so nothing documents the shape');
+  assert.equal(documented[1], BASE + ',runner',
+    'the docstring and this test disagree about the darwin success shape');
 
-  /* A darwin REFUSAL carries no runner: there is no process to name. */
-  const noAgent = runningAs('s', {
-    platform: 'darwin',
-    panes: new Map([['s', 100]]),
-    procs: new Map([[100, { ppid: 1, command: '/bin/zsh' }]]),
-  });
-  assert.equal(noAgent.ok, false);
-  assert.equal(Object.prototype.hasOwnProperty.call(noAgent, 'runner'), false,
-    'a darwin refusal grew a runner key, which the docstring says is absent');
+  /* 🛑 EVERY RETURN PATH, NOT THE ONES I HAPPENED TO DRIVE. An earlier version of
+     this test pinned TWO of the nine and its commit claimed the whole matrix was
+     covered; five mutants adding a `runner` key to an unasserted refusal survived
+     it. That is the same generalise-from-driven-paths failure the docstring made
+     three times, reproduced inside the test written to stop it.
+     ⇒ This table is the FULL set of returns in `runningAsDarwin`,
+     `runningAsWin32` and `win32Answer`. A new return with no row here is the
+     thing to notice. */
+  const REFUSAL = 'because,ok';
+  const W32 = (live, cmdlines) => ({ platform: 'win32', live, cmdlines });
+  const paths = [
+    ['darwin ok:true codex', BASE + ',runner', { platform: 'darwin',
+      panes: new Map([['s', 100]]),
+      procs: new Map([[100, { ppid: 1, command: '/bin/zsh' }], [101, { ppid: 100, command: '/opt/homebrew/bin/codex' }]]),
+      envOf: () => 'CODEX_HOME=/Users/x/.codex', identityOf: () => ({ email: 'a@b.c' }) }],
+    ['darwin ok:true claude', BASE + ',runner', { platform: 'darwin',
+      panes: new Map([['s', 100]]),
+      procs: new Map([[100, { ppid: 1, command: '/bin/zsh' }], [101, { ppid: 100, command: '/usr/bin/claude' }]]),
+      envOf: () => '', identityOf: () => ({ email: 'a@b.c' }) }],
+    ['darwin refuse: no pane', REFUSAL, { platform: 'darwin', panes: new Map(), procs: new Map() }],
+    ['darwin refuse: nothing under it', REFUSAL, { platform: 'darwin',
+      panes: new Map([['s', 100]]), procs: new Map([[100, { ppid: 1, command: '/bin/zsh' }]]) }],
+    ['win32 ok:true', BASE, W32(() => new Map([['s', { name: 's', pid: 4242 }]]), () => new Map([[4242, 'claude --model m']]))],
+    ['win32 refuse: live() null', REFUSAL, W32(() => null, () => new Map())],
+    ['win32 refuse: unowned session', REFUSAL, W32(() => new Map(), () => new Map())],
+    ['win32 refuse: entry has no pid', REFUSAL, W32(() => new Map([['s', { name: 's', pid: null }]]), () => new Map())],
+    ['win32 refuse: no process table', REFUSAL, W32(() => new Map([['s', { name: 's', pid: 4242 }]]), () => null)],
+    ['win32 refuse: pid gone', REFUSAL, W32(() => new Map([['s', { name: 's', pid: 4242 }]]), () => new Map())],
+  ];
 
-  /* win32 carries no runner on ANY path: success or refusal. */
-  const winOk = runningAs('a', {
-    platform: 'win32',
-    live: () => new Map([['a', { name: 'a', pid: 4242 }]]),
-    cmdlines: () => new Map([[4242, 'claude --model m']]),
-  });
-  assert.equal(winOk.ok, true);
-  assert.equal(keys(winOk), BASE, 'the win32 success shape drifted from the documented one');
-  assert.equal(Object.prototype.hasOwnProperty.call(winOk, 'runner'), false,
-    'win32 grew a runner key; the docstring says ABSENT, not null');
+  for (const [name, want, deps] of paths) {
+    const r = runningAs('s', deps);
+    assert.equal(keys(r), want, name + ': the answer shape drifted from the documented one');
+    if (!want.includes('runner')) {
+      assert.equal(Object.prototype.hasOwnProperty.call(r, 'runner'), false,
+        name + ': grew a `runner` key; the docstring says ABSENT, not null');
+    }
+  }
 
-  const winRefuse = runningAs('a', {
-    platform: 'win32', live: () => null, cmdlines: () => new Map(),
-  });
-  assert.equal(winRefuse.ok, false);
-  assert.equal(Object.prototype.hasOwnProperty.call(winRefuse, 'runner'), false);
+  /* A CONTROL ON THE TABLE ITSELF: the three shapes must actually differ, or every
+     row could be satisfied by one answer and the table would prove nothing. */
+  assert.notEqual(BASE + ',runner', BASE);
+  assert.notEqual(REFUSAL, BASE);
 });
 
 /* ───────────────── #2811, the node-fronting launcher ─────────────────

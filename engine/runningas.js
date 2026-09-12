@@ -461,14 +461,21 @@ function armFor(deps) {
  * What one agent is running on.
  *
  * Returns `{ ok, account, organization, model, configDir, because }`, plus
- * `runner` ON THE DARWIN ARM ONLY (#2811: which agent runtime the live process
- * actually is, so a caller never has to infer the provider from a directory
- * name). The win32 arm does not carry `runner` at all: the key is ABSENT rather
- * than null, because that arm identifies an agent through an ownership record
- * with no codex source, so it has nothing to report rather than a null to
- * report. Driven on both arms rather than read:
- *     darwin -> account,because,configDir,model,ok,organization,runner
- *     win32  -> account,because,configDir,model,ok,organization
+ * `runner` ON A SUCCESSFUL DARWIN READ ONLY (#2811: which agent runtime the live
+ * process actually is, so a caller never has to infer the provider from a
+ * directory name). Everywhere else the key is ABSENT, not null: a refusal has no
+ * process to name, and the win32 arm identifies an agent through an ownership
+ * record with no codex source, so it has nothing to report rather than a null.
+ *
+ * 📌 EVERY PATH DRIVEN, NOT GENERALISED. An earlier version of this paragraph was
+ * right about the arms and wrong about refusals, and the one before it was wrong
+ * about win32 entirely. `engine/runningas.test.js` ("the ANSWER SHAPE is pinned
+ * per path") ASSERTS this matrix, so it is a checked contract and not a claim:
+ *     darwin ok:true    -> account,because,configDir,model,ok,organization,runner
+ *     darwin ok:false   -> no `runner` key
+ *     win32  every path -> no `runner` key
+ * `server.js` reads it as `live.ok === true && live.runner`, so an absent key on
+ * a refusal is exactly what the one consumer expects.
  * On any
  * failure `ok` is false and `because` is a sentence, because "we could not tell"
  * and "it is running on nothing" are different answers and only one of them is

@@ -770,11 +770,16 @@ function whoamiFor(card, known, live) {
     /* Live first: the account is what the process is authenticated as, and a
        startup file can be stale after a migration (Baron was moved off
        other@example.com while his file still said so). */
-    /* 🔑 ONE RULE FOR `isDefault`, AND IT LIVES IN `accounts`. `runningAs` sets
-       `configDir` UNCONDITIONALLY on a successful read - the env var when it
+    /* 🔑 ONE RULE FOR `isDefault`, AND IT LIVES IN `accounts`. `runningAs`'s
+       DARWIN arm sets `configDir` on every successful read - the env var when it
        finds one, the default synthesised when it does not - so hardcoding
        `false` here asserted "not the default account" about a directory that is
        very often exactly the default.
+       📌 "UNCONDITIONALLY" is what this said, and it is not true of the win32
+       arm, where a successful read carries `configDir: null` (that arm cannot
+       read another process's environment and says so rather than guessing).
+       Not reachable here, because this branch needs `seen.account` and win32
+       never supplies one, so the CODE was right and only the sentence was wide.
 
        🛑 MY FIRST FIX WROTE THE COMPARISON OUT HERE AGAINST BARE `os.homedir()`
        AND CLAIMED IN THIS COMMENT THAT IT REUSED `accounts`. It did not, and the
