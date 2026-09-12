@@ -3321,6 +3321,13 @@ const server = http.createServer((req, res) => {
         try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
         const asked = worldimport.picksFromBody(base, body);
         if (!asked.ok) { sendJson(res, 400, { ok: false, because: asked.because }); return; }
+        /* Review round 2: ONE shape per route. The whole-Kosmos `importAgentsFrom`
+           form exists only for a New Kosmos page loaded before this change (POST
+           /api/worlds, which answers it in the counts that page reads). This route
+           is new, and the page's only call to it sends `importAgents`, so no old page
+           can be relying on the legacy body here: it is refused, rather than accepted
+           and answered in a shape its sender cannot read. */
+        if (asked.legacy) { sendJson(res, 400, { ok: false, because: 'add agents to a Kosmos one at a time, each as the Kosmos it is in and its name (importAgents)' }); return; }
         if (!asked.picks.length) { sendJson(res, 400, { ok: false, because: 'choose at least one agent to add' }); return; }
         let done;
         try { done = importIntoWorld(base, id, asked.picks); }

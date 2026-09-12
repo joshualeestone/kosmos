@@ -356,6 +356,24 @@ test('R1: more than MAX_IMPORT_PICKS picks in one request is refused, in either 
   assert.equal(worldimport.picksFromBody(base, { importAgents: many.slice(1) }).ok, true, 'the limit itself is allowed');
 });
 
+test('R2: the legacy whole-Kosmos form is capped too -- its EXPANSION past MAX_IMPORT_PICKS is refused with the same sentence', () => {
+  const { base, env, def } = setup();
+  const other = worlds.createWorld(base, 'Other');
+  const half = Math.ceil((worldimport.MAX_IMPORT_PICKS + 1) / 2);
+  const names = (prefix, n) => Array.from({ length: n }, (_, i) => prefix + String(i).padStart(3, '0'));
+  // More than the cap, spread across two source Kosmoses; every one is offerable.
+  for (const name of names('ag', half)) seedAgent(base, env, def, name, { brief: false });
+  for (const name of names('bg', half)) seedAgent(base, env, other, name, { brief: false });
+  assert.ok(2 * half > worldimport.MAX_IMPORT_PICKS, 'the control: the seed must exceed the cap');
+  const over = worldimport.picksFromBody(base, { importAgentsFrom: ['default', other.id] });
+  assert.equal(over.ok, false, 'the legacy expansion was not capped');
+  assert.equal(over.because, `add at most ${worldimport.MAX_IMPORT_PICKS} agents at a time`);
+  // The control: one Kosmos's half alone is within the cap and is accepted.
+  const within = worldimport.picksFromBody(base, { importAgentsFrom: ['default'] });
+  assert.equal(within.ok, true);
+  assert.equal(within.picks.length, half);
+});
+
 test('R1 (A): a name on the TARGET\'s removed list is refused -- never copied in, cleared and hidden behind an "Added"', () => {
   const { base, env, opts, def } = setup();
   const src = worlds.createWorld(base, 'Src');

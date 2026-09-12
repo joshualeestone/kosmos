@@ -386,6 +386,25 @@ He confirmed this shape:
     - `MAX_IMPORT_PICKS` (100) caps a request, with a sentence.
     - The outbox.js row is added.
 
+- **Round 2 (coordinator, at `bfd15d11`).** A, B and C were verified; 226 of 226
+  targeted tests passed.
+  - [BUG] `picksFromBody` marks an `importAgentsFrom` body `legacy` on EITHER
+    route. Only the create route threaded that into `importIntoWorld`, so `POST
+    /api/worlds/import {id, importAgentsFrom}` was accepted and answered without
+    `failed` / `unknownSources`. That is two consumers of one fact, honoured in
+    only one.
+    - Decided: one shape per route. The import route is new in this PR, and the
+      page's only call to it sends `importAgents`, so no old page can be relying
+      on the legacy body there.
+    - It is now refused with a 400 and a sentence. `importAgentsFrom` stays
+      documented, and answered in its counts, only on `POST /api/worlds`.
+    - A server test of the legacy body on `/api/worlds/import` covers it.
+  - [TEST-GAP] The legacy form's `MAX_IMPORT_PICKS` check (the expansion) had no
+    coverage, although the R1 test's title claimed "either form".
+    - A new case seeds more than the cap across two source Kosmoses and asserts
+      the same sentence.
+    - A control shows one Kosmos's half passing.
+
 ## Rebase TODO (after `world-guard-lift-1704` merges; do NOT do before)
 
 - **Everything tied to `namedWorldSpawnRefusal` goes:**

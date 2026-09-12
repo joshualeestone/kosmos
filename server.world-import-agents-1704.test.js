@@ -222,6 +222,15 @@ test('R1 (C): a page from before gets the counts it reads -- failed and unknownS
   assert.equal('failed' in plain.body.imported, false, 'the per-agent form keeps its own shape');
 });
 
+test('R2: the settings route takes ONE shape -- a whole-Kosmos importAgentsFrom body is refused, and nothing is copied', async () => {
+  seed('alphaworld', 'lou');
+  const r = await post('/api/worlds/import', { id: 'default', importAgentsFrom: ['alphaworld'] });
+  assert.equal(r.status, 400, 'the legacy body was accepted on a route whose answer its sender cannot read: ' + JSON.stringify(r.body));
+  assert.match(r.body.because, /one at a time/);
+  assert.equal(fs.existsSync(profileIn('default', 'lou')), false, 'a refused request copied an agent');
+  assert.deepEqual(installs, []);
+});
+
 test('R1: more picks than one request may carry is a 400 with a sentence', async () => {
   const many = Array.from({ length: 101 }, (_, i) => ({ from: 'alphaworld', name: 'a' + i }));
   const r = await post('/api/worlds/import', { id: 'default', importAgents: many });
