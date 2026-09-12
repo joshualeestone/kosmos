@@ -5,7 +5,7 @@
  * (kosmos#2296, the collect -> triage bridge of the #2037/#2246 loop).
  *
  * The loop: engine/feedback.js authors a report locally -> engine/feedbacksend.js
- * transmits it (opt-in gated, home-paths scrubbed) -> the chaoskosmos-site
+ * transmits it (DEFAULT-ON / opt-out per #2013, secrets + home-paths scrubbed) -> the chaoskosmos-site
  * /api/feedback route (#97) stores it as JSON to @vercel/blob under an
  * UNGUESSABLE name (addRandomSuffix), enumerable only via the blob API + the
  * store token -> and engine/feedback-triage.js reads `.md` reports from a --dir.
