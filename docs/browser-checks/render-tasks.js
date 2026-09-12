@@ -222,6 +222,21 @@ const MEMBER = 'taskmate';
     // The view PAGE (#206): meta, the blessed close-note naming the agent.
     await p.locator('.tkcard').first().click();
     await p.waitForSelector('#pj-task-view', { state: 'visible' });
+    /* #768 THREE-COLUMN REFLOW: the task page takes the project page's room shape --
+       three columns (who is on it / conversation / this task), not the old two-column
+       form. These pin the spec's falsifiable lines (monalisa-task-page-spec.md). */
+    if (!(await p.locator('#pj-task-view .tk3').isVisible())) die('the #768 three-column task layout (.tk3) is missing');
+    const cols = await p.locator('#pj-task-view .tk3 > .pjcol').count();
+    if (cols !== 3) die('the task page should have three columns; it has ' + cols);
+    // The recorded activity (the conversation so far) lives IN the middle column now,
+    // not in a full-width section below the two columns.
+    if ((await p.locator('.tkconvcol #tk-activity').count()) !== 1) die('the activity list is not inside the middle Conversation column');
+    // The honest inert composer is present (writing is blocked on #992; it must not
+    // read as a working affordance, but it must be there as the room's shape).
+    if (!(await p.locator('.tkconvcol .tkcompose').isVisible())) die('the middle-column conversation placeholder (.tkcompose) is missing');
+    // Spec line 5: nothing on the task page says "member". The noun is parts.
+    const viewText = (await shown(p.locator('#pj-task-view'))).toLowerCase();
+    if (/\bmembers?\b/.test(viewText)) die('the task page says "member"; #768 is parts, not a membership feature: ' + viewText.slice(0, 200));
     // #992: the task-conversation reveal button lives in this view. Assert it
     // renders and is visible here -- render-fields.js only visits the initial
     // screen, so this is the assertion that covers the button's presence at

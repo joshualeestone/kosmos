@@ -4116,9 +4116,23 @@ body:not(.consolidated) .pjmid .thread .att { background: var(--k-bg); }
    drawing an empty middle column would be a promise of a surface nobody has
    designed. The grid keeps the right rail at the pack's width so the middle
    can arrive later WITHOUT moving anything already on the screen. */
-.pj2 { display: grid; grid-template-columns: repeat(2, minmax(0, 22rem)); gap: 16px;
-       align-items: start; justify-content: start; }
-@media (max-width: 52rem) { .pj2 { grid-template-columns: minmax(0, 1fr); } }
+/* #768: the task page's three-column room -- the project page's shape applied to a
+   task (Josh, 2026-08-24; mock installkosmos.com/design/task-page; spec
+   monalisa-task-page-spec.md). Who is on it / the conversation / this task, left to
+   right, in the mock's proportions (~1 / 1.4 / 0.9). Stacks to one column at the same
+   52rem the old two-column .pj2 used, so it collapses cleanly both on a phone and in
+   the narrow consolidated column. Replaces .pj2, which only this view used. */
+.tk3 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 0.9fr);
+       gap: 16px; align-items: start; }
+@media (max-width: 52rem) { .tk3 { grid-template-columns: minmax(0, 1fr); } }
+.tkconvcol { min-width: 0; }
+/* The middle column's inert composer: it carries the project composer's outline so the
+   room reads as the same room, but it is disabled and says what is true -- writing into
+   a task's conversation is not built yet (#992). aria-hidden, because the real statement
+   is the note beneath it; the box itself is decoration, not an affordance. */
+.tkcompose { margin-top: 12px; border: 1px solid var(--k-rule); border-radius: 10px;
+             padding: 11px 13px; color: var(--label-2); font-size: .875rem; cursor: not-allowed; }
+.tkcompose-note { margin: 8px 0 0; }
 /* The pack's tasknum: mono, small, above the title. It is the thing a person
    says out loud to an agent, which is why it is set apart from the sentence
    rather than folded into it. */
@@ -4178,8 +4192,9 @@ body:not(.consolidated) .pjmid .thread .att { background: var(--k-bg); }
 /* #768/#992: the task's activity list. Structural + muted-time only, so it is
    theme-safe -- the same --label-2 / --k-rule tokens the parts rows above use.
    Each row: a fixed-width muted time on the left, the event phrase filling the
-   rest, rows ruled off like the parts. */
-.tkacts-wrap { margin-top: 22px; }
+   rest, rows ruled off like the parts. #768: the list now lives inside the middle
+   "Conversation" column of the three-column reflow (it was a full-width section below
+   the two columns before), so the old .tkacts-wrap margin is gone with the wrapper. */
 .tkacts { margin-top: 8px; }
 .tkacts-empty { color: var(--label-2); }
 .tkact { display: flex; gap: 12px; align-items: baseline; padding: 7px 0; }
@@ -11064,7 +11079,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <p class="dhint tkclosenote" id="tk-note" hidden></p>
     <div class="fmsg" id="tk-msg" role="alert" aria-live="assertive"></div>
 
-    <div class="pj2">
+    <!-- #768 THREE-COLUMN REFLOW (Josh, 2026-08-24, #chaoskosmos-design: the task page
+         "should be really formed and shaped after what a viewing of a project looks
+         like"). Mock: installkosmos.com/design/task-page; spec: monalisa-task-page-spec.md.
+         Josh's 2026-08-26 ruling narrowed it to an APPEARANCE, not a membership feature,
+         so the left column is the task's PARTS given the project page's member-row FACE
+         treatment (tkFace, #761 item 8 -- the same element the project page uses, so the
+         two cannot drift) and NOTHING on this page says "member".
+         The mock was drawn 2026-09-01, before the Activity list (#2400) and the due date
+         (#2403, Josh-authorized) shipped; both are kept here rather than following the
+         now-stale mock: the middle "Conversation" column carries the recorded Activity
+         (the task's conversation so far), and the right column keeps Due. -->
+    <div class="tk3">
       <section class="pjcol">
         <h3 class="dlab">Who is on it</h3>
         <div id="tk-who"></div>
@@ -11073,6 +11099,29 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              explanation. Only claimed:null has a because to give -- true and
              false are complete statements. -->
         <p class="dhint" id="tk-why" hidden style="margin:10px 0 0;"></p>
+      </section>
+
+      <!-- MIDDLE: the task's conversation, the whole point of resembling a project.
+           It carries the recorded lifecycle (#2400, the read-side of #992: created /
+           assigned / part added / done / put back) as the conversation so far, then an
+           HONEST inert composer -- writing into a task's conversation in the app is not
+           built yet (#992: tasks and messages do not know each other). The composer says
+           what is true rather than "coming soon", a promise nobody has dated. The
+           folder-reveal beneath it is the one thing that works today. -->
+      <section class="pjcol tkconvcol">
+        <h3 class="dlab">Conversation</h3>
+        <div id="tk-activity" class="tkacts" aria-live="polite"></div>
+        <div class="tkcompose" aria-hidden="true">Say something about this task</div>
+        <p class="dhint tkcompose-note">Writing into a task's conversation in the app is not built yet, so the box above does nothing. The activity above is what is recorded; the folder below holds each task's conversation file.</p>
+        <!-- #992: 🛑 THE LABEL SAYS "THE TASK CONVERSATIONS", NOT "THIS TASK'S", for the
+             same reason the sibling pjs-chats-reveal button says "the conversations" and
+             not "this project's": every task's transcript is one file in ONE shared folder
+             (<data>/task-chats), so a button framed as "this task's" would promise a
+             per-task destination the storage does not give. The hint discloses the shape.
+             Same disable/say-nothing/ask/report shape as pjs-chats-reveal. -->
+        <button class="btn" id="tk-chats-reveal" type="button" style="margin-top:12px;">Show me where the task conversations live</button>
+        <p class="fhint" style="margin:6px 0 0;">One folder, with a file for each task's conversation.</p>
+        <p class="fmsg" id="tk-chats-msg" aria-live="polite"></p>
       </section>
 
       <aside class="pjcol">
@@ -11093,32 +11142,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         </div>
         <p class="fmsg" id="tk-due-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <p class="dhint" style="margin:12px 0 0;">Anything written here is part of the task, so an agent picking it up later reads the whole thing rather than just the title.</p>
-        <!-- #992: the "get to it as a user" half of the transcript. 🛑 THE LABEL
-             SAYS "THE TASK CONVERSATIONS", NOT "THIS TASK'S", for the same reason
-             the sibling pjs-chats-reveal button says "the conversations" and not
-             "this project's": every task's transcript is one file in ONE shared
-             folder (<data>/task-chats), so a button framed as "this task's"
-             would promise a per-task destination the storage does not give -- the
-             screen answering a narrower question than it was asked. The hint
-             discloses the shape. Same disable/say-nothing/ask/report shape as
-             pjs-chats-reveal. -->
-        <button class="btn" id="tk-chats-reveal" type="button" style="margin-top:16px;">Show me where the task conversations live</button>
-        <p class="fhint" style="margin:6px 0 0;">One folder, with a file for each task's conversation.</p>
-        <p class="fmsg" id="tk-chats-msg" aria-live="polite"></p>
       </aside>
     </div>
-
-    <!-- #768/#992: the task's own activity, IN the app. The reveal button in
-         the aside opens the folder; this shows the same recorded lifecycle
-         (created / assigned / part added / done / put back) as a read-only list,
-         which is the "get to it as a user" half #992 asked for. It sits full
-         width BELOW the two columns on purpose: the three-column reflow of this
-         page (the middle "activity" column of #768) is the screen owner's design
-         slice, and this content moves into it then rather than pre-empting it. -->
-    <section class="tkacts-wrap">
-      <h3 class="dlab">Activity</h3>
-      <div id="tk-activity" class="tkacts" aria-live="polite"></div>
-    </section>
   </div>
 
   <!-- ============ NEW TASK, ITS OWN PAGE (#383) ============
