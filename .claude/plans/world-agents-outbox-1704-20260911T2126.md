@@ -96,6 +96,10 @@ on an enforcing board), and is lost. This slice makes nothing sent get lost:
   `allowLiveExecution()` and once `start()` has resolved, which is after
   `listening`), on an unref'd 60 s timer, never at require. Tests call the
   exported `drainOutboxNow()` directly.
+- **Clients may send a 421'd request twice.** Node's fetch (undici) retries a 421
+  once on a fresh connection, which RFC 9110 allows (measured: the Windows CLI's
+  stub saw each send twice). The board's refusal has no side effect, so the retry
+  costs one round trip and nothing else; curl does not retry.
 - **`name@world` is not handled.** Neither CLI has an `@` form, and an `@` can never
   be in an agent name, so such a send is already refused by the board as an
   unknown recipient. No client-side refusal is added.
@@ -119,8 +123,8 @@ on an enforcing board), and is lost. This slice makes nothing sent get lost:
   on reply/msg/post keeps an entry and exits 0 with the sentence; a report is
   dropped (exit 0, nothing kept); react exits 1 (nothing kept); the header rides
   every request.
-- `engine/kosmos-report-hook.test.js`: the header is sent; a 421 on SessionStart is
-  silent and keeps nothing (and a 500 control still speaks).
+- `engine/kosmos-report-hook.world-1704.test.js`: the header is sent; a 421 on
+  SessionStart is silent and keeps nothing (and a 500 control still speaks).
 - `codex-report-bridge.test.js`: the header is sent, with the world from the env.
 - `cli.world-outbox-1704.test.js`: `install/kosmos reply` against a stub `curl`
   that answers 421 writes an outbox entry through the Node entry; the header line
