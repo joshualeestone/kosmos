@@ -23,6 +23,24 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 
+# #2858: strip the ambient Codex-home vars ONCE here, at the single runner every
+# `yarn test` (and the canonical validation / pre-challenge gate) routes through,
+# so the whole suite -- node AND `yarn test:shell`, every test including ones not
+# yet written -- is isolated from whoever invoked it. Invoking the suite from a
+# Codex (gpt) agent's session inherits that agent's live CODEX_HOME (e.g.
+# /Users/<u>/.codex-work2), and the tests that read it (server.create-live-1903,
+# server.openai-badge-2413, openaiaccounts.delete-primary-2684) then read real
+# agent state and RED with 17 false failures. BOTH names are stripped on purpose:
+# the current leak is through the bare CODEX_HOME, while #1412's outward-
+# contamination fix routes through the sandboxed AGENT_WORKFORCE_CODEX_HOME --
+# stripping only one leaves the other path open. This guards the BOUNDARY once,
+# rather than patching each test (#1412 was the same boundary fixed per-test, and
+# the class re-opened two weeks later through different tests). A test that needs a
+# Codex home sets its OWN (a sandbox path) inside the test, so removing the
+# inherited ambient value cannot break it. `unset` of an already-unset var is a
+# no-op under `set -u`, and nothing in this runner reads either var.
+unset CODEX_HOME AGENT_WORKFORCE_CODEX_HOME
+
 # #708: label a live board's cwd as the main checkout / a worktree / neither.
 # Sourced HERE rather than beside the cut-guard source below, because
 # seen_before() runs before that point. Fail-open exactly like that one: if the

@@ -29,7 +29,11 @@ test('an empty consolidated centre says what to press, and says it differently w
   // the open rail's own "No projects yet" card says it; the sentence stays out of its way
   assert.match(PAGE, /\} else if \(empty\) \{\n(?:[^\n]*\n){1,4}    say = '';/);
   // the view is the record, never the DOM (the list stays visible beside the New project form in the consolidated layout)
-  assert.match(PAGE, /const view = which === undefined \? PJ_VIEW : which;\n  const show = document\.body\.classList\.contains\('consolidated'\) && view === 'list';/);
+  assert.match(PAGE, /const view = which === undefined \? PJ_VIEW : which;/);
+  // #2842: the show also suppresses the hint while the consolidated user-settings view is open
+  // (openConsolidatedSettings takes over the display column), so #pj-none does not render over
+  // the settings panel. It still keys on the record (view === 'list'), never the DOM.
+  assert.match(PAGE, /const show = document\.body\.classList\.contains\('consolidated'\) && view === 'list' && !appSettingsOpen;/);
   // "No projects yet" only after a read has happened
   assert.match(PAGE, /const empty = PJ_LOADED_ONCE && !PJ_READ_FAILED && PROJECTS\.length === 0;/, 'a failed read never reads as "no projects"');
   assert.match(PAGE, /PJ_READ_FAILED = true;\n    paintPjNone\(\);/, 'the failure branch repaints the sentence');
@@ -39,8 +43,11 @@ test('an empty consolidated centre says what to press, and says it differently w
   // leaving the consolidated view without a reload repaints the board so the chosen layout comes back
   assert.match(PAGE, /const wasCons = document\.body\.classList\.contains\('consolidated'\);\n  document\.body\.classList\.toggle\('consolidated', cons\);/);
   assert.match(PAGE, /\n  if \(wasCons && !cons\) boardApplyVisibility\(agents\);/);
-  // painted on every view change and every fold change, and only in the consolidated view
-  assert.match(PAGE, /document\.getElementById\('pj-' \+ v \+ '-view'\)\.hidden = \(v !== which\);\n  \}\n  paintPjNone\(which\);/);
+  // painted on every view change and every fold change, and only in the consolidated view.
+  // #2842 inserts an app-settings-hide block between the view loop and this repaint (pjView
+  // navigation leaves the consolidated settings view), so allow it between the loop close and
+  // the paintPjNone call; the guard's intent (paintPjNone runs after the view loop) is kept.
+  assert.match(PAGE, /document\.getElementById\('pj-' \+ v \+ '-view'\)\.hidden = \(v !== which\);\n  \}\n(?:[^\n]*\n){0,15}  paintPjNone\(which\);/);
   assert.match(PAGE, /aria-label', \(on \? 'Open' : 'Fold'\)[^\n]*\n    \}\n  \}\n  paintPjNone\(\);\n\}/, 'railFoldsApply repaints the sentence after every fold change');
   // it sits in the centre column on the first row, so the projects rail is not pushed down a row
   assert.match(PAGE, /body\.consolidated #pj-none \{ grid-column: 2; grid-row: 1; align-self: start;/);

@@ -196,17 +196,23 @@ test('piece five: the consolidated header stays as a top bar (#2282), keeps its 
   assert.doesNotMatch(stripCssComments('/* mentions #utoast-slot in prose only */'), /#utoast-slot/,
     'stripCssComments no longer strips comments, so a comment naming a slot will fail the guards again');
   /* 🛑 THE K MARK IS GONE (kosmos#1188). Josh, 2026-08-27: "I want to get rid of
-     the K icon in the top left corner." These three lines pinned its markup, its
-     painter and its click handler, and all three were correct until he asked for
-     it removed. Replaced with what he asked for in its place, so the head is
-     still guarded rather than merely unpinned: the + sits INSIDE .lead beside the
-     name, and the fold arrow stays out in .railacts on the right. */
+     the K icon in the top left corner." Its markup/painter/handler were removed
+     then, and it does not return. */
   assert.doesNotMatch(PAGE, /class="railk"|id="rail-k"|rail-k-img/, 'the K mark came back to the rail head');
-  assert.match(PAGE, /<span class="lead"><button class="fold plus" type="button" id="rail-agents-new"[^>]*>\+<\/button><span class="railname">Agents<\/span><\/span>/,
-    'the agents + is not inside .lead beside the name');
-  assert.match(PAGE, /<span class="lead"><button class="fold plus" type="button" id="rail-projects-new"[^>]*>\+<\/button><span class="railname">Projects<\/span><\/span>/,
-    'the projects + is not inside .lead beside the name');
-  assert.match(PAGE, /id="rail-agents-fold"/, 'the agents fold arrow left .railacts');
+  /* #2850 (Josh, 2026-09-11, 0.6.57 review): the rail-head controls SWAPPED from
+     the 2026-08-27 arrangement. The fold arrow now sits INSIDE .lead before the
+     name (collapse-on-the-left), and the + (New agent / New project) sits out in
+     .railacts on the FAR RIGHT. This matches the tab-view grammar and lines the
+     collapse control up flush-left with the avatars below. These asserts lock the
+     new order so a regression back to +-in-.lead is caught. */
+  assert.match(PAGE, /<span class="lead"><button class="fold" type="button" id="rail-agents-fold"[^>]*>&lsaquo;<\/button><span class="railname">Agents<\/span><\/span>/,
+    'the agents fold arrow is not inside .lead beside the name (collapse-on-the-left)');
+  assert.match(PAGE, /<span class="lead"><button class="fold" type="button" id="rail-projects-fold"[^>]*>&lsaquo;<\/button><span class="railname">Projects<\/span><\/span>/,
+    'the projects fold arrow is not inside .lead beside the name (collapse-on-the-left)');
+  assert.match(PAGE, /<span class="railacts">\s*<button class="fold plus" type="button" id="rail-agents-new"[^>]*>\+<\/button>\s*<\/span>/,
+    'the agents + is not out in .railacts on the far right');
+  assert.match(PAGE, /<span class="railacts">\s*<button class="fold plus" type="button" id="rail-projects-new"[^>]*>\+<\/button>\s*<\/span>/,
+    'the projects + is not out in .railacts on the far right');
   assert.match(block, /body\.consolidated \.lrow \{ border: 0; background: none;/);
 });
 

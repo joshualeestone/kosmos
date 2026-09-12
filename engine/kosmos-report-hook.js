@@ -144,14 +144,15 @@ function buildBody(report, fromPane) {
   };
 }
 
-/** The board port. The installer bakes KOSMOS_PORT into the win32 launcher, so
- *  it is normally set and returned directly. The uid fallback replicates
+/** The board port: KOSMOS_PORT when the environment carries one (the Mac's plist
+ *  and pane do), returned directly. The uid fallback replicates
  *  install/kosmos EXACTLY (measured against its `id -u` branch), so a reuse
  *  off-win32 stays in step with the CLI: uid 501 (the primary account) -> the
  *  primary port, every other real uid -> a per-uid offset. A platform with no
  *  uid (win32 is -1) has no account to derive from and takes the primary port.
- *  In the actual win32 deployment this fallback is never taken -- uid is -1 and
- *  KOSMOS_PORT is baked -- so it is a documented default, not the hot path.
+ *  On win32 nothing sets KOSMOS_PORT today (the launcher reads only PORT), so
+ *  this primary-port fallback IS the path every Windows agent takes, and the
+ *  board serves that port.
  *  NOTE a deliberate divergence: the CLI uses ${KOSMOS_PORT:-...} verbatim with
  *  NO format check, whereas this requires a bare integer and otherwise falls to
  *  the derivation -- a malformed port would build an unusable URL, and on win32

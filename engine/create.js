@@ -56,6 +56,7 @@ const { execFileSync, execFile } = require('node:child_process');
 const roles = require('./roles');
 const liveExec = require('./live-execution');
 const runners = require('./runners'); // #1616: one definition of runnable
+const launchidentity = require('./launchidentity'); // #1704: the per-Kosmos launch key
 
 /**
  * The models an agent can be created on.
@@ -732,8 +733,32 @@ function instructionFile(name, runner) {
   return path.join(workerDir(name), briefFilename(r));
 }
 function logFile(name) { return path.join(workerDir(name), 'start.log'); }
-function serviceLabel(name) { return `com.kosmos.agent.${name}`; }
-function plistPath(name) { return path.join(agentsDir(), `${serviceLabel(name)}.plist`); }
+/* 🔑 KEYED BY WORLD (#1704 / #2828). A launchd label is machine-wide, but an agent
+   belongs to one Kosmos, so a named world's agent is `com.kosmos.agent.<name>+<world>`
+   and the default world's is unchanged. The world is this process's own
+   (launchidentity.currentWorldId: the board's booted world), so every caller that
+   labels by agent name -- the plist, launchctl enable/print/bootout, and
+   remove.js / delete-leftover.js through here -- reaches THIS world's service and can
+   never reach another Kosmos's agent of the same name. An explicit world wins (a
+   named remove acting on a specific world). */
+/* The world-INDEPENDENT launchd namespace. serviceLabel builds on it, and the
+   stray sweeps (createdroster / register) that ENUMERATE every Kosmos agent's
+   plist match on it and then attribute each to a world. They
+   cannot use serviceLabel('') for the prefix any more, because that is now
+   world-dependent (a named board's serviceLabel('') is `...agent.+<world>`). */
+const SERVICE_LABEL_PREFIX = 'com.kosmos.agent.';
+function serviceLabel(name, worldId) {
+  const world = worldId === undefined ? launchidentity.currentWorldId() : worldId;
+  return `${SERVICE_LABEL_PREFIX}${launchidentity.launchKey(name, world)}`;
+}
+function plistPath(name, worldId) { return path.join(agentsDir(), `${serviceLabel(name, worldId)}.plist`); }
+/* {name, worldId} for one of our service labels, or null when it is not ours.
+   The stray sweeps use it to keep only THIS board's world and to read the bare
+   agent name from a label (#1704). */
+function parseServiceLabel(label) {
+  if (typeof label !== 'string' || !label.startsWith(SERVICE_LABEL_PREFIX)) return null;
+  return launchidentity.parseKey(label.slice(SERVICE_LABEL_PREFIX.length));
+}
 
 /**
  * The model an agent's launchd job will start it on, read back out of the job
@@ -857,6 +882,22 @@ function setAccount(name, dir) {
   if (!NAME_RE.test(String(clean == null ? '' : clean))) {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_NAME };
   }
+  /* Read how the agent is started BEFORE resolving an account, so the account
+     is looked up in the runner's OWN world. #2826: a CODEX agent's accounts
+     live in `openaiaccounts` (each is a `~/.codex*` home with its own
+     auth.json), not `accounts.js`, which only ever scans `~/.claude*`.
+     Resolving against `accounts.list()` first refused a real codex account at
+     REFUSE_ACCOUNT before the runner branch below was ever reached -- Dave's
+     actual blocker, measured by April with a discriminating control. */
+  const job = readJob(clean);
+  if (!job) {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `we could not read how ${spoken} is started, so we have not changed it.`,
+    };
+  }
+  if (job.runner === 'codex') return setCodexAccount(clean, spoken, dir, job);
+
   const accounts = require('./accounts');
   const all = accounts.list();
   /* The empty string means "back to the default account", which is a real
@@ -875,19 +916,6 @@ function setAccount(name, dir) {
     };
   }
 
-  const job = readJob(clean);
-  if (!job) {
-    return {
-      outcome: OUTCOME.REFUSED,
-      because: `we could not read how ${spoken} is started, so we have not changed it.`,
-    };
-  }
-  if (job.runner === 'codex') {
-    // Accounts here are Claude accounts (CLAUDE_CONFIG_DIR), which mean
-    // nothing to codex; writing one anyway would claim an account change
-    // that changes nothing (#245 v1).
-    return { outcome: OUTCOME.REFUSED, because: `${spoken} runs on OpenAI, so there is no Claude account to change` };
-  }
   try {
     fs.writeFileSync(plistPath(clean),
       plistFor(clean, job.claude, job.tmux, job.model, acct.isDefault ? null : acct.dir, job.runner), 'utf8');
@@ -932,13 +960,13 @@ function setAccount(name, dir) {
          Code's trust prompt in a TUI nobody can answer. The paired preacceptBypass
          below already creates settings.json on a fresh account, so without this the
          two calls are asymmetric exactly as they were on the create path. Claude-only
-         already (codex is refused above), so no provider guard is needed. */
+         already (a codex agent branched off to setCodexAccount above), so no provider guard is needed. */
       trust = require('./trust').trustFolder(workerDir(clean), { configDir, createIfAbsent: true, agentDefaultAccount: !configDir });
     } catch { trust = { ok: false, because: 'we could not read that account\'s config file' }; }
     /* #1919: the account we are MOVING the agent to needs the Bypass-Permissions pre-accept
        in ITS settings.json too, for the same reason the trust write does -- the agent will
        start under this configDir and meet the one-time consent if the key was never written
-       there. setAccount is already Claude-only (codex is refused above), so no provider
+       there. setAccount is already Claude-only (a codex agent branched off to setCodexAccount above), so no provider
        guard. Best-effort / non-gating, as trustFolder is here: a failed write is a prompt the
        board now renders as needs_you (#1933), not a failed account flip. */
     try {
@@ -947,6 +975,71 @@ function setAccount(name, dir) {
   }
 
   return { outcome: OUTCOME.CREATED, because: null, account: acct, trust, bypass };
+}
+
+/**
+ * Point a CODEX agent at a different OpenAI (codex) account -- the #2826 half of
+ * what `setAccount` does for Claude, split out because the two resolve accounts
+ * in different worlds.
+ *
+ * 🔑 AN ACCOUNT SWAP, NOT A RUNNER SWITCH. `setProvider` owns claude<->codex;
+ * this only changes WHICH codex home a codex agent boots (its `CODEX_HOME`). A
+ * codex account is a `~/.codex*` directory with its own `auth.json`, listed by
+ * `openaiaccounts`, NOT by `accounts.js` (which scans `~/.claude*` only). That
+ * mismatch is exactly why the old `setAccount` refused Dave's account at
+ * REFUSE_ACCOUNT: it resolved every account against the Claude list, so a codex
+ * home was an unknown account before the runner was ever consulted. April
+ * measured this with a discriminating control (#2826).
+ *
+ * The mechanism mirrors `setProvider`'s codex path: resolve the wanted home in
+ * `openaiaccounts.list()`, rewrite the plist through `plistFor` (which writes
+ * the home as `CODEX_HOME` for a codex runner), and trust the worker folder in
+ * the NEW home's `config.toml` -- without it codex boots into the blocking trust
+ * dialog nobody can answer (#245). No `trustFolder`/`preacceptBypass`: those are
+ * Claude `.claude.json` concepts and mean nothing to codex.
+ */
+function setCodexAccount(clean, spoken, dir, job) {
+  const openai = require('./openaiaccounts');
+  const accounts = openai.list();
+  /* The empty string means "back to the default codex home", a real choice --
+     the same convention the Claude path uses. Resolved like `setProvider`'s
+     `wantDir`, because `list()` stores `path.resolve(dir)`; without it an
+     equivalent-but-unnormalised path is refused as a ghost account. */
+  const wanted = dir === '' || dir == null ? null : path.resolve(String(dir));
+  const acct = wanted === null ? accounts.find((a) => a.isDefault) : accounts.find((a) => a.dir === wanted);
+  if (!acct) {
+    return { outcome: OUTCOME.REFUSED, because: REFUSE_ACCOUNT };
+  }
+  /* 🔑 THE DEFAULT ROW WRITES NO CODEX_HOME (#1600), unless an override home is
+     in force. Absent means "follow the machine's default", and stamping the
+     resolved default would pin the agent to it and stop it following a later
+     `CODEX_HOME` change -- the exact divergence #1600 aligned across creation
+     and the provider switch. This is the same expression `setProvider` writes,
+     so the two account-writing paths onto a codex agent agree by construction. */
+  const homeArg = acct.isDefault && !codexHomeOverridden() ? null : acct.dir;
+  try {
+    /* `job.claude` is the recorded runner binary (arg[4]) and `job.model` is
+       kept: an account swap is not a runner or model change. Runner stays codex. */
+    fs.writeFileSync(plistPath(clean),
+      plistFor(clean, job.claude, job.tmux, job.model, homeArg, 'codex'), 'utf8');
+  } catch {
+    return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
+  }
+  /* 🛑 TRUST THE FOLDER IN THE HOME THE AGENT WILL ACTUALLY BOOT, tied to
+     `homeArg` so the plist and the trust write cannot look in different homes:
+     when `homeArg` is null the agent reads `defaultAgentCodexHome()` (`~/.codex`),
+     which is exactly what `trustCodexFolder` resolves for a default account.
+     ⚠️ BEST-EFFORT AND NON-GATING, matching the Claude sibling's #1629 reasoning:
+     the plist is already written, so the swap HAS happened. Refusing here would
+     report failure for a change that took effect; a failed trust is the prompt
+     the person would have met anyway, surfaced (`trust` field) rather than
+     reported as a failed swap. `trust` is null on success, an object on failure. */
+  let trust = null;
+  if (!DRY_RUN) {
+    try { trustCodexFolder(workerDir(clean), homeArg, homeArg === null); }
+    catch { trust = { ok: false, because: 'we could not let the OpenAI runner work in its folder' }; }
+  }
+  return { outcome: OUTCOME.CREATED, because: null, account: acct, trust };
 }
 
 /**
@@ -1875,7 +1968,13 @@ function boardPort() {
 }
 
 function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
-  const label = serviceLabel(name);
+  /* #1704: the Kosmos this agent belongs to is the board's own world. The launchd
+     label and the tmux session name are BOTH keyed by it (launchidentity.launchKey),
+     so a named world's agent is `com.kosmos.agent.<name>+<world>` with a tmux session
+     `<name>+<world>`, and the default world's are byte-for-byte what they were. */
+  const world = launchidentity.currentWorldId();
+  const label = serviceLabel(name, world);
+  const session = launchidentity.launchKey(name, world);
   /* KOSMOS_PORT (#577): a sandboxed server seals what IT writes with the
      AGENT_WORKFORCE_* variables, but nothing told the agent which board made
      it, so its `kosmos reply` and self-reports went to the live board on
@@ -1931,6 +2030,15 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
      that already exist, because a plist is written once and never rewritten. */
   const tmuxSock = typeof process.env.TMUX_TMPDIR === 'string' ? process.env.TMUX_TMPDIR : '';
   const tmuxSockLine = tmuxSock ? `\n    <key>TMUX_TMPDIR</key><string>${xml(tmuxSock)}</string>` : '';
+  /* 🔑 THE AGENT'S KOSMOS (#1704). Reaches the SUPERVISOR (which mints the sender
+     token into this world's store and passes the world on to the pane via `-e`),
+     not the pane directly -- a plist EnvironmentVariables entry is inherited by the
+     supervisor but not by a tmux session on an already-running server, the same
+     reason the renderer preference lives in agent-supervisor.sh's `-e` list.
+     ⚠️ ABSENT MEANS THE DEFAULT WORLD, the same rule as KOSMOS_PORT and
+     CLAUDE_CONFIG_DIR above, so a default-world plist is byte-for-byte unchanged and
+     needs no migration. */
+  const worldLine = launchidentity.isDefaultWorld(world) ? '' : `\n    <key>KOSMOS_WORLD</key><string>${xml(world)}</string>`;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -1940,7 +2048,7 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
   <array>
     <string>/bin/bash</string>
     <string>${xml(supervisorPath())}</string>
-    <string>${xml(name)}</string>
+    <string>${xml(session)}</string>
     <string>${xml(workerDir(name))}</string>
     <string>${xml(claudeBin)}</string>
     <string>${xml(tmuxBin)}</string>
@@ -1951,7 +2059,7 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
   <dict>
     <key>HOME</key><string>${xml(homeDir())}</string>
     <key>PATH</key><string>${xml(`${path.dirname(claudeBin)}:${path.dirname(tmuxBin)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`)}</string>
-    <key>LANG</key><string>en_US.UTF-8</string>${configLine}${portLine}${tmuxSockLine}
+    <key>LANG</key><string>en_US.UTF-8</string>${configLine}${portLine}${tmuxSockLine}${worldLine}
   </dict>
   <!-- Whose background item this is. See the note above plistFor. -->
   <key>AssociatedBundleIdentifiers</key>
@@ -4149,6 +4257,8 @@ module.exports = {
   supervisorSource,
   installSupervisor,
   serviceLabel,
+  SERVICE_LABEL_PREFIX,
+  parseServiceLabel,
   workerDir,
   /* #923: the ONE home resolver (AGENT_WORKFORCE_HOME || os.homedir(), #1780),
      exported so server.js's startup chdir reuses it rather than deriving

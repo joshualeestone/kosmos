@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The FOUR values below are the entire per-deployment configuration of this TWA.
+  All of them currently point at the placeholder front-door origin app.kosmos.io
+  (open question #1 on issue #718). When the real front-door origin is decided,
+  change them here and nowhere else.
+
+    launchUrl        the URL the TWA opens full-screen
+    hostName         the verified host for deep-link / asset-link matching
+    assetStatements  the Digital Asset Links relation to that same host
+-->
+<resources>
+    <string name="appName">Kosmos</string>
+    <string name="launchUrl">https://app.kosmos.io/</string>
+    <string name="hostName">app.kosmos.io</string>
+    <string name="assetStatements">[{ \"relation\": [\"delegate_permission/common.handle_all_urls\"], \"target\": { \"namespace\": \"web\", \"site\": \"https://app.kosmos.io\" } }]</string>
+</resources>

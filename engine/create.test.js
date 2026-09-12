@@ -1254,7 +1254,25 @@ test('the startup script, actually run, hands the pane its account and its board
        intended. `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN` stops Claude Code
        asking a new agent about its renderer on the first screen; codex has
        never heard of it, which is why the branches differ here. */
-    const expected = [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${codexDir}`, 'KOSMOS_PORT=16245'];
+    /* ⚠️ #1704 ADDS THE AGENT'S KOSMOS, AND ITS THREE STORE ROOTS, ALWAYS -- empty
+       here because this launch env carries no KOSMOS_WORLD (the default world).
+       They are pushed on every launch, empty included, precisely because a tmux
+       session inherits the shared server's global environment, and a pane on a
+       server that a named-world board cold-started would otherwise read that
+       board's world; an empty `-e` overrides it back to the default. Written into
+       the expected SET, not filtered, for the same reason the renderer var above
+       is: this assertion's value is that nothing UNEXPECTED reaches a pane. */
+    /* The world id is empty (default), and the three store roots are whatever the
+       SUPERVISOR carries -- empty for a production default agent (its plist sets
+       no AGENT_WORKFORCE_*), the sandbox for this test (which runs on top of its
+       own AGENT_WORKFORCE_*). Passing the supervisor's own store as an override is
+       the point: it is what a default pane needs to NOT inherit a named world's
+       roots from a shared tmux server a named-world board cold-started. */
+    const expected = [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${codexDir}`, 'KOSMOS_PORT=16245',
+      'KOSMOS_WORLD=',
+      `AGENT_WORKFORCE_DATA=${process.env.AGENT_WORKFORCE_DATA || ''}`,
+      `AGENT_WORKFORCE_PROJECTS=${process.env.AGENT_WORKFORCE_PROJECTS || ''}`,
+      `AGENT_WORKFORCE_WORKERS=${process.env.AGENT_WORKFORCE_WORKERS || ''}`];
     if ((b.runner || 'claude') !== 'codex') expected.push('CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1');
     assert.deepEqual(rest, expected.sort(),
       `${label}: the pane was not handed exactly the account and the board: ` + JSON.stringify(set.newSession));
@@ -1302,9 +1320,19 @@ test('the startup script, actually run, hands the pane its account and its board
          set-case branch at expected.push above). Excluded per-runner, not blanket. */
       const isClaude = (b.runner || 'claude') !== 'codex';
       const notToken = passed.filter((v) => !v.startsWith('KOSMOS_AGENT_TOKEN=')
-        && !(isClaude && v === 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1'));
+        && !(isClaude && v === 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1')
+        /* #1704: the agent's Kosmos and its three store roots ride ALWAYS, by
+           design -- empty here, because nothing sets them -- so a default pane
+           cannot inherit a named world from a shared tmux server a named-world
+           board cold-started. Deliberate always-on riders, excluded the same way
+           the token and the renderer preference are; the positive check below
+           keeps the exclusion honest. */
+        && !/^KOSMOS_WORLD=/.test(v)
+        && !/^AGENT_WORKFORCE_(DATA|PROJECTS|WORKERS)=/.test(v));
       assert.deepEqual(notToken, [],
         `${label}: a variable that is not set was still passed into the pane: ` + JSON.stringify(r.newSession));
+      assert.ok(passed.includes('KOSMOS_WORLD='),
+        `${label}: the KOSMOS_WORLD override stopped reaching the pane, so a default agent could inherit a named world: ` + JSON.stringify(r.newSession));
       /* And the exclusion above must not become a place things hide: on claude the
          thing it excludes has to actually be there. Without this, deleting the
          renderer preference entirely would pass both arms of this test. */
@@ -3418,6 +3446,86 @@ test('an account we do not know, and an agent Kosmos did not start, are both ref
   assert.match(nobody.because, /could not read how neverexisted is started/);
 });
 
+/* 🔑 #2826: setAccount can now swap a CODEX agent's OpenAI account, resolving it
+   in openaiaccounts (~/.codex* homes) rather than accounts.js (~/.claude* only).
+   Dave's blocker was that a codex account was refused at REFUSE_ACCOUNT before the
+   runner was ever consulted, because it was looked up in the Claude list. This
+   test drives the whole shape: a named codex account swap writes CODEX_HOME and
+   trusts the new home; the default row writes no CODEX_HOME (#1600); an unknown
+   codex home is refused; and a CLAUDE agent handed a codex dir is STILL refused,
+   because a runner switch is setProvider's job, not this. */
+test('#2826: setAccount swaps a codex agent between OpenAI accounts, and still refuses a claude agent a codex dir', () => {
+  recorder();
+  create.setDryRun(false);
+  /* No override home: the ordinary machine, so the default codex home is
+     ~/.codex under AGENT_WORKFORCE_HOME and codexHomeOverridden() is false. */
+  delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  const home = process.env.AGENT_WORKFORCE_HOME;
+  const defHome = nodePath.join(home, '.codex');
+  const daveHome = nodePath.join(home, '.codex-daveaccount2826');
+  for (const [dir, key] of [[defHome, 'DEFAULT2826'], [daveHome, 'DAVE2826']]) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(nodePath.join(dir, 'auth.json'),
+      JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: `sk-proj-testtest${key}` }), 'utf8');
+  }
+  const openai = require('./openaiaccounts');
+
+  /* THE PREMISES, asserted so a pass cannot come from a missing account: the
+     account layer really reports BOTH homes, dave is NOT the default row, and
+     the two resolve to different directories. */
+  const rows = openai.list();
+  const daveRow = rows.find((a) => fs.realpathSync(a.dir) === fs.realpathSync(daveHome));
+  const defRow = rows.find((a) => a.isDefault);
+  assert.ok(daveRow, `list() does not report the dave codex account: ${rows.map((a) => a.dir).join(', ')}`);
+  assert.equal(daveRow.isDefault, false, 'the labelled dave account must not be the default row');
+  assert.ok(defRow, 'no default OpenAI row exists, so the default-row arm is not exercised');
+  assert.notEqual(fs.realpathSync(defRow.dir), fs.realpathSync(daveHome), 'default and dave must be different homes');
+
+  // A codex agent: born on Claude, switched to OpenAI's default home.
+  const name = 'codexacct2826';
+  assert.equal(create.createAgent({ ...BINS, name, role: 'pm' }).outcome, create.OUTCOME.CREATED);
+  const sw = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN });
+  assert.equal(sw.outcome, create.OUTCOME.CREATED, `switch to openai refused: ${sw.because}`);
+  const idBefore = store.readProfile(name).id;
+  const homeOf = () => (fs.readFileSync(create.plistPath(name), 'utf8')
+    .match(/<key>CODEX_HOME<\/key>\s*<string>([\s\S]*?)<\/string>/) || [])[1];
+  // On the default row it carries no CODEX_HOME (#1600).
+  assert.equal(homeOf(), undefined, 'the switch onto the default row should not pin a CODEX_HOME');
+
+  // SWAP to the named dave account: CODEX_HOME rewritten, runner kept, home trusted.
+  const moved = create.setAccount(name, daveHome);
+  assert.equal(moved.outcome, create.OUTCOME.CREATED, `codex account swap refused: ${moved.because}`);
+  assert.equal(fs.realpathSync(homeOf()), fs.realpathSync(daveHome),
+    'the swap did not write the dave codex home into CODEX_HOME');
+  assert.equal(plistArgs(name)[8], 'codex', 'the account swap must not change the runner');
+  assert.equal(store.readProfile(name).id, idBefore, 'an account swap must not mint a new identity');
+  assert.equal(moved.account.dir, daveRow.dir, 'the result must name the account it actually landed on');
+  assert.match(fs.readFileSync(nodePath.join(daveHome, 'config.toml'), 'utf8'),
+    new RegExp(`\\[projects\\."${require('./trust').canonicalOnDisk(create.workerDir(name)).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\]`),
+    'the swap must trust the folder in the NEW codex home or the agent boots into a blocking dialog');
+
+  // BACK to the default row: no CODEX_HOME again, still codex.
+  const back = create.setAccount(name, '');
+  assert.equal(back.outcome, create.OUTCOME.CREATED, `swap back to default refused: ${back.because}`);
+  assert.equal(homeOf(), undefined, 'swapping back to the default row should clear CODEX_HOME');
+  assert.equal(plistArgs(name)[8], 'codex', 'swapping back must not change the runner');
+
+  // An unknown codex home is refused, and nothing is rewritten.
+  const unknown = create.setAccount(name, nodePath.join(home, '.codex-nosuchaccount'));
+  assert.equal(unknown.outcome, create.OUTCOME.REFUSED);
+  assert.match(unknown.because, /do not know that account/);
+  assert.equal(homeOf(), undefined, 'a refused swap still rewrote the launch file');
+
+  /* CONTROL: a CLAUDE agent handed the same codex dir is STILL refused. A codex
+     home is not a Claude account, and turning a claude agent into a codex one is
+     setProvider's job, so this must never quietly succeed. */
+  const claudeName = 'claudeacct2826';
+  assert.equal(create.createAgent({ ...BINS, name: claudeName, role: 'pm' }).outcome, create.OUTCOME.CREATED);
+  const wrong = create.setAccount(claudeName, daveHome);
+  assert.equal(wrong.outcome, create.OUTCOME.REFUSED);
+  assert.match(wrong.because, /do not know that account/);
+});
+
 test('a new agent can be created on another account, and its history is still shared', () => {
   const { home } = seedAccounts();
   const name = 'bornelsewhere';
@@ -4344,8 +4452,8 @@ test('#1131: a brand new name has no tokens to clear, and that is silent rather 
  *
  * Three refusals were written out at every site that raised them: the name check in
  * `setAccount`/`setProvider`/`setModel` (three copies of ONE validation), the provider
- * check in `setProvider` and `createAgentInner`, the account lookup in `setAccount` and
- * `createAgentInner`. They agreed by coincidence.
+ * check in `setProvider` and `createAgentInner`, the account lookup in `setAccount`,
+ * `setCodexAccount` and `createAgentInner`. They agreed by coincidence.
  *
  * ⚠️ STAKES: this is CONSISTENCY, not security. Unlike `NO_MATCH` in sendertoken.js
  * (#1170/#1175), nothing is hidden by these matching and nothing is disclosed if they
@@ -4368,7 +4476,7 @@ test('each refusal sentence exists exactly once, so no site can reintroduce a co
   for (const [sentence, constant, uses] of [
     ['that is not a name we can act on', 'REFUSE_NAME', 3],
     ['pick a provider from the list', 'REFUSE_PROVIDER', 2],
-    ['we do not know that account on this computer', 'REFUSE_ACCOUNT', 2],
+    ['we do not know that account on this computer', 'REFUSE_ACCOUNT', 3],
   ]) {
     const literals = src.split(`'${sentence}'`).length - 1;
     assert.equal(
@@ -4813,6 +4921,7 @@ test('#1432: the plist template carries exactly its known set of keys', () => {
      `${configKey}` is the one deliberately dynamic entry. */
   assert.deepEqual(keys, [
     'AssociatedBundleIdentifiers', 'EnvironmentVariables', 'HOME', 'KOSMOS_PORT',
+    'KOSMOS_WORLD',
     'KeepAlive', 'LANG', 'Label', 'PATH', 'ProgramArguments', 'RunAtLoad',
     'StandardErrorPath', 'StandardOutPath', 'TMUX_TMPDIR', 'ThrottleInterval',
     'WorkingDirectory', '${configKey}',
@@ -4962,4 +5071,29 @@ test('#2250 CONTROL: no plist and no profile defaults to claude, and an unusable
   // reads a nonexistent profile and returns {}: no provider, no throw, claude.
   assert.equal(create.recordedRunner('../evil'), 'claude',
     'a traversal-shaped name resolves to claude rather than building a path or throwing');
+});
+
+test('#1704 a NAMED-world launch hands the pane its Kosmos: KOSMOS_WORLD + the world store roots', () => {
+  // The named-world twin of the #587 default-world pane-env test, through the same
+  // shipped-script harness. The supervisor resolves KOSMOS_WORLD into the world's
+  // store roots and pushes them (and KOSMOS_WORLD) onto the pane, so a named-world
+  // agent's `kosmos` CLI and hooks reach ITS store rather than the default one.
+  const savedWorld = process.env.KOSMOS_WORLD;
+  process.env.KOSMOS_WORLD = 'qa';   // the board serves the qa Kosmos -> the job's session is keyed
+  let set;
+  try {
+    set = runLauncher({ claim: 'probe+qa', paneCommands: ['-zsh', 'bash'],
+      env: { CLAUDE_CONFIG_DIR: undefined, CODEX_HOME: undefined, KOSMOS_PORT: undefined, KOSMOS_WORLD: 'qa' } });
+  } finally {
+    if (savedWorld === undefined) delete process.env.KOSMOS_WORLD; else process.env.KOSMOS_WORLD = savedWorld;
+  }
+  assert.ok(set.newSession, 'nothing was launched');
+  assert.ok(set.newSession.includes('probe+qa'),
+    'the tmux session is the launch key: ' + JSON.stringify(set.newSession));
+  const passed = set.newSession.filter((a, i, all) => i > 0 && all[i - 1] === '-e');
+  assert.ok(passed.includes('KOSMOS_WORLD=qa'),
+    'the pane is handed its Kosmos id: ' + JSON.stringify(passed));
+  const dataVar = passed.find((v) => v.startsWith('AGENT_WORKFORCE_DATA='));
+  assert.ok(dataVar && dataVar.includes(nodePath.join('worlds', 'qa')),
+    'the pane reaches the qa world store, not the default: ' + dataVar);
 });

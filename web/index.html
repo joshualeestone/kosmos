@@ -634,18 +634,6 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    screen-reader half (aria-label) is handled in the arm handler (armLabel). */
 .acct-disconnect.armed { font-weight: 600; color: var(--danger, #b3261e); }
 .acct-disconnect[disabled] { cursor: not-allowed; text-decoration: none; opacity: .7; }
-/* 🛑 THE aria-disabled ARM GETS ITS OWN OPACITY, AND THE REASON IS WCAG RATHER
-   THAN TASTE. WCAG 1.4.3 exempts "inactive user interface components", which
-   covers a natively `disabled` control. This one is deliberately FOCUSABLE and
-   carries a click handler that writes into a live region, so it is not inactive
-   in that sense and the exemption does not reach it.
-   MEASURED ON THE LIGHT SCHEME, and named as such because a ratio quoted
-   without its background reads as though one theme were the whole answer:
-   --label-2 #4a4f57 on the light surface is 8.24:1 at full opacity, 3.76:1 at
-   .7 (AA needs 4.5 for 13px text) and 4.83:1 at .8. The dark and
-   prefers-contrast arms clear AA at .8 by a wider margin. It still reads as
-   unavailable via cursor, the removed underline and the announced label. */
-.acct-disconnect[aria-disabled="true"] { cursor: not-allowed; text-decoration: none; opacity: .8; }
 /* #770: "underneath it we just have a large one that's the same exact
    size that says Add a provider." Same width as a box, no fixed height
    assumption -- .btn already matches a box's padding rhythm closely
@@ -906,8 +894,10 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    minimum, so `.5` is fine there. This one is NOT exempt: it stays focusable and
    a press does something (it explains why). Measured on --label #14161a over
    --bg #faf9f7: full 17.21:1, `.8` 9.36:1 (passes AA), `.7` 6.55:1, `.5`
-   3.39:1 (FAILS the 4.5 minimum). Same reasoning and same value as the sibling
-   `.acct-disconnect[aria-disabled="true"]`, which did this math first.
+   3.39:1 (FAILS the 4.5 minimum), so `.8` is the AA floor for a focusable control
+   that a screen reader still reaches. (The account-row Disconnect that once shared
+   this math is gone: #2684 made the default Disconnect a live control, so no
+   `.acct-disconnect` renders `aria-disabled` any more.)
    📌 SCOPED TO `.acts`, AND THE REASON IS BLAST RADIUS RATHER THAN ANY SPECIFIC
    RESCUE. An earlier version of this comment claimed an unscoped
    `.btn[aria-disabled="true"]` would tie `.btn:disabled` on specificity, win on
@@ -1952,6 +1942,12 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    sections behind a nav now (.dbody/.snav/.dsec below). */
 .dbox { background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 16px;
         padding: 22px 24px; color: var(--k-ink); }
+/* #2833-family (Josh, 2026-09-11): kill the stroke around the agent DIALOGUE box specifically,
+   so the "Talk to <agent>" panel sits clean on the page. Scoped to #d-talk-box by id, NOT to the
+   shared .dbox class -- every other .dbox (Settings sections, the terminal/window boxes, the
+   create steps) keeps its outline. The surface fill still distinguishes the panel from the page
+   ground, so removing the border leaves a clean filled panel rather than an invisible one. */
+#d-talk-box { border: 0; }
 .dlab { font-size: .75rem; letter-spacing: .14em; text-transform: uppercase;
         /* 600, the pack's weight (#179, ruled there): a box label at 700
            competes with the headings above it. */
@@ -3323,6 +3319,19 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      reverse, not a defect to fix quietly. */
   html[data-layout="consolidated"] body.consolidated #pj-settings-view, html[data-layout="consolidated"] body.consolidated #pj-task-view,
   html[data-layout="consolidated"] body.consolidated #pj-docs-view, html[data-layout="consolidated"] body.consolidated #pj-alltasks-view, html[data-layout="consolidated"] body.consolidated #pj-add-view { min-height: 0; overflow-y: auto; }
+  /* #2842: the USER settings panel, relocated into the display column
+     (placeAppSettings), scrolls in the column like the views above and drops its
+     full-page centered two-column layout for one that fits the narrower column. Its
+     tab-view .dbody is `176px 34rem` centered; in the column that overflows, so the
+     nav column shrinks and the body stretches to fill. */
+  /* `margin: 0`, not tidiness: `.panel` carries `margin: 0 auto`, and auto side
+     margins on a GRID ITEM absorb the column's free space -- centering the panel and
+     shrinking it to its content instead of filling column 2. `grid-row: 1` keeps it in
+     the list's row (the display views share that row); it stretches to the row height
+     like the other display views (grid `align-items: stretch`) and scrolls internally. */
+  html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings { grid-column: 2; grid-row: 1; margin: 0; width: 100%; min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+  html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings::-webkit-scrollbar { display: none; }
+  html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings .dbody { grid-template-columns: minmax(120px, 30%) minmax(0, 1fr); justify-content: stretch; column-gap: 18px; }
   /* 🔑 THESE PANES HIDE THEIR SCROLLBAR LIKE EVERY OTHER SCROLLER IN THIS VIEW
      (kosmos#1196). Josh: "The project settings tab itself is quite a mess. It has
      a horizontal or vertical scroll bar in the middle of the page. I'd like to
@@ -3900,6 +3909,24 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated .pjmidhead .tsearch { flex-shrink: 0; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .dname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   html[data-layout="consolidated"] body.consolidated #pj-one-name + .pj-desc, html[data-layout="consolidated"] body.consolidated #pj-one-made { margin-top: 1px; }
+  /* #2848: the sub-projects strip, now nested under the name (placeSubProjects
+     moves it into .pjmid right after the header), reads as PART of that header
+     rather than a second bar. Two moves make it one header block:
+       - the header drops its own full-bleed rule while a strip follows it, and
+         the strip carries the rule beneath both -- so the name and its
+         sub-projects sit above a single line, not two;
+       - the strip goes compact and indented (a quiet caption, tight rows set in
+         from the title) so it reads as nested beneath the title, not competing
+         with it.
+     A project with no sub-projects hides the strip ([hidden]), so the :has()
+     rules never fire and the header is exactly as before. */
+  html[data-layout="consolidated"] body.consolidated .pjmid:has(> #pj-one-subprojects:not([hidden])) .pjmidhead { border-bottom: 0; margin-bottom: 4px; padding-bottom: 4px; }
+  html[data-layout="consolidated"] body.consolidated .pjmid > #pj-one-subprojects:not([hidden]) { margin: 0 -16px 12px; padding: 0 16px 10px; border-bottom: 1px solid var(--k-rule); }
+  html[data-layout="consolidated"] body.consolidated #pj-one-subprojects .dlab { margin: 0 0 5px; }
+  html[data-layout="consolidated"] body.consolidated #pj-one-subprojects .pj-subrows { gap: 4px; }
+  html[data-layout="consolidated"] body.consolidated #pj-one-subprojects .pj-subrow { padding: 6px 10px; border-radius: 8px; margin-left: 12px; }
+  html[data-layout="consolidated"] body.consolidated #pj-one-subprojects .pj-subrow-n { font-size: .8125rem; }
+  html[data-layout="consolidated"] body.consolidated #pj-one-subprojects .pj-subrow-m { font-size: .75rem; }
   html[data-layout="consolidated"] body.consolidated #rail-agents, html[data-layout="consolidated"] body.consolidated > #panel-projects, html[data-layout="consolidated"] body.consolidated > #alist { padding-top: 6px; }
   /* #520 piece eight (Josh, toward the mock): the member rows lose their box
      and go flat and quiet like the agents rail, and the add/remove controls
@@ -3925,12 +3952,15 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   /* 🔑 THE PLUS GOES LEFT OF THE TASKS LABEL (kosmos#1303 H). Josh: "On the tasks
      let's put the plus on the left side of the tasks label so it matches agents
      and projects."
-     Agents and Projects draw `<button class="fold plus">+</button>` immediately
-     before their label inside `.lead`. Tasks is built the other way round: the
-     grid above is `1fr auto`, so the label takes the row and the button sits at
-     the far right reading "+ New task".
-     ⇒ The tracks swap and the button takes the first one, which puts the control
-     in the same place on all three heads.
+     When kosmos#1303 H landed, Agents and Projects drew their + on the left of
+     the label; Tasks is built the other way round: the grid above is `1fr auto`,
+     so the label takes the row and the button sits at the far right reading
+     "+ New task".
+     ⇒ The tracks swap and the button takes the first one, which put the tasks +
+     on the left to match the rails as they were then.
+     ⚠️ #2850 (2026-09-11) moved the agents/projects rail + to the RIGHT (into
+     .railacts), so the tasks/members + on the left no longer matches them;
+     realigning tasks and members is item 4's remaining half, tracked on #2850.
      ⚠️ THE WORDS GO, THE ACCESSIBLE NAME STAYS. `font-size: 0` on the button
      hides the " New task" text node while the `+` span keeps its own size. The
      text is still in the DOM, so the button is still named "New task" for a
@@ -4274,6 +4304,18 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .msg-av img { width: 100%; height: 100%; object-fit: cover; }
 .msg-av.mine { background: var(--k-ink); color: var(--k-bg); }
 .msg-b { flex: 1; min-width: 0; }
+/* #2806 (Josh, 2026-09-11): the room message BODY box. The person's own post
+   (.msg.you) wears the royal-blue --usermsg-tint; an agent's wears the light-gray
+   --k-sunk -- the SAME two tokens the DM bubble already uses (.dm.mine / .dm.theirs),
+   both theme-defined (per-theme beside --k-sunk), so ONE rule each covers light and
+   dark and the two surfaces cannot drift on the color. Only .msg-bd (the wrapped
+   body: text + preview + attachments; the name/time header and the reaction row live
+   OUTSIDE it) is boxed, mirroring the DM which boxes just its text (.dm-b). Padding
+   and radius match the DM bubble. A bodyless row draws no .msg-bd at all (pjMsg emits
+   the wrapper only for non-empty body content), so there is no empty tinted box. */
+.msg-bd { padding: 8px 12px; border-radius: 12px; }
+.msg.you .msg-bd { background: var(--usermsg-tint); }
+.msg:not(.you) .msg-bd { background: var(--k-sunk); }
 .msg-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
 .msg-h b { font-size: .9375rem; }
 .msg-t { font-size: .75rem; color: var(--k-ink-2); }
@@ -4329,14 +4371,39 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .rxn .rxn-n { color: var(--k-ink-2); font-weight: 600; font-variant-numeric: tabular-nums; }
 .rxn.mine { border-color: var(--gold-deep, #b8860b); background: rgba(214,166,46,.14); }
 .rxn.mine .rxn-n { color: var(--k-ink); }
-.rxn-add { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
-           border-radius: 100px; border: 1px solid var(--k-rule); background: transparent; color: var(--k-ink-2);
-           font-size: 1rem; line-height: 1; cursor: pointer; padding: 0; }
-.rxn-add:hover { color: var(--k-ink); border-color: var(--k-ink-2); }
-.rxn-add:focus-visible, .rxn:focus-visible, .rxn-pick:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-.rxn-picker { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px 4px; margin-left: 2px;
-              border: 1px solid var(--k-rule); border-radius: 10px; background: var(--k-surface); }
-.rxn-pick { border: 0; background: transparent; cursor: pointer; font-size: 1.05rem; line-height: 1;
+/* #2806 (Josh): the always-visible "+" is gone. The reaction affordance -- the three
+   quick defaults plus the grey-smiley opener -- lives in `.rxn-quick` and is hidden
+   until the message is hovered OR the row takes keyboard focus, then fades in (the
+   Discord shape). opacity + pointer-events (NOT display/visibility) so the buttons
+   stay in the tab order for the `:focus-within` reveal, and an invisible button is
+   never clickable. Existing reaction pills (`.rxn`) are outside this bar and stay
+   visible always. */
+.rxn-quick { display: inline-flex; align-items: center; gap: 2px; opacity: 0;
+             pointer-events: none; transition: opacity .12s ease; }
+.msg:hover .rxn-quick, .rxn-quick:focus-within { opacity: 1; pointer-events: auto; }
+.rxn-more { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+            border-radius: 100px; border: 1px solid var(--k-rule); background: transparent;
+            cursor: pointer; padding: 0; }
+.rxn-more:hover { border-color: var(--k-ink-2); }
+/* Grey smiley, muted like the composer's emoji glyph (#2357): a colour-font glyph
+   ignores CSS `color`, so grayscale it with a filter. */
+.rxn-more-glyph { filter: grayscale(1) opacity(.6); font-size: .95rem; line-height: 1; }
+.rxn-more:focus-visible, .rxn:focus-visible, .rxn-pick:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+/* The full picker the grey smiley opens (PJ_EMOJI): a scrollable grid. It is
+   `position: fixed` and JS-positioned from the smiley's rect (see the room click
+   handler), NOT absolute: the room thread (`.thread`) is an `overflow: auto` scroll
+   box, and an absolutely-positioned picker would be CLIPPED by it -- invisible for a
+   post near the thread's bottom edge, which is the most-reacted-to post. `fixed`
+   escapes the ancestor overflow entirely; the handler flips it above the smiley when
+   there is no room below, and clamps it into the viewport. Toggled by JS, independent
+   of the hover gate above, so it stays open while you browse it. */
+.rxn-picker { position: fixed; z-index: 20;
+              display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; padding: 6px;
+              max-height: 210px; overflow-y: auto; width: max-content; max-width: min(320px, 90vw);
+              border: 1px solid var(--k-rule); border-radius: 10px; background: var(--k-surface);
+              box-shadow: 0 8px 24px rgba(20,22,26,.16); }
+.rxn-picker[hidden] { display: none; }
+.rxn-pick { border: 0; background: transparent; cursor: pointer; font-size: 1.15rem; line-height: 1;
             padding: 3px 5px; border-radius: 7px; }
 .rxn-pick:hover { background: rgba(20,22,26,.08); }
 .delivery { display: inline-block; margin-top: 8px; font-size: .75rem; font-weight: 600;
@@ -4434,14 +4501,20 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .attach-chip-x:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
 .attach-chip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .thread.dragging, #d-dmthread.dragging { outline: 2px dashed var(--gold-deep); outline-offset: -2px; background: rgba(214,166,46,.06); }
+/* #2868 (Josh): the composer input area itself (text field + the +) is a drop
+   target, so a file dropped ON the input attaches instead of the browser pasting
+   its path. Same drop-active treatment as the thread above. A separate rule from
+   the base `.composerbox` (whose border/flex the focus-ring test guards): this
+   adds only the drag state, so nothing about the resting box changes. */
+.composerbox.dragging { outline: 2px dashed var(--gold-deep); outline-offset: -2px; background: rgba(214,166,46,.06); }
 .dm-b { max-width: 92%; padding: 9px 13px; border-radius: 12px; font-size: .9375rem;
   line-height: 1.45;
-  /* #2660 (Josh, 2026-09-10): the agent side carries NO fill -- only the
-     person's OWN message is coloured (`.dm.mine` below). Josh wants his own
-     inputs to be the only thing tinted, so he can slide back to where he last
-     plugged something in and catch up. This drops the old `--k-sunk` agent
-     tint deliberately; the agent row is now plain text, distinguished by the
-     absence of the person's blue rather than by a tint of its own. */
+  /* #2660 then #2805 (Josh): the shared `.dm-b` default stays `transparent`;
+     each side declares its own fill below -- `.dm.mine` the royal-blue wash,
+     `.dm.theirs` a very light gray. #2660 (2026-09-10) had briefly dropped the
+     agent tint so only the person's own message was coloured; #2805
+     (2026-09-11) brings the agent gray back now that the dialog is white
+     (#2711), so an agent message reads as its own bubble again. */
   background: transparent;
   /* #1927: the store keeps paragraph breaks now, so render them. `pre-wrap`
      shows the stored `\n`; `storeText` already collapsed space RUNS, so this
@@ -4452,14 +4525,29 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
   white-space: pre-wrap; overflow-wrap: anywhere; }
 /* #2660 (Josh, 2026-09-10): the person's OWN message wears a faint ROYAL BLUE
    (#4171E3), replacing the old gold. Fill only, NO stroke, so a message you
-   posted reads apart from the plain agent rows -- the agent side renders as
-   `.dm.theirs` (dmRow, since #175) and takes the `.dm-b` default, which is now
-   `transparent`, so only `.mine` carries a fill. The colour is the
+   posted reads apart from the agent rows -- the agent side renders as
+   `.dm.theirs` (dmRow, since #175) and, as of #2805, carries its OWN light-gray
+   `--k-sunk` fill (the rule just below), so the two sides are told apart by
+   colour (blue vs gray) rather than by tint-vs-plain. The colour of THIS rule is the
    `--usermsg-tint` token, defined per theme beside --k-sunk (10% light, 15%
    dark), so this ONE rule covers both themes and both surfaces that emit a
    `dm mine` bubble -- the to-agent DM view (dmRow) and the project room. Its
    project-room sibling `.pj-msg` uses the same token below. */
 .dm.mine .dm-b { background: var(--usermsg-tint); }
+/* #2805 (Josh, 2026-09-11): "put a very light gray for messages from the
+   agent" (blue stays for the person's own). The agent side is `.dm.theirs`; it
+   takes `--k-sunk`, the same subtle neutral this row wore BEFORE #2660 removed
+   it -- so this is a restore, not a new colour. `--k-sunk` is defined per theme
+   in the same four blocks as `--usermsg-tint` (5% light, 6% dark, 8% navy), so
+   this ONE rule tints the agent bubble in every theme, mirroring the blue rule
+   above.
+   ⚠️ NOT `--k-bg` (the #2711 file-card gray): #faf9f7 sits on the now-white
+   (`--k-surface`) DM panel and is all but invisible on it -- the exact dissolve
+   the note below records. `--k-sunk` is a neutral tint distinct from the panel
+   colour, so it reads. Inner code pills (`.mdc`/`.mdcb`, themselves `--k-sunk`)
+   stay visible: their own fill composites OVER the bubble's and lands a shade
+   darker, not equal. */
+.dm.theirs .dm-b { background: var(--k-sunk); }
 /* #2067 / #2239: restricted-markdown treatments, on the three agent-dialogue
    surfaces that render them -- the talk thread (.dm-b) and the project message
    list (.pj-msg-text), both via pjRich; and the project ROOM activity thread
@@ -4505,21 +4593,23 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dm-b .mdli.mdlin::before, .pj-msg-text .mdli.mdlin::before, .msg-b .mdli.mdlin::before { content: attr(data-n) "\00a0\00a0"; }
 .dm-b .mdhr, .pj-msg-text .mdhr, .msg-b .mdhr { display: inline-block; width: 100%; margin: 4px 0;
   border-top: 1px solid var(--k-rule); vertical-align: middle; }
-/* 🛑 THERE IS NO RULE FOR `.theirs`, AND ADDING ONE MADE IT WORSE. The first
-   version set `background: var(--k-surface); border: 1px solid var(--k-rule)`
-   — byte-identical to `.dbox`, which is the container it sits in — so the
-   agent's bubble had no bubble at all, only a hairline the same colour as the
-   panel's own edge. It was LESS visible than the default it overrode.
+/* 🛑 A `.theirs` FILL IS RIGHT AS OF #2805 -- BUT ONLY WITH THE RIGHT TOKEN,
+   AND THIS NOTE IS WHY. The agent bubble now carries `--k-sunk` (the rule
+   above). The trap the note guards is still live and is exactly what dictates
+   the token: the first `.theirs` attempt set `background: var(--k-surface);
+   border: 1px solid var(--k-rule)` -- byte-identical to `.dbox`, the container
+   it sits in -- so the bubble had no bubble at all, only a hairline the colour
+   of the panel's own edge. It was LESS visible than the default it overrode.
    ⚠️ THIS FILE ALREADY RECORDS THAT EXACT DEFECT, four hundred lines up: three
    controls "dissolved into their own containers with only a 0.5px border"
-   because they took the surface colour on a surface. I read the note and
-   repeated the mistake in the same file.
-   ✅ The two sides ARE distinguished, now by presence rather than by two
-   tints: as of #2660 the `.dm-b` default is `transparent` (the plain agent
-   row) and `.mine` is the only one that carries a fill (the royal-blue wash).
-   The historical amber `.mine` / `--k-sunk` default this note first described
-   is gone; adding a visible `.theirs` bubble is still the wrong move, for the
-   dissolve reason above. */
+   because they took the surface colour on a surface.
+   ✅ #2805 avoids it by using `--k-sunk` -- a neutral tint that is NOT the panel
+   colour -- and no stroke: the fill alone carries the bubble, and it reads now
+   that #2711 made the dialog white. `--k-bg` (the old dialog gray) would
+   RE-OPEN the dissolve, being all but equal to the white surface; `--k-sunk`
+   does not. So the lesson is unchanged -- do not take the surface colour on a
+   surface -- only its conclusion moved: a tinted `.theirs` bubble is correct,
+   a surface-coloured one is still the mistake. */
 .dm-w { font-size: .75rem; color: var(--k-ink-2); }
 /* ⚠️ THE META LINE FOLLOWS ITS BUBBLE. `.dm.mine` is `align-items: flex-end`,
    which right-aligns the SPAN while it is narrower than the row -- and a
@@ -4580,6 +4670,23 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    screen treatment this app already uses for it in the room, inside the pack's
    box. Rewording a terminal into prose would be a claim about what was asked. */
 .qask .pj-screen { margin-top: 6px; max-height: 200px; }
+/* #2808 (Josh, 0.6.56): the raw command wall reads as "a terrible big mess" at
+   the top of the agent page. Collapse it to a short teaser by default; the
+   "Show full command" toggle (#d-qask-expand) adds `.expanded` to restore the
+   full scrollable box. `overflow` stays `auto` (the base .pj-screen), so the
+   always-on 6px scrollbar invariant render-talk pins is untouched: only the
+   collapsed HEIGHT changes. The extra class raises specificity past
+   `.qask .pj-screen` (0,2,0) so these win. */
+.qask .pj-screen.clamped { max-height: 4.5em; }
+.qask .pj-screen.clamped.expanded { max-height: 200px; }
+/* #2808: the toggle is a subtle text affordance, not a primary button. Colour
+   and focus ring match the sibling `.pj-question-clear` text button (--label-2)
+   and this file's k-component focus convention (--k-ink), not an undefined
+   token. */
+.qask-expand { display: inline-block; margin-top: 4px; background: none; border: 0;
+  padding: 0; font: var(--text-caption) var(--font-ui); color: var(--label-2);
+  text-decoration: underline; cursor: pointer; }
+.qask-expand:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 /* ⚠️ A PERSISTENT SCROLLBAR ON THE QUESTION, and it replaces a fade that would
    have needed logic. `white-space: pre` is deliberate -- a captured line is
    what the agent's screen showed, and wrapping a permission prompt destroys
@@ -4948,6 +5055,19 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 #pj-one-agents .pj-member.pjm-working[data-agent]:hover { background: linear-gradient(rgba(47,125,90,.16), rgba(47,125,90,.16)), var(--k-surface); }
 #pj-one-agents .pj-member.pjm-attn[data-agent]:hover { background: linear-gradient(rgba(179,38,30,.15), rgba(179,38,30,.15)), var(--k-surface); }
 #pj-one-agents .pj-member.pjm-idle[data-agent]:hover { background: linear-gradient(rgba(120,120,128,.16), rgba(120,120,128,.16)), var(--k-surface); }
+/* #2804 (Josh, testing 0.6.56): the three state washes carry the meaning, so the box
+   needs no stroke -- "I do not want to have the 1px stroke around these agents, whether
+   they're active, inactive, or need help. It should only be the color: the light gray,
+   the green, or the red". `border-color: transparent` (not `border: 0`) keeps the box
+   geometry, and with the default background-clip:border-box the wash fills edge to edge
+   with no gap where the stroke was. Scoped to the same #pj-one-agents .pj-member.pjm-*
+   the washes use, so the stroke goes ONLY where a colour replaces it: a present-but-
+   neutral member (no wash) keeps its outline, and an unseen member keeps its dashed
+   presence border (.pj-member.unseen below) -- that is a different signal from the three
+   states (it says "we cannot see this agent", via the .pj-member.unseen rule), not one Josh asked to drop. */
+#pj-one-agents .pj-member.pjm-working { border-color: transparent; }
+#pj-one-agents .pj-member.pjm-attn { border-color: transparent; }
+#pj-one-agents .pj-member.pjm-idle { border-color: transparent; }
 /* The text half: everything that was directly in the row before the face
    arrived. Column, because the name, the state and the told line were three
    siblings of a wrapping flex row and are now one block beside the disc. */
@@ -5088,12 +5208,18 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    before. It lives on the id, not `.pj-screen`, because four surfaces share
    that rule and only this one is the agent page's window. */
 #d-window { max-height: calc(100vh - 220px); }
-/* The pack's Fresh start stack (Josh, 2026-08-23 19:57): three big
-   full-width buttons, one per line, matching his screenshot. */
-.freshstack .btn { display: block; width: 100%; margin-top: 10px;
-                   padding: 14px 16px; text-align: center;
-                   font-size: 17px; font-weight: 600; }
+/* Fresh start actions size to their content, not the full container width
+   (Josh, 2026-09-11 reviewing 0.6.56 live: the buttons "look terrible" full
+   width -- #2809). This reverses the 2026-08-23 full-bleed stack: the three
+   still stack one per line and left-align under the lede, but each is only as
+   wide as its label plus padding. `display:block` keeps them stacked (one per
+   line, left-aligned by the block default); `width:fit-content` shrinks each to
+   its label, replacing the old `width:100%`. Scoped to `.btn` deliberately so it
+   does NOT resize the sibling `.fmsg` receipts sharing the restart container --
+   a flex-column parent would have made those content-width too. */
 .freshstack { margin-top: 2px; }
+.freshstack .btn { display: block; width: fit-content; margin-top: 10px;
+                   padding: 14px 16px; font-size: 17px; font-weight: 600; }
 /* The three read as ONE stack: the restart container joins at the stack's
    own 10px rhythm, and the empty receipt slots between them take no height
    until they hold a sentence. */
@@ -5877,6 +6003,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    which looks real sloppy." Scoped to the header instance by id, so the
    Instructions-tab .stale-note (#d-instr-outdated) is untouched. */
 #d-instr-stale { margin-top: var(--space-5); }
+/* #2830 (Josh, 0.6.57 review): the Instructions-tab stale-note (#d-instr-outdated) sat
+   right against the Save button above it -- the same "touching the button, looks sloppy"
+   issue #1841 fixed for the header instance (#d-instr-stale) just above. #1841 deliberately
+   scoped its fix to the header id and left this one; Josh reported it "still" touching, so
+   give this instance the same top gap. Base .stale-note has margin-bottom but no margin-top,
+   which is why it hugged the button. */
+#d-instr-outdated { margin-top: var(--space-5); }
 /* Theme ink again: .acard/.lrow flip with the pack's dark k-token set,
    so --warn-ink is correct on each surface. (Round 2's fixed #7a5200 was
    the compensation for the pre-flip literal-white card.) */
@@ -7532,6 +7665,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              question in the room. Not prose: we did not write it. -->
         <pre class="pj-screen" id="d-qask-text" tabindex="0" hidden
              role="region" aria-labelledby="d-qask-lab"></pre>
+        <!-- #2808: a "Show full command" toggle for the collapsed command wall.
+             It flips `.expanded` on #d-qask-text (removing the ~3-line clamp);
+             the render unhides it only for a long question, and the full text
+             stays in the DOM either way. -->
+        <button class="qask-expand" id="d-qask-expand" type="button" hidden
+                aria-expanded="false" aria-controls="d-qask-text">Show full command</button>
         <div class="qopts" id="d-qopts" hidden></div>
         <p class="qout" id="d-qout" hidden>Or write your own answer below.</p>
         <!-- ⚠️ A HINT, NOT A VERDICT PILL, ruled by Mona Lisa 2026-08-20 after a
@@ -7559,6 +7698,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              #2456/#2575 reported-question false state. -->
         <button class="btn" id="d-qask-trust-restart" type="button" hidden>Trust &amp; Restart</button>
         <p class="fmsg" id="d-qask-trust-restart-msg" role="status" aria-live="polite"></p>
+        <!-- #2808 (Josh, 0.6.56): one-click dismiss for the "waiting on an
+             answer" message. Wired to a self-contained handler that POSTs the
+             same clear-selfreport route the project room's clear uses (#2575),
+             for the CURRENT agent. Worded honestly as "Clear this message":
+             clear-selfreport clears the notification, it does NOT grant a live
+             pending permission (that unblock-relay is an engine fast-follow). -->
+        <button class="btn" id="d-qask-clear" type="button" hidden>Clear this message</button>
+        <p class="fmsg" id="d-qask-clear-msg" role="status" aria-live="polite"></p>
       </div>
     </div>
     <!-- #2622: the search moved up beside the caption (.d-talk-caprow above). It still
@@ -7720,6 +7867,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           </div>
           <p class="dhint" id="d-model-why" style="margin:8px 0 0;" hidden></p>
           <p class="dhint" id="d-model-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+          <!-- #2802: for a ChatGPT-subscription (Codex) agent the model selector is
+               honestly disabled (OpenAI picks the model on a subscription), but the
+               prose "sign in with an API key to choose a specific model" left the
+               user with no action ("I can't even click it"). This button makes that
+               state actionable: it opens the Add-a-provider flow so they can connect
+               an API-key account. Shown by paintOpenaiDetailModel ONLY in the
+               not-an-api-key case; hidden otherwise. -->
+          <button class="btn" type="button" id="d-model-connect" hidden style="margin:10px 0 0;">Connect an API key</button>
         </div>
       </div>
     </div>
@@ -7777,14 +7932,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            with it; each button's dialog already says what it keeps and loses,
            and two copies of one explanation is one to keep current. Painted by
            resetLabels() on open and after a rename. -->
-      <!-- 🔑 THE PACK'S SHAPE, MATCHED EXACTLY (Josh, 2026-08-23 19:57: "make
-           this look like what the pack design looks like... nice big fat
-           buttons that are all three stacked"). His screenshot carries the
-           pack's colon labels, which SUPERSEDES the 08-22 long-form ruling
-           recorded below; tonight is later and he was pointing at the picture.
-           The lede and the footer are the pack's sentences verbatim; the cost
-           still lives in each button's dialog, which is what the footer
-           promises. -->
+      <!-- 🔑 THE PACK'S SHAPE (Josh, 2026-08-23 19:57): three stacked actions
+           with the pack's colon labels, which SUPERSEDES the 08-22 long-form
+           ruling recorded below. The lede and the footer are the pack's
+           sentences verbatim; the cost still lives in each button's dialog,
+           which is what the footer promises. Only Restart names the agent.
+           ⚠️ THE WIDTH WAS REVERSED (Josh, 2026-09-11, #2809): the 08-23
+           "nice big fat buttons" were FULL-WIDTH, and reviewing 0.6.56 live he
+           ruled they "look terrible" that way. They now size to content
+           (`.freshstack .btn` is `display:block; width:fit-content`); still
+           stacked one per line, just no longer full-bleed. -->
       <div class="fhint" id="d-fresh-lede" style="margin-bottom:12px;">Three ways to get it going again, whatever the reason.</div>
       <div class="freshstack">
         <button class="btn" id="d-compact-go" type="button">Compact: summarise and keep going</button>
@@ -10189,12 +10346,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   <p class="fhint" id="pj-none" hidden></p>
   <div id="pj-list-view">
     <!-- #520, piece two: the projects rail's head, consolidated view only.
-         The + is the list's own New project; the arrow folds the list away
-         and leaves the arrow. -->
+         #2850 (Josh, 2026-09-11): the fold arrow sits on the LEFT (inside .lead,
+         before the name) and the + (the list's own New project) sits on the FAR
+         RIGHT (inside .railacts), matching the agents rail and the tab-view
+         grammar. When folded, the arrow alone remains and reopens the list. -->
     <div class="railhead" id="rail-projects" hidden>
-      <span class="lead"><button class="fold plus" type="button" id="rail-projects-new" aria-label="New project" title="New project">+</button><span class="railname">Projects</span></span>
+      <span class="lead"><button class="fold" type="button" id="rail-projects-fold" data-fold="p" aria-label="Fold the projects column" aria-expanded="true">&lsaquo;</button><span class="railname">Projects</span></span>
       <span class="railacts">
-        <button class="fold" type="button" id="rail-projects-fold" data-fold="p" aria-label="Fold the projects column" aria-expanded="true">&lsaquo;</button>
+        <button class="fold plus" type="button" id="rail-projects-new" aria-label="New project" title="New project">+</button>
       </span>
     </div>
     <!-- ⚠️ The pack's stats row (view C), the same grammar as the agents
@@ -10948,15 +11107,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <label class="flabel" for="pjs-desc">Description</label>
       <!-- No maxlength, a recorded engine decision (projects.js): the engine
            counts CODE POINTS and HTML maxlength counts UTF-16 units, so a
-           raw 200 here would cut a pasted emoji description at half length
+           raw 1000 here would cut a pasted emoji description at half length
            while the engine accepts it. The engine's refusal sentence is the
            cap.
            ⚠️ #1303 G: SO THE FIX FOR "TELL ME THE LIMIT" IS A SENTENCE, NOT A
            maxlength. Josh asked to "indicate next to the description that there
-           is a 200-character limit"; putting 200 in the attribute would be the
+           is a 1000-character limit"; putting 1000 in the attribute would be the
            exact bug this note already forbids. The number here, the number in
            PJ_DESC_MAX and the engine's are pinned together by a test. -->
-      <p class="fhint" id="pjs-desc-hint">Up to 200 characters.</p>
+      <p class="fhint" id="pjs-desc-hint">Up to 1000 characters.</p>
       <textarea class="tk-inp" id="pjs-desc" rows="2" aria-describedby="pjs-desc-hint pjs-desc-note"></textarea>
       <p class="ferr" id="pjs-desc-err" aria-live="polite"></p>
       <!-- #1305, the other half of Josh's question: "if I change the description,
@@ -11137,7 +11296,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            CODE POINTS and maxlength counts UTF-16 units, so any number here cuts
            a pasted emoji description at half length. The cap is said in words
            and enforced where it is defined. -->
-      <p class="fhint" id="pj-add-desc-hint">Up to 200 characters.</p>
+      <p class="fhint" id="pj-add-desc-hint">Up to 1000 characters.</p>
       <textarea class="tk-inp" id="pj-add-desc" rows="2"
                 aria-label="What this project is about"
                 aria-describedby="pj-add-desc-hint"
@@ -12498,19 +12657,21 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
      view (showTab shows it with the mode). The + is the board's own New
      agent; the arrow folds the column to its letters. -->
 <div class="railhead" id="rail-agents" hidden>
-  <!-- Josh, 2026-08-27: "I want to get rid of the K icon in the top left corner",
-       and "the plus sign for agents, projects, tasks, and project members on the
-       left side of their respective labels. This way we give room for the arrows
-       on the collapsible ones to be on the right and we just clean things up."
-       🔑 THE + MOVES INTO .lead, BESIDE THE NAME. It is not decoration: every
-       header then has its action on the left and its fold on the right, instead
-       of two controls competing for one corner. The K mark went from here rather
-       than being restyled, so its button, its image and its styles are gone
-       with it. Its name is deliberately not written here: the guard for this is a
-       literal search, and prose naming the thing would fail it. -->
-  <span class="lead"><button class="fold plus" type="button" id="rail-agents-new" aria-label="New agent" title="New agent">+</button><span class="railname">Agents</span></span>
+  <!-- #2850 (Josh, 2026-09-11, 0.6.57 review): the fold arrow sits on the LEFT
+       (inside .lead, before the name) and the + (New agent) sits on the FAR
+       RIGHT (inside .railacts). This lines the collapse control up flush-left
+       with the agent avatars below it and matches the tab-view grammar.
+       ⚠️ This REVERSES the 2026-08-27 arrangement, which put the + on the left of
+       each label to free the right corner for the fold arrow.
+       SCOPE: this change moves the AGENTS and PROJECTS rails only. Josh's #2850
+       item 4 asks for the same swap on tasks and members; their + currently sits
+       LEFT (kosmos#1303 H, chosen to match the old agents/projects arrangement),
+       so it no longer matches until that reposition lands. That remaining
+       tasks/members half is tracked on #2850. The K mark removed on 2026-08-27
+       does not return (its class/id stay guarded away in the layout-picker test). -->
+  <span class="lead"><button class="fold" type="button" id="rail-agents-fold" data-fold="a" aria-label="Fold the agents column" aria-expanded="true">&lsaquo;</button><span class="railname">Agents</span></span>
   <span class="railacts">
-    <button class="fold" type="button" id="rail-agents-fold" data-fold="a" aria-label="Fold the agents column" aria-expanded="true">&lsaquo;</button>
+    <button class="fold plus" type="button" id="rail-agents-new" aria-label="New agent" title="New agent">+</button>
   </span>
 </div>
 <div class="alist" id="alist" hidden></div>
@@ -15839,6 +16000,17 @@ function showTab(tab) {
   const cons = layoutConsolidated() && (tab === 'agents' || tab === 'projects');
   const wasCons = document.body.classList.contains('consolidated');
   document.body.classList.toggle('consolidated', cons);
+  // #2848: nest the project's sub-projects strip under the name in the
+  // consolidated view, restore it above the grid in the tab view. Here because
+  // this is the one place that knows the effective view (the resize re-check
+  // and every tab switch pass through it), keyed on the same `cons` the body
+  // class uses so the DOM move and the consolidated CSS never disagree.
+  placeSubProjects(cons);
+  // #2842: relocate the app-settings panel into the projects display column in the
+  // consolidated view (so #rail-me-go can open it in place), and restore it to the
+  // top level in the tab view. Same chokepoint and same `cons` flag as above, so the
+  // DOM move and the consolidated CSS stay in lockstep.
+  placeAppSettings(cons);
   // #980: the search placeholder follows the EFFECTIVE view, set in the
   // one place that decides it (this toggle re-runs on tab switches and on
   // the resize re-check), never the saved layout alone -- a consolidated
@@ -16684,6 +16856,15 @@ function accountGroupsHtml(list, rowHtml) {
    newer message, and an earlier version of this held the id as an EXPANDO ON THE
    BUTTON -- which `paintAccounts` destroys wholesale via `box.innerHTML = ...`,
    so after any repaint NOTHING COULD CANCEL IT. Module scope outlives the node. */
+/* #2684: acctSayTimer is now a BENIGN NO-OP. The only writer that ever armed it
+   was the disabled-default Disconnect's click handler, which this change removed
+   (the default Disconnect is a live data-forget control now). Nothing sets the
+   timer any more, so acctSayTimer stays null and acctCancelSay() is a permanent
+   no-op. The ~11 acctCancelSay() call sites and the "60ms deferred refusal" /
+   "aria-disabled button stays pressable" race comments scattered below describe a
+   scenario that can no longer occur; they are harmless (a no-op cannot land a
+   stale write) and were left rather than sweep 11 call sites in the live handler.
+   Tracked as a follow-up cleanup; do NOT trust those local comments over this note. */
 let acctSayTimer = null;
 function acctCancelSay() { if (acctSayTimer) { clearTimeout(acctSayTimer); acctSayTimer = null; } }
 
@@ -17041,81 +17222,45 @@ async function paintAccounts() {
             + 'there will not appear any more.' : '')
           + '"'
           + '>Disconnect</button>'
-        : (a.isDefault
-          /* 🛑 THE DEFAULT ROW GETS A DISABLED BUTTON, BECAUSE THE ENGINE
-             REFUSES IT. `accounts.forgetAccount` will not move `~/.claude`:
-             `prepare()` symlinks every account Kosmos makes at
-             `~/.claude/projects`, so removing it strands the history of
-             accounts nobody asked to remove. `list()` emits the default row
-             first WHENEVER it is signed in (it is skipped when
-             `identityOf(~/.claude.json)` is null, so a machine signed in only
-             on a named account renders none), so a live button here is one
-             nearly every user sees and NONE can use -- the "nothing that looks live may do nothing" shape this
-             file refuses elsewhere, and it would carry a title promising an act
-             it cannot perform. The title states the refusal.
-            🛑 IT DOES NOT STATE A WAY OUT, and this clause used to claim it did.
-            The engine says outright that the default refusal deliberately names
-            none, because both candidate remedies were removed as unreachable: one
-            implies the button then works, the other names an affordance this page
-            does not have. A leftover promise like that invites the next reader to
-            add a remedy that does not exist. */
-          /* ⚠️ THE REASON RIDES THE aria-label, NOT ONLY THE title. A `title`
-             on a DISABLED control is not announced, so a screen-reader user got
-             "Disconnect main@example.com" with no hint it is unavailable or
-             why. Repo rule is WCAG AA, and this same function already states
-             the principle for the connection badge: the real sentence is the
-             visible text AND the label, never a reason hidden in a hover. */
-          /* 🛑 `aria-disabled`, NOT `disabled`. A `disabled` button is removed
-             from the tab order, so a keyboard user tabbing this row never lands
-             on it and never hears the reason -- and the repo's own rule names
-             non-focusable controls as a WCAG AA failure. aria-disabled keeps it
-             focusable and announces the state.
-             ✅ IT CANNOT ACT, and the reason stated here used to be WRONG in a way
-             that invited deleting live code. It said "there is no listener to
-             fire". There IS one: the same diff binds a click handler to
-             `.acct-disconnect[aria-disabled="true"]` below, precisely so a press
-             says WHY instead of doing nothing.
-             ⇒ What actually makes softening the attribute safe is that this row
-             carries no `data-forget`, so the REMOVAL handler never selects it. The
-             refusal is enforced by the absence of that attribute, not by the
-             absence of all wiring.
-             ⚠️ The distinction is not pedantry: a reader who believed the old
-             sentence would conclude the default row has no handlers and delete the
-             no-op refusal as dead code, which is the exact "pressable but silent"
-             failure the handler exists to prevent. */
-          ? '<button class="acct-disconnect" type="button" aria-disabled="true" '
-            + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')'
-              + '. Unavailable: Kosmos does not remove this computer\u2019s main Claude folder." '
-            + 'title="Kosmos does not remove this computer\u2019s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and other accounts here may keep their history inside it.">Disconnect</button>'
-          /* 🛑 #2441: THE TITLE IS CONDITIONAL ON api-key, BECAUSE Disconnect DELETES
-             DIFFERENT THINGS ON THE TWO CREDENTIAL SHAPES, and #1659's rule is that
-             "removed" and "deleted" are different promises and the person is owed the
-             true one. On an OAuth row `forgetAccount` renames the dir aside and the
-             sign-in file survives -- "nothing is deleted" is true. On an api-key row
-             it ALSO erases the raw key file and unwires the apiKeyHelper pointer
-             (engine/accounts.js #2420: `ca.forgetKey` + `unwireApiKeyHelper` on the
-             moved dir), so the saved key IS deleted. Reusing the OAuth title there
-             would promise the credential survives when Disconnect is exactly what
-             takes it away. The api-key title says so; the folder is still moved aside,
-             so the history sentence stays true of both. */
-          : '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
+        /* #2684: THE DEFAULT ROW'S DISCONNECT IS LIVE NOW. accounts.forgetAccount
+           no longer refuses `~/.claude`: instead of moving the dir (which would
+           strand other accounts' symlinked history), it clears ONLY the oauth
+           identity from <HOME>/.claude.json, so the folder and any history in it
+           are KEPT. So the default gets a real data-forget button like every other
+           row -- only its title differs (folder kept, not moved aside), stated by
+           the isDefault branch in the title below. The old disabled/aria-disabled
+           default branch and its click-to-explain handler are gone with the refusal
+           they explained.
+           #2441 (still true for the SECONDARY rows the title below serves): an
+           OAuth secondary is renamed aside (sign-in survives); an api-key secondary
+           ALSO has its raw key erased + apiKeyHelper unwired (engine/accounts.js
+           #2420), so the key IS deleted, which is why the api-key title says so. */
+        : '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
             + 'data-forget-provider="claude" '
             + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')' + '" '
-            + 'title="' + (a.apiKey
+            + 'title="' + (a.isDefault
+              /* #2684: the DEFAULT disconnect clears ONLY the oauth identity from
+                 <HOME>/.claude.json; the folder + history are kept. */
+              ? 'Takes the main connection off the list. Only its sign-in is cleared from this computer; the Claude folder and any history in it are kept, so sign in again to reconnect it.'
+              : a.apiKey
               ? 'Takes this account off the list and erases its saved API key from this computer. Nothing else is deleted: its folder is moved aside and Kosmos stops looking inside it, so any history kept only there will not appear any more.'
               : 'Takes this account off the list. Its sign-in file stays on this computer, so nothing is deleted, and Kosmos stops looking inside it, so any history kept only there will not appear any more.')
-            + '">Disconnect</button>'))
-      /* #2264: DELETE AND REMOVE - the destructive third action, on every
-         NON-default row of both providers (removeAccount refuses the default, so
-         it gets no button, matching the disabled Disconnect above). data-remove
+            + '">Disconnect</button>')
+      /* #2264: DELETE AND REMOVE - the destructive third action. data-remove
          (not data-forget) so the removal handler tells delete from disconnect and
          sends remove:true; the provider rides the same data-forget-provider
          attribute the two DELETE routes already read. */
-      /* #2441: Delete-and-remove is now LIVE on api-key Claude rows too. #2420's slice
-         landed, so removeAccount accepts api-key accounts; the #2433 `a.apiKey`
-         suppression is dropped, leaving only the default-row suppression (removeAccount
-         still refuses the default, so it keeps getting no button). */
-      + (a.isDefault ? ''
+      /* #2441: Delete-and-remove is LIVE on api-key Claude rows too (removeAccount
+         accepts api-key accounts since #2420). */
+      /* #2684: THE DEFAULT NOW GETS A DELETE BUTTON ON OPENAI ONLY, and this
+         asymmetry is deliberate. On OpenAI, Delete (removeAccount) rmSyncs the whole
+         `.codex` dir -- genuinely different from Disconnect, which only renames it
+         aside -- so both controls are meaningful. On CLAUDE the primary's only safe
+         removal is clearing the oauth identity from <HOME>/.claude.json (the dir is
+         Claude Code's home + may hold shared history), and the now-live Disconnect
+         already does exactly that; a Claude-default Delete would be byte-identical,
+         so it stays suppressed rather than show two controls that do the same thing. */
+      + ((a.isDefault && !isOpenai) ? ''
         : '<button class="acct-remove" type="button" data-remove="' + esc(a.dir) + '" '
           + 'data-forget-provider="' + (isOpenai ? 'openai' : 'claude') + '" '
           + 'aria-label="Delete and remove ' + who + ' (' + esc(qualName) + ')" '
@@ -17163,110 +17308,9 @@ async function paintAccounts() {
       openAcctReauthOpenai(btn.dataset.openaiReauth, (row && row.email) || '');
     });
   }
-  /* 🛑 THE OTHER HALF OF `aria-disabled`, WITHOUT WHICH IT IS WORSE THAN
-     `disabled`. Making the default row's control focusable so a keyboard user
-     can reach the reason ALSO makes it pressable, and the shared handler below
-     binds only `[data-forget]`, which this branch deliberately lacks. So Enter
-     or Space did nothing at all, with no feedback -- the exact
-     nothing-that-looks-live-may-do-nothing shape, newly reachable by keyboard
-     because of the accessibility fix.
-     ✅ IT READS THE BUTTON'S OWN `title` FIRST, so the normal path repeats
-        nothing.
-     🛑 BUT IT DOES CARRY A COPY, AND THIS COMMENT USED TO DENY IT. The fallback
-        sixteen lines below is a literal of the same sentence, and the comment
-        there argues FOR it: an empty fallback would clear the region and produce
-        exactly the silence this handler exists to prevent. Both are right, and
-        together they made one handler whose two comments described it oppositely.
-     📌 The honest count is FOUR copies (the aria-label short form, the title,
-        that fallback, and the engine), of which a test pinned exactly ONE PAIR,
-        because `pull()` anchors on `title="`. The fallback is pinned to the
-        engine now too, so the copy this comment used to deny cannot drift. */
-  for (const btn of box.querySelectorAll('.acct-disconnect[aria-disabled="true"]')) {
-    btn.addEventListener('click', () => {
-      /* 📌 NO `preventDefault`: a `<button type="button">` defaults to nothing,
-         so calling it read as though IT were what suppresses the removal. What
-         suppresses the removal is the absent `data-forget`, and a line that
-         looks like the guard but is not is the shape this branch keeps finding.
-         ⚠️ CLEARED FIRST, THEN SET, because an unchanged `textContent` in a
-         status region is not reliably re-announced: pressing twice would be
-         silent for a screen-reader user, which is a smaller version of the
-         defect this handler exists to fix. */
-      if (!msg) return;
-      /* 📌 NO EMPTY FALLBACK. `btn.title || ''` would clear the region and
-         produce exactly the silence this handler exists to prevent, on the day
-         somebody drops the title from that branch. If there is nothing to say,
-         say the short form rather than nothing. */
-      /* #1917: THE REFUSAL NOW NAMES A WAY OUT, because the default row is exactly
-         where a real tester dead-ended. Kosmos will not remove `~/.claude`, and when
-         it is the account whose sign-in is broken (Ben, 0.6.22: the agent 401'd on
-         the account it could not remove) the pure refusal was a wall. `Sign in again`
-         (#1492, `data-reauth`) is on this same row and re-auths this account in place,
-         which is the recovery to TRY -- so the pressed refusal points at it. Appended
-         to the SPOKEN message only, never to `btn.title`: the title stays pinned to the
-         engine's `because` (web.account-qualifier.test.js anchors title=" against it),
-         and this remedy is UI-specific ("above") so it does not belong in the engine
-         sentence.
-         \ud83d\uded1 A THING TO TRY, NOT A FIX, AND THE MESSAGE IS TRUE WHETHER OR NOT REAUTH
-         CAPTURES. Confirmed from Ben (via Josh, 2026-09-02): `Sign in again` runs the
-         whole flow, returns a green check "like everything's active", and does NOT
-         capture a working credential -- his agent kept 401'ing after it. So this must
-         NOT promise that `Sign in again` fixes the account, or it loops a user back to a
-         false green. It points at the step to try AND warns that the green check proves a
-         sign-in RAN, not that it took -- the same thing #874 measured about the row badge,
-         which cannot see a rejected token. That warning is true in both worlds, so the
-         sentence stays correct however the reauth defect resolves.
-         \u26a0\ufe0f DOWNSTREAM of the reauth-returns-green-without-capturing defect (Splinter
-         filing its own card; recurring -- it also hit Casey, not one-off on Ben's Mac).
-         When reauth is fixed so a green check means a captured credential, this wording
-         can be strengthened to name it as the fix. Noted on the card so that owner sees
-         it. */
-      /* #2433/#2441: the "Sign in again above" remedy is only TRUE when this row
-         actually has a reauth control, so the clause is gated on the control's presence
-         rather than assumed. #2441 flipped api-key Disconnect live, so the only row that
-         still renders a disabled Disconnect is the default ~/.claude row, which keeps
-         reauth -- meaning the false branch is not reached in practice today. The gate
-         stays because it is the correct guard: any disabled-Disconnect row that lacked
-         reauth (e.g. a default row that is also api-key) would otherwise point at a
-         button that does not exist. The title is untouched either way (a test anchors
-         on it). */
-      const row = btn.closest('.acct-box');
-      const hasReauth = !!(row && row.querySelector('[data-reauth]'));
-      const say = (btn.title || 'Kosmos does not remove this computer\u2019s main Claude folder.')
-        + (hasReauth
-          ? ' If its sign-in is not working you can try \u201cSign in again\u201d above, then check that an agent on it actually connects: a green check here confirms a sign-in ran, not that it captured a working credential.'
-          : '');
-      /* ⚠️ setTimeout, NOT requestAnimationFrame: rAF is throttled or suspended
-         outright in a hidden or background tab, so the clear-then-set would
-         leave the region BLANK there -- worse than the unchanged text it is
-         working around. A frame is also arguably too fast for assistive tech to
-         register the change. */
-      /* 🛑 THE TWO WRITERS TO THIS LINE CAN RACE, AND THE TIMER IS WHAT
-         INTRODUCED IT. Press the disabled default row, then a live Disconnect
-         within 60ms: the deferred refusal lands DURING the in-flight removal and
-         shows the wrong sentence over a request that is still running. The timer
-         id is the MODULE-SCOPE `acctSayTimer`, NOT a button expando. This comment
-         said "held on the button" while the code four hundred lines up says the
-         expando version was the bug and why: `paintAccounts` destroys the node via
-         `box.innerHTML`, so nothing could cancel after a repaint. One file, one
-         mechanism, two comments describing it oppositely. */
-      acctCancelSay();
-      msg.textContent = '';
-      acctSayTimer = setTimeout(() => {
-        acctSayTimer = null;
-        msg.textContent = say;
-        /* 🛑 THE DEFAULT ROW IS EMITTED FIRST AND THIS MESSAGE LINE SITS AFTER
-           THE WHOLE LIST (`#set-accounts` is emitted
-               before `#set-accounts-msg`; located by ID rather than by line,
-               because the numbers this carried were wrong in BOTH trees, and a
-               dead citation reads exactly like a live one). On a multi-account machine the
-           feedback for pressing the TOPMOST button renders below every other
-           account box, possibly off-screen at the moment the person acts. The
-           tooltip and aria-label cover hover and screen readers; a mouse user
-           who clicks and looks gets nothing where they are looking. */
-        if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
-      }, 60);
-    });
-  }
+  /* #2684: the dead aria-disabled default-Disconnect click handler was removed
+     with the disabled default button it explained -- the default now renders a
+     live data-forget Disconnect, handled by the shared handler below. */
   for (const btn of box.querySelectorAll('[data-forget], [data-remove]')) {
     /* #2264: ONE handler for BOTH Disconnect (data-forget, a reversible rename)
        and Delete and remove (data-remove, a destructive delete). They share the
@@ -18818,7 +18862,14 @@ function acctShowSuccess(accountLabel, goldBox) {
   document.getElementById('acct-add-dialog').setAttribute('aria-labelledby', 'acct-success-t');
   document.getElementById('acct-success-close').focus();
 }
-function openAcctAdd() {
+let ACCT_ADD_RETURN_FOCUS = null;
+function openAcctAdd(ev) {
+  // #2802: remember the control that opened this modal so closeAcctAdd can send
+  // focus back to it. The Model tab's "Connect an API key" button lives OUTSIDE
+  // the Settings > Accounts section, so unconditionally focusing #acct-add-open on
+  // close (it is display:none unless that section is showing) stranded focus on
+  // <body> -- the #1918 stranded-focus class, on the close path.
+  ACCT_ADD_RETURN_FOCUS = (ev && ev.currentTarget && typeof ev.currentTarget.focus === 'function') ? ev.currentTarget : null;
   const modal = document.getElementById('acct-add-modal');
   const sel = document.getElementById('acct-provider-pick');
   const active = frConnActive((ACCT_FLOW_LAST || '').split('|')[0]);
@@ -18873,9 +18924,21 @@ function closeAcctAdd() {
   });
   document.getElementById('acct-add-dialog').setAttribute('aria-labelledby', 'acct-add-t');
   document.getElementById('acct-add-modal').hidden = true;
-  document.getElementById('acct-add-open').focus();
+  // #2802: return focus to whatever opened the modal, falling back to the Accounts
+  // door. A recorded opener that is no longer rendered (offsetParent === null =
+  // display:none or detached) cannot take focus, so fall back rather than strand
+  // focus on <body>.
+  const backEl = (ACCT_ADD_RETURN_FOCUS && document.contains(ACCT_ADD_RETURN_FOCUS) && ACCT_ADD_RETURN_FOCUS.offsetParent !== null)
+    ? ACCT_ADD_RETURN_FOCUS
+    : document.getElementById('acct-add-open');
+  ACCT_ADD_RETURN_FOCUS = null;
+  if (backEl) backEl.focus();
 }
 document.getElementById('acct-add-open').addEventListener('click', openAcctAdd);
+// #2802: the Model tab's "Connect an API key" action (shown for a ChatGPT-
+// subscription agent whose models cannot be listed) opens the same Add-a-provider
+// flow, so the disabled model state has a real next step instead of only prose.
+{ const c = document.getElementById('d-model-connect'); if (c) c.addEventListener('click', openAcctAdd); }
 document.getElementById('acct-add-close').addEventListener('click', closeAcctAdd);
 document.getElementById('acct-success-close').addEventListener('click', closeAcctAdd);
 document.getElementById('acct-add-modal').addEventListener('click', (e) => { if (e.target.id === 'acct-add-modal') closeAcctAdd(); });
@@ -22129,6 +22192,14 @@ async function paintTalk(sessionName, agentName) {
   /* #2129: default the recovery button hidden every paint, so it only shows
      where the branch below explicitly turns it on. */
   if (qTrust) qTrust.hidden = true;
+  /* #2808: the dismiss button and the "Show full command" toggle, defaulted
+     hidden every paint (like qTrust) so they only show where a branch below
+     turns them on. Self-contained lookups; a self-contained handler drives
+     each, so the qask isolation tests do not throw on a delegate elsewhere. */
+  const qClear = document.getElementById('d-qask-clear');
+  const qExpand = document.getElementById('d-qask-expand');
+  if (qClear) qClear.hidden = true;
+  if (qExpand) qExpand.hidden = true;
   if (body.asking && body.question) {
     /* #1629: for Claude Code's trust dialog the ROUTE sends `answerNote`, the
        same sentence its send refusal uses, because the composer below invites
@@ -22149,6 +22220,38 @@ async function paintTalk(sessionName, agentName) {
        prompt, which is the only state carrying body.answerNote (#1629). Never on
        the #2456/#2575 reported-question false state (answerNote null there). */
     if (qTrust && body.answerNote) qTrust.hidden = false;
+    /* #2808: a TALL command wall (many lines) is the "mess" this card is about.
+       Collapse it to the ~3-line teaser and offer the toggle only when it runs
+       past that. Gated on LINE COUNT (trailing newlines trimmed, so a 3-line
+       command with a stray trailing newline does not read as 4), not length: a
+       single long line is one line tall (the horizontal scrollbar already
+       handles its width), so clamping its height would do nothing. Counted from
+       the TEXT, not a layout read, so it is deterministic. */
+    const qStr = body.question.text || '';
+    const qLong = qStr.replace(/\n+$/, '').split('\n').length > 3;
+    qtext.classList.toggle('clamped', qLong);
+    /* Collapse ONLY when the question is NEW. paintTalk re-runs on every poll
+       tick (~5s) for the SAME still-pending question, so an unconditional reset
+       would silently re-collapse the box a few seconds after the person clicked
+       "Show full command" on a command they are still reading. Keyed on the
+       question text stashed on the element (the #d-qopts __lastOpts pattern). */
+    const qNew = qtext.__q2808 !== qStr;
+    qtext.__q2808 = qStr;
+    if (qNew) qtext.classList.remove('expanded');
+    if (qExpand) {
+      qExpand.hidden = !qLong;
+      /* Label follows the CURRENT expanded state, so a repeat poll never stamps
+         "Show full command" back over a box the person has opened. */
+      const open = qtext.classList.contains('expanded');
+      qExpand.textContent = open ? 'Show less' : 'Show full command';
+      qExpand.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    /* #2808: the one-click dismiss shows for a live "waiting" box, EXCEPT the
+       folder-trust prompt (body.answerNote), whose real one-click action is
+       "Trust & Restart" right beside it. An identical-looking "Clear this
+       message" there would invite dismissing a genuinely live prompt without
+       resolving it (self-correcting, since the flag re-raises, but confusing). */
+    if (qClear) qClear.hidden = !!body.answerNote;
   } else if (!body.asking) {
     /* ⚠️ CLEARED WHEN NOTHING IS ASKING. They sit behind `hidden`, so nothing
        was shown — but the render check reads them directly and found the last
@@ -22157,6 +22260,7 @@ async function paintTalk(sessionName, agentName) {
     qlab.textContent = '';
     pjSetScreen(qtext, '');
     qtext.hidden = true;
+    qtext.classList.remove('clamped', 'expanded');   // #2808: no wall, no clamp
   } else if (body.asking) {
     /* ⚠️ SAID, not hidden. A "Needs you" card over an empty question box is
        the stranded state this feature exists to remove. The ROUTE's own
@@ -22166,6 +22270,10 @@ async function paintTalk(sessionName, agentName) {
       + (body.questionBecause || 'we cannot find the question on its screen right now') + '.';
     pjSetScreen(qtext, '');
     qtext.hidden = true;
+    qtext.classList.remove('clamped', 'expanded');   // #2808: no captured wall here
+    /* #2808: the stranded "Needs you" state IS the one Josh hit (a leftover
+       waiting flag with no question on screen); the dismiss must reach it too. */
+    if (qClear) qClear.hidden = false;
   }
   // The drawing's states 2 and 3: an answered question is no longer a thing
   // waiting on you, and the answer takes its place in the thread below as an
@@ -22723,6 +22831,11 @@ function openDetail(sessionName, section, fromProject) {
      disabled controls, so a lingering wrong-agent sentence would
      both misattribute and suppress. Cleared together. */
   { const mm = document.getElementById('d-model-msg'); if (mm) mm.textContent = ''; }
+  // #2802: #d-model-connect is a static element only the OpenAI painter re-shows,
+  // so an OpenAI(ChatGPT-subscription) -> Claude switch would leave it lingering
+  // under the Claude model tab. Reset it here, on every agent open, so only an
+  // OpenAI not-an-api-key paint can bring it back.
+  { const cb = document.getElementById('d-model-connect'); if (cb) cb.hidden = true; }
   /* On a SWITCH only: a same-agent reopen keeps the Move verdict,
      which is the one sentence naming the saved-but-not-restarted
      window until the restart happens. */
@@ -22799,11 +22912,22 @@ function openDetail(sessionName, section, fromProject) {
      role-less agent gets an unbolded "model · disclosure", as it read before
      this change. */
   const roleSeg = roleLine(a, ROLE_TITLES);
+  /* #2833 (Josh, 2026-09-11): the header subtitle reads Title · Provider · Account · Model.
+     🔑 Provider and Account come from the SHARED derivations this same panel already uses, not
+     a second copy: `providerOf` (reads the card's `a.runner`) and `acctParenthetical` (reads the
+     card's nested `a.account`, the same value the Runs-on box shows). `a` here is an agent CARD,
+     so the account is NOT at the top level -- `a.name` is the agent's own display name, not an
+     account. `acctParenthetical` returns '' when nothing identifies the account (a default
+     account, or an unresolved Codex account per #2811), so the segment degrades out with no
+     dangling separator. Provider and Model are always shown. Middot separator, not a new glyph. */
+  const providerLabel = providerOf(a) === 'openai' ? 'OpenAI' : 'Anthropic';
+  const acctIdent = acctParenthetical(a);
   const metaParts = [];
   if (roleSeg) metaParts.push('<b>' + esc(roleSeg) + '</b>');
-  for (const p of [runs.name, a.nameDerived ? null : 'no name was chosen for it, so this is the one it runs under']) {
-    if (p) metaParts.push(esc(p));
-  }
+  metaParts.push(esc(providerLabel));
+  if (acctIdent) metaParts.push(esc(acctIdent));
+  if (runs.name) metaParts.push(esc(runs.name));
+  if (!a.nameDerived) metaParts.push(esc('no name was chosen for it, so this is the one it runs under'));
   document.getElementById('d-meta').innerHTML = metaParts.join(' · ');
   const copy = stateCopyOf(a);
   /* ⚠️ The card's own derivations, not a copy of them: `cardStOf` decides the
@@ -22826,15 +22950,16 @@ function openDetail(sessionName, section, fromProject) {
      a task line would restate the badge; this panel shows nothing rather than
      that. Since #209 the card, too, shows nothing here rather than a frozen
      title, so the two surfaces no longer diverge on what "no task" looks like. */
+  /* #2833 (Josh, 2026-09-11): hide the self-reported quote under the name ONLY for needs_you.
+     A needs-you agent's message is already shown by the Talk section's "waiting on an answer"
+     box (Josh: "redundant and adds clutter... I only want to see the Title and Model there").
+     🛑 Scoped to needs_you, NOT to every reported state: that box is gated on needs_you, so a
+     reported BLOCKED agent's substantive reason has no other surface and must stay. A
+     non-reported reason (rate_limited's "Looks like a usage limit") also stays. taskLine is
+     UNCHANGED, so the cards that share it are unaffected. */
   const dtask = document.getElementById('d-task');
-  /* THE SAME derivation the card uses, called not copied, so the two cannot say
-     different things about one agent (the split this whole area keeps paying
-     for). Since #209 that derivation no longer includes the frozen pane title,
-     so the header shows a state's own honest reason (rate_limited, and since
-     #874, auth_failed) and otherwise nothing, which this panel already
-     prefers to a restated badge. */
   dtask.textContent = taskLine(a);
-  dtask.hidden = !dtask.textContent;
+  dtask.hidden = !dtask.textContent || (a.state === 'needs_you');
   /* The lede names the AGENT rather than saying "this agent", which is the
      pack's wording and the same substitution the rest of this panel already
      makes. `textContent`, so a name is never markup.
@@ -22870,20 +22995,13 @@ function openDetail(sessionName, section, fromProject) {
      it the sentence it is. Nothing else about the words changes. */
   const reason = String(a.because || '').trim();
   why.textContent = reason ? reason.charAt(0).toUpperCase() + reason.slice(1) + (/[.!?]$/.test(reason) ? '' : '.') : '';
-  /* #1841 (Josh, 2026-09-02): status was reported twice -- the top line already
-     carries the reported sentence (d-task quotes a.because when stateReported),
-     and this line restated it capitalized below. When the state is REPORTED, the
-     top line owns it, so this duplicate is suppressed. When it is NOT reported,
-     this is the sole honest "why we cannot vouch" explanation and stays -- that
-     is the whole point of the line, so it is hidden by duplication, never by
-     removal. */
-  /* #1996: #1841 suppressed this line when the state is REPORTED, because d-task
-     already carries the reported sentence and the two would duplicate. That holds
-     for a SINGLE-LINE because, which d-task shows whole. A MULTI-LINE because
-     cannot fit d-task's one nowrap line -- d-task truncates it -- so this becomes
-     the only surface that can show it in full, and the pair is a summary-vs-full
-     split rather than the exact duplicate #1841 removed. Keep it visible then. */
-  why.hidden = !why.textContent || (a.stateReported === true && !reason.includes('\n'));
+  /* #1841 (Josh, 2026-09-02) hides this for a reported SINGLE-LINE because (d-task carries it);
+     #1996 keeps it for a reported MULTI-LINE because (d-task truncates to one line).
+     #2833 (Josh, 2026-09-11): ALSO hide it for needs_you -- d-task no longer shows a needs-you
+     quote and the Talk waiting box does, so a multi-line needs_you because must not reappear
+     here. Other reported states keep the #1841/#1996 behavior, and the NON-reported "why we
+     cannot vouch" line (#569) is untouched: it is the sole surface for that. */
+  why.hidden = !why.textContent || (a.state === 'needs_you') || (a.stateReported === true && !reason.includes('\n'));
   /* ⚠️ TEXT, NEVER MARKUP. This is pane content: whatever happens to be on
      somebody's terminal, on its way to a product surface. `textContent` is the
      escape, and the engine has already trimmed and capped it. */
@@ -23002,6 +23120,15 @@ function openDetail(sessionName, section, fromProject) {
     document.getElementById('d-qask-lab').textContent = '';
     document.getElementById('d-qask-text').textContent = '';
     document.getElementById('d-qask-text').hidden = true;
+    document.getElementById('d-qask-text').classList.remove('clamped', 'expanded');
+    /* #2808: drop the stashed question key so the first paint for the agent we
+       are opening treats its question as NEW (opens collapsed) rather than
+       inheriting the previous agent's expanded state. The dismiss button, its
+       receipt line and the toggle need no clearing here: the whole #d-qask is
+       hidden above for the async gap, paintTalk defaults them hidden every
+       paint, and the switch-reset below clears the receipt and re-enables the
+       button (once, matching the trust-restart twin). */
+    document.getElementById('d-qask-text').__q2808 = null;
     document.getElementById('d-qask-fail').textContent = '';
     document.getElementById('d-qask-fail').hidden = true;
     setThread(document.getElementById('d-dmthread'), '<p class="dmnone">Opening&hellip;</p>', null);
@@ -23097,6 +23224,8 @@ function openDetail(sessionName, section, fromProject) {
      elements are reused, not rebuilt per agent, so a landed receipt would stand
      under the next agent unless cleared on switch. */
   { const m = document.getElementById('d-qask-trust-restart-msg'); if (m) m.textContent = ''; }
+  /* #2808: the dismiss receipt line, same reason as its trust-restart twin. */
+  { const m = document.getElementById('d-qask-clear-msg'); if (m) m.textContent = ''; }
   /* The buttons are shared across agents, so an in-flight POST for the agent we are leaving
      left them disabled; re-enable for the agent we are opening. The leaving agent's own
      `finally` re-enable is then a harmless no-op, and its late receipt is dropped by the
@@ -23107,6 +23236,9 @@ function openDetail(sessionName, section, fromProject) {
      same as the two above (an in-flight POST for the leaving agent left it
      disabled; the leaving agent's own finally re-enable is a harmless no-op). */
   { const b = document.getElementById('d-qask-trust-restart'); if (b) b.disabled = false; }
+  /* #2808: re-enable the chat-box dismiss for the agent we are opening, same as
+     the trust-restart button above. */
+  { const b = document.getElementById('d-qask-clear'); if (b) b.disabled = false; }
 
   /* ⚠️ The UI half, which the plan claimed and the code did not do.
      Every write route now refuses an agent whose pane cannot be tied to its
@@ -25481,6 +25613,12 @@ function paintRailMe() {
   face.innerHTML = youFaceHtml();
 }
 document.getElementById('rail-me-go').addEventListener('click', () => {
+  /* #2842: in the consolidated view, open settings IN the display area instead of
+     clicking the Settings tab -- the tab click runs showTab('settings'), which drops
+     body.consolidated and kicks the person out to the tab view. openConsolidatedSettings
+     keeps the consolidated layout (agents column + projects list) and takes over the
+     display column. In the tab view the tab click is still the right thing. */
+  if (layoutConsolidated()) { openConsolidatedSettings(); return; }
   const tab = document.querySelector('.tab[data-tab="settings"]');
   if (tab) tab.click();
 });
@@ -27483,6 +27621,64 @@ document.getElementById('d-qask-trust-restart').addEventListener('click', async 
   }
 });
 
+/* #2808: the "Show full command" toggle. Flips `.expanded` on the collapsed
+   command wall (removing the ~3-line clamp) and updates its own label. No route,
+   no agent state, purely a local view toggle, so it needs no capture-and-recheck. */
+document.getElementById('d-qask-expand').addEventListener('click', () => {
+  const q = document.getElementById('d-qask-text');
+  const b = document.getElementById('d-qask-expand');
+  if (!q || !b) return;
+  const open = q.classList.toggle('expanded');
+  b.textContent = open ? 'Show less' : 'Show full command';
+  b.setAttribute('aria-expanded', open ? 'true' : 'false');
+});
+
+/* #2808: the one-click dismiss for the "waiting on an answer" message. A
+   SELF-CONTAINED copy of the trust-restart handler pattern (a shared helper
+   would break the qask isolation tests that lift this region), with the same
+   capture-and-recheck (CURRENT.sessionName === forAgent) so a receipt cannot
+   land under a different agent if the person switches mid-POST. It POSTs the
+   same clear-selfreport route the project room's clear uses (#2575); on success
+   it re-reads the agent thread, so the next paint sees asking:false and hides
+   the whole box. Worded "Clear this message" on purpose: this clears the
+   NOTIFICATION, it does not grant a live pending permission (that unblock-relay
+   is an engine fast-follow, out of this render slice). */
+document.getElementById('d-qask-clear').addEventListener('click', async () => {
+  if (!CURRENT) return;
+  const forAgent = CURRENT.sessionName;
+  const btn = document.getElementById('d-qask-clear');
+  const msg = document.getElementById('d-qask-clear-msg');
+  btn.disabled = true;
+  msg.textContent = 'Clearing this message…';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/clear-selfreport',
+      { method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reason: 'operator-dismissed' }) });
+    const r = await res.json().catch(() => ({}));
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      if (res.ok && r && r.ok === true) {
+        /* Re-read so the cleared question comes off screen at once. The success
+           receipt is the box disappearing, so no message is written here. */
+        await paintTalk(CURRENT.sessionName, CURRENT.name);
+        /* #2832: also refresh the BOARD, so the "Needs you" indicator comes off
+           the agent's status line immediately instead of lingering until the
+           next 5s poll. paintTalk only re-reads THIS agent's thread; the board
+           roster/counts are painted by tick() (the status poll), so drive one
+           now -- the same await tick() every other post-action refresh uses. */
+        await tick();
+      } else {
+        msg.textContent = r.because || r.error || 'We could not clear this message.';
+      }
+    }
+  } catch {
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      msg.textContent = 'We could not reach Kosmos to clear this message.';
+    }
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 /* Open Terminal (Josh 0.6.44): POST /api/agent/<name>/launch-terminal (Pete's route)
    attaches a Terminal.app window to the agent's live tmux session so the person can watch
    it or answer a prompt. READ-ONLY about the agent -- it only adds a tmux viewer, it does
@@ -27966,6 +28162,103 @@ function placeProjectHead() {
   if (!head || !mid) return;
   if (head.parentElement !== mid) mid.insertBefore(head, mid.firstChild);
 }
+/* #2848 (Josh, 0.6.57 staging review: "we've got to figure out the sub-project
+   view because it's breaking this across the top of this thing"). In the
+   CONSOLIDATED view the sub-projects strip used to render above the whole .pj3
+   grid, so a project with a sub-project stacked three separate bars across the
+   top -- a "1 sub-project" label, the child row, and the project name (the name
+   lives in the conversation column's header, .pjmidhead, since #761). This nests
+   the strip directly under that header instead, so the parent title and its
+   sub-projects read as ONE header. The move is confined to a single grid cell
+   (.pjmid), so it does not disturb the .pj3 column ordering #2487 was careful to
+   protect. Reversible and idempotent: in the tab view (not flagged, and its
+   balanced 3-column layout does not break) the strip is restored to its original
+   slot, before .pj3 in #pj-one-view. Gated on body.consolidated, which is exactly
+   the scope the CSS below keys on, so DOM placement and styling stay in lockstep.
+   Called from showTab, the one chokepoint that reflects the EFFECTIVE view (the
+   saved layout AND the 960px width gate, resize included). */
+function placeSubProjects(consolidated) {
+  const oneView = document.getElementById('pj-one-view');
+  const subs = document.getElementById('pj-one-subprojects');
+  if (!oneView || !subs) return;
+  const midHead = oneView.querySelector('.pjmidhead');
+  const pj3 = oneView.querySelector('.pj3');
+  if (!midHead || !pj3) return;
+  if (consolidated) {
+    if (subs.parentElement !== midHead.parentElement) midHead.insertAdjacentElement('afterend', subs);
+  } else {
+    if (subs.parentElement !== oneView) oneView.insertBefore(subs, pj3);
+  }
+}
+/* #2842 (Josh, 0.6.57 review): opening user settings from the consolidated view
+   used to kick the whole layout back to the tab view, because #rail-me-go clicks
+   the Settings tab and showTab drops body.consolidated for any tab that is not
+   agents/projects. Instead the app-settings panel is relocated into the projects
+   panel's DISPLAY COLUMN so it opens in place, like View-All for tasks/files: the
+   agents column and the projects list stay, and the settings take over the display
+   area. #panel-settings is a top-level sibling of #panel-projects; moving it in makes
+   the existing `#panel-projects > :not(#pj-list-view)` grid rule place it in column 2
+   with no new placement CSS. Reversible and idempotent: restored to its original
+   top-level slot (captured on the first move) when the effective view is not
+   consolidated, so the tab view keeps settings as a full-page tab. Keyed on the same
+   `cons` flag that toggles body.consolidated, via showTab -- the one chokepoint that
+   reflects the effective view. openConsolidatedSettings() below shows it; pjView hides
+   it again on any project navigation. */
+let APP_SETTINGS_HOME = null;
+function placeAppSettings(consolidated) {
+  const panel = document.getElementById('panel-settings');
+  const projects = document.getElementById('panel-projects');
+  if (!panel || !projects) return;
+  if (consolidated) {
+    if (panel.parentElement !== projects) {
+      // Restore anchor: the original parent + next sibling, captured once. Unlike
+      // placeSubProjects (which restores to a fixed structural node, .pj3), this caches a
+      // sibling REFERENCE -- safe because #panel-settings's next sibling is #conn, a
+      // persistent top-level node that is never reparented, so insertBefore(panel, next) puts
+      // it back in the same slot. insertBefore also tolerates `next` being null (appends).
+      if (!APP_SETTINGS_HOME) APP_SETTINGS_HOME = { parent: panel.parentElement, next: panel.nextElementSibling };
+      panel.hidden = true;   // relocated but not shown until openConsolidatedSettings()
+      projects.appendChild(panel);
+    }
+  } else if (APP_SETTINGS_HOME && panel.parentElement === projects) {
+    APP_SETTINGS_HOME.parent.insertBefore(panel, APP_SETTINGS_HOME.next);
+  }
+}
+/* Open the app settings inside the consolidated display column, staying in the
+   consolidated view. Swaps the display column to the settings panel (hiding the
+   project views), keeps the projects list beside it, and paints the settings the
+   same way the tab path does -- minus the tab switch that drops body.consolidated. */
+function openConsolidatedSettings() {
+  // This shows settings WITHOUT re-adding body.consolidated, so it is only correct while
+  // the consolidated layout is already on. Guard on the SAME thing the placement CSS keys on
+  // (`body.consolidated`), not layoutConsolidated(): the two can differ (layoutConsolidated()
+  // is true on any tab at a wide-enough window, but showTab only sets body.consolidated for
+  // the agents/projects tabs), and it is body.consolidated the grid rule needs. The one
+  // caller (#rail-me-go) only shows when body.consolidated is on, but guard it here too so a
+  // future caller cannot render settings into #panel-projects without the consolidated CSS.
+  if (!document.body.classList.contains('consolidated')) return;
+  placeAppSettings(true);
+  document.getElementById('panel-projects').hidden = false;
+  for (const v of ['one', 'add', 'settings', 'task', 'docs', 'alltasks']) {
+    const el = document.getElementById('pj-' + v + '-view');
+    if (el) el.hidden = true;
+  }
+  document.getElementById('pj-list-view').hidden = false;   // keep the projects column
+  // #pj-none is another display-column child; hide the "No projects yet" hint so it does not
+  // render over settings. paintPjNone keeps it hidden while settings is open (the poll re-runs
+  // it); this makes it immediate rather than waiting for the next paint.
+  { const none = document.getElementById('pj-none'); if (none) none.hidden = true; }
+  document.getElementById('panel-settings').hidden = false;
+  paintSettings();
+  // settingsOpen -> settingsGo -> syncUrl writes the address from PJ_VIEW/PJ_CURRENT, which
+  // still name the last project view, so the URL keeps saying ?tab=projects&project=<id> while
+  // settings shows. That is deliberate: this consolidated settings view is a transient action,
+  // not a deep-linkable screen -- a reload restores the project (the durable state), not the
+  // settings overlay. PJ_VIEW is intentionally left unchanged rather than given an
+  // 'appsettings' value that syncUrl and every PJ_VIEW reader would then have to learn.
+  settingsOpen(SETTINGS_SEC);
+  syncPlusChrome();
+}
 /* 🔑 SELECT, THEN ACTIVATE (kosmos#1216). A tile used to save and apply on
    click; Josh asked for the press to be the commitment. */
 let LAYOUT_PICK = null;
@@ -28040,7 +28333,19 @@ function paintPjNone(which) {
      list stays visible beside every other view, so "list visible and one-view
      hidden" read as "nothing open" while the New project form was up. */
   const view = which === undefined ? PJ_VIEW : which;
-  const show = document.body.classList.contains('consolidated') && view === 'list';
+  /* #2842: the consolidated user-settings view (openConsolidatedSettings) takes over the
+     display column while PJ_VIEW stays 'list', and #pj-none is another
+     `#panel-projects > :not(#pj-list-view)` child in that same column. Without this it would
+     render the "No projects yet" hint on top of the settings panel -- and the 5s project
+     poll re-invokes paintPjNone, so hiding it once in openConsolidatedSettings is not enough;
+     the settings panel being open (relocated into #panel-projects and visible) is what
+     suppresses the hint, checked here so every caller (the poll included) agrees. */
+  const appSettingsOpen = (() => {
+    const ps = document.getElementById('panel-settings');
+    const pp = document.getElementById('panel-projects');
+    return !!(ps && pp && ps.parentElement === pp && !ps.hidden);
+  })();
+  const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen;
   el.hidden = !show;
   if (!show) return;
   const cls = document.body.classList;
@@ -28731,6 +29036,11 @@ async function paintOpenaiDetailModel(a, forWhom) {
   const acctDir = (a && a.account && a.account.dir && !a.account.isDefault) ? a.account.dir : '';
   if (row) row.hidden = false;
   if (msg) msg.textContent = '';
+  // #2802: hide the "Connect an API key" action by default on every paint; the
+  // not-listable branch re-shows it only for the ChatGPT-subscription case, so a
+  // prior agent's button cannot linger through the /v1/models round-trip.
+  const connectBtn = document.getElementById('d-model-connect');
+  if (connectBtn) connectBtn.hidden = true;
   // Loading: the box shows a disabled loading option, never a Claude model. Clear
   // the why-note synchronously too (as paintOpenaiCreateModel does), so a prior
   // agent's hint cannot linger visible through the /v1/models round-trip.
@@ -28782,6 +29092,14 @@ async function paintOpenaiDetailModel(a, forWhom) {
       paintModelWhy('d-model', 'd-model-why');
       if (msg) {
         msg.textContent = usable ? openaiNoModelsNote(out && out.because) : refusal;
+      }
+      // #2802: a ChatGPT-subscription account cannot list models (it has no API
+      // key, OpenAI picks the model), so the selector stays honestly disabled -
+      // but offer the one real action, connecting an API-key account, as a button
+      // rather than only as prose. Only for the not-an-api-key case; a rejected or
+      // unreachable key has a different remedy and gets no Connect button here.
+      if (connectBtn && usable && /not an api key/i.test(String((out && out.because) || ''))) {
+        connectBtn.hidden = false;
       }
     }
   })();
@@ -33281,12 +33599,30 @@ function pjView(which) {
   for (const v of ['list', 'one', 'add', 'settings', 'task', 'docs', 'alltasks']) {
     document.getElementById('pj-' + v + '-view').hidden = (v !== which);
   }
+  /* #2842: pjView is project navigation, so it always leaves the consolidated
+     app-settings view. When #panel-settings has been relocated into the display
+     column (openConsolidatedSettings), hide it here so a project view can show in
+     its place. A no-op when settings is not relocated (tab view, or never opened). */
+  {
+    const appS = document.getElementById('panel-settings');
+    const proj = document.getElementById('panel-projects');
+    if (appS && proj && appS.parentElement === proj) appS.hidden = true;
+  }
   paintPjNone(which);
   /* #520: the list is the projects rail in the consolidated view, so it
      stays beside whichever project view is open. */
   if (document.body.classList.contains('consolidated') && which !== 'list') document.getElementById('pj-list-view').hidden = false;
   PJ_VIEW = which;
   syncUrl();
+  /* #2834: close the shared reaction picker on ANY navigation, for the same reason
+     the member picker is reset just below. The old per-post picker lived inside the
+     room row, so tearing down or switching the room destroyed it; the shared
+     `#rxn-picker` lives at `document.body`, independent of `#pj-room`, so a project
+     switch or a project-gone `pjView('list')` (paintOneProject, with no user click)
+     would otherwise leave it floating with a stale `data-post`. `pjView` is
+     navigation-only (room polls never pass through here), so a picker in use stays
+     open; only a navigation closes it. */
+  rxnCloseAllPickers();
   // Arriving at a project resets the member picker to its resting state (the
   // "+ Add Member" button), so an open picker does not leak from the last
   // project into this one. Navigation-only: repaints while the view is open
@@ -35446,13 +35782,13 @@ document.getElementById('snd-toggle') && document.getElementById('snd-toggle').a
 });
 
 /* 🔑 THE DESCRIPTION CAP, ONCE IN THIS FILE (#1303 G). The engine is the
-   authority (`engine/projects.js`, `Array.from(flat).length > 200`); this is the
+   authority (`engine/projects.js`, `Array.from(flat).length > 1000`); this is the
    copy that lets the page say WHY before a round trip, and a test pins the two
    together along with the number in the hint text, so they cannot drift.
    ⚠️ CODE POINTS, deliberately: `Array.from` iterates code points, which is what
    the engine counts. `desc.length` counts UTF-16 units and would refuse a
-   101-emoji description the engine accepts. */
-const PJ_DESC_MAX = 200;
+   501-emoji description (1002 UTF-16 units) the engine accepts (501 code points). */
+const PJ_DESC_MAX = 1000;
 function pjDescTooLong(text) { return Array.from(String(text || '')).length > PJ_DESC_MAX; }
 
 /* Mark a field wrong AT the field, and put the reason beside it.
@@ -36750,29 +37086,60 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
   }
 });
 
-/* #2255: reactions. A SECOND delegated handler on #pj-room (kept apart from the
-   refgo one above, which returns early on a non-chip click), so it survives the
-   room repaints setLive does. The "+" opener toggles the palette; a pill or a
-   palette emoji toggles that reaction via the react route, then repaints just
-   this post's `.rxns` from the response -- no full room re-fetch. A failed
-   toggle leaves the row as it was; the next room poll reconciles. */
-document.getElementById('pj-room').addEventListener('click', async (e) => {
-  const box = e.target && e.target.closest ? e.target.closest('.rxns') : null;
-  if (!box) return;
-  const add = e.target.closest('.rxn-add');
-  if (add) {
-    const picker = box.querySelector('.rxn-picker');
-    const open = !!(picker && !picker.hidden);
-    if (picker) picker.hidden = open;
-    add.setAttribute('aria-expanded', String(!open));
-    return;
+/* #2834: ONE shared full-list picker, mirroring the composer's `#pj-emoji` panel.
+   Inlining PJ_EMOJI per post (`rxnsInner`, pre-#2834) put ~80 hidden buttons into
+   every room post and rebuilt them as a string on every poll. This element is created
+   once, appended to `body` (it is `position: fixed` + JS-positioned, so it needs no
+   per-row anchor), and remembers which post it acts on via `data-post`. Its click
+   handler is attached at creation because the element is not in the static HTML. */
+let RXN_PICKER_BUILT = false;
+function rxnPickerEl() {
+  let el = document.getElementById('rxn-picker');
+  if (el) return el;
+  el = document.createElement('span');
+  el.id = 'rxn-picker';
+  el.className = 'rxn-picker';
+  el.hidden = true;
+  /* The shared picker lives OUTSIDE `#pj-room`, so the room handler below never sees
+     a click on a full-list emoji -- this handler does. It reads the post it was opened
+     for, finds that post's `.rxns` back in the room, toggles, and closes (a repaint no
+     longer resets an inline picker, so the close is explicit). */
+  el.addEventListener('click', async (e) => {
+    const b = e.target.closest ? e.target.closest('.rxn-pick') : null;
+    if (!b || !PJ_CURRENT) return;
+    const postId = el.getAttribute('data-post');
+    let box = null;
+    document.querySelectorAll('#pj-room .rxns').forEach((r) => {
+      if (r.getAttribute('data-post') === postId) box = r;
+    });
+    if (box) await rxnToggle(PJ_CURRENT, box, b.getAttribute('data-emoji'));
+    rxnCloseAllPickers();
+  });
+  document.body.appendChild(el);
+  return el;
+}
+function rxnPickerBuild() {
+  if (RXN_PICKER_BUILT) return;
+  const el = rxnPickerEl();
+  const frag = document.createDocumentFragment();
+  for (const glyph of PJ_EMOJI) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'rxn-pick';
+    b.textContent = glyph;
+    b.setAttribute('aria-label', 'React with ' + glyph);
+    b.dataset.emoji = glyph;
+    frag.appendChild(b);
   }
-  const btn = e.target.closest('.rxn, .rxn-pick');
-  if (!btn || !PJ_CURRENT) return;
-  const emoji = btn.getAttribute('data-emoji');
-  const postId = box.getAttribute('data-post');
+  el.appendChild(frag);
+  RXN_PICKER_BUILT = true;
+}
+/* The react POST + one-row repaint, shared (#2834) by the room handler (pills + quick
+   defaults) and the shared-picker handler, so a pill can never be drawn two ways. A
+   failed toggle leaves the row; the next room poll reconciles. */
+async function rxnToggle(forProject, box, emoji) {
+  const postId = box && box.getAttribute('data-post');
   if (!emoji || !postId) return;
-  const forProject = PJ_CURRENT;
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(forProject) + '/room/'
       + encodeURIComponent(postId) + '/react',
@@ -36781,7 +37148,95 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
     const body = await res.json();
     repaintReactions(box, Array.isArray(body.reactions) ? body.reactions : []);
   } catch { /* a failed toggle leaves the row; the next poll reconciles */ }
+}
+
+/* #2255 reactions, hover-restyled in #2806. A SECOND delegated handler on #pj-room
+   (kept apart from the refgo one above, which returns early on a non-chip click), so
+   it survives the room repaints setLive does. The grey-smiley `.rxn-more` opener
+   toggles the SHARED picker for THIS post; a pill or a quick default toggles that
+   reaction via the react route (the full-list picks live in `#rxn-picker` and are
+   handled there). */
+document.getElementById('pj-room').addEventListener('click', async (e) => {
+  const box = e.target && e.target.closest ? e.target.closest('.rxns') : null;
+  if (!box) return;
+  const more = e.target.closest('.rxn-more');
+  if (more) {
+    const picker = rxnPickerEl();
+    const postId = box.getAttribute('data-post');
+    const openForThis = !picker.hidden && picker.getAttribute('data-post') === postId;
+    rxnCloseAllPickers();   // at most one open at a time; also resets every opener's aria
+    if (!openForThis) {
+      rxnPickerBuild();
+      picker.setAttribute('data-post', postId);
+      picker.hidden = false;
+      rxnPositionPicker(picker, more);
+      more.setAttribute('aria-expanded', 'true');
+    }
+    return;
+  }
+  const btn = e.target.closest('.rxn, .rxn-pick');
+  if (!btn || !PJ_CURRENT) return;
+  await rxnToggle(PJ_CURRENT, box, btn.getAttribute('data-emoji'));
 });
+
+/* #2806/#2834: close the shared reaction picker and reset every opener's aria-expanded.
+   Used to keep at most one open, and by the dismiss paths below (outside click / Escape
+   / outside scroll), mirroring the composer emoji panel's behaviour. */
+function rxnCloseAllPickers() {
+  const picker = document.getElementById('rxn-picker');
+  if (picker) { picker.hidden = true; picker.removeAttribute('data-post'); }
+  const room = document.getElementById('pj-room');
+  if (room) room.querySelectorAll('.rxn-more[aria-expanded="true"]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+}
+/* #2806: place the FIXED reaction picker as a popover anchored to the smiley button.
+   Below it when there is room, flipped above when the viewport bottom is close, and
+   clamped horizontally into the viewport. Measured AFTER unhiding so offsetWidth/
+   Height are real. `fixed` means these are viewport coordinates, which is exactly
+   what getBoundingClientRect returns -- so the picker escapes the thread's overflow
+   clip that an absolutely-positioned one could not. */
+function rxnPositionPicker(picker, anchor) {
+  const r = anchor.getBoundingClientRect();
+  const pw = picker.offsetWidth;
+  const ph = picker.offsetHeight;
+  const pad = 8;
+  let left = Math.min(r.left, window.innerWidth - pw - pad);
+  left = Math.max(pad, left);
+  let top = r.bottom + 4;
+  if (top + ph > window.innerHeight - pad) {
+    const above = r.top - ph - 4;
+    top = above >= pad ? above : Math.max(pad, window.innerHeight - ph - pad);
+  }
+  picker.style.left = left + 'px';
+  picker.style.top = top + 'px';
+}
+/* Dismiss an open picker on a click anywhere outside an open `.rxn-picker` or its
+   opener (a click INSIDE the shared `#rxn-picker` is a pick, handled by that picker's
+   own click handler in rxnPickerEl, which reacts and then closes explicitly -- #2834).
+   Capture phase so it runs regardless of stopPropagation elsewhere; it never blocks the
+   click, only tidies open pickers. */
+document.addEventListener('click', (e) => {
+  const inside = e.target && e.target.closest
+    ? e.target.closest('.rxn-picker, .rxn-more') : null;
+  if (!inside) rxnCloseAllPickers();
+}, true);
+/* Escape closes any open picker. */
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') rxnCloseAllPickers(); });
+/* The picker is `fixed`, so it does not follow the thread scroll -- close it on a
+   scroll of anything OUTSIDE it (capture phase, since scroll does not bubble) so it
+   never floats detached from the smiley. A scroll INSIDE the picker's own emoji grid
+   (it is overflow-y:auto and taller than its max-height) must NOT close it, or the
+   lower rows of the list become unreachable. Gate on an actually-open picker first so
+   ordinary thread scrolling with nothing open does only one scoped query, not a full
+   close. */
+document.addEventListener('scroll', (e) => {
+  const tgt = e.target;
+  if (tgt && tgt.nodeType === 1 && tgt.closest && tgt.closest('.rxn-picker')) return;
+  /* #2834: the picker is the shared `#rxn-picker`, which lives OUTSIDE `#pj-room`, so
+     gate on it directly rather than on a query scoped to the room (which would never
+     find it and leave the popover floating detached after a thread scroll). */
+  const picker = document.getElementById('rxn-picker');
+  if (picker && !picker.hidden) rxnCloseAllPickers();
+}, true);
 
 document.getElementById('pj-docs-all').addEventListener('click', () => {
   if (!PJ_CURRENT) return;
@@ -37241,15 +37696,24 @@ function pjRoomBody(m, p) {
 /* #2255: the quick-reaction palette the "+" opener reveals. A small fixed set
    (Discord's common ones); a person reacting is choosing fast, not browsing
    every emoji. Escapes, so the source stays plain-ASCII and diffable. */
-const RXN_QUICK = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F525}', '\u{1F389}', '\u{1F602}', '\u{1F440}', '\u{2705}', '\u{1F64F}'];
+/* #2806 (Josh): the three quick defaults you can hit without opening the picker --
+   thumbs-up, heart, fire, exactly the set he named. They appear on message hover
+   beside the grey smiley (`.rxn-more`), which opens the FULL list (PJ_EMOJI). */
+const RXN_DEFAULTS = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F525}'];
 /* The reactions row under a room post: one TOGGLE pill per live reaction (marked
-   aria-pressed when the viewer is a reactor, with a title naming who), then a
-   "+" opener that reveals the palette. Every emoji is esc()'d and comes from the
-   server's replayed state (engine reactionsFor), never from raw message text.
-   Empty when the post carries no id. */
-/* The INNER html of a `.rxns` row (pills + opener + palette), shared by the
-   first paint (pjReactions) and the one-row repaint after a toggle
-   (repaintReactions), so the two cannot draw a pill differently. */
+   aria-pressed when the viewer is a reactor, with a title naming who), then the
+   hover-revealed `.rxn-quick` bar (three defaults + the grey-smiley opener) and the
+   full picker it opens. Every emoji is esc()'d and comes from the server's replayed
+   state (engine reactionsFor) or the fixed PJ_EMOJI list, never from raw message
+   text. Empty when the post carries no id. */
+/* The INNER html of a `.rxns` row (pills + quick bar + smiley), shared by the first
+   paint (pjReactions) and the one-row repaint after a toggle (repaintReactions), so
+   the two cannot draw a pill differently.
+   #2834: the full PJ_EMOJI picker is NO LONGER inlined here. Inlining it put ~80
+   hidden buttons into EVERY post, rebuilt as a string on every poll; a busy room
+   carried thousands of dead nodes. The full list now lives in ONE shared `#rxn-picker`
+   (rxnPickerEl / rxnPickerBuild below), the same shape the composer's `#pj-emoji`
+   panel already uses, opened beside whichever post's smiley was clicked. */
 function rxnsInner(list) {
   const pills = (Array.isArray(list) ? list : []).map((r) => {
     const e = String(r && r.emoji ? r.emoji : '');
@@ -37260,12 +37724,21 @@ function rxnsInner(list) {
       + '<span class="rxn-e" aria-hidden="true">' + esc(e) + '</span>'
       + '<span class="rxn-n">' + esc(String(Number(r.count) || 0)) + '</span></button>';
   }).join('');
-  const picks = RXN_QUICK.map((e) =>
+  /* The three quick defaults, revealed on message hover (see the `.rxn-quick` CSS).
+     They react through the SAME `.rxn-pick` path as the full picker. */
+  const quicks = RXN_DEFAULTS.map((e) =>
     '<button class="rxn-pick" type="button" data-emoji="' + esc(e) + '" aria-label="React with ' + esc(e) + '">'
     + esc(e) + '</button>').join('');
+  /* #2806 (Josh): the always-visible "+" is gone. On message hover (or keyboard
+     focus into the row) a compact bar reveals the three quick defaults plus a grey
+     smiley (`.rxn-more`) that opens the full picker -- the Discord shape he asked
+     for. Existing pills stay visible always; only the `.rxn-quick` bar is hover-
+     gated. #2834: the smiley opens the SHARED `#rxn-picker`, not an inline one. */
   return pills
-    + '<button class="rxn-add" type="button" aria-label="Add a reaction" aria-expanded="false">+</button>'
-    + '<span class="rxn-picker" hidden>' + picks + '</span>';
+    + '<span class="rxn-quick">' + quicks
+    + '<button class="rxn-more" type="button" aria-label="More reactions" aria-expanded="false">'
+    + '<span class="rxn-more-glyph" aria-hidden="true">\u{1F600}</span></button>'
+    + '</span>';
 }
 function pjReactions(m) {
   const id = String(m && m.id ? m.id : '');
@@ -37421,6 +37894,16 @@ function pjRoomRow(m, p, silent) {
        cannot happen today rests on one condition in a different function; this
        is the row a person actually reads, so it enforces the rule itself. */
     ? '<span class="delivery ' + cls + '">' + esc(pjReceiptSentence(m.outcomes, p, isOp ? silent : null)) + '</span>' : '';
+  /* #2806 (Josh, 2026-09-11): the message BODY wears a colored box in the room --
+     royal-blue for the person's own post (`.msg.you`), light-gray for an agent's --
+     the same two tokens the DM view already uses (`--usermsg-tint` / `--k-sunk`; see
+     the .msg-bd rules). The header (name/role/time) stays ABOVE the box and the
+     reactions + receipt stay BELOW it, so only the message content is boxed (the DM
+     boxes `.dm-b`, its text, the same way). The box is drawn only when there IS body
+     content -- a bodyless row (no words and no preview/attachment) emits none rather
+     than an empty tinted box. #2805 gave the DM its gray; the room uses a different
+     class (`.msg-b`) that never got either color, so both sides are new here. */
+  const bd = pjRoomBody(m, p) + pjPreviewCard(m.preview) + pjAttachmentCards(m);
   return '<div class="msg' + (isOp ? ' you' : '') + '">' + av
     + '<div class="msg-b"><div class="msg-h"><b>' + esc(name) + '</b>'
     /* #1703: the agent's title beside the name, before the timestamp. `card` is
@@ -37432,7 +37915,7 @@ function pjRoomRow(m, p, silent) {
        renders no span rather than an empty one. */
     + (card && card.role ? '<small class="msg-role">' + esc(roleLine({ role: card.role }, ROLE_TITLES)) + '</small>' : '')
     + '<span class="msg-t">' + esc(pjWhen(m.at) || '') + '</span></div>'
-    + pjRoomBody(m, p) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + pjReactions(m) + receipt + '</div></div>';
+    + (bd ? '<div class="msg-bd">' + bd + '</div>' : '') + pjReactions(m) + receipt + '</div></div>';
 }
 
 /**
@@ -37532,6 +38015,23 @@ function paintThreadInto(box, html, hasRows, keyChanged, filtering) {
   if (box.__roomHadRows) {
     box.__roomHeldTop = box.scrollTop;
     box.__roomHeldAtBottom = onFloorBefore;
+  }
+  /* #2834: the full picker is now the shared `#rxn-picker` (in body), so a room
+     rebuild no longer destroys it the way the old inline-per-post picker was
+     destroyed. Close it here -- reaching `paintThreadInto` at all means the room
+     content changed (its sole caller `paintRoom` gates on `box.__lastRoom !== html`),
+     which is exactly the moment the old inline picker went away and its `.rxn-more`
+     opener was recreated with aria-expanded reset. A quiet poll never reaches here,
+     so an open picker is left alone on an unchanged room (parity with the composer
+     `#pj-emoji` panel, whose anchor never repaints). No extra `__lastLive` gate:
+     that is a second cache field on the same element and would always be true at
+     this point, so it would only masquerade as protection.
+     The `typeof document` guard keeps `paintThreadInto` headless-safe: it is run
+     with no DOM by web.room-scroll.test.js, and every other line here operates on
+     the passed-in `box`, never a bare `document`. */
+  if (typeof document !== 'undefined') {
+    const rxnPk = document.getElementById('rxn-picker');
+    if (rxnPk && !rxnPk.hidden) rxnCloseAllPickers();
   }
   setLive(box, html);
   box.__roomHadRows = hasRows;
@@ -38230,20 +38730,34 @@ document.getElementById('d-attach').addEventListener('click', () => document.get
 document.getElementById('d-attach-file').addEventListener('change', (e) => {
   const files = Array.from(e.target.files || []); e.target.value = ''; attachUploadAll(files, ATTACH_AGENT);
 });
+/* #2868 (Josh): wire an element as a file drop target for `where`. The whole
+   dragenter/over/leave/drop dance -- with a depth counter so `.dragging` does
+   not flicker as the cursor crosses child elements, and preventDefault on
+   dragover/drop so a drop on the composer's TEXT INPUT attaches the file
+   instead of the browser pasting its path (that path-paste was the bug). */
+function wireDropTarget(drop, where) {
+  if (!drop) return;
+  let depth = 0;
+  drop.addEventListener('dragenter', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); depth += 1; drop.classList.add('dragging'); } });
+  drop.addEventListener('dragover', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+  drop.addEventListener('dragleave', () => { depth = Math.max(0, depth - 1); if (!depth) drop.classList.remove('dragging'); });
+  drop.addEventListener('drop', (e) => {
+    const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+    if (!files.length) return;
+    e.preventDefault(); depth = 0; drop.classList.remove('dragging');
+    attachUploadAll(files, where);
+  });
+}
 for (const where of [ATTACH_ROOM, ATTACH_AGENT]) {
-  const drop = document.getElementById(where.dropId);
-  if (drop) {
-    let depth = 0;
-    drop.addEventListener('dragenter', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); depth += 1; drop.classList.add('dragging'); } });
-    drop.addEventListener('dragover', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
-    drop.addEventListener('dragleave', () => { depth = Math.max(0, depth - 1); if (!depth) drop.classList.remove('dragging'); });
-    drop.addEventListener('drop', (e) => {
-      const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
-      if (!files.length) return;
-      e.preventDefault(); depth = 0; drop.classList.remove('dragging');
-      attachUploadAll(files, where);
-    });
-  }
+  /* The thread/room area (the pack's original drop target). */
+  wireDropTarget(document.getElementById(where.dropId), where);
+  /* #2868: the composer input area itself -- the text field AND the + -- is a
+     drop target too. Josh: "the input area for the text and the +, like the
+     whole thing is active to drop it in". Resolved as the text input's own
+     `.composerbox` so both composers (project post + agent dialogue) are covered
+     without adding a markup id. */
+  const textEl = document.getElementById(where.textId);
+  wireDropTarget(textEl && textEl.closest('.composerbox'), where);
 }
 
 document.getElementById('pj-post').addEventListener('keydown', (e) => {

@@ -285,7 +285,11 @@ test('the consolidated .apphead override resets margin, or the update notice is 
 });
 
 test('the search placeholder follows the EFFECTIVE view, in showTab, not the saved layout', () => {
-  const st = PAGE.slice(PAGE.indexOf("document.body.classList.toggle('consolidated', cons)"), PAGE.indexOf("document.body.classList.toggle('consolidated', cons)") + 1400);
+  // #2842 widened 1400 -> 1900: placeSubProjects(cons) + placeAppSettings(cons) and their
+  // comments now sit between the consolidated toggle and the placeholder swap, pushing the swap
+  // to ~1516 chars past the toggle. The window still starts at the toggle so the guard's intent
+  // (the placeholder swap lives in showTab, right after the effective-view toggle) is unchanged.
+  const st = PAGE.slice(PAGE.indexOf("document.body.classList.toggle('consolidated', cons)"), PAGE.indexOf("document.body.classList.toggle('consolidated', cons)") + 1900);
   assert.match(st, /roomSearch\.placeholder = cons \? 'Search' : roomSearch\.dataset\.longPlaceholder/,
     'the placeholder swap left showTab (or the tab-view restore stopped reading the markup-captured wording, so a markup edit could be silently reverted)');
   assert.match(st, /if \(!\('longPlaceholder' in roomSearch\.dataset\)\) roomSearch\.dataset\.longPlaceholder = roomSearch\.placeholder/,
