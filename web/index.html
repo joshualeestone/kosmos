@@ -1453,15 +1453,14 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 /* Dark theme: the light-mode greens/reds read low-contrast on the dark ground,
    so swap to the lighter state family the rest of the UI uses in dark (working
    rgba(121,197,157), needs-you rgba(255,140,130) -- the same values .astate.st-
-   working / .acard.attn switch to). Both dark paths, mirroring how .onode .face's
-   own dark background is defined twice: the prefers-color-scheme media query for
-   system-default dark, and :root[data-theme="dark"] for the explicit toggle. */
+   working / .acard.attn switch to). Write ONLY the prefers-color-scheme rule
+   here; tools/sync-forced-theme.js generates its :root[data-theme="dark"] twin
+   into the forced-dark region below (do not hand-write that twin -- it must be
+   generated, or web.theme.test.js reds on the region being out of step). */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .onode.onode-working .face { box-shadow: 0 0 16px 5px rgba(121,197,157,.6); }
   :root:not([data-theme="light"]) .onode.onode-attn .face { box-shadow: 0 0 16px 6px rgba(255,140,130,.6); }
 }
-:root[data-theme="dark"] .onode.onode-working .face { box-shadow: 0 0 16px 5px rgba(121,197,157,.6); }
-:root[data-theme="dark"] .onode.onode-attn .face { box-shadow: 0 0 16px 6px rgba(255,140,130,.6); }
 /* #2577: needs-you as a corner badge (the list row's exact warning glyph, reused
    verbatim as ONODE_WARN), top-right and overlapping the avatar edge so it never
    sits where the old ring was and reads alongside the context gauge. ~43% of the
@@ -7062,6 +7061,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 @media (max-width: 56rem) {
 :root[data-theme="dark"] .apphead .tab.on { background: rgba(245,245,244,.08); }
 }
+
+:root[data-theme="dark"] .onode.onode-working .face { box-shadow: 0 0 16px 5px rgba(121,197,157,.6); }
+:root[data-theme="dark"] .onode.onode-attn .face { box-shadow: 0 0 16px 6px rgba(255,140,130,.6); }
 
 :root[data-theme="dark"] .onode .face { background: #3a3d42; }
 
