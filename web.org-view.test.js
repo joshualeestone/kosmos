@@ -475,7 +475,11 @@ test('#2576: unknown context draws no ring, matching the list row, detail and ME
 });
 
 test('#2576/#2577: the node render puts the ring on every node and gates the badge on needs-you', () => {
-  const at = SCRIPT.indexOf('nodes.push(\'<button class="onode"');
+  /* Anchor WITHOUT the closing quote: #2839 appends a state-glow class
+     (`class="onode' + glowCls + '"`), so the class attribute no longer ends
+     right after `onode`. The slice below still bounds on the push's own
+     </button>'); close. */
+  const at = SCRIPT.indexOf('nodes.push(\'<button class="onode');
   assert.ok(at > -1, 'the org node button markup moved');
   /* Bound to the push's OWN close, not a fixed offset: a comment added inside the
      node render (as the #2577 aria fold was) otherwise pushes the assertions out

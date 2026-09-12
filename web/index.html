@@ -1439,6 +1439,17 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
      inset alone, so a viewBox-only SVG is never a zero-size node. */
   position: absolute; inset: -5px; width: 54px; height: 54px; pointer-events: none; display: block;
 }
+/* #2839 (Josh, 0.6.57 live review): "a green glow behind them [working] and a
+   red glow to ones that need you". A soft halo behind the face disc, in the SAME
+   state colours the cards use (green rgba(47,125,90) for working, red
+   rgba(179,38,30) for needs-you), so the org chart reads the fleet's state at a
+   glance. Glow only: no hard ring, so it sits behind the context gauge (.oring)
+   rather than competing with it. Only these two states glow; idle/paused/
+   stopped/unknown/restarting stay quiet, the same "red is rare so it lands" rule
+   the cards follow. The box-shadow renders outside the disc, so `.face`'s
+   overflow:hidden does not clip it. */
+.onode.onode-working .face { box-shadow: 0 0 16px 5px rgba(47,125,90,.55); }
+.onode.onode-attn .face { box-shadow: 0 0 16px 6px rgba(179,38,30,.6); }
 /* #2577: needs-you as a corner badge (the list row's exact warning glyph, reused
    verbatim as ONODE_WARN), top-right and overlapping the avatar edge so it never
    sits where the old ring was and reads alongside the context gauge. ~43% of the
@@ -20145,6 +20156,13 @@ function paintOrg() {
        and the resting states (idle, paused, stopped, #2019 restarting) carry no
        badge: present-and-quiet with their context ring, matching the list row. */
     const needsYou = cardStOf(a).st === 'attn';
+    /* #2839 (Josh): a working agent gets a green glow on the org chart, a
+       needs-you agent a red one, so you can see the fleet's state at a glance.
+       Same state model as the cards (cardStOf): green = working, red = attn
+       (needs you), nothing else glows. needsYou wins where both could read, so
+       the rare red signal is never hidden by working (the #2146 precedence). */
+    const working = cardStOf(a).st === 'working';
+    const glowCls = needsYou ? ' onode-attn' : working ? ' onode-working' : '';
     const shown = a.name || a.sessionName;
     const face = a.hasAvatar
       /* #2698: `?v=` the avatar version so a changed picture changes this markup.
@@ -20159,7 +20177,7 @@ function paintOrg() {
          transparency Josh asked us to remove. */
       : '<span class="oinit">' + esc(initials(shown)) + '</span>';
     const tint = a.hasAvatar ? '' : ' style="background:' + discTint(shown) + ';color:' + discInk(shown) + '"';
-    nodes.push('<button class="onode" type="button" data-agent="' + esc(a.sessionName) + '"'
+    nodes.push('<button class="onode' + glowCls + '" type="button" data-agent="' + esc(a.sessionName) + '"'
       + ' style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px"'
       /* #2577: the badge's own aria-label is inert inside a button that has its
          own aria-label (the accessible name comes from the attribute alone, not
