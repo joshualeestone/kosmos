@@ -243,6 +243,36 @@ only the minimal choice added.
    - Fix: `roster === null` is now the same 503 on both branches.
    - Test: route R3, using `fleet.blind()`.
 
+### CI (PR #2877): the macOS browser-checks job failed scenario J's reopen assertion
+
+- **What failed.** In real Chromium, `reopened` showed the previous radio checked
+  and "Restart Kosmos" enabled.
+- **Why.**
+  - The page has exactly one open path (a row click to `worldswConfirmSwitch`),
+    and it already reset the question.
+  - The check's reopen clicked "Side Project" after the stub had moved the registry
+    to `w2`. `worldsFetch` had re-rendered that row as the CURRENT world: a div with
+    no click handler.
+  - So the dialog never reopened, and the check read the answer left inside the
+    hidden dialog.
+  - The node test passed because it called the functions directly, which the
+    stale row never reached.
+- **Fix, both halves.**
+  - The page: one `worldswResetAgentsChoice()` now runs on every open AND every
+    close (Cancel, and Restart after the answer is read), so a hidden dialog never
+    holds an answer.
+  - The check: it restores the registry to `w1` before reopening, as scenarios G
+    and H do. It records `modalVisible`, and a failed reopen is now reported as a
+    setup problem rather than read as a carried answer. It also asserts the dialog
+    that Restart closed holds no answer.
+- **Tests.**
+  - A web test runs open, choose, Restart, reopen, then Cancel, through the shipped
+    functions.
+  - A source test pins that all three show/hide assignments of the dialog call the
+    reset, and that there are exactly three.
+  - Playwright is not available on the Windows box, so the real signal is the next
+    CI run.
+
 ### Round 4 (sonnet): NO NEW FINDINGS beyond one NIT, which is fixed. Converged.
 
 - It verified all four round-3 fixes:

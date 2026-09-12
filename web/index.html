@@ -18720,8 +18720,7 @@ function worldswConfirmSwitch(id, name) {
     'Restart Kosmos in order to switch to a different Kosmos' + (name ? ' ' + name : '');
   /* #1704 PR3: Josh asked for the choice EACH TIME, so a reopened dialog never
      carries the last answer forward, and Restart waits for one. */
-  for (const radio of document.querySelectorAll('input[name="world-switch-agents"]')) radio.checked = false;
-  worldswAgentsChoiceChanged();
+  worldswResetAgentsChoice();
   document.getElementById('world-switch-modal').hidden = false;
   /* Initial focus lands on Cancel, not "Restart Kosmos": #6 exists to make switching a
      DELIBERATE act (Josh's complaint was that switching happened silently/inline), so a
@@ -18731,6 +18730,7 @@ function worldswConfirmSwitch(id, name) {
 }
 function worldswSwitchCancel() {
   document.getElementById('world-switch-modal').hidden = true;
+  worldswResetAgentsChoice();
   WORLD_SWITCH_ID = null;
   WORLD_SWITCH_NAME = null;
   /* Back to the trigger: the clicked row may have been dropped/rebuilt by a refetch,
@@ -18745,6 +18745,13 @@ function worldswAgentsChoice() {
 function worldswAgentsChoiceChanged() {
   document.getElementById('world-switch-go').disabled = !worldswAgentsChoice();
 }
+/* #1704 PR3: the ONE reset of the pause/keep question: both radios unchecked and
+   Restart disabled. Every open and every close of the dialog calls it, so the
+   dialog never shows, or keeps while hidden, an earlier answer. */
+function worldswResetAgentsChoice() {
+  for (const radio of document.querySelectorAll('input[name="world-switch-agents"]')) radio.checked = false;
+  worldswAgentsChoiceChanged();
+}
 function worldswSwitchGo() {
   const agents = worldswAgentsChoice();
   // Restart is disabled until a choice is made; this refuses a programmatic click too.
@@ -18752,6 +18759,7 @@ function worldswSwitchGo() {
   const id = WORLD_SWITCH_ID;
   const name = WORLD_SWITCH_NAME;
   document.getElementById('world-switch-modal').hidden = true;
+  worldswResetAgentsChoice();   // the answer was read above; the closed dialog keeps none
   WORLD_SWITCH_ID = null;
   WORLD_SWITCH_NAME = null;
   if (id) worldswSwitch(id, name, agents);

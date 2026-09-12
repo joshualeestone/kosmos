@@ -443,14 +443,24 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     goEl.click();
     await waitFor(() => /quit and reopen kosmos/i.test(bannerMsg()), 500);
     const lastPost = calls[calls.length - 1] || {};
-    // Reopen: the last answer must not be carried into a new question.
+    const closedAfterGo = { noneChecked: !pauseEl.checked && !keepEl.checked, goDisabled: goEl.disabled === true };
+    // Reopen: the last answer must not be carried into a new question. The stub moved
+    // the registry to w2, so Side Project is now the CURRENT row (a div, no click);
+    // put the registry back first, as the scenarios above do, so the row click really
+    // reopens the dialog -- and record that it did, or this reads a hidden dialog.
+    registryActive = 'w1'; bootedActive = 'w1';
+    await worldsFetch(); await sleep(10);
     const cJ2 = await clickRowOnly();
     if (cJ2.error) return { error: cJ2.error };
-    const reopened = { noneChecked: !pauseEl.checked && !keepEl.checked, goDisabled: goEl.disabled === true };
+    const reopened = {
+      modalVisible: !document.getElementById('world-switch-modal').hidden,
+      noneChecked: !pauseEl.checked && !keepEl.checked,
+      goDisabled: goEl.disabled === true,
+    };
     document.getElementById('world-switch-cancel').click();
     const afterChoice = {
       ...onOpen, postedWhileDisabled, modalOpenAfterDisabledClick, goEnabledAfterChoice,
-      postedId: lastPost.id, postedAgents: lastPost.agents, banner: bannerMsg(), reopened,
+      postedId: lastPost.id, postedAgents: lastPost.agents, banner: bannerMsg(), closedAfterGo, reopened,
     };
 
     // ---- Scenario I: #2454b the CURRENT marker follows the BOOTED world, not the pointer ----
@@ -570,7 +580,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!j.goEnabledAfterChoice) problems.push('#1704 PR3: choosing an answer must enable "Restart Kosmos"');
     if (j.postedId !== 'w2' || j.postedAgents !== 'pause') problems.push('#1704 PR3: the POST must carry {id:"w2", agents:"pause"}, got id=' + j.postedId + ' agents=' + j.postedAgents);
     if (!/^Still running, could not be paused: ava\./.test(j.banner)) problems.push('#1704 PR3: agents that could not be paused must lead the status line ("Still running, could not be paused: ava."), got "' + j.banner + '"');
-    if (!j.reopened.noneChecked || !j.reopened.goDisabled) problems.push('#1704 PR3: a reopened dialog must ask again (no carried answer, Restart disabled)');
+    if (!j.closedAfterGo.noneChecked || !j.closedAfterGo.goDisabled) problems.push('#1704 PR3: the dialog closed by "Restart Kosmos" must not keep the answer (both radios unchecked, Restart disabled)');
+    if (!j.reopened.modalVisible) problems.push('#1704 PR3 scenario setup: the row click did not reopen the switch dialog, so the reopen assertions would read a hidden dialog');
+    else if (!j.reopened.noneChecked || !j.reopened.goDisabled) problems.push('#1704 PR3: a reopened dialog must ask again (no carried answer, Restart disabled)');
 
     // Scenario I: #2454b the current marker follows the BOOTED world, not the registry pointer
     const i = r.afterDivergence;

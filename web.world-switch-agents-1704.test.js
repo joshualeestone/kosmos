@@ -22,6 +22,8 @@ function slice(name) {
 const CONFIRM = slice('worldswConfirmSwitch');
 const CHOICE = slice('worldswAgentsChoice');
 const CHANGED = slice('worldswAgentsChoiceChanged');
+const RESET = slice('worldswResetAgentsChoice');
+const CANCEL = slice('worldswSwitchCancel');
 const GO = slice('worldswSwitchGo');
 const SWITCH = slice('worldswSwitch');
 const NOTE = slice('worldswNotPausedNote');
@@ -78,9 +80,11 @@ function runDialog(steps) {
   const src = `let WORLDSW_SWITCHING = false; let WORLD_SWITCH_ID = null; let WORLD_SWITCH_NAME = null;
 ${CHOICE}
 ${CHANGED}
+${RESET}
 ${CONFIRM}
+${CANCEL}
 ${GO}
-return { worldswConfirmSwitch, worldswAgentsChoiceChanged, worldswSwitchGo };`;
+return { worldswConfirmSwitch, worldswAgentsChoiceChanged, worldswSwitchGo, worldswSwitchCancel };`;
   // eslint-disable-next-line no-new-func
   const fns = new Function('document', 'worldswSwitch', src)(document, (...a) => { switched.push(a); });
   steps({ fns, radios, els, switched });
@@ -108,6 +112,42 @@ test('Restart is disabled until a choice is made, and a reopened dialog asks aga
     assert.deepEqual(switched, [['w2', 'Side Project', 'pause']], 'the choice rides into the switch');
     assert.equal(els['world-switch-modal'].hidden, true);
   });
+});
+
+/* CI (browser-checks, #2877): a real Chromium run showed the previous answer still
+   checked after "Restart Kosmos". The question must be reset on every CLOSE as well
+   as every open, so a hidden dialog never holds an answer. Driven through the real
+   sequence the browser check uses: open, choose, Restart, then reopen. */
+test('CI: Restart and Cancel both leave the dialog with no answer, and the next open asks again', () => {
+  runDialog(({ fns, radios, els, switched }) => {
+    fns.worldswConfirmSwitch('w2', 'Side Project');
+    radios[0].checked = true;
+    fns.worldswAgentsChoiceChanged();
+    fns.worldswSwitchGo();
+    assert.deepEqual(switched, [['w2', 'Side Project', 'pause']], 'the answer was read before the reset');
+    assert.equal(radios.some((r) => r.checked), false, 'the dialog closed by Restart kept the answer');
+    assert.equal(els['world-switch-go'].disabled, true, 'Restart stayed enabled on the closed dialog');
+
+    fns.worldswConfirmSwitch('w2', 'Side Project');
+    radios[1].checked = true;
+    fns.worldswAgentsChoiceChanged();
+    fns.worldswSwitchCancel();
+    assert.equal(radios.some((r) => r.checked), false, 'the dialog closed by Cancel kept the answer');
+    assert.equal(els['world-switch-go'].disabled, true);
+
+    fns.worldswConfirmSwitch('w2', 'Side Project');
+    assert.equal(radios.some((r) => r.checked), false);
+    assert.equal(els['world-switch-go'].disabled, true);
+  });
+});
+
+test('CI: every place the page shows or hides the switch dialog goes through the one reset', () => {
+  const assignments = PAGE.match(/getElementById\('world-switch-modal'\)\.hidden = (true|false);/g) || [];
+  assert.equal(assignments.length, 3, 'a new open or close path for the switch dialog must be added here deliberately, with the reset');
+  for (const [name, src] of [['worldswConfirmSwitch', CONFIRM], ['worldswSwitchCancel', CANCEL], ['worldswSwitchGo', GO]]) {
+    assert.match(src, /getElementById\('world-switch-modal'\)\.hidden = /, `the control: ${name} really shows or hides the dialog`);
+    assert.match(src, /worldswResetAgentsChoice\(\)/, `${name} shows or hides the dialog without resetting the pause/keep question`);
+  }
 });
 
 async function runSwitch(agents, responseBody) {
