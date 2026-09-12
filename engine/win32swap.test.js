@@ -179,6 +179,43 @@ test('writeFileAtomic rides out a sharing violation on its rename', () => {
   assert.equal(fs.readFileSync(target, 'utf8'), 'new');
 });
 
+test('a short write is carried on to the end: the target ends complete', () => {
+  const dir = tmp();
+  const target = path.join(dir, 'engine-path');
+  const whole = 'C:\\Kosmos\\kosmos-0.6.60-win-x64\\app\\engine';
+  fs.writeFileSync(target, 'old', 'utf8');
+  let calls = 0;
+  withFs('writeSync', (real) => (fd, buf, off, len, pos) => {
+    calls += 1;
+    if (calls === 1) return real(fd, buf, off, Math.floor(len / 2), pos);   // the OS took only half
+    return real(fd, buf, off, len, pos);
+  }, () => swap.writeFileAtomic(target, whole));
+  assert.ok(calls >= 2, 'sanity: the rest was written in a further call: ' + calls);
+  assert.equal(fs.readFileSync(target, 'utf8'), whole);
+});
+
+test("the temp is opened with 'wx', so it never reuses or follows anything already at its name", () => {
+  const dir = tmp();
+  const target = path.join(dir, 'engine-path');
+  const opens = [];
+  withFs('openSync', (real) => (p, flags, ...rest) => {
+    opens.push({ name: path.basename(String(p)), flags });
+    return real(p, flags, ...rest);
+  }, () => swap.writeFileAtomic(target, 'new'));
+  assert.equal(opens.length, 1, 'one open, for the temp: ' + JSON.stringify(opens));
+  assert.ok(opens[0].name.startsWith('engine-path.writing-'), 'the open is the temp: ' + opens[0].name);
+  assert.equal(opens[0].flags, 'wx');
+});
+
+test('writeFileAtomic takes a string or a Buffer, and refuses anything else before touching the disk', () => {
+  const dir = tmp();
+  const target = path.join(dir, 'engine-path');
+  for (const data of [new Uint8Array([104, 105]), 42, undefined, null, { toString: () => 'x' }]) {
+    assert.throws(() => swap.writeFileAtomic(target, data), TypeError, 'refused: ' + String(data));
+  }
+  assert.deepEqual(fs.readdirSync(dir), [], 'no target and no temp');
+});
+
 /* ---------------------------------------------------------- renameWithRetry */
 
 for (const code of ['EBUSY', 'EPERM']) {
@@ -359,6 +396,94 @@ test('A WRITE OF board-boot.js TORN PART-WAY LEAVES THE OLD SHIM WHOLE', () => {
   assert.equal(leftovers.length, 1, 'the torn bytes are in the temp: ' + leftovers);
   const torn = fs.readFileSync(path.join(first.dir, leftovers[0]), 'utf8');
   assert.ok(torn.length < board.BOOT_JS.length && board.BOOT_JS.startsWith(torn), 'sanity: the temp really is partial');
+});
+
+/* --------------------------- a target another process holds open (Windows) */
+
+/* On Windows a rename over a file fails with EPERM while any process has it open,
+   a Node reader included (measured on the Windows box, 2026-09-12). A boot shim
+   reading engine-path at logon is exactly that reader. On macOS and Linux the
+   rename succeeds under an open reader, so these arms are Windows facts. */
+const WINDOWS_ONLY = { skip: process.platform !== 'win32' && 'a held handle blocks a rename only on Windows' };
+/* Well inside renameWithRetry's budget of about a second, and long enough that the
+   first rename is sure to meet the handle. */
+const HELD_WITHIN_BUDGET_MS = 400;
+const HELD_UNTIL_KILLED = -1;
+/* The holder exits by itself after this even if the kill in `finally` never
+   reaches it, so it cannot outlive the run by more than this. */
+const HOLDER_MAX_LIFETIME_MS = 30000;
+
+async function holdOpen(dir, file, holdMs) {
+  const script = path.join(dir, 'holder.js');
+  fs.writeFileSync(script, [
+    "const fs = require('node:fs');",
+    'const [file, holdMs] = process.argv.slice(2);',
+    "const fd = fs.openSync(file, 'r');",
+    "process.stdout.write('open\\n');",
+    'if (Number(holdMs) >= 0) setTimeout(() => { fs.closeSync(fd); process.exit(0); }, Number(holdMs));',
+    'setTimeout(() => process.exit(0), ' + HOLDER_MAX_LIFETIME_MS + ');',
+  ].join('\n'), 'utf8');
+  const child = cp.spawn(process.execPath, [script, file, String(holdMs)], { stdio: ['ignore', 'pipe', 'inherit'] });
+  try {
+    await new Promise((resolve, reject) => {
+      child.stdout.once('data', resolve);
+      child.once('error', reject);
+      child.once('exit', (code) => reject(new Error('the holder exited (' + code + ') before it held ' + file)));
+    });
+  } catch (e) {
+    await release(child);
+    throw e;
+  }
+  return child;
+}
+async function release(child) {
+  if (!child.pid || child.exitCode !== null || child.signalCode !== null) return;
+  const gone = new Promise((resolve) => child.once('exit', resolve));
+  child.kill();
+  await gone;
+}
+
+test('a target another process holds open, released within the retry budget: the write lands', WINDOWS_ONLY, async () => {
+  const dir = tmp();
+  const target = path.join(dir, 'engine-path');
+  fs.writeFileSync(target, 'old', 'utf8');
+  const holder = await holdOpen(dir, target, HELD_WITHIN_BUDGET_MS);
+  try {
+    let renames = 0;
+    withFs('renameSync', (real) => (from, to) => { renames += 1; return real(from, to); }, () =>
+      swap.writeFileAtomic(target, 'new'));
+    assert.ok(renames > 1, 'sanity: the held handle really refused the first rename (' + renames + ' renames)');
+    assert.equal(fs.readFileSync(target, 'utf8'), 'new');
+    assert.deepEqual(sideFilesOf(dir, 'engine-path'), [], 'no temp is left');
+  } finally {
+    await release(holder);
+  }
+});
+
+test('HELD PAST THE RETRY BUDGET, THE WRITE FAILS CLOSED: EPERM, THE OLD BYTES WHOLE, NO TEMP', WINDOWS_ONLY, async () => {
+  /* 🛑 The chosen trade. A plain write under the same reader never fails, but the
+     reader then sees an empty file (measured: hundreds of empty reads per reader
+     in 4 s). This write refuses instead, and the anchoring says so. */
+  const { dir, src, first } = anchoredAt(OLD_ENGINE);
+  const holder = await holdOpen(dir, first.pointer, HELD_UNTIL_KILLED);
+  try {
+    let renames = 0;
+    assert.throws(() => withFs('renameSync', (real) => (from, to) => { renames += 1; return real(from, to); }, () =>
+      swap.writeFileAtomic(first.pointer, NEW_ENGINE)), (e) => e.code === 'EPERM');
+    assert.ok(renames > 1, 'it waited the retries out rather than failing at once: ' + renames);
+    assert.equal(fs.readFileSync(first.pointer, 'utf8'), OLD_ENGINE, 'the old pointer is whole');
+    assert.deepEqual(pointerSideFiles(first.dir), [], 'no .writing- temp is left');
+
+    const r = anchor.ensureAnchored(anchoringOf(dir, src, NEW_ENGINE));
+    assert.equal(r.ok, false, 'an anchoring under the held pointer reports failure');
+    assert.match(r.because, /EPERM/);
+    assert.ok(r.because.includes(first.pointer + '.writing-'), 'the sentence names the temp: ' + r.because);
+    assert.ok(r.because.includes("'" + first.pointer + "'"), 'the sentence names the pointer: ' + r.because);
+    assert.equal(readPointerOf(dir), OLD_ENGINE, 'a reader still sees the old engine');
+    assert.deepEqual(pointerSideFiles(first.dir), [], 'and still no temp');
+  } finally {
+    await release(holder);
+  }
 });
 
 test('an anchoring whose pointer rename fails says so, and keeps the old pointer', () => {

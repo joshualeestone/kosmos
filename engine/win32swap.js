@@ -182,6 +182,11 @@ function retireLeftoverInterpreters(nodeAt, clock) {
  * take the target's name, in one rename that replaces the target. The rename
  * retries the transient sharing violations antivirus causes.
  *
+ * ⚠️ On Windows that rename fails with EPERM while ANY process has the target
+ * open, a boot shim reading it included (measured). renameWithRetry waits about a
+ * second, and a handle held longer makes this throw with the target whole. That
+ * is the chosen trade: a failed write its caller reports, never a torn read.
+ *
  * A crash before the rename leaves the target untouched and the temp behind. That
  * temp is inert: nothing reads it, and its unique name means no later write ever
  * asks for it. It is not swept, because a sweep could take a concurrent writer's
@@ -189,10 +194,20 @@ function retireLeftoverInterpreters(nodeAt, clock) {
  *
  * Throws on failure, after removing the temp it created. The target then still
  * holds its previous contents.
+ *
+ * `data` is a string (written as UTF-8) or a Buffer. Anything else is a TypeError,
+ * thrown before any file is touched: coercing it would write a Uint8Array as the
+ * text "104,105".
  */
 function writeFileAtomic(target, data) {
+  if (typeof data !== 'string' && !Buffer.isBuffer(data)) {
+    const given = data === null ? 'null'
+      : typeof data === 'object' ? ((data.constructor && data.constructor.name) || 'an object')
+      : typeof data;
+    throw new TypeError('writeFileAtomic writes a string or a Buffer, and was given ' + given + ' for ' + target);
+  }
   const temp = target + WRITING_INFIX + Date.now() + '-' + process.pid + '-' + (++writeSequence);
-  const bytes = Buffer.isBuffer(data) ? data : Buffer.from(String(data), 'utf8');
+  const bytes = Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf8');
   let created = false;
   try {
     /* `wx` refuses anything already at the temp name rather than reusing or
