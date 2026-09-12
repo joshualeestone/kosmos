@@ -10,10 +10,10 @@
  * COLLECT telemetry. This module owns the first, always-on half of that: the
  * report is written to the user's own disk whether or not it is ever sent.
  *
- * 🔑 STORE LOCALLY REGARDLESS OF THE SWITCH (Josh, explicit). The opt-in
- * switch governs TRANSMISSION only, not whether the work happens: a local
- * report is useful to the user's own agent even when nothing leaves the
- * machine. So NOTHING in this file reads a send/opt-in flag; writing is
+ * 🔑 STORE LOCALLY REGARDLESS OF THE SWITCH (Josh, explicit). The send
+ * switch (default-on / opt-out, #2013) governs TRANSMISSION only, not whether
+ * the work happens: a local report is useful to the user's own agent even when
+ * nothing leaves the machine. So NOTHING in this file reads a send flag; writing is
  * unconditional. The send layer (scrubbing + the gated seam) is a separate
  * module built on top of these files; see kosmos#2037.
  *
