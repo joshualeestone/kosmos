@@ -1,0 +1,147 @@
+# Plan: world-switch-agents-1704 (PR3 of the named-world agents plan)
+
+Parent plan: `.claude/plans/world-agents-1704-20260911T2145.md`, section 4 and the PR3
+entry in section 8. Josh's decisions 2 and 5 govern: the switch dialog ASKS EACH TIME
+(pause this Kosmos's agents, or keep them running), and his modal wording stays, with
+only the minimal choice added.
+
+## What
+
+1. `POST /api/worlds/active {id, agents: 'pause'|'keep'}`.
+   - An absent `agents` means `keep`, which is today's behaviour, so an older page
+     that does not send it behaves exactly as before.
+   - Any other value is a 400 with a sentence.
+   - The response adds `agents`, `paused: [names]`, `notPaused: [{name, because}]`.
+2. The route order is: validate the id, then PAUSE (a real switch with `pause` only),
+   then `setActiveWorld`, then respond, then self-restart as today. If
+   `setActiveWorld` throws, the agents just paused are resumed and the classified
+   error is returned.
+3. `engine/worldstarts.js` (new) owns the record, the pause, and the resume.
+4. `server.js` calls `worldstarts.drainAtBoot` once the real board is listening
+   (after `allowLiveExecution()`), in the `require.main` block.
+5. The switch modal gets a two-option radio group, and `worldswSwitchGo` posts the
+   choice.
+6. The browser check `render-worldswitch-2238.js` asserts the labels, the missing
+   default, the enable logic and the posted body.
+7. The stale route comment in server.js describes the pause/keep flow.
+
+## Decisions (where the parent plan left latitude)
+
+- **Where the record lives.** It is `<store.ROOT>/world-starts.json`. `store.ROOT` is
+  the BOOTED world's store. At pause time that is the world being left, and at boot
+  time it is the world being opened, so one path serves both halves with no
+  cross-world path arithmetic. Written atomically (temp file plus rename).
+  Shape: `{entries:[{name, why:'paused', at, because?}]}`.
+- **Which agents are paused.** These are the `safeRoster()` cards (removed agents are
+  already off it).
+  - A card is paused only when it is tied to its name (`isNamedOurs`), its name is
+    safe to act on (`remove.unsafeToActOn`), and Kosmos has a launch job for it
+    (`remove.jobFor`). Every other card goes to `notPaused` with a sentence, and it
+    keeps running.
+  - A tied agent that has a job but no running session is paused too (disabled and
+    recorded). Its logon trigger (RunAtLoad on a Mac) would otherwise start it while
+    another Kosmos is showing.
+- **The pause reuses remove.js.** For each agent, in order:
+  - `jobOps(platform).disable`;
+  - then `stopNow`;
+  - then `sessionOps(platform).end(session)`, when a session is running;
+  - then `disruption.begin(name, 'restart')`, the record `restartInner` writes, so the
+    board shows restarting rather than gone for the moments before its own restart.
+
+  There is no `recordRemoval`, so the agent is never marked removed. Nothing new is
+  exported from remove.js: `jobOps`, `sessionOps`, `jobFor`, `unsafeToActOn` and
+  `isRemoved` are already exported.
+- **Write-ahead.** The entries are written before any stop, and a failed write pauses
+  nothing (every name goes to `notPaused`).
+- **Partial failure.**
+  - If `disable` fails, nothing changed for that agent: its entry comes out and it goes
+    to `notPaused`.
+  - If `disable` worked and the stop or the session end failed, the agent is still
+    running but disabled. The pause undoes the disable (`enable`). If that works, the
+    entry comes out.
+  - If the undo also fails, the entry is KEPT with a `because`, so the next boot of this
+    Kosmos re-enables it. Dropping it would leave an agent that never starts at login
+    again.
+  - In every one of these cases the agent is reported in `notPaused`.
+- **The live-execution gate.**
+  - `pauseForSwitch` and the resume check `liveExecutionAllowed()` before touching
+    anything, because `win32job.run` is not gated itself.
+  - When the gate is off, they call `refuseOrWarn`. That warns on stderr in production.
+    In a test process it throws, and the throw is converted into a refusal carrying its
+    message, never a faked success.
+  - They write nothing and stop nothing. A refused pause reports every name in
+    `notPaused` and the switch still proceeds; the agents keep running, which is the
+    keep-running outcome that PR2 makes safe.
+- **Rollback.** When `setActiveWorld` throws after a pause, the route calls
+  `worldstarts.resumeNames(paused)`, which is the resume path restricted to those
+  names, and returns the classified error.
+- **A no-op switch resumes this world's paused agents.** A pause-switch on a board that
+  cannot self-restart, followed by a switch back to the world it is still serving,
+  would otherwise leave that world's agents stopped with no boot coming. The board is
+  serving that world, so it counts as "opened again". The call returns at once when
+  there are no paused entries, so it costs nothing on every other no-op switch.
+- **The #2849 interaction (`namedWorldSpawnRefusal`).** Resuming an agent re-enables a
+  launch job in the world being booted, which is a spawn by another route.
+  - `drainAtBoot({spawnRefusal})` takes the refusal as a function, and server.js
+    passes `namedWorldSpawnRefusal` itself. That is ONE derivation of "may agents
+    start here", pinned by a source test.
+  - While it refuses, every entry is held with the refusal's sentence as its
+    `because`. The entries are not dropped, so they resume at the first boot after
+    the guard is lifted.
+  - The same refusal gates the no-op resume and the rollback resume.
+- **Resume, per entry.**
+  - A removed agent (`remove.isRemoved`) is skipped and its entry cleared: the
+    removal owns it now, and restore re-enables it.
+  - Otherwise it is `enable` then `startNow`, and a success clears the entry.
+  - A failure keeps the entry with `because`, to be retried at the next boot. That
+    covers a missing job, which may be an unreadable Task Scheduler rather than a
+    deleted task.
+- **Test seam.** `worldstarts.setPlatformForTests(p)` lets the route test drive the Mac
+  arm through `remove.setRunner` on any host. It is EXCUSED in engine.reachable with
+  a reason.
+- **UI.**
+  - Josh's `<h2>` and the name-appending are unchanged.
+  - Under it sits a `<fieldset>` with a visually hidden `<legend>`, and two
+    `<label>`-wrapped radios: "Pause this Kosmos's agents" and "Keep them running".
+  - Neither radio is preselected, and "Restart Kosmos" stays disabled until one is
+    chosen. Opening the modal resets both.
+  - Cancel keeps its initial focus.
+  - `notPaused` becomes one terse sentence that prefixes the `#worldsw-restart`
+    status line.
+
+## Tests (each red without its fix)
+
+- Route (`server.world-switch-agents-1704.test.js`):
+  - a junk `agents` is a 400, and an absent one means keep (no stop commands);
+  - a pause happens only on a real switch, not a no-op;
+  - the record exists before the first stop command;
+  - `notPaused` on a failing stop;
+  - rollback resume when `setActiveWorld` throws (the registry lock);
+  - refusal when live execution is off.
+- Engine (`engine/worldstarts.test.js`):
+  - the record's format and atomic write;
+  - the drain skips removed agents, keeps failures and clears successes;
+  - the drain holds entries while the spawn refusal refuses;
+  - both platform arms' command shapes, Windows (`/Change /DISABLE`, `/End`,
+    `/ENABLE`, `/Run`) and Mac (`launchctl disable`, `bootout`, `enable`,
+    `bootstrap`, with code 5 read as already loaded), all through the existing stubs.
+- Web (`web.world-switch-agents-1704.test.js`): the radios, no default, the button
+  enable logic, the payload, and the notPaused sentence, run against the shipped
+  functions.
+- The browser check scenario J; the existing scenarios pick a radio before confirming.
+- Root inventories: engine.reachable (EXCUSED seam), one-derivation (the drain is
+  handed `namedWorldSpawnRefusal`), fixture-discipline, server.worldenv-order,
+  platform-gate-wiring (`allowLiveExecution` still called once), and
+  web.modal-way-out-1316.
+
+## Weakest parts
+
+- **The Mac arm is untested live.** The launchctl `disable`/`bootout` at pause and
+  `enable`/`bootstrap` at resume are driven only through `remove.setRunner` stubs from
+  this Windows box. A resume racing launchd (bootstrap code 5, already loaded) is
+  accepted as success, as at remove.js:427. Angel needs to check it on a live Mac.
+- **The #2849 hold is not reachable end to end on a real board yet.** Named-world
+  agents are refused creation today, so a paused named-world agent can only exist
+  after PR4's import or after the guard is lifted.
+- **The browser check could not be run here,** because Playwright is not installed on
+  this box. CI's browser-checks job runs it.
