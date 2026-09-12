@@ -2250,3 +2250,43 @@ statement that this branch can see one.
 green mutant above is the consequence. ⭐ **A title is a claim, and mine over-claimed within a day
 of my writing down that assertions must state what they actually guard.** Narrowed to the branch it
 drives, with the live branches named where they are pinned.
+
+## Round 36: I closed a leak, explained it in prose, and pinned nothing
+
+**[MAJOR] The round-35 guard was unasserted.** Reverting
+`seen.configDir ? readName(seen.configDir) : null` to the bare call left the suite **295/295
+GREEN**, so the guard was one *"this ternary is dead, configDir is always set here"* tidy-up away
+from removal.
+
+**And the consequence is a rendered sentence.** Round 34 put `name` at the HEAD of the chain, so an
+unguarded read lets the server's working directory displace a real, known email:
+
+```
+GUARDED   -> {"email":"dave@example.com", …, "name":null, …}
+UNGUARDED -> {"email":"dave@example.com", …, "name":"LEAKED-FROM-CWD", …}
+SENTENCE  -> "This agent runs on LEAKED-FROM-CWD, and we cannot tell which model it is running."
+```
+
+⭐ **Strictly worse than the string this card was filed about**: a confident wrong answer instead of
+an admitted unknown.
+
+🛑 **THE FAILURE IS MINE AND IT IS ONE ROUND OLD.** My defence of the fix - *"cheaper to close than
+to keep true"* - was an argument for the CODE, and the code was right. The gap is that the argument
+lived only in PROSE. **Round 15 of this card already said it: "a claim that matters needs an
+assertion, not a clearer paragraph."** I wrote a nine-line comment instead.
+
+⇒ **The reviewer's sentence is the one to keep: AN UNTESTED DEFENSIVE GUARD READS TO THE NEXT
+PERSON EXACTLY LIKE A REDUNDANT ONE.** That is why "latent, so prose is enough" is wrong even when
+the latency claim is true: the next reader cannot tell a guard from a leftover, and the suite will
+not tell them either.
+
+✅ Pinned, with the control that makes it a measurement: the arm asserts `readName('')` **does**
+return `LEAKED-FROM-CWD` from the probe CWD BEFORE asserting `name === null`, so the result is a
+fact about the guard rather than about an empty temp directory. `process.chdir` in a `try/finally`
+(this file runs its tests sequentially - checked, no `concurrency`). The mutant that survived now
+reds by name.
+
+📌 Their control was three mutants on the same branch - delete `name` (red, the round-35 arm),
+delete `isDefault` (red, so the branch is reachable), unguard the ternary (green, the gap). **Two
+red and one green again**, which is how you prove the hole is in the coverage and not in the
+instrument.
