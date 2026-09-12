@@ -22827,19 +22827,18 @@ function openDetail(sessionName, section, fromProject) {
      this change. */
   const roleSeg = roleLine(a, ROLE_TITLES);
   /* #2833 (Josh, 2026-09-11): the header subtitle reads Title · Provider · Account · Model.
-     Provider and Model are always known; the Account segment DEGRADES OUT when there is no
-     human-readable account identity to show -- a default Claude account with no email, or an
-     OpenAI/Codex account whose resolution is still broken (#2811) -- so the line never carries
-     a dangling separator. The separator stays this file's existing middot, not a second glyph. */
-  const providerLabel = a.providerName || (a.provider === 'openai' ? 'OpenAI' : 'Anthropic / Claude');
-  /* Name or email only. Deliberately NOT acctPrimaryName: that falls back to a.label/a.dir, and
-     a directory path is not an account identity a person recognises on this one-line subtitle. */
-  const acctIdent = acctChosenName(a)
-    || (typeof a.email === 'string' ? a.email.trim() : '')
-    || (a.provider === 'openai' && a.keyTail ? 'API key ending ' + a.keyTail : '');
+     🔑 Provider and Account come from the SHARED derivations this same panel already uses, not
+     a second copy: `providerOf` (reads the card's `a.runner`) and `acctParenthetical` (reads the
+     card's nested `a.account`, the same value the Runs-on box shows). `a` here is an agent CARD,
+     so the account is NOT at the top level -- `a.name` is the agent's own display name, not an
+     account. `acctParenthetical` returns '' when nothing identifies the account (a default
+     account, or an unresolved Codex account per #2811), so the segment degrades out with no
+     dangling separator. Provider and Model are always shown. Middot separator, not a new glyph. */
+  const providerLabel = providerOf(a) === 'openai' ? 'OpenAI' : 'Anthropic';
+  const acctIdent = acctParenthetical(a);
   const metaParts = [];
   if (roleSeg) metaParts.push('<b>' + esc(roleSeg) + '</b>');
-  if (providerLabel) metaParts.push(esc(providerLabel));
+  metaParts.push(esc(providerLabel));
   if (acctIdent) metaParts.push(esc(acctIdent));
   if (runs.name) metaParts.push(esc(runs.name));
   if (!a.nameDerived) metaParts.push(esc('no name was chosen for it, so this is the one it runs under'));
@@ -22865,15 +22864,16 @@ function openDetail(sessionName, section, fromProject) {
      a task line would restate the badge; this panel shows nothing rather than
      that. Since #209 the card, too, shows nothing here rather than a frozen
      title, so the two surfaces no longer diverge on what "no task" looks like. */
-  /* #2833 (Josh, 2026-09-11): the view-agent header no longer shows the SELF-REPORTED
-     quote under the name (a needs-you agent's message), which duplicated the "waiting on
-     an answer" box in the Talk section -- Josh: "redundant and adds clutter... I only want
-     to see the Title and Model there". It is KEPT for NON-reported states (e.g.
-     rate_limited's "Looks like a usage limit"), which are Kosmos's own honest reason with no
-     waiting box to duplicate. taskLine is UNCHANGED, so the cards that share it are unaffected. */
+  /* #2833 (Josh, 2026-09-11): hide the self-reported quote under the name ONLY for needs_you.
+     A needs-you agent's message is already shown by the Talk section's "waiting on an answer"
+     box (Josh: "redundant and adds clutter... I only want to see the Title and Model there").
+     🛑 Scoped to needs_you, NOT to every reported state: that box is gated on needs_you, so a
+     reported BLOCKED agent's substantive reason has no other surface and must stay. A
+     non-reported reason (rate_limited's "Looks like a usage limit") also stays. taskLine is
+     UNCHANGED, so the cards that share it are unaffected. */
   const dtask = document.getElementById('d-task');
   dtask.textContent = taskLine(a);
-  dtask.hidden = !dtask.textContent || (a.stateReported === true);
+  dtask.hidden = !dtask.textContent || (a.state === 'needs_you');
   /* The lede names the AGENT rather than saying "this agent", which is the
      pack's wording and the same substitution the rest of this panel already
      makes. `textContent`, so a name is never markup.
@@ -22909,16 +22909,13 @@ function openDetail(sessionName, section, fromProject) {
      it the sentence it is. Nothing else about the words changes. */
   const reason = String(a.because || '').trim();
   why.textContent = reason ? reason.charAt(0).toUpperCase() + reason.slice(1) + (/[.!?]$/.test(reason) ? '' : '.') : '';
-  /* #1841 (Josh, 2026-09-02) suppressed this line for a REPORTED state because the
-     header's task quote (#d-task) already carried it; #1996 then kept it for a
-     MULTI-LINE because, since #d-task truncated to one line.
-     🛑 #2833 (Josh, 2026-09-11): #d-task no longer renders on this header at all, and
-     Josh wants only Title and Model there. So this line hides for EVERY reported state,
-     single- or multi-line -- the Talk section's "waiting on an answer" box carries the
-     full text now, so #1996's multi-line carve-out is retired. The NON-reported "why we
-     cannot vouch" explanation (#569) is untouched: it is the sole surface for that, so it
-     stays. */
-  why.hidden = !why.textContent || (a.stateReported === true);
+  /* #1841 (Josh, 2026-09-02) hides this for a reported SINGLE-LINE because (d-task carries it);
+     #1996 keeps it for a reported MULTI-LINE because (d-task truncates to one line).
+     #2833 (Josh, 2026-09-11): ALSO hide it for needs_you -- d-task no longer shows a needs-you
+     quote and the Talk waiting box does, so a multi-line needs_you because must not reappear
+     here. Other reported states keep the #1841/#1996 behavior, and the NON-reported "why we
+     cannot vouch" line (#569) is untouched: it is the sole surface for that. */
+  why.hidden = !why.textContent || (a.state === 'needs_you') || (a.stateReported === true && !reason.includes('\n'));
   /* ⚠️ TEXT, NEVER MARKUP. This is pane content: whatever happens to be on
      somebody's terminal, on its way to a product surface. `textContent` is the
      escape, and the engine has already trimmed and capped it. */
