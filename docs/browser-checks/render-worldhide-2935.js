@@ -68,8 +68,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
         let id = '';
         try { id = JSON.parse(body).id; } catch { id = ''; }
         // The active/booted world is refused server-side; the client must surface the reason.
-        // The `because` is the REAL server string (server.js /api/worlds/hide EACTIVE branch),
-        // verbatim, so this check also fails if the two drift apart.
+        // The `because` here is copied from the server's EACTIVE branch (server.js) for fidelity.
+        // This check is hermetic (it stubs its own fetch), so it does NOT catch the server changing
+        // that string; it verifies only that the client surfaces whatever `because` the server sends.
         if (id === 'booted') return Promise.resolve({ ok: false, status: 409, json: async () => ({ error: 'world in use', because: 'switch to another Kosmos before hiding this one' }) });
         return Promise.resolve({ ok: true, json: async () => ({ ok: true, world: { id, hiddenAt: '2026-09-12T00:00:00.000Z' } }) });
       }
