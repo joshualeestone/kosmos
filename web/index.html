@@ -22762,6 +22762,11 @@ function openDetail(sessionName, section, fromProject) {
      disabled controls, so a lingering wrong-agent sentence would
      both misattribute and suppress. Cleared together. */
   { const mm = document.getElementById('d-model-msg'); if (mm) mm.textContent = ''; }
+  // #2802: #d-model-connect is a static element only the OpenAI painter re-shows,
+  // so an OpenAI(ChatGPT-subscription) -> Claude switch would leave it lingering
+  // under the Claude model tab. Reset it here, on every agent open, so only an
+  // OpenAI not-an-api-key paint can bring it back.
+  { const cb = document.getElementById('d-model-connect'); if (cb) cb.hidden = true; }
   /* On a SWITCH only: a same-agent reopen keeps the Move verdict,
      which is the one sentence naming the saved-but-not-restarted
      window until the restart happens. */
