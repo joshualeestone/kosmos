@@ -159,6 +159,8 @@ function actSucceeded(act) {
  * Mac: launchd's per-user overrides, one probe for the fleet
  * (`create.disabledJobs`, passed in as `macOff`). Windows: the task's own state.
  * Both fail soft to "not off", which pauses it -- the behaviour before this check.
+ * Both answer for THIS Kosmos only: `disabledJobs` names this world's agents, and
+ * the task name is this world's key.
  */
 function switchedOffOnMac(platform) { return platform === 'win32' ? null : create.disabledJobs(); }
 function jobIsSwitchedOff(name, platform, macOff) {
@@ -234,9 +236,10 @@ function pauseForSwitch(agents, opts = {}) {
   for (const c of candidates) {
     let job = null;
     try { job = remove.jobFor(c.name, platform); } catch { job = null; }
-    /* `ours === false` is remove.jobFor's `com.<name>.discord` candidate: a
-       launchd job some other tool wrote. Pausing it would disable a job we did
-       not write, and this Kosmos's boot would then start it again on its behalf. */
+    /* `ours === false` is remove.jobFor's legacy `com.<name>.discord` candidate,
+       which jobFor offers in Kosmos 1 only: a launchd job some other tool wrote.
+       Pausing it would disable a job we did not write, and this Kosmos's boot
+       would then start it again on its behalf. */
     if (!job || job.ours === false) {
       notPaused.push({ name: c.name, because: `${c.name} was not started by Kosmos, so we could not pause it and it keeps running` });
       continue;
@@ -320,11 +323,8 @@ function pauseForSwitch(agents, opts = {}) {
 
 /**
  * Start again the paused agents of the booted Kosmos, optionally only `onlyNames`.
- *
- * `opts.spawnRefusal` is server.js's `namedWorldSpawnRefusal`, passed IN rather
- * than re-derived here: "may agents start in the booted world" has one answer
- * (#2849), and while it refuses, every entry is held with its sentence so the
- * agents come back at the first boot after the rule is lifted.
+ * Every act goes through the agent's world-keyed launch identity (remove.jobFor ->
+ * create.serviceLabel / win32job.taskName), so a named Kosmos starts only its own.
  *
  * Returns `{resumed: [names], held: [{name, because}], cleared: [names]}`.
  * `cleared` names removed agents, whose entries are dropped because the removal
@@ -353,16 +353,6 @@ function resumeEntries(onlyNames, opts = {}) {
       process.stderr.write(`Kosmos could not update its list of paused agents (${(err && err.code) || 'unknown'}); an agent already started may be started again at the next boot.\n`);
     }
   };
-
-  const refused = typeof opts.spawnRefusal === 'function' ? opts.spawnRefusal() : null;
-  if (refused) {
-    const because = String(refused.error || 'agents cannot start in this Kosmos yet');
-    const names = new Set(targets.map((t) => t.name));
-    entries = entries.map((e) => (names.has(e.name) ? { ...e, because } : e));
-    for (const t of targets) held.push({ name: t.name, because });
-    writeBack();
-    return { resumed, held, cleared };
-  }
 
   const gate = liveExecutionRefusal('resume', targets.map((t) => t.name));
   if (gate) {
@@ -394,6 +384,12 @@ function resumeEntries(onlyNames, opts = {}) {
     let because = null;
     if (!job) {
       because = `we could not find how Kosmos starts ${t.name}`;
+    } else if (job.ours === false) {
+      /* remove.jobFor's legacy `com.<name>.discord` candidate (Kosmos 1 only): a
+         launchd job some other tool wrote. The pause never records one, so an
+         entry meets it only if this agent's own plist went since; starting the
+         other tool's job instead would be acting on its behalf. */
+      because = `${t.name} is started by something other than Kosmos, so we left it alone`;
     } else if (!actSucceeded(() => ops.enable(t.name, job))) {
       because = `we could not set ${t.name} to start on its own again`;
     } else if (!actSucceeded(() => ops.startNow(t.name, job))) {

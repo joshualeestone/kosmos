@@ -70,12 +70,27 @@ function answerWin(args) {
 }
 
 // create.js's own runner answers launchd's per-user overrides (create.disabledJobs).
+// `macDisabled` holds launch KEYS, as launchd does: `ava` is Kosmos 1's, `ava+test`
+// is Kosmos "test"'s. In the default world a key is the bare name.
 function answerCreate(file, args) {
   if (args[0] === 'print-disabled') {
-    return { ok: true, stdout: [...macDisabled].map((n) => `\t"${create.serviceLabel(n)}" => disabled`).join('\n') };
+    return { ok: true, stdout: [...macDisabled].map((k) => `\t"${create.SERVICE_LABEL_PREFIX}${k}" => disabled`).join('\n') };
   }
   return { ok: true, stdout: '' };
 }
+
+/* Run `body` with this process in Kosmos `world` (the board's KOSMOS_WORLD, which
+   launchidentity.currentWorldId reads), then restore. */
+function inWorld(world, body) {
+  const saved = process.env.KOSMOS_WORLD;
+  process.env.KOSMOS_WORLD = world;
+  try { return body(); } finally {
+    if (saved === undefined) delete process.env.KOSMOS_WORLD; else process.env.KOSMOS_WORLD = saved;
+  }
+}
+/* A command naming Kosmos 1's `ava`: its bare launchd label or plist, or its bare
+   Scheduled Task. A named world's are `...ava+<world>`. */
+const DEFAULT_AVA = /com\.kosmos\.agent\.ava(?!\+)|\\agent-ava(?!\+)/;
 
 function giveMacJob(name) {
   fs.mkdirSync(nodePath.dirname(create.plistPath(name)), { recursive: true });
@@ -257,21 +272,118 @@ test('the drain skips removed agents, keeps failures with a because, and clears 
   assert.match(left[0].because, /could not set cy to start/);
 });
 
-test('#2849: the drain holds every entry while the spawn refusal refuses, with its sentence, and sends nothing', () => {
-  const at = new Date().toISOString();
-  writeRecord([{ name: 'ava', why: 'paused', at }, { name: 'bo', why: 'paused', at }]);
-  const refusal = { code: 409, error: 'Kosmos is running a named world, which does not run agents yet.' };
-  const r = worldstarts.drainAtBoot({ platform: MAC, spawnRefusal: () => refusal });
-  assert.deepEqual(r.resumed, []);
-  assert.deepEqual(r.held.map((h) => h.name), ['ava', 'bo']);
-  assert.deepEqual(calls, [], 'a held agent must not be enabled or started');
-  const entries = readRecord().entries;
-  assert.deepEqual(entries.map((e) => e.name), ['ava', 'bo'], 'held entries stay, to resume once the rule is lifted');
-  assert.equal(entries[0].because, refusal.error);
+/* ── world-guard-lift-1704: a NAMED Kosmos pauses and resumes its own agents ── */
 
-  // And once the refusal lifts, the same entries resume.
-  const later = worldstarts.drainAtBoot({ platform: MAC, spawnRefusal: () => null });
-  assert.deepEqual(later.resumed, ['ava', 'bo']);
+test('a NAMED Kosmos\'s boot drain resumes its own agents on their world-keyed identity (Mac and Windows), never Kosmos 1\'s', () => {
+  const at = new Date().toISOString();
+  // beforeEach gave Kosmos 1's `ava` its bare plist: the control that must stay untouched.
+  assert.ok(fs.existsSync(create.plistPath('ava')), 'the control: Kosmos 1\'s ava has a job on disk');
+  const all = [];
+  inWorld('test', () => {
+    giveMacJob('ava');
+    assert.match(create.plistPath('ava'), /com\.kosmos\.agent\.ava\+test\.plist$/, 'the control: this world\'s plist is keyed');
+    writeRecord([{ name: 'ava', why: 'paused', at }]);
+    const mac = worldstarts.drainAtBoot({ platform: MAC });
+    assert.deepEqual(mac.resumed, ['ava']);
+    assert.deepEqual(calls, [
+      `launchctl enable gui/${UID}/com.kosmos.agent.ava+test`,
+      `launchctl bootstrap gui/${UID} ${create.plistPath('ava')}`,
+    ]);
+    all.push(...calls);
+
+    calls = [];
+    writeRecord([{ name: 'ava', why: 'paused', at }]);
+    const win = worldstarts.drainAtBoot({ platform: WIN });
+    assert.deepEqual(win.resumed, ['ava']);
+    assert.deepEqual(calls.filter((c) => !c.includes('/Query')), [
+      'schtasks /Change /TN Kosmos\\agent-ava+test /ENABLE',
+      'schtasks /Run /TN Kosmos\\agent-ava+test',
+    ]);
+    all.push(...calls);
+    fs.rmSync(create.plistPath('ava'), { force: true });
+  });
+  assert.deepEqual(all.filter((c) => DEFAULT_AVA.test(c)), [], 'a named Kosmos\'s drain reached Kosmos 1\'s ava');
+});
+
+test('a NAMED Kosmos\'s pause (Mac and Windows) stops only its own agent, and records it', () => {
+  const all = [];
+  inWorld('test', () => {
+    giveMacJob('ava');
+    const mac = worldstarts.pauseForSwitch([{ name: 'ava', session: 'ava+test', tied: true }], { platform: MAC });
+    assert.deepEqual(mac.paused, ['ava']);
+    assert.deepEqual(calls, [
+      `launchctl disable gui/${UID}/com.kosmos.agent.ava+test`,
+      `launchctl bootout gui/${UID}/com.kosmos.agent.ava+test`,
+      'tmux kill-session -t =ava+test',
+      'tmux has-session -t =ava+test',
+    ]);
+    all.push(...calls);
+
+    calls = [];
+    fs.rmSync(worldstarts.RECORD_FILE, { force: true });
+    const win = worldstarts.pauseForSwitch([{ name: 'ava', session: 'ava', tied: true }], { platform: WIN });
+    assert.deepEqual(win.paused, ['ava']);
+    assert.deepEqual(calls.filter((c) => !c.includes('/Query')), [
+      'schtasks /Change /TN Kosmos\\agent-ava+test /DISABLE',
+      'schtasks /End /TN Kosmos\\agent-ava+test',
+    ]);
+    all.push(...calls);
+    fs.rmSync(create.plistPath('ava'), { force: true });
+  });
+  assert.deepEqual(readRecord().entries.map((e) => e.name), ['ava'], 'recorded in the booted world\'s store');
+  assert.deepEqual(all.filter((c) => DEFAULT_AVA.test(c)), [], 'a named Kosmos\'s pause reached Kosmos 1\'s ava');
+});
+
+test('the Mac switched-off check reads THIS Kosmos\'s key: Kosmos 1\'s ava switched off does not stop world "test" pausing its own', () => {
+  inWorld('test', () => {
+    giveMacJob('ava');
+    try {
+      macDisabled = new Set(['ava']);            // Kosmos 1's ava, switched off
+      const out = worldstarts.pauseForSwitch([{ name: 'ava', session: null, tied: true }], { platform: MAC });
+      assert.deepEqual(out.paused, ['ava'], 'Kosmos 1\'s switched-off job was read as this world\'s');
+      assert.ok(calls.includes(`launchctl disable gui/${UID}/com.kosmos.agent.ava+test`));
+
+      calls = [];
+      fs.rmSync(worldstarts.RECORD_FILE, { force: true });
+      macDisabled = new Set(['ava+test']);       // this world's own ava, switched off by somebody
+      const again = worldstarts.pauseForSwitch([{ name: 'ava', session: null, tied: true }], { platform: MAC });
+      assert.deepEqual(again.paused, []);
+      assert.match(again.notPaused[0].because, /already switched off/, 'this world\'s own switched-off job was not seen');
+      assert.deepEqual(calls, []);
+    } finally {
+      fs.rmSync(create.plistPath('ava'), { force: true });
+    }
+  });
+});
+
+test('a resume leaves alone a job Kosmos did not write (Kosmos 1\'s legacy com.<name>.discord), and a named Kosmos never reaches it', () => {
+  // bo's own plist is gone; only a legacy, unkeyed one some other tool wrote is on disk.
+  fs.rmSync(create.plistPath('bo'), { force: true });
+  const discord = nodePath.join(nodePath.dirname(create.plistPath('bo')), 'com.bo.discord.plist');
+  fs.writeFileSync(discord, '<plist/>');
+  try {
+    // Kosmos 1: jobFor offers the legacy job, and the resume's own fence refuses it.
+    assert.equal(remove.jobFor('bo', MAC).ours, false, 'the control: in Kosmos 1 jobFor returns the not-ours candidate');
+    writeRecord([{ name: 'bo', why: 'paused', at: new Date().toISOString() }]);
+    const r = worldstarts.drainAtBoot({ platform: MAC });
+    assert.deepEqual(r.resumed, []);
+    assert.deepEqual(r.held.map((h) => h.name), ['bo']);
+    assert.match(r.held[0].because, /other than Kosmos/);
+    assert.deepEqual(calls, [], 'a job Kosmos did not write was enabled or started');
+    assert.match(readRecord().entries[0].because, /other than Kosmos/, 'the held entry says why');
+
+    // A named Kosmos: jobFor never offers Kosmos 1's legacy job, so nothing is sent for it.
+    inWorld('test', () => {
+      assert.equal(remove.jobFor('bo', MAC), null, 'a named Kosmos was offered Kosmos 1\'s legacy job');
+      writeRecord([{ name: 'bo', why: 'paused', at: new Date().toISOString() }]);
+      const named = worldstarts.drainAtBoot({ platform: MAC });
+      assert.deepEqual(named.resumed, []);
+      assert.match(named.held[0].because, /could not find how Kosmos starts bo/);
+      assert.deepEqual(calls, [], 'a named Kosmos\'s resume reached Kosmos 1\'s legacy job');
+    });
+  } finally {
+    fs.rmSync(discord, { force: true });
+  }
 });
 
 test('resumeNames touches only the names given (the route\'s rollback)', () => {

@@ -2214,13 +2214,23 @@ function binPaths(opts) {
    mutation. One probe for the whole fleet, launchctl print-disabled, parsed
    for our label prefix; fail-soft to an empty set, because "we could not
    look" must never dress an agent in "you switched it off". */
+/* #1704: launchd's lists hold EVERY Kosmos's jobs, each under its launch key
+   (`ava` is Kosmos 1's, `ava+test` is Kosmos "test"'s). The fleet probes below
+   answer in the agent names of THIS board's Kosmos, dropping every other
+   Kosmos's keys, so a caller can ask `.has(name)` and never read another world's
+   agent. The one filter both probes share (launchidentity.nameInWorld). */
+function nameInThisWorld(key) {
+  return launchidentity.nameInWorld(key, launchidentity.currentWorldId());
+}
+
 function disabledJobs() {
   try {
     const out = run('/bin/launchctl', ['print-disabled', `gui/${process.getuid()}`]);
     const text = String((out && out.stdout) || '');
     const names = new Set();
     for (const m of text.matchAll(/"com\.kosmos\.agent\.([^"]+)"\s*=>\s*(?:true|disabled)/g)) {
-      names.add(m[1]);
+      const name = nameInThisWorld(m[1]);
+      if (name !== null) names.add(name);
     }
     return names;
   } catch { return new Set(); }
@@ -2243,7 +2253,9 @@ function runningJobs() {
     const text = String((out && out.stdout) || '');
     const names = new Set();
     for (const m of text.matchAll(/^(\d+)\t\S+\tcom\.kosmos\.agent\.(.+)$/gm)) {
-      if (Number(m[1]) > 0) names.add(m[2]);
+      if (Number(m[1]) <= 0) continue;
+      const name = nameInThisWorld(m[2]);
+      if (name !== null) names.add(name);
     }
     return names;
   } catch { return new Set(); }

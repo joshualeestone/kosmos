@@ -269,27 +269,6 @@ function worldCreateReason(e) {
   if (/invalid agent name/i.test(m)) return 'that is not a name we can use for a Kosmos (use letters, numbers, - or _)';
   return m || 'we could not create that Kosmos';
 }
-/* #2827: named worlds do not run agents in v1. engine/worlds.js scopes named-world
-   agents OUT -- it overrides AGENT_WORKFORCE_DATA/WORKERS/PROJECTS for a named world
-   but deliberately NOT AGENT_WORKFORCE_LAUNCH -- so an agent created while the board
-   is booted into a named world is only half redirected: its data + board token
-   (store.ROOT/board.token) sit under the named world's roots while its launch env
-   does not, and the board token it presents is refused, so its reports and replies
-   fail. Nothing enforced the rule, so both spawn routes now do: they refuse when the
-   board BOOTED into a named world (the world that actually runs agents; a switch only
-   records activeWorldId and needs a restart, so bootedWorld -- not activeWorld -- is
-   what determines whether a spawn would be broken). Returns a refusal {code, error}
-   to send, or null to allow. bootedWorld() is null on a never-bootstrapped unit board
-   (allow, so fixtures are unaffected) and DEFAULT_ID for the default world (allow). */
-function namedWorldSpawnRefusal() {
-  const booted = require('./engine/worldenv').bootedWorld();
-  if (!booted || booted === worlds.DEFAULT_ID) return null;
-  return {
-    code: 409,
-    error: 'Kosmos is running a named world, which does not run agents yet. '
-      + 'Switch back to Kosmos 1 (the default world) to create agents.',
-  };
-}
 /* #2066: which channel this build was FETCHED from (staging vs prod), for the
    board's build marker. It is NOT baked into the artifact -- #2036's invariant is
    that the SAME bytes are promoted to prod with no rebuild, so a baked stamp would
@@ -3155,32 +3134,19 @@ const server = http.createServer((req, res) => {
           /* safeRoster(): removed agents are already off it, so a pause never
              touches an agent Kosmos has told the person is gone. */
           const roster = safeRoster();
-          /* Review round 1: NO PAUSE FROM A WORLD WHOSE AGENTS MAY NOT RUN (#2849,
-             the ONE rule, reused). While #2849 refuses, a named world runs no
-             agents of its own, so it has nothing to pause. It was worse before Mac
-             identity was world-keyed (#2874): a named board's roster showed the
-             DEFAULT world's agents, and remove.jobFor found their plists, so a pause
-             stopped Kosmos 1's agents while recording them in the named world's
-             store, where #2849 then held them forever. So every agent keeps
-             running, is listed, and the switch proceeds. ⚠️ REVISIT when #2849 is
-             lifted: with both platforms now world-keyed (#2845, #2874), this
-             condition should then simply go. */
-          /* An unreadable roster is a 503 on both branches below: a pause the
-             person asked for must not come back as a silent empty list. */
+          /* A pause from a NAMED Kosmos pauses that Kosmos's own agents, the same
+             as from Kosmos 1. Everything it touches is this world's: the roster
+             holds only this world's sessions (status.parsePanes on a Mac, this
+             world's session record on Windows), and pauseForSwitch reaches each
+             agent through its world-keyed launch identity
+             (launchidentity.launchKey) and records it in this world's store. */
+          /* An unreadable roster is a 503: a pause the person asked for must not
+             come back as a silent empty list. */
           if (roster === null) {
             sendJson(res, 503, { ok: false, because: 'we could not see which agents are running in this Kosmos, so nothing was paused or switched. Try again, or keep them running' });
             return;
           }
-          const agentsBarred = namedWorldSpawnRefusal();
-          if (agentsBarred) {
-            pause = {
-              paused: [],
-              notPaused: roster.map((a) => ({ name: a.sessionName, because: `${a.sessionName} keeps running: agents cannot be paused from a named Kosmos yet` })),
-              stoppedNow: [],
-            };
-          } else {
-            pause = worldstarts.pauseForSwitch(roster.map((a) => ({ name: a.sessionName, session: a.session, tied: a.isNamedOurs })));
-          }
+          pause = worldstarts.pauseForSwitch(roster.map((a) => ({ name: a.sessionName, session: a.session, tied: a.isNamedOurs })));
         }
         let world;
         try { world = worlds.setActiveWorld(base, id); }
@@ -3230,10 +3196,9 @@ const server = http.createServer((req, res) => {
            registry pointer after a switch on a board that could not restart
            itself. If an earlier pause-switch on such a board stopped this world's
            agents, they are "opened again" here, and no boot is coming to bring
-           them back. Costs nothing when nothing is paused. Held, like the boot
-           drain, while agents may not start in this world (#2849, one derivation). */
+           them back. Costs nothing when nothing is paused. */
         if (isNoop) {
-          const back = worldstarts.resumePaused({ spawnRefusal: namedWorldSpawnRefusal });
+          const back = worldstarts.resumePaused();
           if (back.held.length) process.stderr.write(`Kosmos left ${back.held.length} paused agent(s) off. First: ${back.held[0].name} - ${back.held[0].because}\n`);
         }
         const restarting = !isNoop && require('./engine/boardrestart').canSelfRestart().canRestart;
@@ -3587,10 +3552,6 @@ const server = http.createServer((req, res) => {
           throw new Error('we could not read that request');
         }
 
-        // #2827: named worlds do not run agents in v1 -- refuse before writing anything.
-        const nw = namedWorldSpawnRefusal();
-        if (nw) { sendJson(res, nw.code, { error: nw.error }); return; }
-
         /**
          * ⚠️ The projects the new agent should join are validated HERE,
          * BEFORE the engine writes anything: a refusal after the folder
@@ -3867,10 +3828,6 @@ const server = http.createServer((req, res) => {
           sendJson(res, 400, { error: 'we could not read that request' });
           return;
         }
-
-        // #2827: named worlds do not run agents in v1 -- refuse before spawning a team.
-        const nw = namedWorldSpawnRefusal();
-        if (nw) { sendJson(res, nw.code, { error: nw.error }); return; }
 
         const members = Array.isArray(body.members) ? body.members : null;
 
@@ -4246,10 +4203,6 @@ const server = http.createServer((req, res) => {
   if (rs && req.method === 'POST') {
     const name = decodeSegment(rs[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    // #2827: restore re-enables the agent's launch job, so it runs again -- a spawn.
-    // In a named world its board token would be refused, so refuse the restore there.
-    const nwr = namedWorldSpawnRefusal();
-    if (nwr) { sendJson(res, nwr.code, { error: nwr.error }); return; }
     let back;
     try { back = removal.restore(name); }
     catch (err) { sendJson(res, 500, { error: 'we could not put this agent back', detail: String(err && err.message || err) }); return; }
@@ -7038,10 +6991,6 @@ const server = http.createServer((req, res) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
         catch { sendJson(res, 400, { ok: false, because: 'we could not read that request' }); return; }
-        // #2827: connecting a discovered agent INSTALLS a launch job and STARTS it,
-        // so it is a spawn -- refuse it in a named world just like the create routes.
-        const nw = namedWorldSpawnRefusal();
-        if (nw) { sendJson(res, nw.code, { ok: false, because: nw.error }); return; }
         /* 🔑 THE FIRST AGENT BRINGS ITS OWN HOME, WHETHER IT WAS MADE OR IMPORTED
            (#1349). The seed lived only in the create route, so a person whose
            first agents are IMPORTED landed on an empty Projects tab -- the first
@@ -9572,11 +9521,6 @@ const server = http.createServer((req, res) => {
      the set the GET above reports, so the two can never describe different
      work. A body would let a caller name an agent the survey refused. */
   if (pathname === '/api/register' && req.method === 'POST') {
-    // #2827: register.repair installs the missing launch job for every jobless agent
-    // and STARTS it (create.installJob) -- a spawn. In a named world those agents'
-    // board tokens would be refused, so refuse the repair there too.
-    const nwreg = namedWorldSpawnRefusal();
-    if (nwreg) { sendJson(res, nwreg.code, { error: nwreg.error }); return; }
     try {
       /* The model each one LAST RAN AS, which is the only surviving record of
          it: the model an agent was SET to run on lived in the job that does not
@@ -12603,11 +12547,10 @@ if (require.main === module) {
       process.stdout.write('Local only. It writes, and it has no login yet.\n');
       /* #1704 PR3: start again the agents a pause-switch stopped when this Kosmos
          was left. Here, not in start(): live execution is armed above and the board
-         is listening, and routing tests that call start() never reach this. Held
-         while agents may not start in this world, by the SAME rule the spawn
-         routes use (#2849, one derivation). Not fatal: a board that could not
-         resume an agent still serves, and the entry is retried next boot. */
-      try { worldstarts.drainAtBoot({ spawnRefusal: namedWorldSpawnRefusal }); }
+         is listening, and routing tests that call start() never reach this. Not
+         fatal: a board that could not resume an agent still serves, and the entry
+         is retried next boot. */
+      try { worldstarts.drainAtBoot(); }
       catch (err) { process.stderr.write(`Kosmos could not bring back this Kosmos's paused agents: ${String(err && err.message)}\n`); }
       /* #1704 PR2: deliver what this Kosmos's agents kept while another Kosmos
          was open. Here, on the real-start path only: after allowLiveExecution()
