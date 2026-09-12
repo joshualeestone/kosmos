@@ -1,4 +1,4 @@
-# Plan: #2840 Token Usage value-view — usage-history list increment
+# Plan: #2840 Token Usage value-view, usage-history list increment
 
 Author: Angel. Started 2026-09-12 ~03:05 CDT. Branch: token-value-2840.
 
@@ -20,13 +20,14 @@ layout + usage-history now, value math clearly stubbed; drop in the math the mom
 
 ## Scope of THIS increment (bounded, additive, low-risk on the #1 demo surface)
 Add the scrollable usage-history list (the 0.6.57 polish Josh flagged) as a new block in
-`#s-sec-usage`, ABOVE the estimate note, matching the design's `.uhwrap`/`.uhrow`:
+`#s-sec-usage`, ABOVE the estimate note, matching the design's scrollable list (as built:
+`.uhrow` rows inside a `#usage-history` scroll box under a `.usage-hist` block):
 columns Day / Model / Total tokens / Value, newest first, fixed-height scroll, sticky header.
 - Day, Model, Total tokens: real data from byDay (per day+model row). "Total tokens" here is
-  the per-ROW sum of that day+model's four classes — a detailed breakdown row, not the single
+  the per-ROW sum of that day+model's four classes, a detailed breakdown row, not the single
   blended HEADLINE #2617 refuses; still, it is a sum, so it is labeled and its meaning is
   clear in the column header, and the hero single-total is NOT built in this increment.
-- Value column: STUBBED — renders a clear "pending" placeholder (not a live number), with a
+- Value column: STUBBED, renders a clear "pending" placeholder (not a live number), with a
   code comment naming the blend-vs-output decision and #2840 as where the real math lands.
 The fuller hero/charts4/model-table/pie redesign is the remaining #2840 scope (a bigger
 visual pixel-match, best finished in a claude-fe interactive session or a follow-up); this
@@ -37,15 +38,17 @@ increment does NOT tear down the existing #2617 cards/chart/table.
   .uhrow markup): one row per day+model, newest first, Total = row's 4-class sum, Value = the
   stub placeholder. Returns '' when empty.
 - Wire it into `paintUsage` (a new `#usage-history` container in the section HTML).
-- CSS: `.uhwrap`/`.uhrow`/head/sticky, ported from the design's tokens to the app's real
-  tokens (the design already remapped to app vars; use the app's --k-* set as the section does).
+- CSS (as built): `.usage-hist` block + `#usage-history` scroll box + `.uhrow`/`.uhhead` sticky,
+  ported from the design's tokens to the app's real --k-* set (the section's own convention).
+  `#usage-history` also carries tabindex="0" + role/aria-label so the scroll region is keyboard
+  reachable (WCAG AA, the .pj-screen pattern).
 
 ## Verification
-- Node test: mirror web.token-usage-2617.test.js — lift `usageHistoryHtml` out, run against a
+- Node test: mirror web.token-usage-2617.test.js, lift `usageHistoryHtml` out, run against a
   fixture byDay, assert the rows (Day/Model/Total) and that Value is the STUB, not a number.
-- Browser-check (render-usage-history-2840.js) via pw-runtime headless: assert the list
-  renders, has the 4 columns, scrolls (max-height), and the Value cells show the stub.
-  Bump the browser-check count guards if adding a new check reds the reason-grep test.
+- Browser-check (render-token-usage-2617.js, EXTENDED not new, so no count-bump) via pw-runtime
+  headless: assert the list renders, has the 4 columns, scrolls (overflow-y:auto), and the
+  Value cells show the stub with no dollar sign anywhere.
 - Full node suite (tools/run-tests.sh) green; challenge-loop to convergence; PR (Addresses
   #2840, non-closing; no --reviewer per the self-authored-Kosmos rule). Josh's in-app eyeball
   is the final visual pass (per #2350), plus his blend ruling fills the stub.
@@ -53,6 +56,6 @@ increment does NOT tear down the existing #2617 cards/chart/table.
 ## Weakest premise
 That a per-day+model "Total tokens" breakdown ROW is acceptable under #2617's no-blend stance
 (it is a labeled detail sum, not the single blended headline #2617 rejects). If Josh's ruling
-is "never sum classes anywhere," this column changes too — but the row is a breakdown, not a
+is "never sum classes anywhere," this column changes too, but the row is a breakdown, not a
 headline, so it is the defensible reading, and the Value column (the real contested $) is
 stubbed regardless.

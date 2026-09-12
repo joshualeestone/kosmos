@@ -223,3 +223,24 @@ test('#2840: usageHistoryHtml escapes a hostile model name and is empty on no da
   assert.ok(hostile.includes('&lt;img'), 'the hostile string is HTML-escaped');
   assert.equal(U.usageHistoryHtml({}), '', 'empty byDay renders nothing');
 });
+
+/* #2840 (Convention #5, "two derivations of one fact"): usageTableHtml and usageHistoryHtml
+   independently iterate byDay to emit their rows. This pins that they cover the SAME
+   (day, model) set from the same input, so a future edit to one loop (e.g. a per-class
+   filter) that misses the other desyncs a test rather than shipping silently. */
+test('#2840: the usage-history list and the measurement table derive the same (day,model) rows', () => {
+  const fx = {
+    '2026-09-02': { 'claude-opus-5': { output_tokens: 3 }, 'gpt-5.1-codex': { output_tokens: 2 } },
+    '2026-09-01': { 'claude-opus-5': { input_tokens: 1 } },
+  };
+  const tablePairs = [...U.usageTableHtml(fx).matchAll(/<tr><td>([^<]+)<\/td><td>([^<]+)<\/td>/g)]
+    .map((m) => m[1] + '|' + m[2]);
+  const histPairs = [...U.usageHistoryHtml(fx).matchAll(/<div class="uh-d">([^<]+)<\/div><div class="uh-m">([^<]+)<\/div>/g)]
+    .map((m) => m[1] + '|' + m[2]);
+  assert.equal(histPairs.length, 3, 'the fixture yields 3 day+model rows');
+  assert.deepEqual(histPairs.slice().sort(), tablePairs.slice().sort(),
+    'both functions produce the same (day,model) row set from the same byDay');
+  // Both are newest-first, so the first row of each is the 09-02 pair, not 09-01.
+  assert.ok(histPairs[0].startsWith('2026-09-02') && tablePairs[0].startsWith('2026-09-02'),
+    'both order newest-day-first');
+});

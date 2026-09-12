@@ -73,6 +73,7 @@ function readUsage(page) {
       historyValueStubbed: [...document.querySelectorAll('#usage-history .uhrow:not(.uhhead)')].every((r) => /pending/.test((r.textContent || ''))),
       historyHasDollar: /\$/.test((document.getElementById('usage-history') || {}).textContent || ''),
       historyScrolls: (() => { const b = document.getElementById('usage-history'); return b ? getComputedStyle(b).overflowY === 'auto' : null; })(),
+      historyKeyboardReachable: (() => { const b = document.getElementById('usage-history'); return b ? b.getAttribute('tabindex') === '0' : null; })(),
     };
   });
 }
@@ -105,6 +106,7 @@ function readUsage(page) {
     ok(['Day', 'Model', 'Total tokens', 'Value'].every((h) => v.historyHeaders.includes(h)),
       `the usage-history columns are Day/Model/Total tokens/Value (got ${JSON.stringify(v.historyHeaders)})`);
     ok(v.historyScrolls === true, 'the usage-history box is a fixed-height scroller (overflow-y:auto)');
+    ok(v.historyKeyboardReachable === true, 'the scroll region is keyboard-reachable (tabindex=0, WCAG AA)');
     // The contested $ value is STUBBED pending Josh's blend-vs-output ruling: every
     // Value cell says "pending" and NO dollar sign appears. This fails the moment a
     // live $ figure lands before the ruling -- the guard on the demo headline number.

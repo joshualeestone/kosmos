@@ -12201,7 +12201,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <div class="usage-hist">
         <h4>Usage history</h4>
         <p class="dhint">Your most recent days, newest first. It scrolls when the history runs long. Value is pending a pricing decision.</p>
-        <div id="usage-history"></div>
+        <!-- tabindex="0" so a keyboard-only user can reach and scroll this fixed-height
+             region: it has no focusable descendant (pure text rows), so without it the
+             scroll is mouse-only. Same rule + reason as .pj-screen (WCAG 2.1 SC 2.1.1;
+             this project's floor is AA). aria-label names the region for a screen reader. -->
+        <div id="usage-history" tabindex="0" role="region" aria-label="Usage history"></div>
       </div>
       <!-- The engineering-equivalent line, quoted against OUTPUT tokens and
            saying so in the sentence itself. It sits BELOW the cards and chart on
