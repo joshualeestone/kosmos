@@ -12118,7 +12118,7 @@ test('#2811: a DEAD Codex agent is not handed its old Claude model by the record
 test('#2811: a card with NO runner marker falls back to the launch job, not to the transcript', () => {
   /**
    * 🛑 THE CASE THE MARKER CANNOT ANSWER. A paneless card carries `runner: null`
-   * by construction (`engine/status.js:5912`, the only such site), so the
+   * by construction (`engine/status.js`, its only such site), so the
    * `@kosmos_runner` marker is absent for exactly one of the cases this guard
    * names. The launch job does not depend on a pane, so it answers there.
    *
@@ -12140,7 +12140,7 @@ test('#2811: a card with NO runner marker falls back to the launch job, not to t
        test drift from what a card really carries.
        Measured equivalence rather than asserted: a paneless card differs from a
        pane card on `paneless`, `reachedByChannel`, `runner`, `task` and `state`
-       (`status.js:5908-5914`), and `whoamiFor` reads exactly three card fields:
+       (the paneless card builder), and `whoamiFor` reads exactly three card fields:
        `runner`, `session`, `sessionName`. `runner` is the only member of both
        sets, so nulling it IS the paneless shape as far as this function can
        observe, and the other four would be decoration here. */
@@ -12252,10 +12252,16 @@ test('#2811: account-status does not run a CLAUDE auth probe against a codex age
        shapes differ here and that difference is the point: a NAMED codex account
        still reports its row, a DEFAULT one has none to report. */
     const named = JSON.parse((await req('/api/agent/namedcodex/account-status')).body);
-    assert.equal(named.account && named.account.dir, undefined,
-      'the route leaked a dir it does not send');
+    /* Existence FIRST: the dir check below is `undefined`-valued, and `null ==
+       undefined`, so on a missing row it would pass for the wrong reason. */
     assert.ok(named.account, 'a named codex account lost its row, so the answer names no account at all');
-    assert.strictEqual(named.account.isDefault, false);
+    assert.strictEqual(named.account.dir, undefined, 'the route leaked a dir it does not send');
+    /* 🛑 NULL, NOT FALSE. `accountForAgent` returns null for a foreign dir on
+       purpose: `false` would read as "on a NON-default account" and imply a named
+       alternate that does not exist. An earlier version of this arm asserted
+       `false` and so locked in the very value the branch removed. */
+    assert.strictEqual(named.account.isDefault, null,
+      'a codex home was scored against $HOME/.claude and flattened to a non-default boolean');
     const dflt = JSON.parse((await req('/api/agent/defcodex2/account-status')).body);
     assert.strictEqual(dflt.account, null,
       'a default codex agent was given an account row it does not have');
@@ -12468,7 +12474,7 @@ test('#2811: a LIVE claude process beats a stale codex marker, and keeps its mod
 
 test('#2811: an UNRECORDED runner marker does not read as claude when the job says codex', () => {
   /**
-   * 🛑 THE MARKER'S `'claude'` IS A DEFAULT, NOT A CLAIM. `status.js:6421`
+   * 🛑 THE MARKER'S `'claude'` IS A DEFAULT, NOT A CLAIM. `status.js`
    * normalises the pane marker as `pane.runner === 'codex' ? 'codex' : 'claude'`,
    * so an agent whose `@kosmos_runner` was never recorded is indistinguishable
    * from one recorded as claude. `bin/agent-supervisor.sh` says that failure is
