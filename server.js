@@ -4782,7 +4782,8 @@ const server = http.createServer((req, res) => {
   /* The daily product-feedback report (engine/feedback.js, kosmos#2037). The
      LOCAL half: read the reports the user's agent has written, and write one.
      Josh's "store locally regardless of the switch": this route never touches
-     a send/opt-in flag; it only reads and writes the local files. The send
+     the send flag (default-on / opt-out, #2013); it only reads and writes the
+     local files. The send
      layer (scrub + gated transmission) is a separate slice and a separate
      route. GET with no ?date returns today's report + the list of dates;
      ?date=YYYY-MM-DD returns that day's. */
