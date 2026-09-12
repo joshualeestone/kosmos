@@ -18,6 +18,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const store = require('./store');
+const launchidentity = require('./launchidentity'); // #1704: this board's Kosmos, and the roster key
 const selfreport = require('./selfreport');
 const wouldping = require('./wouldping');
 const observed = require('./observed');
@@ -844,17 +845,23 @@ function isParseable(line) {
 function readPanes(out) {
   if (!out) return { panes: [], rejected: 0, rejectedLines: [] };
   const lines = out.trim().split('\n').filter(Boolean);
-  // ⚠️ Counted from what actually PARSED, not from a second application of the
-  // filter. Two derivations of "how many did we lose" can drift the moment
-  // `parsePanes` drops a line for any other reason.
   const panes = parsePanes(out);
-  /* #734: the lines themselves ride along (bounded: three, one line each,
-     160 chars), so the board can SHOW what it could not read rather than
-     only count it. A count says the fleet is short; the line says which
-     pane, which is the only way anyone finds it. A pane title is text an
-     agent wrote and this reaches a screen, hence the bound. */
-  const rejectedLines = lines.filter((l) => !isParseable(l)).slice(0, 3).map((l) => oneLine(l, 160));
-  return { panes, rejected: lines.length - panes.length, rejectedLines };
+  /* 🛑 #1704: "rejected" is the count of lines we genuinely COULD NOT READ (they
+     fail isParseable), NOT `lines.length - panes.length`. parsePanes now drops a
+     line for THREE reasons -- unparseable, the board's own sign-in session, and
+     (new) every OTHER Kosmos's panes, since `list-panes -a` enumerates the whole
+     shared tmux server. The last two are deliberate EXCLUSIONS, not read
+     failures, so lines-minus-panes would raise a false "N lines could not be
+     read" alarm the moment two worlds run on one Mac. Deriving `rejected` and
+     `rejectedLines` from the SAME isParseable pass also means the count and its
+     shown sample can never drift (they did, once this filter grew a third
+     reason -- the exact drift the old lines-minus-panes comment feared).
+     #734: the lines ride along (bounded: three, one line each, 160 chars) so the
+     board can SHOW what it could not read, not only count it -- a title is text
+     an agent wrote and reaches a screen, hence the bound. */
+  const unparseable = lines.filter((l) => !isParseable(l));
+  const rejectedLines = unparseable.slice(0, 3).map((l) => oneLine(l, 160));
+  return { panes, rejected: unparseable.length, rejectedLines };
 }
 
 /**
@@ -874,8 +881,15 @@ function parsePanes(out) {
       raw[col.key] = col.rest ? parts.slice(i).join('\t') : parts[i];
     });
     const session = raw.session || '';
+    /* #1704: a board's roster is its OWN Kosmos. nameInWorld maps the session's
+       launch key to the bare agent name IN THIS WORLD, or null for another
+       Kosmos's session (dropped in the filter below). The -discord strip runs on
+       the resulting NAME, never on the raw session: a world id can end in
+       `-discord` (CLEAN_ID allows it), so stripping it off the session first
+       would mangle `ava+qa-discord` into `ava+qa`. */
+    const inWorld = launchidentity.nameInWorld(session, launchidentity.currentWorldId());
     return {
-      name: session.replace(/-discord$/, ''),
+      name: inWorld === null ? null : inWorld.replace(/-discord$/, ''),
       session,
       // Kept, not just folded into `target`: choosing one pane per session
       // needs to compare indexes, and re-parsing them back out of the target
@@ -934,7 +948,7 @@ function parsePanes(out) {
      The guard stays even though parse-fed flows can no longer reach it:
      it is the defence for any caller handing a pane-shaped object that
      did not come through this parse. */
-  }).filter((p) => p.session !== connect.SESSION);
+  }).filter((p) => p.session !== connect.SESSION && p.name !== null);
 }
 
 /**
@@ -1062,9 +1076,18 @@ function isNamedOurs(pane) {
   // it, and there is no stale record to reconcile — the two failure modes a
   // claims file on disk would have had.
   //
-  // ⚠️ It must match the pane's own NAME, not merely be present. A claim naming
-  // a different agent is somebody else's claim, and reading "has a claim" as
-  // "is ours" would be the borrowed-name hole rebuilt out of new parts.
+  // ⚠️ It must match the pane's own SESSION, not merely be present. A claim
+  // naming a different session is somebody else's claim, and reading "has a
+  // claim" as "is ours" would be the borrowed-name hole rebuilt out of new parts.
+  //
+  // 🔑 #1704: THE SESSION, NOT THE ROSTER NAME. The supervisor stamps
+  // @kosmos_agent with its own $SESSION (agent-supervisor.sh sets and re-checks
+  // it against `-t "$SESSION"`), which for a named world is the launch KEY
+  // `<name>+<world>`. parsePanes now reports `pane.name` as the BARE in-world
+  // name (`ava`), so `claim === pane.name` would be `ava+qa === ava` and every
+  // named-world agent would come back anonymous. `pane.session` is the raw tmux
+  // session, i.e. the same key the claim carries, and it equals the bare name in
+  // the default world, so this holds on both.
   //
   // ⚠️ KOSMOS writes this, never the agent, and that is a CONVENTION rather
   // than an enforcement — worth stating precisely, because the sentence used to
@@ -1080,7 +1103,7 @@ function isNamedOurs(pane) {
   // stale record for a stranger to inherit later, which is the failure a claims
   // file on disk would have had.
   const claim = String(pane.claim || '').trim();
-  if (claim && claim === String(pane.name || '')) return true;
+  if (claim && claim === String(pane.session || '')) return true;
 
   // The legacy arm: the existing fleet carries the suffix and no claim, and
   // must keep working untouched.

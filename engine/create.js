@@ -56,6 +56,7 @@ const { execFileSync, execFile } = require('node:child_process');
 const roles = require('./roles');
 const liveExec = require('./live-execution');
 const runners = require('./runners'); // #1616: one definition of runnable
+const launchidentity = require('./launchidentity'); // #1704: the per-Kosmos launch key
 
 /**
  * The models an agent can be created on.
@@ -732,8 +733,32 @@ function instructionFile(name, runner) {
   return path.join(workerDir(name), briefFilename(r));
 }
 function logFile(name) { return path.join(workerDir(name), 'start.log'); }
-function serviceLabel(name) { return `com.kosmos.agent.${name}`; }
-function plistPath(name) { return path.join(agentsDir(), `${serviceLabel(name)}.plist`); }
+/* 🔑 KEYED BY WORLD (#1704 / #2828). A launchd label is machine-wide, but an agent
+   belongs to one Kosmos, so a named world's agent is `com.kosmos.agent.<name>+<world>`
+   and the default world's is unchanged. The world is this process's own
+   (launchidentity.currentWorldId: the board's booted world), so every caller that
+   labels by agent name -- the plist, launchctl enable/print/bootout, and
+   remove.js / delete-leftover.js through here -- reaches THIS world's service and can
+   never reach another Kosmos's agent of the same name. An explicit world wins (a
+   named remove acting on a specific world). */
+/* The world-INDEPENDENT launchd namespace. serviceLabel builds on it, and the
+   stray sweeps (createdroster / register) that ENUMERATE every Kosmos agent's
+   plist match on it and then attribute each to a world. They
+   cannot use serviceLabel('') for the prefix any more, because that is now
+   world-dependent (a named board's serviceLabel('') is `...agent.+<world>`). */
+const SERVICE_LABEL_PREFIX = 'com.kosmos.agent.';
+function serviceLabel(name, worldId) {
+  const world = worldId === undefined ? launchidentity.currentWorldId() : worldId;
+  return `${SERVICE_LABEL_PREFIX}${launchidentity.launchKey(name, world)}`;
+}
+function plistPath(name, worldId) { return path.join(agentsDir(), `${serviceLabel(name, worldId)}.plist`); }
+/* {name, worldId} for one of our service labels, or null when it is not ours.
+   The stray sweeps use it to keep only THIS board's world and to read the bare
+   agent name from a label (#1704). */
+function parseServiceLabel(label) {
+  if (typeof label !== 'string' || !label.startsWith(SERVICE_LABEL_PREFIX)) return null;
+  return launchidentity.parseKey(label.slice(SERVICE_LABEL_PREFIX.length));
+}
 
 /**
  * The model an agent's launchd job will start it on, read back out of the job
@@ -1943,7 +1968,13 @@ function boardPort() {
 }
 
 function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
-  const label = serviceLabel(name);
+  /* #1704: the Kosmos this agent belongs to is the board's own world. The launchd
+     label and the tmux session name are BOTH keyed by it (launchidentity.launchKey),
+     so a named world's agent is `com.kosmos.agent.<name>+<world>` with a tmux session
+     `<name>+<world>`, and the default world's are byte-for-byte what they were. */
+  const world = launchidentity.currentWorldId();
+  const label = serviceLabel(name, world);
+  const session = launchidentity.launchKey(name, world);
   /* KOSMOS_PORT (#577): a sandboxed server seals what IT writes with the
      AGENT_WORKFORCE_* variables, but nothing told the agent which board made
      it, so its `kosmos reply` and self-reports went to the live board on
@@ -1999,6 +2030,15 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
      that already exist, because a plist is written once and never rewritten. */
   const tmuxSock = typeof process.env.TMUX_TMPDIR === 'string' ? process.env.TMUX_TMPDIR : '';
   const tmuxSockLine = tmuxSock ? `\n    <key>TMUX_TMPDIR</key><string>${xml(tmuxSock)}</string>` : '';
+  /* 🔑 THE AGENT'S KOSMOS (#1704). Reaches the SUPERVISOR (which mints the sender
+     token into this world's store and passes the world on to the pane via `-e`),
+     not the pane directly -- a plist EnvironmentVariables entry is inherited by the
+     supervisor but not by a tmux session on an already-running server, the same
+     reason the renderer preference lives in agent-supervisor.sh's `-e` list.
+     ⚠️ ABSENT MEANS THE DEFAULT WORLD, the same rule as KOSMOS_PORT and
+     CLAUDE_CONFIG_DIR above, so a default-world plist is byte-for-byte unchanged and
+     needs no migration. */
+  const worldLine = launchidentity.isDefaultWorld(world) ? '' : `\n    <key>KOSMOS_WORLD</key><string>${xml(world)}</string>`;
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -2008,7 +2048,7 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
   <array>
     <string>/bin/bash</string>
     <string>${xml(supervisorPath())}</string>
-    <string>${xml(name)}</string>
+    <string>${xml(session)}</string>
     <string>${xml(workerDir(name))}</string>
     <string>${xml(claudeBin)}</string>
     <string>${xml(tmuxBin)}</string>
@@ -2019,7 +2059,7 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
   <dict>
     <key>HOME</key><string>${xml(homeDir())}</string>
     <key>PATH</key><string>${xml(`${path.dirname(claudeBin)}:${path.dirname(tmuxBin)}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin`)}</string>
-    <key>LANG</key><string>en_US.UTF-8</string>${configLine}${portLine}${tmuxSockLine}
+    <key>LANG</key><string>en_US.UTF-8</string>${configLine}${portLine}${tmuxSockLine}${worldLine}
   </dict>
   <!-- Whose background item this is. See the note above plistFor. -->
   <key>AssociatedBundleIdentifiers</key>
@@ -4217,6 +4257,8 @@ module.exports = {
   supervisorSource,
   installSupervisor,
   serviceLabel,
+  SERVICE_LABEL_PREFIX,
+  parseServiceLabel,
   workerDir,
   /* #923: the ONE home resolver (AGENT_WORKFORCE_HOME || os.homedir(), #1780),
      exported so server.js's startup chdir reuses it rather than deriving

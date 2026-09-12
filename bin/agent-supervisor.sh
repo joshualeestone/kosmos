@@ -305,6 +305,34 @@ if [ -z "$adopt" ]; then
     for _n in "${_eng:+$_eng/../../runtime/bin/node}" "$(command -v node 2>/dev/null || true)"; do
       [ -n "${_n:-}" ] && [ -x "$_n" ] && { NODE_BIN="$_n"; break; }
     done
+    # ── #1704: THIS AGENT'S KOSMOS ──────────────────────────────────────────
+    # The plist set KOSMOS_WORLD for a named world (absent = the default world).
+    # Resolve it into this world's store roots ONCE, here, and export them, so
+    # (1) the mint below lands the sender token in the WORLD's store (requiring
+    # sendertoken.js freezes store.ROOT, so the roots must be set first), and
+    # (2) the pane can be handed the world's roots explicitly further down -- a
+    # tmux pane does NOT inherit this supervisor's environment on the shared
+    # server (measured), so the world has to be pushed with `-e`.
+    # ⚠️ `< <(...)` process substitution, NOT a pipe: the `export` must run in
+    # THIS shell, and a `| while` would run it in a subshell and lose them.
+    if [ -n "${KOSMOS_WORLD:-}" ] && [ -n "$_eng" ] && [ -n "$NODE_BIN" ] && [ -f "$_eng/worlds.js" ]; then
+      while IFS='=' read -r _wk _wv; do
+        [ -n "$_wk" ] && export "$_wk=$_wv"
+      done < <("$NODE_BIN" -e '
+        try {
+          const w = require(process.argv[1]);
+          w.applyAgentWorldEnv(process.env);   // KOSMOS_WORLD -> the world roots
+          for (const k of ["AGENT_WORKFORCE_DATA","AGENT_WORKFORCE_PROJECTS","AGENT_WORKFORCE_WORKERS"]) {
+            if (process.env[k]) process.stdout.write(k + "=" + process.env[k] + "\n");
+          }
+        } catch (e) { /* an unenterable world must not fail the launch: nothing is
+          exported, so this pane and the mint below both fall back to the default
+          store roots -- one consistent unit, never a split brain (the hooks and
+          the kosmos CLI read the roots we hand the pane, not KOSMOS_WORLD, so no
+          consumer re-derives a different world). KOSMOS_WORLD rides from a
+          create.js-validated plist, so this is defence, not an expected path. */ }
+      ' "$_eng/worlds.js" 2>/dev/null || true)
+    fi
     # The mint needs BOTH the engine (for sendertoken.js) and a node. No engine
     # means no token rather than a broken one (the control the test asserts).
     if [ -n "$_eng" ] && [ -n "$NODE_BIN" ]; then
@@ -312,7 +340,14 @@ if [ -z "$adopt" ]; then
       # the board files an agent under, which `status.js` derives as the session
       # minus its `-discord` suffix. Minting under the raw session name would key
       # the file where `resolve` never looks.
-      _roster="${SESSION%-discord}"
+      # #1704: SESSION is the launch KEY (name+world for a named world); the
+      # roster and token name is the BARE agent name. Strip the +world suffix
+      # FIRST, then -discord -- a world id can end in `-discord` (CLEAN_ID allows
+      # it), so a -discord strip before the +world parse would mangle
+      # `sales-bot+qa-discord` into `sales-bot+qa`.
+      _roster="$SESSION"
+      if [ -n "${KOSMOS_WORLD:-}" ]; then _roster="${_roster%+"$KOSMOS_WORLD"}"; fi
+      _roster="${_roster%-discord}"
       KOSMOS_AGENT_TOKEN="$("$NODE_BIN" -e '
         try {
           const s = require(process.argv[1]);
@@ -398,6 +433,20 @@ if [ -z "$adopt" ]; then
       PANE_ENV+=(-e "$_name=$(head -1 "$_f")")
     done
   fi
+  # #1704: hand the pane its Kosmos EXPLICITLY, always -- the world id and its
+  # three store roots, all empty for the default world. ALWAYS, and this is the
+  # point: a tmux session inherits the shared server's GLOBAL environment
+  # (measured on 3.6a), and a server that a named-world board cold-started
+  # carries that board's KOSMOS_WORLD and roots. An empty `-e` overrides that
+  # back to the default (an empty AGENT_WORKFORCE_DATA is the default store,
+  # store.js). A named world passes its resolved roots so the pane's `kosmos`
+  # CLI and hooks reach ITS store, since the pane does not inherit this
+  # supervisor's environment. `${VAR:-}` is empty when unset, which is exactly
+  # what the default world wants pushed.
+  PANE_ENV+=(-e "KOSMOS_WORLD=${KOSMOS_WORLD:-}")
+  PANE_ENV+=(-e "AGENT_WORKFORCE_DATA=${AGENT_WORKFORCE_DATA:-}")
+  PANE_ENV+=(-e "AGENT_WORKFORCE_PROJECTS=${AGENT_WORKFORCE_PROJECTS:-}")
+  PANE_ENV+=(-e "AGENT_WORKFORCE_WORKERS=${AGENT_WORKFORCE_WORKERS:-}")
   if [ "$RUNNER" = codex ]; then
     # Self-reporting (#245 on #526): codex's notify hook runs the bridge
     # with one JSON argument per event, from INSIDE the agent's pane, so
