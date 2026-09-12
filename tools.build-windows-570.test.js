@@ -55,6 +55,7 @@ function staged(src) {
 const DELIBERATELY_MAC_ONLY = {
   'assets/Kosmos.icns': 'a macOS icon format; Windows needs .ico and there is no artwork for it yet',
   'install/kosmos-report-hook.sh': 'a bash hook for Claude Code, which this package does not install',
+  'bin/board-watchdog.sh': 'the #2955 board watchdog is a macOS launchd LaunchAgent mechanism (install/setup.sh registers com.kosmos.board.watchdog); Windows supervises the board through win32supervisor.js instead, so the script would never run there',
 };
 /* 🛑 THIS LIST SHRANK TWICE AND BOTH TIMES THE STALE-REASON CHECK BELOW MADE ME
    DO IT. It carried `install/kosmos` and `install/setup.sh`, which the Mac
