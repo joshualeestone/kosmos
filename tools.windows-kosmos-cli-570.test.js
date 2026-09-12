@@ -110,6 +110,21 @@ test('post: /api/post with the project and text; a --file attempt is refused bef
   assert.equal(f.calls.length, 0);
 });
 
+test('#2908: post --no-reply sends reply_expected:false; without it no field; a non-leading flag is text', async () => {
+  const yes = await run(['post', '--no-reply', 'proj-1', 'thanks, got it'], () => ({ body: { delivery: { state: 'placed' } } }));
+  assert.equal(yes.code, 0);
+  assert.deepEqual(yes.calls[0].body, { project: 'proj-1', text: 'thanks, got it', from_pane: '', reply_expected: false },
+    '--no-reply must consume the flag and put reply_expected:false on the body');
+  const no = await run(['post', 'proj-1', 'a plain message'], () => ({ body: { delivery: { state: 'placed' } } }));
+  assert.equal(no.code, 0);
+  assert.equal(Object.prototype.hasOwnProperty.call(no.calls[0].body, 'reply_expected'), false,
+    'an ordinary post must omit reply_expected entirely (omitted = current behavior)');
+  const mid = await run(['post', 'proj-1', 'please --no-reply on that'], () => ({ body: { delivery: { state: 'placed' } } }));
+  assert.equal(Object.prototype.hasOwnProperty.call(mid.calls[0].body, 'reply_expected'), false,
+    'a non-leading --no-reply is message text, not the flag (parity with install/kosmos)');
+  assert.match(mid.calls[0].body.text, /--no-reply/, 'the token stays in the text when not leading');
+});
+
 test('react: /api/react with project, post id and emoji, and the agent hears WHICH way the toggle went', async () => {
   const r = await run(['react', 'proj-1', 'm3', '🔥'], () => ({ body: { ok: true, op: 'add' } }));
   assert.equal(r.code, 0);

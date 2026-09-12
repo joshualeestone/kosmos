@@ -53,3 +53,13 @@ That "mentioned recipient with reply-not-expected" is the only arrival whose cla
 The operator-post branch also honors replyExpected for symmetry, but the operator has its own route
 (never /api/post) that does not set the field, so in practice only the agent path exercises it;
 harmless and consistent.
+
+## Every path that carries a post must forward reply_expected (blind-review finding)
+The intent has to ride EVERY replay of a post, not just the live /api/post call. A blind review
+found the outbox drain (`drainOutboxNow`'s `deliverPost` in server.js) reconstructing the kept post
+from `entry.body.project` + `entry.body.text` only, dropping `reply_expected` -- so a
+`kosmos post --no-reply` queued during a wrongWorld/421 (the kept-running-agent case the outbox
+exists for) replayed as reply-required and reopened the loop. Fixed by forwarding
+`entry.body.reply_expected` on drain, and pinned by a wiring assertion in
+server.agent-token-sender-570.test.js. The general rule for a future editor: any new path that
+re-sends a post (a new queue, a retry, a relay) must thread reply_expected the same way.

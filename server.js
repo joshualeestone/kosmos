@@ -1551,6 +1551,10 @@ function drainOutboxNow(pass) {
       if (now === null) return { outcome: 'retry', because: 'we could not check which agents are running' };
       return outboxOutcomeOf(sendRoomPostAsAgent({
         sender: senderFor(entry.from), project: entry.body.project, text: entry.body.text,
+        // #2908: the kept entry is the exact /api/post body, so a `kosmos post --no-reply` queued
+        // during a wrongWorld/421 carries reply_expected:false. Forward it on drain, or the
+        // replayed post would be reply-required again and reopen the loop for the kept-agent case.
+        replyExpected: entry.body.reply_expected,
       }, now));
     },
     onExpired: (entry, because) => {
