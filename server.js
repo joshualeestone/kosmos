@@ -2911,11 +2911,27 @@ const server = http.createServer((req, res) => {
           /* safeRoster(): removed agents are already off it, so a pause never
              touches an agent Kosmos has told the person is gone. */
           const roster = safeRoster();
-          if (roster === null) {
-            sendJson(res, 503, { ok: false, because: 'we could not see which agents are running in this Kosmos, so nothing was paused or switched. Try again, or keep them running' });
-            return;
+          /* Review round 1: NO PAUSE FROM A WORLD WHOSE AGENTS MAY NOT RUN (#2849,
+             the ONE rule, reused). On a Mac, agent identity is not world-keyed yet
+             (PR1m): a named board's roster shows the DEFAULT world's agents and
+             remove.jobFor finds their plists, so a pause would stop Kosmos 1's
+             agents while recording them in the named world's store, where #2849
+             then holds them forever. So every agent keeps running, is listed, and
+             the switch proceeds. ⚠️ REVISIT when #2849 is lifted (after PR1m makes
+             Mac identity world-keyed): this condition must then go or change. */
+          const agentsBarred = namedWorldSpawnRefusal();
+          if (agentsBarred) {
+            pause = {
+              paused: [],
+              notPaused: (roster || []).map((a) => ({ name: a.sessionName, because: `${a.sessionName} keeps running: agents cannot be paused from a named Kosmos yet` })),
+            };
+          } else {
+            if (roster === null) {
+              sendJson(res, 503, { ok: false, because: 'we could not see which agents are running in this Kosmos, so nothing was paused or switched. Try again, or keep them running' });
+              return;
+            }
+            pause = worldstarts.pauseForSwitch(roster.map((a) => ({ name: a.sessionName, session: a.session, tied: a.isNamedOurs })));
           }
-          pause = worldstarts.pauseForSwitch(roster.map((a) => ({ name: a.sessionName, session: a.session, tied: a.isNamedOurs })));
         }
         let world;
         try { world = worlds.setActiveWorld(base, id); }
@@ -2956,11 +2972,14 @@ const server = http.createServer((req, res) => {
                reports restarting:false and the switcher UI asks for a MANUAL restart
                -- never a bare exit that would brick it (engine/boardrestart is the
                conservative, fail-safe guard; see its header). */
-        /* A switch back to the world this board is serving: if an earlier pause-
-           switch on a board that could not restart itself stopped this world's
-           agents, it is "opened again" now, and no boot is coming to bring them
-           back. Costs nothing when nothing is paused. Held, like the boot drain,
-           while agents may not start in this world (#2849, one derivation). */
+        /* A switch to the world this board is serving. The page never sends one in
+           its normal flow (the current world's row is not a button, #2454b); it
+           is reached by a direct API call, or by a page whose list still marks the
+           registry pointer after a switch on a board that could not restart
+           itself. If an earlier pause-switch on such a board stopped this world's
+           agents, they are "opened again" here, and no boot is coming to bring
+           them back. Costs nothing when nothing is paused. Held, like the boot
+           drain, while agents may not start in this world (#2849, one derivation). */
         if (isNoop) {
           const back = worldstarts.resumePaused({ spawnRefusal: namedWorldSpawnRefusal });
           if (back.held.length) process.stderr.write(`Kosmos left ${back.held.length} paused agent(s) off. First: ${back.held[0].name} - ${back.held[0].because}\n`);

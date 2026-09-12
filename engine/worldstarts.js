@@ -33,6 +33,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
 const remove = require('./remove');
+const create = require('./create');
+const win32job = require('./win32job');
 const disruption = require('./disruption');
 const liveExec = require('./live-execution');
 
@@ -58,8 +60,17 @@ const WHY_PAUSED = 'paused';
 /**
  * The disruption cause written while an agent is taken down or brought back.
  * `disruption.CAUSES` has no pause cause, and an unknown cause is stored as
- * 'restart' anyway; 'restart' is what the board already renders as "Restarting",
- * which is true of an agent a boot is bringing back.
+ * 'restart' anyway, which the board renders as "Restarting".
+ * ⚠️ THAT LABEL IS NOT ALWAYS TRUE, and the gaps are stated rather than hidden:
+ *  - true at a boot resume, and during a switch whose board restarts itself (the
+ *    page reloads onto the other Kosmos within seconds);
+ *  - NOT true on a board that cannot restart itself: the paused agents of the
+ *    Kosmos being left read "Restarting" for up to `disruption.WINDOW_MS` (180s)
+ *    although nothing brings them back until that Kosmos is opened again;
+ *  - NOT true of a resume of an agent that was in fact still running (an entry
+ *    left behind when a record write failed): it paints "Restarting" briefly
+ *    over a running agent.
+ * A pause-specific cause and its board copy are a separate card.
  */
 const DISRUPTION_CAUSE = 'restart';
 
@@ -138,6 +149,26 @@ function actSucceeded(act) {
   }
 }
 
+/**
+ * Is this agent's launch job ALREADY switched off -- a half-finished removal, or
+ * switched off by hand in Login Items / Task Scheduler? Such an agent is not
+ * paused and not recorded: a record would make the resume switch it back on and
+ * start it, overriding somebody else's choice. (Review round 1; the alternative,
+ * recording it as "was off" and leaving it off at resume, writes an entry nothing
+ * acts on.)
+ * Mac: launchd's per-user overrides, one probe for the fleet
+ * (`create.disabledJobs`, passed in as `macOff`). Windows: the task's own state.
+ * Both fail soft to "not off", which pauses it -- the behaviour before this check.
+ */
+function switchedOffOnMac(platform) { return platform === 'win32' ? null : create.disabledJobs(); }
+function jobIsSwitchedOff(name, platform, macOff) {
+  if (platform === 'win32') {
+    const st = win32job.status(name);
+    return st.registered === true && st.enabled === false;
+  }
+  return macOff.has(name);
+}
+
 /* ── pause ───────────────────────────────────────────────────────────────── */
 
 /**
@@ -174,12 +205,33 @@ function pauseForSwitch(agents, opts = {}) {
     return { paused, notPaused, refused: refusal.detail };
   }
 
+  /* Read before anything is decided: it is the base of the write-ahead below, and
+     it tells an agent THIS Kosmos already paused (switched off by us) from one
+     somebody else switched off. */
+  const existing = readRecordForWrite();
+  if (existing === UNREADABLE) {
+    for (const c of candidates) notPaused.push({ name: c.name, because: 'we could not read the list of paused agents, so nothing was paused' });
+    return { paused, notPaused };
+  }
+  const alreadyPaused = new Set(existing.filter((e) => e.why === WHY_PAUSED).map((e) => e.name));
+  const macOff = switchedOffOnMac(platform);
+
   const withJobs = [];
   for (const c of candidates) {
     let job = null;
     try { job = remove.jobFor(c.name, platform); } catch { job = null; }
-    if (!job) {
+    /* `ours === false` is remove.jobFor's `com.<name>.discord` candidate: a
+       launchd job some other tool wrote. Pausing it would disable a job we did
+       not write, and this Kosmos's boot would then start it again on its behalf. */
+    if (!job || job.ours === false) {
       notPaused.push({ name: c.name, because: `${c.name} was not started by Kosmos, so we could not pause it and it keeps running` });
+      continue;
+    }
+    if (jobIsSwitchedOff(c.name, platform, macOff)) {
+      // An earlier pause of this same Kosmos (a board that could not restart
+      // itself, paused twice): it IS paused, and its entry stands as written.
+      if (alreadyPaused.has(c.name)) paused.push(c.name);
+      else notPaused.push({ name: c.name, because: `${c.name} was already switched off, so we left it off` });
       continue;
     }
     withJobs.push({ ...c, job });
@@ -187,11 +239,6 @@ function pauseForSwitch(agents, opts = {}) {
   if (withJobs.length === 0) return { paused, notPaused };
 
   /* Write-ahead: every agent about to be stopped is on record first. */
-  const existing = readRecordForWrite();
-  if (existing === UNREADABLE) {
-    for (const c of withJobs) notPaused.push({ name: c.name, because: 'we could not read the list of paused agents, so nothing was paused' });
-    return { paused, notPaused };
-  }
   const pausing = new Set(withJobs.map((c) => c.name));
   const at = new Date().toISOString();
   let entries = existing.filter((e) => !pausing.has(e.name))
@@ -236,9 +283,10 @@ function pauseForSwitch(agents, opts = {}) {
   try {
     writeRecord(entries);
   } catch (err) {
-    /* The write-ahead record is still on disk, so the only cost is that an agent
-       left running is also listed as paused; its resume is then a harmless
-       re-enable and start. Said on stderr, since nobody else will see it. */
+    /* The write-ahead record is still on disk, so an agent left running is also
+       listed as paused. Its resume is then a re-enable and start of an agent
+       that is already running, which also paints "Restarting" over it for a
+       moment (see DISRUPTION_CAUSE). Said on stderr, since nobody else will see it. */
     process.stderr.write(`Kosmos paused ${paused.length} agent(s) but could not update its list of them (${(err && err.code) || 'unknown'}); the list may name agents that kept running.\n`);
   }
   return { paused, notPaused };
@@ -298,9 +346,21 @@ function resumeEntries(onlyNames, opts = {}) {
     return { resumed, held, cleared, refused: gate.detail };
   }
 
+  /* The ACTING read of the removed list (remove.removedNames), not the fail-open
+     query (isRemoved): an unreadable list answered "nothing is removed" there, and
+     this would then start an agent the person had removed. So an unreadable list
+     starts nothing, and every entry waits for the next pass. */
+  const removed = remove.removedNames();
+  if (!removed.ok) {
+    const because = 'we could not read the list of removed agents, so we started none of them';
+    for (const t of targets) held.push({ name: t.name, because });
+    return { resumed, held, cleared, because };
+  }
+  const removedSet = new Set(removed.names);
+
   const ops = remove.jobOps(platform);
   for (const t of targets) {
-    if (remove.isRemoved(t.name)) {
+    if (removedSet.has(t.name)) {
       entries = entries.filter((e) => e.name !== t.name);
       cleared.push(t.name);
       continue;

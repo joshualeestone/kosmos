@@ -145,3 +145,45 @@ only the minimal choice added.
   after PR4's import or after the guard is lifted.
 - **The browser check could not be run here,** because Playwright is not installed on
   this box. CI's browser-checks job runs it.
+
+## Review log
+
+### Round 1 (2026-09-11): four bugs, one test gap, one nit, all fixed
+
+1. **BUG: on a Mac, a pause from a named Kosmos stopped the DEFAULT Kosmos's agents
+   for good.** Mac identity is not world-keyed until PR1m, so a named board's roster
+   and `jobFor` see Kosmos 1's agents. The record then landed in the named world's
+   store, where #2849 held it forever.
+   - Fix: when `namedWorldSpawnRefusal()` is non-null (the ONE rule, reused), the
+     route pauses nothing, lists every card in `notPaused`, and still switches.
+   - The code comment says to revisit this when #2849 is lifted.
+   - Test: route R1-1.
+2. **BUG: a `com.<name>.discord` job that another tool wrote (`ours: false`) was
+   paused.**
+   - Fix: `!job || job.ours === false` goes to `notPaused`.
+   - Test: engine R1-2.
+3. **BUG: the resume used the fail-open `isRemoved`.**
+   - Fix: it now calls `remove.removedNames()` once per pass. When that returns
+     `!ok`, every target is held with a `because` and nothing is started.
+   - Test: engine R1-3.
+4. **BUG: a job that was already switched off was recorded, and the resume turned
+   it back on.**
+   - Choice: SKIP it (`notPaused`, "was already switched off") rather than record
+     it as `wasEnabled:false`, which would be an entry that nothing acts on.
+   - The check is `win32job.status(name).enabled` on Windows and one
+     `create.disabledJobs()` probe per pause on a Mac. Both fail soft to "not off",
+     which is the behaviour before this fix.
+   - An agent THIS Kosmos already paused is also switched off. It stays reported as
+     paused and its entry is untouched, so a second pause-switch on a board that
+     cannot restart itself does not lose it.
+   - Tests: engine R1-4, one each for Windows, Mac, and the already-paused case.
+5. **TEST GAP: the resume on a switch to the booted world had no route test.**
+   - Added route R1-5: the resume itself, and the #2849 hold.
+   - Corrected the comment: the page never sends this switch in its normal flow; a
+     direct API call reaches it, and so does a page after a switch on a board that
+     cannot restart itself.
+6. **NIT: comments over-claimed "Restarting".**
+   - `DISRUPTION_CAUSE` and the record-write fallback comment now say where the
+     label is false: up to `WINDOW_MS` on a board that cannot restart itself, and
+     briefly over a still-running agent resumed from a stale entry.
+   - A pause-specific cause is left to a separate card.

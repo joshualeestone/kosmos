@@ -32,6 +32,7 @@ const remove = require('./engine/remove');
 const create = require('./engine/create');
 const worlds = require('./engine/worlds');
 const worldstarts = require('./engine/worldstarts');
+const worldenv = require('./engine/worldenv');
 const fleet = require('./test-support/fleet');
 const { start, server } = require('./server');
 
@@ -72,6 +73,9 @@ test.before(async () => {
   await fetch(base + '/api/worlds', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Alpha World' }) });
   worldstarts.setPlatformForTests('darwin');
   remove.setRunner(runner);
+  // create.disabledJobs (launchd's per-user overrides) goes through create's own
+  // runner: answer "nothing is switched off" rather than reach a real launchctl.
+  create.setRunner(() => ({ ok: true, stdout: '' }));
   fs.mkdirSync(nodePath.dirname(create.plistPath('ava')), { recursive: true });
   fs.writeFileSync(create.plistPath('ava'), '<plist/>');
   board = fleet.install([fleet.agent('ava', { state: 'idle' })]);
@@ -84,6 +88,7 @@ test.beforeEach(() => {
 test.after(() => {
   if (board) board.restore();
   remove.resetForTests();
+  create.setRunner(null);
   worldstarts.setPlatformForTests(null);
   liveExec.resetForTests();
   boardrestart.canSelfRestart = origCanSelfRestart;
@@ -174,6 +179,55 @@ test('with live execution OFF a pause refuses: nothing stopped, every agent in n
   assert.match(r.body.notPaused[0].because, /not allowed to start or stop agents/);
   assert.deepEqual(calls, []);
   assert.equal(record(), null, 'a refused pause writes nothing');
+});
+
+/* ── review round 1 ───────────────────────────────────────────────────── */
+
+// The route and namedWorldSpawnRefusal both read worldenv.bootedWorld at call time,
+// so patching the cached module's export makes this board "booted into" a world.
+async function bootedInto(worldId, fn) {
+  const real = worldenv.bootedWorld;
+  worldenv.bootedWorld = () => worldId;
+  try { return await fn(); } finally { worldenv.bootedWorld = real; }
+}
+const seedPaused = (names) => {
+  fs.mkdirSync(nodePath.dirname(worldstarts.RECORD_FILE), { recursive: true });
+  fs.writeFileSync(worldstarts.RECORD_FILE, JSON.stringify({ entries: names.map((name) => ({ name, why: 'paused', at: new Date().toISOString() })) }));
+};
+
+test('R1-1: a pause from a NAMED Kosmos (agents may not run there, #2849) stops nothing, lists everyone, and still switches', async () => {
+  const r = await bootedInto('alphaworld', () => post({ id: 'default', agents: 'pause' }));
+  assert.equal(r.status, 200, 'the switch must still proceed');
+  assert.equal(r.body.restartRequired, true, 'the control: this was a REAL switch, where a pause would otherwise run');
+  assert.deepEqual(r.body.paused, []);
+  assert.deepEqual(r.body.notPaused.map((n) => n.name), ['ava']);
+  assert.match(r.body.notPaused[0].because, /cannot be paused from a named Kosmos/);
+  assert.deepEqual(calls, [], 'on a Mac this would stop the DEFAULT Kosmos\'s agents and strand them');
+  assert.equal(record(), null, 'nothing may be recorded into the named world\'s store');
+  assert.equal(activeWorldId(), 'default');
+});
+
+test('R1-5: a switch to the booted world resumes this world\'s paused agents (enable, then start)', async () => {
+  seedPaused(['ava']);
+  const r = await post({ id: 'default', agents: 'keep' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.restartRequired, false, 'the control: a no-op switch');
+  assert.deepEqual(calls, [
+    `launchctl enable gui/${process.getuid()}/${create.serviceLabel('ava')}`,
+    `launchctl bootstrap gui/${process.getuid()} ${create.plistPath('ava')}`,
+  ]);
+  assert.deepEqual(record(), [], 'a resumed agent is cleared');
+});
+
+test('R1-5: that resume is held while agents may not start in the booted world (#2849)', async () => {
+  seedPaused(['ava']);
+  const r = await bootedInto('alphaworld', () => post({ id: 'alphaworld', agents: 'keep' }));
+  assert.equal(r.status, 200);
+  assert.equal(r.body.restartRequired, false, 'the control: a no-op switch');
+  assert.deepEqual(calls, [], 'a held agent must not be enabled or started');
+  const entries = record();
+  assert.deepEqual(entries.map((e) => e.name), ['ava'], 'the entry stays, for when the rule is lifted');
+  assert.match(entries[0].because, /named world/);
 });
 
 test('a pause for a Kosmos that does not exist is a 404 before anything is stopped', async () => {

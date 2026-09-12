@@ -43,6 +43,8 @@ const WIN = 'win32';
 let calls = [];
 let failing = [];           // substrings of a command that should fail
 let onFirstCall = null;     // runs once, before the first command is answered
+let macDisabled = new Set(); // agents launchd reports switched off (print-disabled)
+let winDisabled = new Set(); // agents whose Scheduled Task reports Disabled
 
 function answerMac(file, args) {
   const line = [nodePath.basename(file), ...args].join(' ');
@@ -58,10 +60,21 @@ function answerWin(args) {
   const line = ['schtasks', ...args].join(' ');
   if (onFirstCall) { const f = onFirstCall; onFirstCall = null; f(); }
   calls.push(line);
-  if (args[0] === '/Query') return { ok: true, out: 'Status: Ready\n' };
+  if (args[0] === '/Query') {
+    const off = [...winDisabled].some((n) => args.includes(win32job.taskName(n)));
+    return { ok: true, out: off ? 'Status: Disabled\n' : 'Status: Ready\n' };
+  }
   const fail = failing.find((f) => line.includes(f.match));
   if (fail) return { ok: false, out: 'ERROR: ' + fail.match };
   return { ok: true, out: 'SUCCESS' };
+}
+
+// create.js's own runner answers launchd's per-user overrides (create.disabledJobs).
+function answerCreate(file, args) {
+  if (args[0] === 'print-disabled') {
+    return { ok: true, stdout: [...macDisabled].map((n) => `\t"${create.serviceLabel(n)}" => disabled`).join('\n') };
+  }
+  return { ok: true, stdout: '' };
 }
 
 function giveMacJob(name) {
@@ -76,7 +89,9 @@ const writeRecord = (entries) => {
 
 test.beforeEach(() => {
   calls = []; failing = []; onFirstCall = null;
+  macDisabled = new Set(); winDisabled = new Set();
   remove.setRunner(answerMac);
+  create.setRunner(answerCreate);
   win32job.setRunner(answerWin);
   win32stop.setLive(() => new Map());     // nothing live under any name: the end state
   liveExec.allowLiveExecution();
@@ -86,6 +101,7 @@ test.beforeEach(() => {
 });
 test.after(() => {
   remove.resetForTests();
+  create.setRunner(null);
   win32job.setRunner(null);
   win32stop.setLive(null);
   liveExec.resetForTests();
@@ -272,6 +288,66 @@ test('no paused entries: the resume costs nothing and asks no gate, even with li
   const r = worldstarts.resumePaused({ platform: WIN });
   assert.deepEqual(r, { resumed: [], held: [], cleared: [] });
   assert.deepEqual(calls, []);
+});
+
+/* ── review round 1 ───────────────────────────────────────────────────── */
+
+test('R1-2: a launchd job some other tool wrote (com.<name>.discord, ours:false) is not paused', () => {
+  fs.rmSync(create.plistPath('bo'), { force: true });
+  const discord = nodePath.join(nodePath.dirname(create.plistPath('bo')), 'com.bo.discord.plist');
+  fs.writeFileSync(discord, '<plist/>');
+  try {
+    assert.equal(remove.jobFor('bo', MAC).ours, false, 'the control: jobFor really returns the not-ours candidate');
+    const out = worldstarts.pauseForSwitch([{ name: 'bo', session: 'bo', tied: true }], { platform: MAC });
+    assert.deepEqual(out.paused, []);
+    assert.match(out.notPaused[0].because, /not started by Kosmos/);
+    assert.equal(calls.some((c) => /disable|bootout|kill-session/.test(c)), false, 'a job we did not write was touched');
+    assert.equal(fs.existsSync(worldstarts.RECORD_FILE), false);
+  } finally {
+    fs.rmSync(discord, { force: true });
+  }
+});
+
+test('R1-3: an UNREADABLE removed list starts nothing: every entry is held, for the next pass', () => {
+  fs.mkdirSync(nodePath.dirname(remove.REMOVED_FILE), { recursive: true });
+  fs.writeFileSync(remove.REMOVED_FILE, '{ not json');
+  const at = new Date().toISOString();
+  writeRecord([{ name: 'ava', why: 'paused', at }, { name: 'bo', why: 'paused', at }]);
+  const r = worldstarts.drainAtBoot({ platform: MAC });
+  assert.deepEqual(r.resumed, []);
+  assert.deepEqual(r.held.map((h) => h.name), ['ava', 'bo']);
+  assert.match(r.held[0].because, /could not read the list of removed agents/);
+  assert.deepEqual(calls, [], 'an agent the person may have removed was started');
+  assert.deepEqual(readRecord().entries.map((e) => e.name), ['ava', 'bo']);
+});
+
+test('R1-4 (Windows): a task that was ALREADY switched off is left off: not recorded, not touched', () => {
+  winDisabled.add('ava');
+  const out = worldstarts.pauseForSwitch([{ name: 'ava', session: 'ava', tied: true }], { platform: WIN });
+  assert.deepEqual(out.paused, []);
+  assert.match(out.notPaused[0].because, /already switched off/);
+  assert.equal(calls.some((c) => /\/Change|\/End/.test(c)), false);
+  assert.equal(fs.existsSync(worldstarts.RECORD_FILE), false, 'recording it would make the resume switch it back on');
+});
+
+test('R1-4 (Mac): a job launchd reports switched off is left off: not recorded, not touched', () => {
+  macDisabled.add('ava');
+  const out = worldstarts.pauseForSwitch([{ name: 'ava', session: 'ava-discord', tied: true }], { platform: MAC });
+  assert.deepEqual(out.paused, []);
+  assert.match(out.notPaused[0].because, /already switched off/);
+  assert.deepEqual(calls, []);
+  assert.equal(fs.existsSync(worldstarts.RECORD_FILE), false);
+});
+
+test('R1-4: an agent THIS Kosmos already paused (switched off by us) stays paused and keeps its entry', () => {
+  const at = '2026-09-11T00:00:00.000Z';
+  writeRecord([{ name: 'ava', why: 'paused', at }]);
+  macDisabled.add('ava');
+  const out = worldstarts.pauseForSwitch([{ name: 'ava', session: null, tied: true }], { platform: MAC });
+  assert.deepEqual(out.paused, ['ava']);
+  assert.deepEqual(out.notPaused, []);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(readRecord().entries, [{ name: 'ava', why: 'paused', at }], 'the earlier pause entry was dropped or rewritten');
 });
 
 test('an unreadable record is refused, never rewritten from empty', () => {
