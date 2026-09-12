@@ -69,10 +69,11 @@
      data-theme, which every :root:not([data-theme]) selector reads. */
   --k-bg: #faf9f7; --k-ink: #14161a; --k-ink-2: #4a4f57; --k-rule: #e3e1dc;
   --k-surface: #ffffff; --k-track: rgba(20,22,26,.16); --k-knob: #ffffff;
-  /* #2922: the bright blue an @agent mention wears in the project room. #0a64fa clears WCAG AA as
-     text on the light ground (~4.9:1); the dark block below lifts it to a brighter blue that clears
-     AA on the dark ground. */
-  --pj-mention: #0a64fa;
+  /* #2922: the bright blue an @agent mention wears in the project room. #0a58d8 clears WCAG AA as
+     text on the message-bubble grounds it actually renders on -- the --k-sunk wash (agent posts)
+     and the --usermsg-tint wash (your own), computed worst-case 5.19:1, not just the bare page. The
+     dark block below lifts it to a brighter blue for the dark ground. */
+  --pj-mention: #0a58d8;
   /* ⚠️ DEFINED HERE, not inherited from a fallback. The pack writes this token
      as `var(--k-sunk, rgba(20,22,26,.05))` everywhere and defines it nowhere,
      which works in light and is nearly invisible in dark: a 5%-black wash on a
@@ -37622,12 +37623,16 @@ function pjRichSpans(seg, names, agentNames) {
       return hold('<a class="xlink" href="' + core + '" target="_blank" rel="noreferrer noopener">' + core + '</a>') + mm[2];
     }
     /* #2922: @<agent> mention. `core` is already esc()'d; agent keys are [A-Za-z0-9._-], which esc
-       leaves unchanged, so the Set lookup on the escaped key is exact. Held like the URL/chip so it
-       is atomic through the emphasis pass (**@mona** bolds the whole chip, never leaks a marker). */
-    if (hasAgents && core.charAt(0) === '@' && core.length > 1 && !core.includes('￼')) {
-      const key = core.slice(1);
-      if (agentNames.has(key)) {
-        return hold('<span class="pjmention">' + core + '</span>') + mm[2];
+       leaves unchanged, so the Set lookup on the escaped key is exact. Leading emphasis markers and
+       an opening paren are peeled off and RE-ATTACHED around the held span, so `**@mona**` bolds the
+       whole chip and `(@mona)` keeps its parens -- the token-splitter only peels the tail, so the
+       head has to be handled here or those natural spellings would never highlight. Held like the
+       URL/chip so it is atomic through the emphasis pass (never leaks a marker). */
+    if (hasAgents && !core.includes('￼')) {
+      const lead = (core.match(/^(?:\*\*|__|~~|[*_(])+/) || [''])[0];
+      const rest = core.slice(lead.length);
+      if (rest.charAt(0) === '@' && rest.length > 1 && agentNames.has(rest.slice(1))) {
+        return lead + hold('<span class="pjmention">' + rest + '</span>') + mm[2];
       }
     }
     /* A cited project file -> a "Show me" chip (#355), same PATH rule as
