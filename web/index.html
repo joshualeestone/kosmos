@@ -4119,12 +4119,24 @@ body:not(.consolidated) .pjmid .thread .att { background: var(--k-bg); }
 /* #768: the task page's three-column room -- the project page's shape applied to a
    task (Josh, 2026-08-24; mock installkosmos.com/design/task-page; spec
    monalisa-task-page-spec.md). Who is on it / the conversation / this task, left to
-   right, in the mock's proportions (~1 / 1.4 / 0.9). Stacks to one column at the same
-   52rem the old two-column .pj2 used, so it collapses cleanly both on a phone and in
-   the narrow consolidated column. Replaces .pj2, which only this view used. */
+   right, in the mock's proportions (~1 / 1.4 / 0.9). Replaces .pj2, which only this
+   view used.
+   TWO stacking paths, because they are gated on different things. The 52rem media
+   query stacks it to one column on a NARROW VIEWPORT (a phone). It does NOT fire in
+   the consolidated layout, which is floored at 60rem (960px), so the query below it
+   can never match there. The consolidated column is nonetheless narrow, so a SEPARATE
+   consolidated-scoped rule (further down, keyed on the layout attribute) stacks it to
+   one column there too, rather than shrinking three fractional columns into the
+   compact panel. Both stacks are asserted in web.task-reflow-768.test.js. */
 .tk3 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 0.9fr);
        gap: 16px; align-items: start; }
 @media (max-width: 52rem) { .tk3 { grid-template-columns: minmax(0, 1fr); } }
+/* #768: consolidated mode is floored at 60rem, so the 52rem viewport query above never
+   fires there. The panel column is still narrow, so stack to one column here rather than
+   render three cramped columns; #pj-task-view is already a scrollable pane in this layout,
+   so a taller stacked view is consistent. Layout-attribute selector => higher specificity
+   than the base .tk3, so it wins without !important. */
+html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-template-columns: minmax(0, 1fr); }
 .tkconvcol { min-width: 0; }
 /* The middle column's inert composer: it carries the project composer's outline so the
    room reads as the same room, but it is disabled and says what is true -- writing into
@@ -11112,7 +11124,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <h3 class="dlab">Conversation</h3>
         <div id="tk-activity" class="tkacts" aria-live="polite"></div>
         <div class="tkcompose" aria-hidden="true">Say something about this task</div>
-        <p class="dhint tkcompose-note">Writing into a task's conversation in the app is not built yet, so the box above does nothing. The activity above is what is recorded; the folder below holds each task's conversation file.</p>
+        <p class="dhint tkcompose-note">Writing into a task's conversation in the app is not built yet. The activity above is what is recorded; the folder below holds each task's conversation file.</p>
         <!-- #992: 🛑 THE LABEL SAYS "THE TASK CONVERSATIONS", NOT "THIS TASK'S", for the
              same reason the sibling pjs-chats-reveal button says "the conversations" and
              not "this project's": every task's transcript is one file in ONE shared folder
