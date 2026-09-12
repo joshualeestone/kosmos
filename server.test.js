@@ -13785,6 +13785,8 @@ test('#2863: an agent\'s DM replies surface as a.dmUnread, cleared by POST /api/
 test('#2863: a name the thread store cannot key is a 400 from POST /api/agent/<name>/seen', async () => {
   const bad = await postJson('/api/agent/bad.name/seen', {});
   assert.equal(bad.status, 400, 'a name safeKey rejects maps BAD_THREAD -> 400');
+});
+
 test('#2811: a PANELESS codex agent carries runner "codex" on the board, so the panel can qualify its sentence', async () => {
   /**
    * 🛑 THE CASE ROUND 30's FIX DID NOT REACH. `paintAccountPicker` qualifies its
