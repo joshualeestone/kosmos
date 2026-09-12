@@ -43,9 +43,13 @@ Not CI-allowlisted (matches render-pj-clear-2575's precedent; runs at the cut).
    (`d-qask`, `d-qask-text`, `d-qask-expand`, `d-qask-clear`, `d-qask-clear-msg`,
    `d-talk-box`, `panel-detail`) already exists in `web/index.html`. Free.
 4. `browser-checks-reason-grep.test.js` - the ternary `check()` emit is not a
-   counted finding-emit SHAPE, so `EXPECTED_SITES` is unchanged (99). The
-   `could not start a browser` launch catch IS a counted catch/launch site, so
-   `EXPECTED_CATCH_SITES` bumps 69 -> 70, exactly as render-pj-clear-2575 did.
+   counted finding-emit SHAPE, so `EXPECTED_SITES` is unchanged by this check.
+   The `could not start a browser` launch catch IS a counted catch/launch site,
+   so `EXPECTED_CATCH_SITES` bumps by one, exactly as render-pj-clear-2575 did.
+   After rebasing onto origin/main (where render-room-busy-scope-2882 landed and
+   touched the same three guard files), the reconciled values are
+   `EXPECTED_SITES = 100` (main's value; qask adds zero finding-emit sites) and
+   `EXPECTED_CATCH_SITES = 71` (main's 70 plus qask's one launch catch).
 
 ## Verification
 
