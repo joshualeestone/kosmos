@@ -143,8 +143,8 @@ const now = () => new Date().toISOString();
       chk(ag[0] >= ag[1] && ag[1] >= ag[2] && (ag[0] - ag[2]) >= 2 && blueLead(ag) < 20,
         `${t} the agent box is a warm cream (R>=G>=B), not a neutral gray or the blue`,
         `${m.agentBd} rgb=[${ag.slice(0, 3).map((x) => x.toFixed(1)).join(', ')}]`);
-      // (d) the two are distinct (blue vs gray differ well beyond the alpha).
-      chk(blueLead(op) - blueLead(ag) >= 20, `${t} the operator blue and agent gray are distinct`, `op=${m.opBd} agent=${m.agentBd}`);
+      // (d) the two are distinct (blue vs cream differ well beyond the alpha).
+      chk(blueLead(op) - blueLead(ag) >= 20, `${t} the operator blue and agent cream are distinct`, `op=${m.opBd} agent=${m.agentBd}`);
       // (e) a bodyless row draws NO box.
       chk(m.emptyRowIsYou && !m.emptyRowHasBox, `${t} a bodyless row draws a .msg row but NO .msg-bd (no empty tinted box)`, `isYou=${m.emptyRowIsYou} hasBox=${m.emptyRowHasBox}`);
 
