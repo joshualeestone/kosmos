@@ -1537,3 +1537,34 @@ READ AS CURRENT FACT; A PLAN FILE IS READ AS A DATED RECORD.** Keeping "here is 
 believe and why it was wrong" in a header puts falsified claims in the place reserved for true
 ones, where each one is a fresh surface for the next reviewer. The history is worth keeping. It
 was in the wrong file.
+
+### And the half of that NIT I under-applied on the first pass
+
+The reviewer flagged BOTH copies; I fixed the ranking in `create.js` and judged the test-file copy
+safe because its cross-site claim is *bounded and measured* rather than a ranking. That was the
+wrong test. The defect is in the **topic sentence**, and it is in both:
+
+> "this arm asserts `setProvider` and **says nothing about the other three callers**. It used to
+> name them and was wrong about all three, including calling the create path non-gating ..."
+
+A sentence saying it says nothing about them, immediately followed by saying something about one
+of them. The *content* is legitimate - a dated record of a measured error - but the topic sentence
+is falsified two lines later by its own paragraph.
+
+✅ Both now say what is actually true: the arm **ASSERTS** one caller and no other, and recording a
+measured historical error is a different act from enumerating or ranking them. The distinction is
+stated rather than implied, because implying it is what produced three rounds of this.
+
+⭐ **The general form: "says nothing about X" is a much stronger claim than "asserts nothing about
+X", and prose reaches for the stronger one.** Every version of this paragraph since round 26 has
+over-claimed in exactly that slot.
+
+📌 **HOW THOSE 15 LINES WENT MISSING, AND IT IS A TRAP WORTH THE NOTE.** A background job was
+appending this section to the plan while a foreground edit rewrote the same file. Both read, both
+wrote, last writer won, and the loser's `.tmp` survived because its `os.replace` never ran. The
+plan file is append-only in practice, so nothing looked wrong: the file was longer than before,
+just missing a section nobody was counting.
+⭐ **It was recovered only because I READ the stray `.tmp` before deleting it.** A `rm` of an
+obvious leftover would have destroyed the only copy, silently, in the same minute I wrote a
+paragraph about checking that a record survives elsewhere before removing it.
+⇒ **Do not run a file-appending background job and a foreground edit against the same file.**
