@@ -10482,6 +10482,20 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           <span class="haz" aria-hidden="true">!</span>
           <b id="st-pjattn">0</b><span class="slab">Needs you</span>
         </div>
+        <!-- #2863 (Josh): the projects half of the unread-message tally, the
+             rollup of the per-project unread bubbles, so at a glance you see how
+             many messages are waiting across your projects ("tally those at the
+             top... so you can see where notifications are happening and need
+             you"). Its own message-bubble glyph, not the red .haz alert mark:
+             unread messages point you somewhere, they are not a fault. Hidden at
+             zero, the same grammar the Needs-you tile beside it uses, so a quiet
+             board is unchanged. The AGENTS tab carries the twin tile for agent
+             DMs; this one counts project rooms and its "Messages" label reads the
+             same on both boards. -->
+        <div class="stat" id="st-pjdm-tile" hidden title="Unread messages in your projects">
+          <span class="dmtile-g" aria-hidden="true"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 3.5h11a1 1 0 0 1 1 1v5.5a1 1 0 0 1-1 1H6.5L3.5 14v-3H2.5a1 1 0 0 1-1-1v-5.5a1 1 0 0 1 1-1z"/></svg></span>
+          <b id="st-pjdm">0</b><span class="slab">Messages</span>
+        </div>
       </div>
       <!-- 🔑 SORT BESIDE THE VIEW TOGGLE, NOT INSIDE A VIEW (#168, Josh
            2026-08-21: "next to the 3-tab rather than the list view"). It sits
@@ -34544,6 +34558,25 @@ function paintProjects() {
   document.getElementById('st-pj').textContent = String(active.length);
   document.getElementById('st-pjattn').textContent = String(attnProjects);
   document.getElementById('st-pjattn-tile').hidden = !attnProjects;
+  /* #2863: the projects unread tally, the rollup of the per-project unread
+     bubbles, summed here from the same `active` rows the cards render (so the
+     tile can never disagree with the badges on the board) rather than trusting a
+     second server derivation. Sub-projects are their own rows in `active`, so a
+     flat sum catches every visible badge. Null/unknown or negative contributes 0,
+     never a guess -- the same rule the ring and the agents tally keep for an
+     unknown count. Hidden at zero, the Needs-you tile's grammar, so a quiet board
+     is unchanged. */
+  const pjDmTotal = active.reduce((n, p) => {
+    /* Exclude the project whose thread is open (PJ_CURRENT), the SAME suppression
+       the per-card badge applies (`p.id === PJ_CURRENT ? 0`), so the tally and the
+       badges agree on the room you are reading -- the projects poll can still
+       report unread=1 for that room before this tick's /seen lands. */
+    if (PJ_CURRENT && p && p.id === PJ_CURRENT) return n;
+    const v = Number(p && p.unread);
+    return n + (Number.isFinite(v) && v > 0 ? v : 0);
+  }, 0);
+  document.getElementById('st-pjdm').textContent = String(pjDmTotal);
+  document.getElementById('st-pjdm-tile').hidden = pjDmTotal <= 0;
   if (!PROJECTS.length) {
     setIfChanged(list, '<div class="pj-empty">'
       + '<p><b>No projects yet.</b><br>Point Kosmos at a folder you already have, '
@@ -34741,6 +34774,12 @@ function pjTilesUnknown() {
   document.getElementById('st-pj').textContent = '?';
   document.getElementById('st-pjattn').textContent = '?';
   document.getElementById('st-pjattn-tile').hidden = true;
+  /* #2863: a failed read cannot count unread messages either. Hidden rather than
+     a standing count, the same choice the tiles above make: a stale "5 Messages"
+     from the last good read would claim something this failed read cannot stand
+     behind. Mirrors the agents tally's failed-poll treatment. */
+  document.getElementById('st-pjdm').textContent = '?';
+  document.getElementById('st-pjdm-tile').hidden = true;
 }
 
 /* The pack's state pill (view C): Needs you > Working > Can't tell >
