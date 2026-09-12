@@ -6,15 +6,16 @@
  *
  * 🔑 THE WHOLE SLICE WRITES INSIDE ONE FOLDER, `<ROOT>\.kosmos-update\` (WORK), where ROOT is
  * the unpacked Kosmos folder the board runs from. On the same volume as ROOT, so the S3 swap is
- * renames rather than copies. Every write below goes through `inWork()`, and the suite snapshots
- * everything outside WORK before and after.
+ * renames rather than copies. Every write below goes through `workGuard`, and the suite records
+ * every path the file system is asked to write while a prepare runs.
  *
  * The flow is the design's B0-B4:
  *   B0  preconditions, each a sentence (and the live-execution gate, convention 3);
  *   B1  the Windows pointer, read with the S1 rule (update.pointerFor / update.readManifest);
  *   B2  the checksum sidecar, then the versioned zip streamed into WORK\download.part while hashing,
  *       under caps on size and time; computed = pointer = sidecar;
- *   B3  unpacked with engine/win32zip.js into WORK\staged, allow-listed to ENTRIES;
+ *   B3  the bytes that were hashed, unpacked with engine/win32zip.js into WORK\staged,
+ *       allow-listed to ENTRIES;
  *   B4  the staged tree checked: its manifest, its app version, its required files, its node.exe
  *       actually running, whether that node.exe differs from the anchored one, and the board
  *       identity it will answer with.
@@ -23,7 +24,7 @@
  * `{ ok: false, because }`, and never throws for an expected failure.
  *
  * A CLI for the live check (a dry run unless --yes):
- *     node engine/win32update.js --prepare --root <folder> [--base <url>] [--channel staging] [--yes]
+ *     node engine/win32update.js --prepare --root <folder> [--base <url>] [--channel staging] [--world <id>] [--yes]
  */
 
 const cp = require('node:child_process');
@@ -43,7 +44,7 @@ const win32zip = require('./win32zip');
 
 const MEGABYTE = 1024 * 1024;
 
-/* The scratch folder and the three things in it. */
+/* The scratch folder and the things in it. */
 const WORK_DIRNAME = '.kosmos-update';
 const DOWNLOAD_PART_NAME = 'download.part';
 const STAGED_DIRNAME = 'staged';
@@ -80,7 +81,8 @@ const ENTRIES = Object.freeze([...new Set(REQUIRED_ENTRIES.map((entry) => entry.
 /* The caps. The real 0.6.55 zip is 37 MB and unpacks to about 100 MB, of which node.exe is
    92.8 MB; each cap is several times what a build is, so a real build never meets one and a
    runaway download or a hostile archive always does. */
-/** Bytes downloaded for the zip: about 7x the 37 MB build. */
+/** Bytes downloaded for the zip: about 7x the 37 MB build. The download is held in memory as
+    well as written to WORK, so this is also the memory cap. */
 const MAX_DOWNLOAD_BYTES = 256 * MEGABYTE;
 /** Wall time for the zip: 37 MB at 1 Mbit/s takes about 5 minutes. */
 const MAX_DOWNLOAD_MS = 15 * 60 * 1000;
@@ -101,6 +103,17 @@ const STAGED_NODE_TIMEOUT_MS = 20 * 1000;
 const DISK_HEADROOM_MULTIPLE = 4;
 /** A lock older than a whole prepare can take belongs to a prepare that is not coming back. */
 const STALE_LOCK_MS = 2 * MAX_DOWNLOAD_MS;
+/** A lock whose contents cannot be read is taken as held while it is this young. The lock is
+    published whole (a hard link to a finished file), so an unreadable one is damaged or from
+    something else, and a few seconds is ample for any writer to be done with it. */
+const UNREADABLE_LOCK_GRACE_MS = 5 * 1000;
+/**
+ * The only environment the staged node.exe is run with. It is a freshly downloaded binary, and
+ * the board's own environment can carry credentials (an API key, a token) and a NODE_OPTIONS that
+ * would load code into it. SystemRoot and windir are what Windows' own DLLs look for; TEMP and
+ * TMP give Node a temp folder; PATH is the DLL search path.
+ */
+const STAGED_NODE_ENV_KEYS = Object.freeze(['SystemRoot', 'windir', 'TEMP', 'TMP', 'PATH']);
 
 const DEFAULT_LIMITS = Object.freeze({
   maxDownloadBytes: MAX_DOWNLOAD_BYTES,
@@ -133,10 +146,26 @@ function samePath(a, b) {
   const y = path.resolve(b);
   return process.platform === 'win32' ? x.toLowerCase() === y.toLowerCase() : x === y;
 }
-/** Is `child` the folder `parent`, or somewhere inside it? */
+/** Is `child` the folder `parent`, or somewhere inside it? By spelling only; see realPathOf. */
 function insideOrEqual(child, parent) {
   const rel = path.relative(path.resolve(parent), path.resolve(child));
   return rel === '' || !(rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel));
+}
+/**
+ * Where a path really is: junctions, symlinks, `subst` drives and 8.3 short spellings resolved by
+ * the operating system. A path that does not exist yet resolves through its nearest existing
+ * ancestor, with the rest of it appended.
+ */
+function realPathOf(target) {
+  let existing = path.resolve(target);
+  const rest = [];
+  for (;;) {
+    try { return path.join(fs.realpathSync.native(existing), ...rest); } catch { /* go up */ }
+    const parent = path.dirname(existing);
+    if (parent === existing) return path.resolve(target);
+    rest.unshift(path.basename(existing));
+    existing = parent;
+  }
 }
 /* win32board.bundleRoot joins with path.win32 (the platform it is asked about). On Windows that
    is the host's own joiner; on another host (this suite on a Mac) the win32-joined name is mapped
@@ -163,24 +192,53 @@ function sha256OfFile(file) {
 }
 
 /**
- * Run the staged interpreter once. It is a freshly downloaded binary, so it gets a timeout and no
- * NODE_OPTIONS from this process (a --require there would run inside it).
+ * The one guard every write in a prepare goes through: a path strictly inside WORK, or a throw.
+ * WORK itself is created once, directly, before anything else.
  */
-function runStagedNode(nodeExe, timeoutMs) {
-  const env = { ...process.env };
-  delete env.NODE_OPTIONS;
-  return String(cp.execFileSync(nodeExe, ['-p', 'process.version'], {
-    encoding: 'utf8', timeout: timeoutMs, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env,
-  })).trim();
+function workGuard(work) {
+  return (target) => {
+    if (samePath(target, work) || !insideOrEqual(target, work)) throw new Error(`refusing to write ${target}, which is outside ${work}`);
+    return target;
+  };
 }
 
-/** Does the staged node.exe differ from the anchored one the fleet runs on? Size first, then
-    sha-256, so the common "same Node" case is two stats and two hashes, never a copy. */
+/** How the staged interpreter is run: from its own folder, with a timeout, no window, and only
+    STAGED_NODE_ENV_KEYS from this process's environment. */
+function stagedNodeLaunch(nodeExe, timeoutMs) {
+  const env = {};
+  for (const key of STAGED_NODE_ENV_KEYS) {
+    if (process.env[key] !== undefined) env[key] = process.env[key];
+  }
+  return {
+    file: nodeExe,
+    args: ['-p', 'process.version'],
+    options: { cwd: path.dirname(nodeExe), env, encoding: 'utf8', timeout: timeoutMs, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] },
+  };
+}
+function runStagedNode(nodeExe, timeoutMs) {
+  const launch = stagedNodeLaunch(nodeExe, timeoutMs);
+  return String(cp.execFileSync(launch.file, launch.args, launch.options)).trim();
+}
+
+/** Does the staged node.exe differ from the anchored one the fleet runs on? The anchor's own
+    size rule first (win32anchor.interpreterSizeDiffers), then a sha-256 for the equal-size case. */
 function interpreterDiffers(stagedNode, anchoredNode) {
-  let anchoredSize;
-  try { anchoredSize = fs.statSync(anchoredNode).size; } catch { return true; }
-  if (fs.statSync(stagedNode).size !== anchoredSize) return true;
+  if (win32anchor.interpreterSizeDiffers(stagedNode, anchoredNode)) return true;
   return sha256OfFile(stagedNode) !== sha256OfFile(anchoredNode);
+}
+
+/**
+ * The world the new board will serve, which is half of the identity it answers with. An explicit
+ * one wins; then this board's own (worldenv.bootedWorld(), what server.js puts in its header);
+ * then, outside a board (the live-check CLI), the registry's active world, read the way
+ * worldenv's boot reads it.
+ */
+function resolveWorld(explicit) {
+  if (explicit) return explicit;
+  const booted = require('./worldenv').bootedWorld();
+  if (booted) return booted;
+  const worlds = require('./worlds');
+  try { return worlds.activeWorld(worlds.baseRoot(process.env)).id; } catch { return worlds.DEFAULT_ID; }
 }
 
 /* ─── B0 ─────────────────────────────────────────────────────────────────────────────────── */
@@ -205,16 +263,22 @@ let preparing = false;
 
 /** The first B0 precondition that fails, as a sentence, or null. Reads only. */
 function preconditionRefusal(root, env, home) {
-  if (path.parse(root).root === root) {
-    return `${root} is the top of a drive, and the updater only replaces a Kosmos folder`;
+  const realRoot = realPathOf(root);
+  for (const form of [root, realRoot]) {
+    if (path.parse(form).root === form) return `${root} is the top of a drive, and the updater only replaces a Kosmos folder`;
   }
   const work = path.join(root, WORK_DIRNAME);
+  const moved = [WORK_DIRNAME, ...ENTRIES].map((entry) => path.join(root, entry));
+  /* Compared twice: as spelled, and as the operating system resolves them, so a junction, a
+     `subst` drive or a short name cannot make a protected folder look separate from ROOT. */
   for (const [label, dir, why] of protectedFolders(env, home)) {
     if (!dir) return `we could not work out where ${label} is (${why || 'no detail'}), so an update could not be sure to leave it alone`;
-    if (insideOrEqual(root, dir)) return `${root} is inside ${label} (${dir}), and an update must never move anything there`;
-    for (const entry of [WORK_DIRNAME, ...ENTRIES]) {
-      const moved = path.join(root, entry);
-      if (insideOrEqual(dir, moved)) return `${label} (${dir}) is inside ${moved}, which an update replaces`;
+    const realDir = realPathOf(dir);
+    if (insideOrEqual(root, dir) || insideOrEqual(realRoot, realDir)) {
+      return `${root} is inside ${label} (${dir}), and an update must never move anything there`;
+    }
+    for (const entry of moved) {
+      if (insideOrEqual(dir, entry) || insideOrEqual(realDir, realPathOf(entry))) return `${label} (${dir}) is inside ${entry}, which an update replaces`;
     }
   }
   if (!win32board.bundleRoot({ platform: 'win32', root, exists: hostExists })) {
@@ -223,7 +287,9 @@ function preconditionRefusal(root, env, home) {
   const pointer = win32anchor.readPointer(process.platform, home, env);
   const engine = path.join(root, 'app', 'engine');
   if (!pointer) return 'Kosmos has no record of which folder it starts from, so an update could not take effect. Double-click Kosmos.exe once, then try again';
-  if (!samePath(pointer, engine)) return `Kosmos starts from ${pointer}, not from ${engine}, so updating ${root} would not change what runs`;
+  if (!samePath(pointer, engine) && !samePath(realPathOf(pointer), realPathOf(engine))) {
+    return `Kosmos starts from ${pointer}, not from ${engine}, so updating ${root} would not change what runs`;
+  }
   let st = null;
   try { st = fs.lstatSync(work); } catch { st = null; }
   if (st && st.isSymbolicLink()) return `the updater's folder ${work} is a link to somewhere else`;
@@ -234,23 +300,81 @@ function preconditionRefusal(root, env, home) {
 
 /* ─── the lock ───────────────────────────────────────────────────────────────────────────── */
 
-function takeLock(lockPath, log) {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      const fd = fs.openSync(lockPath, 'wx');
-      try { fs.writeSync(fd, JSON.stringify({ pid: process.pid, at: Date.now() })); } finally { fs.closeSync(fd); }
-      return;
-    } catch (e) {
-      if (!e || e.code !== 'EEXIST') throw e;
-      const held = readJson(lockPath) || {};
-      const alive = Number.isInteger(held.pid) && win32orphan.pidAlive(held.pid);
-      const fresh = Number(held.at) > Date.now() - STALE_LOCK_MS;
-      if (alive && fresh) refuse(`another update is already being prepared (process ${held.pid})`);
-      log(`clearing a stale prepare lock (process ${held.pid}, ${alive ? 'too old' : 'no longer running'})`);
-      fs.rmSync(lockPath, { force: true });
-    }
+/** What a lock file on disk says: `{ gone }`, or `{ held, pid, why }`. */
+function readLock(lockPath) {
+  let st;
+  try { st = fs.statSync(lockPath); } catch { return { gone: true }; }
+  const body = readJson(lockPath);
+  if (!body || !Number.isInteger(body.pid)) {
+    const young = Date.now() - st.mtimeMs < UNREADABLE_LOCK_GRACE_MS;
+    return { held: young, pid: null, why: young ? 'unreadable, and only just written' : 'unreadable' };
   }
-  refuse('another update is already being prepared');
+  const alive = win32orphan.pidAlive(body.pid);
+  const fresh = Number(body.at) > Date.now() - STALE_LOCK_MS;
+  return { held: alive && fresh, pid: body.pid, why: alive ? 'too old' : 'no longer running' };
+}
+
+/**
+ * Take the prepare lock, or refuse. Returns the exact text written, so release can tell the lock
+ * is still this prepare's.
+ *
+ * The lock is PUBLISHED WHOLE: its contents are written to a draft file first and the draft is
+ * hard-linked to the lock's name, which either succeeds atomically or fails with EEXIST. So no
+ * reader ever sees a lock without its owner in it.
+ *
+ * A stale lock is cleared by RENAMING it to a name only this prepare uses and reading it again
+ * there. If what was moved turns out to be a live lock (another prepare cleared the stale one and
+ * took the name between this one's look and its rename), it is put back and this prepare refuses.
+ * Nothing ever deletes a lock it has not first moved out of the shared name.
+ *
+ * `hooks.beforeClear` is a test seam: it runs between reading a stale lock and moving it.
+ */
+function takeLock(lockPath, log, hooks) {
+  const h = hooks || {};
+  const unique = `${process.pid}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  const draft = `${lockPath}.${unique}.draft`;
+  const text = JSON.stringify({ pid: process.pid, at: Date.now(), token: unique });
+  fs.writeFileSync(draft, text, { flag: 'wx' });
+  try {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        fs.linkSync(draft, lockPath);
+        return text;
+      } catch (e) {
+        if (!e || e.code !== 'EEXIST') throw e;
+      }
+      const seen = readLock(lockPath);
+      if (seen.gone) continue;
+      if (seen.held) refuse(`another update is already being prepared (${seen.pid ? 'process ' + seen.pid : 'its lock is ' + seen.why})`);
+      if (typeof h.beforeClear === 'function') h.beforeClear();
+      const aside = `${lockPath}.${unique}.cleared`;
+      try {
+        fs.renameSync(lockPath, aside);
+      } catch (e) {
+        if (e && e.code === 'ENOENT') continue;
+        throw e;
+      }
+      const moved = readLock(aside);
+      if (moved.held) {
+        try { fs.linkSync(aside, lockPath); } catch { /* the name is taken again: someone holds it either way */ }
+        fs.rmSync(aside, { force: true });
+        refuse(`another update is already being prepared (process ${moved.pid})`);
+      }
+      log(`cleared a stale prepare lock (process ${seen.pid}, ${seen.why})`);
+      fs.rmSync(aside, { force: true });
+    }
+    refuse('another update is already being prepared');
+  } finally {
+    fs.rmSync(draft, { force: true });
+  }
+}
+
+/** Release the lock only if it is still the one this prepare took. */
+function releaseLock(lockPath, text, log) {
+  let now = null;
+  try { now = fs.readFileSync(lockPath, 'utf8'); } catch { return; }
+  if (now !== text) { log('the prepare lock was taken over while this prepare ran; leaving it'); return; }
+  fs.rmSync(lockPath, { force: true });
 }
 
 /* ─── the network ────────────────────────────────────────────────────────────────────────── */
@@ -287,19 +411,20 @@ async function open(doFetch, url, what, deadlineAt, log) {
  * The deadline is enforced here as well as by the fetch's abort signal, so a transport that
  * ignores the signal still cannot hang the update. Returns the byte count.
  */
-async function readBody(res, { what, maxBytes, deadlineAt, onChunk }) {
+async function readBody(res, { what, maxBytes, startedAt, deadlineAt, onChunk }) {
+  const tooSlow = () => refuse(`${what} took longer than the ${Math.round((deadlineAt - startedAt) / 1000)} seconds allowed`);
   if (!res.body || typeof res.body.getReader !== 'function') refuse(`the release host sent no ${what}`);
   const reader = res.body.getReader();
   let total = 0;
   try {
     for (;;) {
       const left = deadlineAt - Date.now();
-      if (left <= 0) refuse(`${what} took longer than the ${Math.round((deadlineAt - res.startedAt) / 1000)} seconds allowed`);
+      if (left <= 0) tooSlow();
       let timer;
       const timeUp = new Promise((resolve) => { timer = setTimeout(() => resolve(null), left); });
       let step;
       try { step = await Promise.race([reader.read(), timeUp]); } finally { clearTimeout(timer); }
-      if (step === null) refuse(`${what} took longer than the ${Math.round((deadlineAt - res.startedAt) / 1000)} seconds allowed`);
+      if (step === null) tooSlow();
       if (step.done) break;
       total += step.value.byteLength;
       if (total > maxBytes) refuse(`${what} is larger than the ${sizeInWords(maxBytes)} this updater will download`);
@@ -308,7 +433,7 @@ async function readBody(res, { what, maxBytes, deadlineAt, onChunk }) {
   } catch (e) {
     try { reader.cancel().catch(() => {}); } catch { /* already closed */ }
     if (e instanceof PrepareRefusal) throw e;
-    if (Date.now() >= deadlineAt) refuse(`${what} took longer than the ${Math.round((deadlineAt - res.startedAt) / 1000)} seconds allowed`);
+    if (Date.now() >= deadlineAt) tooSlow();
     refuse(`the download of ${what} was interrupted (${firstLine(e)})`);
   }
   return total;
@@ -318,10 +443,9 @@ async function fetchSmallText(doFetch, url, what, limits, log) {
   const startedAt = Date.now();
   const deadlineAt = startedAt + limits.maxSmallFetchMs;
   const { res, done } = await open(doFetch, url, what, deadlineAt, log);
-  res.startedAt = startedAt;
   const chunks = [];
   try {
-    await readBody(res, { what, maxBytes: limits.maxSmallFetchBytes, deadlineAt, onChunk: (c) => chunks.push(Buffer.from(c)) });
+    await readBody(res, { what, maxBytes: limits.maxSmallFetchBytes, startedAt, deadlineAt, onChunk: (c) => chunks.push(Buffer.from(c)) });
   } finally { done(); }
   return Buffer.concat(chunks).toString('utf8');
 }
@@ -357,6 +481,11 @@ async function readOffer(ctx) {
 
 /* ─── B2 ─────────────────────────────────────────────────────────────────────────────────── */
 
+/**
+ * Returns `{ sha256, bytes }`: the download's hash and the very bytes that were hashed, which B3
+ * unpacks. The copy in WORK\download.part is written alongside, and never read back, so nothing
+ * can change the bytes between the hash and the unpack.
+ */
 async function download(ctx, latest) {
   const sidecarUrl = `${ctx.base}/${latest.versioned}.sha256`;
   const published = sidecarSha(await fetchSmallText(ctx.fetch, sidecarUrl, 'the update checksum', ctx.limits, ctx.log), latest.versioned);
@@ -368,8 +497,8 @@ async function download(ctx, latest) {
   const startedAt = Date.now();
   const deadlineAt = startedAt + ctx.limits.maxDownloadMs;
   const { res, done } = await open(ctx.fetch, zipUrl, 'the update', deadlineAt, ctx.log);
-  res.startedAt = startedAt;
   const hash = crypto.createHash('sha256');
+  const chunks = [];
   let received = 0;
   let declared = null;
   try {
@@ -387,20 +516,27 @@ async function download(ctx, latest) {
     const fd = fs.openSync(ctx.inWork(ctx.part), 'wx');
     try {
       received = await readBody(res, {
-        what: 'the update', maxBytes: ctx.limits.maxDownloadBytes, deadlineAt,
-        onChunk: (chunk) => { hash.update(chunk); fs.writeSync(fd, chunk); },
+        what: 'the update', maxBytes: ctx.limits.maxDownloadBytes, startedAt, deadlineAt,
+        onChunk: (chunk) => {
+          hash.update(chunk);
+          chunks.push(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+          fs.writeSync(fd, chunk);
+        },
       });
     } finally { fs.closeSync(fd); }
   } finally { done(); }
-  if (declared !== null && received !== declared) {
+  if (declared !== null && received < declared) {
     refuse(`the download stopped early: ${received} of ${declared} bytes arrived`);
+  }
+  if (declared !== null && received > declared) {
+    refuse(`the release host sent ${received} bytes after announcing ${declared}, so the download is not the file it described`);
   }
   const computed = hash.digest('hex');
   if (computed !== latest.sha256) {
     refuse('the downloaded update does not match the checksum the site published for it, so it was damaged on the way or is not the build the site names');
   }
   ctx.log(`downloaded ${latest.versioned}: ${received} bytes, sha256 ${computed}`);
-  return computed;
+  return { sha256: computed, bytes: Buffer.concat(chunks, received) };
 }
 
 /* ─── B3 ─────────────────────────────────────────────────────────────────────────────────── */
@@ -411,22 +547,21 @@ function unpackRefusal(e) {
     : `the downloaded update could not be unpacked (${firstLine(e)})`;
 }
 
-function unpack(ctx) {
+function unpack(ctx, bytes) {
   const zipLimits = {
     allowedTopLevel: ENTRIES,
     maxEntries: ctx.limits.maxEntries,
     maxEntryBytes: ctx.limits.maxEntryBytes,
     maxTotalBytes: ctx.limits.maxUnpackedBytes,
   };
-  const buf = fs.readFileSync(ctx.part);
   let listing;
-  try { listing = win32zip.readZipDirectory(buf, zipLimits); } catch (e) { refuse(unpackRefusal(e)); }
+  try { listing = win32zip.readZipDirectory(bytes, zipLimits); } catch (e) { refuse(unpackRefusal(e)); }
   const unpacked = listing.reduce((n, entry) => n + entry.uncompressedSize, 0);
   const free = ctx.freeBytes(ctx.work);
   if (free < unpacked) {
     refuse(`there is not enough free disk space next to your Kosmos folder: the update unpacks to ${sizeInWords(unpacked)} and there is ${sizeInWords(free)} free`);
   }
-  try { win32zip.extractZip(buf, ctx.inWork(ctx.staged), zipLimits); } catch (e) { refuse(unpackRefusal(e)); }
+  try { win32zip.extractZip(bytes, ctx.inWork(ctx.staged), zipLimits); } catch (e) { refuse(unpackRefusal(e)); }
   fs.rmSync(ctx.inWork(ctx.part), { force: true });
 }
 
@@ -465,11 +600,10 @@ function verifyStaged(ctx, latest) {
   const runtimeChanged = interpreterDiffers(stagedNode, anchoredNode);
 
   /* The identity the new board will answer with, from the two functions server.js computes its
-     own header with, over the staged app and the world this board serves. */
+     own header with, over the staged app and the world the new board will serve. */
   const build = win32handoff.buildIdentity(path.join(staged, 'app'));
   if (!build) refuse('the update\'s app has no version to identify it by');
-  const world = ctx.world || require('./worldenv').bootedWorld() || require('./worlds').DEFAULT_ID;
-  return { runtimeChanged, expectedIdentity: win32handoff.boardIdentity(build, world) };
+  return { runtimeChanged, expectedIdentity: win32handoff.boardIdentity(build, resolveWorld(ctx.world)) };
 }
 
 /* ─── prepare ────────────────────────────────────────────────────────────────────────────── */
@@ -483,9 +617,9 @@ function verifyStaged(ctx, latest) {
  *   channel   'prod' or 'staging' (update.updateChannel('win32'))
  *   arch      process.arch
  *   expectVersion  when given, the version the person accepted; a pointer that moved is refused
- *   world     the world the new board will serve (worldenv.bootedWorld())
+ *   world     the world the new board will serve (resolveWorld: this board's, else the registry's)
  * and the seams a suite or the live-check CLI sets: platform, env, home, fetch, freeBytes,
- * runStagedNode, liveExecutionAllowed, limits, log.
+ * runStagedNode, liveExecutionAllowed, limits, log, lockHooks.
  */
 async function prepare(opts) {
   const o = opts || {};
@@ -508,10 +642,7 @@ async function prepare(opts) {
   }
 
   const work = path.join(root, WORK_DIRNAME);
-  const inWork = (target) => {
-    if (samePath(target, work) || !insideOrEqual(target, work)) throw new Error(`refusing to write ${target}, which is outside ${work}`);
-    return target;
-  };
+  const inWork = workGuard(work);
   const ctx = {
     root, work, inWork, base, env, home, log,
     part: path.join(work, DOWNLOAD_PART_NAME),
@@ -528,24 +659,23 @@ async function prepare(opts) {
   const lockPath = path.join(work, LOCK_NAME);
 
   preparing = true;
-  let lockHeld = false;
+  let lockText = null;
   let result;
   try {
     if (!fs.existsSync(work)) fs.mkdirSync(work);
-    if (!samePath(fs.realpathSync(work), path.join(fs.realpathSync(root), WORK_DIRNAME))) {
+    if (!samePath(fs.realpathSync.native(work), path.join(fs.realpathSync.native(root), WORK_DIRNAME))) {
       refuse(`the updater's folder ${work} leads somewhere else`);
     }
-    takeLock(inWork(lockPath), log);
-    lockHeld = true;
+    lockText = takeLock(inWork(lockPath), log, o.lockHooks);
     /* Whatever an earlier attempt left. Both are WORK's own. */
     fs.rmSync(inWork(ctx.part), { force: true });
     fs.rmSync(inWork(ctx.staged), { recursive: true, force: true });
 
     const latest = await readOffer(ctx);
-    const sha256 = await download(ctx, latest);
-    unpack(ctx);
+    const downloaded = await download(ctx, latest);
+    unpack(ctx, downloaded.bytes);
     const verified = verifyStaged(ctx, latest);
-    result = { ok: true, version: latest.version, sha256, stagedDir: ctx.staged, runtimeChanged: verified.runtimeChanged, expectedIdentity: verified.expectedIdentity };
+    result = { ok: true, version: latest.version, sha256: downloaded.sha256, stagedDir: ctx.staged, runtimeChanged: verified.runtimeChanged, expectedIdentity: verified.expectedIdentity };
   } catch (e) {
     if (e instanceof PrepareRefusal) {
       result = { ok: false, because: e.message };
@@ -557,7 +687,7 @@ async function prepare(opts) {
     preparing = false;
   }
 
-  if (lockHeld) {
+  if (lockText) {
     if (!result.ok) {
       try { fs.rmSync(inWork(ctx.part), { force: true }); } catch (e) { log(`could not remove ${ctx.part}: ${firstLine(e)}`); }
       try { fs.rmSync(inWork(ctx.staged), { recursive: true, force: true }); } catch (e) { log(`could not remove ${ctx.staged}: ${firstLine(e)}`); }
@@ -565,7 +695,7 @@ async function prepare(opts) {
     try {
       fs.writeFileSync(inWork(path.join(work, STATUS_NAME)), JSON.stringify({ ...result, at: new Date().toISOString() }, null, 2) + '\n');
     } catch (e) { log(`could not record the outcome: ${firstLine(e)}`); }
-    try { fs.rmSync(inWork(lockPath), { force: true }); } catch (e) { log(`could not remove the prepare lock: ${firstLine(e)}`); }
+    try { releaseLock(inWork(lockPath), lockText, log); } catch (e) { log(`could not remove the prepare lock: ${firstLine(e)}`); }
   }
   log(result.ok ? `staged ${result.version} in ${result.stagedDir}` : `could not prepare the update: ${result.because}`);
   return result;
@@ -590,6 +720,8 @@ function parseCliArgs(argv) {
 /**
  * `--yes` is the operator's explicit opt-in, and it stands in for allowLiveExecution(), which
  * only server.js's real start may call. Without it this prints what it would do and exits 2.
+ * Without `--world`, the world is the registry's active one (resolveWorld), and the dry run says
+ * which.
  */
 async function cliMain(argv, write) {
   const out = typeof write === 'function' ? write : (s) => process.stdout.write(s);
@@ -599,6 +731,7 @@ async function cliMain(argv, write) {
     const root = path.resolve(a.root);
     out(JSON.stringify({
       dryRun: true, root, base: a.base || update.releaseBase(), channel: a.channel || update.updateChannel('win32'),
+      world: resolveWorld(a.world),
       writesUnder: path.join(root, WORK_DIRNAME),
       because: 'nothing was downloaded: add --yes to download, verify and stage the update',
     }, null, 2) + '\n');
@@ -610,8 +743,8 @@ async function cliMain(argv, write) {
 }
 
 module.exports = {
-  prepare, cliMain, runStagedNode,
-  REQUIRED_ENTRIES, ENTRIES, WORK_DIRNAME, DEFAULT_LIMITS,
+  prepare, cliMain, runStagedNode, stagedNodeLaunch, workGuard, takeLock, resolveWorld,
+  REQUIRED_ENTRIES, ENTRIES, WORK_DIRNAME, DEFAULT_LIMITS, STAGED_NODE_ENV_KEYS,
 };
 
 /* Guarded on being the main module: requiring this file must never download anything. */

@@ -43,6 +43,20 @@ function refusesWith(entries, pattern, options) {
   assert.throws(() => win32zip.readZipDirectory(buf, LIMITS), (e) => e instanceof win32zip.ZipRefusal && pattern.test(e.message));
 }
 
+test('the updater\'s sources are text: no raw control or invisible character, so git, review and search can read them', () => {
+  /* A raw NUL in a regex literal made git treat all of win32zip.js as binary. Tab, LF and CR are
+     the only control characters a source line may hold; escapes are written as \x sequences. */
+  const range = (from, to) => String.fromCharCode(from) + '-' + String.fromCharCode(to);
+  const RAW = new RegExp('[' + [range(0x00, 0x08), range(0x0b, 0x0c), range(0x0e, 0x1f), range(0x7f, 0xa0), range(0x200b, 0x200f), range(0x2028, 0x202e), range(0x2060, 0x2060), range(0xfeff, 0xfeff)].join('') + ']');
+  const files = ['engine/win32zip.js', 'engine/win32zip.test.js', 'engine/win32update.js', 'engine/win32update.test.js', 'test-support/zipfixture.js'];
+  const offenders = [];
+  for (const rel of files) {
+    fs.readFileSync(path.join(__dirname, '..', rel), 'utf8').split('\n').forEach((line, i) => { if (RAW.test(line)) offenders.push(`${rel}:${i + 1}`); });
+  }
+  assert.ok(RAW.test('a' + String.fromCharCode(0) + 'b') && RAW.test(String.fromCharCode(0x200b)), 'the control: the rule sees what it is for');
+  assert.deepEqual(offenders, []);
+});
+
 test('CONTROL: a well-formed archive reads, and each entry keeps its method', () => {
   const entries = win32zip.readZipDirectory(buildZip(wellFormed()), LIMITS);
   assert.deepEqual(entries.map((e) => [e.name, e.method, e.isDirectory]), [
@@ -163,6 +177,73 @@ test('a size that lies is refused, whichever way it lies', () => {
   refusesWith(wellFormed([{ name: 'bin/stored-liar.txt', data: 'abc', method: 0, declaredSize: 4 }]), /stored with two different sizes/);
 });
 
-test('a local header that disagrees with the table of contents is refused', () => {
+test('a local header that disagrees with the table of contents is refused: name, flags, CRC or size', () => {
   refusesWith(wellFormed([{ name: 'bin/a.txt', localName: 'bin/b.txt', data: 'x' }]), /described two different ways/);
+  refusesWith(wellFormed([{ name: 'bin/a.txt', data: 'x', local: { flags: 0x0001 } }]), /"bin\/a\.txt" is described two different ways/);
+  refusesWith(wellFormed([{ name: 'bin/a.txt', data: 'x', local: { crc: 0xdeadbeef } }]), /described two different ways/);
+  refusesWith(wellFormed([{ name: 'bin/a.txt', data: 'xyz', method: 0, local: { size: 99, compressedSize: 99 } }]), /described two different ways/);
+  refusesWith(wellFormed([{ name: 'bin/a.txt', data: TEXT, method: 8, local: { compressedSize: 1 } }]), /described two different ways/);
+});
+
+test('CONTROL: with a data descriptor (bit 3) the local CRC and sizes are deferred, and the entry still unpacks', () => {
+  const dest = freshDest();
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  const buf = buildZip(wellFormed([{ name: 'bin/dd.txt', data: TEXT, method: 8, flags: 0x0008, local: { crc: 0, compressedSize: 0, size: 0 } }]));
+  win32zip.extractZip(buf, dest, LIMITS);
+  assert.equal(fs.readFileSync(path.join(dest, 'bin', 'dd.txt'), 'utf8'), TEXT);
+});
+
+test('overlapping entries are refused: one entry\'s data carries another entry\'s header', () => {
+  const innerName = 'bin/inner.txt';
+  const outerName = 'bin/outer.bin';
+  const inner = buildZip([{ name: innerName, data: 'hidden', method: 0 }]);
+  const innerRecord = inner.subarray(0, 30 + innerName.length + 'hidden'.length);
+  refusesWith(wellFormed([
+    { name: outerName, data: innerRecord, method: 0 },
+    { name: innerName, data: 'hidden', method: 0, centralOffset: (at) => at[outerName] + 30 + outerName.length },
+  ]), /the archive entries "bin\/outer\.bin" and "bin\/inner\.txt" overlap/);
+});
+
+test('zip64 markers are refused, in an entry and in the end record', () => {
+  refusesWith(wellFormed([{ name: 'bin/huge.bin', data: 'x', method: 8, declaredSize: 0xffffffff }]), /"bin\/huge\.bin" uses zip64 records/);
+  refusesWith(wellFormed([{ name: 'bin/far.bin', data: 'x', centralOffset: () => 0xffffffff }]), /"bin\/far\.bin" uses zip64 records/);
+  refusesWith(wellFormed(), /^the archive uses zip64 records/, { eocd: { entryCount: 0xffff, entriesOnDisk: 0xffff } });
+  refusesWith(wellFormed(), /^the archive uses zip64 records/, { eocd: { directoryOffset: 0xffffffff } });
+  refusesWith(wellFormed(), /^the archive uses zip64 records/, { eocd: { directorySize: 0xffffffff } });
+});
+
+test('an archive split across several files is refused', () => {
+  refusesWith(wellFormed(), /split across several files/, { eocd: { diskNumber: 1 } });
+  refusesWith(wellFormed(), /split across several files/, { eocd: { directoryDisk: 2 } });
+});
+
+test('a folder entry with contents of its own is refused', () => {
+  refusesWith(wellFormed([{ name: 'app/stuff/', data: 'x', method: 0 }]), /"app\/stuff\/" is a folder with contents of its own/);
+});
+
+test('a name that is not plain printable ASCII is refused, flagged as UTF-8 or not', () => {
+  const eAcute = String.fromCharCode(0xe9);
+  refusesWith(wellFormed([{ name: `app/caf${eAcute}.txt`, data: 'x', noUtf8Flag: true }]), /not plain ASCII and is not marked as UTF-8/);
+  refusesWith(wellFormed([{ name: `app/caf${eAcute}.txt`, data: 'x' }]), /not plain printable ASCII/);
+  refusesWith(wellFormed([{ name: `app/${String.fromCharCode(0x202e)}txt.exe`, data: 'x' }]), /not plain printable ASCII/);
+  refusesWith(wellFormed([{ name: `app/x${String.fromCharCode(0x200b)}`, data: 'x' }]), /not plain printable ASCII/);
+  /* NTFS folds the dotless i and the Kelvin sign to letters JavaScript's toLowerCase keeps apart. */
+  refusesWith(wellFormed([{ name: `app/${String.fromCharCode(0x212a)}.txt`, data: 'x' }]), /not plain printable ASCII/);
+});
+
+test('Windows short names are refused, file or folder, so no alias can land on a long name', () => {
+  refusesWith(wellFormed([{ name: 'app/averylongfilename.txt', data: 'long' }, { name: 'app/AVERYL~1.TXT', data: 'short' }]), /"app\/AVERYL~1\.TXT" looks like a Windows short name/);
+  refusesWith(wellFormed([{ name: 'app/averylongdirname/a', data: '1' }, { name: 'app/AVERYL~1/b', data: '2' }]), /looks like a Windows short name/);
+  refusesWith(wellFormed([{ name: 'bin/a~1', data: 'x' }]), /looks like a Windows short name/);
+  /* The control: a tilde with no digit after it is an ordinary name. */
+  assert.doesNotThrow(() => win32zip.readZipDirectory(buildZip(wellFormed([{ name: 'bin/a~b.txt', data: 'x' }])), LIMITS));
+});
+
+test('every Windows device name is refused, with an extension or spaces before it', () => {
+  for (const segment of ['CONIN$', 'conout$.txt', 'CLOCK$', 'nul .txt', 'con .txt', 'COM1 .log', 'aux', 'LPT9.dat', 'prn.x.y']) {
+    refusesWith(wellFormed([{ name: `app/${segment}`, data: 'x' }]), /reserves for a device/);
+  }
+  assert.throws(() => win32zip.readZipDirectory(buildZip(wellFormed([{ name: `app/COM${String.fromCharCode(0xb9)}`, data: 'x' }])), LIMITS), win32zip.ZipRefusal);
+  /* The controls: names that merely start like one are ordinary. */
+  assert.doesNotThrow(() => win32zip.readZipDirectory(buildZip(wellFormed([{ name: 'app/console.js', data: 'x' }, { name: 'app/connect.js', data: 'x' }])), LIMITS));
 });

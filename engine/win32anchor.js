@@ -188,6 +188,18 @@ const BOOT_JS = [
 ].join('\n');
 
 /**
+ * The anchor's rule for "would copying `srcNode` over `nodeAt` change the interpreter": the sizes
+ * differ, or either file cannot be read. Size alone, for the reason ensureAnchored gives (a
+ * released node.exe changes size between versions, and hashing 92 MB on every agent create is not
+ * worth it). engine/win32update.js's runtimeChanged starts from this same rule and adds a sha-256
+ * only for the equal-size case, so the two can disagree only in the direction of the updater
+ * swapping in an interpreter the anchor would have kept.
+ */
+function interpreterSizeDiffers(srcNode, nodeAt) {
+  try { return fs.statSync(nodeAt).size !== fs.statSync(srcNode).size; } catch { return true; }
+}
+
+/**
  * Put the anchor in place, and answer with the paths a task should be built from.
  *
  * Returns { ok, node, boot, dir, pointer } or { ok:false, because } -- never
@@ -235,9 +247,7 @@ function ensureAnchored(opts) {
        interpreter from inside the process running on it. Compared
        case-insensitively because Windows paths are. */
     if (path.resolve(srcNode).toLowerCase() !== path.resolve(nodeAt).toLowerCase()) {
-      let need = true;
-      try { need = fs.statSync(nodeAt).size !== fs.statSync(srcNode).size; } catch { need = true; }
-      if (need) win32swap.replaceInterpreter(srcNode, nodeAt, clock);
+      if (interpreterSizeDiffers(srcNode, nodeAt)) win32swap.replaceInterpreter(srcNode, nodeAt, clock);
     }
     win32swap.retireLeftoverInterpreters(nodeAt, clock);
 
@@ -270,5 +280,5 @@ function readPointer(platform, home, env) {
 module.exports = {
   APP, NODE_NAME, POINTER_NAME, BOOT_NAME, BOOT_JS, STAGED_INFIX, RETIRED_INFIX,
   RETIRED_SWEEP_MIN_AGE_MS,
-  anchorDir, ensureAnchored, readPointer,
+  anchorDir, ensureAnchored, readPointer, interpreterSizeDiffers,
 };

@@ -6,8 +6,9 @@
  * Every case runs in a sandbox: a Kosmos folder (ROOT) with a person's own `Projects` inside it,
  * an anchor folder with its `engine-path` and `node.exe`, and sandboxed store, projects and
  * workers roots. The network is an injected fetch serving zips built in the test, and the
- * staged `node.exe` is a stub, except in the two cases that run a real interpreter. Nothing here
- * reaches the release host.
+ * staged `node.exe` is a stub, except in the cases that run a real interpreter. Nothing here
+ * reaches the release host. Every test carries a timeout, so a reverted guard fails instead of
+ * hanging.
  *
  *   node --test engine/win32update.test.js
  *   KOSMOS_WIN_ZIP_SAMPLE=<a real kosmos-win-x64.zip> node --test engine/win32update.test.js
@@ -30,10 +31,12 @@ const store = require('./store');
 const win32anchor = require('./win32anchor');
 const win32update = require('./win32update');
 const win32zip = require('./win32zip');
+const worlds = require('./worlds');
 const { buildZip } = require('../test-support/zipfixture');
 
 test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 
+const T = { timeout: 10000 };
 const REPO = path.join(__dirname, '..');
 const ARCH = 'x64';
 const INSTALLED = '0.6.55';
@@ -43,10 +46,15 @@ const NODE_VERSION = 'v24.19.0';
 const BASE = 'https://updates.example.test/dist';
 const README = '! READ ME FIRST - Windows will warn you.txt';
 const PLENTY_OF_DISK = 64 * 1024 * 1024 * 1024;
+const ON_WINDOWS = process.platform === 'win32';
 
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const zipName = (version) => `kosmos-${version}-win-${ARCH}.zip`;
+const under = (child, parent) => {
+  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  return rel === '' || !(rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel));
+};
 
 /* ─── the sandbox ─────────────────────────────────────────────────────────────────────────── */
 
@@ -137,21 +145,61 @@ function prepareOpts(c, s, over) {
     ...(over || {}),
   };
 }
-/** Every file and folder under `top` (contents and mtime), except the folders in `skip`. */
+/**
+ * Every file and folder under `top` (contents and mtime), except the folders in `skip`. A folder
+ * that HOLDS a skipped one (ROOT, which holds WORK) is recorded without its mtime: creating or
+ * removing WORK is what changes it. recordWrites catches anything else written there.
+ */
 function snapshot(top, skip) {
   const seen = {};
   const skipped = skip.map((s) => path.resolve(s));
+  const holders = skipped.map((s) => path.dirname(s));
   (function walk(dir) {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, e.name);
       if (skipped.includes(path.resolve(full))) continue;
       const rel = path.relative(top, full);
       if (e.isSymbolicLink()) { seen[rel] = 'link ' + fs.readlinkSync(full); continue; }
-      if (e.isDirectory()) { seen[rel + path.sep] = 'folder'; walk(full); continue; }
+      if (e.isDirectory()) {
+        seen[rel + path.sep] = holders.includes(path.resolve(full)) ? 'folder holding WORK' : 'folder ' + fs.statSync(full).mtimeMs;
+        walk(full);
+        continue;
+      }
       seen[rel] = sha256(fs.readFileSync(full)) + ' ' + fs.statSync(full).mtimeMs;
     }
   })(top);
   return seen;
+}
+/**
+ * Every path the file system is asked to WRITE while `run` is pending: created, written, moved,
+ * linked or removed, temporary files included. Reads are not recorded.
+ */
+async function recordWrites(run) {
+  const written = [];
+  const note = (p) => { if (p !== undefined && p !== null && typeof p !== 'number') written.push(path.resolve(String(p))); };
+  const spies = {
+    openSync: (p, flags) => { if (flags !== undefined && flags !== 'r' && flags !== 'rs' && flags !== 0) note(p); },
+    writeFileSync: (p) => note(p),
+    appendFileSync: (p) => note(p),
+    mkdirSync: (p) => note(p),
+    rmSync: (p) => note(p),
+    rmdirSync: (p) => note(p),
+    unlinkSync: (p) => note(p),
+    renameSync: (a, b) => { note(a); note(b); },
+    linkSync: (a, b) => note(b),
+    symlinkSync: (a, b) => note(b),
+    copyFileSync: (a, b) => note(b),
+    cpSync: (a, b) => note(b),
+    utimesSync: (p) => note(p),
+    truncateSync: (p) => note(p),
+  };
+  const real = {};
+  for (const [name, spy] of Object.entries(spies)) {
+    real[name] = fs[name];
+    fs[name] = function recorded(...args) { spy(...args); return real[name].apply(this, args); };
+  }
+  try { await run(); } finally { for (const name of Object.keys(spies)) fs[name] = real[name]; }
+  return written;
 }
 function workHolds(c) { return fs.existsSync(c.work) ? fs.readdirSync(c.work).sort() : null; }
 async function refusedWith(c, s, pattern, over) {
@@ -168,15 +216,16 @@ function assertCleanedUp(c, pattern) {
   assert.match(status.because, pattern);
 }
 
-/* ─── the happy path ──────────────────────────────────────────────────────────────────────── */
+/* ─── the happy path and the path guard ───────────────────────────────────────────────────── */
 
-test('the happy path: downloaded, checked and staged, with the identity the new board will answer with', async () => {
+test('the happy path: downloaded, checked and staged, with the identity the new board will answer with', T, async () => {
   const c = freshCase();
   const zip = bundleZip();
   /* An alias that names some other file, so a read of `artifact` would show up in the URLs. */
   const s = site(zip, { pointer: pointerBody(zip, { artifact: 'kosmos-something-else.zip' }) });
   const before = snapshot(SANDBOX, [c.work]);
-  const r = await win32update.prepare(prepareOpts(c, s));
+  let r;
+  const written = await recordWrites(async () => { r = await win32update.prepare(prepareOpts(c, s)); });
   assert.deepEqual(r, {
     ok: true, version: NEXT, sha256: sha256(zip), stagedDir: path.join(c.work, 'staged'),
     runtimeChanged: true, expectedIdentity: `${NEXT}+${SOURCE_SHA.slice(0, 12)}@default`,
@@ -186,44 +235,84 @@ test('the happy path: downloaded, checked and staged, with the identity the new 
   }
   assert.equal(fs.readFileSync(path.join(r.stagedDir, 'app', 'server.js'), 'utf8'), '// the new server\n'.repeat(40));
   assert.deepEqual(c.nodeRuns, [path.join(r.stagedDir, 'runtime', 'node.exe')], 'the STAGED interpreter is the one run');
-  assert.deepEqual(workHolds(c), ['prepare-status.json', 'staged'], 'the download and the lock are gone');
+  assert.deepEqual(workHolds(c), ['prepare-status.json', 'staged'], 'the download, the lock and its draft are gone');
   assert.equal(readJson(path.join(c.work, 'prepare-status.json')).expectedIdentity, r.expectedIdentity);
   assert.deepEqual(s.urls, [
     `${BASE}/latest-win.json`,
     `${BASE}/${zipName(NEXT)}.sha256`,
     `${BASE}/${zipName(NEXT)}?v=${NEXT}`,
   ], 'the pointer, the sidecar, then the versioned zip with its cache-buster; never the alias');
-  /* 🛑 THE PATH GUARD: everything outside WORK -- ROOT's app, runtime and Projects, the anchor,
-     the store, projects and workers roots -- is byte-for-byte and mtime-for-mtime unchanged. */
+  /* 🛑 THE PATH GUARD, twice. Every path the file system was asked to write -- temporary files
+     included -- is WORK or inside it; and everything outside WORK is byte-for-byte and
+     mtime-for-mtime unchanged, folders included. */
+  assert.ok(written.length > 10, 'the control: the writes were recorded');
+  assert.deepEqual(written.filter((p) => !under(p, c.work)), [], 'written outside WORK');
+  assert.ok(written.some((p) => p === path.join(c.work, 'download.part')), 'the control: the temporary download is among the writes');
   assert.deepEqual(snapshot(SANDBOX, [c.work]), before);
 });
 
-test('the staging channel reads the staging pointer, and never falls back to prod', async () => {
+test('the path guard holds on a failure too: a damaged entry, cleaned up without a write outside WORK', T, async () => {
   const c = freshCase();
-  const zip = bundleZip();
-  const s = site(zip);
+  const before = snapshot(SANDBOX, [c.work]);
+  const written = await recordWrites(() => refusedWith(c, site(bundleZip({ entryOver: { 'bin/kosmos-cli.js': { crc: 1 } } })), /"bin\/kosmos-cli\.js" is damaged/));
+  assertCleanedUp(c, /damaged/);
+  assert.ok(written.length > 5);
+  assert.deepEqual(written.filter((p) => !under(p, c.work)), []);
+  assert.deepEqual(snapshot(SANDBOX, [c.work]), before);
+});
+
+test('workGuard: only paths strictly inside WORK', T, () => {
+  const work = path.join(SANDBOX, 'guard', 'Kosmos', '.kosmos-update');
+  const guard = win32update.workGuard(work);
+  assert.equal(guard(path.join(work, 'download.part')), path.join(work, 'download.part'));
+  assert.equal(guard(path.join(work, 'staged', 'app', 'x.js')), path.join(work, 'staged', 'app', 'x.js'));
+  for (const outside of [work, path.join(work, '..', 'download.part'), path.join(path.dirname(work), 'app'), work + 'x', path.parse(work).root]) {
+    assert.throws(() => guard(outside), /which is outside/, outside);
+  }
+});
+
+test('the staging channel reads the staging pointer, and never falls back to prod', T, async () => {
+  const c = freshCase();
+  const s = site(bundleZip());
   const r = await win32update.prepare(prepareOpts(c, s, { channel: 'staging' }));
   assert.equal(r.ok, false);
   assert.deepEqual(s.urls, [`${BASE}/latest-win-staging.json`]);
   assert.match(r.because, /answered 404 for the update pointer/);
 });
 
-test('runtimeChanged: the same interpreter is unchanged; the same size with other bytes is changed', async () => {
+test('runtimeChanged: the same interpreter is unchanged; the same size with other bytes is changed', T, async () => {
   const same = 'the one node.exe, byte for byte';
   const c1 = freshCase({ anchoredNode: same });
-  const zip1 = bundleZip({ nodeBytes: same });
-  assert.equal((await win32update.prepare(prepareOpts(c1, site(zip1)))).runtimeChanged, false);
+  assert.equal((await win32update.prepare(prepareOpts(c1, site(bundleZip({ nodeBytes: same }))))).runtimeChanged, false);
   const c2 = freshCase({ anchoredNode: 'A'.repeat(32) });
-  const zip2 = bundleZip({ nodeBytes: 'B'.repeat(32) });
-  assert.equal((await win32update.prepare(prepareOpts(c2, site(zip2)))).runtimeChanged, true, 'equal sizes fall through to the hash');
+  assert.equal((await win32update.prepare(prepareOpts(c2, site(bundleZip({ nodeBytes: 'B'.repeat(32) }))))).runtimeChanged, true, 'equal sizes fall through to the hash');
   const c3 = freshCase();
   fs.rmSync(path.join(c3.anchor, win32anchor.NODE_NAME));
   assert.equal((await win32update.prepare(prepareOpts(c3, site(bundleZip())))).runtimeChanged, true, 'no anchored interpreter at all');
 });
 
+test('runtimeChanged starts from the anchor\'s own size rule: whenever the anchor would copy, the update says changed', T, () => {
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'sizes-'));
+  const file = (name, bytes) => { const p = path.join(dir, name); fs.writeFileSync(p, bytes); return p; };
+  const pairs = [
+    [file('a1', 'AAAA'), file('b1', 'AAAA')],
+    [file('a2', 'AAAA'), file('b2', 'BBBB')],
+    [file('a3', 'AAAA'), file('b3', 'AAAAAA')],
+    [file('a4', 'AAAA'), path.join(dir, 'missing')],
+  ];
+  const expected = [false, false, true, true];
+  pairs.forEach(([src, at], i) => assert.equal(win32anchor.interpreterSizeDiffers(src, at), expected[i], `pair ${i}`));
+  const source = fs.readFileSync(path.join(__dirname, 'win32update.js'), 'utf8');
+  assert.match(source, /function interpreterDiffers\(stagedNode, anchoredNode\) \{\s*if \(win32anchor\.interpreterSizeDiffers\(stagedNode, anchoredNode\)\) return true;/,
+    'runtimeChanged must start from the anchor\'s size rule, not a second copy of it');
+  const anchorSource = fs.readFileSync(path.join(__dirname, 'win32anchor.js'), 'utf8');
+  assert.match(anchorSource, /if \(interpreterSizeDiffers\(srcNode, nodeAt\)\) win32swap\.replaceInterpreter\(srcNode, nodeAt, clock\);/,
+    'ensureAnchored must decide with the same exported rule');
+});
+
 /* ─── B1 ──────────────────────────────────────────────────────────────────────────────────── */
 
-test('B1: an unreadable pointer, or one for another arch, is refused', async () => {
+test('B1: an unreadable pointer, or one for another arch, is refused', T, async () => {
   const zip = bundleZip();
   await refusedWith(freshCase(), site(zip, { pointer: 'not json at all' }), /does not name a Windows build for this computer \(x64\)/);
   const other = site(zip, { pointer: pointerBody(zip, { versioned: `kosmos-${NEXT}-win-arm64.zip` }) });
@@ -231,14 +320,14 @@ test('B1: an unreadable pointer, or one for another arch, is refused', async () 
   assert.deepEqual(other.urls, [`${BASE}/latest-win.json`], 'nothing past the pointer');
 });
 
-test('B1: a version that is not newer than the installed one is refused', async () => {
+test('B1: a version that is not newer than the installed one is refused', T, async () => {
   const zip = bundleZip({ version: INSTALLED });
   const s = site(zip, { pointer: pointerBody(zip, { version: INSTALLED }) });
   await refusedWith(freshCase(), s, /this Kosmos is 0\.6\.55 and the site offers 0\.6\.55, so there is nothing newer/);
   assert.equal(s.urls.length, 1);
 });
 
-test('B1: a pointer that moved since the offer the person accepted is refused', async () => {
+test('B1: a pointer that moved since the offer the person accepted is refused', T, async () => {
   const s = site(bundleZip());
   await refusedWith(freshCase(), s, /now offers 0\.6\.60, not the 0\.6\.58 that was on offer/, { expectVersion: '0.6.58' });
   assert.equal(s.urls.length, 1);
@@ -246,7 +335,7 @@ test('B1: a pointer that moved since the offer the person accepted is refused', 
 
 /* ─── B2 ──────────────────────────────────────────────────────────────────────────────────── */
 
-test('B2: a sidecar that disagrees with the pointer is refused before the zip is fetched', async () => {
+test('B2: a sidecar that disagrees with the pointer is refused before the zip is fetched', T, async () => {
   const c = freshCase();
   const zip = bundleZip();
   const s = site(zip, { sidecar: `${'ab'.repeat(32)}  ${zipName(NEXT)}\n` });
@@ -255,7 +344,7 @@ test('B2: a sidecar that disagrees with the pointer is refused before the zip is
   assertCleanedUp(c, /disagree/);
 });
 
-test('B2: a download that does not hash to the published sha is refused, and the part file removed', async () => {
+test('B2: a download that does not hash to the published sha is refused, and the part file removed', T, async () => {
   const c = freshCase();
   const zip = bundleZip();
   const s = site(zip, { pointer: pointerBody(zip, { sha256: 'cd'.repeat(32) }) });
@@ -264,13 +353,13 @@ test('B2: a download that does not hash to the published sha is refused, and the
   assertCleanedUp(c, /does not match/);
 });
 
-test('B2: a sidecar that names a different file is refused', async () => {
+test('B2: a sidecar that names a different file is refused', T, async () => {
   const zip = bundleZip();
   await refusedWith(freshCase(), site(zip, { sidecar: `${sha256(zip)}  kosmos-0.6.1-win-x64.zip\n` }), /names kosmos-0\.6\.1-win-x64\.zip, not kosmos-0\.6\.60-win-x64\.zip/);
   await refusedWith(freshCase(), site(zip, { sidecar: 'not a checksum' }), /could not be read/);
 });
 
-test('B2: a truncated download is refused, with or without a Content-Length', async () => {
+test('B2: a truncated download is refused, with or without a Content-Length', T, async () => {
   const zip = bundleZip();
   const c1 = freshCase();
   await refusedWith(c1, site(zip, { zipResponse: (z) => new Response(z.subarray(0, z.length - 100), { headers: { 'content-length': String(z.length) } }) }),
@@ -284,7 +373,17 @@ test('B2: a truncated download is refused, with or without a Content-Length', as
   assertCleanedUp(c3, /interrupted/);
 });
 
-test('B2: the size cap, announced by Content-Length or discovered while streaming', async () => {
+test('B2: more bytes than the Content-Length announced is refused, and not called stopping early', T, async () => {
+  const c = freshCase();
+  const zip = bundleZip();
+  const longer = Buffer.concat([zip, Buffer.from('trailing bytes')]);
+  const r = await refusedWith(c, site(zip, { zipResponse: () => new Response(longer, { headers: { 'content-length': String(zip.length) } }) }),
+    new RegExp(`sent ${longer.length} bytes after announcing ${zip.length}`));
+  assert.doesNotMatch(r.because, /stopped early/);
+  assertCleanedUp(c, /after announcing/);
+});
+
+test('B2: the size cap, announced by Content-Length or discovered while streaming', T, async () => {
   const zip = bundleZip();
   const limits = { maxDownloadBytes: 1000 };
   /* Announced: refused from the header, in the header's own words (it names the size), before
@@ -296,13 +395,13 @@ test('B2: the size cap, announced by Content-Length or discovered while streamin
     start(ctl) { for (let at = 0; at < z.length; at += 400) ctl.enqueue(z.subarray(at, at + 400)); ctl.close(); },
   }));
   const c2 = freshCase();
-  await refusedWith(c2, site(zip, { zipResponse: chunked }), /larger than the 1000 bytes/, { limits });
+  await refusedWith(c2, site(zip, { zipResponse: chunked }), /the update is larger than the 1000 bytes/, { limits });
   assertCleanedUp(c2, /larger than/);
   /* The control: the same chunked stream under the real cap stages fine. */
   assert.equal((await win32update.prepare(prepareOpts(freshCase(), site(zip, { zipResponse: chunked })))).ok, true);
 });
 
-test('B2: the time cap ends a download that stops sending, even when the transport ignores the abort', async () => {
+test('B2: the time cap ends a download that stops sending, even when the transport ignores the abort', T, async () => {
   const c = freshCase();
   const stalls = (z) => new Response(new ReadableStream({
     start(ctl) { ctl.enqueue(z.subarray(0, 1000)); },
@@ -314,13 +413,13 @@ test('B2: the time cap ends a download that stops sending, even when the transpo
   assertCleanedUp(c, /took longer/);
 });
 
-test('B2: a release host that answers 404 is refused, and the log names the URL and the status', async () => {
+test('B2: a release host that answers 404 is refused, and the log names the URL and the status', T, async () => {
   const c = freshCase();
   await refusedWith(c, site(bundleZip(), { zipResponse: () => new Response('gone', { status: 404 }) }), /answered 404 for the update/);
   assert.ok(c.log.includes(`GET failed url=${BASE}/${zipName(NEXT)}?v=${NEXT} status=404`), c.log.join('\n'));
 });
 
-test('B2: too little free disk is refused before a byte is written', async () => {
+test('B2: too little free disk is refused before a byte is written', T, async () => {
   const c = freshCase();
   const zip = bundleZip();
   await refusedWith(c, site(zip), new RegExp(`needs about ${4 * zip.length} bytes free and there is 1000 bytes`), { freeBytes: () => 1000 });
@@ -329,7 +428,25 @@ test('B2: too little free disk is refused before a byte is written', async () =>
 
 /* ─── B3 ──────────────────────────────────────────────────────────────────────────────────── */
 
-test('B3: too little free disk for the unpacked tree is refused before unpacking', async () => {
+test('B3: what is unpacked is the bytes that were hashed, not whatever download.part holds afterwards', T, async () => {
+  const c = freshCase();
+  const zip = bundleZip();
+  const swapped = bundleZip({ extra: { 'evil.txt': 'arrived after the hash' } });
+  let rewritten = false;
+  const r = await win32update.prepare(prepareOpts(c, site(zip), {
+    /* "downloaded ..." is logged once the hash is done and before B3 starts: the moment for
+       something else to rewrite the file on disk, ahead of any read B3 could make. */
+    log: (line) => {
+      c.log.push(line);
+      if (line.startsWith('downloaded ')) { fs.writeFileSync(path.join(c.work, 'download.part'), swapped); rewritten = true; }
+    },
+  }));
+  assert.equal(rewritten, true, 'the control: the file really was rewritten between the hash and the unpack');
+  assert.equal(r.ok, true, r.because);
+  assert.equal(fs.existsSync(path.join(r.stagedDir, 'evil.txt')), false);
+});
+
+test('B3: too little free disk for the unpacked tree is refused before unpacking', T, async () => {
   const c = freshCase();
   let asked = 0;
   await refusedWith(c, site(bundleZip()), /the update unpacks to \d+ bytes and there is 10 bytes free/, {
@@ -338,7 +455,7 @@ test('B3: too little free disk for the unpacked tree is refused before unpacking
   assertCleanedUp(c, /unpacks to/);
 });
 
-test('B3: a stray top-level entry is refused, and nothing is left staged', async () => {
+test('B3: a stray top-level entry is refused, and nothing is left staged', T, async () => {
   const c = freshCase();
   const before = snapshot(SANDBOX, [c.work]);
   await refusedWith(c, site(bundleZip({ extra: { 'evil.txt': 'not part of a build' } })), /"evil\.txt" is not part of a Kosmos build/);
@@ -346,7 +463,7 @@ test('B3: a stray top-level entry is refused, and nothing is left staged', async
   assert.deepEqual(snapshot(SANDBOX, [c.work]), before);
 });
 
-test('B3: a zip-slip inside a correctly signed download writes nothing outside WORK', async () => {
+test('B3: a zip-slip inside a correctly signed download writes nothing outside WORK', T, async () => {
   const c = freshCase();
   const before = snapshot(SANDBOX, [c.work]);
   await refusedWith(c, site(bundleZip({ extra: { 'app/../../../escaped.txt': 'out' } })), /climbs out of its folder/);
@@ -354,17 +471,9 @@ test('B3: a zip-slip inside a correctly signed download writes nothing outside W
   assert.deepEqual(snapshot(SANDBOX, [c.work]), before, 'nothing escaped');
 });
 
-test('B3: an entry damaged inside a correctly signed download is refused, and the half-staged tree removed', async () => {
-  const c = freshCase();
-  const before = snapshot(SANDBOX, [c.work]);
-  await refusedWith(c, site(bundleZip({ entryOver: { 'bin/kosmos-cli.js': { crc: 1 } } })), /"bin\/kosmos-cli\.js" is damaged/);
-  assertCleanedUp(c, /damaged/);
-  assert.deepEqual(snapshot(SANDBOX, [c.work]), before);
-});
-
 /* ─── B4 ──────────────────────────────────────────────────────────────────────────────────── */
 
-test('B4: a manifest.json for another version, platform or arch is refused', async () => {
+test('B4: a manifest.json for another version, platform or arch is refused', T, async () => {
   const c1 = freshCase();
   await refusedWith(c1, site(bundleZip({ manifest: { version: '0.6.59' } })), /manifest\.json says "0\.6\.59", but the site published it as 0\.6\.60/);
   assertCleanedUp(c1, /manifest\.json says/);
@@ -373,20 +482,20 @@ test('B4: a manifest.json for another version, platform or arch is refused', asy
   await refusedWith(freshCase(), site(bundleZip({ omit: ['manifest.json'] })), /no readable manifest\.json/);
 });
 
-test('B4: an app whose package.json disagrees with the manifest is refused', async () => {
+test('B4: an app whose package.json disagrees with the manifest is refused', T, async () => {
   const c = freshCase();
   await refusedWith(c, site(bundleZip({ pkgVersion: '0.6.59' })), /app says it is "0\.6\.59", but the site published it as 0\.6\.60/);
   assertCleanedUp(c, /app says/);
 });
 
-test('B4: a build missing a required entry is refused', async () => {
+test('B4: a build missing a required entry is refused', T, async () => {
   const c = freshCase();
   await refusedWith(c, site(bundleZip({ omit: ['bin/kosmos.ps1'] })), /the update is missing bin\\kosmos\.ps1/);
   assertCleanedUp(c, /missing/);
   await refusedWith(freshCase(), site(bundleZip({ omit: ['runtime/node.exe'] })), /missing runtime\\node\.exe/);
 });
 
-test('B4: a staged node.exe that does not run, times out, or reports the wrong version is refused', async () => {
+test('B4: a staged node.exe that does not run, times out, or reports the wrong version is refused', T, async () => {
   const c1 = freshCase();
   await refusedWith(c1, site(bundleZip()), /did not run \(spawn UNKNOWN\)/, { runStagedNode: () => { throw new Error('spawn UNKNOWN'); } });
   assertCleanedUp(c1, /did not run/);
@@ -396,8 +505,27 @@ test('B4: a staged node.exe that does not run, times out, or reports the wrong v
   await refusedWith(freshCase(), site(bundleZip()), /did not report a version \(it printed "hello"\)/, { runStagedNode: () => 'hello' });
 });
 
-test('B4: the default runner really runs an interpreter, with a timeout', () => {
-  assert.equal(win32update.runStagedNode(process.execPath, 20000), process.version);
+test('B4: the staged interpreter runs from its own folder, with a timeout, no window, and none of the board\'s environment', T, () => {
+  const saved = { NODE_OPTIONS: process.env.NODE_OPTIONS, KOSMOS_PROBE_SECRET: process.env.KOSMOS_PROBE_SECRET };
+  process.env.NODE_OPTIONS = '--require ./this-file-does-not-exist.js';
+  process.env.KOSMOS_PROBE_SECRET = 'a credential the board happens to hold';
+  try {
+    const nodeExe = path.join(SANDBOX, 'staged-runtime', 'node.exe');
+    const launch = win32update.stagedNodeLaunch(nodeExe, 1234);
+    assert.equal(launch.file, nodeExe);
+    assert.deepEqual(launch.args, ['-p', 'process.version']);
+    assert.equal(launch.options.cwd, path.dirname(nodeExe));
+    assert.equal(launch.options.timeout, 1234);
+    assert.equal(launch.options.windowsHide, true);
+    assert.deepEqual(Object.keys(launch.options.env).filter((k) => !win32update.STAGED_NODE_ENV_KEYS.includes(k)), []);
+    assert.equal('NODE_OPTIONS' in launch.options.env, false);
+    assert.equal('KOSMOS_PROBE_SECRET' in launch.options.env, false);
+    /* And for real: with that NODE_OPTIONS in this process, a leaked environment would stop the
+       child from starting at all. */
+    assert.equal(win32update.runStagedNode(process.execPath, 20000), process.version);
+  } finally {
+    for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
 });
 
 /* ─── B0 ──────────────────────────────────────────────────────────────────────────────────── */
@@ -411,14 +539,14 @@ async function refusedBeforeStarting(c, pattern, over) {
   return r;
 }
 
-test('B0: only Windows, and only a Windows bundle', async () => {
+test('B0: only Windows, and only a Windows bundle', T, async () => {
   const c = freshCase();
   await refusedBeforeStarting(c, /this is not Windows/, { platform: 'darwin' });
   await refusedBeforeStarting(freshCase({ layout: false }), /is not a Kosmos for Windows folder/);
   assert.equal(fs.existsSync(c.work), false);
 });
 
-test('B0: the anchor must point at this folder', async () => {
+test('B0: the anchor must point at this folder', T, async () => {
   await refusedBeforeStarting(freshCase({ pointer: null }), /no record of which folder it starts from/);
   const elsewhere = path.join(SANDBOX, 'elsewhere', 'app', 'engine');
   const c = freshCase({ pointer: elsewhere });
@@ -426,12 +554,12 @@ test('B0: the anchor must point at this folder', async () => {
   assert.equal(fs.existsSync(c.work), false);
 });
 
-test('B0: never the top of a drive', async () => {
+test('B0: never the top of a drive', T, async () => {
   const c = freshCase();
   await refusedBeforeStarting(c, /is the top of a drive/, { root: path.parse(c.root).root });
 });
 
-test('B0: never inside the data, projects, workers or anchor folders', async () => {
+test('B0: never inside the data, projects, workers or anchor folders', T, async () => {
   await refusedBeforeStarting(freshCase({ root: path.join(store.ROOT, 'Kosmos') }), /inside the Kosmos data folder/);
   await refusedBeforeStarting(freshCase({ root: path.join(process.env.AGENT_WORKFORCE_PROJECTS, 'Kosmos') }), /inside the projects folder/);
   await refusedBeforeStarting(freshCase({ root: path.join(process.env.AGENT_WORKFORCE_WORKERS, 'Kosmos') }), /inside the agents' folders/);
@@ -439,7 +567,7 @@ test('B0: never inside the data, projects, workers or anchor folders', async () 
   await refusedBeforeStarting(c, /inside the folder Kosmos starts from at logon/, { root: path.join(c.anchor, 'Kosmos') });
 });
 
-test('B0: a protected folder inside one of the entries an update replaces is refused; Projects beside them is fine', async () => {
+test('B0: a protected folder inside one of the entries an update replaces is refused; Projects beside them is fine', T, async () => {
   const saved = process.env.AGENT_WORKFORCE_PROJECTS;
   const c = freshCase();
   try {
@@ -453,11 +581,39 @@ test('B0: a protected folder inside one of the entries an update replaces is ref
   }
 });
 
-test('B0: a WORK folder that is a link or a file is refused, and nothing is written through it', async () => {
+test('B0: a junction cannot hide a protected folder inside an entry, or ROOT inside a protected folder',
+  { ...T, skip: !ON_WINDOWS && 'junctions are a Windows feature' }, async () => {
+    const saved = process.env.AGENT_WORKFORCE_PROJECTS;
+    try {
+      /* J leads to ROOT\app, so J\Projects is really ROOT\app\Projects, which the swap would move. */
+      const c1 = freshCase();
+      const toApp = path.join(c1.dir, 'J');
+      fs.symlinkSync(path.join(c1.root, 'app'), toApp, 'junction');
+      fs.mkdirSync(path.join(c1.root, 'app', 'Projects'));
+      process.env.AGENT_WORKFORCE_PROJECTS = path.join(toApp, 'Projects');
+      await refusedBeforeStarting(c1, /the projects folder .* is inside .*app, which an update replaces/);
+      /* The same through a junction to a projects folder that does not exist yet. */
+      process.env.AGENT_WORKFORCE_PROJECTS = path.join(toApp, 'NotYet', 'Projects');
+      await refusedBeforeStarting(c1, /is inside .*app, which an update replaces/);
+      /* J leads to the folder holding ROOT, so the projects folder really contains ROOT. */
+      const c2 = freshCase();
+      const toCase = path.join(SANDBOX, 'J2-' + caseCount);
+      fs.symlinkSync(c2.dir, toCase, 'junction');
+      process.env.AGENT_WORKFORCE_PROJECTS = toCase;
+      await refusedBeforeStarting(c2, /is inside the projects folder/);
+      /* The control: the same projects folder, reached without a junction, beside ROOT, is fine. */
+      process.env.AGENT_WORKFORCE_PROJECTS = path.join(c2.root, 'Projects');
+      assert.equal((await win32update.prepare(prepareOpts(c2, site(bundleZip())))).ok, true);
+    } finally {
+      process.env.AGENT_WORKFORCE_PROJECTS = saved;
+    }
+  });
+
+test('B0: a WORK folder that is a link or a file is refused, and nothing is written through it', T, async () => {
   const c1 = freshCase();
   const outside = path.join(c1.dir, 'outside');
   fs.mkdirSync(outside);
-  fs.symlinkSync(outside, c1.work, process.platform === 'win32' ? 'junction' : 'dir');
+  fs.symlinkSync(outside, c1.work, ON_WINDOWS ? 'junction' : 'dir');
   await refusedBeforeStarting(c1, /is a link to somewhere else/);
   assert.deepEqual(fs.readdirSync(outside), []);
   const c2 = freshCase();
@@ -465,7 +621,7 @@ test('B0: a WORK folder that is a link or a file is refused, and nothing is writ
   await refusedBeforeStarting(c2, /is a file, not a folder/);
 });
 
-test('B0: a second prepare while one is in flight is refused', async () => {
+test('B0: a second prepare while one is in flight is refused', T, async () => {
   const c = freshCase();
   let release;
   const gate = new Promise((resolve) => { release = resolve; });
@@ -473,35 +629,23 @@ test('B0: a second prepare while one is in flight is refused', async () => {
     { headers: { 'content-length': String(z.length) } });
   const s = site(bundleZip(), { zipResponse: held });
   const first = win32update.prepare(prepareOpts(c, s));
-  while (!s.urls.some((u) => u.includes('.zip?v='))) await new Promise((r) => setTimeout(r, 5));
-  await refusedBeforeStarting(freshCase(), /an update is already being prepared/);
-  release();
+  try {
+    /* Bounded, so a first prepare that fails before its download cannot leave this polling
+       forever after the test's own timeout (which would keep the whole file from exiting). */
+    const giveUpAt = Date.now() + 5000;
+    while (!s.urls.some((u) => u.includes('.zip?v='))) {
+      if (Date.now() > giveUpAt) assert.fail('the first prepare never reached its download: ' + JSON.stringify(await Promise.race([first, 'still pending'])));
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    await refusedBeforeStarting(freshCase(), /an update is already being prepared/);
+  } finally {
+    release();
+  }
   assert.equal((await first).ok, true, 'the first one finishes');
   assert.equal((await win32update.prepare(prepareOpts(freshCase(), site(bundleZip())))).ok, true, 'and the flag is released after it');
 });
 
-test('B0: a lock held by a live process refuses; a dead or stale one is cleared', async () => {
-  const c1 = freshCase();
-  fs.mkdirSync(c1.work);
-  fs.writeFileSync(path.join(c1.work, 'prepare.lock'), JSON.stringify({ pid: process.pid, at: Date.now() }));
-  await refusedWith(c1, null, new RegExp(`another update is already being prepared \\(process ${process.pid}\\)`));
-  assert.deepEqual(workHolds(c1), ['prepare.lock'], "another prepare's lock is not ours to clear, and no status is written over its work");
-
-  const gone = cp.spawnSync(process.execPath, ['-e', '']).pid;
-  const c2 = freshCase();
-  fs.mkdirSync(c2.work);
-  fs.writeFileSync(path.join(c2.work, 'prepare.lock'), JSON.stringify({ pid: gone, at: Date.now() }));
-  assert.equal((await win32update.prepare(prepareOpts(c2, site(bundleZip())))).ok, true);
-  assert.ok(c2.log.some((l) => /clearing a stale prepare lock .*no longer running/.test(l)));
-
-  const c3 = freshCase();
-  fs.mkdirSync(c3.work);
-  fs.writeFileSync(path.join(c3.work, 'prepare.lock'), JSON.stringify({ pid: process.pid, at: Date.now() - 3 * 60 * 60 * 1000 }));
-  assert.equal((await win32update.prepare(prepareOpts(c3, site(bundleZip())))).ok, true);
-  assert.ok(c3.log.some((l) => /clearing a stale prepare lock .*too old/.test(l)));
-});
-
-test('B0: leftovers of an earlier attempt are cleared before a new one', async () => {
+test('B0: leftovers of an earlier attempt are cleared before a new one', T, async () => {
   const c = freshCase();
   fs.mkdirSync(path.join(c.work, 'staged', 'app'), { recursive: true });
   fs.writeFileSync(path.join(c.work, 'staged', 'app', 'old.js'), 'from last time');
@@ -511,9 +655,91 @@ test('B0: leftovers of an earlier attempt are cleared before a new one', async (
   assert.equal(fs.existsSync(path.join(r.stagedDir, 'app', 'old.js')), false);
 });
 
+/* ─── the lock ────────────────────────────────────────────────────────────────────────────── */
+
+function lockDir() { const d = fs.mkdtempSync(path.join(SANDBOX, 'lock-')); return { d, lock: path.join(d, 'prepare.lock') }; }
+const deadPid = () => cp.spawnSync(process.execPath, ['-e', '']).pid;
+
+test('the lock: one held by a live process refuses; a dead or too-old one is cleared', T, async () => {
+  const c1 = freshCase();
+  fs.mkdirSync(c1.work);
+  fs.writeFileSync(path.join(c1.work, 'prepare.lock'), JSON.stringify({ pid: process.pid, at: Date.now() }));
+  await refusedWith(c1, null, new RegExp(`another update is already being prepared \\(process ${process.pid}\\)`));
+  assert.deepEqual(workHolds(c1), ['prepare.lock'], "another prepare's lock is not ours to clear, and no status is written over its work");
+
+  const c2 = freshCase();
+  fs.mkdirSync(c2.work);
+  fs.writeFileSync(path.join(c2.work, 'prepare.lock'), JSON.stringify({ pid: deadPid(), at: Date.now() }));
+  assert.equal((await win32update.prepare(prepareOpts(c2, site(bundleZip())))).ok, true);
+  assert.ok(c2.log.some((l) => /cleared a stale prepare lock \(process \d+, no longer running\)/.test(l)), c2.log.join('\n'));
+
+  const c3 = freshCase();
+  fs.mkdirSync(c3.work);
+  fs.writeFileSync(path.join(c3.work, 'prepare.lock'), JSON.stringify({ pid: process.pid, at: Date.now() - 3 * 60 * 60 * 1000 }));
+  assert.equal((await win32update.prepare(prepareOpts(c3, site(bundleZip())))).ok, true);
+  assert.ok(c3.log.some((l) => /cleared a stale prepare lock .*too old/.test(l)));
+});
+
+test('the lock: an empty lock that was only just written is held; an old empty one is cleared', T, () => {
+  const { lock } = lockDir();
+  fs.writeFileSync(lock, '');
+  assert.throws(() => win32update.takeLock(lock, () => {}), /already being prepared \(its lock is unreadable, and only just written\)/);
+  assert.equal(fs.readFileSync(lock, 'utf8'), '', 'left exactly as it was');
+  const longAgo = new Date(Date.now() - 60 * 1000);
+  fs.utimesSync(lock, longAgo, longAgo);
+  const text = win32update.takeLock(lock, () => {});
+  assert.equal(JSON.parse(fs.readFileSync(lock, 'utf8')).pid, process.pid);
+  assert.equal(fs.readFileSync(lock, 'utf8'), text);
+});
+
+test('the lock is published whole: its name only ever appears as a link to a finished file', T, async () => {
+  const { d, lock } = lockDir();
+  const opened = [];
+  const realOpen = fs.openSync;
+  const realWrite = fs.writeFileSync;
+  fs.openSync = function spy(p, ...rest) { opened.push(path.resolve(String(p))); return realOpen.call(this, p, ...rest); };
+  fs.writeFileSync = function spy(p, ...rest) { if (typeof p !== 'number') opened.push(path.resolve(String(p))); return realWrite.call(this, p, ...rest); };
+  try { win32update.takeLock(lock, () => {}); } finally { fs.openSync = realOpen; fs.writeFileSync = realWrite; }
+  assert.ok(opened.length > 0, 'the control: the draft was written');
+  assert.equal(opened.includes(path.resolve(lock)), false, 'the lock name was opened for writing, so a reader could see it empty');
+  assert.deepEqual(fs.readdirSync(d), ['prepare.lock'], 'and the draft is gone');
+});
+
+test('the lock: a stale lock replaced by a live one between the look and the clear is put back, not deleted', T, () => {
+  const { d, lock } = lockDir();
+  fs.writeFileSync(lock, JSON.stringify({ pid: deadPid(), at: Date.now() }));
+  const live = JSON.stringify({ pid: process.pid, at: Date.now(), token: 'the other clearer' });
+  assert.throws(() => win32update.takeLock(lock, () => {}, {
+    /* Another prepare cleared the same stale lock and took the name first. */
+    beforeClear: () => { fs.rmSync(lock); fs.writeFileSync(lock, live); },
+  }), new RegExp(`already being prepared \\(process ${process.pid}\\)`));
+  assert.equal(fs.readFileSync(lock, 'utf8'), live, "the other prepare's lock is still in place");
+  assert.deepEqual(fs.readdirSync(d), ['prepare.lock'], 'nothing of this attempt is left behind');
+});
+
+test('the lock: prepares racing to clear one stale lock, in separate processes, leave exactly one holder', { timeout: 30000 }, async () => {
+  const { d, lock } = lockDir();
+  fs.writeFileSync(lock, JSON.stringify({ pid: deadPid(), at: Date.now() }));
+  const script = [
+    `const w = require(${JSON.stringify(path.join(__dirname, 'win32update.js'))});`,
+    `try { w.takeLock(${JSON.stringify(lock)}, () => {}); process.stdout.write('won'); setTimeout(() => {}, 3000); }`,
+    "catch (e) { process.stdout.write('refused: ' + e.message); }",
+  ].join('\n');
+  const racers = Array.from({ length: 4 }, () => new Promise((resolve) => {
+    const child = cp.spawn(process.execPath, ['-e', script], { env: process.env });
+    let out = '';
+    child.stdout.on('data', (b) => { out += b; });
+    child.on('exit', () => resolve(out));
+  }));
+  const outcomes = await Promise.all(racers);
+  assert.equal(outcomes.filter((o) => o === 'won').length, 1, outcomes.join('\n'));
+  assert.ok(outcomes.filter((o) => o !== 'won').every((o) => /^refused: another update is already being prepared/.test(o)), outcomes.join('\n'));
+  assert.deepEqual(fs.readdirSync(d), ['prepare.lock']);
+});
+
 /* ─── live execution (convention 3) ───────────────────────────────────────────────────────── */
 
-test('live execution: in a test process with no seam, prepare throws before touching anything', async () => {
+test('live execution: in a test process with no seam, prepare throws before touching anything', T, async () => {
   const c = freshCase();
   const s = site(bundleZip());
   const o = prepareOpts(c, s);
@@ -523,7 +749,7 @@ test('live execution: in a test process with no seam, prepare throws before touc
   assert.equal(fs.existsSync(c.work), false);
 });
 
-test('live execution: in a production process that never armed it, prepare warns and refuses', () => {
+test('live execution: in a production process that never armed it, prepare warns and refuses', T, () => {
   const c = freshCase();
   const script = [
     `const w = require(${JSON.stringify(path.join(__dirname, 'win32update.js'))});`,
@@ -541,16 +767,18 @@ test('live execution: in a production process that never armed it, prepare warns
 
 /* ─── the live-check CLI ──────────────────────────────────────────────────────────────────── */
 
-test('the CLI is a dry run without --yes, and requiring the module does nothing', () => {
+const CLI = path.join(__dirname, 'win32update.js');
+
+test('the CLI is a dry run without --yes, and requiring the module does nothing', T, () => {
   const c = freshCase();
-  const cli = path.join(__dirname, 'win32update.js');
-  const dry = cp.spawnSync(process.execPath, [cli, '--prepare', '--root', c.root, '--base', BASE], { encoding: 'utf8' });
+  const dry = cp.spawnSync(process.execPath, [CLI, '--prepare', '--root', c.root, '--base', BASE], { encoding: 'utf8' });
   assert.equal(dry.status, 2, dry.stderr);
   const said = JSON.parse(dry.stdout);
   assert.equal(said.dryRun, true);
   assert.equal(said.writesUnder, c.work);
+  assert.equal(said.world, 'default');
   assert.equal(fs.existsSync(c.work), false);
-  const usage = cp.spawnSync(process.execPath, [cli, '--prepare'], { encoding: 'utf8' });
+  const usage = cp.spawnSync(process.execPath, [CLI, '--prepare'], { encoding: 'utf8' });
   assert.equal(usage.status, 64);
   assert.match(usage.stdout, /^usage: node engine\/win32update\.js --prepare --root <folder>/);
 });
@@ -559,7 +787,7 @@ test('the CLI is a dry run without --yes, and requiring the module does nothing'
 
 const BUILD_SCRIPT = fs.readFileSync(path.join(REPO, 'tools', 'build-kosmos-windows.sh'), 'utf8');
 
-test('REQUIRED_ENTRIES is the build script\'s own list of what its zip must contain', () => {
+test('REQUIRED_ENTRIES is the build script\'s own list of what its zip must contain', T, () => {
   const loop = /for want in (.+?); do/.exec(BUILD_SCRIPT);
   assert.ok(loop, 'the build script no longer checks its zip with a `for want in` list');
   const wants = [...loop[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
@@ -568,7 +796,7 @@ test('REQUIRED_ENTRIES is the build script\'s own list of what its zip must cont
   assert.deepEqual([...win32update.REQUIRED_ENTRIES].sort(), [...wants, 'bin/kosmos'].sort());
 });
 
-test('ENTRIES is every top-level name the build script stages, so the swap can never miss one', () => {
+test('ENTRIES is every top-level name the build script stages, so the swap can never miss one', T, () => {
   /* Commands only: the script's comments quote `$STAGE/...` paths in prose. */
   const commands = BUILD_SCRIPT.split('\n').filter((line) => !/^\s*#/.test(line)).join('\n');
   const staged = new Set([...commands.matchAll(/"\$STAGE\/([^"/\n]+)/g)].map((m) => m[1]));
@@ -580,11 +808,26 @@ test('ENTRIES is every top-level name the build script stages, so the swap can n
   assert.ok(!win32update.ENTRIES.includes('Projects'), "the person's projects are never an entry");
 });
 
+test('no name the build stages looks like a Windows short name, so refusing them costs a real build nothing', T, () => {
+  const names = [...win32update.REQUIRED_ENTRIES];
+  for (const dir of ['engine', 'web', 'bin', path.join('tools', 'windows')]) {
+    (function walk(d) {
+      for (const e of fs.readdirSync(path.join(REPO, d), { withFileTypes: true })) {
+        const rel = path.join(d, e.name);
+        names.push(rel);
+        if (e.isDirectory()) walk(rel);
+      }
+    })(dir);
+  }
+  assert.ok(names.length > 100, 'the control: the staged sources were listed');
+  assert.deepEqual(names.filter((n) => /~\d/.test(n)), []);
+});
+
 /* ─── a real build ────────────────────────────────────────────────────────────────────────── */
 
 const SAMPLE = process.env.KOSMOS_WIN_ZIP_SAMPLE;
 test('a real Kosmos build stages end to end under the real caps, and its real node.exe runs',
-  { skip: !SAMPLE && 'set KOSMOS_WIN_ZIP_SAMPLE to a real kosmos-win-x64.zip to run this' }, async () => {
+  { timeout: 120000, skip: !SAMPLE && 'set KOSMOS_WIN_ZIP_SAMPLE to a real kosmos-win-x64.zip to run this' }, async () => {
     const zip = fs.readFileSync(SAMPLE);
     const L = win32update.DEFAULT_LIMITS;
     const entries = win32zip.readZipDirectory(zip, {
@@ -599,7 +842,7 @@ test('a real Kosmos build stages end to end under the real caps, and its real no
     fs.writeFileSync(path.join(c.root, 'app', 'package.json'), JSON.stringify({ version: '0.0.1' }));
     /* The real free-disk reading, and on Windows the real runner over the real staged node.exe. */
     const opts = prepareOpts(c, site(zip, { pointer: pointerBody(zip, { version }) }), { freeBytes: undefined });
-    if (process.platform === 'win32') delete opts.runStagedNode;
+    if (ON_WINDOWS) delete opts.runStagedNode;
     const r = await win32update.prepare(opts);
     assert.equal(r.ok, true, r.because);
     assert.equal(r.version, version);
@@ -607,3 +850,36 @@ test('a real Kosmos build stages end to end under the real caps, and its real no
     assert.equal(fs.statSync(path.join(r.stagedDir, 'runtime', 'node.exe')).size,
       entries.find((e) => e.name === 'runtime/node.exe').uncompressedSize);
   });
+
+/* ─── the world in the expected identity (these run last: the second boots a world) ───────── */
+
+test('the world: without one given, the registry\'s active world, in prepare and in the CLI', T, async () => {
+  const base = worlds.baseRoot(process.env);
+  worlds.createWorld(base, 'Studio');
+  const named = worlds.listWorlds(base).find((w) => w.id !== worlds.DEFAULT_ID).id;
+  worlds.setActiveWorld(base, named);
+  try {
+    assert.equal(win32update.resolveWorld(null), named);
+    assert.equal(win32update.resolveWorld('explicit'), 'explicit', 'an explicit world wins');
+    const c = freshCase();
+    const r = await win32update.prepare(prepareOpts(c, site(bundleZip()), { world: undefined }));
+    assert.equal(r.expectedIdentity, `${NEXT}+${SOURCE_SHA.slice(0, 12)}@${named}`);
+    const dry = cp.spawnSync(process.execPath, [CLI, '--prepare', '--root', c.root], { encoding: 'utf8' });
+    assert.equal(JSON.parse(dry.stdout).world, named, 'the CLI takes the registry\'s world, not "default"');
+  } finally {
+    worlds.setActiveWorld(base, worlds.DEFAULT_ID);
+  }
+  assert.equal(win32update.resolveWorld(null), worlds.DEFAULT_ID, 'the control: the default world again');
+});
+
+test('the world: inside a board, the world that board booted into wins over the registry', T, async () => {
+  const base = worlds.baseRoot(process.env);
+  const named = worlds.listWorlds(base).find((w) => w.id !== worlds.DEFAULT_ID).id;
+  worlds.setActiveWorld(base, named);
+  /* Boot the way server.js does, on a copy of the environment so this process keeps its own. */
+  require('./worldenv').bootstrapWorldEnv({ ...process.env });
+  worlds.setActiveWorld(base, worlds.DEFAULT_ID);
+  assert.equal(win32update.resolveWorld(null), named, 'the booted world, although the registry now says default');
+  const r = await win32update.prepare(prepareOpts(freshCase(), site(bundleZip()), { world: undefined }));
+  assert.equal(r.expectedIdentity, `${NEXT}+${SOURCE_SHA.slice(0, 12)}@${named}`);
+});
