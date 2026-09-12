@@ -48,6 +48,7 @@ const create = require('./engine/create');
 const subscription = require('./engine/subscription');
 const openai = require('./engine/openaiaccounts');
 const observed = require('./engine/observed');
+const codexsigninlive = require('./engine/codexsigninlive');
 
 // --- Claude side: one default account + its agent (for the cross-provider isolation test).
 fs.writeFileSync(nodePath.join(HOME, '.claude.json'),
@@ -92,7 +93,15 @@ test.after(() => {
   openai.setFetcher(null);
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
-test.beforeEach(() => observed._clearForTest());
+test.beforeEach(() => {
+  observed._clearForTest();
+  // #1921: the render path reads codexsigninlive's CACHE (livenessCached), never a live handshake.
+  // Reset it so the chatgpt row resolves UNKNOWN (cold miss -> grey) deterministically, independent
+  // of anything a prior test or a warmer left in the cache. This is what un-flaked the CONTROL /
+  // GREY-PRESERVED tests: before the render swap they awaited a real doctor handshake on a fake
+  // token (dead), and the 20s timeout made them race.
+  codexsigninlive.resetForTest();
+});
 
 async function rows() {
   const res = await fetch(base + '/api/accounts');

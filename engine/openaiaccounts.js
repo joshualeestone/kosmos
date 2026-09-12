@@ -1141,7 +1141,7 @@ async function askModels(key) {
  *
  * @returns {Promise<{state: string, plan: null, because: string, checkedLive: true}>}
  */
-async function checkLive(dir) {
+async function checkLive(dir, opts = {}) {
   const STATE = subscription.STATE;
   const got = readAuthFile(dir);
   /* ⚠️ ABSENT AND UNREADABLE ARE TWO DIFFERENT FACTS. No file at all is a
@@ -1219,12 +1219,19 @@ async function checkLive(dir) {
        (~20s) where it used to return UNKNOWN instantly. Bounded: a HEALTHY sign-in handshakes in
        under a second (only a DEAD/slow one waits out the timeout, and there the caller is about to
        learn it is broken), it is cached per home for one TTL, and codexauthprobe already warms the
-       cache off the request path for any account with a running agent. The board's 5s tick never
-       reaches here (only listLive/HTTP and codexauthprobe's async probe do). One aligned
+       cache off the request path for any account with a running agent. One aligned
        consequence to know: create.accountConnectable (#1903) now gets a REAL verdict for a sign-in
        instead of a fail-open UNKNOWN, so creating an agent on a confirmed-dead sign-in can now be
-       refused rather than silently bound -- which is exactly the silent-binding this card is about. */
-    const live = await codexsigninlive.liveness(dir);
+       refused rather than silently bound -- which is exactly the silent-binding this card is about.
+       🔑 #1921 RENDER SPLIT: the HTTP/badge render path (listLive) passes { cached:true } and reads
+       the NON-BLOCKING cached verdict (codexsigninlive.livenessCached -- grey on a cold miss),
+       so an /api/accounts render NEVER waits on codex doctor. The awaited fresh handshake is kept
+       only for the callers that must have a real verdict now: codexauthprobe (which WARMS the cache
+       off the request path) and create.accountConnectable. So the board's 5s tick and every HTTP
+       render stay off the handshake; only the warmer and the connectable pre-flight reach it. */
+    const live = opts.cached
+      ? codexsigninlive.livenessCached(dir).verdict
+      : await codexsigninlive.liveness(dir);
     if (live === 'live') {
       return { state: STATE.CONNECTED, plan: null, checkedLive: true, reauthRequired: false, because: 'the OpenAI sign-in reached ChatGPT, so it is working' };
     }
@@ -1656,7 +1663,9 @@ async function listLiveNow() {
       // never rejects by contract) -- the same self-reference #881's
       // accounts.js/subscription.js pair relies on, applied within one file
       // since this module has no separate consumer to require it through.
-      return { ...row, connection: await module.exports.checkLive(row.dir) };
+      // #1921: the render sweep reads the NON-BLOCKING cached liveness (grey on a cold miss);
+      // codexauthprobe warms the cache off the request path. An HTTP render never awaits a handshake.
+      return { ...row, connection: await module.exports.checkLive(row.dir, { cached: true }) };
     } catch {
       return {
         ...row,
