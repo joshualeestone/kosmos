@@ -19275,10 +19275,10 @@ async function worldRenameSubmit() {
     go.disabled = false;
   }
 }
-// #2935 hide-a-Kosmos: a deliberate two-step confirm inside the settings modal. Step 1 is the
-// danger button; clicking it reveals the confirm row (files-stay-accessible copy + Cancel/Hide).
-// The POST mirrors the rename submit above, including surfacing the route's `because` text so an
-// active-world refusal (409 EACTIVE: switch away first) reads clearly.
+// #2935 hide-a-Kosmos: a deliberate two-step confirm inside the settings modal. Step 1 is a plain
+// button that reveals the confirm row (files-stay-accessible copy + Cancel/Hide); the step-2 "Hide"
+// is the danger-styled commit. The POST mirrors the rename submit above, including surfacing the
+// route's `because` text so an active-world refusal (409 EACTIVE: switch away first) reads clearly.
 function worldHideReveal() {
   document.getElementById('world-hide-step1').hidden = true;
   document.getElementById('world-hide-confirm').hidden = false;
