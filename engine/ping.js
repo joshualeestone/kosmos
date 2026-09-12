@@ -19,11 +19,14 @@
  * ⚠️ `installId` IS RANDOM, never derived from anything about the machine. A hash
  * of a hostname or a MAC address would be a fingerprint that identifies the
  * computer across reinstalls and across products. Random means it identifies an
- * INSTALL and nothing else. It is stored locally and read only by features the
- * person opted into or that stay on the Mac:
- *   engine/feedback.js, engine/feedbacksend.js   the opt-in SendFeedback path
- *   engine/store.js                              local pointer de-duplication
- * None of those send it anywhere the person did not ask for.
+ * INSTALL and nothing else. It is stored locally. It stays on the Mac EXCEPT for
+ * the daily product-feedback report, which is DEFAULT-ON (opt-out, #2013/#2957) and
+ * sends installId to installkosmos.com until the person opts out:
+ *   engine/feedback.js, engine/feedbacksend.js   the SendFeedback path -- DEFAULT-ON / opt-out
+ *   engine/store.js                              local pointer de-duplication -- never leaves the Mac
+ * So installId leaves the Mac BY DEFAULT via the feedback report; opting out in
+ * Settings > Automation stops it. The store use never leaves the Mac. (This block
+ * used to call the feedback path "opt-in", which was wrong: it is default-on. #2957.)
  */
 
 const fs = require('node:fs');
