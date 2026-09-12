@@ -456,14 +456,36 @@ He confirmed this shape:
     `projects.removeBlock` now takes it out of the copy. The source is untouched,
     and the target's project sync writes the section again when the copy joins a
     project there.
-  - [BUG 2] A dangling `reportsTo`.
-    - After the pick loop, `settleManagers` keeps `reportsTo` only when the
-      manager is copied in the SAME request.
-    - Otherwise it sets `reportsTo: null` and re-splices the copy's reports section
-      from `reports.blockBody`, which then names the person.
-    - A same-name agent already in the target is treated as a stranger and not
-      kept: nothing on disk tells it apart from a different agent that shares
-      the name.
+  - [BUG 2] A dangling `reportsTo`, resolved EXACTLY by provenance.
+    - The first fix kept a manager only when it came along in the same request.
+      That lost the common case (the coordinator's follow-up): Mara imported
+      yesterday, Rook, who reports to Mara, today. A bare name cannot tell that
+      Mara apart from a different agent that merely shares the name, so the fix
+      is to record where each copy came from.
+    - Every copy's profile carries `importedFrom: {kosmos: <source world id>, id:
+      <the source profile's own id>}` (`store.IMPORTED_FROM_KEY`). The source's
+      `id` is the stable identity, and the copy still mints its own fresh `id`.
+      It is its own field, not adopt.js's flat `origin` tag, which names how an
+      agent came to be (created or adopted) and is left as copied. No existing
+      profile shape records which agent in which Kosmos. (`createdBy`/`purpose`
+      are on the birth record, not the profile.)
+    - `worldimport.resolveManagers`, the ONE decision, is reached by both the create
+      route and the settings route through `importAgents`. It reads the manager's
+      source profile `id`, then:
+      - (a) the manager was copied in this same request, from the same Kosmos:
+        kept. When the manager's source profile has an `id`, (b) would find it
+        too, and the first revert control of (a) stayed green for that reason.
+        (a) is what keeps a manager whose profile was written without the store
+        and so has no `id` to match by; a test now pins exactly that case;
+      - (b) the target already holds a copy whose `importedFrom` matches {that
+        Kosmos, that id} and which is not removed there: pointed at that copy;
+      - (c) otherwise `reportsTo: null`, with the reports section re-spliced from
+        `reports.blockBody` so it names the person. A same-name agent with no
+        matching provenance stays a stranger.
+    - Other readers checked: only `adopt.plan` reads `origin` (untouched). Nothing
+      walks a profile's keys generically. Cards carry the profile whole
+      (`status.js`), and the golden-card fixture scrubs `profile` free-form, so
+      neither inventory changes.
   - [BUG 3] A failed rollback was silent and then blocked the name. Each failed
     removal is now logged with its path and code. A folder with no agent behind it
     is refused as exactly that, with its path.

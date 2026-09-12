@@ -442,6 +442,17 @@ function readProfile(name) {
    two that can disagree. */
 const IDENTITY_KEYS = ['id', 'idInstall'];
 
+/* #1704 PR4 (review round 3): where a copied agent came from, as
+   `{ kosmos: <source world id>, id: <the source profile's own id> }`. The source's
+   `id` is the stable identity (it survives renames); the copy mints its own fresh
+   `id` like any agent, so this is the ONLY link back. It is not an identity field --
+   stripIdentity leaves it -- and each import writes it afresh, so a copy of a copy
+   points at the Kosmos it was last copied from. Its own key rather than adopt.js's
+   flat `origin` tag: `origin` names HOW an agent came to be (created / adopted),
+   this names WHICH agent in WHICH Kosmos, and an import leaves `origin` as copied.
+   Read by worldimport to keep a manager that was imported earlier. */
+const IMPORTED_FROM_KEY = 'importedFrom';
+
 /* Remove the identity fields from a profile object IN PLACE, so the next writeProfile
    MINTS a fresh id instead of carrying an old one over -- the decided restore
    convention (a restored/copied agent is a separate agent, see writeProfile below).
@@ -545,7 +556,7 @@ function writeSettings(patch) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarPathIn, avatarVersion, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName };
+module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarPathIn, avatarVersion, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers

@@ -79,7 +79,7 @@ test('a complete copy: profile (fresh identity), avatar and brief land in the ta
   assert.deepEqual(r.copied, [{ from: 'default', name: 'ava', displayName: 'Ava' }]);
 
   const copy = readJson(nodePath.join(worlds.worldProfilesDir(base, dst), 'ava.json'));
-  assert.deepEqual(copy, { displayName: 'Ava', role: 'Analyst', provider: 'claude', doctrineVersion: 3 },
+  assert.deepEqual(copy, { displayName: 'Ava', role: 'Analyst', provider: 'claude', doctrineVersion: 3, importedFrom: { kosmos: 'default', id: 'deadbeef0001' } },
     'the copy keeps everything a person set, and carries no identity: it mints its own on its first write');
   const folder = nodePath.join(worlds.worldWorkersDir(base, dst, env), 'ava');
   assert.ok(folder.startsWith(worlds.worldBaseDir(base, dst)), 'the copy works in a folder of its own, inside the target Kosmos');
@@ -497,8 +497,8 @@ test('R3 (2): a manager that comes along keeps the line; one that does not is cl
   const reports = require('./reports');
   const { base, env, opts, def } = setup();
   const briefFor = (name) => projects.spliceBlock(`# ${name}\n`, reports.blockBody({ reportsTo: 'boss' }), reports.START, reports.END);
-  seedAgent(base, env, def, 'boss', { profile: { displayName: 'Boss' } });
-  seedAgent(base, env, def, 'ann', { profile: { displayName: 'Ann', reportsTo: 'boss' }, brief: briefFor('ann') });
+  seedAgent(base, env, def, 'boss', { profile: { displayName: 'Boss', id: 'b0551d000001', idInstall: 'inst-1' } });
+  seedAgent(base, env, def, 'ann', { profile: { displayName: 'Ann', reportsTo: 'boss', id: 'a00a00000001', idInstall: 'inst-1' }, brief: briefFor('ann') });
   const readCopy = (w, n) => readJson(nodePath.join(worlds.worldProfilesDir(base, w), n + '.json'));
   const escalatesToBoss = (text) => /You report to \*\*[Bb]oss\*\*/.test(text);
 
@@ -525,6 +525,66 @@ test('R3 (2): a manager that comes along keeps the line; one that does not is cl
   assert.equal(escalatesToBoss(fs.readFileSync(workerBrief(base, env, stranger, 'ann'), 'utf8')), false);
 
   assert.equal(readCopy(def, 'ann').reportsTo, 'boss', 'the source agent was changed');
+});
+
+test('R3 (2a): a manager with NO source id (never minted) that comes along in the same request keeps the line', () => {
+  const { base, env, opts, def } = setup();
+  // Profiles written without the store carry no id, so provenance cannot match them.
+  seedAgent(base, env, def, 'lead', { profile: { displayName: 'Lead' } });
+  seedAgent(base, env, def, 'kit', { profile: { displayName: 'Kit', reportsTo: 'lead' } });
+  const dst = worlds.createWorld(base, 'Dest');
+  worldimport.importAgents(base, dst.id, [{ from: 'default', name: 'lead' }, { from: 'default', name: 'kit' }], opts);
+  assert.equal(readJson(nodePath.join(worlds.worldProfilesDir(base, dst), 'lead.json')).importedFrom.id, null, 'the control: the manager has no id to match by');
+  assert.equal(readJson(nodePath.join(worlds.worldProfilesDir(base, dst), 'kit.json')).reportsTo, 'lead',
+    'a manager copied in the same request was dropped because it had no id');
+});
+
+test('R3 (2, by provenance): Mara imported yesterday, Rook today -- Rook keeps Mara; a stranger, a mismatched copy or a removed one does not count', () => {
+  const projects = require('./projects');
+  const reports = require('./reports');
+  const { base, env, opts, def } = setup();
+  const briefFor = (name) => projects.spliceBlock(`# ${name}\n`, reports.blockBody({ reportsTo: 'mara' }), reports.START, reports.END);
+  seedAgent(base, env, def, 'mara', { profile: { displayName: 'Mara', id: 'ma4a00000001', idInstall: 'inst-1' } });
+  seedAgent(base, env, def, 'rook', { profile: { displayName: 'Rook', reportsTo: 'mara', id: '400c00000001', idInstall: 'inst-1' }, brief: briefFor('rook') });
+  const profileOf = (w, n) => readJson(nodePath.join(worlds.worldProfilesDir(base, w), n + '.json'));
+  const briefOf = (w, n) => fs.readFileSync(workerBrief(base, env, w, n), 'utf8');
+  const seedProfileOnly = (w, n, profile) => {
+    fs.mkdirSync(worlds.worldProfilesDir(base, w), { recursive: true });
+    fs.writeFileSync(nodePath.join(worlds.worldProfilesDir(base, w), n + '.json'), JSON.stringify(profile));
+  };
+
+  // Provenance is recorded on the copy, by the source's own id, and not on the source.
+  const later = worlds.createWorld(base, 'Later');
+  worldimport.importAgents(base, later.id, [{ from: 'default', name: 'mara' }], opts);
+  assert.deepEqual(profileOf(later, 'mara').importedFrom, { kosmos: 'default', id: 'ma4a00000001' });
+  assert.equal('importedFrom' in profileOf(def, 'mara'), false, 'the source agent was stamped');
+  assert.equal(profileOf(later, 'mara').id, undefined, 'the copy carries the source identity instead of minting its own');
+
+  // (b) The next day: Rook alone. Mara is there AS THE SAME AGENT, so the line is kept.
+  worldimport.importAgents(base, later.id, [{ from: 'default', name: 'rook' }], opts);
+  assert.equal(profileOf(later, 'rook').reportsTo, 'mara', 'a manager imported earlier was dropped');
+  assert.equal(briefOf(later, 'rook'), briefFor('rook'), 'the line to a manager who is there was rewritten');
+
+  // (c) A same-name agent with no provenance is a stranger.
+  const stranger = worlds.createWorld(base, 'Stranger');
+  seedAgent(base, env, stranger, 'mara', { profile: { displayName: 'Another Mara' } });
+  worldimport.importAgents(base, stranger.id, [{ from: 'default', name: 'rook' }], opts);
+  assert.equal(profileOf(stranger, 'rook').reportsTo, null, 'a stranger with the same name became Rook\'s manager');
+
+  // (c) A copy whose provenance names ANOTHER agent (or another Kosmos) does not count either.
+  const mismatched = worlds.createWorld(base, 'Mismatched');
+  seedProfileOnly(mismatched, 'mara', { displayName: 'Mara', importedFrom: { kosmos: 'default', id: 'not-mara' } });
+  seedProfileOnly(mismatched, 'mara2', { displayName: 'Mara', importedFrom: { kosmos: 'elsewhere', id: 'ma4a00000001' } });
+  worldimport.importAgents(base, mismatched.id, [{ from: 'default', name: 'rook' }], opts);
+  assert.equal(profileOf(mismatched, 'rook').reportsTo, null, 'provenance that names another agent was taken as a match');
+
+  // (c) Mara was imported earlier and then REMOVED there: not a manager any more.
+  const removedThere = worlds.createWorld(base, 'Removed');
+  worldimport.importAgents(base, removedThere.id, [{ from: 'default', name: 'mara' }], opts);
+  fs.writeFileSync(nodePath.join(worlds.worldStoreRoot(base, removedThere), 'removed.json'), JSON.stringify([{ name: 'mara' }]));
+  worldimport.importAgents(base, removedThere.id, [{ from: 'default', name: 'rook' }], opts);
+  assert.equal(profileOf(removedThere, 'rook').reportsTo, null, 'a manager removed from that Kosmos was kept');
+  assert.equal(/You report to \*\*[Mm]ara\*\*/.test(briefOf(removedThere, 'rook')), false, 'the brief still escalates to a removed manager');
 });
 
 test('R3 (3): a rollback that cannot remove the folder SAYS so, and the next try names the leftover folder', () => {

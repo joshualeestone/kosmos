@@ -308,6 +308,10 @@ function copyOne(base, src, dst, name, opts) {
        agent's folder -- kept, the copy would work in the other agent's folder. */
     const copy = store.stripIdentity({ ...profile });
     delete copy.dir;
+    /* Review round 3: where it came from, by the SOURCE's own identity (its profile
+       `id`, read before the strip above, which works on a copy of the object).
+       The only link a later import has back to this agent -- see store.IMPORTED_FROM_KEY. */
+    copy[store.IMPORTED_FROM_KEY] = { kosmos: src.id, id: typeof profile.id === 'string' && profile.id ? profile.id : null };
     fs.mkdirSync(profilesDir, { recursive: true });
     const tmp = `${profileFile}.${process.pid}.tmp`;
     made.push({ path: tmp });
@@ -339,34 +343,69 @@ function copyOne(base, src, dst, name, opts) {
   };
 }
 
+/* The one key a provenance pair is matched by: which Kosmos, and which agent there. */
+function originKey(kosmos, id) { return `${kosmos} ${id}`; }
+
+/* Point one copy's `reportsTo` at `managerHere` (a name in the target, or null for
+   the person), and write its "Who you report to" section again from that record. */
+function rewriteManager(c, managerHere) {
+  const profile = JSON.parse(fs.readFileSync(c.profileFile, 'utf8'));
+  profile.reportsTo = managerHere;
+  const tmp = `${c.profileFile}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(profile, null, 2));
+  fs.renameSync(tmp, c.profileFile);
+  const text = fs.readFileSync(c.briefFile, 'utf8');
+  if (text.includes(reports.START)) {
+    fs.writeFileSync(c.briefFile, projects.spliceBlock(text, reports.blockBody(profile), reports.START, reports.END), 'utf8');
+  }
+}
+
 /**
- * Review round 3 (2): a copy's manager comes along, or it has none. `reportsTo`
- * names an agent by its machine name, and in the target that name is either the
- * manager copied in THIS request -- kept, so the line survives -- or someone else,
- * possibly a different agent that merely shares the name, whom the copy would
- * escalate to as a stranger. A same-name agent already in the target cannot be told
- * apart from that stranger, so it does not count. A manager that did not come along
- * is cleared (`reportsTo: null`), and the copy's "Who you report to" section is
- * written again from the cleared record (reports.blockBody), so its brief names the
- * person instead. A failure here is logged; the copy stands.
+ * Review round 3 (2), made exact: a copy keeps its manager when that manager is in
+ * the target AS THE SAME AGENT, and only then. `reportsTo` holds the manager's
+ * machine name in the SOURCE Kosmos, and a bare name proves nothing in another one
+ * (a different agent may share it). So the match is by the manager's source
+ * identity -- its profile `id` -- which every copy records as `importedFrom`:
+ *   (a) the manager was copied in this same request, from the same Kosmos: kept;
+ *   (b) the target already holds a copy whose `importedFrom` is {that Kosmos, that
+ *       id} and which is not removed there (Mara imported yesterday, Rook today):
+ *       pointed at that copy's name;
+ *   (c) otherwise cleared (`reportsTo: null`) and the section rewritten, so it names
+ *       the person. A same-name agent with no matching provenance stays a stranger.
+ * ONE function, reached by both the create route and the settings route through
+ * importAgents. A failure here is logged; the copy stands.
  */
-function settleManagers(copiedHere, dst) {
-  const names = new Set(copiedHere.map((c) => c.name));
+function resolveManagers(base, known, dst, copiedHere) {
+  if (!copiedHere.some((c) => typeof c.reportsTo === 'string' && c.reportsTo.trim())) return;
+  const removed = remove.removedNamesIn(worlds.worldStoreRoot(base, dst));
+  const gone = new Set(removed.ok ? removed.names : []);
+  const hereByOrigin = new Map();
+  for (const name of worlds.worldProfileNames(base, dst)) {
+    if (gone.has(name)) continue;
+    let p = null;
+    try { p = JSON.parse(fs.readFileSync(path.join(worlds.worldProfilesDir(base, dst), store.profileFileName(name)), 'utf8')); }
+    catch { p = null; }
+    const from = p && p[store.IMPORTED_FROM_KEY];
+    if (from && typeof from.kosmos === 'string' && typeof from.id === 'string' && from.id) hereByOrigin.set(originKey(from.kosmos, from.id), name);
+  }
   for (const c of copiedHere) {
-    if (typeof c.reportsTo !== 'string' || !c.reportsTo.trim() || names.has(c.reportsTo)) continue;
+    const managerName = typeof c.reportsTo === 'string' ? c.reportsTo.trim() : '';
+    if (!managerName) continue;
+    /* (a) Came along in this request. Provenance (b) would find such a manager too
+       when its source profile has an `id` -- but one written without the store
+       (never minted) has none, and then only this request's own knowledge can keep
+       the line. */
+    if (copiedHere.some((x) => x.from === c.from && x.name === managerName)) continue;   // (a)
+    const src = known.find((w) => w.id === c.from);
+    let managerId = null;
     try {
-      const profile = JSON.parse(fs.readFileSync(c.profileFile, 'utf8'));
-      profile.reportsTo = null;
-      const tmp = `${c.profileFile}.${process.pid}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify(profile, null, 2));
-      fs.renameSync(tmp, c.profileFile);
-      const text = fs.readFileSync(c.briefFile, 'utf8');
-      if (text.includes(reports.START)) {
-        fs.writeFileSync(c.briefFile, projects.spliceBlock(text, reports.blockBody(profile), reports.START, reports.END), 'utf8');
-      }
-    } catch (err) {
-      logImportError({ src: { id: c.from }, dst, name: c.name }, 'manager', err, c.profileFile);
-    }
+      const mp = JSON.parse(fs.readFileSync(path.join(worlds.worldProfilesDir(base, src), store.profileFileName(managerName)), 'utf8'));
+      managerId = mp && typeof mp.id === 'string' && mp.id ? mp.id : null;
+    } catch { managerId = null; }
+    const managerHere = managerId ? (hereByOrigin.get(originKey(c.from, managerId)) || null) : null;   // (b)
+    if (managerHere === managerName) continue;
+    try { rewriteManager(c, managerHere); }                                                            // (c), or (b) renamed
+    catch (err) { logImportError({ src: { id: c.from }, dst, name: c.name }, 'manager', err, c.profileFile); }
   }
 }
 
@@ -407,7 +446,7 @@ function importAgents(base, targetId, picks, opts = {}) {
     copied.push({ from, name, displayName: r.displayName });
     copiedHere.push({ from, name, profileFile: r.profileFile, briefFile: r.briefFile, reportsTo: r.reportsTo });
   }
-  settleManagers(copiedHere, world);
+  resolveManagers(base, known, world, copiedHere);
   return { ok: true, world, copied, refused, unknownSources };
 }
 
