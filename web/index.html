@@ -3373,6 +3373,16 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      reverse, not a defect to fix quietly. */
   html[data-layout="consolidated"] body.consolidated #pj-settings-view, html[data-layout="consolidated"] body.consolidated #pj-task-view,
   html[data-layout="consolidated"] body.consolidated #pj-docs-view, html[data-layout="consolidated"] body.consolidated #pj-alltasks-view, html[data-layout="consolidated"] body.consolidated #pj-add-view { min-height: 0; overflow-y: auto; }
+  /* #2850 item 1 (Josh, 0.6.57): adding a project FROM the consolidated view,
+     the "back / All projects" control is redundant -- you are already right
+     here. Hide it, but keep the New project line exactly where it sits: he
+     likes the amount of space above New project and does not want the form to
+     move up when the control goes. `visibility: hidden` removes the button
+     from paint, tab order and the a11y tree while its box (its own height plus
+     the .back margin-bottom) still reserves that space, so nothing shifts. In
+     the TAB view the back button stays -- it is the route back to the list --
+     which is why this is scoped to body.consolidated only. */
+  html[data-layout="consolidated"] body.consolidated #pj-add-view #pj-add-back { visibility: hidden; }
   /* #2842: the USER settings panel, relocated into the display column
      (placeAppSettings), scrolls in the column like the views above and drops its
      full-page centered two-column layout for one that fits the narrower column. Its
