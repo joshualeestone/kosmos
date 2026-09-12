@@ -18808,7 +18808,14 @@ function acctShowSuccess(accountLabel, goldBox) {
   document.getElementById('acct-add-dialog').setAttribute('aria-labelledby', 'acct-success-t');
   document.getElementById('acct-success-close').focus();
 }
-function openAcctAdd() {
+let ACCT_ADD_RETURN_FOCUS = null;
+function openAcctAdd(ev) {
+  // #2802: remember the control that opened this modal so closeAcctAdd can send
+  // focus back to it. The Model tab's "Connect an API key" button lives OUTSIDE
+  // the Settings > Accounts section, so unconditionally focusing #acct-add-open on
+  // close (it is display:none unless that section is showing) stranded focus on
+  // <body> -- the #1918 stranded-focus class, on the close path.
+  ACCT_ADD_RETURN_FOCUS = (ev && ev.currentTarget && typeof ev.currentTarget.focus === 'function') ? ev.currentTarget : null;
   const modal = document.getElementById('acct-add-modal');
   const sel = document.getElementById('acct-provider-pick');
   const active = frConnActive((ACCT_FLOW_LAST || '').split('|')[0]);
@@ -18863,7 +18870,15 @@ function closeAcctAdd() {
   });
   document.getElementById('acct-add-dialog').setAttribute('aria-labelledby', 'acct-add-t');
   document.getElementById('acct-add-modal').hidden = true;
-  document.getElementById('acct-add-open').focus();
+  // #2802: return focus to whatever opened the modal, falling back to the Accounts
+  // door. A recorded opener that is no longer rendered (offsetParent === null =
+  // display:none or detached) cannot take focus, so fall back rather than strand
+  // focus on <body>.
+  const backEl = (ACCT_ADD_RETURN_FOCUS && document.contains(ACCT_ADD_RETURN_FOCUS) && ACCT_ADD_RETURN_FOCUS.offsetParent !== null)
+    ? ACCT_ADD_RETURN_FOCUS
+    : document.getElementById('acct-add-open');
+  ACCT_ADD_RETURN_FOCUS = null;
+  if (backEl) backEl.focus();
 }
 document.getElementById('acct-add-open').addEventListener('click', openAcctAdd);
 // #2802: the Model tab's "Connect an API key" action (shown for a ChatGPT-

@@ -97,12 +97,27 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const connectBtn = document.getElementById('d-model-connect');
     const connectShown = !!connectBtn && connectBtn.hidden === false;
     let connectOpensFlow = false;
+    // #2802: closing the modal opened from the Model tab must return focus to the
+    // Connect button, NOT to #acct-add-open (which is display:none unless the
+    // Settings > Accounts section is showing -> focus would strand on <body>).
+    let connectFocusReturns = false;
     if (connectBtn && connectShown) {
+      // the modal open/close focus contract only bites when the detail Model tab is
+      // actually on screen; reveal its containers so this focus test is faithful
+      // (paintOpenaiDetailModel paints into the section but does not navigate to it,
+      // so #panel-detail / #d-sec-model start hidden and the button has no layout).
+      const panelDetail = document.getElementById('panel-detail');
+      const secModel = document.getElementById('d-sec-model');
+      if (panelDetail) panelDetail.hidden = false;
+      if (secModel) secModel.hidden = false;
+      connectBtn.focus();               // the button holds focus when clicked
       connectBtn.click();
       await settle();
       const modal = document.getElementById('acct-add-modal');
       connectOpensFlow = !!modal && modal.hidden === false;
       if (typeof closeAcctAdd === 'function') { try { closeAcctAdd(); } catch { /* reset only */ } }
+      await settle();
+      connectFocusReturns = (document.activeElement === document.getElementById('d-model-connect'));
     }
     const notListable = {
       onlyOption: sel.options.length === 1,
@@ -111,6 +126,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       msg: msg.textContent || '',
       connectShown,
       connectOpensFlow,
+      connectFocusReturns,
     };
 
     // SEQUENCE: the REAL openDetail paint order for a codex agent --
@@ -193,7 +209,35 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       hideCoverage = { ran: true, shownGoingIn, hidByListableRepaint, reShown, openDetailUsable, hidByClaudeSwitch };
     }
 
-    return { listable, snapshotPinned, notListable, sequence, hideCoverage };
+    // #2802 USABLE-GATE COVERAGE. The show predicate is `usable && not-an-api-key`,
+    // where usable = ours && !neverRecorded. Every fixture above is ours+recorded
+    // (usable === true), so dropping the `usable &&` clause would still pass every
+    // assertion. Paint a NOT-OURS agent whose `because` ALSO matches "not an api
+    // key": the button must stay HIDDEN (usable is false) and the msg must show the
+    // refusal sentence, not the not-an-api-key note.
+    let usableGate = { ran: false };
+    {
+      CURRENT = { sessionName: 'oa1' };
+      // pre-show via an OURS not-listable paint, so we prove the not-ours paint
+      // HIDES a visible button rather than merely never showing it.
+      window.fetch = async () => ({ ok: true, json: async () => ({ ok: false, because: 'this sign-in cannot list models yet; it is not an api key' }) });
+      paintOpenaiDetailModel({ sessionName: 'oa1', isNamedOurs: true, provider: 'openai', account: { dir: '/home/.codex' }, plannedModelName: '' }, 'oa1');
+      await settle();
+      const shownGoingIn = (document.getElementById('d-model-connect') || {}).hidden === false;
+      // now the SAME not-an-api-key because, but a NOT-OURS agent (usable === false).
+      paintOpenaiDetailModel({ sessionName: 'oa1', isNamedOurs: false, provider: 'openai', account: { dir: '/home/.codex' }, plannedModelName: '' }, 'oa1');
+      await settle();
+      const cb = document.getElementById('d-model-connect');
+      const mm2 = document.getElementById('d-model-msg') || {};
+      usableGate = {
+        ran: true,
+        shownGoingIn,
+        hiddenForNotOurs: !!cb && cb.hidden === true,
+        refusalShown: /cannot change its model/.test(mm2.textContent || ''),
+      };
+    }
+
+    return { listable, snapshotPinned, notListable, sequence, hideCoverage, usableGate };
   });
 
   await browser.close();
@@ -215,6 +259,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!/signed in with ChatGPT/.test(r.notListable.msg)) problems.push('NOT LISTABLE: the reason-keyed note is missing from the msg');
     if (!r.notListable.connectShown) problems.push('#2802: the "Connect an API key" button is not shown for a not-an-api-key (ChatGPT subscription) account, so the disabled model state is inert prose again');
     if (!r.notListable.connectOpensFlow) problems.push('#2802: clicking "Connect an API key" does not open the Add-a-provider flow (#acct-add-modal)');
+    if (!r.notListable.connectFocusReturns) problems.push('#2802: closing the modal opened from the Model tab did NOT return focus to the Connect button (it strands on <body>, since #acct-add-open is display:none outside Settings -- the #1918 stranded-focus class)');
     if (!r.listable.connectHidden) problems.push('#2802: the "Connect an API key" button leaks into a LISTABLE account (it should be hidden when the account can list models)');
     if (!r.hideCoverage || !r.hideCoverage.ran) {
       problems.push('#2802 coverage: the hide-path coverage block did not run');
@@ -224,6 +269,13 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       if (!r.hideCoverage.reShown) problems.push('#2802 coverage: the button did not re-show for the second not-listable paint, so the (b) openDetail-switch assertion below is vacuous');
       if (!r.hideCoverage.openDetailUsable) problems.push('#2802 coverage: openDetail/LAST were not drivable, so the on-open reset (the OpenAI->Claude linger) could not be exercised');
       else if (!r.hideCoverage.hidByClaudeSwitch) problems.push('#2802 coverage: switching to a Claude agent via openDetail did NOT hide the Connect button -- the on-open reset is not firing, so the button lingers under the Claude model tab');
+    }
+    if (!r.usableGate || !r.usableGate.ran) {
+      problems.push('#2802 coverage: the usable-gate coverage block did not run');
+    } else {
+      if (!r.usableGate.shownGoingIn) problems.push('#2802 coverage: the button was not shown by the ours not-listable paint, so the not-ours hide assertion is vacuous');
+      if (!r.usableGate.hiddenForNotOurs) problems.push('#2802 coverage: the Connect button SHOWS for a not-ours (usable=false) not-an-api-key agent -- the `usable &&` half of the show gate is not enforced');
+      if (!r.usableGate.refusalShown) problems.push('#2802 coverage: a not-ours account did not show the refusal sentence, so the usable=false path was not exercised');
     }
     if (!r.sequence || !r.sequence.ran) {
       problems.push('SEQUENCE: paintModelPicker/paintProviderPicker not both present, so the openDetail order was not exercised');
