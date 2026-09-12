@@ -173,6 +173,7 @@ done
 dest_probe="$(cd "$dest_probe" && pwd -P)" || fail "could not resolve destination ancestor ($dest_probe)"
 DEST="$dest_probe$dest_suffix"
 while [ "$DEST" != "/" ] && [ "${DEST%/}" != "$DEST" ]; do DEST="${DEST%/}"; done
+[ "$DEST" != "/" ] || fail "refusing to apply: the destination must not be the filesystem root"
 case "$REPO/" in
   "$DEST/"*) fail "refusing to apply: the destination contains the source repository ($DEST)" ;;
 esac

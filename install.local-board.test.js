@@ -108,6 +108,13 @@ test('board deploy refuses existing and not-yet-created destinations inside a gi
   });
   assert.equal(throughFile.status, 1, `expected file-ancestor refusal, stdout: ${throughFile.stdout}, stderr: ${throughFile.stderr}`);
   assert.match(throughFile.stderr, /nearest existing destination ancestor is not a directory/, throughFile.stderr);
+
+  const root = spawnSync('bash', [path.join(repo, 'deploy', 'install-board.sh'), '--apply'], {
+    encoding: 'utf8',
+    env: { ...process.env, KOSMOS_BOARD_LIBEXEC: '/', KOSMOS_BOARD_PLIST: path.join(fixture, 'board.plist') },
+  });
+  assert.equal(root.status, 1, `expected root refusal, stdout: ${root.stdout}, stderr: ${root.stderr}`);
+  assert.match(root.stderr, /destination must not be the filesystem root/, root.stderr);
 });
 
 test('refresh-only swaps a trailing-slash destination without plist or launchd changes', () => {
