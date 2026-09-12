@@ -1110,8 +1110,17 @@ function setCodexAccount(clean, spoken, dir, job) {
  *   2. the plist rewrite through `plistFor`. Also gating: its catch returns
  *      REFUSED with "we could not write <name>'s startup file". ⚠️ That string
  *      appears FOUR times in this file; only `setProvider`'s copy is meant.
- *      Both gates are asserted in the test named above, each by a mutant that
- *      reds the arm naming it; neither is carried by this sentence.
+ *      ALL FOUR are asserted in the test named above, one arm each: the two
+ *      gates by a real EACCES that makes the write throw, and the two swallows by
+ *      the same, asserting the switch COMPLETES around the failure. Each arm reds
+ *      under a mutant naming it, and the two swallow arms red under a `throw` put
+ *      in the catch, which is what proves they REACH it. None of this is carried
+ *      by these sentences.
+ *      ⚠️ Before round 27 the swallow half was prose only: NO test in the repo
+ *      entered either catch (measured by replacing both with a throw and running
+ *      every file that exercises `setProvider`; nothing surfaced), so "swallows"
+ *      and "gates" were indistinguishable for writes 3 and 4 while this header
+ *      claimed the split was asserted.
  *   3. the brief RENAME, CLAUDE.md <-> AGENTS.md (two paths: one created, one
  *      deleted). Best-effort: its catch swallows.
  *   4. `store.writeProfile(clean, { provider })`. Best-effort: its catch swallows.
