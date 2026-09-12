@@ -8,9 +8,13 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
 
 const create = require('./create');
 const launchidentity = require('./launchidentity');
+const remove = require('./remove');
 
 /* Run `body` with this process in `world` (undefined = the default world), then
    restore -- currentWorldId reads process.env.KOSMOS_WORLD. */
@@ -77,4 +81,56 @@ test('#1704 a NAMED-world plist carries KOSMOS_WORLD and a keyed label + session
   assert.match(named, /<string>ava\+test<\/string>/, 'the supervisor session is the launch key');
   // The keyed session equals launchidentity.launchKey, one derivation.
   assert.ok(named.includes(`<string>${launchidentity.launchKey('ava', 'test')}</string>`));
+});
+
+test('#2828 a remove in world B cannot reach the DEFAULT world\'s like-named agent', () => {
+  // The core cross-Kosmos collision this lane fixes: `ava` exists in Kosmos 1
+  // (the default), and removing `ava` while the board serves world `b` must
+  // resolve b's OWN label (com.kosmos.agent.ava+b), find no plist for it, and
+  // touch nothing -- never the default's com.kosmos.agent.ava.plist. jobFor
+  // resolves the label via create.serviceLabel (defaulting to the board's
+  // currentWorldId) and only acts on a plist that exists.
+  const agentsDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-la-'));
+  const savedLaunch = process.env.AGENT_WORKFORCE_LAUNCH;
+  const savedWorld = process.env.KOSMOS_WORLD;
+  process.env.AGENT_WORKFORCE_LAUNCH = agentsDir;
+  try {
+    // Only the DEFAULT world's ava has a plist on disk.
+    fs.writeFileSync(nodePath.join(agentsDir, 'com.kosmos.agent.ava.plist'), '<plist/>');
+
+    process.env.KOSMOS_WORLD = 'b';
+    assert.equal(remove.jobFor('ava', 'darwin'), null,
+      'a remove in world b resolves ava+b, which has no plist, so it reaches nothing');
+
+    delete process.env.KOSMOS_WORLD;
+    const j = remove.jobFor('ava', 'darwin');
+    assert.ok(j, 'the default board finds its own ava');
+    assert.equal(j.label, 'com.kosmos.agent.ava', 'and targets the bare default-world label');
+  } finally {
+    if (savedLaunch === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = savedLaunch;
+    if (savedWorld === undefined) delete process.env.KOSMOS_WORLD; else process.env.KOSMOS_WORLD = savedWorld;
+    fs.rmSync(agentsDir, { recursive: true, force: true });
+  }
+});
+
+test('#1704 the launchd label namespace is built in ONE place (no `com.kosmos.agent.` assembled outside create.js)', () => {
+  // The plan's weakest-premise guard: a future enumeration or launch site that
+  // builds the label from a bare name would re-open the cross-Kosmos collision.
+  // serviceLabel (via SERVICE_LABEL_PREFIX) in create.js is the only sanctioned
+  // builder; parseServiceLabel (also create.js) is the only reader. Any OTHER
+  // engine file naming the literal is a candidate stray site.
+  const dir = __dirname;
+  const offenders = [];
+  for (const f of fs.readdirSync(dir)) {
+    if (!f.endsWith('.js') || f.endsWith('.test.js') || f === 'create.js') continue;
+    // Strip block comments then line comments, so only CODE is checked: the many
+    // JSDoc mentions of the label ("~/Library/LaunchAgents/ 1 job com.kosmos.agent.anna")
+    // are documentation, not a construction site.
+    const code = fs.readFileSync(nodePath.join(dir, f), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
+    if (code.includes('com.kosmos.agent.')) offenders.push(f);
+  }
+  assert.deepEqual(offenders, [],
+    'the launchd label is named in CODE outside create.serviceLabel/parseServiceLabel: ' + offenders.join(', '));
 });

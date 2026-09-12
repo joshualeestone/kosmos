@@ -325,7 +325,12 @@ if [ -z "$adopt" ]; then
           for (const k of ["AGENT_WORKFORCE_DATA","AGENT_WORKFORCE_PROJECTS","AGENT_WORKFORCE_WORKERS"]) {
             if (process.env[k]) process.stdout.write(k + "=" + process.env[k] + "\n");
           }
-        } catch (e) { /* an unenterable world must not fail the launch */ }
+        } catch (e) { /* an unenterable world must not fail the launch: nothing is
+          exported, so this pane and the mint below both fall back to the default
+          store roots -- one consistent unit, never a split brain (the hooks and
+          the kosmos CLI read the roots we hand the pane, not KOSMOS_WORLD, so no
+          consumer re-derives a different world). KOSMOS_WORLD rides from a
+          create.js-validated plist, so this is defence, not an expected path. */ }
       ' "$_eng/worlds.js" 2>/dev/null || true)
     fi
     # The mint needs BOTH the engine (for sendertoken.js) and a node. No engine
