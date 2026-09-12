@@ -138,7 +138,7 @@ test('#2225: the FOUND branch reads the sidecar too, so the field is on both bra
   assert.equal(rec.name, 'Lead Squad', 'the found branch did not read the sidecar: ' + JSON.stringify(rec));
 });
 
-test('#2225 PARITY CONTROL: the whoami route hand-picks fields and does NOT expose name', () => {
+test('#2225 PARITY CONTROL: the whoami route exposes name on EVERY account branch, or none', () => {
   /* A REAL card from test-support/fleet (the fixture-discipline test refuses a
      hand-built one). The fleet agent `codexnamed` gives a card whose sessionName
      is `codexnamed`, which resolves to the codex job + sidecar `bornCodex` wrote
@@ -153,12 +153,26 @@ test('#2225 PARITY CONTROL: the whoami route hand-picks fields and does NOT expo
     const out = whoamiFor(card, accounts.list(), { ok: false, because: 'no pane on this computer' });
     assert.ok(out.account, 'the record path returned no account for the named codex agent');
     assert.equal(out.account.dir, CODEX_NAMED_DIR, 'wrong account resolved via whoami: ' + JSON.stringify(out.account));
-    // The board carries `name`; this route deliberately drops it. If a future
-    // change wants the whoami sentence to show the name, it must add `name` to
-    // ALL of this route's account branches (parity), not just this one -- and
-    // this control is where that intent is stated.
-    assert.ok(!('name' in out.account),
-      'the whoami route leaked `name` without the sibling live branches carrying it: ' + JSON.stringify(out.account));
+    /* 🔑 THIS CONTROL WAS WRITTEN INVERTED, AND IT TOLD ITS OWN SUCCESSOR WHAT TO
+       DO. It used to assert `!('name' in out.account)` under the note: "the board
+       carries `name`; this route deliberately drops it. If a future change wants
+       the whoami sentence to show the name, it must add `name` to ALL of this
+       route's account branches (parity), not just this one -- and this control is
+       where that intent is stated."
+       #2811 IS THAT CHANGE. A NAMED codex account was being told "an account we
+       cannot identify (<dir>)" by `kosmos whoami` while every other surface called
+       it by name -- the card's own literal complaint. The name now leads the
+       sentence's fallback chain, so the route must carry it.
+       ⚠️ AND THE CONDITION THAT CONTROL SET IS THE ONE THAT MATTERED: my first
+       attempt added `name` to ONE live branch and `#1304`'s field-set parity test
+       went red immediately. All THREE constructions carry it now (both live
+       branches and the record projection), which is what makes flipping this
+       assertion legitimate rather than convenient.
+       ⇒ So this stays a PARITY control; only the direction changed. */
+    assert.ok('name' in out.account,
+      'the whoami route dropped `name`, so a NAMED codex account is told we cannot identify it: ' + JSON.stringify(out.account));
+    assert.equal(out.account.name, 'Design Team',
+      'the route carries a `name` key but not the sidecar the person typed: ' + JSON.stringify(out.account));
   } finally {
     fleet.restore();
   }
