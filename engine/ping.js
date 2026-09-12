@@ -1,7 +1,9 @@
 'use strict';
 
 /**
- * This install's random id, and the under-test guard. Nothing here leaves the Mac.
+ * This install's random id, and the under-test guard. This file SENDS nothing itself
+ * (#2623); the random id it makes can still leave the Mac via the default-on feedback
+ * report, which reads it -- see the installId note below.
  *
  * 🛑 #2623: THE CREATE-AGENT TELEMETRY WAS DELETED. Josh, 2026-09-09, called the
  * two "let the Kosmos team know..." phone-home toggles an invasion of privacy and
