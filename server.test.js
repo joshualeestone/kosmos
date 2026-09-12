@@ -3731,7 +3731,11 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
     const end = script.indexOf('\n}', script.indexOf('</div>`;', lrowAt)) + 2;
     assert.ok(from > -1 && lrowAt > from && end > lrowAt, 'renderer block not found');
     // eslint-disable-next-line no-new-func
-    const api = new Function(script.slice(from, end) + '\n; return { card, lrow };')();
+    /* #2863: the slice now includes dmBadge (declared just above card), which
+       reads the CURRENT global -- declared far below this slice and so not
+       captured. Inject CURRENT (null: no agent open in this isolated render) so
+       a future card fixture with dmUnread > 0 does not throw ReferenceError. */
+    const api = new Function('CURRENT', script.slice(from, end) + '\n; return { card, lrow };')(null);
     /**
      * A copy of a row with something changed, still strict.
      *

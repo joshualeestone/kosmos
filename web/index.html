@@ -1944,7 +1944,12 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    bubble so they stack rather than overlap. The DM bubble keeps the corner
    because "someone is waiting on you" outranks "memory is nearly full". The list
    row has no membadge (it uses a memory bar), so it needs no such rule. */
-.agauge:has(.dmbadge) .membadge { top: 24px; }
+/* :not(.unk) is load-bearing: the unknown-memory badge (.membadge.unk) is
+   anchored to the BOTTOM of the gauge (bottom:-15px, top:auto), a different
+   corner entirely, so it never collides with the DM bubble. Only the plain
+   near-full number badge sits top-right where the DM bubble does. Offsetting
+   the .unk one too would give it both a top and a bottom and stretch it tall. */
+.agauge:has(.dmbadge) .membadge:not(.unk) { top: 24px; }
 .ansgo { margin-left: auto; font-size: .8125rem; font-weight: 600; color: var(--k-ink-2);
          border: 0; background: none;
          /* One padding declaration only: a second one in this same rule was
