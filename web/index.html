@@ -28162,6 +28162,11 @@ function placeAppSettings(consolidated) {
   if (!panel || !projects) return;
   if (consolidated) {
     if (panel.parentElement !== projects) {
+      // Restore anchor: the original parent + next sibling, captured once. Unlike
+      // placeSubProjects (which restores to a fixed structural node, .pj3), this caches a
+      // sibling REFERENCE -- safe because #panel-settings's next sibling is #conn, a
+      // persistent top-level node that is never reparented, so insertBefore(panel, next) puts
+      // it back in the same slot. insertBefore also tolerates `next` being null (appends).
       if (!APP_SETTINGS_HOME) APP_SETTINGS_HOME = { parent: panel.parentElement, next: panel.nextElementSibling };
       panel.hidden = true;   // relocated but not shown until openConsolidatedSettings()
       projects.appendChild(panel);
@@ -28176,10 +28181,13 @@ function placeAppSettings(consolidated) {
    same way the tab path does -- minus the tab switch that drops body.consolidated. */
 function openConsolidatedSettings() {
   // This shows settings WITHOUT re-adding body.consolidated, so it is only correct while
-  // the consolidated layout is already on. The one caller (#rail-me-go) gates on
-  // layoutConsolidated(), but guard it here too so the function cannot render settings
-  // into #panel-projects without the consolidated grid CSS if a future caller forgets.
-  if (!layoutConsolidated()) return;
+  // the consolidated layout is already on. Guard on the SAME thing the placement CSS keys on
+  // (`body.consolidated`), not layoutConsolidated(): the two can differ (layoutConsolidated()
+  // is true on any tab at a wide-enough window, but showTab only sets body.consolidated for
+  // the agents/projects tabs), and it is body.consolidated the grid rule needs. The one
+  // caller (#rail-me-go) only shows when body.consolidated is on, but guard it here too so a
+  // future caller cannot render settings into #panel-projects without the consolidated CSS.
+  if (!document.body.classList.contains('consolidated')) return;
   placeAppSettings(true);
   document.getElementById('panel-projects').hidden = false;
   for (const v of ['one', 'add', 'settings', 'task', 'docs', 'alltasks']) {
@@ -28187,6 +28195,10 @@ function openConsolidatedSettings() {
     if (el) el.hidden = true;
   }
   document.getElementById('pj-list-view').hidden = false;   // keep the projects column
+  // #pj-none is another display-column child; hide the "No projects yet" hint so it does not
+  // render over settings. paintPjNone keeps it hidden while settings is open (the poll re-runs
+  // it); this makes it immediate rather than waiting for the next paint.
+  { const none = document.getElementById('pj-none'); if (none) none.hidden = true; }
   document.getElementById('panel-settings').hidden = false;
   paintSettings();
   // settingsOpen -> settingsGo -> syncUrl writes the address from PJ_VIEW/PJ_CURRENT, which
@@ -28272,7 +28284,19 @@ function paintPjNone(which) {
      list stays visible beside every other view, so "list visible and one-view
      hidden" read as "nothing open" while the New project form was up. */
   const view = which === undefined ? PJ_VIEW : which;
-  const show = document.body.classList.contains('consolidated') && view === 'list';
+  /* #2842: the consolidated user-settings view (openConsolidatedSettings) takes over the
+     display column while PJ_VIEW stays 'list', and #pj-none is another
+     `#panel-projects > :not(#pj-list-view)` child in that same column. Without this it would
+     render the "No projects yet" hint on top of the settings panel -- and the 5s project
+     poll re-invokes paintPjNone, so hiding it once in openConsolidatedSettings is not enough;
+     the settings panel being open (relocated into #panel-projects and visible) is what
+     suppresses the hint, checked here so every caller (the poll included) agrees. */
+  const appSettingsOpen = (() => {
+    const ps = document.getElementById('panel-settings');
+    const pp = document.getElementById('panel-projects');
+    return !!(ps && pp && ps.parentElement === pp && !ps.hidden);
+  })();
+  const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen;
   el.hidden = !show;
   if (!show) return;
   const cls = document.body.classList;

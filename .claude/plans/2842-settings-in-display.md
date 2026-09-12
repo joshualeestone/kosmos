@@ -66,6 +66,15 @@ mode the Plus section still renders its static content but its canvas does not a
 This is a decorative edge, not core settings functionality; the account/machine/skills/
 policy/usage sections all render and are navigable.
 
+Deferred (challenge-loop iteration 2): the pre-existing auto-open-first-project behavior
+(#867) fires once, when the first `/api/projects` read resolves. If the person opens settings
+in the narrow window between boot and that first read resolving, the auto-open runs
+`openProject` -> `pjView('one')`, which hides the just-opened settings. It is a sub-second,
+one-time-load race and self-correcting (re-open settings), and guarding it would couple the
+auto-open to a settings-open flag; left as a documented edge rather than built. Also deferred:
+a reviewer NIT that the new CSS comment's `176px 34rem` figure is wrong -- it is correct for
+`#panel-settings .dbody` (index.html:2041, which overrides the base `.dbody` at 2027).
+
 ## Weakest premise
 
 That keeping `URL_TAB = projects` does not break any load-bearing settings behavior beyond
