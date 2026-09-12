@@ -21157,11 +21157,13 @@ function paintRoomBusy(members, projectId) {
        over-claim for a quiet miss. #2837's sole-active-membership fallback --
        attribute an unattributed working agent to its one project -- is
        DELIBERATELY NOT reimplemented here: that computation lives in
-       engine/projects.js and duplicating it in the web layer is the
-       two-copies-of-one-fact drift this repo pays for. The room's recovery of
-       those cases should reuse #2837's engine computation (exposed as a
-       per-member flag both the overview pill and this line read), as a
-       follow-up once #2837 lands -- not a second copy here. */
+       engine/projects.js (a private `soleActiveMembership` closure inside
+       describe(), used only to total summary.working) and duplicating it in the
+       web layer is the two-copies-of-one-fact drift this repo pays for. It is
+       NOT published as a per-member field today, so recovering these cases for
+       the room is real engine work -- expose a per-member "working-here" flag
+       from that same computation and read it both here and in the overview pill
+       -- not a copy of the rule here. */
     .filter((a) => a && a.state === 'working' && a.stateProject === projectId)
     /* #1150. Drop an agent whose message reached this page AFTER the snapshot
        we are painting from. The state is not wrong, it is OLDER THAN THE REPLY
