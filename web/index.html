@@ -21108,9 +21108,9 @@ function paintRoomBusy(members, projectId) {
        which lit an agent as working in EVERY room it is a member of while it
        was really working in just one -- the identical over-claim #2837 removed
        for the project-overview pill, one surface over. `stateProject` (the
-       field #2837 carries onto the working state, served on every agent card by
-       engine/status.js) names the project the work is attributable to, so we
-       light the agent here ONLY when that is THIS room's project.
+       field added in #2837 and served on every agent card by engine/status.js)
+       names the project the work is attributable to, so we light the agent here
+       ONLY when that is THIS room's project.
        🔑 UNDER-CLAIM ON PURPOSE for an unattributed working agent
        (`stateProject === null`): it shows in NO room rather than the wrong one.
        That is this indicator's stated safe direction (see the #1150 note just
