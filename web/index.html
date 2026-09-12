@@ -3313,6 +3313,19 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      reverse, not a defect to fix quietly. */
   html[data-layout="consolidated"] body.consolidated #pj-settings-view, html[data-layout="consolidated"] body.consolidated #pj-task-view,
   html[data-layout="consolidated"] body.consolidated #pj-docs-view, html[data-layout="consolidated"] body.consolidated #pj-alltasks-view, html[data-layout="consolidated"] body.consolidated #pj-add-view { min-height: 0; overflow-y: auto; }
+  /* #2842: the USER settings panel, relocated into the display column
+     (placeAppSettings), scrolls in the column like the views above and drops its
+     full-page centered two-column layout for one that fits the narrower column. Its
+     tab-view .dbody is `176px 34rem` centered; in the column that overflows, so the
+     nav column shrinks and the body stretches to fill. */
+  /* `margin: 0`, not tidiness: `.panel` carries `margin: 0 auto`, and auto side
+     margins on a GRID ITEM absorb the column's free space -- centering the panel and
+     shrinking it to its content instead of filling column 2. `grid-row: 1` keeps it in
+     the list's row (the display views share that row); it stretches to the row height
+     like the other display views (grid `align-items: stretch`) and scrolls internally. */
+  html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings { grid-column: 2; grid-row: 1; margin: 0; width: 100%; min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+  html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings::-webkit-scrollbar { display: none; }
+  html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings .dbody { grid-template-columns: minmax(120px, 30%) minmax(0, 1fr); justify-content: stretch; column-gap: 18px; }
   /* 🔑 THESE PANES HIDE THEIR SCROLLBAR LIKE EVERY OTHER SCROLLER IN THIS VIEW
      (kosmos#1196). Josh: "The project settings tab itself is quite a mess. It has
      a horizontal or vertical scroll bar in the middle of the page. I'd like to
@@ -15981,6 +15994,11 @@ function showTab(tab) {
   // and every tab switch pass through it), keyed on the same `cons` the body
   // class uses so the DOM move and the consolidated CSS never disagree.
   placeSubProjects(cons);
+  // #2842: relocate the app-settings panel into the projects display column in the
+  // consolidated view (so #rail-me-go can open it in place), and restore it to the
+  // top level in the tab view. Same chokepoint and same `cons` flag as above, so the
+  // DOM move and the consolidated CSS stay in lockstep.
+  placeAppSettings(cons);
   // #980: the search placeholder follows the EFFECTIVE view, set in the
   // one place that decides it (this toggle re-runs on tab switches and on
   // the resize re-check), never the saved layout alone -- a consolidated
@@ -25583,6 +25601,12 @@ function paintRailMe() {
   face.innerHTML = youFaceHtml();
 }
 document.getElementById('rail-me-go').addEventListener('click', () => {
+  /* #2842: in the consolidated view, open settings IN the display area instead of
+     clicking the Settings tab -- the tab click runs showTab('settings'), which drops
+     body.consolidated and kicks the person out to the tab view. openConsolidatedSettings
+     keeps the consolidated layout (agents column + projects list) and takes over the
+     display column. In the tab view the tab click is still the right thing. */
+  if (layoutConsolidated()) { openConsolidatedSettings(); return; }
   const tab = document.querySelector('.tab[data-tab="settings"]');
   if (tab) tab.click();
 });
@@ -28154,6 +28178,75 @@ function placeSubProjects(consolidated) {
     if (subs.parentElement !== oneView) oneView.insertBefore(subs, pj3);
   }
 }
+/* #2842 (Josh, 0.6.57 review): opening user settings from the consolidated view
+   used to kick the whole layout back to the tab view, because #rail-me-go clicks
+   the Settings tab and showTab drops body.consolidated for any tab that is not
+   agents/projects. Instead the app-settings panel is relocated into the projects
+   panel's DISPLAY COLUMN so it opens in place, like View-All for tasks/files: the
+   agents column and the projects list stay, and the settings take over the display
+   area. #panel-settings is a top-level sibling of #panel-projects; moving it in makes
+   the existing `#panel-projects > :not(#pj-list-view)` grid rule place it in column 2
+   with no new placement CSS. Reversible and idempotent: restored to its original
+   top-level slot (captured on the first move) when the effective view is not
+   consolidated, so the tab view keeps settings as a full-page tab. Keyed on the same
+   `cons` flag that toggles body.consolidated, via showTab -- the one chokepoint that
+   reflects the effective view. openConsolidatedSettings() below shows it; pjView hides
+   it again on any project navigation. */
+let APP_SETTINGS_HOME = null;
+function placeAppSettings(consolidated) {
+  const panel = document.getElementById('panel-settings');
+  const projects = document.getElementById('panel-projects');
+  if (!panel || !projects) return;
+  if (consolidated) {
+    if (panel.parentElement !== projects) {
+      // Restore anchor: the original parent + next sibling, captured once. Unlike
+      // placeSubProjects (which restores to a fixed structural node, .pj3), this caches a
+      // sibling REFERENCE -- safe because #panel-settings's next sibling is #conn, a
+      // persistent top-level node that is never reparented, so insertBefore(panel, next) puts
+      // it back in the same slot. insertBefore also tolerates `next` being null (appends).
+      if (!APP_SETTINGS_HOME) APP_SETTINGS_HOME = { parent: panel.parentElement, next: panel.nextElementSibling };
+      panel.hidden = true;   // relocated but not shown until openConsolidatedSettings()
+      projects.appendChild(panel);
+    }
+  } else if (APP_SETTINGS_HOME && panel.parentElement === projects) {
+    APP_SETTINGS_HOME.parent.insertBefore(panel, APP_SETTINGS_HOME.next);
+  }
+}
+/* Open the app settings inside the consolidated display column, staying in the
+   consolidated view. Swaps the display column to the settings panel (hiding the
+   project views), keeps the projects list beside it, and paints the settings the
+   same way the tab path does -- minus the tab switch that drops body.consolidated. */
+function openConsolidatedSettings() {
+  // This shows settings WITHOUT re-adding body.consolidated, so it is only correct while
+  // the consolidated layout is already on. Guard on the SAME thing the placement CSS keys on
+  // (`body.consolidated`), not layoutConsolidated(): the two can differ (layoutConsolidated()
+  // is true on any tab at a wide-enough window, but showTab only sets body.consolidated for
+  // the agents/projects tabs), and it is body.consolidated the grid rule needs. The one
+  // caller (#rail-me-go) only shows when body.consolidated is on, but guard it here too so a
+  // future caller cannot render settings into #panel-projects without the consolidated CSS.
+  if (!document.body.classList.contains('consolidated')) return;
+  placeAppSettings(true);
+  document.getElementById('panel-projects').hidden = false;
+  for (const v of ['one', 'add', 'settings', 'task', 'docs', 'alltasks']) {
+    const el = document.getElementById('pj-' + v + '-view');
+    if (el) el.hidden = true;
+  }
+  document.getElementById('pj-list-view').hidden = false;   // keep the projects column
+  // #pj-none is another display-column child; hide the "No projects yet" hint so it does not
+  // render over settings. paintPjNone keeps it hidden while settings is open (the poll re-runs
+  // it); this makes it immediate rather than waiting for the next paint.
+  { const none = document.getElementById('pj-none'); if (none) none.hidden = true; }
+  document.getElementById('panel-settings').hidden = false;
+  paintSettings();
+  // settingsOpen -> settingsGo -> syncUrl writes the address from PJ_VIEW/PJ_CURRENT, which
+  // still name the last project view, so the URL keeps saying ?tab=projects&project=<id> while
+  // settings shows. That is deliberate: this consolidated settings view is a transient action,
+  // not a deep-linkable screen -- a reload restores the project (the durable state), not the
+  // settings overlay. PJ_VIEW is intentionally left unchanged rather than given an
+  // 'appsettings' value that syncUrl and every PJ_VIEW reader would then have to learn.
+  settingsOpen(SETTINGS_SEC);
+  syncPlusChrome();
+}
 /* 🔑 SELECT, THEN ACTIVATE (kosmos#1216). A tile used to save and apply on
    click; Josh asked for the press to be the commitment. */
 let LAYOUT_PICK = null;
@@ -28228,7 +28321,19 @@ function paintPjNone(which) {
      list stays visible beside every other view, so "list visible and one-view
      hidden" read as "nothing open" while the New project form was up. */
   const view = which === undefined ? PJ_VIEW : which;
-  const show = document.body.classList.contains('consolidated') && view === 'list';
+  /* #2842: the consolidated user-settings view (openConsolidatedSettings) takes over the
+     display column while PJ_VIEW stays 'list', and #pj-none is another
+     `#panel-projects > :not(#pj-list-view)` child in that same column. Without this it would
+     render the "No projects yet" hint on top of the settings panel -- and the 5s project
+     poll re-invokes paintPjNone, so hiding it once in openConsolidatedSettings is not enough;
+     the settings panel being open (relocated into #panel-projects and visible) is what
+     suppresses the hint, checked here so every caller (the poll included) agrees. */
+  const appSettingsOpen = (() => {
+    const ps = document.getElementById('panel-settings');
+    const pp = document.getElementById('panel-projects');
+    return !!(ps && pp && ps.parentElement === pp && !ps.hidden);
+  })();
+  const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen;
   el.hidden = !show;
   if (!show) return;
   const cls = document.body.classList;
@@ -33481,6 +33586,15 @@ let PJ_NAV_GEN = 0;
 function pjView(which) {
   for (const v of ['list', 'one', 'add', 'settings', 'task', 'docs', 'alltasks']) {
     document.getElementById('pj-' + v + '-view').hidden = (v !== which);
+  }
+  /* #2842: pjView is project navigation, so it always leaves the consolidated
+     app-settings view. When #panel-settings has been relocated into the display
+     column (openConsolidatedSettings), hide it here so a project view can show in
+     its place. A no-op when settings is not relocated (tab view, or never opened). */
+  {
+    const appS = document.getElementById('panel-settings');
+    const proj = document.getElementById('panel-projects');
+    if (appS && proj && appS.parentElement === proj) appS.hidden = true;
   }
   paintPjNone(which);
   /* #520: the list is the projects rail in the consolidated view, so it
