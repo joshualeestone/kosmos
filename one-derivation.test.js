@@ -86,7 +86,9 @@ test('world-guard-lift-1704: no named-world spawn refusal remains, and no resume
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
   assert.doesNotMatch(importer, /bootedWorld|DEFAULT_ID|spawnRefusal|startImported|installJob/,
     'engine/worldimport decides or performs a start; that is worldstarts\' job, behind the one rule');
-  const importRoute = code.slice(code.indexOf('function importIntoWorld('), code.indexOf('function importIntoWorld(') + 1600);
+  const routeAt = code.indexOf('function importIntoWorld(');
+  assert.ok(routeAt >= 0, 'importIntoWorld moved or was renamed; re-anchor this test');
+  const importRoute = code.slice(routeAt, code.indexOf('\nfunction ', routeAt + 1));
   assert.match(importRoute, /namedWorldSpawnRefusal\(r\.world\.id\)/, 'an import into a Kosmos that is not open does not ask the one rule whether it may run');
 });
 

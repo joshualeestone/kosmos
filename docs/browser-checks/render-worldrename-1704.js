@@ -55,7 +55,7 @@ const WAITING = 'Agents do not run in a named Kosmos yet, so it waits there and 
     const calls = [];
     const LIST = { worlds: [
       { id: 'default', name: 'Kosmos 1', agentCount: 1, agents: [{ name: 'ava', displayName: 'Ava', because: null }], waiting: [] },
-      { id: 'clientwork', name: 'Client work', agentCount: 1, agents: [{ name: 'bo', displayName: 'Bo', because: null }], waiting: [{ name: 'cy', because: waitingSentence }] },
+      { id: 'clientwork', name: 'Client work', agentCount: 2, agents: [{ name: 'bo', displayName: 'Bo', because: null }, { name: 'ava', displayName: 'Ava', because: null }], waiting: [{ name: 'cy', displayName: 'Cy', because: waitingSentence }] },
     ] };
     window.fetch = (url, opts) => {
       const u = String(url);
@@ -114,6 +114,9 @@ const WAITING = 'Agents do not run in a named Kosmos yet, so it waits there and 
       heads: [...document.querySelectorAll('#world-set-import-list .world-import-all + .world-import-name')].map((s) => s.textContent),
       addDisabledBefore: $('world-set-add').disabled,
     };
+    // Review round 1: Kosmos 1 already holds ava, so Client work's ava is "already here".
+    const avaHere = document.querySelector('#world-set-import-list .world-import-cb[value="ava"]');
+    out.def.avaAlreadyHere = !!avaHere && avaHere.disabled && ((avaHere.nextElementSibling || {}).textContent === 'Ava (already here)');
     const bo = document.querySelector('#world-set-import-list .world-import-cb[value="bo"]');
     if (bo) bo.click();
     out.def.addDisabledAfter = $('world-set-add').disabled;
@@ -122,6 +125,7 @@ const WAITING = 'Agents do not run in a named Kosmos yet, so it waits there and 
     const imported = calls.find((c) => c.url.indexOf('/api/worlds/import') !== -1 && c.method === 'POST');
     try { out.importBody = imported ? JSON.parse(imported.body) : null; } catch { out.importBody = null; }
     out.outcome = $('world-rename-msg').textContent;
+    out.focusAfterAdd = document.activeElement && document.activeElement.id;
     $('world-rename-cancel').focus();
     return out;
   }, [WAITING]);
@@ -152,14 +156,16 @@ const WAITING = 'Agents do not run in a named Kosmos yet, so it waits there and 
     if (!n.renameShown) problems.push('a named Kosmos\'s settings must offer rename');
     if (n.prefilled !== 'Client work') problems.push('rename was not pre-filled with the Kosmos name, got ' + JSON.stringify(n.prefilled));
     if (n.focus !== 'world-rename-name') problems.push('a named Kosmos\'s settings must open with focus in the name, got ' + JSON.stringify(n.focus));
-    if (n.waiting !== 'Waiting to start here: cy. ' + WAITING) problems.push('the waiting line is wrong: ' + JSON.stringify(n.waiting));
+    if (n.waiting !== 'Waiting to start here: Cy. ' + WAITING) problems.push('the waiting line must speak display names: ' + JSON.stringify(n.waiting));
     if (!r.renameBody || r.renameBody.id !== 'clientwork' || r.renameBody.name !== 'Renamed') problems.push('Save name did not POST {id:"clientwork",name:"Renamed"}: ' + JSON.stringify(r.renameBody));
     const d = r.def || {};
     if (!d.open) problems.push('Kosmos 1\'s cog did not open its settings');
     if (!d.renameHidden) problems.push('Kosmos 1\'s name is fixed, so its settings must not offer rename');
     if (d.focus !== 'world-rename-cancel') problems.push('Kosmos 1\'s settings must open with focus on Close, got ' + JSON.stringify(d.focus));
     if (!d.pickerShown) problems.push('the "add agents from another Kosmos" pane did not show');
-    if (JSON.stringify(d.heads) !== JSON.stringify(['Client work (1 agent)'])) problems.push('the picker must list only the OTHER Kosmoses: ' + JSON.stringify(d.heads));
+    if (JSON.stringify(d.heads) !== JSON.stringify(['Client work (2 agents)'])) problems.push('the picker must list only the OTHER Kosmoses: ' + JSON.stringify(d.heads));
+    if (!d.avaAlreadyHere) problems.push('a name Kosmos 1 already holds must show "(already here)", disabled');
+    if (r.focusAfterAdd !== 'world-rename-cancel') problems.push('after Add agents, focus must move to Close, got ' + JSON.stringify(r.focusAfterAdd));
     if (!d.addDisabledBefore || d.addDisabledAfter) problems.push('Add agents must be disabled until an agent is ticked, then enabled');
     if (JSON.stringify(r.importBody) !== JSON.stringify({ id: 'default', importAgents: [{ from: 'clientwork', name: 'bo' }] })) problems.push('Add agents posted the wrong body: ' + JSON.stringify(r.importBody));
     if (r.outcome !== 'Added Bo to Kosmos 1. Bo is starting now.') problems.push('the outcome was not said: ' + JSON.stringify(r.outcome));

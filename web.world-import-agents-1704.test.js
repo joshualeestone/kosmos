@@ -96,7 +96,7 @@ return { worldRenameOpen, worldSettingsSelectionChanged, worldSettingsSkip, worl
 const tick = () => new Promise((r) => setImmediate(r));
 const LIST = [
   { id: 'default', name: 'Kosmos 1', agents: [{ name: 'ava', displayName: 'Ava', because: null }], waiting: [] },
-  { id: 'alpha', name: 'Alpha', agents: [{ name: 'bo', displayName: 'Bo', because: null }], waiting: [{ name: 'cy', because: WAITING }] },
+  { id: 'alpha', name: 'Alpha', agents: [{ name: 'bo', displayName: 'Bo', because: null }], waiting: [{ name: 'cy', displayName: 'Cy', because: WAITING }] },
 ];
 
 test('Kosmos 1\'s settings: no rename (its name is fixed), focus on Close, and the picker lists only the OTHER Kosmoses', async () => {
@@ -124,7 +124,24 @@ test('a named Kosmos\'s settings: rename is there with the name focused, and wha
   assert.equal(dom.focused().id, 'world-rename-name');
   await tick();
   assert.equal($('world-set-waiting').hidden, false);
-  assert.equal($('world-set-waiting').textContent, 'Waiting to start here: cy. ' + WAITING);
+  assert.equal($('world-set-waiting').textContent, 'Waiting to start here: Cy. ' + WAITING, 'the line must speak display names');
+});
+
+test('R1: a name the Kosmos being added TO already holds is shown as "already here", and cannot be ticked', async () => {
+  const dom = settingsDom();
+  const worlds = [
+    { id: 'default', name: 'Kosmos 1', agents: [{ name: 'ava', displayName: 'Ava', because: null }, { name: 'bo', displayName: 'Bo', because: null }], waiting: [] },
+    { id: 'alpha', name: 'Alpha', agents: [{ name: 'bo', displayName: 'Bo', because: null }], waiting: [] },
+  ];
+  const fns = settingsFns(dom, { worlds });
+  fns.worldRenameOpen('alpha', 'Alpha');
+  await tick();
+  const boxes = dom.document.getElementById('world-set-import-list').querySelectorAll('.world-import-cb');
+  const bo = boxes.find((c) => c.value === 'bo');
+  const ava = boxes.find((c) => c.value === 'ava');
+  assert.equal(bo.disabled, true, 'a name already in Alpha was offered');
+  assert.equal(bo.parent.children[1].textContent, 'Bo (already here)');
+  assert.equal(ava.disabled, false, 'the control: a name Alpha does not hold stays offered');
 });
 
 test('Add agents stays disabled until an agent is ticked; Skip clears the ticks and hands focus to Close', async () => {
@@ -161,6 +178,7 @@ test('Add agents posts {id, importAgents} to /api/worlds/import and says what ha
   await fns.worldSettingsAddSubmit();
   assert.deepEqual(posted, [{ url: '/api/worlds/import', body: { id: 'alpha', importAgents: [{ from: 'default', name: 'ava' }] } }]);
   assert.equal($('world-rename-msg').textContent, 'Added Ava to Alpha. Waiting: Ava. ' + WAITING);
+  assert.equal(dom.focused().id, 'world-rename-cancel', 'focus was left on Add, which the redraw disabled');
 });
 
 test('a list that comes back after the pane closed draws nothing into it', async () => {

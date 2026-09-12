@@ -163,10 +163,13 @@ test('the launch spec comes from the source\'s Scheduled Task on Windows, querie
   const dst = worlds.createWorld(base, 'Dest');
   seedAgent(base, env, src, 'cy', { profile: { provider: 'openai' }, briefName: 'AGENTS.md' });
   const queried = [];
-  const q = (s) => '&quot;' + s + '&quot;';
+  // Written by the REAL task writer, so the reader is pinned to what install registers.
+  const xml = win32job.taskXml({ name: 'cy', cwd: 'C:\\w\\cy', model: 'gpt-5', configDir: 'C:\\Users\\x\\.codex-work', runner: 'codex', world: src.id, node: 'C:\\node.exe', supervisor: 'C:\\sup.js' },
+    { USERNAME: 'x', USERDOMAIN: 'BOX', SystemRoot: 'C:\\Windows' });
   win32job.setRunner((args) => {
     queried.push(args.join(' '));
-    return { ok: true, out: '<Task><Actions><Exec><Arguments>--headless ' + [q('C:\\node.exe'), q('C:\\sup.js'), q('cy'), q('C:\\w\\cy'), q('gpt-5'), q('C:\\Users\\x\\.codex-work'), q('codex'), q('-'), q(src.id)].join(' ') + '</Arguments></Exec></Actions></Task>' };
+    if (args.includes('/XML') && args.includes(win32job.taskName('cy', src.id))) return { ok: true, out: xml };
+    return { ok: false, out: 'ERROR: The system cannot find the file specified.' };
   });
   try {
     const r = worldimport.importAgents(base, dst.id, [{ from: src.id, name: 'cy' }], { platform: 'win32', env });
@@ -303,7 +306,7 @@ test('the picker lists what can be added: removed agents are left out, unaddable
   const rows = worldimport.listForPicker(base);
   const destRow = rows.find((w) => w.id === dst.id);
   assert.equal(destRow.agentCount, destRow.agents.length, 'the count and the boxes beneath it must agree');
-  assert.deepEqual(destRow.waiting, [{ name: 'ava', because: null }], 'the copy is listed as waiting to start in its Kosmos');
+  assert.deepEqual(destRow.waiting, [{ name: 'ava', displayName: 'Ava', because: null }], 'the copy is listed as waiting to start in its Kosmos, by the name a person reads');
 });
 
 test('a request\'s picks: the per-agent form, the legacy whole-Kosmos form, and the malformed ones', () => {
@@ -321,8 +324,121 @@ test('a request\'s picks: the per-agent form, the legacy whole-Kosmos form, and 
     assert.equal(r.ok, false, `importAgents=${JSON.stringify(bad)} was accepted`);
     assert.match(r.because, /say which agents to add/);
   }
-  // Legacy: every agent that Kosmos can offer; an unknown id stays a pick so it is refused by name.
+  // Legacy: every agent that Kosmos holds (removed ones excepted) -- the unofferable
+  // `a` included, so it is REFUSED by name rather than dropped unmentioned; an unknown
+  // id stays a pick so it is refused too.
   assert.deepEqual(worldimport.picksFromBody(base, { importAgentsFrom: ['default', 'nope', 'default'] }),
-    { ok: true, picks: [{ from: 'default', name: 'ava' }, { from: 'nope', name: null }] });
+    { ok: true, legacy: true, picks: [{ from: 'default', name: 'a' }, { from: 'default', name: 'ava' }, { from: 'nope', name: null }] });
   assert.equal(worldimport.picksFromBody(base, { importAgentsFrom: 'default' }).ok, false);
+});
+
+test('R1 (C): the legacy form refuses what it cannot offer, and counts unknown Kosmoses apart', () => {
+  const { base, env, opts, def } = setup();
+  const dst = worlds.createWorld(base, 'Dest');
+  seedAgent(base, env, def, 'ava');
+  seedAgent(base, env, def, 'a');
+  const asked = worldimport.picksFromBody(base, { importAgentsFrom: ['default', 'nope'] });
+  const r = worldimport.importAgents(base, dst.id, asked.picks, opts);
+  assert.deepEqual(r.copied.map((c) => c.name), ['ava']);
+  assert.deepEqual(r.refused.map((x) => [x.name, x.because]), [
+    ['a', 'its name cannot be used to start it in another Kosmos'],
+    [null, 'there is no Kosmos with that id on this machine'],
+  ]);
+  assert.equal(r.unknownSources, 1);
+});
+
+test('R1: more than MAX_IMPORT_PICKS picks in one request is refused, in either form', () => {
+  const { base } = setup();
+  const many = Array.from({ length: worldimport.MAX_IMPORT_PICKS + 1 }, (_, i) => ({ from: 'default', name: 'a' + i }));
+  const r = worldimport.picksFromBody(base, { importAgents: many });
+  assert.equal(r.ok, false);
+  assert.equal(r.because, `add at most ${worldimport.MAX_IMPORT_PICKS} agents at a time`);
+  assert.equal(worldimport.picksFromBody(base, { importAgents: many.slice(1) }).ok, true, 'the limit itself is allowed');
+});
+
+test('R1 (A): a name on the TARGET\'s removed list is refused -- never copied in, cleared and hidden behind an "Added"', () => {
+  const { base, env, opts, def } = setup();
+  const src = worlds.createWorld(base, 'Src');
+  seedAgent(base, env, src, 'bob');
+  fs.writeFileSync(nodePath.join(worlds.worldStoreRoot(base, def), 'removed.json'), JSON.stringify([{ name: 'bob' }]));
+  const r = worldimport.importAgents(base, 'default', [{ from: src.id, name: 'bob' }], opts);
+  assert.deepEqual(r.copied, []);
+  assert.equal(r.refused[0].because, 'Kosmos 1 has a removed agent called bob; restore that one there instead');
+  assert.deepEqual(worlds.worldProfileNames(base, def), [], 'the copy was made anyway');
+  assert.equal(recordOf(base, def), null, 'a refused import was recorded to start');
+
+  fs.writeFileSync(nodePath.join(worlds.worldStoreRoot(base, def), 'removed.json'), '{ not json');
+  const unreadable = worldimport.importAgents(base, 'default', [{ from: src.id, name: 'bob' }], opts);
+  assert.match(unreadable.refused[0].because, /could not check whether Kosmos 1 has a removed agent called bob/);
+});
+
+test('R1 (B, Mac): a leftover launch job under the TARGET\'s key takes the name; one under another Kosmos\'s key does not', () => {
+  const { base, env, opts } = setup();
+  const src = worlds.createWorld(base, 'Src');
+  const dst = worlds.createWorld(base, 'Dest');
+  seedAgent(base, env, src, 'sam');
+  fs.mkdirSync(nodePath.dirname(create.plistPath('sam', dst.id)), { recursive: true });
+  fs.writeFileSync(create.plistPath('sam', dst.id), '<plist/>');
+  try {
+    const r = worldimport.importAgents(base, dst.id, [{ from: src.id, name: 'sam' }], opts);
+    assert.deepEqual(r.copied, []);
+    assert.equal(r.refused[0].because, 'Dest already has something set to start as sam');
+    assert.deepEqual(worlds.worldProfileNames(base, dst), []);
+  } finally {
+    fs.rmSync(create.plistPath('sam', dst.id), { force: true });
+  }
+  // The control: the SAME name's job in another Kosmos (here the default one) is not this Kosmos's.
+  fs.writeFileSync(create.plistPath('sam', 'default'), '<plist/>');
+  try {
+    const r = worldimport.importAgents(base, dst.id, [{ from: src.id, name: 'sam' }], opts);
+    assert.deepEqual(r.copied.map((c) => c.name), ['sam'], 'another Kosmos\'s job was read as this one\'s');
+  } finally {
+    fs.rmSync(create.plistPath('sam', 'default'), { force: true });
+  }
+});
+
+test('R1 (B, Windows): a task registered under the TARGET\'s key takes the name; an unanswerable check refuses', () => {
+  const { base, env } = setup();
+  const src = worlds.createWorld(base, 'Src');
+  const dst = worlds.createWorld(base, 'Dest');
+  seedAgent(base, env, src, 'tia');
+  let answer = { ok: true, out: 'Status: Ready\n' };
+  const asked = [];
+  win32job.setRunner((args) => {
+    asked.push(args.join(' '));
+    if (args.includes(win32job.taskName('tia', dst.id))) return answer;
+    return { ok: false, out: 'ERROR: The system cannot find the file specified.' };
+  });
+  try {
+    const r = worldimport.importAgents(base, dst.id, [{ from: src.id, name: 'tia' }], { platform: 'win32', env });
+    assert.deepEqual(r.copied, []);
+    assert.equal(r.refused[0].because, 'Dest already has something set to start as tia');
+    assert.ok(asked.some((a) => a.includes(win32job.taskName('tia', dst.id))), 'the task was not asked for under the target\'s key');
+
+    answer = { ok: false, out: 'ERROR: Access is denied.' };
+    const unknown = worldimport.importAgents(base, dst.id, [{ from: src.id, name: 'tia' }], { platform: 'win32', env });
+    assert.equal(unknown.refused[0].because, 'we could not check whether anything is already set to start as tia in Dest');
+    assert.deepEqual(worlds.worldProfileNames(base, dst), []);
+  } finally {
+    win32job.setRunner(null);
+  }
+});
+
+test('R1: a readable job decides the runner, over the profile\'s provider', () => {
+  const { base, env, opts } = setup();
+  const src = worlds.createWorld(base, 'Src');
+  const dst = worlds.createWorld(base, 'Dest');
+  // The profile still says openai; the job that actually starts it says claude.
+  seedAgent(base, env, src, 'rae', { profile: { provider: 'openai' } });
+  fs.mkdirSync(nodePath.dirname(create.plistPath('rae', src.id)), { recursive: true });
+  fs.writeFileSync(create.plistPath('rae', src.id), create.plistFor('rae', '/usr/local/bin/claude', '/usr/local/bin/tmux', 'claude-opus-4', null, 'claude'));
+  try {
+    const r = worldimport.importAgents(base, dst.id, [{ from: src.id, name: 'rae' }], opts);
+    assert.deepEqual(r.refused, []);
+    const [entry] = recordOf(base, dst);
+    assert.equal(entry.runner, 'claude', 'the profile outranked the job that actually starts the agent');
+    assert.ok(fs.existsSync(nodePath.join(worlds.worldWorkersDir(base, dst, env), 'rae', 'CLAUDE.md')));
+  } finally {
+    fs.rmSync(create.plistPath('rae', src.id), { force: true });
+  }
 });

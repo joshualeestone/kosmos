@@ -44,6 +44,13 @@ const remove = require('./remove');
 const worldstarts = require('./worldstarts');
 const win32job = require('./win32job');
 
+/* The most agents one request may add (review round 1). The copy runs inside the
+   request, one agent after another, so this bounds one request's work. A person's
+   Kosmos holds a few dozen agents at most; 100 leaves room for that and refuses a
+   runaway list with a sentence rather than grinding through it. */
+const MAX_IMPORT_PICKS = 100;
+function tooManyBecause() { return `add at most ${MAX_IMPORT_PICKS} agents at a time`; }
+
 /* ── what can be offered ─────────────────────────────────────────────────── */
 
 /* The sentence for an agent whose name cannot become a job in another Kosmos. */
@@ -85,12 +92,16 @@ function importableAgents(base, world) {
 function listForPicker(base) {
   return worlds.listWorlds(base).map((w) => {
     const agents = importableAgents(base, w);
+    /* A waiting agent's profile is already in this Kosmos, so its display name is
+       too: the pane speaks it rather than the machine name. */
+    const shown = new Map(agents.map((a) => [a.name, a.displayName]));
     return {
       id: w.id,
       name: w.name,
       agentCount: agents.length,
       agents,
-      waiting: worldstarts.importsWaitingIn(worlds.worldStoreRoot(base, w)),
+      waiting: worldstarts.importsWaitingIn(worlds.worldStoreRoot(base, w))
+        .map((x) => ({ ...x, displayName: shown.get(x.name) || x.name })),
     };
   });
 }
@@ -101,8 +112,12 @@ function listForPicker(base) {
  * The picks a request asks for, validated. `importAgents: [{from, name}]` is the
  * form: one entry per agent. `importAgentsFrom: [worldId]` is the form a page
  * loaded before this change sends (a whole Kosmos per id), and it means every
- * agent that Kosmos can offer. Neither present is no import at all.
- * Returns `{ok: true, picks}` or `{ok: false, because}`.
+ * agent that Kosmos holds (removed ones excepted). EVERY one becomes a pick, the
+ * unofferable ones included, so copyOne refuses those with their sentence rather
+ * than their dropping out unmentioned (review round 1); `legacy: true` tells the
+ * route to answer in the counts that page reads. Neither present is no import.
+ * More than MAX_IMPORT_PICKS picks is refused. Returns `{ok: true, picks,
+ * legacy?}` or `{ok: false, because}`.
  */
 function picksFromBody(base, body) {
   const b = body || {};
@@ -111,6 +126,7 @@ function picksFromBody(base, body) {
     const wellFormed = Array.isArray(list) && list.every((p) => p && typeof p.from === 'string' && p.from.trim()
       && typeof p.name === 'string' && p.name.trim());
     if (!wellFormed) return { ok: false, because: 'say which agents to add, each as the Kosmos it is in and its name' };
+    if (list.length > MAX_IMPORT_PICKS) return { ok: false, because: tooManyBecause() };
     return { ok: true, picks: list.map((p) => ({ from: p.from.trim(), name: p.name.trim() })) };
   }
   if (b.importAgentsFrom !== undefined) {
@@ -123,9 +139,10 @@ function picksFromBody(base, body) {
     for (const id of new Set(ids)) {
       const w = known.find((x) => x.id === id);
       if (!w) { picks.push({ from: id, name: null }); continue; }   // refused below, as an unknown Kosmos
-      for (const a of importableAgents(base, w)) if (!a.because) picks.push({ from: id, name: a.name });
+      for (const a of importableAgents(base, w)) picks.push({ from: id, name: a.name });
     }
-    return { ok: true, picks };
+    if (picks.length > MAX_IMPORT_PICKS) return { ok: false, because: tooManyBecause() };
+    return { ok: true, picks, legacy: true };
   }
   return { ok: true, picks: [] };
 }
@@ -134,23 +151,23 @@ function picksFromBody(base, body) {
 
 /**
  * The runner, model and account the source agent starts with, read from its own
- * job in ITS Kosmos (the target has none yet). The profile's `provider` is the
- * fallback for the runner -- the answer register.repair uses -- and an unreadable
- * job leaves model and account unset, which installJob then says out loud
- * (its `guessed`) rather than inventing.
+ * job in ITS Kosmos (the target has none yet). A readable job decides the runner,
+ * as it decides the model and the account: the job is what actually starts the
+ * agent, so it outranks the profile's record (create.recordedRunner's own order).
+ * With no readable job, the profile's `provider` is the fallback for the runner --
+ * the answer register.repair uses -- and model and account stay unset, which
+ * installJob then says out loud (its `guessed`) rather than inventing.
  */
 function launchSpecOf(name, sourceWorldId, profile, platform) {
-  const runner = profile && profile.provider === 'openai' ? 'codex' : 'claude';
+  const fromJob = (runner, model, configDir) => ({ runner: runner === 'codex' ? 'codex' : 'claude', model: model || null, configDir: configDir || null });
   if (platform === 'win32') {
     const t = win32job.taskSpec(name, sourceWorldId);
-    if (t.known && t.registered && t.spec) {
-      return { runner: t.spec.runner === 'codex' ? 'codex' : runner, model: t.spec.model || null, configDir: t.spec.configDir || null };
-    }
-    return { runner, model: null, configDir: null };
+    if (t.known && t.registered && t.spec) return fromJob(t.spec.runner, t.spec.model, t.spec.configDir);
+  } else {
+    const job = create.readJob(name, sourceWorldId);
+    if (job) return fromJob(job.runner, job.model, job.configDir);
   }
-  const job = create.readJob(name, sourceWorldId);
-  if (job) return { runner: job.runner === 'codex' ? 'codex' : runner, model: job.model || null, configDir: job.configDir || null };
-  return { runner, model: null, configDir: null };
+  return { runner: profile && profile.provider === 'openai' ? 'codex' : 'claude', model: null, configDir: null };
 }
 
 /* Take back out what this import wrote for one agent, newest first. Only paths it
@@ -201,6 +218,22 @@ function copyOne(base, src, dst, name, opts) {
   if (fs.existsSync(profileFile) || fs.existsSync(folder) || store.avatarPathIn(avatarsDir, name)) {
     return { ok: false, because: taken };
   }
+  /* Review round 1 (A): a name the person REMOVED from the target is taken there
+     too, profile or not. Copied in, the start would find it on the removed list,
+     clear it and start nothing, and the copy would sit hidden behind an "Added". */
+  const removedThere = remove.removedNamesIn(worlds.worldStoreRoot(base, dst));
+  if (!removedThere.ok) return { ok: false, because: `we could not check whether ${dst.name} has a removed agent called ${name}` };
+  if (removedThere.names.includes(name)) {
+    return { ok: false, because: `${dst.name} has a removed agent called ${name}; restore that one there instead` };
+  }
+  /* Review round 1 (B): so is a name the target already has a launch job for,
+     under the target's own world key. The start would find that job and run it --
+     its old folder, model and account -- instead of the copy. Asked through
+     create.jobPresence, the one answer to "does this name have a job", in the
+     target's world; an answer it could not get refuses rather than guesses. */
+  const job = create.jobPresence(name, platform, dst.id);
+  if (job === 'unknown') return { ok: false, because: `we could not check whether anything is already set to start as ${name} in ${dst.name}` };
+  if (job === 'yes') return { ok: false, because: `${dst.name} already has something set to start as ${name}` };
 
   const made = [];
   try {
@@ -246,8 +279,9 @@ function copyOne(base, src, dst, name, opts) {
  * Copy the picked agents into the Kosmos `targetId`. Every pick is copied or
  * refused with a sentence; one refusal never stops the others.
  * Returns `{ok: false, code: 'ENOWORLD'}` for a target that does not exist, or
- * `{ok: true, world, copied: [{from, name, displayName}], refused: [{from, name, because}]}`.
- * Starting them is the caller's (see the header).
+ * `{ok: true, world, copied: [{from, name, displayName}], refused: [{from, name, because}],
+ * unknownSources}` (how many refusals were for a Kosmos that does not exist, which
+ * the legacy answer counts apart). Starting them is the caller's (see the header).
  */
 function importAgents(base, targetId, picks, opts = {}) {
   const known = worlds.listWorlds(base);
@@ -256,11 +290,16 @@ function importAgents(base, targetId, picks, opts = {}) {
   const copied = [];
   const refused = [];
   const claimed = new Set();
+  let unknownSources = 0;
   for (const pick of picks || []) {
     const from = pick && pick.from;
     const name = pick && pick.name;
     const src = known.find((w) => w.id === from);
-    if (!src) { refused.push({ from, name, because: 'there is no Kosmos with that id on this machine' }); continue; }
+    if (!src) {
+      unknownSources += 1;
+      refused.push({ from, name, because: 'there is no Kosmos with that id on this machine' });
+      continue;
+    }
     if (src.id === world.id) { refused.push({ from, name, because: `it is already in ${world.name}` }); continue; }
     if (claimed.has(name)) {
       refused.push({ from, name, because: `another agent called ${name} is already being added to ${world.name}` });
@@ -271,7 +310,7 @@ function importAgents(base, targetId, picks, opts = {}) {
     claimed.add(name);
     copied.push({ from, name, displayName: r.displayName });
   }
-  return { ok: true, world, copied, refused };
+  return { ok: true, world, copied, refused, unknownSources };
 }
 
-module.exports = { importableAgents, listForPicker, picksFromBody, importAgents };
+module.exports = { MAX_IMPORT_PICKS, importableAgents, listForPicker, picksFromBody, importAgents };

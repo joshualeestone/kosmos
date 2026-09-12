@@ -305,12 +305,20 @@ function namedWorldSpawnRefusal(worldId) {
    cannot answer differently. Returns null for a Kosmos that does not exist.
    `imported`: copied [{from,name,displayName}], refused [{from,name,because}],
    started [names] (now, in the open Kosmos), waiting [{name,because}] (recorded,
-   held with a sentence), later [names] (recorded; start when that Kosmos opens). */
-function importIntoWorld(base, targetId, picks) {
+   held with a sentence), later [names] (recorded; start when that Kosmos opens).
+   `opts.legacy` (a page from before, importAgentsFrom) adds the counts that page
+   reads -- `failed` and `unknownSources` -- so it reports a refusal rather than
+   closing as a clean import (review round 1, C). */
+const IMPORT_CLEARED_BECAUSE = 'it is on this Kosmos\'s list of removed agents, so it was not started; restore it to run it';
+function importIntoWorld(base, targetId, picks, opts = {}) {
   const r = worldimport.importAgents(base, targetId, picks);
   if (!r.ok) return null;
   const names = r.copied.map((c) => c.name);
   const imported = { copied: r.copied, refused: r.refused, started: [], waiting: [], later: [] };
+  if (opts.legacy) {
+    imported.unknownSources = r.unknownSources;
+    imported.failed = r.refused.length - r.unknownSources;
+  }
   if (names.length) {
     /* The board is serving the Kosmos it booted into; an unbootstrapped board (a
        unit test) serves the default one, whose store is the one it reads. */
@@ -318,7 +326,10 @@ function importIntoWorld(base, targetId, picks) {
     if (serving === r.world.id) {
       const s = worldstarts.startImported(names, { spawnRefusal: namedWorldSpawnRefusal });
       imported.started = s.resumed;
-      imported.waiting = s.held;
+      /* A cleared import is copied and NOT started (review round 1, A): said, never
+         silent. The importer refuses such a name up front; this covers a removal
+         that lands between the copy and the start. */
+      imported.waiting = s.held.concat((s.cleared || []).map((name) => ({ name, because: IMPORT_CLEARED_BECAUSE })));
     } else {
       const barred = namedWorldSpawnRefusal(r.world.id);
       if (barred) imported.waiting = names.map((name) => ({ name, because: barred.waiting }));
@@ -3110,7 +3121,7 @@ const server = http.createServer((req, res) => {
       sendJson(res, 200, {
         worlds: worldimport.listForPicker(base).map((w) => {
           const barred = namedWorldSpawnRefusal(w.id);
-          return { ...w, waiting: w.waiting.map((x) => ({ name: x.name, because: x.because || (barred ? barred.waiting : null) })) };
+          return { ...w, waiting: w.waiting.map((x) => ({ name: x.name, displayName: x.displayName, because: x.because || (barred ? barred.waiting : null) })) };
         }),
       });
     } catch (_e) {
@@ -3141,7 +3152,7 @@ const server = http.createServer((req, res) => {
            own sentence; a throw past that is reported as `error` and logged. */
         let imported = null;
         if (asked.picks.length) {
-          try { imported = importIntoWorld(base, world.id, asked.picks).imported; }
+          try { imported = importIntoWorld(base, world.id, asked.picks, { legacy: asked.legacy }).imported; }
           catch (err) {
             process.stderr.write(`Kosmos created ${world.id} but could not add its agents: ${String((err && err.message) || err)}\n`);
             imported = { copied: [], refused: [], started: [], waiting: [], later: [], error: true };

@@ -662,16 +662,19 @@ function nameUsable(raw) {
  * defaults to the real platform, so production is unchanged. Same shape as
  * `installJob`'s `opts.platform`, `remove.jobFor` and `store.dataRootFor`.
  */
-function jobPresence(name, platform) {
+/* `worldId` (#1704 PR4): the same question about ANOTHER Kosmos, under that world's
+   launch key -- an import asks it of the Kosmos it is copying INTO, which is not
+   always the one this process serves. Absent means this process's own world. */
+function jobPresence(name, platform, worldId) {
   if ((platform || process.platform) === 'win32') {
     /* require at CALL time, matching win32RegisterJob below: this module is
        required by half the engine and win32job pulls in the anchor. */
     let p;
-    try { p = require('./win32job').presence(name); } catch { return 'unknown'; }
+    try { p = require('./win32job').presence(name, worldId); } catch { return 'unknown'; }
     if (!p.known) return 'unknown';
     return p.registered ? 'yes' : 'no';
   }
-  try { fs.statSync(plistPath(name)); return 'yes'; } catch (e) {
+  try { fs.statSync(plistPath(name, worldId)); return 'yes'; } catch (e) {
     // Only ENOENT is evidence of absence; EACCES and a broken directory are not.
     return (e && e.code === 'ENOENT') ? 'no' : 'unknown';
   }

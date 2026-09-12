@@ -472,8 +472,10 @@ function remove(name) {
  * and NOTHING may be concluded -- `registered` is false there only so a caller
  * that ignores `known` errs toward doing nothing rather than acting.
  */
-function presence(name) {
-  const r = run(['/Query', '/TN', taskName(name), '/FO', 'LIST']);
+/* `worldId` (#1704 PR4): ask about ANOTHER Kosmos's task, whose name carries that
+   world's key. Absent means this process's own world, which is every other caller. */
+function presence(name, worldId) {
+  const r = run(['/Query', '/TN', taskName(name, worldId), '/FO', 'LIST']);
   if (r.ok) {
     /* schtasks prints a localized "Scheduled Task State" / "Status" line. Read
        the DISABLED token rather than a positive spelling: the disabled word is

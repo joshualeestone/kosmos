@@ -173,6 +173,7 @@ test('into a named Kosmos that is not open: recorded there and shown waiting wit
   const alpha = list.worlds.find((w) => w.id === 'alphaworld');
   const dan = alpha.waiting.find((w) => w.name === 'dan');
   assert.ok(dan, 'the waiting agent is not listed for its Kosmos');
+  assert.equal(dan.displayName, 'Dan', 'the pane would speak the machine name');
   assert.match(dan.because, /^Agents do not run in a named Kosmos yet/, 'the pane would say it starts when opened, which it will not');
 });
 
@@ -207,6 +208,40 @@ test('a page from before still works: importAgentsFrom brings every agent that K
   const names = r.body.imported.copied.map((c) => c.name);
   assert.ok(names.includes('gus'), 'a legacy import did not copy the Kosmos\'s agents: ' + JSON.stringify(r.body.imported));
   assert.ok(r.body.imported.copied.every((c) => c.from === 'alphaworld'));
+});
+
+test('R1 (C): a page from before gets the counts it reads -- failed and unknownSources -- so it cannot close over a refusal', async () => {
+  seed('alphaworld', 'x');   // one character: not a name a job can be built from
+  const r = await post('/api/worlds', { name: 'Epsilon', importAgentsFrom: ['alphaworld', 'nope'] });
+  assert.equal(r.status, 200, r.body.because);
+  assert.equal(r.body.imported.unknownSources, 1);
+  assert.equal(typeof r.body.imported.failed, 'number');
+  assert.ok(r.body.imported.failed >= 1, 'an agent that could not be offered was dropped rather than refused');
+  assert.ok(r.body.imported.refused.some((x) => x.name === 'x' && /name cannot be used/.test(x.because)));
+  const plain = await post('/api/worlds/import', { id: 'default', importAgents: [{ from: 'nope', name: 'zz' }] });
+  assert.equal('failed' in plain.body.imported, false, 'the per-agent form keeps its own shape');
+});
+
+test('R1: more picks than one request may carry is a 400 with a sentence', async () => {
+  const many = Array.from({ length: 101 }, (_, i) => ({ from: 'alphaworld', name: 'a' + i }));
+  const r = await post('/api/worlds/import', { id: 'default', importAgents: many });
+  assert.equal(r.status, 400);
+  assert.match(r.body.because, /add at most 100 agents at a time/);
+});
+
+test('R1 (A): an import the start CLEARED is reported, never counted as simply added', async () => {
+  seed('alphaworld', 'zoe');
+  const real = worldstarts.startImported;
+  worldstarts.startImported = () => ({ resumed: [], held: [], cleared: ['zoe'] });   // a removal landing between copy and start
+  try {
+    const r = await post('/api/worlds/import', { id: 'default', importAgents: [{ from: 'alphaworld', name: 'zoe' }] });
+    assert.equal(r.status, 200, r.body.because);
+    assert.deepEqual(r.body.imported.started, []);
+    assert.deepEqual(r.body.imported.waiting.map((w) => w.name), ['zoe'], 'a cleared import vanished from the answer');
+    assert.match(r.body.imported.waiting[0].because, /list of removed agents, so it was not started/);
+  } finally {
+    worldstarts.startImported = real;
+  }
 });
 
 test('GET /api/worlds/list: every Kosmos, its agents to pick from (removed ones left out), and what waits in it', async () => {

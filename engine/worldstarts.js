@@ -431,8 +431,12 @@ function firstStartOfImport(entry, platform) {
  * the rule is lifted.
  *
  * Returns `{resumed: [names], held: [{name, because}], cleared: [names]}`.
- * `cleared` names removed agents, whose entries are dropped because the removal
- * now owns them (restore re-enables them).
+ * `cleared` names removed agents, whose entries are dropped and who are NOT
+ * started. For a PAUSED agent the removal now owns it, and restore re-enables its
+ * job. An IMPORTED agent never had a job, so restore has nothing to re-enable: it
+ * stays copied and unstarted, which the importer refuses up front (a name on the
+ * target's removed list is taken) and the import route reports when it happens
+ * anyway -- a cleared import must never read as "Added".
  */
 function resumeEntries(onlyNames, opts = {}) {
   const platform = platformFor(opts);

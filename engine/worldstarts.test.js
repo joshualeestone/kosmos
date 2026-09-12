@@ -45,6 +45,7 @@ let failing = [];           // substrings of a command that should fail
 let onFirstCall = null;     // runs once, before the first command is answered
 let macDisabled = new Set(); // agents launchd reports switched off (print-disabled)
 let winDisabled = new Set(); // agents whose Scheduled Task reports Disabled
+let winMissing = new Set();  // agents with no Scheduled Task at all (an import's first start)
 
 function answerMac(file, args) {
   const line = [nodePath.basename(file), ...args].join(' ');
@@ -61,6 +62,7 @@ function answerWin(args) {
   if (onFirstCall) { const f = onFirstCall; onFirstCall = null; f(); }
   calls.push(line);
   if (args[0] === '/Query') {
+    if ([...winMissing].some((n) => args.includes(win32job.taskName(n)))) return { ok: false, out: 'ERROR: The system cannot find the file specified.' };
     const off = [...winDisabled].some((n) => args.includes(win32job.taskName(n)));
     return { ok: true, out: off ? 'Status: Disabled\n' : 'Status: Ready\n' };
   }
@@ -104,7 +106,7 @@ const writeRecord = (entries) => {
 
 test.beforeEach(() => {
   calls = []; failing = []; onFirstCall = null;
-  macDisabled = new Set(); winDisabled = new Set();
+  macDisabled = new Set(); winDisabled = new Set(); winMissing = new Set();
   remove.setRunner(answerMac);
   create.setRunner(answerCreate);
   win32job.setRunner(answerWin);
@@ -661,4 +663,22 @@ test('an unreadable record is refused, never rewritten from empty', () => {
   assert.match(out.notPaused[0].because, /could not read the list/);
   assert.equal(calls.some((c) => /disable|bootout/.test(c)), false, 'nothing may stop without its entry written first');
   assert.equal(fs.readFileSync(worldstarts.RECORD_FILE, 'utf8'), '{ not json', 'the unreadable record was overwritten');
+});
+
+test('R1 TEST-GAP (Windows, the path this box ships): no task yet -> the folder is trusted on its account, then installJob gets the win32 spec', () => {
+  winMissing.add('wen');
+  fs.mkdirSync(create.workerDir('wen'), { recursive: true });
+  const account = nodePath.join(SANDBOX, 'acct-wen');
+  fs.mkdirSync(account, { recursive: true });
+  writeRecord([importEntry('wen', { model: 'claude-opus-4', configDir: account })]);
+  const got = [];
+  const r = withInstallJob((name, opts) => { got.push({ name, opts }); return { ok: true, started: true }; },
+    () => worldstarts.startImported(['wen'], { platform: WIN }));
+  assert.deepEqual(r.held, []);
+  assert.deepEqual(r.resumed, ['wen']);
+  assert.ok(calls.some((c) => c.includes('/Query') && c.includes(win32job.taskName('wen'))), 'the start never looked for the task');
+  assert.equal(calls.some((c) => /\/Change|\/Run/.test(c)), false, 'a task that is not there was enabled or run');
+  assert.deepEqual(got, [{ name: 'wen', opts: { platform: WIN, model: 'claude-opus-4', configDir: account } }]);
+  const cfg = fs.readFileSync(nodePath.join(account, '.claude.json'), 'utf8');
+  assert.ok(cfg.includes('wen') && cfg.includes('hasTrustDialogAccepted'), 'the copy was not trusted on the account it will run on');
 });

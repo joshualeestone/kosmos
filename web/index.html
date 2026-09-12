@@ -18740,6 +18740,13 @@ function worldImportRender(worlds, listEl, wrapEl, excludeId) {
   listEl.textContent = '';
   const usable = Array.isArray(worlds) ? worlds.filter((w) => w && w.id != null && w.id !== excludeId) : [];
   if (!usable.length) { wrapEl.hidden = true; return; }
+  /* Review round 1: a name the Kosmos being added TO already holds is shown, and
+     disabled as "already here" -- the server would refuse it, and a box that can
+     only be refused is not an offer. */
+  const target = Array.isArray(worlds) ? worlds.find((w) => w && w.id === excludeId) : null;
+  const here = new Set((target && Array.isArray(target.agents) ? target.agents : [])
+    .concat(target && Array.isArray(target.waiting) ? target.waiting : [])
+    .map((a) => a && a.name).filter(Boolean));
   for (const w of usable) {
     const agents = Array.isArray(w.agents) ? w.agents.filter((a) => a && typeof a.name === 'string' && a.name) : [];
     const n = agents.length;
@@ -18777,8 +18784,9 @@ function worldImportRender(worlds, listEl, wrapEl, excludeId) {
       cb.dataset.from = String(w.id);
       const nm = document.createElement('span');
       nm.className = 'world-import-name';
-      nm.textContent = String(a.displayName || a.name) + (a.because ? ' (' + a.because + ')' : '');
-      if (a.because) cb.disabled = true;
+      const because = a.because || (here.has(a.name) ? 'already here' : '');
+      nm.textContent = String(a.displayName || a.name) + (because ? ' (' + because + ')' : '');
+      if (because) cb.disabled = true;
       else { pickable.push(cb); cb.addEventListener('change', sync); }
       row.appendChild(cb);
       row.appendChild(nm);
@@ -19045,7 +19053,7 @@ function worldSettingsWaitingNote(waiting) {
   const list = Array.isArray(waiting) ? waiting.filter((w) => w && w.name) : [];
   if (!list.length) return '';
   const why = list.find((w) => w.because);
-  return 'Waiting to start here: ' + list.map((w) => w.name).join(', ') + '. '
+  return 'Waiting to start here: ' + list.map((w) => w.displayName || w.name).join(', ') + '. '
     + (why ? asSentence(String(why.because)) : 'They start when this Kosmos is opened.');
 }
 function worldSettingsSelectionChanged() {
@@ -19079,7 +19087,11 @@ async function worldSettingsAddSubmit() {
       : ((body && body.because) || 'Could not add those agents. Try again.');
     // Redraw: the agents just added now belong to this Kosmos, and the waiting line moves.
     const worlds = await worldImportFetch();
-    if (WORLD_RENAME_ID === id) worldSettingsRender(worlds, id);
+    if (WORLD_RENAME_ID === id) {
+      worldSettingsRender(worlds, id);
+      // Not left on Add, which the redraw disabled: Close, after the outcome is announced.
+      document.getElementById('world-rename-cancel').focus();
+    }
   } catch {
     msg.textContent = 'Could not reach Kosmos. Try again.';
     worldSettingsSelectionChanged();

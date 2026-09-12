@@ -176,7 +176,8 @@ He confirmed this shape:
     - CLAUDE.md "Where to Find Things": add `worldstarts.js`, `worldimport.js` and
       `launchidentity.js`.
     - WINDOWS-ROADMAP.md §5: a note on import.
-    - `outbox.js` is not on main, so it gets no row.
+    - `outbox.js` (PR2, #2879) is on main since the rebase onto `136172a7`, so it
+      gets its row too.
 
 ## Files
 
@@ -318,6 +319,90 @@ He confirmed this shape:
   while writers are racing" failed once in the full run and passed on rerun. It
   touches nothing here.
 - **After the fixes,** the 20 affected and inventory suites pass 200 of 200.
+
+### Round 1 validation (rebased onto main `136172a7`)
+
+- **The coordinator's probe** (`scratchpad/probe-import.js`), re-run on the branch:
+  - `bob` is refused because Kosmos 1 has a removed agent of that name (A);
+  - `sam` is refused because of the leftover job (B);
+  - nothing is copied, started or recorded.
+- **Targeted suites and inventories:** 173 of 173 pass. This covers
+  `worldimport`, `worldstarts`, the three route suites, the two web import suites,
+  `modal-exit`, `open-sentence`, `modal-way-out`, `one-derivation`,
+  `engine.reachable`, `fixture-discipline`, `worldenv-order`,
+  `platform-gate-wiring`, the #1732 coupling audit and `win32-separator-guard`.
+- **Controls.** 14 perturbations, each reverting one round-1 fix, all went red:
+  - A's target removed-list check, and A's cleared surfacing;
+  - B's job collision, B's unknown refusal, and B asked in the wrong world on the
+    Mac and on Windows;
+  - C's legacy refusals and C's counts;
+  - the job-wins runner;
+  - the picks cap;
+  - the display-name waiting line, and the list route's `displayName`;
+  - "already here";
+  - focus after Add.
+- **The full test list, in the foreground, compared by NAME with a clean main
+  `136172a7` worktree:**
+  - `engine/` half: main fails 418 of 3516 and the branch 418 of 3545. That is 417
+    unique names on each side and identical sets.
+  - The root half: main fails 404 of 2845 and the branch 404 of 2868. That is 405
+    unique names on each side and identical sets.
+  - `engine/create.test.js` alone: 104 unique failing names on each side,
+    identical.
+  - So there is no branch-only failure, and nothing needed checking on main.
+
+## Review log
+
+- **Round 1 (coordinator, at `2a1c41cf`; rebased onto main `136172a7`).**
+  - [BUG A] An import into a Kosmos whose removed list holds the name was copied,
+    then CLEARED by the start and reported "Added": hidden and never started.
+    - `copyOne` now refuses such a name ("Kosmos 1 has a removed agent called bob;
+      restore that one there instead"), and an unreadable removed list refuses too.
+    - `importIntoWorld` reports any `cleared` import in `waiting`, with a sentence.
+    - The worldstarts `cleared` comment no longer claims restore re-enables an
+      imported agent.
+  - [BUG B] A leftover launch job under the target's key started instead of the
+    copy, with its old folder, model and account.
+    - The name is now TAKEN when `create.jobPresence(name, platform, dst.id)` says
+      "yes". That is the one three-state answer, now able to ask about another world
+      (`win32job.presence` gained the same `worldId`).
+    - An answer it cannot get ("unknown") refuses.
+    - It checks the keyed plist or task only; see the rebase TODO.
+  - [BUG C] A page from before read `failed` / `unknownSources`, which the new
+    answer lacked, and `picksFromBody` dropped unofferable agents.
+    - The legacy form now makes EVERY agent a pick, removed ones excepted, so
+      unofferable ones are refused by `copyOne`.
+    - The route adds numeric `failed` and `unknownSources` for that form only.
+  - [TEST-GAP]
+    - A worldstarts test drives `startImported` on win32: no task, then the trust
+      write on the recorded account, then `installJob` with the win32 spec.
+    - The worldimport Windows fixture is now written by `win32job.taskXml`.
+  - [NIT]
+    - A readable job's runner outranks `profile.provider`.
+    - The picker marks names the target holds "already here", disabled.
+    - The waiting line speaks display names; the list route carries them.
+    - Focus moves to Close after Add agents.
+    - The one-derivation import-route slice is anchor to anchor.
+    - `MAX_IMPORT_PICKS` (100) caps a request, with a sentence.
+    - The outbox.js row is added.
+
+## Rebase TODO (after `world-guard-lift-1704` merges; do NOT do before)
+
+- **Everything tied to `namedWorldSpawnRefusal` goes:**
+  - `importIntoWorld`'s not-open branch becomes `imported.later = names`;
+  - the `/api/worlds/list` mapping passes `because` through unchanged;
+  - `startImported` loses its `spawnRefusal`, and `NAMED_WORLD_WAITING` and
+    `refused.waiting` are removed;
+  - the waiting-sentence pins go: web (`web.world-import-2563`,
+    `web.world-import-agents-1704`), both browser checks, `server.world-import-agents-1704`,
+    `one-derivation`, and `server.world-switch-agents-1704`'s R1-5.
+- **Stale sentences on disk.** Record entries already carrying the stale "Agents do
+  not run in a named Kosmos yet..." sentence are ignored or cleared on read, so no
+  pane repeats it after the lift.
+- **B's legacy candidate.** Reuse `remove.jobFor`'s decision for B once the lift
+  makes it offer the legacy `com.<name>.discord` candidate only in the default
+  world. Until then the import checks the world-keyed plist or task only
+  (`create.jobPresence(name, platform, dst.id)`).
 
 ## Weakest part
 
