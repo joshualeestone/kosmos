@@ -6250,16 +6250,15 @@ const server = http.createServer((req, res) => {
           }
           sendJson(res, 200, withStopNote({
             removed: gone.removed === true,
-            /* #2684: the DEFAULT is deletable now, and deleting it rmSyncs the whole
-               .codex home -- so its codex sessions/rollouts go with it. Disclose that
-               on the default only (codexsession reads the default home alone, so a
-               labelled account's history is not the product's to lose), matching the
-               history clause the disconnect door already carries for wasDefault. The
-               more destructive door must not disclose LESS than the reversible one. */
+            /* #2684 / #2941: deleting an account rmSyncs its whole .codex home -- sign-in
+               AND sessions/rollouts. Since #2906, status.readCodexSession reads EVERY account's
+               own home (job.configDir), not the default's alone, so a labelled account's codex
+               history is now visible in the Memory panel and a labelled delete loses it just as a
+               default delete does. So the history clause is unconditional here (dropped the
+               wasDefault gate, #2941): both doors lose the same visible history. The more
+               destructive door must not disclose LESS than the reversible disconnect door. */
             because: gone.removed
-              ? (gone.wasDefault
-                  ? 'That account is deleted from this computer. Its sign-in file is gone, and any history kept only under it (its codex sessions) goes with it.'
-                  : 'That account is deleted from this computer. Its sign-in file is gone.')
+              ? 'That account is deleted from this computer. Its sign-in file is gone, and any history kept only under it (its codex sessions) goes with it.'
               : 'That account was already gone from this computer.',
             accounts: openaiAccounts.list(),
           }, stopReport, false));
@@ -6293,17 +6292,15 @@ const server = http.createServer((req, res) => {
           because: out.forgotten
             ? 'That account is off the list. Its sign-in file is still on this computer, '
               + 'so nothing was deleted.'
-              /* 🛑 THE HISTORY CLAUSE, AND ONLY FOR THE DEFAULT, because that is the
-                 only OpenAI account it is true of. `codexsession` reads sessions out
-                 of the DEFAULT home alone, so removing `~/.codex` costs the
-                 transcripts (measured: rollouts 1 before the rename, 0 after) while
-                 removing a labelled `.codex-<label>` costs none.
-                 ⇒ The Claude route says this unconditionally and is right to: its
-                 transcripts live under every account directory. Saying it here
-                 unconditionally would be the same false-for-most disclosure this
-                 branch removed from the uninstall transcript. */
-              + (out.wasDefault ? ' Kosmos stops looking inside it, so any history kept '
-                + 'only there will not appear any more.' : '')
+              /* 🛑 THE HISTORY CLAUSE, now UNCONDITIONAL (#2941). It used to be default-only,
+                 on the premise that `codexsession` read the DEFAULT home alone. Since #2906,
+                 status.readCodexSession reads EVERY account's own home (job.configDir), so a
+                 labelled `.codex-<label>` account's sessions are now visible in the Memory panel
+                 too -- disconnecting one stops Kosmos looking inside it and its history stops
+                 appearing, exactly as for the default. So the clause matches the Claude route,
+                 which always said this and was always right for the same reason (its transcripts
+                 live under every account directory). Dropping the wasDefault gate here is #2941. */
+              + ' Kosmos stops looking inside it, so any history kept only there will not appear any more.'
               + (out.movedTo ? ' It is in a hidden folder called ' + path.basename(out.movedTo)
                 + ' in your home folder.' : '')
             : 'That account was already gone from this computer.',
