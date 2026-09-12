@@ -232,11 +232,22 @@ function initStub() {
     m.dispatchEvent(new MouseEvent('click', { bubbles: true }));   // e.target === #rst-modal
   });
   await page.waitForTimeout(60);
-  const duringDismiss = await page.evaluate(() => ({
-    modalOpen: document.getElementById('rst-modal').hidden === false,
-    loaderStillUp: /Restarting the agent/i.test(document.getElementById('rst-msg').innerHTML),
-    busyFlag: (typeof RST_BUSY !== 'undefined') ? RST_BUSY : null,
-  }));
+  const duringDismiss = await page.evaluate(() => {
+    // #2831 W3-followup: during the interstitial both confirm buttons are hidden, so the
+    // Tab-trap has no reachable control. The modal has no `inert` background, so the handler
+    // must preventDefault on Tab or the browser moves focus to the board behind the dialog.
+    // A synthetic cancelable Tab keydown lets us read defaultPrevented deterministically (a
+    // real page.keyboard.press would depend on document tab order); before the fix the empty
+    // return left it false and focus escaped.
+    const ev = new KeyboardEvent('keydown', { key: 'Tab', cancelable: true, bubbles: true });
+    document.dispatchEvent(ev);
+    return {
+      modalOpen: document.getElementById('rst-modal').hidden === false,
+      loaderStillUp: /Restarting the agent/i.test(document.getElementById('rst-msg').innerHTML),
+      busyFlag: (typeof RST_BUSY !== 'undefined') ? RST_BUSY : null,
+      tabContained: ev.defaultPrevented === true,
+    };
+  });
   // Then let it finish and confirm it still resolves normally (the guard did not wedge it shut).
   await page.waitForFunction(() => {
     const t = (document.querySelector('#__ah .instr-restart-note') || {}).textContent || '';
@@ -249,6 +260,8 @@ function initStub() {
   }));
   check('DISMISS-BLOCKED: Escape and a backdrop click during the hold do NOT close the modal (the restart is committed)',
     duringDismiss.modalOpen && duringDismiss.loaderStillUp && duringDismiss.busyFlag === true, JSON.stringify(duringDismiss));
+  check('DISMISS-BLOCKED: Tab is contained during the interstitial (preventDefault) rather than escaping to the board behind the aria-modal',
+    duringDismiss.tabContained === true, JSON.stringify(duringDismiss));
   check('DISMISS-BLOCKED: after the restart resolves the modal closes and the busy flag is cleared (the guard did not wedge it shut)',
     afterDismiss.modalHidden && afterDismiss.busyFlag === false && afterDismiss.note === PLACED, JSON.stringify(afterDismiss));
 
