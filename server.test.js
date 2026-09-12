@@ -13846,3 +13846,94 @@ test('#2811: a PANELESS codex agent carries runner "codex" on the board, so the 
     for (const n of made) { try { fsX.unlinkSync(create.plistPath(n)); } catch { /* may not exist */ } }
   }
 });
+
+test('#2811: the OFFLINE row and the PANELESS row answer the runner the SAME way when plist and profile disagree', async () => {
+  /**
+   * 🛑 TWO DERIVATIONS OF ONE FACT IN ONE PAYLOAD. The paneless row fills an absent
+   * runner from `create.recordedRunner` (PLIST-first, profile only when no job
+   * parses). The offline row used to restate a weaker rule, `profile.provider ===
+   * 'openai'` (PROFILE-only). They disagree whenever the two records diverge.
+   *
+   * ⚠️ AND THAT STATE IS NOT HYPOTHETICAL: this branch's own
+   * `create.setprovider-writes-2811.test.js` EACCES arm asserts it directly -- a
+   * completed claude->codex switch whose best-effort profile write failed leaves
+   * the plist saying codex and the profile saying anthropic.
+   *
+   * 🔑 THE TWO POPULATIONS ARE MUTUALLY EXCLUSIVE PER POLL BUT DESCRIBE THE SAME
+   * AGENT AT DIFFERENT MOMENTS: a paneless row is pushed while the agent is
+   * beat-known or created-never-run, and the same agent falls into the offline
+   * list once its beat lapses. So a divergence flips the answer between polls.
+   */
+  const create = require('./engine/create');
+  const store = require('./engine/store');
+  const fsX = require('node:fs');
+  const name = 'splitrec';
+  try {
+    fsX.mkdirSync(create.AGENTS_DIR, { recursive: true });
+    // The DISAGREEING state, written with the product's own writer: plist codex...
+    fsX.writeFileSync(create.plistPath(name),
+      create.plistFor(name, '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, null, 'codex'), 'utf8');
+    // ...profile still anthropic, which is what a best-effort profile write leaves.
+    store.writeProfile(name, { provider: 'anthropic' });
+
+    /* THE FIXTURE'S OWN CONTROL: if the two records agreed, this arm would pass
+       under either derivation and prove nothing. */
+    assert.equal(create.readJob(name).runner, 'codex', 'the fixture plist does not say codex, so the records do not disagree');
+    assert.equal(store.readProfile(name).provider, 'anthropic', 'the fixture profile does not say anthropic, so the records do not disagree');
+
+    const body = JSON.parse((await req('/api/status')).body);
+    const row = ((body && body.agents) || []).find((r) => r && (r.sessionName === name || r.name === name));
+
+    /* POPULATION FLOOR: this must be the OFFLINE row (no pane, not running), or the
+       arm is measuring the population that was already correct. */
+    assert.ok(row, 'the seeded agent produced no board row, so this arm measures nothing');
+    assert.equal(row.running, false, 'the row is running, so it is not the offline row and this arm measures the wrong population');
+
+    assert.equal(row.runner, 'codex',
+      'the OFFLINE row read the profile instead of the record, so it disagrees with the paneless row about the same agent');
+  } finally {
+    try { fsX.unlinkSync(create.plistPath(name)); } catch { /* may not exist */ }
+  }
+});
+
+test('#2811: a paneless row for an agent this Mac has NO record of keeps runner null, rather than claiming claude', async () => {
+  /**
+   * 🛑 NULL IS NOT A DEFAULT, AND `recordedRunner` CANNOT SAY "UNKNOWN".
+   * `panelessCard`'s contract (`engine/status.js`) legislates this directly:
+   * "runner is null because the token store does not record one -- the screen's
+   * fallback will read that as Anthropic, which is A DISPLAY DEFAULT WE INHERIT
+   * AND NOT A CLAIM THIS CARD MAKES."
+   *
+   * `create.recordedRunner` floors at 'claude' in BOTH arms (readJob floors its
+   * runner; the profile arm ends `provider === 'openai' ? 'codex' : 'claude'`), so
+   * filling unconditionally turns that inherited default into a positive claim for
+   * any agent this Mac holds no job and no profile for -- the beat-known remote /
+   * win32 population `panelessKeys` enumerates, which is precisely what that
+   * paragraph is about.
+   *
+   * ⚠️ AND FOR A REMOTE CODEX AGENT IT IS THE CARD'S OWN DEFECT ONE POPULATION
+   * OVER: 'claude' hands it the Claude model list (#2167), which this card exists
+   * to close.
+   */
+  const status = require('./engine/status');
+  const create = require('./engine/create');
+  const fsX = require('node:fs');
+  const unknown = 'nobodyhere2811';
+  try {
+    /* THE FIXTURE'S OWN CONTROL: the arm is only meaningful if this Mac really
+       holds nothing under that name. Assert the absence rather than assume it. */
+    assert.equal(create.readJob(unknown), null, 'this Mac holds a launch job for the "unknown" name, so the arm measures nothing');
+    assert.equal(fsX.existsSync(create.plistPath(unknown)), false, 'a plist exists for the "unknown" name, so the arm measures nothing');
+
+    status.setCreatedSource(() => [unknown]);
+    const body = JSON.parse((await req('/api/status')).body);
+    const row = ((body && body.agents) || []).find((r) => r && (r.sessionName === unknown || r.name === unknown));
+
+    assert.ok(row, 'the created source produced no board row, so this arm measures nothing');
+    assert.equal(row.session, null, 'the row carries a session, so it is not the paneless card');
+    assert.equal(row.runner, null,
+      'a paneless row for an agent this Mac has no record of claims a runner, turning a display default we inherit into a claim the card makes');
+  } finally {
+    status.setCreatedSource(null);
+  }
+});

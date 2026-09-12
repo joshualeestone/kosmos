@@ -1813,3 +1813,107 @@ MUTANT return 'codex' without reading    -> "the runner fallback answered codex 
 
 ⭐ **The second mutant is why the control arm exists.** A fallback that answers codex for everyone
 would satisfy the first assertion perfectly, and a one-armed test would have shipped it.
+
+### What round 31's fix ALSO closed, found by asking who else reads the field I filled
+
+Round 31 filled `runner` on paneless board rows. I then asked the round-30 question about my own
+fix: **who reads `a.runner` on a board row, and is any of them now different?** Three readers, and
+two were silently wrong for a paneless codex agent before this:
+
+**1. The provider label (`web/index.html`, the `runner === 'codex'` -> "OpenAI Codex" line).** The
+comment directly above it already says the runner is *"the supervisor's option on running panes,
+**the profile on stopped ones**"*. **The surrounding code already assumed a recorded runner would
+be there; a paneless row was the case where that assumption was false.** Now it holds.
+
+**2. 🛑 THE MODEL PICKER DELEGATION, AND THIS IS A SECOND USER-FACING DEFECT, SQUARELY ON THIS
+CARD.** The detail surface delegates with
+`if (a && (a.provider === 'openai' || a.runner === 'codex')) { await paintOpenaiDetailModel(...); return; }`.
+Measured, from the emitting code: `panelessCard` emits **no `provider` field at all** and
+`runner: null`. So for a created-not-yet-started Codex agent both disjuncts were false and it fell
+through to the CLAUDE model list - which the comment beside that line names exactly:
+
+> "an OpenAI agent would show Claude Sonnet 5 etc. as switchable options -- the exact 'Claude
+> models under an OpenAI agent' bug Josh flagged on the create form (#2167), here on the detail
+> surface."
+
+⭐ **#2811 is titled "reports the wrong provider AND THE WRONG MODEL". A Codex agent being offered
+Claude models to switch to is the model half, on a surface nobody had connected to this card.**
+Round 31's server fix closes it as a side effect, because the guard now sees `runner: 'codex'`.
+
+**3. `providerOf`** (`a.runner === 'codex' ? 'openai' : 'anthropic'`), which feeds the provider
+picker: a paneless codex agent now reads `openai` rather than `anthropic`.
+
+📌 **No render needed for (2), and that is a real distinction rather than a shortcut.** The claim
+is a boolean over two fields whose absence I measured in the code that EMITS the card, not a
+question about what a person sees. Where the question was "what does the panel say" (round 30) only
+a render would do; where it is "is this disjunction false", the emitting code settles it.
+
+⇒ **The generalisation, now three rounds deep: when this change alters a value, the next defect is
+at its NEXT READER.** Round 30 found the account reader, round 31 the runner's absence, and this is
+the runner's other readers. Asking that question of my own fix, unprompted, is what found it.
+
+### And the blast radius of round 31's own fix, closed the same way
+
+Asked of my own change rather than waiting for round 32 to ask it:
+
+**Server side: exactly ONE consumer.** `grep` for `snap.agents` in `server.js` returns the board
+map itself and one comment. Nothing else server-side reads that population, so filling `runner`
+there reaches no other backend path.
+
+**The card SHAPE is unchanged, and that separation is deliberate.** My `engine/status.js` diff is
+COMMENT-ONLY (3 insertions, 1 deletion, all prose): `panelessCard` still emits `runner: null`. The
+engine continues to say "this card has no pane-recorded runner", which is true; the ROUTE says
+"here is the runner the record knows", which is also true and is what the client needs. So every
+engine-level test asserting `panelessCard().runner === null` stays correct, and the green suite is
+evidence rather than luck.
+
+📌 The three `runner: null` occurrences in `server.test.js` are unaffected for the same reason: two
+construct `{...realCard, runner: null}` to drive `whoamiFor` DIRECTLY (not the route), and the
+third asserts the whoami WIRE field, which is live-only by design and is my own assertion.
+
+⇒ **Round 31's fix has one server consumer and four web readers, all four checked.** That is the
+whole radius, and it is recorded as an enumeration so a new reader of `a.runner` is what would
+invalidate it.
+
+## Round 32: two derivations of one fact, and a fill that could not decline
+
+**[MAJOR 1] My own comment said "ONE definition" while the code had two.** The paneless row used
+`create.recordedRunner` (PLIST-first, profile as fallback); its sibling in the same payload
+restated `profile.provider === 'openai'` (PROFILE-only). They disagree whenever the records
+diverge - and **this branch's own EACCES arm constructs that state**: a completed claude->codex
+switch whose best-effort profile write failed leaves plist=codex, profile=anthropic. The same
+agent then read `codex` as a paneless row and `claude` once its beat lapsed into the offline list,
+with the whole fix inert on the claude side.
+
+✅ Unified on `recordedRunner`, which is also the MORE correct of the two: the plist is the launch
+truth, as this file says everywhere else. My comment now states what the code does, and records
+that it previously stated an intention.
+
+**[MAJOR 2, and it is the target I flagged to the reviewer myself] The fill could not decline.**
+`recordedRunner` FLOORS at 'claude' in both arms, so filling unconditionally answered 'claude' for
+an agent this Mac holds no job and no profile for. `panelessCard`'s contract legislates against
+exactly that:
+
+> "runner is null because the token store does not record one -- the screen's fallback will read
+> that as Anthropic, which is **a display default we inherit and not a claim this card makes**."
+
+⭐ **Round 31 turned an inherited display default into a claim the card makes** - "an absence of
+evidence rendered as a finding", which is this card's own thesis, committed by its own fix.
+
+⚠️ **And the population is real.** Paneless rows have TWO sources and round 31 tested one:
+`createdSource` is a plist this Mac wrote; `panelessKeys` enumerates the SENDER-TOKEN store, the
+beat-known remote/win32 case that contract paragraph is written about. **For a remote CODEX agent
+an unconditional 'claude' hands it the Claude model list - the #2167 shape, restored one
+population over.**
+
+✅ The gate asks whether a record EXISTS before asking what it says, so `recordedRunner` stays the
+one derivation and null stays available. Pinned by an arm whose fixture control asserts the
+absence (no job, no plist) rather than assuming it; the mutant removing the gate reds that arm
+ALONE, leaving the other two green, which shows the three guard independent cases.
+
+📌 **A RESIDUAL I AM NOT CLAIMING TO HAVE FIXED.** The reviewer also named a name-collision arm:
+the value is keyed on `store.safeKey(sessionName)`, so a LOCAL agent and a beat-known REMOTE agent
+sharing a safeKey make the remote card take the local agent's provider. My gate does not close
+that - it fills precisely when a local record exists, which is the collision case. It is a
+pre-existing ambiguity in the safeKey namespace that this change makes reachable for one more
+field, and it is recorded rather than quietly inherited.
