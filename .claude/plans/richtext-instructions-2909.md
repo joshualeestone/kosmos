@@ -54,7 +54,10 @@ Dialogue row surfaces (pjRich: DM + project message) render the same subset AND 
 4. Add a content-pin test (like the #1253 test) asserting the section's key phrases so a
    future edit cannot silently drop them.
 5. Full node suite + the validation helper (test:shell) + browser-check gate (no web/
-   change here, but confirm). challenge-loop to convergence. PR, reviewer joshualeestone.
+   change here, but confirm). challenge-loop to convergence. PR with NO human
+   reviewer: this repo's CLAUDE.md ("Kosmos has no human reviewer... Do not add a
+   human reviewer to a Kosmos PR") overrides the web-properties reviewer rule; the
+   gate is the converged challenge-loop.
 
 ## Weakest premise (named)
 The subset list is verified against origin/main's renderer today; if the renderer's

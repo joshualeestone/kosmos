@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'c35c52f07e0056e9' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: 'fe5a6bc6047f595b' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -305,8 +305,9 @@ test('#2909: the block tells the agent to send rich-text-formatted messages', ()
   assert.match(b, /~~strikethrough~~/, 'the subset list dropped a supported element');
   // The two things a room does NOT render, so an agent does not reach for them.
   assert.match(b, /\[label\]\(address\)/, 'the label-only link caveat is missing');
-  assert.match(b, /stays as literal text in a project room/,
-    'the room-blockquote caveat is missing');
+  // The > asymmetry: renders in a dialogue, literal in a room (pjRich styles .mdq; pjProse does not).
+  assert.match(b, /becomes a quote in a direct dialogue but stays literal text\s+in a project room/,
+    'the room-vs-dialogue blockquote asymmetry is missing');
   // The shell trap, with advice that is true today (single-quote).
   assert.match(b, /backticks and a `\$`/, 'the shell-metacharacter trap is not named');
   assert.match(b, /single quotes/, 'the single-quote fix for the shell trap is missing');
