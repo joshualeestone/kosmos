@@ -471,11 +471,12 @@ itself inside one line ("This is a Codex agent, and it runs on <a Claude email>"
 The case is reached by every paneless, crashed, win32 or budget-timeout codex
 agent: exactly the population round 4 set out to serve.
 
-The codebase already knew. The #2413 overlay a few hundred lines below says in as
-many words that "a codex agent on the default home maps to the default Claude
-account", and guards its own join by filtering observations per provider. The raw
-mapping in `accountForAgent` was never gated, so every other caller kept the wrong
-row.
+The codebase already knew, and the #2413 overlay said so: "a codex agent on the
+default home maps to the default Claude account", guarding its own join by
+filtering observations per provider. That sentence was TRUE WHEN WRITTEN and this
+change is what makes it false, so it is quoted here as the prior diagnosis, never
+as current behaviour. The raw mapping in `accountForAgent` was never gated, so
+every other caller kept the wrong row.
 
 Fixed by gating the dir-less match on the provider: OpenAI rows carry
 `provider: 'openai'` and Claude rows carry none, so the lists are separable. The
@@ -707,3 +708,71 @@ emit. It is the honest answer for a default-account codex agent (we know what it
 runs on, and it has no Claude account row), and `grep -rn account-status web/
 install/` finds no consumer, so it is latent rather than live. Recorded here so the
 next reader does not have to re-derive that it was considered.
+
+## Rounds 10 to 12: every remaining defect was a SENTENCE
+
+By round 10 the fix had been stable and green for nine rounds. Everything found
+after that was prose, and the prose failures have three distinct shapes worth
+separating, because they need different defences.
+
+### 1. A claim contradicted by its own test, four lines away (round 10)
+
+The tie-break rationale ended "the widening can turn a refusal into an answer, and
+cannot turn one answer into another". A shallower codex above a deeper claude used
+to resolve to the CLAUDE and now resolves to the codex, which the test `DEPTH still
+decides before the runner preference` asserts in the same file. The test was right
+and the sentence was wrong, through six rounds of review, because the sentence
+SOUNDED like the kind of thing that would be true. Now scoped to the same-depth
+tie, the only case it holds for.
+
+### 2. Comments this change killed in files it never edits (rounds 10 to 12)
+
+Eight sites said "a codex agent on the default home maps to the DEFAULT CLAUDE
+account". Each was true when written; the provider gate is what made it false.
+They live in `server.js`, `engine/observed.js`, `engine/status.js`, three of their
+tests, `web.detail-openai-model-2140.test.js` and THIS PLAN. The guards they
+justify are still correct as defence in depth, so only the stated reason had died.
+
+⭐ A change can falsify a comment in a file it never touches, and no diff and no
+test will ever show it. Grepping for what a change makes UNTRUE is a different
+search from grepping for what it touched, and only the first one finds these.
+
+⭐ AND MY OWN COMMENT CITED ONE OF THEM AS EVIDENCE ("the codebase already knew"),
+so a new comment pointed at a dead one and presented it as current behaviour.
+
+### 3. Sweeps that cannot find what they are looking for
+
+Three separate causes, all in commands I wrote to hunt exactly this class:
+
+- **`head -8`**: the sweep printed exactly 8 lines and the misses started at 9.
+- **`--include='*.js' --include='*.html'`**: uncapped by line count, capped by FILE
+  TYPE, which is how the plan's own copy survived a sweep whose commit message
+  called it "redone uncapped".
+- **A hard-wrapped phrase**: "default Claude\naccount" spans a line break, so NO
+  single-line pattern can match it, whatever the file filter. Found only by
+  searching a short distinctive token (`default home maps to`) and by a
+  multiline-aware pass over every file type.
+
+⇒ A zero from a blind sweep is indistinguishable from a zero from a clean repo.
+Every sweep in this card now carries a control that proves it can still see a known
+instance, and the count is asserted rather than eyeballed.
+
+### A claim wider than its evidence, in the correction to a claim wider than its evidence
+
+Round 12 caught "so it now maps to nothing" and "the real product now returns NO
+ROW for such an agent". Both are true only when the CLAUDE list is passed: against
+the OpenAI list a default-codex agent still resolves, to its own default OpenAI
+row, which is the whole point of the gate. Two neighbouring sites had scoped it
+correctly and these two had not. Now scoped.
+
+### Two sites left alone on purpose
+
+The final sweep reports two remaining present-tense statements of the falsified
+sentence, both in OTHER CARDS' plan files (`badge-observed-1921-pre-challenge.md`,
+`openai-observed-overlay-2413.md`). They are dated per-card records of the
+reasoning at the time those cards were built, like a commit message, and editing
+one to reflect a later change rewrites history rather than correcting
+documentation. A live code comment claims what the code does NOW and carries a
+different obligation; a plan claims what was believed THEN.
+
+Recorded here so the next sweep does not read them as a miss.

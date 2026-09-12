@@ -6337,7 +6337,8 @@ function snapshot() {
        classifies WORKING / AUTH_FAILED, but the badge this feeds is the CLAUDE
        account badge. A codex agent on the DEFAULT codex home records configDir=null,
        which accountForAgent (server.js) USED to map to the DEFAULT CLAUDE account
-       (#2811 provider-gated that dir-less match, so it now maps to nothing) -- so a
+       (#2811 provider-gated that dir-less match, so against the CLAUDE list it now
+       maps to nothing) -- so a
        working codex agent would green (or a codex 401 would redden) a Claude account
        it has nothing to do with, the exact cross-provider false-green this feature
        exists to remove. The store is Claude-only; the same codex test classify() uses
