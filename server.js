@@ -1017,10 +1017,13 @@ function sentenceForWhoami(account, model, runner) {
   const parts = [];
   /* 🛑 ONE FORM, NOT TWO, AND THE SECOND ONE WAS DEAD. This used to branch on
      the source so the reason would match the reader that failed. A reviewer
-     measured that the process form is UNREACHABLE: `runningAs` always sets
-     `configDir` on a successful read, so a `process` account always carries at
-     least a directory, `acct` below is always truthy, and the branch could
-     never be pushed. Mutation, with a control: making the process form throw
+     measured that the process form is UNREACHABLE: `runningAs`'s DARWIN arm sets
+     `configDir` on every successful read, so a `process` account always carries
+     at least a directory, `acct` below is always truthy, and the branch could
+     never be pushed.
+     📌 "always sets" is what this said, and the win32 arm does not: a successful
+     read there carries `configDir: null`. The conclusion survives, because that
+     arm never supplies an account either, so it cannot reach this branch at all. Mutation, with a control: making the process form throw
      left 249/249 green; making the record form throw failed 1.
 
      ⇒ A comment describing behaviour the code cannot produce is worse than no
@@ -1051,7 +1054,8 @@ function sentenceForWhoami(account, model, runner) {
      🛑 BOTH BRANCHES, AND AN EARLIER VERSION GUARDED ONLY THE FIRST. I wrote
      that a codex-shaped `why` was unreachable because "runningAs always sets
      configDir on a successful read, so `acct` is always truthy". That is true of
-     the LIVE path and false of the record one: an agent with no launch job has
+     the DARWIN live path and false of both the record one and the win32 live one
+     (a successful win32 read carries `configDir: null`): an agent with no launch job has
      no account at all while its runner is perfectly well known, so the fallback
      is reached with a known codex runner. A test demonstrated it rather than a
      re-read catching it. ⇒ Reasoning that holds for the live reader does not
