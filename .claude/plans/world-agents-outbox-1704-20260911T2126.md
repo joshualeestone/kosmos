@@ -58,8 +58,9 @@ on an enforcing board), and is lost. This slice makes nothing sent get lost:
 - **`from` is resolved at keep time**, in the agent's own process: the launch
   token through `sendertoken.resolveName` (Windows, and Mac agents minted since
   #1077); otherwise the tmux session of `TMUX_PANE` through the same
-  `messages.paneSession` the pane route uses (Mac); otherwise the keep is refused
-  with a sentence. A token that is presented but does not resolve is a refusal,
+  `messages.paneSession` the pane route uses (Mac), and only when that session has
+  a profile in this store, so a person's own tmux window is refused rather than
+  kept (review round 1); otherwise the keep is refused with a sentence. A token that is presented but does not resolve is a refusal,
   never a fall back to the pane (the no-downgrade rule of `resolveAgentSender`).
 - **The shell keeps through Node.** On a 421 `install/kosmos` writes the JSON body
   it already built to a mode-600 temp file and runs
@@ -108,7 +109,8 @@ on an enforcing board), and is lost. This slice makes nothing sent get lost:
 
 - `server.world-outbox-1704.test.js`: the 421 fires for each of the five routes
   only when the header is present and differs; an absent header and a same-world
-  header are unchanged; a null booted world is the default world; on an enforcing
+  header are unchanged; the default world is `default` (or empty), and a null
+  (never-booted) world is unknown and refuses nothing; on an enforcing
   board the 421 comes before the token check, and a same-world header still
   meets the token check; a non-agent route ignores the header. The drain: a
   reply lands in the thread with its original `at`; a forged `from` is dropped;
@@ -132,6 +134,47 @@ on an enforcing board), and is lost. This slice makes nothing sent get lost:
   constants.
 - Root inventories re-run: `engine.reachable.test.js`, `one-derivation.test.js`,
   `fixture-discipline.test.js`, `server.worldenv-order.test.js`.
+
+## Review log
+
+- **Round 1 (coordinator review of PR2).** Verified sound and kept as is: no new
+  impersonation path (0700/0600, same user only); no cross-Kosmos delivery; no
+  duplicate in normal operation; the 421 before the token gate, with no side
+  effect; the shared functions match the routes line for line; no secrets in the
+  logs; the shell temp-file handling. Fixed:
+  - [BUG] A person's own terminal got a false "Kept.". `kosmos_curl` names
+    `default` without KOSMOS_WORLD, so a person typing `kosmos reply` in a
+    non-agent tmux window on a board serving a named Kosmos met the 421, and the
+    keep fell back to the pane and kept it under the window's session name, to be
+    dropped by the drain. The pane fallback now keeps only when the keeper's own
+    store has a profile for that session (`store.readProfile`), and otherwise
+    refuses with a sentence and exits 1. The token path is unchanged. Tested: a
+    person's window is refused and nothing is kept; an agent's window is kept.
+  - [CONVENTION/BUG] A literal U+FEFF had replaced the `\uFEFF` escape in
+    kosmos-cli.js's argv-file BOM strip; an editor stripping BOMs would have made
+    it `/^/` and every Windows command exit 2. The pattern is now built from the
+    code point, and a test scans the slice's sources for invisible characters. A
+    scan of every changed file found no other.
+  - [BUG, low] One drain pass could deliver up to 500 entries synchronously
+    (tmux work plus Codex's blocking Enter gap) as the person reopens the Kosmos.
+    A pass now hands at most `MAX_DELIVERIES_PER_PASS` (20) to delivery and
+    returns where it stopped; `startOutboxDrain` runs the rest from there on the
+    next turns of the event loop (`setImmediate`), and a tick that finds a sweep
+    running skips it. Continuing from the cursor means entries waiting for a retry
+    cannot starve newer ones. Retry semantics are unchanged. Tested: the cap, the
+    continuation, the default constant, and no starvation.
+  - [CONVENTION] worldenv says a null booted world is "unknown, not the default";
+    `wrongWorldRefusal` treated null as the default. It now follows worldenv's
+    rule: unknown refuses nothing. Null is only a never-bootstrapped board (a
+    unit test); a real boot always records a world. Tested.
+  - [NIT] kosmos-cli.js's 421 branches on routes that never return one (whoami,
+    `report show`, room, task) are removed, and its header comment names the five
+    routes that do.
+  - [NIT] The world id had two derivations (the shell stripped it, the JS clients
+    sent it raw). `launchidentity.worldIdForHeader` / `worldHeaderValue` now apply
+    the shell's rule (`WORLD_HEADER_CHARSET`, `default` when nothing is left) for
+    every JS client and the board; a test pins the shell's `tr` set to the
+    constant, and a bash run shows both strip the same odd value identically.
 
 ## Weakest part
 
