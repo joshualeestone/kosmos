@@ -10800,24 +10800,24 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            removed in #2711 item 9. -->
       <div class="composer">
         <div class="composerbox">
-          <!-- ⚠️ THE PLACEHOLDER NAMES THE OUTCOME, THE HINT NAMES THE
-               MECHANISM, AND THE ARIA-LABEL IS NOT THE PLACEHOLDER. Shipping
-               only the true half of the pack's hint left "@name to address
-               someone" stated TWICE, in the placeholder and the hint — and the
-               pack had already ruled that parenthetical out of the box for the
-               reason its own comment gives: "Both times I wrote copy describing
-               the MECHANISM to a person who only needs the OUTCOME." So the
-               mechanism is stated once, in the position the pack ruled for it.
-               The aria-label deliberately does NOT follow: a screen-reader user
-               hearing "Write to the project" has none of the context a sighted
-               reader gets from the members column beside it, so it keeps the
-               plain outcome. Found by Mona Lisa. -->
+          <!-- ⚠️ THE PLACEHOLDER CARRIES THE @name MECHANISM (Josh, 6.59 QA
+               #2919), AND THE ARIA-LABEL IS NOT THE PLACEHOLDER. The
+               mechanism-naming composer hint was removed in #2711 item 9, which
+               left the @name affordance stated nowhere; Josh's 6.59 QA put it
+               back into the placeholder itself ("Write something or @name to
+               message someone..."), superseding the earlier ruling (Mona Lisa)
+               that the placeholder name only the OUTCOME with the mechanism
+               stated once elsewhere - there is no longer an elsewhere to carry
+               it. The aria-label deliberately does NOT follow the placeholder: a
+               screen-reader user has none of the context a sighted reader gets
+               from the members column beside it, so it keeps the plain outcome
+               ("Post to everyone on this project"). -->
           <!-- The + sits at the far left, inside the box, where the pack drew it
                (Josh, 2026-08-23 13:59). -->
           <button class="attachbtn" id="pj-attach" type="button" aria-label="Add a file to this conversation" title="Add a file"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
           <input id="pj-attach-file" type="file" multiple hidden>
           <textarea class="cinput" id="pj-post" rows="1" maxlength="2000"
-                    placeholder="Write to the project&hellip;"
+                    placeholder="Write something or @name to message someone&hellip;"
                     aria-label="Post to everyone on this project"></textarea>
           <!-- ⚠️ QUIET, NOT GOLD, AND THAT IS A RULING RATHER THAN AN
                ARTEFACT. The pack has `btn-gold cpost`; this build has no
