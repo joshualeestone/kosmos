@@ -126,6 +126,10 @@ DOWN_SINCE_RAW="$(state_get down_since)"
 BOOT="$(boot_epoch)"
 if [ -n "$BOOT" ] && [ -n "$DOWN_SINCE_RAW" ] && [ "$(num "$DOWN_SINCE_RAW")" -lt "$BOOT" ]; then
   DOWN_SINCE_RAW=""; LAST_KICK=0; FAILS=0
+  # A reboot is a fresh chance, so a pre-reboot crash-loop alert should not survive
+  # into it (it would otherwise suppress the re-log and could surface a stale "keeps
+  # crashing" state); a real new crash loop raises it again.
+  rm -f "$ALERT" 2>/dev/null || true
 fi
 
 # --- healthy? then recovery took (or it never failed) -----------------------
