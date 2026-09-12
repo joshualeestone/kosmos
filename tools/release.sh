@@ -1547,7 +1547,7 @@ _board_wd="$(printf '%s\n' "$_board_info" | sed -n 's/^[[:space:]]*working direc
 if [ -n "$_board_wd" ] && [ "$_board_wd" = "$_board_libexec" ]; then
   step "== 10a. refresh the libexec-deployed board from this cut (#1164) =="
   echo "   com.kosmos.board runs from the libexec deploy ($_board_libexec); refreshing it from the frozen tree before the restart"
-  bash "$REPO/deploy/install-board.sh" --refresh-only
+  bash "$REPO/deploy/install-board.sh" --apply
 fi
 KOSMOS_BOARD_WAIT_SECS="${KOSMOS_BOARD_WAIT_SECS:-120}" bash "$MAIN_REPO/tools/restart-local-board.sh"
 

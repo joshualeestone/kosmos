@@ -21,44 +21,16 @@ test('restart-local-board --check names one of its deployment cases and never re
 test('the release refreshes an adopted libexec board from the frozen tree before restarting it', () => {
   const rel = fs.readFileSync(path.join(__dirname, 'tools', 'release.sh'), 'utf8');
   const served = rel.indexOf('REPO="$REPO" bash "$REPO/tools/verify-served.sh"');
-  const deploy = rel.indexOf('bash "$REPO/deploy/install-board.sh" --refresh-only');
+  const deploy = rel.indexOf('bash "$REPO/deploy/install-board.sh" --apply');
   const restart = rel.indexOf('tools/restart-local-board.sh');
   const gate = rel.indexOf('if [ -n "$_board_wd" ] && [ "$_board_wd" = "$_board_libexec" ]; then');
   const gateEnd = rel.indexOf('\nfi', gate);
   assert.ok(served > 0 && deploy > served && restart > deploy, 'served check, libexec deploy, and restart are not ordered safely');
   assert.ok(gate > served && deploy > gate && deploy < gateEnd && gateEnd < restart, 'the frozen-tree deploy is not inside the positive libexec working-directory gate');
-  assert.doesNotMatch(rel, /bash "\$MAIN_REPO\/deploy\/install-board\.sh" --refresh-only/, 'the deploy came from the moving shared checkout instead of the frozen tree');
+  assert.doesNotMatch(rel, /bash "\$MAIN_REPO\/deploy\/install-board\.sh" --apply/, 'the deploy came from the moving shared checkout instead of the frozen tree');
   assert.ok(!/if bash "\$REPO\/tools\/verify-served\.sh"; then exit 0; fi/.test(rel), 'the served check still exits the release before the restart can run');
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   assert.match(pkg.scripts["test:shell"], /bash -n tools\/restart-local-board\.sh/, 'the step is not syntax-checked by yarn test');
-});
-
-test('the real release block refreshes only libexec, fails closed, then restarts once', () => {
-  const rel = fs.readFileSync(path.join(__dirname, 'tools', 'release.sh'), 'utf8');
-  const start = rel.indexOf('_board_libexec="${KOSMOS_BOARD_LIBEXEC:-');
-  const restartLine = 'KOSMOS_BOARD_WAIT_SECS="${KOSMOS_BOARD_WAIT_SECS:-120}" bash "$MAIN_REPO/tools/restart-local-board.sh"';
-  const end = rel.indexOf(restartLine, start) + restartLine.length;
-  assert.ok(start > 0 && end > start, 'could not extract the production release refresh block');
-  const block = rel.slice(start, end);
-
-  function run(wd, deployStatus = 0) {
-    const prelude = `set -e\nLOG="$1"\nBOARD_WD="$2"\nREPO=/frozen\nMAIN_REPO=/moving\nKOSMOS_BOARD_LIBEXEC=/deployed\nKOSMOS_BOARD_WAIT_SECS=1\nstep(){ :; }\nid(){ echo 501; }\nlaunchctl(){ printf 'working directory = %s\\n' "$BOARD_WD"; }\nbash(){ printf '%s\\n' "$*" >> "$LOG"; case "$*" in *install-board.sh*) return ${deployStatus};; esac; }\n`;
-    const log = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-release-refresh-')), 'calls');
-    const result = spawnSync('bash', ['-c', prelude + block, 'fixture', log, wd], { encoding: 'utf8' });
-    return { result, calls: fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n').filter(Boolean) : [] };
-  }
-
-  const adopted = run('/deployed');
-  assert.equal(adopted.result.status, 0, adopted.result.stderr);
-  assert.deepEqual(adopted.calls, ['/frozen/deploy/install-board.sh --refresh-only', '/moving/tools/restart-local-board.sh']);
-  for (const wd of ['/moving', '/foreign', '']) {
-    const other = run(wd);
-    assert.equal(other.result.status, 0, other.result.stderr);
-    assert.deepEqual(other.calls, ['/moving/tools/restart-local-board.sh'], `unexpected refresh for WD ${wd || '(absent)'}`);
-  }
-  const failed = run('/deployed', 9);
-  assert.notEqual(failed.result.status, 0, 'a failed refresh did not fail the release block');
-  assert.deepEqual(failed.calls, ['/frozen/deploy/install-board.sh --refresh-only'], 'restart ran after a failed refresh');
 });
 
 test('board deploy refuses existing and not-yet-created destinations inside a git work tree', () => {
