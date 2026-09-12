@@ -270,42 +270,17 @@ function worldCreateReason(e) {
   if (/invalid agent name/i.test(m)) return 'that is not a name we can use for a Kosmos (use letters, numbers, - or _)';
   return m || 'we could not create that Kosmos';
 }
-/* #2827: named worlds do not run agents in v1. engine/worlds.js scopes named-world
-   agents OUT -- it overrides AGENT_WORKFORCE_DATA/WORKERS/PROJECTS for a named world
-   but deliberately NOT AGENT_WORKFORCE_LAUNCH -- so an agent created while the board
-   is booted into a named world is only half redirected: its data + board token
-   (store.ROOT/board.token) sit under the named world's roots while its launch env
-   does not, and the board token it presents is refused, so its reports and replies
-   fail. Nothing enforced the rule, so both spawn routes now do: they refuse when the
-   board BOOTED into a named world (the world that actually runs agents; a switch only
-   records activeWorldId and needs a restart, so bootedWorld -- not activeWorld -- is
-   what determines whether a spawn would be broken). Returns a refusal {code, error}
-   to send, or null to allow. bootedWorld() is null on a never-bootstrapped unit board
-   (allow, so fixtures are unaffected) and DEFAULT_ID for the default world (allow). */
-/* #1704 PR4: `worldId` asks the SAME question about a Kosmos this board is not
-   serving (an import into it); absent, it is the booted world, which is what every
-   other caller means (worldstarts calls it with no argument). `waiting` is the
-   plain sentence for a start that is HELD rather than a create that is refused:
-   worldstarts writes it on the entries it holds, and the import reports it, so a
-   person reads one sentence for one fact. */
-const NAMED_WORLD_WAITING = 'Agents do not run in a named Kosmos yet, so it waits there and starts on its own once they can.';
-function namedWorldSpawnRefusal(worldId) {
-  const world = worldId === undefined ? require('./engine/worldenv').bootedWorld() : worldId;
-  if (!world || world === worlds.DEFAULT_ID) return null;
-  return {
-    code: 409,
-    error: 'Kosmos is running a named world, which does not run agents yet. '
-      + 'Switch back to Kosmos 1 (the default world) to create agents.',
-    waiting: NAMED_WORLD_WAITING,
-  };
-}
 /* #1704 PR4: copy the picked agents into Kosmos `targetId`, then start them the ONE
-   way agents start when their Kosmos opens (engine/worldstarts), behind the one
-   spawn rule above. Shared by the create route and the settings route, so the two
-   cannot answer differently. Returns null for a Kosmos that does not exist.
+   way agents start when their Kosmos opens (engine/worldstarts). Shared by the create
+   route and the settings route, so the two cannot answer differently. Returns null
+   for a Kosmos that does not exist.
    `imported`: copied [{from,name,displayName}], refused [{from,name,because}],
-   started [names] (now, in the open Kosmos), waiting [{name,because}] (recorded,
-   held with a sentence), later [names] (recorded; start when that Kosmos opens).
+   started [names] (now: the target is the Kosmos this board is serving, named or
+   not), waiting [{name,because}] (recorded; its start was tried and held, with the
+   reason), later [names] (recorded; it starts when that Kosmos next opens).
+   world-guard-lift-1704 lifted #2849's named-world rule, so no import waits on it:
+   a Kosmos's agents are started by its own board, through its world-keyed launch
+   identity, whichever Kosmos it is.
    `opts.legacy` (a page from before, importAgentsFrom) adds the counts that page
    reads -- `failed` and `unknownSources` -- so it reports a refusal rather than
    closing as a clean import (review round 1, C). */
@@ -324,16 +299,14 @@ function importIntoWorld(base, targetId, picks, opts = {}) {
        unit test) serves the default one, whose store is the one it reads. */
     const serving = require('./engine/worldenv').bootedWorld() || worlds.DEFAULT_ID;
     if (serving === r.world.id) {
-      const s = worldstarts.startImported(names, { spawnRefusal: namedWorldSpawnRefusal });
+      const s = worldstarts.startImported(names);
       imported.started = s.resumed;
       /* A cleared import is copied and NOT started (review round 1, A): said, never
          silent. The importer refuses such a name up front; this covers a removal
          that lands between the copy and the start. */
       imported.waiting = s.held.concat((s.cleared || []).map((name) => ({ name, because: IMPORT_CLEARED_BECAUSE })));
     } else {
-      const barred = namedWorldSpawnRefusal(r.world.id);
-      if (barred) imported.waiting = names.map((name) => ({ name, because: barred.waiting }));
-      else imported.later = names;
+      imported.later = names;
     }
   }
   return { world: r.world, imported };
@@ -3112,18 +3085,13 @@ const server = http.createServer((req, res) => {
      step and every Kosmos's settings cog) draws from this: each Kosmos with the
      agents a person can pick from it, one by one, and the agents waiting to start
      in it. The sibling GET /api/worlds returns the registry pointers (active/booted)
-     the switcher needs. Read-only. A waiting agent that has no sentence yet is
-     given the one spawn rule's `waiting` sentence when that Kosmos may not run
-     agents, so the pane never says "starts when opened" about one that will not. */
+     the switcher needs. Read-only. Each waiting agent carries its own reason, the
+     one its last start attempt recorded, or none when that Kosmos simply has not
+     been opened since it was copied in. */
   if (pathname === '/api/worlds/list' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const base = worldBase();
-      sendJson(res, 200, {
-        worlds: worldimport.listForPicker(base).map((w) => {
-          const barred = namedWorldSpawnRefusal(w.id);
-          return { ...w, waiting: w.waiting.map((x) => ({ name: x.name, displayName: x.displayName, because: x.because || (barred ? barred.waiting : null) })) };
-        }),
-      });
+      sendJson(res, 200, { worlds: worldimport.listForPicker(base) });
     } catch (_e) {
       sendJson(res, 500, { because: 'the world registry is not readable on this machine' });
     }

@@ -172,10 +172,23 @@ function recordImport(storeRoot, entry) {
  * yet stays visibly waiting rather than silently absent. An unreadable record
  * lists none: this is a display, not an act.
  */
+/* world-guard-lift-1704: the sentences a pre-lift board wrote on the starts it HELD
+   because a named Kosmos could not run agents. That rule is gone, so an entry still
+   carrying one is simply waiting for its Kosmos to open: it is read with no reason,
+   and its next start attempt (the boot, or a no-op switch) rewrites or clears it. */
+const PRE_LIFT_HOLD_SENTENCES = Object.freeze([
+  'Agents do not run in a named Kosmos yet',
+  'Kosmos is running a named world, which does not run agents yet',
+]);
+function reasonStillTrue(because) {
+  if (typeof because !== 'string' || !because) return null;
+  return PRE_LIFT_HOLD_SENTENCES.some((s) => because.startsWith(s)) ? null : because;
+}
+
 function importsWaitingIn(storeRoot) {
   const got = readRecordForWrite(recordFileIn(storeRoot));
   if (got === UNREADABLE) return [];
-  return got.filter((e) => e.why === WHY_IMPORTED).map((e) => ({ name: e.name, because: e.because || null }));
+  return got.filter((e) => e.why === WHY_IMPORTED).map((e) => ({ name: e.name, because: reasonStillTrue(e.because) }));
 }
 
 /* ── the gate ────────────────────────────────────────────────────────────── */
@@ -424,11 +437,8 @@ function firstStartOfImport(entry, platform) {
  * Start the recorded agents of the booted Kosmos -- optionally only `onlyNames`,
  * and only entries whose reason is in `opts.whys` (default: every reason).
  *
- * `opts.spawnRefusal` is server.js's `namedWorldSpawnRefusal`, passed IN rather
- * than re-derived here: "may agents start in the booted world" has one answer
- * (#2849), and while it refuses, every entry is held with its `waiting` sentence
- * (the plain one for a held start) so the agents come back at the first boot after
- * the rule is lifted.
+ * Every act goes through the agent's world-keyed launch identity (remove.jobFor ->
+ * create.serviceLabel / win32job.taskName), so a named Kosmos starts only its own.
  *
  * Returns `{resumed: [names], held: [{name, because}], cleared: [names]}`.
  * `cleared` names removed agents, whose entries are dropped and who are NOT
@@ -462,16 +472,6 @@ function resumeEntries(onlyNames, opts = {}) {
       process.stderr.write(`Kosmos could not update its list of agents waiting to start (${(err && err.code) || 'unknown'}); an agent already started may be started again at the next boot.\n`);
     }
   };
-
-  const refused = typeof opts.spawnRefusal === 'function' ? opts.spawnRefusal() : null;
-  if (refused) {
-    const because = String(refused.waiting || refused.error || 'agents cannot start in this Kosmos yet');
-    const names = new Set(targets.map((t) => t.name));
-    entries = entries.map((e) => (names.has(e.name) ? { ...e, because } : e));
-    for (const t of targets) held.push({ name: t.name, because });
-    writeBack();
-    return { resumed, held, cleared };
-  }
 
   const gate = liveExecutionRefusal('resume', targets.map((t) => t.name));
   if (gate) {
@@ -544,7 +544,7 @@ function resumeNames(names, opts) {
 /**
  * #1704 PR4: only these IMPORTED names, when they were just copied into the
  * Kosmos this board is serving ("if it is the one open, they start now"). The
- * same resume as a boot; the caller passes the same spawn rule the boot does.
+ * same resume as a boot, with no gate beyond live execution (world-guard-lift-1704).
  */
 function startImported(names, opts) {
   return resumeEntries(new Set(names || []), { ...(opts || {}), whys: new Set([WHY_IMPORTED]) });

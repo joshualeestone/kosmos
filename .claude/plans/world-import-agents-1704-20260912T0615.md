@@ -405,7 +405,23 @@ He confirmed this shape:
       the same sentence.
     - A control shows one Kosmos's half passing.
 
-## Rebase TODO (after `world-guard-lift-1704` merges; do NOT do before)
+- **Post-lift rebase (after `world-guard-lift-1704`, #2886, merged as `e07ec774`).**
+  - Rebased the branch onto `e07ec774`. The four conflicted files (`worldstarts.js`,
+    `server.js`, `one-derivation.test.js`, the switch suite) were resolved to this
+    branch's side commit by commit, so the later commits applied on top. One
+    explicit commit then carries out the TODO below against main.
+  - `namedWorldSpawnRefusal`, `NAMED_WORLD_WAITING` and `refused.waiting` are
+    gone. `startImported(names)` takes no gate. An import into the open Kosmos,
+    named or not, starts at once; one into a Kosmos that is not open is `later`,
+    and starts when that Kosmos next opens.
+  - `/api/worlds/list` passes each waiting entry's reason through.
+    `importsWaitingIn` reads an entry still holding a pre-lift hold sentence as
+    having no reason (`PRE_LIFT_HOLD_SENTENCES`).
+  - The waiting-sentence pins are removed. `server.world-switch-agents-1704` is
+    main's again.
+  - B's legacy-candidate reuse of `remove.jobFor` lands with round 3, below.
+
+## Rebase TODO (DONE in the post-lift rebase above; kept as the record of what it covered)
 
 - **Everything tied to `namedWorldSpawnRefusal` goes:**
   - `importIntoWorld`'s not-open branch becomes `imported.later = names`;

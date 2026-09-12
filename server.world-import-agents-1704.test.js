@@ -157,16 +157,14 @@ test('into the Kosmos that is open: copied, and started now through installJob w
   assert.deepEqual(recordOf('default').filter((e) => ['ava', 'cody'].includes(e.name)), [], 'a started agent stays on the list to start');
 });
 
-test('into a named Kosmos that is not open: recorded there and shown waiting with the #2849 sentence; nothing starts', async () => {
+test('into a Kosmos that is not open (a named one): recorded there, and it starts when that Kosmos next opens; nothing starts now', async () => {
   seed('default', 'dan');
   const r = await post('/api/worlds/import', { id: 'alphaworld', importAgents: [{ from: 'default', name: 'dan' }] });
   assert.equal(r.status, 200, r.body.because);
   assert.deepEqual(r.body.imported.started, []);
-  assert.deepEqual(r.body.imported.later, []);
-  assert.equal(r.body.imported.waiting.length, 1);
-  assert.equal(r.body.imported.waiting[0].name, 'dan');
-  assert.match(r.body.imported.waiting[0].because, /^Agents do not run in a named Kosmos yet/);
-  assert.deepEqual(installs, [], 'the one spawn rule was bypassed');
+  assert.deepEqual(r.body.imported.later, ['dan'], 'it starts when that Kosmos next opens');
+  assert.deepEqual(r.body.imported.waiting, [], 'a named-world wait survived the lift');
+  assert.deepEqual(installs, [], 'a Kosmos this board is not serving was started from here');
   assert.deepEqual(recordOf('alphaworld').filter((e) => e.name === 'dan').map((e) => e.why), ['imported'], 'the wait was not recorded for that Kosmos');
 
   const list = await fetch(base + '/api/worlds/list').then((x) => x.json());
@@ -174,7 +172,7 @@ test('into a named Kosmos that is not open: recorded there and shown waiting wit
   const dan = alpha.waiting.find((w) => w.name === 'dan');
   assert.ok(dan, 'the waiting agent is not listed for its Kosmos');
   assert.equal(dan.displayName, 'Dan', 'the pane would speak the machine name');
-  assert.match(dan.because, /^Agents do not run in a named Kosmos yet/, 'the pane would say it starts when opened, which it will not');
+  assert.equal(dan.because, null, 'an agent simply waiting for its Kosmos to open carries no reason');
 });
 
 test('live execution OFF: copied and recorded, not started, and the sentence says why', async () => {
@@ -190,13 +188,14 @@ test('live execution OFF: copied and recorded, not started, and the sentence say
   assert.deepEqual(recordOf('default').filter((e) => e.name === 'eve').map((e) => e.why), ['imported'], 'it must stay recorded for the next boot');
 });
 
-test('the New Kosmos step: a create with importAgents copies them in, and says they wait (a new Kosmos is a named one)', async () => {
+test('the New Kosmos step: a create with importAgents copies them in, and they start when the new Kosmos opens (it is not the open one)', async () => {
   seed('default', 'fay');
   const r = await post('/api/worlds', { name: 'Gamma', importAgents: [{ from: 'default', name: 'fay' }] });
   assert.equal(r.status, 200, r.body.because);
   assert.equal(r.body.world.id, 'gamma');
   assert.deepEqual(r.body.imported.copied.map((c) => c.name), ['fay']);
-  assert.deepEqual(r.body.imported.waiting.map((w) => w.name), ['fay']);
+  assert.deepEqual(r.body.imported.later, ['fay'], 'a new Kosmos\'s agents start when it opens');
+  assert.deepEqual(r.body.imported.waiting, [], 'a named-world wait survived the lift');
   assert.ok(fs.existsSync(profileIn('gamma', 'fay')));
   assert.deepEqual(installs, []);
 });

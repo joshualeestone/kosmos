@@ -16,8 +16,8 @@
  *  - A (list present): two Kosmoses. The groups show with their labelled boxes; the first
  *    Kosmos's box ticks both its agents; one agent of the second is ticked by itself (its
  *    Kosmos box goes part-ticked); Create posts exactly those three picks. The answer says they
- *    wait (a new Kosmos is a named one, #2849), so the dialog stays open with that sentence and
- *    Cancel reads Done.
+ *    start when the new Kosmos is opened (it is not the open one), so the dialog stays open
+ *    with that sentence and Cancel reads Done.
  *  - S (Skip): reopened, an agent ticked, then the real Skip button: nothing is ticked and
  *    Create posts { name } with no importAgents.
  *  - B (endpoint unreachable): GET /api/worlds/list -> 404. #world-add-import stays HIDDEN.
@@ -39,7 +39,6 @@ catch {
 }
 
 const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
-const WAITING = 'Agents do not run in a named Kosmos yet, so it waits there and starts on its own once they can.';
 
 (async () => {
   let browser;
@@ -53,7 +52,7 @@ const WAITING = 'Agents do not run in a named Kosmos yet, so it waits there and 
   const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
   await page.goto('file://' + PAGE);
 
-  const r = await page.evaluate(async ([waitingSentence]) => {
+  const r = await page.evaluate(async () => {
     const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
     const wrap = () => document.getElementById('world-add-import');
     const groups = () => [...document.querySelectorAll('#world-add-import-list .world-import-group')];
@@ -81,8 +80,8 @@ const WAITING = 'Agents do not run in a named Kosmos yet, so it waits there and 
         const picks = Array.isArray(postBody.importAgents) ? postBody.importAgents : [];
         const imported = picks.length ? {
           copied: picks.map((p) => ({ from: p.from, name: p.name, displayName: p.name.charAt(0).toUpperCase() + p.name.slice(1) })),
-          refused: [], started: [], later: [],
-          waiting: picks.map((p) => ({ name: p.name, because: waitingSentence })),
+          refused: [], started: [], waiting: [],
+          later: picks.map((p) => p.name),   // a new Kosmos is not the open one: its agents start when it opens
         } : null;
         const world = { id: 'wnew', name: postBody.name };
         return Promise.resolve({ ok: true, status: 200, json: async () => (imported ? { ok: true, world, imported } : { ok: true, world }) });
@@ -143,7 +142,7 @@ const WAITING = 'Agents do not run in a named Kosmos yet, so it waits there and 
     const hiddenWhenAbsent = wrap().hidden;
 
     return { shown, focusOnName, groupInfo, distinctFromDisk, firstBoth, secondPartial, submitted, modalStillOpen, outcome, cancelText, cancelReset, tickedAfterSkip, skippedBody, hiddenWhenAbsent };
-  }, [WAITING]);
+  });
 
   await browser.close();
 
@@ -163,7 +162,7 @@ const WAITING = 'Agents do not run in a named Kosmos yet, so it waits there and 
     if (!r.secondPartial) problems.push('one of two agents ticked must show its Kosmos box part-ticked (indeterminate)');
     if (JSON.stringify(r.submitted) !== JSON.stringify([{ from: 'w1', name: 'ava' }, { from: 'w1', name: 'bo' }, { from: 'w2', name: 'cy' }])) problems.push('Create must POST importAgents for exactly the ticked agents, got ' + JSON.stringify(r.submitted));
     if (!r.modalStillOpen) problems.push('agents that WAIT were closed over as if they were running: the dialog must stay open and say so');
-    if (r.outcome.indexOf('Waiting: Ava, Bo, Cy.') === -1 || r.outcome.indexOf(WAITING) === -1) problems.push('the outcome must name the waiting agents and give the plain sentence, got ' + JSON.stringify(r.outcome));
+    if (r.outcome.indexOf('Ava, Bo, Cy start when you open Imported.') === -1) problems.push('the outcome must say the agents start when the new Kosmos is opened, got ' + JSON.stringify(r.outcome));
     if (r.cancelText !== 'Done') problems.push('once the Kosmos exists, Cancel must read Done, got ' + JSON.stringify(r.cancelText));
     if (r.cancelReset !== 'Cancel') problems.push('a reopened New Kosmos must read Cancel again, got ' + JSON.stringify(r.cancelReset));
     if (r.tickedAfterSkip !== 0) problems.push('Skip must clear every tick, ' + r.tickedAfterSkip + ' stayed');

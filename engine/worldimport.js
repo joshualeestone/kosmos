@@ -27,7 +27,7 @@
  * RECORDS the start (with the runner, model and account read from the source's own
  * job, because the target has no job to read them from). The route then starts it
  * at once if the target is the open Kosmos, or leaves it for that Kosmos's boot --
- * both through worldstarts, and both behind server.js's one spawn rule (#2849).
+ * both through worldstarts.
  * Nothing here starts, trusts or touches a job.
  *
  * ⚠️ NOT IN worlds.js, ON PURPOSE. worlds.js is required by engine/worldenv before

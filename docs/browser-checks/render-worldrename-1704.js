@@ -34,7 +34,6 @@ catch {
 }
 
 const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
-const WAITING = 'Agents do not run in a named Kosmos yet, so it waits there and starts on its own once they can.';
 
 (async () => {
   let browser;
@@ -48,14 +47,14 @@ const WAITING = 'Agents do not run in a named Kosmos yet, so it waits there and 
   const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
   await page.goto('file://' + PAGE);
 
-  const r = await page.evaluate(async ([waitingSentence]) => {
+  const r = await page.evaluate(async () => {
     if (typeof worldswRender !== 'function') return { error: 'worldswRender is not a function (pre-#1704 page?)' };
     const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
     const $ = (id) => document.getElementById(id);
     const calls = [];
     const LIST = { worlds: [
       { id: 'default', name: 'Kosmos 1', agentCount: 1, agents: [{ name: 'ava', displayName: 'Ava', because: null }], waiting: [] },
-      { id: 'clientwork', name: 'Client work', agentCount: 2, agents: [{ name: 'bo', displayName: 'Bo', because: null }, { name: 'ava', displayName: 'Ava', because: null }], waiting: [{ name: 'cy', displayName: 'Cy', because: waitingSentence }] },
+      { id: 'clientwork', name: 'Client work', agentCount: 2, agents: [{ name: 'bo', displayName: 'Bo', because: null }, { name: 'ava', displayName: 'Ava', because: null }], waiting: [{ name: 'cy', displayName: 'Cy', because: null }] },
     ] };
     window.fetch = (url, opts) => {
       const u = String(url);
@@ -128,7 +127,7 @@ const WAITING = 'Agents do not run in a named Kosmos yet, so it waits there and 
     out.focusAfterAdd = document.activeElement && document.activeElement.id;
     $('world-rename-cancel').focus();
     return out;
-  }, [WAITING]);
+  });
 
   // The Tab trap, with a real keyboard: the pane is still open (Kosmos 1's settings).
   let trappedEvery = true;
@@ -156,7 +155,7 @@ const WAITING = 'Agents do not run in a named Kosmos yet, so it waits there and 
     if (!n.renameShown) problems.push('a named Kosmos\'s settings must offer rename');
     if (n.prefilled !== 'Client work') problems.push('rename was not pre-filled with the Kosmos name, got ' + JSON.stringify(n.prefilled));
     if (n.focus !== 'world-rename-name') problems.push('a named Kosmos\'s settings must open with focus in the name, got ' + JSON.stringify(n.focus));
-    if (n.waiting !== 'Waiting to start here: Cy. ' + WAITING) problems.push('the waiting line must speak display names: ' + JSON.stringify(n.waiting));
+    if (n.waiting !== 'Waiting to start here: Cy. They start when this Kosmos is opened.') problems.push('the waiting line must speak display names: ' + JSON.stringify(n.waiting));
     if (!r.renameBody || r.renameBody.id !== 'clientwork' || r.renameBody.name !== 'Renamed') problems.push('Save name did not POST {id:"clientwork",name:"Renamed"}: ' + JSON.stringify(r.renameBody));
     const d = r.def || {};
     if (!d.open) problems.push('Kosmos 1\'s cog did not open its settings');

@@ -618,14 +618,26 @@ test('PR4: startImported starts only the IMPORTED names it is given', () => {
   assert.deepEqual(readRecord().entries.map((e) => e.name), ['bo', 'cy']);
 });
 
-test('PR4 (#2849): while the spawn rule refuses, imported agents are held with its WAITING sentence, and nothing is sent', () => {
+test('post-lift: startImported takes no gate beyond live execution -- a named Kosmos\'s import starts at once', () => {
   writeRecord([importEntry('dee')]);
-  const refusal = { code: 409, error: 'Kosmos is running a named world, which does not run agents yet.', waiting: 'Agents do not run in a named Kosmos yet, so it waits there.' };
-  const r = withInstallJob(() => { throw new Error('the one spawn rule was bypassed'); },
-    () => worldstarts.startImported(['dee'], { platform: MAC, spawnRefusal: () => refusal }));
-  assert.deepEqual(r.held, [{ name: 'dee', because: refusal.waiting }]);
-  assert.deepEqual(calls, []);
-  assert.equal(readRecord().entries[0].because, refusal.waiting, 'the held start does not carry its sentence for the settings pane');
+  const got = [];
+  const r = withInstallJob((name) => { got.push(name); return { ok: true, started: true }; },
+    () => worldstarts.startImported(['dee'], { platform: MAC }));
+  assert.deepEqual(r.resumed, ['dee']);
+  assert.deepEqual(got, ['dee'], 'an import into the open Kosmos was held instead of started');
+});
+
+test('post-lift: an entry still carrying a pre-lift named-world sentence is read with no reason, not shown as barred', () => {
+  const stale = [
+    'Agents do not run in a named Kosmos yet, so it waits there and starts on its own once they can.',
+    'Kosmos is running a named world, which does not run agents yet. Switch back to Kosmos 1 (the default world) to create agents.',
+  ];
+  writeRecord([importEntry('old1', { because: stale[0] }), importEntry('old2', { because: stale[1] }), importEntry('real', { because: 'we could not start real now; it starts at your next login' })]);
+  assert.deepEqual(worldstarts.importsWaitingIn(nodePath.dirname(worldstarts.RECORD_FILE)), [
+    { name: 'old1', because: null },
+    { name: 'old2', because: null },
+    { name: 'real', because: 'we could not start real now; it starts at your next login' },
+  ]);
 });
 
 test('PR4: live execution OFF holds imported agents with a sentence that does not claim nothing changed', () => {

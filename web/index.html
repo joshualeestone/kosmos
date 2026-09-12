@@ -18815,8 +18815,8 @@ function worldImportClear(listEl) {
   for (const c of listEl.querySelectorAll('input[type="checkbox"]')) { c.checked = false; c.indeterminate = false; }
 }
 /* #1704 PR4: one plain paragraph for what an import did, from the route's `imported`
-   ({copied, refused, started, waiting, later}). The reasons come from the server (the
-   waiting one is the one spawn rule's own sentence), so this only joins them. */
+   ({copied, refused, started, waiting, later}). The reasons come from the server, so
+   this only joins them. */
 function worldImportOutcome(imported, kosmosName) {
   const imp = imported || {};
   const arr = (v) => (Array.isArray(v) ? v : []);
@@ -18882,8 +18882,8 @@ async function worldAddSubmit() {
     // #1704 PR4: say what the import did instead of closing as if everything is running. The
     // create succeeded either way; the server answers `imported` {copied, refused, started,
     // waiting, later}. Only when every agent is starting NOW does the dialog close as before.
-    // Anything else -- one refused, one waiting (a new Kosmos's agents wait while #2849 holds
-    // named Kosmoses), one that starts when the Kosmos is opened -- is said in the alert, and
+    // Anything else -- one refused, one held with a reason, one that starts when the Kosmos is
+    // opened (every agent added to a NEW Kosmos, which is not the open one) -- is said in the alert, and
     // Cancel becomes Done. Create stays disabled so a re-press cannot duplicate the Kosmos just
     // made (a same-name retry is refused by the server anyway).
     if (importAgents.length) {
@@ -19048,7 +19048,7 @@ function worldSettingsRender(worlds, id) {
   worldSettingsSelectionChanged();
 }
 /* #1704 PR4: the agents copied into this Kosmos that have not started, and why, in the
-   words the server gave (the #2849 wait is the one spawn rule's own sentence). */
+   words the server gave (none when the Kosmos simply has not been opened since). */
 function worldSettingsWaitingNote(waiting) {
   const list = Array.isArray(waiting) ? waiting.filter((w) => w && w.name) : [];
   if (!list.length) return '';

@@ -38,7 +38,6 @@ const CLOSE = slice('worldRenameClose');
 const AS_SENTENCE = slice('asSentence');   // the page's one sentence-dressing, which these use
 
 const MODAL = PAGE.slice(PAGE.indexOf('<div class="rm-back" id="world-rename-modal"'), PAGE.indexOf('<div class="rm-back" id="world-switch-modal"'));
-const WAITING = 'Agents do not run in a named Kosmos yet, so it waits there and starts on its own once they can.';
 
 test('the cog is on EVERY row, Kosmos 1 included, labelled as settings, and opens that Kosmos\'s pane', () => {
   const dom = makeDom();
@@ -96,7 +95,7 @@ return { worldRenameOpen, worldSettingsSelectionChanged, worldSettingsSkip, worl
 const tick = () => new Promise((r) => setImmediate(r));
 const LIST = [
   { id: 'default', name: 'Kosmos 1', agents: [{ name: 'ava', displayName: 'Ava', because: null }], waiting: [] },
-  { id: 'alpha', name: 'Alpha', agents: [{ name: 'bo', displayName: 'Bo', because: null }], waiting: [{ name: 'cy', displayName: 'Cy', because: WAITING }] },
+  { id: 'alpha', name: 'Alpha', agents: [{ name: 'bo', displayName: 'Bo', because: null }], waiting: [{ name: 'cy', displayName: 'Cy', because: null }] },
 ];
 
 test('Kosmos 1\'s settings: no rename (its name is fixed), focus on Close, and the picker lists only the OTHER Kosmoses', async () => {
@@ -124,7 +123,7 @@ test('a named Kosmos\'s settings: rename is there with the name focused, and wha
   assert.equal(dom.focused().id, 'world-rename-name');
   await tick();
   assert.equal($('world-set-waiting').hidden, false);
-  assert.equal($('world-set-waiting').textContent, 'Waiting to start here: Cy. ' + WAITING, 'the line must speak display names');
+  assert.equal($('world-set-waiting').textContent, 'Waiting to start here: Cy. They start when this Kosmos is opened.', 'the line must speak display names');
 });
 
 test('R1: a name the Kosmos being added TO already holds is shown as "already here", and cannot be ticked', async () => {
@@ -168,7 +167,7 @@ test('Add agents posts {id, importAgents} to /api/worlds/import and says what ha
   const fetchStub = async (url, opts) => {
     posted.push({ url, body: JSON.parse(opts.body) });
     return { ok: true, json: async () => ({ ok: true, world: { id: 'alpha', name: 'Alpha' },
-      imported: { copied: [{ from: 'default', name: 'ava', displayName: 'Ava' }], refused: [], started: [], waiting: [{ name: 'ava', because: WAITING }], later: [] } }) };
+      imported: { copied: [{ from: 'default', name: 'ava', displayName: 'Ava' }], refused: [], started: [], waiting: [], later: ['ava'] } }) };
   };
   const fns = settingsFns(dom, { worlds: LIST, fetchStub });
   fns.worldRenameOpen('alpha', 'Alpha');
@@ -177,7 +176,7 @@ test('Add agents posts {id, importAgents} to /api/worlds/import and says what ha
   $('world-set-import-list').querySelectorAll('.world-import-cb').find((c) => c.value === 'ava').click();
   await fns.worldSettingsAddSubmit();
   assert.deepEqual(posted, [{ url: '/api/worlds/import', body: { id: 'alpha', importAgents: [{ from: 'default', name: 'ava' }] } }]);
-  assert.equal($('world-rename-msg').textContent, 'Added Ava to Alpha. Waiting: Ava. ' + WAITING);
+  assert.equal($('world-rename-msg').textContent, 'Added Ava to Alpha. Ava starts when you open Alpha.');
   assert.equal(dom.focused().id, 'world-rename-cancel', 'focus was left on Add, which the redraw disabled');
 });
 

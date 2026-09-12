@@ -181,13 +181,11 @@ test('Skip hands focus to Create when it can be pressed, and to the name when it
   }
 });
 
-const WAITING = 'Agents do not run in a named Kosmos yet, so it waits there and starts on its own once they can.';
-
-test('what the import did is SAID: a waiting agent keeps the dialog open with the sentence, and Cancel becomes Done', async () => {
+test('what the import did is SAID: an agent that starts when the new Kosmos opens keeps the dialog open with that sentence, and Cancel becomes Done', async () => {
   const r = await submit({ tick: [['w1', 'ava']], response: { ok: true, world: { id: 'gamma', name: 'Gamma' },
-    imported: { copied: [{ from: 'w1', name: 'ava', displayName: 'Ava' }], refused: [], started: [], waiting: [{ name: 'ava', because: WAITING }], later: [] } } });
-  assert.equal(r.msg.textContent, 'Your Kosmos was created. Added Ava to Gamma. Waiting: Ava. ' + WAITING);
-  assert.equal(r.seen.closed, false, 'a waiting agent was closed over as if it were running');
+    imported: { copied: [{ from: 'w1', name: 'ava', displayName: 'Ava' }], refused: [], started: [], waiting: [], later: ['ava'] } } });
+  assert.equal(r.msg.textContent, 'Your Kosmos was created. Added Ava to Gamma. Ava starts when you open Gamma.');
+  assert.equal(r.seen.closed, false, 'an agent that is not running yet was closed over as if it were running');
   assert.equal(r.cancel.textContent, 'Done');
   assert.equal(r.go.disabled, true, 'a re-press would try to make the same Kosmos again');
 });
