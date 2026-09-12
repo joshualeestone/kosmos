@@ -46,7 +46,11 @@ function bundle() {
     + lift('usageChartSvg') + '\n'
     + lift('usageLegendHtml') + '\n'
     + lift('usageTableHtml') + '\n'
-    + 'return { usageTotals, usageDailySeries, usageCardsHtml, usageMoneyHtml, usageChartSvg, usageLegendHtml, usageTableHtml, usageDayLabel, usageNum, USAGE_CLASS_COLORS };'
+    // #2840: the usage-history list + its abbr helper + the value stub const.
+    + page.liftConst(SCRIPT, 'USAGE_VALUE_STUB') + '\n'
+    + lift('usageAbbr') + '\n'
+    + lift('usageHistoryHtml') + '\n'
+    + 'return { usageTotals, usageDailySeries, usageCardsHtml, usageMoneyHtml, usageChartSvg, usageLegendHtml, usageTableHtml, usageDayLabel, usageNum, USAGE_CLASS_COLORS, usageAbbr, usageHistoryHtml, USAGE_VALUE_STUB };'
   )();
 }
 const U = bundle();
@@ -175,4 +179,68 @@ test('#2617: the legend and the chart draw from ONE color source, so they cannot
   assert.equal(U.USAGE_CLASS_COLORS.length, 4, 'exactly the four classes');
   // the legend order matches the mockup (cache-read first)
   assert.deepEqual(U.USAGE_CLASS_COLORS.map((c) => c.label), ['Cache read', 'Cache written', 'Input', 'Output']);
+});
+
+/* #2840: the scrollable usage-history list. FIXTURE (above) is 2 days x 1 model.
+   Hand-computed per-row totals (4-class sums), independent of the product code:
+   2026-09-01: 2,140,559 + 760,331 + 9,401,220 + 1,023,445,990 = 1,035,748,100
+   2026-08-31: 2,010,445 + 701,558 + 8,702,558 +   940,558,112 =   951,972,673 */
+test('#2840: usageHistoryHtml renders a row per day/model, newest first, with the 4-class total', () => {
+  const html = U.usageHistoryHtml(FIXTURE);
+  assert.match(html, /class="uhrow uhhead"/, 'the sticky header row is present');
+  assert.match(html, />Day<[\s\S]*>Model<[\s\S]*>Total tokens<[\s\S]*>Value</, 'the four columns are Day/Model/Total tokens/Value');
+  // newest first: 09-01 appears before 08-31
+  assert.ok(html.indexOf('2026-09-01') < html.indexOf('2026-08-31'), 'rows are newest-first');
+  // per-row total abbreviated in the cell, full number in the title attr
+  assert.ok(html.includes('title="' + fmt(1035748100) + '"'), 'the 09-01 row carries its full total in title');
+  assert.ok(html.includes('>1.0B<'), 'the 09-01 row shows the abbreviated total');
+});
+
+test('#2840: the Value column is STUBBED (pending), never a live dollar figure', () => {
+  const html = U.usageHistoryHtml(FIXTURE);
+  // The stub must be present per row...
+  assert.ok(html.includes('pending'), 'the Value cell shows the pending stub');
+  assert.match(html, /class="uh-stub"/, 'the stub carries its class');
+  // ...and NO dollar amount may appear anywhere, because the blend-vs-output
+  // decision is unsettled. This guard fails the moment someone drops a live $
+  // value in before Josh rules -- exactly the contested number we are protecting.
+  assert.ok(!/\$/.test(html), 'no dollar sign appears in the usage-history list while Value is stubbed');
+});
+
+test('#2840: usageAbbr abbreviates B/M/K and passes small numbers through', () => {
+  assert.equal(U.usageAbbr(21463000000), '21B', 'ten-billions round to a whole B (toFixed 0)');
+  assert.equal(U.usageAbbr(1964004102), '2.0B', 'single-digit billions keep one decimal (1.96 -> 2.0B)');
+  assert.equal(U.usageAbbr(1035748100), '1.0B', 'a low single-digit billion keeps one decimal');
+  assert.equal(U.usageAbbr(18103778), '18.1M', 'millions keep one decimal');
+  assert.equal(U.usageAbbr(4151), '4K', 'thousands round to whole K');
+  assert.equal(U.usageAbbr(742), '742', 'sub-thousand passes through');
+  assert.equal(U.usageAbbr(0), '0', 'zero passes through');
+});
+
+test('#2840: usageHistoryHtml escapes a hostile model name and is empty on no data', () => {
+  const hostile = U.usageHistoryHtml({ '2026-09-01': { '<img src=x onerror=1>': { output_tokens: 5 } } });
+  assert.ok(!hostile.includes('<img src=x'), 'a hostile model name is not rendered as a tag');
+  assert.ok(hostile.includes('&lt;img'), 'the hostile string is HTML-escaped');
+  assert.equal(U.usageHistoryHtml({}), '', 'empty byDay renders nothing');
+});
+
+/* #2840 (Convention #5, "two derivations of one fact"): usageTableHtml and usageHistoryHtml
+   independently iterate byDay to emit their rows. This pins that they cover the SAME
+   (day, model) set from the same input, so a future edit to one loop (e.g. a per-class
+   filter) that misses the other desyncs a test rather than shipping silently. */
+test('#2840: the usage-history list and the measurement table derive the same (day,model) rows', () => {
+  const fx = {
+    '2026-09-02': { 'claude-opus-5': { output_tokens: 3 }, 'gpt-5.1-codex': { output_tokens: 2 } },
+    '2026-09-01': { 'claude-opus-5': { input_tokens: 1 } },
+  };
+  const tablePairs = [...U.usageTableHtml(fx).matchAll(/<tr><td>([^<]+)<\/td><td>([^<]+)<\/td>/g)]
+    .map((m) => m[1] + '|' + m[2]);
+  const histPairs = [...U.usageHistoryHtml(fx).matchAll(/<div class="uh-d">([^<]+)<\/div><div class="uh-m">([^<]+)<\/div>/g)]
+    .map((m) => m[1] + '|' + m[2]);
+  assert.equal(histPairs.length, 3, 'the fixture yields 3 day+model rows');
+  assert.deepEqual(histPairs.slice().sort(), tablePairs.slice().sort(),
+    'both functions produce the same (day,model) row set from the same byDay');
+  // Both are newest-first, so the first row of each is the 09-02 pair, not 09-01.
+  assert.ok(histPairs[0].startsWith('2026-09-02') && tablePairs[0].startsWith('2026-09-02'),
+    'both order newest-day-first');
 });

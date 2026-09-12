@@ -44,6 +44,7 @@ async function openUsage(page) {
   await page.click('#s-nav button[data-go="usage"]');
   await page.waitForSelector('#s-sec-usage:not([hidden])');
   await page.waitForSelector('#usage-cards .usage-cls');
+  await page.waitForSelector('#usage-history .uhrow'); // #2840: the usage-history list has painted
 }
 
 function readUsage(page) {
@@ -66,6 +67,13 @@ function readUsage(page) {
       cacheReadShown: cards.some((c) => /1,964,004,102/.test(c.textContent || '')),
       legendSwatches: document.querySelectorAll('#usage-legend .usage-lg').length,
       tableRows: table ? table.querySelectorAll('tbody tr').length : 0,
+      // #2840: the scrollable usage-history list.
+      historyRows: document.querySelectorAll('#usage-history .uhrow:not(.uhhead)').length,
+      historyHeaders: [...document.querySelectorAll('#usage-history .uhrow.uhhead > div')].map((d) => (d.textContent || '').trim()),
+      historyValueStubbed: [...document.querySelectorAll('#usage-history .uhrow:not(.uhhead)')].every((r) => /pending/.test((r.textContent || ''))),
+      historyHasDollar: /\$/.test((document.getElementById('usage-history') || {}).textContent || ''),
+      historyScrolls: (() => { const b = document.getElementById('usage-history'); return b ? getComputedStyle(b).overflowY === 'auto' : null; })(),
+      historyKeyboardReachable: (() => { const b = document.getElementById('usage-history'); return b ? b.getAttribute('tabindex') === '0' : null; })(),
     };
   });
 }
@@ -93,6 +101,17 @@ function readUsage(page) {
     ok(v.moneyNamesOutput, 'the money box names OUTPUT as its basis (never a blended total)');
     ok(/\$/.test(v.moneyText || ''), 'the money box shows a dollar figure');
     ok(v.tableRows >= 1, `the per-model/day table stays as the measurement (got ${v.tableRows} rows)`);
+    // #2840: the scrollable usage-history list, wired to the same /api/usage.
+    ok(v.historyRows >= 1, `the usage-history list renders a row per day/model (got ${v.historyRows})`);
+    ok(['Day', 'Model', 'Total tokens', 'Value'].every((h) => v.historyHeaders.includes(h)),
+      `the usage-history columns are Day/Model/Total tokens/Value (got ${JSON.stringify(v.historyHeaders)})`);
+    ok(v.historyScrolls === true, 'the usage-history box is a fixed-height scroller (overflow-y:auto)');
+    ok(v.historyKeyboardReachable === true, 'the scroll region is keyboard-reachable (tabindex=0, WCAG AA)');
+    // The contested $ value is STUBBED pending Josh's blend-vs-output ruling: every
+    // Value cell says "pending" and NO dollar sign appears. This fails the moment a
+    // live $ figure lands before the ruling -- the guard on the demo headline number.
+    ok(v.historyValueStubbed, 'every usage-history Value cell shows the "pending" stub');
+    ok(v.historyHasDollar === false, 'no dollar sign in the usage-history list while Value is stubbed');
     await ctx.close();
   } finally {
     await browser.close();
