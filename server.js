@@ -3736,8 +3736,9 @@ const server = http.createServer((req, res) => {
            NON-default account" and implies a named alternate that does not exist.
            The sibling arms below coerce with `=== true`, which is a genuine no-op
            for them because a Claude row's `isDefault` is always a real boolean.
-           Copying that coercion here threw the null away, which is the FOURTH
-           sibling of this one fact on this branch. */
+           Copying that coercion here threw the null away, which is the THIRD
+           site of this one fact on this branch (the live path, the record
+           fallback, and here). */
         account: account ? { email: account.email, label: account.label, isDefault: account.isDefault } : null,
         state: subscription.STATE.UNKNOWN,
         connected: null,
@@ -5415,8 +5416,12 @@ const server = http.createServer((req, res) => {
         const nowMs = Date.now();
         const freshWindow = observed.freshMs();
         // Freshest observation per account dir. accountForAgent maps a default
-        // agent (no configDir) to the default row, whose own `.dir` the claude rows
-        // carry too, so keying by dir joins both sides without a special case.
+        // CLAUDE agent (no configDir) to the default row, whose own `.dir` the
+        // claude rows carry too, so keying by dir joins both sides without a
+        // special case. A default CODEX agent maps to nothing since #2811 (the
+        // dir-less match is provider-gated), which the `!acct.dir` continue below
+        // already skips: the same outcome this join wanted, now for an honest
+        // reason rather than because the wrong row happened to carry a dir.
         const obsByDir = new Map();
         for (const o of observed.all()) {
           // #2413: the Claude overlay reads ONLY anthropic observations. An OpenAI
@@ -5740,10 +5745,17 @@ const server = http.createServer((req, res) => {
     let dir = '';
     try { dir = new URL(req.url, ROUTING_BASE).searchParams.get('dir') || ''; } catch { dir = ''; }
     /* #2140 Surface 2: an empty dir means the DEFAULT OpenAI account. A
-       default-codex agent's card resolves its account to the default CLAUDE
-       account (accountForAgent falls back to it when configDir is null), which is
-       not an OpenAI account -- so the detail picker deliberately sends an EMPTY dir
-       for that isDefault case rather than the Claude dir (which would 404 here).
+       default-codex agent's card resolves its account to NOTHING: it has no
+       CODEX_HOME, and `accountForAgent` refuses to hand a codex agent a Claude
+       row, so the detail picker sends an EMPTY dir for it (a Claude dir would 404
+       here).
+       ⚠️ THIS SENTENCE USED TO SAY the card "resolves its account to the default
+       CLAUDE account (accountForAgent falls back to it when configDir is null)".
+       That was true when it was written and #2811 removed it: the dir-less match
+       is now provider-gated, so the answer is null rather than the operator's own
+       Claude account. The empty dir this route relies on is unchanged, because
+       both `!null` and `!false` reach it, but the REASON is different and the old
+       one described behaviour the product no longer has.
        Resolve it to the default OpenAI account's dir, then validate + fetch as
        normal. The create flow always passes the selected account's dir, so this
        only affects the detail page's default-codex case. Still fail-closed: no
@@ -8651,10 +8663,10 @@ const server = http.createServer((req, res) => {
              🛑 `null` WHEN THE LIVE READ DID NOT SUCCEED, deliberately, and there
              are TWO record-side runners it would have been easy to reach for:
                - the `@kosmos_runner` session marker, which SURVIVES A CRASH back
-                 to a shell (`engine/status.js:682` documents exactly this), so it
+                 to a shell (`engine/status.js` documents exactly this, in the `@kosmos_runner` survives-a-crash comment), so it
                  reports a provider for an agent that is no longer running;
                - `create.readJob(name).runner`, off the plist's ninth argument
-                 (`engine/create.js:837`), which says what the agent was LAUNCHED
+                 (`create.readJob`'s ninth-argument runner read), which says what the agent was LAUNCHED
                  as. `accountForAgent` already calls `readJob` on every request, so
                  this one is free and still wrong here: it describes the
                  configuration, not the process, and the two disagree for exactly

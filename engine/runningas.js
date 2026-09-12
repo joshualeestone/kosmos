@@ -195,8 +195,15 @@ function agentUnder(panePid, procs) {
      recorded model suppressed as foreign.
      ⇒ Depth still decides first, which is what makes the launcher case work. The
      tie is the only ambiguous case, and it resolves to `claude` because that is
-     exactly the answer this function gave before codex was added: the widening
-     can turn a refusal into an answer, and cannot turn one answer into another. */
+     exactly the answer this function gave before codex was added.
+     🛑 THAT LAST PROPERTY HOLDS FOR THE TIE ONLY, and an earlier version of this
+     comment claimed it for the whole widening: "cannot turn one answer into
+     another". Measurably false, and contradicted by a test in this repo. A
+     shallower codex above a deeper claude used to resolve to the claude (it was
+     the only thing that matched) and now resolves to the codex, which is the
+     intended answer and is asserted by `DEPTH still decides before the runner
+     preference`. So the widening CAN change one answer into another, by depth;
+     what it cannot do is change the answer at a same-depth tie. */
   let level = [panePid];
   const seen = new Set();
   while (level.length) {
