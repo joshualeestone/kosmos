@@ -542,6 +542,14 @@ He confirmed this shape:
     because a brand-new Kosmos is never the booted one, so `started` is never
     filled on that route. It was never the #2849 gate.
 
+- **Round 5 (coordinator, at `da07f1cd`: no bugs).**
+  - [TEST-GAP] A removed claimant beside a live one (`maraold` in `removed.json`,
+    `maralive` live, both claiming the same Mara) resolves to `maralive`. This
+    pins that the removed filter runs before claimants are counted. Its control
+    (counting removed claimants too) goes red.
+  - [NIT] WINDOWS-ROADMAP now says an import into the open Kosmos starts at once
+    unless something holds it, and the page says why.
+
 ## Rebase TODO (DONE in the post-lift rebase above; kept as the record of what it covered)
 
 - **Everything tied to `namedWorldSpawnRefusal` goes:**

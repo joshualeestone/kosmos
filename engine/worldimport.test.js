@@ -571,6 +571,20 @@ test('R4: two target copies claiming the SAME source manager are ambiguous: the 
   assert.equal(readJson(nodePath.join(worlds.worldProfilesDir(base, one), 'rook.json')).reportsTo, 'mara');
 });
 
+test('R5: a REMOVED claimant beside a live one is not counted -- the live copy is the match, not an ambiguity', () => {
+  const { base, env, opts, def } = setup();
+  seedAgent(base, env, def, 'mara', { profile: { displayName: 'Mara', id: 'ma4a00000001' } });
+  seedAgent(base, env, def, 'rook', { profile: { displayName: 'Rook', reportsTo: 'mara', id: '400c00000001' } });
+  const dst = worlds.createWorld(base, 'Dest');
+  const claim = { kosmos: 'default', id: 'ma4a00000001' };
+  fs.mkdirSync(worlds.worldProfilesDir(base, dst), { recursive: true });
+  for (const n of ['maralive', 'maraold']) fs.writeFileSync(nodePath.join(worlds.worldProfilesDir(base, dst), n + '.json'), JSON.stringify({ displayName: 'Mara', importedFrom: claim }));
+  fs.writeFileSync(nodePath.join(worlds.worldStoreRoot(base, dst), 'removed.json'), JSON.stringify([{ name: 'maraold' }]));
+  worldimport.importAgents(base, dst.id, [{ from: 'default', name: 'rook' }], opts);
+  assert.equal(readJson(nodePath.join(worlds.worldProfilesDir(base, dst), 'rook.json')).reportsTo, 'maralive',
+    'a removed copy was counted as a claimant, so the one live match read as ambiguous');
+});
+
 test('R3 (2a): a manager with NO source id (never minted) that comes along in the same request keeps the line', () => {
   const { base, env, opts, def } = setup();
   // Profiles written without the store carry no id, so provenance cannot match them.
