@@ -1,8 +1,9 @@
 #!/bin/bash
 # #1605 / #2112 -- dist/ retention. The site's dist/ accumulates one versioned
 # triple per release, per platform, and nothing prunes them:
-#   arm64:   kosmos-<V>-arm64.tar.gz + .tar.gz.sha256 + .manifest.json  (protected by latest.json)
-#   win-x64: kosmos-<V>-win-x64.zip  + .zip.sha256    + .manifest.json  (protected by latest-win.json)
+#   arm64:   kosmos-<V>-arm64.tar.gz + .tar.gz.sha256 + .manifest.json  (protected by latest.json and latest-staging.json)
+#   win-x64: kosmos-<V>-win-x64.zip  + .zip.sha256    + .manifest.json  (protected by latest-win.json and latest-win-staging.json)
+# The staging pointers name a build waiting for its promote, so it is protected like the served one.
 # This tool REPORTS what would be retained/pruned and, only behind an explicit
 # --prune --yes, deletes the old versioned triples of BOTH families.
 #
@@ -91,9 +92,13 @@ read_pointer_version() {
 read_pointer_artifact() {
   grep -o '"artifact"[[:space:]]*:[[:space:]]*"[^"]*"' "$1" 2>/dev/null | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true
 }
+# The Windows pointers name the versioned zip in "versioned" ("artifact" is the alias).
+read_pointer_versioned() {
+  grep -o '"versioned"[[:space:]]*:[[:space:]]*"[^"]*"' "$1" 2>/dev/null | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true
+}
 
 # ---------------------------------------------------------------------------
-# process_family <arch> <ext> <sha_ext> <pointer> <served_required> <skip_if_empty>
+# process_family <arch> <ext> <sha_ext> <pointer> <served_required> <skip_if_empty> [<staged_pointer>]
 #
 # Runs the whole retention decision for ONE platform family and, in JSON mode,
 # sets FAMILY_JSON to its inner fields (no braces) for the caller to assemble.
@@ -185,23 +190,48 @@ process_family() {
   fi
   in_keep() { case "$KEEP_LIST" in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
-  # Protect the served version unconditionally (when we have one).
-  if [ -n "$SERVED_VERSION" ]; then
-    in_keep "$SERVED_VERSION" || KEEP_LIST="${KEEP_LIST}${SERVED_VERSION} "
-    # ALSO protect the served release by the version in its ACTUAL artifact
-    # filename, which the pointer names explicitly -- closes a version-format-skew
-    # gap (pointer "0.6.5" while the file is kosmos-0.6.05-<arch>.<ext>).
-    local SERVED_ARTIFACT av
-    SERVED_ARTIFACT="$(read_pointer_artifact "$PFILE")"
-    case "$SERVED_ARTIFACT" in
+  # protect_named_artifact <filename>: keep the version in a versioned artifact
+  # filename that a pointer names explicitly -- closes a version-format-skew gap
+  # (pointer "0.6.5" while the file is kosmos-0.6.05-<arch>.<ext>). A name not
+  # shaped like this family's versioned artifact (an alias, the other family,
+  # empty) is ignored.
+  protect_named_artifact() {
+    local named="$1" av
+    case "$named" in
       kosmos-[0-9]*-"$ARCH"."$EXT")
-        av="${SERVED_ARTIFACT#kosmos-}"; av="${av%-$ARCH.$EXT}"
+        av="${named#kosmos-}"; av="${av%-$ARCH.$EXT}"
         case "$av" in
           ''|*[!0-9A-Za-z.+_-]*) : ;;
           *) in_keep "$av" || KEEP_LIST="${KEEP_LIST}${av} " ;;
         esac
         ;;
     esac
+  }
+
+  # Protect the served version unconditionally (when we have one), by its version
+  # string AND by the artifact filename its pointer names: `artifact` (arm64's
+  # versioned tarball) and `versioned` (the Windows pointer, whose `artifact` is
+  # the unversioned alias).
+  if [ -n "$SERVED_VERSION" ]; then
+    in_keep "$SERVED_VERSION" || KEEP_LIST="${KEEP_LIST}${SERVED_VERSION} "
+    protect_named_artifact "$(read_pointer_artifact "$PFILE")"
+    protect_named_artifact "$(read_pointer_versioned "$PFILE")"
+  fi
+
+  # Protect the STAGED version too (the staging channel: latest-staging.json for
+  # arm64, latest-win-staging.json for win-x64). A staged build is waiting for its
+  # promote, which copies a pointer that names it; pruning it would leave the
+  # staging pointer -- and prod, after the promote -- naming bytes that are gone.
+  # An absent staging pointer protects nothing extra (the pre-staging behaviour).
+  local STAGED_POINTER="${7:-}" STAGED_VERSION=""
+  if [ -n "$STAGED_POINTER" ] && [ -f "$DIST/$STAGED_POINTER" ]; then
+    STAGED_VERSION="$(read_pointer_version "$DIST/$STAGED_POINTER")"
+    case "$STAGED_VERSION" in
+      ''|*[!0-9A-Za-z.+_-]*) : ;;
+      *) in_keep "$STAGED_VERSION" || KEEP_LIST="${KEEP_LIST}${STAGED_VERSION} " ;;
+    esac
+    protect_named_artifact "$(read_pointer_artifact "$DIST/$STAGED_POINTER")"
+    protect_named_artifact "$(read_pointer_versioned "$DIST/$STAGED_POINTER")"
   fi
 
   # Retained count: only DISCOVERED versions that are kept (a phantom served token
@@ -240,8 +270,8 @@ process_family() {
   # ---- report ----
   if [ "$JSON" -eq 1 ]; then
     local jfirst=1 jv
-    FAMILY_JSON="$(printf '"dist":"%s","served_version":"%s","found":%d,"keep":%d,"retained":%d,"prune_versions":[' \
-      "$DIST" "$SERVED_VERSION" "$NVER" "$KEEP" "$RETAINED")"
+    FAMILY_JSON="$(printf '"dist":"%s","served_version":"%s","staged_version":"%s","found":%d,"keep":%d,"retained":%d,"prune_versions":[' \
+      "$DIST" "$SERVED_VERSION" "$STAGED_VERSION" "$NVER" "$KEEP" "$RETAINED")"
     for v in "${PRUNE_VERSIONS[@]:-}"; do
       [ -n "$v" ] || continue
       [ "$jfirst" -eq 1 ] || FAMILY_JSON="${FAMILY_JSON},"; jfirst=0
@@ -254,6 +284,9 @@ process_family() {
   else
     echo "dist-retention [$ARCH]: $DIST"
     echo "  served version (protected): ${SERVED_VERSION:-<none: $POINTER absent or version-less>}"
+    if [ -n "$STAGED_POINTER" ] && [ -f "$DIST/$STAGED_POINTER" ]; then
+      echo "  staged version (protected): ${STAGED_VERSION:-<none: $STAGED_POINTER is version-less>}"
+    fi
     echo "  versioned triples found:    $NVER"
     echo "  keep window (--keep):       $KEEP"
     echo "  retained versions:          $RETAINED"
@@ -321,7 +354,7 @@ process_family() {
 
 # The families, in order. arm64 always runs (its pointer is required); win-x64 runs
 # only when it has versioned triples (a dist with no Windows releases shows nothing).
-#   process_family <arch> <ext> <sha_ext> <pointer> <served_required> <skip_if_empty>
+#   process_family <arch> <ext> <sha_ext> <pointer> <served_required> <skip_if_empty> <staged_pointer>
 
 # --- PRUNE gate: refuse before touching ANY family (one message, not per-family) --
 if [ "$DO_PRUNE" -eq 1 ] && [ "$CONFIRM" -eq 0 ]; then
@@ -332,24 +365,24 @@ if [ "$DO_PRUNE" -eq 1 ] && [ "$CONFIRM" -eq 0 ]; then
   DO_PRUNE=0
   {
     if [ "$JSON" -eq 1 ]; then
-      process_family arm64 tar.gz tar.gz.sha256 latest.json 1 0; A_JSON="$FAMILY_JSON"
-      process_family win-x64 zip zip.sha256 latest-win.json 0 1; W_SKIP="$FAMILY_SKIPPED"; W_JSON="$FAMILY_JSON"
+      process_family arm64 tar.gz tar.gz.sha256 latest.json 1 0 latest-staging.json; A_JSON="$FAMILY_JSON"
+      process_family win-x64 zip zip.sha256 latest-win.json 0 1 latest-win-staging.json; W_SKIP="$FAMILY_SKIPPED"; W_JSON="$FAMILY_JSON"
       if [ "$W_SKIP" -eq 1 ]; then printf '{%s}\n' "$A_JSON"; else printf '{%s,"win_x64":{%s}}\n' "$A_JSON" "$W_JSON"; fi
     else
-      process_family arm64 tar.gz tar.gz.sha256 latest.json 1 0
-      process_family win-x64 zip zip.sha256 latest-win.json 0 1
+      process_family arm64 tar.gz tar.gz.sha256 latest.json 1 0 latest-staging.json
+      process_family win-x64 zip zip.sha256 latest-win.json 0 1 latest-win-staging.json
     fi
   } >&2
   exit 2
 fi
 
 if [ "$JSON" -eq 1 ]; then
-  process_family arm64 tar.gz tar.gz.sha256 latest.json 1 0; A_JSON="$FAMILY_JSON"
-  process_family win-x64 zip zip.sha256 latest-win.json 0 1; W_SKIP="$FAMILY_SKIPPED"; W_JSON="$FAMILY_JSON"
+  process_family arm64 tar.gz tar.gz.sha256 latest.json 1 0 latest-staging.json; A_JSON="$FAMILY_JSON"
+  process_family win-x64 zip zip.sha256 latest-win.json 0 1 latest-win-staging.json; W_SKIP="$FAMILY_SKIPPED"; W_JSON="$FAMILY_JSON"
   if [ "$W_SKIP" -eq 1 ]; then printf '{%s}\n' "$A_JSON"; else printf '{%s,"win_x64":{%s}}\n' "$A_JSON" "$W_JSON"; fi
 else
-  process_family arm64 tar.gz tar.gz.sha256 latest.json 1 0
-  process_family win-x64 zip zip.sha256 latest-win.json 0 1
+  process_family arm64 tar.gz tar.gz.sha256 latest.json 1 0 latest-staging.json
+  process_family win-x64 zip zip.sha256 latest-win.json 0 1 latest-win-staging.json
   if [ "$DO_PRUNE" -eq 0 ]; then
     echo "  (dry run -- nothing deleted; pass --prune --yes to delete)"
   fi

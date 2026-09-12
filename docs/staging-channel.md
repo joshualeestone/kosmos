@@ -155,6 +155,35 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
 6. **Rollback** = promote a prior staging pointer, or flip `latest.json` back, then re-deploy per
    step 5. No rebuild.
 
+## Windows (the same model, two more pointers)
+
+A Windows build follows the same rule: staging first, prod only after Josh's go.
+
+- **Publish to staging (the default).** `tools/publish-kosmos-windows.sh <zip>` stages the versioned
+  `kosmos-<V>-win-x64.zip`, its `.sha256` and `dist/latest-win-staging.json`, and leaves the alias
+  `kosmos-win-x64.zip`, its sidecar and `dist/latest-win.json` (prod) untouched.
+  `KOSMOS_CUT_CHANNEL=prod` is the direct-to-prod escape hatch (the old behaviour). Both pointers
+  come from one writer (`tools/lib/write-latest-win-pointer.js`) and have the same shape. The
+  staging pointer's `artifact` is the alias the promote will move, so a staging consumer fetches
+  `versioned`.
+- **Deploy it.** Commit the three files. `tools/deploy-site.sh` derives the staged zip from the
+  committed `latest-win-staging.json` (the same bytes-agreement check as prod), refuses an export
+  missing any of the three, and served-verifies them after the deploy.
+- **Verify it on the Windows box.** The box's verify script writes a record at
+  `%LOCALAPPDATA%\Kosmos\release-verify\win-staging-<sha256>.json`, shaped
+  `{version, sha256, source_sha, checks, at, result}`. `tools/win-staging-verified.sh` reads it:
+  0 pass, 1 fail or ambiguous, 2 no record (HOLD).
+- **Promote, only on Josh's go for that exact build.** `tools/promote-channel.sh <site> --family win
+  --approved-version <V> --approved-sha <sha256>` refuses without the approval, with a different
+  sha or version, or without a passing record, and `--force` is refused. On success it copies
+  `latest-win-staging.json` onto `latest-win.json` byte for byte, refreshes the alias from the
+  promoted bytes, and logs the approval (the version, the sha and a time). The approval records a
+  human decision: an agent never passes it without Josh's recorded go. Then commit `latest-win.json`
+  and the alias pair, and run `tools/deploy-site.sh --publish` (a Windows-only promote does not move
+  `latest.json`, so it is not a `--promote` deploy).
+- **Retention.** `tools/dist-retention.sh` protects the version each staging pointer names
+  (`latest-staging.json`, `latest-win-staging.json`) as well as the served one.
+
 ## The default is PROD, on purpose (the invariant)
 
 `KOSMOS_CUT_CHANNEL` defaults to **prod**, and the update channel defaults to **prod
