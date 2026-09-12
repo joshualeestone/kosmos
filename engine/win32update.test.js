@@ -287,8 +287,10 @@ test('B2: a truncated download is refused, with or without a Content-Length', as
 test('B2: the size cap, announced by Content-Length or discovered while streaming', async () => {
   const zip = bundleZip();
   const limits = { maxDownloadBytes: 1000 };
+  /* Announced: refused from the header, in the header's own words (it names the size), before
+     the body is read -- the streaming cap below would otherwise catch the same download later. */
   const c1 = freshCase();
-  await refusedWith(c1, site(zip), /larger than the 1000 bytes this updater will download/, { limits });
+  await refusedWith(c1, site(zip), new RegExp(`the update is ${zip.length} bytes, larger than the 1000 bytes this updater will download`), { limits });
   assertCleanedUp(c1, /larger than/);
   const chunked = (z) => new Response(new ReadableStream({
     start(ctl) { for (let at = 0; at < z.length; at += 400) ctl.enqueue(z.subarray(at, at + 400)); ctl.close(); },
