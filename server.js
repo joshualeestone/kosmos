@@ -2687,8 +2687,31 @@ const server = http.createServer((req, res) => {
          for validity, again: `isNamedOurs` answers "is this our agent", never
          "did we write its job". */
       const accountOf = (name) => accountForAgent(name, known);
+      /* 🛑 #2811: A PANELESS CARD CARRIES `runner: null`, AND THIS CHANGE IS WHAT
+         MAKES THAT MATTER. `engine/status.js`'s `panelessCard` hardcodes
+         `runner: null` (its only such site) because a card with no pane has no
+         `@kosmos_runner` to read. Before this branch that was harmless here: the
+         dir-less match handed a default-account codex agent the operator's CLAUDE
+         row, so `account` was truthy and the detail panel wrote no message. The
+         provider gate now returns null for that agent, and null routes it into
+         `paintAccountPicker`'s `!ours` sentence -- which the panel only qualifies
+         for a codex agent when it can SEE that it is one.
+         ⇒ So the runner has to travel for a paneless row too, and the derivation
+         is not new: the offline list below already does exactly this, from the
+         profile, with the reason stated there -- "a stopped agent has no pane to
+         have recorded it, so the profile's provider is the record". A paneless
+         row is the same case. `create.recordedRunner` is that read, used here
+         rather than restated so there is ONE definition.
+         ⚠️ ONLY WHEN ABSENT. A live pane's own runner is the better evidence and
+         must not be overwritten by a record that a switch could have made stale
+         in the other direction. */
+      const runnerOfCard = (a) => {
+        if (a.runner) return a.runner;
+        try { return create.recordedRunner(a.sessionName); } catch { return null; }
+      };
       const agents = snap.agents.filter((a) => !gone.has(a.sessionName)).map((a) => ({
         ...a,
+        runner: runnerOfCard(a),
         /* 🔑 STATED ON EVERY ROW, and it was stated on only half. The board
            branches on `running === false`, and the not-running rows below set
            it while these did not: so for every live agent the page was reading

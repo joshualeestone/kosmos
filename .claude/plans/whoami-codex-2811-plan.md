@@ -1721,3 +1721,95 @@ the catch count moved by two rather than one.
 SCRIPT REFERENCES, so prose mentioning another file registered as a missing script. **A
 documentation format can be a parser, and prose written into it is input.** The row now names
 other files without backticks and says why.
+
+## The blast-radius audit round 30 demanded, done rather than delegated
+
+Round 30's defect was a SHARED HELPER whose new return value reached a surface I had not
+considered. That generalises, so I enumerated every consumer of every helper this change alters,
+in parallel with round 31's reviewer rather than waiting to be told.
+
+**`accountForAgent` - five call sites, all accounted for:**
+
+| site | surface | status |
+|---|---|---|
+| `whoamiFor`'s record branch | the whoami answer | the card's own surface, asserted |
+| the board route | every agent card -> detail panel | **round 30's defect**, fixed + browser check |
+| the account-status route | the connect/auth probe | fixed earlier in the card |
+| the observed join, Anthropic arm | account-keyed observation | guarded by `o.provider !== ANTHROPIC`, so a codex agent never arrives; the dir-less match maps to nothing and the filter is kept as defence in depth |
+| the observed join, OpenAI arm | the same, openai rows | verified by round 29 |
+
+**Web consumers of an agent's `a.account` - three, all checked:**
+
+| reader | behaviour for a default-codex agent now |
+|---|---|
+| `paintAccountPicker` | round 30's defect, fixed |
+| the OpenAI detail model's `acctDir` | reads `a.account.dir && !isDefault`; a null account yields `''`, the documented default-resolves path |
+| `acctParenthetical` -> `runsOnLine` | returns `''`, and the caller guards with `acctEmail ? ' (' + … + ')' : ''`, so the parenthetical is OMITTED rather than rendered empty |
+
+⭐ **That last one is an IMPROVEMENT, and it is the card's own defect disappearing from a surface
+nobody had named**: before this change a default-codex agent's runs-on line named the OPERATOR'S
+CLAUDE ACCOUNT in its parenthetical. #2811 is titled "reports wrong provider + model and can't
+identify the .codex account"; that parenthetical was one of the places it did so.
+📌 I checked the CALLER's guard rather than trusting the helper's comment that the caller "omits
+the parenthetical entirely" - a helper describing its caller is exactly the kind of claim this
+card has found wrong repeatedly. It is right here, and now measured.
+
+**`resolvedRunner` - two consumers**, both the card's own surface: the wire `runner` field and the
+`because` sentence (`sentenceForWhoami(account, model, seenLive.resolvedRunner)`), which
+deliberately takes the CONFIGURED runner so a paneless, crashed or win32 codex agent is still told
+it is a Codex agent. **`runnerOf`** is local to the account-status route.
+
+⇒ **No further blast-radius surfaces exist for this change.** Recorded as a checked set rather than
+an assurance: the list above is the instrument, and a new caller of any of those helpers is what
+would invalidate it.
+
+## Round 31: round 30's fix does not reach a PANELESS codex card, and I nearly pinned it with a vacuous test
+
+**[MAJOR] The round-30 fix gates on `a.runner === 'codex'`, and a PANELESS card carries
+`runner: null`.** `engine/status.js`'s `panelessCard` hardcodes it (its only such site) because
+there is no pane to have recorded `@kosmos_runner`. So a default-account codex agent with no pane
+- created through the wizard and not yet started - still reached `paintAccountPicker` with
+`account: null` AND `runner: null`, and got the sentence round 30 declared false about that class.
+
+⚠️ **Branch-caused, not pre-existing**, by round 30's own argument: before this branch the dir-less
+match handed that agent the operator's CLAUDE row, so `account` was truthy and the panel wrote no
+message at all. The provider gate is what makes it null.
+
+✅ **FIXED SERVER-SIDE, and the derivation is not new.** The board map now fills an absent runner
+from `create.recordedRunner`, which is exactly what the OFFLINE list beside it already does from
+the profile, with the reason stated there: *"a stopped agent has no pane to have recorded it, so
+the profile's provider is the record"*. A paneless row is the same case. Only when absent: a live
+pane's own runner is better evidence and must not be overwritten.
+
+### 🛑 AND I NEARLY SHIPPED A VACUOUS TEST FOR IT, ONE DAY AFTER RECORDING THAT LESSON
+
+I wrote a route-level arm that seeded a codex plist, hit `/api/status`, and asserted the row
+carried `runner: 'codex'`. It PASSED. Then the mutant - remove the fallback entirely - **also
+passed**.
+
+The probe said why: the seeded agent came back `running: false`, i.e. it landed in the **OFFLINE**
+population, which already derived the runner from the profile before my change. **My test was
+measuring code I did not write, and would have stood as the pin for code I did.**
+
+⭐ **The test was green, the fixture was real (the product's own `plistFor`), the assertion was
+specific, and it proved nothing about the change.** Only `assert the mutation applied` and then
+running it caught that. A green test plus a surviving mutant is not a weak signal, it is a
+complete refutation of the test.
+
+📌 **I WROTE THAT THE FALLBACK WAS UNPINNED, THEN CLOSED IT, AND THE ROUTE MATTERS.** The first
+attempt failed because I seeded plists and hoped the row would be paneless; it deduped into the
+offline list. The fix was to stop hoping and drive the product's OWN SEAM: `status.setCreatedSource`
+is exactly how production gets these rows (`server.js` wires `createdroster.make()` on non-win32),
+and injecting it puts a real `panelessCard` into `snap.agents` - the population the change is in.
+
+✅ **Pinned, with a POPULATION FLOOR that the first version lacked**: the arm asserts
+`row.session === null` before asserting anything else, so it cannot silently drift back to
+measuring the offline row. Both mutants die by the assertion that names them:
+
+```
+MUTANT remove the fallback entirely      -> "a PANELESS codex agent reaches the board with no runner…"
+MUTANT return 'codex' without reading    -> "the runner fallback answered codex for a CLAUDE agent…"
+```
+
+⭐ **The second mutant is why the control arm exists.** A fallback that answers codex for everyone
+would satisfy the first assertion perfectly, and a one-armed test would have shipped it.
