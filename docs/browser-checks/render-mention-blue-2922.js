@@ -93,6 +93,8 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
           under: t('_@mona_'),
           strike: t('~~@mona~~'),
           paren: t('(@mona)'),
+          hyphenFlag: t('cc @mona-'),   // backend flags mona (strips trailing -), so it must highlight
+          notKey: t('@mona_bar'),        // not a key, no trailing ._- -> backend does not flag -> plain
           invalid: t('@nobody'),
           invalidBold: t('**@nobody**'),
           scoped: pjRichSpans('@mona', null),   // no agentNames -> dialogue path
@@ -107,6 +109,10 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
       check(`${tag} a valid @agent renders a .pjmention span`,
         /^<span class="pjmention">@mona<\/span>$/.test(state.plain), state.plain);
       check(`${tag} an @name matching nobody stays plain`, state.invalid === '@nobody', state.invalid);
+      check(`${tag} @mona- (trailing punct the BACKEND flags by stripping) still highlights`,
+        /^cc <span class="pjmention">@mona<\/span>-$/.test(state.hyphenFlag), state.hyphenFlag);
+      check(`${tag} @mona_bar (not a key, no trailing ._-) stays plain, like the backend`,
+        state.notKey === '@mona_bar', state.notKey);
       check(`${tag} **@mona** highlights INSIDE the bold`,
         /<strong><span class="pjmention">@mona<\/span><\/strong>/.test(state.bold), state.bold);
       check(`${tag} __@mona__ (double-underscore bold) highlights inside the bold`,

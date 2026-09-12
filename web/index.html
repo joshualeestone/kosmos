@@ -37630,15 +37630,21 @@ function pjRichSpans(seg, names, agentNames) {
        URL/chip so it is atomic through the emphasis pass (never leaks a marker). */
     if (hasAgents && !core.includes('￼')) {
       const lead = (core.match(/^(?:\*\*|__|~~|[*_(])+/) || [''])[0];
-      /* The shared tail-peel (mm[2]) already stripped trailing `*` and `~`, but KEEPS trailing `_`
-         (URLs use it), so an underscore-emphasised mention like `__@mona__` still carries its tail
-         here. Peel that tail too and re-attach it, so the emphasis pass wraps the whole chip and
-         `__@mona__` / `_@mona_` highlight, matching `**@mona**`. */
       const afterLead = core.slice(lead.length);
-      const trail = (afterLead.match(/_+$/) || [''])[0];
-      const rest = afterLead.slice(0, afterLead.length - trail.length);
-      if (rest.charAt(0) === '@' && rest.length > 1 && agentNames.has(rest.slice(1))) {
-        return lead + hold('<span class="pjmention">' + rest + '</span>') + trail + mm[2];
+      /* Highlight EXACTLY what the backend flags, so the blue means "this will reach that agent"
+         (Josh's ask). engine/messages.js matches the @-word exactly, else the word with a trailing
+         run of ._- stripped -- so `@mona-` (which the backend flags by dropping the `-`) highlights,
+         a key that itself ends in `_`/`-` matches by the exact-first check, and `@mona_bar` (no
+         trailing ._-, not a key) neither flags nor highlights. Leading emphasis / `(` are peeled and
+         re-attached so `**@mona**` / `(@mona)` wrap the chip; the matched `tail` renders plain. */
+      if (afterLead.charAt(0) === '@' && afterLead.length > 1) {
+        const word = afterLead.slice(1);
+        let key = null, tail = '';
+        if (agentNames.has(word)) { key = word; }
+        else { const sm = word.match(/^(.*?)([._-]+)$/); if (sm && sm[1] && agentNames.has(sm[1])) { key = sm[1]; tail = sm[2]; } }
+        if (key !== null) {
+          return lead + hold('<span class="pjmention">@' + key + '</span>') + tail + mm[2];
+        }
       }
     }
     /* A cited project file -> a "Show me" chip (#355), same PATH rule as
