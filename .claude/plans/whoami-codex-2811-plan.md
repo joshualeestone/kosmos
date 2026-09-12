@@ -2367,3 +2367,48 @@ believed the line was covered.
 📌 Round 37 also CONFIRMED the round-36 arm sound: CWD restored in `finally` before
 `board.restore()`, `fleet.install` has no `process.cwd()` dependence, it is the last test in a file
 node runs in its own process, and my "295" was 290 + 5 rather than a drifted count.
+
+## Round 38: NOTHING a user would experience as wrong, and one unpinned precedence
+
+**TARGET 1 CAME BACK CLEAN, and that is the headline.** Six user-facing surfaces measured, one of
+them RENDERED in Chromium rather than sliced:
+
+| surface | what a Codex agent gets today |
+|---|---|
+| `kosmos whoami` | "This is a Codex agent, and it runs on Work, and we cannot tell which model it is running." |
+| detail account picker | "This is a Codex agent, so it does not run on a Claude account…" (rendered, PASS) |
+| card model line | "OpenAI Codex"; the account parenthetical OMITTED rather than showing the operator's Claude email |
+| `/api/agents` runner | paneless codex card `'codex'`; remote/no-record card stays `null` |
+| Settings OpenAI badge join | greens the right row (`openaiRows` carry `provider:'openai'`; a codex plist always carries `codex` as args[8]) |
+| `dependsOnClaude` banner | unchanged: `someAgentNeedsClaude` is `!== 'codex'`, so null and 'claude' are identical |
+
+📌 **Two things chased and CLEARED as pre-existing rather than branch-introduced**, which is the
+distinction that keeps a review honest: the `sed`-based `because` extraction truncates on an
+embedded quote (already true on main via `whoamiProjectsClause`), and named-codex agents get a live
+Move picker (identical at the merge-base).
+
+**[MAJOR] The live-beats-record precedence was asserted nowhere.** `runnerOfCard` is
+`if (a.runner) return a.runner;` before consulting the record, and its comment claims that
+precedence. Replacing the guard with `if (false)` left **292/292 GREEN**.
+
+⭐ **AND THE MUTANT IS THE REFACTOR THIS CODEBASE PREACHES.** "One fact, one place, use
+`create.recordedRunner`" is a principle stated repeatedly in these files; someone tidying toward it
+would delete that guard and silently break the precedence. **An unpinned claim is most dangerous
+when the change that breaks it is the one your own conventions recommend.**
+
+⚠️ **The window is real, and the reviewer measured it instead of trusting my comment**: `setProvider`
+rewrites the plist and the profile but NEVER the tmux marker - `bin/agent-supervisor.sh` writes
+`@kosmos_runner` at agent START. So between a claude->codex switch and the next restart the record
+says codex while the pane still says claude. **The board must report what is RUNNING, not what is
+scheduled to run.**
+
+✅ The arm asserts BOTH sources actually disagree (`card.runner === 'claude'` and
+`recordedRunner === 'codex'`) before its claim, so it cannot pass under either precedence. Four
+arms now guard `runnerOfCard`, each killing a different mutant:
+
+```
+runner: a.runner (drop the helper)        -> "a PANELESS codex agent reaches the board with no runner…"
+return 'codex' without reading            -> "the runner fallback answered codex for a CLAUDE agent…"
+remove the record gate                    -> "…turning a display default we inherit into a claim"
+if (false) return a.runner (precedence)   -> "the board took the RECORD over the live pane marker…"
+```
