@@ -1093,6 +1093,9 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-role-order"   node docs/browser-checks/render-role-order.js "$B8"
   run_one "render-reload-toast"  env KOSMOS_URL="$B8" node docs/browser-checks/render-reload-toast.js "$sb7/shots-reload"
   run_one "render-updates-stale" env KOSMOS_URL="$B8" node docs/browser-checks/render-updates-stale.js "$sb7/shots-updates"
+  # win32-update-check: the Windows manual offer, the staging tag and the could-not-check states on
+  # the same Settings card. It stubs every update answer at the network edge, so any board serves.
+  run_one "render-update-win32-manual" env KOSMOS_URL="$B8" node docs/browser-checks/render-update-win32-manual.js "$sb7/shots-updates"
   run_one "render-switch-states" env KOSMOS_URL="$B8" node docs/browser-checks/render-switch-states.js
   # #2020/#2047: the two restored telemetry opt-out switches are 403-safe (a gated
   # read draws could-not-read, never a false Off). The 403 arm is simulated with

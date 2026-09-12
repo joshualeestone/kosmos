@@ -2832,6 +2832,12 @@ const server = http.createServer((req, res) => {
            able to keep; a source-run board says what it is instead (the
            engine-stale line from #338 covers "newer code is on disk"). */
         update: updates.installedRoot() ? updates.available() : null, updateLook: updates.lastLook(),
+        /* win32-update-check: a Windows bundle cannot take the install offer above (no
+           installedRoot, and the install route refuses there), so a newer Windows build rides
+           here as the MANUAL offer ({version, download}) and the Settings card says so instead
+           of "Up to date.". Null everywhere else. The channel rides beside it so a staging
+           board is never silent about being one. */
+        updateManual: updates.manualOffer(), updateChannel: updates.updateChannel(),
         /* #553: the last install attempt this server saw END (a failure;
            a success kills the server first). The overlay reads it to say
            a true sentence instead of spinning. */
@@ -7696,8 +7702,9 @@ const server = http.createServer((req, res) => {
     updates.checkNow()
       // offer is the newer()-gated verdict (same gate the toast rides), so
       // the card never has to re-derive version ordering client-side.
-      .then((out) => sendJson(res, 200, { ...out, offer: updates.installedRoot() ? updates.available() : null, source: !updates.installedRoot() }))
-      .catch(() => sendJson(res, 200, { running: updates.RUNNING, latest: null, reached: false, readable: false, offer: null }));
+      // manual/channel: the same two facts /api/status carries, so a press paints what the poll paints.
+      .then((out) => sendJson(res, 200, { ...out, offer: updates.installedRoot() ? updates.available() : null, source: !updates.installedRoot(), manual: updates.manualOffer(), channel: updates.updateChannel() }))
+      .catch(() => sendJson(res, 200, { running: updates.RUNNING, latest: null, reached: false, readable: false, offer: null, manual: null, channel: updates.updateChannel() }));
     return;
   }
 
@@ -12424,6 +12431,10 @@ function start(port = PORT) {
          (startPolling: unref'd, best-effort, and it owns the default cadence
          and clamps a bad interval); the env is a test seam only. Captured like
          the sibling sweeps so a future shutdown path has a handle to clear. */
+      /* The channel is never silent: the boot log names it and the exact pointer every look
+         will fetch, so a staging board, or a board aimed at a mirror, reads as one from its log
+         line alone. */
+      process.stdout.write(`Kosmos update check: channel=${updates.updateChannel()} pointer=${updates.pointerUrl()}\n`);
       const updatePoke = updates.startPolling(Number(process.env.AGENT_WORKFORCE_UPDATE_POKE_MS));
       if (updatePoke && typeof updatePoke.unref === 'function') updatePoke.unref();
       /* #1722: the product heartbeat. Its OWN self-rescheduling timer, because

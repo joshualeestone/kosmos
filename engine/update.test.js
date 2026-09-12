@@ -17,6 +17,12 @@ const INSTALL_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-553-'));
 
 test.beforeEach(() => {
   update.resetCache(); update.setFetcher(null); update.setBase(null);
+  /* THIS FILE IS THE MAC CONTRACT, pinned to darwin so it asserts the same thing on every host.
+     Its stubs publish a bare `{version}` (the Mac pointer's shape); on a Windows host the board now
+     reads the Windows pointer and requires sha256 + versioned, so unpinned the file would be
+     measuring the Windows arm with Mac fixtures. The Windows arm has its own suite
+     (update.win32-check.test.js). */
+  update.setPlatform('darwin');
   // #1728: markInstallStarted now writes a durable marker to <root>/logs, and the
   // #553 tests share INSTALL_ROOT, so a marker or status file left by one test
   // would seed lastAttempt() in the next (defeating "nothing attempted yet").
@@ -27,7 +33,7 @@ test.beforeEach(() => {
 
 // #2036: the consume half. The update channel decides WHICH pointer is fetched, and the
 // default MUST stay prod (latest.json) so every existing install is byte-for-byte unchanged.
-// Red-capable both ways: if updatePointer() were pinned to latest.json the staging arm reds;
+// Red-capable both ways: if pointerFor() were pinned to latest.json the staging arm reds;
 // if pinned to latest-staging.json the default arm reds.
 test('#2036: update channel selects the pointer (default prod, staging opt-in, non-staging = prod)', async () => {
   let url = '';
