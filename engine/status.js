@@ -886,9 +886,19 @@ function parsePanes(out) {
        Discord bridge's -discord (on the NAME, never the raw session; see there),
        or answers null for another Kosmos's session (dropped in the filter below).
        One function, shared with the outbox's keep-time sender (#1704 PR2), so the
-       name a kept send is filed under is the name this roster shows. */
+       name a kept send is filed under is the name this roster shows.
+       ⚠️ EXCEPT A WINDOWS ROW, which is already this Kosmos's: win32roster emits
+       only sessions recorded in THIS world's store (store.ROOT/win32-sessions),
+       under the agent's plain name. Keying it again dropped every Windows row on a
+       named-world board, which then could not see, pause, restart or message any
+       of its agents. So a Windows row is named in the world its plain name reads
+       as (the default one): the same function, -discord strip and all, without the
+       second world filter. */
+    const rowWorld = require('./win32roster').isWin32Pane(raw)
+      ? launchidentity.DEFAULT_WORLD_ID
+      : launchidentity.currentWorldId();
     return {
-      name: launchidentity.agentNameFromSession(session, launchidentity.currentWorldId()),
+      name: launchidentity.agentNameFromSession(session, rowWorld),
       session,
       // Kept, not just folded into `target`: choosing one pane per session
       // needs to compare indexes, and re-parsing them back out of the target

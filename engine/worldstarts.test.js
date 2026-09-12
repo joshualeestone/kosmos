@@ -356,20 +356,30 @@ test('the Mac switched-off check reads THIS Kosmos\'s key: Kosmos 1\'s ava switc
   });
 });
 
-test('a resume leaves alone a job Kosmos did not write: a named Kosmos never starts the legacy com.<name>.discord job', () => {
-  // In world "test", bo has no keyed plist; only a legacy, unkeyed one some other tool wrote.
+test('a resume leaves alone a job Kosmos did not write (Kosmos 1\'s legacy com.<name>.discord), and a named Kosmos never reaches it', () => {
+  // bo's own plist is gone; only a legacy, unkeyed one some other tool wrote is on disk.
+  fs.rmSync(create.plistPath('bo'), { force: true });
   const discord = nodePath.join(nodePath.dirname(create.plistPath('bo')), 'com.bo.discord.plist');
   fs.writeFileSync(discord, '<plist/>');
   try {
+    // Kosmos 1: jobFor offers the legacy job, and the resume's own fence refuses it.
+    assert.equal(remove.jobFor('bo', MAC).ours, false, 'the control: in Kosmos 1 jobFor returns the not-ours candidate');
+    writeRecord([{ name: 'bo', why: 'paused', at: new Date().toISOString() }]);
+    const r = worldstarts.drainAtBoot({ platform: MAC });
+    assert.deepEqual(r.resumed, []);
+    assert.deepEqual(r.held.map((h) => h.name), ['bo']);
+    assert.match(r.held[0].because, /other than Kosmos/);
+    assert.deepEqual(calls, [], 'a job Kosmos did not write was enabled or started');
+    assert.match(readRecord().entries[0].because, /other than Kosmos/, 'the held entry says why');
+
+    // A named Kosmos: jobFor never offers Kosmos 1's legacy job, so nothing is sent for it.
     inWorld('test', () => {
-      assert.equal(remove.jobFor('bo', MAC).ours, false, 'the control: jobFor really returns the not-ours candidate');
+      assert.equal(remove.jobFor('bo', MAC), null, 'a named Kosmos was offered Kosmos 1\'s legacy job');
       writeRecord([{ name: 'bo', why: 'paused', at: new Date().toISOString() }]);
-      const r = worldstarts.drainAtBoot({ platform: MAC });
-      assert.deepEqual(r.resumed, []);
-      assert.deepEqual(r.held.map((h) => h.name), ['bo']);
-      assert.match(r.held[0].because, /other than Kosmos/);
-      assert.deepEqual(calls, [], 'a job Kosmos did not write was enabled or started');
-      assert.match(readRecord().entries[0].because, /other than Kosmos/, 'the held entry says why');
+      const named = worldstarts.drainAtBoot({ platform: MAC });
+      assert.deepEqual(named.resumed, []);
+      assert.match(named.held[0].because, /could not find how Kosmos starts bo/);
+      assert.deepEqual(calls, [], 'a named Kosmos\'s resume reached Kosmos 1\'s legacy job');
     });
   } finally {
     fs.rmSync(discord, { force: true });
