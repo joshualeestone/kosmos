@@ -815,5 +815,37 @@ actual    : account,because,configDir,model,ok,organization,runner
 MATCH: true
 ```
 
-A field list is a claim like any other, and it is the kind that goes stale in
-exactly one direction: silently short, never long.
+A field list is a claim like any other.
+
+🛑 AND THE LESSON AS FIRST WRITTEN WAS WRONG, falsified by the very fix that
+produced it. It said a field list "goes stale in exactly one direction: silently
+short, never long". Round 14 measured the opposite: the corrected docstring was
+LONG for the win32 arm, which does not carry `runner` at all (the key is ABSENT,
+not null). I had driven one arm, seen `documented == actual`, and published a
+general claim from a single-arm measurement.
+
+⇒ A field list goes stale in BOTH directions, and a function with two
+platform arms has two shapes to document. The verification has to drive every
+arm, which is now written into the docstring itself:
+```
+darwin -> account,because,configDir,model,ok,organization,runner
+win32  -> account,because,configDir,model,ok,organization
+```
+
+### The sweep worked. I did not read its output.
+
+⭐ THE SHARPEST FAILURE ON THIS CARD, and it is not a blind sweep. Round 14's
+first blocker was `whoamiFor returns account/model/source`, which is short by
+`resolvedRunner`, a key THIS CHANGE ADDS. That line was IN MY OWN SWEEP'S OUTPUT:
+
+```
+engine/runningas.js:550  it when `ok` is true today (`whoamiFor` returns account/model/source and
+```
+
+The sweep found it, printed it, and I fixed a different hit from the same run
+(the docstring at 458) and never read the other sixteen.
+
+⇒ Three blind sweeps earlier on this card failed because the COMMAND could not
+see. This one failed because the command saw perfectly and the reader did not.
+A sweep is not evidence until its output has been read line by line, and a
+17-hit list is exactly the length that feels skimmable.
