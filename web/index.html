@@ -2212,7 +2212,14 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 }
 .chk { display: flex; gap: 14px; align-items: flex-start; padding: 14px 0; }
 .chk + .chk { border-top: 1px solid var(--k-rule); }
-.chk-m { width: 26px; height: 26px; border-radius: 8px; flex: 0 0 26px; display: grid; place-items: center;
+/* #2963 (out of #2955): a CIRCLE, not a rounded square. These machine checks are
+   read-only STATUS readouts (green when the login jobs are registered; there is no
+   user toggle), but a rounded SQUARE with a checkmark reads as a toggleable checkbox
+   -- Josh read the "come back after restart" one as a control and found it "checked"
+   while the behaviour was broken (#2955). A circle with a checkmark is a universal
+   "verified / status" badge and never a toggle, so the badge now matches what it is.
+   One rule covers all six checks, since none of them are toggles. */
+.chk-m { width: 26px; height: 26px; border-radius: 50%; flex: 0 0 26px; display: grid; place-items: center;
          font-size: .875rem; font-weight: 700; border: 1px solid var(--k-rule); }
 /* ⚠️ A DARKER GOLD IN LIGHT ONLY, and the "only" is the whole care. On the 13%
    gold tint over white the brand gold measures 2.78, which misses even the 3:1
