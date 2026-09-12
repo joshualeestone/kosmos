@@ -776,3 +776,44 @@ documentation. A live code comment claims what the code does NOW and carries a
 different obligation; a plan claims what was believed THEN.
 
 Recorded here so the next sweep does not read them as a miss.
+
+## Round 13: I had been sweeping for one sentence, not for the class
+
+The blocker was in `engine/runningas.js`, the file this change edits most, at a
+line it does not touch. The `win32Answer` comment said `because` on a successful
+read is a shape "which the darwin arm never does", and that `server.js` "reads only
+ok/account/configDir/model". This change made both false, and the comment I ADDED
+four lines from the darwin `because` cites that block as its precedent. So a new
+comment pointed at one that denies the very property it claims.
+
+⭐ THE GAP WAS THE METHOD, NOT THE MISS. For twelve rounds I swept for ONE
+falsified sentence (the `accountForAgent` mapping) and never asked what OTHER
+sentences this change falsifies. Fixing an instance is not fixing a class.
+
+### The two sweeps that should have existed on day one
+
+**1. What claims does this change falsify?** Enumerate the subjects the change
+alters (`runningAs`, `agentUnder`, `whoamiFor`, `accountForAgent`, the darwin and
+win32 arms, `/api/whoami`, `account-status`), then find every COMMENT mentioning
+one of them that also contains an absolute word: never, only, always, cannot,
+nothing, "reads only". The absolutes are the tell, because a claim with no
+absolute is usually still true after a widening. 48 candidates, all reviewed.
+
+**2. What enumerations does this change make SHORT?** The blocker's second clause
+was a list of fields that no longer lists them all. Sweeping for that SHAPE rather
+than that instance found a second one the review had not reported:
+`runningAs`'s own docstring still documented the return as
+`{ ok, account, organization, model, configDir, because }`, omitting the `runner`
+field this card adds.
+
+⇒ Corrected, and verified by DRIVING the function and comparing documented keys
+against actual keys, rather than by reading the list and believing it:
+
+```
+documented: account,because,configDir,model,ok,organization,runner
+actual    : account,because,configDir,model,ok,organization,runner
+MATCH: true
+```
+
+A field list is a claim like any other, and it is the kind that goes stale in
+exactly one direction: silently short, never long.
