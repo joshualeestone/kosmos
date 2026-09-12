@@ -11045,17 +11045,17 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <!-- MIDDLE: the task's conversation, the whole point of resembling a project.
            It carries the recorded lifecycle (#2400, the read-side of #992: created /
            assigned / part added / done / put back) plus the messages typed into the
-           composer below, as the conversation so far. The composer RECORDS a message
-           on the task (engine tasks.say -> taskchat); it is record-only, not delivered
-           to an agent yet (two-way is a later step), and the note under it says exactly
-           that. The folder-reveal opens where those transcripts live on disk. -->
+           composer below, as the conversation so far. The composer records a message on
+           the task (engine tasks.say -> taskchat) AND the server delivers it to the
+           agents assigned to the task (two-way), as the note under it says. The
+           folder-reveal opens where those transcripts live on disk. -->
       <section class="pjcol tkconvcol">
         <h3 class="dlab">Conversation</h3>
         <div id="tk-activity" class="tkacts" aria-live="polite"></div>
-        <!-- #768: the composer. A message typed here is RECORDED on the task and
-             shows in the activity above (engine tasks.say -> taskchat). It is
-             record-only: it is not delivered to an agent yet. The note says so,
-             rather than a placeholder promising more than it does. -->
+        <!-- #768: the composer. A message typed here is recorded on the task, shows
+             in the activity above (engine tasks.say -> taskchat), AND is delivered to
+             the agents assigned to the task (the server route notifies them via
+             chat.deliver). The note below says so. -->
         <div class="tkcompose">
           <!-- maxlength 2000 must match engine/tasks.js MESSAGE_MAX. The engine is
                authoritative (it refuses over-length regardless), so a drift here is a
@@ -11064,7 +11064,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           <button class="btn-quiet" type="button" id="tk-say-go">Send</button>
         </div>
         <p class="fmsg" id="tk-say-msg" role="alert" aria-live="assertive" style="margin:6px 0 0;"></p>
-        <p class="dhint tkcompose-note">A message is recorded on the task and shows in the activity above. It is not sent to an agent yet.</p>
+        <p class="dhint tkcompose-note">A message is recorded on the task, shows in the activity above, and is sent to the agents assigned to the task.</p>
         <!-- #992: 🛑 THE LABEL SAYS "THE TASK CONVERSATIONS", NOT "THIS TASK'S", for the
              same reason the sibling pjs-chats-reveal button says "the conversations" and
              not "this project's": every task's transcript is one file in ONE shared folder
@@ -35961,11 +35961,12 @@ async function saveTaskDue(value) {
 }
 document.getElementById('tk-due').addEventListener('change', (e) => { saveTaskDue(e.target.value); });
 
-/* #768: send a message to the open task's conversation. Records only (tasks.say),
-   then refreshes the activity so the message appears the same tick. Empty input is
-   a no-op (no request, no error band). Clears the input on success; reports a
-   refusal in tk-say-msg. Not on the poll -- a message is a deliberate act, read on
-   send like the other in-app changes. */
+/* #768: send a message to the open task's conversation. The server records it and
+   delivers it to the agents assigned to the task; this handler then refreshes the
+   activity so the message appears the same tick. Empty input is a no-op (no request,
+   no error band). Clears the input on success; reports a refusal in tk-say-msg. Not
+   on the poll -- a message is a deliberate act, read on send like the other in-app
+   changes. (The board is the operator, so it is exempt from the process rate valve.) */
 async function tkSayPost() {
   const p = pjById(PJ_CURRENT);
   if (!p || TK_OPEN === null) return;
