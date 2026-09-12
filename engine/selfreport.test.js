@@ -372,7 +372,7 @@ test('an agent that never reported has no writer either', () => {
     'found:false carries no reading at all, so a caller cannot read a writer off it');
 });
 
-test('#1949 refuses automatic idle AND working, but the hook\'s one-time and waiting reports still land', () => {
+test('#1949 refuses automatic idle AND working; #2456 also refuses an automatic needs_you over a DELIBERATE wait; the hook\'s one-time reports still land', () => {
   /* 🛑 THIS GUARDS THE RISK #1453 CREATED, NOT THE FIX.
      install/kosmos-report-hook.sh passes --auto on all SEVEN of its report
      calls, so the record can say who wrote a line. #900 refused only automatic
@@ -380,32 +380,47 @@ test('#1949 refuses automatic idle AND working, but the hook\'s one-time and wai
      `working` on every PreToolUse and it was erasing standing needs_you within
      seconds of any command.
 
-     The other automatic reports must STILL land over a waiting state, or the
-     hook could no longer emit them: `started` (a new run) and `stopped`
-     (session end) are one-time transitions, not continuous; an automatic
-     `needs_you` or `blocked` is itself a waiting report, not a clear. A rule
-     that refused every automatic write would strand the agent blocked forever,
-     which is the failure #900 exists to prevent, arriving from the other
-     direction.
+     #2456 UPDATE, and it CHANGES the `needs_you` case below. An automatic
+     `needs_you` (the PermissionRequest hook's "asking permission to use
+     <tool>") was allowed to land over a standing DELIBERATE needs_you, and that
+     is the clobber Sub-Zero measured on 0.6.54: it overwrote the agent's real
+     question with the text of a shell command, so the board's one red state
+     named something no person needed to act on. It is now REFUSED over a
+     deliberate wait, moved from the "still land" group to the refused group.
 
-     The controls below are what make the four passes mean anything: without
-     them, four recorded:true is equally consistent with the guard being dead. */
-  for (const state of ['started', 'needs_you', 'blocked', 'stopped']) {
+     This does NOT reintroduce the stranding risk #1453/#900 guard against, which
+     is the reason a bare "refuse every automatic write" rule is wrong: the
+     deliberate wait stays standing (still waiting, with its better reason), an
+     agent's OWN report of any state still lands (the guard tests entry.auto),
+     and the one-time transitions `started` (a new run) and `stopped` (session
+     end) still land. `blocked` (an auto StopFailure provider error) is left
+     landing too -- it is a genuine machine-detected block, not the high-
+     frequency permission noise #2456 measured, and it re-derives. The refusal is
+     scoped by WHO wrote the standing wait (standing.by): an AUTO wait (a prior
+     permission prompt) is not protected, so a fresh permission prompt still
+     replaces a stale one and the following auto idle/working still clears it
+     (the #2456 no-clear half, covered in selfreport.autoclear-2456.test.js).
+
+     The controls below are what make the passes mean anything: without them,
+     recorded:true is equally consistent with the guard being dead. */
+  for (const state of ['started', 'blocked', 'stopped']) {
     selfreport.record('inert', { state: 'needs_you', because: 'standing waiting state' });
     const got = selfreport.record('inert', { state, because: 'the machine wrote this', auto: true });
     assert.equal(got.recorded, true,
       'an automatic `' + state + '` was refused over a standing needs_you. #1949\'s '
-      + 'rule has been widened beyond {idle, working}, and the report hook marks all '
-      + 'seven of its calls --auto, so it can no longer report ' + state + '.');
+      + 'rule was meant to widen to {idle, working} (+ #2456 needs_you), NOT to '
+      + 'strand the one-time and genuine-block reports, so the hook can no longer report ' + state + '.');
     assert.equal(selfreport.read('inert').by, 'auto');
   }
 
-  for (const refusedState of ['idle', 'working']) {
-    selfreport.record('inert-control', { state: 'needs_you', because: 'standing waiting state' });
+  for (const refusedState of ['idle', 'working', 'needs_you']) {
+    selfreport.record('inert-control', { state: 'needs_you', because: 'the real question' });
     const refused = selfreport.record('inert-control', { state: refusedState, because: 'the machine wrote this', auto: true });
-    assert.equal(refused.recorded, false, 'THE CONTROL: the guard must refuse an automatic ' + refusedState);
+    assert.equal(refused.recorded, false, 'THE CONTROL: the guard must refuse an automatic ' + refusedState + ' over a DELIBERATE wait');
     assert.equal(refused.skipped, 'waiting');
     assert.equal(selfreport.read('inert-control').state, 'needs_you');
+    assert.equal(selfreport.read('inert-control').because, 'the real question',
+      'the deliberate question must survive an automatic ' + refusedState);
   }
 });
 

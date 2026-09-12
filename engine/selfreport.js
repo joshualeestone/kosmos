@@ -177,10 +177,41 @@ function record(sessionName, entry) {
      continuous -- and CRUCIALLY an AGENT-WRITTEN report of ANY state still lands,
      because the guard tests `entry.auto`, not the word. A rule that refused
      every automatic write would strand the agent blocked forever; instead the
-     agent that genuinely resumes clears its own block by reporting it itself. */
-  if (entry.auto === true && (state === 'idle' || state === 'working')) {
+     agent that genuinely resumes clears its own block by reporting it itself.
+
+     🔑 #2456: THE WAIT THIS PROTECTS IS A *DELIBERATE* ONE, which is what the
+     heading above always said and the code did not check. A standing wait can
+     itself be AUTOMATIC: the PermissionRequest hook writes a `needs_you`
+     ("asking permission to use <tool>: ...", by:'auto'), and two things went
+     wrong because this guard treated it like a deliberate summons.
+       (1) NO-CLEAR: the auto working/idle that follows once the prompt resolves
+           (the next PreToolUse, or the turn-end Stop -> idle) was refused over
+           it, so the permission `needs_you` stuck on the board indefinitely
+           though nobody had anything to act on (measured: it stayed red across a
+           dozen further commands).
+       (2) CLOBBER: an auto `needs_you` overwrote an agent's DELIBERATE
+           `needs_you`, replacing the real question in `because` with the text of
+           a shell command -- the board's one red state then named something no
+           person needed to act on, and the real ask was gone.
+     Both are fixed by keying on WHO wrote the standing wait (`standing.by`, the
+     #1453 mark this function already stores). An AUTO wait (by:'auto') is
+     transient machine state: an auto idle/working MAY clear it, and an auto
+     `needs_you` MAY overwrite it. A DELIBERATE wait (by agent/operator -- and a
+     legacy line with no mark, by:null, whose provenance is unknown and so stays
+     protected exactly as before) is what the #900/#1949 rule guards, now against
+     an auto `needs_you` too, not only auto idle/working. An AGENT re-reporting
+     its own `needs_you` is by:'agent' (entry.auto is falsey), so it still lands
+     and can always update its own question; a permission prompt fired when
+     nothing is waiting still shows, because there is no standing wait to protect.
+     Scope: auto `blocked` (a StopFailure provider error) is left unguarded, as
+     today -- it is a genuine machine-detected block worth surfacing, not the
+     thing #2456 measured. */
+  if (entry.auto === true && (state === 'idle' || state === 'working' || state === 'needs_you')) {
     const standing = read(sessionName);
-    if (standing.found === true && WAITING_ON_A_PERSON.includes(standing.state)) {
+    const standingIsDeliberateWait = standing.found === true
+      && WAITING_ON_A_PERSON.includes(standing.state)
+      && standing.by !== 'auto';
+    if (standingIsDeliberateWait) {
       return {
         recorded: false,
         skipped: 'waiting',
