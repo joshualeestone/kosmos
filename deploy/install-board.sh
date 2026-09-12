@@ -52,6 +52,143 @@ esac
 say() { printf '  %s\n' "$*"; }
 fail() { printf 'install-board: %s\n' "$*" >&2; exit 1; }
 
+# ---- #2870: refuse a destination that is unsafe to swap the app tree into ------
+# The apply/refresh SWAPS $DEST: it moves $DEST aside to "$DEST.old.$$" and moves a
+# freshly staged tree into its place. If $DEST is the filesystem root, the source
+# repo, an ancestor of the source, or inside a git working tree, that swap corrupts
+# or destroys something it must never touch; and a relative or dotted $DEST derives
+# a broken ".new"/".old" sibling. Validate BEFORE anything is copied or moved, and
+# in dry run too so the refusal is visible before an --apply.
+#
+# 🛑 This operates on the GLOBAL $DEST (normalizing it in place) rather than echoing
+# a value a caller would capture with $(...). fail() calls `exit 1`, and inside a
+# command substitution that exit only leaves the SUBSHELL -- the script would sail
+# on past a refusal. Running in the main shell is what makes the refusal terminal.
+validate_dest() {
+  # non-empty, absolute -- a relative dest makes ".new.$$"/".old.$$" resolve against
+  # an unknown cwd, so the swap is unpredictable.
+  [ -n "$DEST" ] || fail "destination is empty"
+  case "$DEST" in
+    /*) ;;
+    *)  fail "destination must be an absolute path, got '$DEST'" ;;
+  esac
+
+  # reject a '.' or '..' path component. Normalizing them would require the path to
+  # exist; refusing is unambiguous and a real destination never carries them.
+  # The wrapping "/...$DEST.../" adds leading+trailing slashes so a component at the
+  # very start or end still matches the */./* and */../* patterns (a bare "." or a
+  # trailing "/.." would otherwise miss); $DEST is already absolute so the extra
+  # leading slash only ever collapses harmlessly.
+  case "/$DEST/" in
+    */./*|*/../*) fail "destination must not contain '.' or '..' path components: '$DEST'" ;;
+  esac
+
+  # strip trailing slashes so "/foo/" and "/foo" derive the SAME ".new" sibling,
+  # but never reduce a path to empty (root is handled next).
+  while :; do
+    case "$DEST" in
+      /)  break ;;
+      */) DEST="${DEST%/}" ;;
+      *)  break ;;
+    esac
+  done
+
+  # reject the filesystem root explicitly -- "mv / /.old.$$" is catastrophic.
+  [ "$DEST" != "/" ] || fail "refusing the filesystem root as a destination"
+
+  # reject a destination that already exists but is not a directory. The swap
+  # cannot sensibly replace a plain file, and without this the ancestor walk below
+  # stops at $DEST itself and reports it as a non-directory "ancestor" of itself,
+  # which reads wrong. (An existing symlink-to-file follows the link and is caught
+  # here too; a not-yet-created $DEST is handled by the ancestor walk.)
+  if [ -e "$DEST" ] && [ ! -d "$DEST" ]; then
+    fail "destination '$DEST' already exists and is not a directory"
+  fi
+
+  # find the nearest EXISTING ancestor: $DEST itself may not exist yet on a first
+  # adoption, nor its parent, so walk up until something exists.
+  _anc="$DEST"
+  while [ "$_anc" != "/" ] && [ ! -e "$_anc" ]; do
+    _anc="$(dirname "$_anc")"
+  done
+  # fail closed if that ancestor cannot serve as a parent: a FILE (mkdir -p would
+  # fail cryptically midway), or unresolvable.
+  [ -e "$_anc" ] || fail "no existing ancestor of '$DEST' could be resolved"
+  [ -d "$_anc" ] || fail "the nearest existing ancestor of '$DEST' is not a directory: '$_anc'"
+
+  # canonicalize the existing ancestor (pwd -P reports the physical dir, resolving
+  # symlinks in the path) and re-append the not-yet-created tail, so the
+  # repo/worktree comparisons below see real paths rather than symlink aliases
+  # that would slip past a string compare.
+  _anc_real="$(cd "$_anc" 2>/dev/null && pwd -P)" || fail "could not resolve the destination's ancestor '$_anc'"
+  _dest_real="$_anc_real${DEST#"$_anc"}"
+  # collapse a doubled leading slash: if $_anc_real canonicalized to "/" (an ancestor
+  # that is a symlink to the filesystem root) and the tail keeps its leading slash,
+  # the concatenation yields "//...", which the string-prefix repo checks below would
+  # fail to match against a single-slash repo path -- a false-accept. pwd -P never
+  # emits interior doubled slashes, so only the leading run can occur; collapse it.
+  while :; do case "$_dest_real" in //*) _dest_real="${_dest_real#/}" ;; *) break ;; esac; done
+  _repo_real="$(cd "$REPO" 2>/dev/null && pwd -P)" || fail "could not resolve the source repo '$REPO'"
+
+  # reject a destination inside a git working tree: installing INTO a checkout is
+  # exactly what this script exists to prevent (the board would serve from a git
+  # tree again, the #1051 bug). Checked from the nearest existing ancestor.
+  # NOTE: this refusal fails OPEN if git is absent/errors (the `if` is simply false).
+  # That is acceptable because the data-critical refusals -- repo-equality/ancestry and
+  # the non-board marker -- use pwd -P and file tests, not git, so they still fire on a
+  # git-less box. Only this defense-in-depth #1051 check relaxes.
+  if git -C "$_anc_real" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    fail "destination is inside a git working tree ('$_anc_real'); the board must NOT run from a checkout -- set KOSMOS_BOARD_LIBEXEC to a path outside any git working tree"
+  fi
+
+  # reject a destination equal to, inside, or ABOVE the source repo. Equal/above
+  # means the swap would move the source out from under us; inside means the board
+  # would serve from the checkout again.
+  case "$_dest_real/" in
+    "$_repo_real/"*) fail "destination '$_dest_real' is the source repo or inside it; the app tree must live OUTSIDE the checkout" ;;
+  esac
+  case "$_repo_real/" in
+    "$_dest_real/"*) fail "destination '$_dest_real' is at or above the source repo '$_repo_real'; the swap would move the source aside" ;;
+  esac
+
+  # refuse to swap aside an existing NON-EMPTY directory that is not itself a prior
+  # board install. The apply/refresh does `mv "$DEST" "$DEST.old.$$"` and then
+  # `rm -rf` that old tree, so pointing $DEST at an existing populated directory (a
+  # misconfigured KOSMOS_BOARD_LIBEXEC=$HOME, /usr, /Applications) would rename it
+  # aside and DELETE it. A real board install carries server.js -- the file the
+  # plist's ProgramArguments points at -- so require that marker before we are
+  # willing to move a populated directory out of the way. A destination that does
+  # not exist yet (first adoption) or is empty is safe to swap and is allowed.
+  #
+  # The board-install marker is server.js AND an engine/ directory. stage_app always
+  # writes both, so a real board carries both; requiring both (not server.js alone)
+  # shrinks the false-accept to a directory that happens to have a top-level server.js
+  # AND a top-level engine/ dir -- a user's own Node project set as the dest by mistake
+  # carries server.js far more often than it carries a sibling engine/, so the extra
+  # marker meaningfully narrows the data-loss vector. A directory missing either marker
+  # is refused (the safe direction: point the operator at a fresh path).
+  if [ -e "$_dest_real" ]; then
+    # Under normal flow this is unreachable (an existing non-directory $DEST was already
+    # refused by the earlier ancestor check), so it is a TOCTOU backstop: if the dir is
+    # swapped for a file between that check and here, fail rather than proceed.
+    [ -d "$_dest_real" ] || fail "destination '$_dest_real' exists and is not a directory"
+    # Enumerate the contents. An enumeration FAILURE (a root-owned or otherwise
+    # unreadable directory) must fail CLOSED: we cannot prove it empty or a board,
+    # and treating an unreadable dir as "empty" would let the swap mv-aside and
+    # rm -rf a populated directory we never actually inspected. Capture ls's exit
+    # status (the `|| fail` on the assignment) rather than only its output.
+    _entries="$(ls -A "$_dest_real" 2>/dev/null)" || fail "could not read destination '$_dest_real' to check it is safe to replace; refusing"
+    # server.js must be a regular FILE (the plist runs it), not merely present: a
+    # directory literally named server.js would satisfy -e and let a non-board dir be
+    # misclassified as a board and destroyed. -f (matches intent, follows a symlink to
+    # a file) is strictly safer.
+    if [ -n "$_entries" ] && { [ ! -f "$_dest_real/server.js" ] || [ ! -d "$_dest_real/engine" ]; }; then
+      fail "destination '$_dest_real' is a non-empty directory that is not a board install (needs both a server.js file and an engine/ directory); refusing to move it aside and delete it -- point KOSMOS_BOARD_LIBEXEC at a fresh path or an existing board tree"
+    fi
+  fi
+}
+validate_dest
+
 say "source: $REPO"
 say "dest:   $DEST"
 say "plist:  $PLIST"
