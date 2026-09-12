@@ -97,6 +97,11 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
           notKey: t('@mona_bar'),        // not a key, no trailing ._- -> backend does not flag -> plain
           invalid: t('@nobody'),
           invalidBold: t('**@nobody**'),
+          // Self-mention: the backend never flags a non-operator post's own author, so an agent's
+          // @<self> must NOT blue (would falsely promise reaching itself); someone else's post does.
+          selfMention: pjRoomBody({ text: 'thanks @mona and @renet-tilley', from: 'mona', operator: false }, { agents: ['mona', 'renet-tilley'] }),
+          otherMention: pjRoomBody({ text: 'thanks @mona and @renet-tilley', from: 'renet-tilley', operator: false }, { agents: ['mona', 'renet-tilley'] }),
+          opMention: pjRoomBody({ text: 'hey @mona', from: null, operator: true }, { agents: ['mona'] }),
           scoped: pjRichSpans('@mona', null),   // no agentNames -> dialogue path
           color,
           kbg: tok('--k-bg'), sunk: tok('--k-sunk'), usermsg: tok('--usermsg-tint'),
@@ -131,6 +136,13 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
         !/pjmention/.test(state.invalidBold) && /<strong>@nobody<\/strong>/.test(state.invalidBold), state.invalidBold);
       check(`${tag} the dialogue path (no agentNames) does NOT highlight`,
         state.scoped === '@mona', state.scoped);
+      // Self-mention parity with the backend recipient filter.
+      check(`${tag} an agent's post does NOT blue a mention of ITSELF (backend excludes the author)`,
+        !/pjmention">@mona</.test(state.selfMention) && /pjmention">@renet-tilley</.test(state.selfMention), state.selfMention);
+      check(`${tag} another agent's post DOES blue that same @mona`,
+        /pjmention">@mona</.test(state.otherMention), state.otherMention);
+      check(`${tag} an operator post blues the mention (operator flags anyone)`,
+        /pjmention">@mona</.test(state.opMention), state.opMention);
 
       // CONTRAST against the real bubble grounds, blended from the live tokens.
       const fg = parseRgb(state.color);

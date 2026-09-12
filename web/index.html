@@ -38494,6 +38494,11 @@ function pjRoomBody(m, p) {
   const agentNames = new Set(((p && p.agents) || [])
     .map((a) => (typeof a === 'string' ? a : (a && typeof a.sessionName === 'string' ? a.sessionName : '')))
     .filter(Boolean));
+  /* #2922: mirror the backend's recipient filter (engine/messages.js: recipients = operator ?
+     members : members.filter(m => m !== from)). A non-operator post never flags its OWN author, so
+     an agent's `@<self>` must NOT render blue -- it would falsely promise a message reaching the one
+     agent it provably will not. An operator post flags anyone, so no exclusion there. */
+  if (m && m.operator !== true && m.from) agentNames.delete(m.from);
   const flat = '<p>' + pjBody(words, PJ_DOC_NAMES, agentNames) + '</p>';
   const qs = Array.isArray(m.quotes) ? m.quotes.filter((q) => q && typeof q === 'object'
     && typeof q.of === 'string' && q.of
