@@ -3461,7 +3461,12 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
      function declaration, so it lifts from the page like roleLine/esc. providerOf is a
      `const NAME = (a) => ...` arrow, which pageFnSource (matches `function NAME(`) cannot lift,
      so it is supplied here as a minimal stub of its one-line body; the PRODUCTION meta line
-     uses the real shared providerOf (see the diff), so there is no production duplication. */
+     uses the real shared providerOf (see the diff), so there is no production duplication.
+     ⚠️ DELIBERATE, not an oversight: this is the one derivation in this test not lifted from the
+     page, because the extractor brace-matches function DECLARATIONS and cannot lift a one-line
+     const-arrow expression. Accepted because providerOf is a stable one-line ternary and the
+     drift risk (it gaining a third arm) is far smaller than the risk of teaching the extractor to
+     slice arbitrary expressions. Provider-label consolidation is separately tracked as kosmos#2634. */
   const acctParenthetical = pageFunction('acctParenthetical');
   const providerOf = (x) => ((x && x.runner === 'codex') ? 'openai' : 'anthropic');
   const drive = (card) => {
@@ -3524,11 +3529,12 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
      name). Provider and Model are always present; the Account segment appears only when
      acctParenthetical finds a name/email/label and DEGRADES OUT otherwise, with no dangling
      separator. */
-  // Codex/OpenAI agent (a.runner === 'codex') with a named account (a.account.name).
-  // Pins Provider (OpenAI) + Account (the account name); not the model derivation.
-  assert.match(drive({ role: 'coder', runner: 'codex', account: { name: 'work-openai' }, modelName: 'GPT-5', nameDerived: true }),
-    /<b>Coder<\/b> · OpenAI · work-openai · /,
-    'a Codex agent with a named account must read Title · OpenAI · <name> · Model');
+  // Codex/OpenAI agent (a.runner === 'codex') with a named account (a.account.name). modelLine
+  // returns the fixed 'OpenAI Codex' for a codex runner (it ignores modelName), so the full
+  // subtitle is Title . OpenAI . <account name> . OpenAI Codex.
+  assert.match(drive({ role: 'coder', runner: 'codex', account: { name: 'work-openai' }, nameDerived: true }),
+    /<b>Coder<\/b> · OpenAI · work-openai · OpenAI Codex/,
+    'a Codex agent with a named account must read Title . OpenAI . <name> . OpenAI Codex');
   // A Claude account identified only by email shows the email as the Account segment.
   assert.match(drive({ role: 'coder', account: { email: 'agent@example.com' }, modelName: 'Claude Opus 5', nameDerived: true }),
     /<b>Coder<\/b> · Anthropic · agent@example\.com · Claude Opus 5/,
@@ -8823,6 +8829,16 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
     'CONTROL: taskLine must still return the reported because, or the hide assertion below is vacuous');
   assert.equal(reportedNeeds.task.hidden, true,
     'a reported state must hide its self-reported quote on the header (#2833): it duplicates the waiting box');
+
+  /* #2833 CONTROL: the hide is scoped to needs_you, NOT to every reported state. A reported
+     BLOCKED agent's substantive reason has no compensating waiting box (that box is gated on
+     needs_you), so it must STAY visible. This guards against a future edit widening the guard
+     back toward a.stateReported. */
+  const reportedBlocked = drive({ state: 'blocked', because: 'waiting on the cert to be signed', stateReported: true });
+  assert.notEqual(reportedBlocked.task.textContent, '',
+    'CONTROL: taskLine must return the blocked reason, or the visible assertion below is vacuous');
+  assert.equal(reportedBlocked.task.hidden, false,
+    'a reported non-needs_you state (blocked) must keep its reason on the header (#2833 is needs_you-scoped)');
 
   /**
    * 🛑 AND THE HEADER SAYS WHAT THE CARD SAYS. Both derive the task line from

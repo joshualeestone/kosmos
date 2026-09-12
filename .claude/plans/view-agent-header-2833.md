@@ -17,35 +17,44 @@ there is no human-readable account identity. A NON-reported reason (rate_limited
 usage limit") still shows, since it is Kosmos's own honest reason with no waiting box to duplicate.
 
 ## Approach (web/index.html, paintDetail)
-- `#d-task` (line ~22863): keep `taskLine(a)` as the content but hide it for reported states:
-  `dtask.hidden = !dtask.textContent || (a.stateReported === true)`. This removes the redundant
-  needs-you quote while preserving the rate_limited/auth_failed reason (non-reported), which has
-  its own locking test. `taskLine` itself is UNCHANGED, so the cards that share it are unaffected.
-- `#d-why` (line ~22913): change the suppression from `stateReported && !multiline` to
-  `stateReported`, so a reported MULTI-LINE because does not reappear here once #d-task is gone.
-  The NON-reported "why we cannot vouch" explanation (#569) is untouched - it is the sole surface
-  for that.
+- `#d-task` (line ~22863): keep `taskLine(a)` as the content but hide it for needs_you only:
+  `dtask.hidden = !dtask.textContent || (a.state === 'needs_you')`. Scoped to needs_you, NOT to
+  every reported state: the Talk "waiting on an answer" box is gated on needs_you, so a reported
+  BLOCKED agent's substantive reason has no other surface and must stay; the non-reported
+  rate_limited/auth_failed reason stays too. `taskLine` itself is UNCHANGED, so the cards that
+  share it are unaffected.
+- `#d-why` (line ~22913): add a needs_you clause, keeping the #1841/#1996 behavior for other
+  reported states:
+  `why.hidden = !why.textContent || (a.state === 'needs_you') || (a.stateReported === true && !reason.includes('\n'))`.
+  So needs_you hides single- and multi-line (its message is in the waiting box), a non-needs_you
+  reported single-line hides (#1841, d-task carries it), a non-needs_you reported multi-line stays
+  (#1996, d-task truncates), and the NON-reported "why we cannot vouch" explanation (#569) is
+  untouched - it is the sole surface for that.
 - `#d-meta` (line ~22828): build the subtitle as `[Title(bold), Provider, Account?, Model,
-  nameDerived-disclosure?]` joined with the existing ' . ' middot. Provider = `a.providerName ||
-  (a.provider === 'openai' ? 'OpenAI' : 'Anthropic / Claude')`. Account =
-  `acctChosenName(a) || a.email || (openai keyTail form)`, included only when non-empty
-  (graceful degradation, no dangling separator) - deliberately NOT acctPrimaryName, which falls
-  back to a dir path.
+  nameDerived-disclosure?]` joined with the existing ' . ' middot. `a` is an agent CARD, so the
+  provider and account come from the SHARED derivations the Runs-on box uses, not top-level
+  account fields: Provider = `providerOf(a) === 'openai' ? 'OpenAI' : 'Anthropic'` (providerOf
+  reads `a.runner`), Account = `acctParenthetical(a)` (reads the nested `a.account`; returns ''
+  when nothing identifies it, so the segment degrades out with no dangling separator). Only the
+  Title is bolded.
 
 ## Decisions / weakest premises
 - Separator: kept the file's existing middot ' . ', not a new bullet glyph. Josh wrote a bullet in
   his format sketch, but the middot is the tested app convention (server.test.js pins it and uses
   it to locate the meta-line slice). Noted to Josh as switchable. WEAKEST PREMISE: he may want the
   literal bullet; a one-glyph change if so.
-- "Redundant" scoped to REPORTED states (the needs-you case in the screenshot), NOT all states.
-  Hiding #d-task entirely would regress the deliberate rate_limited-reason feature (its own test at
-  server.test.js ~8802). WEAKEST PREMISE: "I only want to see Title and Model" read literally would
-  also drop the rate_limited reason; I judged his complaint is the needs-you redundancy and kept the
-  non-redundant reason. Easy to widen if he wants.
-- Account data model: Account depends on account resolution that is broken for Codex/subscription
-  (#2811). The segment degrades to omitted when unresolvable, so it shows a wrong value never - at
-  worst it is absent until #2811 lands. WEAKEST PREMISE: a.email/a.name population on the detail
-  agent object is assumed; if absent, Account simply never shows (safe).
+- "Redundant" scoped to NEEDS_YOU specifically (the case in the screenshot), NOT all reported
+  states. The Talk "waiting on an answer" box is gated on needs_you, so it only compensates for
+  needs_you; hiding the quote for every reported state would swallow a BLOCKED agent's substantive
+  reason with no other surface (caught by blind review). Non-needs_you reported states and the
+  non-reported rate_limited/auth_failed reason all keep their line. WEAKEST PREMISE: "I only want to
+  see Title and Model" read literally would drop more; I judged his complaint is the needs-you
+  redundancy. Easy to widen if he wants.
+- Account data model: Account uses the shared acctParenthetical(a), which reads the nested
+  `a.account` the same way the Runs-on box does. Account resolution is still broken for
+  Codex/subscription (#2811); acctParenthetical returns '' when nothing identifies the account, so
+  the segment is simply omitted until #2811 lands - it never shows a wrong value. WEAKEST PREMISE:
+  none material - the derivation is the app's own, not a new assumption about the object shape.
 
 ## Verification
 - server.test.js (holds the meta-line, #d-task, and #d-why string-extract tests) updated to the new
