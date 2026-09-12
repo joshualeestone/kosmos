@@ -88,13 +88,16 @@ guarantees it. If somehow no auto event ever followed, the state would persist, 
 
 ## Tests
 
-New `engine/selfreport.autoclear-2456.test.js` (9 tests): auto working clears an auto needs_you; auto
+New `engine/selfreport.autoclear-2456.test.js` (12 tests): auto working clears an auto needs_you; auto
 idle clears an auto needs_you; auto needs_you does NOT clobber a deliberate needs_you (real question
 survives) or a deliberate blocked; a newer auto needs_you replaces a stale one; a permission prompt
 with nothing waiting still shows; #1949 preserved (auto working still refused over a deliberate
-needs_you); an agent working still clears its own needs_you; a legacy null-`by` wait stays protected.
-Red-capable proven by perturbation: reverting the guard to old behavior fails exactly the 4 defect
-arms while the controls stay green.
+needs_you); an agent working still clears its own needs_you; and (the review correction) an auto
+working/idle does NOT clear a standing AUTO blocked, and an auto needs_you does NOT clobber one, so a
+provider outage stays sticky; plus a legacy null-`by` wait stays protected. Red-capable proven by
+perturbation: reverting the guard to the pre-fix behavior fails the no-clear and clobber arms, and
+reverting to the intermediate `by !== 'auto'` version fails the three auto-blocked arms, while the
+controls stay green throughout.
 
 Existing `engine/selfreport.test.js` #1949 test updated: the `needs_you` case moved from the "still
 land" group to the refused group, with a #2456 rationale showing the stranding risk is not
