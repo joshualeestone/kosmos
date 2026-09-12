@@ -67,6 +67,16 @@ test('a hidden world cannot be switched to -- it is not-found (ENOWORLD), never 
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });
 
+test('hiding an already-hidden world is a harmless no-op: the original hiddenAt is kept, not re-stamped', () => {
+  const base = freshBase();
+  try {
+    const a = worlds.createWorld(base, 'Alpha');
+    const first = worlds.hideWorld(base, a.id);
+    const second = worlds.hideWorld(base, a.id);
+    assert.equal(second.hiddenAt, first.hiddenAt, 'a second hide re-stamped hiddenAt instead of being a no-op');
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});
+
 test('the default Kosmos cannot be hidden', () => {
   const base = freshBase();
   try {

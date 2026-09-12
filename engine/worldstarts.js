@@ -452,8 +452,9 @@ function stopWorldAgents(names, worldId, opts = {}) {
     if (remove.unsafeToActOn(name)) { kept.push(name); continue; }
     let job = null;
     try { job = remove.jobFor(name, platform, worldId); } catch { job = null; }
-    // `ours === false` is jobFor's legacy com.<name>.discord candidate (Kosmos 1 only, which is
-    // never hideable); disabling it would switch off a job Kosmos did not write.
+    // `ours === false` is jobFor's legacy com.<name>.discord candidate, which jobFor offers only in
+    // the DEFAULT world -- never hideable -- so this arm is unreachable on the hide path (worldId is
+    // always a named id here). Kept for structural parity with pauseForSwitch, where it does fire.
     if (!job || job.ours === false) { kept.push(name); continue; }
     // Disable FIRST. On a failed disable do NOT bootout: killing the running job while it stays
     // enabled would let the next login silently restart an agent of a Kosmos the user just hid.

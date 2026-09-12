@@ -19283,7 +19283,10 @@ function worldHideReveal() {
   document.getElementById('world-hide-step1').hidden = true;
   document.getElementById('world-hide-confirm').hidden = false;
   document.getElementById('world-rename-msg').textContent = '';
-  document.getElementById('world-hide-really').focus();
+  // Focus the HARMLESS action, not the destructive "Hide": hiding cannot be undone, so a stray
+  // Enter/Space on the just-revealed confirm must land on Cancel, matching openRemoveModal /
+  // openDeleteModal ("Enter or space on an unaimed modal must land on the harmless answer").
+  document.getElementById('world-hide-cancel').focus();
 }
 function worldHideBack() {
   document.getElementById('world-hide-confirm').hidden = true;
@@ -19303,10 +19306,22 @@ async function worldHideSubmit() {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id }),
     });
+    const body = await res.json().catch(() => null);
     if (!res.ok) {
-      const body = await res.json().catch(() => null);
       msg.textContent = (body && (body.because || body.error)) || 'Could not hide this Kosmos. Try again.';
       really.disabled = false;
+      return;
+    }
+    // The agent-stop is best-effort: if some agents could not be stopped they are still running,
+    // so the "stops its agents" promise did not fully hold. Say so instead of closing silently.
+    const kept = body && body.agents && Array.isArray(body.agents.kept) ? body.agents.kept : [];
+    if (kept.length) {
+      document.getElementById('world-hide-step1').hidden = true;
+      document.getElementById('world-hide-confirm').hidden = true;
+      msg.textContent = kept.length === 1
+        ? 'This Kosmos is hidden. One of its agents could not be stopped and may still be running.'
+        : 'This Kosmos is hidden. ' + kept.length + ' of its agents could not be stopped and may still be running.';
+      await worldsFetch().catch(() => {});   // the world is hidden; refresh the switcher behind the dialog
       return;
     }
     worldRenameClose();

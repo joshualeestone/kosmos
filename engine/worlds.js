@@ -484,6 +484,10 @@ function hideWorld(base, id) {
       err.code = 'EACTIVE';
       throw err;
     }
+    // Already hidden: a second hide is a harmless no-op, not a re-stamp -- keep the original
+    // hiddenAt and write nothing. Not reachable from the UI (a hidden world is off the switcher, so
+    // its cog cannot be re-clicked), but stated so it is a deliberate no-op rather than implicit.
+    if (world.hiddenAt) return world;
     world.hiddenAt = new Date().toISOString();
     writeRegistry(base, reg);
     return world;
