@@ -373,12 +373,17 @@ function win32Answer(entry, cmds) {
     organization: null,
     model: modelIn(cmd),
     configDir: null,
-    /* ⚠️ `because` ON A SUCCESSFUL READ, which the darwin arm never does. `ok`
-       means the look happened; the sentence names the HALF of the question this
-       platform cannot answer, so a caller rendering it says something true
-       instead of inventing a reason. Nothing renders `because` when `ok` is true
-       today (server.js reads only ok/account/configDir/model), so this is
-       additive rather than a contract change for the existing reader. */
+    /* ⚠️ `because` ON A SUCCESSFUL READ. `ok` means the look happened; the
+       sentence names the HALF of the question this platform cannot answer, so a
+       caller rendering it says something true instead of inventing a reason.
+       📌 TWO CLAUSES OF THIS COMMENT WERE KILLED BY #2811 and are corrected here
+       rather than left: it used to say this shape is one "which the darwin arm
+       never does", and that `server.js` "reads only ok/account/configDir/model".
+       The darwin arm now returns exactly this shape for a codex agent (see the
+       `because` at the end of `runningAsDarwin`, which cites this block as its
+       precedent), and `server.js` also reads `runner` off the live answer.
+       Nothing renders `because` when `ok` is true today, so it remains additive
+       rather than a contract change for the existing reader. */
     because: WIN32_NO_ACCOUNT,
   };
 }
@@ -450,7 +455,9 @@ function armFor(deps) {
 /**
  * What one agent is running on.
  *
- * Returns `{ ok, account, organization, model, configDir, because }`. On any
+ * Returns `{ ok, account, organization, model, configDir, runner, because }`.
+ * (`runner` is #2811: which agent runtime the live process actually is, so a
+ * caller never has to infer the provider from a directory name.) On any
  * failure `ok` is false and `because` is a sentence, because "we could not tell"
  * and "it is running on nothing" are different answers and only one of them is
  * ever true.
