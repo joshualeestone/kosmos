@@ -43,7 +43,13 @@ const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 
 const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'nav-shots-'));
-const SECTIONS = ['talk', 'model', 'memory', 'instr', 'profile', 'term', 'remove'];
+// #2916: SECTIONS is every MEASURABLE section (skills added, since it now shows alongside instr).
+// PILLS is what the nav actually clicks -- memory folds under the 'model' pill and skills under
+// 'instr', so neither has a pill of its own. GROUP maps a pill to the section(s) it reveals.
+const SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'];
+const PILLS = ['talk', 'model', 'instr', 'profile', 'term', 'remove'];
+const GROUP = { model: ['model', 'memory'], instr: ['instr', 'skills'] };
+const groupOf = (k) => GROUP[k] || [k];
 const fail = [];
 function chk(ok, label, extra) {
   console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
@@ -104,12 +110,14 @@ function chk(ok, label, extra) {
       });
       chk(dot.attr && dot.drawn === 'block', `[${theme}] the Talk pill carries the needs-you dot`, JSON.stringify(dot));
 
-      for (const k of SECTIONS) {
+      for (const k of PILLS) {
         await page.click('#d-nav button[data-go="' + k + '"]');
         await page.waitForTimeout(150);
         r = await rects();
-        const onlyThis = SECTIONS.every((j) => (j === k ? r[j].h > 0 : r[j].h === 0));
-        chk(onlyThis, `[${theme}] click ${k}: that section is on screen and the six others are not`,
+        // #2916: the pill reveals its GROUP (model+memory, or instr+skills); everything else is 0.
+        const grp = groupOf(k);
+        const onlyThis = SECTIONS.every((j) => (grp.includes(j) ? r[j].h > 0 : r[j].h === 0));
+        chk(onlyThis, `[${theme}] click ${k}: [${grp.join('+')}] on screen and nothing else`,
           JSON.stringify(Object.fromEntries(SECTIONS.map((j) => [j, r[j].h]))));
         const pill = await page.evaluate((key) => {
           const b = document.querySelector('#d-nav button[data-go="' + key + '"]');
@@ -118,7 +126,8 @@ function chk(ok, label, extra) {
         }, k);
         chk(pill.current === 'true' && pill.on.length === 1 && pill.on[0] === k,
           `[${theme}] click ${k}: exactly that pill is on and aria-current`, JSON.stringify(pill));
-        chk(pill.focus === k, `[${theme}] click ${k}: focus moved into the section`, String(pill.focus));
+        // Focus lands on the group's FIRST section, which is the pill's own (grp[0] === k here).
+        chk(pill.focus === grp[0], `[${theme}] click ${k}: focus moved into the section`, String(pill.focus));
         await page.screenshot({ path: path.join(OUT, `${theme}-${k}.png`), fullPage: false });
       }
 
@@ -128,8 +137,9 @@ function chk(ok, label, extra) {
       await page.evaluate(() => openDetail('april', 'instr'));
       await page.waitForTimeout(200);
       r = await rects();
-      chk(r.instr.h > 0 && SECTIONS.filter((j) => j !== 'instr').every((j) => r[j].h === 0),
-        `[${theme}] openDetail(name, 'instr') lands on Instructions`, JSON.stringify(Object.fromEntries(SECTIONS.map((j) => [j, r[j].h]))));
+      // #2916: Instructions reveals the instr+skills group; the rest measure zero.
+      chk(r.instr.h > 0 && r.skills.h > 0 && SECTIONS.filter((j) => !['instr', 'skills'].includes(j)).every((j) => r[j].h === 0),
+        `[${theme}] openDetail(name, 'instr') lands on Instructions with Skills below`, JSON.stringify(Object.fromEntries(SECTIONS.map((j) => [j, r[j].h]))));
       await page.evaluate(() => openDetail('april', 'no-such-section'));
       await page.waitForTimeout(100);
       r = await rects();
