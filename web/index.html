@@ -7834,7 +7834,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <p class="dhint" id="d-persist" style="margin:12px 0 0;"></p>
   </section>
   </section>
-  <section class="dsec" id="d-sec-model" data-sec="model" tabindex="-1" aria-label="Model and Memory" hidden>
+  <!-- #2916: the "Model and Memory" pill reveals THIS model region plus the adjacent d-sec-memory
+       region. Each region keeps its own accurate aria-label ("Model" here, "Memory" below) so a
+       screen-reader user is not told memory controls live in a region that only holds the model. -->
+  <section class="dsec" id="d-sec-model" data-sec="model" tabindex="-1" aria-label="Model" hidden>
   <section class="dbox">
     <h3 class="dlab">Runs on</h3>
     <!-- 🔑 THE SAME THREE STEPS AS THE CREATE FORM (#386). Josh, 2026-08-23
@@ -23916,7 +23919,11 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
      own pill; now it is folded under Instructions, so load it when the Instructions pill opens
      (the skills section shows alongside it). Guarded by SKILLS_LOADED_FOR so returning to
      Instructions -- a frequent action, it also carries the needs-you dot -- does not refetch and
-     rebuild the list on every visit. */
+     rebuild the list on every visit.
+     ⚠️ The trigger lives HERE, in the click handler, not in detailGo/openDetail. No caller opens
+     directly to Instructions today (every openDetail lands on Talk; the URL deep-link carries no
+     section), so this is fine. If a section deep-link to 'instr' is ever added, the Skills list
+     would render blank until the pill is clicked -- move this load beside the group reveal then. */
   if (b.dataset.go === 'instr' && CURRENT && SKILLS_LOADED_FOR !== CURRENT.sessionName) {
     SKILLS_LOADED_FOR = CURRENT.sessionName;
     loadSkills('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/skills', 'd-skills-list', 'd-skills-msg');
