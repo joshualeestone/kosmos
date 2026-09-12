@@ -2412,3 +2412,40 @@ return 'codex' without reading            -> "the runner fallback answered codex
 remove the record gate                    -> "…turning a display default we inherit into a claim"
 if (false) return a.runner (precedence)   -> "the board took the RECORD over the live pane marker…"
 ```
+
+## Round 39: TERMINATION CHECK -- NO NEW ISSUES. The loop is done.
+
+Framed as "is there anything that should block a PR", not as a hunt. **Findings: none.**
+
+What the reviewer drove, each with a control:
+
+1. **Rename safety** (`claudeUnder` -> `agentUnder`): no stranded caller on either side.
+2. **The adjacent path I would have worried about most** - the provider gate breaking the #2413
+   OpenAI badge overlay, since `readJob` FLOORS runner at `'claude'` and a codex agent with a
+   pre-runner plist would silently lose its default-OpenAI join. ⭐ **Ruled out by DATING the two
+   facts**: `git log -S"args[8]" -- engine/create.js` returns exactly one commit, which is also the
+   first to introduce codex to that file. **The plist runner arg and codex agents landed together,
+   so a codex agent with a legacy 8-arg plist cannot exist.**
+3. **The `-m` widening**, against a LIVE `ps` sweep: 21 processes with a `claude` first token, 0
+   carrying a standalone `-m`; control, the same regex finds 8 command lines elsewhere that do.
+4. **The rendered surface in Chromium**, with a mutation control that reds it by name.
+5. **All six sentence branches**, including a 2-arg legacy call (back-compatible).
+6. **Four web readers of `runner`**, all `=== 'codex'` equality - confirming the wire-contract fix
+   changes nothing visible, which is what its comment claims.
+7. **Full suite** at `--test-concurrency=4`: 11 failures, ALL in `tools.release-gate.test.js`;
+   that file alone 26/26. The known load flake, not this branch.
+
+### What they could NOT rule out, carried into the PR rather than buried
+
+- 🛑 **NO LIVE CODEX PROCESS EXISTS ON THIS MACHINE** (the sweep found 21 claude, 0 codex). The
+  darwin `agentUnder` codex arm, the `CODEX_HOME` read and the depth/tie ordering are **proven by
+  fixture only, never against a real running codex agent**. The first real codex agent on a Mac is
+  the check that matters, and no amount of further review here substitutes for it.
+- **The win32 gap is real and deliberately unfixed**: a live Codex agent on Windows still fails
+  `win32live.byName()`'s ownership join. One upstream gap, tracked separately.
+
+⇒ **THIRTY-NINE ROUNDS. The product fix has been unchanged and green since round 1.** Rounds 2-28
+found defects in my descriptions; rounds 29-38 found defects at readers the change reached and in
+the guards around it; round 39 found none. **That is the shape of a loop that has converged, and
+continuing past it would cost more than it returns** - the branch is 49 ahead and 107 BEHIND, and
+main has moved 319 files since the merge-base.
