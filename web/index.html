@@ -19642,8 +19642,6 @@ document.getElementById('acct-openai-sub-go').addEventListener('click', async (e
       // #2568/#2584: on a reauth, ACCT_OPENAI_REAUTH_DIR names the account to sign in
       // again AS; the engine promotes into it only on an identity match. Absent on a
       // fresh add (openAcctAdd clears it), so this is never accidentally a reauth.
-      // #2913: no label -- the subscription flow no longer collects a name; the account's
-      // own email distinguishes it. The engine treats an absent label as unnamed.
       body: JSON.stringify({ mode: 'browser', reauthDir: ACCT_OPENAI_REAUTH_DIR || undefined }),
     });
     const out = await res.json().catch(() => null);
