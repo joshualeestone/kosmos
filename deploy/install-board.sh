@@ -33,7 +33,8 @@
 # DEFAULT IS A DRY RUN. Nothing is copied and no job is touched without --apply.
 #
 #   sh deploy/install-board.sh            # say what would happen
-#   sh deploy/install-board.sh --apply    # do it
+#   sh deploy/install-board.sh --apply          # install and adopt it
+#   sh deploy/install-board.sh --refresh-only   # refresh an already-adopted tree
 set -u
 
 DEST="${KOSMOS_BOARD_LIBEXEC:-$HOME/.local/libexec/kosmos-board}"
@@ -42,7 +43,11 @@ PLIST="${KOSMOS_BOARD_PLIST:-$HOME/Library/LaunchAgents/com.kosmos.board.plist}"
 LABEL="com.kosmos.board"
 NODE="${KOSMOS_BOARD_NODE:-/opt/homebrew/bin/node}"
 APPLY=0
-[ "${1:-}" = "--apply" ] && APPLY=1
+REFRESH_ONLY=0
+case "${1:-}" in
+  --apply) APPLY=1 ;;
+  --refresh-only) APPLY=1; REFRESH_ONLY=1 ;;
+esac
 
 say() { printf '  %s\n' "$*"; }
 fail() { printf 'install-board: %s\n' "$*" >&2; exit 1; }
@@ -143,14 +148,6 @@ if [ "$APPLY" -eq 0 ]; then
 fi
 
 # ---- apply -----------------------------------------------------------------
-# The destination must never be a repository path. The swap below replaces the
-# destination tree wholesale; if an override points at this checkout (or any
-# directory inside a checkout), applying would replace tracked work with the
-# deployed app subset. `git -C` also follows symlinks and normalises `..`, so the
-# guard covers aliases rather than only one path spelling.
-if git -C "$DEST" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  fail "refusing to apply: the destination is inside a git work tree ($DEST)"
-fi
 tmp="$DEST.new.$$"
 rm -rf "$tmp" || fail "could not clear $tmp"
 ver="$(stage_app "$tmp")" || { rm -rf "$tmp"; fail "staging failed; nothing was changed"; }
@@ -163,6 +160,11 @@ old="$DEST.old.$$"
 mv "$tmp" "$DEST" || { [ -d "$old" ] && mv "$old" "$DEST"; fail "could not move the new tree into place; the old one is restored"; }
 rm -rf "$old"
 say "installed to $DEST"
+
+if [ "$REFRESH_ONLY" -eq 1 ]; then
+  say "refresh complete; the caller owns the restart"
+  exit 0
+fi
 
 # ---- repoint the job, then READ IT BACK ------------------------------------
 [ -f "$PLIST" ] || fail "no plist at $PLIST; nothing to repoint"

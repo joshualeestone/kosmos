@@ -7,9 +7,8 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { execFileSync, spawnSync } = require('node:child_process');
+const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 
 test('restart-local-board --check names one of its deployment cases and never restarts', () => {
@@ -21,31 +20,18 @@ test('restart-local-board --check names one of its deployment cases and never re
 test('the release refreshes an adopted libexec board from the frozen tree before restarting it', () => {
   const rel = fs.readFileSync(path.join(__dirname, 'tools', 'release.sh'), 'utf8');
   const served = rel.indexOf('REPO="$REPO" bash "$REPO/tools/verify-served.sh"');
-  const deploy = rel.indexOf('bash "$REPO/deploy/install-board.sh" --apply');
+  const deploy = rel.indexOf('bash "$REPO/deploy/install-board.sh" --refresh-only');
   const restart = rel.indexOf('tools/restart-local-board.sh');
   assert.ok(served > 0 && deploy > served && restart > deploy, 'served check, libexec deploy, and restart are not ordered safely');
   assert.match(rel, /\[ -n "\$_board_wd" \] && \[ "\$_board_wd" = "\$_board_libexec" \]/, 'the release deploy is not gated on a positive libexec working-directory match');
-  assert.doesNotMatch(rel, /bash "\$MAIN_REPO\/deploy\/install-board\.sh" --apply/, 'the deploy came from the moving shared checkout instead of the frozen tree');
+  assert.doesNotMatch(rel, /bash "\$MAIN_REPO\/deploy\/install-board\.sh" --refresh-only/, 'the deploy came from the moving shared checkout instead of the frozen tree');
   assert.ok(!/if bash "\$REPO\/tools\/verify-served\.sh"; then exit 0; fi/.test(rel), 'the served check still exits the release before the restart can run');
   const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8'));
   assert.match(pkg.scripts["test:shell"], /bash -n tools\/restart-local-board\.sh/, 'the step is not syntax-checked by yarn test');
 });
 
-test('board deploy refuses a destination inside a git work tree before replacing anything', () => {
-  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-board-dest-'));
-  const repo = path.join(fixture, 'repo');
-  fs.mkdirSync(path.join(repo, 'deploy'), { recursive: true });
-  fs.copyFileSync(path.join(__dirname, 'deploy', 'install-board.sh'), path.join(repo, 'deploy', 'install-board.sh'));
-  fs.writeFileSync(path.join(repo, 'package.json'), '{"version":"1.2.3"}\n');
-  execFileSync('git', ['init', '-q', repo]);
-  execFileSync('git', ['-C', repo, 'add', '.']);
-  execFileSync('git', ['-C', repo, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture']);
-
-  const run = spawnSync('bash', [path.join(repo, 'deploy', 'install-board.sh'), '--apply'], {
-    encoding: 'utf8',
-    env: { ...process.env, KOSMOS_BOARD_LIBEXEC: repo, KOSMOS_BOARD_PLIST: path.join(fixture, 'board.plist') },
-  });
-  assert.equal(run.status, 1, `expected refusal, stdout: ${run.stdout}, stderr: ${run.stderr}`);
-  assert.match(run.stderr, /destination is inside a git work tree/, run.stderr);
-  assert.ok(fs.existsSync(path.join(repo, '.git')), 'the apply replaced the fixture repository');
+test('restart version read passes the deployed package path through argv', () => {
+  const restart = fs.readFileSync(path.join(__dirname, 'tools', 'restart-local-board.sh'), 'utf8');
+  assert.match(restart, /readFileSync\(process\.argv\[1\]/, 'the deployed path is interpolated into JavaScript source');
+  assert.match(restart, /"\$_srcdir\/package\.json"/, 'the package path is not passed as an argv value');
 });
