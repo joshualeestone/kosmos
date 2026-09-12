@@ -290,6 +290,11 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 # #2017: the load guard for the gated steps (3, 3b). Sourced UNguarded under
 # set -e like the libs above: a lib the cut cannot load should abort, not skip.
 . "$REPO/tools/lib/cut-load-guard.sh"
+# #2860: the ONE board deploy-shape classifier, shared with tools/restart-local-board.sh
+# so the cut's step-10a refresh decision and the restart's decision cannot drift. Sourced
+# HERE (before the freeze), so the functions are in memory and unaffected if the shared
+# checkout is fast-forwarded past this cut's sha mid-run.
+. "$REPO/tools/lib/board-shape.sh"
 # #1796: declare THIS run a cut before the checks below, so the cut-check excludes
 # our own marker by cookie (not a live-tree walk) and a harness/second-cut starting
 # later can see us. A crash leaves a dead-pid marker the next reader cleans.
@@ -1541,10 +1546,13 @@ step "== 10. the board on THIS Mac, if it runs from this repo or the libexec dep
 # checkout can be fast-forwarded past this cut's sha mid-run (the freeze notice warns of
 # it), which would deploy a version OTHER than the one steps 8-9 just verified -- the
 # same reasoning step 11 uses to source the CLI from the frozen tree.
-_board_libexec="${KOSMOS_BOARD_LIBEXEC:-$HOME/.local/libexec/kosmos-board}"
+_board_libexec="$(board_shape_libexec_default)"
 _board_info="$(launchctl print "gui/$(id -u)/com.kosmos.board" 2>/dev/null || true)"
-_board_wd="$(printf '%s\n' "$_board_info" | sed -n 's/^[[:space:]]*working directory = //p' | head -1)"
-if [ -n "$_board_wd" ] && [ "$_board_wd" = "$_board_libexec" ]; then
+_board_wd="$(board_shape_working_dir "$_board_info")"
+# #2860: this cut acts on shape (b) ONLY. Pass an empty repo-tree arg so board_shape_of
+# can only return `libexec` (WD == the DEST) or `other` -- an (a) repo-tree board is left
+# for restart-local-board.sh, exactly as before. Same classifier restart uses.
+if [ "$(board_shape_of "$_board_wd" "" "$_board_libexec")" = libexec ]; then
   step "== 10a. refresh the libexec-deployed board from this cut (#1164) =="
   echo "   com.kosmos.board runs from the libexec deploy ($_board_libexec); refreshing it from the frozen tree before the restart"
   bash "$REPO/deploy/install-board.sh" --refresh-only
