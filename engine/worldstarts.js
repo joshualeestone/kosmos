@@ -178,12 +178,18 @@ function jobIsSwitchedOff(name, platform, macOff) {
  * roster tied to it (null when it is not running), and whether the roster could
  * tie that session to the name at all.
  *
- * Returns `{paused: [names], notPaused: [{name, because}], refused?}`. Every agent
- * in `notPaused` is still running, or was never ours to stop.
+ * Returns `{paused: [names], notPaused: [{name, because}], stoppedNow: [names],
+ * refused?}`. Every agent in `notPaused` is still running, or was never ours to
+ * stop. `paused` includes agents an earlier pause of this Kosmos already stopped;
+ * `stoppedNow` is only what this call stopped, which is all an undo may start.
  */
 function pauseForSwitch(agents, opts = {}) {
   const platform = platformFor(opts);
   const paused = [];
+  /* Only what THIS call stopped (review round 3). `paused` also names agents an
+     earlier pause of this Kosmos already stopped, and a caller undoing THIS call
+     (the switch route's rollback) must not start those. */
+  const stoppedNow = [];
   const notPaused = [];
   const candidates = [];
 
@@ -197,12 +203,12 @@ function pauseForSwitch(agents, opts = {}) {
     if (unsafe) { notPaused.push({ name, because: unsafe }); continue; }
     candidates.push({ name, session: agent.session || null });
   }
-  if (candidates.length === 0) return { paused, notPaused };
+  if (candidates.length === 0) return { paused, notPaused, stoppedNow };
 
   const refusal = liveExecutionRefusal('pause', candidates.map((c) => c.name));
   if (refusal) {
     for (const c of candidates) notPaused.push({ name: c.name, because: refusal.because });
-    return { paused, notPaused, refused: refusal.detail };
+    return { paused, notPaused, stoppedNow, refused: refusal.detail };
   }
 
   /* Read before anything is decided: it is the base of the write-ahead below, and
@@ -211,7 +217,7 @@ function pauseForSwitch(agents, opts = {}) {
   const existing = readRecordForWrite();
   if (existing === UNREADABLE) {
     for (const c of candidates) notPaused.push({ name: c.name, because: 'we could not read the list of paused agents, so nothing was paused' });
-    return { paused, notPaused };
+    return { paused, notPaused, stoppedNow };
   }
   /* Review round 2: an entry carrying a `because` is HELD FOR RETRY, not a confirmed
      pause -- its stop failed and so did the undo, so the agent is switched off but
@@ -244,7 +250,7 @@ function pauseForSwitch(agents, opts = {}) {
     }
     withJobs.push({ ...c, job });
   }
-  if (withJobs.length === 0) return { paused, notPaused };
+  if (withJobs.length === 0) return { paused, notPaused, stoppedNow };
 
   /* Write-ahead: every agent about to be stopped is on record first. */
   const pausing = new Set(withJobs.map((c) => c.name));
@@ -255,7 +261,7 @@ function pauseForSwitch(agents, opts = {}) {
     writeRecord(entries);
   } catch (err) {
     for (const c of withJobs) notPaused.push({ name: c.name, because: `we could not write down which agents were paused (${(err && err.code) || 'unknown'}), so nothing was paused` });
-    return { paused, notPaused };
+    return { paused, notPaused, stoppedNow };
   }
 
   const ops = remove.jobOps(platform);
@@ -267,6 +273,16 @@ function pauseForSwitch(agents, opts = {}) {
     /* Disable FIRST: a login between the stop and the disable would bring it back
        (remove.js documents the same window). */
     if (!actSucceeded(() => ops.disable(c.name, c.job))) {
+      if (heldForRetry.has(c.name)) {
+        /* Review round 3: a HELD entry's job is already switched off (the earlier
+           undo failed), so a failed disable changed nothing -- it is still off.
+           Put its earlier entry back, `because` and all, so the next boot still
+           sets it to start; dropping it would leave it off at every login. */
+        const prior = existing.find((e) => e.name === c.name);
+        entries = entries.map((e) => (e.name === c.name ? prior : e));
+        notPaused.push({ name: c.name, because: `we could not stop ${c.name}, so it keeps running` });
+        continue;
+      }
       dropEntry(c.name);
       notPaused.push({ name: c.name, because: `we could not stop ${c.name} from starting on its own, so it keeps running` });
       continue;
@@ -274,7 +290,7 @@ function pauseForSwitch(agents, opts = {}) {
     disruption.begin(c.name, DISRUPTION_CAUSE);
     const stopped = actSucceeded(() => ops.stopNow(c.name, c.job))
       && (!c.session || actSucceeded(() => sessions.end(c.session)));
-    if (stopped) { paused.push(c.name); continue; }
+    if (stopped) { paused.push(c.name); stoppedNow.push(c.name); continue; }
 
     /* Still running, and now set not to start on its own. Put that back; if even
        that fails the entry stays, so the next boot of this Kosmos sets it to
@@ -297,7 +313,7 @@ function pauseForSwitch(agents, opts = {}) {
        moment (see DISRUPTION_CAUSE). Said on stderr, since nobody else will see it. */
     process.stderr.write(`Kosmos paused ${paused.length} agent(s) but could not update its list of them (${(err && err.code) || 'unknown'}); the list may name agents that kept running.\n`);
   }
-  return { paused, notPaused };
+  return { paused, notPaused, stoppedNow };
 }
 
 /* ── resume ──────────────────────────────────────────────────────────────── */

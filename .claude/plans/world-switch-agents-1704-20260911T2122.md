@@ -207,6 +207,9 @@ only the minimal choice added.
    - A successful stop leaves it paused and clean.
    - A failed stop whose undo works drops the entry.
    - A failed stop whose undo also fails gets the `because` back.
+   - (Added in round 3.) A failed DISABLE restores the earlier entry, `because`
+     and all. The job is still switched off from the earlier failed undo, so
+     dropping the entry would leave it off at every login.
 2. **TEST GAP.** Added engine test R2, which runs three pauses in a row:
    - the stop and the undo fail, so the entry is held;
    - the stop fails again: the agent is NOT reported paused, a fresh bootout is sent,
@@ -214,3 +217,28 @@ only the minimal choice added.
    - the stop succeeds: the agent is reported paused, and the `because` is cleared.
 
    The test fails without the fix.
+
+### Round 3 (2026-09-11, a full fresh pass): two bugs, one test gap, one nit, all fixed
+
+1. **BUG: a held entry was DROPPED when its fresh `disable` failed,** so its job
+   stayed switched off for good and the diagnostic was lost. For a held entry, a
+   failed disable changed nothing: the job is already off.
+   - Fix: restore the earlier entry with its `because`. This is the fourth outcome
+     listed under round 2.
+   - Tests: engine R3 on both the Mac and Windows arms.
+2. **BUG: the rollback started agents THIS request did not stop.** `paused` also
+   names agents an earlier pause-switch stopped (the round-1 fast path). Rolling
+   all of them back after a 409 would undo a pause the person asked for twice.
+   - Fix: `pauseForSwitch` also returns `stoppedNow` (only what this call stopped),
+     and the route rolls back only those. The rollback comment is corrected.
+   - Tests:
+     - route R3: a seeded entry, its job switched off, the registry lock held, then
+       a pause-switch. No enable or bootstrap is sent, and the entry is kept.
+     - engine R3: `stoppedNow` excludes the fast-path agent.
+3. **TEST GAP: R2 covered only the Mac.** Added the Windows R2 sequence
+   (`winDisabled`, the held entry skipping `win32job.status`), and the fourth
+   outcome on both arms (item 1).
+4. **NIT: a pause from a named Kosmos with an unreadable roster returned an empty
+   `notPaused` and said nothing.**
+   - Fix: `roster === null` is now the same 503 on both branches.
+   - Test: route R3, using `fleet.blind()`.

@@ -46,6 +46,7 @@ boardrestart.selfRestart = () => ({ ok: true });
 let calls = [];
 let failing = [];
 let recordAtFirstCommand;
+let macSwitchedOff = new Set();   // agents launchd reports switched off (create.disabledJobs)
 function runner(file, args) {
   const line = [nodePath.basename(file), ...args].join(' ');
   if (recordAtFirstCommand === undefined) {
@@ -75,13 +76,17 @@ test.before(async () => {
   remove.setRunner(runner);
   // create.disabledJobs (launchd's per-user overrides) goes through create's own
   // runner: answer "nothing is switched off" rather than reach a real launchctl.
-  create.setRunner(() => ({ ok: true, stdout: '' }));
+  create.setRunner((file, args) => ({
+    ok: true,
+    stdout: args[0] === 'print-disabled'
+      ? [...macSwitchedOff].map((n) => `\t"${create.serviceLabel(n)}" => disabled`).join('\n') : '',
+  }));
   fs.mkdirSync(nodePath.dirname(create.plistPath('ava')), { recursive: true });
   fs.writeFileSync(create.plistPath('ava'), '<plist/>');
   board = fleet.install([fleet.agent('ava', { state: 'idle' })]);
 });
 test.beforeEach(() => {
-  calls = []; failing = []; recordAtFirstCommand = undefined;
+  calls = []; failing = []; recordAtFirstCommand = undefined; macSwitchedOff = new Set();
   liveExec.allowLiveExecution();
   fs.rmSync(worldstarts.RECORD_FILE, { force: true });
 });
@@ -228,6 +233,40 @@ test('R1-5: that resume is held while agents may not start in the booted world (
   const entries = record();
   assert.deepEqual(entries.map((e) => e.name), ['ava'], 'the entry stays, for when the rule is lifted');
   assert.match(entries[0].because, /named world/);
+});
+
+/* ── review round 3 ───────────────────────────────────────────────────── */
+
+test('R3: the rollback starts only what THIS request stopped, never an agent an earlier pause-switch stopped', async () => {
+  seedPaused(['ava']);            // an earlier pause-switch of this Kosmos...
+  macSwitchedOff.add('ava');      // ...left its job switched off
+  const lock = nodePath.join(worlds.baseRoot(process.env), '.worlds.json.lock');
+  fs.mkdirSync(lock, { recursive: true });
+  let r;
+  try {
+    r = await post({ id: 'alphaworld', agents: 'pause' });
+  } finally {
+    fs.rmdirSync(lock);
+  }
+  assert.equal(r.status, 409, 'the control: the switch failed, so the rollback ran');
+  assert.equal(calls.some((c) => c.startsWith('launchctl enable') || c.startsWith('launchctl bootstrap')), false,
+    'the rollback started an agent the person had asked, twice, to keep paused');
+  assert.deepEqual(record().map((e) => e.name), ['ava'], 'the earlier pause entry was dropped');
+});
+
+test('R3: a pause from a named Kosmos with an unreadable roster is the same 503, not a silent empty list', async () => {
+  const before = activeWorldId();
+  const blind = fleet.blind();
+  try {
+    const r = await bootedInto('alphaworld', () => post({ id: 'default', agents: 'pause' }));
+    assert.equal(r.status, 503);
+    assert.match(r.body.because, /could not see which agents are running/);
+    assert.equal(activeWorldId(), before, 'a 503 must not switch');
+  } finally {
+    blind.restore();
+    board = fleet.install([fleet.agent('ava', { state: 'idle' })]);
+  }
+  assert.deepEqual(calls, []);
 });
 
 test('a pause for a Kosmos that does not exist is a 404 before anything is stopped', async () => {

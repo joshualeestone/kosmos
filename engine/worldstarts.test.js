@@ -379,6 +379,61 @@ test('R2: an entry HELD for retry (stop and undo both failed) is not a confirmed
   assert.equal(entry.because, undefined, 'a confirmed pause must not carry the old failure');
 });
 
+test('R3 (Windows arm of R2): a held entry gets a fresh /End, keeps its because while it fails, clears it once it works', () => {
+  const task = win32job.taskName('ava');
+  const agent = [{ name: 'ava', session: null, tied: true }];
+  failing = [{ match: '/End' }, { match: '/ENABLE' }];
+  const first = worldstarts.pauseForSwitch(agent, { platform: WIN });
+  assert.deepEqual(first.notPaused.map((n) => n.name), ['ava']);
+  assert.ok(readRecord().entries[0].because, 'the control: the entry is held with a because');
+  winDisabled.add('ava');   // the task now reports Disabled, as it would
+
+  calls = [];
+  const second = worldstarts.pauseForSwitch(agent, { platform: WIN });
+  assert.deepEqual(second.paused, [], 'an agent that never stopped was reported paused');
+  assert.ok(calls.includes(`schtasks /End /TN ${task}`), 'no fresh stop was attempted');
+  assert.match(readRecord().entries[0].because, /could not be stopped/);
+
+  failing = [];
+  const third = worldstarts.pauseForSwitch(agent, { platform: WIN });
+  assert.deepEqual(third.paused, ['ava']);
+  assert.deepEqual(third.stoppedNow, ['ava']);
+  assert.equal(readRecord().entries[0].because, undefined);
+});
+
+for (const arm of [
+  { platform: MAC, stop: 'bootout', undo: 'launchctl enable', disable: 'launchctl disable', off: () => macDisabled.add('ava') },
+  { platform: WIN, stop: '/End', undo: '/ENABLE', disable: '/DISABLE', off: () => winDisabled.add('ava') },
+]) {
+  test(`R3 (${arm.platform}): a held entry whose fresh DISABLE fails keeps its entry and because, so a boot still switches it back on`, () => {
+    const agent = [{ name: 'ava', session: null, tied: true }];
+    failing = [{ match: arm.stop, code: 9 }, { match: arm.undo, code: 9 }];
+    worldstarts.pauseForSwitch(agent, { platform: arm.platform });
+    const held = readRecord().entries[0];
+    assert.ok(held.because, 'the control: the entry is held with a because');
+    arm.off();
+
+    failing = [{ match: arm.disable, code: 9 }];
+    const again = worldstarts.pauseForSwitch(agent, { platform: arm.platform });
+    assert.deepEqual(again.paused, []);
+    assert.deepEqual(again.notPaused.map((n) => n.name), ['ava']);
+    const entries = readRecord().entries;
+    assert.equal(entries.length, 1, 'the held entry was dropped, so no boot will ever switch the job back on');
+    assert.equal(entries[0].because, held.because, 'the held entry lost its diagnostic');
+  });
+}
+
+test('R3: an agent an EARLIER pause stopped is in paused but NOT in stoppedNow (an undo of this call must not start it)', () => {
+  writeRecord([{ name: 'ava', why: 'paused', at: new Date().toISOString() }]);
+  macDisabled.add('ava');
+  const out = worldstarts.pauseForSwitch([
+    { name: 'ava', session: null, tied: true },
+    { name: 'bo', session: null, tied: true },
+  ], { platform: MAC });
+  assert.deepEqual(out.paused.sort(), ['ava', 'bo']);
+  assert.deepEqual(out.stoppedNow, ['bo']);
+});
+
 test('an unreadable record is refused, never rewritten from empty', () => {
   fs.mkdirSync(nodePath.dirname(worldstarts.RECORD_FILE), { recursive: true });
   fs.writeFileSync(worldstarts.RECORD_FILE, '{ not json');

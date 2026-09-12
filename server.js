@@ -2899,7 +2899,7 @@ const server = http.createServer((req, res) => {
            that world, so the requested id is the canonical one it would return. */
         const bootedId = require('./engine/worldenv').bootedWorld();
         const isNoop = bootedId != null && bootedId === id;
-        let pause = { paused: [], notPaused: [] };
+        let pause = { paused: [], notPaused: [], stoppedNow: [] };
         if (!isNoop && agentsChoice === worldstarts.AGENT_CHOICES.PAUSE) {
           /* Refuse a pause for a world that does not exist rather than stop agents
              for a switch that is about to 404. setActiveWorld still classifies the
@@ -2919,29 +2919,35 @@ const server = http.createServer((req, res) => {
              then holds them forever. So every agent keeps running, is listed, and
              the switch proceeds. ⚠️ REVISIT when #2849 is lifted (after PR1m makes
              Mac identity world-keyed): this condition must then go or change. */
+          /* An unreadable roster is a 503 on both branches below: a pause the
+             person asked for must not come back as a silent empty list. */
+          if (roster === null) {
+            sendJson(res, 503, { ok: false, because: 'we could not see which agents are running in this Kosmos, so nothing was paused or switched. Try again, or keep them running' });
+            return;
+          }
           const agentsBarred = namedWorldSpawnRefusal();
           if (agentsBarred) {
             pause = {
               paused: [],
-              notPaused: (roster || []).map((a) => ({ name: a.sessionName, because: `${a.sessionName} keeps running: agents cannot be paused from a named Kosmos yet` })),
+              notPaused: roster.map((a) => ({ name: a.sessionName, because: `${a.sessionName} keeps running: agents cannot be paused from a named Kosmos yet` })),
+              stoppedNow: [],
             };
           } else {
-            if (roster === null) {
-              sendJson(res, 503, { ok: false, because: 'we could not see which agents are running in this Kosmos, so nothing was paused or switched. Try again, or keep them running' });
-              return;
-            }
             pause = worldstarts.pauseForSwitch(roster.map((a) => ({ name: a.sessionName, session: a.session, tied: a.isNamedOurs })));
           }
         }
         let world;
         try { world = worlds.setActiveWorld(base, id); }
         catch (e) {
-          /* The switch did not happen, so the agents just paused go back to
-             running in the Kosmos the board is still serving. Not gated by the
+          /* The switch did not happen, so the agents THIS request stopped go back
+             to running in the Kosmos the board is still serving. stoppedNow, not
+             paused: `paused` also names agents an EARLIER pause-switch of this
+             Kosmos stopped (a board that could not restart itself), and the person
+             asked for those paused too (review round 3). Not gated by the
              named-world spawn rule: this undoes our own stop of agents that were
              running here a moment ago. */
-          if (pause.paused.length) {
-            const undone = worldstarts.resumeNames(pause.paused);
+          if (pause.stoppedNow.length) {
+            const undone = worldstarts.resumeNames(pause.stoppedNow);
             if (undone.held.length) process.stderr.write(`Kosmos could not start ${undone.held.length} agent(s) again after a failed switch. First: ${undone.held[0].name} - ${undone.held[0].because}\n`);
           }
           // Classify by the engine's typed error CODE, never its message text --
