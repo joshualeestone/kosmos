@@ -33,7 +33,8 @@
 # DEFAULT IS A DRY RUN. Nothing is copied and no job is touched without --apply.
 #
 #   sh deploy/install-board.sh            # say what would happen
-#   sh deploy/install-board.sh --apply    # do it
+#   sh deploy/install-board.sh --apply          # install and adopt it
+#   sh deploy/install-board.sh --refresh-only   # refresh an already-adopted tree
 set -u
 
 DEST="${KOSMOS_BOARD_LIBEXEC:-$HOME/.local/libexec/kosmos-board}"
@@ -42,7 +43,11 @@ PLIST="${KOSMOS_BOARD_PLIST:-$HOME/Library/LaunchAgents/com.kosmos.board.plist}"
 LABEL="com.kosmos.board"
 NODE="${KOSMOS_BOARD_NODE:-/opt/homebrew/bin/node}"
 APPLY=0
-[ "${1:-}" = "--apply" ] && APPLY=1
+REFRESH_ONLY=0
+case "${1:-}" in
+  --apply) APPLY=1 ;;
+  --refresh-only) APPLY=1; REFRESH_ONLY=1 ;;
+esac
 
 say() { printf '  %s\n' "$*"; }
 fail() { printf 'install-board: %s\n' "$*" >&2; exit 1; }
@@ -155,6 +160,11 @@ old="$DEST.old.$$"
 mv "$tmp" "$DEST" || { [ -d "$old" ] && mv "$old" "$DEST"; fail "could not move the new tree into place; the old one is restored"; }
 rm -rf "$old"
 say "installed to $DEST"
+
+if [ "$REFRESH_ONLY" -eq 1 ]; then
+  say "refresh complete; the caller owns the restart"
+  exit 0
+fi
 
 # ---- repoint the job, then READ IT BACK ------------------------------------
 [ -f "$PLIST" ] || fail "no plist at $PLIST; nothing to repoint"
