@@ -1254,7 +1254,25 @@ test('the startup script, actually run, hands the pane its account and its board
        intended. `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN` stops Claude Code
        asking a new agent about its renderer on the first screen; codex has
        never heard of it, which is why the branches differ here. */
-    const expected = [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${codexDir}`, 'KOSMOS_PORT=16245'];
+    /* ⚠️ #1704 ADDS THE AGENT'S KOSMOS, AND ITS THREE STORE ROOTS, ALWAYS -- empty
+       here because this launch env carries no KOSMOS_WORLD (the default world).
+       They are pushed on every launch, empty included, precisely because a tmux
+       session inherits the shared server's global environment, and a pane on a
+       server that a named-world board cold-started would otherwise read that
+       board's world; an empty `-e` overrides it back to the default. Written into
+       the expected SET, not filtered, for the same reason the renderer var above
+       is: this assertion's value is that nothing UNEXPECTED reaches a pane. */
+    /* The world id is empty (default), and the three store roots are whatever the
+       SUPERVISOR carries -- empty for a production default agent (its plist sets
+       no AGENT_WORKFORCE_*), the sandbox for this test (which runs on top of its
+       own AGENT_WORKFORCE_*). Passing the supervisor's own store as an override is
+       the point: it is what a default pane needs to NOT inherit a named world's
+       roots from a shared tmux server a named-world board cold-started. */
+    const expected = [`CLAUDE_CONFIG_DIR=${claudeDir}`, `CODEX_HOME=${codexDir}`, 'KOSMOS_PORT=16245',
+      'KOSMOS_WORLD=',
+      `AGENT_WORKFORCE_DATA=${process.env.AGENT_WORKFORCE_DATA || ''}`,
+      `AGENT_WORKFORCE_PROJECTS=${process.env.AGENT_WORKFORCE_PROJECTS || ''}`,
+      `AGENT_WORKFORCE_WORKERS=${process.env.AGENT_WORKFORCE_WORKERS || ''}`];
     if ((b.runner || 'claude') !== 'codex') expected.push('CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1');
     assert.deepEqual(rest, expected.sort(),
       `${label}: the pane was not handed exactly the account and the board: ` + JSON.stringify(set.newSession));
@@ -1302,9 +1320,19 @@ test('the startup script, actually run, hands the pane its account and its board
          set-case branch at expected.push above). Excluded per-runner, not blanket. */
       const isClaude = (b.runner || 'claude') !== 'codex';
       const notToken = passed.filter((v) => !v.startsWith('KOSMOS_AGENT_TOKEN=')
-        && !(isClaude && v === 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1'));
+        && !(isClaude && v === 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1')
+        /* #1704: the agent's Kosmos and its three store roots ride ALWAYS, by
+           design -- empty here, because nothing sets them -- so a default pane
+           cannot inherit a named world from a shared tmux server a named-world
+           board cold-started. Deliberate always-on riders, excluded the same way
+           the token and the renderer preference are; the positive check below
+           keeps the exclusion honest. */
+        && !/^KOSMOS_WORLD=/.test(v)
+        && !/^AGENT_WORKFORCE_(DATA|PROJECTS|WORKERS)=/.test(v));
       assert.deepEqual(notToken, [],
         `${label}: a variable that is not set was still passed into the pane: ` + JSON.stringify(r.newSession));
+      assert.ok(passed.includes('KOSMOS_WORLD='),
+        `${label}: the KOSMOS_WORLD override stopped reaching the pane, so a default agent could inherit a named world: ` + JSON.stringify(r.newSession));
       /* And the exclusion above must not become a place things hide: on claude the
          thing it excludes has to actually be there. Without this, deleting the
          renderer preference entirely would pass both arms of this test. */
@@ -4893,6 +4921,7 @@ test('#1432: the plist template carries exactly its known set of keys', () => {
      `${configKey}` is the one deliberately dynamic entry. */
   assert.deepEqual(keys, [
     'AssociatedBundleIdentifiers', 'EnvironmentVariables', 'HOME', 'KOSMOS_PORT',
+    'KOSMOS_WORLD',
     'KeepAlive', 'LANG', 'Label', 'PATH', 'ProgramArguments', 'RunAtLoad',
     'StandardErrorPath', 'StandardOutPath', 'TMUX_TMPDIR', 'ThrottleInterval',
     'WorkingDirectory', '${configKey}',
