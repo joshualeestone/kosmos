@@ -1070,9 +1070,18 @@ function isNamedOurs(pane) {
   // it, and there is no stale record to reconcile — the two failure modes a
   // claims file on disk would have had.
   //
-  // ⚠️ It must match the pane's own NAME, not merely be present. A claim naming
-  // a different agent is somebody else's claim, and reading "has a claim" as
-  // "is ours" would be the borrowed-name hole rebuilt out of new parts.
+  // ⚠️ It must match the pane's own SESSION, not merely be present. A claim
+  // naming a different session is somebody else's claim, and reading "has a
+  // claim" as "is ours" would be the borrowed-name hole rebuilt out of new parts.
+  //
+  // 🔑 #1704: THE SESSION, NOT THE ROSTER NAME. The supervisor stamps
+  // @kosmos_agent with its own $SESSION (agent-supervisor.sh sets and re-checks
+  // it against `-t "$SESSION"`), which for a named world is the launch KEY
+  // `<name>+<world>`. parsePanes now reports `pane.name` as the BARE in-world
+  // name (`ava`), so `claim === pane.name` would be `ava+qa === ava` and every
+  // named-world agent would come back anonymous. `pane.session` is the raw tmux
+  // session, i.e. the same key the claim carries, and it equals the bare name in
+  // the default world, so this holds on both.
   //
   // ⚠️ KOSMOS writes this, never the agent, and that is a CONVENTION rather
   // than an enforcement — worth stating precisely, because the sentence used to
@@ -1088,7 +1097,7 @@ function isNamedOurs(pane) {
   // stale record for a stranger to inherit later, which is the failure a claims
   // file on disk would have had.
   const claim = String(pane.claim || '').trim();
-  if (claim && claim === String(pane.name || '')) return true;
+  if (claim && claim === String(pane.session || '')) return true;
 
   // The legacy arm: the existing fleet carries the suffix and no claim, and
   // must keep working untouched.

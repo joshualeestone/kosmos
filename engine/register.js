@@ -36,6 +36,7 @@ const create = require('./create');
 const remove = require('./remove');
 const status = require('./status');
 const store = require('./store');
+const launchidentity = require('./launchidentity'); // #1704: this board's Kosmos
 
 /**
  * What this agent is called by the person who made it.
@@ -247,11 +248,16 @@ function strays(profileNames, jobs) {
     else for (const n of jobs.fleet) note(n, 'job');
   } else {
     try {
+      const myWorld = launchidentity.currentWorldId();
       for (const f of readRoot(create.AGENTS_DIR)) {
-        const m = /^com\.kosmos\.agent\.(.+)\.plist$/.exec(f);
-        if (!m) continue;
+        if (!f.endsWith('.plist')) continue;
+        /* #1704: the LaunchAgents folder holds every Kosmos's agents; a board
+           reconciles only its own world's, and note() is keyed on the BARE agent
+           name (NAME_RE rejects the `+` in a launch key anyway). */
+        const parsed = create.parseServiceLabel(f.slice(0, f.length - '.plist'.length));
+        if (!parsed || parsed.worldId !== myWorld) continue;
         try {
-          if (fs.statSync(path.join(create.AGENTS_DIR, f)).isFile()) note(m[1], 'job');
+          if (fs.statSync(path.join(create.AGENTS_DIR, f)).isFile()) note(parsed.name, 'job');
         } catch (err) { failed = failed || (err && err.code !== 'ENOENT'); }
       }
     } catch (err) { failed = failed || (err && err.code !== 'ENOENT'); }

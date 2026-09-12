@@ -5535,3 +5535,41 @@ test('#1629: where detection stops for the FULL dialog shape, pinned by the bott
   assert.ok(trustPrompt(full(11)), 'first option at +11, confirm at +13: seen');
   assert.equal(trustPrompt(full(12)), null, 'first option at +12, confirm at +14: lost, as the docblock says');
 });
+
+// #1704: a named-world Mac agent's tmux claim is its launch KEY (the supervisor
+// stamps @kosmos_agent with $SESSION), while parsePanes now reports the bare
+// in-world name. isNamedOurs must still recognise it, or the agent comes back
+// anonymous and unwritable and removal leaves a zombie. This crosses the
+// parse -> isNamedOurs boundary the string-generation tests do not reach.
+test('#1704 a NAMED-world agent whose claim is its launch key is recognised as ours', () => {
+  const saved = process.env.KOSMOS_WORLD;
+  process.env.KOSMOS_WORLD = 'qa';   // this board serves the qa Kosmos
+  try {
+    const named = { session: 'ava+qa', pane: '0.0', command: '2.1.212', inMode: '0', claim: 'ava+qa', title: 'Working' };
+    const [got] = parsePanes(PANE_COLUMNS.map((c) => named[c.key]).join('\t'));
+    assert.ok(got, 'a named-world session on its own board must not be dropped from the roster');
+    assert.equal(got.name, 'ava', 'the roster shows the bare in-world name');
+    assert.equal(got.session, 'ava+qa');
+    assert.equal(isNamedOurs(got), true, 'the claim ties it to its session (the launch key), so it is ours');
+    // The borrowed-name defence: a claim naming a different session is not ours.
+    const stranger = { session: 'ava+qa', pane: '0.0', command: '2.1.212', inMode: '0', claim: 'bob+qa', title: 'x' };
+    const [s] = parsePanes(PANE_COLUMNS.map((c) => stranger[c.key]).join('\t'));
+    assert.equal(isNamedOurs(s), false, 'a claim naming a different session is somebody else\'s');
+  } finally {
+    if (saved === undefined) delete process.env.KOSMOS_WORLD; else process.env.KOSMOS_WORLD = saved;
+  }
+});
+
+test('#1704 a DEFAULT-world claimed agent stays recognised (claim === session === bare name)', () => {
+  const saved = process.env.KOSMOS_WORLD;
+  delete process.env.KOSMOS_WORLD;
+  try {
+    const dflt = { session: 'ava', pane: '0.0', command: '2.1.212', inMode: '0', claim: 'ava', title: 'Working' };
+    const [got] = parsePanes(PANE_COLUMNS.map((c) => dflt[c.key]).join('\t'));
+    assert.equal(got.name, 'ava');
+    assert.equal(got.session, 'ava');
+    assert.equal(isNamedOurs(got), true, 'the default world is unchanged: claim, session and name all agree');
+  } finally {
+    if (saved === undefined) delete process.env.KOSMOS_WORLD; else process.env.KOSMOS_WORLD = saved;
+  }
+});
