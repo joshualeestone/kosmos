@@ -57,37 +57,57 @@ running", and `kosmos whoami` could not name the agent at all.
      CANNOT PRODUCE (no tmux). I then said every rung is macOS-only, having
      retired rung 1 and ASSUMED rungs 2 and 3 followed.
      ⇒ AND THEN A FOURTH TIME. v4 said rung 3 fires and rung 1 does not, having
-     checked only that tmux is absent. Rung 1 fires too, through a substitute I
-     never looked for: `server.js` does, under `process.platform === 'win32'`,
-     `status.setPaneSource(win32roster.make())`, and that roster emits a synthetic
-     PANE_COLUMNS row whose `runner` column is `rec.runner` from the win32
-     sessions record. The engine parses it exactly as it parses a tmux pane.
+     checked only that tmux is absent.
+     ⇒ AND THEN A FIFTH. v5 said rung 1 fires too, via the win32 roster
+     (`server.js` does, under `process.platform === 'win32'`,
+     `status.setPaneSource(win32roster.make())`, and that roster's row carries a
+     `runner` column). THE COLUMN EXISTS AND THE ROW DOES NOT. `win32roster.make()`
+     runs `claude agents --json` and iterates ONLY over its results
+     (`const agents = run(); for (const a of agents)`), and that command has no
+     codex arm, as this plan states two paragraphs above. A recorded codex session
+     it does not list yields no row, so no pane, so no `card.runner`. v5's evidence
+     was `win32roster.test.js`, whose fixture puts a codex session INSIDE the
+     `claude agents --json` list, a state the platform cannot produce.
 
-     TRACED, ALL THREE RUNGS. Two of them fire on Windows:
-       rung 1 `card.runner`                     FIRES, via the win32 roster
-       rung 2 `readJob` -> ~/Library/LaunchAgents   no, launchd is macOS
-       rung 3 `store.readProfile().provider`    FIRES, plain JSON, platform-free
-                                                writers (`createAgentInner`, which
-                                                the win32 create path calls, and
-                                                `discover.js`, zero platform
-                                                branches). Measured with no plist:
-                                                provider openai -> "codex";
-                                                control, none -> "claude".
-     So a Windows OpenAI agent IS told it is a Codex agent, by two independent
-     rungs; only the live-process `runner` field is null there.
+     TRACED, IN `resolvedRunner`'s OWN RUNG ORDER. EXACTLY ONE fires on Windows:
+       rung 1 `seen.runner` (live)               no. `win32Answer` has no `runner`
+                                                 key at all.
+       rung 2 `card.runner` (the marker)         NO. No tmux, and the win32 roster
+                                                 substitute emits no row for a
+                                                 codex session.
+       rung 3 `create.recordedRunner`, itself two reads:
+              a) `readJob` -> ~/Library/LaunchAgents   no, launchd is macOS
+              b) `store.readProfile().provider`   FIRES, plain JSON, platform-free
+                                                 writers (`createAgentInner`, which
+                                                 the win32 create path calls, and
+                                                 `discover.js`, zero platform
+                                                 branches). Measured with no plist:
+                                                 provider openai -> "codex";
+                                                 control, none -> "claude".
+     So a Windows OpenAI agent IS told it is a Codex agent, by the PROFILE alone;
+     the live-process `runner` field and the marker are both absent there.
 
-     ⭐ FOUR VERSIONS, ONE ERROR. Each verified the rung it had just been shown
+     ⭐ FIVE VERSIONS, ONE ERROR. Each verified the rung it had just been shown
      and INFERRED the rest: v1 the JSON field, v2 the marker, v3 tmux, v4 the
-     profile. Every version was measured and every version was wrong, because the
-     measurement was never the SCOPE of the claim. That is the whole lesson of
-     this card in one sentence, and it is why the durable fixes here are
-     assertions: the profile rung is pinned by a test whose mutant dies, and the
-     answer shape by a table over every return path.
+     profile, v5 the roster's COLUMN (not the roster's rows). Every version was
+     measured and every version was wrong, because the measurement was never the
+     SCOPE of the claim. That is the whole lesson of this card in one sentence, and
+     it is why the durable fixes here are assertions: the profile rung is pinned by
+     a test whose mutant dies, and the answer shape by a table over every return
+     path.
+     ⭐ AND v5 NAMES THE REASON A WRONG SENTENCE SURVIVES A REVIEW: it SUPPORTED
+     the paragraph's conclusion. Dropping it leaves the conclusion intact (the
+     profile rung is the sole rung and it fires), so nothing downstream ever
+     contradicted it. A sentence is not checked by the truth of what it concludes.
      "win32create.js writes no provider" is true and IRRELEVANT: that file is
      session-id pinning called from `create.js`, not the win32 substitute for it.
-     ⭐ Now an ASSERTION, not a sentence: `server.test.js` pins the profile rung,
-     and a mutant flooring it at claude reds it. Three prose versions could not
-     hold this fact still.
+     ⭐ Now TWO ASSERTIONS, not a sentence. `server.test.js` pins the profile rung
+     (a mutant flooring it at claude reds it), and `#2811` in
+     `engine/win32roster.test.js` pins the half v5 got wrong: a recorded codex
+     session absent from `claude agents --json` emits NO ROW, with the control
+     emitting it once the live list names the session, and a mutant iterating the
+     RECORD instead of the live list reds it. Five prose versions could not hold
+     these facts still.
   2. "I have no Windows box to measure" is not the reason and is not true of this
      repo, which builds and tests the whole win32 arm through injected deps on
      Macs. The real reason a runner derivation is absent from `win32Answer` is
