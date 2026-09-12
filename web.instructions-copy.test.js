@@ -99,13 +99,15 @@ test('the reports-to control says what the line does, and the save line is read 
   assert.ok(!/Only used to draw your org chart/.test(words), 'the expired capability claim is back');
   assert.ok(!/Leave it blank if it does not apply/.test(words), '"blank means does not apply" is back; blank means you');
   assert.match(words, /Who they report their work to\. Until you pick somebody, that is you\./, 'the hint lost its two facts');
-  /* The save handler reads the route's verdict. Running + told says restart;
-     stopped + told says nothing beyond Saved (it reads the file at start);
+  /* The save handler reads the route's verdict. #2829: running + told now POPS
+     the restart modal (popRestartAfterSave) so the change can be made live right
+     there, replacing the old passive "takes effect when it next starts" sentence;
+     stopped + told still says nothing beyond Saved (it reads the file at start);
      could_not carries the engine's sentence. */
   const handler = SCRIPT.slice(SCRIPT.indexOf("document.getElementById('d-save').addEventListener"), SCRIPT.indexOf("document.getElementById('d-save').addEventListener") + 6000);
   assert.match(handler, /const rep = saved && saved\.reports;/, 'the save line no longer reads the route verdict');
-  assert.match(handler, /Takes effect when it next starts\. It is running now on what it read at boot\./, 'the restart sentence is gone');
-  assert.match(handler, /rep\.state === 'told'[\s\S]{0,200}running\s*\?/, 'told is not gated on running, so a stopped agent is told to restart');
+  assert.match(handler, /rep\.state === 'told'[\s\S]{0,600}popRestartAfterSave/, '#2829: told + running no longer pops the restart modal');
+  assert.match(handler, /rep\.state === 'told'[\s\S]{0,600}if \(running\) popRestartAfterSave/, 'told is not gated on running, so a stopped agent would be popped a restart modal it does not need');
   assert.match(handler, /rep\.state === 'could_not'[\s\S]{0,120}rep\.because/, 'could_not no longer carries the engine sentence');
 });
 
