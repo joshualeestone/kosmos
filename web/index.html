@@ -1108,6 +1108,15 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    every primary button in the product. */
 .btn.uprime.big { font-size: 1.0625rem; padding: .9em 1.75em; border-radius: 10px; }
 .sfoot { margin-top: var(--space-8); display: flex; justify-content: flex-end; }
+/* #2923: the project-settings save confirmation sits to the LEFT of Save
+   changes (Josh 6.59 QA: "Saved." below the button was easy to miss). The
+   Sweep spinner shows while the save is in flight, then "Saved." replaces it,
+   both beside the button; the after-button #pjs-msg keeps field-refusal and
+   no-op messages. Centered in the flex row, with a gap before the button; the
+   status reserves no space until it has something to say. */
+.sfoot-live { align-items: center; gap: var(--space-4); }
+#pjs-save-live { margin: 0; min-height: 0; }
+#pjs-save-live:empty { display: none; }
 /* Narrow screens: in-flow like everywhere else now (the float this rule
    used to break against is retired). The version line hides and the left
    group wraps the notice onto its own row -- "the header grows when an
@@ -11317,7 +11326,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     </div>
 
     <div class="field">
-      <div class="sfoot">
+      <!-- #2923 (Josh 6.59 QA): the save confirmation sits to the LEFT of the
+           button (#pjs-save-live), not in the after-button slot below, where
+           "Saved." was easy to miss. The Sweep spinner (#2236) shows while the
+           save is in flight, then "Saved." replaces it, both beside the button.
+           #pjs-msg stays below for field-refusal and no-op messages, which
+           point "above" (kosmos#1303 G). -->
+      <div class="sfoot sfoot-live">
+        <span class="fmsg" id="pjs-save-live" aria-live="polite"></span>
         <button class="btn uprime big" id="pjs-save" type="button">Save changes</button>
       </div>
       <p class="fmsg" id="pjs-msg" aria-live="polite"></p>
@@ -36622,6 +36638,10 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
   const msg = document.getElementById('pjs-msg');
+  // #2923: the transient save feedback (spinner -> "Saved.") lives here, to the
+  // LEFT of the button; msg below keeps the field-refusal / no-op messages.
+  const live = document.getElementById('pjs-save-live');
+  live.textContent = '';
   msg.textContent = '';
   pjFieldOk('pjs-desc', 'pjs-desc-err');
   // #1994: clear a prior parent refusal too, or a red border + aria-invalid
@@ -36667,6 +36687,12 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
     const parentVal = parentSel ? parentSel.value : (p.parent || '');
     if (parentVal !== (p.parent || '')) body.parent = parentVal || null;
     if (!Object.keys(body).length) { msg.textContent = 'Nothing has changed.'; return; }
+    // #2923: the Sweep spinner (#2236) beside the button while the save is in
+    // flight, so pressing Save shows something happened. Injected only once a
+    // real save is going out (past the no-op return above). Inlined literal,
+    // aria-hidden (the live region's "Saved." / the error below carry the
+    // state); replaced by "Saved." on success, cleared on every refusal path.
+    live.innerHTML = '<span class="spin spin-sweep" style="--sz:16px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
     const res = await fetch('/api/project/' + encodeURIComponent(p.id), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -36674,6 +36700,7 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
     });
     const got = await res.json().catch(() => ({}));
     if (!res.ok) {
+      live.textContent = '';  // #2923: drop the spinner; the refusal shows below.
       /* The engine refused. When its reason is about the description, it belongs
          at the description, not under the button: same rule as the pre-check
          above, applied to the cases only the engine can know about. */
@@ -36709,8 +36736,11 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
       const fresh = pjById(PJ_CURRENT);
       if (fresh) { paintProjectSettings(fresh); paintOneProject(); pjView('settings'); }
     }
-    msg.textContent = 'Saved.';
+    // #2923: "Saved." to the LEFT of the button (replacing the spinner), not
+    // below it where it was easy to miss. msg stays empty on the happy path.
+    live.textContent = 'Saved.';
   } catch {
+    live.textContent = '';  // #2923: drop the spinner; the error shows below.
     msg.textContent = 'we could not save that';
   } finally {
     btn.disabled = false;
