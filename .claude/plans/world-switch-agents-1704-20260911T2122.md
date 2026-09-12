@@ -151,9 +151,9 @@ only the minimal choice added.
 ### Round 1 (2026-09-11): four bugs, one test gap, one nit, all fixed
 
 1. **BUG: on a Mac, a pause from a named Kosmos stopped the DEFAULT Kosmos's agents
-   for good.** Mac identity is not world-keyed until PR1m, so a named board's roster
-   and `jobFor` see Kosmos 1's agents. The record then landed in the named world's
-   store, where #2849 held it forever.
+   for good.** Mac identity was not world-keyed at the time (PR1m, since merged as
+   #2874), so a named board's roster and `jobFor` saw Kosmos 1's agents. The
+   record then landed in the named world's store, where #2849 held it forever.
    - Fix: when `namedWorldSpawnRefusal()` is non-null (the ONE rule, reused), the
      route pauses nothing, lists every card in `notPaused`, and still switches.
    - The code comment says to revisit this when #2849 is lifted.

@@ -2912,13 +2912,15 @@ const server = http.createServer((req, res) => {
              touches an agent Kosmos has told the person is gone. */
           const roster = safeRoster();
           /* Review round 1: NO PAUSE FROM A WORLD WHOSE AGENTS MAY NOT RUN (#2849,
-             the ONE rule, reused). On a Mac, agent identity is not world-keyed yet
-             (PR1m): a named board's roster shows the DEFAULT world's agents and
-             remove.jobFor finds their plists, so a pause would stop Kosmos 1's
-             agents while recording them in the named world's store, where #2849
-             then holds them forever. So every agent keeps running, is listed, and
-             the switch proceeds. ⚠️ REVISIT when #2849 is lifted (after PR1m makes
-             Mac identity world-keyed): this condition must then go or change. */
+             the ONE rule, reused). While #2849 refuses, a named world runs no
+             agents of its own, so it has nothing to pause. It was worse before Mac
+             identity was world-keyed (#2874): a named board's roster showed the
+             DEFAULT world's agents, and remove.jobFor found their plists, so a pause
+             stopped Kosmos 1's agents while recording them in the named world's
+             store, where #2849 then held them forever. So every agent keeps
+             running, is listed, and the switch proceeds. ⚠️ REVISIT when #2849 is
+             lifted: with both platforms now world-keyed (#2845, #2874), this
+             condition should then simply go. */
           /* An unreadable roster is a 503 on both branches below: a pause the
              person asked for must not come back as a silent empty list. */
           if (roster === null) {
