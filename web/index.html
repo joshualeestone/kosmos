@@ -4368,6 +4368,19 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .msg-bd { padding: 8px 12px; border-radius: 12px; }
 .msg.you .msg-bd { background: var(--usermsg-tint); }
 .msg:not(.you) .msg-bd { background: var(--k-sunk); }
+/* #2921 (Josh, 2026-09-12 6.59 QA): a very subtle darker active-state on hover, so
+   a hovered post reads as "you are on this one" alongside the reaction bar that
+   already fades in (.msg:hover .rxn-quick below, which this leaves untouched). The
+   cue is a translucent mid-gray overlay laid over the resting bubble via
+   background-image -- NOT a new background token -- so it composites on top of
+   whichever fill the bubble already wears (--usermsg-tint for .msg.you, --k-sunk for
+   an agent's) and ONE rule covers both variants without repeating the per-variant
+   tokens. Mid-gray (Apple system gray 120,120,128, the same overlay colour #2920
+   used for the idle-agent hover) darkens a light bubble and lifts a dark one, so the
+   delta stays visible in BOTH themes instead of vanishing on dark. Kept light (.08)
+   per Josh's "very subtle"; the exact intensity is his in-app josh-review call and is
+   a one-number nudge. Only .msg-bd (the body box) takes it; a bodyless row has none. */
+.msg:hover .msg-bd { background-image: linear-gradient(rgba(120,120,128,.08), rgba(120,120,128,.08)); }
 .msg-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
 .msg-h b { font-size: .9375rem; }
 .msg-t { font-size: .75rem; color: var(--k-ink-2); }
