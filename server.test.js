@@ -3514,8 +3514,8 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
     /<b>Coder<\/b> · OpenAI · work-openai · /,
     'an OpenAI agent with a chosen account name must read Title · OpenAI · <name> · Model');
   // An account EMAIL shows when there is no chosen name.
-  assert.match(drive({ role: 'coder', email: 'josh@stuff.io', modelName: 'Claude Opus 5', nameDerived: true }),
-    /<b>Coder<\/b> · Anthropic \/ Claude · josh@stuff\.io · Claude Opus 5/,
+  assert.match(drive({ role: 'coder', email: 'agent@example.com', modelName: 'Claude Opus 5', nameDerived: true }),
+    /<b>Coder<\/b> · Anthropic \/ Claude · agent@example\.com · Claude Opus 5/,
     'a Claude agent with an account email must show it as the Account segment');
   // Graceful degradation: no name, no email, no key -> the Account segment is omitted, with
   // no doubled or dangling separator. This is the default-Claude / broken-Codex (#2811) case.
