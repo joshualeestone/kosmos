@@ -47,10 +47,13 @@ function chk(ok, label, extra) {
    as a pass. */
 const SURFACES = [
   ['agents board', async () => {}],
-  /* ⚠️ THE AGENT PAGE IS SEVEN SURFACES since agent-page-nav: one section on
+  /* ⚠️ THE AGENT PAGE IS SIX SURFACES since #2916 (was seven): one nav group on
      screen at a time behind a left nav, and a sweep that counts only controls
-     with a rect sees the landing section alone. One surface per pill. */
-  ...['talk', 'model', 'memory', 'instr', 'profile', 'term', 'remove'].map((sec) => [
+     with a rect sees the landing section alone. One surface per pill.
+     #2916: 'memory' and 'skills' no longer have their own pills -- memory folds under the
+     'model' (Model and Memory) pill and skills under 'instr' (Instructions), both revealed
+     together, so the 'model' and 'instr' surfaces already sweep their controls. */
+  ...['talk', 'model', 'instr', 'profile', 'term', 'remove'].map((sec) => [
     'agent panel: ' + sec, async (pg) => {
       await pg.locator('.acard .namego').first().click();
       await pg.waitForTimeout(900);
@@ -73,7 +76,7 @@ const SURFACES = [
   ['restart dialog', async (pg) => {
     await pg.locator('.acard .namego').first().click();
     await pg.waitForTimeout(1200);
-    await pg.click('#d-nav button[data-go="memory"]');   // Restart lives under Memory as Fresh start
+    await pg.click('#d-nav button[data-go="model"]');   // #2916: Fresh start lives under Memory, now folded into the Model and Memory pill
     await pg.click('#d-restart-start');
   }],
   ['removal dialog', async (pg) => {

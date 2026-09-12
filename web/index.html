@@ -7669,12 +7669,13 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   <div class="dbody">
   <nav class="snav" id="d-nav" aria-label="Sections of this page">
     <button type="button" data-go="talk" aria-controls="d-sec-talk" class="on" aria-current="true"><span id="d-nav-talk">Talk to this agent</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
-    <button type="button" data-go="model" aria-controls="d-sec-model">Model</button>
-    <button type="button" data-go="memory" aria-controls="d-sec-memory">Memory</button>
-    <button type="button" data-go="instr" aria-controls="d-sec-instr"><span>Instructions</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
-    <button type="button" data-go="skills" aria-controls="d-sec-skills">Skills</button>
+    <!-- #2916 (Josh 6.59): Model and Memory share one pill; Instructions holds Skills below it;
+         the Terminal pill is renamed Advanced. The memory + skills SECTIONS are unchanged and
+         still keyed on their own data-sec; detailGo reveals both members of a pill's group. -->
+    <button type="button" data-go="model" aria-controls="d-sec-model d-sec-memory">Model and Memory</button>
+    <button type="button" data-go="instr" aria-controls="d-sec-instr d-sec-skills"><span>Instructions</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
       <button type="button" data-go="profile" aria-controls="d-sec-profile">Profile</button>
-    <button type="button" data-go="term" aria-controls="d-sec-term">Terminal</button>
+    <button type="button" data-go="term" aria-controls="d-sec-term">Advanced</button>
     <div class="sep" role="separator"></div>
     <button type="button" data-go="remove" aria-controls="d-sec-remove" class="danger"><span id="d-nav-remove">Remove this agent</span></button>
   </nav>
@@ -7842,6 +7843,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <p class="dhint" id="d-persist" style="margin:12px 0 0;"></p>
   </section>
   </section>
+  <!-- #2916: the "Model and Memory" pill reveals THIS model region plus the adjacent d-sec-memory
+       region. Each region keeps its own accurate aria-label ("Model" here, "Memory" below) so a
+       screen-reader user is not told memory controls live in a region that only holds the model. -->
   <section class="dsec" id="d-sec-model" data-sec="model" tabindex="-1" aria-label="Model" hidden>
   <section class="dbox">
     <h3 class="dlab">Runs on</h3>
@@ -8275,6 +8279,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   <div class="fmsg" id="d-role-msg"></div>
   </section>
   </section>
+  <!-- #2916: the nav PILL is renamed "Advanced", but this region keeps aria-label "Terminal" to
+       match its own content (the "This agent's Terminal" heading + Open Terminal controls) -- same
+       convention as d-sec-model staying "Model" under the "Model and Memory" pill. -->
   <section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-tied="1" hidden>
 
   <!-- #5 insurance + terminal-window actions (Josh 0.6.44). These sit ABOVE the window
@@ -21276,6 +21283,11 @@ function boardEmpty() {
 // projects reads: two in-flight looks must not paint out of order.
 let PJ_BROWSE_GEN = 0;
 let CURRENT = null;
+/* #2916: which agent's Skills list is already loaded. Skills now folds under the Instructions
+   pill, which is visited far more often than the old standalone Skills pill, so guard the lazy
+   load against a refetch + list-rebuild flicker on every return to Instructions. Reset per open
+   (below) so reopening an agent gets a fresh list; a skill ADD refreshes it on its own path. */
+let SKILLS_LOADED_FOR = null;
 /* #2574: the project a detail view was opened FROM (a project-member click), so
    detail-back returns to that project instead of All agents. null for every
    other opener. */
@@ -23315,6 +23327,7 @@ function openDetail(sessionName, section, fromProject) {
   DETAIL_FROM_PROJECT = fromProject || null;
   const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
+  SKILLS_LOADED_FOR = null;   // #2916: a fresh open reloads the Skills list on the first Instructions visit
   URL_TAB = 'detail';
   /* #1615: openDetail is the THIRD writer of URL_TAB (after showTab and, via it,
      settingsGo). Jumping straight to the agent detail from the Plus tab must
@@ -23825,6 +23838,23 @@ function detailPaintWindow(a) {
    has `settingsGo` for its own), and it is called from a nav click and from
    `openDetail`, never from the poll. */
 const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'];
+/* #2916 (Josh 6.59): two pills now each cover two sections. "Model and Memory" (the `model`
+   pill) reveals the model AND memory sections together; "Instructions" (the `instr` pill)
+   reveals the instructions AND skills sections. The member sections keep their own data-sec and
+   wiring untouched -- only which ones show together changed. detailSectionGroup maps any section
+   (the pill's own, or a folded member reached programmatically) to the full set to reveal, and
+   detailSectionPill maps it to the pill that should light. Anything not folded maps to itself.
+   ⚠️ FOCUS lands on the group's FIRST section (the pill's own), NOT a requested folded member: a
+   future openDetail(name, 'memory') reveals model+memory but focuses the top of Model, so a
+   keyboard user tabs past Model to reach Memory. No caller passes a folded member today; if one
+   is added and must focus ON the member, teach detailGo to focus the requested section rather
+   than group[0]. */
+const DETAIL_SECTION_GROUPS = { model: ['model', 'memory'], instr: ['instr', 'skills'] };
+const DETAIL_SECTION_PILL = { memory: 'model', skills: 'instr' };
+function detailSectionGroup(section) {
+  const pill = DETAIL_SECTION_PILL[section] || section;
+  return DETAIL_SECTION_GROUPS[pill] || [pill];
+}
 /* The thread's scroll offset while Talk is hidden. A display:none container
    drops its scrollTop, so "came back to where I was reading" has to be kept
    here; null means nobody has left Talk for this agent yet. */
@@ -23840,8 +23870,11 @@ function detailGo(section, opts) {
     if (talk && !talk.hidden && section !== 'talk' && th) TALK_SCROLL = th.scrollTop;
   }
   const nav = document.getElementById('d-nav');
+  /* #2916: a folded section (memory, skills) lights its PILL (model, instr), not a pill of
+     its own -- it no longer has one. Anything not folded maps to itself. */
+  const pill = DETAIL_SECTION_PILL[section] || section;
   nav.querySelectorAll('button[data-go]').forEach((b) => {
-    const on = b.dataset.go === section;
+    const on = b.dataset.go === pill;
     b.classList.toggle('on', on);
     /* "true", not "page": the pills change no URL, and AT reads "page" as one. */
     if (on) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
@@ -23851,11 +23884,14 @@ function detailGo(section, opts) {
      re-capture); an open is always one, even onto the section already
      showing, because openDetail has just reset what the section holds. */
   const arriving = detailSection(section).hidden || !!(opts && opts.focus === false);
+  /* #2916: reveal every section in the pill's group (model+memory, or instr+skills), hide the
+     rest. Focus lands on the group's FIRST section (the pill's own), so a keyboard user arrives
+     at the top of what they asked for, with the folded section below it in DOM order. */
+  const group = detailSectionGroup(section);
   document.querySelectorAll('#panel-detail .dsec').forEach((sec) => {
-    const on = sec.dataset.sec === section;
-    sec.hidden = !on;
-    if (on) target = sec;
+    sec.hidden = !group.includes(sec.dataset.sec);
   });
+  target = detailSection(group[0]);
   /* 🔑 FOCUS MOVES INTO THE SECTION ON A CLICK, so a keyboard user's next Tab
      is the first control of what they asked for rather than the next pill.
      (Shift+Tab from there lands on the last pill, Remove, because that is DOM
@@ -23898,7 +23934,17 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
   if (!b) return;
   detailGo(b.dataset.go);
-  if (b.dataset.go === 'skills' && CURRENT) {
+  /* #2916: the Skills list lazy-loads when its section is revealed. It used to live behind its
+     own pill; now it is folded under Instructions, so load it when the Instructions pill opens
+     (the skills section shows alongside it). Guarded by SKILLS_LOADED_FOR so returning to
+     Instructions -- a frequent action, it also carries the needs-you dot -- does not refetch and
+     rebuild the list on every visit.
+     ⚠️ The trigger lives HERE, in the click handler, not in detailGo/openDetail. No caller opens
+     directly to Instructions today (every openDetail lands on Talk; the URL deep-link carries no
+     section), so this is fine. If a section deep-link to 'instr' is ever added, the Skills list
+     would render blank until the pill is clicked -- move this load beside the group reveal then. */
+  if (b.dataset.go === 'instr' && CURRENT && SKILLS_LOADED_FOR !== CURRENT.sessionName) {
+    SKILLS_LOADED_FOR = CURRENT.sessionName;
     loadSkills('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/skills', 'd-skills-list', 'd-skills-msg');
   }
 });
