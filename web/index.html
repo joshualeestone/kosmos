@@ -36441,6 +36441,11 @@ function paintProjectSettings(p) {
   // sentence survived Back-and-into-project-B and sat under B's roster,
   // attributing a failure to the wrong project (review blocker).
   document.getElementById('pjs-members-msg').textContent = '';
+  // #2923: the same reason for the left-of-button save status. A "Saved."
+  // left here by project A's save would otherwise survive Back-and-into
+  // project B and sit beside B's Save changes button before B was touched,
+  // a misleading success exactly like the members case above.
+  document.getElementById('pjs-save-live').textContent = '';
   // A picker left open from a previous visit (or another project) must not
   // survive into this one, the same reason PJ A's message could not.
   document.getElementById('pjs-add-row').hidden = true;
