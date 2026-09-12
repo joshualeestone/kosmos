@@ -851,10 +851,12 @@ test('the lock: a swept draft is busy whatever code the link fails with, EPERM i
   for (const code of ['ENOENT', 'EPERM']) {
     const { lock } = lockDir();
     const log = [];
-    withStub('linkSync', (real, from) => { fs.rmSync(from, { force: true }); throw codeError(code, from); }, () => {
+    let links = 0;
+    withStub('linkSync', (real, from) => { links += 1; fs.rmSync(from, { force: true }); throw codeError(code, from); }, () => {
       assert.throws(() => win32update.takeLock(lock, (l) => log.push(l)), (e) => e.message === 'another update is already being prepared', code);
     });
     assert.equal(log.some((l) => /link failed/.test(l)), false, `${code}: not reported as a drive that cannot link`);
+    assert.equal(links, 1, `${code}: a draft already gone is busy at once, without probing the drive`);
   }
   /* The draft is swept while the drive is being probed: still busy, not a drive problem. */
   const { lock } = lockDir();
