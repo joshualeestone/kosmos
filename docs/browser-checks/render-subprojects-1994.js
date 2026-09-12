@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: pj-parent pjsub pj-one-subprojects
+// Browser-check-surface: pj-parent pjsub pj-one-subprojects pj-crumb pj-back
 // (#2518) the distinctive web/index.html tokens this check asserts (the ancestry/parent
 // chip + the sub-projects line + the detail/consolidated sub-projects strip); a change to
 // them must update this check at PR time. #2487 changed pj-parent to a full ancestry line
@@ -160,9 +160,10 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       const out = { gcChain: ancT('gc'), mobChain: ancT('mob'), appChain: ancT('app'), gcDots: dotsAria('gc') };
       try {
         PJ_CURRENT = 'mob'; paintOneProject();
-        const par = document.getElementById('pj-one-parent');
+        const crumb = document.getElementById('pj-crumb');
+        const back = document.getElementById('pj-back');
         const subs = document.getElementById('pj-one-subprojects');
-        out.parentHidden = par.hidden; out.parentText = par.textContent;
+        out.crumbText = crumb ? crumb.textContent : null; out.hasBack = !!back;
         out.subsHidden = subs.hidden; out.subKid = !!subs.querySelector('.pj-subrow[data-project="gc"]');
         // #2487: the row must actually OPEN on click. It lives in #pj-one-view, a
         // sibling of #pj-list, so the list delegate does not cover it -- this proves
@@ -173,7 +174,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         // #2487 hidden branches (both empty states, like the Map check): a top-level
         // project hides the parent trail; a leaf hides the sub-projects section.
         PJ_CURRENT = 'k'; paintOneProject();
-        out.topParentHidden = document.getElementById('pj-one-parent').hidden;
+        out.topCrumbText = (document.getElementById('pj-crumb') || {}).textContent;
         PJ_CURRENT = 'gc'; paintOneProject();   // gc is a leaf (no children)
         out.leafSubsHidden = document.getElementById('pj-one-subprojects').hidden;
         out.detailErr = null;
@@ -192,10 +193,13 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // dropped on this path, and still distinct from a nested child ("In Kosmos › App").
     ok(t + ' ancestry: child shows the one parent', /^In\s+Kosmos$/.test(anc.appChain), anc.appChain);
     ok(t + ' ancestry: depth dots are decorative (aria-hidden)', anc.gcDots === 'true', 'aria-hidden=' + anc.gcDots);
-    ok(t + ' detail: parent trail shows for a nested project', anc.detailErr === null && anc.parentHidden === false && /Kosmos/.test(anc.parentText || '') && /App/.test(anc.parentText || ''), JSON.stringify({ err: anc.detailErr, h: anc.parentHidden, txt: anc.parentText }));
+    // #2928: the detail-page trail is now a full-location breadcrumb ("Kosmos / App
+    // / Mobile", current project included) beside a back chevron, replacing #2487's
+    // ancestor-only #pj-one-parent trail.
+    ok(t + ' detail: breadcrumb shows the full nested chain + back chevron', anc.detailErr === null && anc.hasBack === true && /Kosmos/.test(anc.crumbText || '') && /App/.test(anc.crumbText || '') && /Mobile/.test(anc.crumbText || ''), JSON.stringify({ err: anc.detailErr, back: anc.hasBack, txt: anc.crumbText }));
     ok(t + ' detail: sub-projects section lists a direct child', anc.detailErr === null && anc.subsHidden === false && anc.subKid === true, JSON.stringify({ err: anc.detailErr, h: anc.subsHidden, kid: anc.subKid }));
     ok(t + ' detail: a sub-project row OPENS on click (its own delegate, not the list’s)', anc.detailErr === null && anc.opened === true, JSON.stringify({ err: anc.detailErr, opened: anc.opened }));
-    ok(t + ' detail: a top-level project hides the parent trail', anc.detailErr === null && anc.topParentHidden === true, JSON.stringify({ err: anc.detailErr, topParentHidden: anc.topParentHidden }));
+    ok(t + ' detail: a top-level project shows just its own name as the single crumb (no ancestor separators)', anc.detailErr === null && /Kosmos/.test(anc.topCrumbText || '') && !/\//.test(anc.topCrumbText || ''), JSON.stringify({ err: anc.detailErr, txt: anc.topCrumbText }));
     ok(t + ' detail: a leaf project hides the sub-projects section', anc.detailErr === null && anc.leafSubsHidden === true, JSON.stringify({ err: anc.detailErr, leafSubsHidden: anc.leafSubsHidden }));
     // #2487: the card chain gets a vh "In " lead-in so a screen reader frames the
     // names as ancestry rather than a run of unlabelled text after the card title.

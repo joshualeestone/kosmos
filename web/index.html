@@ -2722,8 +2722,14 @@ body.consolidated .pj-anc { justify-content: flex-start; }
 /* #2487: the detail-page parent trail (above the name) and the sub-projects
    section (between the head and the members/files/tasks grid). The rows are the
    same open-on-click buttons the cards are, at a lighter weight. */
-.pj-one-parent { margin: 0 0 4px; font-size: .8125rem; color: var(--k-ink-2); }
-.pj-one-parent .pj-anc-sep { opacity: .55; }
+/* #2928: the back chevron + breadcrumb row that replaced #2487's parent trail. */
+.pj-crumbrow { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; min-width: 0; }
+.pj-back { background: none; border: 0; padding: 2px; color: var(--k-ink-2); cursor: pointer;
+           display: inline-flex; flex: none; border-radius: 6px; }
+.pj-back:hover { background: var(--k-sunk); color: var(--k-ink); }
+.pj-crumb { font-size: .8125rem; color: var(--k-ink-2); min-width: 0; overflow: hidden;
+            text-overflow: ellipsis; white-space: nowrap; }
+.pj-crumb .pj-crumb-sep { opacity: .55; }
 .pj-subs { margin: 4px 0 8px; }
 .pj-subs .dlab { margin: 0 0 8px; }
 .pj-subrows { display: flex; flex-direction: column; gap: 8px; }
@@ -10618,12 +10624,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              2026-08-20 empty-slot placeholder: with no arrow, there is no
              half-open state to place, and the cog is the one door to the
              description. -->
-        <!-- #2487: the parent trail. Where a project sits in the tree, shown
-             above its name on the detail page (Josh 2026-09-07). The ancestry
-             names are live text (the accessible signal); the › separators are
-             decorative. Hidden for a top-level project. Filled by
+        <!-- #2928 (Josh 6.59 QA): a simple back chevron (top-left) plus a
+             breadcrumb of the full location "Project / Subproject / ThisProject".
+             Replaces #2487's ancestor-only "In A > B" trail that sat here (Josh:
+             "we don't have to show it on the actual top area ... where we're
+             showing it now"). The chevron goes UP one nesting level (to the
+             parent project) or, for a top-level project, back to the projects
+             list. Both the chevron target and the crumb are set by
              paintOneProject via pjAncestry, the same chain the cards use. -->
-        <p class="pj-one-parent" id="pj-one-parent" hidden></p>
+        <div class="pj-crumbrow">
+          <button class="pj-back" id="pj-back" type="button" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <nav class="pj-crumb" id="pj-crumb" aria-label="Project location"></nav>
+        </div>
         <div class="pjtitle-row">
           <h2 class="dname" id="pj-one-name"></h2>
         </div>
@@ -36668,6 +36680,16 @@ function paintSettingsFacts(p) {
   state.className = 'pj-folder-state' + (fl.bad ? ' bad' : '');
 }
 
+/* #2928: the top-left back chevron. Nesting-based rather than a history stack
+   (none exists): a subproject goes UP to its parent project, a top-level project
+   goes back to the projects list. The target is read at click time from the
+   then-current project, so a poll repaint between paint and click cannot stale it.
+   The list-return mirrors openProject's own missing-id return shape. */
+document.getElementById('pj-back').addEventListener('click', () => {
+  const p = pjById(PJ_CURRENT);
+  if (p && p.parent && pjById(p.parent)) { openProject(p.parent); return; }
+  PJ_CURRENT = null; pjMarkOpen(null); pjView('list');
+});
 document.getElementById('pj-settings-link').addEventListener('click', () => {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
@@ -36938,14 +36960,16 @@ function paintOneProject() {
   /* Both blocks self-guard their element lookups so extracting paintOneProject
      for an unrelated concern (e.g. the desc-collapse harness) does not require
      every test to mock these new nodes, and a partial render never throws. */
-  const parentEl = document.getElementById('pj-one-parent');
-  if (parentEl) {
-    const anc = pjAncestry(p);
-    if (anc.length) {
-      const sep = '<span class="pj-anc-sep" aria-hidden="true"> › </span><span class="vh">, </span>';
-      parentEl.innerHTML = '<span class="vh">In </span>' + anc.map((n) => esc(n)).join(sep);
-      parentEl.hidden = false;
-    } else { parentEl.textContent = ''; parentEl.hidden = true; }
+  /* #2928: the breadcrumb is the FULL location, current project included
+     ("Project / Subproject / ThisProject"), where #2487 showed only the
+     ancestors. A top-level project shows its own name as the single crumb. The
+     back chevron beside it (#pj-back) goes up one nesting level or to the list;
+     its target is decided at click time from the then-current project. */
+  const crumbEl = document.getElementById('pj-crumb');
+  if (crumbEl) {
+    const chain = pjAncestry(p).concat([p.name]);
+    const sep = '<span class="pj-crumb-sep" aria-hidden="true"> / </span>';
+    crumbEl.innerHTML = chain.map((n) => esc(n)).join(sep);
   }
   const subsEl = document.getElementById('pj-one-subprojects');
   if (subsEl) {
