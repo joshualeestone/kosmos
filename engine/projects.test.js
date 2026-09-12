@@ -550,6 +550,23 @@ test('#2837: a screen-led working carry (started report naming a project + worki
   assert.equal(betaRow.summary.working, 0, 'the control: Beta stays dark though zeta is a member, because the carry named Alpha');
 });
 
+test('#2837: an archived project a working agent belongs to does not light "working" via the sole-membership fallback', () => {
+  reset();
+  /* The sole-membership fallback counts only NON-archived memberships, so an agent whose
+     one ACTIVE project is X computes count 1 even when it also belongs to an archived
+     project Y. Without gating the DESCRIBED project's own archived state, describing Y would
+     light it too -- the same global working fact on two tiles, the #2837 bug. */
+  const active = projects.create({ name: 'ActiveP', folder: folder('activep'), agents: ['zeta'] });
+  const arch = projects.create({ name: 'ArchivedP', folder: folder('archivedp'), agents: ['zeta'] });
+  projects.edit(arch.id, { archived: true });
+  const roster = cards([fleet.agent('zeta', { state: 'working' })]);
+  const list = projects.list(roster);
+  const activeRow = list.find((p) => p.id === active.id);
+  const archRow = list.find((p) => p.id === arch.id);
+  assert.equal(activeRow.summary.working, 1, 'the active project lights (zeta’s sole active membership)');
+  assert.equal(archRow.summary.working, 0, '#2837: the archived project does NOT light, though zeta belongs to it and is globally working');
+});
+
 test('a member we can see but cannot READ is counted as unseen, not as fine', () => {
   reset();
   // ⚠️ THE SUMMARY'S OWN BLIND SPOT. `unseen` counted only members with no card

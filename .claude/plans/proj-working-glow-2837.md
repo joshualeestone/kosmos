@@ -52,14 +52,18 @@ when it is attributable to that project or unambiguous:
 
     working: members.filter((m) => m.present && m.tied && m.state === 'working' && (
         m.stateProject === project.id ||
-        (m.stateProject === null && soleActiveMembership(m.sessionName))
+        (m.stateProject === null && soleActiveMembership(m))
       )).length,
 
-where `soleActiveMembership(name)` is true when `name` is a member of exactly one
-NON-ARCHIVED project across `all` (the full list `describe` already receives). A
-working agent in exactly one active project is unambiguously working in it; a
-working agent that named its project lights that one; a working agent in several
-projects that named none lights none (rather than all).
+where `soleActiveMembership(m)` is true when the described project is itself
+NON-ARCHIVED and `m.sessionName` is a member of exactly one NON-ARCHIVED project
+across `all` (the full list `describe` already receives). The described-project
+archived guard matters: without it, describing an archived project a working
+agent belongs to would light it whenever the agent's one ACTIVE membership is a
+different project -- the same global fact lighting two tiles. A working agent in
+exactly one active project is unambiguously working in it; a working agent that
+named its project lights that one; a working agent in several projects that
+named none lights none (rather than all).
 
 Fail-open: if `all` is not an array (never in prod - list/get always pass it),
 the count is 0 -> treated as sole -> the tile still lights, preserving behaviour.

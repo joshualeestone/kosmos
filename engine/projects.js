@@ -864,7 +864,8 @@ function describe(project, roster, all) {
       // to read its model or its transcript: whatever that pane is doing, we
       // have not established it is this agent doing it.
       state: (card && card.isNamedOurs) ? card.state : 'unknown',
-      /* #763: the project the member's question is about, when it said. */
+      /* #763/#2837: the project the member's state is about, when it said -- a
+         needs_you question (#763) or a working state (#2837). */
       stateProject: (card && card.isNamedOurs && typeof card.stateProject === 'string' && card.stateProject && (knownIds === null || knownIds.has(card.stateProject))) ? card.stateProject : null,
       stateProjectInferred: Boolean(card && card.isNamedOurs && card.stateProjectInferred === true),
       // The face, gated on tied like every other card-read here: a
@@ -976,7 +977,14 @@ function describe(project, roster, all) {
   const activeMembershipCount = (sessionName) => (Array.isArray(all)
     ? all.filter((pp) => pp && pp.archived !== true && (pp.agents || []).includes(sessionName)).length
     : 0);
-  const soleActiveMembership = (m) => activeMembershipCount(m.sessionName) <= 1;
+  /* `project.archived !== true` is load-bearing, not tidiness. `activeMembershipCount`
+     counts only NON-archived projects, so for an agent whose sole active membership is
+     project A, describing an ARCHIVED project B the same agent also belongs to computes
+     count 1 (it counted A) and would light B too -- the same global working fact lighting
+     two tiles, which is the exact bug this card fixes. Gating on the described project's own
+     archived state confines the sole-membership fallback to active projects, where "sole
+     active membership" actually means "this project". */
+  const soleActiveMembership = (m) => project.archived !== true && activeMembershipCount(m.sessionName) <= 1;
 
   return {
     ...project,
