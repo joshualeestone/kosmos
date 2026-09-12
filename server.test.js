@@ -12492,8 +12492,15 @@ test('#2811: a LIVE claude process beats a stale codex marker, and keeps its mod
    * the model guard fired when EITHER reader said non-claude, so a live CLAUDE
    * process with a stale codex marker had its model suppressed.
    *
-   * The window is real: `setProvider` rewrites the plist and the marker, but the
-   * RUNNING process does not change until the agent restarts. During it the
+   * The window is real: `setProvider` rewrites the plist, but the RUNNING process
+   * does not change until the agent restarts.
+   * 🛑 "AND THE MARKER" IS WHAT THIS SAID AND IT IS FALSE. `setProvider` never
+   * invokes tmux; `bin/agent-supervisor.sh` writes `@kosmos_runner` at agent
+   * START, after the restart this window waits for, so the marker still holds its
+   * OLD value during the window. This arm CONSTRUCTS the state it tests, so the
+   * behaviour is pinned regardless; only the account of how the state arises was
+   * wrong, and whether it is reachable by another route is NOT something I have
+   * measured. During it the
    * agent genuinely is claude, and it is writing the very transcript the record
    * reads. Suppressing that model would answer "we cannot tell which model" about
    * an agent whose live process was right there saying so.
@@ -12618,15 +12625,29 @@ test('#2811: a stale CLAUDE transcript does not supply the model for a CODEX age
    * 🛑 THE CONTRADICTION THIS CHANGE MADE REACHABLE. `readModel` is a Claude
    * transcript reader and it is the PREFERRED source. `create.setProvider`
    * switches an agent claude -> codex without moving anything the transcript
-   * lookup keys on: it rewrites the plist, renames the brief CLAUDE.md <->
-   * AGENTS.md (`create.js:1386`), and writes the profile's provider
-   * (`create.js:1389`). The rename happens INSIDE `workerDir(clean)` and the name
-   * never changes, so the workdir is the same afterwards and the OLD Claude
-   * transcript stays findable.
+   * lookup keys on. 🛑 DO NOT TAKE THE LIST OF WHAT IT WRITES FROM HERE: this
+   * sentence has been an enumeration twice ("one", then "three") and was wrong
+   * both times, and the create.js LINE NUMBERS it used to cite had already moved
+   * 18 minutes later, in the same round, from an edit by the same author above
+   * them. The plan ruled at round 9 that citations like that are gone rather than
+   * corrected: "a claim I have to re-verify forever, and this card has already
+   * shown I do not."
+   * `engine/create.setprovider-writes-2811.test.js` enumerates the written
+   * path-set BY MEASUREMENT and reds when it changes; that is the reference.
+   * What matters HERE is only the property this guard rests on, and it is not
+   * "nothing leaves `workerDir(clean)`" (three of the written paths are outside
+   * it, and the plist and profile always were). It is that `workerDir(clean)` is
+   * not itself MOVED and the agent's NAME does not change, so the workdir is the
+   * same afterwards and the OLD Claude transcript stays findable.
    * ⚠️ THIS SENTENCE SAID "a plist rewrite and nothing else" FOR 22 ROUNDS, and
    * it is `setProvider`'s own header repeated. It is measurably false: the other
-   * two statements sit a dozen lines below that header. `server.js:887` and the
-   * plan corrected it at ROUND 2 and this third copy stood until round 23.
+   * other statements sit 322 and 325 lines below `function setProvider` (measured,
+   * and the same at the merge-base). `server.js` and the plan corrected the
+   * sentence at ROUND 2 and this third copy stood until round 23.
+   * ⚠️ AND THE COUNT IS FOUR, NOT THREE: round 24 measured a fourth write
+   * (`trustCodexFolder`, the only non-best-effort one). Do not take a count from
+   * any prose here; `engine/create.setprovider-writes-2811.test.js` enumerates the
+   * set by measurement and reds when it changes.
    * ⭐ The CONCLUSION survives either way (the transcript stays findable), which
    * is exactly why the false premise read as confirmation and nobody re-opened
    * `setProvider`. A sentence is not checked by the truth of what it concludes.

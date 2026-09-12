@@ -1093,29 +1093,41 @@ function setCodexAccount(clean, spoken, dir, job) {
  * nothing to codex, so the switch DROPS them rather than smuggling them,
  * and says so in its result so the route can say so in words.
  *
- * 🛑 THE MECHANISM IS THREE WRITES, NOT ONE. This header said "a plist rewrite
- * through the one writer (`plistFor`) and nothing else: no record is copied,
- * moved, or stamped", and every clause of that is false:
- *   1. the plist rewrite through `plistFor`                      (true)
- *   2. the brief is RENAMED, CLAUDE.md <-> AGENTS.md, a dozen lines below this
- *      sentence -- so a record IS moved
- *   3. `store.writeProfile(clean, { provider })` -- so a record IS stamped
- * ⚠️ AND IT WAS NEVER TRUE. `git log -S` puts the `writeProfile` call in 8fe044b8,
- * the SAME commit that wrote this header (2026-08-24); the brief rename arrived
- * later (a98e282e, #2245, 2026-09-05) and widened an error that already existed.
- * A sentence written beside the code it describes is not thereby checked against
- * it.
- * 📌 WHY IT MATTERED ENOUGH TO CORRECT RATHER THAN LEAVE. #2811 quoted this
- * header to justify trusting that the workdir survives a provider switch. The
- * CONCLUSION is right (the rename is inside `workerDir(clean)` and the name never
- * changes, so the workdir and its Claude transcript survive) which is exactly why
- * three copies of the false premise read as confirmation for 22 rounds. Worse,
- * claim 3 is the profile provider, which is the SOLE rung naming the provider on
- * Windows (`engine/runningas.js`): "nothing else" denied a mechanism the product
- * depends on.
- * ⇒ What IS true, and it is the property callers actually need: nothing that
- * moves is outside `workerDir(clean)`, and the agent's NAME never changes, so
- * every lookup keyed on the name or the workdir resolves the same afterwards.
+ * 🛑 DO NOT COUNT THE WRITES IN THIS HEADER. The count has been wrong three
+ * times, each version written by someone looking straight at the code, so the
+ * enumeration lives in a test that MEASURES it:
+ * `engine/create.setprovider-writes-2811.test.js` snapshots every path under a
+ * sandbox, runs this function, and asserts the EXACT SET that changed. A write
+ * added later reds it, naming the path. Read that test, not this paragraph.
+ *
+ * As measured today the set is FIVE paths from FOUR writes, in execution order:
+ *   1. `trustCodexFolder` appends `[projects."<workerDir>"]` to
+ *      `<codexHome>/config.toml`. ⚠️ The ONLY one that is not best-effort: its
+ *      `catch` returns REFUSED, so it decides whether the switch happens at all.
+ *   2. the plist rewrite through `plistFor`
+ *   3. the brief RENAME, CLAUDE.md <-> AGENTS.md (two paths: one created, one
+ *      deleted)
+ *   4. `store.writeProfile(clean, { provider })`
+ *
+ * ⚠️ THE HISTORY, because every wrong version was plausible:
+ *   "one"   - this header, 8fe044b8 (2026-08-24): "a plist rewrite through the
+ *             one writer (`plistFor`) and nothing else: no record is copied,
+ *             moved, or stamped". The `writeProfile` call it denies landed in
+ *             that SAME COMMIT, so it was never true. The brief rename (a98e282e,
+ *             #2245) widened an error that already existed.
+ *   "three" - my #2811 round-23 correction: I enumerated the two statements a
+ *             reviewer pointed at and inferred the set was closed. It was not.
+ * ⭐ A sentence written beside the code it describes is not thereby checked
+ * against it, and correcting the copies of a claim without correcting its SOURCE
+ * guarantees the next copy.
+ *
+ * 🛑 AND DO NOT SAY "NOTHING MOVES OUTSIDE `workerDir(clean)`". I wrote that
+ * alongside "three" and it is false in three ways: the trust file, the plist and
+ * the profile are all outside it, and the last two always were. Only the brief
+ * rename is inside. What IS true, and is the property callers actually need:
+ * `workerDir(clean)` is not itself moved and the agent's NAME does not change, so
+ * every lookup keyed on either resolves the same directory afterwards. That is
+ * why #2811's stale-Claude-transcript guard is necessary rather than moot.
  */
 function setProvider(name, provider, opts) {
   const clean = cleanName(name);
