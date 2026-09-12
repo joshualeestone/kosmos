@@ -257,6 +257,14 @@ test('#2811: the PLIST write is the second gate, and the trust write has already
   const name = born('setprov-2811-plistgate');
   const dir = create.workerDir(name);
   const cfg = nodePath.join(SIGNIN, 'config.toml');
+  /* 🛑 SEED IT, DO NOT INHERIT IT FROM THE ARM ABOVE. The expectation below names
+     the verb MODIFIED, which is only true if this file already exists when the
+     snapshot is taken. Without this line the arm passes in file order and FAILS
+     under `--test-name-pattern`, a shard, or any reorder -- and its red reads as
+     "setProvider wrote the wrong set", pointing the reader at the product. The
+     sibling arm above carries this exact guard; I wrote it there and then omitted
+     it here one round later. */
+  if (!fs.existsSync(cfg)) fs.writeFileSync(cfg, '', 'utf8');
   const before = snapshot(SANDBOX);
 
   fs.chmodSync(create.plistPath(name), 0o400);
@@ -279,4 +287,66 @@ test('#2811: the PLIST write is the second gate, and the trust write has already
   assert.equal(create.readJob(name).runner, 'claude', 'the launch job changed despite the refusal');
   assert.equal(fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), true, 'the brief was renamed after the plist gate refused');
   assert.equal(store.readProfile(name).provider, 'anthropic', 'the profile was stamped after the plist gate refused');
+});
+
+
+test('#2811: the brief RENAME is best-effort, so a failing rename does not abort the switch', () => {
+  /* 🛑 WHY: the header calls writes 3 and 4 "best-effort: its catch swallows", and
+     round 27 measured that NO test in the repo reaches either catch. Both were
+     replaced with a throw and every file that exercises `setProvider` was run: no
+     throw surfaced. So "swallows" and "gates" were indistinguishable for these two,
+     while the header said the four-way split "is now an ASSERTION". These two arms
+     make that sentence true.
+     📌 Real EACCES again: the worker directory is made non-writable, so the
+     same-directory rename throws. Read and execute stay on, so the two
+     `existsSync` checks above the rename still behave normally and the rename is
+     genuinely reached. */
+  if (process.getuid && process.getuid() === 0) return;
+
+  const name = born('setprov-2811-renameswallow');
+  const dir = create.workerDir(name);
+  const cfg = nodePath.join(SIGNIN, 'config.toml');
+  if (!fs.existsSync(cfg)) fs.writeFileSync(cfg, '', 'utf8');
+
+  fs.chmodSync(dir, 0o500); // readable and listable, NOT writable
+  let sw;
+  try { sw = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN }); }
+  finally { fs.chmodSync(dir, 0o700); }
+
+  assert.equal(sw.outcome, create.OUTCOME.CREATED,
+    'a failing BRIEF RENAME aborted the switch, so it is a gate and not best-effort: ' + sw.because);
+  assert.equal(fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), true, 'the rename did not actually fail, so this arm proves nothing');
+  assert.equal(fs.existsSync(nodePath.join(dir, 'AGENTS.md')), false, 'the rename did not actually fail, so this arm proves nothing');
+
+  /* ⇒ AND THE WRITES AFTER IT STILL HAPPENED, which is the whole content of
+     "best-effort": the switch completed around the failure. */
+  assert.equal(create.readJob(name).runner, 'codex', 'the plist write did not happen, so the rename did gate it');
+  assert.equal(store.readProfile(name).provider, 'openai', 'the profile write did not happen, so the rename did gate it');
+});
+
+test('#2811: the PROFILE write is best-effort, so a failing profile write does not abort the switch', () => {
+  /* The pair of the arm above, for write 4. Real EACCES: the profiles directory is
+     made non-writable, and `store.writeProfile` writes a temp file beside the
+     target and renames it, so both steps need directory write permission. */
+  if (process.getuid && process.getuid() === 0) return;
+
+  const name = born('setprov-2811-profileswallow');
+  const dir = create.workerDir(name);
+  const cfg = nodePath.join(SIGNIN, 'config.toml');
+  if (!fs.existsSync(cfg)) fs.writeFileSync(cfg, '', 'utf8');
+  const profiles = store.PROFILES;
+
+  fs.chmodSync(profiles, 0o500);
+  let sw;
+  try { sw = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN }); }
+  finally { fs.chmodSync(profiles, 0o700); }
+
+  assert.equal(sw.outcome, create.OUTCOME.CREATED,
+    'a failing PROFILE write aborted the switch, so it is a gate and not best-effort: ' + sw.because);
+  assert.equal(store.readProfile(name).provider, 'anthropic',
+    'the profile write did not actually fail, so this arm proves nothing');
+
+  /* ⇒ And everything else still landed. */
+  assert.equal(create.readJob(name).runner, 'codex', 'the plist write did not happen, so the profile write did gate it');
+  assert.equal(fs.existsSync(nodePath.join(dir, 'AGENTS.md')), true, 'the brief rename did not happen, so the profile write did gate it');
 });

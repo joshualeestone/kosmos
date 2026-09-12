@@ -1385,3 +1385,48 @@ asserted the refusal string was unique and it is not: that sentence appears FOUR
 `create.js`. The assert fired, the file was left unmutated, and the suite printed `pass 3` - which
 is "the mutant survived" in every visible respect. ⇒ **Assert that the mutation applied, not just
 that the file parsed.** The header now warns that the string has four copies.
+
+
+## Round 27: an arm that only passes in file order, and a claim of "asserted" covering half its subject
+
+**[MAJOR] The round-26 arm was not independently runnable, and I had written the exact guard it
+needed one round earlier.** The plist-gate arm expects `MODIFIED <signin>/config.toml`, and the
+verb is only right if that file exists when the snapshot is taken. Nothing in the arm created it;
+it inherited it from the arm above.
+
+```
+node --test --test-name-pattern='the PLIST write is the second gate' ...
+✖ actual:   [ 'CREATED  /home/.codex/config.toml' ]
+  expected: [ 'MODIFIED /home/.codex/config.toml' ]
+```
+
+The sibling arm passes alone because it carries `if (!fs.existsSync(cfg)) fs.writeFileSync(cfg,
+'', 'utf8')` with the comment *"do not depend on that ordering"*. **I wrote that line, and omitted
+it in the next arm I wrote.**
+
+⚠️ **The damage is not the red, it is WHERE THE RED POINTS.** The failure message is "the plist
+gate fired with a different set of writes already done", so a shard, a name filter, or a reorder
+turns a green arm red and sends the reader into `setProvider`, which behaved identically in both
+runs. ✅ **All FIVE arms in the file are now verified to pass alone**, not just the one reported.
+
+**[MAJOR] The header said the four-way gate/swallow split "is now an ASSERTION"; only the two
+gating halves were asserted.** The reviewer probed REACHABILITY rather than grepping for a test
+name: both swallow catches were replaced with a `throw`, the mutation asserted applied, and every
+file that exercises `setProvider` was run (`create.test.js`, `server.test.js`,
+`switch-account-1373`, `runner-dir-1616`, `spoken-name-1367`, and this file). **Nothing surfaced.
+Neither catch was entered by any test in the repo**, so "swallows" and "gates" were
+indistinguishable for writes 3 and 4.
+
+✅ **Two new arms, and the fix is an assertion rather than a retraction.** The worker directory is
+made non-writable so the same-directory rename throws, and the profiles directory is made
+non-writable so `store.writeProfile`'s temp-plus-rename throws. Each asserts the switch COMPLETES
+around the failure, which is the entire content of "best-effort", and each asserts the failure
+really happened so the arm cannot pass vacuously.
+
+⭐ **And the verification is stronger than "the branch is currently unreached": under the throw
+mutant, the two new arms RED WITH THAT THROW.** Proving a branch is unreached is a statement about
+today; proving your arm reaches it is a statement about the arm.
+
+📌 **Reachability is a better probe than a name grep.** A grep for a test name asks whether anybody
+wrote something that looks like coverage. A throw in the branch asks whether anything actually goes
+there. The two answers differed here for two of four writes.
