@@ -25,6 +25,7 @@ cannot (that needs a separate native shell, deferred until Xcode exists).
 android/
 ├── settings.gradle, build.gradle, gradle.properties   Gradle project
 ├── gradlew, gradlew.bat, gradle/wrapper/              Gradle 8.9 wrapper (real jar)
+├── gradle/gradle-daemon-jvm.properties                pins the daemon to JDK 21
 ├── app/
 │   ├── build.gradle                                   AGP 8.6.1, compile/target SDK 35
 │   └── src/main/
@@ -71,11 +72,23 @@ JDK 21 lives (`org.gradle.java.installations.paths`) so the daemon criteria
 resolve without a system symlink. Verified: `./gradlew :app:assembleDebug`
 launched under the default JDK 26 builds green, because the daemon runs on 21.
 
-**Per-machine note.** JDK 21 was installed keg-only here
-(`brew install openjdk@21`), which does not disturb the default 26. On another
-machine, repoint or remove the `org.gradle.java.installations.paths` line and let
-Gradle auto-detect a JDK 21, or install one. The `toolchainVersion=21` criteria
-stay the same everywhere.
+**Per-machine note / portability.** The `org.gradle.java.installations.paths`
+line in `gradle.properties` is the single machine-specific piece: it points at
+this box's keg-only JDK 21 (`brew install openjdk@21`, which does not disturb
+the default 26). The `toolchainVersion=21` criteria are machine-independent, but
+Gradle 8.9's daemon criteria do **not** auto-download a JDK, so a JDK 21 must be
+*present* on whatever machine runs the build:
+
+- **Another dev machine:** repoint or remove the `installations.paths` line and
+  let Gradle auto-detect an installed JDK 21, or install one.
+- **CI:** a runner without a JDK 21 on that literal path will fail the daemon
+  criteria. Provision JDK 21 on the runner (most CI Java actions do this) and,
+  if its path differs, set `org.gradle.java.installations.paths` in the runner's
+  own `~/.gradle/gradle.properties` or via `-Dorg.gradle.java.installations.paths=`.
+  This is why the committed line is a per-box convenience, not a portable pin.
+
+Android CI is not wired today; when it is, the runner's JDK-21 provisioning is
+the piece to add.
 
 ## Finishing the app (after the front-door origin is decided)
 
