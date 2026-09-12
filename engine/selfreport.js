@@ -193,25 +193,35 @@ function record(sessionName, entry) {
            `needs_you`, replacing the real question in `because` with the text of
            a shell command -- the board's one red state then named something no
            person needed to act on, and the real ask was gone.
-     Both are fixed by keying on WHO wrote the standing wait (`standing.by`, the
-     #1453 mark this function already stores). An AUTO wait (by:'auto') is
-     transient machine state: an auto idle/working MAY clear it, and an auto
-     `needs_you` MAY overwrite it. A DELIBERATE wait (by agent/operator -- and a
-     legacy line with no mark, by:null, whose provenance is unknown and so stays
-     protected exactly as before) is what the #900/#1949 rule guards, now against
-     an auto `needs_you` too, not only auto idle/working. An AGENT re-reporting
-     its own `needs_you` is by:'agent' (entry.auto is falsey), so it still lands
-     and can always update its own question; a permission prompt fired when
-     nothing is waiting still shows, because there is no standing wait to protect.
-     Scope: auto `blocked` (a StopFailure provider error) is left unguarded, as
-     today -- it is a genuine machine-detected block worth surfacing, not the
-     thing #2456 measured. */
+     The fix is NARROW, keyed on WHO wrote the standing wait and on its STATE
+     (`standing.by` + `standing.state`, both already stored). The ONE wait made
+     clearable/overwritable is a standing AUTO `needs_you` -- the permission
+     prompt, and the only thing #2456 measured. EVERYTHING ELSE stays protected
+     exactly as #900/#1949 left it:
+       - a DELIBERATE `needs_you`/`blocked` (by agent/operator): the agent's own
+         summons, protected from auto idle/working AND now from an auto
+         `needs_you` clobber;
+       - a legacy line with no mark (by:null), whose provenance is unknown and so
+         stays protected as before;
+       - an AUTO `blocked` (a StopFailure provider outage): machine-written but it
+         does NOT auto-resolve, so an auto idle/working must not clear it. Keying
+         only on `by` would have dropped this protection silently -- the outage
+         would vanish on the next PreToolUse heartbeat while still unresolved
+         (caught in review; #2456 measured needs_you, never blocked).
+     An AGENT re-reporting its own `needs_you` is by:'agent' (entry.auto is
+     falsey), so it still lands and can always update its own question; a
+     permission prompt fired when nothing is waiting still shows, because there is
+     no standing wait to protect. An INCOMING auto `blocked` is left unguarded, as
+     today -- a provider outage should surface even over a standing wait. */
   if (entry.auto === true && (state === 'idle' || state === 'working' || state === 'needs_you')) {
     const standing = read(sessionName);
-    const standingIsDeliberateWait = standing.found === true
+    const standingIsAutoPermissionWait = standing.found === true
+      && standing.state === 'needs_you'
+      && standing.by === 'auto';
+    const standingIsProtectedWait = standing.found === true
       && WAITING_ON_A_PERSON.includes(standing.state)
-      && standing.by !== 'auto';
-    if (standingIsDeliberateWait) {
+      && !standingIsAutoPermissionWait;
+    if (standingIsProtectedWait) {
       return {
         recorded: false,
         skipped: 'waiting',

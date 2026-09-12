@@ -114,6 +114,35 @@ test('#2456 CONTROL: an AGENT working still clears its own needs_you (a real res
 
 /* ---- Legacy provenance: a wait with NO mark (by:null) is protected as before ---- */
 
+/* ---- The regression the fix must NOT introduce: an AUTO blocked stays protected ---- */
+
+test('#2456: an automatic working does NOT clear a standing AUTO blocked (StopFailure provider outage)', () => {
+  // The StopFailure hook writes blocked (auto) on a provider API outage. Unlike a
+  // permission needs_you, it does NOT auto-resolve, so an auto working/idle must not
+  // clear it. Keying the guard on `by` alone would have dropped this protection.
+  const who = 'auto-blocked-outage';
+  assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (rate_limit)', owner: 'provider', auto: true }).recorded, true);
+  assert.equal(selfreport.read(who).by, 'auto', 'the StopFailure block is machine-written');
+  const heartbeat = selfreport.record(who, { state: 'working', because: 'running Bash', auto: true });
+  assert.equal(heartbeat.recorded, false, 'an auto working cleared a still-unresolved provider outage');
+  assert.equal(heartbeat.skipped, 'waiting');
+  assert.equal(selfreport.read(who).state, 'blocked');
+});
+
+test('#2456: an automatic idle does NOT clear a standing AUTO blocked either', () => {
+  const who = 'auto-blocked-idle';
+  assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (500)', owner: 'provider', auto: true }).recorded, true);
+  assert.equal(selfreport.record(who, { state: 'idle', because: 'finished responding', auto: true }).recorded, false);
+  assert.equal(selfreport.read(who).state, 'blocked');
+});
+
+test('#2456: an automatic needs_you does NOT clobber a standing AUTO blocked', () => {
+  const who = 'auto-blocked-then-perm';
+  assert.equal(selfreport.record(who, { state: 'blocked', on: 'provider api (timeout)', owner: 'provider', auto: true }).recorded, true);
+  assert.equal(selfreport.record(who, permissionPrompt('git push')).recorded, false, 'a permission prompt overwrote a provider outage');
+  assert.equal(selfreport.read(who).state, 'blocked');
+});
+
 test('#2456: a legacy standing needs_you with no `by` mark is treated as DELIBERATE (protected)', () => {
   // Lines written before #1453 carry no `by` and read as null. The fix must not
   // start clearing those on the theory that "not auto == deliberate"; unknown

@@ -59,11 +59,25 @@ const standingIsDeliberateWait = standing.found === true
   clobber) leaves a standalone permission prompt sticky. Both halves are needed and compose on the one
   discriminator.
 
-## Scope boundary (deliberate)
+## Scope boundary (deliberate), and the review correction that tightened it
 
-Auto `blocked` (a StopFailure provider error) is left landing over a standing wait, as today. It is a
-genuine machine-detected block, infrequent and one-time, not the high-frequency permission noise #2456
-measured, and it re-derives. Narrowing my change to exactly what was measured.
+The fix is keyed on BOTH `standing.by` AND `standing.state`, not `by` alone. The only wait made
+clearable/overwritable is a standing **auto `needs_you`** (the permission prompt). Everything else
+stays protected exactly as #900/#1949 left it.
+
+**Auto `blocked` (a StopFailure provider outage) STAYS protected. This is a review correction.** An
+earlier version keyed only on `standing.by !== 'auto'`, which silently dropped the #900/#1949
+protection for a standing auto `blocked`: the next auto `working` (a PreToolUse heartbeat) or `idle`
+(turn-end Stop) would have cleared a provider outage that had not actually resolved. A provider
+outage is machine-written but, unlike a permission prompt, does NOT auto-resolve, so it must stay
+sticky. Keying on `state === 'needs_you' && by === 'auto'` fixes this: `blocked` (auto or deliberate)
+is never in the clearable set. Covered by new tests (auto working/idle does not clear an auto
+blocked; an auto needs_you does not clobber an auto blocked).
+
+**INCOMING auto `blocked` is left unguarded, as today** (it is not in the incoming-guarded
+idle/working/needs_you set). A provider outage should surface even over a standing wait, and it is a
+genuine, infrequent, one-time machine state that re-derives. The same clobber shape applied to an
+incoming `blocked` over a deliberate `needs_you` is a tracked follow-up, not this change (see below).
 
 ## Weakest premise
 

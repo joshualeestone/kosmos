@@ -14,7 +14,9 @@
 #   PermissionRequest -> needs_you, with the command in the sentence
 #                        (fires BEFORE the box renders; the Notification
 #                        hook is ~6 seconds late by design and is unused)
-#   Stop              -> idle     (never erases a standing blocked/needs_you, #900)
+#   Stop              -> idle     (never erases a DELIBERATE blocked/needs_you or
+#                        an auto blocked; DOES clear a standing auto needs_you, a
+#                        permission prompt, once the turn moves on; #900/#1949/#2456)
 #   StopFailure       -> blocked --on "provider api (<kind>)" --owner provider
 #   SessionEnd        -> stopped
 #
@@ -28,10 +30,13 @@
 # line alone, because it was added for #900's rule rather than for what it
 # means, and selfreport.record now PERSISTS that mark (#1453).
 #
-# The guard is scoped to `auto === true && (state === 'idle' || state ===
-# 'working')` (#900 refused `idle`; #1949 added `working`). It refuses ONLY
-# those two over a standing waiting state. What --auto also changes is that the
-# record can now say who wrote a line.
+# The guard fires for `auto === true && (state === 'idle' || 'working' ||
+# 'needs_you')` (#900 refused `idle`; #1949 added `working`; #2456 added an auto
+# `needs_you` clobber-guard). It refuses those over a standing PROTECTED wait --
+# a deliberate blocked/needs_you, a legacy unmarked line, or an auto `blocked` --
+# but NOT over a standing auto `needs_you`, which a permission prompt writes and
+# which the following auto idle/working is meant to clear. What --auto also
+# changes is that the record can now say who wrote a line.
 #
 # 🛑 THE GUARD MAY REFUSE AN AUTOMATIC `idle` OR `working`, AND NO MORE. `working`
 # was added in #1949 because this hook fires it on EVERY PreToolUse, so an
