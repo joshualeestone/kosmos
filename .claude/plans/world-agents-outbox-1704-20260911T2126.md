@@ -239,6 +239,22 @@ on an enforcing board), and is lost. This slice makes nothing sent get lost:
 - Rebased onto main `f4e97838` (#2878, web-only composer drop target), with no
   conflicts. The focused set is 409 tests: 397 pass and 12 fail, all 12 of them main
   baseline on this Windows box.
+- **Full suite after round 4** (596 files, 6301 tests) found ONE failure unique to
+  the branch, which no review round ran:
+  - The failing test is `server.agent-token-sender-570.test.js` "the post and
+    react routes resolve a token sender through the same helper". It is a
+    source scan that still looked for `sender: tokenSender` inside the
+    `/api/post` route.
+  - Behaviour is unchanged. The route still resolves the token through
+    `senderFromAgentToken` and hands it to `sendRoomPostAsAgent`, which refuses a
+    token that did not resolve after the project check (the route's old order)
+    and otherwise passes it to `sendPost`.
+  - The scan now pins both halves: the route's call, and the shared function's
+    refusal and pass-through.
+  - Control: dropping the route's token sender turns it red, and so does
+    removing the shared refusal.
+  - Every other failing test also fails on current main (`f4e97838`, run in a
+    detached worktree for the two whose names were not in the older baseline).
 
 ## Weakest part
 
