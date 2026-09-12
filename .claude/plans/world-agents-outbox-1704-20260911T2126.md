@@ -225,6 +225,21 @@ on an enforcing board), and is lost. This slice makes nothing sent get lost:
   - [NIT] outbox.js credited refusing another Kosmos's session to round 1; it was
     round 2.
 
+- **Round 4 (sonnet, the round-3 fix plus a full fresh pass).** NO NEW FINDINGS
+  beyond one NIT, declined:
+  - Confirmed: the keep's acceptance now equals the drain's; a foreign-world
+    session is refused by `agentNameFromSession` before `paneSessionIsOurs` is
+    reached; `isNamedOurs`'s delegation is faithful for every caller; the drain
+    checks `knownAgent(entry.from)` for every verb; the new tests are red on revert.
+  - [NIT, declined] `kosmos_curl` now needs `mktemp` on every call, because the
+    world header rides the header file, so a failed `mktemp` fails closed even on
+    a token-less call. Kept as is: it is the tradeoff the comment above
+    `kosmos_curl` already states (one header path, so no call can go out without
+    its world), and a box that cannot make a temp file cannot keep a send either.
+- Rebased onto main `f4e97838` (#2878, web-only composer drop target), with no
+  conflicts. The focused set is 409 tests: 397 pass and 12 fail, all 12 of them main
+  baseline on this Windows box.
+
 ## Weakest part
 
 Trusting `from`. It rests on same-account files: the token store and the pane both
