@@ -37,6 +37,15 @@ function harness(over) {
     create: {
       AGENTS_DIR: '/AGENTS',
       serviceLabel: (n) => `com.kosmos.agent.${n}`,
+      // #1704: mirrors the real create.parseServiceLabel (launchidentity.parseKey).
+      SERVICE_LABEL_PREFIX: 'com.kosmos.agent.',
+      parseServiceLabel: (label) => {
+        const PREFIX = 'com.kosmos.agent.';
+        if (typeof label !== 'string' || !label.startsWith(PREFIX)) return null;
+        const key = label.slice(PREFIX.length);
+        const at = key.indexOf('+');
+        return at < 0 ? { name: key, worldId: 'default' } : { name: key.slice(0, at), worldId: key.slice(at + 1) };
+      },
       readJob: (n) => { calls.readJob.push(n); return Object.prototype.hasOwnProperty.call(jobs, n) ? jobs[n] : null; },
       workerDir: (n) => `/workers/${n}`,
       cleanName: (n) => String(n == null ? '' : n).trim(),

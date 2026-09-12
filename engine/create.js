@@ -741,11 +741,24 @@ function logFile(name) { return path.join(workerDir(name), 'start.log'); }
    remove.js / delete-leftover.js through here -- reaches THIS world's service and can
    never reach another Kosmos's agent of the same name. An explicit world wins (a
    named remove acting on a specific world). */
+/* The world-INDEPENDENT launchd namespace. serviceLabel builds on it, and the
+   stray sweeps (createdroster / register / delete-leftover) that ENUMERATE every
+   Kosmos agent's plist match on it and then attribute each to a world. They
+   cannot use serviceLabel('') for the prefix any more, because that is now
+   world-dependent (a named board's serviceLabel('') is `...agent.+<world>`). */
+const SERVICE_LABEL_PREFIX = 'com.kosmos.agent.';
 function serviceLabel(name, worldId) {
   const world = worldId === undefined ? launchidentity.currentWorldId() : worldId;
-  return `com.kosmos.agent.${launchidentity.launchKey(name, world)}`;
+  return `${SERVICE_LABEL_PREFIX}${launchidentity.launchKey(name, world)}`;
 }
 function plistPath(name, worldId) { return path.join(agentsDir(), `${serviceLabel(name, worldId)}.plist`); }
+/* {name, worldId} for one of our service labels, or null when it is not ours.
+   The stray sweeps use it to keep only THIS board's world and to read the bare
+   agent name from a label (#1704). */
+function parseServiceLabel(label) {
+  if (typeof label !== 'string' || !label.startsWith(SERVICE_LABEL_PREFIX)) return null;
+  return launchidentity.parseKey(label.slice(SERVICE_LABEL_PREFIX.length));
+}
 
 /**
  * The model an agent's launchd job will start it on, read back out of the job
@@ -4244,6 +4257,8 @@ module.exports = {
   supervisorSource,
   installSupervisor,
   serviceLabel,
+  SERVICE_LABEL_PREFIX,
+  parseServiceLabel,
   workerDir,
   /* #923: the ONE home resolver (AGENT_WORKFORCE_HOME || os.homedir(), #1780),
      exported so server.js's startup chdir reuses it rather than deriving
