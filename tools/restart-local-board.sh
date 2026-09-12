@@ -238,6 +238,8 @@ WD="$(printf '%s\n' "$INFO" | sed -n 's/^[[:space:]]*working directory = //p' | 
 # -- is left completely alone (exit 0). Bouncing a bundle board would disrupt a Mac
 # that is using Kosmos normally, so an unknown shape is a silent no-op, never a guess.
 LIBEXEC="${KOSMOS_BOARD_LIBEXEC:-$HOME/.local/libexec/kosmos-board}"
+if [ -d "$LIBEXEC" ]; then LIBEXEC="$(cd "$LIBEXEC" && pwd -P)"; fi
+while [ "$LIBEXEC" != "/" ] && [ "${LIBEXEC%/}" != "$LIBEXEC" ]; do LIBEXEC="${LIBEXEC%/}"; done
 if [ -n "$WD" ] && [ "$WD" = "$REPO" ]; then
   BOARD_SRC="$REPO"; SHAPE_DESC="this repo (${REPO})"
 elif [ -n "$WD" ] && [ "$WD" = "$LIBEXEC" ]; then

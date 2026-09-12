@@ -157,6 +157,9 @@ case "$DEST" in
   /*) ;;
   *) fail "refusing to apply: the destination must be an absolute path ($DEST)" ;;
 esac
+case "/$DEST/" in
+  */../*|*/./*) fail "refusing to apply: the destination must not contain dot path components ($DEST)" ;;
+esac
 # Resolve aliases through the nearest existing ancestor, while retaining any
 # not-yet-created suffix. This also removes trailing slashes before swap names
 # are derived, so temporary trees can never accidentally be nested in DEST.

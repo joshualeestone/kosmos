@@ -1542,6 +1542,8 @@ step "== 10. the board on THIS Mac, if it runs from this repo or the libexec dep
 # it), which would deploy a version OTHER than the one steps 8-9 just verified -- the
 # same reasoning step 11 uses to source the CLI from the frozen tree.
 _board_libexec="${KOSMOS_BOARD_LIBEXEC:-$HOME/.local/libexec/kosmos-board}"
+if [ -d "$_board_libexec" ]; then _board_libexec="$(cd "$_board_libexec" && pwd -P)"; fi
+while [ "$_board_libexec" != "/" ] && [ "${_board_libexec%/}" != "$_board_libexec" ]; do _board_libexec="${_board_libexec%/}"; done
 _board_info="$(launchctl print "gui/$(id -u)/com.kosmos.board" 2>/dev/null || true)"
 _board_wd="$(printf '%s\n' "$_board_info" | sed -n 's/^[[:space:]]*working directory = //p' | head -1)"
 if [ -n "$_board_wd" ] && [ "$_board_wd" = "$_board_libexec" ]; then
