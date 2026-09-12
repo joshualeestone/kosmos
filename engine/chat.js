@@ -2227,6 +2227,13 @@ const DIRECT_THREAD_FILE = /^direct\.\.(.+)\.json$/;
  * while every other agent keeps its real count. The whole map is null only when
  * the shared inputs are unreadable: the seen cursor, or the chats directory
  * itself. Unknown is never reported as zero, at either scope.
+ *
+ * Uncached by design, matching unreadAll: this reads the chats dir plus one file
+ * per DIRECT thread on each call, and the caller (server.js withDmUnread) runs
+ * it on the 5s status poll. That mirrors unreadAll, which re-reads the whole
+ * message log every poll with no memo; the reads here are small per-file and
+ * bounded by the fleet size. A cache would need invalidation on every reply
+ * append, which is the complexity the room precedent deliberately does without.
  */
 function dmUnreadAll() {
   const seen = dmSeenRead();

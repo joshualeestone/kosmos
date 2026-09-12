@@ -36,11 +36,11 @@ precedent so the two read as one product. The render half stays Mona's.
 
 ## Changes
 ### engine/chat.js
-- `DM_SEEN = path.join(store.ROOT, 'dm-seen.json')` — per-agent cursor `{[agent]: ISO}`, sibling of room-seen.json.
-- `dmSeenRead()` — mirror messages.seenRead: ENOENT -> {}, unreadable/bad-shape -> null.
-- `markDmSeen(agent, now)` — mirror messages.markSeen: validate name, atomic tmp+rename, return kept ISO.
-- `dmUnreadAll()` — enumerate `chats/direct..<key>.json`, read each via readThread(DIRECT, key), count messages with a present string `from` and `at` > dmSeen[agent]. Return `{[agent]: n}`. Divergence from the room precedent, documented in-code: a single UNREADABLE/UNPARSEABLE thread sets that agent's value to `null` (unknown, not zero) rather than nulling the whole map — DIRECT threads are independent files, unlike the one shared room log. Whole-map null only when the seen cursor or the chats dir itself is unreadable.
-- `dmUnread(agent)` — single-agent convenience.
+- `DM_SEEN = path.join(store.ROOT, 'dm-seen.json')`, per-agent cursor `{[agent]: ISO}`, sibling of room-seen.json.
+- `dmSeenRead()`, mirror messages.seenRead: ENOENT -> {}, unreadable/bad-shape -> null.
+- `markDmSeen(agent, now)`, mirror messages.markSeen: validate name, atomic tmp+rename, return kept ISO.
+- `dmUnreadAll()`, enumerate `chats/direct..<key>.json`, read each via readThread(DIRECT, key), count messages with a present string `from` and `at` > dmSeen[agent]. Return `{[agent]: n}`. Divergence from the room precedent, documented in-code: a single UNREADABLE/UNPARSEABLE thread sets that agent's value to `null` (unknown, not zero) rather than nulling the whole map, DIRECT threads are independent files, unlike the one shared room log. Whole-map null only when the seen cursor or the chats dir itself is unreadable.
+- `dmUnread(agent)`, single-agent convenience.
 - Export all five + DM_SEEN.
 
 ### server.js
@@ -60,5 +60,5 @@ precedent so the two read as one product. The render half stays Mona's.
 ## Weakest premise
 That "unread replies from that agent" means present-`from` messages in the DIRECT
 thread. If Mona/Josh intend dmUnread to also count agent->agent peer chatter or
-room mentions, the source set widens — but her comment says "your 1:1 DM channel,"
+room mentions, the source set widens, but her comment says "your 1:1 DM channel,"
 which is exactly the DIRECT store, so present-`from` in DIRECT is the reading.

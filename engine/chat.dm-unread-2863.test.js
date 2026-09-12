@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * #2863: a.dmUnread — the per-agent unread-DM count carried on the fleet
+ * #2863: a.dmUnread, the per-agent unread-DM count carried on the fleet
  * payload, and its /seen-style clear. This suite exercises the engine half in
  * engine/chat.js (dmUnreadAll / dmUnread / markDmSeen) against real DIRECT
  * threads written through the same appendMessage the reply route uses.
@@ -11,7 +11,7 @@
  * operator's real app data. Every test uses a DISTINCT agent name so the shared
  * sandbox cannot let one test's cursor or thread bleed into another's.
  *
- * ⚠️ NO ROSTER-CARD LITERALS here — the fixture-discipline lint forbids a hand
+ * ⚠️ NO ROSTER-CARD LITERALS here, the fixture-discipline lint forbids a hand
  * built object carrying `sessionName`. These are chat MESSAGE entries
  * ({text, at, from}), not roster cards, so the rule does not apply; kept literal
  * on purpose so the count logic is what is under test, not a fleet fixture.
@@ -57,6 +57,17 @@ test('the read cursor excludes replies at or before it', () => {
   agentReply(a, T2); // after the cursor
   chat.markDmSeen(a, Date.parse(T_CURSOR));
   assert.equal(chat.dmUnread(a), 1);
+});
+
+test('a reply timestamped exactly at the cursor is seen, not unread (boundary is <=)', () => {
+  // The boundary is at <= since (engine/chat.js dmUnreadAll): a reply whose `at`
+  // equals the cursor is already-seen. The test above only straddles the cursor
+  // and never lands a reply ON it, so this pins the exact-equality edge directly.
+  const a = 'ava-boundary';
+  agentReply(a, T_CURSOR);            // exactly at the cursor -> excluded
+  agentReply(a, T2);                  // strictly after -> counted
+  chat.markDmSeen(a, Date.parse(T_CURSOR));
+  assert.equal(chat.dmUnread(a), 1, 'the reply AT the cursor is excluded; only the later one counts');
 });
 
 test('opening the thread (markDmSeen at/after the last reply) zeroes the count', () => {
