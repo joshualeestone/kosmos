@@ -455,16 +455,24 @@ function armFor(deps) {
 /**
  * What one agent is running on.
  *
- * Returns `{ ok, account, organization, model, configDir, runner, because }`.
- * (`runner` is #2811: which agent runtime the live process actually is, so a
- * caller never has to infer the provider from a directory name.) On any
+ * Returns `{ ok, account, organization, model, configDir, because }`, plus
+ * `runner` ON THE DARWIN ARM ONLY (#2811: which agent runtime the live process
+ * actually is, so a caller never has to infer the provider from a directory
+ * name). The win32 arm does not carry `runner` at all: the key is ABSENT rather
+ * than null, because that arm identifies an agent through an ownership record
+ * with no codex source, so it has nothing to report rather than a null to
+ * report. Driven on both arms rather than read:
+ *     darwin -> account,because,configDir,model,ok,organization,runner
+ *     win32  -> account,because,configDir,model,ok,organization
+ * On any
  * failure `ok` is false and `because` is a sentence, because "we could not tell"
  * and "it is running on nothing" are different answers and only one of them is
  * ever true.
  *
- * 🪟 On win32 this dispatches to a different reader (see the header): the same
- * answer shape, read through `win32live`'s ownership join instead of tmux, with
- * `account`/`configDir` honestly null and `because` saying why.
+ * 🪟 On win32 this dispatches to a different reader (see the header), read
+ * through `win32live`'s ownership join instead of tmux, with `account` and
+ * `configDir` honestly null and `because` saying why. NOT the same answer shape:
+ * it carries no `runner` key at all, per the list above.
  */
 function runningAs(session, deps = {}) {
   if (armFor(deps) === 'win32') return runningAsWin32(session, deps);
@@ -549,8 +557,8 @@ function runningAsDarwin(session, deps = {}) {
          names the HALF of the question this answer does not carry, so a caller
          rendering it says something true instead of inventing a reason.
          📌 AND THE SAME HONEST LIMIT, stated rather than implied: nothing renders
-         it when `ok` is true today (`whoamiFor` returns account/model/source and
-         the route composes its own sentence). It is additive, not a contract
+         it when `ok` is true today (`whoamiFor` returns account, model, source and
+         resolvedRunner, and the route composes its own sentence from those). It is additive, not a contract
          change for the existing reader. Asserted in `runningas.test.js` so it is
          a checked value rather than decoration.
          No card number in the sentence itself: it is user-facing text, and #147's
