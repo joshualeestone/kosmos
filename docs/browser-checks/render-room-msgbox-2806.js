@@ -15,7 +15,8 @@
  * color and this stays green):
  *   (a) the operator body box (.msg.you .msg-bd) is FILLED (not transparent);
  *   (b) it is BLUE (blue channel dominant), not gray or the surface;
- *   (c) the agent body box (.msg:not(.you) .msg-bd) is FILLED and a NEUTRAL gray;
+ *   (c) the agent body box (.msg:not(.you) .msg-bd) is FILLED and a warm cream
+ *       (R>=G>=B), not a neutral gray or the blue (#2947);
  *   (d) the two boxes are DISTINCT from each other;
  *   (e) a BODYLESS row (no words, no cards) draws a `.msg` row but NO `.msg-bd`
  *       -- so there is no empty tinted box.
@@ -42,9 +43,15 @@ const chk = (ok, label, extra) => {
 /* rgb/rgba string -> [r,g,b,a]. "transparent" and rgba(...,0) both give a=0. */
 function parse(c) {
   if (!c || c === 'transparent') return [0, 0, 0, 0];
+  // #2947: Chromium serializes a color-mix() result (the per-message cream
+  // shade, .msg-bd[data-am]) as `color(srgb r g b [/ a])` with 0..1 components.
+  // Without scaling them, spread/blueLead collapse to ~0 and the arms pass
+  // VACUOUSLY; detect the srgb form and lift the three components to 0..255.
+  const srgb = /^color\(\s*srgb\b/i.test(c);
   const n = (c.match(/[\d.]+/g) || []).map(Number);
   if (n.length < 3) return [0, 0, 0, 0];
-  return [n[0], n[1], n[2], n.length > 3 ? n[3] : 1];
+  const s = srgb ? 255 : 1;
+  return [n[0] * s, n[1] * s, n[2] * s, n.length > 3 ? n[3] : 1];
 }
 /* Channel spread of an rgb triple -- 0 for a perfect gray. */
 function spread(rgb) { return Math.max(rgb[0], rgb[1], rgb[2]) - Math.min(rgb[0], rgb[1], rgb[2]); }
@@ -122,9 +129,11 @@ const now = () => new Date().toISOString();
       chk(op[3] > 0, `${t} the operator body box (.msg.you .msg-bd) carries a fill`, m.opBd);
       // (b) operator box is blue, not gray/surface.
       chk(blueLead(op) >= 20, `${t} the operator box is BLUE (blue channel leads)`, `${m.opBd} lead=${blueLead(op).toFixed(0)}`);
-      // (c) agent box filled AND neutral gray.
+      // (c) agent box filled AND a warm cream (#2947), not the blue.
       chk(ag[3] > 0, `${t} the agent body box (.msg:not(.you) .msg-bd) carries a fill`, m.agentBd);
-      chk(spread(ag) <= 10 && blueLead(ag) < 20, `${t} the agent box is a NEUTRAL gray, not the blue`, `${m.agentBd} spread=${spread(ag).toFixed(0)}`);
+      chk(ag[0] >= ag[1] && ag[1] >= ag[2] && (ag[0] - ag[2]) >= 2 && blueLead(ag) < 20,
+        `${t} the agent box is a warm cream (R>=G>=B), not a neutral gray or the blue`,
+        `${m.agentBd} rgb=[${ag.slice(0, 3).map((x) => x.toFixed(1)).join(', ')}]`);
       // (d) the two are distinct (blue vs gray differ well beyond the alpha).
       chk(blueLead(op) - blueLead(ag) >= 20, `${t} the operator blue and agent gray are distinct`, `op=${m.opBd} agent=${m.agentBd}`);
       // (e) a bodyless row draws NO box.
