@@ -385,9 +385,12 @@ done
 # them (all tracked, so git archive carries them). The Windows box verifies the served copies before
 # any promote, so a dropped piece would make staging unverifiable -- refuse before the deploy.
 if [ -n "$WIN_STAGED" ]; then
-  for f in "$WIN_STAGED" "$WIN_STAGED.sha256" latest-win-staging.json; do
-    [ -f "$EXPORT/dist/$f" ] || { echo "deploy-site: the export has no $f -- refusing (the staged Windows build latest-win-staging.json names must ship whole: the zip, its checksum and the pointer)."; rm -rf "$EXPORT"; exit 1; }
-  done
+  # Three literal checks rather than a loop: tools/test-served-verify.sh inventories the pre-deploy
+  # [ -f "$EXPORT/dist/<name>" ] lines by name to prove every artifact is checked with its sidecar,
+  # and a loop variable would read to it as an artifact called "$f".
+  [ -f "$EXPORT/dist/$WIN_STAGED" ] || { echo "deploy-site: the export has no $WIN_STAGED -- refusing (the staged Windows build latest-win-staging.json names must ship whole: the zip, its checksum and the pointer)."; rm -rf "$EXPORT"; exit 1; }
+  [ -f "$EXPORT/dist/$WIN_STAGED.sha256" ] || { echo "deploy-site: the export has no $WIN_STAGED.sha256 -- refusing (the staged Windows build latest-win-staging.json names must ship whole: the zip, its checksum and the pointer)."; rm -rf "$EXPORT"; exit 1; }
+  [ -f "$EXPORT/dist/latest-win-staging.json" ] || { echo "deploy-site: the export has no latest-win-staging.json -- refusing (the staged Windows build it names must ship whole: the zip, its checksum and the pointer)."; rm -rf "$EXPORT"; exit 1; }
 fi
 [ -f "$EXPORT/.kosmos-release-export" ] || { echo "deploy-site: the export has no .kosmos-release-export marker -- refusing"; rm -rf "$EXPORT"; exit 1; }
 
