@@ -5674,6 +5674,32 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     return { ...scraped, reported: false, conflict: 'its screen shows a question its reports do not mention', project: p, projectInferred: p !== null };
   }
 
+  /* #2837: a WORKING state carries the project the report attributes it to, the
+     same way #763 (above) does for needs_you, so the project overview can light
+     only the project a working agent is working in rather than every project it
+     belongs to. Freshness-gated exactly like #763 -- a stale naming (a report
+     older than the working-decay window) must not attribute today's work, so a
+     stale report yields a null project and the overview falls back to
+     sole-membership. Null when the report named none. `projectInferred` mirrors
+     needs_you: the report's own flag when the state comes from the report, and
+     "attributed from a carried project" (always an inference) when the state
+     comes from the screen. */
+  const workingProjectFromReport = () => {
+    const atP = Date.parse(reported.at || '');
+    const freshP = Number.isFinite(atP) && (nowMs - atP) <= REPORT_WORKING_DECAY_MS;
+    const p = (freshP && typeof reported.project === 'string' && reported.project) ? reported.project : null;
+    return { project: p, projectInferred: p !== null && reported.projectInferred === true };
+  };
+  /* The screen-led variant (scraped WORKING beside an idle/started report): the
+     project is carried from a separate report, so attributing it to this state
+     is always an inference, matching rule 3's scraped-needs_you shape above. */
+  const workingProjectFromScreen = () => {
+    const atP = Date.parse(reported.at || '');
+    const freshP = Number.isFinite(atP) && (nowMs - atP) <= REPORT_WORKING_DECAY_MS;
+    const p = (freshP && typeof reported.project === 'string' && reported.project) ? reported.project : null;
+    return { project: p, projectInferred: p !== null };
+  };
+
   if (reported.state === 'working') {
     const at = Date.parse(reported.at || '');
     const stale = !Number.isFinite(at) || (nowMs - at) > REPORT_WORKING_DECAY_MS;
@@ -5694,7 +5720,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          prompt -- the exact sentence this branch's chat half exists to remove,
          reappearing in the one arm the feature is for. Measured across all five
          report arms; this was the only one that lost it. */
-      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null, backgroundWait: scraped.backgroundWait === true };
+      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null, backgroundWait: scraped.backgroundWait === true, ...workingProjectFromReport() };
     }
     // Rule 5: the comparison happens BEFORE the decay.
     if (scraped.state === STATE.WORKING) {
@@ -5753,9 +5779,9 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          is a fleet-wide precedence change affecting every agent, so it is NOT
          made unilaterally from this card. Raised rather than taken. */
       if (scraped.backgroundWait === true) {
-        return { ...scraped, reported: false, conflict: null };
+        return { ...scraped, reported: false, conflict: null, ...workingProjectFromScreen() };
       }
-      return { ...scraped, reported: false, conflict: 'its reports stopped arriving while its screen still shows work, so the reporter may be broken' };
+      return { ...scraped, reported: false, conflict: 'its reports stopped arriving while its screen still shows work, so the reporter may be broken', ...workingProjectFromScreen() };
     }
     return {
       state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE,
@@ -5832,9 +5858,9 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
        📌 Identical reasoning to rule 5's exemption above, one branch over, and the
        same structural flag rather than a sentence match so the two cannot drift. */
     if (scraped.backgroundWait === true) {
-      return { ...scraped, reported: false, conflict: null };
+      return { ...scraped, reported: false, conflict: null, ...workingProjectFromScreen() };
     }
-    return { ...scraped, reported: false, conflict: 'its screen shows it is working while its last report said it was at rest' };
+    return { ...scraped, reported: false, conflict: 'its screen shows it is working while its last report said it was at rest', ...workingProjectFromScreen() };
   }
   // `idle`, and `started` with nothing after it: at rest either way.
   return { state: STATE.IDLE, confidence: CONFIDENCE.STRUCTURED, because: said('it is at rest and nothing is needed'), reported: true, conflict: null };

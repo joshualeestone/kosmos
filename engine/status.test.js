@@ -4637,8 +4637,23 @@ test('#763: reconcile carries the reported project on a needs_you, and null when
   const scrapedQ = reconcileReport({ found: false }, scr(STATE.NEEDS_YOU, CONFIDENCE.SCRAPED, 'Do you want to proceed?'), T0);
   assert.equal(scrapedQ.state, STATE.NEEDS_YOU);
   assert.equal(scrapedQ.project, undefined, 'a scraped question has no project field at all: the screen cannot say');
+  /* #2837: a working state now carries the project its report names too, the
+     working analog of the needs_you attribution above, so the project overview
+     lights only the project a working agent is working in rather than every
+     project it belongs to. (This used to assert `working.project === undefined`;
+     that exclusion was #763's scope, not a hazard -- every stateProject reader
+     gates on needs_you, so nothing else is affected.) */
   const working = reconcileReport(rep('working', { project: 'p-christmas' }), scraped, T0);
-  assert.equal(working.project, undefined, 'only a question carries a project onto the state');
+  assert.equal(working.state, STATE.WORKING);
+  assert.equal(working.project, 'p-christmas', '#2837: a working report that names its project carries it onto the state');
+  assert.equal(working.projectInferred, false, 'stated by the report itself');
+  const workingInherited = reconcileReport(rep('working', { project: 'p-christmas', projectInferred: true }), scraped, T0);
+  assert.equal(workingInherited.project, 'p-christmas');
+  assert.equal(workingInherited.projectInferred, true, 'a carried-forward project is marked an inference, so a lit tile can say it rests on one');
+  const workingUnnamed = reconcileReport(rep('working'), scraped, T0);
+  assert.equal(workingUnnamed.project, null, '#2837: a working report that named none carries no project; the overview falls back to sole-membership');
+  const workingStale = reconcileReport(rep('working', { project: 'p-christmas', at: new Date(T0 - 2 * 24 * 3600 * 1000).toISOString() }), scraped, T0);
+  assert.equal(workingStale.project, null, '#2837: a two-day-old working naming must not attribute today\'s work, matching #763 freshness');
 });
 
 /**

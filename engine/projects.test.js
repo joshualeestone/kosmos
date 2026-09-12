@@ -490,6 +490,43 @@ test('the row summary counts what it can see AND says what it could not', () => 
   assert.equal(fourth.summary.needsYouUnattributed, 1);
 });
 
+test('#2837: a working agent lights only the project it is working in, not every project it belongs to', () => {
+  reset();
+  /* Josh, live review of 0.6.57: an agent in multiple projects showed "working"
+     in ALL of them, because a member's `working` is a global per-process fact
+     counted on every membership. The working analog of #763's needsYou fix:
+     scope the count to the project the work is attributable to -- the report
+     named it, or the agent belongs to only one active project. */
+  const selfreport = require('./selfreport');
+  const mixed = projects.create({ name: 'Mixed', folder: folder('mixed'), agents: ['zeta'] });
+  const other = projects.create({ name: 'Other', folder: folder('other'), agents: ['zeta'] });
+  const solo = projects.create({ name: 'Solo', folder: folder('solo'), agents: ['mara'] });
+
+  // mara works and belongs to ONE active project -> unambiguously working in it.
+  // zeta works and belongs to TWO, and has named none -> attributable to neither.
+  const roster = cards([fleet.agent('mara', { state: 'working' }), fleet.agent('zeta', { state: 'working' })]);
+  const list1 = projects.list(roster);
+  const soloRow = list1.find((p) => p.id === solo.id);
+  const mixedRow = list1.find((p) => p.id === mixed.id);
+  const otherRow = list1.find((p) => p.id === other.id);
+
+  assert.equal(soloRow.summary.working, 1, 'the control: a working agent in exactly one project lights it');
+  assert.equal(mixedRow.summary.working, 0, '#2837: a working agent in several projects that named none lights none of them, not all (the bug)');
+  assert.equal(otherRow.summary.working, 0, 'and the other project it belongs to also stays dark');
+  assert.equal(mixedRow.agents.find((a) => a.sessionName === 'zeta').state, 'working',
+    'the member is still globally working on the Agents page; only the per-project claim is scoped');
+
+  // Attributed: zeta's report names Mixed -> Mixed lights, Other stays dark.
+  assert.equal(selfreport.record('zeta', { state: 'working', project: mixed.id }).recorded, true);
+  const roster2 = cards([fleet.agent('mara', { state: 'working' }), fleet.agent('zeta', { state: 'working' })]);
+  const list2 = projects.list(roster2);
+  assert.equal(list2.find((p) => p.id === mixed.id).summary.working, 1, '#2837: a working agent whose report names a project lights that one');
+  assert.equal(list2.find((p) => p.id === other.id).summary.working, 0, 'the control: the project it did NOT name stays dark even though it is a member');
+  assert.equal(list2.find((p) => p.id === mixed.id).agents.find((a) => a.sessionName === 'zeta').stateProject, mixed.id,
+    'the working state carries the named project (the #2837 status.js reconcile change)');
+  assert.equal(list2.find((p) => p.id === solo.id).summary.working, 1, 'the sole-membership control is unaffected by the attribution');
+});
+
 test('a member we can see but cannot READ is counted as unseen, not as fine', () => {
   reset();
   // ⚠️ THE SUMMARY'S OWN BLIND SPOT. `unseen` counted only members with no card

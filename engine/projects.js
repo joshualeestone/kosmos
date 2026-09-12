@@ -965,6 +965,19 @@ function describe(project, roster, all) {
   // field and to resolve parentName/parentArchived below.
   const parentId = (typeof project.parent === 'string' && project.parent) ? project.parent : null;
 
+  /* #2837: how many NON-ARCHIVED projects a working member belongs to, read from
+     the full list `all` (the same list `list()`/`get()` already pass, so this
+     adds no disk read). A working agent that belongs to exactly one active
+     project is unambiguously working IN it, so the overview lights that project
+     even when the report named none; a working agent in several projects that
+     named none cannot be attributed to any, so it lights none rather than every
+     one -- Josh's bug. Fail-open: with no list to count against (never on the
+     real path), treat as sole so the tile still lights rather than going dark. */
+  const activeMembershipCount = (sessionName) => (Array.isArray(all)
+    ? all.filter((pp) => pp && pp.archived !== true && (pp.agents || []).includes(sessionName)).length
+    : 0);
+  const soleActiveMembership = (m) => activeMembershipCount(m.sessionName) <= 1;
+
   return {
     ...project,
     folder: project.folder,
@@ -1066,7 +1079,17 @@ function describe(project, roster, all) {
       /* Of needsYou, how many rest on a carried-forward project rather than a
          stated one: a screen may render them alike, but the data can say. */
       needsYouInferred: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject === project.id && m.stateProjectInferred).length,
-      working: members.filter((m) => m.present && m.tied && m.state === 'working').length,
+      /* #2837: a member's `working` is a GLOBAL fact (one state per process/pane),
+         so counting it on every project the agent belongs to lit every project at
+         once when it was really working in one -- the working analog of #763's
+         needsYou fix one bucket up. Scope it the same way: light this project for
+         a working member only when the work is attributable to it -- the report
+         named THIS project (`stateProject === project.id`, carried through by the
+         #2837 status.js change), or the agent belongs to only this one active
+         project so there is no other project it could be working in. A working
+         agent in several projects that named none lights none of them. */
+      working: members.filter((m) => m.present && m.tied && m.state === 'working'
+        && (m.stateProject === project.id || (m.stateProject === null && soleActiveMembership(m)))).length,
       unseen: members.filter((m) => !m.present || !m.tied || m.state === 'unknown').length,
     },
   };
