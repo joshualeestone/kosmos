@@ -89,8 +89,12 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
         return {
           plain: t('@mona'),
           bold: t('**@mona**'),
+          dunder: t('__@mona__'),
+          under: t('_@mona_'),
+          strike: t('~~@mona~~'),
           paren: t('(@mona)'),
           invalid: t('@nobody'),
+          invalidBold: t('**@nobody**'),
           scoped: pjRichSpans('@mona', null),   // no agentNames -> dialogue path
           color,
           kbg: tok('--k-bg'), sunk: tok('--k-sunk'), usermsg: tok('--usermsg-tint'),
@@ -105,8 +109,16 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
       check(`${tag} an @name matching nobody stays plain`, state.invalid === '@nobody', state.invalid);
       check(`${tag} **@mona** highlights INSIDE the bold`,
         /<strong><span class="pjmention">@mona<\/span><\/strong>/.test(state.bold), state.bold);
+      check(`${tag} __@mona__ (double-underscore bold) highlights inside the bold`,
+        /<strong><span class="pjmention">@mona<\/span><\/strong>/.test(state.dunder), state.dunder);
+      check(`${tag} _@mona_ (underscore italic) highlights inside the em`,
+        /<em><span class="pjmention">@mona<\/span><\/em>/.test(state.under), state.under);
+      check(`${tag} ~~@mona~~ (strike) highlights inside the strike`,
+        /<s><span class="pjmention">@mona<\/span><\/s>/.test(state.strike), state.strike);
       check(`${tag} (@mona) keeps its parens around the span`,
         /^\(<span class="pjmention">@mona<\/span>\)$/.test(state.paren), state.paren);
+      check(`${tag} **@nobody** (invalid, emphasised) stays plain, no .pjmention`,
+        !/pjmention/.test(state.invalidBold) && /<strong>@nobody<\/strong>/.test(state.invalidBold), state.invalidBold);
       check(`${tag} the dialogue path (no agentNames) does NOT highlight`,
         state.scoped === '@mona', state.scoped);
 

@@ -37630,9 +37630,15 @@ function pjRichSpans(seg, names, agentNames) {
        URL/chip so it is atomic through the emphasis pass (never leaks a marker). */
     if (hasAgents && !core.includes('￼')) {
       const lead = (core.match(/^(?:\*\*|__|~~|[*_(])+/) || [''])[0];
-      const rest = core.slice(lead.length);
+      /* The shared tail-peel (mm[2]) already stripped trailing `*` and `~`, but KEEPS trailing `_`
+         (URLs use it), so an underscore-emphasised mention like `__@mona__` still carries its tail
+         here. Peel that tail too and re-attach it, so the emphasis pass wraps the whole chip and
+         `__@mona__` / `_@mona_` highlight, matching `**@mona**`. */
+      const afterLead = core.slice(lead.length);
+      const trail = (afterLead.match(/_+$/) || [''])[0];
+      const rest = afterLead.slice(0, afterLead.length - trail.length);
       if (rest.charAt(0) === '@' && rest.length > 1 && agentNames.has(rest.slice(1))) {
-        return lead + hold('<span class="pjmention">' + rest + '</span>') + mm[2];
+        return lead + hold('<span class="pjmention">' + rest + '</span>') + trail + mm[2];
       }
     }
     /* A cited project file -> a "Show me" chip (#355), same PATH rule as
