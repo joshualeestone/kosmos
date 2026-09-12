@@ -443,6 +443,10 @@ function setDue(projectId, n, dueDate) {
 function say(projectId, n, text) {
   const t = (typeof text === 'string' ? text : '').trim();
   if (!t) throw new Error('a message cannot be empty');
+  // Resolve READ-ONLY (projects.get), not via projects.mutate as setDue does: a
+  // message records to the transcript (taskchat) and changes nothing on the
+  // project, so writing the project file back would be a needless write. Existence
+  // is all we need from the lookup, so the cheaper read is the right shape here.
   const p = projects.get(projectId);
   if (!p) throw new Error('there is no project by that name');
   const task = byNumber(p, n);
