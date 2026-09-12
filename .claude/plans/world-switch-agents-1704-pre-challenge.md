@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: world-switch-agents-1704
-diff_hash: 850453bc567abaa670a10dc0066a40d3f1d65e8bb95f83f530be7ffe17197e17
+diff_hash: d43a950859228cd79ac3cdc63f59396ca15be14e1ec2761236a9ae986e19d62b
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-12T03:30:00Z
@@ -21,7 +21,8 @@ keep needs Josh's box. The Mac launchctl arm needs Angel's live Mac.
 
 `diff_hash` is the sha256 of the raw bytes of `git diff origin/main HEAD -- .
 ':!.claude/plans/world-switch-agents-1704-pre-challenge.md'`, computed with node
-over git's own output (119,564 bytes), after rebasing onto origin/main
+over git's own output (125,168 bytes as of `b7125fce`; it was 119,564 at the loop's
+convergence), after rebasing onto origin/main
 `a184f039`. That main includes #2874, Angel's Mac identity slice. The last
 commit (35558396) restates the named-world pause-skip comment against today's
 code, now that #2874 makes Mac identity world-keyed; the behaviour is unchanged
@@ -71,3 +72,21 @@ fresh stop, and `because` is cleared or restored by the outcome.
 
 #### Iteration 4 (sonnet)
 **NO NEW FINDINGS** beyond an inverted assertion message, which is fixed.
+
+#### After convergence: the macOS CI browser check (`b7125fce`)
+
+`render-worldswitch-2238` scenario J failed twice on CI: a "reopened" dialog still
+held the earlier choice. Root cause:
+- The browser check's "reopen" clicked the row that the first confirm had just made
+  current, which is not clickable, so the dialog never reopened.
+- The page itself reset on open.
+
+Fix:
+- The check now resets the registry before reopening (as scenarios G and H do) and
+  asserts that the dialog is really visible.
+- One `worldswResetAgentsChoice()` now runs on open, Cancel and Restart, so even a
+  hidden dialog never holds an answer.
+- Two node web tests are red without the resets.
+- Local results: the web and switch suites are 65/65. CI is the real signal for the
+  browser check.
+- A focused review of this delta follows.
