@@ -14138,3 +14138,65 @@ test('#2811 PARITY: the live branch that HAS an account carries `name` too, or t
     if (board) board.restore();
   }
 });
+
+test('#2811: a falsy configDir must NOT let the process CWD name the account, because `name` leads the sentence', () => {
+  /**
+   * 🛑 THE GUARD THIS PINS WAS ADDED IN ROUND 35 AND EXPLAINED ONLY IN PROSE.
+   * Reverting `seen.configDir ? readName(seen.configDir) : null` to the bare call
+   * left the suite 295/295 GREEN -- so the guard was one "this ternary is dead,
+   * configDir is always set here" tidy-up away from removal, and the consequence is
+   * a rendered sentence, not a field.
+   *
+   * `nameFile` is `path.join(path.resolve(String(dir || '')), '.kosmos-name')`, so a
+   * falsy dir resolves to THE PROCESS CWD. Round 34 put `name` at the HEAD of the
+   * sentence's fallback chain, so a `.kosmos-name` in the server's working directory
+   * would DISPLACE A REAL, KNOWN EMAIL:
+   *
+   *   unguarded -> "This agent runs on LEAKED-FROM-CWD, and we cannot tell which model…"
+   *
+   * ⭐ That is strictly worse than the "an account we cannot identify (…)" string
+   * this card was filed about: a confident wrong answer rather than an admitted
+   * unknown.
+   *
+   * 📌 The line above the guard writes `dir: seen.configDir || null`, which is the
+   * code's own statement that this branch can see a falsy dir. An untested defensive
+   * guard reads to the next person exactly like a redundant one -- which is this
+   * card's whole subject, one file over.
+   */
+  const { whoamiFor, sentenceForWhoami } = require('./server.js');
+  const openaiAccounts = require('./engine/openaiaccounts');
+  const fsX = require('node:fs');
+  const osX = require('node:os');
+  const nodePathX = require('node:path');
+
+  const cwdBefore = process.cwd();
+  const probe = fsX.realpathSync(fsX.mkdtempSync(nodePathX.join(osX.tmpdir(), 'cwdname-2811-')));
+  let board;
+  try {
+    fsX.writeFileSync(nodePathX.join(probe, '.kosmos-name'), 'LEAKED-FROM-CWD', 'utf8');
+    process.chdir(probe);
+
+    /* THE FIXTURE'S OWN CONTROL, and without it `name === null` below could pass
+       simply because no sidecar sits in the CWD. This asserts the dangerous answer
+       is AVAILABLE, so the assertion that follows is a measurement. */
+    assert.equal(openaiAccounts.readName(''), 'LEAKED-FROM-CWD',
+      'the probe CWD does not yield a name, so the guarded assertion below cannot discriminate');
+
+    board = fleet.install([fleet.agent('cwdprobe2811', { state: 'idle' })]);
+    const card = board.agents.find((a) => a && a.name === 'cwdprobe2811');
+    assert.ok(card, 'the fixture produced no card');
+
+    /* Live branch 1 with a KNOWN email and NO configDir: the exact shape the guard
+       is for. */
+    const out = whoamiFor(card, [], { ok: true, account: 'dave@example.com', model: null, configDir: null });
+    assert.ok(out.account, 'the live-with-account branch returned no account');
+    assert.equal(out.account.name, null,
+      'a falsy configDir let readName resolve the PROCESS CWD, so the working directory names the account');
+    assert.match(sentenceForWhoami(out.account, null, 'claude'), /dave@example\.com/,
+      'the CWD-derived name displaced a real, known email in the sentence a person reads');
+  } finally {
+    process.chdir(cwdBefore);
+    if (board) board.restore();
+    try { fsX.rmSync(probe, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+});
