@@ -37629,7 +37629,11 @@ function pjRichSpans(seg, names, agentNames) {
        head has to be handled here or those natural spellings would never highlight. Held like the
        URL/chip so it is atomic through the emphasis pass (never leaks a marker). */
     if (hasAgents && !core.includes('￼')) {
-      const lead = (core.match(/^(?:\*\*|__|~~|[*_(])+/) || [''])[0];
+      /* Peel ONLY non-identifier leading chars (`*` `~` `(`). NOT `_`: the backend's left boundary
+         is `(^|[^A-Za-z0-9._-])@` and `_` is IN that class, so `_@mona_` is NOT flagged -- peeling a
+         leading `_` here would paint it blue and falsely promise delivery. So an underscore-italic
+         mention renders as plain italic, exactly as the backend treats it (not a recipient). */
+      const lead = (core.match(/^[*~(]+/) || [''])[0];
       const afterLead = core.slice(lead.length);
       /* Highlight EXACTLY what the backend flags, so the blue means "this will reach that agent"
          (Josh's ask). engine/messages.js matches the @-word exactly, else the word with a trailing

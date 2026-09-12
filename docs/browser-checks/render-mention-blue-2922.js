@@ -115,10 +115,14 @@ function realPageErrors(errs) { return errs.filter((e) => !/access control check
         state.notKey === '@mona_bar', state.notKey);
       check(`${tag} **@mona** highlights INSIDE the bold`,
         /<strong><span class="pjmention">@mona<\/span><\/strong>/.test(state.bold), state.bold);
-      check(`${tag} __@mona__ (double-underscore bold) highlights inside the bold`,
-        /<strong><span class="pjmention">@mona<\/span><\/strong>/.test(state.dunder), state.dunder);
-      check(`${tag} _@mona_ (underscore italic) highlights inside the em`,
-        /<em><span class="pjmention">@mona<\/span><\/em>/.test(state.under), state.under);
+      // The backend's left boundary is (^|[^A-Za-z0-9._-])@, and `_` is in that class, so a `_`
+      // immediately before `@` means the backend does NOT flag it. The highlight must match: an
+      // underscore-emphasised mention renders as plain emphasis, NOT blue, or the blue would falsely
+      // promise delivery. (`**`/`~~`/`(` boundaries ARE non-identifier, so those DO flag + highlight.)
+      check(`${tag} __@mona__ (underscore boundary, backend does NOT flag) is bold but NOT blue`,
+        !/pjmention/.test(state.dunder) && /<strong>@mona<\/strong>/.test(state.dunder), state.dunder);
+      check(`${tag} _@mona_ (underscore boundary, backend does NOT flag) is italic but NOT blue`,
+        !/pjmention/.test(state.under) && /<em>@mona<\/em>/.test(state.under), state.under);
       check(`${tag} ~~@mona~~ (strike) highlights inside the strike`,
         /<s><span class="pjmention">@mona<\/span><\/s>/.test(state.strike), state.strike);
       check(`${tag} (@mona) keeps its parens around the span`,
