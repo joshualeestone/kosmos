@@ -1108,15 +1108,26 @@ function setCodexAccount(clean, spoken, dir, job) {
  *      four gate here and two swallow, and which is which is now an ASSERTION in
  *      the same test, not a sentence here.
  *   2. the plist rewrite through `plistFor`. Also gating: its catch returns
- *      REFUSED with "we could not write <name>'s startup file".
+ *      REFUSED with "we could not write <name>'s startup file". ⚠️ That string
+ *      appears FOUR times in this file; only `setProvider`'s copy is meant.
+ *      Both gates are asserted in the test named above, each by a mutant that
+ *      reds the arm naming it; neither is carried by this sentence.
  *   3. the brief RENAME, CLAUDE.md <-> AGENTS.md (two paths: one created, one
  *      deleted). Best-effort: its catch swallows.
  *   4. `store.writeProfile(clean, { provider })`. Best-effort: its catch swallows.
- * ⚠️ GATING IS A PROPERTY OF THE CALL SITE, NOT OF `trustCodexFolder`. The same
- * function is called from four places in this file: REFUSED here, `trust:{ok:false}`
- * with a CREATED outcome on the create path, swallowed on the adoption path -- where
- * a comment calls it "non-gating and best-effort" and is right about ITS site. Do
- * not carry this paragraph's answer to another caller.
+ * ⚠️ GATING IS A PROPERTY OF THE CALL SITE, NOT OF `trustCodexFolder`, so this
+ * header describes THIS site only and no longer enumerates the others. It did,
+ * and it was wrong about every one of them: it put the `trust:{ok:false}`-with-
+ * CREATED behaviour on the create path (it is `setCodexAccount`'s), and called the
+ * create path non-gating when that site is the MOST gating of the four -- its call
+ * is inside `step(...)`, so a throw makes `trustedFolder` false, which clears
+ * `wroteJob`, which calls `rollBack()` and returns PARTIAL.
+ * 🛑 THE CAUSE WAS A NAME COLLISION, and it is worth knowing before reading any
+ * "the trust write" comment in this file: `trustFolder` (the CLAUDE one, in
+ * `engine/trust.js`) and `trustCodexFolder` (this one) are DIFFERENT FUNCTIONS.
+ * The "NON-GATING, AND NOT A STEP" comment further down is about `trustFolder`.
+ * I read "the trust write" as meaning this one and inherited a property that
+ * belongs to the other.
  *
  * ⚠️ THE HISTORY, because every wrong version was plausible:
  *   "one"   - this header, 8fe044b8 (2026-08-24): "a plist rewrite through the

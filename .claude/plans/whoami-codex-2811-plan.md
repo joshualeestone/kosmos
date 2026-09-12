@@ -1286,6 +1286,10 @@ best-effort"* and is **right about its own site**. Two comments that look like t
 each other are both true, one scope apart. That is the same measuring-one-path-and-pronouncing
 failure this card has now made six times, so the paragraph says which site it is about.
 
+🛑 **ROUND 26 FALSIFIED THAT ENTIRE SENTENCE AND IT IS LEFT ABOVE AS THE DATED RECORD.** Three of
+its four site attributions are wrong; see the round-26 section below. The paragraph written to FIX
+a scope error contained the same scope error.
+
 ✅ **Converted to an ASSERTION, not a better sentence.** A new arm makes `config.toml` read-only so
 `trustCodexFolder`'s `appendFileSync` throws a REAL EACCES (nothing injected), and asserts the
 refusal, its wording, and that NOTHING was written before the gate fired.
@@ -1317,3 +1321,67 @@ rationale across unchanged. **A rationale reads as checked because it WAS checke
 code that no longer exists.** Neither a diff nor a test can see it: the comment did not change,
 and nothing it describes is asserted.
 ⇒ **When you replace a mechanism, re-derive its rationale rather than moving it.**
+
+
+## Round 26: the paragraph that fixed a scope error contained the same scope error
+
+Round 25's repair added a paragraph headed **"GATING IS A PROPERTY OF THE CALL SITE"**, whose
+purpose was to stop me measuring one call site and pronouncing on the space. It then named four
+call sites and got three of them wrong.
+
+| site | enclosing function | on throw | what I claimed |
+|---|---|---|---|
+| 1014 | `setCodexAccount` | `trust={ok:false}`, still CREATED | I attributed this to the create path |
+| 1350 | `setProvider` | returns REFUSED | correct |
+| 2542 | `installJob` | swallowed | I called it "the adoption path" and sourced a quote from it that is not there |
+| 3861 | `createAgentInner` | `step()` -> `trustedFolder` false -> `wroteJob` false -> `rollBack()` -> **PARTIAL** | I called it non-gating |
+
+**The create path is the MOST gating of the four**, and the only site where a throw UNDOES work
+already done. I described it as the lenient one.
+
+### The cause was a NAME COLLISION, and it is worth knowing before reading any "the trust write" comment in create.js
+
+`trustFolder` (the **Claude** trust write, in `engine/trust.js`) and `trustCodexFolder` (the
+**codex** one, in `create.js`) are DIFFERENT FUNCTIONS. The `⚠️ NON-GATING, AND NOT A STEP`
+comment I cited in round 25 as a pre-existing comment that "is right about ITS site" describes
+`trustFolder`. I read the words *"the trust write"*, saw the function I was already looking at,
+and inherited a property that belongs to the other one.
+
+⭐ **This is the failure mode in its purest form yet: not a careless claim, but a claim made
+INSIDE the correction for that exact class, defeated by two functions whose names differ by one
+word.** A rule cannot protect you from a misidentification, because you are applying the rule
+correctly to the wrong object.
+
+### The repair is DELETION, not a better enumeration
+
+A `setProvider` header has no business describing other callers; that IS the scope error. Both
+copies now assert one site and enumerate none, and name the collision so the next reader does not
+repeat it. The claim that matters (this site gates, and nothing is written before the gate fires)
+was already an assertion and is untouched.
+
+⇒ **Where a rule failed, the structural fix is to remove the opportunity rather than restate the
+rule.**
+
+
+### Round 26's NIT: the header named TWO gates and round 25 converted only ONE
+
+"the plist rewrite ... Also gating" was a true sentence with nothing holding it. Measured before
+writing the arm, so the gap was real and not a silent grep: `grep -rn "startup file"` over
+`engine/*.test.js` and `server.test.js` found only `setModel`, `remove` and `whoami` arms, while
+the same grep DOES find the wording elsewhere.
+
+✅ A symmetric arm now makes the PLIST read-only so its write throws a real EACCES, and asserts the
+refusal, its wording, and **the exact set of writes already done when the gate fires** - which is
+the trust append alone. That pins the ORDER as a by-product: the trust write had landed and
+nothing after the plist write ran.
+
+```
+MUTANT setProvider's plist refusal -> CREATED   -> "a failing PLIST write no longer aborts the switch"
+MUTANT delete the trust write                    -> the exact-set assertion
+```
+
+📌 **A mutation attempt that FAILS TO APPLY reads exactly like a surviving mutant.** My first try
+asserted the refusal string was unique and it is not: that sentence appears FOUR times in
+`create.js`. The assert fired, the file was left unmutated, and the suite printed `pass 3` - which
+is "the mutant survived" in every visible respect. ⇒ **Assert that the mutation applied, not just
+that the file parsed.** The header now warns that the string has four copies.

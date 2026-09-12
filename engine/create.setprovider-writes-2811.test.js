@@ -199,14 +199,15 @@ test('#2811: WHICH of the four writes can abort the switch, asserted rather than
      BEST-EFFORT". False: inside `setProvider` TWO of the four return REFUSED (the
      trust write and the plist write) and two swallow (the brief rename and the
      profile write).
-     ⚠️ AND GATING IS A PROPERTY OF THE CALL SITE, NOT OF `trustCodexFolder`. The
-     same function is called from four places in create.js: here it returns
-     REFUSED, at the create path its catch records `trust: {ok:false}` and still
-     returns CREATED, and at the adoption path it is swallowed outright -- where a
-     comment calls it "non-gating and best-effort" and is right about ITS site.
-     So this arm is scoped to `setProvider` and says so, which is the discipline
-     this card has failed at five times: measuring one path and pronouncing on the
-     space.
+     ⚠️ AND GATING IS A PROPERTY OF THE CALL SITE, NOT OF `trustCodexFolder`, so
+     this arm asserts `setProvider` and says nothing about the other three callers.
+     It used to name them and was wrong about all three, including calling the
+     create path non-gating when a throw there rolls the whole creation back. The
+     cause was a NAME COLLISION: `trustFolder` (Claude) and `trustCodexFolder` are
+     different functions, and the "non-gating" comment I cited is about the former.
+     ⭐ That paragraph existed to FIX a measuring-one-path-and-pronouncing-on-the-
+     space error and committed the same error in its own sentence. The repair is
+     not a better enumeration; it is asserting one site and enumerating none.
      📌 The mechanism is a REAL failure, not an injected one: `config.toml` is made
      read-only, so `trustCodexFolder`'s `appendFileSync` throws EACCES.
      ⚠️ THE FILE, NOT THE DIRECTORY, AND I GOT THAT WRONG FIRST. Chmodding SIGNIN
@@ -239,4 +240,43 @@ test('#2811: WHICH of the four writes can abort the switch, asserted rather than
     'the refusal says "nothing was changed" but paths were written before the gate fired');
   assert.equal(create.readJob(name).runner, 'claude', 'the launch job was switched despite the refusal');
   assert.equal(fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), true, 'the brief was renamed despite the refusal');
+});
+
+test('#2811: the PLIST write is the second gate, and the trust write has already landed when it fires', () => {
+  /* 🛑 WHY THIS ARM EXISTS. The header names TWO gates and round 25 converted only
+     ONE of them, so "the plist rewrite ... Also gating" was a true sentence with
+     nothing holding it. Measured before writing this: no test anywhere drove
+     `setProvider`'s plist-REFUSED branch (`grep -rn "startup file"` over
+     engine/*.test.js and server.test.js found only setModel, remove and whoami
+     arms), while the same grep DOES find the wording elsewhere, so the zero was a
+     real absence and not a silent instrument.
+     📌 Again a REAL failure rather than an injected one: the plist is made
+     read-only, so the write throws EACCES. */
+  if (process.getuid && process.getuid() === 0) return; // root ignores the mode bits
+
+  const name = born('setprov-2811-plistgate');
+  const dir = create.workerDir(name);
+  const cfg = nodePath.join(SIGNIN, 'config.toml');
+  const before = snapshot(SANDBOX);
+
+  fs.chmodSync(create.plistPath(name), 0o400);
+  let sw;
+  try { sw = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN }); }
+  finally { fs.chmodSync(create.plistPath(name), 0o600); }
+
+  assert.equal(sw.outcome, create.OUTCOME.REFUSED,
+    'a failing PLIST write no longer aborts the switch: setProvider reported ' + sw.outcome);
+  assert.match(String(sw.because), /startup file/,
+    'the refusal no longer names the startup file as the reason');
+
+  /* ⇒ AND THE ORDER IS PINNED BY THE SAME MEASUREMENT, which is why this asserts a
+     set rather than a count: the ONLY thing written is the trust append, so the
+     trust write had already landed when the plist gate fired, and nothing after
+     the plist write ran at all. */
+  assert.deepEqual(changesBetween(before, snapshot(SANDBOX), SANDBOX),
+    [`MODIFIED ${cfg.slice(SANDBOX.length)}`],
+    'the plist gate fired with a different set of writes already done');
+  assert.equal(create.readJob(name).runner, 'claude', 'the launch job changed despite the refusal');
+  assert.equal(fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), true, 'the brief was renamed after the plist gate refused');
+  assert.equal(store.readProfile(name).provider, 'anthropic', 'the profile was stamped after the plist gate refused');
 });
