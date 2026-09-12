@@ -213,7 +213,15 @@ function pauseForSwitch(agents, opts = {}) {
     for (const c of candidates) notPaused.push({ name: c.name, because: 'we could not read the list of paused agents, so nothing was paused' });
     return { paused, notPaused };
   }
-  const alreadyPaused = new Set(existing.filter((e) => e.why === WHY_PAUSED).map((e) => e.name));
+  /* Review round 2: an entry carrying a `because` is HELD FOR RETRY, not a confirmed
+     pause -- its stop failed and so did the undo, so the agent is switched off but
+     may still be running. It skips the switched-off check below (which would call
+     it paused, or "already switched off") and takes the normal path: a fresh stop,
+     with the write-ahead rewriting its entry without the old `because`, which the
+     outcome of that attempt then sets again or clears. */
+  const pausedEntries = existing.filter((e) => e.why === WHY_PAUSED);
+  const heldForRetry = new Set(pausedEntries.filter((e) => e.because).map((e) => e.name));
+  const alreadyPaused = new Set(pausedEntries.filter((e) => !e.because).map((e) => e.name));
   const macOff = switchedOffOnMac(platform);
 
   const withJobs = [];
@@ -227,7 +235,7 @@ function pauseForSwitch(agents, opts = {}) {
       notPaused.push({ name: c.name, because: `${c.name} was not started by Kosmos, so we could not pause it and it keeps running` });
       continue;
     }
-    if (jobIsSwitchedOff(c.name, platform, macOff)) {
+    if (!heldForRetry.has(c.name) && jobIsSwitchedOff(c.name, platform, macOff)) {
       // An earlier pause of this same Kosmos (a board that could not restart
       // itself, paused twice): it IS paused, and its entry stands as written.
       if (alreadyPaused.has(c.name)) paused.push(c.name);

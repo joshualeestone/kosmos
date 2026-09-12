@@ -350,6 +350,35 @@ test('R1-4: an agent THIS Kosmos already paused (switched off by us) stays pause
   assert.deepEqual(readRecord().entries, [{ name: 'ava', why: 'paused', at }], 'the earlier pause entry was dropped or rewritten');
 });
 
+test('R2: an entry HELD for retry (stop and undo both failed) is not a confirmed pause: a later pause tries the stop again', () => {
+  const label = `gui/${UID}/${create.serviceLabel('ava')}`;
+  const agent = [{ name: 'ava', session: null, tied: true }];
+
+  // 1. The stop fails and so does the undo: disabled but still running, entry held.
+  failing = [{ match: 'bootout', code: 9 }, { match: 'launchctl enable', code: 9 }];
+  const first = worldstarts.pauseForSwitch(agent, { platform: MAC });
+  assert.deepEqual(first.notPaused.map((n) => n.name), ['ava']);
+  assert.ok(readRecord().entries[0].because, 'the control: the entry is held with a because');
+  macDisabled.add('ava');   // launchd now reports the job switched off, as it would
+
+  // 2. A later pause from the same Kosmos, still failing: NOT reported paused, and
+  //    a fresh stop was attempted rather than trusting the held entry.
+  calls = [];
+  const second = worldstarts.pauseForSwitch(agent, { platform: MAC });
+  assert.deepEqual(second.paused, [], 'an agent that never stopped was reported paused');
+  assert.deepEqual(second.notPaused.map((n) => n.name), ['ava']);
+  assert.ok(calls.includes(`launchctl bootout ${label}`), 'no fresh stop was attempted');
+  assert.match(readRecord().entries[0].because, /could not be stopped/, 'the held entry lost its diagnostic');
+
+  // 3. The stop now works: paused, and the stale because is cleared.
+  failing = [];
+  const third = worldstarts.pauseForSwitch(agent, { platform: MAC });
+  assert.deepEqual(third.paused, ['ava']);
+  const entry = readRecord().entries[0];
+  assert.equal(entry.name, 'ava');
+  assert.equal(entry.because, undefined, 'a confirmed pause must not carry the old failure');
+});
+
 test('an unreadable record is refused, never rewritten from empty', () => {
   fs.mkdirSync(nodePath.dirname(worldstarts.RECORD_FILE), { recursive: true });
   fs.writeFileSync(worldstarts.RECORD_FILE, '{ not json');

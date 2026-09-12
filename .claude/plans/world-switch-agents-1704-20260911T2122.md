@@ -187,3 +187,30 @@ only the minimal choice added.
      label is false: up to `WINDOW_MS` on a board that cannot restart itself, and
      briefly over a still-running agent resumed from a stale entry.
    - A pause-specific cause is left to a separate card.
+
+### Round 2 (2026-09-11): all six round-1 fixes confirmed; one bug and one test gap, both fixed
+
+1. **BUG: the round-1 fast path ("switched off and already on record") treated an
+   entry held for retry as a confirmed pause.** How it happened:
+   - An agent's stop failed, and the undo of its disable failed too. Its entry was
+     kept with a `because`, and the agent was switched off but still running.
+   - A later pause from the same Kosmos found the job switched off and reported the
+     agent paused.
+   - That dropped the diagnostic, and nothing tried to stop the agent again.
+
+   Fix: an entry carrying a `because` is held for retry. It skips the switched-off
+   check altogether, and `alreadyPaused` counts only entries without one. Dropping
+   it from `alreadyPaused` alone was not enough: the new test showed it then fell
+   into "already switched off", which still skipped the stop. So a held entry now
+   takes the normal path.
+   - The write-ahead rewrites its entry without the old `because`.
+   - A successful stop leaves it paused and clean.
+   - A failed stop whose undo works drops the entry.
+   - A failed stop whose undo also fails gets the `because` back.
+2. **TEST GAP.** Added engine test R2, which runs three pauses in a row:
+   - the stop and the undo fail, so the entry is held;
+   - the stop fails again: the agent is NOT reported paused, a fresh bootout is sent,
+     and the `because` is kept;
+   - the stop succeeds: the agent is reported paused, and the `because` is cleared.
+
+   The test fails without the fix.
