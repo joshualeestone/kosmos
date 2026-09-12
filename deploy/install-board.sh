@@ -122,6 +122,12 @@ validate_dest() {
   # that would slip past a string compare.
   _anc_real="$(cd "$_anc" 2>/dev/null && pwd -P)" || fail "could not resolve the destination's ancestor '$_anc'"
   _dest_real="$_anc_real${DEST#"$_anc"}"
+  # collapse a doubled leading slash: if $_anc_real canonicalized to "/" (an ancestor
+  # that is a symlink to the filesystem root) and the tail keeps its leading slash,
+  # the concatenation yields "//...", which the string-prefix repo checks below would
+  # fail to match against a single-slash repo path -- a false-accept. pwd -P never
+  # emits interior doubled slashes, so only the leading run can occur; collapse it.
+  while :; do case "$_dest_real" in //*) _dest_real="${_dest_real#/}" ;; *) break ;; esac; done
   _repo_real="$(cd "$REPO" 2>/dev/null && pwd -P)" || fail "could not resolve the source repo '$REPO'"
 
   # reject a destination inside a git working tree: installing INTO a checkout is
@@ -151,7 +157,13 @@ validate_dest() {
   # not exist yet (first adoption) or is empty is safe to swap and is allowed.
   if [ -e "$_dest_real" ]; then
     [ -d "$_dest_real" ] || fail "destination '$_dest_real' exists and is not a directory"
-    if [ -n "$(ls -A "$_dest_real" 2>/dev/null)" ] && [ ! -e "$_dest_real/server.js" ]; then
+    # Enumerate the contents. An enumeration FAILURE (a root-owned or otherwise
+    # unreadable directory) must fail CLOSED: we cannot prove it empty or a board,
+    # and treating an unreadable dir as "empty" would let the swap mv-aside and
+    # rm -rf a populated directory we never actually inspected. Capture ls's exit
+    # status (the `|| fail` on the assignment) rather than only its output.
+    _entries="$(ls -A "$_dest_real" 2>/dev/null)" || fail "could not read destination '$_dest_real' to check it is safe to replace; refusing"
+    if [ -n "$_entries" ] && [ ! -e "$_dest_real/server.js" ]; then
       fail "destination '$_dest_real' is a non-empty directory that is not a board install (no server.js); refusing to move it aside and delete it -- point KOSMOS_BOARD_LIBEXEC at a fresh path or an existing board tree"
     fi
   fi

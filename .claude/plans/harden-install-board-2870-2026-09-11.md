@@ -87,7 +87,18 @@ the swap, before any plist/launchctl, so the case stays hermetic. Wired into
   are required to catch a dest that resolves INTO the repo/git-tree, so the two sites
   reasoning about different objects is accepted.
 - The emptiness test uses `ls -A`, a BSD/GNU extension outside strict POSIX. macOS is
-  the sole target and its `ls` supports `-A`, so it is kept as-is.
+  the sole target and its `ls` supports `-A`, so it is kept as-is. It captures `ls`'s
+  exit status (not only its output), so an unreadable directory (execute-only /
+  root-owned) fails CLOSED rather than being misread as empty and swapped.
+- The empty-`$DEST` guard (`[ -n "$DEST" ] || fail`) cannot fire today because the
+  `${KOSMOS_BOARD_LIBEXEC:-<default>}` substitution replaces both unset and empty with
+  the default; it is kept as cheap defense-in-depth against a future change to how
+  `$DEST` is derived.
+- `_dest_real` collapses a doubled leading slash. It only arises when an ancestor
+  component is a symlink to the filesystem root (so `pwd -P` yields `/` and the tail
+  keeps its leading slash); left uncollapsed, a `//`-prefixed path could slip past the
+  string-prefix repo checks (a false-accept). Extremely low probability, but the
+  false-accept direction is the dangerous one, so it is normalized rather than deferred.
 
 ## Follow-up (out of scope here)
 

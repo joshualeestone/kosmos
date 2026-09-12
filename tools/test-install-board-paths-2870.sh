@@ -113,6 +113,21 @@ mkdir -p "$TMP/not-a-board"
 touch "$TMP/not-a-board/some-users-file"
 refuses "a non-empty non-board destination is refused"  "$TMP/not-a-board"     "not a board install|no server.js"
 
+# a symlink whose target resolves INTO the source repo must be caught by the pwd -P
+# canonicalization -- a plain string compare on the symlink path would miss it. This
+# exercises the _anc_real/pwd -P resolution, the most novel code in the change.
+ln -s "$FAKE_REPO" "$TMP/sneaky-link"
+refuses "a symlink resolving INTO the source repo is refused" "$TMP/sneaky-link/board" "source repo or inside it"
+
+# an existing populated dir we cannot ENUMERATE (execute-only: cd works, ls does not)
+# must fail CLOSED -- never be read as empty, which would let the swap delete contents
+# it never inspected. (000 would fail earlier at the ancestor cd; 111 reaches the
+# emptiness check, which is the one under test.)
+mkdir -p "$TMP/noread"; touch "$TMP/noread/hidden"
+chmod 111 "$TMP/noread"
+refuses "an unreadable existing destination fails closed" "$TMP/noread" "could not read destination"
+chmod 755 "$TMP/noread"   # restore so the EXIT trap's rm -rf can clean it up
+
 # ---- acceptances -----------------------------------------------------------
 mkdir -p "$TMP/good-parent"
 accepts "a clean sibling destination is accepted"        "$TMP/good-parent/board"
@@ -120,6 +135,18 @@ accepts "a trailing slash is normalized, not refused"    "$TMP/good-parent/board
 # apostrophe-containing paths must survive the path handling, not be mangled:
 mkdir -p "$TMP/o'brien"
 accepts "an apostrophe in the destination is handled"    "$TMP/o'brien/board"
+# a space and glob-metacharacters in the path must be treated literally by the
+# quoting/`case` handling, not word-split or expanded:
+mkdir -p "$TMP/with space"
+accepts "a space in the destination is handled"          "$TMP/with space/board"
+mkdir -p "$TMP/star*dir"
+accepts "a glob metacharacter in the destination is handled" "$TMP/star*dir/board"
+
+# a symlinked ancestor that resolves to a SAFE dir must resolve and be accepted (the
+# positive counterpart to the sneaky-into-repo refusal above):
+mkdir -p "$TMP/realtarget"
+ln -s "$TMP/realtarget" "$TMP/safe-link"
+accepts "a symlinked-ancestor destination resolves and is accepted" "$TMP/safe-link/board"
 
 # a destination that does not exist yet, whose parent does not exist yet either,
 # is fine as long as its nearest EXISTING ancestor is a safe directory:
