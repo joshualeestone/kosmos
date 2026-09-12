@@ -11341,6 +11341,31 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #768: record a free-text message on a task's conversation. Body { text }.
+     tasks.say validates (empty -> 400, missing project/task -> 404) and records it
+     via engine/taskchat.js, so it shows in the task's activity (the read side, the
+     /activity route above). Record-only: it is not delivered to any agent yet
+     (two-way delivery is a later, separate piece -- see tasks.say's header). */
+  const taskSay = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/message$/);
+  if (taskSay && req.method === 'POST') {
+    const id = decodeSegment(taskSay[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      try {
+        tasks.say(id, taskSay[2], body.text);
+        sendJson(res, 200, { ok: true });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
+          { error: msg || 'we could not record that message' });
+      }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
   /* The parts of a task (#206 step 2). One route per verb, the same shape as
      close/reopen above, and every one of them re-tells the people named on the
      task afterwards. */

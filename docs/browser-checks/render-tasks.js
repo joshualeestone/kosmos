@@ -231,9 +231,10 @@ const MEMBER = 'taskmate';
     // The recorded activity (the conversation so far) lives IN the middle column now,
     // not in a full-width section below the two columns.
     if ((await p.locator('.tkconvcol #tk-activity').count()) !== 1) die('the activity list is not inside the middle Conversation column');
-    // The honest inert composer is present (writing is blocked on #992; it must not
-    // read as a working affordance, but it must be there as the room's shape).
-    if (!(await p.locator('.tkconvcol .tkcompose').isVisible())) die('the middle-column conversation placeholder (.tkcompose) is missing');
+    // #768: the composer is a real input + Send in the middle column (it was an
+    // inert placeholder before the write path existed).
+    if (!(await p.locator('.tkconvcol .tkcompose #tk-say').isVisible())) die('the middle-column composer input (#tk-say) is missing');
+    if (!(await p.locator('.tkconvcol .tkcompose #tk-say-go').isVisible())) die('the middle-column composer Send button (#tk-say-go) is missing');
     // Spec line 5: nothing on the task page says "member". The noun is parts.
     const viewText = (await shown(p.locator('#pj-task-view'))).toLowerCase();
     if (/\bmembers?\b/.test(viewText)) die('the task page says "member"; #768 is parts, not a membership feature: ' + viewText.slice(0, 200));
@@ -268,6 +269,20 @@ const MEMBER = 'taskmate';
     const note = (await shown(p.locator('#tk-note'))).replace(/\s+/g, ' ').trim();
     if (!note.startsWith(MEMBER + ' says it is on this. Marking it done closes it here. It does not stop ')
         || !note.includes(MEMBER)) die('the joined close-note drifted: ' + note);
+    /* #768: the composer records a message that shows in the activity. Type,
+       Send, and wait for the exact text to appear -- this proves the whole round
+       trip (POST /message -> tasks.say -> taskchat -> the /activity read -> render).
+       A distinctive string so the match cannot be a pre-existing phrase. */
+    const SAID = 'checked the changelog draft ' + Date.now();
+    await p.fill('#tk-say', SAID);
+    await p.click('#tk-say-go');
+    await p.waitForFunction((t) => ((document.getElementById('tk-activity') || {}).innerText || '').includes(t), SAID, { timeout: 10000 })
+      .catch(() => {});
+    const acts3 = (await shown(p.locator('#tk-activity'))).replace(/\s+/g, ' ').trim();
+    if (!acts3.includes(SAID)) die('the composer message did not show in the activity: ' + acts3);
+    // The input clears on a successful send.
+    const sayVal = await p.$eval('#tk-say', (el) => el.value);
+    if (sayVal !== '') die('the composer did not clear after sending: ' + sayVal);
     await p.screenshot({ path: path.join(OUT, 'tasks-view-page.png') });
 
     /* Mark as done, come back, and the done task is BEHIND THE DOOR.
