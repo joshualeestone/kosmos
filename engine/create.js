@@ -1093,70 +1093,41 @@ function setCodexAccount(clean, spoken, dir, job) {
  * nothing to codex, so the switch DROPS them rather than smuggling them,
  * and says so in its result so the route can say so in words.
  *
- * 🛑 DO NOT COUNT THE WRITES IN THIS HEADER. The count has been wrong three
- * times, each version written by someone looking straight at the code, so the
- * enumeration lives in a test that MEASURES it:
+ * 🛑 DO NOT COUNT THE WRITES IN THIS HEADER, AND DO NOT DESCRIBE THE OTHER
+ * CALLERS. Six consecutive review rounds found defects in this paragraph and none
+ * in the test beside it, so the enumeration lives where it is MEASURED:
  * `engine/create.setprovider-writes-2811.test.js` snapshots every path under a
  * sandbox, runs this function, and asserts the EXACT SET that changed. A write
  * added later reds it, naming the path. Read that test, not this paragraph.
  *
- * As measured today the set is FIVE paths from FOUR writes, in execution order:
- *   1. `trustCodexFolder` appends `[projects."<workerDir>"]` to
- *      `<codexHome>/config.toml`. Its `catch` returns REFUSED, so it can abort
- *      the switch. 🛑 "THE ONLY ONE THAT IS NOT BEST-EFFORT" IS WHAT THIS SAID,
- *      and it is false: the plist write below returns REFUSED too. TWO of the
- *      four gate here and two swallow, and which is which is now an ASSERTION in
- *      the same test, not a sentence here.
- *   2. the plist rewrite through `plistFor`. Also gating: its catch returns
- *      REFUSED with "we could not write <name>'s startup file". ⚠️ That string
- *      appears FOUR times in this file; only `setProvider`'s copy is meant.
- *      ALL FOUR are asserted in the test named above, one arm each: the two
- *      gates by a real EACCES that makes the write throw, and the two swallows by
- *      the same, asserting the switch COMPLETES around the failure. Each arm reds
- *      under a mutant naming it, and the two swallow arms red under a `throw` put
- *      in the catch, which is what proves they REACH it. None of this is carried
- *      by these sentences.
- *      ⚠️ Before round 27 the swallow half was prose only: NO test in the repo
- *      entered either catch (measured by replacing both with a throw and running
- *      every file that exercises `setProvider`; nothing surfaced), so "swallows"
- *      and "gates" were indistinguishable for writes 3 and 4 while this header
- *      claimed the split was asserted.
- *   3. the brief RENAME, CLAUDE.md <-> AGENTS.md (two paths: one created, one
- *      deleted). Best-effort: its catch swallows.
- *   4. `store.writeProfile(clean, { provider })`. Best-effort: its catch swallows.
- * ⚠️ GATING IS A PROPERTY OF THE CALL SITE, NOT OF `trustCodexFolder`, so this
- * header describes THIS site only and no longer enumerates the others. It did,
- * and it was wrong about every one of them: it put the `trust:{ok:false}`-with-
- * CREATED behaviour on the create path (it is `setCodexAccount`'s), and called the
- * create path non-gating when that site is the MOST gating of the four -- its call
- * is inside `step(...)`, so a throw makes `trustedFolder` false, which clears
- * `wroteJob`, which calls `rollBack()` and returns PARTIAL.
- * 🛑 THE CAUSE WAS A NAME COLLISION, and it is worth knowing before reading any
- * "the trust write" comment in this file: `trustFolder` (the CLAUDE one, in
- * `engine/trust.js`) and `trustCodexFolder` (this one) are DIFFERENT FUNCTIONS.
- * The "NON-GATING, AND NOT A STEP" comment further down is about `trustFolder`.
- * I read "the trust write" as meaning this one and inherited a property that
- * belongs to the other.
+ * Orientation only, all four asserted by their own arm in that test (the gates by
+ * a real EACCES, the swallows by the same, asserting the switch COMPLETES around
+ * the failure):
+ *   1. `trustCodexFolder` appends to `<codexHome>/config.toml`   GATE (REFUSED)
+ *   2. the plist rewrite through `plistFor`                      GATE (REFUSED)
+ *   3. the brief RENAME, CLAUDE.md <-> AGENTS.md                 best-effort
+ *   4. `store.writeProfile(clean, { provider })`                 best-effort
+ * ⚠️ Gating is a property of the CALL SITE, not of `trustCodexFolder`. This is
+ * `setProvider`'s answer; the other three callers differ, and are not described
+ * here because every version of that description has been wrong.
  *
- * ⚠️ THE HISTORY, because every wrong version was plausible:
- *   "one"   - this header, 8fe044b8 (2026-08-24): "a plist rewrite through the
- *             one writer (`plistFor`) and nothing else: no record is copied,
- *             moved, or stamped". The `writeProfile` call it denies landed in
- *             that SAME COMMIT, so it was never true. The brief rename (a98e282e,
- *             #2245) widened an error that already existed.
- *   "three" - my #2811 round-23 correction: I enumerated the two statements a
- *             reviewer pointed at and inferred the set was closed. It was not.
- * ⭐ A sentence written beside the code it describes is not thereby checked
- * against it, and correcting the copies of a claim without correcting its SOURCE
- * guarantees the next copy.
+ * 🛑 TWO FUNCTIONS, ONE WORD APART, AND IT IS WORTH KNOWING BEFORE YOU READ ANY
+ * "the trust write" COMMENT IN THIS FILE: `trustFolder` (the CLAUDE one, in
+ * `engine/trust.js`) and `trustCodexFolder` (this one) are DIFFERENT FUNCTIONS,
+ * with different gating at the same call site. The "NON-GATING, AND NOT A STEP"
+ * comment further down is about `trustFolder`.
  *
- * 🛑 AND DO NOT SAY "NOTHING MOVES OUTSIDE `workerDir(clean)`". I wrote that
- * alongside "three" and it is false in three ways: the trust file, the plist and
- * the profile are all outside it, and the last two always were. Only the brief
- * rename is inside. What IS true, and is the property callers actually need:
- * `workerDir(clean)` is not itself moved and the agent's NAME does not change, so
- * every lookup keyed on either resolves the same directory afterwards. That is
- * why #2811's stale-Claude-transcript guard is necessary rather than moot.
+ * 🛑 AND DO NOT SAY "NOTHING MOVES OUTSIDE `workerDir(clean)`": the trust file,
+ * the plist and the profile are all outside it. What IS true, and is the property
+ * callers need, is that `workerDir(clean)` is not itself moved and the agent's
+ * NAME does not change, so every lookup keyed on either resolves the same
+ * directory afterwards. That is why #2811's stale-Claude-transcript guard is
+ * necessary rather than moot.
+ *
+ * 📌 The round-by-round history of what this header got wrong (four counts, a
+ * four-site enumeration, a ranking, a mis-scoped topic sentence) is recorded in
+ * `.claude/plans/whoami-codex-2811-plan.md`, which is a dated record. It was here,
+ * and being here it read as current fact and kept generating new errors.
  */
 function setProvider(name, provider, opts) {
   const clean = cleanName(name);

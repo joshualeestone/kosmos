@@ -194,14 +194,18 @@ test('#2811: the EXACT SET of paths setProvider writes, enumerated by measuremen
     'the worker directory MOVED, so a workdir-keyed transcript lookup no longer resolves');
 });
 
-test('#2811: WHICH of the four writes can abort the switch, asserted rather than described', () => {
+test('#2811: WHICH of the four writes can abort the switch, asserted rather than described', (t) => {
   /* 🛑 THE CLAIM THIS REPLACES SAID THE TRUST WRITE IS "THE ONLY ONE THAT IS NOT
      BEST-EFFORT". False: inside `setProvider` TWO of the four return REFUSED (the
      trust write and the plist write) and two swallow (the brief rename and the
      profile write).
      ⚠️ AND GATING IS A PROPERTY OF THE CALL SITE, NOT OF `trustCodexFolder`, so
-     this arm asserts `setProvider` and says nothing about the other three callers.
-     It used to name them and was wrong about all three, including calling the
+     this arm ASSERTS `setProvider` and no other caller. 📌 Not "says nothing about
+     the other three": the next sentence says something about one of them, and a
+     topic sentence falsified two lines later is the defect this file keeps
+     finding. Recording a measured historical error is a different act from
+     enumerating or ranking the callers, which is what the repair removed.
+     It used to enumerate them and was wrong about all three, including calling the
      create path non-gating when a throw there rolls the whole creation back. The
      cause was a NAME COLLISION: `trustFolder` (Claude) and `trustCodexFolder` are
      different functions, and the "non-gating" comment I cited is about the former.
@@ -215,7 +219,15 @@ test('#2811: WHICH of the four writes can abort the switch, asserted rather than
      removing entries, not appending to a file that already exists -- and the arm
      above has already created `config.toml` in this shared sandbox. The test said
      so immediately (`setProvider reported created`), which is the arm working. */
-  if (process.getuid && process.getuid() === 0) return; // root ignores the mode bits
+  if (process.getuid && process.getuid() === 0) {
+    /* 🛑 t.skip, NOT a bare `return`. A bare return reports the arm as PASSED with
+       zero assertions run, which is indistinguishable in the tally from a real
+       pass -- and this file's own record claims these arms "cannot pass
+       vacuously", which would be false under root. `engine/instructions.test.js`
+       already uses t.skip for exactly this mode-bits condition, twice. */
+    t.skip('running as root, so the mode bits are ignored');
+    return;
+  }
 
   const name = born('setprov-2811-gate');
   const dir = create.workerDir(name);
@@ -242,7 +254,7 @@ test('#2811: WHICH of the four writes can abort the switch, asserted rather than
   assert.equal(fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), true, 'the brief was renamed despite the refusal');
 });
 
-test('#2811: the PLIST write is the second gate, and the trust write has already landed when it fires', () => {
+test('#2811: the PLIST write is the second gate, and the trust write has already landed when it fires', (t) => {
   /* 🛑 WHY THIS ARM EXISTS. The header names TWO gates and round 25 converted only
      ONE of them, so "the plist rewrite ... Also gating" was a true sentence with
      nothing holding it. Measured before writing this: no test anywhere drove
@@ -252,7 +264,15 @@ test('#2811: the PLIST write is the second gate, and the trust write has already
      real absence and not a silent instrument.
      📌 Again a REAL failure rather than an injected one: the plist is made
      read-only, so the write throws EACCES. */
-  if (process.getuid && process.getuid() === 0) return; // root ignores the mode bits
+  if (process.getuid && process.getuid() === 0) {
+    /* 🛑 t.skip, NOT a bare `return`. A bare return reports the arm as PASSED with
+       zero assertions run, which is indistinguishable in the tally from a real
+       pass -- and this file's own record claims these arms "cannot pass
+       vacuously", which would be false under root. `engine/instructions.test.js`
+       already uses t.skip for exactly this mode-bits condition, twice. */
+    t.skip('running as root, so the mode bits are ignored');
+    return;
+  }
 
   const name = born('setprov-2811-plistgate');
   const dir = create.workerDir(name);
@@ -290,7 +310,7 @@ test('#2811: the PLIST write is the second gate, and the trust write has already
 });
 
 
-test('#2811: the brief RENAME is best-effort, so a failing rename does not abort the switch', () => {
+test('#2811: the brief RENAME is best-effort, so a failing rename does not abort the switch', (t) => {
   /* 🛑 WHY: the header calls writes 3 and 4 "best-effort: its catch swallows", and
      round 27 measured that NO test in the repo reaches either catch. Both were
      replaced with a throw and every file that exercises `setProvider` was run: no
@@ -301,7 +321,7 @@ test('#2811: the brief RENAME is best-effort, so a failing rename does not abort
      same-directory rename throws. Read and execute stay on, so the two
      `existsSync` checks above the rename still behave normally and the rename is
      genuinely reached. */
-  if (process.getuid && process.getuid() === 0) return;
+  if (process.getuid && process.getuid() === 0) { t.skip('running as root, so the mode bits are ignored'); return; }
 
   const name = born('setprov-2811-renameswallow');
   const dir = create.workerDir(name);
@@ -318,17 +338,25 @@ test('#2811: the brief RENAME is best-effort, so a failing rename does not abort
   assert.equal(fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), true, 'the rename did not actually fail, so this arm proves nothing');
   assert.equal(fs.existsSync(nodePath.join(dir, 'AGENTS.md')), false, 'the rename did not actually fail, so this arm proves nothing');
 
-  /* ⇒ AND THE WRITES AFTER IT STILL HAPPENED, which is the whole content of
-     "best-effort": the switch completed around the failure. */
-  assert.equal(create.readJob(name).runner, 'codex', 'the plist write did not happen, so the rename did gate it');
-  assert.equal(store.readProfile(name).provider, 'openai', 'the profile write did not happen, so the rename did gate it');
+  /* ⇒ AND THE OTHER WRITES STILL HAPPENED. 🔑 THE TWO LINES BELOW ARE NOT THE SAME
+     KIND OF ASSERTION, and saying "so the rename gated it" on both was wrong:
+     `setProvider` writes plist -> rename -> profile with NO ROLLBACK, so a failure
+     at the rename cannot un-write the plist that preceded it.
+       - a write BEFORE the mutation point is a CONTROL that this arm is exercising
+         what it claims; its red means the arm is invalid, not that the rename gated
+       - a write AFTER it is EVIDENCE of non-gating; its red means the rename DID gate
+     Message each for what it can actually diagnose. */
+  assert.equal(create.readJob(name).runner, 'codex',
+    'CONTROL: the plist write (which PRECEDES the rename) did not land, so this arm is not exercising the rename in isolation');
+  assert.equal(store.readProfile(name).provider, 'openai',
+    'the profile write (which FOLLOWS the rename) did not happen, so the rename did gate it');
 });
 
-test('#2811: the PROFILE write is best-effort, so a failing profile write does not abort the switch', () => {
+test('#2811: the PROFILE write is best-effort, so a failing profile write does not abort the switch', (t) => {
   /* The pair of the arm above, for write 4. Real EACCES: the profiles directory is
      made non-writable, and `store.writeProfile` writes a temp file beside the
      target and renames it, so both steps need directory write permission. */
-  if (process.getuid && process.getuid() === 0) return;
+  if (process.getuid && process.getuid() === 0) { t.skip('running as root, so the mode bits are ignored'); return; }
 
   const name = born('setprov-2811-profileswallow');
   const dir = create.workerDir(name);
@@ -346,7 +374,11 @@ test('#2811: the PROFILE write is best-effort, so a failing profile write does n
   assert.equal(store.readProfile(name).provider, 'anthropic',
     'the profile write did not actually fail, so this arm proves nothing');
 
-  /* ⇒ And everything else still landed. */
-  assert.equal(create.readJob(name).runner, 'codex', 'the plist write did not happen, so the profile write did gate it');
-  assert.equal(fs.existsSync(nodePath.join(dir, 'AGENTS.md')), true, 'the brief rename did not happen, so the profile write did gate it');
+  /* ⇒ And everything else still landed. BOTH of these precede the profile write, so
+     both are CONTROLS and neither can be evidence that the profile write gated:
+     nothing after write 4 exists to observe. See the note in the arm above. */
+  assert.equal(create.readJob(name).runner, 'codex',
+    'CONTROL: the plist write (which PRECEDES the profile write) did not land, so this arm is not exercising the profile write in isolation');
+  assert.equal(fs.existsSync(nodePath.join(dir, 'AGENTS.md')), true,
+    'CONTROL: the brief rename (which PRECEDES the profile write) did not happen, so this arm is not exercising the profile write in isolation');
 });

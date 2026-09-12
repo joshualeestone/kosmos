@@ -1430,3 +1430,110 @@ today; proving your arm reaches it is a statement about the arm.
 📌 **Reachability is a better probe than a name grep.** A grep for a test name asks whether anybody
 wrote something that looks like coverage. A throw in the branch asks whether anything actually goes
 there. The two answers differed here for two of four writes.
+
+## Round 28: round 27's own lesson, turned on round 27's code
+
+**[MAJOR] Three of the four "everything else still landed" messages diagnose something the
+execution order forbids.** `setProvider` writes plist -> rename -> profile with **no rollback**:
+
+```
+engine/create.js   fs.writeFileSync(plistPath(clean), ...)      write 2 (plist)
+                   try { fs.renameSync(oldBrief, newBrief); }   write 3 (rename)
+                   try { store.writeProfile(clean, ...) }       write 4 (profile)
+```
+
+A failure at write 3 cannot un-write write 2. So "the plist write did not happen, **so the rename
+did gate it**" is not an available inference, and neither an absent plist nor an absent rename can
+ever show that the **profile** write gated. Of the four, only one was sound: the profile check
+inside the RENAME arm, because the profile follows the rename.
+
+⭐ **This is round 27's finding applied to round 27's code**: *"the damage is not the red, it is
+where the red points."* Those assertions CAN red (a rename failure still leaves
+`outcome === CREATED`, so nothing shields them), and when they do they send the reader to the
+wrong write.
+
+✅ **The rule the messages now encode, which is the general form:**
+- an assertion on a write **BEFORE** the mutation point is a **CONTROL** that the arm is
+  exercising what it claims; its red means THE ARM IS INVALID
+- an assertion on a write **AFTER** it is **EVIDENCE** of non-gating; its red means the write
+  under test DID gate
+
+⇒ **Message each assertion for what it can actually diagnose**, which is decided by its position
+in the sequence, not by which arm it happens to live in.
+
+**[MAJOR] "ALL FOUR are asserted" had the wrong nearest antecedent.** It sat inside the bullet for
+write 2, one sentence after *"that string appears FOUR times in this file"* -- so it read as "all
+four copies of the refusal string are asserted", a flat contradiction of the warning immediately
+above it. The intended subject was the four WRITES, two bullets up.
+
+✅ Fixed structurally rather than by a word: the paragraph is out of the bullet list entirely, its
+subject is stated, and the reason it moved is recorded so nobody puts it back. **A pronoun whose
+antecedent is two bullets away is a claim about whatever is nearest.**
+
+### Round 28's two NITs, both sharper than their label
+
+**A bare `return` under root reports the arm as PASSED, not skipped, so "cannot pass vacuously"
+was false there.** All four EACCES arms guarded with
+`if (process.getuid && process.getuid() === 0) return;`. Under root every one returns before a
+single assertion runs, and the tally cannot tell that from a real pass.
+
+⚠️ **And this was a DEPARTURE FROM AN EXISTING CONVENTION, not a missing one.**
+`engine/instructions.test.js` already calls `t.skip('running as root, so ...')` for exactly this
+mode-bits problem, twice, in the same directory. I invented a weaker form beside a working one.
+
+✅ Converted to `t.skip`, and verified with a control rather than by reading: forcing the guard
+true gives
+
+```
+before the fix (bare return):   ℹ pass 5   ℹ skipped 0     <- a lie the tally cannot expose
+after  (t.skip):                ℹ pass 1   ℹ skipped 4
+```
+
+📌 The reviewer bounded it correctly as a NIT by measuring reachability: both workflows are
+`runs-on: macos-latest` with no container or root path, so the vacuous-pass state is not currently
+reachable in CI. **A true claim about an unreachable state is still a false claim**, and the fix
+cost one line.
+
+**"the MOST gating of the four" is a RANKING over the set the same paragraph says it no longer
+enumerates.** Round 26 deleted the four-site enumeration and stated the remedy as *"assert one
+site and enumerate none"*. The comparative survived the deletion, asserted by no test.
+
+⭐ **A ranking is an enumeration that survived the deletion of the enumeration.** It reads as a
+single word rather than a list, which is exactly why it was not noticed when the list went. Fixed
+by deletion: the bounded mechanism (a throw there rolls the creation back, measured in round 26)
+stays; "most" goes.
+
+## A structural decision I made rather than waiting to be told: the header was the target
+
+Not a review finding. Measured while round 28's suite ran:
+
+```
+setProvider's header at the merge-base:   18 lines
+                        after round 27:   91 lines
+defects found in that header:             rounds 23, 24, 25, 26, 27, 28  (six consecutive)
+defects found in the ASSERTIONS beside it: zero
+```
+
+Every arm I have added has held. Every paragraph I have written about those arms has been wrong at
+least once. **The loop was not failing to converge; I was moving the target each round by adding
+prose, and each reviewer was correctly finding defects in the new prose.** That is the
+`a-loop-can-converge-on-a-target-you-keep-moving` bulletin, and I was producing it rather than
+suffering it.
+
+✅ **The header is cut to 50 lines and now carries only what a reader of `setProvider` needs:**
+what "with its memory" means, a pointer to the test that MEASURES the write set, a four-line
+orientation table, the `trustFolder`/`trustCodexFolder` name-collision warning (a live hazard
+when reading OTHER comments in the file), and the property callers actually depend on
+(`workerDir` is not moved, the NAME does not change).
+
+🛑 **Everything removed is the round-by-round history of my own wrong versions, and it was checked
+into the plan BEFORE deletion, not after.** I probed nine distinct phrases; eight were present and
+one returned zero. That zero was MY PROBE being wrong (the phrase wraps across a line break in the
+plan), not a missing record - the same wrap trap this card has hit four times. **Check that the
+record survives elsewhere before you delete it, and treat your own probe as the likelier failure.**
+
+⭐ **The principle, and it is why the history had to move rather than shrink: A CODE COMMENT IS
+READ AS CURRENT FACT; A PLAN FILE IS READ AS A DATED RECORD.** Keeping "here is what I used to
+believe and why it was wrong" in a header puts falsified claims in the place reserved for true
+ones, where each one is a fresh surface for the next reviewer. The history is worth keeping. It
+was in the wrong file.
