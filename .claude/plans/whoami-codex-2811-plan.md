@@ -2169,3 +2169,84 @@ A control that says only "not present" gets deleted by the next person with a re
 that says "not present, and here is exactly what you must do if you ever need it present" gets
 UPDATED correctly instead. I have written several assertions on this card; none of them does that,
 and this is the model to copy.
+
+### Round 34's own blast radius, enumerated WITH a control this time
+
+My last two enumerations were wrong because each grepped ONE token (`snap.agents`, then `known()`).
+So this one uses several, and carries a positive control.
+
+**Does the new `name` key on the wire reach a consumer that did not expect it?**
+
+```
+web/index.html hits for "api/whoami"   : 0
+web/index.html hits for "api/accounts" : 36   <- POSITIVE CONTROL: the grep works, so the 0 is real
+every /api/whoami caller in the repo   : install/kosmos, tools/windows/kosmos-cli.js
+```
+
+Both CLIs print **only the `because` sentence** (`install/kosmos` seds `"because":"…"` out of the
+body; the Windows CLI does `out(r.json.because)`). So the key is additive on the wire and read by
+nobody who did not ask for it.
+
+**And do the surfaces AGREE now?** That disagreement was the complaint, so it is the thing to
+measure rather than assume:
+
+```
+                          NAMED account            UNNAMED account
+kosmos whoami   : "…it runs on Work…"        "…an account we cannot identify (/Users/x/.codex-work2)…"
+web parenthetical: "Work"                     ""  (the caller omits it)
+```
+
+⇒ Named: both say **Work**. Unnamed: both stay honest, one naming the directory because a sentence
+must say something, the other omitting because a parenthetical need not. **Neither claims a name
+that does not exist**, which is the property the card is about.
+
+## Round 35: an unguarded construction, and a defect in a TEST NAME I wrote yesterday
+
+**[MAJOR] The round-34 `name` addition was unguarded on one of its three constructions.** Deleting
+`name` from the `seen.account` live branch left the WHOLE SUITE GREEN. The reviewer proved the
+blind spot was the branch and not the instrument by running the same edit on all three:
+
+```
+delete name on the `seen.account` branch     -> 289/289 GREEN      <- the gap
+delete name on the `seen.configDir` branch   -> 1 FAIL (#1304's deepEqual)
+strip name from the record projection        -> 1 FAIL (#2225)
+```
+
+⭐ **Two red and one green is a far stronger claim than one green**, and it is the shape to copy
+when reporting a coverage hole.
+
+⚠️ **And the cause was mine: I added the key three times and ASSUMED the two existing parity tests
+covered it, without checking WHICH BRANCH EACH ONE DRIVES.** `#1304` builds its live answer as
+`{ok:true, account:null, …}` -> the configDir branch. `#2225` drives the record path. Nobody drove
+the account branch. **That is "a map of what is guarded is not a map of what changed", one layer
+below where I wrote that sentence the same morning.**
+
+✅ New arm, `#2811 PARITY: the live branch that HAS an account`. It asserts the KEY'S PRESENCE, not
+a value, because the value is expected to be NULL there (that branch fires for a Claude agent and
+`readName` is null for every Claude dir). **Parity means a consumer cannot tell which reader
+answered from the shape** - the contract `#1304` exists to hold.
+
+📌 My first mutant for it FAILED TO APPLY, the uniqueness assert caught it, and the arm then ran
+unmutated and printed `pass 1` - indistinguishable from a kill. Re-applied by line index with a
+site count (`5 -> 4`). **Third time on this card that a failed mutation has masqueraded as a
+successful one.**
+
+**[NIT, and it is a latent leak] `readName(seen.configDir)` on a branch whose own previous line
+says the dir can be falsy.** `nameFile` is `path.join(path.resolve(String(dir || '')), '.kosmos-name')`,
+so a falsy dir resolves to **the process CWD**. Measured:
+
+```
+cwd: /private/tmp/<probe>        (containing a .kosmos-name)
+readName(null) => "LEAKED"   readName(undefined) => "LEAKED"   readName("") => "LEAKED"
+```
+
+**And `name` now LEADS the sentence chain, so that value would outrank a real email.** Latent - no
+production arm produces `account` truthy with `configDir` falsy - and closed with one ternary,
+because the line above it already writes `seen.configDir || null` and is therefore the code's own
+statement that this branch can see one.
+
+**[And a defect in a TEST NAME I wrote yesterday.]** My flip of the `#2225` control titled it
+*"exposes name on EVERY account branch, or none"* while its body drives only the RECORD path. The
+green mutant above is the consequence. ⭐ **A title is a claim, and mine over-claimed within a day
+of my writing down that assertions must state what they actually guard.** Narrowed to the branch it
+drives, with the live branches named where they are pinned.

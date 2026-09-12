@@ -822,8 +822,15 @@ function whoamiFor(card, known, live) {
           dir: seen.configDir || null,
           /* #2811: same key as the other two constructions. `#1304` asserts the two
              readers return the SAME FIELD SET, and it caught this when the name was
-             added to only one of them -- which is the parity that test exists for. */
-          name: openaiAccounts.readName(seen.configDir),
+             added to only one of them -- which is the parity that test exists for.
+             🛑 GUARDED ON A FALSY DIR, AND THE LINE ABOVE IS WHY: it writes
+             `seen.configDir || null`, so this branch can see one. `readName` does
+             `path.resolve(String(dir || ''))`, which for a falsy dir is THE PROCESS
+             CWD -- measured returning a `.kosmos-name` from the working directory.
+             Since `name` now LEADS the sentence's chain, that value would outrank a
+             real email. Latent today (no production arm produces `account` truthy
+             with `configDir` falsy), and cheaper to close than to keep true. */
+          name: seen.configDir ? openaiAccounts.readName(seen.configDir) : null,
           isDefault: isDefaultDir(seen.configDir),
         },
         from: 'process',

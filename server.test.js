@@ -14088,3 +14088,53 @@ test('#2811: the account NAME survives the route, not just the sentence function
     try { fsX.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
   }
 });
+
+test('#2811 PARITY: the live branch that HAS an account carries `name` too, or the three constructions diverge', () => {
+  /**
+   * 🛑 THE CONSTRUCTION NOTHING GUARDED. `whoamiFor` builds an account object in
+   * THREE places -- live-with-account (`seen.account`), live-with-only-a-dir
+   * (`seen.configDir`), and the record projection -- and #2811 added `name` to all
+   * three. Two are pinned: `#1304`'s field-set parity drives the SECOND live branch
+   * (its fixture is `{ok:true, account:null, …}`), and `#2225`'s control drives the
+   * record path. Deleting `name` from the FIRST live branch left 294/294 GREEN.
+   *
+   * ⚠️ That is the "a map of what is guarded is not a map of what changed" failure
+   * one layer down: I added the key three times and believed the two existing parity
+   * tests covered it, without checking WHICH branch each one drives.
+   *
+   * 🔑 THE VALUE HERE IS EXPECTED TO BE NULL, and that is the point. This branch
+   * fires for a CLAUDE agent (the live reader supplies an email), and `readName` is
+   * null for every Claude dir -- so the assertion is about the KEY's PRESENCE, which
+   * is what parity means. A shape a consumer can use to tell which reader answered
+   * is the defect `#1304` exists to prevent.
+   */
+  const { whoamiFor } = require('./server.js');
+  const nodePathX = require('node:path');
+  const defDir = nodePathX.join(require('node:os').homedir(), '.claude');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('parityclaude', { state: 'idle' })]);
+    const card = board.agents.find((a) => a && a.name === 'parityclaude');
+    assert.ok(card, 'the fixture produced no card');
+
+    /* Live branch 1: the reader SUPPLIES an account, which is what selects it. */
+    const out = whoamiFor(card, [], { ok: true, account: 'dave@example.com', model: null, configDir: defDir });
+    assert.ok(out.account, 'the live-with-account branch returned no account, so this arm measures nothing');
+    assert.equal(out.account.email, 'dave@example.com',
+      'the fixture did not take the live-with-account branch, so this arm is measuring the wrong construction');
+
+    assert.ok('name' in out.account,
+      'the live-with-account branch dropped `name`, so the three account constructions return different field sets');
+    assert.equal(out.account.name, null,
+      'a Claude dir carries no sidecar, so `name` must be present and NULL here -- a non-null means it is reading the wrong dir');
+
+    /* CONTROL: the email still leads for a Claude account. The `name` rung was put
+       FIRST in the sentence chain, so this is where that would show up as a
+       regression if `name` were ever non-null on this path. */
+    const { sentenceForWhoami } = require('./server.js');
+    assert.match(sentenceForWhoami(out.account, null, 'claude'), /dave@example\.com/,
+      'the leading name rung displaced the email on the Claude path');
+  } finally {
+    if (board) board.restore();
+  }
+});
