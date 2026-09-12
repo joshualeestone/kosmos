@@ -4501,6 +4501,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .attach-chip-x:hover { background: rgba(20,22,26,.07); color: var(--k-ink); }
 .attach-chip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .thread.dragging, #d-dmthread.dragging { outline: 2px dashed var(--gold-deep); outline-offset: -2px; background: rgba(214,166,46,.06); }
+/* #2868 (Josh): the composer input area itself (text field + the +) is a drop
+   target, so a file dropped ON the input attaches instead of the browser pasting
+   its path. Same drop-active treatment as the thread above. A separate rule from
+   the base `.composerbox` (whose border/flex the focus-ring test guards): this
+   adds only the drag state, so nothing about the resting box changes. */
+.composerbox.dragging { outline: 2px dashed var(--gold-deep); outline-offset: -2px; background: rgba(214,166,46,.06); }
 .dm-b { max-width: 92%; padding: 9px 13px; border-radius: 12px; font-size: .9375rem;
   line-height: 1.45;
   /* #2660 then #2805 (Josh): the shared `.dm-b` default stays `transparent`;
@@ -38724,20 +38730,34 @@ document.getElementById('d-attach').addEventListener('click', () => document.get
 document.getElementById('d-attach-file').addEventListener('change', (e) => {
   const files = Array.from(e.target.files || []); e.target.value = ''; attachUploadAll(files, ATTACH_AGENT);
 });
+/* #2868 (Josh): wire an element as a file drop target for `where`. The whole
+   dragenter/over/leave/drop dance -- with a depth counter so `.dragging` does
+   not flicker as the cursor crosses child elements, and preventDefault on
+   dragover/drop so a drop on the composer's TEXT INPUT attaches the file
+   instead of the browser pasting its path (that path-paste was the bug). */
+function wireDropTarget(drop, where) {
+  if (!drop) return;
+  let depth = 0;
+  drop.addEventListener('dragenter', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); depth += 1; drop.classList.add('dragging'); } });
+  drop.addEventListener('dragover', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+  drop.addEventListener('dragleave', () => { depth = Math.max(0, depth - 1); if (!depth) drop.classList.remove('dragging'); });
+  drop.addEventListener('drop', (e) => {
+    const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
+    if (!files.length) return;
+    e.preventDefault(); depth = 0; drop.classList.remove('dragging');
+    attachUploadAll(files, where);
+  });
+}
 for (const where of [ATTACH_ROOM, ATTACH_AGENT]) {
-  const drop = document.getElementById(where.dropId);
-  if (drop) {
-    let depth = 0;
-    drop.addEventListener('dragenter', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); depth += 1; drop.classList.add('dragging'); } });
-    drop.addEventListener('dragover', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
-    drop.addEventListener('dragleave', () => { depth = Math.max(0, depth - 1); if (!depth) drop.classList.remove('dragging'); });
-    drop.addEventListener('drop', (e) => {
-      const files = Array.from((e.dataTransfer && e.dataTransfer.files) || []);
-      if (!files.length) return;
-      e.preventDefault(); depth = 0; drop.classList.remove('dragging');
-      attachUploadAll(files, where);
-    });
-  }
+  /* The thread/room area (the pack's original drop target). */
+  wireDropTarget(document.getElementById(where.dropId), where);
+  /* #2868: the composer input area itself -- the text field AND the + -- is a
+     drop target too. Josh: "the input area for the text and the +, like the
+     whole thing is active to drop it in". Resolved as the text input's own
+     `.composerbox` so both composers (project post + agent dialogue) are covered
+     without adding a markup id. */
+  const textEl = document.getElementById(where.textId);
+  wireDropTarget(textEl && textEl.closest('.composerbox'), where);
 }
 
 document.getElementById('pj-post').addEventListener('keydown', (e) => {
