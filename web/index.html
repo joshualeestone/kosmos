@@ -11054,7 +11054,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           <input type="text" id="tk-say" maxlength="2000" placeholder="Say something about this task" aria-label="Add a message to this task">
           <button class="btn-quiet" type="button" id="tk-say-go">Send</button>
         </div>
-        <p class="fmsg" id="tk-say-msg" aria-live="polite" style="margin:6px 0 0;"></p>
+        <p class="fmsg" id="tk-say-msg" role="alert" aria-live="assertive" style="margin:6px 0 0;"></p>
         <p class="dhint tkcompose-note">A message is recorded on the task and shows in the activity above. It is not sent to an agent yet.</p>
         <!-- #992: 🛑 THE LABEL SAYS "THE TASK CONVERSATIONS", NOT "THIS TASK'S", for the
              same reason the sibling pjs-chats-reveal button says "the conversations" and
