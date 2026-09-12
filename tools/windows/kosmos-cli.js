@@ -27,11 +27,13 @@
  * agent-token check come from engine/kosmos-report-hook.js, the Windows client
  * that already delivers every self-report, so there is one copy of each.
  *
- * 🔑 EVERY REQUEST NAMES THIS AGENT'S KOSMOS (#1704 PR2, `x-kosmos-world`), and a
- * board serving ANOTHER Kosmos answers 421 `{wrongWorld:true}`. Then a reply, a
- * msg or a post is kept in this agent's own Kosmos (engine/outbox.js) and the
- * board that serves it delivers it later, so the command exits 0; a report is
- * dropped as stale (exit 0, one line); anything else exits 1 with a sentence.
+ * 🔑 EVERY REQUEST NAMES THIS AGENT'S KOSMOS (#1704 PR2, `x-kosmos-world`). A board
+ * serving ANOTHER Kosmos answers the five agent sends (report, reply, msg, post,
+ * react) with 421 `{wrongWorld:true}`. Then a reply, a msg or a post is kept in
+ * this agent's own Kosmos (engine/outbox.js) and the board that serves it
+ * delivers it later, so the command exits 0; a report is dropped as stale (exit 0,
+ * one line); a react exits 1 with a sentence. The board sends no 421 on any other
+ * route, so no other verb handles one.
  *
  * Exit codes follow install/kosmos: 0 done, 1 failed or refused, 2 usage,
  * 3 "maybe" -- never 1 for a maybe, which would invite the duplicate a retry
@@ -92,7 +94,7 @@ function argvFrom(argv, readFile) {
      runs its own cleanup, and the file holds the agent's words (review round 3). */
   const read = readFile || ((f) => { const s = fs.readFileSync(f, 'utf8'); try { fs.unlinkSync(f); } catch { /* the shim's finally is the backstop */ } return s; });
   let parsed;
-  try { parsed = JSON.parse(String(read(String(a[1] || ''))).replace(/^﻿/, '')); } catch (e) {
+  try { parsed = JSON.parse(String(read(String(a[1] || ''))).replace(BYTE_ORDER_MARK_AT_START, '')); } catch (e) {
     throw new Error('kosmos could not read the arguments PowerShell passed (' + ((e && e.message) || e) + ').');
   }
   if (!Array.isArray(parsed)) throw new Error('kosmos could not read the arguments PowerShell passed (not a list).');
@@ -102,6 +104,12 @@ function argvFrom(argv, readFile) {
     return String(x);
   });
 }
+/* PowerShell 5.1 writes the argv file with a UTF-8 byte order mark, which
+   JSON.parse refuses. Built from its code point, never typed as the character:
+   a literal U+FEFF in this source is invisible, and an editor that strips it
+   would turn the pattern into /^/ and break every Windows command (review round 1). */
+const BYTE_ORDER_MARK_AT_START = new RegExp('^' + String.fromCharCode(0xFEFF));
+
 /* cmd_room's and cmd_task's sanitizer, exactly: a project id keeps only
    [A-Za-z0-9._-], so `kosmos room <id>` and `kosmos task <id>` reach one route. */
 function projectSlug(id) { return String(id || '').replace(/[^A-Za-z0-9._-]/g, ''); }
@@ -140,7 +148,7 @@ async function main(argv, io) {
      so rather than refuse the agent as a stranger. */
   function headersFor(withAgent) {
     const h = { 'content-type': 'application/json' };
-    h[identity.WORLD_HEADER] = identity.currentWorldId(env);
+    h[identity.WORLD_HEADER] = identity.worldHeaderValue(env);
     const bt = hook.readBoardToken();
     if (bt) h['x-kosmos-board-token'] = bt;
     const at = withAgent ? hook.agentToken(env) : null;
@@ -180,8 +188,6 @@ async function main(argv, io) {
     out(outbox().WRONG_WORLD_SENTENCES.kept);
     return 0;
   };
-  /* Every other verb on a 421: nothing to keep, so say why it did not happen. */
-  const notOpenHere = () => { err(outbox().WRONG_WORLD_SENTENCES.notOpen); return 1; };
 
   if (verb === 'msg') {
     const to = args.shift();
@@ -240,7 +246,7 @@ async function main(argv, io) {
     const r = await call('POST', '/api/react', { project, of, emoji, from_pane: '' });
     if (!r.reached) return r.timedOut ? maybe(err, 'Kosmos was slow to answer and we stopped waiting. Your reaction may have landed; check the room before reacting again, because reacting again takes it back off.') : unreachable('react');
     /* Not kept: a reaction toggles room state this agent cannot see from here. */
-    if (wrongWorld(r)) return notOpenHere();
+    if (wrongWorld(r)) { err(outbox().WRONG_WORLD_SENTENCES.notOpen); return 1; }
     if (refusedBy(r)) { err('Kosmos refused that: ' + refusedBy(r) + '.'); return 1; }
     /* install/kosmos's sentences: the route TOGGLES, so the agent must hear which. */
     if (r.json && r.json.ok && r.json.op === 'remove') { out('Took your ' + emoji + ' back off that post.'); return 0; }
@@ -253,7 +259,6 @@ async function main(argv, io) {
     if (args[0] === 'show' || args[0] === 'status') {
       const r = await call('GET', '/api/report?as=text&from_pane=');
       if (!r.reached) return unreachable('read your report');
-      if (wrongWorld(r)) return notOpenHere();
       out(String(r.text || '').replace(/\n$/, ''));
       return r.status >= 400 ? 1 : 0;
     }
@@ -289,7 +294,6 @@ async function main(argv, io) {
   if (verb === 'whoami') {
     const r = await call('POST', '/api/whoami', { from_pane: '' });
     if (!r.reached) { err('Kosmos did not answer, so we cannot tell you which account you are on.'); return 1; }
-    if (wrongWorld(r)) return notOpenHere();
     /* The board's sentence, verbatim: a locally-invented answer is what this verb
        exists to stop (install/kosmos cmd_whoami). */
     out((r.json && typeof r.json.because === 'string') ? r.json.because : String(r.text || ''));
@@ -301,7 +305,6 @@ async function main(argv, io) {
     if (!project) { err(USAGE.room); return 2; }
     const r = await call('GET', '/api/project/' + projectSlug(project) + '/room?as=text', undefined, { agent: false });
     if (!r.reached) return unreachable('read that room');
-    if (wrongWorld(r)) return notOpenHere();
     out(String(r.text || '').replace(/\n$/, ''));
     return r.status >= 400 ? 1 : 0;
   }
@@ -313,7 +316,6 @@ async function main(argv, io) {
     if (!project) { err('Usage: kosmos task list <project-id>'); return 2; }
     const r = await call('GET', '/api/tasks?project=' + projectSlug(project), undefined, { agent: false });
     if (!r.reached) return unreachable('list tasks');
-    if (wrongWorld(r)) return notOpenHere();
     if (refusedBy(r)) { err('Kosmos refused that: ' + refusedBy(r) + '.'); return 1; }
     const tasks = (r.json && Array.isArray(r.json.tasks)) ? r.json.tasks : null;
     if (!tasks) { out(String(r.text || '')); return 0; }
@@ -330,7 +332,6 @@ async function main(argv, io) {
     const detail = args.slice(2).join(' ');
     const r = await call('POST', '/api/project/' + projectSlug(project) + '/tasks', { sentence, detail, from_pane: '' }, { agent: false });
     if (!r.reached) return unreachable('add that task');
-    if (wrongWorld(r)) return notOpenHere();
     if (r.json && r.json.task) { out('Task added to ' + project + '. See it with: kosmos task list ' + project); return 0; }
     if (refusedBy(r)) { err('Kosmos refused that task: ' + refusedBy(r) + '.'); return 1; }
     err('Kosmos gave an answer we could not read when adding that task.');
@@ -342,7 +343,6 @@ async function main(argv, io) {
     if (!/^[0-9]+$/.test(num)) { err('The task number must be a number, from: kosmos task list <project-id>.'); return 2; }
     const r = await call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/close', undefined, { agent: false });
     if (!r.reached) return unreachable('close that task');
-    if (wrongWorld(r)) return notOpenHere();
     if (r.json && r.json.task) { out('Closed task ' + num + ' on ' + project + '.'); return 0; }
     if (refusedBy(r)) { err('Kosmos could not close that task: ' + refusedBy(r) + '.'); return 1; }
     err('Kosmos gave an answer we could not read when closing that task.');

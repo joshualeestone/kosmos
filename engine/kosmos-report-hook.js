@@ -212,8 +212,8 @@ async function deliver(report, io) {
   /* #1704 PR2: name this agent's Kosmos, so a board serving ANOTHER one answers
      421 (wrongWorld) rather than refusing the report as a stranger's. `main`
      passes the process's own world; a caller that passes none is the default. */
-  const { WORLD_HEADER, worldIdOrDefault } = require('./launchidentity');
-  headers[WORLD_HEADER] = worldIdOrDefault(o.world);
+  const { WORLD_HEADER, worldIdForHeader } = require('./launchidentity');
+  headers[WORLD_HEADER] = worldIdForHeader(o.world);
   const doFetch = o.fetchImpl || ((typeof fetch === 'function') ? fetch : null);
   if (!doFetch) return { ok: false, error: 'no fetch available' };
   const ctl = new AbortController();
@@ -332,7 +332,7 @@ async function main(io) {
     fetchImpl: o.fetchImpl,
     timeoutMs: o.timeoutMs || timeoutFor(report),
     fromPane: env.TMUX_PANE || '',
-    world: require('./launchidentity').currentWorldId(env),
+    world: require('./launchidentity').worldHeaderValue(env),
   });
 
   /* #1704 PR2: a board serving another Kosmos (421) is not reporting being off:

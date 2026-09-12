@@ -5,7 +5,7 @@
  * header file; a 421 `{"wrongWorld":true}` on a reply keeps the words in this
  * agent's own Kosmos through `node engine/outbox.js keep` (the body in a file,
  * never argv); a report is dropped as stale. The shell's copies of the header
- * name and the sentences are pinned to the JS ones.
+ * name, the header's character set and the sentences are pinned to the JS ones.
  *
  * 🔑 THE STUB IS A `curl` SHELL FUNCTION, defined through BASH_ENV (which a
  * non-interactive bash sources before the script), answering as a board serving
@@ -34,7 +34,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const sendertoken = require('./engine/sendertoken');
 const outbox = require('./engine/outbox');
-const { WORLD_HEADER } = require('./engine/launchidentity');
+const { WORLD_HEADER, WORLD_HEADER_CHARSET, worldIdForHeader } = require('./engine/launchidentity');
 
 const CLI_SRC_PATH = path.join(__dirname, 'install', 'kosmos');
 const CLI_SRC = fs.readFileSync(CLI_SRC_PATH, 'utf8');
@@ -108,12 +108,22 @@ function clear() {
   fs.rmSync(LOG, { force: true });
 }
 
-test('the shell\'s header name and 421 sentences are the JS ones', () => {
+test('the shell\'s header name, its character set and its 421 sentences are the JS ones', () => {
   const header = CLI_SRC.match(/printf '([a-z-]+): %s\\n' "\$_world"/);
   assert.ok(header, 'kosmos_curl no longer writes the world header line this test knows how to find');
   assert.equal(header[1], WORLD_HEADER, 'install/kosmos and launchidentity.WORLD_HEADER name the header differently, so the board would never see it');
+  assert.ok(CLI_SRC.includes("tr -cd '" + WORLD_HEADER_CHARSET + "'"),
+    'install/kosmos strips KOSMOS_WORLD with a different character set from launchidentity.worldIdForHeader');
   assert.ok(CLI_SRC.includes(outbox.WRONG_WORLD_SENTENCES.staleReport), 'the report-dropped sentence drifted from outbox.js');
   assert.ok(CLI_SRC.includes(outbox.WRONG_WORLD_SENTENCES.notOpen), 'the not-open sentence drifted from outbox.js');
+});
+
+test('worldIdForHeader: a real world id is unchanged, anything else is stripped, and nothing left is default', () => {
+  assert.equal(worldIdForHeader('mars'), 'mars');
+  assert.equal(worldIdForHeader('te st!\n'), 'test', 'a newline must never reach a header');
+  assert.equal(worldIdForHeader(''), 'default');
+  assert.equal(worldIdForHeader(undefined), 'default');
+  assert.equal(worldIdForHeader('!!'), 'default');
 });
 
 test('a reply that meets a 421 is kept in this agent\'s Kosmos through the Node entry, and every call names the Kosmos', { skip: !BASH && 'no bash on this machine' }, async () => {
@@ -132,11 +142,14 @@ test('a reply that meets a 421 is kept in this agent\'s Kosmos through the Node 
   assert.deepEqual(leftover, [], 'no temp file holding the agent\'s words or tokens is left behind');
 });
 
-test('with no KOSMOS_WORLD the header says default', { skip: !BASH && 'no bash on this machine' }, async () => {
+test('with no KOSMOS_WORLD the header says default, and an odd one is stripped exactly as the JS clients strip it', { skip: !BASH && 'no bash on this machine' }, async () => {
   clear();
   const r = await runCli(['reply', 'x'], { KOSMOS_WORLD: '' });
   assert.ok(fs.existsSync(LOG), 'the stub was never called: ' + r.stdout + r.stderr);
   assert.match(fs.readFileSync(LOG, 'utf8'), /x-kosmos-world: default/);
+  clear();
+  await runCli(['reply', 'x'], { KOSMOS_WORLD: 'te st!' });
+  assert.match(fs.readFileSync(LOG, 'utf8'), new RegExp('x-kosmos-world: ' + worldIdForHeader('te st!') + '\\n'));
   clear();
 });
 

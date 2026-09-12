@@ -377,8 +377,10 @@ kosmos_engine_module() {
 # so a board serving ANOTHER Kosmos answers 421 instead of refusing the agent as
 # a stranger. So the header file is written on every call now, token or not, and
 # a temp file that cannot be made fails every call closed (99), not only the
-# token-bearing ones. The world is KOSMOS_WORLD reduced to a world id's own
-# characters (a newline must never start a second header), `default` when absent.
+# token-bearing ones. The world is KOSMOS_WORLD stripped to launchidentity.js
+# WORLD_HEADER_CHARSET (a newline must never start a second header), `default`
+# when nothing is left: the same rule as its worldIdForHeader, and a test pins
+# the character set here equal to that one.
 kosmos_curl() {
   local _bt="$1" _tok="$2"; shift 2
   local _hf _rc _world

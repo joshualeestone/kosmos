@@ -111,7 +111,7 @@ function main() {
      by this file's cardinal rule, like the token read above. */
   try {
     const launchidentity = require('../engine/launchidentity');
-    headers[launchidentity.WORLD_HEADER] = launchidentity.currentWorldId(process.env);
+    headers[launchidentity.WORLD_HEADER] = launchidentity.worldHeaderValue(process.env);
   } catch { /* a missed world header must never become a failed turn */ }
 
   const controller = new AbortController();

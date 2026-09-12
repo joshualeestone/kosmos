@@ -75,6 +75,26 @@ function currentWorldId(env) {
   return worldIdOrDefault((env || process.env)[WORLD_ENV_VAR]);
 }
 
+/* The characters a world id keeps on the wire. A world id is CLEAN_ID
+   (`[a-z0-9_-]`), so this never changes a real one; it stops anything else in
+   KOSMOS_WORLD (a newline would start a second header) from reaching a request.
+   install/kosmos strips KOSMOS_WORLD with `tr -cd` over this same set;
+   cli.world-outbox-1704.test.js pins the two. */
+const WORLD_HEADER_CHARSET = 'A-Za-z0-9_-';
+const NOT_A_WORLD_HEADER_CHAR = new RegExp('[^' + WORLD_HEADER_CHARSET + ']', 'g');
+
+/** The `x-kosmos-world` value for a world id as a process holds it: stripped to
+    WORLD_HEADER_CHARSET, then "default" if nothing is left. The one rule every JS
+    client and the board apply, and the one install/kosmos applies in shell. */
+function worldIdForHeader(value) {
+  return worldIdOrDefault(String(value == null ? '' : value).replace(NOT_A_WORLD_HEADER_CHAR, ''));
+}
+
+/** This process's `x-kosmos-world` value, from its environment. */
+function worldHeaderValue(env) {
+  return worldIdForHeader((env || process.env)[WORLD_ENV_VAR]);
+}
+
 /** The key an agent's machine-wide names are built from: the bare name in the
     default world, `<name>+<worldId>` in a named one. */
 function launchKey(name, worldId) {
@@ -99,6 +119,7 @@ function nameInWorld(key, worldId) {
 }
 
 module.exports = {
-  WORLD_ENV_VAR, DEFAULT_WORLD_ID, WORLD_SEPARATOR, WORLD_HEADER,
-  isDefaultWorld, worldIdOrDefault, currentWorldId, launchKey, parseKey, nameInWorld,
+  WORLD_ENV_VAR, DEFAULT_WORLD_ID, WORLD_SEPARATOR, WORLD_HEADER, WORLD_HEADER_CHARSET,
+  isDefaultWorld, worldIdOrDefault, currentWorldId, worldIdForHeader, worldHeaderValue,
+  launchKey, parseKey, nameInWorld,
 };

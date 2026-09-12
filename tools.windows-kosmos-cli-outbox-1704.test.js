@@ -86,6 +86,14 @@ test('reply, msg and post on a 421 are kept in this agent\'s Kosmos: exit 0, the
   for (const s of seen) assert.equal(s.headers[WORLD_HEADER], 'test', 'every request names the agent\'s Kosmos');
 }));
 
+test('the header carries the world through the one shared rule: characters a world id cannot hold are stripped', () => withWrongWorldBoard(async (port, seen) => {
+  clear();
+  await run(['reply', 'x'], { KOSMOS_PORT: String(port), KOSMOS_AGENT_TOKEN: minted.token, KOSMOS_WORLD: 'te st!' });
+  assert.ok(seen.length >= 1);
+  assert.equal(seen[0].headers[WORLD_HEADER], 'test');
+  clear();
+}));
+
 test('a report on a 421 is dropped as stale: exit 0, one line, nothing kept', () => withWrongWorldBoard(async (port) => {
   clear();
   const r = await run(['report', 'working', 'on', 'it'], { KOSMOS_PORT: String(port), KOSMOS_AGENT_TOKEN: minted.token });
@@ -94,14 +102,11 @@ test('a report on a 421 is dropped as stale: exit 0, one line, nothing kept', ()
   assert.deepEqual(outbox.list(), []);
 }));
 
-test('react and whoami on a 421 exit 1 with a sentence and keep nothing', () => withWrongWorldBoard(async (port) => {
+test('a react on a 421 exits 1 with a sentence and keeps nothing', () => withWrongWorldBoard(async (port) => {
   clear();
-  const env = { KOSMOS_PORT: String(port), KOSMOS_AGENT_TOKEN: minted.token };
-  const react = await run(['react', 'proj-1', 'm3', '🔥'], env);
+  const react = await run(['react', 'proj-1', 'm3', '🔥'], { KOSMOS_PORT: String(port), KOSMOS_AGENT_TOKEN: minted.token });
   assert.equal(react.code, 1);
   assert.equal(react.err, outbox.WRONG_WORLD_SENTENCES.notOpen);
-  const whoami = await run(['whoami'], env);
-  assert.equal(whoami.code, 1);
   assert.deepEqual(outbox.list(), []);
 }));
 
@@ -112,3 +117,25 @@ test('a reply on a 421 with no way to tell who is sending is not kept, and says 
   assert.match(r.err, /could not tell which agent/);
   assert.deepEqual(outbox.list(), []);
 }));
+
+/* Review round 1: a literal U+FEFF had replaced the \uFEFF escape in kosmos-cli.js.
+   Invisible, and one BOM-stripping editor away from turning the pattern into /^/,
+   which would have made every Windows command exit 2. */
+const INVISIBLE = [0xFEFF, 0x200B, 0x200C, 0x200D, 0x2060, 0x00AD];
+test('the slice\'s sources hold no invisible characters (review round 1)', () => {
+  const sources = ['tools/windows/kosmos-cli.js', 'engine/outbox.js', 'engine/launchidentity.js', 'engine/kosmos-report-hook.js', 'bin/codex-report-bridge.js', 'install/kosmos', 'server.js', 'engine/messages.js'];
+  const found = [];
+  for (const rel of sources) {
+    const text = fs.readFileSync(path.join(__dirname, rel), 'utf8');
+    text.split('\n').forEach((line, i) => {
+      for (const ch of line) if (INVISIBLE.includes(ch.codePointAt(0))) found.push(rel + ':' + (i + 1) + ' U+' + ch.codePointAt(0).toString(16).toUpperCase());
+    });
+  }
+  assert.deepEqual(found, []);
+});
+
+test('the argv file PowerShell 5.1 writes with a byte order mark still parses', () => {
+  const bom = String.fromCharCode(0xFEFF);
+  const args = cli.argvFrom([cli.ARGV_FILE_FLAG, 'ignored'], () => bom + JSON.stringify(['reply', 'hello']));
+  assert.deepEqual(args, ['reply', 'hello']);
+});
