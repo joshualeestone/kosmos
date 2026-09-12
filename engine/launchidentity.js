@@ -49,14 +49,30 @@ const DEFAULT_WORLD_ID = 'default';
 /* See the header: the one character neither an agent name nor a world id can hold. */
 const WORLD_SEPARATOR = '+';
 
+/* #1704 PR2 (plan §5): the request header every agent-side client names its
+   Kosmos in, so a board serving ANOTHER Kosmos can answer "wrong world" (421)
+   instead of refusing the send as a stranger's and losing it. Here, beside the
+   env var it carries, because this leaf is the one module the hook, the Codex
+   bridge, the Windows CLI and server.js can all load before anything freezes
+   store.ROOT. install/kosmos writes the same name in shell; a test pins the two
+   equal. */
+const WORLD_HEADER = 'x-kosmos-world';
+
 function isDefaultWorld(worldId) {
   return worldId === undefined || worldId === null || worldId === '' || worldId === DEFAULT_WORLD_ID;
 }
 
+/** A world id in the one form every comparison uses: "default" for the default
+    world however it is spelled (absent, empty, "default"), else the id as text.
+    The board normalises an agent's `x-kosmos-world` header and its own booted id
+    through this, so both sides of the comparison follow one rule. */
+function worldIdOrDefault(value) {
+  return isDefaultWorld(value) ? DEFAULT_WORLD_ID : String(value);
+}
+
 /** The Kosmos this process belongs to, from its environment. */
 function currentWorldId(env) {
-  const v = (env || process.env)[WORLD_ENV_VAR];
-  return isDefaultWorld(v) ? DEFAULT_WORLD_ID : String(v);
+  return worldIdOrDefault((env || process.env)[WORLD_ENV_VAR]);
 }
 
 /** The key an agent's machine-wide names are built from: the bare name in the
@@ -83,6 +99,6 @@ function nameInWorld(key, worldId) {
 }
 
 module.exports = {
-  WORLD_ENV_VAR, DEFAULT_WORLD_ID, WORLD_SEPARATOR,
-  isDefaultWorld, currentWorldId, launchKey, parseKey, nameInWorld,
+  WORLD_ENV_VAR, DEFAULT_WORLD_ID, WORLD_SEPARATOR, WORLD_HEADER,
+  isDefaultWorld, worldIdOrDefault, currentWorldId, launchKey, parseKey, nameInWorld,
 };
