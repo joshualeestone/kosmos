@@ -4008,6 +4008,9 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
 
 test('update awareness: the status tick carries the verdict, and the install route refuses honestly', async () => {
   const updates = require('./engine/update');
+  /* The Mac contract, pinned to darwin like engine/update.test.js: these stubs publish a bare
+     {version}, which the Windows pointer rule (win32-update-check) rightly refuses. */
+  updates.setPlatform('darwin');
   try {
     // A newer published version reaches the screen through the payload it
     // already polls.
@@ -4055,7 +4058,9 @@ test('update awareness: the status tick carries the verdict, and the install rou
     assert.equal(go.status, 200, JSON.parse(go.body).error || '');
     assert.equal(JSON.parse(go.body).updating, '99.0.0');
     assert.equal(ran, 1, 'the installer did not run');
-    assert.match(String(url), /\/setup$/, 'the runner was not handed the setup URL');
+    /* Design finding 8 (win32-update-check): the version rides as the ?v= cache-buster. It used
+       to read `.version` off a bare-string cache, so it never applied and this said /setup$. */
+    assert.match(String(url), /\/setup\?v=99\.0\.0$/, 'the runner was not handed the setup URL with the version cache-buster');
     /* #553: the press answers with its attempt's start stamp, and the
        status payload carries the same record, so the overlay can tell
        THIS attempt's verdict from any older one by exact equality. */
@@ -4078,6 +4083,7 @@ test('update awareness: the status tick carries the verdict, and the install rou
     updates.setFetcher(null);
     updates.setInstallRunner(null);
     updates.setInstalledRoot(null);
+    updates.setPlatform(null);
   }
 });
 
@@ -7706,6 +7712,8 @@ test('the group line is wired into paintOneProject, not just extractable', () =>
 
 test('the check route asks fresh, carries reachability, and rides the cross-site guard', async () => {
   const updates = require('./engine/update');
+  // The Mac contract, pinned to darwin like engine/update.test.js (bare {version} stubs).
+  updates.setPlatform('darwin');
   try {
     updates.resetCache();
     // Prime a fresh look so the TTL would normally sit on it...
@@ -7746,6 +7754,7 @@ test('the check route asks fresh, carries reachability, and rides the cross-site
   } finally {
     updates.resetCache();
     updates.setFetcher(null);
+    updates.setPlatform(null);
   }
 });
 

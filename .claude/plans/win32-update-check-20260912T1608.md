@@ -36,7 +36,11 @@ A Windows board checks the MAC pointer.
      - `versioned === kosmos-${version}-win-${arch}.zip`, where `arch` is THIS machine's
        arch (`process.arch`). A build for another arch therefore fails the name check and
        is not offered.
+     - `version` must equal its trimmed self (round 1): `parts()` trims, and this version
+       also names a file.
      - `artifact`, the moving alias, is never read.
+     - A pointer for another arch needs no handling beyond the name check: only x64 is
+       published (round 1, no change).
      - The result is `{version, sha256, versioned}`.
    - Anything else is null. A null is `readable: false`: no offer, and the card says it
      could not read the answer, never "Up to date". A malformed version still never wins
@@ -50,9 +54,10 @@ A Windows board checks the MAC pointer.
    - **Design finding 8 falls out here.** `setupUrl()` already read
      `cache.latest.version`, which was always undefined while `cache.latest` was a string,
      so the `?v=` cache-buster never applied. With the object cache it applies.
-   - This is the ONE Mac-visible change: the installer URL gains `?v=<version>`, which is
-     exactly what that code's comment intended (the 0.5.13 edge-cache wedge). It is pinned
-     by a test that reds on the old string cache.
+   - The installer URL gains `?v=<version>`, which is exactly what that code's comment
+     intended (the 0.5.13 edge-cache wedge). It is pinned by a test that reds on the old
+     string cache, and by `server.test.js`'s install-route test. It is one of several
+     Mac-visible changes; see "What a Mac sees" below.
 
 4. **Choosing a channel and a base.**
    - **Channel:** prod is the default, and staging applies only with the value `staging`.
@@ -69,6 +74,8 @@ A Windows board checks the MAC pointer.
        Nobody is told to set it on Windows: it is an existing test seam, not a new opt-in.
      - `KOSMOS_RELEASE_BASE` is the name `install/setup.sh` reads.
      - Both are resolved when read, not frozen at require.
+     - `engine/selfcheck.js` reads the same rule (`update.releaseBase()`, at use time) instead
+       of its own frozen copy of the old name (round 1). One derivation, pinned by a test.
    - **No fallback:** exactly one URL is fetched per look. A staging pointer that cannot be
      reached, or is unreadable, is that look's answer: no offer, and never a retry against
      prod.
@@ -84,12 +91,10 @@ A Windows board checks the MAC pointer.
      does not pull the anchor/store chain in at load);
    - `available()` is truthy, which is the same `newer()` gate the Mac offer rides.
 
-   The `download` URL is built from the base the check used:
-   - prod gives `${base}/kosmos-win-${arch}.zip` (the alias the site's button serves,
-     `https://installkosmos.com/dist/kosmos-win-x64.zip` by default);
-   - staging gives `${base}/${versioned}`, the staged pinned zip.
-
-   The alias name is derived from the arch here, not read from the manifest's `artifact`.
+   The `download` URL is `${base}/${versioned}` on both channels, under the base the check
+   used: the exact zip the sentence names (e.g.
+   `https://installkosmos.com/dist/kosmos-0.6.60-win-x64.zip`). Round 1 replaced the prod
+   alias, which can already name a different build by the time the person clicks.
 
    On the wire:
    - `/api/status` carries `updateManual`, and the check route carries `manual`.
@@ -146,3 +151,33 @@ A Windows board checks the MAC pointer.
   and link, "Staging channel", and the couldn't-check state against stubbed routes.
   Playwright is not installed on the Windows box, so it gets `node --check` only there.
 - **No real fetches:** every fetcher is stubbed, and no test fetches the real site.
+
+## What a Mac sees
+
+The Mac pointer rule and the Mac manifest rule are unchanged, but a Mac board does see these:
+- the installer URL carries `?v=<version>` (finding 8);
+- the look, the installer URL, the installer's env and `selfcheck` honour `KOSMOS_RELEASE_BASE`
+  when `AGENT_WORKFORCE_RELEASE_BASE` is unset, and the base is read on each use rather than
+  frozen at require;
+- one boot log line naming the channel and the pointer URL;
+- `/api/status` carries `updateManual` (always null on a Mac) and `updateChannel`, and the
+  check route carries `manual` and `channel`.
+
+## Review log
+
+### Round 1 (reviewed at `2db42e2a`)
+
+- **[BUG]** `server.test.js`'s install-route test asserted `/\/setup$/`; finding 8 makes the
+  URL `/setup?v=99.0.0`. It runs on macOS CI (it fails for other reasons on the Windows box).
+  The assertion now pins the cache-buster.
+- **[CONVENTION]** The plan claimed `setupUrl` was the only Mac-visible change; corrected in
+  "What a Mac sees". `engine/selfcheck.js` kept its own base, frozen and reading only the old
+  name; it now derives from `update.releaseBase()` at use time, with a test pinning the two
+  agree under `KOSMOS_RELEASE_BASE`.
+- **[NIT]** `server.test.js`'s two update tests that stub a bare `{version}` pin darwin.
+- **[NIT]** A Windows `version` must equal its trimmed self.
+- **[NIT, accessibility]** When the manual arm hides a focused Check button, focus moves to the
+  Download link; the press path hands focus the same way. The link carries
+  `aria-describedby="upd-line"`, so it is not just "Download".
+- **[NIT]** The link is the exact versioned zip on both channels.
+- **No change:** a pointer for another arch (only x64 is published).

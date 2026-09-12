@@ -11,7 +11,7 @@
  * renders, in four states:
  *
  *   manual    prod, a newer Windows build: the exact manual-offer sentence, a visible Download
- *             link to the site's alias, no check button, no channel tag
+ *             link to the exact versioned zip, no check button, no channel tag
  *   staging   the same offer on the staging channel: "Staging channel" shows, and the link is
  *             the staged versioned zip
  *   unread    a look that reached the host but could not read it (a bad Windows manifest):
@@ -42,7 +42,7 @@ const path = require('node:path');
 const URL = process.env.KOSMOS_URL || 'http://127.0.0.1:17374';
 const OUT = process.argv[2] || '/tmp/uwshots';
 const NEWER = '99.0.0';
-const ALIAS = 'https://installkosmos.com/dist/kosmos-win-x64.zip';
+const PROD_ZIP = 'https://installkosmos.com/dist/kosmos-' + NEWER + '-win-x64.zip';
 const STAGED = 'http://127.0.0.1:9/dist/kosmos-' + NEWER + '-win-x64.zip';
 const MANUAL_SENTENCE = 'Version ' + NEWER + ' is ready. Download it, unpack it over your Kosmos folder, then double-click Kosmos.exe.';
 const fail = [];
@@ -55,8 +55,8 @@ function chk(ok, label, extra) {
 function stateAnswers(state, served) {
   const readLook = { reached: true, readable: true, looked: true };
   if (state === 'manual') {
-    return { status: { updateLook: readLook, updateManual: { version: NEWER, download: ALIAS }, updateChannel: 'prod' },
-      check: { running: served, latest: NEWER, reached: true, readable: true, offer: null, manual: { version: NEWER, download: ALIAS }, channel: 'prod' } };
+    return { status: { updateLook: readLook, updateManual: { version: NEWER, download: PROD_ZIP }, updateChannel: 'prod' },
+      check: { running: served, latest: NEWER, reached: true, readable: true, offer: null, manual: { version: NEWER, download: PROD_ZIP }, channel: 'prod' } };
   }
   if (state === 'staging') {
     return { status: { updateLook: readLook, updateManual: { version: NEWER, download: STAGED }, updateChannel: 'staging' },
@@ -91,6 +91,7 @@ async function readCard(pg) {
       downloadText: dl ? dl.textContent.trim() : null,
       href: dl ? dl.getAttribute('href') : null,
       target: dl ? dl.getAttribute('target') : null,
+      describedBy: dl ? dl.getAttribute('aria-describedby') : null,
       buttonShown: shown(btn),
       channelShown: shown(chan),
       channelText: chan ? chan.textContent.trim() : null,
@@ -142,7 +143,8 @@ async function readCard(pg) {
       chk(card.line === MANUAL_SENTENCE, state + ': the manual-offer sentence, unasked', JSON.stringify(card.line));
       chk(!/Up to date/.test(card.line), state + ': never "Up to date."', JSON.stringify(card.line));
       chk(card.downloadShown && card.downloadText === 'Download', state + ': a visible Download link', JSON.stringify(card));
-      chk(card.href === (state === 'manual' ? ALIAS : STAGED), state + ': the link is ' + (state === 'manual' ? 'the site\'s alias' : 'the staged versioned zip'), String(card.href));
+      chk(card.href === (state === 'manual' ? PROD_ZIP : STAGED), state + ': the link is the exact versioned zip' + (state === 'staging' ? ' on the staged base' : ''), String(card.href));
+      chk(card.describedBy === 'upd-line', state + ': the link is described by the sentence, so it is not just "Download"', String(card.describedBy));
       chk(card.target === '_blank', state + ': the link opens its own tab, so the board stays put', String(card.target));
       chk(!card.buttonShown, state + ': the check button stands down beside the link', JSON.stringify(card));
       chk(state === 'staging' ? (card.channelShown && card.channelText === 'Staging channel') : !card.channelShown,

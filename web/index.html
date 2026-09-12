@@ -12294,7 +12294,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <button class="btn-quiet" type="button" id="upd-btn" hidden>Check for Update</button>
         <!-- win32-update-check: the Windows manual offer's link (a real <a>, so the browser
              downloads the zip). paintUpdateCard shows it only in the manual arm. -->
-        <a class="btn-quiet" id="upd-download" href="#" target="_blank" rel="noopener" hidden>Download</a>
+        <a class="btn-quiet" id="upd-download" href="#" target="_blank" rel="noopener" aria-describedby="upd-line" hidden>Download</a>
       </div>
       <!-- 🛑 THIS ROW USED TO BE A SWITCH THAT COULD NOT MOVE. It read "Tell me
            when there is a new version", with a hint underneath admitting
@@ -14827,6 +14827,10 @@ function paintUpdateCard(running, offer, look, manual, channel) {
      updateChannel). The Download link belongs to the manual arm only, so every paint starts it
      hidden. Both looked up and guarded, because a harness that stubs only the line and the
      button must keep working. */
+  /* Read before any arm hides the button: if a background look lands the manual offer while the
+     keyboard sits on Check, the arm below hides that button and hands focus to the link, rather
+     than letting it fall to <body>. */
+  const checkHadFocus = document.activeElement === btn;
   const chan = document.getElementById('upd-channel');
   if (chan) chan.hidden = channel !== 'staging';
   const dl = document.getElementById('upd-download');
@@ -14847,6 +14851,7 @@ function paintUpdateCard(running, offer, look, manual, channel) {
     if (dl) {
       if (dl.getAttribute('href') !== manual.download) dl.setAttribute('href', manual.download);
       dl.hidden = false;
+      if (checkHadFocus && typeof dl.focus === 'function') dl.focus();
     }
   } else if (look && look.looked === false) {
     // The first look is still in flight: say Checking, never a failure
@@ -15038,11 +15043,12 @@ async function updCheckNowClick() {
      page has no beforeunload, so anything typed and unsent is gone.
      ⚠️ The accessibility reason for the refocus still holds for every other
      outcome, which is why this is a narrow exception rather than a removal. */
-  /* A press that turned the card into the Windows manual offer hid this button; focus stays
-     off the Download link on purpose, for the same reason as the Reload exception: a repeat of
-     the press just made would start a download nobody asked for. The live region reads the
-     sentence. */
-  if (!btn.hidden && btn.dataset.act !== 'reload') btn.focus();
+  /* A press that landed the Windows manual offer hid this button, so the keyboard's place is the
+     Download link that replaced it -- the same hand-over paintUpdateCard makes when a background
+     look lands while the button has focus. */
+  const shownDownload = document.getElementById('upd-download');
+  if (shownDownload && !shownDownload.hidden) shownDownload.focus();
+  else if (btn.dataset.act !== 'reload') btn.focus();
 }
 document.getElementById('upd-btn').addEventListener('click', updCheckNowClick);
 

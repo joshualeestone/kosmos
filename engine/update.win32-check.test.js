@@ -135,6 +135,10 @@ test('a bad Windows manifest is no offer and never "Up to date" material (readab
   const bad = [
     ['a malformed version', winManifest('0.6', { versioned: `kosmos-0.6-win-${ARCH}.zip` })],
     ['a non-string version', { ...winManifest(NEWER), version: 99 }],
+    /* parts() trims, so these pass the bare version rule; the versioned name is built from the
+       same padded string so only the trimmed-self rule refuses them. */
+    ['a leading-space version', winManifest(' ' + NEWER, { versioned: `kosmos- ${NEWER}-win-${ARCH}.zip` })],
+    ['a trailing-space version', winManifest(NEWER + ' ', { versioned: `kosmos-${NEWER} -win-${ARCH}.zip` })],
     ['a short sha256', winManifest(NEWER, { sha256: 'ab'.repeat(31) })],
     ['a non-hex sha256', winManifest(NEWER, { sha256: 'zz'.repeat(32) })],
     ['no sha256', winManifest(NEWER, { sha256: undefined })],
@@ -208,6 +212,25 @@ test('the base: KOSMOS_RELEASE_BASE is honoured, and the old name still works an
   assert.equal(urls.pop(), 'https://installkosmos.com/dist/latest.json', 'CONTROL: unset is the real host');
 });
 
+test('one derivation: selfcheck reads the same release base as the update check, at use time', async () => {
+  /* selfcheck.js used to keep its own base, frozen at require and reading only the old name, so
+     with KOSMOS_RELEASE_BASE set it checked a different host from the update check. */
+  const selfcheck = require('./selfcheck');
+  let url = null;
+  const doFetch = async (u) => { url = u; return { ok: true, json: async () => ({ manifest: 'm.json', version: RUNNING }) }; };
+
+  process.env.KOSMOS_RELEASE_BASE = 'http://127.0.0.1:9/kdist';
+  assert.equal(update.releaseBase(), 'http://127.0.0.1:9/kdist');
+  assert.equal(selfcheck.DEFAULT_BASE, update.releaseBase(), 'selfcheck\'s exported base disagrees with the update check');
+  await selfcheck.fetchLatestJson({ doFetch });
+  assert.equal(url, 'http://127.0.0.1:9/kdist/latest.json', 'selfcheck\'s default fetched a different host from the update check');
+
+  process.env.AGENT_WORKFORCE_RELEASE_BASE = 'http://127.0.0.1:9/adist';
+  await selfcheck.fetchLatestJson({ doFetch });
+  assert.equal(url, 'http://127.0.0.1:9/adist/latest.json', 'the old name no longer wins in selfcheck');
+  assert.equal(selfcheck.DEFAULT_BASE, update.releaseBase());
+});
+
 test('staging that cannot be reached is no offer, and is never retried against prod', async () => {
   asWindowsBundle();
   process.env.KOSMOS_UPDATE_CHANNEL = 'staging';
@@ -233,13 +256,14 @@ test('staging that cannot be reached is no offer, and is never retried against p
   assert.deepEqual(update.available(), { version: NEWER });
 });
 
-test('the manual offer: prod points at the site\'s alias, staging at the staged versioned zip', async () => {
+test('the manual offer links the exact versioned zip on both channels, under the base the look used', async () => {
   asWindowsBundle();
   recordFetches(() => answer(winManifest(NEWER)));
   await update.refresh();
-  assert.deepEqual(update.manualOffer(), { version: NEWER, download: `https://installkosmos.com/dist/kosmos-win-${ARCH}.zip` });
+  /* Never the moving alias: the link must download exactly the build the sentence names. */
+  assert.deepEqual(update.manualOffer(), { version: NEWER, download: `https://installkosmos.com/dist/kosmos-${NEWER}-win-${ARCH}.zip` });
   if (ARCH === 'x64') {
-    assert.equal(update.manualOffer().download, 'https://installkosmos.com/dist/kosmos-win-x64.zip');
+    assert.equal(update.manualOffer().download, 'https://installkosmos.com/dist/kosmos-99.0.0-win-x64.zip');
   }
 
   process.env.KOSMOS_UPDATE_CHANNEL = 'staging';

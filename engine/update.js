@@ -88,9 +88,6 @@ function pointerUrl() {
 const SHA256_HEX = /^[0-9a-fA-F]{64}$/;
 /** The immutable name publish-kosmos-windows.sh gives a Windows build (`VERSIONED`). */
 function windowsBuildName(version, arch) { return `kosmos-${version}-win-${arch}.zip`; }
-/** The mutable alias the site's Windows download button serves (`ALIAS` in the publish script),
-    derived here rather than read from the manifest's `artifact`, which moves with every publish. */
-function windowsAliasName(arch) { return `kosmos-win-${arch}.zip`; }
 /**
  * What a fetched pointer body says, or null when it cannot be trusted.
  *
@@ -105,6 +102,9 @@ function readManifest(platform, body, arch = process.arch) {
   const version = typeof body.version === 'string' && parts(body.version) ? body.version : null;
   if (!version) return null;
   if (platform !== 'win32') return { version };
+  /* parts() trims, so " 1.2.3" passes the version rule; the Windows version also names a file
+     (the versioned zip), so it must be exactly the digits. */
+  if (version !== version.trim()) return null;
   if (typeof body.sha256 !== 'string' || !SHA256_HEX.test(body.sha256)) return null;
   if (body.versioned !== windowsBuildName(version, arch)) return null;
   return { version, sha256: body.sha256.toLowerCase(), versioned: body.versioned };
@@ -167,19 +167,16 @@ function windowsBundleRoot() {
  * payload) is null there by design -- the Install route refuses on Windows. Without this the card
  * had only "Up to date." to say while a newer Windows build sat on the site.
  * The version gate is available(), the same newer() comparison the Mac offer rides.
- * `download` is built from the base and channel the LOOK used: prod is the alias the site's
- * button serves, staging is the staged versioned zip (the alias always names the prod build).
+ * `download` is the exact versioned zip the manifest names, under the base the LOOK used, on
+ * both channels: the link downloads precisely the build the sentence names, never the moving
+ * alias (which can already name a different build by the time the person clicks).
  */
 function manualOffer() {
   if (updatePlatform() !== 'win32') return null;
   const avail = available();
   if (!avail) return null;
   if (!windowsBundleRoot()) return null;
-  const from = cache.base || releaseBase();
-  const download = cache.channel === 'staging'
-    ? `${from}/${cache.latest.versioned}`
-    : `${from}/${windowsAliasName(process.arch)}`;
-  return { version: avail.version, download };
+  return { version: avail.version, download: `${cache.base || releaseBase()}/${cache.latest.versioned}` };
 }
 
 /** Refresh the cache if stale. Returns immediately; errors stay internal. */

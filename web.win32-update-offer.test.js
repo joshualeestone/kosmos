@@ -75,11 +75,12 @@ async function statusAfterLook(fetcher) {
 }
 
 /** The REAL paintUpdateCard against a stub document, fed a status payload. */
-function paintStatus(st, asked) {
+function paintStatus(st, asked, focusedId) {
   const dl = {
-    hidden: true, attrs: { href: '#' },
+    hidden: true, attrs: { href: '#' }, focused: false,
     getAttribute(n) { return this.attrs[n]; },
     setAttribute(n, v) { this.attrs[n] = v; },
+    focus() { this.focused = true; },
   };
   const els = {
     'upd-line': { textContent: '' },
@@ -88,6 +89,7 @@ function paintStatus(st, asked) {
     'upd-download': dl,
   };
   const doc = {
+    activeElement: focusedId ? els[focusedId] : null,
     getElementById: (id) => els[id] || null,
     // The page's baked version equals the served one: a page that is not stale.
     querySelector: () => ({ getAttribute: () => st.version }),
@@ -102,8 +104,23 @@ function paintStatus(st, asked) {
     downloadHidden: dl.hidden,
     href: dl.attrs.href,
     channelShown: els['upd-channel'].hidden === false,
+    downloadFocused: dl.focused,
   };
 }
+
+test('a background look that lands the manual offer while Check has focus hands focus to Download', async () => {
+  const st = await statusAfterLook(async () => ({ ok: true, json: async () => winManifest(NEWER) }));
+  const focusedOnCheck = paintStatus(st, false, 'upd-btn');
+  assert.equal(focusedOnCheck.btnHidden, true, 'the premise: the manual arm hides the focused button');
+  assert.equal(focusedOnCheck.downloadFocused, true, 'focus fell to <body> when the focused Check button was hidden');
+  /* CONTROL: with the keyboard elsewhere, a poll paint does not steal focus. */
+  const focusedElsewhere = paintStatus(st, false, 'upd-line');
+  assert.equal(focusedElsewhere.downloadFocused, false, 'a background paint stole focus onto Download');
+  /* And the press path: its refocus prefers the shown Download link over the hidden button. */
+  const handler = page.liftAll(SCRIPT, ['updCheckNowClick']);
+  assert.match(handler, /if \(shownDownload && !shownDownload\.hidden\) shownDownload\.focus\(\);/,
+    'a press that lands the manual offer leaves focus nowhere');
+});
 
 test('⭐ a Windows bundle with a newer Windows build published: the manual offer, never "Up to date."', async () => {
   const st = await statusAfterLook(async () => ({ ok: true, json: async () => winManifest(NEWER) }));
@@ -113,7 +130,7 @@ test('⭐ a Windows bundle with a newer Windows build published: the manual offe
     assert.equal(card.line, MANUAL_SENTENCE, `asked=${asked}: the card did not give the manual offer`);
     assert.doesNotMatch(card.line, /Up to date/, `asked=${asked}: the false sentence`);
     assert.equal(card.downloadHidden, false, 'the Download link is not shown');
-    assert.equal(card.href, `https://installkosmos.com/dist/kosmos-win-${ARCH}.zip`, 'the link is not the site\'s alias');
+    assert.equal(card.href, `https://installkosmos.com/dist/kosmos-${NEWER}-win-${ARCH}.zip`, 'the link is not the exact versioned zip');
     assert.equal(card.btnHidden, true, 'the card offers the check button beside the download');
     assert.equal(card.channelShown, false, 'a prod board claimed the staging channel');
   }
@@ -191,6 +208,6 @@ test('one derivation: the status route, the check route and every card caller ca
     assert.ok(/, (data|st)\.updateManual, (data|st)\.updateChannel\)$|, out\.manual, out\.channel\)$/.test(c),
       'a caller does not pass the manual offer and the channel: ' + c);
   }
-  assert.ok(/<a class="btn-quiet" id="upd-download" href="#" target="_blank" rel="noopener" hidden>Download<\/a>/.test(PAGE),
-    'the Download link\'s markup moved');
+  assert.ok(/<a class="btn-quiet" id="upd-download" href="#" target="_blank" rel="noopener" aria-describedby="upd-line" hidden>Download<\/a>/.test(PAGE),
+    'the Download link\'s markup moved, or lost the description that says WHAT it downloads');
 });

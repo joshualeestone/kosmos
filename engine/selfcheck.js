@@ -31,11 +31,13 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { installedRoot } = require('./update');
+const { installedRoot, releaseBase } = require('./update');
 
-// The published release base. Kept in sync with engine/update.js's default by
-// convention; the CLI/callers may override, and the tests always inject their own.
-const DEFAULT_BASE = process.env.AGENT_WORKFORCE_RELEASE_BASE || 'https://installkosmos.com/dist';
+/* The published release base is engine/update.js's ONE rule (releaseBase: the old
+   AGENT_WORKFORCE_RELEASE_BASE, then KOSMOS_RELEASE_BASE, then the site), read when a check
+   runs rather than frozen here at require. This used to keep its own copy "in sync by
+   convention", reading only the old name, so it disagreed with the update check the moment
+   KOSMOS_RELEASE_BASE was set. Callers may still pass `base`; the tests inject their own. */
 
 // Stream the file so a large runtime binary is not read wholly into memory. createReadStream
 // FOLLOWS symlinks -- deliberate: the build hashes each file with `shasum` (which also follows
@@ -134,7 +136,7 @@ async function fetchJson(f, url) {
 // Fetch latest.json; throw if it carries no manifest pointer (a pre-#1920 release, or the
 // field was dropped). Failing loudly here is deliberate: an unreachable/absent pointer must
 // never resolve to a vacuous pass.
-async function fetchLatestJson({ base = DEFAULT_BASE, doFetch } = {}) {
+async function fetchLatestJson({ base = releaseBase(), doFetch } = {}) {
   const f = doFetch || (typeof fetch === 'function' ? fetch : null);
   if (!f) throw new Error('no fetch available to retrieve latest.json');
   const lj = await fetchJson(f, `${base}/latest.json`);
@@ -146,7 +148,7 @@ async function fetchLatestJson({ base = DEFAULT_BASE, doFetch } = {}) {
 
 // Fetch a manifest by name; throw if unreachable/unparseable. An unreachable manifest must
 // NEVER read as a passing self-check -- that false absence is the mistake that made this card.
-async function fetchManifestNamed({ base = DEFAULT_BASE, name, doFetch } = {}) {
+async function fetchManifestNamed({ base = releaseBase(), name, doFetch } = {}) {
   const f = doFetch || (typeof fetch === 'function' ? fetch : null);
   if (!f) throw new Error('no fetch available to retrieve the manifest');
   const man = await fetchJson(f, `${base}/${name}`);
@@ -164,7 +166,7 @@ async function fetchManifestNamed({ base = DEFAULT_BASE, name, doFetch } = {}) {
  * mismatching every file. `behind` reports the merely-behind state distinctly. Returns
  * { ok:false, reason } for a from-source checkout or when the installed version is unreadable.
  */
-async function selfCheck({ base = DEFAULT_BASE, root, doFetch } = {}) {
+async function selfCheck({ base = releaseBase(), root, doFetch } = {}) {
   const installed = root || installedRoot();
   // `installed` (boolean) discriminates the two ok:false-with-reason cases the CLI must
   // treat differently: a from-source checkout is benign (exit 0), but an INSTALLED machine
@@ -217,7 +219,9 @@ function reportLines(r) {
 
 module.exports = {
   verifyFiles, fetchManifestNamed, fetchLatestJson,
-  selfCheck, reportLines, hashFile, installedVersion, manifestNameFor, DEFAULT_BASE,
+  selfCheck, reportLines, hashFile, installedVersion, manifestNameFor,
+  // A live read of update.js's rule, kept under its old export name.
+  get DEFAULT_BASE() { return releaseBase(); },
 };
 
 // CLI: `node engine/selfcheck.js` verifies this installed machine against the manifest for
