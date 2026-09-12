@@ -21261,6 +21261,11 @@ function boardEmpty() {
 // projects reads: two in-flight looks must not paint out of order.
 let PJ_BROWSE_GEN = 0;
 let CURRENT = null;
+/* #2916: which agent's Skills list is already loaded. Skills now folds under the Instructions
+   pill, which is visited far more often than the old standalone Skills pill, so guard the lazy
+   load against a refetch + list-rebuild flicker on every return to Instructions. Reset per open
+   (below) so reopening an agent gets a fresh list; a skill ADD refreshes it on its own path. */
+let SKILLS_LOADED_FOR = null;
 /* #2574: the project a detail view was opened FROM (a project-member click), so
    detail-back returns to that project instead of All agents. null for every
    other opener. */
@@ -23300,6 +23305,7 @@ function openDetail(sessionName, section, fromProject) {
   DETAIL_FROM_PROJECT = fromProject || null;
   const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
+  SKILLS_LOADED_FOR = null;   // #2916: a fresh open reloads the Skills list on the first Instructions visit
   URL_TAB = 'detail';
   /* #1615: openDetail is the THIRD writer of URL_TAB (after showTab and, via it,
      settingsGo). Jumping straight to the agent detail from the Plus tab must
@@ -23815,7 +23821,12 @@ const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile'
    reveals the instructions AND skills sections. The member sections keep their own data-sec and
    wiring untouched -- only which ones show together changed. detailSectionGroup maps any section
    (the pill's own, or a folded member reached programmatically) to the full set to reveal, and
-   detailSectionPill maps it to the pill that should light. Anything not folded maps to itself. */
+   detailSectionPill maps it to the pill that should light. Anything not folded maps to itself.
+   ⚠️ FOCUS lands on the group's FIRST section (the pill's own), NOT a requested folded member: a
+   future openDetail(name, 'memory') reveals model+memory but focuses the top of Model, so a
+   keyboard user tabs past Model to reach Memory. No caller passes a folded member today; if one
+   is added and must focus ON the member, teach detailGo to focus the requested section rather
+   than group[0]. */
 const DETAIL_SECTION_GROUPS = { model: ['model', 'memory'], instr: ['instr', 'skills'] };
 const DETAIL_SECTION_PILL = { memory: 'model', skills: 'instr' };
 function detailSectionGroup(section) {
@@ -23903,8 +23914,11 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
   detailGo(b.dataset.go);
   /* #2916: the Skills list lazy-loads when its section is revealed. It used to live behind its
      own pill; now it is folded under Instructions, so load it when the Instructions pill opens
-     (the skills section shows alongside it). */
-  if (b.dataset.go === 'instr' && CURRENT) {
+     (the skills section shows alongside it). Guarded by SKILLS_LOADED_FOR so returning to
+     Instructions -- a frequent action, it also carries the needs-you dot -- does not refetch and
+     rebuild the list on every visit. */
+  if (b.dataset.go === 'instr' && CURRENT && SKILLS_LOADED_FOR !== CURRENT.sessionName) {
+    SKILLS_LOADED_FOR = CURRENT.sessionName;
     loadSkills('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/skills', 'd-skills-list', 'd-skills-msg');
   }
 });
