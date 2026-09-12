@@ -4826,24 +4826,18 @@ test('the browser-layer fixes on this branch cannot be undone silently', () => {
      'the box clear must key on the takeoff PROJECT (not the full flight gate) plus the sent text: too narrow deletes another project\u2019s words, too wide leaves delivered words armed for a duplicate send (rounds 29/37/38)'],
     [/if \(\(PJ_DRAFTS\[sentProject\] \|\| ''\)\.trim\(\) === text\) delete PJ_DRAFTS\[sentProject\];/,
      'the parked-draft clear must key on the TAKEOFF project and the exact sent text (rounds 34/37: a programmatic clear fires no input event, so the map kept the sent text)'],
-    // The description renders escaped in BOTH places or not at all: a
-    // project named by the person carries their words onto a card and a
-    // heading, and either an unescaped render or a dropped arm would be
-    // invisible to node tests (project-description branch).
+    // The card row's description renders escaped: a project named by the
+    // person carries their words onto a card, and an unescaped render or a
+    // dropped arm would be invisible to node tests (project-description branch).
     // (class renamed pj-desc -> pjdesc -> pc-t with the pack-card restyle;
     // the pin follows the arm it protects, not the spelling. pc-t is the
-    // pack's own card-sentence class, and the pack spends .pjdesc on the
-    // detail page.)
+    // pack's own card-sentence class.)
+    // #2838: the detail-page inline description was removed with its disclosure
+    // arrow (it lives in Project settings now), so its two former pins here (the
+    // textContent write and the empty-dress toggle) retired with it. The card
+    // arm below is the description's only remaining escaped render on this page.
     [/p\.description \? '<span class="pc-t">' \+ esc\(p\.description\)/,
      'the card row lost its escaped description arm'],
-    [/desc\.textContent = p\.description \|\| 'This project has no description yet/,
-     'the detail description must be written through textContent -- innerHTML here is the injection the card arm escapes against, and no node test can see the swap'],
-    /* The hidden-when-absent toggle retired on Josh's 08-20 ruling (#132):
-       the empty slot now SHOWS, muted, saying where to fill it. What must
-       survive instead is that the placeholder can never be mistaken for
-       content: the empty class rides exactly the absence. */
-    [/desc\.classList\.toggle\('pj-desc-empty', !p\.description\);/,
-     'the empty description lost its distinct dress, so the placeholder reads as the project\u2019s own words'],
     // The pick toggle must keep setLive's memory in step with its in-place
     // aria-checked flip, or the next poll rebuilds the list under the
     // focused button (round 39).

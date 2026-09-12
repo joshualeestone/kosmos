@@ -15,7 +15,7 @@
  *
  *   node tools/check-served.js                     # markers from tools/served-markers.json
  *   node tools/check-served.js --version 0.5.76    # pin a version rather than reading latest
- *   node tools/check-served.js --expect 'pjdisc' --absent 'Two questions'
+ *   node tools/check-served.js --expect 'pj-settings-link' --absent 'pjdisc'
  *
  * ⚠️ WHAT IT CANNOT SEE, stated so a green run is not over-read: anything that
  * exists only because the page is hosted by an app. File pickers, the menu bar,
