@@ -95,6 +95,11 @@ refuses "a relative destination is refused"              "relative/board"       
 #  so an empty env var yields the valid default rather than an empty DEST.)
 refuses "a '.' path component is refused"                "$TMP/./board"         "path components"
 refuses "a '..' path component is refused"               "$TMP/sub/../board"    "path components"
+# a dot component at the very END of the path is the case the "/$DEST/" wrapping
+# exists for: a bare */../* would miss a trailing "/.." (no following slash). These
+# would pass if the wrapping were removed, so they guard that logic specifically.
+refuses "a trailing '.' component is refused"            "$TMP/x/."             "path components"
+refuses "a trailing '..' component is refused"           "$TMP/x/.."            "path components"
 refuses "a file ancestor is refused"                     "$TMP/afile/board"     "not a directory"
 # $DEST itself being an existing plain file (not merely a file ANCESTOR of $DEST):
 refuses "an existing plain-file destination is refused"  "$TMP/afile"           "already exists and is not a directory"
@@ -116,7 +121,11 @@ refuses "a non-empty non-board destination is refused"  "$TMP/not-a-board"     "
 # project) must still be refused -- server.js alone is not proof of a board install:
 mkdir -p "$TMP/half-board"
 touch "$TMP/half-board/server.js"
-refuses "a server.js-only dir (no engine/) is refused"  "$TMP/half-board"      "needs both server.js and engine"
+refuses "a server.js-only dir (no engine/) is refused"  "$TMP/half-board"      "needs both a server.js file"
+# a dir whose "server.js" is itself a DIRECTORY (plus an engine/ dir) must still be
+# refused: -e would misclassify it as a board and destroy it, -f does not:
+mkdir -p "$TMP/fake-board/server.js" "$TMP/fake-board/engine"
+refuses "a dir with server.js as a DIRECTORY is refused" "$TMP/fake-board"     "needs both a server.js file"
 
 # a symlink whose target resolves INTO the source repo must be caught by the pwd -P
 # canonicalization -- a plain string compare on the symlink path would miss it. This

@@ -175,8 +175,12 @@ validate_dest() {
     # rm -rf a populated directory we never actually inspected. Capture ls's exit
     # status (the `|| fail` on the assignment) rather than only its output.
     _entries="$(ls -A "$_dest_real" 2>/dev/null)" || fail "could not read destination '$_dest_real' to check it is safe to replace; refusing"
-    if [ -n "$_entries" ] && { [ ! -e "$_dest_real/server.js" ] || [ ! -d "$_dest_real/engine" ]; }; then
-      fail "destination '$_dest_real' is a non-empty directory that is not a board install (needs both server.js and engine/); refusing to move it aside and delete it -- point KOSMOS_BOARD_LIBEXEC at a fresh path or an existing board tree"
+    # server.js must be a regular FILE (the plist runs it), not merely present: a
+    # directory literally named server.js would satisfy -e and let a non-board dir be
+    # misclassified as a board and destroyed. -f (matches intent, follows a symlink to
+    # a file) is strictly safer.
+    if [ -n "$_entries" ] && { [ ! -f "$_dest_real/server.js" ] || [ ! -d "$_dest_real/engine" ]; }; then
+      fail "destination '$_dest_real' is a non-empty directory that is not a board install (needs both a server.js file and an engine/ directory); refusing to move it aside and delete it -- point KOSMOS_BOARD_LIBEXEC at a fresh path or an existing board tree"
     fi
   fi
 }

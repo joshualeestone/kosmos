@@ -105,6 +105,18 @@ the swap, before any plist/launchctl, so the case stays hermetic. Wired into
   keeps its leading slash); left uncollapsed, a `//`-prefixed path could slip past the
   string-prefix repo checks (a false-accept). Extremely low probability, but the
   false-accept direction is the dangerous one, so it is normalized rather than deferred.
+- The explicit filesystem-root refusal compares the RAW `$DEST` string, so a
+  destination that is a symlink to `/` does not trip it; it is caught downstream by the
+  non-empty/marker check instead (`/` has no top-level `server.js`+`engine/`), so there
+  is no live false-accept. Not adding a second root check on `_dest_real` because the
+  marker check is the real backstop.
+- A `KOSMOS_BOARD_LIBEXEC` hand-set with a literal leading `//` is not explicitly
+  rejected, but macOS collapses it and such a dest is still refused by the marker check;
+  nobody hand-sets a doubled-slash env var, so this is left as-is.
+- The `--refresh-only` regression test's red-capability is proven OUT OF BAND (neutering
+  the marker deletes the fixture file) and documented in the test, not re-proven
+  mechanically inside the suite: an in-suite proof would need a guard-disable knob in the
+  production script, a worse hazard than the prose assertion for a destructive path.
 
 ## Follow-up (out of scope here)
 
