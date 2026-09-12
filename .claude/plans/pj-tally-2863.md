@@ -1,4 +1,4 @@
-# pj-tally-2863 — Projects unread "Messages" tally tile (#2863)
+# pj-tally-2863 - Projects unread "Messages" tally tile (#2863)
 
 ## What finished looks like
 On the Projects board, when any project has unread messages, a "Messages" tile
@@ -24,11 +24,11 @@ org-node badge (separate placement work).
   agrees with the badges on the room you are reading (the projects poll can report
   unread=1 for that room before this tick's /seen lands).
 - **null / negative → 0:** an unknown (null) or negative count contributes 0, never a
-  guess — the same rule the ring and the agents tally keep.
+  guess, the same rule the ring and the agents tally keep.
 - **Hidden at zero:** the same grammar as the "Needs you" tile beside it, so a quiet
   board is unchanged.
 - **Failed read (pjTilesUnknown):** blanks the tile to `?`-and-hidden rather than
-  leaving a stale count standing — the projects twin of the agents failed-poll reset.
+  leaving a stale count standing, the projects twin of the agents failed-poll reset.
 - **Glyph:** its own muted message-bubble glyph (`.dmtile-g`, `--k-ink-2`), NOT the
   red `.haz` alert mark: unread messages point you somewhere, they are not a fault.
   Same choice as the agents tile.
@@ -50,10 +50,10 @@ org-node badge (separate placement work).
   twin tile in #2888.
 
 ## Rejected alternatives
-- **Summing all projects including archived:** rejected — `st-pj` counts active only,
+- **Summing all projects including archived:** rejected, `st-pj` counts active only,
   so the tally beside it must match, and an archived project's unread badge sits in a
   collapsed disclosure, not on the board. Counting it would show a total with no
   visible badge to explain it.
-- **A second server-side derivation of the total:** rejected — summing client-side
+- **A second server-side derivation of the total:** rejected, summing client-side
   from the same `active` rows the cards render means the tile can never disagree with
   the badges, the same reason the agents tally sums client-side from `data.agents`.
