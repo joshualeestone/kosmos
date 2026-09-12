@@ -155,6 +155,71 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
 6. **Rollback** = promote a prior staging pointer, or flip `latest.json` back, then re-deploy per
    step 5. No rebuild.
 
+## Windows (the same model, two more pointers)
+
+A Windows build follows the same rule: staging first, prod only after Josh's go.
+
+- **Publish to staging (the default).** `tools/publish-kosmos-windows.sh <zip>` stages the versioned
+  `kosmos-<V>-win-x64.zip`, its `.sha256` and `dist/latest-win-staging.json`, and leaves the alias
+  `kosmos-win-x64.zip`, its sidecar and `dist/latest-win.json` (prod) untouched. The channel
+  variable is `KOSMOS_WIN_CUT_CHANNEL`. The Mac cut's `KOSMOS_CUT_CHANNEL` defaults to prod in
+  `release.sh`, so it is ignored here (with a note), and exporting it for a Mac cut can never move
+  Windows prod. Both pointers come from one writer (`tools/lib/write-latest-win-pointer.js`) and
+  have the same shape. The staging pointer's `artifact` is the alias the promote will move, so a
+  staging consumer fetches `versioned`.
+- **The break-glass: a direct prod publish.** `KOSMOS_WIN_CUT_CHANNEL=prod` writes prod directly
+  (the old behaviour), skipping staging, the verification record and the promote. It is for what
+  the loop cannot do, such as rolling back to a build from before this scheme, which has no
+  record. It runs only with Josh's go for that exact zip:
+  - `KOSMOS_WIN_PROD_APPROVED_SHA` must equal the zip's sha256, and `KOSMOS_WIN_PROD_APPROVAL_REF`
+    must name his message (a Slack ts or permalink). Anything missing or mismatched refuses
+    before anything is copied.
+  - A `path=direct` line goes to the approval log, and a log that cannot be written refuses.
+  - The publish prints a loud banner.
+  - An agent never sets these without his recorded go.
+- **Deploy it.** Commit the three files. `tools/deploy-site.sh` derives the staged zip from the
+  committed `latest-win-staging.json` (the same bytes-agreement check as prod), refuses an export
+  missing any of the three, and served-verifies them after the deploy.
+  - **Fail-closed, on purpose:** a bad committed `latest-win-staging.json` makes EVERY
+    `deploy-site.sh` run refuse, a Mac `--promote` and a marketing-copy `--publish` included. Bad
+    means missing fields, a zip that is not committed, or bytes that disagree with its sha256.
+  - Fix it by re-running the staging publish (or removing that pointer) and committing, before
+    any deploy. A staging pointer that cannot be verified is never deployed around.
+- **Verify it on the Windows box.** The box's verify script writes a record at
+  `%LOCALAPPDATA%\Kosmos\release-verify\win-staging-<sha256>.json`, shaped
+  `{version, sha256, source_sha, checks, at, result}`. `tools/win-staging-verified.sh` reads it:
+  0 pass, 1 fail or ambiguous, 2 no record (HOLD).
+- **Where the promote runs, and how the record gets there.** The promote rewrites the SITE
+  CHECKOUT's `dist/`, so it runs where that checkout lives: today the Mac release box
+  (`$HOME/work/chaoskosmos-site`), not the Windows box.
+  - The record is written on the Windows box, so it is **copied to the promoting box by hand**,
+    into `$KOSMOS_WIN_VERIFY_DIR` or, on a Mac, `$HOME/.local/state/kosmos/release-verify/`.
+  - The Windows box posts the record's sha256 with its result.
+  - The promote logs the path and the sha256 of the exact record bytes it validated. That logged
+    sha256, matched against the posted one, is the link back to the file the Windows box wrote.
+  - Nothing else authenticates the copy. The record must also name the staging pointer's exact
+    sha256 and version.
+- **Promote, only on Josh's go for that exact build.**
+  - The command:
+    `tools/promote-channel.sh <site> --family win --approved-version <V> --approved-sha <sha256> --approval-ref <Slack ts or permalink of his message>`
+  - It refuses:
+    - without all three approval flags;
+    - with a different sha or version;
+    - without a passing record;
+    - when the approval log cannot be written;
+    - when the staging pointer changes while the promote runs.
+  - `--force` is refused.
+  - Every field, the gate and the promoted copy come from one snapshot of the staging pointer, so a
+    staging publish that lands mid-promote cannot reach prod.
+  - On success, one approval line is logged (time, version, sha, `approval_ref`, `record_sha256`,
+    record path; never a name). Then `latest-win-staging.json` is copied onto `latest-win.json`
+    byte for byte, and the alias is refreshed from the promoted bytes.
+  - The approval records a human decision: an agent never passes it without Josh's recorded go.
+  - Then commit `latest-win.json` and the alias pair, and run `tools/deploy-site.sh --publish`. A
+    Windows-only promote does not move `latest.json`, so it is not a `--promote` deploy.
+- **Retention.** `tools/dist-retention.sh` protects the version each staging pointer names
+  (`latest-staging.json`, `latest-win-staging.json`) as well as the served one.
+
 ## The default is PROD, on purpose (the invariant)
 
 `KOSMOS_CUT_CHANNEL` defaults to **prod**, and the update channel defaults to **prod

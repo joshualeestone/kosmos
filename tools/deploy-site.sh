@@ -194,27 +194,49 @@ ptr_versioned() { printf '%s' "$1" | sed -n 's/.*"versioned":[[:space:]]*"\([^"]
 # is therefore: a checkout current for the mac pointer but stale specifically for the win side
 # derives an internally-consistent but stale win name -- bounded by keeping $SITE fresh before a
 # deploy, not by this check. An explicit KOSMOS_WIN_ZIP overrides everything (operator escape hatch).
+#
+# ONE derivation for BOTH Windows pointers: latest-win.json (prod) and latest-win-staging.json (the
+# staged build publish-kosmos-windows.sh writes by default). derive_committed_win_versioned
+# <pointer-name> returns 1 when the checkout has no such committed pointer; otherwise it REFUSES
+# (exit) on any disagreement, or sets DERIVED_WIN_VERSIONED to the sha-verified versioned zip name.
+derive_committed_win_versioned() {
+  _dw_pointer=$1; DERIVED_WIN_VERSIONED=""
+  _dw_json=$(git -C "$SITE" show "$H:dist/$_dw_pointer" 2>/dev/null) || _dw_json=""
+  [ -n "$_dw_json" ] || return 1
+  _dw_versioned=$(ptr_versioned "$_dw_json"); _dw_sha=$(ptr_sha "$_dw_json")
+  [ -n "$_dw_versioned" ] && [ -n "$_dw_sha" ] || { echo "deploy-site: committed dist/$_dw_pointer names no versioned/sha256 -- refusing (#2571). Re-run tools/publish-kosmos-windows.sh so the manifest is complete."; exit 1; }
+  # The committed versioned zip must EXIST as a tracked blob at $H (git archive ships it).
+  git -C "$SITE" cat-file -e "$H:dist/$_dw_versioned" 2>/dev/null || { echo "deploy-site: $_dw_pointer names $_dw_versioned, which is not committed in the site checkout at $H -- refusing (#2571). Re-run tools/publish-kosmos-windows.sh so the manifest and the zip agree."; exit 1; }
+  # Hash the ACTUAL committed zip BYTES (git show streams the blob), not just the string recorded
+  # in the .sha256 sidecar -- so a zip whose bytes were altered without touching the manifest OR
+  # the sidecar (a bad rebase / hand-edit of the tracked blob) is still caught. This is the TRUE
+  # pointer-vs-committed-bytes agreement; comparing to the sidecar alone would only prove
+  # pointer-vs-sidecar and miss a bytes-only divergence. The pipe's exit is awk's (the last stage,
+  # always 0), so a git-show failure does not abort under set -e -- but cat-file -e above has
+  # already proven the blob exists.
+  _dw_bytes_sha=$(git -C "$SITE" show "$H:dist/$_dw_versioned" 2>/dev/null | shasum -a 256 | awk '{print $1}')
+  [ "$_dw_sha" = "$_dw_bytes_sha" ] || { echo "deploy-site: $_dw_pointer (sha $_dw_sha) DISAGREES with the committed bytes of $_dw_versioned (got ${_dw_bytes_sha:-none}) -- refusing (#2571). The Windows pointer and its versioned zip are out of sync; re-run tools/publish-kosmos-windows.sh so $_dw_pointer and the zip agree."; exit 1; }
+  DERIVED_WIN_VERSIONED=$_dw_versioned
+}
 if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
-  CJW=$(git -C "$SITE" show "$H:dist/latest-win.json" 2>/dev/null) || CJW=""
-  if [ -n "$CJW" ]; then
-    WV=$(ptr_versioned "$CJW"); WPS=$(ptr_sha "$CJW")
-    [ -n "$WV" ] && [ -n "$WPS" ] || { echo "deploy-site: committed dist/latest-win.json names no versioned/sha256 -- refusing (#2571). Re-run tools/publish-kosmos-windows.sh so the manifest is complete."; exit 1; }
-    # The committed versioned zip must EXIST as a tracked blob at $H (git archive ships it).
-    git -C "$SITE" cat-file -e "$H:dist/$WV" 2>/dev/null || { echo "deploy-site: latest-win.json names $WV, which is not committed in the site checkout at $H -- refusing (#2571). Re-run tools/publish-kosmos-windows.sh so the manifest and the zip agree."; exit 1; }
-    # Hash the ACTUAL committed zip BYTES (git show streams the blob), not just the string recorded
-    # in the .sha256 sidecar -- so a zip whose bytes were altered without touching the manifest OR
-    # the sidecar (a bad rebase / hand-edit of the tracked blob) is still caught. This is the TRUE
-    # pointer-vs-committed-bytes agreement; comparing to the sidecar alone would only prove
-    # pointer-vs-sidecar and miss a bytes-only divergence. The pipe's exit is awk's (the last stage,
-    # always 0), so a git-show failure does not abort under set -e -- but cat-file -e above has
-    # already proven the blob exists.
-    WSC=$(git -C "$SITE" show "$H:dist/$WV" 2>/dev/null | shasum -a 256 | awk '{print $1}')
-    [ "$WPS" = "$WSC" ] || { echo "deploy-site: latest-win.json (sha $WPS) DISAGREES with the committed bytes of $WV (got ${WSC:-none}) -- refusing (#2571). The Windows pointer and its versioned zip are out of sync; re-run tools/publish-kosmos-windows.sh so latest-win.json and the zip agree."; exit 1; }
-    WINZIP="$WV"
+  if derive_committed_win_versioned latest-win.json; then
+    WINZIP="$DERIVED_WIN_VERSIONED"
     echo "deploy-site: derived the Windows zip $WINZIP from dist/latest-win.json (sha-verified against the committed zip's bytes)." >&2
   else
     echo "deploy-site: no committed dist/latest-win.json -- using the fallback \$WINZIP=$WINZIP, which may be stale (#2008/#2571). Land latest-win.json (tools/publish-kosmos-windows.sh) so the current name is derived." >&2
   fi
+else
+  echo "deploy-site: KOSMOS_WIN_ZIP=$WINZIP overrides the derivation from latest-win.json (the operator escape hatch)." >&2
+fi
+# The STAGED Windows build. Every Windows cut goes to staging first (Josh, 2026-09-12), so a
+# committed latest-win-staging.json names a versioned zip that must SHIP with its sidecar and the
+# pointer itself: the Windows box verifies the build from the served copies before any promote.
+# Same agreement check as prod. Independent of KOSMOS_WIN_ZIP (that override names the PROD zip).
+# No committed staging pointer (an older checkout, or nothing staged) means nothing to carry.
+WIN_STAGED=""
+if derive_committed_win_versioned latest-win-staging.json; then
+  WIN_STAGED="$DERIVED_WIN_VERSIONED"
+  echo "deploy-site: derived the staged Windows zip $WIN_STAGED from dist/latest-win-staging.json (sha-verified against the committed zip's bytes)." >&2
 fi
 
 if [ "$PROMOTE" = 1 ]; then
@@ -359,6 +381,17 @@ done
 [ -f "$EXPORT/dist/kosmos-win-x64.zip" ] || { echo "deploy-site: the export has no kosmos-win-x64.zip -- refusing (the unversioned Windows alias is the download latest-win.json names)"; rm -rf "$EXPORT"; exit 1; }
 [ -f "$EXPORT/dist/kosmos-win-x64.zip.sha256" ] || { echo "deploy-site: the export has no kosmos-win-x64.zip.sha256 -- refusing (the installer verifies the alias against it)"; rm -rf "$EXPORT"; exit 1; }
 [ -f "$EXPORT/dist/$WINZIP.sha256" ] || { echo "deploy-site: the export has no $WINZIP.sha256 -- refusing (the installer verifies the zip against it). Same cause as the line above if the Windows build was bumped: set KOSMOS_WIN_ZIP to the current name."; rm -rf "$EXPORT"; exit 1; }
+# The STAGED Windows build ships whole: the zip, its checksum and the staging pointer that names
+# them (all tracked, so git archive carries them). The Windows box verifies the served copies before
+# any promote, so a dropped piece would make staging unverifiable -- refuse before the deploy.
+if [ -n "$WIN_STAGED" ]; then
+  # Three literal checks rather than a loop: tools/test-served-verify.sh inventories the pre-deploy
+  # [ -f "$EXPORT/dist/<name>" ] lines by name to prove every artifact is checked with its sidecar,
+  # and a loop variable would read to it as an artifact called "$f".
+  [ -f "$EXPORT/dist/$WIN_STAGED" ] || { echo "deploy-site: the export has no $WIN_STAGED -- refusing (the staged Windows build latest-win-staging.json names must ship whole: the zip, its checksum and the pointer)."; rm -rf "$EXPORT"; exit 1; }
+  [ -f "$EXPORT/dist/$WIN_STAGED.sha256" ] || { echo "deploy-site: the export has no $WIN_STAGED.sha256 -- refusing (the staged Windows build latest-win-staging.json names must ship whole: the zip, its checksum and the pointer)."; rm -rf "$EXPORT"; exit 1; }
+  [ -f "$EXPORT/dist/latest-win-staging.json" ] || { echo "deploy-site: the export has no latest-win-staging.json -- refusing (the staged Windows build it names must ship whole: the zip, its checksum and the pointer)."; rm -rf "$EXPORT"; exit 1; }
+fi
 [ -f "$EXPORT/.kosmos-release-export" ] || { echo "deploy-site: the export has no .kosmos-release-export marker -- refusing"; rm -rf "$EXPORT"; exit 1; }
 
 # --- 4) the .vercelignore guard, exactly as the release runs it ---------------
@@ -431,6 +464,16 @@ served_verify_asset_ok "$HOST/dist/$WINZIP" "the Windows zip $WINZIP" || { echo 
 served_verify_asset_ok "$HOST/dist/kosmos-win-x64.zip" "the unversioned Windows alias" || { echo "deploy-site: the unversioned Windows alias kosmos-win-x64.zip failed served-verify (see the reason above); the deploy already ran -- investigate. This is the download latest-win.json names, and it does not go stale on a version bump the way \$WINZIP does."; exit 1; }
 served_verify_asset_ok "$HOST/dist/kosmos-win-x64.zip.sha256" "the unversioned Windows alias checksum" || { echo "deploy-site: kosmos-win-x64.zip.sha256 failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
 served_verify_asset_ok "$HOST/dist/$WINZIP.sha256" "the Windows zip checksum $WINZIP.sha256" || { echo "deploy-site: the Windows zip checksum $WINZIP.sha256 failed served-verify (see the reason above); the deploy already ran -- investigate. A sidecar-only drop breaks new-install verification while the zip still serves."; exit 1; }
+# The STAGED Windows build, served whole: the Windows box verifies it from these served copies
+# before any promote. The pointer is also compared BY CONTENT with the committed one, so a served
+# staging pointer that names some other build fails here rather than misdirecting the verification.
+if [ -n "$WIN_STAGED" ]; then
+  served_verify_asset_ok "$HOST/dist/$WIN_STAGED" "the staged Windows zip $WIN_STAGED" || { echo "deploy-site: the staged Windows zip $WIN_STAGED failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
+  served_verify_asset_ok "$HOST/dist/$WIN_STAGED.sha256" "the staged Windows zip checksum $WIN_STAGED.sha256" || { echo "deploy-site: the staged Windows zip checksum $WIN_STAGED.sha256 failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
+  served_verify_asset_ok "$HOST/dist/latest-win-staging.json" "the Windows staging pointer" || { echo "deploy-site: latest-win-staging.json failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
+  _served_win_staging=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest-win-staging.json") || { echo "deploy-site: could not re-read the served latest-win-staging.json after deploy -- investigate."; exit 1; }
+  [ "$_served_win_staging" = "$(git -C "$SITE" show "$H:dist/latest-win-staging.json" 2>/dev/null)" ] || { echo "deploy-site: the served latest-win-staging.json is not the committed one (which names $WIN_STAGED) -- investigate."; exit 1; }
+fi
 # #2565: /setup is at the site ROOT, not under /dist, so the /dist control above does NOT prove a
 # 200 at $HOST/setup is meaningful -- a route-scoped blindness (a catch-all / rewrite / SPA fallback
 # at the root) discriminates under /dist and is blind at the root. Prove the ROOT route discriminates
