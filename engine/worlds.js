@@ -127,7 +127,10 @@ function writeRegistry(base, reg) {
   fs.renameSync(tmp, registryPath(base));
 }
 
-function listWorlds(base) { return readRegistry(base).worlds; }
+/* #2935: the user-facing switcher list drops hidden worlds. `readRegistry` deliberately keeps them
+   (internal callers -- worldBaseDir, the activeWorldId guard -- still need a hidden world's row so
+   its store resolves and stays accessible). */
+function listWorlds(base) { return readRegistry(base).worlds.filter((w) => !w.hiddenAt); }
 
 function activeWorld(base) {
   const reg = readRegistry(base);
@@ -437,6 +440,41 @@ function renameWorld(base, id, newName) {
 }
 
 /*
+ * #2935 (Josh's soft-delete ruling, 2026-09-12): HIDE a world from the Kosmoses list. This is NOT
+ * destructive -- the on-disk store (<base>/worlds/<id>/) stays in place and accessible; only the
+ * registry ROW is flagged with `hiddenAt`, so the pointer to those files survives (dropping the row
+ * would lose the pointer we promise the user their files still live behind). `listWorlds` filters
+ * hidden rows out of the switcher, while `readRegistry` keeps them so `worldBaseDir` still resolves
+ * a hidden world's store. The default world is never hideable; the active world must be switched
+ * away from first (its conversations/watchers/agent processes belong to it). There is no unhide:
+ * re-adding a world is the import path (#2892), not a restore feature (Josh: "no restore a kosmos").
+ */
+function hideWorld(base, id) {
+  if (id === DEFAULT_ID) {
+    const err = new Error('the default Kosmos cannot be hidden');
+    err.code = 'ERESERVED';
+    throw err;
+  }
+  return withRegistryLock(base, () => {
+    const reg = readRegistry(base);
+    const world = reg.worlds.find((w) => w.id === id);
+    if (!world) {
+      const err = new Error(`no such world "${id}"`);
+      err.code = 'ENOWORLD';
+      throw err;
+    }
+    if (reg.activeWorldId === id) {
+      const err = new Error('switch to another Kosmos before hiding this one');
+      err.code = 'EACTIVE';
+      throw err;
+    }
+    world.hiddenAt = new Date().toISOString();
+    writeRegistry(base, reg);
+    return world;
+  });
+}
+
+/*
  * At board startup: mutate `env` in place so the active world's roots resolve for
  * the rest of the process. A no-op for the default world (no overrides). Returns
  * the applied overrides (empty for default) so a caller can log what it did.
@@ -525,6 +563,7 @@ module.exports = {
   preWorldEnv,
   createWorld,
   renameWorld,
+  hideWorld,
   setActiveWorld,
   applyActiveWorldEnv,
   worldStoreRoot,

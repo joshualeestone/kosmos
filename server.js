@@ -3391,6 +3391,42 @@ const server = http.createServer((req, res) => {
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
   }
+  /* #2935 (Josh's soft-delete ruling): HIDE a Kosmos from the list. Soft only -- the on-disk store
+     is untouched (files stay accessible); the registry row is flagged hidden and this world's agents
+     are STOPPED (not deleted) so they do not keep running for a Kosmos removed from your list.
+     Mirrors /api/worlds/rename, classifying the engine's TYPED error codes. No id/name body beyond
+     the id. There is no unhide route (Josh: "no restore a kosmos"). */
+  if (pathname === '/api/worlds/hide' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { ok: false, because: 'we could not read that request' }); return; }
+        const id = typeof body.id === 'string' ? body.id.trim() : '';
+        if (!id) { sendJson(res, 400, { ok: false, because: 'say which Kosmos to hide (an id)' }); return; }
+        let base;
+        try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+        let world;
+        try { world = worlds.hideWorld(base, id); }
+        catch (e) {
+          const code = e && e.code;
+          if (code === 'ERESERVED') { sendJson(res, 400, { ok: false, because: 'the first Kosmos cannot be hidden' }); return; }
+          if (code === 'EACTIVE') { sendJson(res, 409, { ok: false, because: 'switch to another Kosmos before hiding this one' }); return; }
+          if (code === 'ENOWORLD') { sendJson(res, 404, { ok: false, because: 'there is no Kosmos with that id on this machine' }); return; }
+          if (code === 'EWORLDLOCK') { sendJson(res, 409, { ok: false, because: 'another Kosmos operation is in progress, try again in a moment' }); return; }
+          sendJson(res, 500, { ok: false, because: 'we could not hide that Kosmos' }); return;
+        }
+        /* TODO(#2935 next step, in this branch): STOP (not delete) this world's agents so they do
+           not keep running for a hidden Kosmos -- Josh left the agent handling to the builder (Q2),
+           reversible. Cross-platform via the remove.js primitives (jobOps: launchctl disable+bootout
+           on Mac, schtasks /Change /DISABLE + /End on Windows), enumerating agents whose launchKey
+           carries this world's id (launchidentity.launchKey / parseKey). It is deliberately SEPARATE
+           from the hide itself: the hide is complete and reversible without it (files + agents stay
+           on disk), so the agent-stop must be best-effort and never fail the hide. Not yet wired. */
+        sendJson(res, 200, { ok: true, world });
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
   const globalSkillRm = pathname.match(/^\/api\/skills\/([^/]+)$/);
   if (globalSkillRm && req.method === 'DELETE') {
     const key = decodeSegment(globalSkillRm[1]);
