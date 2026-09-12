@@ -104,14 +104,20 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       // defaults + the grey-smiley .rxn-more) plus the full picker it opens.
       const initial = await rxns.evaluate((box) => {
         const quick = box.querySelector('.rxn-quick');
+        // #2834: the full picker is the SHARED #rxn-picker (built lazily on first
+        // smiley click, appended to body), not an inline element -- so before any
+        // click it does not exist yet, which is "hidden" for this assertion.
+        const shared = document.getElementById('rxn-picker');
         return { pills: box.querySelectorAll('.rxn').length,
           hasOldPlus: !!box.querySelector('.rxn-add'),
           hasMore: !!box.querySelector('.rxn-more'),
+          hasInlinePicker: !!box.querySelector('.rxn-picker'),
           quickDefaults: quick ? quick.querySelectorAll('.rxn-pick').length : -1,
           quickOpacity: quick ? Number(getComputedStyle(quick).opacity) : null,
-          pickerHidden: box.querySelector('.rxn-picker') ? box.querySelector('.rxn-picker').hidden : null };
+          pickerHidden: !shared || shared.hidden };
       });
       if (initial.hasMore && !initial.hasOldPlus) ok(t + ' a post shows the grey-smiley opener and NO "+" (removed per #2806)'); else bad(t + ' opener is the smiley, not "+"', JSON.stringify(initial));
+      if (!initial.hasInlinePicker) ok(t + ' #2834: a post does NOT inline its own .rxn-picker (the full list is the shared #rxn-picker)'); else bad(t + ' post still inlines a picker', 'the #2834 refactor should have removed it');
       if (initial.quickDefaults === 3) ok(t + ' the quick bar carries exactly three default reactions'); else bad(t + ' three quick defaults', 'n=' + initial.quickDefaults);
       if (initial.pills === 0) ok(t + ' a fresh post has no pills yet'); else bad(t + ' no initial pills', 'pills=' + initial.pills);
       if (initial.pickerHidden === true) ok(t + ' the full picker starts hidden'); else bad(t + ' picker starts hidden', String(initial.pickerHidden));
@@ -147,11 +153,13 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       await msgB.hover();
       await rxns.locator('.rxn-more').click();
       const opened = await rxns.evaluate((box) => {
-        const picker = box.querySelector('.rxn-picker'); const more = box.querySelector('.rxn-more');
+        const picker = document.getElementById('rxn-picker'); const more = box.querySelector('.rxn-more');
         return { shown: picker ? !picker.hidden : null, picks: picker ? picker.querySelectorAll('.rxn-pick').length : -1,
+          forThisPost: picker ? (picker.getAttribute('data-post') === box.getAttribute('data-post')) : null,
           expanded: more ? more.getAttribute('aria-expanded') : null };
       });
       if (opened.shown && opened.picks >= 40) ok(t + ' the smiley opens the full picker (' + opened.picks + ' emoji)'); else bad(t + ' full picker reveals', JSON.stringify(opened));
+      if (opened.forThisPost) ok(t + ' #2834: the shared picker records the post it was opened for (data-post routing)'); else bad(t + ' shared picker data-post', JSON.stringify(opened));
       if (opened.expanded === 'true') ok(t + ' the smiley reports aria-expanded=true'); else bad(t + ' aria-expanded', String(opened.expanded));
 
       // #2806 BLOCKER regression: the picker on the BOTTOM post must be actually
@@ -160,7 +168,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       // a fixed popover is the topmost element there; an overflow-clipped absolute one
       // is not (elementFromPoint returns something else / nothing).
       const vis = await rxns.evaluate((box) => {
-        const picker = box.querySelector('.rxn-picker');
+        const picker = document.getElementById('rxn-picker');
         if (!picker || picker.hidden) return { ok: false, why: 'hidden' };
         const r = picker.getBoundingClientRect();
         if (!(r.width > 0 && r.height > 0)) return { ok: false, why: 'zero-size' };
@@ -172,8 +180,9 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       });
       if (vis.ok) ok(t + ' the picker on the BOTTOM post is fully visible (not clipped by the thread overflow)'); else bad(t + ' bottom-post picker visible', JSON.stringify(vis));
 
-      // React with the first emoji in the open picker.
-      await rxns.locator('.rxn-picker .rxn-pick').first().click();
+      // React with the first emoji in the open shared picker (#2834: it lives at
+      // #rxn-picker outside the row, so drive it page-level, not scoped to `rxns`).
+      await p.locator('#rxn-picker .rxn-pick').first().click();
       await rxns.locator('.rxn').first().waitFor({ timeout: 8000 }).catch(() => {});
       const reacted = await rxns.evaluate((box) => {
         const pill = box.querySelector('.rxn');
@@ -186,6 +195,31 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       const off = await rxns.evaluate((box) => ({ pills: box.querySelectorAll('.rxn').length }));
       if (off.pills === 0) ok(t + ' CONTROL: clicking the picker pill again toggles it OFF'); else bad(t + ' picker toggle-off', 'pills=' + off.pills);
 
+      // #2834: ROUTING TO THE CORRECT POST. Every arm above drives ONE post (the
+      // last), so a regression that always routed a shared-picker pick to a FIXED
+      // post would pass them all. Open the picker on the FIRST post instead and
+      // confirm the pick lands there and NOT on the last post. Both start at 0 pills
+      // (the last post was toggled back off just above).
+      const firstRow = p.locator('#pj-room .msg').filter({ has: p.locator('.rxns') }).first();
+      await firstRow.scrollIntoViewIfNeeded();
+      const firstRxns = firstRow.locator('.rxns');
+      const firstMsgB = firstRow.locator('.msg-b');
+      await firstMsgB.hover();
+      await firstRxns.locator('.rxn-more').click();
+      await p.waitForTimeout(150);
+      const routedTo = await firstRxns.evaluate((box) => {
+        const picker = document.getElementById('rxn-picker');
+        return picker ? (picker.getAttribute('data-post') === box.getAttribute('data-post')) : null;
+      });
+      if (routedTo) ok(t + ' #2834: opening the picker on the FIRST post records that post (not the last)'); else bad(t + ' cross-post data-post', String(routedTo));
+      await p.locator('#rxn-picker .rxn-pick').first().click();
+      await firstRxns.locator('.rxn').first().waitFor({ timeout: 8000 }).catch(() => {});
+      const firstGot = await firstRxns.locator('.rxn').count();
+      const lastStayed = await rxns.locator('.rxn').count();
+      if (firstGot === 1 && lastStayed === 0) ok(t + ' #2834: the pick landed on the post whose smiley opened the picker, NOT another post'); else bad(t + ' cross-post routing', 'first=' + firstGot + ' last=' + lastStayed);
+      await firstRxns.locator('.rxn').first().click();   // toggle off, back to a clean 0-pill room
+      await p.waitForTimeout(400);
+
       // #2806: Escape closes an open picker (parity with the composer emoji panel).
       await msgB.hover();
       await rxns.locator('.rxn-more').click();
@@ -193,7 +227,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       await p.keyboard.press('Escape');
       await p.waitForTimeout(150);
       const escaped = await rxns.evaluate((box) => {
-        const picker = box.querySelector('.rxn-picker'); const more = box.querySelector('.rxn-more');
+        const picker = document.getElementById('rxn-picker'); const more = box.querySelector('.rxn-more');
         return { hidden: picker ? picker.hidden : null, expanded: more ? more.getAttribute('aria-expanded') : null };
       });
       if (escaped.hidden === true && escaped.expanded === 'false') ok(t + ' Escape closes the open picker'); else bad(t + ' Escape closes picker', JSON.stringify(escaped));
@@ -204,7 +238,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       await p.waitForTimeout(150);
       await p.mouse.click(5, 5);   // top-left corner, outside any picker
       await p.waitForTimeout(150);
-      const outside = await rxns.evaluate((box) => ({ hidden: box.querySelector('.rxn-picker') ? box.querySelector('.rxn-picker').hidden : null }));
+      const outside = await rxns.evaluate(() => { const el = document.getElementById('rxn-picker'); return { hidden: el ? el.hidden : null }; });
       if (outside.hidden === true) ok(t + ' an outside click closes the open picker'); else bad(t + ' outside-click closes picker', JSON.stringify(outside));
 
       // #2806: scrolling INSIDE the open picker must NOT close it (the emoji grid is
@@ -215,8 +249,8 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       await msgB.hover();
       await rxns.locator('.rxn-more').click();
       await p.waitForTimeout(150);
-      const insideScroll = await rxns.evaluate((box) => {
-        const picker = box.querySelector('.rxn-picker');
+      const insideScroll = await rxns.evaluate(() => {
+        const picker = document.getElementById('rxn-picker');
         if (!picker || picker.hidden) return { ok: false, why: 'picker did not open' };
         picker.scrollTop = 60;
         picker.dispatchEvent(new Event('scroll', { bubbles: false }));
@@ -229,11 +263,39 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       const outsideScroll = await p.evaluate(() => {
         const room = document.getElementById('pj-room');
         if (room) room.dispatchEvent(new Event('scroll', { bubbles: false }));
-        const posts = [...document.querySelectorAll('#pj-room .msg')].filter((m) => m.querySelector('.rxns'));
-        const picker = posts.length ? posts[posts.length - 1].querySelector('.rxn-picker') : null;
+        const picker = document.getElementById('rxn-picker');
         return { hidden: picker ? picker.hidden : null };
       });
       if (outsideScroll.hidden === true) ok(t + ' CONTROL: a scroll outside the picker DOES close it'); else bad(t + ' outside-scroll closes picker', JSON.stringify(outsideScroll));
+
+      // #2834: a ROOM-CONTENT CHANGE while the picker is open must close it via the
+      // paintThreadInto close block. To ISOLATE that block from the scroll-dismiss
+      // path, the change must NOT move the scroll: a NEW message changes the row set
+      // (keyChanged), which pins to bottom and fires a scroll that the scroll-dismiss
+      // handler would itself act on -- so the arm could pass even if the close block
+      // were deleted. Instead REACT to an existing post via the API: the room html
+      // changes (a pill appears) but the row SET does not, so keyChanged is false, no
+      // pin/scroll happens, and the ONLY thing that can close the open picker is the
+      // paintThreadInto close block. Open the picker on the LAST post, then react to
+      // the FIRST post.
+      const firstPostId = await firstRxns.evaluate((box) => box.getAttribute('data-post'));
+      await msgB.hover();
+      await rxns.locator('.rxn-more').click();
+      await p.waitForTimeout(150);
+      const openedBeforeRepaint = await p.evaluate(() => { const el = document.getElementById('rxn-picker'); return !!(el && !el.hidden); });
+      await p.evaluate((a) => fetch('/api/project/' + a.pid + '/room/' + a.post + '/react',
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ emoji: '👍' }) }), { pid: made.id, post: firstPostId });
+      let closedByRepaint = false;
+      for (let i = 0; i < 60; i += 1) {
+        const hidden = await p.evaluate(() => { const el = document.getElementById('rxn-picker'); return !el || el.hidden; });
+        if (hidden) { closedByRepaint = true; break; }
+        await p.waitForTimeout(200);
+      }
+      if (openedBeforeRepaint && closedByRepaint) ok(t + ' #2834: a same-row-set room change closes an open picker via the repaint close block (isolated from scroll-dismiss)'); else bad(t + ' repaint closes picker', 'opened=' + openedBeforeRepaint + ' closed=' + closedByRepaint);
+      // Leave the room clean, per this file's convention: toggle the first post's
+      // reaction back off (the react route toggles).
+      await p.evaluate((a) => fetch('/api/project/' + a.pid + '/room/' + a.post + '/react',
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ emoji: '👍' }) }), { pid: made.id, post: firstPostId });
 
       if (errs.length) bad(t + ' no page errors', errs.join(' | ')); else ok(t + ' no page errors');
       await p.close();
