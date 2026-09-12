@@ -384,13 +384,14 @@ async function main() {
     }
   }
 
-  /* The description, on the RENDERED page in both places it lives, with the
-     absence arm as its own assertion (project-description branch): a
-     described project shows the sentence on its row and under its detail
-     title; an undescribed one renders NO description element at all --
-     an empty grey line under every undescribed project is the exact
-     empty-state failure the hidden-toggle exists to prevent. Same
-     own-context-in-a-finally shape as the add-flow block below. */
+  /* The description on the RENDERED card row (project-description branch): a
+     described project shows the sentence on its row; an undescribed one renders
+     NO description element on the row at all, an empty grey line under every
+     undescribed project being the empty-state failure the row guards against.
+     #2838 removed the detail-page description (it lives in Project settings
+     now), so the detail arms retired with it; the card row is the only place
+     the description renders here. Same own-context-in-a-finally shape as the
+     add-flow block below. */
   {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     try {
@@ -421,86 +422,22 @@ async function main() {
       if (seen.bareHasDesc !== false) {
         throw new Error('an undescribed project rendered a description element (empty grey line): ' + JSON.stringify(seen.bareHasDesc));
       }
-      await page.click('[data-project="hendersonlease"]');
-      await page.waitForTimeout(300);
-      const detail = await page.evaluate(() => {
-        const el = document.getElementById('pj-one-desc');
-        return { text: el ? el.textContent : null, hidden: el ? el.hidden : null };
-      });
-      if (detail.text !== 'Review the <b>renewal terms</b> & prepare the counter.' || detail.hidden !== false) {
-        throw new Error('the detail description is wrong or hidden: ' + JSON.stringify(detail));
-      }
-      // Each surface at ITS pack size, replacing the old same-token equality
-      // (the pack draws them apart on purpose: .pc-t at .875rem on the card,
-      // .pjdesc at .9375rem on the detail). Pinned to exact px so the round-1
-      // cascade regression -- a bare selector losing its font to .panel p and
-      // silently inheriting -- still reds: an inherited size matches neither.
+      // The card row keeps its .875rem description size (the pack size). Pinned
+      // to exact px so the round-1 cascade regression, a bare selector losing
+      // its font to .panel p and silently inheriting, still reds: an inherited
+      // size matches neither. #2838 removed the detail-page description, so its
+      // .pjdesc size arm and the detail arms (described + undescribed) retired
+      // with it; the undescribed row arm (bareHasDesc, above) still holds.
       const sizes = await page.evaluate(() => ({
         row: getComputedStyle(document.querySelector('#pj-list .pc-t')).fontSize,
-        detail: getComputedStyle(document.getElementById('pj-one-desc')).fontSize,
       }));
-      /* The detail description lives in the conversation column's header in
-         EVERY layout since f731a69 (#862; Josh, 2026-08-25 10:12: move the
-         title and description to where the conversation title is, in the
-         tab view too), and that header has drawn it at .75rem since #520 in
-         consolidated. So 12px is the merged header's own size, not a lost
-         one; the .9375rem this line asked for belonged to the split layout
-         that no longer exists. The card keeps .875rem. Whether 12px is the
-         right size for a description is a design question (Mona Lisa), not
-         this check's; it pins what the design says. */
-      if (sizes.row !== '14px' || sizes.detail !== '12px') {
-        throw new Error('a description lost its size (card .875rem, merged-header detail .75rem): ' + JSON.stringify(sizes));
+      if (sizes.row !== '14px') {
+        throw new Error('the card-row description lost its .875rem size: ' + JSON.stringify(sizes));
       }
-      // The DETAIL's absence arm, exercised, not inferred from the row's: an
-      // undescribed project's detail must hide the element (hidden === true),
-      // which is the arm the markup comment says the toggle exists for.
-      await page.click('.tab[data-tab="projects"]');
-      await page.waitForTimeout(200);
-      await page.click('[data-project="reedhandover"]');
-      await page.waitForTimeout(300);
-      const bareDetail = await page.evaluate(() => {
-        const el = document.getElementById('pj-one-desc');
-        if (!el) return { present: false };
-        const r = el.getBoundingClientRect();
-        const cs = getComputedStyle(el);
-        return {
-          present: true,
-          hidden: el.hidden,
-          empty: el.classList.contains('pj-desc-empty'),
-          h: r.height,
-          text: el.textContent,
-          fontStyle: cs.fontStyle,
-          fontSize: cs.fontSize,
-        };
-      });
-      /* ⚠️ RE-EXPRESSED, NOT LOOSENED (2026-08-24, #39). This arm pinned
-         hide-when-empty, and the page's own comment says Josh superseded that
-         on 08-20: "the empty slot SHOWS ... default text would say project
-         description is blank" -- a placeholder, muted and italic,
-         "unmistakably not content". So the pin moves to the ruling: the
-         placeholder is ON screen, in the empty styling, at the pack size.
-         The italic and the 15px together also hold the #39 cascade fix:
-         .panel p.pj-desc.pj-desc-empty must outrank both .panel p's font
-         shorthand AND the base description rule, order-independent. */
-      if (!bareDetail.present) {
-        throw new Error('#pj-one-desc vanished from the markup entirely');
-      }
-      /* RE-EXPRESSED AGAIN (2026-08-25, #862; Mona Lisa's ruling 11:40, option a,
-         reversing her 11:25): the detail description lives in the conversation
-         column's header in every layout (f731a69, Josh 10:12) and an
-         undescribed project SHOWS its placeholder there too. Josh's 08-20
-         ruling stands in every layout; his 10:12 ask (smaller, in this
-         header) is met by the size, .75rem, the merged header's own, not
-         the split layout's .9375rem this line once asked for. So: present,
-         on screen, the ruled sentence, the empty styling, italic, 12px. */
-      if (bareDetail.hidden !== false || bareDetail.h <= 0
-        || !/^This project has no description yet\./.test(bareDetail.text)
-        || bareDetail.empty !== true) {
-        throw new Error('an undescribed project\u2019s detail must SHOW the placeholder in the empty styling (Josh, 08-20; in the merged header too, Mona Lisa 2026-08-25): ' + JSON.stringify(bareDetail));
-      }
-      if (bareDetail.fontStyle !== 'italic' || bareDetail.fontSize !== '12px') {
-        throw new Error('the placeholder lost its unmistakably-not-content styling (italic at the merged header\u2019s .75rem): ' + JSON.stringify(bareDetail));
-      }
+      // #2838 removed the detail-page description (it now lives in Project
+      // settings, reached by the settings cog), so the undescribed-project
+      // detail placeholder arm retired with it. The undescribed ROW arm above
+      // (bareHasDesc === false) still holds: no description element on the row.
       /* ⚠️ RE-EXPRESSED AGAIN (2026-08-25, #860/#861; Mona Lisa). The old pin
          here ("wraps FULLY... whole sentence on screen, wrapped, not
          clipped") described the pj-cards-restyle shape, which two of
@@ -557,7 +494,7 @@ async function main() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ description: '' }),
       });
-      console.log('✔ 2b-description (row, both absence arms, detail, and the one-line cap, grid-absent + list-truncated)');
+      console.log('✔ 2b-description (row, its absence arm, and the one-line cap, grid-absent + list-truncated)');
     } finally {
       await ctx.close();
     }
@@ -1059,22 +996,8 @@ async function main() {
            to check one and not the other. */
         { sel: '.pjcard-members > h3.dlab', expect: 'Members' },
         { sel: '.pjcard-files > h3.dlab', expect: 'Files' },
-        /* ⚠️ MEASURED OPEN, and the check OPENS it. #1005 put the description
-           behind a disclosure that starts closed on a project that has one, so
-           `offsetParent` is null and this entry recorded itself as missing --
-           honestly, but the text still needs measuring, because a person who
-           opens the disclosure has to be able to read it. `needsOpen` makes the
-           dependency explicit instead of relying on some earlier step in this
-           file having happened to expand it. */
-        { sel: '#pj-one-view #pj-one-desc', needsOpen: '#pj-one-more' },
       ];
-      for (const { sel, expect, needsOpen } of wanted) {
-        // A disclosure the person would open before reading, opened here so the
-        // text inside it is measured rather than recorded as absent.
-        if (needsOpen) {
-          const toggle = document.querySelector(needsOpen);
-          if (toggle && toggle.getAttribute('aria-expanded') === 'false') toggle.click();
-        }
+      for (const { sel, expect } of wanted) {
         const el = document.querySelector(sel);
         // ⚠️ A MISS IS RECORDED, not skipped. Skipping is how four selectors
         // went unmeasured under a printed pass.

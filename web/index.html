@@ -2738,19 +2738,6 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   transition: border-color .12s ease, box-shadow .12s ease; }
 .pj-row:hover { border-color: rgba(20,22,26,.28); box-shadow: 0 2px 6px rgba(20,22,26,.08); }
 .pj-row.attn { border-color: rgba(179,38,30,.42); }
-/* The one-project view's description, at the pack's .pjdesc values (the
-   card's sentence lives on .pc-t above). Round 5 pinned this line to full
-   ink because at callout size it rendered byte-identical to the machine
-   path below it; at the pack's .9375rem the size split carries that
-   distinction, so the pack's ink-2 stands. */
-/* .panel p.* on both, and three classes on the empty form: the same
-   specificity story as .panel p.shint (line 2828's lesson) -- .panel p's
-   font shorthand (0,1,1) beats a bare class, so the description computed
-   13px while declaring .9375rem (#39, found by matched-rules in the
-   harness, not by reading). The empty form outranks the base by CLASS
-   COUNT rather than by source order, because order is the same class of
-   defect deferred until someone moves a block (Mona Lisa's ruling). */
-.panel p.pj-desc.pj-desc-empty { color: var(--label-3); font-style: italic; }
 .skillrow { padding: 8px 2px; border-bottom: 0.5px solid var(--separator);
             display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .skillrm { border: 0; background: none; color: var(--danger, #b3261e); font: inherit;
@@ -3918,7 +3905,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      beside the search (placeProjectHead moves it there). The header takes
      the mock's shape: title left, search right, one rule beneath; the
      "Conversation" label steps aside because the title now names the
-     column. The description keeps one line so the header stays a header. */
+     column. */
   /* 🔑 THE RULE REACHES THE COLUMN EDGES (kosmos#1303 B). Josh: "the horizontal
      rule below the title, description, settings and search is still not going
      the full width of its dialog box area. Right now it cuts off on both sides."
@@ -3936,18 +3923,12 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated .pjmidhead > .dlab { display: none; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead { flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; align-items: center; gap: 12px; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .dname { font-size: 1rem; font-weight: 650; }
-  /* `gap: 5px` is the other half of Josh's sentence: "put a little bit of space
-     in between the title and the description". It was 1px, which reads as the
-     two lines touching. */
+  /* `gap: 5px` was Josh's ask to "put a little bit of space in between the title
+     and the description" (it was 1px, which read as the two lines touching).
+     #2838 removed the inline description; the gap now spaces the title row from
+     the parent-trail and made-by rows, and is kept at 5px. */
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjtitle { display: grid; gap: 5px; }
-  html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .pj-desc, html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 0; max-width: none; line-height: 1.35; }
-  /* #980 (Josh, 2026-08-26 08:31): the description truncates -- one line
-     with an ellipsis, so the header stays a header however long the
-     sentence. Ellipsis over a hard 50-char cut: the full text stays in
-     the DOM (and the title attribute a hover reads), nothing is thrown
-     away, and the cut point follows the real column width instead of a
-     guessed character count. */
-  html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .pj-desc { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 0; max-width: none; line-height: 1.35; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
   /* Josh, 2026-08-27: "reduce the width of the search input box. Let's maybe
      make it about 50% of what it currently is". Both terms halve, so it stays
@@ -3975,7 +3956,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      and the rule was still noise, which only the perturbation could tell me. */
   html[data-layout="consolidated"] body.consolidated .pjmidhead .tsearch { flex-shrink: 0; }
   html[data-layout="consolidated"] body.consolidated .pjmidhead .pjhead .dname { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  html[data-layout="consolidated"] body.consolidated #pj-one-name + .pj-desc, html[data-layout="consolidated"] body.consolidated #pj-one-made { margin-top: 1px; }
+  html[data-layout="consolidated"] body.consolidated #pj-one-made { margin-top: 1px; }
   /* #2848: the sub-projects strip, now nested under the name (placeSubProjects
      moves it into .pjmid right after the header), reads as PART of that header
      rather than a second bar. Two moves make it one header block:
@@ -4204,8 +4185,8 @@ body:not(.consolidated) .pjmid .thread .att { background: var(--k-bg); }
 .tkdetail { white-space: pre-wrap; margin: 0; }
 .pjmid { display: flex; flex-direction: column; min-width: 0; }
 .pjmidhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-/* #761 (Josh, 2026-08-25 10:12 CDT): the piece-nine merged header (title
-   and description in the conversation column's own header, beside the
+/* #761 (Josh, 2026-08-25 10:12 CDT): the piece-nine merged header (the
+   project title in the conversation column's own header, beside the
    search; the "Conversation" label steps aside) in the tab view too, not
    only consolidated -- #761 left this as an open question ("check after
    the cut whether he wants the same in the tab view") and he has now said
@@ -4231,73 +4212,19 @@ body:not(.consolidated) .pjmid .thread .att { background: var(--k-bg); }
 .pjmidhead .pjhead { flex: 1 1 auto; min-width: 0; margin: 0; padding: 0; align-items: center; gap: 12px; }
 .pjmidhead .pjhead .pjtitle { display: grid; gap: 1px; }
 .pjmidhead .pjhead .dname { font-size: 1.25rem; }
-/* kosmos#1005: closed is the resting state. The description is hidden with
-   `display: none` DELIBERATELY here, unlike the .lstate case: a disclosure
-   whose aria-expanded says "false" is CLAIMING the content is not present,
-   so leaving it in the accessibility tree would make that claim false and a
-   screen-reader user would hear body copy the button says is closed. The
-   visually-hidden clip is right for something removed from the eye only; a
-   disclosure is removed from both, which is what the button then re-opens. */
+/* #2838: this row wrapped the disclosure arrow and the title; with the arrow
+   gone it holds only the h2. Kept rather than flattened because #pj-one-name
+   takes its min-width: 0 from `.pjtitle-row .dname` here, and the one-line
+   truncation below needs that to clip a long name. */
 .pjtitle-row { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .pjtitle-row .dname { min-width: 0; }
-.pjtitle:not(.is-open) #pj-one-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pjtitle:not(.is-open) #pj-one-desc { display: none; }
-/* 🛑 THE EXPANDER HAS TO UNDO THE CLAMP, NOT JUST REVEAL THE ELEMENT
-   (Josh, 2026-08-26 19:53). #980 clamped the header description to one
-   ellipsised line and mitigated it with a `title` on hover. That clamp is not
-   scoped to a state, so kosmos#1005's disclosure opened onto the SAME
-   truncated line -- the expander revealed nothing you could not already see.
-   ⚠️ MINE BY OMISSION. I added a control that reveals a thing and never asked
-   what else was already acting on that thing. Hiding it when closed was the
-   half I wrote; un-clamping it when open is the half I did not.
-   📌 Additive rather than editing #980's rule: that selector also serves the
-   collapsed state and other `.pj-desc` elements in the header, and the ID here
-   outranks it (1,2,0 beats 0,5,2) without touching what it does elsewhere.
-   Verified by rendering, not by counting specificity. */
-/* 🔑 THE DESCRIPTION LINES UP WITH THE TITLE, NOT WITH THE ARROW (kosmos#1303 H).
-   Josh: "When I expand the title and description area, the formatting is really
-   wonky. Let's flush the left description with the title and put a little bit of
-   space in between the title and the description."
-
-   MEASURED, expanded, at 1440 wide:
-
-       .pjdisc  (the arrow)   left 458.1
-       #pj-one-name (title)   left 473.6
-       #pj-one-desc           left 458.1     <- flush with the ARROW
-
-   ⇒ The description hung 15.5px to the LEFT of the title it belongs to, because
-   the arrow lives inside `.pjtitle-row` and the description is that row's
-   sibling in the grid. That overhang is the wonkiness.
-
-   ⚠️ THE INDENT IS DERIVED, NOT MEASURED IN. `--pjdisc-w` is the arrow's own
-   declared width and `6px` is `.pjtitle-row`'s own gap, so the description
-   tracks the title if either changes. Writing 15.5px would have been a number
-   that silently stops being right the first time the glyph does.
-   📌 The arrow gets an explicit width for the same reason: it was sized only by
-   its glyph, so there was nothing to derive from. */
-.pjtitle { --pjdisc-w: 1rem; }
-.pjdisc { width: var(--pjdisc-w); }
-.pjtitle.is-open #pj-one-desc {
-  white-space: normal; overflow: visible; text-overflow: clip;
-  max-width: var(--k-measure, 68ch);
-  padding-left: calc(var(--pjdisc-w) + 6px);
-}
-/* Josh asked for a bigger arrow: it was inheriting the title's size through a
-   bare glyph and read as a speck beside a 1.375rem heading. */
-.pjdisc { font-size: 1rem; }
-.pjdisc-ar { font-size: 1.05rem; line-height: 1; }
-.pjdisc { flex: 0 0 auto; border: 0; background: none; padding: 2px 2px 2px 0; margin: 0;
-  color: var(--k-ink-2); font: inherit; line-height: 1; cursor: pointer; }
-.pjdisc:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; border-radius: 4px; }
-.pjdisc-ar { display: inline-block; transition: transform .12s ease; }
-@media (prefers-reduced-motion: reduce) { .pjdisc-ar { transition: none; } }
-.pjtitle.is-open .pjdisc-ar { transform: rotate(90deg); }
-.pjmidhead .pjhead .pj-desc, .pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 1px 0 0; max-width: none; line-height: 1.35; }
-/* #862 (Mona Lisa, 2026-08-25 11:40, option a): an undescribed project SHOWS its
-   placeholder in the merged header too, at the header's own size; Josh's 08-20
-   ruling stands in every layout, and his 10:12 ask (smaller, in this header)
-   is met by the size. The hide-when-empty rule that lived here from #520 is
-   gone; the check pins the placeholder on screen. */
+/* #2838: the header title stays on one line. The disclosure that used to expand
+   a truncated title is gone, so the closed (truncated) state is the only one
+   left; the rule that clamped the title when closed becomes unconditional here,
+   keeping the header compact as it has always looked. A long name elides rather
+   than reflowing the header row. */
+.pjtitle #pj-one-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pjmidhead .pjhead #pj-one-made { font-size: .75rem; margin: 1px 0 0; max-width: none; line-height: 1.35; }
 .pjmidhead #pj-settings-link { font-size: .75rem; flex: none; }
 /* Josh, 2026-09-10 (#2711 item 4): the tab-view conversation search is narrow
    at rest ("Search"), and widens when the person clicks into it so they have
@@ -4314,13 +4241,12 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 @media (prefers-reduced-motion: reduce) {
   body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch { transition: none; }
 }
-/* Below 60rem there is not enough room for a title, a description and a
-   search box on one line (tab view has no 960px floor the way
-   consolidated does, so this has to hold at phone width too, not just
-   handle a already-generous minimum): title and search stack, the
-   description keeps to its own line beneath the title, matching how the
-   rest of this project view already gives up the side-by-side shape at
-   68rem (.pj3, above) and 60rem (Settings/detail, #panel-settings .dbody). */
+/* Below 60rem there is not enough room for the title and the search box on one
+   line (tab view has no 960px floor the way consolidated does, so this has to
+   hold at phone width too, not just handle an already-generous minimum): the
+   title and search stack, matching how the rest of this project view already
+   gives up the side-by-side shape at 68rem (.pj3, above) and 60rem
+   (Settings/detail, #panel-settings .dbody). */
 @media (max-width: 60rem) {
   .pjmidhead:has(.pjhead) { flex-direction: column; align-items: stretch; }
   .pjmidhead .pjhead { flex-direction: column; align-items: stretch; gap: 4px; }
@@ -10554,12 +10480,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   <div id="pj-one-view" hidden>
     <div class="pjhead">
       <div class="pjtitle">
-        <!-- kosmos#1005 (Josh, 2026-08-26): the description used to sit under
-             every project title on every visit, three lines of body copy above
-             the conversation. It is now behind a real disclosure, closed on
-             arrival. A BUTTON with aria-expanded rather than a styled span,
-             because this is the one control on the head and it has to be
-             reachable by keyboard and announced as openable. -->
+        <!-- #2838 (Josh, 2026-09-11): the disclosure arrow that popped down the
+             project description was removed. The description now lives only in
+             Project settings, reached by the cog below. This reconciles #1005
+             (the inline description above every conversation read as clutter)
+             over #980's "readable here, not only in Settings" and the
+             2026-08-20 empty-slot placeholder: with no arrow, there is no
+             half-open state to place, and the cog is the one door to the
+             description. -->
         <!-- #2487: the parent trail. Where a project sits in the tree, shown
              above its name on the detail page (Josh 2026-09-07). The ancestry
              names are live text (the accessible signal); the › separators are
@@ -10567,18 +10495,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              paintOneProject via pjAncestry, the same chain the cards use. -->
         <p class="pj-one-parent" id="pj-one-parent" hidden></p>
         <div class="pjtitle-row">
-          <button class="pjdisc" id="pj-one-more" type="button" aria-expanded="false" aria-controls="pj-one-desc">
-            <span class="pjdisc-ar" aria-hidden="true">&#9656;</span>
-            <span class="vh">Show the full title and the description</span>
-          </button>
           <h2 class="dname" id="pj-one-name"></h2>
         </div>
-        <!-- What this project IS, in the person's own words, directly under
-             the title per the design (PIN-2026-08-14-1913CDT): the pair is
-             one statement. Hidden entirely when there is none: an empty grey
-             line under every undescribed project would read as something
-             missing. -->
-        <p class="pj-desc" id="pj-one-desc" hidden></p>
         <!-- Who asked for this project (#327): shown only when it was NOT the
              person, because "made by you" under everything you made is
              furniture, and an agent-made project is the one a person needs to
@@ -28673,7 +28591,7 @@ function applyLayout(layout, apply) {
    need to change, and so a future layout that genuinely needs the old
    split has a place to branch again rather than deleting the concept.
    The elements are the same ones either way: every painter that writes
-   #pj-one-name or #pj-one-desc keeps working, and nothing is copied. */
+   #pj-one-name keeps working, and nothing is copied. */
 function placeProjectHead() {
   const head = document.querySelector('#pj-one-view .pjhead');
   const mid = document.querySelector('#pj-one-view .pjmidhead');
@@ -36539,24 +36457,6 @@ document.getElementById('pjs-reveal').addEventListener('click', async () => {
   }
 });
 
-/* kosmos#1005: the disclosure. The arrow is decorative (aria-hidden) and the
-   button carries its own visually-hidden name, so what is announced is one
-   button with a state, not a glyph. */
-/* 🔑 A PERSON'S CLICK OUTLIVES A REPAINT (kosmos#1198). Josh: "I can't seem to
-   keep the title of the project and its description collapsed. I can close it
-   with the arrow but then it quickly snaps back open."
-   His project had no description, and the painter below opens an empty one on
-   purpose. It ran that default on EVERY paint, and the board repaints on a poll,
-   so his click was overwritten seconds later, forever. */
-let PJ_DESC_TOUCHED = null;   // the project whose disclosure the person has set
-document.getElementById('pj-one-more').addEventListener('click', (e) => {
-  const btn = e.currentTarget;
-  const title = btn.closest('.pjtitle');
-  if (!title) return;
-  const open = title.classList.toggle('is-open');
-  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-  PJ_DESC_TOUCHED = PJ_CURRENT;
-});
 function paintOneProject() {
   const p = pjById(PJ_CURRENT);
   if (!p) { pjView('list'); PJ_CURRENT = null; pjMarkOpen(null); return; }
@@ -36605,54 +36505,6 @@ function paintOneProject() {
     } else { subsEl.innerHTML = ''; subsEl.hidden = true; }
   }
   paintProjectTasks(p);
-  const desc = document.getElementById('pj-one-desc');
-  /* The empty slot SHOWS, by Josh's own ruling (2026-08-20: "leave a slot
-     that is open... default text would say project description is blank,
-     edit this in settings"), which supersedes the earlier hide-when-empty
-     pin this line used to carry. Muted and unmistakably not content, so a
-     colleague reading the page cannot take the placeholder for the
-     project's actual description. */
-  desc.textContent = p.description || 'This project has no description yet. Add one in Settings.';
-  // #980: the consolidated header truncates the description to one line, so
-  // the full text must be readable HERE, not only in Settings -- the title
-  // makes the truncation-comment's hover claim true instead of aspirational.
-  desc.title = p.description || '';
-  desc.classList.toggle('pj-desc-none', !p.description);
-  desc.classList.toggle('pj-desc-empty', !p.description);
-  desc.hidden = false;
-  /* kosmos#1005: closed on every arrival. Josh's complaint was the copy being
-     there EVERY time, so a remembered-open state would reproduce the thing he
-     asked to remove. Reset here rather than on the click, so switching between
-     projects cannot carry one project's open state onto the next. */
-  const pjTitle = desc.closest('.pjtitle');
-  const pjMore = document.getElementById('pj-one-more');
-  /* 🛑 AN EMPTY DESCRIPTION OPENS. Closed-by-default was right for Josh's
-     complaint (three lines of body copy above every project, every visit) and
-     WRONG for a project that has no description at all: the only thing telling
-     you a description exists, and where to add one, is the placeholder -- and
-     collapsing it hid the affordance along with the copy. A new project would
-     open looking like it simply has nothing.
-     🔑 The rule that decides it: hide what the person has already read, never
-     hide the only thing telling them a thing exists. There is no body copy to
-     compress here, so the compaction has nothing to buy and something to cost.
-     ⚠️ Keyed on the DESCRIPTION being empty, not on the project being new: a
-     described project that is later emptied gets the same help, and this needs
-     no state to remember. */
-  /* ⚠️ THE DEFAULT IS FOR ARRIVAL, NOT FOR EVERY PAINT. The note above explains
-     why an empty description opens and why the reset lives here rather than on
-     the click: switching projects must not carry one project's open state onto
-     the next. Both of those still hold. What was wrong is that this ran on EVERY
-     repaint, so a poll a few seconds later undid whatever the person had just
-     chosen, which is kosmos#1198.
-     ⇒ Once they have touched the disclosure FOR THIS PROJECT, their choice
-     stands. Moving to another project clears it, so the carry-over this reset
-     was written to prevent still cannot happen. */
-  const isEmpty = !p.description;
-  if (PJ_DESC_TOUCHED !== null && PJ_DESC_TOUCHED !== PJ_CURRENT) PJ_DESC_TOUCHED = null;
-  if (PJ_DESC_TOUCHED !== PJ_CURRENT) {
-    if (pjTitle) pjTitle.classList.toggle('is-open', isEmpty);
-    if (pjMore) pjMore.setAttribute('aria-expanded', isEmpty ? 'true' : 'false');
-  }
   /* Agent-made projects say so (#327). `by` is the pane's agent when one was
      offered and resolved; otherwise the honest generic. Screen-made shows
      nothing: "made by you" under everything is furniture. */

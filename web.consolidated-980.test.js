@@ -435,15 +435,16 @@ test('the pre-rail grid rows are auto, never 0: the notice surfaces must be able
 });
 
 test('the remaining #980 rulings each keep their pin', () => {
-  // One pin per ruling is this file's contract; these four had none.
+  // One pin per ruling is this file's contract; these rulings had none.
   assert.match(PAGE, new RegExp(cons + '\\.fold-a #alist \\.pj-empty \\{ display: none; \\}'),
     'the folded 48px strip shows the letter-wrapped empty-state card again');
   assert.match(PAGE, new RegExp(cons + ' \\.pj-member \\.lav\\.pj-face \\{ width: 28px; height: 28px; flex: 0 0 28px; aspect-ratio: 1;'),
     'the member avatar lost its shrink-proof 1:1 pin; a long name can squish it out of round again');
-  assert.match(PAGE, new RegExp(cons + ' \\.pjmidhead \\.pjhead \\.pj-desc \\{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;'),
-    'the header description no longer truncates to one line');
-  assert.match(PAGE, /desc\.title = p\.description \|\| ''/,
-    'the truncated description lost its full-text hover (the title the truncation comment promises)');
+  /* #2838: the two #980 description pins (the consolidated header description
+     truncated to one line, and its full-text hover title) were removed with the
+     project-header description itself. The disclosure arrow that popped it down
+     is gone and the description now lives only in Project settings, so there is
+     no header description left to clamp. The remaining #980 pins below hold. */
   /* kosmos#1006 moved this from the consolidated-scoped selector to the base
      `.cinput` rule, which is where the max-height that CREATES the scrollbar
      lives. Pinning the base rule is the stronger claim: the old pin passed
