@@ -113,7 +113,9 @@ test('#2413 perf: a codex pane reads its rollout ONCE per snapshot, not twice (s
   const codexsession = require('./codexsession');
   const orig = codexsession.read;
   let reads = 0;
-  codexsession.read = (dir) => { reads += 1; return orig(dir); };
+  // Forward the optional #2906 `home` arg so the stub reads the same account home the real
+  // caller intends, not just whatever the module default happens to resolve to in this sandbox.
+  codexsession.read = (dir, home) => { reads += 1; return orig(dir, home); };
   try {
     fleet.install([fleet.agent('codexonce', { runner: 'codex', state: 'working' })]);
   } finally {
