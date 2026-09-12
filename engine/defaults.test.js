@@ -36,7 +36,7 @@ test('the doctrine version and the block text move together', () => {
   const print = crypto.createHash('sha256').update(defaults.block()).digest('hex').slice(0, 16);
   /* Kept per version rather than replaced, so the log in defaults.js and this
      map can be read against each other. */
-  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a' };
+  const PINNED = { 3: '78435e4dc9286b30', 4: '3ea7865f183bff5b', 5: 'c424dc531fca1b91', 6: '6b112e796679a028', 7: '92cbc9e7da9b313b', 8: '8e5de18bfdef3631', 9: '55166f13216cf92a', 10: '78cab3ec8d8560db' };
   assert.ok(PINNED[defaults.DOCTRINE_VERSION],
     `DOCTRINE_VERSION ${defaults.DOCTRINE_VERSION} has no pinned fingerprint: add {${defaults.DOCTRINE_VERSION}: '${print}'} here and a line to the version log in defaults.js`);
   assert.equal(print, PINNED[defaults.DOCTRINE_VERSION],
@@ -286,5 +286,52 @@ test('#1943: an agent holding the old headings is still offered the new rule', (
      positive result above means the filter actually discriminated. */
   const complete = all.map((s) => s.heading + '\n' + s.text).join('\n\n');
   assert.ok(!defaults.missingFrom(complete).some((s) => s.heading === '### Where the files you make go'),
+    'the section is offered to an agent that already has it, so missingFrom is not filtering');
+});
+
+test('#2909: the block tells the agent to send rich-text-formatted messages', () => {
+  const b = defaults.block();
+  // The default is stated as a default, not a flourish for special occasions.
+  assert.match(b, /### Send readable messages, not a wall of text/,
+    'the rich-text section heading is missing');
+  assert.match(b, /grey block of text is a choice you are making, not a limit/,
+    'the block does not tell the agent formatting is available and unbroken text is a choice');
+  assert.match(b, /from your first message/,
+    'the from-first-message default (Josh: agents print solid blocks) is not stated');
+  assert.match(b, /in your direct dialogues alike/,
+    'the rooms-AND-dialogues scope Josh named is not both covered');
+  // The supported subset the room renderer actually renders.
+  assert.match(b, /headings written with/, 'the supported subset is not listed');
+  assert.match(b, /~~strikethrough~~/, 'the subset list dropped a supported element');
+  // The two things a room does NOT render, so an agent does not reach for them.
+  assert.match(b, /\[label\]\(address\)/, 'the label-only link caveat is missing');
+  assert.match(b, /stays as literal text in a project room/,
+    'the room-blockquote caveat is missing');
+  // The shell trap, with advice that is true today (single-quote).
+  assert.match(b, /backticks and a `\$`/, 'the shell-metacharacter trap is not named');
+  assert.match(b, /single quotes/, 'the single-quote fix for the shell trap is missing');
+});
+
+/**
+ * #2909 DELIVERY. Josh's complaint is about "almost all of the agents I've
+ * talked to" -- the EXISTING fleet -- so the rule is worthless if it reaches
+ * only agents born after it. It landed under a NEW heading for the version
+ * 5/6/7/8 reason, so `missingFrom` offers it to a legacy agent that holds every
+ * other heading. Same shape as the #1943 delivery test.
+ */
+test('#2909: an agent holding the old headings is still offered the rich-text rule', () => {
+  const all = defaults.sections();
+  const owner = all.filter((s) => s.heading === '### Send readable messages, not a wall of text');
+  assert.equal(owner.length, 1, 'the send-readable-messages section is missing or duplicated');
+
+  const legacy = all.filter((s) => s.heading !== owner[0].heading)
+    .map((s) => s.heading + '\n' + s.text).join('\n\n');
+  assert.ok(defaults.missingFrom(legacy).some((s) => s.heading === owner[0].heading),
+    'a legacy agent would never be offered the rich-text rule, so Josh\'s existing fleet stays unformatted');
+
+  /* CONTROL: an agent that already holds the section is offered nothing, so the
+     positive result above means the filter actually discriminated. */
+  const complete = all.map((s) => s.heading + '\n' + s.text).join('\n\n');
+  assert.ok(!defaults.missingFrom(complete).some((s) => s.heading === owner[0].heading),
     'the section is offered to an agent that already has it, so missingFrom is not filtering');
 });
