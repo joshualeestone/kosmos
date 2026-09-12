@@ -66,6 +66,9 @@ function settingsDom() {
     ['world-rename-name', 'input'], ['world-rename-go', 'button'], ['world-rename-msg'],
     ['world-set-import', 'div', { hidden: true }], ['world-set-import-list'], ['world-set-import-none', 'p', { hidden: true }],
     ['world-set-waiting', 'p', { hidden: true }], ['world-set-add', 'button', { disabled: true }],
+    // #2935: worldRenameOpen also resets the hide section's two-step confirm each open.
+    ['world-hide-section', 'div', { hidden: true }], ['world-hide-step1'],
+    ['world-hide-confirm', 'div', { hidden: true }], ['world-hide-really', 'button'],
     ['world-rename-cancel', 'button'], ['worldsw-btn', 'button'],
   ]) dom.add(id, tag || 'div', props || {});
   return dom;
