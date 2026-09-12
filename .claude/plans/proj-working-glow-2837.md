@@ -65,8 +65,15 @@ exactly one active project is unambiguously working in it; a working agent that
 named its project lights that one; a working agent in several projects that
 named none lights none (rather than all).
 
-Fail-open: if `all` is not an array (never in prod - list/get always pass it),
-the count is 0 -> treated as sole -> the tile still lights, preserving behaviour.
+Fail-closed: if `all` is not an array, `soleActiveMembership` returns false, so the
+sole-membership fallback does NOT fire and the tile does not light through it (the
+attributed arm still lights a report's named project). Every in-repo caller passes
+an array (list/get pass readAll()), so this is unobservable on the real path; but
+`describe` is exported, so a future/test caller could pass a non-array `all`, and
+firing the fallback there (fail-open) would silently re-light every project a
+working agent belongs to - reintroducing the exact over-claim this card removes.
+Not-claiming is the honest failure for a card about not over-claiming. (This
+replaced an earlier fail-open design during challenge-loop iteration 4.)
 
 ## Tests
 
