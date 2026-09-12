@@ -1,62 +1,76 @@
 'use strict';
 
 /**
- * This install's random id, and the under-test guard. This file SENDS nothing itself
- * (#2623); the random id it makes can still leave the Mac via the default-on feedback
- * report, which reads it -- see the installId note below.
+ * Telling the Kosmos team when an agent was created (#238, restored #2960).
  *
- * 🛑 #2623: THE CREATE-AGENT TELEMETRY WAS DELETED. Josh, 2026-09-09, called the
- * two "let the Kosmos team know..." phone-home toggles an invasion of privacy and
- * asked for them gone. So the send is gone: `agentCreated`, the on/off setting
- * (`setOn`), the endpoint, and the outbound `payload` were all removed, together
- * with engine/notify.js and the Settings toggles. This file no longer sends
- * anything anywhere.
+ * Josh, 2026-08-22: he wants two numbers on the homepage, installs and agents
+ * created, and ruled the collection settled ("we've had a lot of discussion
+ * around this and it's fine"). A default-checked box on the create page, which
+ * anybody can untick.
  *
- * What stays is the one piece other features need and that never leaves the
- * machine on its own:
+ * Re-introduced 2026-09-12 with opt-out + disclosure (#2960). The server-side
+ * receiver (chaoskosmos-site api/created.js + api/counts.js) is intact; this
+ * restores the client-side sender.
  *
- *   installId   a random per-install id, made once and kept in a local file
- *   underTest   whether we are inside node's test runner
+ * 🛑 WHAT GOES, EXHAUSTIVELY, AND THIS LIST IS THE FEATURE. Nothing about the
+ * agent itself: not its name, its role, its instructions, its model, its
+ * projects, or anything typed. The EVENT, never its contents.
  *
- * ⚠️ `installId` IS RANDOM, never derived from anything about the machine. A hash
- * of a hostname or a MAC address would be a fingerprint that identifies the
- * computer across reinstalls and across products. Random means it identifies an
- * INSTALL and nothing else. It is stored locally. It stays on the Mac EXCEPT for
- * the daily product-feedback report, which is DEFAULT-ON (opt-out, #2013/#2957) and
- * sends installId to installkosmos.com until the person opts out:
- *   engine/feedback.js, engine/feedbacksend.js   the SendFeedback path -- DEFAULT-ON / opt-out
- *   engine/store.js                              local pointer de-duplication -- never leaves the Mac
- * So installId leaves the Mac BY DEFAULT via the feedback report; opting out in
- * Settings > Automation stops it. The store use never leaves the Mac. (This block
- * used to call the feedback path "opt-in", which was wrong: it is default-on. #2957.)
+ *   installId   a random id made on this machine, in this file, once
+ *   at          when
+ *   version     which Kosmos
+ *   os          the macOS version
+ *
+ * ⚠️ THE IP ARRIVES ON ITS OWN. Every HTTP request carries one; there is no
+ * version of this that does not have it, and it is deliberately NOT NAMED on
+ * screen (Josh, 22:55: "we're not saying anything about IP to white collar
+ * workers"). Recorded here so a future reader does not take the silence for an
+ * oversight and change it in either direction without asking him.
+ *
+ * 🔑 THE INSTALL ID IS WHAT MAKES THE IP UNNECESSARY FOR THE NUMBERS. A shared
+ * office undercounts on IP and a roaming laptop overcounts, and you cannot tell
+ * which; a per-install id gives both numbers exactly. (Mona Lisa's point, and
+ * the reason this file generates one rather than leaning on the address.)
+ *
+ * 🛑 IT CAN NEVER BLOCK, SLOW OR FAIL A CREATION. The person asked for an
+ * agent, not for a report. Every path here is fire-and-forget with a short
+ * timeout, every error is swallowed, and the caller is not given a promise it
+ * could accidentally await.
  */
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const store = require('./store');
+const { version: VERSION } = require('../package.json');
 
-// #1856: route through the one data-root derivation (store.ROOT = dataRootFor), not the raw
-// AGENT_WORKFORCE_DATA switch -- prod-inert when it is unset (byte-identical), and under a
-// multi-Kosmos switcher (#1704) it inherits the Kosmos leaf + #1820's isAbsolute guard.
 const BASE = store.ROOT;
 const FILE = path.join(BASE, 'ping.json');
+const DEFAULT_ENDPOINT = 'https://installkosmos.com/api/created';
 
-/**
- * Read the stored install id. Absent, unreadable, or corrupt all read as "none
- * yet" -- installId() then mints one. There is no on/off preference any more.
- */
+let sender = null;
+const endpoint = () => process.env.AGENT_WORKFORCE_PING_URL || DEFAULT_ENDPOINT;
+
 function read() {
   let raw;
-  try { raw = fs.readFileSync(FILE, 'utf8'); } catch { return { installId: null }; }
+  try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
+    if (err && err.code === 'ENOENT') return { on: true, installId: null, ok: true };
+    return { on: false, installId: null, ok: false };
+  }
   let parsed;
-  try { parsed = JSON.parse(raw); } catch { return { installId: null }; }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { installId: null };
-  return { installId: typeof parsed.installId === 'string' && parsed.installId ? parsed.installId : null };
+  try { parsed = JSON.parse(raw); } catch { return { on: false, installId: null, ok: false }; }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { on: false, installId: null, ok: false };
+  return {
+    on: typeof parsed.on === 'boolean' ? parsed.on : true,
+    installId: typeof parsed.installId === 'string' && parsed.installId ? parsed.installId : null,
+    ok: true,
+  };
 }
 
 function write(patch) {
   const next = { ...read(), ...patch };
+  delete next.ok;
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
     const tmp = FILE + '.tmp';
@@ -68,13 +82,11 @@ function write(patch) {
   }
 }
 
-/**
- * This install's id, made once and kept.
- *
- * ⚠️ RANDOM, never derived from anything about the machine (see the header).
- * If the write fails the id is still returned: one un-remembered install is a
- * small local hiccup, not a reason to fail a caller that only wanted an id.
- */
+function setOn(on) {
+  if (typeof on !== 'boolean') return { ok: false, because: 'that has to be on or off' };
+  return write({ on });
+}
+
 function installId() {
   const had = read();
   if (had.installId) return had.installId;
@@ -83,14 +95,40 @@ function installId() {
   return made;
 }
 
-/**
- * Whether we are inside node's test runner. `NODE_TEST_CONTEXT` is set by node's
- * own test runner in every test process and by nothing else, so it cannot be
- * true for a real install and cannot be false for a test. Kept because
- * engine/updating.js reads it to stay inert under test.
- */
+function payload() {
+  return {
+    event: 'agent_created',
+    installId: installId(),
+    at: new Date().toISOString(),
+    version: VERSION,
+    os: os.release(),
+  };
+}
+
 function underTest() {
   return Boolean(process.env.NODE_TEST_CONTEXT);
 }
 
-module.exports = { FILE, read, installId, underTest };
+function agentCreated({ wanted } = {}) {
+  try {
+    if (!sender && underTest()) return;
+    if (wanted === false) return;
+    const pref = read();
+    if (!pref.on) return;
+    const body = JSON.stringify(payload());
+    const post = sender || ((url, init) => fetch(url, init));
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 3000);
+    Promise.resolve(post(endpoint(), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body,
+      signal: ctl.signal,
+    })).catch(() => { /* fire and forget */ })
+      .finally(() => clearTimeout(timer));
+  } catch { /* nothing here may reach the caller */ }
+}
+
+function setSender(f) { sender = f; }
+
+module.exports = { FILE, read, setOn, installId, payload, agentCreated, setSender, underTest, DEFAULT_ENDPOINT };
