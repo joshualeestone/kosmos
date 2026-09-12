@@ -402,7 +402,15 @@ test('#1949 refuses automatic idle AND working; #2456 also refuses an automatic 
      (the #2456 no-clear half, covered in selfreport.autoclear-2456.test.js).
 
      The controls below are what make the passes mean anything: without them,
-     recorded:true is equally consistent with the guard being dead. */
+     recorded:true is equally consistent with the guard being dead.
+
+     ⚠️ The `blocked` arm below encodes a KNOWN RESIDUAL, not a desired invariant:
+     an incoming auto `blocked` (a StopFailure provider outage) landing over a
+     DELIBERATE needs_you clobbers that question's reason. #2456 leaves this as-is
+     on purpose (a provider outage should surface even over a standing wait), and
+     flags it as a tracked follow-up. Whoever fixes that follow-up must move
+     `blocked` out of this "still land" loop. `started`/`stopped` are the genuine
+     invariant here (one-time transitions that must not be stranded). */
   for (const state of ['started', 'blocked', 'stopped']) {
     selfreport.record('inert', { state: 'needs_you', because: 'standing waiting state' });
     const got = selfreport.record('inert', { state, because: 'the machine wrote this', auto: true });

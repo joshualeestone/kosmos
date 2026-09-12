@@ -112,8 +112,6 @@ test('#2456 CONTROL: an AGENT working still clears its own needs_you (a real res
   assert.equal(selfreport.read(who).state, 'working');
 });
 
-/* ---- Legacy provenance: a wait with NO mark (by:null) is protected as before ---- */
-
 /* ---- The regression the fix must NOT introduce: an AUTO blocked stays protected ---- */
 
 test('#2456: an automatic working does NOT clear a standing AUTO blocked (StopFailure provider outage)', () => {
@@ -142,6 +140,8 @@ test('#2456: an automatic needs_you does NOT clobber a standing AUTO blocked', (
   assert.equal(selfreport.record(who, permissionPrompt('git push')).recorded, false, 'a permission prompt overwrote a provider outage');
   assert.equal(selfreport.read(who).state, 'blocked');
 });
+
+/* ---- Legacy provenance: a wait with NO mark (by:null) is protected as before ---- */
 
 test('#2456: a legacy standing needs_you with no `by` mark is treated as DELIBERATE (protected)', () => {
   // Lines written before #1453 carry no `by` and read as null. The fix must not
