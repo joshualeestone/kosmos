@@ -67,7 +67,7 @@ const WRONG_WORLD_STATUS = 421;
 const USAGE = {
   msg: 'Usage: kosmos msg <agent> <what you want to tell them>',
   reply: 'Usage: kosmos reply <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated)',
-  post: 'Usage: kosmos post <project-id> <what you want to tell the room>  (text only; file attachments are not supported yet, kosmos#1955)',
+  post: 'Usage: kosmos post [--no-reply] <project-id> <what you want to tell the room>  (text only; file attachments are not supported yet, kosmos#1955)',
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
   report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]',
   room: 'Usage: kosmos room <project-id>   (project ids are in your instructions\' Your projects section)',
