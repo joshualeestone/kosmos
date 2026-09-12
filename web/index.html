@@ -1934,7 +1934,7 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 /* #2863 (Josh): the unread-DM bubble, top-right on the agent card. Same
    red-bubble shape as .membadge, one channel over. Absolute so it never shifts
    the card's flow; pointer-events:none so it never eats the card click. */
-.dmbadge { position: absolute; top: -6px; right: -6px; z-index: 2; pointer-events: none;
+.dmbadge { position: absolute; top: -6px; right: -6px; pointer-events: none;
            font: 700 .6875rem var(--k-mono);
            font-variant-numeric: tabular-nums;
            color: #fff; background: #b3261e; border-radius: 100px;
@@ -14109,7 +14109,7 @@ function card(a) {
            text is PRESSAY.off, which is the same words as the pill two rows
            down, so a screen reader announced "Not running" twice per card. The
            pill is the one that carries it. -->
-      <span class="pres off" aria-hidden="true"></span></div>
+      <span class="pres off" aria-hidden="true"></span>${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
     <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
     <div class="astate ${split ? 'st-unknown' : 'st-stopped'}">${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b></div>
@@ -21941,17 +21941,25 @@ function paintTalkThread(body, name) {
 async function paintTalk(sessionName, agentName) {
   const box = document.getElementById('d-talk-box');
   if (!box) return;
-  /* #2863: reading an agent's thread clears its unread-DM count. Advance the
-     engine's DM cursor (POST /seen; Angel #2881, mirroring the project /seen).
-     dmBadge already suppresses the badge for the agent you are reading (CURRENT),
-     so the hide is immediate; the next poll reads the advanced cursor and it
-     stays cleared. Fire-and-forget, and the body is read and dropped -- the #39
-     networkidle rule the project /seen and the whats-new fetch also follow (a
-     Response nobody consumes stalls networkidle until GC). A 404/borrowed-name
-     agent answers 400 here, which is read and dropped like any other body. */
-  fetch('/api/agent/' + encodeURIComponent(sessionName) + '/seen', { method: 'POST' })
-    .then((r) => r.text())
-    .catch(() => { /* the next open tells it again */ });
+  /* #2863: reading an agent's thread clears its unread-DM count. This mirrors
+     the project /seen precisely, and BOTH halves matter: paintTalk re-runs on
+     every ~5s poll while the panel is open, so an ungated POST would do a full
+     dm-seen.json read+write every tick for as long as the thread is open. Gate
+     it -- fire /seen ONLY when there is unread to clear, and zero the local copy
+     first (like the project's `p.unread = 0`) so the next poll's re-run sees 0
+     and does not re-fire. dmBadge already suppresses the badge for the open
+     agent, so the hide is immediate; /seen advances the engine's DM cursor
+     (Angel #2881) so it stays cleared after you navigate away. The body is read
+     and dropped -- the #39 networkidle rule (a Response nobody consumes stalls
+     networkidle until GC), which the project /seen and the whats-new fetch also
+     follow. A 404/borrowed-name agent never reaches here (its rec has no unread). */
+  const dmRec = Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === sessionName) : null;
+  if (dmRec && dmRec.dmUnread > 0) {
+    dmRec.dmUnread = 0;
+    fetch('/api/agent/' + encodeURIComponent(sessionName) + '/seen', { method: 'POST' })
+      .then((r) => r.text())
+      .catch(() => { /* the next open tells it again */ });
+  }
   // The INSTR_LOAD/CONVO_LOAD pattern: two fetches for the SAME agent (A, B, A
   // quickly) pass the sessionName guard both times, and the older answer must
   // not paint last.

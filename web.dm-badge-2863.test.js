@@ -52,18 +52,28 @@ test('dmBadge is suppressed for the agent being read (CURRENT), like the open pr
   assert.match(fn(withUnread(bo, 5)), /dmbadge/, 'a different agent wrongly lost its badge');
 });
 
-test('the grid card renders the DM badge in the gauge', () => {
+test('both the running AND the offline card render the DM badge (a stopped agent that DM you still shows it)', () => {
   assert.match(SCRIPT, /<div class="agauge">\$\{ring\(a\)\}\$\{pres\}\$\{badge\}\$\{dmBadge\(a\)\}<\/div>/,
-    'the card gauge does not render dmBadge alongside the memory badge');
+    'the running card gauge does not render dmBadge alongside the memory badge');
+  /* The engine attaches dmUnread to offline agents too, so the not-running card
+     must show it -- Josh's ask carries no running-only qualifier. */
+  assert.match(SCRIPT, /<span class="pres off" aria-hidden="true"><\/span>\$\{dmBadge\(a\)\}<\/div>/,
+    'the offline (not-running) card drops the DM badge, so a stopped agent that messaged you shows nothing');
 });
 
-test('reading a thread clears the unread count via POST /api/agent/<name>/seen', () => {
+test('reading a thread clears the unread count via a GATED POST /api/agent/<name>/seen', () => {
   const at = SCRIPT.indexOf('async function paintTalk');
   assert.ok(at > -1, 'paintTalk moved');
-  const talk = SCRIPT.slice(at, at + 1400);
+  const talk = SCRIPT.slice(at, at + 1800);
   assert.match(talk, /fetch\('\/api\/agent\/' \+ encodeURIComponent\(sessionName\) \+ '\/seen', \{ method: 'POST' \}\)/,
     'opening a thread does not advance the DM cursor, so the badge would never clear');
   assert.match(talk, /\.then\(\(r\) => r\.text\(\)\)/, 'the /seen response body is not read+dropped (the #39 networkidle rule)');
+  /* paintTalk re-runs every ~5s poll while the panel is open; the POST must be
+     gated so it does not do a full dm-seen.json write every tick. Gated on
+     unread, and zero the local copy first (like the project p.unread = 0) so the
+     re-run sees 0 and does not re-fire. */
+  assert.match(talk, /if \(dmRec && dmRec\.dmUnread > 0\) \{[\s\S]*?dmRec\.dmUnread = 0;[\s\S]*?fetch\('\/api\/agent\//,
+    'the /seen POST is not gated on unread + local-zero, so it fires a full write every ~5s poll');
 });
 
 test('the DM badge CSS is the red bubble, absolute, with a dark twin and the membadge co-occurrence offset', () => {
