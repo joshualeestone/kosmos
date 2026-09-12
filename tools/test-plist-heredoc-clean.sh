@@ -49,4 +49,10 @@ check_heredoc board "$board_body"
 app_body="$(awk '/cat > "\$target\/Info.plist" <<PLIST/{p=1;next} p&&/^PLIST$/{exit} p' "$f")"
 check_heredoc app "$app_body"
 
+# #2955: the board watchdog login-job plist heredoc. Unquoted the same way (it
+# needs $(_xmlq ...) expanded while written), so it is in the same class and gets
+# the same guard.
+watchdog_body="$(awk '/cat > "\$_wd_plist.new" <<PLIST/{p=1;next} p&&/^PLIST$/{exit} p' "$f")"
+check_heredoc watchdog "$watchdog_body"
+
 echo "plist-heredoc-clean: $fails failures"; [ "$fails" -eq 0 ]
