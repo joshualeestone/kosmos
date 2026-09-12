@@ -129,7 +129,13 @@ const path = require('path');
   await pg.click('#rail-projects-new'); await pg.waitForTimeout(400);
   await pg.click('#rail-agents-fold'); await pg.waitForTimeout(300);
   say((await none()) === null, 'New project form open, then a fold press: the sentence stays hidden');
-  await pg.click('#rail-agents-fold'); await pg.click('#pj-add-back'); await pg.waitForTimeout(400);
+  // #2850 hid #pj-add-back (visibility:hidden) in the consolidated add-project form:
+  // the back control is redundant when the projects rail is always visible, so it
+  // cannot be clicked here. Leave the form the way its own click handler does (return
+  // to the list view) instead of clicking the now-invisible button.
+  await pg.click('#rail-agents-fold');
+  await forceNothingOpen();  // the check's own reset-to-list helper (~line 67); does what the back handler did
+  await pg.waitForTimeout(400);
 
   // a board with no projects: the open rail's own card says it, so the sentence stays hidden;
   // folded, the sentence says press + (the + survives the fold); a failed read never says "no projects"

@@ -35,7 +35,17 @@ async function coverIsOccluding(page) {
       up: true,
       opaque: s.background !== 'transparent' && s.opacity === '1' && s.display !== 'none',
       fixed: s.position === 'fixed',
-      covers: r.left <= 0 && r.top <= 0 && r.right >= window.innerWidth && r.bottom >= window.innerHeight,
+      // Occlusion is of CONTENT, so compare against the document client box
+      // (documentElement.clientWidth/Height), NOT window.innerWidth/Height.
+      // innerWidth INCLUDES the classic scrollbar gutter that HEADLESS chromium
+      // renders (~15px); a fixed inset:0 cover spans only the content box, so an
+      // innerWidth test false-fails headless by exactly the scrollbar width. Headed
+      // macOS uses 0px overlay scrollbars, so the two agree there and older headed
+      // cuts passed. The scrollbar strip shows the scrollbar, never a content flash,
+      // so the content box is the correct occlusion target (Mortals is a headless cut box).
+      covers: r.left <= 0 && r.top <= 0
+        && r.right >= document.documentElement.clientWidth
+        && r.bottom >= document.documentElement.clientHeight,
       z: Number(s.zIndex) || 0,
     };
   });
