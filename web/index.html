@@ -1931,6 +1931,20 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
             font-variant-numeric: tabular-nums;
             color: #fff; background: #b3261e; border-radius: 100px;
             padding: .12rem .42rem; border: 2px solid var(--k-surface); }
+/* #2863 (Josh): the unread-DM bubble, top-right on the agent card. Same
+   red-bubble shape as .membadge, one channel over. Absolute so it never shifts
+   the card's flow; pointer-events:none so it never eats the card click. */
+.dmbadge { position: absolute; top: -6px; right: -6px; z-index: 2; pointer-events: none;
+           font: 700 .6875rem var(--k-mono);
+           font-variant-numeric: tabular-nums;
+           color: #fff; background: #b3261e; border-radius: 100px;
+           padding: .12rem .42rem; border: 2px solid var(--k-surface); }
+/* The card's memory badge sits top-right too; on the rare agent that is both
+   near-full on memory AND has unread DMs, drop the memory badge below the DM
+   bubble so they stack rather than overlap. The DM bubble keeps the corner
+   because "someone is waiting on you" outranks "memory is nearly full". The list
+   row has no membadge (it uses a memory bar), so it needs no such rule. */
+.agauge:has(.dmbadge) .membadge { top: 24px; }
 .ansgo { margin-left: auto; font-size: .8125rem; font-weight: 600; color: var(--k-ink-2);
          border: 0; background: none;
          /* One padding declaration only: a second one in this same rule was
@@ -6264,6 +6278,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   :root:not([data-theme="light"]) .bar i.high { background: #ff8c82; }
   :root:not([data-theme="light"]) .haz { background: #ff8c82; color: #0c0d0f; }
   :root:not([data-theme="light"]) .membadge { background: #ff8c82; color: #0c0d0f; }
+  :root:not([data-theme="light"]) .dmbadge { background: #ff8c82; color: #0c0d0f; }
   :root:not([data-theme="light"]) .astate.st-working { border-color: rgba(121,197,157,.62); }
   :root:not([data-theme="light"]) .astate.st-paused, :root:not([data-theme="light"]) .astate.st-stopped { border-color: rgba(245,245,244,.32); }
   :root:not([data-theme="light"]) .astate.st-idle { border-color: rgba(245,245,244,.32); }
@@ -7125,6 +7140,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 :root[data-theme="dark"] .bar i.high { background: #ff8c82; }
 :root[data-theme="dark"] .haz { background: #ff8c82; color: #0c0d0f; }
 :root[data-theme="dark"] .membadge { background: #ff8c82; color: #0c0d0f; }
+:root[data-theme="dark"] .dmbadge { background: #ff8c82; color: #0c0d0f; }
 :root[data-theme="dark"] .astate.st-working { border-color: rgba(121,197,157,.62); }
 :root[data-theme="dark"] .astate.st-paused, :root[data-theme="dark"] .astate.st-stopped { border-color: rgba(245,245,244,.32); }
 :root[data-theme="dark"] .astate.st-idle { border-color: rgba(245,245,244,.32); }
@@ -14029,6 +14045,24 @@ function staleBadge(a) {
     + `><span class="vh">${w.lead} ${w.tail}</span>${icon('alert')}</span>`;
 }
 
+/* #2863 (Josh): the red numbered bubble for unread direct messages from an
+   agent, top-right on the agent card in the grid, so you can see who is
+   notifying you without opening each thread. (The list-view badge, the org node
+   and the top tallies are the follow-up: the default list's .lav is
+   overflow:hidden and unpositioned, so it needs its own placement, not this
+   corner badge.) Mirrors the project p.unread
+   precedent: `a.dmUnread` is the count from the engine (server withDmUnread,
+   Angel #2881), null when unknown -> no badge; and the agent you are READING now
+   (CURRENT) is suppressed here exactly as the open project shows 0, so the badge
+   does not flicker back on the poll between opening the thread and the /seen
+   clear landing. Same red-bubble shape as .membadge. */
+function dmBadge(a) {
+  const n = Number(a && a.dmUnread);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  if (CURRENT && a && CURRENT.sessionName === a.sessionName) return '';
+  const s = n > 99 ? '99+' : String(n);
+  return '<span class="dmbadge" aria-label="' + s + ' unread ' + (n === 1 ? 'message' : 'messages') + '">' + s + '</span>';
+}
 function card(a) {
   /**
    * 🛑 AN AGENT THAT IS NOT RUNNING GETS A DIFFERENT CARD, not this one with
@@ -14134,7 +14168,7 @@ function card(a) {
   const pres = `<span class="pres ${m.pres}"><span class="vh">${PRESSAY[m.pres]}</span></span>`;
 
   return `<div class="acard ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}">
-    <div class="agauge">${ring(a)}${pres}${badge}</div>
+    <div class="agauge">${ring(a)}${pres}${badge}${dmBadge(a)}</div>
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
     <div class="astate st-${m.st}">${glyphOf(a)}<b>${esc(copy.label)}</b>${answer}</div>
@@ -21907,6 +21941,17 @@ function paintTalkThread(body, name) {
 async function paintTalk(sessionName, agentName) {
   const box = document.getElementById('d-talk-box');
   if (!box) return;
+  /* #2863: reading an agent's thread clears its unread-DM count. Advance the
+     engine's DM cursor (POST /seen; Angel #2881, mirroring the project /seen).
+     dmBadge already suppresses the badge for the agent you are reading (CURRENT),
+     so the hide is immediate; the next poll reads the advanced cursor and it
+     stays cleared. Fire-and-forget, and the body is read and dropped -- the #39
+     networkidle rule the project /seen and the whats-new fetch also follow (a
+     Response nobody consumes stalls networkidle until GC). A 404/borrowed-name
+     agent answers 400 here, which is read and dropped like any other body. */
+  fetch('/api/agent/' + encodeURIComponent(sessionName) + '/seen', { method: 'POST' })
+    .then((r) => r.text())
+    .catch(() => { /* the next open tells it again */ });
   // The INSTR_LOAD/CONVO_LOAD pattern: two fetches for the SAME agent (A, B, A
   // quickly) pass the sessionName guard both times, and the older answer must
   // not paint last.

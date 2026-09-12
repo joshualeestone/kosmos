@@ -1,0 +1,78 @@
+'use strict';
+/**
+ * #2863 (Josh): a red numbered bubble on an agent shows unread direct messages
+ * from that agent, so you can see who is notifying you. This is the grid-card
+ * half; the engine half (a.dmUnread on the fleet payload + POST /seen) shipped in
+ * Angel's #2881. The list-view badge, the org node and the top tallies are the
+ * follow-up.
+ *
+ *   node --test web.dm-badge-2863.test.js
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+
+/* Sandboxed before the fleet loads, as web.org-view.test.js does: install()
+   writes worker folders and reads a data root, neither of which belongs to a
+   test about a badge. */
+process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-dm-'));
+process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-dm-w-'));
+const fleet = require('./test-support/fleet');
+
+const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+const page = require('./test-support/page');
+const SCRIPT = page.scriptOf(PAGE);
+
+/* Real cards from the fleet, per fixture discipline. `dmUnread` is a
+   server-payload field the pane/roster fixture does not emit, so it is SET on a
+   real card here (a mutation, not a hand-built stand-in). */
+const board = fleet.install([fleet.agent('mara', { state: 'working' }), fleet.agent('bo', { state: 'idle' })]);
+const [mara, bo] = board.agents;
+
+/* dmBadge reads only the module global CURRENT (and builtins), so it lifts and
+   evaluates in isolation with CURRENT supplied. */
+const dmBadgeSrc = page.lift(SCRIPT, 'dmBadge');
+const makeDmBadge = (current) => new Function('CURRENT', dmBadgeSrc + '\nreturn dmBadge;')(current);
+const withUnread = (agentCard, n) => { const a = { ...agentCard }; a.dmUnread = n; return a; };
+
+test('dmBadge shows the count for unread, nothing for none/unknown', () => {
+  const fn = makeDmBadge(null);
+  assert.match(fn(withUnread(mara, 3)), /class="dmbadge"[^>]*>3<\/span>/, 'a 3-unread agent drew no numbered bubble');
+  assert.equal(fn(withUnread(mara, 0)), '', 'a 0 count still drew a bubble');
+  assert.equal(fn(withUnread(mara, null)), '', 'unknown (null) drew a bubble');
+  assert.equal(fn(withUnread(mara, undefined)), '', 'a card with no dmUnread drew a bubble');
+  assert.match(fn(withUnread(mara, 150)), />99\+<\/span>/, 'a big count did not cap at 99+');
+});
+
+test('dmBadge is suppressed for the agent being read (CURRENT), like the open project shows 0', () => {
+  const fn = makeDmBadge(mara);
+  assert.equal(fn(withUnread(mara, 5)), '', 'the agent being read still showed a badge');
+  assert.match(fn(withUnread(bo, 5)), /dmbadge/, 'a different agent wrongly lost its badge');
+});
+
+test('the grid card renders the DM badge in the gauge', () => {
+  assert.match(SCRIPT, /<div class="agauge">\$\{ring\(a\)\}\$\{pres\}\$\{badge\}\$\{dmBadge\(a\)\}<\/div>/,
+    'the card gauge does not render dmBadge alongside the memory badge');
+});
+
+test('reading a thread clears the unread count via POST /api/agent/<name>/seen', () => {
+  const at = SCRIPT.indexOf('async function paintTalk');
+  assert.ok(at > -1, 'paintTalk moved');
+  const talk = SCRIPT.slice(at, at + 1400);
+  assert.match(talk, /fetch\('\/api\/agent\/' \+ encodeURIComponent\(sessionName\) \+ '\/seen', \{ method: 'POST' \}\)/,
+    'opening a thread does not advance the DM cursor, so the badge would never clear');
+  assert.match(talk, /\.then\(\(r\) => r\.text\(\)\)/, 'the /seen response body is not read+dropped (the #39 networkidle rule)');
+});
+
+test('the DM badge CSS is the red bubble, absolute, with a dark twin and the membadge co-occurrence offset', () => {
+  const rule = PAGE.match(/\.dmbadge \{[^}]*\}/);
+  assert.ok(rule, 'no .dmbadge rule');
+  assert.match(rule[0], /position: absolute/, 'the badge is not absolute (would shift layout)');
+  assert.match(rule[0], /background: #b3261e/, 'the badge is not the app red #b3261e');
+  assert.match(rule[0], /pointer-events: none/, 'the badge would eat the card click');
+  assert.match(PAGE, /:root\[data-theme="dark"\] \.dmbadge \{[^}]*#ff8c82/, 'no forced-dark twin for the DM badge');
+  assert.match(PAGE, /\.agauge:has\(\.dmbadge\) \.membadge \{ top: 24px; \}/,
+    'the memory badge is not dropped below the DM bubble on co-occurrence');
+});
