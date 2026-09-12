@@ -7,11 +7,13 @@
  *
  *   node --test tools.win-staging-verify.test.js
  *
- * No real network: every fetch goes to a node:http server on 127.0.0.1 (KOSMOS_RELEASE_BASE). No
- * real record: every record goes under a temp root (KOSMOS_WIN_VERIFY_DIR, or a temp LOCALAPPDATA
- * or HOME), and isolatedEnv refuses any environment whose record directory is outside that root.
- * The writer runs as a child process (the real CLI) through an ASYNC spawn, because a spawnSync
- * would block this process's event loop and with it the server the child is fetching from.
+ * No real network: every fetch goes to a node:http server on 127.0.0.1 (KOSMOS_RELEASE_BASE, or
+ * main's `base`). No real record: every record goes under a temp root (KOSMOS_WIN_VERIFY_DIR, or a
+ * temp LOCALAPPDATA or HOME), and isolatedEnv refuses any environment whose record directory is
+ * outside that root. The writer mostly runs as a child process (the real CLI) through an ASYNC
+ * spawn, because a spawnSync would block this process's event loop and with it the server the
+ * child is fetching from. The failure-injection arms (a full disk, a held record) run in-process,
+ * where fs can be patched for the duration of one call.
  */
 
 const test = require('node:test');
@@ -33,13 +35,21 @@ const VERSION = '2.0.0';
 const SOURCE = 'f120a6e22a94359b073c93aab8cd04ffda975a54';
 const OPERATOR_IDS = spec.REQUIRED_CHECKS.filter((check) => check.by === 'operator').map((check) => check.id);
 const AUTOMATED_IDS = spec.REQUIRED_CHECKS.filter((check) => check.by === 'automated').map((check) => check.id);
-const attestAll = (result, overrides = {}) => OPERATOR_IDS.flatMap((id) => ['--attest', `${id}=${overrides[id] || result}`]);
+/** The answers for the build `sha` names: every operator check `result`, except `overrides`. */
+const attestFor = (sha, result, overrides = {}) => ['--for-sha', sha, ...OPERATOR_IDS.flatMap((id) => ['--attest', `${id}=${overrides[id] || result}`])];
 
 const TEST_ROOT = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'win-staging-verify-test-')));
 test.after(() => fs.rmSync(TEST_ROOT, { recursive: true, force: true }));
 const freshDir = (name) => fs.mkdtempSync(path.join(TEST_ROOT, `${name}-`));
 const sha256 = (bytes) => crypto.createHash('sha256').update(bytes).digest('hex');
 const listDir = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir) : []);
+const diskFullError = () => Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' });
+/** Replace fs[method] for the duration of body (sync or async), always restoring it. */
+async function withPatchedFs(method, replacement, body) {
+  const real = fs[method];
+  fs[method] = replacement(real);
+  try { return await body(); } finally { fs[method] = real; }
+}
 
 // ---- a zip, written the way Info-ZIP writes build-kosmos-windows.sh's (no zip64, no encryption) ----
 function makeZip(entries) {
@@ -73,10 +83,10 @@ function makeZip(entries) {
 function manifestJson(overrides = {}) {
   return `${JSON.stringify({ product: 'kosmos', platform: 'win32', arch: 'x64', version: VERSION, source_sha: SOURCE, source_dirty: false, signed: false, ...overrides }, null, 2)}\n`;
 }
-function buildZip({ manifest = manifestJson(), method = 8, omitManifest = false, corruptCrc = false } = {}) {
+function buildZip({ manifest = manifestJson(), method = 8, omitManifest = false, corruptCrc = false, extraEntries = [] } = {}) {
   const entries = [{ name: 'Kosmos.exe', data: 'MZ fixture', method: 0 }];
   if (!omitManifest) entries.push({ name: 'manifest.json', data: manifest, method, corruptCrc });
-  entries.push({ name: 'app/server.js', data: '// fixture\n'.repeat(20), method: 8 });
+  entries.push({ name: 'app/server.js', data: '// fixture\n'.repeat(20), method: 8 }, ...extraEntries);
   return makeZip(entries);
 }
 
@@ -85,8 +95,7 @@ function buildZip({ manifest = manifestJson(), method = 8, omitManifest = false,
 function stagedRelease(zip, { version = VERSION, arch = 'x64', pointerSha, sidecar } = {}) {
   const versioned = `kosmos-${version}-win-${arch}.zip`;
   const sha = pointerSha || sha256(zip);
-  const pointer = { version, sha256: sha, artifact: `kosmos-win-${arch}.zip`, versioned, arch };
-  const pointerBody = `${JSON.stringify(pointer)}\n`;
+  const pointerBody = `${JSON.stringify({ version, sha256: sha, artifact: `kosmos-win-${arch}.zip`, versioned, arch })}\n`;
   return {
     sha, versioned, pointerBody,
     routes: {
@@ -97,7 +106,7 @@ function stagedRelease(zip, { version = VERSION, arch = 'x64', pointerSha, sidec
   };
 }
 
-// ---- the local release host ----
+// ---- the local release host (routes are read per request, so an arm can move the pointer) ----
 async function startServer(routes) {
   const requests = [];
   const server = http.createServer((request, response) => {
@@ -161,6 +170,12 @@ function runWriter(args, env) {
     child.on('close', (status) => resolve({ status, stdout, stderr, out: stdout + stderr }));
   });
 }
+/** main() in this process (so fs can be patched), against `base`, with its output collected. */
+async function runMainInProcess(args, env, base) {
+  const lines = [];
+  const status = await writer.main(args, { env, base, tmpRoot: freshDir('main-tmp'), stdout: (line) => lines.push(line), stderr: (line) => lines.push(line) });
+  return { status, out: lines.join('\n') };
+}
 const toShellPath = (file) => (process.platform === 'win32' ? file.replace(/\\/g, '/') : file);
 /** The REAL gate, against a pointer file holding exactly what the host served. */
 function runGate(pointerBody, env) {
@@ -172,6 +187,12 @@ function runGate(pointerBody, env) {
 }
 const readRecord = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const checkById = (record, id) => record.checks.find((check) => check.id === id);
+/** The record-answering command the checklist prints (everything after `--yes`). */
+const printedCommand = (stdout) => {
+  const match = /node tools\/win-staging-verify\.js --yes (.*)/.exec(stdout);
+  assert.ok(match, `the checklist prints the command that records the answers:\n${stdout}`);
+  return match[1];
+};
 
 // ================================================================================================
 test('the one spec: a built record validates as its derived result, and an overclaim is ambiguous', () => {
@@ -198,6 +219,7 @@ test('attestation parsing: only operator checks, only pass or fail, each once', 
   assert.deepEqual(writer.parseAttestations(['install=pass', 'z-checks=fail']), { attestations: { install: 'pass', 'z-checks': 'fail' }, errors: [] });
   for (const [value, message] of [
     ['install=yes', /is not <check>=pass/], ['install', /is not <check>=pass/], ['nope=pass', /unknown check/],
+    ['install=<pass|fail>', /is not <check>=pass/],
     ...AUTOMATED_IDS.map((id) => [`${id}=pass`, /automated check .* cannot be attested/]),
   ]) {
     const { attestations, errors } = writer.parseAttestations([value]);
@@ -207,13 +229,19 @@ test('attestation parsing: only operator checks, only pass or fail, each once', 
   assert.match(writer.parseAttestations(['msg=pass', 'msg=fail']).errors.join('\n'), /given twice/);
 });
 
-test('a bad --attest is a usage error (3) before any fetch; nothing is written', async () => {
+test('usage errors (3) come before any fetch and write nothing: a bad --attest, --attest without --for-sha, a --for-sha that is not a sha', async () => {
   const release = stagedRelease(buildZip());
   await withServer(release.routes, async (host) => {
     const env = isolatedEnv(host.base);
-    const run = await runWriter(['--yes', '--attest', 'sha=pass'], env);
-    assert.equal(run.status, 3, run.out);
-    assert.match(run.stderr, /cannot be attested/);
+    for (const [args, message] of [
+      [['--yes', '--for-sha', release.sha, '--attest', 'sha=pass'], /cannot be attested/],
+      [['--yes', '--attest', 'install=pass'], /--attest needs --for-sha/],
+      [['--yes', '--for-sha', 'abc', '--attest', 'install=pass'], /is not a sha256/],
+    ]) {
+      const run = await runWriter(args, env);
+      assert.equal(run.status, 3, `${args.join(' ')}: ${run.out}`);
+      assert.match(run.stderr, message);
+    }
     assert.deepEqual(host.requests, [], 'a usage error must not reach the host');
     assert.deepEqual(listDir(env.KOSMOS_WIN_VERIFY_DIR), []);
   });
@@ -227,7 +255,7 @@ test('V1 + attested V2 -> a pass record, written once, that the REAL gate accept
     let gate = runGate(release.pointerBody, env);
     assert.equal(gate.status, 2, `before any record the gate HOLDs: ${gate.out}`);
 
-    const run = await runWriter(['--yes', ...attestAll('pass')], env);
+    const run = await runWriter(['--yes', ...attestFor(release.sha, 'pass')], env);
     assert.equal(run.status, 0, run.out);
     assert.ok(host.requests.includes(`/dist/${release.versioned}`), 'the zip itself was fetched and hashed');
     const bytes = fs.readFileSync(recordFile);
@@ -260,24 +288,54 @@ test('V1 + attested V2 -> a pass record, written once, that the REAL gate accept
   });
 });
 
-test('dry run is the default: nothing is written, the V2 checklist is printed, and un-attested V2 is not-run (exit 2)', async () => {
+test("dry run is the default: nothing is written; the checklist asks for Josh's go, checks engine-path is restored, and prints placeholders bound to the sha", async () => {
   const release = stagedRelease(buildZip());
   await withServer(release.routes, async (host) => {
     const env = isolatedEnv(host.base);
     const run = await runWriter([], env);
     assert.equal(run.status, 2, run.out);
     assert.match(run.stdout, /DRY RUN - nothing written/);
-    assert.match(run.stdout, /e2e-zip\.js/);
-    for (const id of OPERATOR_IDS) assert.ok(run.stdout.includes(`--attest ${id}=pass`), `the checklist names ${id}`);
+    assert.match(run.stdout, /STOP: get Josh's go before step 2/);
+    assert.match(run.stdout, /\$enginePathBefore = \(Get-Content .*engine-path" -Raw\)\.Trim\(\)/);
+    assert.match(run.stdout, /\(Get-Content .*engine-path" -Raw\)\.Trim\(\) -eq \$enginePathBefore/);
+    assert.match(run.stdout, /repoint-main\.js <repo> "\$env:LOCALAPPDATA\\Kosmos\\runtime\\node\.exe"/);
+    const command = printedCommand(run.stdout);
+    assert.ok(command.startsWith(`--for-sha ${release.sha} `), command);
+    for (const id of OPERATOR_IDS) assert.ok(command.includes(`--attest ${id}=<pass|fail>`), `the command has a placeholder for ${id}`);
+    assert.doesNotMatch(command, /=(pass|fail)\b/, 'the printed command attests nothing by itself');
     const shown = JSON.parse(run.stdout.slice(run.stdout.indexOf('{\n')));
     for (const id of OPERATOR_IDS) assert.equal(checkById(shown, id).result, 'not-run', id);
     assert.equal(shown.result, 'fail');
     assert.deepEqual(listDir(env.KOSMOS_WIN_VERIFY_DIR), []);
 
-    const attested = await runWriter(attestAll('pass'), env);
+    const attested = await runWriter(attestFor(release.sha, 'pass'), env);
     assert.equal(attested.status, 0, attested.out);
     assert.match(attested.stdout, /DRY RUN - nothing written/);
     assert.deepEqual(listDir(env.KOSMOS_WIN_VERIFY_DIR), [], 'even a passing dry run writes nothing');
+  });
+});
+
+test('answers are bound to the build they were given on: a pointer that moved after the checklist is refused (3); nothing is written and the gate still HOLDs', async () => {
+  const tested = stagedRelease(buildZip());
+  const newer = stagedRelease(buildZip({ manifest: manifestJson({ version: '2.0.1' }) }), { version: '2.0.1' });
+  const routes = { ...tested.routes };
+  await withServer(routes, async (host) => {
+    const env = isolatedEnv(host.base);
+    const dry = await runWriter([], env);
+    const command = printedCommand(dry.stdout);
+    assert.ok(command.includes(`--for-sha ${tested.sha}`), command);
+
+    // A new staging cut lands while the operator runs Z0-Z6 on the build the checklist named.
+    for (const key of Object.keys(routes)) delete routes[key];
+    Object.assign(routes, newer.routes);
+    const late = await runWriter(['--yes', ...attestFor(tested.sha, 'pass')], env);
+    assert.equal(late.status, 3, late.out);
+    assert.match(late.stderr, new RegExp(`REFUSING - the staging pointer now names 2\\.0\\.1 \\(${newer.sha}\\), not the build these answers are for \\(${tested.sha}\\)`));
+    assert.deepEqual(listDir(env.KOSMOS_WIN_VERIFY_DIR), [], 'no record for either build');
+    assert.equal(runGate(newer.pointerBody, env).status, 2, 'the gate still HOLDs the build nobody tested');
+
+    const dryLate = await runWriter(attestFor(tested.sha, 'pass'), env);
+    assert.equal(dryLate.status, 3, `a dry run with answers for another build is refused too: ${dryLate.out}`);
   });
 });
 
@@ -285,7 +343,7 @@ test('--yes refuses an undecided record (some V2 check not attested, none failed
   const release = stagedRelease(buildZip());
   await withServer(release.routes, async (host) => {
     const env = isolatedEnv(host.base);
-    const run = await runWriter(['--yes', '--attest', 'install=pass', '--attest', 'z-checks=pass'], env);
+    const run = await runWriter(['--yes', '--for-sha', release.sha, '--attest', 'install=pass', '--attest', 'z-checks=pass'], env);
     assert.equal(run.status, 2, run.out);
     assert.match(run.stderr, /NOT WRITING - no check failed, but multiline, msg did not run/);
     assert.deepEqual(listDir(env.KOSMOS_WIN_VERIFY_DIR), []);
@@ -297,7 +355,7 @@ test('an operator fail is recorded as fail and the REAL gate refuses it (1)', as
   const release = stagedRelease(buildZip());
   await withServer(release.routes, async (host) => {
     const env = isolatedEnv(host.base);
-    const run = await runWriter(['--yes', ...attestAll('pass', { 'z-checks': 'fail' })], env);
+    const run = await runWriter(['--yes', ...attestFor(release.sha, 'pass', { 'z-checks': 'fail' })], env);
     assert.equal(run.status, 1, run.out);
     assert.match(run.stdout, /FAIL \(z-checks\)/);
     assert.doesNotMatch(run.stdout, /promote-channel\.sh/, 'no promote line for a failed build');
@@ -313,7 +371,7 @@ test('a V1 sha mismatch fails the record even when every V2 check is attested pa
   const release = stagedRelease(buildZip(), { pointerSha: sha256(Buffer.from('some other build')) });
   await withServer(release.routes, async (host) => {
     const env = isolatedEnv(host.base);
-    const run = await runWriter(['--yes', ...attestAll('pass')], env);
+    const run = await runWriter(['--yes', ...attestFor(release.sha, 'pass')], env);
     assert.equal(run.status, 1, run.out);
     const record = readRecord(spec.recordPath(env, release.sha));
     assert.equal(checkById(record, 'sha').result, 'fail');
@@ -325,10 +383,9 @@ test('a V1 sha mismatch fails the record even when every V2 check is attested pa
 });
 
 /** V1 in-process against the local host; asserts the temp zip is always deleted. */
-async function verifyAgainst(routes, { caps = writer.DEFAULT_CAPS, base } = {}) {
+async function verifyAgainst(routes, { caps = writer.DEFAULT_CAPS } = {}) {
   const tmpRoot = freshDir('v1-tmp');
-  const run = async (hostBase) => writer.verifyStagedBuild({ base: hostBase, tmpRoot, caps });
-  const result = base ? await run(base) : await withServer(routes, (host) => run(host.base));
+  const result = await withServer(routes, (host) => writer.verifyStagedBuild({ base: host.base, tmpRoot, caps }));
   assert.deepEqual(listDir(tmpRoot), [], 'the downloaded zip is deleted after V1');
   return result;
 }
@@ -359,7 +416,7 @@ test('V1: computed, pointer and sidecar sha must all agree', async () => {
   }
 });
 
-test('V1 manifest: read from the verified zip; version, platform, arch, a clean known commit', async () => {
+test('V1 manifest: read from the verified zip; version, platform, arch, a clean known commit, and no path listed twice', async () => {
   const stored = await verifyAgainst(stagedRelease(buildZip({ method: 0 })).routes);
   assert.deepEqual([stored.checkResults.manifest.result, stored.sourceSha], ['pass', SOURCE], 'a stored (uncompressed) manifest reads too');
   const cases = [
@@ -370,6 +427,11 @@ test('V1 manifest: read from the verified zip; version, platform, arch, a clean 
     ['no manifest', { omitManifest: true }, /has no manifest\.json/],
     ['a bad CRC', { corruptCrc: true }, /fails its CRC/],
     ['not JSON', { manifest: '{nope' }, /is not JSON/],
+    // Extractors keep the LAST of two same-named entries; the first one here is the honest one.
+    ['a second manifest.json after the good one',
+      { extraEntries: [{ name: 'manifest.json', data: manifestJson({ version: '9.9.9', source_dirty: true }), method: 8 }] }, /lists manifest\.json more than once/],
+    ['a second manifest differing only in case', { extraEntries: [{ name: 'Manifest.json', data: manifestJson(), method: 8 }] }, /lists Manifest\.json more than once/],
+    ['any other path listed twice', { extraEntries: [{ name: 'app/server.js', data: '// swapped\n', method: 8 }] }, /lists app\/server\.js more than once/],
   ];
   for (const [name, zipOptions, detail] of cases) {
     const result = await verifyAgainst(stagedRelease(buildZip(zipOptions)).routes);
@@ -383,7 +445,21 @@ test('V1 manifest: read from the verified zip; version, platform, arch, a clean 
   assert.match(capped.checkResults.manifest.detail, /over the 16-byte cap/);
 });
 
-test('V1 caps and transient answers: over-cap bytes fail the sha check; a timeout, a 5xx or a bad pointer cannot tell', async () => {
+test('V1: 408, 429 and 5xx from the pointer, the sidecar or the zip cannot tell (no check is failed on them)', async () => {
+  const zip = buildZip();
+  for (const status of [408, 429, 500, 502, 503]) {
+    for (const target of ['pointer', 'sidecar', 'zip']) {
+      const release = stagedRelease(zip);
+      const key = { pointer: '/dist/latest-win-staging.json', sidecar: `/dist/${release.versioned}.sha256`, zip: `/dist/${release.versioned}` }[target];
+      release.routes[key] = { body: 'busy', status };
+      const result = await verifyAgainst(release.routes);
+      assert.equal(result.verdict, 'cannot-tell', `${target} ${status}`);
+      assert.match(result.reason, new RegExp(`answered HTTP ${status}`), `${target} ${status}`);
+    }
+  }
+});
+
+test('V1 caps: over-cap bytes fail the sha check; a timeout or a bad pointer cannot tell', async () => {
   const zip = buildZip();
   const small = { ...writer.DEFAULT_CAPS, zipBytes: 100 };
   const declared = await verifyAgainst(stagedRelease(zip).routes, { caps: small });
@@ -400,12 +476,7 @@ test('V1 caps and transient answers: over-cap bytes fail the sha check; a timeou
   assert.equal(timedOut.verdict, 'cannot-tell');
   assert.match(timedOut.reason, /timed out after 300 ms/);
 
-  const struggling = stagedRelease(zip);
-  struggling.routes[`/dist/${struggling.versioned}`] = { body: 'busy', status: 503 };
-  assert.equal((await verifyAgainst(struggling.routes)).verdict, 'cannot-tell', 'a 503 says nothing about the build');
-
-  const bigPointer = stagedRelease(zip);
-  const pointerCapped = await verifyAgainst(bigPointer.routes, { caps: { ...writer.DEFAULT_CAPS, pointerBytes: 10 } });
+  const pointerCapped = await verifyAgainst(stagedRelease(zip).routes, { caps: { ...writer.DEFAULT_CAPS, pointerBytes: 10 } });
   assert.equal(pointerCapped.verdict, 'cannot-tell');
 
   const pointerCases = [
@@ -417,43 +488,82 @@ test('V1 caps and transient answers: over-cap bytes fail the sha check; a timeou
   for (const [name, body] of pointerCases) {
     const release = stagedRelease(zip);
     release.routes['/dist/latest-win-staging.json'] = { body };
-    const result = await verifyAgainst(release.routes);
-    assert.equal(result.verdict, 'cannot-tell', name);
+    assert.equal((await verifyAgainst(release.routes)).verdict, 'cannot-tell', name);
   }
 });
 
+test('V1 on this box: a full disk says the disk is full, a short save is caught, and an interrupt deletes the partial zip', async () => {
+  const release = stagedRelease(buildZip());
+  const diskFull = await withPatchedFs('writeSync', (real) => (fd, ...rest) => {
+    if (fd === 1 || fd === 2) return real(fd, ...rest);
+    throw diskFullError();
+  }, () => verifyAgainst(release.routes));
+  assert.equal(diskFull.verdict, 'cannot-tell');
+  assert.match(diskFull.reason, /the disk is full: saving .*\.zip stopped after 0 bytes \(ENOSPC\)/);
+
+  const shortSave = await withPatchedFs('fstatSync', () => () => ({ size: 1 }), () => verifyAgainst(release.routes));
+  assert.equal(shortSave.verdict, 'cannot-tell');
+  assert.match(shortSave.reason, /the saved zip holds 1 bytes, but \d+ bytes were hashed/);
+
+  // The node:test harness itself listens for SIGINT and SIGTERM, so the arm injects its own event
+  // name; the writer's real list is SIGINT, SIGTERM and SIGBREAK (where the OS has it).
+  const stalled = stagedRelease(buildZip());
+  stalled.routes[`/dist/${stalled.versioned}`] = { stall: true };
+  const interruptEvent = 'kosmos-test-interrupt';
+  const tmpRoot = freshDir('v1-interrupt');
+  const exits = [];
+  await withServer(stalled.routes, async (host) => {
+    const running = writer.verifyStagedBuild({
+      base: host.base, tmpRoot, caps: { ...writer.DEFAULT_CAPS, zipTimeoutMs: 1500 },
+      interruptSignals: [interruptEvent], exitProcess: (code) => exits.push(code),
+    });
+    const partialZip = () => listDir(tmpRoot).flatMap((dir) => listDir(path.join(tmpRoot, dir)));
+    const deadline = Date.now() + 5000;
+    while (!(host.requests.includes(`/dist/${stalled.versioned}`) && partialZip().length)) {
+      assert.ok(Date.now() < deadline, 'the download never started');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    process.emit(interruptEvent, interruptEvent);
+    assert.deepEqual(exits, [2], 'an interrupted run exits like cannot tell');
+    assert.deepEqual(listDir(tmpRoot), [], 'the partial download is deleted at once, not at the end');
+    await running;
+  });
+  assert.equal(process.listenerCount(interruptEvent), 0, 'the handler is removed once V1 ends');
+});
+
 test('an unreachable base or a missing pointer ends the CLI at cannot tell (2) and writes nothing', async () => {
+  const anySha = 'a'.repeat(64);
   const unreachable = isolatedEnv(await deadBase());
-  const run = await runWriter(['--yes', ...attestAll('pass')], unreachable);
+  const run = await runWriter(['--yes', ...attestFor(anySha, 'pass')], unreachable);
   assert.equal(run.status, 2, run.out);
   assert.match(run.stderr, /CANNOT TELL - could not reach/);
   assert.deepEqual(listDir(unreachable.KOSMOS_WIN_VERIFY_DIR), []);
 
   await withServer({}, async (host) => {
     const env = isolatedEnv(host.base);
-    const missing = await runWriter(['--yes', ...attestAll('pass')], env);
+    const missing = await runWriter(['--yes', ...attestFor(anySha, 'pass')], env);
     assert.equal(missing.status, 2, missing.out);
     assert.match(missing.stderr, /latest-win-staging\.json answered HTTP 404/);
     assert.deepEqual(listDir(env.KOSMOS_WIN_VERIFY_DIR), []);
   });
 });
 
-test('never over an existing record without --force-rewrite; --force-rewrite replaces it atomically and says so', async () => {
+test('never over an existing record without --force-rewrite; --force-rewrite replaces it atomically and says so afterwards', async () => {
   const release = stagedRelease(buildZip());
   await withServer(release.routes, async (host) => {
     const env = isolatedEnv(host.base);
     const recordFile = spec.recordPath(env, release.sha);
-    assert.equal((await runWriter(['--yes', ...attestAll('pass')], env)).status, 0);
+    assert.equal((await runWriter(['--yes', ...attestFor(release.sha, 'pass')], env)).status, 0);
     const first = fs.readFileSync(recordFile);
 
-    const again = await runWriter(['--yes', ...attestAll('pass', { msg: 'fail' })], env);
+    const again = await runWriter(['--yes', ...attestFor(release.sha, 'pass', { msg: 'fail' })], env);
     assert.equal(again.status, 3, again.out);
     assert.match(again.stderr, /REFUSING - a record for [0-9a-f]{64} already exists .*result pass/);
     assert.deepEqual(fs.readFileSync(recordFile), first, 'the existing record is byte-for-byte untouched');
 
-    const forced = await runWriter(['--yes', '--force-rewrite', ...attestAll('pass', { msg: 'fail' })], env);
+    const forced = await runWriter(['--yes', '--force-rewrite', ...attestFor(release.sha, 'pass', { msg: 'fail' })], env);
     assert.equal(forced.status, 1, forced.out);
-    assert.match(forced.stderr, new RegExp(`--force-rewrite: replacing .*sha256 ${sha256(first)}`), 'the replacement names what it replaced');
+    assert.match(forced.stderr, new RegExp(`--force-rewrite: replaced .*sha256 ${sha256(first)}`), 'the replacement names what it replaced');
     assert.match(forced.stdout, /\(replaced the previous record\)/);
     assert.equal(readRecord(recordFile).result, 'fail');
     assert.deepEqual(listDir(path.dirname(recordFile)), [path.basename(recordFile)]);
@@ -461,17 +571,51 @@ test('never over an existing record without --force-rewrite; --force-rewrite rep
   });
 });
 
-test('writeRecordAtomically: refuses an existing file, leaves no temp file, and writes whole records', () => {
+test('--force-rewrite over a record another program holds open: a sentence (not a crash), exit 3, the old record unchanged, nothing logged as replaced', async () => {
+  const release = stagedRelease(buildZip());
+  await withServer(release.routes, async (host) => {
+    const env = isolatedEnv(host.base);
+    assert.equal((await runMainInProcess(['--yes', ...attestFor(release.sha, 'pass')], env, host.base)).status, 0);
+    const recordFile = spec.recordPath(env, release.sha);
+    const first = fs.readFileSync(recordFile);
+    const held = await withPatchedFs('renameSync', () => () => { throw Object.assign(new Error('EPERM: operation not permitted, rename'), { code: 'EPERM' }); },
+      () => runMainInProcess(['--yes', '--force-rewrite', ...attestFor(release.sha, 'pass', { msg: 'fail' })], env, host.base));
+    assert.equal(held.status, 3, held.out);
+    assert.match(held.out, /Close whatever has the record open/);
+    assert.doesNotMatch(held.out, /--force-rewrite: replaced/, 'nothing is logged as replaced when the rename failed');
+    assert.deepEqual(fs.readFileSync(recordFile), first);
+    assert.deepEqual(listDir(path.dirname(recordFile)), [path.basename(recordFile)], 'the temp file is gone');
+  });
+});
+
+test('writeRecordAtomically: refuses an existing record before creating any temp file, and writes whole records', async () => {
   const directory = freshDir('atomic');
   const file = path.join(directory, `win-staging-${'d'.repeat(64)}.json`);
   const first = writer.writeRecordAtomically(file, { result: 'pass', at: 'then' });
   assert.equal(first.written, true);
   assert.equal(first.recordSha256, sha256(fs.readFileSync(file)));
-  const second = writer.writeRecordAtomically(file, { result: 'fail', at: 'now' });
+  const tempOpens = [];
+  const second = await withPatchedFs('openSync', (real) => (target, ...rest) => {
+    if (String(target).endsWith('.tmp')) tempOpens.push(String(target));
+    return real(target, ...rest);
+  }, () => writer.writeRecordAtomically(file, { result: 'fail', at: 'now' }));
   assert.equal(second.written, false);
   assert.match(second.previous, /result pass, at then/);
+  assert.deepEqual(tempOpens, [], 'the refusal comes before any temp file is created');
   assert.equal(readRecord(file).result, 'pass');
   assert.deepEqual(listDir(directory), [path.basename(file)]);
+});
+
+test('writeRecordAtomically: a write or fsync that fails (a full disk) leaves no temp file and no record', async () => {
+  for (const method of ['writeSync', 'fsyncSync']) {
+    const directory = freshDir(`atomic-${method}`);
+    const file = path.join(directory, `win-staging-${'e'.repeat(64)}.json`);
+    await withPatchedFs(method, (real) => (fd, ...rest) => {
+      if (fd === 1 || fd === 2) return real(fd, ...rest);
+      throw diskFullError();
+    }, () => assert.throws(() => writer.writeRecordAtomically(file, { result: 'pass' }), { code: 'ENOSPC' }, method));
+    assert.deepEqual(listDir(directory), [], `${method}: nothing is left in the record directory`);
+  }
 });
 
 test('round trip through the REAL gate in all three record-directory arms', async () => {
@@ -487,7 +631,7 @@ test('round trip through the REAL gate in all three record-directory arms', asyn
       const env = isolatedEnv(host.base, arm(dir));
       const recordFile = path.join(expectedDirectory(dir), `win-staging-${release.sha}.json`);
       assert.equal(runGate(release.pointerBody, env).status, 2, `${name}: HOLD before the record exists`);
-      const run = await runWriter(['--yes', ...attestAll('pass')], env);
+      const run = await runWriter(['--yes', ...attestFor(release.sha, 'pass')], env);
       assert.equal(run.status, 0, `${name}: ${run.out}`);
       assert.ok(fs.existsSync(recordFile), `${name}: the writer wrote ${recordFile}`);
       const gate = runGate(release.pointerBody, env);

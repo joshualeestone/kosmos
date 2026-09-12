@@ -208,19 +208,34 @@ A Windows build follows the same rule: staging first, prod only after Josh's go.
       the result is "cannot tell" (exit 2). No record is written.
   - **V2 (operator-attested):** `install` (Explorer unpack plus `Kosmos.exe`), `z-checks`
     (`kosmos-scripts\e2e-zip.js`, Z0-Z6), `multiline` and `msg`.
-    - The script prints the checklist. A person runs it and records each answer with
-      `--attest <id>=pass|fail`.
+    - **Get Josh's go before running the build.** Running it moves `engine-path` (which the box's
+      logon tasks run) onto the scratch folder, and `e2e-zip.js` drives the board on the live
+      port. The checklist has you note `engine-path` first, put the box back afterwards
+      (`kosmos-scripts\repoint-main.js <repo> <node.exe>` for a checkout), and check that
+      `engine-path` equals the noted value again.
+    - The script prints the checklist and the command that records the answers:
+      `--for-sha <sha256> --attest <id>=<pass|fail> ...`, one placeholder per check, never a
+      ready-made all-pass line.
+    - `--attest` requires `--for-sha`, the sha256 the checklist was run on. If the staging pointer
+      names another build by the time the answers are recorded, the run refuses (exit 3) and
+      writes nothing.
     - An un-attested check is `not-run`, never `pass`. An automated check cannot be attested.
-    - Running a second Kosmos can move `engine-path` (which the logon tasks run), so the checklist
-      says to note it first and put it back afterwards. Automating V2 is a later slice.
-  - **Dry run unless `--yes`.** With `--yes` the record is written atomically (a 0600 temp file in
-    the same directory, then a link or rename).
-    - An existing record for the same sha is never replaced without `--force-rewrite`, and a
-      replacement is logged.
+    - Automating V2 is a later slice.
+  - **Dry run unless `--yes`.** With `--yes` the record is written atomically: a 0600 temp file in
+    the same directory, then a hard link into place for a new record, or a rename under
+    `--force-rewrite`. The temp file is removed on every path, a failed write included.
+    - Because a new record is hard-linked, the record directory must be on a filesystem with hard
+      links (NTFS on Windows). On FAT or exFAT the write fails with a message saying so.
+    - An existing record for the same sha is never replaced without `--force-rewrite`. The
+      replacement is logged once it has happened. If another program holds the record open, the
+      run says so and leaves the old record unchanged.
+    - A stop mid-download (Ctrl+C, Ctrl+Break, a kill) deletes the partial zip. A full disk is
+      reported as a full disk.
     - An undecided record (no check failed, but some did not run) is refused, so the gate stays at
       HOLD instead of turning it into a refusal.
-  - **Writer exit codes:** 0 pass, 1 fail, 2 cannot tell or undecided, 3 usage or a refused
-    overwrite.
+  - **Writer exit codes:** 0 pass, 1 fail, 2 cannot tell, undecided, interrupted or not
+    writable (nothing written), 3 usage, a refused overwrite, a record held open, or answers for
+    a build the pointer no longer names.
   - **On a written pass**, it prints the record path, the sha256 of the record's bytes (post it
     with the result) and the `promote-channel.sh --family win` line. That line leaves
     `--approval-ref` for Josh.

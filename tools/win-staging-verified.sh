@@ -11,7 +11,8 @@
 #   0  a record on this box names the pointer's sha256 AND version, and says "pass";
 #   1  the record says "fail", or it is ambiguous (unparseable, a sha or version that disagrees
 #      with the pointer, a missing or unknown check, a check marked by the wrong performer, no
-#      source_sha/at, a result other than pass/fail, or a result its checks do not support) -> refuse;
+#      source_sha/at, a pass whose source_sha is not a commit, a result other than pass/fail, or a
+#      result its checks do not support) -> refuse;
 #   2  no record for this sha on this box, or the pointer cannot be read -> HOLD.
 #
 # 🛑 IT CAN NEVER BE FORCED. promote-channel.sh refuses --force for the Windows family, so a HOLD

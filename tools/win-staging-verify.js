@@ -18,7 +18,9 @@
  *   V2 (OPERATOR-ATTESTED in this slice): the Explorer unpack plus Z0-Z6, multiline and msg
  *      checks. Automating a second install beside the live Kosmos risks the box's logon tasks
  *      and engine-path, so a person runs them from the printed checklist and records each answer
- *      with --attest <id>=pass|fail. A check nobody attested is `not-run`, never `pass`.
+ *      with --attest <id>=pass|fail. A check nobody attested is `not-run`, never `pass`. The
+ *      answers name the build they were given on (--for-sha <sha256>, required with --attest),
+ *      and a staging pointer that names another build by the time they are recorded is refused.
  *   V4: write the record (tools/lib/win-staging-record.js is its one spec) atomically at the
  *      reader's exact path, 0600. Never over an existing record for the same sha without
  *      --force-rewrite.
@@ -29,8 +31,9 @@
  * record is written; 3 usage, or a refusal to overwrite an existing record.
  *
  *   node tools/win-staging-verify.js                      # V1 now, and the V2 checklist
- *   node tools/win-staging-verify.js --yes --attest install=pass --attest z-checks=pass \
- *        --attest multiline=pass --attest msg=pass       # V1 again, then write the record
+ *   node tools/win-staging-verify.js --yes --for-sha <the sha256 the checklist named> \
+ *        --attest install=<pass|fail> --attest z-checks=<pass|fail> \
+ *        --attest multiline=<pass|fail> --attest msg=<pass|fail>   # V1 again, then write the record
  */
 const fs = require('node:fs');
 const os = require('node:os');
@@ -66,6 +69,15 @@ const WINDOWS_ARCH = /^[a-z0-9_]+$/;
     failed on them, so they end the run as "cannot tell" like a timeout does. */
 function isTransientHttpStatus(status) { return status === 408 || status === 429 || status >= 500; }
 const { SOURCE_COMMIT } = recordSpec;
+/** The signals that stop a console run: Ctrl+C (SIGINT), a kill (SIGTERM) and Ctrl+Break on
+    Windows (SIGBREAK). Only the ones this OS has. */
+const INTERRUPT_SIGNALS = Object.freeze(['SIGINT', 'SIGTERM', 'SIGBREAK'].filter((signal) => signal in os.constants.signals));
+/** An interrupted run decided nothing and wrote no record, so it exits like "cannot tell". */
+const INTERRUPTED_EXIT_CODE = 2;
+/** What Windows answers when a rename cannot replace a file another program holds open. */
+const RECORD_HELD_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);
+/** What a hard link answers on a filesystem without them (FAT, exFAT) or a refused one. */
+const LINK_UNSUPPORTED_CODES = new Set(['EPERM', 'ENOTSUP', 'ENOSYS', 'EXDEV']);
 /** What the record's source_sha says when the bytes did not yield a trustworthy commit. */
 const UNKNOWN_SOURCE = 'unknown';
 const MANIFEST_ENTRY = 'manifest.json';
@@ -81,6 +93,17 @@ function describeError(error) {
   if (!error) return 'unknown error';
   const cause = error.cause && (error.cause.code || error.cause.message);
   return cause ? `${error.message} (${cause})` : String(error.message || error);
+}
+
+/** A failure to SAVE a download is this box's problem, not the host's or the build's. */
+function describeLocalSaveError(url, error, savedBytes) {
+  if (error && error.code === 'ENOSPC') return `the disk is full: saving ${url} stopped after ${savedBytes} bytes (ENOSPC). Free some space and run again`;
+  return `saving ${url} on this box failed after ${savedBytes} bytes: ${describeError(error)}`;
+}
+
+function writeAllSync(fd, bytes) {
+  let offset = 0;
+  while (offset < bytes.length) offset += fs.writeSync(fd, bytes, offset, bytes.length - offset);
 }
 
 /**
@@ -117,7 +140,10 @@ async function fetchWithCaps(url, { fetchImpl, maxBytes, timeoutMs, log, sink })
         for await (const chunk of response.body) {
           total += chunk.length;
           if (total > maxBytes) return { ok: false, transient: false, error: `${url} sent more than the ${maxBytes}-byte cap` };
-          if (sink) sink(chunk); else chunks.push(Buffer.from(chunk));
+          if (!sink) { chunks.push(Buffer.from(chunk)); continue; }
+          try { sink(chunk); } catch (error) {
+            return { ok: false, transient: true, error: describeLocalSaveError(url, error, total - chunk.length) };
+          }
         }
       }
     } catch (error) {
@@ -161,6 +187,8 @@ function readZipEntry(zipFile, entryName, maxBytes) {
     }
     if (directoryOffset + directorySize > size) throw new Error('its central directory runs past the end of the file');
     const directory = readExactly(fd, directorySize, directoryOffset, 'its central directory');
+    const seenNames = new Set();
+    let found = null;
     let at = 0;
     for (let index = 0; index < entryCount; index += 1) {
       if (at + 46 > directory.length || directory.readUInt32LE(at) !== ZIP_CENTRAL_DIRECTORY_ENTRY) {
@@ -177,22 +205,28 @@ function readZipEntry(zipFile, entryName, maxBytes) {
       const localHeaderOffset = directory.readUInt32LE(at + 42);
       const name = directory.toString('utf8', at + 46, at + 46 + nameLength);
       at += 46 + nameLength + extraLength + commentLength;
-      if (name !== entryName) continue;
-      if (flags & 1) throw new Error(`${entryName} is encrypted`);
-      if (uncompressedSize > maxBytes || compressedSize > maxBytes) throw new Error(`${entryName} is over the ${maxBytes}-byte cap`);
-      const local = readExactly(fd, 30, localHeaderOffset, `${entryName}'s header`);
-      if (local.readUInt32LE(0) !== ZIP_LOCAL_FILE_HEADER) throw new Error(`${entryName}'s local header is malformed`);
-      const dataStart = localHeaderOffset + 30 + local.readUInt16LE(26) + local.readUInt16LE(28);
-      const data = readExactly(fd, compressedSize, dataStart, entryName);
-      let content;
-      if (method === 0) content = data;
-      else if (method === 8) content = zlib.inflateRawSync(data, { maxOutputLength: maxBytes });
-      else throw new Error(`${entryName} uses compression method ${method}`);
-      if (content.length !== uncompressedSize) throw new Error(`${entryName} inflated to ${content.length} bytes, not ${uncompressedSize}`);
-      if ((zlib.crc32(content) >>> 0) !== crc) throw new Error(`${entryName} fails its CRC`);
-      return content;
+      // Explorer and unzip keep the LAST of two same-named entries, and NTFS folds case, so a zip
+      // that lists any path twice has no single honest reading: refuse it rather than pick one.
+      const foldedName = name.toLowerCase();
+      if (seenNames.has(foldedName)) throw new Error(`it lists ${name} more than once`);
+      seenNames.add(foldedName);
+      if (name === entryName) found = { flags, method, crc, compressedSize, uncompressedSize, localHeaderOffset };
     }
-    return null;
+    if (!found) return null;
+    const { flags, method, crc, compressedSize, uncompressedSize, localHeaderOffset } = found;
+    if (flags & 1) throw new Error(`${entryName} is encrypted`);
+    if (uncompressedSize > maxBytes || compressedSize > maxBytes) throw new Error(`${entryName} is over the ${maxBytes}-byte cap`);
+    const local = readExactly(fd, 30, localHeaderOffset, `${entryName}'s header`);
+    if (local.readUInt32LE(0) !== ZIP_LOCAL_FILE_HEADER) throw new Error(`${entryName}'s local header is malformed`);
+    const dataStart = localHeaderOffset + 30 + local.readUInt16LE(26) + local.readUInt16LE(28);
+    const data = readExactly(fd, compressedSize, dataStart, entryName);
+    let content;
+    if (method === 0) content = data;
+    else if (method === 8) content = zlib.inflateRawSync(data, { maxOutputLength: maxBytes });
+    else throw new Error(`${entryName} uses compression method ${method}`);
+    if (content.length !== uncompressedSize) throw new Error(`${entryName} inflated to ${content.length} bytes, not ${uncompressedSize}`);
+    if ((zlib.crc32(content) >>> 0) !== crc) throw new Error(`${entryName} fails its CRC`);
+    return content;
   } finally {
     fs.closeSync(fd);
   }
@@ -223,7 +257,10 @@ function checkBuildManifest(zipFile, pointer, arch, maxBytes) {
  * record can be keyed without a trusted sha), else {verdict: 'checked', pointer, pointerUrl,
  * sourceSha, checkResults: {sha, manifest}}.
  */
-async function verifyStagedBuild({ base, fetchImpl = globalThis.fetch, arch = DEFAULT_WINDOWS_ARCH, tmpRoot = os.tmpdir(), caps = DEFAULT_CAPS, log = () => {} }) {
+async function verifyStagedBuild({
+  base, fetchImpl = globalThis.fetch, arch = DEFAULT_WINDOWS_ARCH, tmpRoot = os.tmpdir(), caps = DEFAULT_CAPS, log = () => {},
+  exitProcess = (code) => process.exit(code), interruptSignals = INTERRUPT_SIGNALS,
+}) {
   const pointerUrl = `${base}/${update.pointerFor('win32', 'staging')}`;
   const pointerFetch = await fetchWithCaps(pointerUrl, { fetchImpl, maxBytes: caps.pointerBytes, timeoutMs: caps.smallTimeoutMs, log });
   if (!pointerFetch.ok) return { verdict: 'cannot-tell', reason: pointerFetch.error };
@@ -247,20 +284,37 @@ async function verifyStagedBuild({ base, fetchImpl = globalThis.fetch, arch = DE
   }
 
   const workDir = fs.mkdtempSync(path.join(tmpRoot, 'kosmos-win-verify-'));
+  let zipFd = null;
+  const removeWorkDir = () => {
+    if (zipFd !== null) {
+      try { fs.closeSync(zipFd); } catch (error) { log(`closing the partial download failed: ${describeError(error)}`); }
+      zipFd = null;
+    }
+    fs.rmSync(workDir, { recursive: true, force: true });
+  };
+  // A stop mid-download (Ctrl+C, Ctrl+Break, a kill) must not leave up to ZIP_MAX_BYTES behind.
+  const onInterrupt = (signal) => {
+    try { removeWorkDir(); } catch (error) { log(`could not delete ${workDir}: ${describeError(error)}`); }
+    log(`interrupted (${signal}): the partial download was deleted and no record was written`);
+    exitProcess(INTERRUPTED_EXIT_CODE);
+  };
+  for (const signal of interruptSignals) process.on(signal, onInterrupt);
   try {
     const zipFile = path.join(workDir, pointer.versioned);
     const hash = crypto.createHash('sha256');
-    const fd = fs.openSync(zipFile, 'wx', 0o600);
-    let zipFetch;
-    try {
-      zipFetch = await fetchWithCaps(zipUrl, {
-        fetchImpl, maxBytes: caps.zipBytes, timeoutMs: caps.zipTimeoutMs, log,
-        sink: (chunk) => { hash.update(chunk); fs.writeSync(fd, chunk); },
-      });
-    } finally {
-      fs.closeSync(fd);
-    }
+    zipFd = fs.openSync(zipFile, 'wx', 0o600);
+    const zipFetch = await fetchWithCaps(zipUrl, {
+      fetchImpl, maxBytes: caps.zipBytes, timeoutMs: caps.zipTimeoutMs, log,
+      sink: (chunk) => { writeAllSync(zipFd, chunk); hash.update(chunk); },
+    });
     if (!zipFetch.ok && zipFetch.transient) return { verdict: 'cannot-tell', reason: zipFetch.error };
+    // The manifest is read back from this file, so it must hold exactly the bytes that were hashed.
+    const savedBytes = zipFetch.ok ? fs.fstatSync(zipFd).size : null;
+    fs.closeSync(zipFd);
+    zipFd = null;
+    if (zipFetch.ok && savedBytes !== zipFetch.total) {
+      return { verdict: 'cannot-tell', reason: `the saved zip holds ${savedBytes} bytes, but ${zipFetch.total} bytes were hashed` };
+    }
 
     const checked = { verdict: 'checked', pointer, pointerUrl, sourceSha: UNKNOWN_SOURCE, checkResults: {} };
     if (!zipFetch.ok) {
@@ -284,7 +338,8 @@ async function verifyStagedBuild({ base, fetchImpl = globalThis.fetch, arch = DE
     checked.sourceSha = manifestCheck.sourceSha;
     return checked;
   } finally {
-    fs.rmSync(workDir, { recursive: true, force: true });
+    for (const signal of interruptSignals) process.removeListener(signal, onInterrupt);
+    removeWorkDir();
   }
 }
 
@@ -310,16 +365,17 @@ function parseAttestations(values) {
 
 /** The V2 checklist a person runs on the Windows box, on the same bytes V1 verified. */
 function operatorChecklist({ base, pointer }) {
+  const enginePathFile = '"$env:LOCALAPPDATA\\Kosmos\\runtime\\engine-path"';
   return [
-    'V2 - the operator checks. Run them on this Windows box, on the bytes V1 just verified:',
+    `V2 - the operator checks, on the bytes V1 just verified: ${pointer.version}, sha256 ${pointer.sha256}.`,
+    "  STOP: get Josh's go before step 2. This box has ONE Kosmos. Running this build moves engine-path,",
+    '  which the logon tasks run, onto the scratch folder, and e2e-zip.js drives the board on the live',
+    '  port (it creates, restarts and removes an agent).',
     `  1. Download ${base}/${pointer.versioned} in a browser, so Windows marks it as downloaded.`,
     `     In PowerShell, (Get-FileHash <the downloaded zip> -Algorithm SHA256).Hash.ToLower() must print`,
     `     ${pointer.sha256}`,
-    '     This box has ONE Kosmos. Running this build (Kosmos.exe, and Z2 creating an agent) can move',
-    '     engine-path, which the logon tasks run, onto the scratch folder. Note it first:',
-    '       Get-Content "$env:LOCALAPPDATA\\Kosmos\\runtime\\engine-path"',
-    '     and put the box back afterwards (kosmos-scripts\\repoint-main.js, or Kosmos.exe from the',
-    '     install it named).',
+    '     In the same PowerShell window, note where engine-path points now:',
+    `       $enginePathBefore = (Get-Content ${enginePathFile} -Raw).Trim(); $enginePathBefore`,
     '  2. install: in Explorer, right-click the zip > Extract All... into a NEW scratch folder',
     '     (Explorer keeps the Mark of the Web on every file). Double-click Kosmos.exe there. The',
     `     board must open and serve ${pointer.version}.`,
@@ -330,8 +386,14 @@ function operatorChecklist({ base, pointer }) {
     "     The agent's two-line answer must land on the board, both lines intact.",
     '  5. msg: node kosmos-scripts\\msg-check.js <that agent> <another agent> <SOMEWORD>',
     '     The agent-to-agent message must be delivered.',
-    'Then record each answer (pass or fail; nothing counts as passed unless you attest it):',
-    `  node tools/win-staging-verify.js --yes ${OPERATOR_CHECK_IDS.map((id) => `--attest ${id}=pass`).join(' ')}`,
+    '  6. Put the box back. When $enginePathBefore is <repo>\\engine (a checkout):',
+    '       node kosmos-scripts\\repoint-main.js <repo> "$env:LOCALAPPDATA\\Kosmos\\runtime\\node.exe"',
+    '     otherwise run Kosmos.exe from the install it named. Then, in that same window,',
+    `       (Get-Content ${enginePathFile} -Raw).Trim() -eq $enginePathBefore`,
+    '     must print True.',
+    'Then record each answer: replace every <pass|fail>. Nothing counts as passed unless you attest',
+    'it, and --for-sha binds the answers to this build (a pointer that has moved since is refused):',
+    `  node tools/win-staging-verify.js --yes --for-sha ${pointer.sha256} ${OPERATOR_CHECK_IDS.map((id) => `--attest ${id}=<pass|fail>`).join(' ')}`,
   ].join('\n');
 }
 
@@ -339,8 +401,12 @@ function sha256Hex(bytes) { return crypto.createHash('sha256').update(bytes).dig
 
 /**
  * Write the record at `file` atomically: a 0600 temp file in the same directory, fsynced, then
- * linked into place (which refuses when a record already exists) or, with forceRewrite, renamed
- * over it. Returns {written, recordSha256, previous}.
+ * hard-linked into place (which refuses when a record already exists, and needs a filesystem
+ * with hard links: NTFS on Windows) or, with forceRewrite, renamed over the old one. The temp
+ * file is removed on every path, a failed write or fsync included.
+ * Returns {written: true, recordSha256, replaced}, or {written: false, previous} when a record
+ * exists, or {written: false, held: true, error} when the old record could not be replaced
+ * (another program has it open); in both refusals the old record is unchanged.
  */
 function writeRecordAtomically(file, record, { forceRewrite = false, log = () => {} } = {}) {
   const directory = path.dirname(file);
@@ -355,12 +421,20 @@ function writeRecordAtomically(file, record, { forceRewrite = false, log = () =>
   if (previous && !forceRewrite) return { written: false, previous: describePrevious() };
   const bytes = Buffer.from(`${JSON.stringify(record, null, 2)}\n`);
   const temp = path.join(directory, `.${path.basename(file)}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`);
-  const fd = fs.openSync(temp, 'wx', 0o600);
-  try { fs.writeSync(fd, bytes); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  let fd = null;
   try {
+    fd = fs.openSync(temp, 'wx', 0o600);
+    writeAllSync(fd, bytes);
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = null;
     if (previous) {
-      log(`--force-rewrite: replacing ${file} (it held ${describePrevious()})`);
-      fs.renameSync(temp, file);
+      try { fs.renameSync(temp, file); }
+      catch (error) {
+        if (RECORD_HELD_CODES.has(error.code)) return { written: false, held: true, error: `${error.code}: ${error.message}` };
+        throw error;
+      }
+      log(`--force-rewrite: replaced ${file} (it held ${describePrevious()})`);
     } else {
       try { fs.linkSync(temp, file); }
       catch (error) {
@@ -369,6 +443,10 @@ function writeRecordAtomically(file, record, { forceRewrite = false, log = () =>
       }
     }
   } finally {
+    if (fd !== null) {
+      // Only reached when the write or fsync already threw; that error is the one reported.
+      try { fs.closeSync(fd); } catch (closeError) { log(`closing ${temp} after a failed write also failed: ${describeError(closeError)}`); }
+    }
     fs.rmSync(temp, { force: true });
   }
   return { written: true, recordSha256: sha256Hex(bytes), replaced: Boolean(previous) };
@@ -387,18 +465,20 @@ function printSummary(out, verification, record) {
 }
 
 const USAGE = [
-  'usage: node tools/win-staging-verify.js [--yes] [--attest <check>=pass|fail ...] [--force-rewrite]',
+  'usage: node tools/win-staging-verify.js [--yes] [--for-sha <sha256> --attest <check>=pass|fail ...] [--force-rewrite]',
+  '  --attest needs --for-sha: the sha256 of the build the checks were run on (the checklist names it).',
   `  operator checks: ${OPERATOR_CHECK_IDS.join(', ')}`,
   '  KOSMOS_RELEASE_BASE overrides the release base; KOSMOS_WIN_VERIFY_DIR the record directory.',
 ].join('\n');
 
-async function main(argv, { env = process.env, fetchImpl = globalThis.fetch, stdout = (line) => process.stdout.write(`${line}\n`), stderr = (line) => process.stderr.write(`${line}\n`), now = () => new Date(), tmpRoot = os.tmpdir(), caps = DEFAULT_CAPS } = {}) {
+async function main(argv, { env = process.env, fetchImpl = globalThis.fetch, stdout = (line) => process.stdout.write(`${line}\n`), stderr = (line) => process.stderr.write(`${line}\n`), now = () => new Date(), tmpRoot = os.tmpdir(), caps = DEFAULT_CAPS, base = update.releaseBase() } = {}) {
   let options;
   try {
     ({ values: options } = parseArgs({ args: argv, strict: true, allowPositionals: false, options: {
       yes: { type: 'boolean', default: false },
       attest: { type: 'string', multiple: true, default: [] },
       'force-rewrite': { type: 'boolean', default: false },
+      'for-sha': { type: 'string' },
       help: { type: 'boolean', default: false },
     } }));
   } catch (error) {
@@ -408,8 +488,18 @@ async function main(argv, { env = process.env, fetchImpl = globalThis.fetch, std
   if (options.help) { stdout(USAGE); return 0; }
   const { attestations, errors } = parseAttestations(options.attest);
   if (errors.length) { stderr(`win-staging-verify: ${errors.join('\n  ')}\n${USAGE}`); return 3; }
+  const forSha = options['for-sha'] === undefined ? null : String(options['for-sha']).toLowerCase();
+  if (forSha !== null && !recordSpec.RECORD_SHA256.test(forSha)) {
+    stderr(`win-staging-verify: --for-sha ${JSON.stringify(options['for-sha'])} is not a sha256 (64 hex)\n${USAGE}`);
+    return 3;
+  }
+  // An answer counts only for the build it was given on: without the sha, answers from a run on
+  // one build would land in the record of whatever the pointer names by the time they are typed.
+  if (Object.keys(attestations).length && forSha === null) {
+    stderr(`win-staging-verify: --attest needs --for-sha <the sha256 the checks were run on>; the checklist prints it.\n${USAGE}`);
+    return 3;
+  }
 
-  const base = update.releaseBase();
   const arch = env.KOSMOS_WIN_ARCH || DEFAULT_WINDOWS_ARCH;
   if (!WINDOWS_ARCH.test(arch)) { stderr(`win-staging-verify: KOSMOS_WIN_ARCH ${JSON.stringify(arch)} is not an arch like x64\n${USAGE}`); return 3; }
   const log = (line) => stderr(`win-staging-verify: ${line}`);
@@ -417,6 +507,10 @@ async function main(argv, { env = process.env, fetchImpl = globalThis.fetch, std
   if (verification.verdict === 'cannot-tell') {
     stderr(`win-staging-verify: CANNOT TELL - ${verification.reason}. No record was written.`);
     return 2;
+  }
+  if (forSha !== null && verification.pointer.sha256 !== forSha) {
+    stderr(`win-staging-verify: REFUSING - the staging pointer now names ${verification.pointer.version} (${verification.pointer.sha256}), not the build these answers are for (${forSha}). It moved after the checklist was run; run the checklist on the new build. No record was written.`);
+    return 3;
   }
 
   const checkResults = { ...verification.checkResults };
@@ -442,7 +536,20 @@ async function main(argv, { env = process.env, fetchImpl = globalThis.fetch, std
     stderr(`win-staging-verify: NOT WRITING - no check failed, but ${notRun.join(', ')} did not run. A record now would turn a HOLD into a refusal; run the checklist above and attest each answer.`);
     return 2;
   }
-  const written = writeRecordAtomically(file, record, { forceRewrite: options['force-rewrite'], log });
+  let written;
+  try {
+    written = writeRecordAtomically(file, record, { forceRewrite: options['force-rewrite'], log });
+  } catch (error) {
+    const linkHint = LINK_UNSUPPORTED_CODES.has(error.code) && error.syscall === 'link'
+      ? ' A new record is hard-linked into place, so its directory must be on a filesystem with hard links (NTFS, not FAT or exFAT).'
+      : '';
+    stderr(`win-staging-verify: could not write ${file}: ${describeError(error)}.${linkHint} No record was written.`);
+    return 2;
+  }
+  if (written.held) {
+    stderr(`win-staging-verify: REFUSING - could not replace ${file} (${written.error}). Close whatever has the record open (an editor or a viewer), then run again. The old record is unchanged.`);
+    return 3;
+  }
   if (!written.written) {
     stderr(`win-staging-verify: REFUSING - a record for ${record.sha256} already exists at ${file} (${written.previous}). Pass --force-rewrite to replace it.`);
     return 3;
