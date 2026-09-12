@@ -35,10 +35,13 @@ into a three-column grid reusing the project page's visual language:
    about the conversation.
 3. **Right, "This task":** project, added, state, and the due date (#2403), kept.
 
-CSS: a new `.tk3` grid at the mock's proportions (~1 / 1.4 / 0.9), stacking to one column
-at the same `52rem` the old `.pj2` used so it collapses cleanly on a phone and in the
-narrow consolidated column. `.pj2` and `.tkacts-wrap`, used only by this view, are
-removed.
+CSS: a new `.tk3` grid at the mock's proportions (~1 / 1.4 / 0.9). It stacks to one column
+by two separate paths, because they are gated differently: a `52rem` viewport media query
+stacks it on a narrow viewport (a phone), and a consolidated-layout-scoped rule stacks it
+in the consolidated panel (which is floored at `60rem`, so the viewport query never fires
+there; without the extra rule it would render three cramped columns in the narrow panel).
+Both stacks are asserted in `web.task-reflow-768.test.js`. `.pj2` and `.tkacts-wrap`, used
+only by this view, are removed.
 
 ## Key decision: keep the shipped Activity + Due, not the now-stale mock
 The mock was drawn 2026-09-01, before #2400 (activity) and #2403 (due date) shipped, so it
@@ -69,14 +72,17 @@ unaffected.
 
 ## Verification
 - `web.task-page.test.js`, `web.baselines-1303a.test.js`, `web.rhythm-1303a.test.js`: green.
+- `web.task-reflow-768.test.js` (new): asserts both stacking paths exist (the `52rem`
+  viewport query and the consolidated-layout stack rule), so the comment's claim is backed
+  by a check rather than asserted.
 - `browser-checks-reason-grep.test.js`: green (new `die()` lines are quotable).
 - Full node suite (`tools/run-tests.sh`): green.
 - `docs/browser-checks/render-tasks.js` (headless, pw-runtime): green, with new
   three-column structural assertions (`.tk3` visible, exactly three `.pjcol` children,
   activity inside `.tkconvcol`, inert composer present, page text has no "member").
-- **Residual (documented, not a blocker):** a headed visual-quality pass in both themes
-  and both layouts (tab + consolidated) needs the shared browser, which a bot session
-  cannot drive headed. Structure is verified headless; the pixel/visual confirmation
-  against the mock is the one remaining check for whoever has the shared browser. Per the
-  beta-merge-when-ready ruling, a headless structural pass + the mock as the design
-  contract is sufficient author's evidence to ship.
+- **Residual (documented, not a blocker):** a headed visual-quality pass (pixel match to the
+  mock, both themes) needs the shared browser, which a bot session cannot drive headed. The
+  tab-layout structure is verified headless; the consolidated layout stacks to a single
+  column (a degenerate case that cannot cramp or clip), so its correctness does not depend
+  on a headed check. Per the beta-merge-when-ready ruling, a headless structural pass + the
+  mock as the design contract is sufficient author's evidence to ship.
