@@ -146,6 +146,11 @@ const FX = {
           mineCount: document.querySelectorAll('#d-dmthread .dm.mine .dm-b').length,
           theirsBg: bg('#d-dmthread .dm.theirs .dm-b'),
           mineBg: bg('#d-dmthread .dm.mine .dm-b'),
+          // #2947: the data-am the REAL dmRow render emitted on the agent bubble
+          // (the probe below tests the CSS mechanism on synthetic elements; this
+          // reads the actual production path, so a dropped/NaN/out-of-range
+          // amShade would be caught). null when there is no agent bubble.
+          theirsDataAm: (() => { const el = document.querySelector('#d-dmthread .dm.theirs .dm-b'); return el ? el.getAttribute('data-am') : null; })(),
           // The panel the bubbles sit on, and the page behind it -- for the
           // "did it dissolve into the surface" comparison, composited in order.
           talkBoxBg: bg('#d-talk-box'),
@@ -158,6 +163,9 @@ const FX = {
       // so every comparison below is real rather than vacuous.
       chk(m.theirsCount >= 1, `${t} an agent bubble (.dm.theirs .dm-b) is on screen`, `count=${m.theirsCount}`);
       chk(m.mineCount >= 1, `${t} a person bubble (.dm.mine .dm-b) is on screen`, `count=${m.mineCount}`);
+      // #2947: the REAL dmRow render emits a valid per-message shade index (0..4),
+      // so amShade never drops the attribute or produces NaN/out-of-range.
+      chk(/^[0-4]$/.test(m.theirsDataAm || ''), `${t} the real agent bubble carries a valid data-am (0..4)`, `data-am=${m.theirsDataAm}`);
 
       if (m.theirsCount >= 1 && m.mineCount >= 1) {
         const theirs = parse(m.theirsBg);

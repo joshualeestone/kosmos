@@ -111,6 +111,11 @@ const now = () => new Date().toISOString();
           emptyRowIsYou: !!emptyRow,
           emptyRowHasBox: !!(emptyRow && emptyRow.querySelector('.msg-bd')),
           agentHasYou: agentRow ? agentRow.classList.contains('you') : null,
+          // #2947: the data-am the REAL pjRoomRow render emitted on the agent
+          // body box, so the room path never drops it or produces NaN/out-of-range.
+          agentDataAm: (agentRow && agentRow.querySelector('.msg-bd')) ? agentRow.querySelector('.msg-bd').getAttribute('data-am') : null,
+          // The operator's own box must NOT carry data-am (emitted only for !isOp).
+          opHasDataAm: !!(opRow && opRow.querySelector('.msg-bd') && opRow.querySelector('.msg-bd').hasAttribute('data-am')),
         };
         host.remove();
         return out;
@@ -122,6 +127,10 @@ const now = () => new Date().toISOString();
       // Positive controls: all three rows rendered, and the mine/theirs split is real.
       chk(m.rowCount === 3, `${t} all three fixture rows rendered`, `count=${m.rowCount}`);
       chk(m.agentHasYou === false, `${t} the agent row is NOT .you (mine/theirs split is real)`);
+      // #2947: the REAL pjRoomRow render emits a valid data-am (0..4) on the agent
+      // box and NONE on the operator's own box.
+      chk(/^[0-4]$/.test(m.agentDataAm || ''), `${t} the real agent box carries a valid data-am (0..4)`, `data-am=${m.agentDataAm}`);
+      chk(m.opHasDataAm === false, `${t} the operator's own box carries NO data-am`, `opHasDataAm=${m.opHasDataAm}`);
 
       const op = parse(m.opBd);
       const ag = parse(m.agentBd);
