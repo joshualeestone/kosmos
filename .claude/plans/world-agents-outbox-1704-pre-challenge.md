@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: world-agents-outbox-1704
-diff_hash: 18c85d624aa1819ec10852c1acfb014da36b4671609bbb70c33cdbbe8203f6ed
+diff_hash: ac6305a4979d08be2d046b5398f102e56fe32ac1e61ba16b5fe239f9e799f085
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-12T05:10:00Z
@@ -23,7 +23,9 @@ real Mac curl, bash 3.2 and a live tmux pane are for Angel and macOS CI.
 
 `diff_hash` is the sha256 of the raw bytes of `git diff origin/main HEAD -- .
 ':!.claude/plans/world-agents-outbox-1704-pre-challenge.md'`, computed with node
-over git's own output (158,133 bytes at `a07e8df9`). It was taken after rebasing
+over git's own output (158,220 bytes). It is taken after the rebase onto main
+`e1e91030`, which carries #2877 (PR3) and #2881; the hash at `a07e8df9`, on main
+`f4e97838`, was `18c85d62`. It was taken after rebasing
 onto origin/main `f4e97838`, which includes #2874 (Angel's Mac world identity) and
 #2878. The pre-challenge-gate hook is not installed on this Windows box, so the
 recipe is written out here.
@@ -96,3 +98,16 @@ A focused review of that delta (sonnet) found **NO NEW FINDINGS**:
 - No other scan of the post route is stale.
 
 The test file is 6/6.
+
+#### After Angel's approval: the rebase onto `e1e91030`
+#2877 and #2881 landed after Angel approved `41f53206`. There was one conflict, in
+server.js's real-start block:
+- #2877 added `worldstarts.drainAtBoot(...)` at the same spot where this branch adds
+  `startOutboxDrain()`.
+- Both are kept, the resume of paused agents first. The two are independent, and
+  each is wrapped so neither can stop the other.
+
+After the rebase, the focused set plus #2877's switch suites (33 files: worldstarts,
+server.world-switch-agents-1704, web.world-switch-agents-1704,
+platform-gate-wiring and server.agent-token-sender-570 added) is 464 tests, with
+452 passing. The 12 failures are the same main-baseline set.
