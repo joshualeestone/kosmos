@@ -129,7 +129,13 @@ const path = require('path');
   await pg.click('#rail-projects-new'); await pg.waitForTimeout(400);
   await pg.click('#rail-agents-fold'); await pg.waitForTimeout(300);
   say((await none()) === null, 'New project form open, then a fold press: the sentence stays hidden');
-  await pg.click('#rail-agents-fold'); await pg.click('#pj-add-back'); await pg.waitForTimeout(400);
+  // #pj-add-back (the "← All projects" control) is visibility:hidden in the
+  // consolidated layout (index.html hides it under html[data-layout="consolidated"]),
+  // so clicking it hangs until Playwright's actionability timeout. Leave the New
+  // project form the layout-independent way this file resets everywhere else:
+  // forceNothingOpen() runs pjView('list') -- exactly what #pj-add-back's own
+  // click handler calls -- so it returns to the list view without the hidden click.
+  await pg.click('#rail-agents-fold'); await forceNothingOpen(); await pg.waitForTimeout(400);
 
   // a board with no projects: the open rail's own card says it, so the sentence stays hidden;
   // folded, the sentence says press + (the + survives the fold); a failed read never says "no projects"
