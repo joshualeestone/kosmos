@@ -1942,6 +1942,12 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    sections behind a nav now (.dbody/.snav/.dsec below). */
 .dbox { background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 16px;
         padding: 22px 24px; color: var(--k-ink); }
+/* #2833-family (Josh, 2026-09-11): kill the stroke around the agent DIALOGUE box specifically,
+   so the "Talk to <agent>" panel sits clean on the page. Scoped to #d-talk-box by id, NOT to the
+   shared .dbox class -- every other .dbox (Settings sections, the terminal/window boxes, the
+   create steps) keeps its outline. The surface fill still distinguishes the panel from the page
+   ground, so removing the border leaves a clean filled panel rather than an invisible one. */
+#d-talk-box { border: 0; }
 .dlab { font-size: .75rem; letter-spacing: .14em; text-transform: uppercase;
         /* 600, the pack's weight (#179, ruled there): a box label at 700
            competes with the headings above it. */
