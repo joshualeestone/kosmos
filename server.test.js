@@ -8432,6 +8432,33 @@ test('--usermsg-tint is DEFINED in every theme, tied to its --k-sunk sibling', (
     `light and dark --usermsg-tint are the same value (${tintLight[0]}); light should be 10%, dark 15%`);
 });
 
+test('--agent-msg is DEFINED in every theme --k-sunk is (#2947)', () => {
+  // #2947: the agent message bubble's cream. Same invisible-fallback failure
+  // mode as --k-sunk / --usermsg-tint above: a `var(--agent-msg)` with no
+  // per-theme definition silently wears the light cream on a dark ground. Tie
+  // completeness to --k-sunk (its own test guarantees it is per-theme): drop
+  // --agent-msg from any dark block --k-sunk defines and the counts diverge.
+  // Unlike --usermsg-tint this does NOT assert the dark values agree, because
+  // the plus-active (navy) block intentionally sets --agent-msg: var(--k-sunk)
+  // while the other dark blocks use the opaque cream -- presence parity is the
+  // guarantee, not value-agreement.
+  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  const declsIn = (token, text) => text.match(new RegExp('--' + token + ':\\s*[^;]+;', 'g')) || [];
+  const darkAt = raw.indexOf('@media (prefers-color-scheme: dark)');
+  assert.ok(darkAt > 0, 'CONTROL: no dark media block in the page at all, so this test cannot mean anything');
+  const agentLight = declsIn('agent-msg', raw.slice(0, darkAt));
+  const agentDark = declsIn('agent-msg', raw.slice(darkAt));
+  const sunkDark = declsIn('k-sunk', raw.slice(darkAt));
+  assert.equal(agentLight.length, 1,
+    `--agent-msg is defined ${agentLight.length} time(s) before the first dark block; the light theme needs exactly one`);
+  assert.ok(sunkDark.length >= 2,
+    `CONTROL: --k-sunk has only ${sunkDark.length} dark-side def(s); this test's per-block guarantee is meaningless if the sibling is not itself multi-theme`);
+  assert.equal(agentDark.length, sunkDark.length,
+    `--agent-msg has ${agentDark.length} dark-side definition(s) but its sibling --k-sunk has ${sunkDark.length}; `
+    + 'it must be defined in every dark theme block --k-sunk is (system-dark, forced-dark, navy/plus-active), '
+    + 'or the missing ground wears the light cream');
+});
+
 test('a composer that cannot send looks like it cannot send', () => {
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const at = raw.indexOf('.dmbar .btn[disabled]');

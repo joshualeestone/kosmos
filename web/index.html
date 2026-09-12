@@ -4638,6 +4638,13 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .dm.theirs .dm-b[data-am="2"], .msg:not(.you) .msg-bd[data-am="2"] { background-color: color-mix(in srgb, var(--agent-msg), #fff 2%); }
 .dm.theirs .dm-b[data-am="3"], .msg:not(.you) .msg-bd[data-am="3"] { background-color: color-mix(in srgb, var(--agent-msg), #000 4%); }
 .dm.theirs .dm-b[data-am="4"], .msg:not(.you) .msg-bd[data-am="4"] { background-color: color-mix(in srgb, var(--agent-msg), #fff 1.5%); }
+/* #2947: the Kosmos Plus tab (body.plus-active) is out of scope for cream -- its
+   --agent-msg stays the bluish TRANSLUCENT --k-sunk, and color-mix would drift
+   that alpha rather than nudge a hue. Re-flatten any data-am shade back to the
+   plain token there, so that world keeps its own inset with no per-message
+   variation. background-color (not the shorthand) so the #2921 room hover overlay
+   still composites on top. */
+body.plus-active .dm.theirs .dm-b[data-am], body.plus-active .msg:not(.you) .msg-bd[data-am] { background-color: var(--agent-msg); }
 /* #2067 / #2239: restricted-markdown treatments, on the three agent-dialogue
    surfaces that render them -- the talk thread (.dm-b) and the project message
    list (.pj-msg-text), both via pjRich; and the project ROOM activity thread
@@ -38736,7 +38743,7 @@ function pjRoomRow(m, p, silent) {
        renders no span rather than an empty one. */
     + (card && card.role ? '<small class="msg-role">' + esc(roleLine({ role: card.role }, ROLE_TITLES)) + '</small>' : '')
     + '<span class="msg-t">' + esc(pjWhen(m.at) || '') + '</span></div>'
-    + (bd ? '<div class="msg-bd" data-am="' + amRoom + '">' + bd + '</div>' : '') + pjReactions(m) + receipt + '</div></div>';
+    + (bd ? '<div class="msg-bd"' + (isOp ? '' : ' data-am="' + amRoom + '"') + '>' + bd + '</div>' : '') + pjReactions(m) + receipt + '</div></div>';
 }
 
 /**
