@@ -91,6 +91,23 @@ test('an empty (or whitespace) message is refused with 400 and records nothing',
   assert.equal(after, before, 'a refused message must not have been recorded');
 });
 
+test('an over-length message is refused (400) rather than silently truncated on the way to disk', async () => {
+  // The engine caps at MESSAGE_MAX and taskchat would otherwise silently truncate
+  // at its generic 4000-char field cap. A caller past the client's maxlength (a
+  // scripted POST) must be REFUSED, not accepted-then-truncated, or it believes it
+  // saved text it did not. So a message over the cap is a 400 and records nothing.
+  const before = (await activity(projectId, taskNum)).events.filter((e) => e.kind === 'said').length;
+  const res = await say(projectId, taskNum, { text: 'x'.repeat(tasks.MESSAGE_MAX + 1) });
+  assert.equal(res.status, 400, 'an over-length message must be refused, never truncated silently');
+  const after = (await activity(projectId, taskNum)).events.filter((e) => e.kind === 'said').length;
+  assert.equal(after, before, 'a refused over-length message must not have been recorded');
+});
+
+test('a message exactly at the cap is accepted (the boundary is not off by one)', async () => {
+  const res = await say(projectId, taskNum, { text: 'y'.repeat(tasks.MESSAGE_MAX) });
+  assert.equal(res.status, 200, 'a message exactly at MESSAGE_MAX should be accepted');
+});
+
 test('a message to a missing task is a 404, not a stray transcript', async () => {
   const res = await say(projectId, 99999, { text: 'into the void' });
   assert.equal(res.status, 404, 'a message to a nonexistent task must 404');

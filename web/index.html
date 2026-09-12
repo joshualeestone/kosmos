@@ -11048,7 +11048,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              record-only: it is not delivered to an agent yet. The note says so,
              rather than a placeholder promising more than it does. -->
         <div class="tkcompose">
-          <input type="text" id="tk-say" maxlength="500" placeholder="Say something about this task" aria-label="Add a message to this task">
+          <input type="text" id="tk-say" maxlength="2000" placeholder="Say something about this task" aria-label="Add a message to this task">
           <button class="btn-quiet" type="button" id="tk-say-go">Send</button>
         </div>
         <p class="fmsg" id="tk-say-msg" aria-live="polite" style="margin:6px 0 0;"></p>
@@ -35949,20 +35949,37 @@ async function tkSayPost() {
   if (!p || TK_OPEN === null) return;
   const input = document.getElementById('tk-say');
   const msg = document.getElementById('tk-say-msg');
+  const go = document.getElementById('tk-say-go');
   const text = (input && input.value || '').trim();
   if (msg) msg.textContent = '';
   if (!text) return;
+  /* Capture the task this send is FOR. TK_OPEN is a live global, so if the person
+     opens a different task while the POST is in flight, clearing the input or
+     writing the message band against the current TK_OPEN would wipe the NEW task's
+     half-typed draft or land an error on the wrong page -- the same never-delete-a-
+     draft hazard the new-task page guards. So guard on `n` after the await, exactly
+     as paintTaskActivity does, and only touch the shared input/band when the page
+     is still the one we sent for. */
+  const n = TK_OPEN;
+  if (go) go.disabled = true;   // no double-send while this request is in flight
   try {
-    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + TK_OPEN + '/message', {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + n + '/message', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ text }),
     });
     const out = await res.json().catch(() => null);
+    if (n !== TK_OPEN) return;   // the person left this task mid-flight: touch nothing here
     if (!res.ok) { if (msg) msg.textContent = (out && out.error) || 'we could not record that message'; return; }
     if (input) input.value = '';
-    paintTaskActivity(TK_OPEN);
+    paintTaskActivity(n);
   } catch {
-    if (msg) msg.textContent = 'we could not reach Kosmos to record that message';
+    if (n === TK_OPEN && msg) msg.textContent = 'we could not reach Kosmos to record that message';
+  } finally {
+    // ALWAYS re-enable: #tk-say-go is one shared control reused across tasks, so
+    // leaving it disabled after a mid-flight task switch would strand it disabled
+    // on the next task. The n-guard above protects the task-specific state (the
+    // draft input and the message band), never this shared button.
+    if (go) go.disabled = false;
   }
 }
 document.getElementById('tk-say-go').addEventListener('click', () => { tkSayPost(); });
