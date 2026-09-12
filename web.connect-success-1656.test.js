@@ -106,7 +106,11 @@ test('kosmos#1656: closeAcctAdd puts the modal back to its form state on the way
   dom.els.get('acct-success').hidden = false;
   for (const id of ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-add-acts']) dom.els.get(id).hidden = true;
   dom.els.get('acct-add-dialog').attrs['aria-labelledby'] = 'acct-success-t';
-  const close = new Function('document', 'acctAddConfirmReset', 'acctOpenaiSubStop', 'acctOpenaiSubReset', lift(SCRIPT, 'closeAcctAdd') + '\nreturn closeAcctAdd;')(dom.document, () => {}, () => {}, () => {});
+  // #2802: closeAcctAdd now reads the module-level ACCT_ADD_RETURN_FOCUS (the
+  // control that opened the modal, to return focus to it). Inject it as a param
+  // (null here) the same way ACCT_FLOW_LAST is injected below, so the lifted
+  // function does not throw ReferenceError on the read.
+  const close = new Function('document', 'acctAddConfirmReset', 'acctOpenaiSubStop', 'acctOpenaiSubReset', 'ACCT_ADD_RETURN_FOCUS', lift(SCRIPT, 'closeAcctAdd') + '\nreturn closeAcctAdd;')(dom.document, () => {}, () => {}, () => {}, null);
   close();
   assert.equal(dom.els.get('acct-success').hidden, true, 'the success panel is hidden on close');
   for (const id of ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-add-acts']) {

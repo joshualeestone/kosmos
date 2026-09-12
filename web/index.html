@@ -7842,6 +7842,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           </div>
           <p class="dhint" id="d-model-why" style="margin:8px 0 0;" hidden></p>
           <p class="dhint" id="d-model-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+          <!-- #2802: for a ChatGPT-subscription (Codex) agent the model selector is
+               honestly disabled (OpenAI picks the model on a subscription), but the
+               prose "sign in with an API key to choose a specific model" left the
+               user with no action ("I can't even click it"). This button makes that
+               state actionable: it opens the Add-a-provider flow so they can connect
+               an API-key account. Shown by paintOpenaiDetailModel ONLY in the
+               not-an-api-key case; hidden otherwise. -->
+          <button class="btn" type="button" id="d-model-connect" hidden style="margin:10px 0 0;">Connect an API key</button>
         </div>
       </div>
     </div>
@@ -18824,7 +18832,14 @@ function acctShowSuccess(accountLabel, goldBox) {
   document.getElementById('acct-add-dialog').setAttribute('aria-labelledby', 'acct-success-t');
   document.getElementById('acct-success-close').focus();
 }
-function openAcctAdd() {
+let ACCT_ADD_RETURN_FOCUS = null;
+function openAcctAdd(ev) {
+  // #2802: remember the control that opened this modal so closeAcctAdd can send
+  // focus back to it. The Model tab's "Connect an API key" button lives OUTSIDE
+  // the Settings > Accounts section, so unconditionally focusing #acct-add-open on
+  // close (it is display:none unless that section is showing) stranded focus on
+  // <body> -- the #1918 stranded-focus class, on the close path.
+  ACCT_ADD_RETURN_FOCUS = (ev && ev.currentTarget && typeof ev.currentTarget.focus === 'function') ? ev.currentTarget : null;
   const modal = document.getElementById('acct-add-modal');
   const sel = document.getElementById('acct-provider-pick');
   const active = frConnActive((ACCT_FLOW_LAST || '').split('|')[0]);
@@ -18879,9 +18894,21 @@ function closeAcctAdd() {
   });
   document.getElementById('acct-add-dialog').setAttribute('aria-labelledby', 'acct-add-t');
   document.getElementById('acct-add-modal').hidden = true;
-  document.getElementById('acct-add-open').focus();
+  // #2802: return focus to whatever opened the modal, falling back to the Accounts
+  // door. A recorded opener that is no longer rendered (offsetParent === null =
+  // display:none or detached) cannot take focus, so fall back rather than strand
+  // focus on <body>.
+  const backEl = (ACCT_ADD_RETURN_FOCUS && document.contains(ACCT_ADD_RETURN_FOCUS) && ACCT_ADD_RETURN_FOCUS.offsetParent !== null)
+    ? ACCT_ADD_RETURN_FOCUS
+    : document.getElementById('acct-add-open');
+  ACCT_ADD_RETURN_FOCUS = null;
+  if (backEl) backEl.focus();
 }
 document.getElementById('acct-add-open').addEventListener('click', openAcctAdd);
+// #2802: the Model tab's "Connect an API key" action (shown for a ChatGPT-
+// subscription agent whose models cannot be listed) opens the same Add-a-provider
+// flow, so the disabled model state has a real next step instead of only prose.
+{ const c = document.getElementById('d-model-connect'); if (c) c.addEventListener('click', openAcctAdd); }
 document.getElementById('acct-add-close').addEventListener('click', closeAcctAdd);
 document.getElementById('acct-success-close').addEventListener('click', closeAcctAdd);
 document.getElementById('acct-add-modal').addEventListener('click', (e) => { if (e.target.id === 'acct-add-modal') closeAcctAdd(); });
@@ -22774,6 +22801,11 @@ function openDetail(sessionName, section, fromProject) {
      disabled controls, so a lingering wrong-agent sentence would
      both misattribute and suppress. Cleared together. */
   { const mm = document.getElementById('d-model-msg'); if (mm) mm.textContent = ''; }
+  // #2802: #d-model-connect is a static element only the OpenAI painter re-shows,
+  // so an OpenAI(ChatGPT-subscription) -> Claude switch would leave it lingering
+  // under the Claude model tab. Reset it here, on every agent open, so only an
+  // OpenAI not-an-api-key paint can bring it back.
+  { const cb = document.getElementById('d-model-connect'); if (cb) cb.hidden = true; }
   /* On a SWITCH only: a same-agent reopen keeps the Move verdict,
      which is the one sentence naming the saved-but-not-restarted
      window until the restart happens. */
@@ -28887,6 +28919,11 @@ async function paintOpenaiDetailModel(a, forWhom) {
   const acctDir = (a && a.account && a.account.dir && !a.account.isDefault) ? a.account.dir : '';
   if (row) row.hidden = false;
   if (msg) msg.textContent = '';
+  // #2802: hide the "Connect an API key" action by default on every paint; the
+  // not-listable branch re-shows it only for the ChatGPT-subscription case, so a
+  // prior agent's button cannot linger through the /v1/models round-trip.
+  const connectBtn = document.getElementById('d-model-connect');
+  if (connectBtn) connectBtn.hidden = true;
   // Loading: the box shows a disabled loading option, never a Claude model. Clear
   // the why-note synchronously too (as paintOpenaiCreateModel does), so a prior
   // agent's hint cannot linger visible through the /v1/models round-trip.
@@ -28938,6 +28975,14 @@ async function paintOpenaiDetailModel(a, forWhom) {
       paintModelWhy('d-model', 'd-model-why');
       if (msg) {
         msg.textContent = usable ? openaiNoModelsNote(out && out.because) : refusal;
+      }
+      // #2802: a ChatGPT-subscription account cannot list models (it has no API
+      // key, OpenAI picks the model), so the selector stays honestly disabled -
+      // but offer the one real action, connecting an API-key account, as a button
+      // rather than only as prose. Only for the not-an-api-key case; a rejected or
+      // unreachable key has a different remedy and gets no Connect button here.
+      if (connectBtn && usable && /not an api key/i.test(String((out && out.because) || ''))) {
+        connectBtn.hidden = false;
       }
     }
   })();
