@@ -428,6 +428,30 @@ function setDue(projectId, n, dueDate) {
   return changed;
 }
 
+/* #768: record a free-text message on a task's conversation -- the WRITE half of
+   #992's transcript (the read half is the activity list, engine/taskchat.js read()).
+   It RECORDS ONLY: it does not deliver the message to any agent. Josh's #768 ask is a
+   task conversation "like the project dialog", which is two-way; this is the first
+   step of it (a recorded message stream), and two-way delivery to the task's people
+   is a deliberately-separate later piece, because delivering to a live agent is a
+   real side-effect that wants its own design (who receives it) and its own valve.
+   A message is validated non-empty here and the task must exist -- a message to a
+   missing project/task is a 404, never a stray transcript file. taskchat.record
+   bounds and single-lines the text itself, and returns false (never throws) on a
+   write failure, which for a user-initiated message is surfaced rather than
+   swallowed (the message IS the operation, unlike a lifecycle side-record). */
+function say(projectId, n, text) {
+  const t = (typeof text === 'string' ? text : '').trim();
+  if (!t) throw new Error('a message cannot be empty');
+  const p = projects.get(projectId);
+  if (!p) throw new Error('there is no project by that name');
+  const task = byNumber(p, n);
+  if (!task) throw new Error('there is no task by that number on this project');
+  const ok = taskchat.record(projectId, task.number, { kind: 'said', text: t });
+  if (!ok) throw new Error('we could not record that message');
+  return task;
+}
+
 /**
  * A task's PARTS: the assignable things it is made of.
  *
@@ -671,6 +695,6 @@ function claimFor(task, reading, opts) {
 }
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
-  partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem,
+  partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR,
   SENTENCE_MAX, DETAIL_MAX, WHO_MAX };

@@ -4119,12 +4119,14 @@ body:not(.consolidated) .pjmid .thread .att { background: var(--k-bg); }
    than the base .tk3, so it wins without !important. */
 html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-template-columns: minmax(0, 1fr); }
 .tkconvcol { min-width: 0; }
-/* The middle column's inert composer: it carries the project composer's outline so the
-   room reads as the same room, but it is disabled and says what is true -- writing into
-   a task's conversation is not built yet (#992). aria-hidden, because the real statement
-   is the note beneath it; the box itself is decoration, not an affordance. */
-.tkcompose { margin-top: 12px; border: 1px solid var(--k-rule); border-radius: 10px;
-             padding: 11px 13px; color: var(--label-2); font-size: .875rem; cursor: not-allowed; }
+/* #768: the middle column's composer -- now a real input row (was an inert
+   placeholder before the write path existed). The input takes the space and the
+   Send button sits tight beside it, the same nowrap treatment as the "Add a part"
+   row so a narrow column does not wrap the button onto its own line. */
+.tkcompose { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: nowrap; }
+.tkcompose input { flex: 1; min-width: 0; }
+.tkcompose .btn-quiet { flex: 0 0 auto; font-size: .875rem;
+                        padding: calc(.5em - 1px) calc(1.05em - 1px); }
 .tkcompose-note { margin: 8px 0 0; }
 /* The pack's tasknum: mono, small, above the title. It is the thing a person
    says out loud to an agent, which is why it is set apart from the sentence
@@ -11041,8 +11043,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <section class="pjcol tkconvcol">
         <h3 class="dlab">Conversation</h3>
         <div id="tk-activity" class="tkacts" aria-live="polite"></div>
-        <div class="tkcompose" aria-hidden="true">Say something about this task</div>
-        <p class="dhint tkcompose-note">Writing into a task's conversation in the app is not built yet. The activity above is what is recorded; the folder below holds each task's conversation file.</p>
+        <!-- #768: the composer. A message typed here is RECORDED on the task and
+             shows in the activity above (engine tasks.say -> taskchat). It is
+             record-only: it is not delivered to an agent yet. The note says so,
+             rather than a placeholder promising more than it does. -->
+        <div class="tkcompose">
+          <input type="text" id="tk-say" maxlength="500" placeholder="Say something about this task" aria-label="Add a message to this task">
+          <button class="btn-quiet" type="button" id="tk-say-go">Send</button>
+        </div>
+        <p class="fmsg" id="tk-say-msg" aria-live="polite" style="margin:6px 0 0;"></p>
+        <p class="dhint tkcompose-note">A message is recorded on the task and shows in the activity above. It is not sent to an agent yet.</p>
         <!-- #992: 🛑 THE LABEL SAYS "THE TASK CONVERSATIONS", NOT "THIS TASK'S", for the
              same reason the sibling pjs-chats-reveal button says "the conversations" and
              not "this project's": every task's transcript is one file in ONE shared folder
@@ -35679,6 +35689,11 @@ function tkActPhrase(ev, p) {
     case 'part-reopened': return 'A part put back';
     case 'due-set': return ev.dueDate ? 'Due date set to ' + ev.dueDate : 'Due date set';
     case 'due-cleared': return 'Due date cleared';
+    // #768: a free-text message recorded via the composer. `who` is optional (a
+    // message typed on the board carries none today; the field is honoured now so
+    // an authored message reads correctly when two-way delivery lands later). The
+    // whole return is esc()'d once at the render site, like every other phrase.
+    case 'said': { const who = nameOf(ev.who); return (who ? who + ': ' : '') + (ev.text || ''); }
     case 'closed': return 'Marked done';
     case 'reopened': return 'Put back';
     default: return String(ev.kind);
@@ -35923,6 +35938,38 @@ async function saveTaskDue(value) {
   }
 }
 document.getElementById('tk-due').addEventListener('change', (e) => { saveTaskDue(e.target.value); });
+
+/* #768: send a message to the open task's conversation. Records only (tasks.say),
+   then refreshes the activity so the message appears the same tick. Empty input is
+   a no-op (no request, no error band). Clears the input on success; reports a
+   refusal in tk-say-msg. Not on the poll -- a message is a deliberate act, read on
+   send like the other in-app changes. */
+async function tkSayPost() {
+  const p = pjById(PJ_CURRENT);
+  if (!p || TK_OPEN === null) return;
+  const input = document.getElementById('tk-say');
+  const msg = document.getElementById('tk-say-msg');
+  const text = (input && input.value || '').trim();
+  if (msg) msg.textContent = '';
+  if (!text) return;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + TK_OPEN + '/message', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) { if (msg) msg.textContent = (out && out.error) || 'we could not record that message'; return; }
+    if (input) input.value = '';
+    paintTaskActivity(TK_OPEN);
+  } catch {
+    if (msg) msg.textContent = 'we could not reach Kosmos to record that message';
+  }
+}
+document.getElementById('tk-say-go').addEventListener('click', () => { tkSayPost(); });
+document.getElementById('tk-say').addEventListener('keydown', (e) => {
+  // Enter sends; the input is single-line, so Enter has no other job here.
+  if (e.key === 'Enter') { e.preventDefault(); tkSayPost(); }
+});
 
 /* ---- new task, its own page (#383; fields are the pack's, verbatim) ---- */
 /* Which project the typed draft belongs to. Back keeps the words (the
