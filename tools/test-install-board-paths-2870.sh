@@ -37,6 +37,20 @@ mkdir -p "$FAKE_REPO/deploy"
 cp "$SRC_SCRIPT" "$FAKE_REPO/deploy/install-board.sh"
 SCRIPT="$FAKE_REPO/deploy/install-board.sh"
 
+# Make the fake source fully STAGEABLE (the exact files stage_app copies), so the
+# --refresh-only regression case at the end can actually reach the destructive swap
+# when the guard is absent. Without these, stage_app aborts on the first missing
+# file BEFORE the swap, and the "nothing touched" assertion would be vacuous (it
+# would hold guard-present AND guard-absent). Dry-run and refusal tests never stage,
+# so these files do not affect any other case.
+mkdir -p "$FAKE_REPO/engine" "$FAKE_REPO/bin" "$FAKE_REPO/web"
+printf '{"version":"0.0.0-test"}\n'          > "$FAKE_REPO/package.json"
+printf 'process.exit(0)\n'                   > "$FAKE_REPO/server.js"
+printf '// noop\n'                            > "$FAKE_REPO/engine/noop.js"
+printf '<html>__KOSMOS_VERSION__</html>\n'    > "$FAKE_REPO/web/index.html"
+printf '#!/bin/sh\n'                          > "$FAKE_REPO/bin/agent-supervisor.sh"
+printf '#!/usr/bin/env node\n'                > "$FAKE_REPO/bin/codex-report-bridge.js"
+
 # A separate real git working tree, for the inside-a-git-tree case.
 GITTREE="$TMP/gittree"
 mkdir -p "$GITTREE"
@@ -121,22 +135,26 @@ mkdir -p "$TMP/prior-board"
 touch "$TMP/prior-board/server.js"
 accepts "an existing board install (has server.js) is accepted" "$TMP/prior-board"
 
-# ---- the refusal must hold under --apply, the path this feature protects -----
-# Every case above drives the DRY RUN. validate_dest runs unconditionally BEFORE
-# the apply/staging, so a refusal must also fire under --apply and leave the
-# destination byte-for-byte untouched (proving nothing was moved aside or deleted).
-# If a future edit moved validate_dest below the apply/staging, this is the case
-# that would go red while the dry-run cases stayed green.
+# ---- the refusal must hold on a REAL destructive path, not just the dry run ---
+# Every case above drives the dry run, which never reaches the swap. --refresh-only
+# (APPLY=1) DOES: it stages, then `mv "$DEST" "$DEST.old.$$"`, moves the new tree
+# into place, `rm -rf`s the old tree, and exits before any plist/launchctl. Because
+# the fake source is fully stageable (see the fixture above), if validate_dest were
+# removed or moved below staging, this run WOULD reach the swap and destroy
+# "precious" -- so the "nothing touched" assertion is genuinely load-bearing here,
+# not vacuous. validate_dest runs before staging, so a non-board dest is refused
+# with nothing moved aside or deleted. (Proven red-capable out of band: neutering
+# the marker check makes this exact run delete "precious".)
 mkdir -p "$TMP/apply-guard"
 touch "$TMP/apply-guard/precious"
-APPLY_OUT="$(KOSMOS_BOARD_LIBEXEC="$TMP/apply-guard" sh "$SCRIPT" --apply 2>&1)"; APPLY_RC=$?
+APPLY_OUT="$(KOSMOS_BOARD_LIBEXEC="$TMP/apply-guard" sh "$SCRIPT" --refresh-only 2>&1)"; APPLY_RC=$?
 remaining="$(ls -A "$TMP/apply-guard" 2>/dev/null | tr '\n' ',')"
 if [ "$APPLY_RC" -eq 1 ] \
    && printf '%s' "$APPLY_OUT" | grep -qiE "not a board install|no server.js" \
    && [ "$remaining" = "precious," ]; then
-  ok "under --apply a non-board dest is refused and left untouched"
+  ok "under --refresh-only a non-board dest is refused with nothing touched"
 else
-  bad "under --apply a non-board dest is refused and left untouched (rc=$APPLY_RC, remaining=$remaining)"
+  bad "under --refresh-only a non-board dest is refused with nothing touched (rc=$APPLY_RC, remaining=$remaining)"
 fi
 
 echo

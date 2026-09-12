@@ -50,11 +50,17 @@ before `--apply`:
 ## Tests
 
 `tools/test-install-board-paths-2870.sh` drives every refusal through the dry run
-(no `--apply`, so no live board/plist/libexec is touched) with isolated `mktemp`
-fixtures. The fixture SOURCE repo is a deliberately NON-git temp copy of the script,
-so the repo-equality/ancestry refusals fire for the right reason rather than being
-masked by the git-worktree refusal. Wired into `test:shell` after the retained
-`sh -n deploy/install-board.sh` syntax check.
+(no swap, so no live board/plist/libexec is touched) with isolated `mktemp`
+fixtures, PLUS one `--refresh-only` case that reaches the real destructive swap: it
+asserts a non-board dest is refused with its contents left byte-for-byte intact. The
+fixture SOURCE repo is a deliberately NON-git temp copy of the script (so the
+repo-equality/ancestry refusals fire for the right reason rather than being masked by
+the git-worktree refusal) and is made fully stageable, so the `--refresh-only` case
+would genuinely destroy its fixture file if the guard were removed -- the "nothing
+touched" assertion is load-bearing, not vacuous. `--refresh-only` exits right after
+the swap, before any plist/launchctl, so the case stays hermetic. Wired into
+`test:shell` after `tools/test-board-deploy-manifest.sh` (itself after the retained
+`sh -n deploy/install-board.sh` syntax check).
 
 ## Deliberate calls
 
@@ -68,6 +74,20 @@ masked by the git-worktree refusal. Wired into `test:shell` after the retained
 - The repo comparisons are byte-exact/case-sensitive. A case-only collision is
   unreachable: the differing component would have to live in the not-yet-existing
   tail, which by definition cannot collide with the already-existing repo.
+- `validate_dest` is now on the release cut's `--refresh-only` path
+  (`tools/release.sh`), which runs under `set -e`, so a refusal reds the cut. For a
+  normally adopted libexec board (exists, has `server.js`, outside any checkout) it
+  passes cleanly; the only new exposure is a cut box whose `$HOME` is itself a `git`
+  repo, where the default dest would be refused. That is fail-closed-correct (the
+  board must not run from a working tree) and low-probability, and the error names the
+  way out, so it is accepted rather than special-cased.
+- A destination whose LEAF is a symlink is validated on its resolved target while the
+  swap's `mv` acts on the symlink itself (moving the link, not the target). This only
+  ever over-refuses (safe) and is never a data-loss path, and the resolved-path checks
+  are required to catch a dest that resolves INTO the repo/git-tree, so the two sites
+  reasoning about different objects is accepted.
+- The emptiness test uses `ls -A`, a BSD/GNU extension outside strict POSIX. macOS is
+  the sole target and its `ls` supports `-A`, so it is kept as-is.
 
 ## Follow-up (out of scope here)
 
