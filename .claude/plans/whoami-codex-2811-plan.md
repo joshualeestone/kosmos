@@ -1159,8 +1159,17 @@ pass while missing it.
 
 **"a dozen lines below the sentence"** (reviewer's MAJOR 2, and I measured it independently before
 their message arrived). The statements sit **322 and 325 lines** below `function setProvider`
-(342 and 345 below the header line; the reviewer's figure, from a different datum, and both are
-right about what they measured). At the MERGE-BASE too, so it was never true. `git log -S` dates
+🛑 **AND I ENDORSED A SECOND FIGURE WITHOUT RUNNING THE SUBTRACTION.** This sentence used to add
+"(342 and 345 below the header line; the reviewer's figure, from a different datum, and both are
+right about what they measured)". The reviewer's datum was the SENTENCE line, not the header line;
+from the header line it was 360 and 363 at that commit, and it is 381 and 384 now. **I certified
+somebody else's number as measured while mislabelling its anchor.**
+⭐ **The surviving figure and the rotted one differ in exactly one way, and it is the general
+rule: 322 is measured from `function setProvider`, a NAMED anchor that moves WITH its target, so
+my header edits shifted both and the distance is still exact today. The header-line figure was
+measured from a line my own edit landed above, so it rotted inside the same commit that wrote
+it.** That is the round-9 citation rule in a form I did not recognise: **a distance from a named
+anchor survives; a distance from a line number is a line number.** At the MERGE-BASE too, so it was never true. `git log -S` dates
 the phrase to round 2, and **round 23 copied it into two more files while correcting the sentence
 it sits inside.**
 
@@ -1256,3 +1265,55 @@ ADD a fifth write                                         -> the exact-set asser
 profile records a different `dir`                         -> "the worker directory MOVED"
 plist unreadable at the same path                         -> "the launch job is no longer readable"
 ```
+
+## Round 25: two false claims, both from the round-24 fix, and a new shape
+
+**[BLOCKER] "the ONLY one that is not best-effort" is false.** Inside `setProvider` **TWO** of the
+four writes gate the switch, not one:
+
+| write | catch | gating? |
+|---|---|---|
+| `trustCodexFolder` | returns REFUSED, "we could not let the OpenAI runner work in its folder" | **yes** |
+| plist via `plistFor` | returns REFUSED, "we could not write <name>'s startup file" | **yes** |
+| brief rename | comment-only swallow | no |
+| `store.writeProfile` | comment-only swallow | no |
+
+⚠️ **And gating is a property of the CALL SITE, not of `trustCodexFolder`** - a distinction
+neither the reviewer nor I had made. The same function is called four times in `create.js`:
+REFUSED in `setProvider`, `trust:{ok:false}` with a CREATED outcome on the create path, swallowed
+outright on the adoption path, where a pre-existing comment calls it *"non-gating and
+best-effort"* and is **right about its own site**. Two comments that look like they contradict
+each other are both true, one scope apart. That is the same measuring-one-path-and-pronouncing
+failure this card has now made six times, so the paragraph says which site it is about.
+
+✅ **Converted to an ASSERTION, not a better sentence.** A new arm makes `config.toml` read-only so
+`trustCodexFolder`'s `appendFileSync` throws a REAL EACCES (nothing injected), and asserts the
+refusal, its wording, and that NOTHING was written before the gate fired.
+
+```
+MUTANT make the trust write swallow      -> "a failing TRUST write no longer aborts the switch"
+MUTANT a write BEFORE the trust gate     -> "the refusal says nothing was changed but paths were written"
+MUTANT a write after the gate            -> the exact-set assertion
+```
+
+📌 **The first mechanism I tried did not work and the arm told me instantly.** Chmodding the
+account DIRECTORY to 0o500 changed nothing: directory write permission governs creating and
+removing entries, not appending to a file that already exists, and the arm above had already
+created `config.toml` in the shared sandbox. The test said `setProvider reported created` on the
+first run. **A test that can tell you your mechanism is wrong is worth more than one that agrees
+with you.**
+
+**[MAJOR] the sandbox seal's stated failure mode was backwards.** I wrote that without the seal
+"the assertion would pass while missing it". Measured, with the seal removed and an external
+signed-in `CODEX_HOME`: the trust entry DOES land outside the sandbox, **and the test REDS**,
+naming the missing path, because the expected list is built from the fixed `SIGNIN` constant so a
+trust write that goes elsewhere always subtracts an expected element. It fails LOUD, exactly as
+`create.switch-account-1373.test.js` already says of its own seal.
+
+⭐ **A NEW SHAPE, AND THE MOST USEFUL THING IN THIS ROUND: A JUSTIFICATION CAN OUTLIVE THE THING
+IT JUSTIFIED.** That sentence was TRUE of the PREVIOUS version of this file, which asserted
+nothing about the trust write at all. I replaced the mechanism in round 24 and carried its
+rationale across unchanged. **A rationale reads as checked because it WAS checked - once, against
+code that no longer exists.** Neither a diff nor a test can see it: the comment did not change,
+and nothing it describes is asserted.
+⇒ **When you replace a mechanism, re-derive its rationale rather than moving it.**

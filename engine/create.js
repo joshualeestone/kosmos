@@ -1102,12 +1102,21 @@ function setCodexAccount(clean, spoken, dir, job) {
  *
  * As measured today the set is FIVE paths from FOUR writes, in execution order:
  *   1. `trustCodexFolder` appends `[projects."<workerDir>"]` to
- *      `<codexHome>/config.toml`. ⚠️ The ONLY one that is not best-effort: its
- *      `catch` returns REFUSED, so it decides whether the switch happens at all.
- *   2. the plist rewrite through `plistFor`
+ *      `<codexHome>/config.toml`. Its `catch` returns REFUSED, so it can abort
+ *      the switch. 🛑 "THE ONLY ONE THAT IS NOT BEST-EFFORT" IS WHAT THIS SAID,
+ *      and it is false: the plist write below returns REFUSED too. TWO of the
+ *      four gate here and two swallow, and which is which is now an ASSERTION in
+ *      the same test, not a sentence here.
+ *   2. the plist rewrite through `plistFor`. Also gating: its catch returns
+ *      REFUSED with "we could not write <name>'s startup file".
  *   3. the brief RENAME, CLAUDE.md <-> AGENTS.md (two paths: one created, one
- *      deleted)
- *   4. `store.writeProfile(clean, { provider })`
+ *      deleted). Best-effort: its catch swallows.
+ *   4. `store.writeProfile(clean, { provider })`. Best-effort: its catch swallows.
+ * ⚠️ GATING IS A PROPERTY OF THE CALL SITE, NOT OF `trustCodexFolder`. The same
+ * function is called from four places in this file: REFUSED here, `trust:{ok:false}`
+ * with a CREATED outcome on the create path, swallowed on the adoption path -- where
+ * a comment calls it "non-gating and best-effort" and is right about ITS site. Do
+ * not carry this paragraph's answer to another caller.
  *
  * ⚠️ THE HISTORY, because every wrong version was plausible:
  *   "one"   - this header, 8fe044b8 (2026-08-24): "a plist rewrite through the

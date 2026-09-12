@@ -41,9 +41,18 @@ const nodePath = require('node:path');
 /* Sealed BEFORE ./create is required, and BOTH codex roots deleted, for the
    reasons create.switch-account-1373.test.js documents at length: an ambient
    CODEX_HOME walks straight through a sandbox that seals only the other two.
-   🔑 HERE IT IS LOAD-BEARING RATHER THAN TIDY. This file asserts the FULL set of
-   paths written, so an unsealed root would put the trust write on the real
-   machine, outside the snapshot, and the assertion would pass while missing it. */
+   🔑 HERE IT FAILS LOUD RATHER THAN GREEN, which is the same thing
+   create.switch-account-1373.test.js says about its own seal. MEASURED, with the
+   seal removed and an external signed-in CODEX_HOME: the trust entry really does
+   land outside the sandbox, AND this file REDS, naming the missing path, because
+   the expected list is built from the fixed SIGNIN constant so a trust write that
+   goes elsewhere always subtracts an expected element.
+   🛑 "THE ASSERTION WOULD PASS WHILE MISSING IT" IS WHAT THIS SAID, and it is
+   backwards. It described the PREVIOUS version of this file, which asserted
+   nothing about the trust write at all - so the justification outlived the thing
+   it justified by exactly one rewrite, mine. ⭐ When you replace a mechanism,
+   re-derive its rationale instead of carrying it across: a rationale reads as
+   checked because it was, once. */
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'setprovider-writes-2811-'));
 const HOME = nodePath.join(SANDBOX, 'home');
 const BIN = nodePath.join(SANDBOX, 'bin');
@@ -183,4 +192,51 @@ test('#2811: the EXACT SET of paths setProvider writes, enumerated by measuremen
      property. Both are gone. What replaces them can fail: */
   assert.equal(create.workerDir(name), dir,
     'the worker directory MOVED, so a workdir-keyed transcript lookup no longer resolves');
+});
+
+test('#2811: WHICH of the four writes can abort the switch, asserted rather than described', () => {
+  /* 🛑 THE CLAIM THIS REPLACES SAID THE TRUST WRITE IS "THE ONLY ONE THAT IS NOT
+     BEST-EFFORT". False: inside `setProvider` TWO of the four return REFUSED (the
+     trust write and the plist write) and two swallow (the brief rename and the
+     profile write).
+     ⚠️ AND GATING IS A PROPERTY OF THE CALL SITE, NOT OF `trustCodexFolder`. The
+     same function is called from four places in create.js: here it returns
+     REFUSED, at the create path its catch records `trust: {ok:false}` and still
+     returns CREATED, and at the adoption path it is swallowed outright -- where a
+     comment calls it "non-gating and best-effort" and is right about ITS site.
+     So this arm is scoped to `setProvider` and says so, which is the discipline
+     this card has failed at five times: measuring one path and pronouncing on the
+     space.
+     📌 The mechanism is a REAL failure, not an injected one: `config.toml` is made
+     read-only, so `trustCodexFolder`'s `appendFileSync` throws EACCES.
+     ⚠️ THE FILE, NOT THE DIRECTORY, AND I GOT THAT WRONG FIRST. Chmodding SIGNIN
+     to 0o500 changed nothing: directory write permission governs CREATING and
+     removing entries, not appending to a file that already exists -- and the arm
+     above has already created `config.toml` in this shared sandbox. The test said
+     so immediately (`setProvider reported created`), which is the arm working. */
+  if (process.getuid && process.getuid() === 0) return; // root ignores the mode bits
+
+  const name = born('setprov-2811-gate');
+  const dir = create.workerDir(name);
+  const cfg = nodePath.join(SIGNIN, 'config.toml');
+  /* The arm above runs first and creates it; do not depend on that ordering. */
+  if (!fs.existsSync(cfg)) fs.writeFileSync(cfg, '', 'utf8');
+  const before = snapshot(SANDBOX);
+
+  fs.chmodSync(cfg, 0o400); // readable, NOT writable
+  let sw;
+  try { sw = create.setProvider(name, 'openai', { ...BINS, codexBin: CODEX_BIN }); }
+  finally { fs.chmodSync(cfg, 0o600); }
+
+  assert.equal(sw.outcome, create.OUTCOME.REFUSED,
+    'a failing TRUST write no longer aborts the switch: setProvider reported ' + sw.outcome);
+  assert.match(String(sw.because), /work in its folder/,
+    'the refusal no longer names the trust write as the reason');
+
+  /* ⇒ AND "nothing was changed" IS PART OF THAT REFUSAL'S OWN SENTENCE, so it is
+     asserted rather than assumed: the gate fires FIRST, before any other write. */
+  assert.deepEqual(changesBetween(before, snapshot(SANDBOX), SANDBOX), [],
+    'the refusal says "nothing was changed" but paths were written before the gate fired');
+  assert.equal(create.readJob(name).runner, 'claude', 'the launch job was switched despite the refusal');
+  assert.equal(fs.existsSync(nodePath.join(dir, 'CLAUDE.md')), true, 'the brief was renamed despite the refusal');
 });
