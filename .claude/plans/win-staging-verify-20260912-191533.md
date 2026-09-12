@@ -121,3 +121,10 @@ check which did not happen.
   - NITs: the replacement is logged after the rename; a held record is a sentence; docs say a new
     record needs NTFS hard links; the saved size is checked against the hashed count; an interrupt
     deletes the temp zip; a full disk says so.
+  - Verified after the fixes, rebased onto `origin/main` `cfaa273e`: `tools.win-staging-verify.test.js`
+    20/20 and `tools/test-promote-channel-win.sh` 46/46 (Windows box, Git Bash, the Kosmos runtime
+    node v24.19.0, a shasum shim). Revert controls, run on a scratch copy of the tree and restored
+    after each: SAFETY 1 (the `--for-sha` comparison removed) turns the binding test red; BUG 1
+    (the temp removed only after a successful write) turns the failed-write test red; BUG 2 (the
+    first `manifest.json` wins, no duplicate refusal) turns the manifest test red; 19/20 each, and
+    20/20 again after restore.
