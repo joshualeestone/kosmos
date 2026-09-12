@@ -47,6 +47,10 @@ proactive sweep, and a second server.js site found in iter 4):
    a send/opt-in flag" -> "never touches the send flag (default-on / opt-out, #2013)".
    Same bare phrase as feedback.js:13, in the sibling local-read route.
 
+Plus one co-located TEST-DESCRIPTION consistency fix (not a mislabel, the assertion is
+accurate): `engine/feedback.test.js:35` "it needs no send/opt-in flag" -> "no send flag",
+to match the feedback.js:13 source wording it tests.
+
 Note on the surviving "opt-in" references NOT changed: server.js:4757, server.js:12406,
 feedbacksend.js:68/422 each pair "opt-in" with an explicit "default ON / opts out",
 which is the repo's accepted "default-checked opt-in" terminology, so they are accurate
