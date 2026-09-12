@@ -85,7 +85,11 @@ test('#1304: a pane with no claude under it says so, and does not say "no accoun
     envOf: () => '', identityOf: () => ({ email: 'nobody@example.com' }),
   });
   assert.equal(r.ok, false);
-  assert.match(r.because, /nothing that looks like Claude Code/);
+  /* The FULL sentence, not the prefix. `/nothing that looks like Claude Code/`
+     matches the old Claude-only wording and the current one equally, so it could
+     not tell them apart; #2811 changed this string and an assertion that survives
+     the change it is meant to cover is not covering it. */
+  assert.match(r.because, /nothing that looks like Claude Code or Codex is running under/);
   assert.equal(r.account, undefined, 'it invented an account for a pane with no agent in it');
 });
 

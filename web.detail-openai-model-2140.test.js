@@ -133,8 +133,10 @@ test('#2140 S2 default-codex (isDefault account) sends an EMPTY dir so the route
   // sends empty so the server resolves the default OpenAI account.
   // ⚠️ THE FIXTURE BELOW HAND-BUILDS `{dir: ~/.claude, isDefault:true}` and this
   // comment used to explain it as what accountForAgent returns for a
-  // default-codex agent. #2811 gated that dir-less match, so the real product now
-  // returns NO ROW for such an agent. The fixture is kept because it still
+  // default-codex agent. #2811 gated that dir-less match, so against the CLAUDE
+  // account list the real product now returns NO ROW for such an agent (against
+  // the OpenAI list it still resolves, to that agent's own default OpenAI row).
+  // The fixture is kept because it still
   // exercises the branch under test (an isDefault account must send an empty
   // dir), but it is now a hand-made shape rather than one the product produces.
   const r = await run({
