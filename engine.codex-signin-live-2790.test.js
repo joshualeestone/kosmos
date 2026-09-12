@@ -69,6 +69,60 @@ test('classify control: ws not-ok with provider MISSING is unknown, not dead', (
   assert.equal(live.classify(JSON.stringify({ checks: { 'network.websocket_reachability': { status: 'warning' } } })), 'unknown');
 });
 
+// --- the NAMED cause (auth vs transport), the #2790 UPDATE's discriminator ---
+
+test('classifyDetailed: names the cause for every arm, and NEVER confuses transport with auth', () => {
+  // live: nothing failed, so no cause.
+  assert.deepEqual(live.classifyDetailed(DOC_LIVE), { verdict: 'live', cause: null });
+  // dead: endpoint reachable, handshake refused -> the credential.
+  assert.deepEqual(live.classifyDetailed(DOC_DEAD), { verdict: 'dead', cause: 'authentication_rejected' });
+  // the load-bearing distinction: a ws failure with the endpoint ALSO unreachable is the network,
+  // never the credential -- unknown/transport_unreachable, and specifically NOT authentication_rejected.
+  assert.deepEqual(live.classifyDetailed(DOC_NETWORK), { verdict: 'unknown', cause: 'transport_unreachable' });
+  assert.notEqual(live.classifyDetailed(DOC_NETWORK).cause, 'authentication_rejected',
+    'a network fault must never be attributed to the credential (the #1930 never-false-red rule, at the cause layer)');
+});
+
+test('classifyDetailed: no usable signal is indeterminate, distinct from transport_unreachable', () => {
+  for (const bad of ['not json', '{}', JSON.stringify({ checks: {} })]) {
+    assert.deepEqual(live.classifyDetailed(bad), { verdict: 'unknown', cause: 'indeterminate' },
+      'unparseable/missing-checks must be indeterminate, not a transport claim: ' + bad);
+  }
+  // ws present but no status at all -> indeterminate (we saw no verdict), not transport.
+  assert.deepEqual(live.classifyDetailed(JSON.stringify({ checks: { 'network.websocket_reachability': {} } })),
+    { verdict: 'unknown', cause: 'indeterminate' });
+});
+
+test('classifyDetailed control: ws not-ok with provider MISSING is transport_unreachable, not dead', () => {
+  // A missing provider check is not positive evidence the endpoint was reachable, so the handshake
+  // failure cannot be blamed on the credential -- unknown, and the cause names the transport doubt.
+  assert.deepEqual(live.classifyDetailed(JSON.stringify({ checks: { 'network.websocket_reachability': { status: 'warning' } } })),
+    { verdict: 'unknown', cause: 'transport_unreachable' });
+});
+
+test('classify() is exactly classifyDetailed().verdict on every arm (one derivation, cannot drift)', () => {
+  for (const doc of [DOC_LIVE, DOC_DEAD, DOC_NETWORK, 'not json', '{}',
+      JSON.stringify({ checks: { 'network.websocket_reachability': { status: 'ok' } } })]) {
+    assert.equal(live.classify(doc), live.classifyDetailed(doc).verdict,
+      'classify() and classifyDetailed() disagreed, so they are deriving the verdict twice: ' + doc);
+  }
+});
+
+test('livenessDetailed: returns { verdict, cause }, caches the pair, and a failed runner is indeterminate (never dead)', async () => {
+  live.resetForTest();
+  let calls = 0;
+  live.setRunner(async () => { calls += 1; return { ok: true, stdout: DOC_DEAD }; });
+  assert.deepEqual(await live.livenessDetailed('/acct/cause-a', 1000), { verdict: 'dead', cause: 'authentication_rejected' });
+  // cached pair within the TTL, and the plain liveness() projection reads the SAME cache entry.
+  assert.deepEqual(await live.livenessDetailed('/acct/cause-a', 1000 + live.TTL_MS - 1), { verdict: 'dead', cause: 'authentication_rejected' });
+  assert.equal(await live.liveness('/acct/cause-a', 1000 + live.TTL_MS - 1), 'dead', 'liveness() must share livenessDetailed cache');
+  assert.equal(calls, 1, 'the detailed + plain reads spawned more than one doctor, so they are not sharing the cache');
+  // a runner that could not produce a report is indeterminate, never a false dead.
+  live.resetForTest();
+  live.setRunner(async () => ({ ok: false }));
+  assert.deepEqual(await live.livenessDetailed('/acct/cause-b', 1000), { verdict: 'unknown', cause: 'indeterminate' });
+});
+
 test('liveness: maps the injected runner output and CACHES within the TTL', async () => {
   live.resetForTest();
   let calls = 0;

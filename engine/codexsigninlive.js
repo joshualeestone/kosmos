@@ -63,20 +63,46 @@ function homeKey(dir) { return dir ? String(dir) : DEFAULT_KEY; }
  * Pure classifier: codex doctor --json stdout (string) -> 'live' | 'dead' | 'unknown'.
  * Exported so a test can pin every arm against a real captured report without spawning.
  */
-function classify(stdout) {
+function classify(stdout) { return classifyDetailed(stdout).verdict; }
+
+/**
+ * The SINGLE source of both the verdict AND the NAMED CAUSE the #2790 UPDATE asked for
+ * (authentication_rejected vs transport_unreachable): stdout -> { verdict, cause }.
+ *   verdict  'live' | 'dead' | 'unknown'  -- WHETHER the sign-in is usable (classify()'s value).
+ *   cause    the reason we could not confirm it, when we could not; null when nothing failed:
+ *     'authentication_rejected'  endpoint reachable, handshake REFUSED  => the credential (verdict 'dead')
+ *     'transport_unreachable'    the handshake failed AND the endpoint itself was not confirmed
+ *                                reachable => the network is the suspect, NEVER the credential
+ *                                (the #1930 never-false-red rule) (verdict 'unknown')
+ *     'indeterminate'            no usable signal at all -- unparseable output, no checks, or a
+ *                                missing/statusless websocket check (verdict 'unknown')
+ *     null                       verdict 'live' -- nothing failed, so there is no cause.
+ * ADDITIVE: classify() (and liveness()) keep their plain-verdict contracts, which kosmos#2338's
+ * driver + the green-badge/tier consumers read verbatim; a consumer that wants to tell "sign in
+ * again" (auth) from "network problem, will retry" (transport) apart reads the cause here. Because
+ * classify() delegates to this, the verdict and its cause cannot drift out of one derivation.
+ */
+function classifyDetailed(stdout) {
   let d;
-  try { d = JSON.parse(stdout); } catch { return 'unknown'; }
+  try { d = JSON.parse(stdout); } catch { return { verdict: 'unknown', cause: 'indeterminate' }; }
   const checks = d && d.checks;
-  if (!checks || typeof checks !== 'object') return 'unknown';
+  if (!checks || typeof checks !== 'object') return { verdict: 'unknown', cause: 'indeterminate' };
   const ws = checks['network.websocket_reachability'];
   const prov = checks['network.provider_reachability'];
   // status "ok" is codex's own verdict that the handshake completed (HTTP 101). Trust it.
-  if (ws && ws.status === 'ok') return 'live';
-  // Handshake not ok. Only call the credential dead if the endpoint itself was reachable,
-  // so a refused handshake cannot be a network fault. provider_reachability must be present
-  // AND ok -- a missing provider check is not evidence the network is fine.
-  if (ws && ws.status && ws.status !== 'ok' && prov && prov.status === 'ok') return 'dead';
-  return 'unknown';
+  if (ws && ws.status === 'ok') return { verdict: 'live', cause: null };
+  if (ws && ws.status && ws.status !== 'ok') {
+    // Handshake not ok. Only call the credential dead if the endpoint itself was reachable, so a
+    // refused handshake cannot be a network fault. provider_reachability must be present AND ok --
+    // a missing provider check is not evidence the network is fine.
+    if (prov && prov.status === 'ok') return { verdict: 'dead', cause: 'authentication_rejected' };
+    // The handshake failed but the transport was not confirmed reachable: blame the network, never
+    // the credential. UNKNOWN (never a red), with the cause naming what we saw.
+    return { verdict: 'unknown', cause: 'transport_unreachable' };
+  }
+  // No usable websocket signal at all (the check is absent or carries no status): we cannot say
+  // why the sign-in is uncheckable, so the cause is indeterminate rather than a transport claim.
+  return { verdict: 'unknown', cause: 'indeterminate' };
 }
 
 // Injectable so tests never spawn codex. Real one runs `CODEX_HOME=<dir> codex doctor --json`
@@ -107,34 +133,43 @@ function defaultRunner(dir) {
 
 let runner = defaultRunner;
 function setRunner(fn) { runner = fn; }              // tests
-// homeKey -> { verdict, at }
+// homeKey -> { verdict, cause, at }
 const cache = new Map();
-// homeKey -> Promise<verdict>, so concurrent callers on a miss share one doctor run.
+// homeKey -> Promise<{ verdict, cause }>, so concurrent callers on a miss share one doctor run.
 const inflight = new Map();
 function resetForTest() { cache.clear(); inflight.clear(); runner = defaultRunner; }
 
 /**
- * liveness(dir, nowMs?) -> Promise<'live'|'dead'|'unknown'>. Never throws. Returns a cached
- * verdict when fresh; otherwise runs `codex doctor` once (shared across concurrent callers)
- * and caches the result. `nowMs` is injectable for deterministic TTL tests.
+ * livenessDetailed(dir, nowMs?) -> Promise<{ verdict, cause }>. The full result: the verdict AND
+ * the NAMED CAUSE (see classifyDetailed). Never throws. Returns a cached result when fresh;
+ * otherwise runs `codex doctor` once (shared across concurrent callers) and caches it. A runner
+ * that could not produce a report (no bin, timeout, empty output) is 'unknown'/'indeterminate' --
+ * never a false 'dead'. `nowMs` is injectable for deterministic TTL tests.
  */
-async function liveness(dir, nowMs) {
+async function livenessDetailed(dir, nowMs) {
   const now = typeof nowMs === 'number' ? nowMs : Date.now();
   const key = homeKey(dir);
   const cur = cache.get(key);
-  if (cur && (now - cur.at) < TTL_MS) return cur.verdict;
+  if (cur && (now - cur.at) < TTL_MS) return { verdict: cur.verdict, cause: cur.cause };
   if (inflight.has(key)) return inflight.get(key);
   const p = Promise.resolve()
     .then(() => runner(dir))
-    .then((r) => (r && r.ok ? classify(r.stdout) : 'unknown'))
-    .catch(() => 'unknown')
-    .then((verdict) => {
-      cache.set(key, { verdict, at: (typeof nowMs === 'number' ? nowMs : Date.now()) });
+    .then((r) => (r && r.ok ? classifyDetailed(r.stdout) : { verdict: 'unknown', cause: 'indeterminate' }))
+    .catch(() => ({ verdict: 'unknown', cause: 'indeterminate' }))
+    .then((res) => {
+      cache.set(key, { verdict: res.verdict, cause: res.cause, at: (typeof nowMs === 'number' ? nowMs : Date.now()) });
       inflight.delete(key);
-      return verdict;
+      return res;
     });
   inflight.set(key, p);
   return p;
 }
 
-module.exports = { liveness, classify, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
+/**
+ * liveness(dir, nowMs?) -> Promise<'live'|'dead'|'unknown'>. The plain-verdict contract every
+ * current caller (openaiaccounts.checkLive, codexauthprobe) reads; a thin projection of
+ * livenessDetailed so the two share one cache, one inflight de-dup, and one derivation.
+ */
+async function liveness(dir, nowMs) { return (await livenessDetailed(dir, nowMs)).verdict; }
+
+module.exports = { liveness, livenessDetailed, classify, classifyDetailed, setRunner, resetForTest, TTL_MS, TIMEOUT_MS };
