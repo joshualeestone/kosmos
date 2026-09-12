@@ -4119,12 +4119,21 @@ body:not(.consolidated) .pjmid .thread .att { background: var(--k-bg); }
    than the base .tk3, so it wins without !important. */
 html[data-layout="consolidated"] body.consolidated #pj-task-view .tk3 { grid-template-columns: minmax(0, 1fr); }
 .tkconvcol { min-width: 0; }
+/* #768: the composer input needs the app's text-field skin. It sits in .pjcol
+   (which sets only background/color) and .tkcompose (flex only), NOT in a .frow, so
+   without this it would render with the browser's default border/padding instead of
+   matching #tk-newpart / #d-say. These are the same border/padding/radius/font the
+   .frow input rule gives, minus the 220px min-width the narrow column cannot afford. */
+.tkcompose input[type=text] { flex: 1; min-width: 0; font: var(--text-body) var(--font-ui);
+                              padding: var(--space-4) var(--space-5); border-radius: var(--radius-control);
+                              border: 0.5px solid var(--border-strong); }
 /* #768: the middle column's composer -- now a real input row (was an inert
    placeholder before the write path existed). The input takes the space and the
    Send button sits tight beside it, the same nowrap treatment as the "Add a part"
    row so a narrow column does not wrap the button onto its own line. */
 .tkcompose { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: nowrap; }
-.tkcompose input { flex: 1; min-width: 0; }
+/* the input's skin (border/padding/font) is the .tkcompose input[type=text] rule
+   above, beside .tkconvcol; here is only the row layout. */
 .tkcompose .btn-quiet { flex: 0 0 auto; font-size: .875rem;
                         padding: calc(.5em - 1px) calc(1.05em - 1px); }
 .tkcompose-note { margin: 8px 0 0; }
@@ -11035,11 +11044,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
 
       <!-- MIDDLE: the task's conversation, the whole point of resembling a project.
            It carries the recorded lifecycle (#2400, the read-side of #992: created /
-           assigned / part added / done / put back) as the conversation so far, then an
-           HONEST inert composer -- writing into a task's conversation in the app is not
-           built yet (#992: tasks and messages do not know each other). The composer says
-           what is true rather than "coming soon", a promise nobody has dated. The
-           folder-reveal beneath it is the one thing that works today. -->
+           assigned / part added / done / put back) plus the messages typed into the
+           composer below, as the conversation so far. The composer RECORDS a message
+           on the task (engine tasks.say -> taskchat); it is record-only, not delivered
+           to an agent yet (two-way is a later step), and the note under it says exactly
+           that. The folder-reveal opens where those transcripts live on disk. -->
       <section class="pjcol tkconvcol">
         <h3 class="dlab">Conversation</h3>
         <div id="tk-activity" class="tkacts" aria-live="polite"></div>
@@ -35751,6 +35760,16 @@ function openTaskPage(n) {
   if (!t) return;
   TK_OPEN = n;
   document.getElementById('tk-msg').textContent = '';
+  /* #768: clear the composer for the new task. #tk-say / #tk-say-msg are STATIC
+     markup (unlike #tk-newpart, which paintTaskPage rebuilds via innerHTML), so an
+     unsent draft or a stale refusal band from the last task would otherwise carry
+     over -- and sending it here would file one task's note under another. A task
+     message is task-scoped, so it does NOT follow the new-task page's keep-the-draft
+     rule; each task opens with an empty composer. */
+  const sayIn = document.getElementById('tk-say');
+  if (sayIn) sayIn.value = '';
+  const sayMsg = document.getElementById('tk-say-msg');
+  if (sayMsg) sayMsg.textContent = '';
   paintTaskPage();
   /* A new task: clear the last one's activity before the fetch so a slow read
      cannot leave the previous task's events on screen. */
