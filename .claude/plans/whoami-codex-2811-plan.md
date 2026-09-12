@@ -1031,6 +1031,9 @@ product depends on, in the header of the function that writes it.
 
 `engine/create.setprovider-writes-2811.test.js`: one test, three writes, each with the fixture's
 PRE state asserted first so a setProvider that did nothing reds all three.
+🛑 **ROUND 24 MEASURED FOUR, AND REPLACED THIS TEST ENTIRELY.** See the round-24 section below;
+the count above is left as the dated record of the error, and the sentence about everything
+staying inside `workerDir` is false in three ways.
 
 ```
 MUTANT: delete the brief rename    -> "write 2: the brief was renamed to AGENTS.md"   RED
@@ -1086,3 +1089,170 @@ count is worse than the count.
 RIGHT, with line numbers.** Every prior round reported only defects. A verification list is
 checkable in a way "I found nothing else" is not, and the one error in this loop's own
 bookkeeping surfaced from a line that was reporting SUCCESS.
+
+## Round 24: my round-23 correction was itself wrong, in the way it had just named
+
+Round 24's reviewer measured that `setProvider` performs **FOUR** writes, not the three I
+enumerated one round earlier, and that the fourth is the FIRST to execute:
+
+```
+engine/create.js, inside the `provider === 'openai'` branch:
+    try { trustCodexFolder(workerDir(clean), acct.dir, !acct.dir); }
+    catch { return { outcome: OUTCOME.REFUSED, because: '...' }; }
+```
+
+`trustCodexFolder` appends `[projects."<workerDir>"] trust_level = "trusted"` to
+`<codexHome>/config.toml`. ⚠️ It is the **only one of the four that is not best-effort**: its
+catch returns REFUSED, so it decides whether the switch happens at all.
+
+⭐ **I made, in the correction, the exact error the correction names.** Its own text says the
+card's pattern is "each version verified the rung it had just been shown and inferred the rest",
+and then I enumerated the two statements the round-23 reviewer pointed at and inferred the set
+was closed. **Being able to state a failure mode in one paragraph is no defence against
+committing it in the next.**
+
+### And the property I asserted alongside it was false THREE ways, of which the reviewer caught one
+
+I wrote "everything that moved stayed INSIDE `workerDir(name)`" and asserted it. Measured, with
+a control (the same probe with `setProvider` stubbed out changes nothing):
+
+```
+  MODIFIED > OUTSIDE  <sandbox>/data/Kosmos/profiles/<name>.json
+  CREATED  > OUTSIDE  <sandbox>/home/.codex/config.toml
+  MODIFIED > OUTSIDE  <sandbox>/launch/com.kosmos.agent.<name>.plist
+  CREATED    INSIDE   <sandbox>/workers/<name>/AGENTS.md
+  DELETED    INSIDE   <sandbox>/workers/<name>/CLAUDE.md
+```
+
+**Three of the five are outside it, and the plist and the profile always were.** The reviewer
+found the newest one; the other two had been false since I wrote the sentence. A sentence about a
+directory, written while looking at the one write that happens to be in it.
+
+✅ **What is actually true**, and it is what the false premise was standing in for:
+`workerDir(name)` is not itself MOVED and the agent's NAME does not change, so every lookup keyed
+on either resolves the same directory afterwards. That is why #2811's stale-Claude-transcript
+guard is necessary rather than moot.
+
+### The durable fix: stop counting, start measuring
+
+`engine/create.setprovider-writes-2811.test.js` no longer asserts a count or a list I wrote down.
+It snapshots every path under the sandbox with a content hash, runs `setProvider`, and asserts
+the **EXACT SET** of created/modified/deleted paths.
+
+```
+MUTANT delete the trust write     -> RED  ("a different set of paths than this test documents")
+MUTANT delete the brief rename    -> RED
+MUTANT delete the profile write   -> RED
+MUTANT ADD A FIFTH WRITE          -> RED   <- the capability the counting version never had
+```
+
+⭐ **That last mutant is the whole point.** Three versions of this claim were wrong because a
+human enumerated what a human could see. The machine now enumerates it every run, so there is no
+reading of mine left to be wrong. The header says so and tells the reader to go to the test.
+
+📌 The sandbox seal (`delete process.env.CODEX_HOME`, `AGENT_WORKFORCE_CODEX_HOME`) is
+**load-bearing here rather than tidy**: this file asserts the FULL set of paths, so an unsealed
+root would put the trust write on the real machine, outside the snapshot, and the assertion would
+pass while missing it.
+
+### Round 24, the rest: three more false claims, two found by the reviewer and two by me
+
+**"a dozen lines below the sentence"** (reviewer's MAJOR 2, and I measured it independently before
+their message arrived). The statements sit **322 and 325 lines** below `function setProvider`
+(342 and 345 below the header line; the reviewer's figure, from a different datum, and both are
+right about what they measured). At the MERGE-BASE too, so it was never true. `git log -S` dates
+the phrase to round 2, and **round 23 copied it into two more files while correcting the sentence
+it sits inside.**
+
+⭐ **Why a wrong distance is not cosmetic: it made the error sound glanceable**, which made its
+22-round survival read as carelessness. At 322 lines the survival needs no explaining.
+
+**`server.js`'s present-tense claim about a header my own next commit rewrote** (reviewer's MAJOR
+3). It said "`setProvider`'s own header SAYS the mechanism is ... and nothing else"; `c32b1c7a`
+replaced that header, so a reader following the pointer found the opposite of what they were
+promised. ⚠️ **And that commit's own message asserted "engine/create.js is otherwise untouched:
+comment-only"** while invalidating a sentence in a file it did not touch. The round-10/11 shape
+("comments this change killed, in files it never edits") **recurring inside the commit that
+corrected it.**
+
+**"`setProvider` rewrites the plist AND THE MARKER"** (mine, not reported). Two live copies.
+FALSE, measured: `setProvider` never invokes tmux over its whole body, and the control says who
+does - `bin/agent-supervisor.sh:465` writes `@kosmos_runner` at agent **START**, which is AFTER
+the restart the described window waits for. **So during that window the marker still holds its
+OLD value, not the new one.**
+📌 **What I did NOT do with that finding, deliberately:** conclude that the live-claude +
+codex-marker state is unreachable. I measured how the marker behaves in THIS window, not every
+route to that state, and the arm constructs the state directly so its behaviour is pinned either
+way. **Measuring one mechanism and pronouncing on the whole space is this card's signature error;
+naming the boundary is cheaper than committing it a sixth time.**
+
+**A stale enumeration with stale line numbers** (mine). `server.test.js` still listed three writes
+with `create.js:1386/1389`, which are now 1418/1421. Both the count and the coordinates rotted.
+
+### The pattern across all of them, and it is now a rule I follow rather than a lesson I record
+
+Every one of these is a **prose restatement of a fact that a test could hold.** So all three
+prose enumerations of what `setProvider` writes are now DELETED rather than corrected, each
+replaced by a pointer to the measuring test. The remaining sentences state only the PROPERTY the
+guard rests on, which is the thing those enumerations were standing in for and is one line long:
+`workerDir(clean)` is not moved and the NAME does not change.
+
+⭐ **A correction that produces another sentence has changed the wording, not the failure mode.**
+
+### Round 24, MAJOR 4 and NIT 5: the round-9 rule broken, and two vacuous assertions of mine
+
+**MAJOR 4: round 23 reintroduced the exact citation style round 9 banned, and it rotted in 18
+minutes.** Round 9 ruled (this plan, "Rather than correct the numbers, they are gone"):
+
+> "A citation whose truth depends on nobody editing a file above it is a claim I have to
+> re-verify forever, and **this card has already shown I do not.**"
+
+Round 23 wrote `create.js:1386` and `create.js:1389` into `server.test.js`, and the very next
+commit of the same round added 20 lines above them. **The prediction came true inside one round,
+by the same author.** Both citations are gone rather than corrected, and I swept my whole diff:
+three line-number citations were added on this branch and all three are now removed. (Pre-existing
+ones elsewhere in `server.js`/`server.test.js` are not mine and are left alone.)
+
+**NIT 5, and the reviewer reported the milder of the two.** They flagged
+`assert.equal(nodePath.dirname(nodePath.join(dir, 'AGENTS.md')), dir)` as a tautology about
+`node:path`. True, and it was already gone in the rewrite. But the rewrite I had just written
+contained a worse one:
+
+```js
+assert.equal(create.readJob(name).name || name, name, 'the agent name is unchanged');
+```
+
+`readJob` returns `{ claude, tmux, model, configDir, runner }` and **no `name` key at all**, so
+this read `undefined || name` against `name`. A literal tautology carrying a message about a
+product property. A second, `assert.equal(outside.length, 3)`, was implied by the `deepEqual`
+above it and so could never fail independently.
+
+⭐ **I wrote both in the same session in which I was removing that class from two other files.**
+Knowing a failure mode by name does not stop you producing it; only a mutant does.
+
+### A third shape, found while fixing the second: AN ASSERTION CAN BE SHIELDED BY A CRASH
+
+The replacement, `assert.ok(create.readJob(name))`, was still unreachable where I first put it.
+The isolating mutant (a plist written at the SAME path but unparseable, so `readJob` returns null)
+made the `.runner` read ABOVE it throw a TypeError first, and the arm died with a stack trace
+instead of a sentence. Measured, both orders:
+
+```
+assertion BELOW the .runner read  ->  TypeError: Cannot read properties of null (reading 'runner')
+assertion ABOVE it                ->  AssertionError: the launch job is no longer readable ...
+```
+
+⇒ **"What mutant kills this?" is not the whole question. "Does anything above it throw first?" is
+the other half**, and a crash looks like coverage: the test IS red, so a mutation run scores it as
+killed. Only the MESSAGE tells you which assertion did the work, and a stack trace tells you none
+did.
+
+Every assertion in `engine/create.setprovider-writes-2811.test.js` now has a named mutant that
+reds it BY MESSAGE:
+
+```
+delete the trust write / the rename / the profile write   -> the exact-set assertion
+ADD a fifth write                                         -> the exact-set assertion
+profile records a different `dir`                         -> "the worker directory MOVED"
+plist unreadable at the same path                         -> "the launch job is no longer readable"
+```

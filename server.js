@@ -716,9 +716,19 @@ function whoamiFor(card, known, live) {
 
        ⇒ KEPT AS IS, and the reasoning is which case is REACHABLE. Live-claude
        over plist-codex is a real product path: `setProvider` rewrites the plist
-       and the marker while the RUNNING process stays claude until the agent
-       restarts, and during that window live is right and the transcript it is
-       writing is valid. The opposite case needs two agent-shaped processes in one
+       while the RUNNING process stays claude until the agent restarts, and during
+       that window live is right and the transcript it is writing is valid.
+       🛑 "AND THE MARKER" IS WHAT THIS SENTENCE USED TO SAY, AND IT IS FALSE.
+       `setProvider` never invokes tmux (measured over its whole body); the
+       `@kosmos_runner` marker is written by `bin/agent-supervisor.sh` at agent
+       START, which is AFTER the restart this window waits for. So during the
+       window the marker still holds its OLD value, not the new one.
+       ⚠️ NAMED RATHER THAN QUIETLY DROPPED: that correction settles how the
+       marker behaves in THIS window and does NOT settle whether a live-claude +
+       codex-marker state is reachable by some other route (an agent restarted
+       outside the supervisor, say). The arm below constructs that state directly
+       and so tests the behaviour either way; I have not measured its
+       reachability, and I am not claiming it. The opposite case needs two agent-shaped processes in one
        pane's tree at the same or shallower depth, which a reviewer tried and
        could not construct from any launch path this product has.
        📌 Weakest premise, named: "could not construct" is not "cannot exist". If
@@ -912,15 +922,30 @@ function whoamiFor(card, known, live) {
        CODEX AGENT. `readModel` resolves through `transcriptFor`/`byWorkdir` into
        `projects/*.jsonl` rows that Claude Code writes. `create.setProvider`
        switches an agent claude -> codex without moving anything the transcript
-       lookup keys on: it rewrites the plist, renames the brief CLAUDE.md <->
-       AGENTS.md, and writes the profile's provider. The rename happens INSIDE
-       `workerDir(clean)` and the name never changes, so `byWorkdir` resolves the
-       same directory afterwards and the OLD Claude transcript stays findable.
-       ⚠️ `setProvider`'s own header says the mechanism is "a plist rewrite ...
+       lookup keys on. 🛑 DO NOT TAKE THE LIST OF WHAT IT WRITES FROM HERE: this
+       sentence has been an enumeration twice ("one", then "three") and was wrong
+       both times. `engine/create.setprovider-writes-2811.test.js` enumerates the
+       written path-set BY MEASUREMENT and reds when it changes; that is the
+       reference.
+       What matters HERE is only the property the model guard rests on, and it is
+       not "nothing leaves `workerDir(clean)`" (three of the written paths are
+       outside it, and the plist and profile always were). It is that
+       `workerDir(clean)` is not itself MOVED and the agent's NAME does not
+       change, so `byWorkdir` resolves the same directory afterwards and the OLD
+       Claude transcript stays findable.
+       ⚠️ `setProvider`'s own header SAID the mechanism is "a plist rewrite ...
        and nothing else", and an earlier version of this comment repeated that.
-       It is measurably false (create.js does both other things a dozen lines
-       below the sentence). The CONCLUSION survives, which is exactly why the
-       wrong premise was worth correcting rather than leaning on. This branch is the PREFERRED source, so without
+       It is measurably false: it performs FOUR writes, enumerated by measurement
+       in `engine/create.setprovider-writes-2811.test.js` rather than by anyone's
+       reading, because the count has now been wrong three times. The header is
+       corrected and points there.
+       🛑 AND "a dozen lines below the sentence" IS WHAT THIS COMMENT USED TO SAY,
+       which was itself never measured: the statements sit 322 and 325 lines below
+       `function setProvider`, at the merge-base as well as today. That wrong
+       distance made the error sound glanceable and so made its 22-round survival
+       look like carelessness; 322 lines explains it far better.
+       The CONCLUSION survives, which is exactly why the wrong premise was worth
+       correcting rather than leaning on. This branch is the PREFERRED source, so without
        this guard a Codex agent answers `runner: "codex"` and "its model is Claude
        Opus 5" in one payload, off a transcript from before the switch.
        ⚠️ THAT IS NEW, AND IT IS THIS CHANGE THAT MADE IT REACHABLE. While the
