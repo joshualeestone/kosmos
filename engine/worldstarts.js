@@ -49,6 +49,7 @@ const create = require('./create');
 const win32job = require('./win32job');
 const disruption = require('./disruption');
 const liveExec = require('./live-execution');
+const launchidentity = require('./launchidentity'); // #2935: the world-keyed session name (launchKey)
 
 /** The record's file name, inside the store of the Kosmos it belongs to. */
 const RECORD_FILENAME = 'world-starts.json';
@@ -217,6 +218,7 @@ function importsWaitingIn(storeRoot) {
 const GATE_REFUSALS = Object.freeze({
   pause: 'Kosmos is not allowed to start or stop agents from here, so nothing was changed',
   resume: 'Kosmos is not allowed to start agents from here, so it has not been started yet',
+  hide: 'Kosmos is not allowed to stop agents from here, so they were left running', // #2935
 });
 
 /**
@@ -417,6 +419,60 @@ function pauseForSwitch(agents, opts = {}) {
   return { paused, notPaused, stoppedNow };
 }
 
+/* ── stop (a hidden Kosmos) ────────────────────────────────────────────────── */
+
+/**
+ * #2935: STOP (not delete) the agents of a Kosmos being hidden. Reversible and best-effort: each
+ * agent's world-keyed launch job is disabled and booted out and its session ended -- the same stop
+ * `pauseForSwitch` performs, but WITHOUT the paused-record. A hidden Kosmos is never the booted one,
+ * so a record would land in the wrong world's store, and there is no restore, so nothing resumes it.
+ *
+ * `names` is the Kosmos's agent names (the caller enumerates them, so this needs no registry
+ * access); `worldId` keys the jobs and sessions. Returns `{ stopped: [names], kept: [names] }`.
+ *
+ * 🛑 GATED ON LIVE EXECUTION FIRST, and this is not optional: engine/win32job.js shells `schtasks`
+ * WITHOUT consulting the gate (unlike engine/remove.js's launchctl runner, which self-gates), so a
+ * win32 stop that skipped this check would fire real scheduled-task commands in an unarmed process.
+ * `pauseForSwitch` gates for the same reason. When live execution is not armed, nothing is touched
+ * and every agent is reported kept.
+ *
+ * Unlike `pauseForSwitch` this paints no `disruption` "Restarting" state: a hidden Kosmos is
+ * filtered out of `listWorlds`, so there is no board card to paint over. That omission is deliberate.
+ */
+function stopWorldAgents(names, worldId, opts = {}) {
+  const platform = platformFor(opts);
+  const list = Array.isArray(names) ? names : [];
+  const stopped = [];
+  const kept = [];
+  if (list.length === 0) return { stopped, kept };
+  if (liveExecutionRefusal('hide', list)) return { stopped, kept: list.slice() };
+  const ops = remove.jobOps(platform);
+  const sessions = remove.sessionOps(platform);
+  for (const name of list) {
+    if (remove.unsafeToActOn(name)) { kept.push(name); continue; }
+    let job = null;
+    try { job = remove.jobFor(name, platform, worldId); } catch { job = null; }
+    // `ours === false` is jobFor's legacy com.<name>.discord candidate, which jobFor offers only in
+    // the DEFAULT world -- never hideable -- so this arm is unreachable on the hide path (worldId is
+    // always a named id here). Kept for structural parity with pauseForSwitch, where it does fire.
+    if (!job || job.ours === false) { kept.push(name); continue; }
+    // Disable FIRST. On a failed disable do NOT bootout: killing the running job while it stays
+    // enabled would let the next login silently restart an agent of a Kosmos the user just hid.
+    if (!actSucceeded(() => ops.disable(name, job))) { kept.push(name); continue; }
+    // The KeepAlive supervisor and the running session are two processes, so end both. On win32
+    // stopNow (schtasks /End on the world-keyed task) is the real stop; the session-end uses the
+    // launchKey, the same identifier pauseForSwitch passes, so this path does not diverge from it.
+    const down = actSucceeded(() => ops.stopNow(name, job))
+      && actSucceeded(() => sessions.end(launchidentity.launchKey(name, worldId)));
+    if (down) { stopped.push(name); continue; }
+    // Left running but now disabled: re-enable so it is cleanly running, not half-off (the same
+    // rollback pauseForSwitch makes), and report it kept.
+    actSucceeded(() => ops.enable(name, job));
+    kept.push(name);
+  }
+  return { stopped, kept };
+}
+
 /* ── start ───────────────────────────────────────────────────────────────── */
 
 /**
@@ -596,6 +652,7 @@ module.exports = {
   importsWaitingIn,
   forgetEntries,
   pauseForSwitch,
+  stopWorldAgents,
   resumePaused,
   resumeNames,
   startImported,

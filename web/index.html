@@ -8734,6 +8734,23 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <button class="btn uprime" id="world-set-add" type="button" disabled>Add agents</button>
       </div>
     </div>
+    <!-- #2935 (Josh's soft-delete ruling): hide this Kosmos from the list. Hidden for the default
+         (Kosmos 1) the same way the rename section is (worldRenameOpen's isDefault). Two steps so a
+         hide is deliberate; the confirm copy states the files remain accessible and where. Nothing
+         is deleted (soft), so a plain confirm is enough (Josh: no type-the-name). No undo control
+         (Josh: "no restore a kosmos"). -->
+    <div class="field world-import" id="world-hide-section" role="group" aria-labelledby="world-hide-lab" aria-describedby="world-hide-hint" hidden>
+      <span class="flabel tk-lab" id="world-hide-lab">Hide this Kosmos</span>
+      <p class="rm-small" id="world-hide-hint">This removes it from your Kosmoses list and stops its agents. Your agents, projects, and files are not deleted: they stay in your Kosmos folder on this computer. This cannot be undone from here.</p>
+      <div class="world-import-acts" id="world-hide-step1">
+        <button class="btn" id="world-hide-go" type="button">Hide from my Kosmoses list</button>
+      </div>
+      <div class="world-import-acts" id="world-hide-confirm" hidden>
+        <span class="rm-small" id="world-hide-confirm-say">Hide this Kosmos? Your files stay where they are and remain accessible.</span>
+        <button class="btn" id="world-hide-cancel" type="button">Cancel</button>
+        <button class="btn danger-btn" id="world-hide-really" type="button">Hide</button>
+      </div>
+    </div>
     <div class="rm-acts" style="margin-top: var(--space-6);">
       <button class="btn" id="world-rename-cancel" type="button">Close</button>
     </div>
@@ -19161,6 +19178,13 @@ function worldRenameOpen(id, name) {
   document.getElementById('world-rename-msg').textContent = '';
   document.getElementById('world-rename-t').textContent = (name || 'Kosmos') + ' settings';
   document.getElementById('world-rename-section').hidden = isDefault;
+  /* #2935: the hide section shows for any non-default Kosmos; Kosmos 1 is never hideable. Reset the
+     two-step confirm to step 1 each time the modal opens, so a reopened dialog never lands on a
+     primed "Hide". */
+  document.getElementById('world-hide-section').hidden = isDefault;
+  document.getElementById('world-hide-step1').hidden = false;
+  document.getElementById('world-hide-confirm').hidden = true;
+  document.getElementById('world-hide-really').disabled = false;
   document.getElementById('world-set-import').hidden = true;
   document.getElementById('world-set-import-list').textContent = '';
   document.getElementById('world-set-import-none').hidden = true;
@@ -19285,6 +19309,63 @@ async function worldRenameSubmit() {
     go.disabled = false;
   }
 }
+// #2935 hide-a-Kosmos: a deliberate two-step confirm inside the settings modal. Step 1 is a plain
+// button that reveals the confirm row (files-stay-accessible copy + Cancel/Hide); the step-2 "Hide"
+// is the danger-styled commit. The POST mirrors the rename submit above, including surfacing the
+// route's `because` text so an active-world refusal (409 EACTIVE: switch away first) reads clearly.
+function worldHideReveal() {
+  document.getElementById('world-hide-step1').hidden = true;
+  document.getElementById('world-hide-confirm').hidden = false;
+  document.getElementById('world-rename-msg').textContent = '';
+  // Focus the HARMLESS action, not the destructive "Hide": hiding cannot be undone, so a stray
+  // Enter/Space on the just-revealed confirm must land on Cancel, matching openRemoveModal /
+  // openDeleteModal ("Enter or space on an unaimed modal must land on the harmless answer").
+  document.getElementById('world-hide-cancel').focus();
+}
+function worldHideBack() {
+  document.getElementById('world-hide-confirm').hidden = true;
+  document.getElementById('world-hide-step1').hidden = false;
+  document.getElementById('world-hide-go').focus();
+}
+async function worldHideSubmit() {
+  const really = document.getElementById('world-hide-really');
+  const msg = document.getElementById('world-rename-msg');
+  const id = WORLD_RENAME_ID;
+  if (!id) { worldRenameClose(); return; }
+  really.disabled = true;
+  msg.textContent = '';
+  try {
+    const res = await fetch('/api/worlds/hide', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      msg.textContent = (body && (body.because || body.error)) || 'Could not hide this Kosmos. Try again.';
+      really.disabled = false;
+      return;
+    }
+    // The agent-stop is best-effort: if some agents could not be stopped they are still running,
+    // so the "stops its agents" promise did not fully hold. Say so instead of closing silently.
+    const kept = body && body.agents && Array.isArray(body.agents.kept) ? body.agents.kept : [];
+    if (kept.length) {
+      document.getElementById('world-hide-step1').hidden = true;
+      document.getElementById('world-hide-confirm').hidden = true;
+      msg.textContent = kept.length === 1
+        ? 'This Kosmos is hidden. One of its agents could not be stopped and may still be running.'
+        : 'This Kosmos is hidden. ' + kept.length + ' of its agents could not be stopped and may still be running.';
+      await worldsFetch().catch(() => {});   // the world is hidden; refresh the switcher behind the dialog
+      return;
+    }
+    worldRenameClose();
+    await worldsFetch().catch(() => {});
+    worldswOpen();
+  } catch {
+    msg.textContent = 'Could not reach Kosmos. Try again.';
+    really.disabled = false;
+  }
+}
 (function wireWorldsw() {
   const btn = document.getElementById('worldsw-btn');
   if (!btn) return;
@@ -19304,6 +19385,10 @@ async function worldRenameSubmit() {
   rin.addEventListener('input', () => { document.getElementById('world-rename-go').disabled = !rin.value.trim(); });
   rin.addEventListener('keydown', (e) => { if (e.key === 'Enter' && rin.value.trim() && !document.getElementById('world-rename-go').disabled) { e.preventDefault(); worldRenameSubmit(); } });
   document.getElementById('world-rename-modal').addEventListener('click', (e) => { if (e.target.id === 'world-rename-modal') worldRenameClose(); });
+  // #2935: the hide-a-Kosmos two-step confirm, in the same settings modal.
+  document.getElementById('world-hide-go').addEventListener('click', worldHideReveal);
+  document.getElementById('world-hide-cancel').addEventListener('click', worldHideBack);
+  document.getElementById('world-hide-really').addEventListener('click', worldHideSubmit);
   // #1704 PR4: Skip in both panes, and the settings pane's "Add agents". A tick anywhere
   // in the settings picker (a Kosmos head's change bubbles here after its own handler has
   // ticked its agents) re-decides whether Add is enabled.

@@ -262,6 +262,19 @@ const worlds = require('./engine/worlds'); // #1704: the multiple-Kosmos registr
    /api/worlds routes fall back to the live baseRoot -- correct then because no
    override was set. `worldRegistryBase` is declared at the top of the file. */
 function worldBase() { return worldRegistryBase || worlds.baseRoot(process.env); }
+/* #2935: hiding a Kosmos STOPS (never deletes) its agents, so they do not keep running for a
+   Kosmos that is no longer on the list. This enumerates the world's agents and hands the actual
+   stop to worldstarts.stopWorldAgents, which owns the reversible, live-execution-gated,
+   platform-injectable stop (the same machinery pauseForSwitch uses, minus the paused-record).
+   Deliberately SEPARATE from the hide: the hide is already complete and reversible without it
+   (files + jobs stay on disk), so a failure here never fails the hide. Returns
+   { stopped: [names], kept: [names] } for the response and the log. */
+function stopHiddenWorldAgents(base, world) {
+  let names = [];
+  try { names = worlds.worldProfileNames(base, world) || []; }
+  catch { return { stopped: [], kept: [] }; }
+  return worldstarts.stopWorldAgents(names, world.id);
+}
 /* #1704: translate engine.worlds errors into something a person creating a Kosmos
    can read. store.safeKey (reused for the world id) throws "invalid agent name",
    which is wrong wording for a world; the others are already clear. */
@@ -3387,6 +3400,41 @@ const server = http.createServer((req, res) => {
           sendJson(res, 500, { ok: false, because: 'we could not rename that Kosmos' }); return;
         }
         sendJson(res, 200, { ok: true, world });
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  /* #2935 (Josh's soft-delete ruling): HIDE a Kosmos from the list. Soft only -- the on-disk store
+     is untouched (files stay accessible); the registry row is flagged hidden and this world's agents
+     are STOPPED (not deleted) so they do not keep running for a Kosmos removed from your list.
+     Mirrors /api/worlds/rename, classifying the engine's TYPED error codes. No id/name body beyond
+     the id. There is no unhide route (Josh: "no restore a kosmos"). */
+  if (pathname === '/api/worlds/hide' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { ok: false, because: 'we could not read that request' }); return; }
+        const id = typeof body.id === 'string' ? body.id.trim() : '';
+        if (!id) { sendJson(res, 400, { ok: false, because: 'say which Kosmos to hide (an id)' }); return; }
+        let base;
+        try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+        let world;
+        try { world = worlds.hideWorld(base, id); }
+        catch (e) {
+          const code = e && e.code;
+          if (code === 'ERESERVED') { sendJson(res, 400, { ok: false, because: 'the first Kosmos cannot be hidden' }); return; }
+          if (code === 'EACTIVE') { sendJson(res, 409, { ok: false, because: 'switch to another Kosmos before hiding this one' }); return; }
+          if (code === 'ENOWORLD') { sendJson(res, 404, { ok: false, because: 'there is no Kosmos with that id on this machine' }); return; }
+          if (code === 'EWORLDLOCK') { sendJson(res, 409, { ok: false, because: 'another Kosmos operation is in progress, try again in a moment' }); return; }
+          sendJson(res, 500, { ok: false, because: 'we could not hide that Kosmos' }); return;
+        }
+        /* STOP (not delete) this world's agents so they do not keep running for a hidden Kosmos.
+           Best-effort and reversible; it can never fail the hide (the hide already succeeded above,
+           and stopHiddenWorldAgents swallows its own errors). See its definition for the model. */
+        let agents = { stopped: [], kept: [] };
+        try { agents = stopHiddenWorldAgents(base, world); }
+        catch (err) { process.stderr.write(`Kosmos hid ${world.id} but could not stop its agents: ${String((err && err.message) || err)}\n`); }
+        sendJson(res, 200, { ok: true, world, agents });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;

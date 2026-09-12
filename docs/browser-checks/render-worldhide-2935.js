@@ -1,0 +1,229 @@
+'use strict';
+
+/**
+ * kosmos#2935: hide (soft-delete) a Kosmos from the settings cog.
+ *
+ * Josh ruled soft-delete only: hiding drops a Kosmos off the Kosmoses list but the on-disk store
+ * stays accessible, so the confirm copy must SAY the files remain and where, and Kosmos 1 is never
+ * hideable. This pins the UI wiring the unit suites cannot see:
+ *  - a NAMED Kosmos's settings show a "Hide this Kosmos" section whose copy states the files are
+ *    not deleted and where they stay (the one required user-facing string);
+ *  - hiding is a deliberate two step: "Hide from my Kosmoses list" reveals a confirm row, and only
+ *    "Hide" there POSTs POST /api/worlds/hide {id}; on success the modal closes and the switcher
+ *    refetches;
+ *  - the route's refusal text surfaces (409 EACTIVE: switch away from the active Kosmos first);
+ *  - Kosmos 1's settings have NO hide section (the default is never hideable).
+ *
+ * WHY A BROWSER. The section, the two-step confirm and the POST body are built/handled in JS off
+ * fetched lists and click handlers, none of it visible to a source grep. HERMETIC: file://, no
+ * server; window.fetch is stubbed. Reds on a page with no hide section or a one-step (no confirm)
+ * hide.
+ *
+ * Run:
+ *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-worldhide-2935.js
+ * HEADED by default; HEADED=0 on a console-less machine.
+ */
+
+const nodePath = require('node:path');
+
+let chromium;
+try { ({ chromium } = require('playwright')); }
+catch {
+  console.log('render-worldhide-2935: playwright is not on NODE_PATH - SKIPPED, not passed.');
+  process.exit(0);
+}
+
+const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
+
+(async () => {
+  let browser;
+  try { browser = await chromium.launch({ headless: process.env.HEADED === '0' }); }
+  catch (err) {
+    console.error('FAIL  render-worldhide-2935: could not start a browser'
+      + (process.env.HEADED === '0' ? '.' : ' (headed; try HEADED=0).'));
+    console.error('  ' + (err && err.message ? err.message.split('\n')[0] : err));
+    process.exit(1);
+  }
+  const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+  await page.goto('file://' + PAGE);
+
+  const r = await page.evaluate(async () => {
+    if (typeof worldswRender !== 'function') return { error: 'worldswRender is not a function (pre-#1704 page?)' };
+    if (typeof worldHideSubmit !== 'function') return { error: 'worldHideSubmit is not a function (pre-#2935 page?)' };
+    const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+    const $ = (id) => document.getElementById(id);
+    const calls = [];
+    const LIST = { worlds: [
+      { id: 'default', name: 'Kosmos 1', agentCount: 1, agents: [{ name: 'ava', displayName: 'Ava', because: null }], waiting: [] },
+      { id: 'clientwork', name: 'Client work', agentCount: 1, agents: [{ name: 'bo', displayName: 'Bo', because: null }], waiting: [] },
+      { id: 'keepers', name: 'Keepers', agentCount: 1, agents: [{ name: 'ki', displayName: 'Ki', because: null }], waiting: [] },
+      { id: 'booted', name: 'Booted world', agentCount: 0, agents: [], waiting: [] },
+    ] };
+    window.fetch = (url, opts) => {
+      const u = String(url);
+      const method = (opts && opts.method) || 'GET';
+      const body = (opts && opts.body) || '';
+      calls.push({ url: u, method, body });
+      if (u.indexOf('/api/worlds/list') !== -1) return Promise.resolve({ ok: true, json: async () => LIST });
+      if (u.indexOf('/api/worlds/hide') !== -1) {
+        let id = '';
+        try { id = JSON.parse(body).id; } catch { id = ''; }
+        // The active/booted world is refused server-side; the client must surface the reason.
+        // The `because` here is copied from the server's EACTIVE branch (server.js) for fidelity.
+        // This check is hermetic (it stubs its own fetch), so it does NOT catch the server changing
+        // that string; it verifies only that the client surfaces whatever `because` the server sends.
+        if (id === 'booted') return Promise.resolve({ ok: false, status: 409, json: async () => ({ error: 'world in use', because: 'switch to another Kosmos before hiding this one' }) });
+        // The route always returns agents:{stopped,kept}. 'keepers' models a best-effort stop that
+        // left an agent running (kept non-empty); every other world stops cleanly.
+        const agents = id === 'keepers' ? { stopped: [], kept: ['ki'] } : { stopped: ['bo'], kept: [] };
+        return Promise.resolve({ ok: true, json: async () => ({ ok: true, world: { id, hiddenAt: '2026-09-12T00:00:00.000Z' }, agents }) });
+      }
+      // worldsFetch (the switcher refetch after a successful hide) hits PLAIN /api/worlds, a
+      // different endpoint from /api/worlds/list (the settings picker, fired on modal open). Serve
+      // it so the refetch actually renders and the post-hide assertion below is not vacuous.
+      if (/\/api\/worlds(?:\?|$)/.test(u)) return Promise.resolve({ ok: true, json: async () => ({ worlds: LIST.worlds.map((w) => ({ id: w.id, name: w.name })), activeWorldId: 'booted' }) });
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    };
+
+    worldswRender({ worlds: LIST.worlds.map((w) => ({ id: w.id, name: w.name })), activeWorldId: 'booted' });
+    if (typeof worldswOpen === 'function') worldswOpen();
+    const entries = [...document.querySelectorAll('#worldsw-list .worldsw-entry')];
+    const cogOf = (name) => {
+      const e = entries.find((x) => (x.querySelector('.worldsw-rowname') || {}).textContent === name);
+      return e ? e.querySelector('.worldsw-cog') : null;
+    };
+    const out = { entries: entries.length };
+    const namedCog = cogOf('Client work');
+    const bootedCog = cogOf('Booted world');
+    const defCog = cogOf('Kosmos 1');
+    if (!namedCog || !bootedCog || !defCog) return out;
+
+    // Kosmos 1: no hide section (the default is never hideable).
+    defCog.click();
+    await sleep(80);
+    out.def = {
+      open: !$('world-rename-modal').hidden,
+      hideHidden: $('world-hide-section').hidden,
+    };
+    $('world-rename-cancel').click();
+    await sleep(40);
+
+    // A NAMED Kosmos: the hide section shows, with files-stay-accessible copy and a two-step confirm.
+    namedCog.click();
+    await sleep(80);
+    const hideSec = $('world-hide-section');
+    const labId = hideSec.getAttribute('aria-labelledby');
+    out.named = {
+      open: !$('world-rename-modal').hidden,
+      hideShown: !$('world-hide-section').hidden,
+      // #2935 a11y: the section is a labelled group, so a screen reader announces the "Hide this
+      // Kosmos" heading around the buttons a sighted user reads it above.
+      hideRole: hideSec.getAttribute('role'),
+      hideLabelText: labId && $(labId) ? $(labId).textContent : null,
+      hint: $('world-hide-hint').textContent,
+      confirmSay: $('world-hide-confirm-say').textContent,
+      step1Before: !$('world-hide-step1').hidden,
+      confirmBefore: !$('world-hide-confirm').hidden,
+    };
+    // Step 1 reveals the confirm row; only "Hide" there fires the POST.
+    $('world-hide-go').click();
+    await sleep(40);
+    out.named.step1AfterGo = !$('world-hide-step1').hidden;
+    out.named.confirmAfterGo = !$('world-hide-confirm').hidden;
+    // Safety: focus must land on the HARMLESS Cancel, not the destructive Hide, so a stray Enter
+    // does not fire an irreversible hide (matching openRemoveModal / openDeleteModal).
+    out.named.focusAfterReveal = document.activeElement && document.activeElement.id;
+    // Cancel returns to step 1 without any POST.
+    $('world-hide-cancel').click();
+    await sleep(40);
+    out.named.confirmAfterCancel = !$('world-hide-confirm').hidden;
+    out.named.postsAfterCancel = calls.filter((c) => c.url.indexOf('/api/worlds/hide') !== -1).length;
+    // Re-open confirm and actually hide.
+    $('world-hide-go').click();
+    await sleep(40);
+    $('world-hide-really').click();
+    await sleep(120);
+    const hidIdx = calls.findIndex((c) => c.url.indexOf('/api/worlds/hide') !== -1 && c.method === 'POST');
+    const hid = hidIdx >= 0 ? calls[hidIdx] : null;
+    try { out.named.hideBody = hid ? JSON.parse(hid.body) : null; } catch { out.named.hideBody = null; }
+    out.named.modalClosedAfterHide = $('world-rename-modal').hidden;
+    // Scoped to AFTER the hide POST, and matched against PLAIN /api/worlds (worldsFetch), never
+    // /api/worlds/list (which fires on modal open, before the hide): otherwise the assertion passes
+    // even if the refetch is deleted. `(?:\?|$)` keeps /api/worlds/list and /api/worlds/hide out.
+    out.named.refetchedAfterHide = hidIdx >= 0
+      && calls.slice(hidIdx + 1).some((c) => /\/api\/worlds(?:\?|$)/.test(c.url) && c.method !== 'POST');
+
+    // A hide whose best-effort agent-stop left an agent running: the world is hidden but the UI
+    // must SAY an agent could not be stopped (the response carries agents.kept), not close silently.
+    cogOf('Keepers').click();
+    await sleep(80);
+    $('world-hide-go').click();
+    await sleep(40);
+    $('world-hide-really').click();
+    await sleep(120);
+    out.keepers = {
+      stillOpen: !$('world-rename-modal').hidden,
+      msg: $('world-rename-msg').textContent,
+    };
+    $('world-rename-cancel').click();
+    await sleep(40);
+
+    // The active/booted world: the route refuses, and the reason must surface (modal stays open).
+    bootedCog.click();
+    await sleep(80);
+    $('world-hide-go').click();
+    await sleep(40);
+    $('world-hide-really').click();
+    await sleep(120);
+    out.booted = {
+      msg: $('world-rename-msg').textContent,
+      stillOpen: !$('world-rename-modal').hidden,
+    };
+    return out;
+  });
+
+  await browser.close();
+
+  const problems = [];
+  if (r.error) {
+    problems.push(r.error);
+  } else {
+    if (r.entries !== 4) problems.push('expected 4 switcher entries, got ' + r.entries);
+    const d = r.def || {};
+    if (!d.open) problems.push('Kosmos 1\'s cog did not open its settings');
+    if (!d.hideHidden) problems.push('Kosmos 1 is never hideable, so its settings must have NO hide section');
+    const n = r.named || {};
+    if (!n.open) problems.push('the named Kosmos\'s cog did not open its settings');
+    if (!n.hideShown) problems.push('a named Kosmos\'s settings must offer a hide section');
+    if (n.hideRole !== 'group' || n.hideLabelText !== 'Hide this Kosmos') {
+      problems.push('the hide section must be a group labelled "Hide this Kosmos" for screen readers: ' + JSON.stringify({ role: n.hideRole, label: n.hideLabelText }));
+    }
+    if (!/not deleted/.test(n.hint || '') || !/stay in your Kosmos folder/.test(n.hint || '')) {
+      problems.push('the hide copy must state the files are not deleted and where they stay: ' + JSON.stringify(n.hint));
+    }
+    if (!/remain accessible/.test(n.confirmSay || '')) problems.push('the confirm copy must restate that files remain accessible: ' + JSON.stringify(n.confirmSay));
+    if (!n.step1Before || n.confirmBefore) problems.push('the hide section must open on step 1 (danger button), confirm hidden');
+    if (n.step1AfterGo || !n.confirmAfterGo) problems.push('"Hide from my Kosmoses list" must reveal the confirm row and hide step 1');
+    if (n.focusAfterReveal !== 'world-hide-cancel') problems.push('revealing the confirm must focus the harmless Cancel, not the destructive Hide, got ' + JSON.stringify(n.focusAfterReveal));
+    if (n.confirmAfterCancel) problems.push('Cancel must return to step 1 (confirm hidden)');
+    if (n.postsAfterCancel !== 0) problems.push('Cancel must not POST a hide: ' + n.postsAfterCancel + ' call(s)');
+    if (!n.hideBody || n.hideBody.id !== 'clientwork') problems.push('Hide did not POST {id:"clientwork"}: ' + JSON.stringify(n.hideBody));
+    if (!n.modalClosedAfterHide) problems.push('after a successful hide the settings modal must close');
+    if (!n.refetchedAfterHide) problems.push('after a successful hide the switcher must refetch the list');
+    const k = r.keepers || {};
+    if (!k.stillOpen) problems.push('a hide that left an agent running must keep the modal open to say so, not close silently');
+    if (!/could not be stopped/.test(k.msg || '')) problems.push('a hide with kept agents must say an agent could not be stopped: ' + JSON.stringify(k.msg));
+    const b = r.booted || {};
+    if (b.msg !== 'switch to another Kosmos before hiding this one') problems.push('the route\'s refusal reason must surface: ' + JSON.stringify(b.msg));
+    if (!b.stillOpen) problems.push('a refused hide must leave the settings modal open so the reason is readable');
+  }
+
+  console.log('  ' + JSON.stringify(r));
+  if (problems.length) {
+    console.error('render-worldhide-2935: ' + problems.length + ' problem(s)');
+    for (const p of problems) console.error('  FAIL  ' + p);
+    process.exit(1);
+  }
+  console.log('render-worldhide-2935: OK (hide section on named Kosmoses with files-stay copy; two-step confirm POSTs {id}; refusal surfaces; Kosmos 1 not hideable)');
+  process.exit(0);
+})();
