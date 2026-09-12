@@ -11048,6 +11048,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              record-only: it is not delivered to an agent yet. The note says so,
              rather than a placeholder promising more than it does. -->
         <div class="tkcompose">
+          <!-- maxlength 2000 must match engine/tasks.js MESSAGE_MAX. The engine is
+               authoritative (it refuses over-length regardless), so a drift here is a
+               UX nicety, not a correctness hole, but keep them equal. -->
           <input type="text" id="tk-say" maxlength="2000" placeholder="Say something about this task" aria-label="Add a message to this task">
           <button class="btn-quiet" type="button" id="tk-say-go">Send</button>
         </div>
@@ -35950,6 +35953,12 @@ async function tkSayPost() {
   const input = document.getElementById('tk-say');
   const msg = document.getElementById('tk-say-msg');
   const go = document.getElementById('tk-say-go');
+  /* Re-entry guard, checked BEFORE anything else. go.disabled is set true for the
+     duration of an in-flight send (below), and a disabled button blocks a CLICK but
+     NOT the Enter keydown, which calls this directly -- so without this top guard two
+     quick Enters within the round trip both read the not-yet-cleared input and both
+     POST, recording a duplicate. Checking go.disabled here covers both paths. */
+  if (go && go.disabled) return;
   const text = (input && input.value || '').trim();
   if (msg) msg.textContent = '';
   if (!text) return;
