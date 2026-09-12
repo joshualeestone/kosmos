@@ -1047,3 +1047,42 @@ belief persisted across three files and 22 rounds.
 
 ⇒ **Eight claims on this card are now assertions.** Every one I fixed in prose has rotted. None
 converted to an assertion has.
+
+### Round 23 postscript: a count of MINE that drifted, caught from the reviewer's verification list
+
+Round 23's reviewer appended a list of things they checked and found CORRECT. One line of it
+disagreed with a summary of mine, so I measured rather than skimming past a passing item:
+
+> "the docstring key-matrix in `runningas.js` ... matches the 9 real return sites: 3 in
+> `runningAsDarwin` (594, 602, 643), 2 in `runningAsWin32` (408, 485), 4 in `win32Answer`
+> (360, 362, 365, 367)."
+
+**Their nine is right. My handoff said "asserted on all TEN return paths."** The table in
+`engine/runningas.test.js` has TEN ROWS driving NINE RETURNS: `darwin ok:true codex` and
+`darwin ok:true claude` both land on the same return (`runningas.js:643`). A count of CASES is
+not a count of PATHS, and I had been quoting one as the other.
+
+⭐ **AND MY OWN RE-COUNT WAS ALSO WRONG, IN THE OTHER DIRECTION.** `grep -nE '^\s*return'`
+returned EIGHT answer returns, not nine, because it cannot see a **one-liner guard return**:
+
+```
+485:  if (!entry) return { ok: false, because: `no session called ${session} ...` };
+362:  if (cmds == null) return { ok: false, because: 'we could not read the process table ...' };
+```
+
+Both sit after an `if` on the same line, so an anchored `^\s*return` skips them. **The pattern
+was right about the thing it matched and wrong about the question it was asked**, which is this
+card's recurring failure in its smallest form yet.
+
+✅ **The committed FILES were correct the whole time.** `runningas.test.js:261` says "TWO of the
+nine" and the table is the full set. Only my SUMMARY of the test drifted, in the handoff, and in
+the 2026-09-11 daily note. **A summary is a third copy of a fact and rots exactly like the other
+two.**
+
+⚠️ One "all ten" survives in a COMMIT MESSAGE and is left alone: rewriting history to fix a
+count is worse than the count.
+
+📌 **What the reviewer did that is worth copying: they listed what they had checked and found
+RIGHT, with line numbers.** Every prior round reported only defects. A verification list is
+checkable in a way "I found nothing else" is not, and the one error in this loop's own
+bookkeeping surfaced from a line that was reporting SUCCESS.
