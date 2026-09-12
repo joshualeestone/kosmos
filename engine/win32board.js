@@ -49,6 +49,7 @@ const path = require('node:path');
 
 const win32anchor = require('./win32anchor');
 const win32job = require('./win32job'); // taskUser + xmlEscape: the measured, shared half
+const win32swap = require('./win32swap'); // writeFileAtomic: a torn shim must never reach a logon
 
 /* One namespace with win32job's, one prefix apart. See the header. */
 const TASK_NAME = 'Kosmos\\board';
@@ -333,7 +334,9 @@ function install(spec) {
 
   const bootAt = path.join(anchor.dir, BOOT_NAME);
   try {
-    fs.writeFileSync(bootAt, BOOT_JS, 'utf8');
+    /* Atomic, for the pointer's reason: the task runs this at every logon, and a
+       torn shim is a syntax error there, so no board comes back. */
+    win32swap.writeFileAtomic(bootAt, BOOT_JS);
   } catch (e) {
     return { ok: false, because: 'we could not write the file that starts the board at logon (' + ((e && e.message) || 'no detail') + ')' };
   }

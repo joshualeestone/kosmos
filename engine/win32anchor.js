@@ -248,7 +248,9 @@ function ensureAnchored(opts) {
        and the board and every agent then exited 3 at the next logon. A reader
        now sees the old engine or the new one, complete. */
     win32swap.writeFileAtomic(pointerAt, String(engineDir));
-    fs.writeFileSync(bootAt, BOOT_JS, 'utf8');
+    /* The shim too: every agent's task runs it at logon, and a torn one is a
+       syntax error there, which stops every agent exactly as a torn pointer does. */
+    win32swap.writeFileAtomic(bootAt, BOOT_JS);
   } catch (e) {
     return { ok: false, because: 'we could not set up the files an agent needs to start at login (' + (e && e.message) + ')' };
   }

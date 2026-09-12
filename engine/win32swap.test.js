@@ -22,6 +22,7 @@ process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 
 const swap = require('./win32swap');
 const anchor = require('./win32anchor');
+const board = require('./win32board');
 
 test.after(() => {
   try { fs.rmSync(SANDBOX, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); } catch { /* best effort */ }
@@ -49,8 +50,11 @@ function anchoringOf(dir, src, engineDir) {
 function readPointerOf(dir) {
   return anchor.readPointer(process.platform, os.homedir(), { AGENT_WORKFORCE_DATA: dir });
 }
+function sideFilesOf(runtime, name) {
+  return fs.readdirSync(runtime).filter((n) => n.startsWith(name + '.'));
+}
 function pointerSideFiles(runtime) {
-  return fs.readdirSync(runtime).filter((n) => n.startsWith(anchor.POINTER_NAME + '.'));
+  return sideFilesOf(runtime, anchor.POINTER_NAME);
 }
 
 /* ---------------------------------------------------------------- exports */
@@ -87,6 +91,18 @@ test('ONE copy of each primitive: win32anchor defines none of them and requires 
     assert.doesNotMatch(src, new RegExp('const ' + name + '\\s*='), 'win32anchor.js defines its own ' + name);
   }
   assert.match(src, /require\('\.\/win32swap'\)/);
+});
+
+test('no file a boot or a task reads is written into the anchor with a plain writeFileSync', () => {
+  /* The pointer and both boot shims. The crash arms below prove the behaviour;
+     this names the three call sites, so a new plain write beside them is seen. */
+  const anchorSrc = fs.readFileSync(path.join(__dirname, 'win32anchor.js'), 'utf8');
+  const boardSrc = fs.readFileSync(path.join(__dirname, 'win32board.js'), 'utf8');
+  assert.doesNotMatch(anchorSrc, /fs\.writeFileSync\(\s*(pointerAt|bootAt)\b/);
+  assert.doesNotMatch(boardSrc, /fs\.writeFileSync\(\s*bootAt\b/);
+  assert.match(anchorSrc, /writeFileAtomic\(pointerAt\b/);
+  assert.match(anchorSrc, /writeFileAtomic\(bootAt\b/);
+  assert.match(boardSrc, /writeFileAtomic\(bootAt\b/);
 });
 
 test('win32swap needs only Node built-ins, and requiring it touches no file', () => {
@@ -198,40 +214,63 @@ test('renameWithRetry gives up on a lock that never clears, and rethrows it', ()
 
 /* ------------------------------------- the pointer, through ensureAnchored */
 
-/* A child that anchors against a sandbox and DIES partway through writing the
-   pointer. `rename` exits the process when the pointer's temp is about to take
-   the pointer's name; `write` writes half the pointer's bytes and exits. A real
-   exit, so no `finally` or `catch` runs: that is what a crash or a power cut is. */
+/* A child that anchors (or installs the board's task) against a sandbox and DIES
+   partway through writing ONE file, named by `name`. A real exit, so no `finally`
+   or `catch` runs: that is what a crash or a power cut is.
+   - `rename`: it dies as that file's temp is about to take the file's name.
+   - `tear`: it writes half that file's bytes and dies. It tears whichever path the
+     bytes take, the temp (`fs.writeSync` on the temp's fd) or the file itself (a
+     plain `fs.writeFileSync`), so a revert to a plain write tears the REAL file,
+     which is the defect, rather than merely skipping the trap.
+   The `board` driver runs win32board.install with its command seam replaced, so
+   it can never reach the real schtasks: getting that far exits with its own code. */
 const CRASH_EXIT = 9;
-function anchorThatDies(dir, mode, engineDir, src) {
-  const script = path.join(dir, 'dies-' + mode + '.js');
+const REACHED_SCHTASKS_EXIT = 8;
+function anchorThatDies(dir, mode, engineDir, src, name, driver) {
+  const script = path.join(dir, 'dies-' + mode + '-' + name + '.js');
   fs.writeFileSync(script, [
     "'use strict';",
     "const fs = require('node:fs');",
     "const os = require('node:os');",
     "const path = require('node:path');",
-    'const [dataDir, engineDir, srcNode, mode] = process.argv.slice(2);',
+    'const [dataDir, engineDir, srcNode, mode, name, driver] = process.argv.slice(2);',
     'process.env.AGENT_WORKFORCE_DATA = dataDir;',
     'const anchor = require(' + JSON.stringify(path.join(__dirname, 'win32anchor.js')) + ');',
+    'const board = require(' + JSON.stringify(path.join(__dirname, 'win32board.js')) + ');',
+    "board.setRunner(() => { process.stderr.write('reached schtasks'); process.exit(" + REACHED_SCHTASKS_EXIT + '); });',
+    "const named = (p) => { const b = path.basename(String(p)); return b === name || b.startsWith(name + '.writing-'); };",
     "if (mode === 'rename') {",
     '  const real = fs.renameSync;',
     '  fs.renameSync = (from, to) => {',
-    '    if (path.basename(String(to)) === anchor.POINTER_NAME) process.exit(' + CRASH_EXIT + ');',
+    '    if (path.basename(String(to)) === name) process.exit(' + CRASH_EXIT + ');',
     '    return real(from, to);',
     '  };',
     '} else {',
-    '  const real = fs.writeSync;',
+    '  const opened = new Map();',
+    '  const realOpen = fs.openSync;',
+    '  fs.openSync = (p, ...rest) => { const fd = realOpen(p, ...rest); opened.set(fd, String(p)); return fd; };',
+    '  const realWrite = fs.writeSync;',
     '  fs.writeSync = (fd, buf, off, len, pos) => {',
-    '    if (fd === 1 || fd === 2) return real(fd, buf, off, len, pos);',
-    '    real(fd, buf, off, Math.floor(len / 2), pos);',
-    '    process.exit(' + CRASH_EXIT + ');',
+    '    if (opened.has(fd) && named(opened.get(fd))) { realWrite(fd, buf, off, Math.floor(len / 2), pos); process.exit(' + CRASH_EXIT + '); }',
+    '    return realWrite(fd, buf, off, len, pos);',
+    '  };',
+    '  const realWriteFile = fs.writeFileSync;',
+    '  fs.writeFileSync = (p, data, ...rest) => {',
+    "    if (typeof p !== 'number' && named(p)) {",
+    '      const bytes = Buffer.isBuffer(data) ? data : Buffer.from(String(data));',
+    '      realWriteFile(p, bytes.subarray(0, Math.floor(bytes.length / 2)));',
+    '      process.exit(' + CRASH_EXIT + ');',
+    '    }',
+    '    return realWriteFile(p, data, ...rest);',
     '  };',
     '}',
-    'const r = anchor.ensureAnchored({ platform: process.platform, home: os.homedir(),',
-    '  env: { AGENT_WORKFORCE_DATA: dataDir }, node: srcNode, engineDir });',
+    "const env = { AGENT_WORKFORCE_DATA: dataDir, USERNAME: 'jo', USERDOMAIN: 'SANDBOX' };",
+    "const r = driver === 'board'",
+    '  ? board.install({ platform: process.platform, home: os.homedir(), env, node: srcNode, engineDir })',
+    '  : anchor.ensureAnchored({ platform: process.platform, home: os.homedir(), env, node: srcNode, engineDir });',
     'process.stdout.write(JSON.stringify(r));',
   ].join('\n'), 'utf8');
-  return cp.spawnSync(process.execPath, [script, dir, engineDir, src, mode], { encoding: 'utf8' });
+  return cp.spawnSync(process.execPath, [script, dir, engineDir, src, mode, name, driver || 'anchor'], { encoding: 'utf8' });
 }
 
 function anchoredAt(oldEngine) {
@@ -252,7 +291,7 @@ test('A CRASH BETWEEN THE POINTER\'S TEMP AND ITS RENAME LEAVES THE OLD POINTER 
      before the bytes landed left it empty, and the board and every agent exited 3
      at the next logon. */
   const { dir, src, first } = anchoredAt(OLD_ENGINE);
-  const out = anchorThatDies(dir, 'rename', NEW_ENGINE, src);
+  const out = anchorThatDies(dir, 'rename', NEW_ENGINE, src, anchor.POINTER_NAME);
   assert.equal(fs.readFileSync(first.pointer, 'utf8'), OLD_ENGINE,
     'the pointer must still hold the old engine, complete (child exit ' + out.status + ', ' + out.stdout + out.stderr + ')');
   assert.equal(out.status, CRASH_EXIT, 'sanity: the child really died at the pointer rename: ' + out.stdout + out.stderr);
@@ -274,7 +313,7 @@ test('A CRASH BETWEEN THE POINTER\'S TEMP AND ITS RENAME LEAVES THE OLD POINTER 
 
 test('a write torn part-way lands in the temp, never in the pointer', () => {
   const { dir, src, first } = anchoredAt(OLD_ENGINE);
-  const out = anchorThatDies(dir, 'write', NEW_ENGINE, src);
+  const out = anchorThatDies(dir, 'tear', NEW_ENGINE, src, anchor.POINTER_NAME);
   assert.equal(fs.readFileSync(first.pointer, 'utf8'), OLD_ENGINE,
     'a torn write must never reach the pointer (child exit ' + out.status + ', ' + out.stdout + out.stderr + ')');
   assert.equal(out.status, CRASH_EXIT, 'sanity: the child really died mid-write: ' + out.stdout + out.stderr);
@@ -282,6 +321,44 @@ test('a write torn part-way lands in the temp, never in the pointer', () => {
   assert.equal(leftovers.length, 1, 'the torn bytes are in the temp: ' + leftovers);
   const torn = fs.readFileSync(path.join(first.dir, leftovers[0]), 'utf8');
   assert.ok(torn.length < NEW_ENGINE.length && NEW_ENGINE.startsWith(torn), 'sanity: the temp really is partial: ' + torn);
+});
+
+/* Stand-ins for the shims an older release left, whole, so "the old shim is still
+   there" is distinguishable from "the current shim was rewritten". */
+const OLD_SUPERVISOR_SHIM = "'use strict';\n/* an older release's supervisor shim, whole */\nrequire('node:fs');\n";
+const OLD_BOARD_SHIM = "'use strict';\n/* an older release's board shim, whole */\nrequire('node:path');\n";
+
+test('A WRITE OF supervisor-boot.js TORN PART-WAY LEAVES THE OLD SHIM WHOLE', () => {
+  /* 🛑 Every agent's task runs this shim at logon. A torn one is a syntax error
+     there, and it stops every agent exactly as a torn pointer does. */
+  const { dir, src, first } = anchoredAt(OLD_ENGINE);
+  fs.writeFileSync(first.boot, OLD_SUPERVISOR_SHIM, 'utf8');
+  const out = anchorThatDies(dir, 'tear', NEW_ENGINE, src, anchor.BOOT_NAME);
+  assert.equal(fs.readFileSync(first.boot, 'utf8'), OLD_SUPERVISOR_SHIM,
+    'the old shim must be whole (child exit ' + out.status + ', ' + out.stdout + out.stderr + ')');
+  assert.equal(out.status, CRASH_EXIT, 'sanity: the child really died mid-write: ' + out.stdout + out.stderr);
+  assert.equal(fs.readFileSync(first.pointer, 'utf8'), NEW_ENGINE, 'sanity: the pointer, written first, landed whole');
+  const leftovers = sideFilesOf(first.dir, anchor.BOOT_NAME);
+  assert.equal(leftovers.length, 1, 'the torn bytes are in the temp: ' + leftovers);
+  const torn = fs.readFileSync(path.join(first.dir, leftovers[0]), 'utf8');
+  assert.ok(torn.length < anchor.BOOT_JS.length && anchor.BOOT_JS.startsWith(torn), 'sanity: the temp really is partial');
+});
+
+test('A WRITE OF board-boot.js TORN PART-WAY LEAVES THE OLD SHIM WHOLE', () => {
+  /* 🛑 The board's logon task runs this shim. A torn one means no board comes
+     back at the next logon. */
+  const { dir, src, first } = anchoredAt(OLD_ENGINE);
+  const boardBoot = path.join(first.dir, board.BOOT_NAME);
+  fs.writeFileSync(boardBoot, OLD_BOARD_SHIM, 'utf8');
+  const out = anchorThatDies(dir, 'tear', NEW_ENGINE, src, board.BOOT_NAME, 'board');
+  assert.equal(fs.readFileSync(boardBoot, 'utf8'), OLD_BOARD_SHIM,
+    'the old board shim must be whole (child exit ' + out.status + ', ' + out.stdout + out.stderr + ')');
+  assert.equal(out.status, CRASH_EXIT,
+    'sanity: the child died mid-write, before it could reach schtasks (' + REACHED_SCHTASKS_EXIT + '): ' + out.stdout + out.stderr);
+  const leftovers = sideFilesOf(first.dir, board.BOOT_NAME);
+  assert.equal(leftovers.length, 1, 'the torn bytes are in the temp: ' + leftovers);
+  const torn = fs.readFileSync(path.join(first.dir, leftovers[0]), 'utf8');
+  assert.ok(torn.length < board.BOOT_JS.length && board.BOOT_JS.startsWith(torn), 'sanity: the temp really is partial');
 });
 
 test('an anchoring whose pointer rename fails says so, and keeps the old pointer', () => {
