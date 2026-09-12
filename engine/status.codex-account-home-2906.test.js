@@ -149,9 +149,10 @@ test('#2906/5: backward compatibility - codexsession.read with no home keeps the
   const r = codexsession.read(wd);                 // no home arg
   assert.equal(r.found, true, 'the default home is still read when no home is passed');
   assert.equal(r.contextUsed, 55500);
-  // And an explicit home reads that one instead.
+  // And an explicit home reads ONLY that home: HOME_B has no rollout for wd, so the read
+  // is found:false -- it does NOT fall back to the board default (where 55500 does exist).
   const r2 = codexsession.read(wd, HOME_B);
-  assert.equal(r2.found, false, 'an explicit empty home does not fall back to the default');
+  assert.equal(r2.found, false, 'an explicit home reads only that home, never falling back to the board default');
 });
 
 test('#2906/6: no cross-account bleed - same workdir metadata in two non-board homes reads only the agent account', () => {
@@ -174,4 +175,36 @@ test('#2906/7: a matched rollout with no token count is "not yet measured", then
   const after = status.readCodexContext('hotel');
   assert.equal(after.tokens, 12345, 'usage appears once a turn completes');
   assert.equal(after.notYet, false);
+});
+
+test('#2906/8: a NON-codex runner FAILS CLOSED and never reads a codex rollout under any home', () => {
+  // The guard is `job.runner !== 'codex'`. A claude-runner agent must never be attributed a
+  // codex rollout, even one sitting in the board account home under its exact workdir.
+  const wd = path.join(SB, 'work', 'india');
+  fs.mkdirSync(wd, { recursive: true });
+  store.writeProfile('india', { dir: wd, provider: 'anthropic' });
+  fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+  fs.writeFileSync(
+    create.plistPath('india'),
+    create.plistFor('india', CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), // runner = claude, not codex
+    'utf8',
+  );
+  writeRolloutIn(HOME_BOARD, wd, 99999, 258400);   // a real codex rollout in the board account
+  assert.equal(status.readCodexContext('india').tokens, null, 'a non-codex runner -> no codex read, no board-account leak');
+});
+
+test('#2906/9: a codex job whose workdir cannot be resolved FAILS CLOSED (the !dir arm)', () => {
+  // The guard is `!dir`. A valid codex launch job exists, but no profile means workerDir()
+  // throws and dir is null -- the reader must fail closed rather than read anything.
+  const wd = path.join(SB, 'work', 'juliet');
+  fs.mkdirSync(wd, { recursive: true });
+  fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+  fs.writeFileSync(
+    create.plistPath('juliet'),
+    create.plistFor('juliet', CLAUDE_BIN, TMUX_BIN, null, HOME_B, 'codex'), // a real codex job...
+    'utf8',
+  );
+  // ...but NO profile is written, so create.workerDir('juliet') cannot resolve a dir.
+  writeRolloutIn(HOME_B, wd, 88888, 258400);       // a rollout that WOULD match if dir resolved
+  assert.equal(status.readCodexContext('juliet').tokens, null, 'unresolvable workdir -> fail closed, no read');
 });
