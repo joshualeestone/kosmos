@@ -5675,6 +5675,27 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     return { ...scraped, reported: false, conflict: 'its screen shows a question its reports do not mention', project: p, projectInferred: p !== null };
   }
 
+  /* #2837: a WORKING state carries the project the report attributes it to, the
+     same way #763 (above) does for needs_you, so the project overview can light
+     only the project a working agent is working in rather than every project it
+     belongs to. Freshness-gated exactly like #763 -- a stale naming (a report
+     older than the working-decay window) must not attribute today's work, so a
+     stale report yields a null project and the overview falls back to
+     sole-membership. Null when the report named none.
+     ONE derivation, not two (two derivations of one fact is this codebase's
+     most-shipped defect): `screenLed` selects the ONLY difference, which is in
+     `projectInferred`. When the WORKING state comes from the report itself, the
+     report's own flag decides whether the naming was inherited. When it comes
+     from the SCREEN beside an idle/started report (the scraped-WORKING fallback),
+     the project is carried from a separate report, so attributing it to this
+     state is always an inference -- matching rule 3's scraped-needs_you shape. */
+  const workingProject = (screenLed) => {
+    const atP = Date.parse(reported.at || '');
+    const freshP = Number.isFinite(atP) && (nowMs - atP) <= REPORT_WORKING_DECAY_MS;
+    const p = (freshP && typeof reported.project === 'string' && reported.project) ? reported.project : null;
+    return { project: p, projectInferred: p !== null && (screenLed || reported.projectInferred === true) };
+  };
+
   if (reported.state === 'working') {
     const at = Date.parse(reported.at || '');
     const stale = !Number.isFinite(at) || (nowMs - at) > REPORT_WORKING_DECAY_MS;
@@ -5695,7 +5716,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          prompt -- the exact sentence this branch's chat half exists to remove,
          reappearing in the one arm the feature is for. Measured across all five
          report arms; this was the only one that lost it. */
-      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null, backgroundWait: scraped.backgroundWait === true };
+      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null, backgroundWait: scraped.backgroundWait === true, ...workingProject(false) };
     }
     // Rule 5: the comparison happens BEFORE the decay.
     if (scraped.state === STATE.WORKING) {
@@ -5753,10 +5774,16 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          background agent is still running" -- the board conflates the two. That
          is a fleet-wide precedence change affecting every agent, so it is NOT
          made unilaterally from this card. Raised rather than taken. */
+      /* #2837: `workingProject(true)` here resolves to a NULL project by
+         construction -- this branch is reached only when the working report is
+         already `stale`, and the helper's freshness gate is that same staleness,
+         so a stale naming never attributes (which is the correct behaviour: a
+         stale report must not attribute today's work). Kept as `workingProject`
+         rather than a bare literal so all working returns share one shape. */
       if (scraped.backgroundWait === true) {
-        return { ...scraped, reported: false, conflict: null };
+        return { ...scraped, reported: false, conflict: null, ...workingProject(true) };
       }
-      return { ...scraped, reported: false, conflict: 'its reports stopped arriving while its screen still shows work, so the reporter may be broken' };
+      return { ...scraped, reported: false, conflict: 'its reports stopped arriving while its screen still shows work, so the reporter may be broken', ...workingProject(true) };
     }
     return {
       state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE,
@@ -5833,9 +5860,9 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
        📌 Identical reasoning to rule 5's exemption above, one branch over, and the
        same structural flag rather than a sentence match so the two cannot drift. */
     if (scraped.backgroundWait === true) {
-      return { ...scraped, reported: false, conflict: null };
+      return { ...scraped, reported: false, conflict: null, ...workingProject(true) };
     }
-    return { ...scraped, reported: false, conflict: 'its screen shows it is working while its last report said it was at rest' };
+    return { ...scraped, reported: false, conflict: 'its screen shows it is working while its last report said it was at rest', ...workingProject(true) };
   }
   // `idle`, and `started` with nothing after it: at rest either way.
   return { state: STATE.IDLE, confidence: CONFIDENCE.STRUCTURED, because: said('it is at rest and nothing is needed'), reported: true, conflict: null };
@@ -6459,8 +6486,10 @@ function snapshot() {
       task: taskLine(pane.title),
       state: status.state,
       stateConfidence: status.confidence,
-      /* #763: which project a reported needs_you is about; null for a scraped
-         question and for a report that named no project. */
+      /* #763/#2837: which project the state is about -- a reported needs_you
+         question (#763), or, since #2837, a working state (so the project
+         overview lights only the project a working agent is working in). Null
+         for a scraped question and for a state that named no project. */
       stateProject: (typeof status.project === 'string' && status.project) ? status.project : null,
       /* true when no report attributed THIS question to that project: the
          project came from an earlier report (the hook's question, or a

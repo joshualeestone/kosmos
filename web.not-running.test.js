@@ -122,10 +122,13 @@ function render(which, a) {
   /* `ROLE_TITLES` is the page's catalogue of role titles, null until the roles
      route answers. Null here so the renderers run the state the board holds on
      its first paint, which is the one these rows are about. */
-  const fn = new Function('a', 'esc', 'GLYPH', 'PRESSAY', 'roleLine', 'discTint', 'discInk', 'initials', 'ROLE_TITLES',
-    `${page.lift(SCRIPT, 'face')}\n${page.lift(SCRIPT, which)}\nreturn ${which}(a);`);
+  /* #2863: card() now reaches for dmBadge (the unread-DM bubble), which itself
+     reads the CURRENT global -- lift it like face, and pass CURRENT (null: no
+     agent is open in this isolated render) as an arg so the eval has both. */
+  const fn = new Function('a', 'esc', 'GLYPH', 'PRESSAY', 'roleLine', 'discTint', 'discInk', 'initials', 'ROLE_TITLES', 'CURRENT',
+    `${page.lift(SCRIPT, 'face')}\n${page.lift(SCRIPT, 'dmBadge')}\n${page.lift(SCRIPT, which)}\nreturn ${which}(a);`);
   return fn(a, (x) => String(x == null ? '' : x), { stopped: '<span class="stop"></span>' },
-    { off: 'Not running' }, (x) => x.role || '', () => '#eee', () => '#111', (n) => n[0], null);
+    { off: 'Not running' }, (x) => x.role || '', () => '#eee', () => '#111', (n) => n[0], null, null);
 }
 
 test('the route puts a known, not-running agent in the roster', () => {
