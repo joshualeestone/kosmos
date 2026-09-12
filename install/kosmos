@@ -1406,8 +1406,8 @@ fi
 # store is local, so this works with no board running and no token round-trip.
 # The body/date ride ENV VARS into node, never the -e script, so a report with
 # quotes/newlines/backslashes cannot break out of a shell-quoted argument.
-# LOCAL ONLY: this writes to disk and sends nothing. Transmission is a separate,
-# opt-in-gated slice.
+# LOCAL ONLY: this writes to disk and sends nothing. Transmission is a separate
+# slice (engine/feedbacksend.js), DEFAULT-ON / opt-out per #2013, not opt-in.
 cmd_feedback() {
   local sub="${1:-}"; shift 2>/dev/null || true
   # write/show/list all shell out to node against the local engine. On a broken
