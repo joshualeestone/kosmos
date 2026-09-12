@@ -38,11 +38,17 @@ before `--apply`:
   the swap would move the source out from under us; inside means the board would serve
   from the checkout again);
 - reject an existing NON-EMPTY directory that is not itself a prior board install
-  (no `server.js` marker). The apply swap does `mv "$DEST" "$DEST.old.$$"` then
+  (marker: a top-level `server.js` AND an `engine/` directory, both of which
+  `stage_app` always writes). The apply swap does `mv "$DEST" "$DEST.old.$$"` then
   `rm -rf` that old tree, so a misconfigured `KOSMOS_BOARD_LIBEXEC=$HOME` (or `/usr`,
   `/Applications`) would rename that directory aside and delete it. A first adoption
-  (dest absent) or an empty existing dir is safe to swap and is allowed. (Added by the
-  challenge-loop after two blind reviews independently flagged the destructive-swap gap.)
+  (dest absent) or an empty existing dir is safe to swap and is allowed. An unreadable
+  existing dir fails CLOSED (see below). (Added by the challenge-loop after blind
+  reviews independently flagged the destructive-swap gap.) RESIDUAL, accepted: a
+  directory that happens to carry BOTH a top-level `server.js` and an `engine/` dir but
+  is not actually a Kosmos board would still be accepted -- vanishingly unlikely for a
+  misconfiguration, and requiring both markers (not `server.js` alone) already excludes
+  the common case of a user's own Node project.
 
 `validate_dest` runs in the MAIN shell (not a captured `$(...)` subshell) so that
 `fail()`'s `exit 1` is terminal rather than exiting only a subshell.

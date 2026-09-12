@@ -107,11 +107,16 @@ refuses "a destination ABOVE the source repo is refused" "$TMP"                 
 
 # an existing NON-EMPTY directory that is not a board install must be refused: the
 # apply swap would `mv` it aside and then `rm -rf` it, so a misconfigured
-# KOSMOS_BOARD_LIBEXEC=$HOME (or /usr, /Applications) would delete it. server.js is
-# the board-install marker; a populated directory lacking it is refused.
+# KOSMOS_BOARD_LIBEXEC=$HOME (or /usr, /Applications) would delete it. The marker is
+# server.js AND engine/; a populated directory lacking either is refused.
 mkdir -p "$TMP/not-a-board"
 touch "$TMP/not-a-board/some-users-file"
-refuses "a non-empty non-board destination is refused"  "$TMP/not-a-board"     "not a board install|no server.js"
+refuses "a non-empty non-board destination is refused"  "$TMP/not-a-board"     "not a board install|needs both"
+# a directory with a top-level server.js but NO engine/ (e.g. a user's own Node
+# project) must still be refused -- server.js alone is not proof of a board install:
+mkdir -p "$TMP/half-board"
+touch "$TMP/half-board/server.js"
+refuses "a server.js-only dir (no engine/) is refused"  "$TMP/half-board"      "needs both server.js and engine"
 
 # a symlink whose target resolves INTO the source repo must be caught by the pwd -P
 # canonicalization -- a plain string compare on the symlink path would miss it. This
@@ -156,11 +161,11 @@ accepts "a deep not-yet-created destination is accepted" "$TMP/good-parent/a/b/c
 mkdir -p "$TMP/empty-dest"
 accepts "an empty existing destination is accepted"      "$TMP/empty-dest"
 
-# an existing directory that IS a prior board install (carries server.js) is a
-# legitimate refresh target and is accepted:
-mkdir -p "$TMP/prior-board"
+# an existing directory that IS a prior board install (carries server.js AND engine/)
+# is a legitimate refresh target and is accepted:
+mkdir -p "$TMP/prior-board/engine"
 touch "$TMP/prior-board/server.js"
-accepts "an existing board install (has server.js) is accepted" "$TMP/prior-board"
+accepts "an existing board install (server.js + engine/) is accepted" "$TMP/prior-board"
 
 # ---- the refusal must hold on a REAL destructive path, not just the dry run ---
 # Every case above drives the dry run, which never reaches the swap. --refresh-only

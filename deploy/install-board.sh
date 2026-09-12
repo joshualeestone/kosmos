@@ -133,6 +133,10 @@ validate_dest() {
   # reject a destination inside a git working tree: installing INTO a checkout is
   # exactly what this script exists to prevent (the board would serve from a git
   # tree again, the #1051 bug). Checked from the nearest existing ancestor.
+  # NOTE: this refusal fails OPEN if git is absent/errors (the `if` is simply false).
+  # That is acceptable because the script already hard-depends on git for the
+  # source-tree cleanliness check below, so a git-less box cannot run an --apply at
+  # all; and the data-critical repo-equality/ancestry refusals use pwd -P, not git.
   if git -C "$_anc_real" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     fail "destination is inside a git working tree ('$_anc_real'); the board must NOT run from a checkout -- set KOSMOS_BOARD_LIBEXEC to a path outside any git working tree"
   fi
@@ -155,6 +159,14 @@ validate_dest() {
   # plist's ProgramArguments points at -- so require that marker before we are
   # willing to move a populated directory out of the way. A destination that does
   # not exist yet (first adoption) or is empty is safe to swap and is allowed.
+  #
+  # The board-install marker is server.js AND an engine/ directory. stage_app always
+  # writes both, so a real board carries both; requiring both (not server.js alone)
+  # shrinks the false-accept to a directory that happens to have a top-level server.js
+  # AND a top-level engine/ dir -- a user's own Node project set as the dest by mistake
+  # carries server.js far more often than it carries a sibling engine/, so the extra
+  # marker meaningfully narrows the data-loss vector. A directory missing either marker
+  # is refused (the safe direction: point the operator at a fresh path).
   if [ -e "$_dest_real" ]; then
     [ -d "$_dest_real" ] || fail "destination '$_dest_real' exists and is not a directory"
     # Enumerate the contents. An enumeration FAILURE (a root-owned or otherwise
@@ -163,8 +175,8 @@ validate_dest() {
     # rm -rf a populated directory we never actually inspected. Capture ls's exit
     # status (the `|| fail` on the assignment) rather than only its output.
     _entries="$(ls -A "$_dest_real" 2>/dev/null)" || fail "could not read destination '$_dest_real' to check it is safe to replace; refusing"
-    if [ -n "$_entries" ] && [ ! -e "$_dest_real/server.js" ]; then
-      fail "destination '$_dest_real' is a non-empty directory that is not a board install (no server.js); refusing to move it aside and delete it -- point KOSMOS_BOARD_LIBEXEC at a fresh path or an existing board tree"
+    if [ -n "$_entries" ] && { [ ! -e "$_dest_real/server.js" ] || [ ! -d "$_dest_real/engine" ]; }; then
+      fail "destination '$_dest_real' is a non-empty directory that is not a board install (needs both server.js and engine/); refusing to move it aside and delete it -- point KOSMOS_BOARD_LIBEXEC at a fresh path or an existing board tree"
     fi
   fi
 }
