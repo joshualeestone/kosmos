@@ -52,6 +52,83 @@ esac
 say() { printf '  %s\n' "$*"; }
 fail() { printf 'install-board: %s\n' "$*" >&2; exit 1; }
 
+# ---- #2870: refuse a destination that is unsafe to swap the app tree into ------
+# The apply/refresh SWAPS $DEST: it moves $DEST aside to "$DEST.old.$$" and moves a
+# freshly staged tree into its place. If $DEST is the filesystem root, the source
+# repo, an ancestor of the source, or inside a git working tree, that swap corrupts
+# or destroys something it must never touch; and a relative or dotted $DEST derives
+# a broken ".new"/".old" sibling. Validate BEFORE anything is copied or moved, and
+# in dry run too so the refusal is visible before an --apply.
+#
+# 🛑 This operates on the GLOBAL $DEST (normalizing it in place) rather than echoing
+# a value a caller would capture with $(...). fail() calls `exit 1`, and inside a
+# command substitution that exit only leaves the SUBSHELL -- the script would sail
+# on past a refusal. Running in the main shell is what makes the refusal terminal.
+validate_dest() {
+  # non-empty, absolute -- a relative dest makes ".new.$$"/".old.$$" resolve against
+  # an unknown cwd, so the swap is unpredictable.
+  [ -n "$DEST" ] || fail "destination is empty"
+  case "$DEST" in
+    /*) ;;
+    *)  fail "destination must be an absolute path, got '$DEST'" ;;
+  esac
+
+  # reject a '.' or '..' path component. Normalizing them would require the path to
+  # exist; refusing is unambiguous and a real destination never carries them.
+  case "/$DEST/" in
+    */./*|*/../*) fail "destination must not contain '.' or '..' path components: '$DEST'" ;;
+  esac
+
+  # strip trailing slashes so "/foo/" and "/foo" derive the SAME ".new" sibling,
+  # but never reduce a path to empty (root is handled next).
+  while :; do
+    case "$DEST" in
+      /)  break ;;
+      */) DEST="${DEST%/}" ;;
+      *)  break ;;
+    esac
+  done
+
+  # reject the filesystem root explicitly -- "mv / /.old.$$" is catastrophic.
+  [ "$DEST" != "/" ] || fail "refusing the filesystem root as a destination"
+
+  # find the nearest EXISTING ancestor: $DEST itself may not exist yet on a first
+  # adoption, nor its parent, so walk up until something exists.
+  _anc="$DEST"
+  while [ "$_anc" != "/" ] && [ ! -e "$_anc" ]; do
+    _anc="$(dirname "$_anc")"
+  done
+  # fail closed if that ancestor cannot serve as a parent: a FILE (mkdir -p would
+  # fail cryptically midway), or unresolvable.
+  [ -e "$_anc" ] || fail "no existing ancestor of '$DEST' could be resolved"
+  [ -d "$_anc" ] || fail "the nearest existing ancestor of '$DEST' is not a directory: '$_anc'"
+
+  # canonicalize the existing ancestor (cd -P resolves symlinks) and re-append the
+  # not-yet-created tail, so the repo/worktree comparisons below see real paths
+  # rather than symlink aliases that would slip past a string compare.
+  _anc_real="$(cd "$_anc" 2>/dev/null && pwd -P)" || fail "could not resolve the destination's ancestor '$_anc'"
+  _dest_real="$_anc_real${DEST#"$_anc"}"
+  _repo_real="$(cd "$REPO" 2>/dev/null && pwd -P)" || fail "could not resolve the source repo '$REPO'"
+
+  # reject a destination inside a git working tree: installing INTO a checkout is
+  # exactly what this script exists to prevent (the board would serve from a git
+  # tree again, the #1051 bug). Checked from the nearest existing ancestor.
+  if git -C "$_anc_real" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    fail "destination is inside a git working tree ('$_anc_real'); the board must NOT run from a checkout"
+  fi
+
+  # reject a destination equal to, inside, or ABOVE the source repo. Equal/above
+  # means the swap would move the source out from under us; inside means the board
+  # would serve from the checkout again.
+  case "$_dest_real/" in
+    "$_repo_real/"*) fail "destination '$_dest_real' is the source repo or inside it; the app tree must live OUTSIDE the checkout" ;;
+  esac
+  case "$_repo_real/" in
+    "$_dest_real/"*) fail "destination '$_dest_real' is at or above the source repo '$_repo_real'; the swap would move the source aside" ;;
+  esac
+}
+validate_dest
+
 say "source: $REPO"
 say "dest:   $DEST"
 say "plist:  $PLIST"
