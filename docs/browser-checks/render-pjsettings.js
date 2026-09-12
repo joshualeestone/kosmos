@@ -50,9 +50,11 @@ const PORT = freePort();
     await p.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
     if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
     await p.evaluate(async () => {
-      const r = await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Settings Drive' }) });
-      if (!r.ok) throw new Error('fixture create failed');
+      for (const name of ['Settings Drive', 'Second Project']) {
+        const r = await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name }) });
+        if (!r.ok) throw new Error('fixture create failed: ' + name);
+      }
     });
     await p.click('[data-tab="projects"]');
     await p.locator('#pj-list').getByText('Settings Drive').first().click();
@@ -77,9 +79,21 @@ const PORT = freePort();
     await p.screenshot({ path: path.join(OUT, 'project-settings.png') });
 
     // Save round trip: rename, verify it lands everywhere.
+    // #2923: delay the PUT so the in-flight Sweep spinner is observable (the
+    // local round trip is otherwise instant, which would let a regression that
+    // dropped the spinner injection still pass). Only the PUT is delayed; the
+    // GET /api/projects reload is untouched.
+    await p.route('**/api/project/**', async (route) => {
+      if (route.request().method() === 'PUT') { await new Promise((r) => setTimeout(r, 500)); }
+      await route.continue();
+    });
     await p.fill('#pjs-name', 'Settings Drive Renamed');
     await p.click('#pjs-save');
-    // #2923: the save confirmation now lands to the LEFT of the button in
+    // The Sweep spinner must render in #pjs-save-live WHILE the save is in
+    // flight (the headline behavior). Attached, because it is aria-hidden
+    // decorative markup injected via innerHTML.
+    await p.waitForSelector('#pjs-save-live .spin-sweep', { state: 'attached', timeout: 3000 });
+    // #2923: the save confirmation then lands to the LEFT of the button in
     // #pjs-save-live (Josh: "Saved." below the button was easy to miss), not in
     // the after-button #pjs-msg slot. Assert it shows there, sits left of the
     // button, and is NOT duplicated below.
@@ -91,6 +105,7 @@ const PORT = freePort();
     });
     if (!(savedPos.statusRight <= savedPos.btnLeft + 1)) die('the "Saved." status is not to the LEFT of the Save changes button: ' + JSON.stringify(savedPos));
     if ((await p.locator('#pjs-msg').innerText()).trim() === 'Saved.') die('"Saved." is still duplicated below the button (#pjs-msg)');
+    await p.unroute('**/api/project/**');  // later saves need no delay
     const back = (await shown(p.locator('#pj-settings-backname'))).trim();
     if (back !== 'Settings Drive Renamed') die('the back link did not pick up the rename');
     await p.click('#pj-settings-back');
@@ -102,8 +117,26 @@ const PORT = freePort();
     await p.click('#pjs-save');
     await p.waitForFunction(() => { const m = document.getElementById('pjs-msg'); return m.getBoundingClientRect().height > 0 && m.innerText.trim() === 'Nothing has changed.'; }, null, { timeout: 5000 });
 
+    // #2923 BLOCKER: a prior project's "Saved." must not survive into another
+    // project's settings panel. Make a real save here (sets "Saved." in
+    // #pjs-save-live), then open a DIFFERENT project's settings and confirm
+    // paintProjectSettings cleared it. Non-vacuous: the waitForFunction proves
+    // "Saved." was actually set before we navigate away.
+    await p.fill('#pjs-desc', 'a real change so this save is not a no-op');
+    await p.click('#pjs-save');
+    await p.waitForFunction(() => { const m = document.getElementById('pjs-save-live'); return m && m.innerText.trim() === 'Saved.'; }, null, { timeout: 10000 });
+    await p.click('#pj-settings-back');
+    await p.waitForSelector('#pj-one-view', { state: 'visible' });
+    await p.click('[data-tab="projects"]');
+    await p.locator('#pj-list').getByText('Second Project').first().click();
+    await p.waitForSelector('#pj-settings-link', { state: 'visible' });
+    await p.click('#pj-settings-link');
+    await p.waitForSelector('#pj-settings-view', { state: 'visible' });
+    const staleLive = await p.evaluate(() => document.getElementById('pjs-save-live').textContent.trim());
+    if (staleLive !== '') die('a prior project\'s "Saved." survived into the next project\'s settings (#pjs-save-live not cleared by paintProjectSettings): ' + JSON.stringify(staleLive));
+
     if (errs.length) die('page errors: ' + errs.join(' | '));
-    console.log('PJSETTINGS DRIVE OK: door, paint, parent sentence, save round trip, honest no-op, relocated blocks present, no path on the project page, 0 page errors; shots in ' + OUT);
+    console.log('PJSETTINGS DRIVE OK: door, paint, parent sentence, save round trip (spinner in-flight + "Saved." left of button), honest no-op, no cross-project "Saved." leak, relocated blocks present, no path on the project page, 0 page errors; shots in ' + OUT);
   } finally {
     await b.close();
     srv.kill();
