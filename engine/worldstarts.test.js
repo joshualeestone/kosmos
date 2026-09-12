@@ -1,0 +1,285 @@
+'use strict';
+/**
+ * #1704 PR3: engine/worldstarts -- pausing a Kosmos's agents on a switch, and the
+ * boot drain that brings them back.
+ *
+ * Both platform arms are driven through the seams remove.js's own suites use
+ * (remove.setRunner for launchctl/tmux, win32job.setRunner for schtasks,
+ * win32stop.setLive for the live-session read), so nothing here reaches a real
+ * job. Live execution is armed only around the tests that need it and closed
+ * again after, because worldstarts gates on it itself (win32job does not).
+ *
+ *   node --test engine/worldstarts.test.js
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+
+// SANDBOX BEFORE REQUIRING: store.ROOT, the launch dir and the workers dir are all
+// frozen at require time by the modules below.
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'worldstarts-test-'));
+process.env.AGENT_WORKFORCE_HOME = SANDBOX;
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'support');
+process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'LaunchAgents');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+const liveExec = require('./live-execution');
+const remove = require('./remove');
+const create = require('./create');
+const win32job = require('./win32job');
+const win32stop = require('./win32stop');
+const worldstarts = require('./worldstarts');
+
+// The darwin arm builds gui/<uid>/<label>; win32 has no getuid.
+if (typeof process.getuid !== 'function') process.getuid = () => 501;
+const UID = process.getuid();
+const MAC = 'darwin';
+const WIN = 'win32';
+
+let calls = [];
+let failing = [];           // substrings of a command that should fail
+let onFirstCall = null;     // runs once, before the first command is answered
+
+function answerMac(file, args) {
+  const line = [nodePath.basename(file), ...args].join(' ');
+  if (onFirstCall) { const f = onFirstCall; onFirstCall = null; f(); }
+  calls.push(line);
+  // tmux's look-again: exit 1 is "no such session", i.e. the kill worked.
+  if (args[0] === 'has-session') return { ok: false, code: 1 };
+  const fail = failing.find((f) => line.includes(f.match));
+  if (fail) return { ok: false, code: fail.code };
+  return { ok: true, stdout: '' };
+}
+function answerWin(args) {
+  const line = ['schtasks', ...args].join(' ');
+  if (onFirstCall) { const f = onFirstCall; onFirstCall = null; f(); }
+  calls.push(line);
+  if (args[0] === '/Query') return { ok: true, out: 'Status: Ready\n' };
+  const fail = failing.find((f) => line.includes(f.match));
+  if (fail) return { ok: false, out: 'ERROR: ' + fail.match };
+  return { ok: true, out: 'SUCCESS' };
+}
+
+function giveMacJob(name) {
+  fs.mkdirSync(nodePath.dirname(create.plistPath(name)), { recursive: true });
+  fs.writeFileSync(create.plistPath(name), '<plist/>');
+}
+const readRecord = () => JSON.parse(fs.readFileSync(worldstarts.RECORD_FILE, 'utf8'));
+const writeRecord = (entries) => {
+  fs.mkdirSync(nodePath.dirname(worldstarts.RECORD_FILE), { recursive: true });
+  fs.writeFileSync(worldstarts.RECORD_FILE, JSON.stringify({ entries }));
+};
+
+test.beforeEach(() => {
+  calls = []; failing = []; onFirstCall = null;
+  remove.setRunner(answerMac);
+  win32job.setRunner(answerWin);
+  win32stop.setLive(() => new Map());     // nothing live under any name: the end state
+  liveExec.allowLiveExecution();
+  fs.rmSync(worldstarts.RECORD_FILE, { force: true });
+  fs.rmSync(remove.REMOVED_FILE, { force: true });
+  for (const n of ['ava', 'bo', 'cy']) giveMacJob(n);
+});
+test.after(() => {
+  remove.resetForTests();
+  win32job.setRunner(null);
+  win32stop.setLive(null);
+  liveExec.resetForTests();
+});
+
+test('pause (Mac): records the agent BEFORE the first stop, then disable, bootout, end the session -- never a removal', () => {
+  let recordAtFirstCommand = null;
+  onFirstCall = () => {
+    recordAtFirstCommand = fs.existsSync(worldstarts.RECORD_FILE) ? readRecord() : null;
+  };
+  const out = worldstarts.pauseForSwitch([{ name: 'ava', session: 'ava-discord', tied: true }], { platform: MAC });
+
+  assert.deepEqual(out.paused, ['ava']);
+  assert.deepEqual(out.notPaused, []);
+  assert.ok(recordAtFirstCommand, 'the record did not exist when the first stop command ran -- not write-ahead');
+  assert.deepEqual(recordAtFirstCommand.entries.map((e) => e.name), ['ava']);
+
+  const label = `gui/${UID}/${create.serviceLabel('ava')}`;
+  assert.deepEqual(calls, [
+    `launchctl disable ${label}`,
+    `launchctl bootout ${label}`,
+    'tmux kill-session -t =ava-discord',
+    'tmux has-session -t =ava-discord',
+  ], 'disable must come first, so a login between the acts cannot revive it');
+
+  const entry = readRecord().entries[0];
+  assert.equal(entry.name, 'ava');
+  assert.equal(entry.why, 'paused');
+  assert.ok(Number.isFinite(Date.parse(entry.at)), 'at is a readable time');
+  assert.equal(remove.isRemoved('ava'), false, 'a paused agent must never be marked removed');
+});
+
+test('the record is written atomically in its documented shape', () => {
+  worldstarts.pauseForSwitch([{ name: 'ava', session: null, tied: true }, { name: 'bo', session: null, tied: true }], { platform: MAC });
+  const raw = fs.readFileSync(worldstarts.RECORD_FILE, 'utf8');
+  const parsed = JSON.parse(raw);
+  assert.deepEqual(Object.keys(parsed), ['entries']);
+  assert.deepEqual(parsed.entries.map((e) => e.name).sort(), ['ava', 'bo']);
+  const leftovers = fs.readdirSync(nodePath.dirname(worldstarts.RECORD_FILE)).filter((f) => f.startsWith('world-starts.json.'));
+  assert.deepEqual(leftovers, [], 'the temp file of the rename was left behind');
+  assert.equal(worldstarts.RECORD_FILE, nodePath.join(require('./store').ROOT, 'world-starts.json'),
+    'the record lives in the booted world\'s store');
+});
+
+test('an agent with no running session is still paused: disabled and recorded, no session end', () => {
+  const out = worldstarts.pauseForSwitch([{ name: 'ava', session: null, tied: true }], { platform: MAC });
+  assert.deepEqual(out.paused, ['ava']);
+  assert.equal(calls.some((c) => c.startsWith('tmux')), false, 'there was no session to end');
+  assert.ok(calls.some((c) => c.startsWith('launchctl disable')), 'its logon start must still be switched off');
+});
+
+test('a failed stop comes OUT of the record and into notPaused, with the disable undone', () => {
+  failing = [{ match: 'bootout', code: 9 }];
+  const out = worldstarts.pauseForSwitch([{ name: 'ava', session: 'ava-discord', tied: true }], { platform: MAC });
+  assert.deepEqual(out.paused, []);
+  assert.equal(out.notPaused.length, 1);
+  assert.equal(out.notPaused[0].name, 'ava');
+  assert.match(out.notPaused[0].because, /keeps running/);
+  assert.ok(calls.some((c) => c.startsWith('launchctl enable')), 'the disable must be undone, or it never starts at login again');
+  assert.deepEqual(readRecord().entries, [], 'an agent that kept running must not be listed as paused');
+});
+
+test('a failed stop whose undo ALSO fails keeps its entry, so the next boot sets it to start again', () => {
+  failing = [{ match: 'bootout', code: 9 }, { match: 'launchctl enable', code: 9 }];
+  const out = worldstarts.pauseForSwitch([{ name: 'ava', session: null, tied: true }], { platform: MAC });
+  assert.equal(out.notPaused[0].name, 'ava');
+  const entries = readRecord().entries;
+  assert.equal(entries.length, 1, 'dropping it would leave an agent disabled forever');
+  assert.match(entries[0].because, /next opens/);
+});
+
+test('a failed disable changes nothing: no stop is sent, the entry comes out', () => {
+  failing = [{ match: 'launchctl disable', code: 9 }];
+  const out = worldstarts.pauseForSwitch([{ name: 'ava', session: 'ava-discord', tied: true }], { platform: MAC });
+  assert.deepEqual(out.paused, []);
+  assert.equal(calls.some((c) => c.includes('bootout') || c.startsWith('tmux')), false);
+  assert.deepEqual(readRecord().entries, []);
+});
+
+test('an untied card and an agent Kosmos did not start are reported, not touched', () => {
+  fs.rmSync(create.plistPath('bo'), { force: true });
+  const out = worldstarts.pauseForSwitch([
+    { name: 'ava', session: 'ava', tied: false },
+    { name: 'bo', session: 'bo-discord', tied: true },
+  ], { platform: MAC });
+  assert.deepEqual(out.paused, []);
+  assert.deepEqual(out.notPaused.map((n) => n.name), ['ava', 'bo']);
+  assert.match(out.notPaused[0].because, /cannot confirm/);
+  assert.match(out.notPaused[1].because, /not started by Kosmos/);
+  assert.equal(calls.some((c) => /disable|bootout|kill-session/.test(c)), false);
+});
+
+test('live execution OFF: refuses, writes nothing, stops nothing, and reports every agent', () => {
+  liveExec.resetForTests();
+  const out = worldstarts.pauseForSwitch([{ name: 'ava', session: 'ava-discord', tied: true }], { platform: WIN });
+  assert.deepEqual(out.paused, []);
+  assert.equal(out.notPaused[0].name, 'ava');
+  assert.match(out.notPaused[0].because, /not allowed to start or stop agents/);
+  assert.match(String(out.refused), /test process/, 'the gate\'s own refusal is carried, not swallowed');
+  assert.deepEqual(calls, [], 'not even a /Query may run: win32job is not gated itself');
+  assert.equal(fs.existsSync(worldstarts.RECORD_FILE), false);
+});
+
+test('pause and resume (Windows): /Change /DISABLE + /End, then /Change /ENABLE + /Run, on this Kosmos\'s task', () => {
+  const task = win32job.taskName('ava');
+  const out = worldstarts.pauseForSwitch([{ name: 'ava', session: 'ava', tied: true }], { platform: WIN });
+  assert.deepEqual(out.paused, ['ava']);
+  const acts = calls.filter((c) => !c.includes('/Query'));
+  assert.deepEqual(acts, [
+    `schtasks /Change /TN ${task} /DISABLE`,
+    `schtasks /End /TN ${task}`,
+  ]);
+
+  calls = [];
+  const back = worldstarts.resumePaused({ platform: WIN });
+  assert.deepEqual(back.resumed, ['ava']);
+  assert.deepEqual(calls.filter((c) => !c.includes('/Query')), [
+    `schtasks /Change /TN ${task} /ENABLE`,
+    `schtasks /Run /TN ${task}`,
+  ]);
+  assert.deepEqual(readRecord().entries, [], 'a resumed agent is cleared from the record');
+});
+
+test('resume (Mac): enable then bootstrap its plist; bootstrap code 5 (already loaded) is success', () => {
+  writeRecord([{ name: 'ava', why: 'paused', at: new Date().toISOString() }]);
+  failing = [{ match: 'bootstrap', code: 5 }];
+  const back = worldstarts.resumePaused({ platform: MAC });
+  assert.deepEqual(back.resumed, ['ava']);
+  assert.deepEqual(calls, [
+    `launchctl enable gui/${UID}/${create.serviceLabel('ava')}`,
+    `launchctl bootstrap gui/${UID} ${create.plistPath('ava')}`,
+  ]);
+});
+
+test('the drain skips removed agents, keeps failures with a because, and clears successes', () => {
+  fs.mkdirSync(nodePath.dirname(remove.REMOVED_FILE), { recursive: true });
+  fs.writeFileSync(remove.REMOVED_FILE, JSON.stringify([{ name: 'ava' }]));
+  const at = new Date().toISOString();
+  writeRecord([
+    { name: 'ava', why: 'paused', at },
+    { name: 'bo', why: 'paused', at },
+    { name: 'cy', why: 'paused', at },
+  ]);
+  failing = [{ match: `enable gui/${UID}/${create.serviceLabel('cy')}`, code: 9 }];
+  const r = worldstarts.drainAtBoot({ platform: MAC });
+
+  assert.deepEqual(r.cleared, ['ava'], 'a removed agent stays removed; the removal owns it now');
+  assert.equal(calls.some((c) => c.includes('.ava')), false, 'nothing was sent for the removed agent');
+  assert.deepEqual(r.resumed, ['bo']);
+  assert.deepEqual(r.held.map((h) => h.name), ['cy']);
+  const left = readRecord().entries;
+  assert.deepEqual(left.map((e) => e.name), ['cy'], 'only the failure stays, for the next boot');
+  assert.match(left[0].because, /could not set cy to start/);
+});
+
+test('#2849: the drain holds every entry while the spawn refusal refuses, with its sentence, and sends nothing', () => {
+  const at = new Date().toISOString();
+  writeRecord([{ name: 'ava', why: 'paused', at }, { name: 'bo', why: 'paused', at }]);
+  const refusal = { code: 409, error: 'Kosmos is running a named world, which does not run agents yet.' };
+  const r = worldstarts.drainAtBoot({ platform: MAC, spawnRefusal: () => refusal });
+  assert.deepEqual(r.resumed, []);
+  assert.deepEqual(r.held.map((h) => h.name), ['ava', 'bo']);
+  assert.deepEqual(calls, [], 'a held agent must not be enabled or started');
+  const entries = readRecord().entries;
+  assert.deepEqual(entries.map((e) => e.name), ['ava', 'bo'], 'held entries stay, to resume once the rule is lifted');
+  assert.equal(entries[0].because, refusal.error);
+
+  // And once the refusal lifts, the same entries resume.
+  const later = worldstarts.drainAtBoot({ platform: MAC, spawnRefusal: () => null });
+  assert.deepEqual(later.resumed, ['ava', 'bo']);
+});
+
+test('resumeNames touches only the names given (the route\'s rollback)', () => {
+  const at = new Date().toISOString();
+  writeRecord([{ name: 'ava', why: 'paused', at }, { name: 'bo', why: 'paused', at }]);
+  const r = worldstarts.resumeNames(['bo'], { platform: MAC });
+  assert.deepEqual(r.resumed, ['bo']);
+  assert.equal(calls.some((c) => c.includes('.ava')), false);
+  assert.deepEqual(readRecord().entries.map((e) => e.name), ['ava']);
+});
+
+test('no paused entries: the resume costs nothing and asks no gate, even with live execution off', () => {
+  liveExec.resetForTests();
+  const r = worldstarts.resumePaused({ platform: WIN });
+  assert.deepEqual(r, { resumed: [], held: [], cleared: [] });
+  assert.deepEqual(calls, []);
+});
+
+test('an unreadable record is refused, never rewritten from empty', () => {
+  fs.mkdirSync(nodePath.dirname(worldstarts.RECORD_FILE), { recursive: true });
+  fs.writeFileSync(worldstarts.RECORD_FILE, '{ not json');
+  const out = worldstarts.pauseForSwitch([{ name: 'ava', session: null, tied: true }], { platform: MAC });
+  assert.deepEqual(out.paused, []);
+  assert.match(out.notPaused[0].because, /could not read the list/);
+  assert.equal(calls.some((c) => /disable|bootout/.test(c)), false, 'nothing may stop without its entry written first');
+  assert.equal(fs.readFileSync(worldstarts.RECORD_FILE, 'utf8'), '{ not json', 'the unreadable record was overwritten');
+});
