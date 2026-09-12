@@ -27878,12 +27878,23 @@ let RST_RETURN = null;   // focus goes back where it came from
    flow's loader, so it must reuse its exit rule too. */
 let RST_BUSY = false;
 
-function openRestartModal(btn, name) {
+function openRestartModal(btn, name, opts) {
   const card = (LAST || []).find((a) => a && a.sessionName === name) || CURRENT;
   const shown = (card && (card.name || card.displayName)) || name;
   const cost = restartCost(shown, card && card.commitments);
-  document.getElementById('rst-title').textContent = 'Restart ' + shown + '?';
-  document.getElementById('rst-small').textContent = cost.small;
+  /* #2829: a rename or report-to save that needs a restart to take effect opens
+     this SAME modal via a saved variant, so the restart+auto-hello flow is shared
+     with the explicit restart path rather than duplicated. The title then says the
+     change is saved, and the small line leads with the saved-context sentence
+     before the in-flight cost. The list, the memory-consequence sentence, and the
+     buttons are unchanged. */
+  const savedCtx = !!(opts && opts.saved);
+  document.getElementById('rst-title').textContent = savedCtx
+    ? ('Saved. Restart ' + shown + ' to use it now?')
+    : ('Restart ' + shown + '?');
+  document.getElementById('rst-small').textContent = savedCtx && opts.lead
+    ? (opts.lead + ' ' + cost.small)
+    : cost.small;
   const ul = document.getElementById('rst-list');
   ul.innerHTML = cost.list.map((c) => '<li>' + esc(typeof c === 'string' ? c : (c && c.text) || '') + '</li>').join('');
   ul.hidden = cost.list.length === 0;
@@ -27907,6 +27918,31 @@ function openRestartModal(btn, name) {
   /* ⚠️ LEAVING IT RUNNING TAKES FOCUS, the same rule as the removal dialog:
      Enter or space on an unaimed modal must land on the harmless answer. */
   document.getElementById('rst-keep').focus();
+}
+
+/* #2829: after a rename or report-to save that needs a restart to take effect,
+   pop the restart modal (saved variant) so the person can restart right there,
+   instead of leaving them a passive "takes effect when it next starts" notice.
+   A "Restart now" affordance is left in the role dialog's message line as the
+   fallback for when the modal is dismissed; that button (data-restart-agent +
+   data-restart-note) is exactly what rst-go reads to run the restart and land
+   the auto-hello receipt in d-role-msg. Reused by both save triggers so the
+   restart visual + auto-hello + say-hello nudge come from one place. */
+function popRestartAfterSave(forAgent, lead) {
+  const msg = document.getElementById('d-role-msg');
+  if (!msg) return;
+  let btn = msg.querySelector('[data-restart-agent]');
+  if (!btn) {
+    if (msg.textContent && !/\s$/.test(msg.textContent)) msg.appendChild(document.createTextNode(' '));
+    btn = document.createElement('button');
+    btn.className = 'btn-quiet instr-restart';
+    btn.type = 'button';
+    btn.dataset.restartAgent = forAgent;
+    btn.dataset.restartNote = 'd-role-msg';
+    btn.textContent = 'Restart now';
+    msg.appendChild(btn);
+  }
+  openRestartModal(btn, forAgent, { saved: true, lead: lead });
 }
 
 function closeRestartModal() {
@@ -28370,6 +28406,14 @@ document.getElementById('d-save').addEventListener('click', async () => {
       msg.innerHTML = 'Saved. ' + esc(renamedFrom) + ' will not answer to ' + esc(renameTo) + ' until you restart it. '
         + '<button class="btn-quiet instr-restart" type="button" data-restart-agent="' + esc(forAgent) + '" data-restart-note="d-role-msg">Restart now</button>';
     }
+    if (ren && ren.changed && isRunning) {
+      /* #2829: a rename that changed the file while the agent is running -> pop
+         the restart modal so the new name can be made live now. The message line
+         above stays as the fallback once the modal is dismissed; popRestartAfterSave
+         reuses the button already built above, or appends one when the engine did
+         not return the old name (the text-only branch). */
+      popRestartAfterSave(forAgent, 'This is saved. They keep the old name until you restart them.');
+    }
     /* The role and reports-to half (#336). The route answers `reports`, the
        verdict of writing the file, only on a save that moved either field,
        and the screen READS it: told + running means a restart is what makes
@@ -28382,9 +28426,12 @@ document.getElementById('d-save').addEventListener('click', async () => {
     if (rep && !(ren && ren.changed)) {
       const running = !!(CURRENT && CURRENT.running !== false);
       if (rep.state === 'told') {
-        msg.textContent = running
-          ? 'Saved. Takes effect when it next starts. It is running now on what it read at boot.'
-          : 'Saved.';
+        msg.textContent = 'Saved.';
+        /* #2829: report-to told + still running -> pop the restart modal so the
+           person can make it take effect now, instead of the old passive "takes
+           effect when it next starts" line. The message line keeps a "Restart
+           now" fallback (added by popRestartAfterSave) for a dismissed modal. */
+        if (running) popRestartAfterSave(forAgent, 'This is saved. They are running on what they read when they started, so restart them to use it now.');
       } else if (rep.state === 'could_not') {
         msg.textContent = 'Saved here, but ' + rep.because + '.';
       }
