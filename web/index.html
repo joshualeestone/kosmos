@@ -35993,8 +35993,14 @@ async function tkSayPost() {
 }
 document.getElementById('tk-say-go').addEventListener('click', () => { tkSayPost(); });
 document.getElementById('tk-say').addEventListener('keydown', (e) => {
-  // Enter sends; the input is single-line, so Enter has no other job here.
-  if (e.key === 'Enter') { e.preventDefault(); tkSayPost(); }
+  // Enter sends, with the SAME IME rule as the room's box (#d-say): the Enter that
+  // confirms a Japanese/Chinese/Korean candidate arrives as an ordinary Enter, so
+  // without this a CJK user's first word is sent half-composed. isComposing is the
+  // standard spelling; keyCode 229 is what older WebKit reports for it.
+  if (e.key !== 'Enter') return;
+  if (e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  tkSayPost();
 });
 
 /* ---- new task, its own page (#383; fields are the pack's, verbatim) ---- */
