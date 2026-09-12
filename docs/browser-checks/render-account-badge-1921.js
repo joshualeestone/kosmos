@@ -69,6 +69,11 @@ function row(email, badge, dir) {
    The row must now render a SHORT shape pill (the signed-in-unverified shape, since a
    subscription sign-in DOES exist) with the full sentence in the title. `authMode:
    'chatgpt'` is the SHAPE the fix gates on; no `badge`, exactly as the real payload. */
+// ILLUSTRATIVE, not verbatim: this is a representative LONG unknown-because sentence, present only
+// to exercise the pill/title overflow split (short pill visible, full sentence in the title). It is
+// NOT a pinned copy of any real checkLive() message -- the verbatim wording lives in
+// engine/openaiaccounts.js and changes independently (e.g. #2790 reworded the chatgpt unknown text),
+// so do not read this as a second derivation of it. The overflow render is what is under test here.
 const CHATGPT_BECAUSE = 'this sign-in method is not yet checked live; it may or may not still work';
 function openaiChatgptRow(email, dir) {
   return {

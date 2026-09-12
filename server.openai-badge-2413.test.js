@@ -120,7 +120,7 @@ test('CONTROL: the default OpenAI account is a chatgpt subscription (state unkno
   const r = await rows();
   assert.ok(r.sub, 'the chatgpt-subscription OpenAI row is missing');
   assert.ok(r.key, 'the API-key OpenAI row is missing');
-  assert.equal(r.sub.connection.state, 'unknown', 'a chatgpt sign-in cannot be live-checked, so its state is UNKNOWN');
+  assert.equal(r.sub.connection.state, 'unknown', 'the render path reads the non-blocking liveness cache, so a cold-cache chatgpt row is UNKNOWN (grey) here (#1921); the live verdict arrives via codexauthprobe warming, not the render');
   assert.equal(r.key.connection.state, 'connected', 'the API-key account passed the /v1/models check');
   // No observation seeded yet: neither OpenAI row carries a server badge.
   assert.equal(r.sub.connection.badge, undefined, 'the subscription row must NOT carry a badge before any traffic is observed');

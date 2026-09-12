@@ -1139,9 +1139,14 @@ async function askModels(key) {
 /**
  * `identityOf()`'s file-read answer, but confirmed live with OpenAI.
  *
- * @returns {Promise<{state: string, plan: null, because: string, checkedLive: true}>}
+ * @param {string} dir  the codex/openai home to check.
+ * @param {{cached?: boolean}} [opts]  #1921: `cached:true` makes the chatgpt live check a
+ *   NON-BLOCKING cache read (codexsigninlive.livenessCached, grey on a cold miss) for the HTTP
+ *   render path; omitted/false awaits a fresh handshake (codexauthprobe + create.accountConnectable).
+ * @returns {Promise<{state: string, plan: null, because: string, checkedLive: true, reauthRequired?: boolean}>}
  */
-async function checkLive(dir, opts = {}) {
+async function checkLive(dir, opts) {
+  opts = opts || {};
   const STATE = subscription.STATE;
   const got = readAuthFile(dir);
   /* ⚠️ ABSENT AND UNREADABLE ARE TWO DIFFERENT FACTS. No file at all is a
