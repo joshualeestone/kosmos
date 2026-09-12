@@ -69,6 +69,10 @@
      data-theme, which every :root:not([data-theme]) selector reads. */
   --k-bg: #faf9f7; --k-ink: #14161a; --k-ink-2: #4a4f57; --k-rule: #e3e1dc;
   --k-surface: #ffffff; --k-track: rgba(20,22,26,.16); --k-knob: #ffffff;
+  /* #2922: the bright blue an @agent mention wears in the project room. #0a64fa clears WCAG AA as
+     text on the light ground (~4.9:1); the dark block below lifts it to a brighter blue that clears
+     AA on the dark ground. */
+  --pj-mention: #0a64fa;
   /* ⚠️ DEFINED HERE, not inherited from a fallback. The pack writes this token
      as `var(--k-sunk, rgba(20,22,26,.05))` everywhere and defines it nowhere,
      which works in light and is nearly invisible in dark: a 5%-black wash on a
@@ -294,6 +298,8 @@
     --k-rule:    #2a2d31;
     --k-track:   rgba(245,245,244,.22);
     --k-knob:    #e8e9eb;
+    /* #2922: a brighter blue for the dark ground -- #0a64fa is too dark on #0c0d0f; #5aa2ff clears AA. */
+    --pj-mention: #5aa2ff;
     /* The inverse: a raised-looking wash on the dark ground, because a
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
@@ -5159,6 +5165,10 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
    blue: in a room where most of what is written is local, the ONE thing that
    leaves the machine should not also be the one thing that shouts. */
 .xlink { color: var(--k-ink); text-underline-offset: 3px; }
+/* #2922 (Josh 6.59): an @agent mention in the project room wears the bright blue so the reader sees
+   it will flag that agent. Weight lifts it a touch without a background, so a message full of names
+   does not turn into a wall of chips. The token is theme-aware (AA in both grounds). */
+.pjmention { color: var(--pj-mention); font-weight: 600; }
 /* The pack's quoted block, on this file's tokens. No figcaption rule: nothing
    can produce a source yet, so there is no caption to style. */
 /* #460: a quoted line, the pack's .quoteb. Drawn ONLY where the engine
@@ -7072,6 +7082,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     --k-rule:    #2a2d31;
     --k-track:   rgba(245,245,244,.22);
     --k-knob:    #e8e9eb;
+    /* #2922: a brighter blue for the dark ground -- #0a64fa is too dark on #0c0d0f; #5aa2ff clears AA. */
+    --pj-mention: #5aa2ff;
     /* The inverse: a raised-looking wash on the dark ground, because a
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
@@ -37393,11 +37405,11 @@ function pjTableAligns(line) {
   }
   return aligns;
 }
-function pjTableHtml(headerLine, aligns, bodyLines, names) {
+function pjTableHtml(headerLine, aligns, bodyLines, names, agentNames) {
   const headers = pjTableCells(headerLine);
   const cols = headers.length;
   const cell = (tag, text, k) => '<' + tag + (aligns[k] ? ' style="text-align:' + aligns[k] + '"' : '')
-    + '>' + pjRichSpans(text == null ? '' : text, names) + '</' + tag + '>';
+    + '>' + pjRichSpans(text == null ? '' : text, names, agentNames) + '</' + tag + '>';
   /* Wrapped in a scroll container (like #usage-table): the wrapper is the
      inline-block that caps width and scrolls, the table lays out normally
      inside, so a wide table scrolls rather than widening the message bubble. */
@@ -37412,7 +37424,7 @@ function pjTableHtml(headerLine, aligns, bodyLines, names) {
   }
   return h + '</tbody></table></span>';
 }
-function pjProse(text, names) {
+function pjProse(text, names, agentNames) {
   const src = String(text == null ? '' : text).split('\n');
   /* Drop empty lines at the two ENDS only (never interior blank lines, which
      are the paragraph breaks this renderer exists to show). This absorbs the
@@ -37431,7 +37443,7 @@ function pjProse(text, names) {
       if (aligns) {
         let j = i + 2; const body = [];
         while (j < src.length && src[j].trim() !== '' && src[j].indexOf('|') !== -1) { body.push(src[j]); j += 1; }
-        out.push(pjTableHtml(line, aligns, body, names));
+        out.push(pjTableHtml(line, aligns, body, names, agentNames));
         i = j - 1; // the for-loop's i += 1 lands on the line after the table
         continue;
       }
@@ -37441,7 +37453,7 @@ function pjProse(text, names) {
        different sizes -- a `##` heading (and any emoji in it) is bigger than a
        `####` one, which a single mdh size collapsed. */
     let m = /^[ \t]*(#{1,6})[ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdh mdh' + m[1].length + '">' + pjRichSpans(m[2], names) + '</span>'); continue; }
+    if (m) { out.push('<span class="mdh mdh' + m[1].length + '">' + pjRichSpans(m[2], names, agentNames) + '</span>'); continue; }
     /* NO markdown blockquote in the room, on purpose. The room already has a
        DISTINCT, server-supplied quote (`m.quotes` -> <blockquote class="quoteb">),
        and web.quoteb asserts a bare leading `>` with no tag stays literal text
@@ -37449,25 +37461,25 @@ function pjProse(text, names) {
        server-quote concept, do style `>` as `.mdq`; this renderer deliberately
        does not.) `>` therefore falls through to inline text below. */
     m = /^[ \t]*[-+*][ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdli">' + pjRichSpans(m[1], names) + '</span>'); continue; }
+    if (m) { out.push('<span class="mdli">' + pjRichSpans(m[1], names, agentNames) + '</span>'); continue; }
     m = /^[ \t]*(\d+)\.[ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdli mdlin" data-n="' + esc(m[1]) + '.">' + pjRichSpans(m[2], names) + '</span>'); continue; }
-    out.push(pjRichSpans(line, names));
+    if (m) { out.push('<span class="mdli mdlin" data-n="' + esc(m[1]) + '.">' + pjRichSpans(m[2], names, agentNames) + '</span>'); continue; }
+    out.push(pjRichSpans(line, names, agentNames));
   }
   return out.join('<br>');
 }
-function pjBody(text, names) {
+function pjBody(text, names, agentNames) {
   const raw = String(text == null ? '' : text);
   /* The capture keeps each fence line's infostring; the old pattern ate it.
      With the capture, k closed blocks yield 4k+1 segments:
      [prose, openInfo, code, closeInfo, prose, ...]. Any other count means an
      unclosed fence, and an uncertain reading stays the flat paragraph. */
   const parts = raw.split(/^```([^\n]*)$/m);
-  if (parts.length < 5 || (parts.length - 1) % 4 !== 0) return pjProse(raw, names);
+  if (parts.length < 5 || (parts.length - 1) % 4 !== 0) return pjProse(raw, names, agentNames);
   let out = '';
   for (let i = 0; i < parts.length; i += 1) {
     const at = i % 4;
-    if (at === 0) { out += pjProse(parts[i], names); continue; }
+    if (at === 0) { out += pjProse(parts[i], names, agentNames); continue; }
     if (at === 1) {
       const label = String(parts[i] || '').trim();
       /* Path-shaped: no whitespace (a save-as attribute is not an origin),
@@ -37561,7 +37573,7 @@ function pjInline(text) {
    call would split `**bold text**` across whitespace and leak the markers --
    which is a careful refactor of the most-shared render path and gets its own
    PR. Flagged on #2067. */
-function pjRichSpans(seg, names) {
+function pjRichSpans(seg, names, agentNames) {
   /* Inline treatments for a single line's text, in an order chosen so no pass
      can corrupt an earlier pass's output:
        1. pull inline code out to a held placeholder (its body is never
@@ -37597,12 +37609,26 @@ function pjRichSpans(seg, names) {
      it. A token whose URL body still holds a placeholder sentinel is left
      unlinked rather than built into an attribute. */
   const hasNames = !!(names && names.size);
+  /* #2922 (Josh 6.59): in the project room, an @name that names an agent ON THIS PROJECT is
+     highlighted bright blue so the reader sees it will flag that agent. `agentNames` is the Set of
+     that project's agent keys (sessionNames), supplied only by pjRoomBody; the dialogue surfaces
+     pass none, so this is scoped to the project room. An @name that matches nobody stays plain. */
+  const hasAgents = !!(agentNames && agentNames.size);
   s = s.split(/(\s+)/).map((tok) => {
     if (!tok || /^\s+$/.test(tok)) return tok;
     const mm = /^(.*?)([.,;:!?)\]*~]*)$/.exec(tok);
     const core = mm[1];
     if (/^https?:\/\/[^\s￼]+$/.test(core)) {
       return hold('<a class="xlink" href="' + core + '" target="_blank" rel="noreferrer noopener">' + core + '</a>') + mm[2];
+    }
+    /* #2922: @<agent> mention. `core` is already esc()'d; agent keys are [A-Za-z0-9._-], which esc
+       leaves unchanged, so the Set lookup on the escaped key is exact. Held like the URL/chip so it
+       is atomic through the emphasis pass (**@mona** bolds the whole chip, never leaks a marker). */
+    if (hasAgents && core.charAt(0) === '@' && core.length > 1 && !core.includes('￼')) {
+      const key = core.slice(1);
+      if (agentNames.has(key)) {
+        return hold('<span class="pjmention">' + core + '</span>') + mm[2];
+      }
     }
     /* A cited project file -> a "Show me" chip (#355), same PATH rule as
        pjLinkPaths (last segment, no `..`), only when a `names` set is supplied.
@@ -38441,7 +38467,13 @@ function pjSilences(allRows, p) {
 function pjRoomBody(m, p) {
   const words = pjWords(m);
   if (!words) return '';
-  const flat = '<p>' + pjBody(words, PJ_DOC_NAMES) + '</p>';
+  /* #2922: the Set of agent keys (sessionNames) on THIS project, so pjRichSpans can highlight an
+     @name that flags an agent here. Same key derivation as mentionCandidates (a member is a string
+     key or a {sessionName} object). Empty/absent -> no highlight, which is the safe default. */
+  const agentNames = new Set(((p && p.agents) || [])
+    .map((a) => (typeof a === 'string' ? a : (a && typeof a.sessionName === 'string' ? a.sessionName : '')))
+    .filter(Boolean));
+  const flat = '<p>' + pjBody(words, PJ_DOC_NAMES, agentNames) + '</p>';
   const qs = Array.isArray(m.quotes) ? m.quotes.filter((q) => q && typeof q === 'object'
     && typeof q.of === 'string' && q.of
     && Number.isInteger(q.start) && Number.isInteger(q.end)
@@ -38452,13 +38484,13 @@ function pjRoomBody(m, p) {
   /* Prose between quotes keeps the spacing the person typed inside it; only
      the whitespace at its edges goes, since that only separated it from the
      quote, so no empty paragraph or hanging indent is drawn beside the bar. */
-  const prose = (t) => { const k = t.replace(/^\s+|\s+$/g, ''); return k ? '<p>' + pjBody(k, PJ_DOC_NAMES) + '</p>' : ''; };
+  const prose = (t) => { const k = t.replace(/^\s+|\s+$/g, ''); return k ? '<p>' + pjBody(k, PJ_DOC_NAMES, agentNames) + '</p>' : ''; };
   let out = '';
   let at = 0;
   for (const q of qs) {
     out += prose(words.slice(at, q.start));
     const who = q.from === 'you' ? 'You' : (pjNameOf(p, q.from) || q.from);
-    out += '<blockquote class="quoteb">' + pjBody(words.slice(q.start, q.end).replace(/^\n+|\n+$/g, ''), PJ_DOC_NAMES)
+    out += '<blockquote class="quoteb">' + pjBody(words.slice(q.start, q.end).replace(/^\n+|\n+$/g, ''), PJ_DOC_NAMES, agentNames)
       + '<cite class="quoteb-from">' + esc(who) + ', earlier</cite></blockquote>';
     at = q.end;
   }
