@@ -503,6 +503,47 @@ cmd_start() {
   die "Kosmos did not come up. What it said is in $BOARD_LOG"
 }
 
+# #2956: the SUPERVISED foreground entry. A launchd (or Task Scheduler) job runs
+# `kosmos board-run` instead of `kosmos start`, so the supervisor OWNS the node
+# process directly and its own KeepAlive relaunches a crash -- replacing the
+# fire-and-forget `kosmos start` (nohup + exit), which made the board a
+# run-at-login job launchd could not supervise (see the RunAtLoad/no-KeepAlive
+# note in install/setup.sh).
+#
+# NOT in the public help on purpose: the supervisor and the installer invoke this,
+# not people. People use start/stop/restart, which drive the supervisor underneath.
+#
+# ⚠️ INERT UNTIL THE PLIST POINTS AT IT. Adding this command changes nothing on
+# its own: the installed plist still runs `kosmos start` until a paired change
+# repoints ProgramArguments here AND teaches cmd_start/cmd_stop to drive the
+# supervisor (a second starter under a KeepAlive supervisor would race two boards
+# onto one port). Landing it first, inert, lets the foreground mechanism be tested
+# before the byte-frozen default plist (#883) is touched.
+cmd_board_run() {
+  # Honor a deliberate stop even on the RunAtLoad race. The plist's KeepAlive is
+  # keyed (PathState) on this SAME #2955 marker, so the supervisor will not
+  # relaunch us while it exists; this guard only covers the one-shot RunAtLoad at
+  # load, which fires regardless of PathState. `kosmos start` clears the marker
+  # (cmd_start, at the very top) and kickstarts us.
+  if [ -f "$STOP_MARKER" ]; then
+    say "Kosmos was deliberately stopped; not starting. Resume with: kosmos start"
+    exit 0
+  fi
+  [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ] || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  mkdir -p "$LOG_DIR"
+  # The supervisor OWNS this process: record the pidfile as THIS shell's pid, then
+  # `exec` node IN PLACE so node keeps that exact pid. `kosmos stop`/`status`
+  # (running_pid, pidfile-based) therefore keep working unchanged under
+  # supervision, while the supervisor's own handle (launchctl) is separate. No
+  # `nohup`, no `&`: a supervised process must stay in the foreground so the
+  # supervisor sees it live and sees it die. stdout/stderr go where the job's
+  # plist sends them (the board log); run by hand they go to the terminal.
+  printf '%s' "$$" > "$PIDFILE"
+  PORT="$PORT" exec "$NODE" "$APP"
+}
+
 cmd_stop() {
   local pid
   if pid="$(running_pid)"; then
@@ -1732,6 +1773,7 @@ case "${1:-}" in
   start)   cmd_start ;;
   stop)    cmd_stop ;;
   restart) cmd_restart ;;
+  board-run) cmd_board_run ;;   # #2956: internal supervised foreground entry (launchd/Task Scheduler), not for people
   status)  cmd_status ;;
   open)    cmd_open ;;
   agents)  cmd_agents ;;
