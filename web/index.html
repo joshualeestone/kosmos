@@ -30238,8 +30238,10 @@ async function paintAccountPicker(a) {
 
   /* Only accounts whose history is the shared one. The engine refuses the rest
      and says why; the picker does not offer them at all, because an option that
-     always fails is worse than an option that is not there. */
-  const movable = ACCOUNTS.filter((x) => x.memoryShared);
+     always fails is worse than an option that is not there. For OpenAI agents,
+     all accounts (including OpenAI ones) are movable; for Claude, only Claude. */
+  const isOpenai = a && (a.provider === 'openai' || a.runner === 'codex');
+  const movable = isOpenai ? ACCOUNTS : ACCOUNTS.filter((x) => x.memoryShared);
   /* #1492: the account this agent runs on can be SIGNED OUT (the stale-file
      duplicate Josh's sister hit), and then the agent cannot run while the move
      UI right here is the way onto a signed-in account. Cross-reference the
