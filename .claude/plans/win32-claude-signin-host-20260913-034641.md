@@ -256,6 +256,23 @@ Rebased onto `da1b5a21` first (clean).
   tail; leak check is any 6+ prefix or suffix and any 8-character window of either half. Control
   arm: a 3-character edge, a 7-character interior line and an unrelated OAuth URL line stay intact.
 
+Round 4 results (0c48df26 on da1b5a21; same guard and scratch roots):
+- `engine/win32signin.test.js` 22/22, `engine/connect.win32signin.test.js` 15/15.
+- Suite set vs a `git archive` of `da1b5a21`, by name and first error line: base 253 / 80, branch
+  291 / 79. No new failure; the same main-only `git ls-files` archive failure; two `claudeaccounts`
+  arms differ only by the scratch temp path.
+- Revert controls on scratch copies of HEAD, all red (15): line-boundary masking removed (the
+  round 3 wrap arm); and every earlier control re-run (redaction after the cap, the R4 URL guard,
+  EFTYPE, no-hide, deadCredential, tmux fallback, grace, script mapping, sent redaction, switch on,
+  code on a command line, token redaction, #1937, tmux on Windows). The no-hide control also reds
+  the round 3 control arm, because without hiding the old prompt stays on the screen that arm reads.
+- Round 2 probes re-run against the branch, 11/11 (A-E driver at production timing; R1-R5 host):
+  every R1/R1b/R2/R3 leak list empty; R4's host screen still shows the state redacted inside the
+  URL, which `usableOauthUrl` turns into no URL; R5 confirms EINVAL for `.cmd`, EFTYPE for `.ps1`
+  and an empty `.exe`, ENOENT for extensionless paths. Probe C still ends "a screen we do not
+  recognise" at ~12 s, which is L-1 item (xii), unchanged by design.
+- No schtasks block log was created by any run.
+
 ## Results (Windows box, runtime node 24.19, no-schtasks preload, scratch APPDATA/LOCALAPPDATA/USERPROFILE)
 
 - `engine/win32signin.test.js` 11/11, `engine/connect.win32signin.test.js` 11/11.
