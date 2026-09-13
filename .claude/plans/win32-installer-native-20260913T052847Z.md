@@ -553,6 +553,33 @@ Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
     nothing stops it. The person sees Kosmos at the next sign-in, and the Start menu and Apps entries may
     already be removed; running `Kosmos.exe --uninstall` from the folder removes it again.
 
+- **Round 5 results (this box).**
+  - The affected suites (uninstall, relocate, hand-off, board, re-anchor, sign-in switch,
+    `server.remote-bind-1112`, `engine.reachable`), with APPDATA, LOCALAPPDATA and USERPROFILE in scratch
+    and the schtasks preload on: 195 of 196.
+    - The one failure, `server.remote-bind-1112` "a DECLARED reachable Host reaches a route" (500, not
+      200), fails the same way on an archive of `c897c057`, before this round.
+  - The real-listener arms all ran: a board on `::1` only, on `127.0.0.1` only, and on `127.0.0.2` named by
+    `KOSMOS_BIND_HOST` (with the control: unnamed, it is not looked for), a non-HTTP listener and a hung
+    one.
+  - Revert controls: 90 of 90 red (17 new for round 5, and the earlier 73 restated, four with their find
+    text updated), with the worktree clean afterwards and no schtasks call blocked.
+    - The first run found one vacuous test: `probeBoard(9, '0.0.0.0')` is plain ECONNREFUSED on this box, so
+      it never reached the new codes. Measured instead: port 0 gives EADDRNOTAVAIL and `0.0.0.1` gives
+      ENETUNREACH. The test now uses both, and its control is red.
+  - The launcher (`KosmosLauncher.cs`) did not change, so it was not rebuilt.
+  - `origin/main` was still `b20d495c`, so no rebase.
+  - The comparison against an archive of `b20d495c` (101 suites, full sandbox; name and first error line):
+    - base 1782 tests, 154 fail; branch 1896 tests, 153 fail;
+    - 0 new failures;
+    - the one base-only failure is `git ls-files` in an archive;
+    - 2 tests differ only by an ephemeral port (`absolute-form naming this server is routed`, and
+      `tools.win-open-board-2007`'s end-to-end);
+    - 151 shared failures;
+    - no schtasks call was blocked on either side.
+  - The real system was untouched afterwards: no real `Kosmos.lnk`, no real `Uninstall\Kosmos` key, no
+    `KosmosTest` key, no `%LOCALAPPDATA%\Programs\Kosmos`, and `Kosmos\board` still running.
+
 ## Follow-ups (not this slice)
 
 - **A progress window while the uninstall runs (round 3, finding 5).** The uninstall helper has no time
