@@ -134,7 +134,7 @@ const PROCESS_IMAGE_LOOKUP_TIMEOUT_MS = 5 * 1000;
 const LOCK_RELEASE_TRIES = 3;
 const LOCK_RELEASE_WAIT_MS = 50;
 /** The quick held-read budget (tryRetryingHolds): reads of a file or folder another process holds (a
-    writer replacing it, a scanner, a backup tool), this many, this far apart, 60 ms in all. For B0
+    writer replacing it, a scanner, a backup tool), this many, this far apart: (3 - 1) x 20 = 40 ms of waiting in all. For B0
     and begin(), which answer a person; the helper, the resumers and the logon shim wait seconds
     instead (win32apply.OWNER_READ_BUDGET). */
 const QUICK_HELD_READ_BUDGET = Object.freeze({ tries: 3, waitMs: 20 });
@@ -803,23 +803,27 @@ function readFileRetryingHolds(file, waitSync, budget) {
  * internal paths.
  */
 function releaseLock(lockPath, text, log, reading) {
+  /* Returns what is left at the lock's name: 'released' (no lock of this prepare's: removed, or already
+     gone), 'not-ours' (another update's lock stands there), or 'left' (this prepare's lock could not be
+     read or removed, so it still names this process). The updater starts the board it ended only after
+     'released' (win32apply.restartBoardAfterExit). */
   const read = readFileRetryingHolds(lockPath, reading && reading.waitSync, reading && reading.budget);
-  if (read.missing) return;
+  if (read.missing) return 'released';
   if (read.code) {
     log(`could not read the prepare lock to release it (code=${read.code}, after ${read.tries} ${read.tries === 1 ? 'try' : 'tries'})`);
     leftBehindLockText = text;
     log('left the prepare lock behind; the next prepare in this board clears it');
-    return;
+    return 'left';
   }
-  if (read.text !== text) { log('the prepare lock was taken over while this prepare ran; leaving it'); return; }
+  if (read.text !== text) { log('the prepare lock was taken over while this prepare ran; leaving it'); return 'not-ours'; }
   for (let tries = 1; ; tries += 1) {
-    try { fs.rmSync(lockPath, { force: true }); return; } catch (e) {
+    try { fs.rmSync(lockPath, { force: true }); return 'released'; } catch (e) {
       log(`could not remove the prepare lock (code=${(e && e.code) || 'unknown'}, try ${tries} of ${LOCK_RELEASE_TRIES})`);
     }
     if (tries >= LOCK_RELEASE_TRIES) {
       leftBehindLockText = text;
       log('left the prepare lock behind; the next prepare in this board clears it');
-      return;
+      return 'left';
     }
     sleepSync(LOCK_RELEASE_WAIT_MS);
   }

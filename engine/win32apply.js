@@ -109,7 +109,7 @@ const DEFAULT_APPLY_LIMITS = Object.freeze({
  * a lock, journal, file or folder another process holds (win32update.HELD_FILE_CODES) before they call
  * it unknown. It is the wait a whole rollback already gives a scanner or backup tool to let go
  * (rollbackPasses x rollbackPassWaitMs, 6 s), in reads stopPollMs apart (200 ms, H2's poll): 31 reads.
- * B0 and begin() answer a person and keep win32update.QUICK_HELD_READ_BUDGET (60 ms). Waiting is safe:
+ * B0 and begin() answer a person and keep win32update.QUICK_HELD_READ_BUDGET (40 ms of waiting). Waiting is safe:
  * a live owner's lock cannot be taken meanwhile, and nothing is written during the wait.
  * win32board.BOOT_JS carries the same numbers for its journal read, pinned by a test.
  */
@@ -368,8 +368,9 @@ function writeStagedJournal(journalAt, spec) {
   const problem = journalProblem(j, journalAt);
   if (problem) throw new Error(`the update journal ${problem}`);
   if (!samePath(path.join(j.staged), spec.prepared.stagedDir)) throw new Error('the staged update is not where the journal expects it');
-  /* begin()'s write, in the board's own process: a held rename is tried again within the quick budget,
-     and one still held refuses the update in words (begin() reports it). */
+  /* begin()'s write, in the board's own process: a held rename is tried again within the quick write
+     budget (2 tries, about 2 s synchronous when held for good; writeBudgetFrom), and one still held refuses
+     the update in words (begin() reports it). */
   const tried = win32update.tryRetryingHolds(
     () => win32swap.writeFileAtomic(journalAt, JSON.stringify(j, null, 2) + '\n'), null, writeBudgetFrom(win32update.QUICK_HELD_READ_BUDGET));
   if (!('value' in tried)) {
@@ -457,9 +458,11 @@ function contextFor(journalAt, journal, deps, mode) {
   const inWork = win32update.workGuard(j.work);
   const logFile = path.join(j.work, APPLY_LOG_NAME);
   const ctx = { journalAt, j, deps, mode, inWork, guard: writeGuard(j, journalAt), forward: false, writesStopped: false };
-  ctx.log = (line) => {
+  ctx.log = (line, o) => {
     if (deps.log) { deps.log(line); return; }
-    if (!ctx.writesStopped) {
+    /* `evenIfWritesStopped`: the one line that says the board was left stopped (restartBoardAfterExit)
+       is written to the log file regardless, so a person can find out why. */
+    if (!ctx.writesStopped || (o && o.evenIfWritesStopped)) {
       const stamped = `${new Date(deps.now()).toISOString()} [${mode} ${process.pid}] ${line}`;
       try { fs.appendFileSync(inWork(logFile), stamped + '\n'); } catch { /* the update matters more than its log */ }
     }
@@ -530,19 +533,51 @@ function heldUnknown(ctx, e) {
 }
 
 /**
- * 🛑 NEVER LEAVE THE BOARD DOWN FOR A HOLD. When a helper or resume helper that ended the board stops
- * `held` (a write held past its budget, or an ownership it could not tell), it issues one `/Run`: the
- * logon shim that starts then finishes the update crash-safely, with its boot choice. Never after a
- * proven takeover (takenOver): there another owner has the recovery. A `/Run` that fails is logged.
+ * Does a helper or resume helper run that ended this way leave the board it ended down? The exits that
+ * qualify for the post-exit restart (restartBoardAfterExit):
+ *   - `held`, thrown (heldUnknown: an ownership it could not tell, a write held past its budget) or
+ *     returned (rollBack waiting on an unreachable folder);
+ *   - `stuck` (a rollback that could not put the old tree back, or whose old board did not start);
+ *   - an error it could not handle (`unhandled`: the rethrow, ENOSPC say).
+ * Never `updated` or `rolled-back` (those started a board), and never a proven takeover
+ * (`taken-over`): there another owner has the recovery.
  */
-function startBoardAfterHold(ctx) {
-  if (!ctx.boardEnded) return;
+function exitLeavesBoardDown(exit) {
+  if (!exit) return false;
+  if (exit.unhandled) return true;
+  if (exit.outcome === 'stuck') return true;
+  if (exit.outcome === 'held') return true;
+  return false;
+}
+
+/**
+ * 🛑 NEVER LEAVE THE BOARD DOWN, AND NEVER START IT UNDER THIS PROCESS'S LOCK. After the lock's release,
+ * a run that ended the board and exited in a way exitLeavesBoardDown names issues one `/Run`: the logon
+ * shim that starts takes the free lock and finishes the update crash-safely, with its boot choice.
+ * When the release could not remove the lock (`released` is not 'released'), no `/Run` comes from this
+ * process: that shim would meet a live holder, hold, and boot the pointer (the unconfirmed build, or no
+ * app). The board is then left stopped until the next sign-in or Kosmos.exe, and the log says so, a
+ * double fault accepted as a residual. A `/Run` that fails is logged.
+ */
+function restartBoardAfterExit(ctx, exit, released) {
+  if (!ctx.boardEnded || !exitLeavesBoardDown(exit)) return;
+  if (released !== 'released') {
+    ctx.log('the board was left stopped because the update lock could not be released; it will come back at the next sign-in or when Kosmos.exe is opened', { evenIfWritesStopped: true });
+    return;
+  }
   try {
     const r = ctx.deps.board.runNow();
-    ctx.log(r.ok ? 'started the board again, so its logon shim finishes the update' : `could not start the board again: ${r.because}`);
+    ctx.log(r.ok ? 'started the board again, so its logon shim finishes the update' : `could not start the board again: ${r.because}`, { evenIfWritesStopped: true });
   } catch (e) {
-    ctx.log(`could not start the board again (${describeError(e)})`);
+    ctx.log(`could not start the board again (${describeError(e)})`, { evenIfWritesStopped: true });
   }
+}
+
+/** The one post-exit step of the helper and the resume helper, in their `finally`: release the lock,
+    THEN restart the board if the run left it down. */
+function finishRun(ctx, lock, exit) {
+  const released = releaseUpdateLock(ctx, lock);
+  restartBoardAfterExit(ctx, exit, released);
 }
 
 /** The entry points' one reading of an error that stopped the writing, or null for any other error. */
@@ -553,9 +588,12 @@ function stoppedWriting(ctx, e) {
 }
 
 /**
- * A write's held budget from a read budget: the same total wait ((tries - 1) x waitMs), in tries that
- * each already spend win32swap.RENAME_RETRY_WINDOW_MS retrying their own rename. OWNER_READ_BUDGET's
- * 6 s gives 6 tries; the quick budget's 60 ms gives 2.
+ * A write's held budget from a read budget: tries = 1 + ceil(readWait / (RENAME_RETRY_WINDOW_MS + waitMs)),
+ * where readWait = (tries - 1) x waitMs is the read budget's own waiting. Each try already spends up to
+ * win32swap.RENAME_RETRY_WINDOW_MS (about 1 s) retrying its rename, so a write held for good takes about
+ * tries x 1 s + (tries - 1) x waitMs, which is NOT the read budget's total:
+ *   - OWNER_READ_BUDGET (6 s of waiting): 6 tries, about 7 s;
+ *   - QUICK_HELD_READ_BUDGET (40 ms of waiting): 2 tries, measured at 2,014 ms.
  */
 function writeBudgetFrom(readBudget) {
   const totalMs = (readBudget.tries - 1) * readBudget.waitMs;
@@ -1014,7 +1052,7 @@ async function rollBack(ctx, because) {
   /* A Kosmos folder on a drive that is not connected: nothing is stopped, moved or written. */
   if (found && found.kind === 'unreachable') {
     log(`the rollback waits: ${found.because}`);
-    return { ok: false, outcome: 'held', because: found.because };
+    return { ok: false, outcome: 'held', action: 'held', because: found.because };
   }
   if (found) {
     const settled = settleUnrecoverable(ctx, found);
@@ -1214,10 +1252,13 @@ function takeUpdateLock(ctx) {
   }
   return { text };
 }
+/** Release the update lock this context took. Returns win32update.releaseLock's answer: 'released' (none
+    of this context's remains, also when it took none), 'not-ours', or 'left'. */
 function releaseUpdateLock(ctx, lock) {
-  if (!lock || !lock.text) return;
-  try { win32update.releaseLock(ctx.inWork(path.join(ctx.j.work, win32update.LOCK_NAME)), lock.text, ctx.log, ctx.deps.reading); } catch (e) {
+  if (!lock || !lock.text) return 'released';
+  try { return win32update.releaseLock(ctx.inWork(path.join(ctx.j.work, win32update.LOCK_NAME)), lock.text, ctx.log, ctx.deps.reading); } catch (e) {
     ctx.log(`could not release the update lock (code=${codeOf(e)})`);
+    return 'left';
   }
 }
 
@@ -1462,6 +1503,7 @@ async function applyJournal(journalAt, overrides) {
   const lock = takeUpdateLock(ctx);
   if (!lock.text) return { ok: false, because: `another update is already running (${lock.because})` };
   ctx.lock = lock;
+  let exit = null;
   try {
     /* The journal read above is only a look. Between it and the lock, a resumer can have finished
        this journal, or begin() written another: only the same journal, still unfinished and still
@@ -1487,18 +1529,20 @@ async function applyJournal(journalAt, overrides) {
       return { ok: false, outcome: 'held', action: 'held', because: `the update was not started, because ${e.message}` };
     }
     if (refusal) return finishWithoutChange(ctx, refusal);
-    return await runSteps(ctx);
+    exit = await runSteps(ctx);
+    return exit;
   } catch (e) {
     const stopped = stoppedWriting(ctx, e);
     if (stopped) {
-      if (e instanceof OwnershipUnknown) startBoardAfterHold(ctx);
+      exit = stopped;
       return stopped;
     }
     /* Diagnosable from the log alone: the detached helper's stderr goes nowhere (begin() ignores it). */
     ctx.log(`the update stopped on an error it cannot handle (${describeError(e)})`);
+    exit = { unhandled: true };
     throw e;
   } finally {
-    releaseUpdateLock(ctx, lock);
+    finishRun(ctx, lock, exit);
   }
 }
 
@@ -1529,6 +1573,7 @@ async function resumeJournal(journalAt, overrides) {
   const lock = lockForResume(ctx, found);
   if (lock.because) return { ok: true, action: 'held', because: lock.because };
   ctx.lock = lock;
+  let exit = null;
   try {
     /* Read again under the lock: the holder it waited for may have finished it or replaced it. */
     const reread = lock.none ? { journal: read.journal } : sameUnfinishedJournal(journalAt, read.journal.token, deps.reading);
@@ -1561,17 +1606,19 @@ async function resumeJournal(journalAt, overrides) {
       setPhase(ctx, 'confirmed');
       return finishUpdated(ctx);
     }
-    return await rollBack(ctx, stoppedBecause(ctx.j));
+    exit = await rollBack(ctx, stoppedBecause(ctx.j));
+    return exit;
   } catch (e) {
     const stopped = stoppedWriting(ctx, e);
     if (stopped) {
-      if (e instanceof OwnershipUnknown) startBoardAfterHold(ctx);
+      exit = stopped;
       return stopped;
     }
     ctx.log(`the update stopped on an error it cannot handle (${describeError(e)})`);
+    exit = { unhandled: true };
     throw e;
   } finally {
-    releaseUpdateLock(ctx, lock);
+    finishRun(ctx, lock, exit);
   }
 }
 
