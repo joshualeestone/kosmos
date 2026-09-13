@@ -178,6 +178,8 @@ function playBoard(c, o = {}) {
     const verb = args[0];
     if (verb === '/End') {
       if (!o.endDoesNothing) { sim.running = false; sim.identity = null; }
+      /* `endFailsAfterStopping`: the board stops, and schtasks still reports a failure (its timeout). */
+      if (o.endFailsAfterStopping) return { ok: false, out: 'spawnSync schtasks.exe ETIMEDOUT' };
       return { ok: true, out: 'SUCCESS: The scheduled task was terminated.' };
     }
     if (verb === '/Run') {
@@ -1772,9 +1774,12 @@ test('TEST-GAP 3 (K18): the drive goes away while the helper is in H7: its rollb
   const c = freshInstall();
   stage(c);
   const before = installState(c);
-  const sim = playBoard(c, { newNeverStarts: true });
-  const volume = path.parse(c.root).root;
   let callsAtFault = null;
+  const box = { lockAtRun: null };
+  const sim = playBoard(c, { newNeverStarts: true, onRun: (s) => {
+    if (callsAtFault !== null && s.calls.length === callsAtFault + 2) box.lockAtRun = fs.existsSync(lockOf(c));
+  } });
+  const volume = path.parse(c.root).root;
   let r;
   try {
     r = await win32apply.applyJournal(c.journal, sim.deps({ hooks: { before: (step, d) => {
@@ -1784,6 +1789,7 @@ test('TEST-GAP 3 (K18): the drive goes away while the helper is in H7: its rollb
     assert.equal(r.because, `the drive Kosmos is on (${volume}) is not connected`);
     assert.deepEqual(sim.calls.slice(callsAtFault), [`/Run /TN Kosmos\\board`, `/Run /TN Kosmos\\board`],
       'the third run, then one /Run of the board H2 ended once the lock is released (round 9, decision 3): no /End, so no reversal began');
+    assert.equal(box.lockAtRun, false, 'the post-release /Run came after the lock was released (round 10, decision 5)');
     assert.equal(fs.existsSync(c.statusAt), false, 'no status');
     const j = readJson(c.journal);
     assert.equal(j.finished, false);
@@ -3117,6 +3123,95 @@ test('ROUND 9 decision 3 (P3): a helper rollback that ends stuck starts the boar
   const next = bootShim(c);
   assert.equal(next.booted, `booted ${OLD} by Kosmos\\board`, next.stderr);
   assertRolledBack(c, before, null, null, 'after the shim');
+});
+
+/* ─── review round 10 ─────────────────────────────────────────────────────────────────────── */
+
+test('ROUND 10 decision 1 (P8): an /End that stops the board but reports a failure still counts as ended: a run that then ends held starts the board once, after the lock is released, and its real shim puts the old build back', T, async () => {
+  const c = freshInstall();
+  stage(c);
+  const before = installState(c);
+  const box = { armed: false, lockAtRun: null };
+  const shims = [];
+  const sim = playBoard(c, { endFailsAfterStopping: true, onRun: () => {
+    if (!box.armed) return;
+    box.lockAtRun = fs.existsSync(lockOf(c));
+    shims.push(bootShimAsync(c));
+  } });
+  let r;
+  let hold;
+  try {
+    hold = holdRenamesOnto(c.journal, { on: () => box.armed });
+    r = await win32apply.applyJournal(c.journal, sim.deps({ log: (line) => { c.log.push(line); if (line.startsWith('the update failed during ')) box.armed = true; } }));
+  } finally {
+    unholdRenames();
+  }
+  assert.ok(hold.hits > 0, 'the control: the rollback\'s journal write was held');
+  assert.ok(c.log.some((l) => /end the board: we could not stop the board \(spawnSync schtasks\.exe ETIMEDOUT\)/.test(l)), 'the control: /End reported a failure\n' + c.log.join('\n'));
+  assert.equal(r.outcome, 'held', JSON.stringify(r) + '\n' + c.log.join('\n'));
+  assert.deepEqual(sim.calls, ['/End /TN Kosmos\\board', '/Run /TN Kosmos\\board'], 'the /End, then one /Run after the release');
+  assert.equal(box.lockAtRun, false, 'the /Run came after the lock was released');
+  assert.ok(c.log.includes('started the board again, so its logon shim finishes the update'), c.log.join('\n'));
+  assert.equal(shims.length, 1);
+  const shim = await shims[0];
+  assert.equal(shim.status, 0, shim.stderr);
+  assert.equal(shim.booted, `booted ${OLD} by Kosmos\\board`, shim.stderr);
+  const next = bootShim(c);
+  assert.equal(next.booted, `booted ${OLD} by Kosmos\\board`, next.stderr);
+  assertRolledBack(c, before, null, null, 'after the shim');
+});
+
+test('ROUND 10 decision 3 (P9): an update abandoned after H2 ended the board (its recovery code gone) starts no board, and update-apply.log says why the board was left stopped', T, async () => {
+  const c = freshInstall();
+  stage(c);
+  const sim = playBoard(c, { newNeverStarts: true });
+  let removed = 0;
+  const r = await win32apply.applyJournal(c.journal, sim.deps({ log: undefined, hooks: { before: (step, d) => {
+    if (step === 'H7-run' && d.run === 3) for (const f of readJson(c.journal).recoverFrom) { fs.rmSync(f, { force: true }); removed += 1; }
+  } } }));
+  assert.ok(removed > 0, 'the control: the recovery code was removed');
+  assert.equal(r.outcome, 'abandoned', JSON.stringify(r));
+  assert.deepEqual(sim.calls, ['/End /TN Kosmos\\board', '/Run /TN Kosmos\\board', '/Run /TN Kosmos\\board', '/Run /TN Kosmos\\board'],
+    'H2\'s /End and H7\'s three runs, and no /Run after them');
+  const logText = readText(path.join(c.work, win32apply.APPLY_LOG_NAME)) || '';
+  assert.match(logText, /the board was left stopped because this update was abandoned: nothing is left to recover it with, so no board was started; the next sign-in starts whatever the pointer names/);
+});
+
+test('ROUND 10 decision 2 (P10): a stuck rollback whose lock proves another update\'s at the release starts nothing, appends nothing more to WORK\'s log, and says so on stderr only', T, async () => {
+  const c = freshInstall();
+  stage(c);
+  const sim = playBoard(c, { newNeverStarts: true });
+  const logFile = path.join(c.work, win32apply.APPLY_LOG_NAME);
+  const realAppend = fs.appendFileSync;
+  const realStderrWrite = process.stderr.write;
+  const stderr = [];
+  const box = { armed: false, swapped: false, sizeAtSwap: null, fault: null };
+  let r;
+  try {
+    process.stderr.write = function spy(chunk, ...rest) { stderr.push(String(chunk)); return realStderrWrite.call(this, chunk, ...rest); };
+    fs.appendFileSync = function spy(p, data, ...rest) {
+      const out = realAppend.call(this, p, data, ...rest);
+      const line = String(data);
+      if (!box.armed && line.includes('the update failed during ')) { box.armed = true; box.fault = faultLstat(path.join(c.root, 'bin'), 'EACCES', -1); }
+      if (!box.swapped && line.includes('status stuck')) {
+        box.swapped = true;
+        fs.writeFileSync(lockOf(c), JSON.stringify({ pid: process.pid, at: 1, token: 'another-update' }));
+        box.sizeAtSwap = fs.statSync(logFile).size;
+      }
+      return out;
+    };
+    r = await win32apply.applyJournal(c.journal, sim.deps({ log: undefined }));
+  } finally {
+    fs.appendFileSync = realAppend;
+    process.stderr.write = realStderrWrite;
+    unfaultLstat();
+  }
+  assert.ok(box.swapped, 'the control: the lock became another update\'s before the release');
+  assert.equal(r.outcome, 'stuck', JSON.stringify(r));
+  assert.equal(sim.calls[sim.calls.length - 1], '/End /TN Kosmos\\board', 'no /Run after the rollback\'s /End');
+  assert.equal(fs.statSync(logFile).size, box.sizeAtSwap, `nothing more appended to WORK's log: ${readText(logFile).slice(box.sizeAtSwap)}`);
+  assert.ok(stderr.some((s) => s.includes('another update now holds the update lock and owns recovery; this run started nothing')), stderr.join(''));
+  assert.ok(fs.readFileSync(lockOf(c), 'utf8').includes('another-update'), 'the other update\'s lock is left standing');
 });
 
 test('ROUND 9 decision 3 (P5b): a rollback stuck on a held engine-path rename starts the board after the release; the real shim, meeting the same hold, starts the whole old app from previous; the next start converges', LONG, async () => {

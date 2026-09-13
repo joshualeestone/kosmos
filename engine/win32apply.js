@@ -461,8 +461,9 @@ function contextFor(journalAt, journal, deps, mode) {
   ctx.log = (line, o) => {
     if (deps.log) { deps.log(line); return; }
     /* `evenIfWritesStopped`: the one line that says the board was left stopped (restartBoardAfterExit)
-       is written to the log file regardless, so a person can find out why. */
-    if (!ctx.writesStopped || (o && o.evenIfWritesStopped)) {
+       is written to the log file regardless, so a person can find out why. `stderrOnly`: a line about
+       an update this run no longer owns, which never goes into that update's WORK. */
+    if (!(o && o.stderrOnly) && (!ctx.writesStopped || (o && o.evenIfWritesStopped))) {
       const stamped = `${new Date(deps.now()).toISOString()} [${mode} ${process.pid}] ${line}`;
       try { fs.appendFileSync(inWork(logFile), stamped + '\n'); } catch { /* the update matters more than its log */ }
     }
@@ -540,7 +541,9 @@ function heldUnknown(ctx, e) {
  *   - `stuck` (a rollback that could not put the old tree back, or whose old board did not start);
  *   - an error it could not handle (`unhandled`: the rethrow, ENOSPC say).
  * Never `updated` or `rolled-back` (those started a board), and never a proven takeover
- * (`taken-over`): there another owner has the recovery.
+ * (`taken-over`): there another owner has the recovery. Never `abandoned` either, even when this run
+ * ended the board: nothing is left to recover with, so the next sign-in boots the pointer, and a
+ * `/Run` now would only reach that same state sooner (restartBoardAfterExit logs why instead).
  */
 function exitLeavesBoardDown(exit) {
   if (!exit) return false;
@@ -554,13 +557,24 @@ function exitLeavesBoardDown(exit) {
  * 🛑 NEVER LEAVE THE BOARD DOWN, AND NEVER START IT UNDER THIS PROCESS'S LOCK. After the lock's release,
  * a run that ended the board and exited in a way exitLeavesBoardDown names issues one `/Run`: the logon
  * shim that starts takes the free lock and finishes the update crash-safely, with its boot choice.
- * When the release could not remove the lock (`released` is not 'released'), no `/Run` comes from this
- * process: that shim would meet a live holder, hold, and boot the pointer (the unconfirmed build, or no
- * app). The board is then left stopped until the next sign-in or Kosmos.exe, and the log says so, a
- * double fault accepted as a residual. A `/Run` that fails is logged.
+ * When the release could not remove the lock (`left`), no `/Run` comes from this process: that shim
+ * would meet a live holder, hold, and boot the pointer (the unconfirmed build, or no app). The board is
+ * then left stopped until the next sign-in or Kosmos.exe, and the log says so, a double fault accepted
+ * as a residual. When the lock is another update's (`not-ours`), that update owns the recovery: nothing
+ * is started, and the one line about it goes to stderr only, never into that update's WORK. An
+ * `abandoned` run that ended the board logs why it starts nothing. A `/Run` that fails is logged.
  */
 function restartBoardAfterExit(ctx, exit, released) {
-  if (!ctx.boardEnded || !exitLeavesBoardDown(exit)) return;
+  if (!ctx.boardEnded) return;
+  if (exit && exit.outcome === 'abandoned') {
+    ctx.log('the board was left stopped because this update was abandoned: nothing is left to recover it with, so no board was started; the next sign-in starts whatever the pointer names');
+    return;
+  }
+  if (!exitLeavesBoardDown(exit)) return;
+  if (released === 'not-ours') {
+    ctx.log('another update now holds the update lock and owns recovery; this run started nothing', { stderrOnly: true });
+    return;
+  }
   if (released !== 'released') {
     ctx.log('the board was left stopped because the update lock could not be released; it will come back at the next sign-in or when Kosmos.exe is opened', { evenIfWritesStopped: true });
     return;
@@ -729,9 +743,12 @@ async function stopBoard(ctx) {
      is in ROOT or what the resumer that took over decided, and that resumer (the logon shim of the
      board that just booted) owns the recovery now. */
   assertStillOwner(ctx);
+  /* "This run issued /End", set BEFORE it is issued: an /End that stops the board and still reports a
+     failure (schtasks' timeout) leaves the board down all the same. A run that ends held, stuck or on an
+     unhandled error then starts it again after the lock's release (restartBoardAfterExit). Safe when
+     the board never stopped: the task is IgnoreNew (win32board.taskXml), so that /Run starts nothing. */
+  ctx.boardEnded = true;
   const ended = deps.board.end();
-  /* Remembered, so a run that ends held starts the board it ended (startBoardAfterHold). */
-  if (ended.ok) ctx.boardEnded = true;
   log(`end the board: ${ended.ok ? 'ok' : ended.because}`);
   if (!ended.ok) return { ok: false, because: ended.because };
   const until = deps.now() + L.stopWaitMs;
@@ -1256,10 +1273,18 @@ function takeUpdateLock(ctx) {
     of this context's remains, also when it took none), 'not-ours', or 'left'. */
 function releaseUpdateLock(ctx, lock) {
   if (!lock || !lock.text) return 'released';
-  try { return win32update.releaseLock(ctx.inWork(path.join(ctx.j.work, win32update.LOCK_NAME)), lock.text, ctx.log, ctx.deps.reading); } catch (e) {
-    ctx.log(`could not release the update lock (code=${codeOf(e)})`);
-    return 'left';
+  /* The release's lines are written once its answer is known: about a lock that proved another
+     update's, they go to stderr only, never into that update's WORK. */
+  const lines = [];
+  let released;
+  try {
+    released = win32update.releaseLock(ctx.inWork(path.join(ctx.j.work, win32update.LOCK_NAME)), lock.text, (line) => lines.push(line), ctx.deps.reading);
+  } catch (e) {
+    lines.push(`could not release the update lock (code=${codeOf(e)})`);
+    released = 'left';
   }
+  for (const line of lines) ctx.log(line, released === 'not-ours' ? { stderrOnly: true } : undefined);
+  return released;
 }
 
 /**
