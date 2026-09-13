@@ -315,6 +315,32 @@ test('compileAll: a per-file READ failure blocks pruning, but invalid JSON does 
   assert.ok(fs.existsSync(path.join(outDir, '2026-09-14.md')), 'a readable day is still written');
 });
 
+test('compileAll: a readable but empty chats dir prunes ALL stale day files, keeps non-day files', () => {
+  const chatsDir = path.join(SANDBOX, 'chats-empty-wipe');
+  const outDir = path.join(SANDBOX, 'chats-daily-empty-wipe');
+  fs.mkdirSync(chatsDir, { recursive: true }); // exists, readable, genuinely empty
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(path.join(outDir, '2026-09-13.md'), 'stale');
+  fs.writeFileSync(path.join(outDir, '2026-09-14.md'), 'stale');
+  fs.writeFileSync(path.join(outDir, 'README.md'), 'keep');
+  const summary = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
+  assert.equal(summary.readable, true);
+  assert.equal(summary.days, 0, 'nothing to write from an empty source');
+  assert.deepEqual(summary.pruned.slice().sort(), ['2026-09-13', '2026-09-14'], 'every stale day is pruned when the source is readable and empty');
+  assert.ok(!fs.existsSync(path.join(outDir, '2026-09-13.md')));
+  assert.ok(fs.existsSync(path.join(outDir, 'README.md')), 'a non-day file must survive even a full wipe');
+});
+
+test('the direct/project filename convention still matches engine/chat.js (pin, convention #5)', () => {
+  // dailylog's DIRECT_THREAD_FILE / PROJECT_THREAD_FILE re-derive the on-disk
+  // naming chat.js writes. chat.js does not export those regexes, so this pins
+  // dailylog's assumptions against chat.js's actual naming literals: if chat.js
+  // changes the form, this fails and dailylog must be re-synced.
+  const chatSrc = fs.readFileSync(path.join(__dirname, 'chat.js'), 'utf8');
+  assert.ok(chatSrc.includes('direct..${key}.json'), 'chat.js direct-thread naming changed; re-sync dailylog DIRECT_THREAD_FILE');
+  assert.ok(chatSrc.includes('${id}.${key}.json'), 'chat.js project-thread naming changed; re-sync dailylog PROJECT_THREAD_FILE');
+});
+
 test('compileAll: invalid JSON is stable junk and does NOT block pruning', () => {
   const chatsDir = path.join(SANDBOX, 'chats-junk');
   const outDir = path.join(SANDBOX, 'chats-daily-junk');

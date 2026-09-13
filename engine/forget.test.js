@@ -151,6 +151,29 @@ test('forget REFUSES a derived dir whose basename does not match, and does not d
   assert.ok(fs.existsSync(nodePath.join(store.ROOT, 'chats')), 'a refusal must not have already deleted the parent kind');
 });
 
+test('a mid-delete I/O failure never leaves the source gone while its rollup remains', () => {
+  /* The derived rollup is deleted BEFORE its source (chats-daily before chats),
+     so if an rmSync throws mid-operation, the failure can never leave the source
+     erased with its plaintext copy surviving. Simulate an I/O failure on the
+     source dir and assert the rollup is already gone and the source remains. */
+  seed();
+  const realRm = fs.rmSync;
+  let attemptedSource = false;
+  fs.rmSync = (p, opts) => {
+    if (nodePath.basename(nodePath.resolve(p)) === 'chats') {
+      attemptedSource = true;
+      throw new Error('simulated I/O failure on the source dir');
+    }
+    return realRm(p, opts);
+  };
+  let out;
+  try { out = forget.forget(); } finally { fs.rmSync = realRm; }
+  assert.equal(out.ok, false, 'a mid-delete I/O failure is reported, not swallowed');
+  assert.ok(attemptedSource, 'the source delete was attempted (after the rollup)');
+  assert.equal(fs.existsSync(nodePath.join(store.ROOT, 'chats-daily')), false, 'the rollup was deleted before the source failed');
+  assert.equal(fs.existsSync(nodePath.join(store.ROOT, 'chats')), true, 'the source remains, so there is no residue and a re-run finishes');
+});
+
 test('deleting twice is not an error', () => {
   seed();
   assert.equal(forget.forget().ok, true);

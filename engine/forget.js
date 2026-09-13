@@ -137,23 +137,31 @@ function forget(kinds = KINDS) {
      was deleted while the real data is gone. So all guards run first, and a
      failure here returns with the disk untouched. Counts are read now too, from
      the dirs as they still are. Derived dirs are planned for deletion but carry
-     no kind, so they are deleted without being counted (see the KINDS note). */
+     no kind, so they are deleted without being counted (see the KINDS note).
+
+     🛑 A KIND'S DERIVED DIRS ARE PLANNED BEFORE THE KIND'S OWN DIR, so PASS 2
+     deletes the copy before the source. If an rmSync throws mid-operation, this
+     ordering guarantees the failure can never leave the SOURCE gone while its
+     plaintext derived copy survives (the privacy residue this mechanism exists
+     to prevent); the only possible partial state is copy-gone-source-remains,
+     which is not a residue and a re-run finishes. */
   const plan = [];
   for (const k of kinds) {
     const dir = path.resolve(k.dir());
     if (!insideRoot(dir)) return { ok: false, because: 'we will not delete anything outside your Kosmos data folder' };
     if (path.basename(dir) !== k.key) return { ok: false, because: 'that does not look like the folder we meant to delete' };
-    plan.push({ dir, kind: { key: k.key, label: k.label, count: fs.existsSync(dir) ? countIn(dir) : 0 } });
     for (const d of (k.derived || [])) {
       const ddir = path.resolve(d.dir());
       if (!insideRoot(ddir)) return { ok: false, because: 'we will not delete anything outside your Kosmos data folder' };
       if (path.basename(ddir) !== d.base) return { ok: false, because: 'that does not look like the folder we meant to delete' };
       plan.push({ dir: ddir, kind: null });
     }
+    plan.push({ dir, kind: { key: k.key, label: k.label, count: fs.existsSync(dir) ? countIn(dir) : 0 } });
   }
 
-  /* PASS 2 -- every path above passed its guard; delete them. An rmSync throw
-     here is a genuine I/O failure (not a refusal), reported as such. */
+  /* PASS 2 -- every path above passed its guard; delete them (derived copies
+     before their source, per PASS 1's ordering). An rmSync throw here is a
+     genuine I/O failure (not a refusal), reported as such. */
   const gone = [];
   for (const item of plan) {
     try {

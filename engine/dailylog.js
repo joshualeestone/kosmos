@@ -341,7 +341,12 @@ if (require.main === module) {
       // Fail loud on a missing value: `--day` with nothing after it must NOT
       // silently fall back to a full compile (the point of failing on typos).
       if (val === undefined || val.startsWith('--')) die(`${argv[i]} requires a value`);
-      if (argv[i] === '--day') opts.onlyDay = val; else opts.outDir = val;
+      if (argv[i] === '--day') {
+        // Fail loud on a malformed day rather than silently compiling zero files:
+        // an unpadded `2026-9-3` matches no dayOf output and would write nothing.
+        if (!DAY_STEM_RE.test(val)) die(`--day expects YYYY-MM-DD, got '${val}'`);
+        opts.onlyDay = val;
+      } else opts.outDir = val;
       i += 1;
     } else if (argv[i] === '--all') { /* the default; accepted explicitly */ }
     // Fail loud on an unrecognized flag rather than silently running a full
