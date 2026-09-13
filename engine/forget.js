@@ -44,8 +44,22 @@ const BASE = store.ROOT;
    📌 The words live HERE rather than on the screen for the reason the module
    header gives: a control with no undo must not describe its own scope in its
    own words. That applies to the grammar too. */
+/* `derived` names dirs that are a COMPUTED VIEW of a kind's content, deleted
+   WITH it but NOT counted or shown on the screen: they are not separate things a
+   person has, they are a cache of a thing already counted, so a "N daily logs"
+   line beside "N conversations" would double-count the same history. `chats-daily`
+   is the human-readable rollup engine/dailylog.js compiles from `chats/` (#2924);
+   forgetting conversations must take their compiled copy too, or a plaintext
+   residue survives the forget. Each entry carries its own basename so the
+   pre-delete guard checks it exactly as it checks a kind's own dir. */
 const KINDS = [
-  { key: 'chats', dir: () => path.join(store.ROOT, 'chats'), label: 'conversations', one: 'conversation' },
+  {
+    key: 'chats',
+    dir: () => path.join(store.ROOT, 'chats'),
+    label: 'conversations',
+    one: 'conversation',
+    derived: [{ base: 'chats-daily', dir: () => path.join(store.ROOT, 'chats-daily') }],
+  },
   { key: 'commitments', dir: () => path.join(BASE, 'commitments'), label: 'reports', one: 'report' },
 ];
 
@@ -108,6 +122,25 @@ function forget() {
       fs.rmSync(dir, { recursive: true, force: true });
     } catch {
       return { ok: false, because: 'we could not delete all of it, so some of your history is still here' };
+    }
+    /* Derived views of this kind, deleted under the SAME inside-root + basename
+       guards as the kind's own dir (a derived dir that is missing or not where
+       we expect it is force-removed harmlessly, but a path that escapes the data
+       root is refused, exactly as above). Not counted -- see the KINDS note. */
+    for (const d of (k.derived || [])) {
+      const ddir = path.resolve(d.dir());
+      const dInside = (ddir.startsWith(root + path.sep) || ddir.startsWith(altRoot + path.sep));
+      if (!dInside) {
+        return { ok: false, because: 'we will not delete anything outside your Kosmos data folder' };
+      }
+      if (path.basename(ddir) !== d.base) {
+        return { ok: false, because: 'that does not look like the folder we meant to delete' };
+      }
+      try {
+        fs.rmSync(ddir, { recursive: true, force: true });
+      } catch {
+        return { ok: false, because: 'we could not delete all of it, so some of your history is still here' };
+      }
     }
     gone.push({ key: k.key, label: k.label, count });
   }

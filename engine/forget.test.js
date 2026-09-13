@@ -30,6 +30,11 @@ function seed() {
   fs.writeFileSync(nodePath.join(store.ROOT, 'chats', 'april.json'), '[]');
   fs.writeFileSync(nodePath.join(store.ROOT, 'chats', 'room-1.json'), '[]');
   fs.writeFileSync(nodePath.join(store.ROOT, 'commitments', 'april.json'), '{}');
+  // The compiled daily rollup (#2924): a DERIVED view of chats/, deleted WITH
+  // the chats kind but not counted. Seeded so its deletion is observed.
+  fs.rmSync(nodePath.join(store.ROOT, 'chats-daily'), { recursive: true, force: true });
+  fs.mkdirSync(nodePath.join(store.ROOT, 'chats-daily'), { recursive: true });
+  fs.writeFileSync(nodePath.join(store.ROOT, 'chats-daily', '2026-09-13.md'), '# a day');
   // The things that MUST survive, seeded so their survival is observed rather
   // than assumed.
   fs.mkdirSync(nodePath.join(store.ROOT, 'profiles'), { recursive: true });
@@ -90,6 +95,18 @@ test('it deletes both kinds and NOTHING else', () => {
     'projects were deleted or rewritten');
   assert.ok(fs.existsSync(nodePath.join(store.ROOT, 'first-run.json')), 'first-run was deleted');
   assert.ok(fs.existsSync(store.ROOT), 'the data folder itself was deleted');
+});
+
+test('forgetting conversations also deletes their compiled daily rollup (#2924)', () => {
+  /* The derived chats-daily rollup holds conversation content in a second place,
+     so a forget that leaves it behind is a plaintext privacy residue. It is not
+     counted (summary total stays 3), but it must be GONE after the forget. */
+  seed();
+  assert.ok(fs.existsSync(nodePath.join(store.ROOT, 'chats-daily')), 'fixture must seed chats-daily');
+  const out = forget.forget();
+  assert.equal(out.ok, true, out.because);
+  assert.equal(fs.existsSync(nodePath.join(store.ROOT, 'chats-daily')), false,
+    'the compiled daily rollup survived the forget - a plaintext residue');
 });
 
 test('deleting twice is not an error', () => {

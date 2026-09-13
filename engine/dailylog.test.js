@@ -46,6 +46,12 @@ test('parseChatFileName: non-conversation files are skipped', () => {
   assert.equal(dl.parseChatFileName('.DS_Store'), null);
   assert.equal(dl.parseChatFileName(''), null);
   assert.equal(dl.parseChatFileName('notjson.txt'), null);
+  // The aside files engine/chat.js sets aside next to conversations: the
+  // trailing `.superseded` / `.damaged` means the name does not end in `.json`,
+  // so the anchored patterns exclude them. This is load-bearing (they hold real
+  // conversation content that must not be double-rendered), so it is asserted.
+  assert.equal(dl.parseChatFileName('direct..a.json.20260913.1234.5.superseded'), null);
+  assert.equal(dl.parseChatFileName('proj1.a.json.20260913.1234.5.damaged'), null);
 });
 
 test('flattenMessages: absent/blank from becomes the operator (null), string from kept', () => {
@@ -104,6 +110,21 @@ test('renderDay: operator shown as You, messages time-ordered, attachments noted
   assert.match(md, /\[shared: pic\.png\]/);
   // time ordering: the operator's 14:00 "first" precedes the agent's 14:05 "second"
   assert.ok(md.indexOf('first') < md.indexOf('second'), 'messages must be in time order');
+  // message bodies are blockquoted, so they are quoted verbatim
+  assert.match(md, /> first/);
+});
+
+test('renderDay: a message that starts like a heading cannot hijack the structure', () => {
+  const rows = [
+    { at: '2026-09-13T14:00:00Z', label: 'Direct: a', from: null, text: '## not a real heading\n--- not a rule', attachments: [] },
+  ];
+  const md = dl.renderDay('2026-09-13', rows, timeOf);
+  // Every body line is blockquoted, so no line is a bare ATX heading or hr that
+  // would break the ## conversation grouping.
+  assert.match(md, /> ## not a real heading/);
+  assert.match(md, /> --- not a rule/);
+  assert.doesNotMatch(md, /^## not a real heading/m, 'a message body must not render as a top-level heading');
+  assert.doesNotMatch(md, /^--- not a rule/m, 'a message body must not render as a horizontal rule');
 });
 
 test('compileAll: end to end, writes per-day files, leaves originals unchanged, idempotent, skips junk', () => {
@@ -145,6 +166,53 @@ test('compileAll: end to end, writes per-day files, leaves originals unchanged, 
   dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
   const after = fs.readFileSync(path.join(outDir, '2026-09-13.md'), 'utf8');
   assert.equal(after, before, 're-running must overwrite with identical content');
+});
+
+test('compileAll: a full re-run prunes a day whose messages are all gone', () => {
+  const chatsDir = path.join(SANDBOX, 'chats-prune');
+  const outDir = path.join(SANDBOX, 'chats-daily-prune');
+  fs.mkdirSync(chatsDir, { recursive: true });
+  const file = path.join(chatsDir, 'direct..p.json');
+  fs.writeFileSync(file, JSON.stringify({ messages: [
+    { at: '2026-09-13T09:00:00Z', text: 'day13', from: null },
+    { at: '2026-09-14T09:00:00Z', text: 'day14', from: null },
+  ] }));
+  dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
+  assert.ok(fs.existsSync(path.join(outDir, '2026-09-13.md')));
+  assert.ok(fs.existsSync(path.join(outDir, '2026-09-14.md')));
+
+  // The 09-13 messages are removed at the source; a full re-run must drop its file.
+  fs.writeFileSync(file, JSON.stringify({ messages: [
+    { at: '2026-09-14T09:00:00Z', text: 'day14', from: null },
+  ] }));
+  const summary = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
+  assert.ok(!fs.existsSync(path.join(outDir, '2026-09-13.md')), 'an emptied day must be pruned');
+  assert.ok(fs.existsSync(path.join(outDir, '2026-09-14.md')), 'a day that still has messages stays');
+  assert.deepEqual(summary.pruned, ['2026-09-13']);
+});
+
+test('compileAll: pruning only removes day-named files, and never on an onlyDay run', () => {
+  const chatsDir = path.join(SANDBOX, 'chats-prune2');
+  const outDir = path.join(SANDBOX, 'chats-daily-prune2');
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.mkdirSync(chatsDir, { recursive: true });
+  // A non-day file a person may have dropped in the dir must survive.
+  fs.writeFileSync(path.join(outDir, 'README.md'), 'keep me');
+  // A stale day file that a full run would prune.
+  fs.writeFileSync(path.join(outDir, '2020-01-01.md'), 'stale');
+  fs.writeFileSync(path.join(chatsDir, 'direct..q.json'), JSON.stringify({ messages: [
+    { at: '2026-09-14T09:00:00Z', text: 'today', from: null },
+  ] }));
+
+  // onlyDay run must NOT prune the stale file (targeted, other days untouched).
+  dl.compileAll({ chatsDir, outDir, dayOf, timeOf, onlyDay: '2026-09-14' });
+  assert.ok(fs.existsSync(path.join(outDir, '2020-01-01.md')), 'an onlyDay run must not prune other days');
+
+  // A full run prunes the stale day file but keeps the non-day README.
+  const summary = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
+  assert.ok(!fs.existsSync(path.join(outDir, '2020-01-01.md')), 'a full run prunes a stale day file');
+  assert.ok(fs.existsSync(path.join(outDir, 'README.md')), 'a non-day file must never be pruned');
+  assert.deepEqual(summary.pruned, ['2020-01-01']);
 });
 
 test('compileAll: onlyDay restricts the write to a single day', () => {

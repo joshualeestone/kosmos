@@ -17,9 +17,23 @@ into a daily log." Flagged "not urgent."
 - Flattens messages (`{ at, text, from, attachments }`; `from` null/blank = the operator,
   rendered "You", per #175), groups by calendar day, and writes one `chats-daily/<YYYY-MM-DD>.md`
   per day. Originals are never touched.
-- Idempotent: a re-run overwrites each day's file from source, so a scheduled daily run or an
-  on-demand run keeps the rollup current and picks up late-arriving messages.
+- Idempotent + self-pruning: a full re-run overwrites each day's file from source AND removes a
+  day file whose messages are all gone at the source, so the rollup stays current (late-arriving,
+  edited, and deleted messages all reflected). Pruning only touches `YYYY-MM-DD.md`-named files and
+  only on a full run (an `--day` run is targeted).
+- Message bodies are rendered as Markdown blockquotes, so a message whose text starts with `#`/`>`/
+  `---` cannot hijack the per-conversation headings.
 - CLI: `node engine/dailylog.js [--all | --day YYYY-MM-DD] [--out <dir>]`. Default `--all`.
+
+## Privacy: forget.js integration (added after iteration-1 review)
+Because the compiler copies conversation content into a second place (`chats-daily/`), a "forget my
+conversations" that did not also clear it would leave a plaintext residue. `engine/forget.js` now
+deletes `chats-daily/` as a DERIVED view of the `chats` kind: deleted WITH it, under the same
+inside-data-root + basename guards, but NOT counted on the confirmation screen (it is a cache of
+content already counted as "conversations", not a separate category). KINDS keys stay
+`['chats','commitments']`, so the pinned-surface test still holds; a new deletion test asserts the
+rollup is gone after a forget. Pruning (above) is complementary, not a substitute: it runs only when
+the compiler is invoked, while forget clears the whole dir on its own.
 
 ## Design decisions
 - **Sibling `chats-daily/` dir, not inside `chats/`.** `engine/forget.js` enumerates `chats/` as

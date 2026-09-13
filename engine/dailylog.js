@@ -13,14 +13,23 @@
  * This is that process. It is strictly READ-ONLY over `chats/`: it never
  * touches an original conversation file. It reads every conversation, flattens
  * the messages, groups them by calendar day, and writes one Markdown file per
- * day into a SIBLING directory `chats-daily/`. Re-running overwrites each day's
- * file from source, so a scheduled daily run (or an on-demand click) keeps the
- * rollup current and a late-arriving message is picked up next run.
+ * day into a SIBLING directory `chats-daily/`. A full re-run overwrites each
+ * day's file from source AND prunes day files whose messages are all gone, so a
+ * scheduled daily run (or an on-demand click) keeps the rollup current: a
+ * late-arriving message is picked up, an edited/deleted one is reflected, and an
+ * emptied day's stale file is removed.
  *
  * Why a sibling directory, not inside chats/: `engine/forget.js` enumerates
  * `chats/` as "conversations", and a reader (or a future removal sweep) must
  * never mistake a compiled rollup for a real conversation. Keeping it out of
  * chats/ is the same isolation reason the recommendation on the card gives.
+ *
+ * Privacy: because this compiles conversation content into a second place,
+ * `engine/forget.js` deletes `chats-daily/` as a DERIVED view of the `chats`
+ * kind (#2924), so "forget my conversations" takes the compiled copy too and no
+ * plaintext residue survives the forget. Pruning above is complementary, not a
+ * substitute: it runs only when the compiler is invoked, while forget clears the
+ * whole dir on its own.
  *
  * The message shape is defined by `engine/chat.js` (the `record` writer): each
  * message is `{ at, text, from, wire?, attachments? }`, where `from` is the
@@ -155,10 +164,14 @@ function renderDay(dayStr, rows, timeOf = localTimeOf) {
       const who = r.from === null ? 'You' : r.from;
       lines.push(`**${who}** - ${timeOf(r.at)}`);
       lines.push('');
-      lines.push(r.text);
+      /* The message body is rendered as a blockquote: it is quoted verbatim
+         content, and quoting keeps a message whose own text starts with `#`,
+         `>` or `---` from being read as document structure and hijacking the
+         per-conversation headings above it. */
+      for (const bodyLine of r.text.split('\n')) lines.push(bodyLine ? `> ${bodyLine}` : '>');
       if (r.attachments && r.attachments.length) {
-        lines.push('');
-        lines.push(`_[shared: ${r.attachments.join(', ')}]_`);
+        lines.push('>');
+        lines.push(`> _[shared: ${r.attachments.join(', ')}]_`);
       }
       lines.push('');
     }
@@ -212,11 +225,34 @@ function compileAll(opts = {}) {
     written.push(day);
   }
   written.sort();
+
+  /* Prune stale day files so the rollup stays current when messages are edited
+     or deleted at the source: a day whose messages are all gone leaves a `.md`
+     that nothing above rewrites. Only on a FULL run (an `onlyDay` run is
+     targeted and must not touch other days), and only files whose name is a
+     compiled day rollup (`YYYY-MM-DD.md`) -- never anything else a person may
+     have put in the dir. Not a substitute for forget.js clearing the whole dir
+     (this runs only when the compiler is invoked); the two are complementary. */
+  const pruned = [];
+  if (!onlyDay) {
+    const keep = new Set(written);
+    let existing = [];
+    try { existing = fs.readdirSync(outDir); } catch { existing = []; }
+    for (const name of existing) {
+      if (!/^\d{4}-\d{2}-\d{2}\.md$/.test(name)) continue;
+      const day = name.slice(0, 10);
+      if (keep.has(day)) continue;
+      try { fs.rmSync(path.join(outDir, name)); pruned.push(day); } catch { /* leave it rather than fail the run */ }
+    }
+    pruned.sort();
+  }
+
   return {
     conversations: conversations.length,
     messages: rows.length,
     days: written.length,
     written,
+    pruned,
     undated,
     outDir,
   };
@@ -250,6 +286,7 @@ if (require.main === module) {
     `dailylog: ${summary.messages} messages across ${summary.conversations} conversations `
     + `-> ${summary.days} daily file(s) in ${summary.outDir}`
     + (summary.undated ? ` (${summary.undated} undated message(s) skipped)` : '')
+    + (summary.pruned && summary.pruned.length ? ` (${summary.pruned.length} stale day file(s) pruned)` : '')
     + '\n',
   );
   if (summary.written.length) process.stdout.write(`dailylog: wrote ${summary.written.join(', ')}\n`);
