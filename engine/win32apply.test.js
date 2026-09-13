@@ -2252,6 +2252,23 @@ test('ROUND 5 sweep: a rollback that cannot read the engine pointer back is neve
   assert.match(boot.because, /its time to recover before the board starts ran out/);
   assert.equal(fs.existsSync(c.statusAt), false, 'no rolled-back status');
   assert.equal(readJson(c.journal).finished, false, 'never concluded as rolled back');
+  {
+    /* The resume helper has no deadline, so its passes run out on the unreadable pointer itself: stuck,
+       in words, and still never called whole (the boot case above is ended by the deadline first). */
+    const c2 = freshInstall();
+    const sim2 = await rollbackLeftAtH8(c2);
+    let resumed;
+    try {
+      faultRead(path.join(c2.anchor, win32anchor.POINTER_NAME), 'EBUSY', -1);
+      resumed = await win32apply.resumeJournal(c2.journal, sim2.deps());
+    } finally {
+      unfaultRead();
+    }
+    assert.equal(resumed.outcome, 'stuck', JSON.stringify(resumed) + '\n' + c2.log.join('\n'));
+    assert.equal(resumed.because, `${win32anchor.POINTER_NAME} cannot be read right now (code=EBUSY)`);
+    assert.equal(readJson(c2.statusAt).outcome, 'stuck', 'never a rolled-back status');
+    assert.equal(readJson(c2.journal).finished, false);
+  }
   assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'rolled-back', c.log.join('\n'));
   assert.deepEqual(installState(c), before);
 });
