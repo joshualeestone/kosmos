@@ -50,6 +50,10 @@ browser-check gained a consolidated arm asserting the badge's own computed displ
 (the precise guard for the exemption) with a no-unread control.
 
 ## Deferred
+- Two early commits on this branch carry the subject `backcrumb: #2863 ...` (the branch name of
+  an unrelated card, #2928, carried over by mistake) instead of `dmbadge-list-org-2863 -- ...`.
+  Deferred: interactive rebase is unavailable in this environment, and this branch squash-merges,
+  so the branch-local subjects collapse into the PR title (which is correct) and never reach main.
 - The org-node DM badge (top-left) sits near where the hover callout lands for a very long name.
   Deferred: the callout is a transient hover state, the badge is `pointer-events:none` (nothing
   un-clickable), the callout is centred while the badge is top-left, so a brush only happens on an

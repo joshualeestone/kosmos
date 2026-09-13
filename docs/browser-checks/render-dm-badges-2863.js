@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: dmbadge lrow onode
+// Browser-check-surface: dmbadge
 // #2863: the unread-DM bubble on the LIST row and the ORG node -- the follow-up to
 // the grid-card badge (#2885), from the same `a.dmUnread` and the same dmBadge()
 // helper. This drives the REAL list/org render on the REAL page with a seeded
