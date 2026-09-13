@@ -27,21 +27,29 @@ fail() { echo "FAIL  $1"; fails=1; }
 [ -f "$LIB" ] || { echo "FAIL  guard lib not found at $LIB"; exit 1; }
 
 # --- source-invariant legs: the guard is actually wired into the runner ---------
-grep -qE '(\.|source)[[:space:]]+.*lib/launchagent-leak-guard\.sh' "$RT" \
+# Grep a COMMENT-STRIPPED view of run-tests.sh (drop full-line comments) so a comment that
+# merely mentions these names -- or a commented-out reference lingering after the wiring is
+# removed -- cannot satisfy these legs. The sibling test-run-tests-codexhome-2858.sh pins to
+# statement syntax for the same reason; stripping comments achieves it without coupling to the
+# exact call shape.
+RT_CODE="$(grep -vE '^[[:space:]]*#' "$RT")"
+printf '%s\n' "$RT_CODE" | grep -qE '(\.|source)[[:space:]]+.*lib/launchagent-leak-guard\.sh' \
   && pass "run-tests.sh sources the launchagent-leak-guard lib" \
   || fail "run-tests.sh does not source tools/lib/launchagent-leak-guard.sh (guard unwired)"
-grep -qE 'launchagent_snapshot' "$RT" \
+printf '%s\n' "$RT_CODE" | grep -qE 'launchagent_snapshot' \
   && pass "run-tests.sh takes a pre-suite snapshot (launchagent_snapshot)" \
   || fail "run-tests.sh never calls launchagent_snapshot (no baseline -> guard cannot diff)"
-grep -qE 'launchagent_leak_check' "$RT" \
+printf '%s\n' "$RT_CODE" | grep -qE 'launchagent_leak_check' \
   && pass "run-tests.sh runs the post-suite leak check (launchagent_leak_check)" \
   || fail "run-tests.sh never calls launchagent_leak_check (guard cannot fire)"
 
 # The snapshot must precede the node suite -- the FIRST test invocation, so it also
 # precedes `yarn -s test:shell` which runs after it. Pin the node pattern to the real
 # invocation so a comment mentioning `node --test` cannot false-pass this.
-sln="$(grep -nE 'launchagent_snapshot[[:space:]].*_la_guard_before|launchagent_snapshot .*> .*_la_guard_before' "$RT" | head -1 | cut -d: -f1)"
-[ -z "$sln" ] && sln="$(grep -nE 'launchagent_snapshot' "$RT" | head -1 | cut -d: -f1)"
+# `^[[:space:]]*[^#[:space:]]` skips full-line comments (the first non-space char must not
+# be `#`), so a commented-out snapshot line cannot set the ordering line number.
+sln="$(grep -nE '^[[:space:]]*[^#[:space:]].*launchagent_snapshot.*_la_guard_before' "$RT" | head -1 | cut -d: -f1)"
+[ -z "$sln" ] && sln="$(grep -nE '^[[:space:]]*[^#[:space:]].*launchagent_snapshot' "$RT" | head -1 | cut -d: -f1)"
 nln="$(grep -nE 'node --test.*KOSMOS_TEST_FILES' "$RT" | head -1 | cut -d: -f1)"
 if [ -n "$sln" ] && [ -n "$nln" ] && [ "$sln" -lt "$nln" ]; then
   pass "the snapshot (line $sln) precedes the node suite (line $nln), so it also precedes test:shell"
@@ -107,11 +115,17 @@ else
 fi
 
 # FAIL-SOFT: an empty/absent dir or missing baseline returns clean rather than reddening
-# the suite on its own bookkeeping.
+# the suite on its own bookkeeping. Both arms of the guard clause are exercised.
 if launchagent_leak_check "$D/does-not-exist" "$BEFORE" 2>/dev/null; then
   pass "fail-soft: a non-existent dir is treated as clean"
 else
   fail "the guard reddened on a non-existent dir (should fail-soft clean)"
+fi
+# Missing baseline file: the `[ -f "$before" ]` half of the short-circuit.
+if launchagent_leak_check "$D" "$D/no-such-before-snapshot" 2>/dev/null; then
+  pass "fail-soft: a missing baseline snapshot file is treated as clean"
+else
+  fail "the guard reddened on a missing baseline file (should fail-soft clean)"
 fi
 
 [ "$fails" -eq 0 ] && echo "test-launchagent-leak-guard-3011: all PASS" || echo "test-launchagent-leak-guard-3011: FAILURES above"
