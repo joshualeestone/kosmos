@@ -1638,10 +1638,13 @@ function win32BoardAutostartCheck(opts) {
      and it rides only on the two rows where the task is registered and its state was READ
      (describe() is null when it could not be). A missing task, a source checkout, and the
      could-not-check row carry no switch, so unknown is never drawn as on or off. */
+  /* Round 1, finding 12: a task switched off is a CHOICE (the switch below, or Task Scheduler), so
+     it is a plain row that says what will happen, not a warning that something is wrong. A task
+     that is missing is still ATTENTION above. */
   if (!d.enabled) {
-    return { key: 'autostart', state: STATE.ATTENTION,
-      title: 'Kosmos is set up to start when you sign in, but it is turned off',
-      detail: `Its startup job (${d.task}) is on this computer but switched off, so Kosmos will not start on its own after a `
+    return { key: 'autostart', state: STATE.OK,
+      title: 'Kosmos does not start when you sign in',
+      detail: `Its startup job (${d.task}) is switched off, so Kosmos will not start on its own after a `
         + 'restart. You can turn it back on with the switch below.',
       startAtSignIn: false };
   }

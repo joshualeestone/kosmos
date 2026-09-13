@@ -1,10 +1,11 @@
 'use strict';
 /**
- * win32-installer-native: "Move Kosmos", the engine half (engine/win32relocate.js).
+ * win32-installer-native: "Move Kosmos" and "which Kosmos runs", the engine half
+ * (engine/win32relocate.js).
  *
- * Every folder is a scratch folder, the board probe and the engine pointer are stubs, and nothing
- * here starts a Kosmos. The launcher's half (where Kosmos is, the question, the relaunch) is in
- * tools.win-installer-native.test.js.
+ * Every folder is a scratch folder, the board probe, the engine pointer, the anchor and the pid
+ * check are stubs, and nothing here starts a Kosmos. The launcher's half (where Kosmos is, the
+ * question, the hand-off and the relaunch) is in tools.win-installer-native.test.js.
  *
  *   node --test engine/win32relocate.test.js
  */
@@ -24,7 +25,7 @@ function scratch() {
   return { base, from: path.join(base, 'Downloads', 'kosmos-win-x64'), to: path.join(base, 'Local', 'Programs', 'Kosmos') };
 }
 
-/** A Kosmos build as the build script lays it out, plus a person's projects and a stray file. */
+/** A Kosmos build as the build script lays it out. */
 function build(root, manifest) {
   fs.mkdirSync(path.join(root, 'app'), { recursive: true });
   fs.mkdirSync(path.join(root, 'bin'), { recursive: true });
@@ -47,22 +48,51 @@ function withPersonsThings(root) {
 }
 
 function move(s, extra) {
-  return relocator.relocate({ from: s.from, to: s.to, port: 16180, probe: NOBODY_ANSWERING, readPointer: () => null, liveExecutionAllowed: () => true, ...extra });
+  const anchored = [];
+  const p = relocator.relocate({
+    from: s.from, to: s.to, port: 16180, probe: NOBODY_ANSWERING, readPointer: () => null,
+    anchor: (spec) => { anchored.push(spec); return { ok: true }; }, pidState: () => 'alive',
+    liveExecutionAllowed: () => true, ...extra,
+  });
+  p.anchored = anchored;
+  return p.then((r) => Object.assign(r, { anchorCalls: anchored }));
 }
+const shape = (r) => { const { anchorCalls, ...rest } = r; return rest; };
 
 const stagingLeftIn = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => n.includes(relocator.STAGING_INFIX)) : []);
 
-test('a move copies exactly the updater\'s ENTRIES, never Projects or anything else, and leaves the old copy where it was', async () => {
+test('a move copies exactly the updater\'s ENTRIES, never Projects or anything else, leaves the old copy, and anchors the new folder', async () => {
   const s = scratch();
   try {
     withPersonsThings(build(s.from));
     const r = await move(s);
-    assert.deepEqual(r, { ok: true, action: 'moved', target: s.to });
+    assert.deepEqual(shape(r), { ok: true, action: 'moved', target: s.to, anchored: true });
     assert.deepEqual(fs.readdirSync(s.to).sort(), [...ENTRIES].sort(), 'the new folder does not hold exactly the build\'s own entries');
     assert.ok(!fs.existsSync(path.join(s.to, 'Projects')), 'the person\'s projects were copied into the program folder');
     assert.equal(fs.readFileSync(path.join(s.to, 'runtime', 'node.exe'), 'utf8'), 'MZ node');
     assert.ok(fs.existsSync(path.join(s.from, 'Kosmos.exe')) && fs.existsSync(path.join(s.from, 'Projects', 'garden', 'notes.txt')), 'the old copy was changed');
     assert.deepEqual(stagingLeftIn(path.dirname(s.to)), [], 'a staging folder was left behind');
+    assert.equal(r.anchorCalls.length, 1, 'the new folder was not anchored');
+    assert.equal(r.anchorCalls[0].node, path.join(s.to, 'runtime', 'node.exe'));
+    assert.equal(r.anchorCalls[0].engineDir, path.join(s.to, 'app', 'engine'), 'the pointer was anchored somewhere other than the moved engine');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('a move whose anchor fails still moved, and says the anchor did not happen', async () => {
+  const s = scratch();
+  try {
+    build(s.from);
+    const r = await move(s, { anchor: () => ({ ok: false, because: 'disk full' }) });
+    assert.deepEqual(shape(r), { ok: true, action: 'moved', target: s.to, anchored: false, anchorProblem: 'disk full' });
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('🛑 in a test process the real anchor is never reached: a move without an anchor seam refuses to run', async () => {
+  const s = scratch();
+  try {
+    build(s.from);
+    await assert.rejects(relocator.relocate({ from: s.from, to: s.to, port: 16180, probe: NOBODY_ANSWERING, readPointer: () => null, pidState: () => 'alive', liveExecutionAllowed: () => true }),
+      /a test must pass an anchor seam/);
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
@@ -77,7 +107,7 @@ test('an empty folder already at the target is moved into', async () => {
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
-test('the same build already in place is not copied again', async () => {
+test('the same build already in place, complete, is not copied again', async () => {
   const s = scratch();
   try {
     build(s.from);
@@ -85,9 +115,23 @@ test('the same build already in place is not copied again', async () => {
     fs.writeFileSync(path.join(s.to, 'app', 'server.js'), '// the copy already there');
     let copied = 0;
     const r = await move(s, { copy: () => { copied += 1; } });
-    assert.deepEqual(r, { ok: true, action: 'already-there', target: s.to });
+    assert.deepEqual(shape(r), { ok: true, action: 'already-there', target: s.to, anchored: true });
     assert.equal(copied, 0);
     assert.equal(fs.readFileSync(path.join(s.to, 'app', 'server.js'), 'utf8'), '// the copy already there');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('🛑 a target missing any ENTRIES item (bin, open-board.js) is incomplete, named, and never "already there"', async () => {
+  const s = scratch();
+  try {
+    build(s.from);
+    build(s.to);
+    fs.rmSync(path.join(s.to, 'bin'), { recursive: true });
+    fs.rmSync(path.join(s.to, 'open-board.js'));
+    const r = await move(s);
+    assert.equal(r.ok, false, 'an incomplete target was taken as the same build, already there: ' + JSON.stringify(r));
+    assert.equal(r.because, 'Kosmos was not moved, because the Kosmos in ' + s.to + ' is incomplete (it is missing open-board.js, bin). Kosmos keeps working from here.');
+    assert.equal(r.anchorCalls.length, 0, 'an incomplete target was anchored');
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
@@ -109,14 +153,10 @@ test('a different Kosmos at the target is refused with a sentence, and left exac
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
-test('an incomplete Kosmos, other files, or a file at the target are each refused', async () => {
+test('other files, or a file at the target, are each refused', async () => {
   const s = scratch();
   try {
     build(s.from);
-    build(s.to);
-    fs.rmSync(path.join(s.to, 'runtime'), { recursive: true });
-    assert.match((await move(s)).because, /because the Kosmos in .* is incomplete/);
-    fs.rmSync(s.to, { recursive: true });
     fs.mkdirSync(s.to, { recursive: true });
     fs.writeFileSync(path.join(s.to, 'holiday.jpg'), 'photo');
     assert.match((await move(s)).because, /already holds other files/);
@@ -159,6 +199,31 @@ test('a copy that fails part way leaves no target and no staging folder', async 
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
+test('🛑 an interrupted move\'s staging folder is swept only when its process is gone, and a link is removed without being followed', async () => {
+  const s = scratch();
+  try {
+    build(s.from);
+    const parent = path.dirname(s.to);
+    fs.mkdirSync(parent, { recursive: true });
+    const dead = s.to + relocator.STAGING_INFIX + '999999';
+    const live = s.to + relocator.STAGING_INFIX + '4242';
+    const linked = s.to + relocator.STAGING_INFIX + '5151';
+    const precious = path.join(s.base, 'precious');
+    for (const dir of [dead, live, precious]) { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, 'x.txt'), 'x'); }
+    fs.symlinkSync(precious, linked, 'junction');
+    const asked = [];
+    const r = await move(s, { pidState: (pid) => { asked.push(pid); return pid === 999999 ? 'gone' : 'alive'; } });
+    assert.equal(r.action, 'moved', JSON.stringify(r));
+    assert.ok(!fs.existsSync(dead), 'the staging folder of a process that is gone was left');
+    assert.ok(fs.existsSync(path.join(live, 'x.txt')), 'the staging folder of a move still running was deleted');
+    assert.ok(!fs.existsSync(linked), 'a link with a staging name was left');
+    assert.ok(fs.existsSync(path.join(precious, 'x.txt')), 'the folder a staging-named link pointed at was emptied');
+    assert.ok(!asked.includes(5151), 'a link was judged by a process id rather than removed as a link');
+    assert.deepEqual(relocator.sweepInterruptedMoves(s.to, () => 'unknown'), [], 'a folder whose process cannot be checked was swept');
+    assert.ok(fs.existsSync(live));
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
 test('a folder that is not a complete Kosmos, or folders that overlap, are refused', async () => {
   const s = scratch();
   try {
@@ -175,11 +240,46 @@ test('a folder that is not a complete Kosmos, or folders that overlap, are refus
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
-test('🛑 without the confirm nothing is copied, and the CLI is a dry run until --yes', async () => {
+test('🛑 which Kosmos runs: same or older than the installed one hands off, newer runs from here, no complete install is the ordinary offer', () => {
+  const s = scratch();
+  try {
+    build(s.to, { version: '0.6.60' });
+    const verdictFor = (version) => {
+      fs.rmSync(s.from, { recursive: true, force: true });
+      build(s.from, { version });
+      return relocator.compare({ from: s.from, to: s.to }).verdict;
+    };
+    assert.equal(verdictFor('0.6.59'), 'handoff', 'a stale older copy would re-point the Start menu, the Apps entry and the pointer');
+    assert.equal(verdictFor('0.6.60'), 'handoff');
+    assert.equal(verdictFor('0.6.61'), 'newer', 'a newer downloaded zip no longer runs as a by-hand update');
+    assert.equal(verdictFor('0.6.x'), 'handoff', 'an unparseable version was taken as newer');
+    fs.writeFileSync(path.join(s.to, 'manifest.json'), JSON.stringify({ product: 'kosmos', platform: 'win32', version: 'garbage' }));
+    assert.equal(verdictFor('0.6.61'), 'handoff', 'an installed version that cannot be read was taken as older');
+    build(s.to, { version: '0.6.60' });
+    fs.rmSync(path.join(s.to, 'bin'), { recursive: true });
+    assert.equal(verdictFor('0.6.59'), 'none', 'an incomplete install was handed off to');
+    fs.rmSync(s.to, { recursive: true, force: true });
+    assert.equal(verdictFor('0.6.59'), 'none');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('compare uses the updater\'s own newer(), one derivation', () => {
+  const s = scratch();
+  try {
+    build(s.from, { version: '1.0.0' });
+    build(s.to, { version: '2.0.0' });
+    const seen = [];
+    relocator.compare({ from: s.from, to: s.to, newer: (a, b) => { seen.push([a, b]); return true; } });
+    assert.deepEqual(seen, [['1.0.0', '2.0.0']]);
+    assert.equal(fs.readFileSync(path.join(__dirname, 'win32relocate.js'), 'utf8').includes("require('./update').newer"), true, 'compare no longer defaults to update.newer');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('🛑 without the confirm nothing is copied; the move CLI is a dry run until --yes; --compare only reads', async () => {
   const s = scratch();
   try {
     build(s.from);
-    const r = await relocator.relocate({ from: s.from, to: s.to, port: 16180, probe: NOBODY_ANSWERING, readPointer: () => null });
+    const r = await relocator.relocate({ from: s.from, to: s.to, port: 16180, probe: NOBODY_ANSWERING, readPointer: () => null, anchor: () => ({ ok: true }) });
     assert.equal(r.ok, false);
     assert.match(r.because, /moving it was not confirmed/);
     assert.ok(!fs.existsSync(s.to));
@@ -193,7 +293,12 @@ test('🛑 without the confirm nothing is copied, and the CLI is a dry run until
     assert.equal(asked.liveExecutionAllowed(), true);
     assert.equal(asked.port, '16180');
     assert.equal(fs.readFileSync(report, 'utf8'), 'MOVED ' + s.to + '\r\n');
+    assert.equal(await relocator.cliMain(['--compare', '--from', s.from, '--to', s.to, '--report', report], { compare: () => ({ verdict: 'handoff', target: s.to }), write: () => {} }), 0);
+    assert.equal(fs.readFileSync(report, 'utf8'), 'HANDOFF ' + s.to + '\r\n');
+    assert.equal(await relocator.cliMain(['--move', '--compare', '--from', s.from, '--to', s.to], { write: () => {} }), 64, 'a move and a compare at once was accepted');
     assert.equal(relocator.reportText({ ok: true, action: 'already-there', target: 'T' }), 'SAME T\r\n');
+    assert.equal(relocator.reportText({ verdict: 'newer', target: 'T' }), 'NEWER T\r\n');
+    assert.equal(relocator.reportText({ verdict: 'none', target: 'T' }), 'NONE T\r\n');
     assert.equal(relocator.reportText({ ok: false, because: 'a\nb' }), 'REFUSED a b\r\n');
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });

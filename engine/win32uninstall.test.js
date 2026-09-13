@@ -7,6 +7,10 @@
  * the home folder and the projects root are passed in, never read from this machine. The live
  * fleet's `\Kosmos\*` tasks and its `%LOCALAPPDATA%\Kosmos` / `%APPDATA%\Kosmos` are out of reach.
  *
+ * ⚠️ THE FOLDER ARMS ARE WINDOWS-ONLY. The removal joins its folders with Windows' rules
+ * (`win32anchor.anchorDir('win32', ...)`) and then deletes them on the host's disk, which only
+ * means the same folder on Windows. The arms that touch no folder run everywhere.
+ *
  *   node --test engine/win32uninstall.test.js
  */
 const test = require('node:test');
@@ -17,8 +21,11 @@ const path = require('node:path');
 
 const win32job = require('./win32job');
 const win32board = require('./win32board');
+const store = require('./store');
+const worlds = require('./worlds');
 const uninstaller = require('./win32uninstall');
 
+const WINDOWS_FOLDERS = { skip: process.platform !== 'win32' && 'the folder arms delete Windows-joined paths, which are only real folders on Windows' };
 const NOT_FOUND = { ok: false, out: 'ERROR: The system cannot find the file specified.' };
 
 function sandbox() {
@@ -40,21 +47,28 @@ function sandbox() {
   return s;
 }
 
-/* The CSV row schtasks prints for one task, unlabelled, path first. */
+/* The machine's whole task list, as `schtasks /Query /FO CSV /NH` prints it: unlabelled rows,
+   path first, always with the Microsoft tasks every Windows has. */
 const row = (taskPath) => '"\\' + taskPath + '","N/A","Ready"';
+const listing = (paths) => ({ ok: true, out: [row('Microsoft\\Windows\\Defrag\\ScheduledDefrag'), ...paths.map(row)].join('\r\n') + '\r\n' });
 
 /**
  * One recorder for both command seams, so a test can assert the ORDER across agents and the
- * board. `script.folder` answers the folder query; `script.fail` maps a joined command to a
- * failing answer.
+ * board. `lists` answers the whole-list query in turn (the read before, the read after);
+ * `fail` maps a joined command to its answer.
  */
 function stubSchedulers(script) {
   const calls = [];
+  let listed = 0;
   const answer = (who, args) => {
     const joined = args.join(' ');
     calls.push(who + ' ' + joined);
     if (script.fail && script.fail[joined]) return script.fail[joined];
-    if (args[0] === '/Query' && args[2] === 'Kosmos\\') return script.folder;
+    if (args[0] === '/Query' && !args.includes('/TN')) {
+      const l = script.lists[Math.min(listed, script.lists.length - 1)];
+      listed += 1;
+      return l;
+    }
     if (args[0] === '/Query') return NOT_FOUND;
     return { ok: true, out: 'SUCCESS' };
   };
@@ -74,124 +88,251 @@ function run(s, extra) {
 
 test.afterEach(() => { win32job.setRunner(null); win32board.setRunner(null); });
 
-test('every agent task, of every Kosmos, is switched off, ended and removed, the board last; the runtime goes and the chats stay', () => {
+test('the board is switched off and ended first, every agent task of every Kosmos goes, the board task last, and the list is READ again', WINDOWS_FOLDERS, () => {
   const s = sandbox();
   try {
-    const calls = stubSchedulers({ folder: { ok: true, out: [row('Kosmos\\board'), row('Kosmos\\agent-ava'), row('Kosmos\\agent-bo+qa')].join('\r\n') + '\r\n' } });
+    const calls = stubSchedulers({ lists: [listing(['Kosmos\\board', 'Kosmos\\agent-ava', 'Kosmos\\agent-bo+qa']), listing([])] });
     const r = run(s);
     assert.deepEqual(calls, [
-      'job /Query /TN Kosmos\\ /FO CSV /NH',
+      'job /Query /FO CSV /NH',
+      'board /Change /TN Kosmos\\board /DISABLE',
+      'board /End /TN Kosmos\\board',
       'job /Change /TN Kosmos\\agent-ava /DISABLE',
       'job /End /TN Kosmos\\agent-ava',
       'job /Delete /F /TN Kosmos\\agent-ava',
       'job /Change /TN Kosmos\\agent-bo+qa /DISABLE',
       'job /End /TN Kosmos\\agent-bo+qa',
       'job /Delete /F /TN Kosmos\\agent-bo+qa',
-      'board /End /TN Kosmos\\board',
       'board /Delete /F /TN Kosmos\\board',
+      'job /Query /FO CSV /NH',
     ]);
     assert.equal(r.ok, true, JSON.stringify(r.left));
-    assert.deepEqual(r.left, []);
     assert.ok(!fs.existsSync(s.runtimeDir), '%LOCALAPPDATA%\\Kosmos is still there');
     assert.ok(fs.existsSync(path.join(s.dataDir, 'chats', 'ava.jsonl')), 'the chats were deleted without a yes');
     assert.ok(fs.existsSync(path.join(s.projectsRoot, 'garden', 'notes.txt')), 'the projects were touched');
     assert.ok(r.notes.includes('Your agents\' chats and settings were kept in ' + s.dataDir + '.'), JSON.stringify(r.notes));
-    assert.ok(r.notes.includes('Your projects in ' + s.projectsRoot + ' were not touched.'), JSON.stringify(r.notes));
+    assert.ok(r.notes.includes('Your projects were kept in ' + s.projectsRoot + '.'), JSON.stringify(r.notes));
     assert.ok(r.done.some((d) => d.includes('"bo" in the Kosmos "qa"')), 'a named world\'s agent is not named by its world: ' + JSON.stringify(r.done));
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
-test('the chats and settings are deleted only when the person said yes', () => {
+test('the chats and settings are deleted only when the person said yes', WINDOWS_FOLDERS, () => {
   const s = sandbox();
   try {
-    stubSchedulers({ folder: { ok: true, out: row('Kosmos\\board') + '\r\n' } });
+    stubSchedulers({ lists: [listing(['Kosmos\\board']), listing([])] });
     const r = run(s, { deleteData: true });
     assert.equal(r.ok, true, JSON.stringify(r.left));
     assert.ok(!fs.existsSync(s.dataDir), '%APPDATA%\\Kosmos survived a yes');
     assert.ok(!fs.existsSync(s.runtimeDir));
     assert.ok(fs.existsSync(path.join(s.projectsRoot, 'garden', 'notes.txt')), 'the projects were touched');
-    assert.ok(!r.notes.some((n) => /were kept in/.test(n)), 'it says the chats were kept after deleting them');
+    assert.ok(!r.notes.some((n) => /chats and settings were kept/.test(n)), 'it says the chats were kept after deleting them');
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
-test('an empty Kosmos folder in Task Scheduler is a clean removal', () => {
+test('🛑 the second yes keeps every Kosmos\'s projects and working folders, named and orphaned, and names each one', WINDOWS_FOLDERS, () => {
   const s = sandbox();
   try {
-    const calls = stubSchedulers({ folder: NOT_FOUND });
+    stubSchedulers({ lists: [listing([]), listing([])] });
+    worlds.writeRegistry(s.dataDir, { version: 1, activeWorldId: 'default', worlds: [worlds.defaultWorld(), { id: 'qa', name: 'QA', createdAt: null, base: null }] });
+    const qa = worlds.envOverridesFor(s.dataDir, { id: 'qa' });
+    const orphan = worlds.envOverridesFor(s.dataDir, { id: 'old' });
+    for (const [dir, file] of [[qa.AGENT_WORKFORCE_PROJECTS, 'plan.md'], [qa.AGENT_WORKFORCE_WORKERS, 'ava/CLAUDE.md'], [orphan.AGENT_WORKFORCE_PROJECTS, 'kept.txt']]) {
+      fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+      fs.writeFileSync(path.join(dir, file), 'work');
+    }
+    const qaStore = store.dataRootFor('win32', s.home, { AGENT_WORKFORCE_DATA: qa.AGENT_WORKFORCE_DATA });
+    fs.mkdirSync(path.join(qaStore, 'chats'), { recursive: true });
+    fs.writeFileSync(path.join(qaStore, 'chats', 'bo.jsonl'), 'hello');
+
     const r = run(s, { deleteData: true });
-    assert.deepEqual(calls, ['job /Query /TN Kosmos\\ /FO CSV /NH']);
+    assert.equal(r.ok, true, JSON.stringify(r.left));
+    assert.ok(fs.existsSync(path.join(qa.AGENT_WORKFORCE_PROJECTS, 'plan.md')), 'a named Kosmos\'s project was deleted');
+    assert.ok(fs.existsSync(path.join(qa.AGENT_WORKFORCE_WORKERS, 'ava', 'CLAUDE.md')), 'a named Kosmos\'s working folder was deleted');
+    assert.ok(fs.existsSync(path.join(orphan.AGENT_WORKFORCE_PROJECTS, 'kept.txt')), 'the projects of a Kosmos the list no longer names were deleted');
+    assert.ok(!fs.existsSync(path.join(qaStore, 'chats', 'bo.jsonl')), 'a named Kosmos\'s chats survived the yes');
+    assert.ok(!fs.existsSync(path.join(s.dataDir, 'chats')), 'the chats survived the yes');
+    assert.ok(!fs.existsSync(worlds.registryPath(s.dataDir)), 'the settings survived the yes');
+    assert.ok(r.notes.includes('Your projects for the Kosmos "QA" were kept in ' + qa.AGENT_WORKFORCE_PROJECTS + '.'), JSON.stringify(r.notes));
+    assert.ok(r.notes.includes('Your agents\' working folders for the Kosmos "QA" were kept in ' + qa.AGENT_WORKFORCE_WORKERS + '.'), JSON.stringify(r.notes));
+    assert.ok(r.notes.includes('Your projects for the Kosmos "old" were kept in ' + orphan.AGENT_WORKFORCE_PROJECTS + '.'), JSON.stringify(r.notes));
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('🛑 fail closed: a list of Kosmoses that cannot be read, or names one it cannot use, leaves the data folder whole', WINDOWS_FOLDERS, () => {
+  for (const [label, registry] of [['unparseable', '{"worlds": [ {"id": "qa"'], ['unsafe id', JSON.stringify({ version: 1, worlds: [{ id: 'default' }, { id: '../../evil' }] })], ['wrong shape', '{"worlds": "qa"}']]) {
+    const s = sandbox();
+    try {
+      stubSchedulers({ lists: [listing([]), listing([])] });
+      fs.writeFileSync(worlds.registryPath(s.dataDir), registry);
+      const r = run(s, { deleteData: true });
+      assert.ok(fs.existsSync(path.join(s.dataDir, 'chats', 'ava.jsonl')), label + ': the data folder was deleted without knowing whose work is in it');
+      assert.equal(r.ok, false, label);
+      assert.ok(r.left.some((l) => l.startsWith('your agents\' chats and settings (' + s.dataDir + '), kept because the list of your Kosmoses')), label + ': ' + JSON.stringify(r.left));
+      assert.ok(!fs.existsSync(s.runtimeDir), label + ': the runtime folder, which holds no Kosmos\'s work, should still go');
+    } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  }
+});
+
+test('🛑 Projects inside the data folder is kept on the second yes, with the folders above it, and everything else goes', WINDOWS_FOLDERS, () => {
+  const s = sandbox();
+  try {
+    stubSchedulers({ lists: [listing([]), listing([])] });
+    const inside = path.join(s.dataDir, 'nested', 'Projects');
+    fs.mkdirSync(path.join(inside, 'garden'), { recursive: true });
+    fs.writeFileSync(path.join(inside, 'garden', 'notes.txt'), "a person's own work");
+    fs.writeFileSync(path.join(s.dataDir, 'nested', 'settings.json'), '{}');
+    const r = run(s, { deleteData: true, projectsRoot: inside });
+    assert.equal(r.ok, true, JSON.stringify(r.left));
+    assert.ok(fs.existsSync(path.join(inside, 'garden', 'notes.txt')), 'a project was deleted');
+    assert.ok(!fs.existsSync(path.join(s.dataDir, 'nested', 'settings.json')), 'a file beside the projects survived');
+    assert.ok(!fs.existsSync(path.join(s.dataDir, 'chats')), 'the chats survived the yes');
+    assert.ok(r.notes.includes('Your projects were kept in ' + inside + '.'), JSON.stringify(r.notes));
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('🛑 AGENT_WORKFORCE_DATA makes the runtime and data folders one folder: a No keeps the chats', WINDOWS_FOLDERS, () => {
+  const s = sandbox();
+  try {
+    stubSchedulers({ lists: [listing([]), listing([])] });
+    const env = { ...s.env, AGENT_WORKFORCE_DATA: path.join(s.base, 'D') };
+    const dataDir = store.dataRootFor('win32', s.home, env);
+    fs.mkdirSync(path.join(dataDir, 'chats'), { recursive: true });
+    fs.writeFileSync(path.join(dataDir, 'chats', 'ava.jsonl'), 'hello');
+    const r = run(s, { env, deleteData: false });
+    assert.ok(fs.existsSync(path.join(dataDir, 'chats', 'ava.jsonl')), 'a No to the second question deleted the chats');
+    assert.ok(r.left.some((l) => l.startsWith('Kosmos\'s runtime folder (' + dataDir + '), kept because')), JSON.stringify(r.left));
+    assert.ok(fs.existsSync(s.runtimeDir), 'the plain runtime folder, which was not the one derived, was deleted');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('🛑 a runtime folder that IS the data folder (LOCALAPPDATA and APPDATA the same) is kept on a No', WINDOWS_FOLDERS, () => {
+  const s = sandbox();
+  try {
+    stubSchedulers({ lists: [listing([]), listing([])] });
+    const env = { ...s.env, LOCALAPPDATA: s.env.APPDATA };
+    const r = run(s, { env, deleteData: false });
+    assert.ok(fs.existsSync(path.join(s.dataDir, 'chats', 'ava.jsonl')), 'a No deleted the chats through the runtime folder');
+    assert.ok(r.left.some((l) => l.includes('kept because your agents\' chats and settings are in the same place')), JSON.stringify(r.left));
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('🛑 links are never followed: a junction inside the runtime folder goes as a link, and a runtime folder that is a junction is kept', WINDOWS_FOLDERS, () => {
+  const s = sandbox();
+  try {
+    stubSchedulers({ lists: [listing([]), listing([])] });
+    const precious = path.join(s.base, 'precious');
+    fs.mkdirSync(precious, { recursive: true });
+    fs.writeFileSync(path.join(precious, 'keep.txt'), 'keep');
+    fs.symlinkSync(precious, path.join(s.runtimeDir, 'runtime', 'link'), 'junction');
+    const r = uninstaller.uninstall({ platform: 'win32', env: s.env, home: s.home, projectsRoot: s.projectsRoot, liveExecutionAllowed: () => true });
+    assert.ok(fs.existsSync(path.join(precious, 'keep.txt')), 'the folder a junction pointed at was emptied');
+    assert.ok(!fs.existsSync(s.runtimeDir), JSON.stringify(r.left));
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+
+  const t = sandbox();
+  try {
+    stubSchedulers({ lists: [listing([]), listing([])] });
+    const elsewhere = path.join(t.base, 'Projects-elsewhere');
+    fs.mkdirSync(elsewhere, { recursive: true });
+    fs.writeFileSync(path.join(elsewhere, 'keep.txt'), 'keep');
+    fs.rmSync(t.runtimeDir, { recursive: true, force: true });
+    fs.symlinkSync(elsewhere, t.runtimeDir, 'junction');
+    const r = uninstaller.uninstall({ platform: 'win32', env: t.env, home: t.home, projectsRoot: path.join(elsewhere, 'x'), liveExecutionAllowed: () => true });
+    assert.ok(fs.existsSync(path.join(elsewhere, 'keep.txt')), 'the folder the runtime junction pointed at was emptied');
+    assert.ok(r.left.some((l) => l.startsWith('Kosmos\'s runtime folder (' + t.runtimeDir + '), kept because')), JSON.stringify(r.left));
+  } finally { fs.rmSync(t.base, { recursive: true, force: true }); }
+});
+
+test('an empty Kosmos folder in Task Scheduler is a clean removal', WINDOWS_FOLDERS, () => {
+  const s = sandbox();
+  try {
+    const calls = stubSchedulers({ lists: [listing([]), listing([])] });
+    const r = run(s, { deleteData: true });
+    assert.deepEqual(calls, ['job /Query /FO CSV /NH', 'job /Query /FO CSV /NH']);
     assert.equal(r.ok, true, JSON.stringify(r.left));
     assert.ok(!fs.existsSync(s.runtimeDir) && !fs.existsSync(s.dataDir));
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
-test('a task Kosmos does not recognise is named and left in place, and both folders are kept for the tasks still there', () => {
+test('a task Kosmos does not recognise is named and left in place, and both folders are kept for the tasks still there', WINDOWS_FOLDERS, () => {
   const s = sandbox();
   try {
-    const calls = stubSchedulers({ folder: { ok: true, out: [row('Kosmos\\agent-ava'), row('Kosmos\\somebody-elses-task')].join('\r\n') } });
+    const calls = stubSchedulers({ lists: [listing(['Kosmos\\agent-ava', 'Kosmos\\somebody-elses-task']), listing(['Kosmos\\somebody-elses-task'])] });
     const r = run(s, { deleteData: true });
     assert.ok(!calls.some((c) => c.includes('somebody-elses-task')), 'a task Kosmos does not recognise was acted on: ' + calls.join(' | '));
     assert.equal(r.ok, false);
     assert.ok(r.left.some((l) => l.includes('Kosmos\\somebody-elses-task') && /does not recognise/.test(l)), JSON.stringify(r.left));
     assert.ok(fs.existsSync(s.runtimeDir), 'the runtime was deleted while a task is still registered');
-    assert.ok(fs.existsSync(s.dataDir), 'the chats were deleted while a task is still registered');
+    assert.ok(fs.existsSync(path.join(s.dataDir, 'chats', 'ava.jsonl')), 'the chats were deleted while a task is still registered');
     assert.ok(r.left.some((l) => l.startsWith('Kosmos\'s runtime folder (' + s.runtimeDir + '), kept because')), JSON.stringify(r.left));
-    assert.ok(r.left.some((l) => l.startsWith('your agents\' chats and settings (' + s.dataDir + '), kept because')), JSON.stringify(r.left));
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
-test('a Task Scheduler folder that cannot be read changes nothing and says so', () => {
+test('🛑 gone is READ, not inferred: an agent registered while the removal ran keeps both folders and is named', WINDOWS_FOLDERS, () => {
   const s = sandbox();
   try {
-    const calls = stubSchedulers({ folder: { ok: false, out: 'ERROR: Access is denied.' } });
+    stubSchedulers({ lists: [listing(['Kosmos\\board', 'Kosmos\\agent-ava']), listing(['Kosmos\\agent-zed'])] });
     const r = run(s, { deleteData: true });
-    assert.deepEqual(calls, ['job /Query /TN Kosmos\\ /FO CSV /NH'], 'something was changed on a folder that could not be read');
     assert.equal(r.ok, false);
-    assert.ok(r.left[0].includes('could not read (ERROR: Access is denied.)'), JSON.stringify(r.left));
-    assert.ok(fs.existsSync(s.runtimeDir) && fs.existsSync(s.dataDir), 'a folder went while the tasks were unknown');
+    assert.ok(r.left.some((l) => l.startsWith('the startup job for the agent "zed" (Kosmos\\agent-zed), which is still in Task Scheduler')), JSON.stringify(r.left));
+    assert.ok(fs.existsSync(s.runtimeDir), 'the runtime went while an agent task is registered');
+    assert.ok(fs.existsSync(path.join(s.dataDir, 'chats', 'ava.jsonl')), 'the chats went while an agent task is registered');
+    assert.ok(r.done.includes('removed the startup job for the agent "ava" (Kosmos\\agent-ava)'), JSON.stringify(r.done));
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
-test('each failure is named: a task that would not go, an agent that would not end, a board that would not go', () => {
+test('a task that would not go is named with what Windows said, and a list that cannot be read again keeps everything', WINDOWS_FOLDERS, () => {
   const s = sandbox();
   try {
     stubSchedulers({
-      folder: { ok: true, out: [row('Kosmos\\agent-ava'), row('Kosmos\\agent-bo'), row('Kosmos\\board')].join('\r\n') },
-      fail: {
-        '/Delete /F /TN Kosmos\\agent-ava': { ok: false, out: 'ERROR: Access is denied.' },
-        /* Not a "not running" sentence: win32job.end rightly reads that one as already stopped. */
-        '/End /TN Kosmos\\agent-bo': { ok: false, out: 'ERROR: Access is denied.' },
-        '/Delete /F /TN Kosmos\\board': { ok: false, out: 'ERROR: Access is denied.' },
-      },
+      lists: [listing(['Kosmos\\agent-ava', 'Kosmos\\board']), listing(['Kosmos\\agent-ava'])],
+      fail: { '/Delete /F /TN Kosmos\\agent-ava': { ok: false, out: 'ERROR: Access is denied.' } },
     });
     const r = run(s);
-    assert.equal(r.ok, false);
-    assert.ok(r.left.some((l) => l.startsWith('the startup job for the agent "ava" (Kosmos\\agent-ava), which is still in Task Scheduler (we could not remove the startup job (ERROR: Access is denied.))')), JSON.stringify(r.left));
-    assert.ok(r.left.some((l) => l.startsWith('the agent "bo", which may keep running until you sign out')), JSON.stringify(r.left));
-    assert.ok(r.left.some((l) => l.startsWith('the startup job for the Kosmos board (Kosmos\\board), which is still in Task Scheduler')), JSON.stringify(r.left));
-    assert.ok(fs.existsSync(s.runtimeDir), 'the runtime went while a task is still registered');
+    assert.ok(r.left.includes('the startup job for the agent "ava" (Kosmos\\agent-ava), which is still in Task Scheduler (we could not remove the startup job (ERROR: Access is denied.))'), JSON.stringify(r.left));
+    assert.ok(r.done.includes('removed the startup job for the Kosmos board (Kosmos\\board)'));
+    assert.ok(fs.existsSync(s.runtimeDir));
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+
+  const t = sandbox();
+  try {
+    stubSchedulers({ lists: [listing(['Kosmos\\board']), { ok: false, out: 'ERROR: The RPC server is unavailable.' }] });
+    const r = run(t, { deleteData: true });
+    assert.ok(r.left.some((l) => l.includes('which we could not read again to see they were gone (ERROR: The RPC server is unavailable.)')), JSON.stringify(r.left));
+    assert.ok(fs.existsSync(t.runtimeDir) && fs.existsSync(t.dataDir), 'a folder went on a list that could not be read again');
+  } finally { fs.rmSync(t.base, { recursive: true, force: true }); }
+});
+
+test('🛑 a non-English Windows: what /End printed decides nothing, and a list with no Kosmos tasks is a clean removal', WINDOWS_FOLDERS, () => {
+  const s = sandbox();
+  try {
+    const FEHLER = { ok: false, out: 'FEHLER: Die Aufgabe wird derzeit nicht ausgeführt.' };
+    stubSchedulers({
+      lists: [listing(['Kosmos\\agent-bo', 'Kosmos\\board']), listing([])],
+      fail: { '/End /TN Kosmos\\agent-bo': FEHLER, '/End /TN Kosmos\\board': FEHLER },
+    });
+    const r = run(s);
+    assert.equal(r.ok, true, 'a translated "not running" was read as a failure: ' + JSON.stringify(r.left));
+    assert.ok(!fs.existsSync(s.runtimeDir));
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
-test('🛑 Projects is never deleted: a Kosmos folder that holds the projects is refused, and says why', () => {
-  const s = sandbox();
-  try {
-    stubSchedulers({ folder: NOT_FOUND });
-    const inside = path.join(s.dataDir, 'Projects');
-    fs.mkdirSync(path.join(inside, 'garden'), { recursive: true });
-    fs.writeFileSync(path.join(inside, 'garden', 'notes.txt'), "a person's own work");
-    const r = run(s, { deleteData: true, projectsRoot: inside });
-    assert.ok(fs.existsSync(path.join(inside, 'garden', 'notes.txt')), 'a project was deleted');
+test('a Task Scheduler list that cannot be read, or lists nothing at all, changes nothing and says so', () => {
+  for (const answer of [{ ok: false, out: 'ERROR: Access is denied.' }, { ok: true, out: '\r\n' }]) {
+    const calls = stubSchedulers({ lists: [answer] });
+    const r = uninstaller.uninstall({ platform: 'win32', env: { APPDATA: 'C:\\nowhere\\Roaming', LOCALAPPDATA: 'C:\\nowhere\\Local' }, home: 'C:\\nowhere', projectsRoot: 'C:\\nowhere\\P',
+      removeFolder: () => { throw new Error('nothing may be deleted'); }, liveExecutionAllowed: () => true, deleteData: true });
+    assert.deepEqual(calls, ['job /Query /FO CSV /NH'], 'something was changed on a list that could not be read');
     assert.equal(r.ok, false);
-    assert.ok(r.left.includes('your agents\' chats and settings (' + s.dataDir + '), kept because your projects are inside it (' + inside + ')'), JSON.stringify(r.left));
-    assert.ok(!fs.existsSync(s.runtimeDir), 'the runtime folder, which holds no projects, should still go');
-  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+    assert.ok(r.left[0].startsWith('the startup jobs in Task Scheduler\'s Kosmos folder, which we could not read ('), JSON.stringify(r.left));
+    assert.ok(!r.left.some((l) => /nothing may be deleted/.test(l)));
+  }
 });
 
-test('the Kosmos folder this removal runs from is never deleted from here', () => {
+test('the Kosmos folder this removal runs from is never deleted from here', WINDOWS_FOLDERS, () => {
   const s = sandbox();
   try {
-    stubSchedulers({ folder: NOT_FOUND });
+    stubSchedulers({ lists: [listing([]), listing([])] });
     const bundle = path.join(s.runtimeDir, 'Programs', 'Kosmos');
     fs.mkdirSync(bundle, { recursive: true });
     const r = run(s, { bundleRoot: bundle });
@@ -200,69 +341,64 @@ test('the Kosmos folder this removal runs from is never deleted from here', () =
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
-test('folderRefusal: only an absolute folder named Kosmos that holds no projects, no user folder and no running Kosmos', () => {
-  const g = { platform: 'win32', leaf: 'Kosmos', projectsRoot: 'C:\\Users\\me\\Kosmos\\Projects', home: 'C:\\Users\\me', bundleRoot: 'C:\\Users\\me\\AppData\\Local\\Programs\\Kosmos' };
+test('folderRefusal: only an absolute folder named Kosmos that holds no user folder and no running Kosmos', () => {
+  const g = { platform: 'win32', leaf: 'Kosmos', home: 'C:\\Users\\me', bundleRoot: 'C:\\Users\\me\\AppData\\Local\\Programs\\Kosmos' };
   assert.equal(uninstaller.folderRefusal('C:\\Users\\me\\AppData\\Local\\Kosmos', g), null);
   assert.equal(uninstaller.folderRefusal('C:\\Users\\me\\AppData\\Local\\kosmos', g), null, 'Windows names are not case-sensitive');
   assert.equal(uninstaller.folderRefusal('C:\\Users\\me\\AppData\\Local\\Other', g), 'it is not a folder named Kosmos');
   assert.equal(uninstaller.folderRefusal('Kosmos', g), 'we could not work out where it is');
-  assert.equal(uninstaller.folderRefusal('C:\\Users\\me\\Kosmos', g), 'your projects are inside it (C:\\Users\\me\\Kosmos\\Projects)');
-  assert.equal(uninstaller.folderRefusal('C:\\Users\\ME\\KOSMOS', g), 'your projects are inside it (C:\\Users\\me\\Kosmos\\Projects)', 'a projects root in another case slipped past');
-  assert.equal(uninstaller.folderRefusal('C:\\Kosmos', { ...g, home: 'C:\\Kosmos\\me', projectsRoot: 'D:\\P' }), 'your user folder is inside it');
+  assert.equal(uninstaller.folderRefusal('C:\\Kosmos', { ...g, home: 'C:\\Kosmos\\me' }), 'your user folder is inside it');
   assert.equal(uninstaller.folderRefusal('C:\\Users\\me\\AppData\\Local\\Programs\\Kosmos', { ...g, bundleRoot: 'C:\\Users\\me\\AppData\\Local\\Programs\\Kosmos\\x' }),
     'Kosmos is running from inside it (C:\\Users\\me\\AppData\\Local\\Programs\\Kosmos\\x)');
-  assert.equal(uninstaller.folderRefusal('C:\\Users\\me\\Kosmosity', { ...g, leaf: 'Kosmos' }), 'it is not a folder named Kosmos');
-  /* A sibling whose name merely starts with the projects' folder does not hold them. */
-  assert.equal(uninstaller.folderRefusal('C:\\Users\\me\\AppData\\Kosmos', { ...g, projectsRoot: 'C:\\Users\\me\\AppData\\KosmosProjects' }), null);
+  assert.equal(uninstaller.folderRefusal('C:\\Users\\me\\Kosmosity', g), 'it is not a folder named Kosmos');
 });
 
 test('🛑 without the confirm (liveExecutionAllowed) nothing is asked, ended or deleted', () => {
-  const s = sandbox();
-  try {
-    const calls = stubSchedulers({ folder: { ok: true, out: row('Kosmos\\board') } });
-    const r = uninstaller.uninstall({ platform: 'win32', env: s.env, home: s.home, projectsRoot: s.projectsRoot, deleteData: true });
-    assert.equal(r.refused, true);
-    assert.deepEqual(calls, [], 'a scheduler was asked before the removal was confirmed');
-    assert.ok(fs.existsSync(s.runtimeDir) && fs.existsSync(s.dataDir));
-    const denied = uninstaller.uninstall({ platform: 'win32', env: s.env, home: s.home, liveExecutionAllowed: () => false, deleteData: true });
-    assert.equal(denied.refused, true);
-    assert.deepEqual(calls, []);
-    const mac = uninstaller.uninstall({ platform: 'darwin', env: s.env, home: s.home, liveExecutionAllowed: () => true });
-    assert.equal(mac.refused, true, 'a Mac ran the Windows removal');
-  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  const calls = stubSchedulers({ lists: [listing(['Kosmos\\board'])] });
+  const env = { APPDATA: 'C:\\nowhere\\Roaming', LOCALAPPDATA: 'C:\\nowhere\\Local' };
+  const r = uninstaller.uninstall({ platform: 'win32', env, home: 'C:\\nowhere', projectsRoot: 'C:\\nowhere\\P', deleteData: true });
+  assert.equal(r.refused, true);
+  assert.deepEqual(calls, [], 'a scheduler was asked before the removal was confirmed');
+  const denied = uninstaller.uninstall({ platform: 'win32', env, home: 'C:\\nowhere', liveExecutionAllowed: () => false, deleteData: true });
+  assert.equal(denied.refused, true);
+  assert.deepEqual(calls, []);
+  const mac = uninstaller.uninstall({ platform: 'darwin', env, home: 'C:\\nowhere', liveExecutionAllowed: () => true });
+  assert.equal(mac.refused, true, 'a Mac ran the Windows removal');
 });
 
 test('the CLI is a dry run without --yes, and --yes arms it and writes the report the launcher reads', () => {
-  const s = sandbox();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-uninstall-cli-'));
   try {
     let asked = null;
     const said = [];
-    const fake = (opts) => { asked = opts; return { ok: false, done: ['removed x'], left: ['the thing\nthat stayed'], notes: ['Your projects in P were not touched.'] }; };
+    const fake = (opts) => { asked = opts; return { ok: false, done: ['removed x'], left: ['the thing\nthat stayed'], notes: ['Your projects were kept in P.'] }; };
     assert.equal(uninstaller.cliMain(['--uninstall', '--delete-data'], { uninstall: fake, write: (t) => said.push(t) }), 2);
     assert.equal(asked, null, 'the removal ran without --yes');
     assert.match(said.join(''), /nothing was changed: add --yes/);
     assert.equal(uninstaller.cliMain(['--yes'], { uninstall: fake, write: () => {} }), 64, 'a --yes with no --uninstall was accepted');
     assert.equal(asked, null);
 
-    const report = path.join(s.base, 'report.txt');
+    const report = path.join(base, 'report.txt');
     const code = uninstaller.cliMain(['--uninstall', '--delete-data', '--root', 'C:\\Kosmos', '--report', report, '--yes'], { uninstall: fake, write: () => {} });
     assert.equal(code, 1);
     assert.equal(asked.deleteData, true);
     assert.equal(asked.bundleRoot, 'C:\\Kosmos');
     assert.equal(asked.liveExecutionAllowed(), true);
     assert.deepEqual(fs.readFileSync(report, 'utf8').split('\r\n'),
-      ['DONE removed x', 'LEFT the thing that stayed', 'NOTE Your projects in P were not touched.', ''],
+      ['DONE removed x', 'LEFT the thing that stayed', 'NOTE Your projects were kept in P.', ''],
       'a sentence with a line break became two report lines');
-  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });
 
-test('win32job.kosmosFolderTasks: every path in the folder, every Kosmos; not found is empty; anything else is unknown', () => {
-  win32job.setRunner(() => ({ ok: true, out: [row('Kosmos\\board'), row('Kosmos\\agent-ava'), row('Kosmos\\agent-ava'), row('Kosmos\\agent-bo+qa'), 'INFO: something', ''].join('\r\n') }));
+test('win32job.kosmosFolderTasks reads the whole task list, every Kosmos; an unreadable or empty list is unknown; list() is unchanged', () => {
+  win32job.setRunner((args) => (args.includes('/TN')
+    ? { ok: true, out: [row('Kosmos\\board'), row('Kosmos\\agent-ava'), row('Kosmos\\agent-bo+qa')].join('\r\n') }
+    : listing(['Kosmos\\board', 'Kosmos\\agent-ava', 'Kosmos\\agent-ava', 'Kosmos\\agent-bo+qa', 'KosmosOther\\x'])));
   assert.deepEqual(win32job.kosmosFolderTasks(), { known: true, paths: ['Kosmos\\board', 'Kosmos\\agent-ava', 'Kosmos\\agent-bo+qa'] });
-  /* list() reads the same query and keeps only THIS world's agents, as before. */
+  /* list() keeps its own folder query and only THIS world's agents, as on main. */
   assert.deepEqual([...win32job.list().names], ['ava']);
-  win32job.setRunner(() => NOT_FOUND);
-  assert.deepEqual(win32job.kosmosFolderTasks(), { known: true, paths: [] });
+  win32job.setRunner(() => ({ ok: true, out: '\r\n' }));
+  assert.equal(win32job.kosmosFolderTasks().known, false, 'an empty list was taken for "no Kosmos tasks"');
   win32job.setRunner(() => ({ ok: false, out: 'ERROR: Access is denied.' }));
   assert.deepEqual(win32job.kosmosFolderTasks(), { known: false, paths: [], because: 'ERROR: Access is denied.' });
   assert.equal(win32job.list().known, false);

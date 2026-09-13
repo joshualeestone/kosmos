@@ -13297,6 +13297,11 @@ if (require.main === module) {
     try {
       const r = require('./engine/win32board').ensureInstalled({});
       win32BoardEnsured = r;
+      /* win32-installer-native: the pointer follows this folder on every boot, and a board whose
+         agents would still start the old folder has to say so. */
+      if (r.anchor && !r.anchor.ok) {
+        process.stderr.write(`Kosmos could not point its startup files at this folder, so your agents may start an older copy: ${r.anchor.because}\n`);
+      }
       if (r.action === 'registered') {
         process.stdout.write(`Kosmos will now start when you log in. Task Scheduler > Kosmos > board; remove it with: ${r.removeHint}\n`);
       } else if (r.action === 'unknown') {

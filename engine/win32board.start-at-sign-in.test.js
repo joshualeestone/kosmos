@@ -107,6 +107,7 @@ test('the Settings row carries the switch only where the state was READ and the 
   assert.equal(row(facts()).startAtSignIn, true);
   const off = row(facts({ enabled: false }));
   assert.equal(off.startAtSignIn, false);
+  assert.equal(off.state, machine.STATE.OK, 'a task the person switched off is still a warning row');
   assert.match(off.detail, /You can turn it back on with the switch below\./);
   assert.doesNotMatch(off.detail, /Task Scheduler Library/, 'the switched-off row still sends the person to Task Scheduler');
   assert.equal('startAtSignIn' in row(facts({ registered: false, enabled: false })), false, 'a missing task was given a switch');

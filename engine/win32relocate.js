@@ -12,24 +12,34 @@
  * The launcher has the Known Folder API and the person. What a safe move needs is already in
  * the engine, once each:
  *   - what a build is made of: win32update.ENTRIES, the updater's own list, so a move copies
- *     exactly what an update would swap, and never `Projects` or anything else in the folder;
+ *     exactly what an update would swap, a build counts as complete only with every entry, and
+ *     `Projects` or anything else in the folder is never copied;
  *   - whether a board answers on the port: win32handoff.probeBoard;
- *   - which folder the running Kosmos runs from: win32anchor.readPointer, the engine pointer.
+ *   - which folder the running Kosmos runs from: win32anchor.readPointer, the engine pointer;
+ *   - which of two builds is newer: update.newer, the updater's own comparison.
  *
  * Rules, each a sentence when it refuses:
  *   - never while a board from THIS folder is serving: a board answers on the port AND the
  *     pointer is inside this folder, or cannot be read;
- *   - never over a different Kosmos, an incomplete one, or a folder holding other files;
+ *   - never over a different Kosmos, an incomplete one (any ENTRIES item missing; our own move
+ *     never leaves one, because it renames a whole staging folder into place), or a folder
+ *     holding other files;
  *   - the same build already in place is not copied again (`already-there`);
- *   - the copy goes to a sibling staging folder and is renamed into place, so the target is
- *     either absent or whole. A failed copy removes only its own staging folder;
- *   - the old folder is left exactly where it is. The launcher starts the new copy, whose boot
- *     re-anchors (win32board.ensureInstalled), which moves the engine pointer.
+ *   - the copy goes to a sibling staging folder and is renamed into place. A staging folder an
+ *     interrupted move left behind is swept first, but only when its process is gone;
+ *   - the old folder is left exactly where it is. After a move the pointer is anchored to the new
+ *     folder here, and the new copy's boot anchors it again (win32board.anchorBundle).
  *
- * ⚠️ GATED (convention 3): `relocate()` refuses without `liveExecutionAllowed`, and the CLI is a
- * dry run unless `--yes`, which only the launcher passes after the person chose Move Kosmos.
+ * `compare` answers the other question the launcher has (round 1, finding 4): a copy running from a
+ * temporary place when the per-user folder already holds a complete Kosmos. Same build or older:
+ * hand off to the installed one. Newer: run from here, as a by-hand update does today.
+ *
+ * ⚠️ GATED (convention 3): `relocate()` refuses without `liveExecutionAllowed`, and the move CLI is
+ * a dry run unless `--yes`, which only the launcher passes after the person chose Move Kosmos.
+ * `--compare` only reads.
  *
  *     node app\engine\win32relocate.js --move --from <folder> --to <folder> --port <n> [--report <file>] [--yes]
+ *     node app\engine\win32relocate.js --compare --from <folder> --to <folder> [--report <file>]
  */
 
 const fs = require('node:fs');
@@ -40,12 +50,14 @@ const liveExec = require('./live-execution');
 const win32anchor = require('./win32anchor');
 
 const MANIFEST_NAME = 'manifest.json';
-/* Beside the target, so the rename that finishes a move is a rename on one volume. */
+/* Beside the target, so the rename that finishes a move is a rename on one volume. The process id
+   follows it, so a leftover can be told from a move still under way. */
 const STAGING_INFIX = '.kosmos-move-';
 
 const KEEPS_WORKING = 'Kosmos keeps working from here.';
 
-const USAGE = 'usage: node engine/win32relocate.js --move --from <folder> --to <folder> --port <n> [--report <file>] [--yes]';
+const USAGE = 'usage: node engine/win32relocate.js --move --from <folder> --to <folder> --port <n> [--report <file>] [--yes]\n'
+  + '       node engine/win32relocate.js --compare --from <folder> --to <folder> [--report <file>]';
 
 function firstLine(value) {
   return String((value && value.message) || value || 'no detail').trim().split(/\r?\n/)[0];
@@ -68,10 +80,18 @@ function readManifest(root) {
   } catch { return null; }
 }
 
-/* The files KosmosLauncher.cs checks before it starts anything, plus the launcher itself. */
-function isCompleteBuild(root, manifest) {
-  return Boolean(manifest) && manifest.product === 'kosmos' && manifest.platform === 'win32'
-    && ['Kosmos.exe', path.join('runtime', 'node.exe'), path.join('app', 'server.js')].every((f) => fs.existsSync(path.join(root, f)));
+function buildEntries(o) {
+  return (o && o.entries) || require('./win32update').ENTRIES;
+}
+
+/** The ENTRIES items this folder does not have. ONE check, for the folder moved from and to. */
+function missingEntries(root, entries) {
+  return entries.filter((entry) => !fs.existsSync(path.join(root, entry)));
+}
+
+/* A Kosmos build: its manifest names the product and the platform, and every entry is there. */
+function isCompleteBuild(root, manifest, entries) {
+  return Boolean(manifest) && manifest.product === 'kosmos' && manifest.platform === 'win32' && missingEntries(root, entries).length === 0;
 }
 
 function sameBuild(a, b) {
@@ -81,9 +101,59 @@ function sameBuild(a, b) {
 function refused(because) { return { ok: false, action: 'refused', because }; }
 
 /**
+ * Round 1, finding 10: remove the staging folders of moves that were interrupted, before staging a
+ * new one. Only a folder whose process is GONE (win32orphan.pidState, the rule the updater's lock
+ * uses; never its age), and never through a link: a junction or symbolic link with a staging name
+ * is removed as a link, so the folder it points at is never entered. A staging folder of a process
+ * still running, or one we cannot check, is left.
+ */
+function sweepInterruptedMoves(to, pidState) {
+  const parent = path.dirname(to);
+  const prefix = (path.basename(to) + STAGING_INFIX).toLowerCase();
+  const swept = [];
+  let names;
+  try { names = fs.readdirSync(parent); } catch { return swept; }
+  for (const name of names) {
+    if (!name.toLowerCase().startsWith(prefix)) continue;
+    const pid = Number(name.slice(prefix.length));
+    if (!Number.isInteger(pid) || pid <= 0) continue;
+    const at = path.join(parent, name);
+    let st;
+    try { st = fs.lstatSync(at); } catch { continue; }
+    try {
+      if (st.isSymbolicLink()) {
+        try { fs.rmdirSync(at); } catch { fs.unlinkSync(at); }
+        swept.push(at);
+      } else if (st.isDirectory() && (pid === process.pid || pidState(pid) === 'gone')) {
+        fs.rmSync(at, { recursive: true, force: true });
+        swept.push(at);
+      }
+    } catch { /* a leftover that will not go is only a leftover; the move itself stages elsewhere */ }
+  }
+  return swept;
+}
+
+/**
+ * Point the engine pointer at the folder Kosmos now lives in (round 1, finding 3). The moved copy's
+ * own boot anchors again; doing it here too means a move is complete even if that boot never comes.
+ * A failure is reported, not fatal: the move itself happened.
+ */
+function anchorTo(o, to) {
+  if (typeof o.anchor !== 'function' && liveExec.inTestProcess()) {
+    throw new Error('win32relocate: a test must pass an anchor seam; the real one rewrites %LOCALAPPDATA%\\Kosmos');
+  }
+  const anchor = typeof o.anchor === 'function' ? o.anchor : (spec) => win32anchor.ensureAnchored(spec);
+  let a;
+  try {
+    a = anchor({ platform: 'win32', home: o.home, env: o.env, node: path.join(to, 'runtime', 'node.exe'), engineDir: path.join(to, 'app', 'engine') });
+  } catch (e) { a = { ok: false, because: firstLine(e) }; }
+  return a && a.ok ? { anchored: true } : { anchored: false, anchorProblem: (a && a.because) || 'no detail' };
+}
+
+/**
  * @param {object} opts  from, to, port, liveExecutionAllowed; seams: probe(port), readPointer(),
- *                       copy(src, dst), entries, env, home
- * @returns {Promise<{ok: true, action: 'moved'|'already-there', target: string}|{ok: false, action: 'refused', because: string}>}
+ *                       copy(src, dst), entries, anchor(spec), pidState(pid), env, home
+ * @returns {Promise<{ok: true, action: 'moved'|'already-there', target: string, anchored: boolean}|{ok: false, action: 'refused', because: string}>}
  */
 async function relocate(opts) {
   const o = opts || {};
@@ -96,10 +166,12 @@ async function relocate(opts) {
     return refused('Kosmos was not moved, because ' + to + ' and the folder it runs from overlap. ' + KEEPS_WORKING);
   }
 
+  const entries = buildEntries(o);
   const mine = readManifest(from);
-  if (!isCompleteBuild(from, mine)) return refused('Kosmos was not moved, because this folder is not a complete Kosmos. ' + KEEPS_WORKING);
-  const entries = o.entries || require('./win32update').ENTRIES;
-  const missing = entries.filter((entry) => !fs.existsSync(path.join(from, entry)));
+  if (!mine || mine.product !== 'kosmos' || mine.platform !== 'win32') {
+    return refused('Kosmos was not moved, because this folder is not a complete Kosmos. ' + KEEPS_WORKING);
+  }
+  const missing = missingEntries(from, entries);
   if (missing.length) {
     return refused('Kosmos was not moved, because this Kosmos folder is missing ' + missing.join(', ') + '. ' + KEEPS_WORKING);
   }
@@ -127,7 +199,7 @@ async function relocate(opts) {
     }
   }
 
-  /* The target: absent, empty, or already this very build. */
+  /* The target: absent, empty, or already this very build, complete. */
   if (fs.existsSync(to)) {
     let stat;
     try { stat = fs.statSync(to); } catch (e) { return refused('Kosmos was not moved, because ' + to + ' could not be read (' + firstLine(e) + '). ' + KEEPS_WORKING); }
@@ -137,21 +209,22 @@ async function relocate(opts) {
       if (!theirs || theirs.product !== 'kosmos') {
         return refused('Kosmos was not moved, because ' + to + ' already holds other files. ' + KEEPS_WORKING);
       }
+      const theirsMissing = missingEntries(to, entries);
+      if (theirsMissing.length) {
+        return refused('Kosmos was not moved, because the Kosmos in ' + to + ' is incomplete (it is missing ' + theirsMissing.join(', ') + '). ' + KEEPS_WORKING);
+      }
       if (!sameBuild(mine, theirs)) {
         return refused('There is already a different Kosmos (version ' + (theirs.version || 'unknown') + ') in ' + to
           + ', so this one was not moved there. ' + KEEPS_WORKING);
       }
-      if (!isCompleteBuild(to, theirs)) {
-        return refused('Kosmos was not moved, because the Kosmos in ' + to + ' is incomplete. ' + KEEPS_WORKING);
-      }
-      return { ok: true, action: 'already-there', target: to };
+      return { ok: true, action: 'already-there', target: to, ...anchorTo(o, to) };
     }
   }
 
   const copy = typeof o.copy === 'function' ? o.copy : (src, dst) => fs.cpSync(src, dst, { recursive: true, errorOnExist: true, force: false });
+  sweepInterruptedMoves(to, typeof o.pidState === 'function' ? o.pidState : require('./win32orphan').pidState);
   const staging = to + STAGING_INFIX + process.pid;
   try {
-    fs.rmSync(staging, { recursive: true, force: true });
     fs.mkdirSync(staging, { recursive: true });
     for (const entry of entries) copy(path.join(from, entry), path.join(staging, entry));
     /* rmdir, not rm: it refuses a folder that is no longer empty, so nothing that arrived in
@@ -162,20 +235,45 @@ async function relocate(opts) {
     try { fs.rmSync(staging, { recursive: true, force: true }); } catch { /* the sentence below still names the failure */ }
     return refused('Kosmos could not be copied to ' + to + ' (' + firstLine(e) + '), so it was not moved. ' + KEEPS_WORKING);
   }
-  return { ok: true, action: 'moved', target: to };
+  return { ok: true, action: 'moved', target: to, ...anchorTo(o, to) };
+}
+
+/**
+ * Round 1, finding 4: this copy runs from a temporary place and `to` (the per-user folder) exists.
+ * Which one should run?
+ *   'none'     `to` holds no complete Kosmos (a missing manifest, another product, any ENTRIES item
+ *              missing): the launcher's ordinary offer applies, and so does Keep it here.
+ *   'newer'    this copy is newer than the one in `to` by update.newer, the updater's comparison:
+ *              run from here and re-point, as a by-hand update does today (until the in-app update
+ *              from a downloaded zip reuses engine/win32apply.js).
+ *   'handoff'  otherwise, including a version either side cannot parse (never newer): the installed
+ *              Kosmos is the one that runs, and this copy re-points nothing.
+ */
+function compare(opts) {
+  const o = opts || {};
+  const from = path.resolve(o.from);
+  const to = path.resolve(o.to);
+  const theirs = readManifest(to);
+  if (!isCompleteBuild(to, theirs, buildEntries(o))) return { verdict: 'none', target: to };
+  const mine = readManifest(from);
+  const newer = (o.newer || require('./update').newer);
+  if (mine && newer(mine.version, theirs.version)) return { verdict: 'newer', target: to, mine: mine.version, installed: theirs.version };
+  return { verdict: 'handoff', target: to, mine: mine ? mine.version : null, installed: theirs.version };
 }
 
 /** The report the launcher reads: its first line is the outcome. */
 function reportText(result) {
+  if (result.verdict) return result.verdict.toUpperCase() + ' ' + result.target + '\r\n';
   if (result.ok) return (result.action === 'moved' ? 'MOVED ' : 'SAME ') + result.target + '\r\n';
   return 'REFUSED ' + String(result.because).replace(/\s*\r?\n\s*/g, ' ') + '\r\n';
 }
 
 function parseCliArgs(argv) {
-  const a = { move: false, yes: false, from: null, to: null, port: null, report: null, unknown: null };
+  const a = { move: false, compare: false, yes: false, from: null, to: null, port: null, report: null, unknown: null };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--move') a.move = true;
+    else if (arg === '--compare') a.compare = true;
     else if (arg === '--yes') a.yes = true;
     else if (['--from', '--to', '--port', '--report'].includes(arg)) { a[arg.slice(2)] = argv[i + 1] || null; i += 1; }
     else a.unknown = arg;
@@ -183,33 +281,44 @@ function parseCliArgs(argv) {
   return a;
 }
 
+function writeReport(a, result, out) {
+  if (!a.report) return true;
+  try {
+    fs.writeFileSync(a.report, reportText(result), 'utf8');
+    return true;
+  } catch (e) {
+    out('could not write the report to ' + a.report + ': ' + firstLine(e) + '\n');
+    return false;
+  }
+}
+
 /**
  * `--yes` is the launcher's word that the person chose Move Kosmos; it stands in for
- * allowLiveExecution(). Without it this prints what it would do and exits 2, copying nothing.
+ * allowLiveExecution(). Without it a move prints what it would do and exits 2, copying nothing.
+ * `--compare` changes nothing, so it needs no `--yes`.
  */
 async function cliMain(argv, deps) {
   const d = deps || {};
   const out = typeof d.write === 'function' ? d.write : (s) => process.stdout.write(s);
   const a = parseCliArgs(argv);
-  if (!a.move || !a.from || !a.to || a.unknown) { out(USAGE + '\n'); return 64; }
+  if ((a.move === a.compare) || !a.from || !a.to || a.unknown) { out(USAGE + '\n'); return 64; }
+  if (a.compare) {
+    const verdict = (d.compare || compare)({ from: a.from, to: a.to });
+    if (!writeReport(a, verdict, out)) return 1;
+    out(JSON.stringify(verdict, null, 2) + '\n');
+    return 0;
+  }
   if (!a.yes) {
     out(JSON.stringify({ dryRun: true, from: path.resolve(a.from), to: path.resolve(a.to), because: 'nothing was copied: add --yes to move Kosmos' }, null, 2) + '\n');
     return 2;
   }
   const result = await (d.relocate || relocate)({ from: a.from, to: a.to, port: a.port, liveExecutionAllowed: () => true });
-  if (a.report) {
-    try {
-      fs.writeFileSync(a.report, reportText(result), 'utf8');
-    } catch (e) {
-      out('could not write the report to ' + a.report + ': ' + firstLine(e) + '\n');
-      return 1;
-    }
-  }
+  if (!writeReport(a, result, out)) return 1;
   out(JSON.stringify(result, null, 2) + '\n');
   return result.ok ? 0 : 1;
 }
 
-module.exports = { relocate, cliMain, reportText, STAGING_INFIX };
+module.exports = { relocate, compare, cliMain, reportText, sweepInterruptedMoves, STAGING_INFIX };
 
 /* Guarded on being the main module: requiring this file must never copy anything. */
 if (require.main === module) {

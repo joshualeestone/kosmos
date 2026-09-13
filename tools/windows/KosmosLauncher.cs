@@ -134,7 +134,8 @@ class KosmosLauncher
     // False for --console, and for any non-interactive context (a service, or a
     // task set to run whether or not the user is signed in): there, a message
     // box would wait forever on a desktop nobody can see, so text goes to stderr.
-    static bool showMessageBoxes;
+    // internal only so the probe a test compiles beside this file can play a person at a desktop.
+    internal static bool showMessageBoxes;
 
     static string Here()
     {
@@ -187,16 +188,14 @@ class KosmosLauncher
             if (int.TryParse(env, out parsed) && parsed > 0 && parsed < 65536) port = parsed;
         }
 
-        // win32-installer-native: a real build (manifest.json, see IsKosmosBuild) is offered a
-        // move out of Downloads, the Desktop, OneDrive or a temporary folder, and then points
-        // its Start menu shortcut and its Settings > Apps entry at wherever it runs from. A
-        // folder without the manifest -- a partial extract, or any test's scratch folder --
-        // does neither, so it never touches the Start menu or the registry.
-        if (IsKosmosBuild(here))
-        {
-            if (showMessageBoxes && OfferToMoveOutOfATemporaryPlace(here, node, port)) return 0;
-            RefreshWindowsRegistration(here);
-        }
+        // win32-installer-native: a real build (manifest.json, see IsKosmosBuild) running from
+        // Downloads, the Desktop, OneDrive or a temporary folder hands off to the Kosmos already
+        // installed in its own folder, or is offered a move there; then it points its Start menu
+        // shortcut and its Settings > Apps entry at wherever it runs from (RunInstallerDuties). A
+        // folder without the manifest -- a partial extract, or any test's scratch folder -- does
+        // none of it, so it never touches the Start menu or the registry.
+        int? endedByInstallerDuties = RunInstallerDuties(here, node, port);
+        if (endedByInstallerDuties.HasValue) return endedByInstallerDuties.Value;
 
         // The opener waits for the board itself and falls back to the plain url,
         // so it is safe to start BEFORE the server is listening -- that is the
@@ -903,7 +902,9 @@ class KosmosLauncher
                 if (key == null) return "Windows would not open " + uninstallKeyParent + "\\" + UninstallKeyName;
                 string uninstall = "\"" + exe + "\" " + UninstallFlag;
                 key.SetValue("DisplayName", DisplayName, RegistryValueKind.String);
-                key.SetValue("DisplayIcon", exe, RegistryValueKind.String);
+                // Windows' own shape: the quoted exe and the icon's index, so a path with spaces
+                // or a comma is still read as one path.
+                key.SetValue("DisplayIcon", "\"" + exe + "\",0", RegistryValueKind.String);
                 if (!string.IsNullOrEmpty(version)) key.SetValue("DisplayVersion", version, RegistryValueKind.String);
                 else key.DeleteValue("DisplayVersion", false);
                 key.SetValue("InstallLocation", root, RegistryValueKind.String);
@@ -988,7 +989,9 @@ class KosmosLauncher
     // ---- --uninstall (W-27a) --------------------------------------------------
 
     const string RemoveQuestion = "Remove Kosmos from this PC? Your agents will stop.";
-    const string RemoveChatsQuestion = "Also delete your agents' chats and settings?";
+    // Says what goes and what stays: engine/win32uninstall.js keeps every Kosmos's projects and
+    // agents' working folders on a yes (round 1, finding 1).
+    const string RemoveChatsQuestion = "Also delete your agents' chats and settings? Your projects and your agents' working folders are kept either way.";
     const string CannotDeleteOwnFolder = "Kosmos can't delete the folder it is running from, so that last step is yours.";
     const string UninstallNeedsAPersonMessage =
         "Kosmos is removed only when you confirm it, and there is nobody here to ask. Remove Kosmos from Settings > Apps > Installed apps, or run Kosmos.exe --uninstall without --console.";
@@ -1001,20 +1004,20 @@ class KosmosLauncher
     // runs unconfirmed. The removing is the engine's (engine/win32uninstall.js); this asks,
     // takes away the two things this file made (the shortcut and the Apps entry), and says
     // what happened. It never schedules deleting its own folder.
-    static int Uninstall(string here, string node)
+    internal static int Uninstall(string here, string node)
     {
         if (!showMessageBoxes)
         {
             Console.Error.WriteLine(UninstallNeedsAPersonMessage);
             return UninstallNotConfirmedExitCode;
         }
-        if (!AskYesNo(RemoveQuestion)) return 0;
-        bool alsoDeleteChats = AskYesNo(RemoveChatsQuestion);
+        if (!askYesNo(RemoveQuestion)) return 0;
+        bool alsoDeleteChats = askYesNo(RemoveChatsQuestion);
 
         List<string> leftBehind = new List<string>();
         List<string> notes = new List<string>();
         string problem;
-        string[] report = RunEngineHelper(node, here, UninstallHelperScript,
+        string[] report = runEngineHelper(node, here, UninstallHelperScript,
             "--uninstall" + (alsoDeleteChats ? " --delete-data" : "") + " --root " + QuoteArgument(here), out problem);
         if (report == null)
         {
@@ -1029,10 +1032,17 @@ class KosmosLauncher
             }
         }
 
-        string shortcutProblem = RemoveStartMenuShortcut();
-        if (shortcutProblem != null) leftBehind.Add(shortcutProblem);
-
-        // The Apps entry is how a person runs this again, so it stays while anything else did.
+        // The Start menu entry, the Apps entry and this launcher's own memory are how a person finds
+        // Kosmos and removes it again, so they go only once nothing else was left behind (round 1,
+        // finding 9). The Apps entry goes last, so a shortcut that would not go still leaves the
+        // way to try again.
+        if (leftBehind.Count == 0)
+        {
+            string shortcutProblem = RemoveStartMenuShortcut();
+            if (shortcutProblem != null) leftBehind.Add(shortcutProblem);
+            string memoryProblem = ForgetKeptPlaces();
+            if (memoryProblem != null) leftBehind.Add(memoryProblem);
+        }
         if (leftBehind.Count == 0)
         {
             string entryProblem = RemoveUninstallEntry();
@@ -1040,17 +1050,72 @@ class KosmosLauncher
         }
         else
         {
-            notes.Add("Kosmos is still listed in Settings > Apps > Installed apps, so you can remove it again from there.");
+            notes.Add("Kosmos is still in the Start menu and in Settings > Apps > Installed apps, so you can remove it again from there.");
         }
 
         string said = notes.Count > 0 ? "\n\n" + string.Join("\n", notes.ToArray()) : "";
         if (leftBehind.Count == 0)
         {
-            ShowNotice("Kosmos is removed. You can now delete the folder " + here + ".\n\n" + CannotDeleteOwnFolder + said);
+            tellPerson("Kosmos is removed. You can now delete the folder " + here + ".\n\n" + CannotDeleteOwnFolder + said, false);
             return 0;
         }
-        ShowMessageBox("Kosmos could not remove everything. These were left behind:\n\n- " + string.Join("\n- ", leftBehind.ToArray()) + said, true);
+        tellPerson("Kosmos could not remove everything. These were left behind:\n\n- " + string.Join("\n- ", leftBehind.ToArray()) + said, true);
         return 1;
+    }
+
+    // The folder list "Keep it here" wrote. The engine's removal deletes %LOCALAPPDATA%\Kosmos, which
+    // holds it, only when that is the plain folder; this file is the launcher's own, so it goes here.
+    internal static string ForgetKeptPlaces()
+    {
+        string file = keptPlacesFile();
+        try
+        {
+            if (File.Exists(file)) File.Delete(file);
+            return null;
+        }
+        catch (Exception e) { return "the list of folders you chose to keep Kosmos in (" + file + "), which could not be deleted (" + e.Message + ")"; }
+    }
+
+    // ---- the launcher's acts, as seams ------------------------------------------
+
+    // Everything the installer duties DO to the world -- run an engine helper, start another
+    // Kosmos.exe, ask a person, tell a person, refresh the Start menu and the Apps entry -- is one
+    // of these fields. The launcher never replaces them; the probe tools.win-installer-native.test.js
+    // compiles beside this file does, so the decisions run in a test without a process, a box or
+    // the real registry.
+    internal delegate string[] EngineHelperRunner(string node, string here, string script, string arguments, out string problem);
+    internal static EngineHelperRunner runEngineHelper = RunEngineHelper;
+    internal static Func<string, string, string> startLauncher = StartLauncherAt;
+    internal static Func<string, bool> askYesNo = AskYesNo;
+    internal static Func<string, MoveAnswer> askMoveOrKeep = AskMoveOrKeep;
+    internal static Action<string, bool> tellPerson = TellPerson;
+    internal static Action<string> refreshWindowsRegistration = RefreshWindowsRegistration;
+
+    // A message for the person: a box at a desktop, stderr otherwise (never a box nobody can see).
+    static void TellPerson(string text, bool isError)
+    {
+        if (!showMessageBoxes)
+        {
+            Console.Error.WriteLine(text);
+            return;
+        }
+        if (isError) ShowMessageBox(text, true);
+        else ShowNotice(text);
+    }
+
+    // Starts another Kosmos.exe (the installed copy, or the one just moved) in its own folder. Null
+    // when it started, or what went wrong.
+    static string StartLauncherAt(string exe, string folder)
+    {
+        try
+        {
+            ProcessStartInfo other = new ProcessStartInfo(exe);
+            other.UseShellExecute = false;
+            other.WorkingDirectory = folder;
+            using (Process.Start(other)) { }
+            return null;
+        }
+        catch (Exception e) { return e.Message; }
     }
 
     // Runs one of the engine's own helpers with this folder's node and returns the lines it
@@ -1109,10 +1174,21 @@ class KosmosLauncher
     internal static Func<string> userProgramsFolder = () =>
         KnownFolderPath(FOLDERID_UserProgramFiles)
         ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs");
-    // "Keep it here", remembered per folder, one full path per line. Under the engine's own
-    // %LOCALAPPDATA%\Kosmos, so removing Kosmos forgets it too.
+    // "Keep it here", remembered per folder, one full path per line, in <LOCALAPPDATA>\Kosmos\launcher.
+    // That is engine/win32anchor.js's folder by the same rule it uses without overrides: the
+    // LOCALAPPDATA variable, else the account's own Local AppData. The launcher does not ask node on
+    // every launch (a process per double-click), so the two differ only when the environment carries
+    // AGENT_WORKFORCE_DATA or AGENT_WORKFORCE_HOME (a developer's or a test's sandbox, never a
+    // person's). The uninstall deletes this file itself (ForgetKeptPlaces), so the difference can
+    // never leave it behind.
     internal static Func<string> keptPlacesFile = () =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Kosmos\\launcher\\kept-here.txt");
+        Path.Combine(LocalAppDataFolder(), "Kosmos\\launcher\\kept-here.txt");
+
+    static string LocalAppDataFolder()
+    {
+        string fromEnvironment = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+        return string.IsNullOrEmpty(fromEnvironment) ? Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData) : fromEnvironment;
+    }
 
     static readonly string[] OneDriveVariables = { "OneDrive", "OneDriveConsumer", "OneDriveCommercial" };
     const string InstallFolderName = "Kosmos";
@@ -1205,47 +1281,81 @@ class KosmosLauncher
         return string.IsNullOrEmpty(programs) ? null : FullPathOrNull(Path.Combine(programs, InstallFolderName));
     }
 
-    // W-06. True when Kosmos was started from its new folder and this launch should end.
-    // Asked only of a real build, with a person at the desktop (see Main). Whether it may move
-    // is the engine's rule (engine/win32relocate.js: never while a board from this folder
-    // serves, never over a different Kosmos), and a refusal is shown as the engine words it.
-    static bool OfferToMoveOutOfATemporaryPlace(string here, string node, int port)
+    // Everything this launcher does as an installer before it starts anything (see Main). Returns
+    // the exit code this launch ends with, or null to carry on launching from here. Only a real
+    // build: a folder without the manifest does none of it.
+    internal static int? RunInstallerDuties(string here, string node, int port)
+    {
+        if (!IsKosmosBuild(here)) return null;
+        PlaceOutcome outcome = LaunchFromTemporaryPlace(here, node, port);
+        if (outcome == PlaceOutcome.StartedInstalledCopy) return 0;
+        if (outcome == PlaceOutcome.InstalledCopyWouldNotStart) return 1;
+        refreshWindowsRegistration(here);
+        return null;
+    }
+
+    internal enum PlaceOutcome { NotATemporaryPlace, StartedInstalledCopy, InstalledCopyWouldNotStart, NewerThanInstalledCopy, StaysHere }
+
+    // W-06, and round 1 finding 4. A copy running from a folder that gets cleaned up:
+    //   1. The per-user folder (MoveTarget) already holds a COMPLETE Kosmos (engine/win32relocate.js
+    //      compare, which checks every ENTRIES item):
+    //        this copy is the same build or OLDER (update.newer, the updater's comparison; an
+    //        unreadable version is never newer) -> start the installed Kosmos and end here. This copy
+    //        re-points nothing: no shortcut, no Apps entry, no engine pointer. Keep it here does not
+    //        apply, because a stale copy kept in Downloads is exactly what re-pointed everything.
+    //        this copy is NEWER -> run from here and re-point, which is how a by-hand zip update
+    //        works today, until "Update Kosmos in Programs from a newer downloaded zip" reuses
+    //        engine/win32apply.js.
+    //   2. Otherwise, with a person at the desktop and the folder not kept: ask Move Kosmos or Keep it
+    //      here. Whether it may move is the engine's rule (never while a board from this folder
+    //      serves, never over a different or incomplete Kosmos), and a refusal is shown as it is worded.
+    internal static PlaceOutcome LaunchFromTemporaryPlace(string here, string node, int port)
     {
         string place = TemporaryPlaceOf(here);
-        if (place == null || PlaceWasKept(here)) return false;
+        if (place == null) return PlaceOutcome.NotATemporaryPlace;
         string target = MoveTarget();
         string full = FullPathOrNull(here) ?? here;
-        if (target == null || IsSameOrInside(full, target) || IsSameOrInside(target, full)) return false;
+        if (target == null || IsSameOrInside(full, target) || IsSameOrInside(target, full)) return PlaceOutcome.NotATemporaryPlace;
 
-        MoveAnswer answer = AskMoveOrKeep(MoveQuestion(place));
-        if (answer == MoveAnswer.Keep) { RememberPlaceKept(here); return false; }
-        if (answer != MoveAnswer.Move) return false;
+        // The launcher is the only file this cheap look needs; the engine decides the rest.
+        if (File.Exists(Path.Combine(target, "Kosmos.exe")))
+        {
+            string compareProblem;
+            string[] compared = runEngineHelper(node, here, RelocateHelperScript,
+                "--compare --from " + QuoteArgument(full) + " --to " + QuoteArgument(target), out compareProblem);
+            string verdict = compared != null && compared.Length > 0 ? compared[0] : null;
+            if (verdict != null && verdict.StartsWith("NEWER ", StringComparison.Ordinal)) return PlaceOutcome.NewerThanInstalledCopy;
+            if (verdict != null && verdict.StartsWith("HANDOFF ", StringComparison.Ordinal))
+            {
+                string startProblem = startLauncher(Path.Combine(target, "Kosmos.exe"), target);
+                if (startProblem == null) return PlaceOutcome.StartedInstalledCopy;
+                tellPerson("Kosmos is installed in " + target + ", but it would not start from there (" + startProblem + "). Double-click Kosmos.exe in that folder.", true);
+                return PlaceOutcome.InstalledCopyWouldNotStart;
+            }
+            // NONE (no complete Kosmos there), or a compare that could not run: the ordinary offer.
+        }
+
+        if (!showMessageBoxes || PlaceWasKept(here)) return PlaceOutcome.StaysHere;
+        MoveAnswer answer = askMoveOrKeep(MoveQuestion(place));
+        if (answer == MoveAnswer.Keep) { RememberPlaceKept(here); return PlaceOutcome.StaysHere; }
+        if (answer != MoveAnswer.Move) return PlaceOutcome.StaysHere;
 
         string problem;
-        string[] report = RunEngineHelper(node, here, RelocateHelperScript,
+        string[] report = runEngineHelper(node, here, RelocateHelperScript,
             "--move --from " + QuoteArgument(full) + " --to " + QuoteArgument(target) + " --port " + port, out problem);
         string outcome = report != null && report.Length > 0 ? report[0] : null;
         if (outcome != null && (outcome.StartsWith("MOVED ", StringComparison.Ordinal) || outcome.StartsWith("SAME ", StringComparison.Ordinal)))
         {
-            try
-            {
-                ProcessStartInfo moved = new ProcessStartInfo(Path.Combine(target, "Kosmos.exe"));
-                moved.UseShellExecute = false;
-                moved.WorkingDirectory = target;
-                using (Process.Start(moved)) { }
-                return true;
-            }
-            catch (Exception e)
-            {
-                ShowMessageBox("Kosmos is in " + target + " now, but it would not start from there (" + e.Message + "). " + KeepsWorkingHere, true);
-                return false;
-            }
+            string startProblem = startLauncher(Path.Combine(target, "Kosmos.exe"), target);
+            if (startProblem == null) return PlaceOutcome.StartedInstalledCopy;
+            tellPerson("Kosmos is in " + target + " now, but it would not start from there (" + startProblem + "). " + KeepsWorkingHere, true);
+            return PlaceOutcome.StaysHere;
         }
         string because = outcome != null && outcome.StartsWith("REFUSED ", StringComparison.Ordinal)
             ? outcome.Substring("REFUSED ".Length)
             : "Kosmos could not be moved (" + (problem ?? "the move did not say what happened") + "). " + KeepsWorkingHere;
-        ShowMessageBox(because, false);
-        return false;
+        tellPerson(because, false);
+        return PlaceOutcome.StaysHere;
     }
 
     // ---- the console, for --console and non-interactive runs -----------------
