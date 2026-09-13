@@ -450,6 +450,49 @@ running_pid() {
   printf '%s' "$pid"
 }
 
+# #2956: the launchctl this file drives, overridable so a test can stub it.
+LAUNCHCTL="${KOSMOS_LAUNCHCTL:-/bin/launchctl}"
+
+# #2956: the board's launchd label, mirroring install/setup.sh byte-for-byte -- a
+# default install is the literal `com.kosmos.board` (#883); a non-default
+# KOSMOS_HOME gets a hash suffix. Must match what setup.sh registered or the
+# supervised job cannot be found here (a mismatch degrades safely: the board is
+# treated as unsupervised and cmd_start uses the nohup path, the pre-#2956
+# behaviour).
+_kosmos_board_label() {
+  local _def
+  _def="$(printf '%s' "$HOME/.local/share/kosmos" | /usr/bin/tr -s '/')"; _def="${_def%/}"
+  if [ "$KOSMOS_HOME" = "$_def" ]; then
+    printf 'com.kosmos.board'
+  else
+    printf 'com.kosmos.board.%s' "$(printf '%s' "$KOSMOS_HOME" | shasum -a 256 | cut -c1-8)"
+  fi
+}
+
+# #2956: is THIS install's board a launchd job we can drive as a supervisor? True
+# only when the loaded job's ProgramArguments actually name `board-run` -- NOT
+# merely that a job by this label is loaded. That distinction is load-bearing:
+# during a self-update the plist file is rewritten to board-run but the LOADED job
+# keeps its old `kosmos start` definition until the next login (setup.sh leaves a
+# loaded job alone so it does not kill the board running the update). If cmd_start
+# kickstarted a job still defined as `kosmos start`, that would re-run cmd_start
+# and recurse. So we read the LIVE definition (launchctl print), and only treat it
+# as supervised when it runs board-run; otherwise the transition-window board is
+# handled by the nohup path exactly as before. Never in a sandbox (the real gui
+# domain is not a test's to touch) and never without launchctl (non-macOS).
+_kosmos_board_supervised() {
+  [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] || return 1
+  [ -x "$LAUNCHCTL" ] || command -v "$LAUNCHCTL" >/dev/null 2>&1 || return 1
+  local _label _uid _print
+  _label="$(_kosmos_board_label)"; _uid="$(/usr/bin/id -u)"
+  _print="$("$LAUNCHCTL" print "gui/$_uid/$_label" 2>/dev/null)" || return 1
+  # A whole-word board-run in the arguments block (not a substring of some path).
+  case "$_print" in
+    *[!A-Za-z0-9-]board-run[!A-Za-z0-9-]*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 cmd_start() {
   # #2955: clear the deliberate-stop marker EARLY -- before the healthy check and
   # the bind below that can fail. Starting means "I want it running", which retires
@@ -479,6 +522,27 @@ cmd_start() {
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ] || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   mkdir -p "$LOG_DIR"
+  # #2956: under launchd supervision, let launchd OWN the board -- do NOT nohup a
+  # second node beside it (two would race the one port). The stop-marker was
+  # cleared at the top, so launchd's PathState KeepAlive would relaunch on its own;
+  # `kickstart -k` makes it prompt (and retakes a wedged port) rather than waiting
+  # on launchd's own poll -- closing the "does PathState relaunch promptly" gap.
+  # board-run (the job's ProgramArguments) execs node in the foreground and never
+  # re-enters cmd_start, so there is no recursion. Falls through to the nohup path
+  # below when the board is NOT supervised (a source checkout, a hand start with no
+  # login job, or the update transition window before the new plist is loaded).
+  if _kosmos_board_supervised; then
+    say "Bringing the board up (launchd supervised)."
+    local _sup_label _sup_uid
+    _sup_label="$(_kosmos_board_label)"; _sup_uid="$(/usr/bin/id -u)"
+    "$LAUNCHCTL" kickstart -k "gui/$_sup_uid/$_sup_label" >/dev/null 2>&1 || true
+    local _s
+    for _s in $(seq 1 30); do
+      healthy && { say "Kosmos is running at $URL"; return 0; }
+      sleep 0.5
+    done
+    die "Kosmos did not come up under launchd. What it said is in $BOARD_LOG"
+  fi
   say "Bringing the board up."
   # Detached from this terminal, with everything it prints kept in a log so a
   # problem produces a transcript rather than a vanished window.
