@@ -127,6 +127,9 @@ test('forget REFUSES a derived dir that escapes the data root, and deletes nothi
   assert.equal(out.ok, false, 'a derived dir outside the data root must be refused');
   assert.match(out.because, /outside your Kosmos data folder/);
   assert.ok(fs.existsSync(nodePath.join(outside, 'sentinel')), 'a dir outside the data root must NOT be deleted');
+  // Atomicity: a derived-guard failure must delete NOTHING, including the kind's
+  // own dir -- guards all run before any delete.
+  assert.ok(fs.existsSync(nodePath.join(store.ROOT, 'chats')), 'a refusal must not have already deleted the parent kind');
   fs.rmSync(outside, { recursive: true, force: true });
 });
 
@@ -145,6 +148,7 @@ test('forget REFUSES a derived dir whose basename does not match, and does not d
   assert.equal(out.ok, false, 'a derived dir with a mismatched basename must be refused');
   assert.match(out.because, /does not look like the folder/);
   assert.ok(fs.existsSync(nodePath.join(insideWrong, 'keep')), 'a mismatched derived dir must NOT be deleted');
+  assert.ok(fs.existsSync(nodePath.join(store.ROOT, 'chats')), 'a refusal must not have already deleted the parent kind');
 });
 
 test('deleting twice is not an error', () => {

@@ -79,6 +79,23 @@ test('flattenMessages: absent/blank from becomes the operator (null), string fro
   assert.equal(rows[2].from, null, 'a blank from is the operator, not a whitespace name');
 });
 
+test('flattenMessages: merges singular attachment + plural attachments and de-dups names', () => {
+  const convos = [{
+    desc: { kind: 'direct', key: 'a' },
+    parsed: { messages: [
+      {
+        at: '2026-09-13T14:00:00Z', text: 'here', from: null,
+        attachment: { id: '1', name: 'doc.pdf' },
+        attachments: [{ id: '2', name: 'pic.png' }, { id: '3', name: 'doc.pdf' }],
+      },
+    ] },
+  }];
+  const { rows } = dl.flattenMessages(convos, dayOf);
+  assert.equal(rows.length, 1);
+  // both fields contribute, and the duplicate 'doc.pdf' appears once
+  assert.deepEqual(rows[0].attachments.sort(), ['doc.pdf', 'pic.png']);
+});
+
 test('flattenMessages: undated + non-string-text messages are skipped and counted', () => {
   const convos = [{
     desc: { kind: 'direct', key: 'a' },

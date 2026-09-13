@@ -321,7 +321,14 @@ if (require.main === module) {
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--day') { opts.onlyDay = argv[i + 1]; i += 1; }
     else if (argv[i] === '--out') { opts.outDir = argv[i + 1]; i += 1; }
-    else if (argv[i] === '--all') { /* default */ }
+    else if (argv[i] === '--all') { /* the default; accepted explicitly */ }
+    else {
+      // Fail loud on an unrecognized flag rather than silently running a full
+      // compile: a typo like `--dya 2026-09-13` should not quietly ignore the day.
+      process.stderr.write(`dailylog: unrecognized argument '${argv[i]}'\n`
+        + 'usage: node engine/dailylog.js [--all | --day YYYY-MM-DD] [--out <dir>]\n');
+      process.exit(2);
+    }
   }
   const summary = compileAll(opts);
   process.stdout.write(

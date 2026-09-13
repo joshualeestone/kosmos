@@ -125,42 +125,39 @@ function summary() {
 function forget(kinds = KINDS) {
   const root = path.resolve(BASE);
   const altRoot = path.resolve(store.ROOT);
-  const gone = [];
+  const insideRoot = (dir) => dir.startsWith(root + path.sep) || dir.startsWith(altRoot + path.sep);
+
+  /* PASS 1 -- validate EVERY path (kind dirs AND their derived views) before
+     deleting anything. In a no-undo control, a guard that refuses AFTER the
+     parent kind is already gone is the worst outcome: the message says nothing
+     was deleted while the real data is gone. So all guards run first, and a
+     failure here returns with the disk untouched. Counts are read now too, from
+     the dirs as they still are. Derived dirs are planned for deletion but carry
+     no kind, so they are deleted without being counted (see the KINDS note). */
+  const plan = [];
   for (const k of kinds) {
     const dir = path.resolve(k.dir());
-    const inside = (dir.startsWith(root + path.sep) || dir.startsWith(altRoot + path.sep));
-    if (!inside) {
-      return { ok: false, because: 'we will not delete anything outside your Kosmos data folder' };
+    if (!insideRoot(dir)) return { ok: false, because: 'we will not delete anything outside your Kosmos data folder' };
+    if (path.basename(dir) !== k.key) return { ok: false, because: 'that does not look like the folder we meant to delete' };
+    plan.push({ dir, kind: { key: k.key, label: k.label, count: fs.existsSync(dir) ? countIn(dir) : 0 } });
+    for (const d of (k.derived || [])) {
+      const ddir = path.resolve(d.dir());
+      if (!insideRoot(ddir)) return { ok: false, because: 'we will not delete anything outside your Kosmos data folder' };
+      if (path.basename(ddir) !== d.base) return { ok: false, because: 'that does not look like the folder we meant to delete' };
+      plan.push({ dir: ddir, kind: null });
     }
-    if (path.basename(dir) !== k.key) {
-      return { ok: false, because: 'that does not look like the folder we meant to delete' };
-    }
-    const count = fs.existsSync(dir) ? countIn(dir) : 0;
+  }
+
+  /* PASS 2 -- every path above passed its guard; delete them. An rmSync throw
+     here is a genuine I/O failure (not a refusal), reported as such. */
+  const gone = [];
+  for (const item of plan) {
     try {
-      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(item.dir, { recursive: true, force: true });
     } catch {
       return { ok: false, because: 'we could not delete all of it, so some of your history is still here' };
     }
-    /* Derived views of this kind, deleted under the SAME inside-root + basename
-       guards as the kind's own dir (a derived dir that is missing or not where
-       we expect it is force-removed harmlessly, but a path that escapes the data
-       root is refused, exactly as above). Not counted -- see the KINDS note. */
-    for (const d of (k.derived || [])) {
-      const ddir = path.resolve(d.dir());
-      const dInside = (ddir.startsWith(root + path.sep) || ddir.startsWith(altRoot + path.sep));
-      if (!dInside) {
-        return { ok: false, because: 'we will not delete anything outside your Kosmos data folder' };
-      }
-      if (path.basename(ddir) !== d.base) {
-        return { ok: false, because: 'that does not look like the folder we meant to delete' };
-      }
-      try {
-        fs.rmSync(ddir, { recursive: true, force: true });
-      } catch {
-        return { ok: false, because: 'we could not delete all of it, so some of your history is still here' };
-      }
-    }
-    gone.push({ key: k.key, label: k.label, count });
+    if (item.kind) gone.push({ key: item.kind.key, label: item.kind.label, count: item.kind.count });
   }
   return { ok: true, gone, total: gone.reduce((n, g) => n + g.count, 0) };
 }
