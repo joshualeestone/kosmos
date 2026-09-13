@@ -11,6 +11,22 @@
 //     org node, opposite the top-right needs-you badge so the two never collide);
 //   - an agent with no unread DMs shows NO badge (the negative control).
 // Mirrors render-org-rings-2576.js's harness (fleet.install + mutate LAST + re-drive).
+// Own sandbox env, set BEFORE requiring server.js (which reads it at load and
+// refuses to boot half-sandboxed): a throwaway workers/data/projects/launch tree
+// and a stub tmux, so fleet.install writes no real worker file and the board reads
+// no real fleet. The same preamble every self-contained check in this dir uses.
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-dm-'));
+process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-dm-workers-'));
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_CONFIG_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-dm-config-'));
+process.env.AGENT_WORKFORCE_LAUNCH = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-dm-launch-'));
+process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-dm-projects-'));
+process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
+
 const { chromium } = require('playwright');
 const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
