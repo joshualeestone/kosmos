@@ -835,6 +835,28 @@ function setInstalledRoot(f) { installedRootFn = f; }
 function setFetcher(f) { fetcher = f; }
 function resetCache() { cache = emptyCache(); inFlight = null; installStarted = false; autoFailedAt = 0; lastAttempt = null; }
 
+/**
+ * #2934: what the last look established, for the board's source-channel field.
+ *
+ * The board needs to know whether THIS box's running version has reached prod yet.
+ * On a prod-polling box that answer is already in this cache, refreshed every TTL
+ * by the poller running anyway, so a cosmetic field costs no network and still
+ * behaves offline (null -> the caller keeps its install stamp).
+ *
+ * 🛑 `cachedLatestVersion` returns the VERSION STRING, not the manifest. `cache.latest`
+ * is the validated manifest object ({version} on mac, plus sha256/versioned on win32),
+ * and handing that to `newer()` makes parts() return null, which makes newer() return
+ * FALSE for every input -- a comparison that cannot fail is worse here than no
+ * comparison, because it reads as "prod caught up" on a box that is genuinely ahead.
+ * The name carries the shape so the next caller cannot repeat it.
+ *
+ * `cachedChannel` is the channel the cached value CAME FROM (recorded by refresh()),
+ * not what the environment would choose now. Those differ whenever the channel changed
+ * since the last look, and only the recorded one describes the number being compared.
+ */
+function cachedLatestVersion() { return cache.latest ? cache.latest.version : null; }
+function cachedChannel() { return cache.channel; }
+
 module.exports = {
   available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
   pointerFor, pointerUrl, readManifest, updateChannel, releaseBase, manualOffer, // the per-platform check (win32-update-check)
@@ -844,4 +866,6 @@ module.exports = {
   selfInstallRefusal, // #570: null where self-update works, else the sentence to show
   alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,
   resetCache, RUNNING, TTL, lastLook, checkNow,
+  cachedLatestVersion, cachedChannel, // #2934: let the board re-derive its channel after a promote, offline
+
 };
