@@ -302,9 +302,12 @@ function restoreBlockedByMissingAccountDir(name, platform) {
      Mac side produces, and the one check below runs on both platforms. A task we
      could not read (`known: false`) yields no configDir, so the guard skips rather
      than guessing -- the same fail-open posture as a missing plist. */
+  /* The platform is passed to readJob too: it now follows the platform itself, so
+     an injected 'darwin' has to reach it or a Mac check run on a Windows host
+     would read that host's Scheduled Task instead of the plist. */
   const launched = (platform || process.platform) === 'win32'
     ? win32job.configDirFor(clean)
-    : create.readJob(clean);
+    : create.readJob(clean, undefined, platform);
   if (launched && launched.configDir && !fs.existsSync(launched.configDir)) return launched.configDir;
   return null;
 }

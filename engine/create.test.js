@@ -4390,7 +4390,9 @@ test('#1026: setModel refuses a Claude model on a codex agent, and says why in a
   // It cannot reach the model check (no such agent), which is itself the
   // ordering this change relies on: the provider is known only after the job
   // is read, so the model must be resolved after it.
-  assert.match(r.because, /was not started by Kosmos|not a name we can act on/);
+  /* The host's own refusal: a Mac has no plist ("was not started by Kosmos"), a
+     Windows host has no Scheduled Task (win32-agent-job-read). */
+  assert.match(r.because, /was not started by Kosmos|not a name we can act on|no startup task in Task Scheduler/);
 });
 
 
