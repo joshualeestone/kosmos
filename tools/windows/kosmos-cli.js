@@ -98,6 +98,7 @@ const USAGE = {
     '       kosmos feedback list',
     '       kosmos feedback pull [--dir PATH]  (bring collected reports down for triage)',
     '       kosmos feedback triage [--since YYYY-MM-DD] [--dir PATH] [--cards FILE|-]',
+    '       (in PowerShell, pass the report as text: text piped into kosmos there does not reach it)',
   ].join('\n'),
 };
 
@@ -135,26 +136,6 @@ function argvFrom(argv, readFile) {
     return String(x);
   });
 }
-/* kosmos.ps1 hands PIPELINE input (`'...' | kosmos feedback write`) over the same
-   way, as a UTF-8 temp file named after this flag, right after the argv file.
-   Measured: piping into node.exe from PowerShell 5.1 delivered a byte order mark
-   and `?` for every non-ASCII character even with $OutputEncoding set to UTF-8, so
-   the shim never pipes to node. */
-const STDIN_FILE_FLAG = '--kosmos-stdin-file';
-
-/**
- * The text kosmos.ps1 was piped, or null when it passed none. Read ONLY behind both
- * flags in their places, and deleted on read like the argv file: it holds the
- * agent's words. Throws an Error whose message is the sentence to print.
- */
-function pipedInputFrom(argv, readFile) {
-  const a = Array.isArray(argv) ? argv : [];
-  if (a[0] !== ARGV_FILE_FLAG || a[2] !== STDIN_FILE_FLAG) return null;
-  const read = readFile || ((f) => { const s = fs.readFileSync(f, 'utf8'); try { fs.unlinkSync(f); } catch { /* the shim's finally is the backstop */ } return s; });
-  try { return String(read(String(a[3] || ''))).replace(BYTE_ORDER_MARK_AT_START, ''); } catch (e) {
-    throw new Error('kosmos could not read what PowerShell piped in (' + ((e && e.message) || e) + ').');
-  }
-}
 /* PowerShell 5.1 writes the argv file with a UTF-8 byte order mark, which
    JSON.parse refuses. Built from its code point, never typed as the character:
    a literal U+FEFF in this source is invisible, and an editor that strips it
@@ -165,17 +146,55 @@ const BYTE_ORDER_MARK_AT_START = new RegExp('^' + String.fromCharCode(0xFEFF));
    [A-Za-z0-9._-], so `kosmos room <id>` and `kosmos task <id>` reach one route. */
 function projectSlug(id) { return String(id || '').replace(/[^A-Za-z0-9._-]/g, ''); }
 
+/* How long piped input may stay silent before it is taken as ended (review round 1).
+   A tool runner can hand `kosmos` a stdin pipe it never writes to and never closes,
+   and reading that to its end would hang the command for good. Text piped in by
+   `echo ... |` or `cat file |` arrives at once and then closes; three quiet seconds
+   is far past that, and short enough that a bare `kosmos feedback write` comes back
+   with the sentence saying what to do. */
+const STDIN_QUIET_LIMIT_MS = 3000;
+
 /**
  * What was piped in, for `feedback write` with no text and `feedback triage
- * --cards -`. A console is NOT read: an agent never has one, and a person at one
- * would otherwise sit at a silent prompt; they get the "nothing to write" sentence
- * instead. A stdin that cannot be read (closed, or a pipe Windows reports as EOF)
- * is the same as an empty one, and the caller's sentence says what to do.
+ * --cards -`: the only two readers, as on the Mac. Resolves to the text.
+ * - A console is NOT read: an agent never has one, and a person at one would sit at
+ *   a silent prompt; they get the "nothing to write" sentence instead.
+ * - Reading stops at the end of the input or once it has been quiet for
+ *   STDIN_QUIET_LIMIT_MS, whichever is first; what arrived by then is the text. A
+ *   stdin that errors is the same as an empty one, and the caller's sentence says
+ *   what to do.
+ * `stream` and `quietMs` are seams for a test.
  */
-function readStandardInput() {
-  if (process.stdin.isTTY) return '';
-  try { return fs.readFileSync(0, 'utf8'); } catch { return ''; }
+function readStandardInput(stream, quietMs) {
+  const input = stream || process.stdin;
+  if (input.isTTY) return Promise.resolve('');
+  const limit = quietMs || STDIN_QUIET_LIMIT_MS;
+  return new Promise((resolve) => {
+    const chunks = [];
+    let timer = null;
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      input.removeListener('data', onData);
+      /* Let go of the pipe: a read still pending on it keeps this process alive. */
+      input.pause();
+      if (typeof input.destroy === 'function') input.destroy();
+      resolve(Buffer.concat(chunks).toString('utf8').replace(BYTE_ORDER_MARK_AT_START, ''));
+    };
+    const restartQuietTimer = () => { clearTimeout(timer); timer = setTimeout(finish, limit); };
+    function onData(chunk) { chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))); restartQuietTimer(); }
+    input.on('data', onData);
+    input.once('end', finish);
+    input.once('error', finish);
+    restartQuietTimer();
+  });
 }
+
+/* kosmos.ps1 never reads PowerShell pipeline input (see the NEVER READ $input note in
+   that file), so the two stdin readers say how to hand the text over there. */
+const POWERSHELL_PIPE_NOTE = '(in PowerShell, pass the text as an argument: text piped into kosmos there does not reach it)';
 
 // ── the verbs ───────────────────────────────────────────────────────────────
 // Each handler is (ctx, args) -> exit code. `ctx` is built once per run in main.
@@ -385,8 +404,12 @@ async function taskMessage(ctx, args) {
 /* The feedback verbs are engine-direct, as install/kosmos's `node -e` snippets are:
    the report store is local (engine/feedback.js), so they work with no board. */
 async function feedbackWrite(ctx, args) {
-  const body = args.length ? args.join(' ') : ctx.readStdin();
-  if (!String(body).trim()) { ctx.err('Nothing to write: a feedback report needs a body (pass it as an argument, or pipe it in on stdin).'); return 2; }
+  const body = args.length ? args.join(' ') : await ctx.readStdin();
+  if (!String(body).trim()) {
+    ctx.err('Nothing to write: a feedback report needs a body (pass it as an argument, or pipe it in on stdin).');
+    ctx.err(POWERSHELL_PIPE_NOTE);
+    return 2;
+  }
   try { ctx.engine('feedback').write(body); } catch (e) {
     ctx.err('We could not save that report (' + String((e && e.message) || e) + ').');
     return 1;
@@ -425,7 +448,7 @@ async function feedbackTriage(ctx, args) {
     o[m[1]] = args.shift();
   }
   let cardsText = '';
-  if (o.cards === '-') cardsText = ctx.readStdin();
+  if (o.cards === '-') cardsText = await ctx.readStdin();
   else if (o.cards) {
     try { cardsText = fs.readFileSync(o.cards, 'utf8'); } catch { ctx.err('could not read cards file: ' + o.cards); return 2; }
   }
@@ -499,11 +522,7 @@ async function main(argv, io) {
   const out = o.out || ((s) => process.stdout.write(s + '\n'));
   const err = o.err || ((s) => process.stderr.write(s + '\n'));
   let args;
-  let piped;
-  try {
-    args = argvFrom(argv, o.readFile);
-    piped = pipedInputFrom(argv, o.readFile);
-  } catch (e) { err(String(e.message)); return 2; }
+  try { args = argvFrom(argv, o.readFile); } catch (e) { err(String(e.message)); return 2; }
   const verb = args.shift();
   const asksForHelp = args.some((a) => HELP_FLAGS.has(a));
 
@@ -573,7 +592,7 @@ async function main(argv, io) {
     err,
     call,
     outbox,
-    readStdin: o.readStdin || (piped != null ? () => piped : readStandardInput),
+    readStdin: o.readStdin || (() => readStandardInput()),
     /* The feedback verbs' engine modules, required on use: each reads store.ROOT,
        which this agent's environment points at its own Kosmos, as outbox does. */
     engine: (name) => (o.engine && o.engine[name]) || require(path.join(engineDir(), name + '.js')),
@@ -601,7 +620,7 @@ function clause(s) { return s ? String(s).replace(/[.\s]+$/, '') : ''; }
 /* A "maybe" is exit 3, never 1: 1 invites the retry that duplicates the send. */
 function maybe(err, sentence) { err(sentence); return 3; }
 
-module.exports = { main, argvFrom, pipedInputFrom, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, ARGV_FILE_FLAG, STDIN_FILE_FLAG };
+module.exports = { main, argvFrom, readStandardInput, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG };
 
 if (require.main === module) {
   main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (e) => {

@@ -21,6 +21,8 @@ const os = require('node:os');
 const path = require('node:path');
 const cp = require('node:child_process');
 
+const cli = require('./tools/windows/kosmos-cli');
+
 const ON_WINDOWS = process.platform === 'win32';
 const GIT_BASH = 'C:\\Program Files\\Git\\bin\\bash.exe';
 
@@ -45,7 +47,6 @@ function zipRoot() {
       "try {",
       "  const w = require('" + real + "').argvFrom(a);",
       "  process.stdout.write(JSON.stringify(w) + '\\n');",
-      "  if (w[0] === 'stdin') process.stdout.write('STDIN ' + JSON.stringify(require('" + real + "').pipedInputFrom(a)) + '\\n');",
       "  if (w[0] === 'maybe') { process.stderr.write('stderr line one\\nstderr line two\\n'); process.exitCode = 3; } else { process.exitCode = 7; }",
       "} catch (e) { process.stdout.write('ERR ' + e.message + '\\n'); process.exitCode = 2; }",
       "process.stderr.write('FILE ' + JSON.stringify({ file, existed, after: file ? fs.existsSync(file) : null }) + '\\n');",
@@ -153,20 +154,134 @@ test('PowerShell: the CLI\'s "maybe" (exit 3, on stderr) comes back as 3, redire
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('win32-cli-verbs: PowerShell pipeline input (`... | kosmos feedback write`) reaches the CLI\'s stdin, non-ASCII intact', { skip: !ON_WINDOWS && 'Windows only' }, () => {
-  /* PowerShell 5.1 pipes to a native command in $OutputEncoding, ASCII by default,
-     which turns every non-ASCII character into `?`. The characters are built in
-     PowerShell from code points so the command line itself carries only ASCII. */
+// ── win32-cli-verbs, review round 1: kosmos never hangs on an open stdin ───────
+//
+// 🛑 An agent's tool runner can give `kosmos` a stdin pipe it never writes to and
+// never closes. The round-1 shim read PowerShell's $input, and under `powershell
+// -File` that alone waited for stdin to close: EVERY verb hung, `reply` included.
+// Each real way an agent runs `kosmos` is run here with exactly that stdin, through
+// the shipped shims and the REAL kosmos-cli.js, and must exit on its own.
+
+/* A throwaway zip with the real CLI, and `app` a junction to this checkout so the
+   engine resolves the way it does in the bundle. */
+function zipRootWithRealCli() {
   const root = zipRoot();
+  fs.copyFileSync(path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js'), path.join(root, 'bin', 'kosmos-cli.js'));
+  fs.symlinkSync(__dirname, path.join(root, 'app'), 'junction');
+  return root;
+}
+function removeZip(root) {
+  try { fs.unlinkSync(path.join(root, 'app')); } catch { /* no junction */ }
+  fs.rmSync(root, { recursive: true, force: true });
+}
+
+/* Well past the CLI's own quiet limit on stdin plus PowerShell's start-up, and far
+   short of "hung". */
+const MUST_EXIT_WITHIN_MS = cli.STDIN_QUIET_LIMIT_MS + 12000;
+const SYSTEM32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32');
+const POWERSHELL = path.join(SYSTEM32, 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+const USR_BASH = 'C:\\Program Files\\Git\\usr\\bin\\bash.exe';
+
+/* Run with stdin an OPEN pipe that is never written and never closed. Resolves
+   { exited, code, ms, out }; a run past the limit is killed and reads exited:false. */
+function withOpenStdin(file, args, opts) {
+  const o = opts || {};
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const env = Object.assign({}, process.env, o.env || {});
+    for (const k of ['KOSMOS_AGENT_TOKEN', 'KOSMOS_WORLD', 'NODE_OPTIONS']) delete env[k];
+    if (o.bin) { const key = Object.keys(env).find((k) => k.toUpperCase() === 'PATH') || 'Path'; env[key] = o.bin + ';' + env[key]; }
+    const child = cp.spawn(file, args, { env, stdio: ['pipe', 'pipe', 'pipe'], windowsVerbatimArguments: Boolean(o.verbatim) });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { out += d; });
+    let killed = false;
+    const timer = setTimeout(() => { killed = true; try { cp.execFileSync(path.join(SYSTEM32, 'taskkill.exe'), ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' }); } catch { /* already gone */ } }, MUST_EXIT_WITHIN_MS);
+    child.on('exit', (code) => { clearTimeout(timer); resolve({ exited: !killed, code, ms: Date.now() - started, out: out.trim() }); });
+  });
+}
+
+/* Claude Code's PowerShell tool, as measured on Windows: cmd /d /s /c "chcp 65001 &
+   powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command <launcher>",
+   where the launcher Invoke-Expressions the command. */
+function claudeCodePowerShell(bin, command, env) {
+  const inner = '"' + path.join(SYSTEM32, 'chcp.com') + '" 65001 >nul & "' + POWERSHELL + '" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$s = $env:KOSMOS_TEST_SCRIPT; Invoke-Expression -Command $s"';
+  return withOpenStdin('cmd.exe', ['/d', '/s', '/c', '"' + inner + '"'], { bin, verbatim: true, env: Object.assign({ KOSMOS_TEST_SCRIPT: command + '; exit $LASTEXITCODE' }, env || {}) });
+}
+
+const HELP_FIRST_LINE = /^Usage: kosmos reply /;
+
+test('no hang: Claude Code\'s PowerShell tool, `kosmos reply --help`, stdin an open pipe', { skip: !ON_WINDOWS && 'Windows only' }, async () => {
+  const root = zipRootWithRealCli();
   try {
-    const r = ps(root, ["('piped ' + [char]0x00E9 + ' ' + [char]0x2713) | kosmos stdin x", '"exit=$LASTEXITCODE"']);
-    assert.deepEqual(JSON.parse(r.lines[0]), ['stdin', 'x']);
-    const stdin = JSON.parse((/^STDIN (.*)$/.exec(r.lines[1]) || [])[1] || 'null');
-    assert.equal(stdin, 'piped é ✓', 'the piped words changed on the way: ' + r.lines.join(' | ') + ' ' + r.stderr.slice(0, 200));
-    assert.equal(r.lines[2], 'exit=7');
-    const leftovers = fs.readdirSync(os.tmpdir()).filter((f) => /^kosmos-stdin-/.test(f));
-    assert.deepEqual(leftovers, [], 'the piped words were left on disk');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+    const r = await claudeCodePowerShell(path.join(root, 'bin'), 'kosmos reply --help');
+    assert.equal(r.exited, true, 'kosmos hung under Claude Code\'s PowerShell tool: ' + r.out);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, HELP_FIRST_LINE);
+  } finally { removeZip(root); }
+});
+
+test('no hang: powershell -File kosmos.ps1 (every verb), stdin an open pipe', { skip: !ON_WINDOWS && 'Windows only' }, async () => {
+  const root = zipRootWithRealCli();
+  try {
+    const ps1 = path.join(root, 'bin', 'kosmos.ps1');
+    const r = await withOpenStdin(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', ps1, 'reply', '--help']);
+    assert.equal(r.exited, true, 'powershell -File kosmos.ps1 hung on an open stdin (the round-1 $input defect): ' + r.out);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, HELP_FIRST_LINE);
+  } finally { removeZip(root); }
+});
+
+test('no hang: powershell -Command (how Codex runs a command), stdin an open pipe', { skip: !ON_WINDOWS && 'Windows only' }, async () => {
+  const root = zipRootWithRealCli();
+  try {
+    const r = await withOpenStdin(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', 'kosmos reply --help; exit $LASTEXITCODE'], { bin: path.join(root, 'bin') });
+    assert.equal(r.exited, true, r.out);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, HELP_FIRST_LINE);
+  } finally { removeZip(root); }
+});
+
+test('no hang: Claude Code\'s Bash tool (Git Bash `bash -c`), stdin an open pipe', { skip: (!ON_WINDOWS || !fs.existsSync(USR_BASH)) && 'Windows with Git Bash only' }, async () => {
+  const root = zipRootWithRealCli();
+  try {
+    const posixBin = '/' + path.join(root, 'bin').replace(/^([A-Za-z]):/, (m, d) => d.toLowerCase()).replace(/\\/g, '/');
+    const r = await withOpenStdin(USR_BASH, ['-c', 'export PATH="' + posixBin + ':/usr/bin:$PATH"; kosmos reply --help']);
+    assert.equal(r.exited, true, r.out);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, HELP_FIRST_LINE);
+  } finally { removeZip(root); }
+});
+
+test('no hang: `kosmos feedback write` with no text (the one verb that reads stdin) exits 2 with the sentence, by -File and by Git Bash, stdin an open pipe', { skip: !ON_WINDOWS && 'Windows only' }, async () => {
+  const root = zipRootWithRealCli();
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-kosmos-shims-data-'));
+  try {
+    const runs = [await withOpenStdin(POWERSHELL, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(root, 'bin', 'kosmos.ps1'), 'feedback', 'write'], { env: { AGENT_WORKFORCE_DATA: data } })];
+    if (fs.existsSync(USR_BASH)) {
+      const posixBin = '/' + path.join(root, 'bin').replace(/^([A-Za-z]):/, (m, d) => d.toLowerCase()).replace(/\\/g, '/');
+      runs.push(await withOpenStdin(USR_BASH, ['-c', 'export PATH="' + posixBin + ':/usr/bin:$PATH"; kosmos feedback write'], { env: { AGENT_WORKFORCE_DATA: data } }));
+    }
+    for (const r of runs) {
+      assert.equal(r.exited, true, 'feedback write hung on an open stdin: ' + r.out);
+      assert.equal(r.code, 2, r.out);
+      assert.match(r.out, /^Nothing to write/);
+      assert.match(r.out, /in PowerShell, pass the text as an argument/);
+    }
+  } finally { removeZip(root); fs.rmSync(data, { recursive: true, force: true }); }
+});
+
+test('Git Bash: a report piped into `kosmos feedback write` is saved with its non-ASCII characters intact', { skip: (!ON_WINDOWS || !fs.existsSync(USR_BASH)) && 'Windows with Git Bash only' }, async () => {
+  const root = zipRootWithRealCli();
+  const data = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-kosmos-shims-data-'));
+  try {
+    const posixBin = '/' + path.join(root, 'bin').replace(/^([A-Za-z]):/, (m, d) => d.toLowerCase()).replace(/\\/g, '/');
+    const r = await withOpenStdin(USR_BASH, ['-c', 'export PATH="' + posixBin + ':/usr/bin:$PATH"; printf \'caf\\303\\251 piped\\n\' | kosmos feedback write && kosmos feedback show'], { env: { AGENT_WORKFORCE_DATA: data } });
+    assert.equal(r.exited, true, r.out);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Saved today's product-feedback report/);
+    assert.match(r.out, /caf\u00e9 piped/, 'the piped report changed on the way: ' + r.out);
+  } finally { removeZip(root); fs.rmSync(data, { recursive: true, force: true }); }
 });
 
 test('PowerShell: numbers go as the text the agent typed, not PowerShell\'s reading of it', { skip: !ON_WINDOWS && 'Windows only' }, () => {

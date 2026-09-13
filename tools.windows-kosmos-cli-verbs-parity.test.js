@@ -210,9 +210,14 @@ const TAUGHT_PATTERNS = [
   /\bkosmos ([a-z][a-z_-]*)(?: ([a-z][a-z_-]*))?/g,
   /(?:\$\{(?:cli|cliShown)\}|\b(?:cli|cliShown|kosmosCliShown\(\))\s*\+\s*') ([a-z][a-z_-]*)(?: ([a-z][a-z_-]*))?/g,
 ];
-function taught(text, where) {
+/* `everyWord`: count every word after `kosmos`, not only words that are a verb of
+   one CLI or the other. The whole-tree scan cannot (its comments say "kosmos and",
+   "kosmos is"); the texts agents are given can, and must, or a verb NEITHER command
+   has (`kosmos handoff`) would be taught and pass unseen (review round 1). */
+function taught(text, where, opts) {
+  const everyWord = Boolean(opts && opts.everyWord);
   const found = [];
-  for (const re of TAUGHT_PATTERNS) for (const m of text.matchAll(re)) if (ALL_VERBS.has(m[1])) found.push({ verb: m[1], word: m[2] || '', where });
+  for (const re of TAUGHT_PATTERNS) for (const m of text.matchAll(re)) if (everyWord || ALL_VERBS.has(m[1])) found.push({ verb: m[1], word: m[2] || '', where });
   return found;
 }
 
@@ -243,7 +248,7 @@ test('the texts agents are actually given name only verbs the Windows command ha
     ['engine/messages.js blockBody()', require('./engine/messages').blockBody()],
     ...require('./engine/roles').ROLES.map((r) => ['engine/roles.js ' + r.key, r.instructions]),
   ];
-  const uses = texts.flatMap(([where, text]) => taught(String(text), where));
+  const uses = texts.flatMap(([where, text]) => taught(String(text), where, { everyWord: true }));
   assert.ok(uses.some((u) => u.verb === 'feedback' && u.word === 'write'), 'the roles were not read (feedback write is taught there)');
   const problems = uses.map((u) => (PERSON_ONLY_VERBS[u.verb] ? u.where + ': teaches an agent the person-only kosmos ' + u.verb : problemsWith(u))).filter(Boolean);
   assert.deepEqual(problems, []);

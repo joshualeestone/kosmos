@@ -41,6 +41,7 @@ const store = require('./engine/store');
 const chat = require('./engine/chat');
 const fleet = require('./test-support/fleet');
 const cli = require('./tools/windows/kosmos-cli');
+const win32job = require('./engine/win32job');
 
 const CLI_FILE = path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js');
 
@@ -52,6 +53,11 @@ const typedInto = [];
 let requestsSeen = 0;
 
 test.before(async () => {
+  /* On Windows the board asks Task Scheduler whether each agent has a task
+     (engine/win32job presence). This fleet is a stub, and the live fleet shares this
+     account, so the question never leaves the process: every agent reads as having
+     no task (review round 1: the suite's schtasks guard caught `Kosmos\agent-mona`). */
+  win32job.setRunner(() => ({ ok: false, out: 'ERROR: The system cannot find the file specified.', code: 1 }));
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
   server.on('request', () => { requestsSeen += 1; });
@@ -66,6 +72,7 @@ test.before(async () => {
   chat.deliver = (sessionName, line) => { typedInto.push({ sessionName, line }); return { state: 'placed' }; };
 });
 test.after(() => {
+  win32job.setRunner(null);
   try { server.close(); } catch { /* already down */ }
   fs.rmSync(SANDBOX, { recursive: true, force: true });
 });
@@ -99,6 +106,18 @@ test('task message from a Windows agent (token, no pane) is recorded, reaches th
   assert.match(typedInto[0].line, new RegExp('kosmos task message ' + projectId + ' ' + taskNumber + ' "\\.\\.\\."'));
 });
 
+test('review round 1: a valid agent token plus Sec-Fetch-Site is still that AGENT ("leo said"), never "The person said"', async () => {
+  typedInto.length = 0;
+  const r = await fetch(base + '/api/project/' + encodeURIComponent(projectId) + '/task/' + taskNumber + '/message', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tokens.leo, 'sec-fetch-site': 'same-origin', origin: base },
+    body: JSON.stringify({ text: 'dressed as the screen' }),
+  });
+  assert.equal(r.status, 200);
+  assert.equal(typedInto.length, 1);
+  assert.match(typedInto[0].line, /leo said: "dressed as the screen"/, 'an agent token with a browser header took the screen posture: ' + typedInto[0].line);
+});
+
 test('task message from the assignee itself is not typed back to it', async () => {
   typedInto.length = 0;
   const r = await kosmos(['task', 'message', projectId, String(taskNumber), 'done on my side'], tokens.mona);
@@ -127,6 +146,19 @@ test('task message to a task that does not exist says the board\'s words and exi
   const r = await kosmos(['task', 'message', projectId, '999', 'hello'], tokens.leo);
   assert.equal(r.code, 1);
   assert.match(r.err, /^Kosmos refused that message: .*no task by that number/);
+});
+
+test('review round 1: with a roster nobody can read, a presented token is told THAT, not refused as a bad token, and nothing is recorded', async () => {
+  const before = messagesOnTask();
+  fleet.refuses();
+  try {
+    const r = await kosmos(['task', 'message', projectId, String(taskNumber), 'unseen roster'], tokens.leo);
+    assert.equal(r.code, 1);
+    assert.equal(r.err, 'Kosmos refused that message: we could not check which agents are running, so that message was not recorded.');
+    assert.equal(messagesOnTask(), before);
+  } finally {
+    fleet.install([fleet.agent('mona', { state: 'idle' }), fleet.agent('leo', { state: 'idle' })]);
+  }
 });
 
 // ── room reopen ─────────────────────────────────────────────────────────────

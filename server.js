@@ -612,7 +612,7 @@ const os = require('node:os');
  * if it ever matters; it does not yet.
  */
 function resolveAgentSender(req, body, roster, opts) {
-  const presented = (req && req.headers && req.headers['x-kosmos-agent-token']) || (body && body.token);
+  const presented = presentedAgentToken(req, body);
   if (!presented) {
     /* #1968: the bare-pane fallback is a NO-CREDENTIAL path. On an enforcing
        board it is exactly how a second macOS account spoofs a report/reply --
@@ -646,6 +646,16 @@ function resolveAgentSender(req, body, roster, opts) {
 }
 
 /**
+ * The agent token a request PRESENTS (the header, or `token` in the body), or
+ * undefined. ONE reading of "did this caller present an agent token", shared by the
+ * sender resolution below and by the screen-or-process split (`isViaScreen` in the
+ * handler), so the two cannot disagree about who is an agent (win32-cli-verbs).
+ */
+function presentedAgentToken(req, body) {
+  return (req && req.headers && req.headers['x-kosmos-agent-token']) || (body && body.token) || undefined;
+}
+
+/**
  * #570: the sender of an agent-to-agent send (/api/msg, /api/post, /api/react)
  * when the caller PRESENTED an agent token, or null when it did not.
  *
@@ -661,7 +671,7 @@ function resolveAgentSender(req, body, roster, opts) {
  * pane -- a bad credential must not be quietly swapped for a weaker one.
  */
 function senderFromAgentToken(req, body, roster) {
-  const presented = (req && req.headers && req.headers['x-kosmos-agent-token']) || (body && body.token);
+  const presented = presentedAgentToken(req, body);
   if (!presented) return null;
   return resolveAgentSender(req, body, roster);
 }
@@ -10990,8 +11000,7 @@ const server = http.createServer((req, res) => {
            about itself in JSON. A process that offered its pane gets named
            through the same roster the write already trusts. Advisory: an
            agent runs as the operator; this is for telling things apart. */
-        const viaScreen = typeof req.headers['sec-fetch-site'] === 'string'
-          || (() => { try { const h = new URL(String(req.headers.origin || '')).hostname.replace(/\.$/, '').toLowerCase(); return LOOPBACK_HOSTS.has(h) || ALLOWED_HOSTS.has(h); } catch { return false; } })();
+        const viaScreen = isViaScreen(req, body);
         const paneCard = !viaScreen && typeof body.from_pane === 'string'
           ? (Array.isArray(roster) ? roster.find((c) => c && c.target === body.from_pane) : null)
           : null;
@@ -11797,7 +11806,14 @@ const server = http.createServer((req, res) => {
      closing or reopening a task types nothing. */
   // #327's shape, factored out rather than copied a third time (taskMake
   // already had its own inline copy; #761 needs the same split for parts).
-  function isViaScreen(req) {
+  /* win32-cli-verbs (review round 1): a request that PRESENTS an agent token is an
+     agent, whatever browser headers it also carries. Sec-Fetch-Site and Origin are
+     advisory and a local process can send either; the operator's page never sends an
+     agent token. Without this an agent's valid token plus `Sec-Fetch-Site:
+     same-origin` read as "The person said" and skipped the valve. `body` is optional:
+     a route that has read its body passes it, so a token in the body counts too. */
+  function isViaScreen(req, body) {
+    if (presentedAgentToken(req, body)) return false;
     return typeof req.headers['sec-fetch-site'] === 'string'
       || (() => { try { const h = new URL(String(req.headers.origin || '')).hostname.replace(/\.$/, '').toLowerCase(); return LOOPBACK_HOSTS.has(h) || ALLOWED_HOSTS.has(h); } catch { return false; } })();
   }
@@ -11915,14 +11931,16 @@ const server = http.createServer((req, res) => {
   if (taskSay && req.method === 'POST') {
     const id = decodeSegment(taskSay[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    /* Who is sending: the screen (the operator's board) or a process (an agent
-       running `kosmos task message`). The header is the browser's, not the body's,
-       so a process cannot mint the screen posture. Only a process is rate-valved. */
-    const viaScreen = isViaScreen(req);
     readBody(req).then((raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      /* Who is sending: the screen (the operator's board) or a process (an agent
+         running `kosmos task message`). The header is the browser's, not the body's,
+         so a process cannot mint the screen posture, and a request presenting an
+         agent token is an agent whatever else it carries (isViaScreen). Read after
+         the body, so a token in the body counts. Only a process is rate-valved. */
+      const viaScreen = isViaScreen(req, body);
       /* The valve, before the record+deliver: a looping agent must not be able to
          spam a task's people. Counted for PROCESS senders only; the operator is
          never valved (the person driving is the remedy, not the hazard -- the same
@@ -11939,6 +11957,12 @@ const server = http.createServer((req, res) => {
            agent" (a bad credential is not swapped for a weaker one). No token leaves
            the pane path below exactly as it was. */
         const roster = safeRoster();
+        /* A token cannot be checked against a roster nobody could read: say that,
+           as /api/msg does, rather than a refusal that blames the token. */
+        if (roster === null && presentedAgentToken(req, body)) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so that message was not recorded' });
+          return;
+        }
         const tokenSender = senderFromAgentToken(req, body, roster);
         if (tokenSender && !tokenSender.ok) { sendJson(res, 403, { error: tokenSender.because }); return; }
         const t = tasks.say(id, taskSay[2], body.text);
