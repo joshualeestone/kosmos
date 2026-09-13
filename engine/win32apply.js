@@ -74,6 +74,17 @@ const PHASES = Object.freeze([
 /** The phases in which nothing in ROOT or the anchor has changed yet. */
 const UNCHANGED_PHASES = Object.freeze(['staged', 'stopping']);
 
+/**
+ * How long a journal at `staged` belongs to the helper begin() has just started for it. The helper is
+ * the anchored node.exe loading this module and taking the lock, well under a second on the box and
+ * a few seconds when a scanner inspects the interpreter's start. Until this passes, the resume helper
+ * and a second begin() leave a staged journal alone, so a second request for an update can never
+ * cancel a healthy one. Two minutes is far beyond any real start, and a staged journal older than
+ * that has no helper coming (its spawn failed after returning). The logon shim does not wait: no
+ * helper survives a restart.
+ */
+const STAGED_HELPER_STARTUP_GRACE_MS = 2 * 60 * 1000;
+
 const DEFAULT_APPLY_LIMITS = Object.freeze({
   /** H2: how long the old board gets to be gone after /End. win32board.restartHelperMain's figure. */
   stopWaitMs: 30 * 1000,
@@ -213,6 +224,8 @@ function unfinishedUpdateRefusal(anchorDir) {
   if (read.state === 'unreadable') return unreadableSentence(journalAt, read.why);
   if (read.state !== 'unfinished') return null;
   const j = read.journal;
+  const found = unrecoverableCase(j);
+  if (found) return `an earlier update to ${j.to.version} can never finish, because ${found.because}. Asking Kosmos to update again clears that record`;
   return `an earlier update to ${j.to.version} has not finished yet. Kosmos finishes it, or puts ${j.from.version} back, the next time its board starts; try again after that`;
 }
 
@@ -380,16 +393,28 @@ function launcherFolder(j) {
   return j.root;
 }
 
-function statusFor(j, outcome, because, at) {
+/**
+ * The sentence a person reads. Every sentence that is not a success names Kosmos.exe in the Kosmos
+ * folder: it is the way back when Kosmos shows nothing at logon, because the launcher starts the
+ * build in its own folder on that folder's runtime and re-anchors the fleet to it (including the one
+ * case no resumer can reach, a power loss between replaceInterpreter's two renames, which leaves no
+ * anchored node.exe for any logon task to start). `kind: 'unrecoverable'` is a stuck update whose
+ * working folder or recovery code is gone.
+ */
+function statusFor(j, outcome, because, at, kind) {
   let sentence;
   if (outcome === 'updated') sentence = `Kosmos is now on ${j.to.version}.`;
-  else if (outcome === 'stuck') {
+  else if (outcome === 'abandoned') sentence = `The update to ${j.to.version} was stopped: the Kosmos folder that update was changing (${j.root}) no longer exists.`;
+  else if (outcome === 'stuck' && kind === 'unrecoverable') {
+    sentence = `The update to ${j.to.version} did not finish, and Kosmos cannot finish or undo it by itself (${because}). `
+      + `Download a fresh copy of Kosmos, unpack it over your Kosmos folder, then double-click Kosmos.exe in ${j.root}.`;
+  } else if (outcome === 'stuck') {
     sentence = `The update did not take, and Kosmos could not put ${j.from.version} back by itself (${because}). `
-      + `Close any window or program that is using the Kosmos folder, then double-click Kosmos.exe in ${launcherFolder(j)} to start it again.`;
-  } else sentence = `The update did not take. Kosmos is still on ${j.from.version}.`;
+      + `Close any window or program that is using the Kosmos folder, then restart your computer, or double-click Kosmos.exe in ${launcherFolder(j)} to start it again.`;
+  } else sentence = `The update did not take. Kosmos is still on ${j.from.version}. If Kosmos does not come back by itself, double-click Kosmos.exe in ${j.root}.`;
   return {
     outcome,
-    version: outcome === 'updated' ? j.to.version : outcome === 'stuck' ? null : j.from.version,
+    version: outcome === 'updated' ? j.to.version : outcome === 'stuck' || outcome === 'abandoned' ? null : j.from.version,
     from: j.from.version,
     to: j.to.version,
     sentence,
@@ -399,8 +424,8 @@ function statusFor(j, outcome, because, at) {
   };
 }
 
-function writeStatus(ctx, outcome, because) {
-  const status = statusFor(ctx.j, outcome, because, new Date(ctx.deps.now()).toISOString());
+function writeStatus(ctx, outcome, because, kind) {
+  const status = statusFor(ctx.j, outcome, because, new Date(ctx.deps.now()).toISOString(), kind);
   win32swap.writeFileAtomic(ctx.guard(statusPathFor(ctx.j.anchor)), JSON.stringify(status, null, 2) + '\n');
   ctx.log(`status ${outcome}: ${status.sentence}${because && outcome !== 'stuck' ? ` (${because})` : ''}`);
   return status;
@@ -655,9 +680,11 @@ function concludeRollback(ctx, boardBecause) {
   const outcome = UNCHANGED_PHASES.includes(j.rolledBackFrom) ? 'not-started' : 'rolled-back';
   if (boardBecause) writeStatus(ctx, 'stuck', `its board did not start again: ${boardBecause}`);
   else writeStatus(ctx, outcome, j.because);
+  ctx.deps.hooks.before('H8-finish', {});
   j.finished = true;
   j.outcome = outcome;
   save(ctx);
+  ctx.deps.hooks.before('H8-cleanup', {});
   cleanupAfterRollback(ctx);
   return { ok: false, outcome: boardBecause ? 'stuck' : outcome, because: j.because, boardBack: !boardBecause };
 }
@@ -686,9 +713,11 @@ async function rollBack(ctx, because) {
 function finishUpdated(ctx) {
   const { j, log } = ctx;
   try { writeStatus(ctx, 'updated', null); } catch (e) { log(`could not record the outcome (code=${codeOf(e)})`); }
+  ctx.deps.hooks.before('H9-finish', {});
   j.finished = true;
   j.outcome = 'updated';
   save(ctx);
+  ctx.deps.hooks.before('H9-cleanup', {});
   const tidy = (what, fn) => { try { fn(); } catch (e) { log(`left ${what} for later (code=${codeOf(e)})`); } };
   tidy('the staged folder', () => fs.rmSync(ctx.guard(j.staged), { recursive: true, force: true }));
   tidy('the download', () => fs.rmSync(ctx.guard(path.join(j.work, win32update.DOWNLOAD_PART_NAME)), { force: true }));
@@ -723,6 +752,8 @@ function applyRefusal(ctx) {
   const installed = (readJson(path.join(j.root, 'app', 'package.json')) || {}).version;
   if (installed !== j.from.version) return `the Kosmos folder is now ${installed || 'of an unknown version'}, not the ${j.from.version} this update was prepared for`;
   if (!update.newer(j.to.version, installed)) return `${j.to.version} is not newer than ${installed}, and Kosmos never installs an older or equal version`;
+  const stagedVersion = (readJson(path.join(j.staged, 'app', 'package.json')) || {}).version;
+  if (stagedVersion !== j.to.version) return `the staged update is ${stagedVersion || 'of an unknown version'}, not the ${j.to.version} this update was prepared for`;
   for (const entry of j.order) {
     if (exists(path.join(j.root, entry)) !== j.presentBefore.includes(entry)) return `the Kosmos folder changed after the update was prepared (${entry})`;
   }
@@ -783,22 +814,147 @@ async function runSteps(ctx) {
   }
 }
 
-/** Take the update lock, or say who has it. Returns the lock's text or null. */
+/**
+ * Take the update lock (S2's, in WORK). Returns `{ text }`, or `{ because }` when it is held or cannot
+ * be taken. A lock that was taken is never leaked: when the holder's sweep beside it throws, the lock
+ * is released before the refusal.
+ */
 function takeUpdateLock(ctx) {
-  const lockPath = path.join(ctx.j.work, win32update.LOCK_NAME);
+  const lockPath = ctx.inWork(path.join(ctx.j.work, win32update.LOCK_NAME));
+  let text;
   try {
-    const text = win32update.takeLock(ctx.inWork(lockPath), ctx.log, ctx.deps.lockHooks);
-    win32update.sweepLockLeftovers(ctx.j.work, ctx.inWork, ctx.log);
-    return text;
+    text = win32update.takeLock(lockPath, ctx.log, ctx.deps.lockHooks);
   } catch (e) {
-    ctx.log(`the update lock is held: ${firstLine(e)}`);
-    return null;
+    ctx.log(`the update lock is held or cannot be taken: ${firstLine(e)}`);
+    return { because: firstLine(e) };
   }
+  try {
+    win32update.sweepLockLeftovers(ctx.j.work, ctx.inWork, ctx.log);
+  } catch (e) {
+    ctx.log(`could not tidy beside the update lock (code=${codeOf(e)}); letting the lock go`);
+    releaseUpdateLock(ctx, { text });
+    return { because: `the update lock could not be tidied (code=${codeOf(e)})` };
+  }
+  return { text };
 }
-function releaseUpdateLock(ctx, text) {
-  try { win32update.releaseLock(ctx.inWork(path.join(ctx.j.work, win32update.LOCK_NAME)), text, ctx.log); } catch (e) {
+function releaseUpdateLock(ctx, lock) {
+  if (!lock || !lock.text) return;
+  try { win32update.releaseLock(ctx.inWork(path.join(ctx.j.work, win32update.LOCK_NAME)), lock.text, ctx.log); } catch (e) {
     ctx.log(`could not release the update lock (code=${codeOf(e)})`);
   }
+}
+
+/** The journal at `journalAt`, still unfinished and still the one with `token`, or null. */
+function sameUnfinishedJournal(journalAt, token) {
+  const read = readJournal(journalAt);
+  return read.state === 'unfinished' && read.journal.token === token ? read.journal : null;
+}
+
+/** Is this staged journal still inside STAGED_HELPER_STARTUP_GRACE_MS of being written? */
+function stagedIsYoung(j, deps) {
+  const written = Date.parse(j.createdAt);
+  return j.phase === 'staged' && Number.isFinite(written) && deps.now() - written < STAGED_HELPER_STARTUP_GRACE_MS;
+}
+
+/**
+ * An unfinished journal no resumer can ever finish, or null. Checked before anything else by every
+ * resumer, so such a journal is settled with a true sentence instead of blocking updates forever:
+ *   - `root-gone`: the Kosmos folder it was changing no longer exists. There is nothing to put back;
+ *   - under an existing ROOT, its working folder is gone, or no copy of the updater that could put
+ *     it back exists; then by what the phase says had happened:
+ *     `nothing-moved` (staged, stopping), `confirmed` (the new build was proven), or `moved`.
+ */
+function unrecoverableCase(j) {
+  if (!exists(j.root)) return { kind: 'root-gone', because: `the Kosmos folder that update was changing (${j.root}) no longer exists` };
+  let missing = null;
+  if (!exists(j.work)) missing = `its working folder ${j.work} is gone`;
+  else if (!j.recoverFrom.some((f) => exists(f))) missing = 'no copy of the updater that could put it back is left';
+  if (!missing) return null;
+  if (UNCHANGED_PHASES.includes(j.phase)) return { kind: 'nothing-moved', because: missing };
+  if (j.phase === 'confirmed') return { kind: 'confirmed', because: missing };
+  return { kind: 'moved', because: missing };
+}
+
+/**
+ * The lock a resumer needs, given what unrecoverableCase found.
+ *   - ROOT gone: no lock. There is nothing left a lock protects (no tree, no WORK to hold one in),
+ *     and every writer of this settlement writes the same finished record, atomically.
+ *   - ROOT there, WORK gone: WORK is created again (empty, as prepare() creates it), and the one
+ *     update lock is taken in it as always. Without this, taking the lock fails with ENOENT on every
+ *     try, the resumer reads that as held, and the journal blocks updates forever. A helper whose
+ *     WORK vanished under it has lost its lock file too, so nothing is excluded that was not already.
+ * Returns `{ text }`, `{ none: true }` or `{ because }`.
+ */
+function lockForResume(ctx, found) {
+  if (found && found.kind === 'root-gone') return { none: true };
+  if (!exists(ctx.j.work)) {
+    try {
+      /* WORK itself, directly under an existing ROOT: the one write outside writeGuard, which admits
+         only paths strictly inside WORK. */
+      if (!samePath(path.dirname(ctx.j.work), ctx.j.root)) throw new Error('the working folder is not inside the Kosmos folder');
+      fs.mkdirSync(ctx.j.work);
+    } catch (e) {
+      return { because: `the working folder could not be made again (code=${codeOf(e)})` };
+    }
+  }
+  return takeUpdateLock(ctx);
+}
+
+/** Settle an unfinished journal unrecoverableCase found. Returns `{ action, because? }`. */
+function settleUnrecoverable(ctx, found) {
+  const { j, log } = ctx;
+  log(`settling an update no resumer can finish (${found.kind}): ${found.because}`);
+  if (found.kind === 'nothing-moved') { finishWithoutChange(ctx, found.because); return { action: 'not-started', because: found.because }; }
+  if (found.kind === 'confirmed') { finishUpdated(ctx); return { action: 'updated' }; }
+  j.because = j.because || found.because;
+  if (found.kind === 'root-gone') writeStatus(ctx, 'abandoned', found.because);
+  else writeStatus(ctx, 'stuck', found.because, 'unrecoverable');
+  j.finished = true;
+  j.outcome = 'abandoned';
+  save(ctx);
+  return { action: 'abandoned', because: found.because };
+}
+
+/**
+ * begin()'s settlement of a journal no resumer can finish, in the board's own process (there is no
+ * build left to start a resume helper from, or nothing left to resume). Returns `{ action }`:
+ * `recoverable` (nothing done: a resumer can finish it), `held`, or what settleUnrecoverable did.
+ */
+function settleUnrecoverableJournal(journalAt, overrides) {
+  const read = readJournal(journalAt);
+  if (read.state !== 'unfinished') return { action: 'nothing' };
+  const found = unrecoverableCase(read.journal);
+  if (!found) return { action: 'recoverable' };
+  refuseInTestWithoutSeams(overrides, 'settle', journalAt);
+  const deps = depsFrom(overrides);
+  const ctx = contextFor(journalAt, read.journal, deps, 'settle');
+  const lock = lockForResume(ctx, found);
+  if (lock.because) return { action: 'held', because: lock.because };
+  try {
+    const again = lock.none ? read.journal : sameUnfinishedJournal(journalAt, read.journal.token);
+    if (!again) return { action: 'nothing' };
+    ctx.j = again;
+    return settleUnrecoverable(ctx, found);
+  } finally {
+    releaseUpdateLock(ctx, lock);
+  }
+}
+
+/**
+ * When a boot recovery is left stuck, the build the logon shim should start instead of the app in
+ * ROOT: `previous-<from>\app\server.js`, when that app is whole and is the old version. H5's reversal
+ * has already put the old interpreter back, so the old app on the old interpreter is the consistent
+ * pair; the new app in ROOT was never confirmed. `{ server }` or `{ server: null, whyNot }`.
+ */
+function previousAppToBoot(j) {
+  for (const entry of win32update.REQUIRED_ENTRIES.filter((e) => e.startsWith('app/'))) {
+    const file = path.join(j.previous, ...entry.split('/'));
+    if (!exists(file)) return { server: null, whyNot: `${file} is missing` };
+  }
+  const app = path.join(j.previous, 'app');
+  const version = (readJson(path.join(app, 'package.json')) || {}).version;
+  if (version !== j.from.version) return { server: null, whyNot: `${app} is ${version || 'of no known version'}, not ${j.from.version}` };
+  return { server: path.join(app, 'server.js'), whyNot: null };
 }
 
 /**
@@ -813,17 +969,26 @@ async function applyJournal(journalAt, overrides) {
   if (read.state === 'unreadable') return { ok: false, because: unreadableSentence(journalAt, read.why) };
   if (read.state !== 'unfinished') return { ok: false, because: 'there is no update waiting to be applied' };
   const ctx = contextFor(journalAt, read.journal, deps, 'apply');
-  const { j } = ctx;
-  if (j.phase !== 'staged') return { ok: false, because: `the update is already past being staged (${j.phase}), so it is not waiting to be applied` };
-  const lockText = takeUpdateLock(ctx);
-  if (!lockText) return { ok: false, because: 'another update is already running' };
+  const first = read.journal;
+  if (first.phase !== 'staged') return { ok: false, because: `the update is already past being staged (${first.phase}), so it is not waiting to be applied` };
+  const lock = takeUpdateLock(ctx);
+  if (!lock.text) return { ok: false, because: `another update is already running (${lock.because})` };
   try {
-    j.helper = { pid: process.pid, mode: 'apply' };
+    /* The journal read above is only a look. Between it and the lock, a resumer can have finished
+       this journal, or begin() written another: only the same journal, still unfinished and still
+       staged, READ AGAIN UNDER THE LOCK, is applied. */
+    const again = sameUnfinishedJournal(journalAt, first.token);
+    if (!again || again.phase !== 'staged') {
+      ctx.log('the journal was finished or replaced before this helper held the lock; nothing applied');
+      return { ok: false, because: 'the update was finished or replaced before this helper could start it, so it was not applied' };
+    }
+    ctx.j = again;
+    ctx.j.helper = { pid: process.pid, mode: 'apply' };
     const refusal = applyRefusal(ctx);
     if (refusal) return finishWithoutChange(ctx, refusal);
     return await runSteps(ctx);
   } finally {
-    releaseUpdateLock(ctx, lockText);
+    releaseUpdateLock(ctx, lock);
   }
 }
 
@@ -845,14 +1010,20 @@ async function resumeJournal(journalAt, overrides) {
   const read = readJournal(journalAt);
   if (read.state === 'unreadable') return { ok: false, because: unreadableSentence(journalAt, read.why) };
   if (read.state !== 'unfinished') return { ok: true, action: 'nothing' };
+  /* A staged journal this young belongs to the helper begin() has just started: leave it, and do not
+     even take the lock that helper is about to need. */
+  if (stagedIsYoung(read.journal, deps)) return { ok: true, action: 'starting' };
   const ctx = contextFor(journalAt, read.journal, deps, 'resume');
-  const lockText = takeUpdateLock(ctx);
-  if (!lockText) return { ok: true, action: 'held' };
+  const found = unrecoverableCase(read.journal);
+  const lock = lockForResume(ctx, found);
+  if (lock.because) return { ok: true, action: 'held', because: lock.because };
   try {
-    /* Read again under the lock: the holder it waited for may have finished it. */
-    const again = readJournal(journalAt);
-    if (again.state !== 'unfinished') return { ok: true, action: 'nothing' };
-    ctx.j = again.journal;
+    /* Read again under the lock: the holder it waited for may have finished it or replaced it. */
+    const again = lock.none ? read.journal : sameUnfinishedJournal(journalAt, read.journal.token);
+    if (!again) return { ok: true, action: 'nothing' };
+    ctx.j = again;
+    if (stagedIsYoung(ctx.j, deps)) return { ok: true, action: 'starting' };
+    if (found) return { ok: false, ...settleUnrecoverable(ctx, found) };
     ctx.j.helper = { pid: process.pid, mode: 'resume' };
     if (UNCHANGED_PHASES.includes(ctx.j.phase)) {
       if (ctx.j.phase === 'stopping') {
@@ -868,7 +1039,7 @@ async function resumeJournal(journalAt, overrides) {
     if (ctx.j.phase === 'confirmed') return finishUpdated(ctx);
     return await rollBack(ctx, stoppedBecause(ctx.j));
   } finally {
-    releaseUpdateLock(ctx, lockText);
+    releaseUpdateLock(ctx, lock);
   }
 }
 
@@ -876,7 +1047,8 @@ async function resumeJournal(journalAt, overrides) {
  * The logon shim's resumer, run by win32board.BOOT_JS before it reads the pointer, from the OLD
  * build's copy of this file. Synchronous, and it never stops or starts a board: this process is the
  * board about to boot. Returns `{ action }`: nothing | held | not-started | updated | rolled-back |
- * stuck | unreadable.
+ * stuck | abandoned | unreadable. A `stuck` result also carries `bootFrom` (the whole old app to
+ * start instead of ROOT's, previousAppToBoot) or `bootFromWhyNot`.
  */
 function recoverAtBoot(journalAt, overrides) {
   refuseInTestWithoutSeams(overrides, 'recover', journalAt);
@@ -889,23 +1061,27 @@ function recoverAtBoot(journalAt, overrides) {
   }
   if (read.state !== 'unfinished') return { action: 'nothing' };
   const ctx = contextFor(journalAt, read.journal, deps, 'boot');
-  const lockText = takeUpdateLock(ctx);
-  if (!lockText) return { action: 'held' };
+  const found = unrecoverableCase(read.journal);
+  const lock = lockForResume(ctx, found);
+  if (lock.because) return { action: 'held', because: lock.because };
   try {
-    const again = readJournal(journalAt);
-    if (again.state !== 'unfinished') return { action: 'nothing' };
-    ctx.j = again.journal;
+    const again = lock.none ? read.journal : sameUnfinishedJournal(journalAt, read.journal.token);
+    if (!again) return { action: 'nothing' };
+    ctx.j = again;
+    if (found) return settleUnrecoverable(ctx, found);
     if (UNCHANGED_PHASES.includes(ctx.j.phase)) { finishWithoutChange(ctx, stoppedBecause(ctx.j)); return { action: 'not-started' }; }
     if (ctx.j.phase === 'confirmed') { finishUpdated(ctx); return { action: 'updated' }; }
     const tree = rollBackTree(ctx, stoppedBecause(ctx.j));
     if (!tree.whole) {
       writeStatus(ctx, 'stuck', tree.problem);
-      return { action: 'stuck', because: tree.problem };
+      const old = previousAppToBoot(ctx.j);
+      ctx.log(old.server ? `the previous version is whole in ${path.dirname(old.server)}` : `the previous version cannot be started instead: ${old.whyNot}`);
+      return { action: 'stuck', because: tree.problem, bootFrom: old.server, bootFromWhyNot: old.whyNot };
     }
     const r = concludeRollback(ctx, null);
     return { action: r.outcome };
   } finally {
-    releaseUpdateLock(ctx, lockText);
+    releaseUpdateLock(ctx, lock);
   }
 }
 
@@ -919,21 +1095,21 @@ function abandonStagedJournal(journalAt, because, overrides) {
   const read = readJournal(journalAt);
   if (read.state !== 'unfinished' || read.journal.phase !== 'staged') return { action: 'nothing' };
   const ctx = contextFor(journalAt, read.journal, deps, 'begin');
-  const lockText = takeUpdateLock(ctx);
-  if (!lockText) return { action: 'held' };
+  const lock = takeUpdateLock(ctx);
+  if (!lock.text) return { action: 'held', because: lock.because };
   try {
-    const again = readJournal(journalAt);
-    if (again.state !== 'unfinished' || again.journal.phase !== 'staged') return { action: 'nothing' };
-    ctx.j = again.journal;
+    const again = sameUnfinishedJournal(journalAt, read.journal.token);
+    if (!again || again.phase !== 'staged') return { action: 'nothing' };
+    ctx.j = again;
     finishWithoutChange(ctx, because);
     return { action: 'not-started' };
   } finally {
-    releaseUpdateLock(ctx, lockText);
+    releaseUpdateLock(ctx, lock);
   }
 }
 
 module.exports = {
-  applyJournal, resumeJournal, recoverAtBoot, abandonStagedJournal, readJournal, writeStagedJournal, unfinishedUpdateRefusal,
-  journalPathFor, statusPathFor, moveOrder, writeGuard,
-  MODULE_FILE_NAME, PREVIOUS_PREFIX, ANCHORED_NODE_COPY_NAME, APPLY_LOG_NAME, DEFAULT_APPLY_LIMITS, PHASES,
+  applyJournal, resumeJournal, recoverAtBoot, abandonStagedJournal, settleUnrecoverableJournal, readJournal, writeStagedJournal,
+  unfinishedUpdateRefusal, journalPathFor, statusPathFor, moveOrder, writeGuard,
+  MODULE_FILE_NAME, PREVIOUS_PREFIX, ANCHORED_NODE_COPY_NAME, APPLY_LOG_NAME, DEFAULT_APPLY_LIMITS, PHASES, STAGED_HELPER_STARTUP_GRACE_MS,
 };

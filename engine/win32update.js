@@ -343,9 +343,16 @@ function boardTaskRefusal(boardTask) {
   if (!boardTask.startedByTask()) {
     return `this board was not started by its Windows logon job (${task}), so an update could not start it again. Double-click Kosmos.exe so Kosmos moves to the background, then try again`;
   }
+  /* Only a status that says, in so many words, registered AND enabled lets an update stop the board.
+     Anything the reading could not tell (a status marked unknown, a field missing or not a boolean)
+     refuses: an unknown must never read as yes. */
   const st = boardTask.status() || {};
-  if (!st.registered) return `there is no Windows logon job for the board (${task}), so an update could not start Kosmos again`;
+  const unreadable = `Kosmos could not read its Windows logon job (${task}), so it did not start the update`;
+  if (st.known === false) return unreadable;
+  if (st.registered === false) return `there is no Windows logon job for the board (${task}), so an update could not start Kosmos again`;
+  if (st.registered !== true) return unreadable;
   if (st.enabled === false) return `the board's Windows logon job (${task}) is switched off, so an update could not start Kosmos again. Switch it back on in Task Scheduler, then try again`;
+  if (st.enabled !== true) return unreadable;
   return null;
 }
 
@@ -1180,12 +1187,24 @@ async function begin(opts) {
       return { ok: false, because: LIVE_REFUSAL };
     }
     const j = earlier.journal;
-    const oldModule = j.recoverFrom.find((f) => fs.existsSync(f));
-    if (!oldModule) return { ok: false, because: `an earlier update to ${j.to.version} has not finished, and the Kosmos it was replacing cannot be found to finish it` };
-    const script = path.join(path.dirname(oldModule), path.basename(__filename));
-    const started = startHelper(spawnFn, helperLaunch(anchorDir, script, RECOVER_FLAG, journalAt), log);
-    log(started.ok ? `started the helper to finish the earlier update (pid ${started.pid})` : `could not start the helper to finish the earlier update: ${started.because}`);
-    return { ok: false, because: `an earlier update to ${j.to.version} has not finished, so Kosmos is finishing it now, or putting ${j.from.version} back. Try again in a minute` };
+    const now = typeof o.now === 'function' ? o.now() : Date.now();
+    /* A staged journal this young belongs to the helper an earlier begin() has just started. A second
+       request must not cancel it (apply.STAGED_HELPER_STARTUP_GRACE_MS). */
+    if (j.phase === 'staged' && now - Date.parse(j.createdAt) < apply.STAGED_HELPER_STARTUP_GRACE_MS) {
+      return { ok: false, because: `an update to ${j.to.version} is starting now. Try again in a minute` };
+    }
+    /* A journal no resumer can finish (its Kosmos folder, working folder or recovery code is gone) is
+       settled here, in words, and this update goes on; otherwise it would block every update. */
+    const settled = apply.settleUnrecoverableJournal(journalAt, o.applySeams);
+    if (settled.action === 'held') return { ok: false, because: `an earlier update to ${j.to.version} could not be cleared yet (${settled.because})` };
+    if (settled.action === 'recoverable') {
+      const oldModule = j.recoverFrom.find((f) => fs.existsSync(f));
+      const script = path.join(path.dirname(oldModule), path.basename(__filename));
+      const started = startHelper(spawnFn, helperLaunch(anchorDir, script, RECOVER_FLAG, journalAt), log);
+      log(started.ok ? `started the helper to finish the earlier update (pid ${started.pid})` : `could not start the helper to finish the earlier update: ${started.because}`);
+      return { ok: false, because: `an earlier update to ${j.to.version} has not finished, so Kosmos is finishing it now, or putting ${j.from.version} back. Try again in a minute` };
+    }
+    log(`cleared an earlier update no resumer could finish (${settled.action}${settled.because ? ': ' + settled.because : ''})`);
   }
 
   const script = path.join(root, 'app', 'engine', path.basename(__filename));
@@ -1293,7 +1312,8 @@ async function applyCli(a, out, seams) {
   const r = await begin({
     root, base: a.base, channel: a.channel, world: a.world, port, boardPid, fromIdentity,
     liveExecutionAllowed: () => true,
-    boardTask: { startedByTask: () => Boolean(task.running && answer.answering && answer.identity === fromIdentity), status: () => task },
+    /* `running` must be exactly true: an unknown running state is not "started by its task". */
+    boardTask: { startedByTask: () => task.running === true && answer.answering === true && answer.identity === fromIdentity, status: () => task },
     ...(s.begin || {}),
   });
   out(JSON.stringify(r, null, 2) + '\n');
