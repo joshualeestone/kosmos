@@ -578,6 +578,113 @@ test('#2973 the definition carries the task\'s switch, so a re-registration cann
   assert.ok(written && written.includes('<Enabled>true</Enabled></Settings>'), 'the switch it read, carried: ' + String(written));
 });
 
+// ── #2973 review: the time a board status read may take, and the test-process refusal ──
+
+/* A runner whose every query takes `cost(timeoutMs)` of a fake clock before it answers
+   the script's answer: the worst case is a query that uses its whole allowance. */
+function timedRunner(script, clock, cost) {
+  const inner = runner(script);
+  const fn = (args, opts) => {
+    const granted = opts && opts.timeoutMs;
+    fn.granted.push(granted);
+    clock.t += cost(granted, fn.granted.length);
+    return inner(args);
+  };
+  fn.granted = [];
+  fn.calls = inner.calls;
+  return fn;
+}
+const SLOW_SCRIPTS = [
+  ['a registered task (definition, then the running code)', READY],
+  ['an unreadable definition (then the whole task list)', { xml: DENIED, listing: { ok: true, out: '"\\Microsoft\\Windows\\Defrag\\ScheduledDefrag","N/A","Ready"\r\n' } }],
+  ['a German not-found (then the whole task list)', { xml: GERMAN_NOT_FOUND, listing: { ok: true, out: '"\\Microsoft\\Windows\\Defrag\\ScheduledDefrag","N/A","Bereit"\r\n' } }],
+  ['an English not-found', NONE],
+];
+const COSTS = [
+  ['every query takes its whole allowance', (granted) => granted],
+  ['the first query answers at once, the rest take their whole allowance', (granted, nth) => (nth === 1 ? 0 : granted)],
+  ['the first query leaves half a second', (granted, nth) => (nth === 1 ? granted - 500 : granted)],
+];
+
+test('#2973 review: one status() read spends at most ONE schtasks timeout, however many queries it makes', () => {
+  const T = board.SCHTASKS_TIMEOUT_MS;
+  for (const [what, script] of SLOW_SCRIPTS) {
+    for (const [how, cost] of COSTS) {
+      const clock = { t: 1000000 };
+      const r = timedRunner(script, clock, cost);
+      board.setRunner(r);
+      const start = clock.t;
+      board.status({ now: () => clock.t });
+      const spent = clock.t - start;
+      assert.ok(spent <= T, what + ', ' + how + ': the read took ' + spent + 'ms, more than one schtasks timeout (' + T + 'ms); granted ' + r.granted.join(', '));
+      assert.ok(r.granted.every((g) => g > 0 && g <= T), what + ', ' + how + ': a query was given ' + r.granted.join(', '));
+    }
+  }
+});
+
+test('#2973 review: a query with too little time left is not started, and that reads as could-not-look', () => {
+  const clock = { t: 0 };
+  const r = timedRunner(READY, clock, (granted, nth) => (nth === 1 ? granted - 500 : granted));
+  board.setRunner(r);
+  const st = board.status({ now: () => clock.t });
+  assert.equal(r.granted.length, 1, 'the running query had 500ms left and was not started: ' + r.granted.join(', '));
+  assert.equal(st.enabled, true, 'the definition still answered');
+  assert.equal(st.running, null, 'an unasked running state is unknown, never "not running"');
+});
+
+test('#2973 review: ensureInstalled before the hand-off takes at most two schtasks timeouts, which the launcher fallback was sized for', () => {
+  const T = board.SCHTASKS_TIMEOUT_MS;
+  /* The launcher's fallback assumes a hand-off that succeeds has exited by then. The
+     slowest success after a slow ensure is ensure's two timeouts and one probe of a board
+     already running. The probe's budget is read from the hand-off, not copied. */
+  const handoffSource = fs.readFileSync(nodePath.join(__dirname, 'win32handoff.js'), 'utf8');
+  const probeMs = Number((handoffSource.match(/const PROBE_TIMEOUT_MS = (\d+);/) || [])[1]);
+  assert.ok(probeMs > 0, 'the hand-off no longer names its probe timeout');
+  const fallback = require('./win32handoff').HANDOFF_UNREADABLE_LISTENER_FALLBACK_MS;
+  for (const [what, script] of SLOW_SCRIPTS) {
+    const clock = { t: 0 };
+    const r = timedRunner(script, clock, (granted) => granted);
+    board.setRunner(r);
+    board.ensureInstalled({ ...BUNDLE, now: () => clock.t });
+    assert.ok(clock.t <= 2 * T, what + ': ensure took ' + clock.t + 'ms (' + r.calls.join(' | ') + ')');
+    assert.ok(clock.t + probeMs < fallback, what + ': ensure (' + clock.t + 'ms) and one probe reach the launcher\'s fallback (' + fallback + 'ms)');
+  }
+});
+
+test('#2973 review: from a test process with NO runner seam, the board refuses schtasks and spawns nothing', () => {
+  const cp = require('node:child_process');
+  const saved = { execFileSync: cp.execFileSync, spawnSync: cp.spawnSync, spawn: cp.spawn, execSync: cp.execSync, execFile: cp.execFile };
+  const spawned = [];
+  const refuse = (name) => (file) => { spawned.push(name + ' ' + file); throw new Error('this test process spawned ' + file); };
+  for (const name of Object.keys(saved)) cp[name] = refuse(name);
+  board.setRunner(null);
+  try {
+    const win32job = require('./win32job');
+    const st = board.status();
+    assert.equal(st.known, false);
+    assert.equal(st.because, win32job.REFUSED_IN_TEST);
+    const ensured = board.ensureInstalled(BUNDLE);
+    assert.equal(ensured.action, 'unknown');
+    assert.match(ensured.because, /never run from a test process/);
+    const ended = board.end();
+    assert.equal(ended.ok, false, 'a live act refused is not a success');
+    assert.match(ended.because, /never run from a test process/);
+    assert.deepEqual(spawned, [], 'no schtasks, no process of any kind');
+  } finally {
+    Object.assign(cp, saved);
+    board.setRunner(runner(NONE));
+  }
+});
+
+test('#2973 review: the board and win32job refuse through ONE answer to "may schtasks run here"', () => {
+  const src = fs.readFileSync(nodePath.join(__dirname, 'win32board.js'), 'utf8');
+  const jobSrc = fs.readFileSync(nodePath.join(__dirname, 'win32job.js'), 'utf8');
+  assert.match(src, /win32job\.schtasksMayRunInThisProcess\(\)/, 'the board no longer asks win32job');
+  assert.match(jobSrc, /if \(!schtasksMayRunInThisProcess\(\)\) return \{ ok: false, out: REFUSED_IN_TEST \};/, 'win32job.run no longer asks its own shared answer');
+  assert.doesNotMatch(src, /inTestProcess|NODE_TEST_CONTEXT/, 'a second copy of the test-process rule lives in the board');
+  assert.equal(require('./win32job').schtasksMayRunInThisProcess(), false, 'this is a node --test process');
+});
+
 test('#2973 one derivation: the board and an agent read the same definition the same way', () => {
   const win32job = require('./win32job');
   try {
