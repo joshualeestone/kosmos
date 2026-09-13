@@ -153,6 +153,13 @@ Added by review round 1, to measure alongside (i)-(vii):
 - (x) which Claude Code file the box has at `~\.local\bin` (`claude.exe`, or a `.cmd` script,
   which the host refuses with the script sentence).
 - (xi) the stuck card's tail and every capture never contain the pasted code or either `#` half.
+- (xii) every byte `auth login` prints on stdout AND stderr between the paste reaching stdin and
+  the result ("Login successful." / "Login failed" / "Invalid code"). Review round 2 probe C: a
+  stderr warning 0.3 s after the send reads as an unknown screen, and a 14 s exchange then goes
+  stuck at ~12 s with "Claude showed a screen we do not recognise" (not a regression: before round
+  1 it said "did not work" at ~7 s; no known CLI output does this). If L-1 sees ANY such output,
+  slice 3 either hides unrecognised post-send text or gives an unknown screen during `completing`
+  the blank grace. No code change in this branch.
 
 ## Review log
 
@@ -194,6 +201,39 @@ Round 2 results (c86d84db on c05c662d; same guard, runtime node 24.19, scratch A
 - The first run of the 9 s arm went stuck on the suite's 1.35 s blank grace (4.5x its 300 ms
   unknown grace) and its late timer signed the NEXT arm in; the arm now sets a 3 s unknown grace
   and clears its timer on teardown.
+- No schtasks block log was created by any run.
+
+### Round 2 (opus) on 2c8f13c1: no BUG, SAFETY or TEST-GAP; 3 NITs
+
+Rebased onto `169c1a33` first (clean).
+
+- NIT A, sent-code redaction ran after the cap and only on whole pieces (probe R1: the cap cut
+  inside an echoed code and left up to 33 characters of a half readable; R3: a split echo showed a
+  20-character prefix on the unfinished line). FIX: `createTextKeeper(limit, sentPieces)` redacts the
+  sent pieces in `commit` BEFORE `keepNewest` and on the unfinished line in `text()`, and masks a
+  partial sent piece of `SENT_PARTIAL_MIN_CHARS` (4) or more at a cut edge (the start of the kept
+  text, the end of the unfinished line). `capture()` keeps a whole-piece pass for text kept before
+  the send. The header and keeper comments now state exactly that, and what is not guaranteed (a
+  shorter partial at a cut edge). Arms R1 (four cap shifts on one long line, two on
+  newline-delimited filler, and the stderr tail) and R3.
+- NIT A, R4: a wrong paste equal to the URL's `state` redacted the URL on the re-shown screen and
+  the rejection arm stored the broken link. FIX: `classifyPane` reads the URL through
+  `usableOauthUrl`, which treats a URL containing win32signin's `REDACTION_MARKER` as no URL, so
+  every writer keeps `mem.url`. Driver arm R4.
+- NIT B: plan only, L-1 item (xii).
+- NIT C: EFTYPE (a direct `.ps1`) on a script extension gets the script sentence; EFTYPE on a broken
+  `.exe` keeps the general sentence. Arm for both.
+
+Round 3 results (08ff4646 on 169c1a33; same guard and scratch roots):
+- `engine/win32signin.test.js` 20/20, `engine/connect.win32signin.test.js` 15/15;
+  `engine/connect.test.js` unchanged (56 pass, the same 14 Windows failures main has).
+- Suite set vs a `git archive` of `169c1a33`, by name and first error line: base 253 / 80, branch
+  289 / 79. No new failure; the same main-only `git ls-files` archive failure; two `claudeaccounts`
+  arms differ only by the scratch temp path.
+- Revert controls on scratch copies of HEAD, all red (14): NIT A redaction moved back after the cap
+  (R1, R3); R4 without the redacted-URL guard; NIT C without EFTYPE; plus every round 1 and round 2
+  control re-run (no-hide, deadCredential, tmux fallback, grace, script mapping, sent redaction,
+  switch on, code on a command line, token redaction, #1937, tmux on Windows).
 - No schtasks block log was created by any run.
 
 ## Results (Windows box, runtime node 24.19, no-schtasks preload, scratch APPDATA/LOCALAPPDATA/USERPROFILE)
