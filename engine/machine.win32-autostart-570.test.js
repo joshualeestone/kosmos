@@ -44,7 +44,10 @@ test('task present but switched OFF -> ATTENTION, and it is not re-enabled behin
   const r = row({ enabled: false });
   assert.equal(r.state, machine.STATE.ATTENTION);
   assert.match(r.title, /turned off/);
-  assert.match(r.detail, /Task Scheduler/);
+  /* win32-installer-native (W-21a, W-22): the way back on is the Settings switch this row now
+     carries, in the position the task was read in, not a trip to Task Scheduler. */
+  assert.match(r.detail, /turn it back on with the switch below/);
+  assert.equal(r.startAtSignIn, false);
 });
 
 test('task present and enabled -> OK, and it prints how to remove it', () => {
