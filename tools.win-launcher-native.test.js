@@ -341,24 +341,34 @@ test('W-04: a folder named *.zip outside TEMP, with no runtime, is the zip case'
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
-test('W-04: TEMP given as an 8.3 short name still matches the exe\'s long path', WINDOWS_ONLY, (t) => {
+function shortNameOf(p) {
+  /* Verbatim, because node would otherwise escape the inner quotes as \" and
+     cmd would read a different command. */
+  const r = spawnSync('cmd.exe', ['/d', '/c', 'for %I in ("' + p + '") do @echo %~sI'],
+    { encoding: 'utf8', windowsHide: true, windowsVerbatimArguments: true });
+  return (r.stdout || '').trim() || p;
+}
+
+test('W-04: an 8.3 short name on either side (TEMP or the exe\'s own path) still matches', WINDOWS_ONLY, (t) => {
   const s = scratch();
   try {
     const longTemp = path.join(s.temp, 'Temp Folder With Spaces');
-    fs.mkdirSync(longTemp, { recursive: true });
-    /* Verbatim, because node would otherwise escape the inner quotes as \" and
-       cmd would read a different command. */
-    const short = spawnSync('cmd.exe', ['/d', '/c', 'for %I in ("' + longTemp + '") do @echo %~sI'],
-      { encoding: 'utf8', windowsHide: true, windowsVerbatimArguments: true });
-    const shortTemp = (short.stdout || '').trim();
-    if (!shortTemp || shortTemp.toLowerCase() === longTemp.toLowerCase()) {
+    /* No "zip" in the folder name: its 8.3 form would end in .ZIP and match on
+       the .zip-segment rule, proving nothing about the temp comparison. */
+    const exe = copyLauncherInto(path.join(longTemp, 'extracted by some tool'));
+    const shortTemp = shortNameOf(longTemp);
+    const shortExe = path.join(shortNameOf(path.dirname(exe)), 'Kosmos.exe');
+    if (shortTemp.toLowerCase() === longTemp.toLowerCase()) {
       t.skip('this volume has no 8.3 names, so there is no short form to test');
       return;
     }
-    const exe = copyLauncherInto(path.join(longTemp, 'Temp1_kosmos-win-x64.zip-less'));
-    const r = runConsole(exe, shortTemp);
+    assert.doesNotMatch(shortExe, /\.zip/i, 'the short exe path matches on a .zip segment, so this arm would prove nothing');
+    let r = runConsole(exe, shortTemp);
     assert.equal(r.code, 1, r.out);
     assert.ok(r.out.includes(INSIDE_ZIP_MESSAGE), 'a short-name TEMP did not match the long exe path: ' + r.out);
+    r = runConsole(shortExe, longTemp);
+    assert.equal(r.code, 1, r.out);
+    assert.ok(r.out.includes(INSIDE_ZIP_MESSAGE), 'an exe launched by its short path did not match the long TEMP: ' + r.out);
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 

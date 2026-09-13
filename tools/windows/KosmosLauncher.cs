@@ -28,7 +28,6 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Text;
 
 // FileDescription (AssemblyTitle) is the name Task Manager, the taskbar and
 // SmartScreen's "App:" line show. AssemblyCompany is deliberately absent: it has
@@ -229,7 +228,7 @@ class KosmosLauncher
     // false match can do is choose between two "extract it again" messages.
     static bool RunningFromInsideAZip(string exeDirectory)
     {
-        string directory = LongPathOf(exeDirectory);
+        string directory = FullPathOrNull(exeDirectory) ?? exeDirectory;
         foreach (string segment in directory.Split('\\', '/'))
         {
             if (segment.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)) return true;
@@ -249,12 +248,7 @@ class KosmosLauncher
             Environment.GetEnvironmentVariable("TMP"),
         };
         string[] resolved = new string[candidates.Length];
-        for (int i = 0; i < candidates.Length; i++)
-        {
-            if (string.IsNullOrEmpty(candidates[i])) continue;
-            try { resolved[i] = LongPathOf(Path.GetFullPath(candidates[i])); }
-            catch { /* a malformed TEMP value is not a temp folder */ }
-        }
+        for (int i = 0; i < candidates.Length; i++) resolved[i] = FullPathOrNull(candidates[i]);
         return resolved;
     }
 
@@ -275,18 +269,18 @@ class KosmosLauncher
             || directory.StartsWith(root + "\\", StringComparison.OrdinalIgnoreCase);
     }
 
-    // GetTempPath can hand back an 8.3 short name (C:\Users\JOSHUA~1\...) for a
-    // profile whose name is long or has a space, while the exe's own location is
-    // a long path, so the two are compared in their long forms.
-    static string LongPathOf(string path)
+    // Raw TEMP and TMP values are compared in the same full-path form
+    // Path.GetTempPath() returns. An 8.3 short name on either side (a profile
+    // whose name is long or has a space) already matches: measured on .NET 4.8,
+    // GetTempPath() returns the long form of a short TEMP, and the exe's
+    // Assembly.Location is long even when it was launched by its short path.
+    // tools.win-launcher-native runs both mixes.
+    static string FullPathOrNull(string path)
     {
-        StringBuilder buffer = new StringBuilder(32768);
-        uint length = GetLongPathName(path, buffer, (uint)buffer.Capacity);
-        return (length > 0 && length < buffer.Capacity) ? buffer.ToString() : path;
+        if (string.IsNullOrEmpty(path)) return null;
+        try { return Path.GetFullPath(path); }
+        catch { return null; /* a malformed value is not a folder to compare */ }
     }
-
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-    static extern uint GetLongPathName(string shortPath, StringBuilder longPath, uint bufferLength);
 
     // ---- presenting to a person ----------------------------------------------
 

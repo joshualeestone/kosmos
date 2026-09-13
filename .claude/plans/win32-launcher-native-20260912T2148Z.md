@@ -30,11 +30,18 @@ asks where it is running from:
 - **Otherwise a partial extract.** This keeps its own message, reworded from Mac
   "unpack" to Windows "extract".
 
-The temp folder is compared by its long path. `GetTempPath` can return an 8.3 short name
-(`C:\Users\JOSHUA~1\...`) for a profile whose name is long or has a space, and the exe's
-own location is a long path, so a plain prefix compare would miss. Both sides are
-normalised with `GetLongPathName`, and `%TEMP%`, `%TMP%`, and `GetTempPath()` are all
-accepted.
+The temp folder is compared in full-path form. `%TEMP%` can be an 8.3 short name
+(`C:\Users\JOSHUA~1\...`) for a profile whose name is long or has a space, and a launch
+through a short path gives the exe a short location, so a plain prefix compare would
+miss. `%TEMP%`, `%TMP%`, and `GetTempPath()` are all accepted, each in full-path form.
+Measured on this box's .NET 4.8, the runtime already handles 8.3 names on both sides:
+`GetTempPath()` returns the long form of a short TEMP, and `Assembly.Location` is long
+even when the exe was launched by its short path. The first build added
+`GetLongPathName`, and its revert control stayed green, so it was removed as dead code.
+Removing the full-path step on either side also stayed green. The test still covers both
+mixes (a short TEMP with a long exe path; a long TEMP with an exe launched by its short
+path) as a behaviour pin. The control that turns that arm red is removing the temp-folder
+match.
 
 Detection runs only when the runtime is missing, as scoped. A zip fully extracted into
 Temp *with* its runtime would run normally. That is W-06's bad-location case, left for
@@ -183,3 +190,34 @@ and `verify-launcher.ps1` must print OK on it.
   checkout/restore: a console-subsystem build fails the GUI assertion; a build without
   `/win32icon` fails the icon assertion; breaking the temp or zip detection in a scratch
   build fails the run tests; and reverting a README line fails its pin.
+
+## Results (measured on the Windows box, 2026-09-12)
+
+- **Build.** `csc` 4.8.9232.0, with the documented flags. `Kosmos.exe` is 63488 bytes
+  (it was 6656), with no compiler warnings. `verify-launcher.ps1` reports OK on the
+  committed binary, with 24 bytes of build metadata masked. The version resource reads
+  FileDescription and ProductName "Kosmos", CompanyName empty, FileVersion 2.0.0.0, and
+  ProductVersion "launcher 2.0". `make-kosmos-ico.ps1` gives byte-identical output on two
+  runs (50133 bytes).
+- **Tests** (node 24.19). `tools.win-launcher-native.test.js` passes 14 of 14, and
+  `tools.build-windows-570.test.js` passes all its tests.
+  `tools.win-open-board-2007.test.js` has two failures, identical on `origin/main`: those
+  tests spawn a `#!/bin/bash` stub, which Windows cannot execute (`spawn EFTYPE`). That
+  file is not touched here.
+- **Controls**, each run against a scratch build via `KOSMOS_LAUNCHER_EXE_UNDER_TEST`:
+
+  | Control | Result |
+  |---|---|
+  | `/target:exe` build | red on the subsystem test only |
+  | build without `/win32icon` | red on the icon test only |
+  | zip detection removed | red on the four inside-the-zip run arms |
+  | temp-folder match removed | red on the 7-Zip Temp arm and the 8.3 arm (the `Temp1_*.zip` and `.zip`-segment arms stay green, correctly, through the segment rule) |
+  | hand edit putting "Unpack" and "came from another computer" back in the README, undone afterwards | red in both test files |
+
+  The `GetLongPathName` and full-path controls stayed green; see section 1 for why that
+  code was removed or re-described.
+- **Live GUI check, not a committed test.** Copies of the committed exe ran with no
+  `--console` in scratch folders with no runtime and no app. Each put up a window titled
+  "Kosmos", with an OK button and the exact inside-the-zip or partial-extract text (read
+  back through its child windows), and started no child process. Each was then killed.
+  The real hand-off path was never run.
