@@ -86,18 +86,27 @@ const HELPER_FLAG = '--kosmos-board-restart';
 
 /* The command seam, in the shape win32job's is, for the reason rule 2 of this
    branch states: a test stubs this and never shells a real schtasks. Returns
-   { ok, out } and never throws, so every caller reports rather than unwinds. */
+   { ok, out } and never throws, so every caller reports rather than unwinds.
+   The injected runner is handed `{ timeoutMs }`, the time this call was given. */
 let runFn = null;
 function setRunner(fn) { runFn = typeof fn === 'function' ? fn : null; }
 
 /* How long one schtasks call may take before it is abandoned. Every call is a
    synchronous spawn, so this also bounds how long the hand-off can be stuck in one:
-   engine/win32handoff.js derives the launcher's unreadable-table fallback from it. */
+   engine/win32handoff.js derives the launcher's unreadable-table fallback from it.
+   #2973: it is also the whole budget of one `status()` read, however many queries that
+   read makes (see status), so no caller waits longer for the board's state than it did
+   when that read was one query. */
 const SCHTASKS_TIMEOUT_MS = 20000;
-function run(args) {
-  if (runFn) return runFn(args);
+function run(args, timeoutMs) {
+  const timeout = Math.min(SCHTASKS_TIMEOUT_MS, timeoutMs || SCHTASKS_TIMEOUT_MS);
+  if (runFn) return runFn(args, { timeoutMs: timeout });
+  /* #2973: never from a test process, for win32job's reasons and through its one answer.
+     Worded as win32job's refusal, which matches neither not-found nor success, so every
+     reader here concludes "could not look". */
+  if (!win32job.schtasksMayRunInThisProcess()) return { ok: false, out: win32job.REFUSED_IN_TEST };
   try {
-    const out = cp.execFileSync('schtasks.exe', args, { encoding: 'utf8', timeout: SCHTASKS_TIMEOUT_MS });
+    const out = cp.execFileSync('schtasks.exe', args, { encoding: 'utf8', timeout: Math.min(SCHTASKS_TIMEOUT_MS, timeout) });
     return { ok: true, out: String(out || '') };
   } catch (e) {
     return { ok: false, out: String((e && (e.stdout || e.message)) || ''), code: (e && e.status) };
@@ -382,6 +391,13 @@ function install(spec) {
  */
 const TASK_RESULT_RUNNING = 267009;
 
+/* The least time worth starting a schtasks query with inside one `status()` read. The
+   slowest query measured on this box, the whole machine's task list, took about 0.7s,
+   so a query with less than a second left would mostly be cut off anyway. Not starting
+   it reads as "could not look", which is the answer a cut-off query gives too. */
+const MIN_SCHTASKS_QUERY_MS = 1000;
+const NO_TIME_LEFT = 'there was no time left in this read to ask Task Scheduler';
+
 /* Positions in one `schtasks /Query /TN <task> /FO CSV /V /NH` row, which has no
    labels: HostName, TaskName, Next Run Time, Status, Logon Mode, Last Run Time, Last
    Result, ... Measured 2026-09-12. The task path is checked on every read, so a layout
@@ -401,8 +417,8 @@ function isBoardTaskPath(value) {
  * (#2973): on a German Windows `Running` is `Wird ausgeführt`, and a machine named
  * `RUNNING-LAB` put the word in the LIST text of a task that was not running.
  */
-function taskRunning() {
-  const r = run(['/Query', '/TN', TASK_NAME, '/FO', 'CSV', '/V', '/NH']);
+function taskRunning(ask) {
+  const r = (ask || run)(['/Query', '/TN', TASK_NAME, '/FO', 'CSV', '/V', '/NH']);
   if (!r.ok) return null;
   for (const line of String(r.out || '').split('\n')) {
     const fields = win32job.csvFields(line);
@@ -429,8 +445,8 @@ function taskRunning() {
  * An empty listing proves nothing (every Windows ships Microsoft tasks), so it is not
  * taken as absence.
  */
-function provenAbsentFromTaskList() {
-  const r = run(['/Query', '/FO', 'CSV', '/NH']);
+function provenAbsentFromTaskList(ask) {
+  const r = (ask || run)(['/Query', '/FO', 'CSV', '/NH']);
   if (!r.ok) return false;
   let rows = 0;
   for (const line of String(r.out || '').split('\n')) {
@@ -462,14 +478,31 @@ function provenAbsentFromTaskList() {
  * caller that ignores `known` errs toward doing nothing; every caller in this branch
  * checks `known` first and neither re-registers, ends nor restarts the board on it.
  */
-function status() {
-  const read = win32job.taskEnabledFromQuery(run(['/Query', '/TN', TASK_NAME, '/XML']));
+function status(opts) {
+  /* 🛑 ONE READ, ONE schtasks TIMEOUT, HOWEVER MANY QUERIES IT TAKES (#2973 review).
+     This read used to be one LIST query, and two timings were built on that:
+     `ensureInstalled` (this read, then `/Create`) runs before the hand-off, and the
+     launcher's unreadable-table fallback (win32handoff's
+     HANDOFF_UNREADABLE_LISTENER_FALLBACK_MS, 45s) assumes a hand-off that succeeds has
+     exited by then. The slowest such exit is a boot whose ensure takes both calls' whole
+     timeouts and then finds this board already running: 20 + 20 + a 2s probe = 42s. Two
+     queries each allowed the full 20s would make it 62s. So every query here shares
+     one deadline, and a query with less than MIN_SCHTASKS_QUERY_MS left is not started;
+     its answer is "could not look", which every caller already treats safely. */
+  const now = (opts && opts.now) || Date.now;
+  const deadline = now() + SCHTASKS_TIMEOUT_MS;
+  const ask = (args) => {
+    const left = deadline - now();
+    if (left < MIN_SCHTASKS_QUERY_MS) return { ok: false, out: NO_TIME_LEFT };
+    return run(args, left);
+  };
+  const read = win32job.taskEnabledFromQuery(ask(['/Query', '/TN', TASK_NAME, '/XML']));
   if (!read.known) {
-    if (provenAbsentFromTaskList()) return { known: true, registered: false, running: false };
+    if (provenAbsentFromTaskList(ask)) return { known: true, registered: false, running: false };
     return { known: false, registered: false, because: read.because || 'schtasks would not answer' };
   }
   if (!read.registered) return { known: true, registered: false, running: false };
-  return { known: true, registered: true, enabled: read.enabled, running: taskRunning() };
+  return { known: true, registered: true, enabled: read.enabled, running: taskRunning(ask) };
 }
 
 function disable() {
@@ -553,7 +586,7 @@ function ensureInstalled(opts) {
   if (!bundleRoot(o)) {
     return { ok: true, action: 'skipped', because: 'this board runs from a source checkout, so nothing registers it to start at logon' };
   }
-  const st = status();
+  const st = status({ now: o.now });
   /* #2973: a job we could not read is LEFT AS IT IS. Re-registering it could switch
      back on a task the person turned off, and registering "a missing one" could
      overwrite one that is there. `ok: false`, so the boot says it could not check. */

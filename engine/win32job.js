@@ -128,6 +128,18 @@ function commandsAreReal() { return !!runFn || liveExec.liveExecutionAllowed(); 
    it as "we could not look" and concludes nothing. */
 const REFUSED_IN_TEST = 'schtasks is never run from a test process that has installed no runner';
 
+/**
+ * May a real schtasks be spawned from THIS process? ONE answer for every module that
+ * shells schtasks (#2973: engine/win32board.js asks it too), so the reasons below
+ * cannot be kept in one runner and forgotten in another -- which is what happened: the
+ * board's runner had no refusal, and engine/machine.test.js read the live
+ * `\Kosmos\board` task on the Windows box. Only asked once a module has found no
+ * injected runner; a runner seam is always allowed.
+ */
+function schtasksMayRunInThisProcess() {
+  return !(liveExec.inTestProcess() || process.env.NODE_TEST_CONTEXT);
+}
+
 function run(args) {
   if (runFn) return runFn(args);
   /* 🛑 A TEST PROCESS NEVER REACHES THE REAL TASK SCHEDULER, not even to read it.
@@ -147,7 +159,7 @@ function run(args) {
      against a sandboxed fake; nothing here can be faked that way, because
      schtasks has no sandbox, so the inherited NODE_TEST_CONTEXT, which node's
      test runner sets and nothing else does, refuses it as well. */
-  if (liveExec.inTestProcess() || process.env.NODE_TEST_CONTEXT) return { ok: false, out: REFUSED_IN_TEST };
+  if (!schtasksMayRunInThisProcess()) return { ok: false, out: REFUSED_IN_TEST };
   try {
     /* ⚠️ stderr PIPED, NOT INHERITED, and that is not tidiness. execFileSync's
        default sends the child's stderr straight to OUR stderr, so every ordinary
@@ -814,5 +826,6 @@ module.exports = {
   TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape, xmlUnescape, headlessExec,
   install, disable, enable, end, start, remove, status, presence, list, configDirFor, taskSpec,
   cachedTaskSpec, taskEnabled, taskEnabledFromQuery, csvFields, commandsAreReal, REFUSED_IN_TEST,
+  schtasksMayRunInThisProcess,
   setRunner, setAnchorer,
 };
