@@ -1,4 +1,4 @@
-# #2840 — the Token Usage Value column, live (blended), per Josh's ruling
+# #2840 - the Token Usage Value column, live (blended), per Josh's ruling
 
 ## What finished looks like
 The usage-history list's **Value** column (Settings → Usage) shows a real per-row dollar
@@ -16,12 +16,12 @@ the four separate class cards are unchanged. No single blended "total tokens" fi
   lands on the design's ~$135M headline (control-checked in the test).
 - **Format = the design's `usd()`**: `$X.XXB / $XM / $N,NNN / $N`, reusing the page's own
   `usageNum` for the thousands band so one number format drives the page.
-- **Rejected — implementing the *whole* design.** The design also shows a blended
+- **Rejected - implementing the *whole* design.** The design also shows a blended
   **"150B Total Tokens"** hero. I deliberately did NOT add it: a single blended token total
   is exactly what Josh's **#2617 overrule refused** (cache_read ran ~440x output, so one
   "tokens used" figure is ~440x too large). The four classes stay shown separately and in
   full; only the *dollar* Value is blended, which is the piece Josh actually ruled on.
-- **Rejected — changing the output-only money box.** `usageMoneyHtml` stays output-only and
+- **Rejected - changing the output-only money box.** `usageMoneyHtml` stays output-only and
   keeps naming its basis. The Value column and the money box are two labeled framings that
   coexist by design (the design page shows both a blended human-cost headline and separate
   figures).
@@ -43,15 +43,15 @@ What would change my mind: Josh saying he wants only one dollar figure, or wants
    - Update the section's stale copy ("Value is pending a pricing decision" → "Value
      estimates the human work each day represents") and the now-wrong stub comment.
    - Remove the orphaned `.uh-stub` CSS rule.
-2. `web.token-usage-2617.test.js` — lift the new consts + `usageUsd`/`usageRowValue`; replace
+2. `web.token-usage-2617.test.js` - lift the new consts + `usageUsd`/`usageRowValue`; replace
    the "Value is STUBBED" test with tests pinning `$932,173` / `$856,775` (hand-computed from
    the fixture) + the `usd()` format bands + a ~$135M grand-total control.
-3. `docs/browser-checks/render-token-usage-2617.js` — the covering browser-check: assert every
+3. `docs/browser-checks/render-token-usage-2617.js` - the covering browser-check: assert every
    Value cell shows a live blended `$` figure and "pending" is gone (was: asserts stubbed).
 
 ## Verify
-- `node --test web.token-usage-2617.test.js` — 16/16 (math pinned, control on the $135M scale).
-- `browser-checks-reason-grep.test.js`, `test-bc-surface-map.sh`, surface-gate — pass.
-- Full `tools/run-tests.sh` node suite — green.
-- Browser-check render (pw-runtime headless) after commit — the Value column shows live $.
+- `node --test web.token-usage-2617.test.js` - 16/16 (math pinned, control on the $135M scale).
+- `browser-checks-reason-grep.test.js`, `test-bc-surface-map.sh`, surface-gate - pass.
+- Full `tools/run-tests.sh` node suite - green.
+- Browser-check render (pw-runtime headless) after commit - the Value column shows live $.
 - Staging-first; prod stays Josh-gated.

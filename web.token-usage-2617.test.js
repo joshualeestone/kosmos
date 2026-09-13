@@ -206,20 +206,25 @@ test('#2840: the Value column is the blended per-row dollar figure (Josh ruled: 
   //   Value = usd( rowTotal / 100,000 * 90 )   (the approved /design/token-value math)
   //   2026-09-01: 1,035,748,100 / 1e5 * 90 = 932,173.29 -> "$932,173"
   //   2026-08-31:   951,972,673 / 1e5 * 90 = 856,775.41 -> "$856,775"
-  assert.ok(html.includes('$932,173'), 'the 09-01 row shows its blended dollar Value');
-  assert.ok(html.includes('$856,775'), 'the 08-31 row shows its blended dollar Value');
+  // The comma band flows through usageNum -> toLocaleString, so assert against the
+  // runtime's own fmt (like the #2617 siblings) rather than a hardcoded en-US string,
+  // keeping the test locale-robust.
+  assert.ok(html.includes('$' + fmt(932173)), 'the 09-01 row shows its blended dollar Value');
+  assert.ok(html.includes('$' + fmt(856775)), 'the 08-31 row shows its blended dollar Value');
   assert.ok(!/pending/.test(html), 'the "pending" stub is gone');
   assert.ok(!/uh-stub/.test(html), 'the retired stub class is gone');
 });
 
 test('#2840: usageRowValue + usageUsd match the approved design formula and format bands', () => {
   // Row value = the design's (tok / tokPerHr) * blendedRate, formatted by usd().
-  assert.equal(U.usageRowValue(1035748100), '$932,173', 'billion-scale row -> thousands-separated $');
-  assert.equal(U.usageRowValue(951972673), '$856,775', 'the older row matches its hand-computed value');
+  // Comma band via fmt (runtime toLocaleString) so the test is locale-robust; the
+  // B/M/cents bands use toFixed and are locale-independent, so they stay literal.
+  assert.equal(U.usageRowValue(1035748100), '$' + fmt(932173), 'billion-scale row -> thousands-separated $');
+  assert.equal(U.usageRowValue(951972673), '$' + fmt(856775), 'the older row matches its hand-computed value');
   // usd() format bands, straight from the design's usd():
   assert.equal(U.usageUsd(2.5e9), '$2.50B', 'billions keep two decimals with a B');
   assert.equal(U.usageUsd(3.4e6), '$3M', 'millions round to a whole M');
-  assert.equal(U.usageUsd(932173.29), '$932,173', 'the thousands band is separated and rounded');
+  assert.equal(U.usageUsd(932173.29), '$' + fmt(932173), 'the thousands band is separated and rounded');
   assert.equal(U.usageUsd(50), '$50', 'tens..hundreds print as a whole dollar');
   assert.equal(U.usageUsd(5.5), '$5.50', 'under $10 keeps cents');
   // Sanity: the grand-total blend lands on the design's ~$135M headline scale.
