@@ -28,7 +28,10 @@ const { version: RUNNING } = require('../package.json');
 
 const ARCH = process.arch;
 const NEWER = '99.0.0';
-const ENV_KEYS = ['KOSMOS_UPDATE_CHANNEL', 'AGENT_WORKFORCE_UPDATE_CHANNEL', 'KOSMOS_RELEASE_BASE', 'AGENT_WORKFORCE_RELEASE_BASE'];
+const ENV_KEYS = ['KOSMOS_UPDATE_CHANNEL', 'AGENT_WORKFORCE_UPDATE_CHANNEL', 'KOSMOS_RELEASE_BASE', 'AGENT_WORKFORCE_RELEASE_BASE',
+  /* S4: the manual offer now fires only where the in-app updater refuses the location, so the tests
+     that exercise it set OneDrive; cleared here so the real box's own variable never steers it. */
+  'OneDrive', 'OneDriveConsumer', 'OneDriveCommercial', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432'];
 let savedEnv = {};
 
 /** A Windows pointer body in the exact shape publish-kosmos-windows.sh writes. */
@@ -75,6 +78,13 @@ function recordFetches(answerFor) {
 function asWindowsBundle() {
   update.setPlatform('win32');
   update.setWindowsBundleRoot(() => 'C:\\Users\\someone\\Kosmos');
+}
+/* S4: a win32 bundle the in-app updater refuses up front (OneDrive), which is where the MANUAL offer
+   now lives; a normal bundle shows the in-app [Update] offer instead. */
+function asOneDriveBundle() {
+  update.setPlatform('win32');
+  update.setWindowsBundleRoot(() => 'C:\\Users\\someone\\OneDrive\\Kosmos');
+  process.env.OneDrive = 'C:\\Users\\someone\\OneDrive';
 }
 
 test('pointerFor: the one rule, by platform and channel', () => {
@@ -257,7 +267,7 @@ test('staging that cannot be reached is no offer, and is never retried against p
 });
 
 test('the manual offer links the exact versioned zip on both channels, under the base the look used', async () => {
-  asWindowsBundle();
+  asOneDriveBundle();   // S4: the manual offer is the OneDrive/Program Files case now
   recordFetches(() => answer(winManifest(NEWER)));
   await update.refresh();
   /* Never the moving alias: the link must download exactly the build the sentence names. */
@@ -276,8 +286,8 @@ test('the manual offer links the exact versioned zip on both channels, under the
     'the staged build\'s link does not come from the base and pointer the look used');
 });
 
-test('no manual offer when current, off a Windows bundle, or on the Mac', async () => {
-  asWindowsBundle();
+test('no manual offer when current, on a normal armed bundle, off a Windows bundle, or on the Mac', async () => {
+  asOneDriveBundle();
   recordFetches(() => answer(winManifest(RUNNING)));
   await update.refresh();
   assert.equal(update.manualOffer(), null, 'the running version was offered');
@@ -285,7 +295,16 @@ test('no manual offer when current, off a Windows bundle, or on the Mac', async 
   update.resetCache();
   recordFetches(() => answer(winManifest(NEWER)));
   await update.refresh();
-  assert.ok(update.manualOffer(), 'CONTROL: newer on a Windows bundle is offered');
+  assert.ok(update.manualOffer(), 'CONTROL: newer under OneDrive (a refused location) is a manual offer');
+
+  /* S4: a normal armed bundle shows the in-app [Update] offer, not the manual download. */
+  update.resetCache();
+  delete process.env.OneDrive;
+  update.setWindowsBundleRoot(() => 'C:\\Users\\someone\\Kosmos');
+  recordFetches(() => answer(winManifest(NEWER)));
+  await update.refresh();
+  assert.equal(update.manualOffer(), null, 'a normal armed bundle was sent to the manual download instead of [Update]');
+
   update.setWindowsBundleRoot(() => null);
   assert.equal(update.manualOffer(), null, 'a Windows source checkout was told to unpack a zip over itself');
 
@@ -307,12 +326,15 @@ test('design finding 8: setupUrl carries the ?v= cache-buster for the version th
     'the cache-buster never applies (it read .version off a bare string)');
 });
 
-test('the install still refuses on Windows, whatever the check found', async () => {
-  asWindowsBundle();
+test('S4: the install is ARMED on Windows -- self-install is allowed and a normal bundle offers it in-app', async () => {
+  update.setPlatform('win32');
+  update.setWindowsBundleRoot(() => 'C:\\Users\\someone\\Kosmos');
+  update.setInstalledRoot(() => 'C:\\Users\\someone\\Kosmos');
   recordFetches(() => answer(winManifest(NEWER)));
   await update.refresh();
-  assert.ok(update.manualOffer(), 'the premise: a newer Windows build is on offer');
-  assert.ok(update.selfInstallRefusal('win32'), 'Windows became able to self-install in a no-install slice');
-  assert.equal(update.installedRoot(), null, 'the install offer (`update` on the status payload) stays null here');
-  assert.deepEqual(require('./platform').SELF_INSTALL, ['darwin']);
+  assert.equal(update.selfInstallRefusal('win32'), null, 'Windows is still refused self-install in an armed slice');
+  assert.deepEqual(update.installOffer(), { version: NEWER }, 'a normal armed win32 bundle does not offer the in-app update');
+  assert.equal(update.manualOffer(), null, 'a normal armed bundle offered the manual download instead of [Update]');
+  assert.deepEqual(require('./platform').SELF_INSTALL, ['darwin', 'win32']);
+  update.setInstalledRoot(null);
 });
