@@ -46,6 +46,7 @@ let onFirstCall = null;     // runs once, before the first command is answered
 let macDisabled = new Set(); // agents launchd reports switched off (print-disabled)
 let winDisabled = new Set(); // agents whose Scheduled Task reports Disabled
 let winMissing = new Set();  // agents with no Scheduled Task at all (an import's first start)
+let winGerman = false;       // the LIST status printed as a German Windows prints it
 
 function answerMac(file, args) {
   const line = [nodePath.basename(file), ...args].join(' ');
@@ -64,6 +65,9 @@ function answerWin(args) {
   if (args[0] === '/Query') {
     if ([...winMissing].some((n) => args.includes(win32job.taskName(n)))) return { ok: false, out: 'ERROR: The system cannot find the file specified.' };
     const off = [...winDisabled].some((n) => args.includes(win32job.taskName(n)));
+    /* The switched-off decision reads the task's own definition (win32job.taskEnabled). */
+    if (args.includes('/XML')) return { ok: true, out: '<Task><Settings><Enabled>' + (off ? 'false' : 'true') + '</Enabled></Settings></Task>' };
+    if (winGerman) return { ok: true, out: off ? 'Status: Deaktiviert\n' : 'Status: Bereit\n' };
     return { ok: true, out: off ? 'Status: Disabled\n' : 'Status: Ready\n' };
   }
   const fail = failing.find((f) => line.includes(f.match));
@@ -442,6 +446,20 @@ test('R1-4 (Windows): a task that was ALREADY switched off is left off: not reco
   assert.match(out.notPaused[0].because, /already switched off/);
   assert.equal(calls.some((c) => /\/Change|\/End/.test(c)), false);
   assert.equal(fs.existsSync(worldstarts.RECORD_FILE), false, 'recording it would make the resume switch it back on');
+});
+
+test('R1-4 (Windows, German): a switched-off task is still left off, read from its definition not the translated status', () => {
+  /* win32-agent-job-read round 2: the LIST status is localized. A German Windows
+     prints "Deaktiviert", which a search for "disabled" misses, so a pause that read
+     it would record this agent and the resume would switch it back on. */
+  winDisabled.add('ava');
+  winGerman = true;
+  try {
+    const out = worldstarts.pauseForSwitch([{ name: 'ava', session: 'ava', tied: true }], { platform: WIN });
+    assert.deepEqual(out.paused, [], 'a switched-off agent on a German Windows was paused, so the resume would switch it on');
+    assert.match(out.notPaused[0].because, /already switched off/);
+    assert.equal(calls.some((c) => /\/Change|\/End/.test(c)), false);
+  } finally { winGerman = false; }
 });
 
 test('R1-4 (Mac): a job launchd reports switched off is left off: not recorded, not touched', () => {

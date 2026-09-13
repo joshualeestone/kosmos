@@ -263,8 +263,12 @@ function actSucceeded(act) {
 function switchedOffOnMac(platform) { return platform === 'win32' ? null : create.disabledJobs(); }
 function jobIsSwitchedOff(name, platform, macOff) {
   if (platform === 'win32') {
-    const st = win32job.status(name);
-    return st.registered === true && st.enabled === false;
+    /* The task's own definition, not the LIST text (win32-agent-job-read round 2):
+       a pause decides from this, and the LIST text calls an agent named
+       `disabled-bot` switched off and every task on a non-English Windows on.
+       A look that fails is still "not off", as it always was. */
+    const st = win32job.taskEnabled(name);
+    return st.known === true && st.registered === true && st.enabled === false;
   }
   return macOff.has(name);
 }

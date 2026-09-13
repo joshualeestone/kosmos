@@ -845,8 +845,195 @@ function plannedModelArg(name) {
  * own lesson, twice over: a new sibling does not inherit the guard.
  */
 /* `worldId` (#1704 PR4): read ANOTHER Kosmos's job, whose label carries that world's
-   key. Absent means this process's own world, which is every caller before import. */
-function readJob(name, worldId) {
+   key. Absent means this process's own world, which is every caller before import.
+
+   🛑 `platform` (win32-agent-job-read): ON WINDOWS THE JOB IS A SCHEDULED TASK, NOT A
+   PLIST. This read was plist-only, so on win32 it answered null for EVERY agent, and
+   every reader took that null as "Kosmos did not start it": setModel / setProvider
+   refused with "was not started by Kosmos", setAccount with "could not read how it is
+   started", and Trust & Restart skipped its trust write. Defaults to the real
+   platform, injected so a Mac can drive the win32 arm (the jobPresence shape). */
+function readJob(name, worldId, platform) {
+  return readJobVerdict(name, worldId, platform).job;
+}
+
+/**
+ * The job AND why there is none, so a caller that refuses can say which.
+ *
+ * `{ job }` when there is one; otherwise `job: null` with `win32` saying which
+ * substrate was asked, `absent: true` for a proven absence (no task registered, or
+ * a name Kosmos never builds a job from), or `because` for a look that failed.
+ * readJob folds all of those into null, as it always has.
+ *
+ * 🔑 THE win32 ARM READS THROUGH `win32job.cachedTaskSpec`, never a schtasks call of
+ * its own: the argv positions live once in `win32argv.specFromArgv`, and the cache is
+ * the #2717 one, busted by `install`/`remove`. Several callers of readJob run on the
+ * five-second poll (accountForAgent, status.readCodexSession), so an uncached arm
+ * would spawn one schtasks per agent per poll. World-keyed: a named Kosmos's agent is
+ * `Kosmos\agent-<name>+<world>` (win32job.taskName).
+ *
+ * The Windows job has no tmux; `claude` is the runner binary the task recorded
+ * (argument six), null for a task registered before that argument existed, which
+ * `win32launch.binFor` already treats as "resolve it again".
+ */
+function readJobVerdict(name, worldId, platform) {
+  const win32 = (platform || process.platform) === 'win32';
+  if (!NAME_RE.test(String(name == null ? '' : name))) return { job: null, win32, absent: true };
+  if (!win32) return { job: readPlistJob(name, worldId), win32 };
+  let read;
+  try { read = require('./win32job').cachedTaskSpec(name, worldId); }
+  catch (e) { read = { known: false, because: (e && e.message) || 'no detail' }; }
+  if (!read || !read.known) return { job: null, win32, because: (read && read.because) || 'Task Scheduler did not answer' };
+  if (!read.registered) return { job: null, win32, absent: true };
+  const s = read.spec || {};
+  return {
+    job: {
+      claude: s.claudeBin || null,
+      tmux: null,
+      model: s.model || null,
+      configDir: s.configDir || null,
+      runner: s.runner || 'claude',
+    },
+    win32,
+  };
+}
+
+/* The setters' refusal when there is no job to change, in words that name the
+   actual fault. The Mac sentence is the caller's own, unchanged. On Windows "not
+   started by Kosmos" was the false claim this branch removes, so it says instead
+   whether the task is missing or could not be read, and why. */
+function noJobRefusal(clean, spoken, verdict, macSentence) {
+  if (!verdict.win32) return { outcome: OUTCOME.REFUSED, because: macSentence };
+  let task = clean;
+  try { task = require('./win32job').taskName(clean); } catch { /* the bare name still identifies it */ }
+  return {
+    outcome: OUTCOME.REFUSED,
+    because: verdict.absent
+      ? `${spoken} has no startup task in Task Scheduler (${task}), so there is nothing to change and we have not changed it.`
+      : `we could not read ${spoken}'s startup task in Task Scheduler (${verdict.because}), so we have not changed it.`,
+  };
+}
+
+/**
+ * Rewrite an agent's launch job with new facts: ONE writer for the four setters.
+ *
+ * darwin: the plist, through `plistFor`, with the same sentence each setter used to
+ * carry its own copy of. win32: RE-REGISTER the Scheduled Task through
+ * `win32RegisterJob` (win32AgentSpec, then win32job.install's `/Create /F`), the same
+ * constructor creation uses. The caller's `removal.restart` (`/End` then `/Run`) is
+ * what then starts the new definition, exactly as bootout+bootstrap does for a plist.
+ *
+ * 🛑 THE win32 ACT IS LIVE, SO IT IS GATED (#1598). A plist write is a file; `/Create
+ * /F` is the side effect itself, and install also anchors the interpreter. It runs
+ * only when win32job's runner seam is installed or live execution is armed, and
+ * otherwise refuses (and, in a test process, throws via refuseOrWarn).
+ *
+ * Returns null on success, or a REFUSED outcome naming what went wrong.
+ */
+function rewriteAgentJob(clean, spoken, fields, platform) {
+  const f = fields || {};
+  if ((platform || process.platform) === 'win32') {
+    const win32job = require('./win32job');
+    if (!win32job.commandsAreReal()) {
+      liveExec.refuseOrWarn('engine/create.js', 'schtasks.exe', ['/Create', '/F', '/TN', win32job.taskName(clean)]);
+      return {
+        outcome: OUTCOME.REFUSED,
+        because: `this Kosmos is not allowed to change startup tasks, so ${spoken}'s startup task was not changed.`,
+      };
+    }
+    /* 🛑 THE TASK KEEPS ITS SWITCH (round 1 SAFETY). `/Create /F` writes a whole new
+       definition, and a definition says whether the task is enabled. Removing an
+       agent or pausing its Kosmos (#1704) DISABLES its task, and these setters do
+       not check either, so re-registering with the default would switch a removed
+       agent's task back on and start it at the next logon. On the Mac a plist
+       rewrite leaves `launchctl disable` in force, so the Mac has never had this.
+       ⇒ The state is read first and written back through the one definition
+       (taskXml), rather than re-disabling afterwards, which would leave a window.
+       ⚠️ FAIL CLOSED: a state we could not read refuses the change. Guessing
+       "enabled" is exactly the failure this prevents. */
+    /* 🛑 READ FROM THE TASK'S OWN DEFINITION, NOT THE LIST TEXT (round 2). `presence`
+       decides "disabled" by searching the whole localized `/FO LIST` output, which
+       also prints the task's name and the machine's: an ENABLED `agent-disabled-bot`
+       read as switched off, and on a non-English Windows a removed agent read as on.
+       `taskEnabled` reads `<Settings><Enabled>` from `/Query /XML`, which is
+       locale-independent and carries no names in that element. Uncached, because a
+       switch flipped since the definition was remembered must be seen here. */
+    const state = win32job.taskEnabled(clean);
+    if (!state.known) {
+      return {
+        outcome: OUTCOME.REFUSED,
+        because: `we could not tell whether ${spoken}'s startup task is switched on or off (${state.because || 'Task Scheduler did not answer'}), so we have not changed it.`,
+      };
+    }
+    if (!state.registered) {
+      return {
+        outcome: OUTCOME.REFUSED,
+        because: `${spoken}'s startup task is no longer in Task Scheduler, so there is nothing to change and we have not changed it.`,
+      };
+    }
+    const registered = win32RegisterJob(clean, {
+      runner: f.runner, runnerBin: f.runnerBin || undefined, model: f.model, configDir: f.configDir,
+      enabled: state.enabled !== false,
+    });
+    if (!registered || !registered.ok) {
+      return {
+        outcome: OUTCOME.REFUSED,
+        because: `we could not update ${spoken}'s startup task in Task Scheduler (${(registered && registered.because) || 'no detail'}), so nothing changed.`,
+      };
+    }
+    return null;
+  }
+  try {
+    fs.writeFileSync(plistPath(clean), plistFor(clean, f.runnerBin, f.tmux, f.model, f.configDir, f.runner), 'utf8');
+  } catch {
+    return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
+  }
+  return null;
+}
+
+/**
+ * The trust half of Trust & Restart (#2129): write the folder-trust entry for the
+ * agent's OWN folder, in the account its OWN job names, per runner.
+ *
+ * Moved out of the route so the job read has a platform (win32-agent-job-read): the
+ * route called a plist-only readJob, so on Windows it always skipped the trust write
+ * and restarted anyway. BEST-EFFORT AND NON-GATING as before: the route restarts
+ * whatever this answers. The trust writers are the create path's, unchanged.
+ */
+function trustAgentFolder(name, opts) {
+  const clean = cleanName(name);
+  let verdict;
+  try { verdict = readJobVerdict(clean, undefined, opts && opts.platform); }
+  catch (err) { verdict = { job: null, win32: false, because: String((err && err.message) || err) }; }
+  const job = verdict.job;
+  if (!job) {
+    if (!verdict.win32) return { wrote: false, because: 'this agent has no Kosmos launch job, so there was no folder to trust' };
+    return {
+      wrote: false,
+      because: verdict.absent
+        ? 'this agent has no startup task in Task Scheduler, so there was no folder to trust'
+        : `we could not read this agent's startup task in Task Scheduler (${verdict.because}), so we did not write the folder trust`,
+    };
+  }
+  /* A truthy job means the name passed NAME_RE, so workerDir returns a real path
+     under WORKERS and the trust writers always have a folder to key on. */
+  const folder = workerDir(clean);
+  if (job.runner === 'codex') {
+    try { trustCodexFolder(folder, job.configDir, !job.configDir); return { wrote: true, runner: 'codex' }; }
+    catch (err) { return { wrote: false, runner: 'codex', because: String((err && err.message) || err) }; }
+  }
+  /* trustFolder soft-fails ({ok:false, because}) rather than throwing, so read ok.
+     createIfAbsent matches the create path: on a fresh user the file may not exist. */
+  let t = null;
+  try { t = require('./trust').trustFolder(folder, { configDir: job.configDir, createIfAbsent: true, agentDefaultAccount: !job.configDir }); }
+  catch (err) { t = { ok: false, because: String((err && err.message) || err) }; }
+  return t && t.ok
+    ? { wrote: true, runner: 'claude', already: !!t.already }
+    : { wrote: false, runner: 'claude', because: (t && t.because) || 'the trust write did not complete' };
+}
+
+/* The launchd arm of readJob, unchanged. */
+function readPlistJob(name, worldId) {
   if (!NAME_RE.test(String(name == null ? '' : name))) return null;
   let text;
   try { text = fs.readFileSync(plistPath(name, worldId), 'utf8'); } catch { return null; }
@@ -887,7 +1074,8 @@ function readJob(name, worldId) {
  *
  * `accounts.share()` is the fix a caller offers instead of the move.
  */
-function setAccount(name, dir) {
+function setAccount(name, dir, opts) {
+  const platform = opts && opts.platform;
   const clean = cleanName(name);
   const spoken = spokenName(clean);
   if (!NAME_RE.test(String(clean == null ? '' : clean))) {
@@ -900,14 +1088,12 @@ function setAccount(name, dir) {
      Resolving against `accounts.list()` first refused a real codex account at
      REFUSE_ACCOUNT before the runner branch below was ever reached -- Dave's
      actual blocker, measured by April with a discriminating control. */
-  const job = readJob(clean);
+  const verdict = readJobVerdict(clean, undefined, platform);
+  const job = verdict.job;
   if (!job) {
-    return {
-      outcome: OUTCOME.REFUSED,
-      because: `we could not read how ${spoken} is started, so we have not changed it.`,
-    };
+    return noJobRefusal(clean, spoken, verdict, `we could not read how ${spoken} is started, so we have not changed it.`);
   }
-  if (job.runner === 'codex') return setCodexAccount(clean, spoken, dir, job);
+  if (job.runner === 'codex') return setCodexAccount(clean, spoken, dir, job, platform);
 
   const accounts = require('./accounts');
   const all = accounts.list();
@@ -927,12 +1113,10 @@ function setAccount(name, dir) {
     };
   }
 
-  try {
-    fs.writeFileSync(plistPath(clean),
-      plistFor(clean, job.claude, job.tmux, job.model, acct.isDefault ? null : acct.dir, job.runner), 'utf8');
-  } catch {
-    return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
-  }
+  const unwritten = rewriteAgentJob(clean, spoken, {
+    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir: acct.isDefault ? null : acct.dir, runner: job.runner,
+  }, platform);
+  if (unwritten) return unwritten;
 
   /**
    * 🛑 #1629: TRUST THE WORKER FOLDER IN THE ACCOUNT WE ARE MOVING THEM TO. This
@@ -1009,7 +1193,7 @@ function setAccount(name, dir) {
  * dialog nobody can answer (#245). No `trustFolder`/`preacceptBypass`: those are
  * Claude `.claude.json` concepts and mean nothing to codex.
  */
-function setCodexAccount(clean, spoken, dir, job) {
+function setCodexAccount(clean, spoken, dir, job, platform) {
   const openai = require('./openaiaccounts');
   const accounts = openai.list();
   /* The empty string means "back to the default codex home", a real choice --
@@ -1028,14 +1212,13 @@ function setCodexAccount(clean, spoken, dir, job) {
      and the provider switch. This is the same expression `setProvider` writes,
      so the two account-writing paths onto a codex agent agree by construction. */
   const homeArg = acct.isDefault && !codexHomeOverridden() ? null : acct.dir;
-  try {
-    /* `job.claude` is the recorded runner binary (arg[4]) and `job.model` is
-       kept: an account swap is not a runner or model change. Runner stays codex. */
-    fs.writeFileSync(plistPath(clean),
-      plistFor(clean, job.claude, job.tmux, job.model, homeArg, 'codex'), 'utf8');
-  } catch {
-    return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
-  }
+  /* `job.claude` is the recorded runner binary (arg[4] of a plist, argument six of
+     a task) and `job.model` is kept: an account swap is not a runner or model
+     change. Runner stays codex. */
+  const unwritten = rewriteAgentJob(clean, spoken, {
+    runnerBin: job.claude, tmux: job.tmux, model: job.model, configDir: homeArg, runner: 'codex',
+  }, platform);
+  if (unwritten) return unwritten;
   /* 🛑 TRUST THE FOLDER IN THE HOME THE AGENT WILL ACTUALLY BOOT, tied to
      `homeArg` so the plist and the trust write cannot look in different homes:
      when `homeArg` is null the agent reads `defaultAgentCodexHome()` (`~/.codex`),
@@ -1104,7 +1287,8 @@ function setCodexAccount(clean, spoken, dir, job) {
  * a real EACCES, the swallows by the same, asserting the switch COMPLETES around
  * the failure):
  *   1. `trustCodexFolder` appends to `<codexHome>/config.toml`   GATE (REFUSED)
- *   2. the plist rewrite through `plistFor`                      GATE (REFUSED)
+ *   2. the job rewrite through `rewriteAgentJob` (the plist via `plistFor` on a
+ *      Mac, the Scheduled Task re-register on Windows)            GATE (REFUSED)
  *   3. the brief RENAME, CLAUDE.md <-> AGENTS.md                 best-effort
  *   4. `store.writeProfile(clean, { provider })`                 best-effort
  * ⚠️ Gating is a property of the CALL SITE, not of `trustCodexFolder`. This is
@@ -1141,12 +1325,11 @@ function setProvider(name, provider, opts) {
   if (provider !== 'anthropic' && provider !== 'openai') {
     return { outcome: OUTCOME.REFUSED, because: REFUSE_PROVIDER };
   }
-  const job = readJob(clean);
+  const platform = opts && opts.platform;
+  const verdict = readJobVerdict(clean, undefined, platform);
+  const job = verdict.job;
   if (!job) {
-    return {
-      outcome: OUTCOME.REFUSED,
-      because: `${spoken} was not started by Kosmos, so we cannot change what it runs on.`,
-    };
+    return noJobRefusal(clean, spoken, verdict, `${spoken} was not started by Kosmos, so we cannot change what it runs on.`);
   }
   const runner = provider === 'openai' ? 'codex' : 'claude';
   if (job.runner === runner) {
@@ -1386,10 +1569,11 @@ function setProvider(name, provider, opts) {
      and the account are NOT, in either direction: they are provider-shaped
      choices, and carrying one across would hand the new runner a value it
      has never heard of, silently, at its next start. */
-  try {
+  {
     /* The account rides into the launch job as CODEX_HOME (#1313). `null` here
        meant the default home, which is the home the add path never writes. */
-    fs.writeFileSync(plistPath(clean),
+    const unwritten = rewriteAgentJob(clean, spoken, {
+      runnerBin, tmux: job.tmux, model: null, runner, configDir:
       /* 🔑 #1600: THE DEFAULT ROW WRITES NO HOME, WHICH IS THE RULE THE REST OF THIS
          FILE ALREADY FOLLOWS. This used to write `openaiAccount.dir` for EVERY row
          including the default one, so an agent SWITCHED onto the default row had that
@@ -1417,11 +1601,10 @@ function setProvider(name, provider, opts) {
          force". With one set, the home is recorded, which is what #1373 asserts.
          📌 Composed from `homeIsNamed()` rather than restating the rule: #1488 was
          precisely a second copy of this derivation disagreeing with the first. */
-      plistFor(clean, runnerBin, job.tmux, null,
         openaiAccount && !(openaiAccount.isDefault && !codexHomeOverridden())
-          ? openaiAccount.dir : null, runner), 'utf8');
-  } catch {
-    return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
+          ? openaiAccount.dir : null,
+    }, platform);
+    if (unwritten) return unwritten;
   }
   /* #2245: the brief FILENAME is runner-aware (codex boots AGENTS.md, claude
      boots CLAUDE.md), so a runner CHANGE must MOVE the brief to the file the
@@ -1474,7 +1657,8 @@ function setProvider(name, provider, opts) {
   };
 }
 
-function setModel(name, modelKey) {
+function setModel(name, modelKey, opts) {
+  const platform = opts && opts.platform;
   const clean = cleanName(name);
   const spoken = spokenName(clean);
   if (!NAME_RE.test(String(clean == null ? '' : clean))) {
@@ -1488,12 +1672,10 @@ function setModel(name, modelKey) {
      Reading the two binary paths by hand was correct while the model was the
      only settable field; it is now the shape that silently moves an agent back
      to the default account every time somebody changes its model. */
-  const job = readJob(clean);
+  const verdict = readJobVerdict(clean, undefined, platform);
+  const job = verdict.job;
   if (!job) {
-    return {
-      outcome: OUTCOME.REFUSED,
-      because: `${spoken} was not started by Kosmos, so we cannot change what it runs on.`,
-    };
+    return noJobRefusal(clean, spoken, verdict, `${spoken} was not started by Kosmos, so we cannot change what it runs on.`);
   }
   /* The agent's PROVIDER, from the runner its job actually launches. One
      derivation, the same direction `createAgent` goes in reverse. */
@@ -1541,11 +1723,10 @@ function setModel(name, modelKey) {
     }
   }
 
-  try {
-    fs.writeFileSync(plistPath(clean), plistFor(clean, job.claude, job.tmux, m.arg, job.configDir, job.runner), 'utf8');
-  } catch {
-    return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
-  }
+  const unwritten = rewriteAgentJob(clean, spoken, {
+    runnerBin: job.claude, tmux: job.tmux, model: m.arg, configDir: job.configDir, runner: job.runner,
+  }, platform);
+  if (unwritten) return unwritten;
   return { outcome: OUTCOME.CREATED, because: null, model: m };
 }
 
@@ -2052,7 +2233,9 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
      so an absent key has to keep meaning what it already means -- and a
      rewrite that started stamping the default would make an unrelated edit
      look like an account change in every diff of these files. */
-  const configKey = isCodex ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR';
+  /* The key per runner is stated once, in accountenv.accountEnvVar, so the Windows
+     launch (win32launch.childEnv) delivers the account under the same variable. */
+  const configKey = require('./accountenv').accountEnvVar(runner);
   const configLine = configDir ? `\n    <key>${configKey}</key><string>${xml(configDir)}</string>` : '';
   /* 🔑 WHICH TMUX SERVER THE JOB'S SESSIONS LAND ON (#668). The board and the
      supervisor each resolve the session socket from their OWN environment, and
@@ -2345,6 +2528,10 @@ function win32AgentSpec(name, o) {
     claudeBin: s.runnerBin,
     configDir: s.configDir || null,
     model: s.model || null,
+    /* Whether the task is switched on. Creation passes nothing and gets an enabled
+       task; a setter's re-register passes the state the task already had, so a
+       removed or paused agent stays off (see rewriteAgentJob). */
+    enabled: s.enabled !== false,
     platform: 'win32',
   };
 }
@@ -4297,6 +4484,10 @@ module.exports = {
   setAccount,
   setProvider,
   readJob,
+  /* win32-agent-job-read: the job read with its reason, and the Trust & Restart
+     trust step, which the route calls so its job read follows the platform. */
+  readJobVerdict,
+  trustAgentFolder,
   /* Exported for the sandbox guards in the adopt tests: a test that writes
      a codex trust entry must be able to ASK where that write will land, rather
      than infer it from which env vars it happens to have set (#1359). */
