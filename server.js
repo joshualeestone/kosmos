@@ -3244,13 +3244,18 @@ const server = http.createServer((req, res) => {
            Update nothing happens"). An offer is a promise the route must be
            able to keep; a source-run board says what it is instead (the
            engine-stale line from #338 covers "newer code is on disk"). */
-        update: updates.installedRoot() ? updates.available() : null, updateLook: updates.lastLook(),
-        /* win32-update-check: a Windows bundle cannot take the install offer above (no
-           installedRoot, and the install route refuses there), so a newer Windows build rides
-           here as the MANUAL offer ({version, download}) and the Settings card says so instead
-           of "Up to date.". Null everywhere else. The channel rides beside it so a staging
-           board is never silent about being one. */
-        updateManual: updates.manualOffer(), updateChannel: updates.updateChannel(),
+        /* installOffer() is the [Update] offer: something newer is published AND this board can take
+           it in place. Null on a source run (both platforms) and, on win32, null for a bundle in a
+           location the updater refuses (OneDrive / Program Files) -- that install gets the manual
+           offer below instead. One derivation, so the button, the route and the auto path agree. */
+        update: updates.installOffer(), updateLook: updates.lastLook(),
+        /* win32 (S4): a bundle the in-app updater refuses UP FRONT -- one under OneDrive or Program
+           Files (the one named location rule) -- rides here as the MANUAL offer ({version, download})
+           so the card shows the honest download instead of an [Update] that would fail; a normal
+           armed bundle gets the [Update] offer above, and the two are mutually exclusive. updatePhase
+           is the win32 update journal's phase, so the overlay can tell downloading from swapping. The
+           channel rides beside them so a staging board is never silent about being one. */
+        updateManual: updates.manualOffer(), updateChannel: updates.updateChannel(), updatePhase: updates.updatePhase(),
         /* #553: the last install attempt this server saw END (a failure;
            a success kills the server first). The overlay reads it to say
            a true sentence instead of spinning. */
@@ -8195,7 +8200,7 @@ const server = http.createServer((req, res) => {
       // offer is the newer()-gated verdict (same gate the toast rides), so
       // the card never has to re-derive version ordering client-side.
       // manual/channel: the same two facts /api/status carries, so a press paints what the poll paints.
-      .then((out) => sendJson(res, 200, { ...out, offer: updates.installedRoot() ? updates.available() : null, source: !updates.installedRoot(), manual: updates.manualOffer(), channel: updates.updateChannel() }))
+      .then((out) => sendJson(res, 200, { ...out, offer: updates.installOffer(), source: !updates.installedRoot(), manual: updates.manualOffer(), channel: updates.updateChannel() }))
       .catch(() => sendJson(res, 200, { running: updates.RUNNING, latest: null, reached: false, readable: false, offer: null, manual: null, channel: updates.updateChannel() }));
     return;
   }
@@ -8235,6 +8240,13 @@ const server = http.createServer((req, res) => {
       sendJson(res, 409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
       return;
     }
+    /* 🪟 S4 decision 5: a win32 bundle under OneDrive or Program Files never attempts the in-app swap
+       -- the in-app updater refuses it through the one named location rule (windowsLocationRefusal),
+       and the status already shows the manual download instead of an [Update] button, so this is the
+       belt-and-braces refusal for a stray POST, rendered verbatim in the confirm dialog. Null (and so
+       skipped) on the Mac and for a normal win32 bundle. */
+    const locationRefusal = updates.windowsLocationRefusal();
+    if (locationRefusal) { sendJson(res, 409, { error: locationRefusal }); return; }
     if (updates.alreadyInstalling()) {
       // Idempotent: the first POST started it; a retry, a double click, or a
       // second tab gets the same true answer without a second installer
@@ -13049,6 +13061,11 @@ function start(port = PORT) {
          will fetch, so a staging board, or a board aimed at a mirror, reads as one from its log
          line alone. */
       process.stdout.write(`Kosmos update check: channel=${updates.updateChannel()} pointer=${updates.pointerUrl()}\n`);
+      /* 🪟 S4: tell the updater the board it must stop and the port it must confirm on, so the win32
+         in-app helper (win32update.begin -> win32apply) hands the swap this exact process and port
+         rather than its own default. Read from the bound socket, so it is the real listening port even
+         when PORT was derived per-OS-user. Inert on the Mac (its updater is the /bin/sh installer). */
+      try { updates.setBoardContext({ port: server.address() && server.address().port, pid: process.pid }); } catch { /* best-effort; begin() defaults when unset */ }
       const updatePoke = updates.startPolling(Number(process.env.AGENT_WORKFORCE_UPDATE_POKE_MS));
       if (updatePoke && typeof updatePoke.unref === 'function') updatePoke.unref();
       /* #1722: the product heartbeat. Its OWN self-rescheduling timer, because

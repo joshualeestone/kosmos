@@ -3,8 +3,9 @@
  * The Windows in-app updater, slice S2: download, verify and STAGE a newer Windows build; and slice
  * S3's board side, B5 (`begin()`): stage it, write the update journal, and start the detached helper
  * (engine/win32apply.js) that swaps it in. `prepare()` itself never swaps anything in. The button
- * (S4) is a later slice; nothing in the product calls `prepare()` or `begin()` yet (only the
- * live-check CLI below), and SELF_INSTALL is still darwin-only.
+ * As of S4 the board calls `begin()` (engine/update.js beginInstall routes win32 here) and
+ * SELF_INSTALL includes win32, so the Install button is live; `prepare()` alone is still reached
+ * only by the live-check CLI below.
  *
  * 🔑 THE WHOLE SLICE WRITES INSIDE ONE FOLDER, `<ROOT>\.kosmos-update\` (WORK), where ROOT is
  * the unpacked Kosmos folder the board runs from. On the same volume as ROOT, so the S3 swap is

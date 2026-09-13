@@ -2,8 +2,9 @@
 /**
  * The Windows in-app updater, slice S3: SWAP a staged build in, and put the old one back when it
  * does not take. engine/win32update.js's prepare() (S2) staged it; its begin() (B5) writes the
- * journal and starts the helper this module is. Nothing in the product calls begin() yet: only the
- * live-check CLI does, and SELF_INSTALL is still darwin-only.
+ * journal and starts the helper this module is. As of S4 the board calls begin() -- engine/update.js
+ * beginInstall routes win32 here, SELF_INSTALL includes win32, and the Install button is live -- so
+ * this now runs in the field, not only from the live-check CLI.
  *
  * 🔑 THE UPDATE MOVES ONLY THE BUILD'S OWN TOP-LEVEL ENTRIES. ROOT is the unpacked Kosmos folder
  * the board runs from; a person keeps `Projects` (and anything else) beside the entries, and none of
