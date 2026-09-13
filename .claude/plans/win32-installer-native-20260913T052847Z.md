@@ -798,7 +798,34 @@ Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
   - The real system was untouched afterwards: no real `Kosmos.lnk`, no real `Uninstall\Kosmos` key, no
     `KosmosTest` key, no `%LOCALAPPDATA%\Programs\Kosmos`, and `Kosmos\board` still running.
 
+## Round 8 review (converged; round 9 wrap-up)
+
+The round 8 review found no SAFETY or BUG (the round 7 SAFETY fix was reproduced by reverting its guard). One
+CI-flake fix, two notes, then the rebase and the proof.
+
+- **[CI-FLAKE] Two timing hand-off tests could flake on a loaded CI runner.**
+  `engine/win32handoff.test.js` at the hand-off-unchanged test and the round-7 total-deadline test each had a
+  tight upper bound (2600 ms; connect + 2000 + 1000) that a loaded runner passed (seen at ~3.0-3.5 s). Each
+  keeps its LOWER bound as the contract (the look waited its window, not short-circuited) and its upper bound
+  is now a hang-guard well clear of load (8000 ms; connect + 2000 + 6000), with a comment saying so. Neither
+  is platform-gated off: they exercise the Mac hand-off too. The total-deadline test's listener now sends a
+  body that never completes, so removing the deadline (round 8 finding 3's control) is a true hang that still
+  reds it.
+- **[accepted limit] Round-5 case-C degrades under a #1112 remote bind.** A hand-started board reachable ONLY
+  through the bind-host address answers a look there with a 400 before routing, which reads as `unidentified`
+  (rank 2); the task's own loopback board (rank 0/1) outranks it. So the first look sees the task's board and
+  the removal switches it off, ends it and waits (case-B behaviour), rather than stopping with no schtasks
+  call at all (case-C). It stays fail-closed: the bind-host board keeps answering, the wait times out, and the
+  board task's switch is restored. Nothing is deleted. No code change; recorded as an accepted limit.
+
 ## Follow-ups (not this slice)
+
+- **The no-connect-limit `probeBoard` can hang on a headers-then-stall response (#2983's owner).** With no
+  connect limit -- only the launcher's hand-off and the board restart -- a listener that sends response headers
+  and then stalls mid-body keeps the look alive past PROBE_TIMEOUT_MS, because that limit is an idle timeout
+  the headers reset. It is identical on the `aa30db6c`/`b31b7610` base and only on the hand-off path this slice
+  does not touch, so it is not this slice's to fix; the every-address look the uninstall and the move use has a
+  total deadline (round 7, finding 3) and is unaffected. Left for #2983's owner.
 
 - **A progress window while the uninstall runs (round 3, finding 5).** The uninstall helper has no time
   limit, by design. Its worst case, with every schtasks call using its whole 20s timeout, N agent tasks

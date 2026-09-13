@@ -649,7 +649,10 @@ test('🛑 win32-installer-native round 6 finding 1: the launcher\'s hand-off pr
     const answer = await probeBoard(hung.address().port);
     const tookMs = Date.now() - startedAt;
     assert.equal(answer.outcome, PROBE_OUTCOMES.TIMED_OUT);
-    assert.ok(tookMs >= 1900 && tookMs < 2600, 'the hand-off look took ' + tookMs + ' ms, not its 2 s');
+    /* The LOWER bound is the contract: the hand-off waited its ~2 s PROBE_TIMEOUT_MS rather than short-
+       circuiting. The UPPER bound is only a hang-guard -- it catches a look that never settles, not a slow
+       CI runner -- so it is well clear of load (a loaded runner has been seen at ~3.5 s). */
+    assert.ok(tookMs >= 1900 && tookMs < 8000, 'the hand-off look took ' + tookMs + ' ms, not its 2 s');
   } finally {
     for (const socket of sockets) socket.destroy();
     await new Promise((resolve) => hung.close(resolve));
@@ -706,7 +709,10 @@ test('🛑 win32-installer-native round 7 finding 3: a look with a connect limit
   const TRICKLE_MS = 1500;
   const trickler = net.createServer((socket) => {
     sockets.add(socket);
-    socket.write('HTTP/1.1 200 OK\r\nContent-Length: 6\r\n\r\n');
+    /* A body that never completes (a huge Content-Length, a byte every 1.5 s): without the total deadline the
+       idle 2 s answer timeout never fires either, so the look would hang for ever. That is what makes this a
+       hang-guard -- remove the deadline (round 8 finding 3's control) and the test hangs, then goes red. */
+    socket.write('HTTP/1.1 200 OK\r\nContent-Length: 1000000\r\n\r\n');
     const timer = setInterval(() => socket.write('x'), TRICKLE_MS);
     socket.on('close', () => clearInterval(timer));
     socket.on('error', () => clearInterval(timer));
@@ -718,7 +724,10 @@ test('🛑 win32-installer-native round 7 finding 3: a look with a connect limit
     const answer = await probeBoard(trickler.address().port, '127.0.0.1', { connectTimeoutMs: CONNECT_LIMIT_MS });
     const tookMs = Date.now() - startedAt;
     assert.equal(answer.outcome, PROBE_OUTCOMES.TIMED_OUT, JSON.stringify(answer) + ' in ' + tookMs + ' ms');
-    assert.ok(tookMs >= CONNECT_LIMIT_MS + 2000 - 200 && tookMs < CONNECT_LIMIT_MS + 2000 + 1000, 'the look took ' + tookMs + ' ms, not its connect + answer cap');
+    /* The LOWER bound is the contract: the deadline let the answer window open (it did not cut off at the
+       connect). The UPPER bound is only a hang-guard, well clear of CI load (a loaded runner has been seen at
+       ~3.5 s), proving the deadline fired at all rather than the look hanging on the trickle. */
+    assert.ok(tookMs >= CONNECT_LIMIT_MS + 2000 - 200 && tookMs < CONNECT_LIMIT_MS + 2000 + 6000, 'the look took ' + tookMs + ' ms, not its connect + answer cap');
   } finally {
     for (const socket of sockets) socket.destroy();
     await new Promise((resolve) => trickler.close(resolve));
