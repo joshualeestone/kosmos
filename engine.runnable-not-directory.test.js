@@ -593,6 +593,7 @@ test('every site under the resolution rule resolves the claude binary its docume
     { fn: 'async function willInstall(', resolutions: 1, note: 'one resolution, both reads off it' },
     { fn: 'function claudeHatchAvailable(', resolutions: 1, note: 'one resolution, both reads off it' },
     { fn: 'async function installClaudeCode(', resolutions: 1, note: 'the post-install gate resolves once' },
+    { fn: 'function windowsClaudeSigninCommand(', resolutions: 1, note: 'win32-signin-web-copy: the presence gate and the file the Windows line names come off one answer' },
   ];
 
   for (const site of SITES) {
@@ -1339,7 +1340,7 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
     .filter((l) => /\bcanRunClaude\b/.test(l) && /\bwriteState\b/.test(l));
   assert.deepStrictEqual(
     writers,
-    ['writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable() });'],
+    ['writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable(), claudeSigninCommand: windowsClaudeSigninCommand() });'],
     'the lines that both mention canRunClaude and call writeState changed. There must be exactly ' +
       'one, passing claudeHatchAvailable() straight through. A SECOND is a writer no arm drives, ' +
       'and it need not use a colon: `writeState({ ..., canRunClaude })` is shorthand and was this ' +
@@ -1572,7 +1573,7 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
     .filter((l) => /\bcanRunClaude\b/.test(l) && !l.startsWith('*') && !l.startsWith('//') && !l.startsWith('/*'));
   assert.deepStrictEqual(
     lines,
-    ['writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable() });'],
+    ['writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable(), claudeSigninCommand: windowsClaudeSigninCommand() });'],
     'the code lines mentioning canRunClaude inside becomeStuck changed. It must pass ' +
       'claudeHatchAvailable() straight through: anything appended widens the answer AFTER the ' +
       'check, and a `|| fs.existsSync(p)` turns a DIRECTORY back into true.'

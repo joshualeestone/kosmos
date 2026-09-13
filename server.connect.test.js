@@ -1600,6 +1600,14 @@ test('#570: the note retires itself the day Kosmos can install Claude Code on Wi
 const WINDOWS_SIGNIN_UNAVAILABLE = fs.readFileSync(path.join(__dirname, 'engine', 'connect.js'), 'utf8')
   .match(/const WINDOWS_SIGNIN_UNAVAILABLE_BECAUSE = '([^']+)';/)[1];
 
+/* The line connect.js records for a Windows PC whose Claude Code sits under a user name with a
+   space and an apostrophe, built by the engine's own quoting (engine/win32signin.test.js pins it). */
+const WINDOWS_CLAUDE_FILE = "C:\\Users\\Mary O'Brien\\.local\\bin\\claude.exe";
+const WINDOWS_SIGNIN_LINE = require('./engine/win32signin').powershellCommandToSignInClaude(WINDOWS_CLAUDE_FILE);
+const WINDOWS_SIGNIN_LINE_ON_THE_CARD = '<div class="fr-cmd-row"><pre class="fr-cmd">'
+  + "&amp; 'C:\\Users\\Mary O''Brien\\.local\\bin\\claude.exe' auth login"
+  + '</pre><button class="btn-quiet fr-copy" type="button" data-copy-command>Copy</button></div>';
+
 test('win32-signin-web-copy: a Windows PC that already has Claude Code is not told to install it, and sees the sign-in steps open', () => {
   /**
    * 🛑 THE DEFECT, AND WHY THIS REPLACES #570's "keeps both notes" ARM. The install note was
@@ -1609,15 +1617,43 @@ test('win32-signin-web-copy: a Windows PC that already has Claude Code is not to
    * above the hatch telling it to run the program it has. There is no "part way" box here:
    * canRunClaude is the disk saying the program is there.
    */
-  const { els, actions } = connectHarness(win32Stuck({ because: WINDOWS_SIGNIN_UNAVAILABLE, canRunClaude: true }));
+  const { els, actions } = connectHarness(win32Stuck({ because: WINDOWS_SIGNIN_UNAVAILABLE, canRunClaude: true,
+    claudeSigninCommand: WINDOWS_SIGNIN_LINE }));
   const html = els['fr-sub'].innerHTML;
   assert.doesNotMatch(html, /install\.ps1|this one step is yours/, 'a PC that has Claude Code was told to install it');
   assert.equal(html.split(WINDOWS_SIGNIN_UNAVAILABLE).length - 1, 1, 'the engine\'s reason is not on the card exactly once');
-  assert.match(html, /<details class="fr-hatch" open><summary>Sign in to Claude yourself<\/summary>/,
+  assert.ok(html.includes('<details class="fr-hatch" open><summary>Sign in to Claude yourself</summary>'),
     'the one way through is closed behind a disclosure, or gone');
-  assert.match(html, /Open the Start menu, type <b>PowerShell<\/b>, and press Enter\. Type <b>claude<\/b>, press Enter, and follow its sign-in\. Then come back here and click <b>Try again<\/b>\./);
+  assert.ok(html.includes(WINDOWS_SIGNIN_LINE_ON_THE_CARD), 'the engine\'s line is not on the card verbatim beside a Copy button: ' + html);
+  assert.equal((html.match(/<pre class="fr-cmd">/g) || []).length, 1, 'the card shows more than one command');
+  assert.doesNotMatch(html, /type <b>claude<\/b>/i, 'the card tells the person to type bare claude, which a PATH may not find');
+  assert.match(html, /When PowerShell says <b>Login successful<\/b>, come back here and click <b>Try again<\/b>\.<\/details>/);
   assert.match(html, /Nothing is broken by this\. You can try again, or carry on and connect later from Settings\./);
   assert.ok(actions && actions.primary === 'Try again' && actions.alt === 'Continue anyway');
+});
+
+test('win32-signin-web-copy #2645: an EXPIRED sign-in stuck with no Windows host is shown the auth login line, never bare claude', () => {
+  /* The record as the engine serves it: engine/connect.win32signin.test.js drives a dead
+     credential with the Windows host off to STUCK and pins that becomeStuck records this line.
+     Here the real publicView serves it and the real painter shows it. A bare `claude` would
+     drop that credential into the REPL ("Not logged in") with nothing to follow. */
+  const served = connect.publicView({ phase: 'stuck', because: connect.WINDOWS_SIGNIN_UNAVAILABLE_BECAUSE, tail: null,
+    startedOnce: true, deadCredential: true, canRunClaude: true, claudeSigninCommand: WINDOWS_SIGNIN_LINE }, 'win32');
+  const { els } = connectHarness({ ...served, progress: { got: 0, total: null } });
+  const html = els['fr-sub'].innerHTML;
+  const shown = (html.match(/<pre class="fr-cmd">([^<]*)<\/pre>/) || [])[1];
+  assert.equal(shown, "&amp; 'C:\\Users\\Mary O''Brien\\.local\\bin\\claude.exe' auth login",
+    'the expired sign-in card does not show the engine\'s auth login line');
+  assert.doesNotMatch(html, /type <b>claude<\/b>/i);
+});
+
+test('win32-signin-web-copy: a Windows PC the engine named no file for gets the card for a PC without Claude Code', () => {
+  /* canRunClaude with no line means the two asks disagreed at stuck time; the hatch is withheld
+     rather than offered with nothing to paste. */
+  const { els } = connectHarness(win32Stuck({ because: WINDOWS_SIGNIN_UNAVAILABLE, canRunClaude: true, claudeSigninCommand: null }));
+  const html = els['fr-sub'].innerHTML;
+  assert.match(html, /irm https:\/\/claude\.ai\/install\.ps1 \| iex/, 'a PC with no line lost the way to get Claude Code');
+  assert.doesNotMatch(html, /fr-hatch/, 'a hatch was offered with no line to paste');
 });
 
 test('win32-signin-web-copy CONTROL: a Windows PC without Claude Code still gets the install steps, and no sign-in hatch', () => {
@@ -1637,8 +1673,9 @@ test('win32-signin-web-copy MAC UNCHANGED: the stuck card note is byte-identical
   for (const platform of ['darwin', undefined]) {
     for (const canInstallClaude of [true, false]) {
       for (const canRunClaude of [true, false]) {
+        /* A line in the state too: a Mac never records one, and must not show one if it did. */
         const { els } = connectHarness({ phase: 'stuck', because: 'we could not open the window Claude signs in through',
-          platform, canInstallClaude, canRunClaude, progress: { got: 0, total: null } });
+          platform, canInstallClaude, canRunClaude, claudeSigninCommand: WINDOWS_SIGNIN_LINE, progress: { got: 0, total: null } });
         const html = els['fr-sub'].innerHTML;
         assert.equal(html.slice(html.indexOf('<div class="fr-note">')), MAC_NOTE + (canRunClaude ? MAC_HATCH : '') + '</div>',
           `the Mac note changed for platform=${platform} canInstallClaude=${canInstallClaude} canRunClaude=${canRunClaude}`);

@@ -111,6 +111,31 @@ const PROGRAM_EXTENSION = '.exe';
 
 const SCRIPT_ONLY_BECAUSE = 'Kosmos cannot start the copy of Claude Code on this computer by itself';
 
+/**
+ * PowerShell's single-quote characters: the ASCII one and the four typographic ones it also
+ * reads as quotes. Inside a single-quoted string each is written twice to stand for itself,
+ * and nothing else is special there (`$` and the backtick are literal), which is why the line
+ * below single-quotes the path rather than double-quoting it.
+ */
+const POWERSHELL_SINGLE_QUOTES = /['‘’‚‛]/g;
+
+/**
+ * What the Windows stuck card asks a person to run: the plain-text login. Never bare `claude`,
+ * which drops a dead credential into the REPL with nothing to follow (#1937, #2645).
+ */
+const SIGNIN_ARGS_FOR_A_PERSON = 'auth login';
+
+/**
+ * The line a person pastes into PowerShell to sign Claude Code in, naming `programPath`
+ * exactly: `& '<path>' auth login`. Null when there is no path, or one that cannot be written
+ * on a single line.
+ */
+function powershellCommandToSignInClaude(programPath) {
+  const given = typeof programPath === 'string' ? programPath : '';
+  if (!given || /[\r\n\0]/.test(given)) return null;
+  return "& '" + given.replace(POWERSHELL_SINGLE_QUOTES, (quote) => quote + quote) + "' " + SIGNIN_ARGS_FOR_A_PERSON;
+}
+
 /** Anthropic credentials (API keys and OAuth tokens) all start this way. */
 const SECRET_PATTERN = /sk-ant-[\w-]+/g;
 const SECRET_REPLACEMENT = 'sk-ant-[redacted]';
@@ -521,7 +546,7 @@ function createSigninHost() {
 }
 
 module.exports = {
-  createSigninHost, setSpawn,
+  createSigninHost, setSpawn, powershellCommandToSignInClaude,
   SIGNIN_ARGS, SIGNIN_OUTPUT_LIMIT_CHARS, STDERR_TAIL_LINES, SENT_FRAGMENT_MIN_CHARS,
   REDACTION_MARKER,
   normaliseSignInText, redactSecrets, createTextKeeper,

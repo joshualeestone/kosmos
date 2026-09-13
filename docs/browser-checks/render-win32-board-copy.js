@@ -133,8 +133,12 @@ async function readPage(browser, platform) {
    Each arm's `because` differs from the arm before it, so the painter's repaint key (phase plus
    because) never skips one. */
 const SIGNIN_UNAVAILABLE = 'Kosmos cannot run the Claude sign-in on Windows yet';
+/* The line the engine records for Claude Code under a user name with a space and an
+   apostrophe (engine/win32signin.js quotes it; the page shows it verbatim). */
+const SIGNIN_LINE = "& 'C:\\Users\\Mary O''Brien\\.local\\bin\\claude.exe' auth login";
 const CONNECT_ARMS = {
-  windowsHasClaude: { phase: 'stuck', because: SIGNIN_UNAVAILABLE, platform: 'win32', canInstallClaude: false, canRunClaude: true },
+  windowsHasClaude: { phase: 'stuck', because: SIGNIN_UNAVAILABLE, platform: 'win32', canInstallClaude: false, canRunClaude: true, claudeSigninCommand: SIGNIN_LINE },
+  windowsNoLine: { phase: 'stuck', because: 'Kosmos could not start the Claude sign-in on this computer', platform: 'win32', canInstallClaude: false, canRunClaude: true, claudeSigninCommand: null },
   windowsNoClaude: { phase: 'stuck', because: 'Kosmos could not find Claude Code to run its sign-in', platform: 'win32', canInstallClaude: false, canRunClaude: false },
   macHasClaude: { phase: 'stuck', because: 'we could not open the window Claude signs in through', platform: 'darwin', canInstallClaude: true, canRunClaude: true },
 };
@@ -162,8 +166,13 @@ async function readConnectCard(browser) {
       const cmd = host.querySelector('.fr-cmd');
       const hatch = host.querySelector('details.fr-hatch');
       const summary = hatch && hatch.querySelector('summary');
+      const row = cmd && cmd.closest('.fr-cmd-row');
       out[name] = {
         showsCommand: Boolean(cmd && cmd.getBoundingClientRect().height > 0),
+        commandText: cmd ? cmd.textContent : '',
+        commandInHatch: Boolean(cmd && cmd.closest('details.fr-hatch')),
+        copyBeside: Boolean(row && row.querySelector('button.fr-copy[data-copy-command]')
+          && row.querySelector('button.fr-copy[data-copy-command]').getBoundingClientRect().height > 0),
         hasHatch: Boolean(hatch),
         open: Boolean(hatch && hatch.open),
         summary: summary ? summary.textContent.trim() : '',
@@ -217,12 +226,21 @@ async function readConnectCard(browser) {
       check(`${engine}: the connect card is reachable`, false, 'no #fr-sub or no frPaintConnect');
     } else {
       const has = card.got.windowsHasClaude;
-      check(`${engine}: a Windows PC that has Claude Code is not shown the install command`, !has.showsCommand, JSON.stringify(has.text.slice(0, 160)));
+      check(`${engine}: a Windows PC that has Claude Code is not shown the install command`, !/install\.ps1/.test(has.text), JSON.stringify(has.text.slice(0, 160)));
       check(`${engine}: its card says the engine's reason once`, has.text.split(SIGNIN_UNAVAILABLE).length - 1 === 1, JSON.stringify(has.text.slice(0, 160)));
       check(`${engine}: its sign-in steps render open under "Sign in to Claude yourself"`,
         has.hasHatch && has.open && has.summary === 'Sign in to Claude yourself' && has.stepsHeight > 20,
         `hatch ${has.hasHatch}, open ${has.open}, summary ${JSON.stringify(has.summary)}, steps ${Math.round(has.stepsHeight)}px`);
-      check(`${engine}: and they end at Try again`, /follow its sign-in\. Then come back here and click Try again\./.test(has.text), JSON.stringify(has.text.slice(-160)));
+      check(`${engine}: the engine's line is shown verbatim inside the hatch, with real area and a Copy button beside it`,
+        has.showsCommand && has.commandText === SIGNIN_LINE && has.commandInHatch && has.copyBeside,
+        `text ${JSON.stringify(has.commandText)}, in hatch ${has.commandInHatch}, copy ${has.copyBeside}`);
+      check(`${engine}: and the steps end at Login successful and Try again`,
+        /When PowerShell says Login successful, come back here and click Try again\./.test(has.text) && !/type claude/i.test(has.text),
+        JSON.stringify(has.text.slice(-160)));
+      const noLine = card.got.windowsNoLine;
+      check(`${engine}: a Windows PC the engine named no file for gets the install command and no hatch`,
+        noLine.showsCommand && /install\.ps1/.test(noLine.commandText) && !noLine.hasHatch,
+        `command ${JSON.stringify(noLine.commandText)}, hatch ${noLine.hasHatch}`);
       const none = card.got.windowsNoClaude;
       check(`${engine}: CONTROL a Windows PC without Claude Code still sees the install command and no sign-in hatch`,
         none.showsCommand && !none.hasHatch, `command ${none.showsCommand}, hatch ${none.hasHatch}`);

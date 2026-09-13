@@ -414,10 +414,13 @@ test('the Claude card on Windows: PowerShell steps, a Copy button, no macOS clau
   assert.match(table.claudeInstallNote, /^Kosmos can&rsquo;t install Claude Code for you on Windows yet, so this one step is yours\. Open the Start menu, type <b>PowerShell<\/b>, and press Enter\./);
   assert.match(table.claudeInstallNote, /<pre class="fr-cmd">irm https:\/\/claude\.ai\/install\.ps1 \| iex<\/pre><button class="btn-quiet fr-copy" type="button" data-copy-command>Copy<\/button>/);
   assert.doesNotMatch(table.claudeInstallNote, /macOS/);
-  /* win32-signin-web-copy: shown OPEN under a plain summary, because on Windows it is the way
-     through the stuck card rather than an aside for somebody who already uses PowerShell. */
-  assert.match(table.claudeTerminalHatch, /^<details class="fr-hatch" open><summary>Sign in to Claude yourself<\/summary>Claude Code is already on this PC, so you can sign in to Claude outside Kosmos\. Open the Start menu, type <b>PowerShell<\/b>, and press Enter\. /);
-  assert.match(table.claudeTerminalHatch, /Type <b>claude<\/b>, press Enter, and follow its sign-in\. Then come back here and click <b>Try again<\/b>\./);
+  /* win32-signin-web-copy: shown OPEN under a plain summary, around the engine's finished
+     PowerShell line (the stuck card puts it, with Copy, between these two halves). */
+  assert.equal(table.claudeSigninHatchLead, '<details class="fr-hatch" open><summary>Sign in to Claude yourself</summary>'
+    + 'Claude Code is already on this PC, so you can sign in to Claude outside Kosmos. Open the Start menu, type <b>PowerShell</b>, and press Enter. '
+    + 'Paste this line and press Enter, then finish signing in in your browser:');
+  assert.equal(table.claudeSigninHatchEnd, 'When PowerShell says <b>Login successful</b>, come back here and click <b>Try again</b>.</details>');
+  assert.ok(!('claudeTerminalHatch' in table), 'the "type claude" Windows hatch is back in the table');
   const win = confirmSentence('win32', { platform: 'win32', canInstallClaude: false, willInstall: true });
   assert.equal(win, table.claudeConfirmSentence);
   assert.doesNotMatch(win, /we need to install Claude Code first|we will install it/);

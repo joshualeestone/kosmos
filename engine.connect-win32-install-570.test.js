@@ -83,10 +83,21 @@ test('#570: nothing already on the wire was dropped', () => {
   /* The #1595 shape: a field added to this contract is only useful if the ones
      the rest of the page depends on survive the edit. */
   const v = connect.publicView({ phase: 'stuck', because: 'x', tail: 't', canRunClaude: true }, 'win32');
-  for (const k of ['configDir', 'phase', 'before', 'progress', 'url', 'plan', 'because', 'tail', 'canRunClaude']) {
+  for (const k of ['configDir', 'phase', 'before', 'progress', 'url', 'plan', 'because', 'tail', 'canRunClaude', 'claudeSigninCommand']) {
     assert.ok(k in v, 'publicView dropped the pre-existing field ' + k);
   }
   assert.equal(v.canRunClaude, true, 'the hatch flag stopped travelling');
+});
+
+test('win32-signin-web-copy: publicView serves the sign-in line the stuck record carries, and null when it carries none', () => {
+  /* Recorded by becomeStuck beside canRunClaude (engine/connect.win32signin.test.js drives
+     that); publicView passes it through and never builds one. */
+  const line = "& 'C:\\Users\\Mary O''Brien\\.local\\bin\\claude.exe' auth login";
+  assert.equal(connect.publicView({ phase: 'stuck', because: 'x', canRunClaude: true, claudeSigninCommand: line }, 'win32').claudeSigninCommand, line,
+    'the recorded line did not reach the page');
+  assert.equal(connect.publicView({ phase: 'stuck', because: 'x', canRunClaude: true }, 'win32').claudeSigninCommand, null,
+    'a record with no line served something other than null');
+  assert.equal(connect.publicView({ phase: 'downloading' }, 'darwin').claudeSigninCommand, null);
 });
 
 test('#570: the default is the real process, so production is not served a guess', () => {

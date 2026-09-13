@@ -628,6 +628,29 @@ test('EFTYPE on a script gets the script sentence; EFTYPE on a broken program fi
   assert.match(broken.stderr, /EFTYPE/);
 });
 
+test('win32-signin-web-copy: the PowerShell sign-in line names the path exactly, whatever it contains', () => {
+  /* Measured against Windows PowerShell 5.1 on the Windows box before this was written: each
+     quoted literal below reads back byte for byte, and the undoubled form does not for the
+     three quote-bearing paths. */
+  const line = win32signin.powershellCommandToSignInClaude;
+  assert.equal(line('C:\\Users\\josh\\.local\\bin\\claude.exe'),
+    "& 'C:\\Users\\josh\\.local\\bin\\claude.exe' auth login");
+  assert.equal(line('C:\\Users\\Mary Ann\\.local\\bin\\claude.exe'),
+    "& 'C:\\Users\\Mary Ann\\.local\\bin\\claude.exe' auth login", 'a space broke the line');
+  assert.equal(line("C:\\Users\\Mary O'Brien\\.local\\bin\\claude.exe"),
+    "& 'C:\\Users\\Mary O''Brien\\.local\\bin\\claude.exe' auth login", 'an apostrophe was not doubled');
+  assert.equal(line('C:\\Users\\a$env:USERNAME `n $(Get-Date)\\claude.exe'),
+    "& 'C:\\Users\\a$env:USERNAME `n $(Get-Date)\\claude.exe' auth login",
+    '$ and the backtick are literal inside single quotes, so nothing may be added around them');
+  assert.equal(line('C:\\Users\\curly \u2018left\u2019 \u201Alow\u201B\\claude.exe'),
+    "& 'C:\\Users\\curly \u2018\u2018left\u2019\u2019 \u201A\u201Alow\u201B\u201B\\claude.exe' auth login",
+    'PowerShell reads the typographic single quotes as quotes too, and they were not doubled');
+  for (const unusable of ['', null, undefined, 42, 'C:\\a\nb\\claude.exe', 'C:\\a\rb\\claude.exe', 'C:\\a\0b\\claude.exe']) {
+    assert.equal(line(unusable), null, `an unusable path produced a line: ${JSON.stringify(unusable)}`);
+  }
+  assert.match(line('C:\\x\\claude.exe'), /^& '[^\n]*' auth login$/, 'the line is not the plain-text login');
+});
+
 test('every redaction this host writes carries the marker connect.js looks for', () => {
   assert.equal(win32signin.REDACTION_MARKER, '[redacted');
   assert.ok(win32signin.redactSecrets('sk-ant-oat01-abcdef').includes(win32signin.REDACTION_MARKER));

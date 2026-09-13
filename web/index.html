@@ -13237,12 +13237,14 @@ function windowsCopyTable() {
       + 'When it says it&rsquo;s finished, come back here and click <b>Try again</b>. The current instructions are at '
       + '<a href="https://code.claude.com/docs/en/quickstart" target="_blank" rel="noopener">'
       + 'code.claude.com/docs/en/quickstart</a>. You can also carry on and connect later from Settings.',
-    /* Shown OPEN, unlike the Mac's closed hatch: on Windows signing in yourself is the way
-       through the stuck card, and a disclosure must not hide the only path (#570). The card
-       renders it only when the engine says canRunClaude, so "already on this PC" is true. */
-    claudeTerminalHatch: '<details class="fr-hatch" open><summary>Sign in to Claude yourself</summary>'
+    /* The Windows sign-in hatch, shown OPEN (the Mac's stays closed): on Windows signing in
+       yourself is the way through the stuck card, and a disclosure must not hide the only path
+       (#570). The card puts the engine's finished line, with a Copy button, between these two
+       halves, and shows them only when the engine recorded that line and canRunClaude. */
+    claudeSigninHatchLead: '<details class="fr-hatch" open><summary>Sign in to Claude yourself</summary>'
       + 'Claude Code is already on this PC, so you can sign in to Claude outside Kosmos. Open the Start menu, type <b>PowerShell</b>, and press Enter. '
-      + 'Type <b>claude</b>, press Enter, and follow its sign-in. Then come back here and click <b>Try again</b>.</details>',
+      + 'Paste this line and press Enter, then finish signing in in your browser:',
+    claudeSigninHatchEnd: 'When PowerShell says <b>Login successful</b>, come back here and click <b>Try again</b>.</details>',
     claudeConfirmSentence: 'Connecting to Claude needs Claude Code on this computer. Kosmos cannot install it for you on Windows yet, so if it is not here already, the next screen shows you how to install it yourself.',
     /* Settings > This computer (W-16, W-22). */
     settingsRevealButton: 'Open the Kosmos folder',
@@ -44171,6 +44173,12 @@ function frPaintConnect(st) {
   }
 
   if (phase === 'stuck') {
+    /* win32-signin-web-copy: on Windows the way through is the engine's finished PowerShell
+       line. It and canRunClaude are what the engine found when this flow went stuck, and Try
+       again asks again. Both must be there, so a PC the engine named no file for gets the card
+       a PC without Claude Code gets. */
+    const windowsSigninLine = (onWindows(st && st.platform) && st && st.canRunClaude
+      && typeof st.claudeSigninCommand === 'string') ? st.claudeSigninCommand : '';
     box.innerHTML = frCheckRow({
       state: 'attention',
       title: 'We could not finish connecting Claude',
@@ -44252,17 +44260,22 @@ function frPaintConnect(st) {
     /* win32-board-copy (W-13, W-14): the Windows words come from the copy table, keyed on
        the platform THIS card was served with. The gate still reads BOTH fields, so the
        note retires itself the day canInstallClaude goes true on Windows.
-       win32-signin-web-copy: it also reads canRunClaude, the engine's own answer from the
-       disk, so a PC that already has Claude Code is never told to install it. The hatch
-       below is that PC's way through. */
-    + ((onWindows(st && st.platform) && st && st.canInstallClaude === false && !st.canRunClaude)
+       win32-signin-web-copy: and it is not shown when the card has the engine's sign-in line
+       to offer instead. That line and canRunClaude are what the engine found when the flow
+       went stuck; Try again refreshes both. */
+    + ((onWindows(st && st.platform) && st && st.canInstallClaude === false && !windowsSigninLine)
       ? windowsCopy('claudeInstallNote')
       : 'Nothing is broken by this. You can try again, or carry on and connect later from Settings.')
-    + ((st && st.canRunClaude)
-      ? platformCopy('claudeTerminalHatch', '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
-        + 'You can sign in to Claude outside Kosmos: open Terminal, type <b>claude</b>, '
-        + 'and follow its sign-in. Then come back and press Try again.</details>', st && st.platform)
-      : '')
+    + (windowsSigninLine
+      ? windowsCopy('claudeSigninHatchLead')
+        + '<div class="fr-cmd-row"><pre class="fr-cmd">' + esc(windowsSigninLine) + '</pre>'
+        + '<button class="btn-quiet fr-copy" type="button" data-copy-command>' + windowsCopy('copyLabel') + '</button></div>'
+        + windowsCopy('claudeSigninHatchEnd')
+      : ((st && st.canRunClaude && !onWindows(st && st.platform))
+        ? '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
+          + 'You can sign in to Claude outside Kosmos: open Terminal, type <b>claude</b>, '
+          + 'and follow its sign-in. Then come back and press Try again.</details>'
+        : ''))
     + '</div>';
     frActions({ label: 'Try again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(6) });
     return;

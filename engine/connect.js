@@ -580,6 +580,10 @@ function publicView(s, platform = process.platform) {
        phase (the only writer and the only reader); false everywhere else is
        correct. Same class as `tail` (#1585) and the #1556 missing-field bug. */
     canRunClaude: s.canRunClaude || false,
+    /* win32-signin-web-copy: the finished PowerShell line the Windows stuck card shows, recorded
+       beside canRunClaude when the flow went stuck (windowsClaudeSigninCommand). Passed through,
+       never built here; a Mac record never carries one, so it serves null there. */
+    claudeSigninCommand: s.claudeSigninCommand || null,
     /* 🛑 #570: THE STUCK SCREEN COULD SAY WHY, AND HAD NOTHING TO SAY NEXT.
      * `download()` refuses on any platform Kosmos publishes no runner build for,
      * and the refusal sentence reaches the card verbatim -- so a Windows user is
@@ -1048,10 +1052,14 @@ function setWindowsSigninHostForTests(on) {
   windowsSigninHostForcedForTests = Boolean(on);
 }
 
+/** The platform the sign-in runs for: the test pin, or this process. */
+function signinPlatform() {
+  return signinPlatformForTests || process.platform;
+}
+
 /** The host for this platform, or null when there is none to run the sign-in with. */
 function signinHost() {
-  const platform = signinPlatformForTests || process.platform;
-  if (platform !== 'win32') return tmuxSigninHost;
+  if (signinPlatform() !== 'win32') return tmuxSigninHost;
   if (!WINDOWS_SIGNIN_HOST_ENABLED && !windowsSigninHostForcedForTests) return null;
   if (!windowsSigninHost) windowsSigninHost = require('./win32signin').createSigninHost();
   return windowsSigninHost;
@@ -2936,6 +2944,30 @@ function claudeHatchAvailable() {
   }
 }
 
+/**
+ * win32-signin-web-copy: the PowerShell line the Windows stuck card offers, naming the Claude
+ * Code file this PC would run, or null (not Windows, nothing runnable, or any error). Recorded
+ * beside canRunClaude when a flow goes stuck. The page shows the hatch only when both are
+ * there, so if the two asks ever disagree the hatch is withheld rather than offered with a
+ * line that fails.
+ *
+ * ⚠️ NOT PATH. `claude` typed into PowerShell resolves through PATH, and resolveBin looks at a
+ * file, so the line names the file. ONE RESOLUTION, both reads off it (the rule at the head of
+ * this file): the presence gate and the file named come from the same answer.
+ */
+function windowsClaudeSigninCommand() {
+  if (signinPlatform() !== 'win32') return null;
+  try {
+    const runners = require('./runners');
+    const resolved = runners.resolveBin('claude');
+    if (!resolved.present) return null;
+    const file = runners.pathextCandidates(resolved.bin).find((candidate) => runners.runnableExactly(candidate));
+    return file ? require('./win32signin').powershellCommandToSignInClaude(file) : null;
+  } catch {
+    return null;
+  }
+}
+
 function becomeStuck(owner, because, tail) {
   /**
    * ⚠️ ONLY THE OWNING FLOW MAY DECLARE ITSELF STUCK. Every path that lands
@@ -2978,7 +3010,7 @@ function becomeStuck(owner, because, tail) {
    * cannot work. A missing way out is a smaller harm than a way out that fails
    * in front of somebody already stuck.
    */
-  writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable() });
+  writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable(), claudeSigninCommand: windowsClaudeSigninCommand() });
 }
 
 /**
