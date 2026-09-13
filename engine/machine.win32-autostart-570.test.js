@@ -42,9 +42,13 @@ test('no task registered -> ATTENTION, and it says the agents come back while th
 
 test('task present but switched OFF -> ATTENTION, and it is not re-enabled behind the person', () => {
   const r = row({ enabled: false });
-  assert.equal(r.state, machine.STATE.ATTENTION);
-  assert.match(r.title, /turned off/);
-  assert.match(r.detail, /Task Scheduler/);
+  /* win32-installer-native (W-21a, W-22, round 1 finding 12): switched off is a choice the
+     Settings switch makes, so the row is plain, not a warning, and the way back on is that switch,
+     in the position the task was read in, not a trip to Task Scheduler. */
+  assert.equal(r.state, machine.STATE.OK);
+  assert.match(r.title, /does not start when you sign in/);
+  assert.match(r.detail, /turn it back on with the switch below/);
+  assert.equal(r.startAtSignIn, false);
 });
 
 test('task present and enabled -> OK, and it prints how to remove it', () => {

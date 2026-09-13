@@ -431,8 +431,11 @@ function install(spec) {
  * `launchctl disable`: the job stays on disk so a later `enable` restores it,
  * and `remove.js` on the Mac records prior state for exactly that reason.
  */
-function disable(name) {
-  const r = run(['/Change', '/TN', taskName(name), '/DISABLE']);
+/* `worldId` (win32-installer-native): the uninstall reaches ANOTHER Kosmos's agent task by
+   that world's key, parsed from the task path, never by guessing. Absent means this
+   process's own world, which is every other caller. */
+function disable(name, worldId) {
+  const r = run(['/Change', '/TN', taskName(name, worldId), '/DISABLE']);
   if (!r.ok) return { ok: false, because: 'we could not stop it from starting again (' + (r.out || '').trim().split('\n')[0] + ')' };
   return { ok: true };
 }
@@ -454,8 +457,8 @@ function enable(name) {
  * `remove.js` already documents for the Mac (disable first, so a login in the
  * window between the two cannot bring it back).
  */
-function end(name) {
-  const r = run(['/End', '/TN', taskName(name)]);
+function end(name, worldId) {
+  const r = run(['/End', '/TN', taskName(name, worldId)]);
   /* A task that is not running is the end state we wanted -- the same posture the
      Mac takes toward launchd's exit 3 ("no such service"). */
   if (!r.ok && !/not running|cannot find|does not exist/i.test(r.out || '')) {
@@ -490,9 +493,9 @@ function start(name) {
 const NO_SUCH_TASK = /cannot find|does not exist/i;
 
 /** Remove the job entirely (the agent is being deleted, not stopped). */
-function remove(name) {
-  forgetTaskSpec(name);   // #2717: the task is going; its remembered definition goes with it
-  const r = run(['/Delete', '/F', '/TN', taskName(name)]);
+function remove(name, worldId) {
+  forgetTaskSpec(name, worldId);   // #2717: the task is going; its remembered definition goes with it
+  const r = run(['/Delete', '/F', '/TN', taskName(name, worldId)]);
   /* A job that was never registered is already gone -- the same posture
      win32sessions.forget takes, so a delete is idempotent. */
   if (!r.ok && !NO_SUCH_TASK.test(r.out || '')) {
@@ -586,8 +589,56 @@ function csvFields(line) {
   return fields;
 }
 
+/* The Task Scheduler folder every Kosmos task lives in, as a query names it. */
+const TASK_FOLDER = TASK_PREFIX.split('\\')[0] + '\\';
+
+/**
+ * Every task path on this machine, from its whole task list (`/Query /FO CSV /NH`, no task name).
+ * ONE reader, shared by engine/win32board.js (#2973: is the board's task PROVEN absent?) and
+ * engine/win32uninstall.js (win32-installer-native: which Kosmos tasks are there, and are they
+ * gone afterwards?).
+ *
+ * 🔑 LOCALE-INDEPENDENT, WHICH A FOLDER QUERY IS NOT. `/Query /TN Kosmos\` answers an empty
+ * folder with the translated "cannot find" sentence, so on a German Windows an empty folder is
+ * indistinguishable from a failed look. The whole list is labelless, column one is the task path
+ * in every locale (measured 2026-09-12: exit 0, 259 rows, every one quoted), and a machine with
+ * no Kosmos tasks simply has no rows for them.
+ * ⚠️ An EMPTY list proves nothing (every Windows ships Microsoft tasks), so it is unknown.
+ *
+ * Returns `{known: true, paths}` (unrooted, in schtasks' own spelling) or
+ * `{known: false, paths: [], because}`. `ask` is a caller's own runner (win32board's has a deadline).
+ */
+function machineTaskPaths(ask) {
+  const r = (ask || run)(['/Query', '/FO', 'CSV', '/NH']);
+  if (!r.ok) return { known: false, paths: [], because: (r.out || '').trim().split('\n')[0] || 'schtasks would not answer' };
+  const paths = [];
+  let rows = 0;
+  for (const line of String(r.out || '').split('\n')) {
+    const fields = csvFields(line);
+    if (!fields.length) continue;
+    rows += 1;
+    // Task paths come back rooted ("\Kosmos\agent-ava"); our names are not.
+    const at = fields[0].replace(/^\\+/, '');
+    if (!paths.includes(at)) paths.push(at);
+  }
+  if (!rows) return { known: false, paths: [], because: 'Task Scheduler listed no tasks at all, which is not an answer' };
+  return { known: true, paths };
+}
+
+/**
+ * Every task in Kosmos's Task Scheduler folder, by path (`Kosmos\agent-ava`, `Kosmos\agent-ava+qa`,
+ * `Kosmos\board`, and anything else somebody put there), across EVERY Kosmos: the machine's whole
+ * list (machineTaskPaths), filtered to the folder. engine/win32uninstall.js reads it before
+ * removing anything and again afterwards, to see that nothing is left.
+ */
+function kosmosFolderTasks(ask) {
+  const all = machineTaskPaths(ask);
+  if (!all.known) return { known: false, paths: [], because: all.because };
+  return { known: true, paths: all.paths.filter((at) => at.toLowerCase().startsWith(TASK_FOLDER.toLowerCase())) };
+}
+
 function list() {
-  const r = run(['/Query', '/TN', TASK_PREFIX.split('\\')[0] + '\\', '/FO', 'CSV', '/NH']);
+  const r = run(['/Query', '/TN', TASK_FOLDER, '/FO', 'CSV', '/NH']);
   if (!r.ok) {
     if (NO_SUCH_TASK.test(r.out || '')) return { known: true, names: new Set() };
     return { known: false, names: new Set() };
@@ -824,7 +875,7 @@ function configDirFor(name) {
 
 module.exports = {
   TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape, xmlUnescape, headlessExec,
-  install, disable, enable, end, start, remove, status, presence, list, configDirFor, taskSpec,
+  install, disable, enable, end, start, remove, status, presence, list, machineTaskPaths, kosmosFolderTasks, configDirFor, taskSpec,
   cachedTaskSpec, taskEnabled, taskEnabledFromQuery, csvFields, commandsAreReal, REFUSED_IN_TEST,
   schtasksMayRunInThisProcess,
   setRunner, setAnchorer,

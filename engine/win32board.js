@@ -47,6 +47,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
+const liveExec = require('./live-execution');
 const win32anchor = require('./win32anchor');
 const win32job = require('./win32job'); // taskUser + xmlEscape: the measured, shared half
 const win32swap = require('./win32swap'); // writeFileAtomic: a torn shim must never reach a logon
@@ -358,6 +359,62 @@ function runningFromUpdateWork(opts) {
   return win32anchor.bundleIsInUpdateWork(o.root || path.resolve(__dirname, '..', '..'), path.win32);
 }
 
+/**
+ * Is this bundle root a real Kosmos build: does its manifest.json name the product and the
+ * platform? The launcher's own gate (KosmosLauncher.cs IsKosmosBuild), asked here of the same file.
+ * `o.readManifest` is the seam, so a Mac can assert the Windows arm. Never throws.
+ */
+function isKosmosBuildRoot(root, o) {
+  const read = typeof o.readManifest === 'function'
+    ? o.readManifest
+    : (at) => JSON.parse(fs.readFileSync(path.join(at, 'manifest.json'), 'utf8'));
+  try {
+    const m = read(root);
+    return Boolean(m) && m.product === 'kosmos' && m.platform === 'win32';
+  } catch { return false; }
+}
+
+/**
+ * Point the shared engine pointer (and the anchored node) at THIS bundle, on every boot of a real
+ * Windows build, whatever state the board's logon task is in (win32-installer-native, round 1,
+ * finding 3).
+ *
+ * 🛑 THE DEFECT. The pointer used to move only inside `install()`, which ensureInstalled reaches
+ * only for a task it registers or refreshes. A person who switched the board's task off (or
+ * removed it, or whose task could not be read) and then moved Kosmos, or extracted a new copy,
+ * booted the new folder while every agent's task kept running the OLD folder's engine, and once
+ * the old folder was tidied away they all exited 3 at the next sign-in.
+ *
+ * 🔑 IT RE-POINTS, IT DOES NOT REGISTER. Anchoring copies node and rewrites the pointer and the
+ * shims; it never creates, re-creates or switches on a task, so a task the person turned off
+ * stays off. A source checkout and a folder with no Kosmos manifest never anchor.
+ *
+ * Returns `{ok: true, action: 'skipped'|'anchored'}` or `{ok: false, action: 'failed', because}`.
+ */
+function anchorBundle(opts) {
+  const o = opts || {};
+  if ((o.platform || process.platform) !== 'win32') return { ok: true, action: 'skipped' };
+  const root = bundleRoot(o);
+  if (!root || !isKosmosBuildRoot(root, o)) return { ok: true, action: 'skipped' };
+  /* Round 2, finding 1: the real anchorer rewrites %LOCALAPPDATA%\Kosmos, so it is never reached
+     from a test (engine/win32relocate.js anchorTo's rule), and only once production armed live
+     execution (server.js arms it before ensureInstalled runs). An injected anchorer is a seam.
+     "Is this a test" is win32job's ONE answer (#2973: this file keeps no second copy of the rule),
+     which also covers a board a test spawned. */
+  if (!anchorFn) {
+    if (!win32job.schtasksMayRunInThisProcess()) {
+      throw new Error('win32board.anchorBundle: a test must install an anchorer (setAnchorer); the real one rewrites %LOCALAPPDATA%\\Kosmos');
+    }
+    if (!liveExec.liveExecutionAllowed()) {
+      liveExec.refuseOrWarn('engine/win32board.js', 'win32anchor.ensureAnchored', [root]);
+      return { ok: false, action: 'refused', because: 'this Kosmos is not allowed to change its startup files, so they still point where they did' };
+    }
+  }
+  const anchored = anchorFor({ platform: o.platform, home: o.home, env: machineEnv(o), node: o.node, engineDir: o.engineDir });
+  if (!anchored.ok) return { ok: false, action: 'failed', because: anchored.because };
+  return { ok: true, action: 'anchored', pointer: anchored.pointer };
+}
+
 /* 🛑 #2628: THE BOARD'S MACHINE PATHS COME FROM THE ENVIRONMENT IT WAS LAUNCHED
    WITH. A board serving a named world has that world's AGENT_WORKFORCE_DATA in
    process.env (worldenv), and win32anchor.anchorDir honours it. Without this, a
@@ -531,16 +588,9 @@ function taskRunning(ask) {
  * taken as absence.
  */
 function provenAbsentFromTaskList(ask) {
-  const r = (ask || run)(['/Query', '/FO', 'CSV', '/NH']);
-  if (!r.ok) return false;
-  let rows = 0;
-  for (const line of String(r.out || '').split('\n')) {
-    const fields = win32job.csvFields(line);
-    if (!fields.length) continue;
-    rows += 1;
-    if (isBoardTaskPath(fields[0])) return false;
-  }
-  return rows > 0;
+  /* win32job's one whole-list reader (win32-installer-native reads it too, for the uninstall). */
+  const all = win32job.machineTaskPaths(ask || run);
+  return all.known && !all.paths.some(isBoardTaskPath);
 }
 
 /**
@@ -599,6 +649,51 @@ function enable() {
   const r = run(['/Change', '/TN', TASK_NAME, '/ENABLE']);
   if (!r.ok) return { ok: false, because: 'we could not set the board to start at logon again (' + (r.out || '').trim().split('\n')[0] + ')' };
   return { ok: true };
+}
+
+/**
+ * Settings' "Start Kosmos when I sign in to Windows" switch (win32-installer-native, audit
+ * W-21a): turn the board's logon task on or off.
+ *
+ * 🔑 THE ANSWER IS THE STATE READ BACK, NEVER THE ONE ASKED FOR. `/Change` reporting success
+ * is taken as a request, and the task's own definition (`status()`, `<Settings><Enabled>`) is
+ * read again, so the switch on the screen shows what Windows will actually do at the next
+ * sign-in.
+ *
+ * 🛑 UNKNOWN IS NEVER ON (#2973). A state that could not be read refuses before anything is
+ * changed, and a read-back that cannot be read is a failure, never a guessed success.
+ *
+ * ⚠️ LIVE-EXECUTION GATED (convention 3), unless a runner is injected: it changes a durable
+ * task, so only a board that armed live execution may call it. (`run` also refuses schtasks
+ * from any test process, whatever this says.)
+ *
+ * Returns `{ok: true, on}` or `{ok: false, because}`. Never throws.
+ */
+function setStartAtSignIn(on, opts) {
+  const o = opts || {};
+  if (typeof on !== 'boolean') return { ok: false, because: 'we were not told whether to turn it on or off' };
+  const platform = o.platform || process.platform;
+  if (platform !== 'win32') return { ok: false, because: 'only Kosmos on Windows starts from a sign-in task' };
+  const live = typeof o.liveExecutionAllowed === 'function' ? o.liveExecutionAllowed() : liveExec.liveExecutionAllowed();
+  if (!runFn && !live) return { ok: false, because: 'this Kosmos is not allowed to change Task Scheduler, so nothing was changed' };
+  const before = status({ now: o.now });
+  if (!before.known) {
+    return { ok: false, because: 'we could not read the job that starts Kosmos when you sign in (' + before.because + '), so nothing was changed' };
+  }
+  if (!before.registered) {
+    return { ok: false, because: 'there is no job on this computer that starts Kosmos when you sign in, so there is nothing to turn on or off' };
+  }
+  if (before.enabled === on) return { ok: true, on };
+  const changed = on ? enable() : disable();
+  if (!changed.ok) return { ok: false, because: changed.because };
+  const after = status({ now: o.now });
+  if (!after.known || !after.registered) {
+    return { ok: false, because: 'we asked Windows to turn it ' + (on ? 'on' : 'off') + ', but could not read it back, so we cannot say it worked' };
+  }
+  if (after.enabled !== on) {
+    return { ok: false, because: 'we asked Windows to turn it ' + (on ? 'on' : 'off') + ', but it still reads ' + (after.enabled ? 'on' : 'off') };
+  }
+  return { ok: true, on: after.enabled };
 }
 
 /** End the running board. This KILLS THE CALLER when the caller is that board. */
@@ -670,6 +765,16 @@ function ensureInstalled(opts) {
   if (!bundleRoot(o)) {
     return { ok: true, action: 'skipped', because: 'this board runs from a source checkout, so nothing registers it to start at logon' };
   }
+  /* win32-installer-native (round 1, finding 3): the pointer follows THIS bundle on every boot of
+     a real build, whatever state the task is in. Registration stays separate below: anchoring
+     re-points, it never registers, re-creates or switches on a task. */
+  const anchor = anchorBundle(o);
+  const task = registerOrLeaveBoardTask(o);
+  return anchor.ok ? task : { ...task, anchor };
+}
+
+/* The task half of ensureInstalled, for a Windows bundle (the five states above). */
+function registerOrLeaveBoardTask(o) {
   const st = status({ now: o.now });
   /* #2973: a job we could not read is LEFT AS IT IS. Re-registering it could switch
      back on a task the person turned off, and registering "a missing one" could
@@ -885,8 +990,8 @@ function describe(opts) {
 
 module.exports = {
   TASK_NAME, MARKER_ENV, BOOT_NAME, BOOT_JS, CLAIM_NAME, REMOVE_HINT, HELPER_FLAG, SCHTASKS_TIMEOUT_MS,
-  taskExec, taskXml, bundleRoot, runningFromUpdateWork, install, ensureInstalled, status, describe,
-  disable, enable, end, runNow, remove, restart, startedByTask,
+  taskExec, taskXml, bundleRoot, runningFromUpdateWork, anchorBundle, install, ensureInstalled, status, describe,
+  disable, enable, setStartAtSignIn, end, runNow, remove, restart, startedByTask,
   claimed, claim, restartHelperMain, pidGone,
   setRunner, setAnchorer, setSpawner,
 };

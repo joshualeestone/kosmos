@@ -2471,35 +2471,10 @@ function remoteWriteGuard(req, pathname) {
   return null;
 }
 
-/**
- * Where the server binds. Loopback by default; a network host ONLY when the
- * operator explicitly opts in with KOSMOS_BIND_HOST (#1112 phase 2). An
- * un-opted-in board binds byte-identically to before this change.
- *
- * 🔑 SAFE ONLY BECAUSE `remoteWriteGuard` EXISTS. Opening this bind exposes the
- * board's port to the network; the guard is what keeps every write except the
- * token-gated agent surface unreachable from it. The two are one change -- do
- * not read KOSMOS_BIND_HOST anywhere the guard is not also in force.
- *
- * Read at listen time (boot). A Settings toggle would need a restart to take
- * effect, so the env is the honest mechanism.
- *
- * ⚠️ OPENING THE BIND IS A TWO-PART OPT-IN, AND THIS IS THE SECOND PART. A
- * remote agent connects with `Host: <mac-ip>` (or a hostname), and `pathOf`'s
- * DNS-rebind check 400s any request whose Host is neither loopback nor in
- * `AGENT_WORKFORCE_ALLOWED_HOSTS` -- BEFORE `remoteWriteGuard` ever runs. So the
- * operator must ALSO declare the reachable host in `AGENT_WORKFORCE_ALLOWED_HOSTS`,
- * or a token-holding remote agent is refused at the door. This is deliberate,
- * not an oversight: the Host check is DNS-rebind protection, a different layer
- * from reachability, and it matters MOST when the board is network-reachable, so
- * it is not relaxed just because the bind opened. Two explicit opt-ins to expose
- * the board is the safer posture. (Fails closed: with only KOSMOS_BIND_HOST set,
- * a remote agent gets a 400, never an unguarded surface.)
- */
-function bindHost() {
-  const v = String(process.env.KOSMOS_BIND_HOST || '').trim();
-  return v || '127.0.0.1';
-}
+/* Where the server binds: engine/bindhost.js's bindHost(), the ONE reading of the bind host, shared with
+   the uninstall's and the move's board probes (win32-installer-native round 4, finding 1). Its docblock
+   carries the #1112 two-part opt-in, and why the bind is safe only with remoteWriteGuard below. */
+const { bindHost } = require('./engine/bindhost');
 
 /* 🔑 THE INSTALL GATE'S REQUEST LOG (#908). On 2026-08-25 and again on
    2026-08-26 the gate went red because something loaded a sandboxed board's
@@ -7847,6 +7822,24 @@ const server = http.createServer((req, res) => {
     const opened = machine.openSleepSettings();
     if (opened.ok) { sendJson(res, 200, { ok: true }); return; }
     sendJson(res, 409, { error: opened.because });
+    return;
+  }
+
+  /* win32-installer-native (W-21a): Settings' "Start Kosmos when I sign in to Windows" switch.
+     POST, so it inherits the cross-site guard: it changes a durable task on the machine. It takes
+     one boolean and nothing else, and answers with the state engine/win32board.js READ BACK from
+     the task, never the one asked for, so the switch the page repaints is what Windows will do. */
+  if (pathname === '/api/machine/start-at-sign-in' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'say whether Kosmos should start when you sign in (on: true or false)' }); return; }
+        const r = require('./engine/win32board').setStartAtSignIn(body.on);
+        if (r.ok) { sendJson(res, 200, { ok: true, on: r.on }); return; }
+        sendJson(res, 409, { error: r.because });
+      })
+      .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') }));
     return;
   }
 
@@ -13279,6 +13272,11 @@ if (require.main === module) {
     try {
       const r = require('./engine/win32board').ensureInstalled({});
       win32BoardEnsured = r;
+      /* win32-installer-native: the pointer follows this folder on every boot, and a board whose
+         agents would still start the old folder has to say so. */
+      if (r.anchor && !r.anchor.ok) {
+        process.stderr.write(`Kosmos could not point its startup files at this folder, so your agents may start an older copy: ${r.anchor.because}\n`);
+      }
       if (r.action === 'registered') {
         process.stdout.write(`Kosmos will now start when you log in. Task Scheduler > Kosmos > board; remove it with: ${r.removeHint}\n`);
       } else if (r.action === 'unknown') {
