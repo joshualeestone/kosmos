@@ -489,3 +489,53 @@ test('#553: a failure the OLD server never lived to see is read back from logs/i
   update.setInstalledRoot(null); update.resetCache();
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+/* #2934: prodPublishesRunning() -- has prod published the build this box is RUNNING?
+   Colocated here, beside the module that owns the cache: the board's /api/status
+   integration arms live in server.sourcechannel-promote-2934.test.js, but the predicate's
+   own contract belongs with update.js.
+
+   The three-valued answer is the point. null is not "no", it is "this cache cannot speak
+   to the question", and the board treats it as "keep what you already believed". A false
+   would darken a STAGING badge; a null must never do that. */
+test('#2934 prodPublishesRunning: EQUALITY only, and every unknown is null rather than false', async () => {
+  const bump = (v, d) => { const p = String(v).split('.').map(Number); p[2] += d; return p.join('.'); };
+  // Guard the arithmetic rather than assume it: a version whose patch went negative is
+  // rejected by parts(), which would silently route these arms through the unknown rung.
+  const AHEAD = bump(RUNNING, 1);
+  assert.match(AHEAD, /^\d+\.\d+\.\d+$/, 'AHEAD must parse or the arm below tests the wrong rung');
+
+  const look = async (version, { throws = false, channel } = {}) => {
+    if (channel) process.env.AGENT_WORKFORCE_UPDATE_CHANNEL = channel;
+    else delete process.env.AGENT_WORKFORCE_UPDATE_CHANNEL;
+    update.resetCache();
+    update.setFetcher(async () => {
+      if (throws) throw new Error('offline');
+      return { ok: true, json: async () => ({ version }) };
+    });
+    await update.refresh().catch(() => { /* the miss stamp is written in refresh's finally */ });
+    delete process.env.AGENT_WORKFORCE_UPDATE_CHANNEL;
+  };
+
+  update.resetCache();
+  assert.equal(update.prodPublishesRunning(), null, 'never looked -> null, not false');
+
+  await look(RUNNING);
+  assert.equal(update.prodPublishesRunning(), true, 'the prod pointer naming our exact version is the ONLY true');
+
+  await look(AHEAD);
+  assert.equal(update.prodPublishesRunning(), false,
+    'prod being NEWER is not evidence our bytes shipped: an abandoned pre-release build satisfies >= and never reached prod');
+
+  await look(null, { throws: true });
+  assert.equal(update.prodPublishesRunning(), null, 'unreachable -> null, never false');
+
+  await look('not-a-version');
+  assert.equal(update.prodPublishesRunning(), null, 'a pointer we could not read -> null');
+
+  await look(RUNNING, { channel: 'staging' });
+  assert.equal(update.prodPublishesRunning(), null,
+    'the cache holds a STAGING pointer version, which says nothing about what prod publishes');
+
+  update.resetCache();
+});
