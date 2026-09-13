@@ -49,6 +49,19 @@ const store = require('./store');
    forget's cleanup follows it rather than silently leaving a privacy residue). */
 const CHATS_DAILY_DIRNAME = 'chats-daily';
 
+/* Day-file naming and recognition as ONE pair, so the write side and the prune
+   side cannot drift: a format change touches only here. A day file is
+   `<day>.md`; the recognizer accepts only a YYYY-MM-DD stem, which is what the
+   default localDayOf produces. A custom dayOf yielding another format would
+   simply not be recognized for pruning -- an under-prune, the safe direction. */
+const DAY_STEM_RE = /^\d{4}-\d{2}-\d{2}$/;
+function dayFileName(day) { return `${day}.md`; }
+function dayFromFileName(name) {
+  if (typeof name !== 'string' || !name.endsWith('.md')) return null;
+  const stem = name.slice(0, -3);
+  return DAY_STEM_RE.test(stem) ? stem : null;
+}
+
 /* Direct-thread files are `chats/direct..<key>.json` (TWO dots) and project-room
    files are `<projectId>.<key>.json` (ONE dot), the same naming engine/chat.js
    uses. chat.js documents that the second dot is the guard: a project id never
@@ -250,7 +263,7 @@ function compileAll(opts = {}) {
   for (const [day, dayRows] of byDay) {
     if (onlyDay && day !== onlyDay) continue;
     const md = renderDay(day, dayRows, timeOf);
-    fs.writeFileSync(path.join(outDir, `${day}.md`), md);
+    fs.writeFileSync(path.join(outDir, dayFileName(day)), md);
     written.push(day);
   }
   written.sort();
@@ -278,8 +291,8 @@ function compileAll(opts = {}) {
     let existing = [];
     try { existing = fs.readdirSync(outDir); } catch { existing = []; }
     for (const name of existing) {
-      if (!/^\d{4}-\d{2}-\d{2}\.md$/.test(name)) continue;
-      const day = name.slice(0, 10);
+      const day = dayFromFileName(name);
+      if (!day) continue;
       if (keep.has(day)) continue;
       try { fs.rmSync(path.join(outDir, name)); pruned.push(day); } catch { /* leave it rather than fail the run */ }
     }
@@ -301,6 +314,8 @@ function compileAll(opts = {}) {
 
 module.exports = {
   CHATS_DAILY_DIRNAME,
+  dayFileName,
+  dayFromFileName,
   parseChatFileName,
   conversationLabel,
   localDayOf,
@@ -316,19 +331,22 @@ module.exports = {
    Default is --all (write every day found), which is what a once-a-day
    scheduled run wants; --day targets one day. */
 if (require.main === module) {
+  const USAGE = 'usage: node engine/dailylog.js [--all | --day YYYY-MM-DD] [--out <dir>]\n';
+  const die = (msg) => { process.stderr.write(`dailylog: ${msg}\n` + USAGE); process.exit(2); };
   const argv = process.argv.slice(2);
   const opts = {};
   for (let i = 0; i < argv.length; i += 1) {
-    if (argv[i] === '--day') { opts.onlyDay = argv[i + 1]; i += 1; }
-    else if (argv[i] === '--out') { opts.outDir = argv[i + 1]; i += 1; }
-    else if (argv[i] === '--all') { /* the default; accepted explicitly */ }
-    else {
-      // Fail loud on an unrecognized flag rather than silently running a full
-      // compile: a typo like `--dya 2026-09-13` should not quietly ignore the day.
-      process.stderr.write(`dailylog: unrecognized argument '${argv[i]}'\n`
-        + 'usage: node engine/dailylog.js [--all | --day YYYY-MM-DD] [--out <dir>]\n');
-      process.exit(2);
-    }
+    if (argv[i] === '--day' || argv[i] === '--out') {
+      const val = argv[i + 1];
+      // Fail loud on a missing value: `--day` with nothing after it must NOT
+      // silently fall back to a full compile (the point of failing on typos).
+      if (val === undefined || val.startsWith('--')) die(`${argv[i]} requires a value`);
+      if (argv[i] === '--day') opts.onlyDay = val; else opts.outDir = val;
+      i += 1;
+    } else if (argv[i] === '--all') { /* the default; accepted explicitly */ }
+    // Fail loud on an unrecognized flag rather than silently running a full
+    // compile: a typo like `--dya 2026-09-13` should not quietly ignore the day.
+    else die(`unrecognized argument '${argv[i]}'`);
   }
   const summary = compileAll(opts);
   process.stdout.write(

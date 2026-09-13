@@ -32,9 +32,11 @@
  * declared `derived` views. `rm -rf` on a computed path is how a delete feature
  * becomes an incident: every path is joined from the fixed `KINDS` list here
  * (kind dirs AND derived dirs), and each is re-checked to be inside the data
- * root with a matching basename immediately before the delete. Nothing else is
- * reachable from any caller. There is no argument that widens it; widening is an
- * edit to KINDS here, which the surface-pinning test makes visible in a diff.
+ * root with a matching basename BEFORE ANY DELETE runs -- forget() validates
+ * every path in one pass and deletes in a second, so a guard failure deletes
+ * nothing (the atomicity the refusal tests pin). Nothing else is reachable from
+ * any caller. There is no argument that widens it; widening is an edit to KINDS
+ * here, which the surface-pinning test makes visible in a diff.
  */
 
 const fs = require('node:fs');
@@ -109,12 +111,14 @@ function summary() {
 /**
  * Remove them.
  *
- * 🛑 EVERY PATH IS RE-CHECKED TO BE INSIDE THE DATA ROOT IMMEDIATELY BEFORE THE
- * DELETE, even though it was built from a constant a line earlier. The check is
- * cheap and the failure it prevents is unbounded: an env var pointing the data
- * root somewhere unexpected, a symlinked directory, a future caller passing a
- * name. A guard that is only correct because of how it is called today is not a
- * guard.
+ * 🛑 EVERY PATH IS RE-CHECKED TO BE INSIDE THE DATA ROOT, WITH A MATCHING
+ * BASENAME, BEFORE ANY DELETE RUNS -- not immediately before its own delete, but
+ * in a first validation pass over every path (PASS 1 below), with all deletes in
+ * a second pass (PASS 2). So a guard failure leaves the disk untouched, even
+ * though each path was built from a constant a line earlier. The check is cheap
+ * and the failure it prevents is unbounded: an env var pointing the data root
+ * somewhere unexpected, a symlinked directory, a future caller passing a name. A
+ * guard that is only correct because of how it is called today is not a guard.
  *
  * `kinds` defaults to the module's own frozen KINDS -- every real caller uses
  * the default. It is a parameter ONLY so a test can drive the inside-root and

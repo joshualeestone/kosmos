@@ -79,6 +79,17 @@ test('flattenMessages: absent/blank from becomes the operator (null), string fro
   assert.equal(rows[2].from, null, 'a blank from is the operator, not a whitespace name');
 });
 
+test('dayFileName/dayFromFileName round-trip and reject non-day files', () => {
+  assert.equal(dl.dayFileName('2026-09-13'), '2026-09-13.md');
+  assert.equal(dl.dayFromFileName('2026-09-13.md'), '2026-09-13');
+  assert.equal(dl.dayFromFileName(dl.dayFileName('2026-01-01')), '2026-01-01', 'round-trips');
+  // non-day files the pruner must never touch
+  assert.equal(dl.dayFromFileName('README.md'), null);
+  assert.equal(dl.dayFromFileName('2026-9-3.md'), null, 'an unpadded stem is not a day file');
+  assert.equal(dl.dayFromFileName('2026-09-13.txt'), null);
+  assert.equal(dl.dayFromFileName('2026-09-13'), null, 'a stem with no .md is not a day file');
+});
+
 test('flattenMessages: merges singular attachment + plural attachments and de-dups names', () => {
   const convos = [{
     desc: { kind: 'direct', key: 'a' },
