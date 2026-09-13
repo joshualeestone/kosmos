@@ -20926,6 +20926,16 @@ function paintOrg() {
     const working = cardStOf(a).st === 'working';
     const glowCls = needsYou ? ' onode-attn' : working ? ' onode-working' : '';
     const shown = a.name || a.sessionName;
+    /* #2863: the node's button carries its own aria-label, so a descendant badge's
+       aria-label is inert (the #2577 note below the aria-label says exactly this for
+       the needs-you glyph). Fold the unread-DM count into the button's name too, the
+       same way ', needs you' is, mirroring dmBadge's suppression (a positive count,
+       and never the agent being read). Without this the org chart gives a screen
+       reader no unread-DM signal, unlike the list row and grid card. */
+    const dmN = Number(a.dmUnread);
+    const dmAria = (Number.isFinite(dmN) && dmN > 0 && !(CURRENT && CURRENT.sessionName === a.sessionName))
+      ? ', ' + (dmN > 99 ? '99+' : dmN) + ' unread ' + (dmN === 1 ? 'message' : 'messages')
+      : '';
     const face = a.hasAvatar
       /* #2698: `?v=` the avatar version so a changed picture changes this markup.
          Without it the URL is byte-identical after an update, the repaint guard
@@ -20946,7 +20956,7 @@ function paintOrg() {
          from descendant content), so needs-you would be visual-only here. Fold it
          into the button's accessible name, the way the list row conveys it through
          LROW_WARN sitting OUTSIDE any button. */
-      + ' aria-label="Open ' + esc(shown) + (needsYou ? ', needs you' : '') + '">'
+      + ' aria-label="Open ' + esc(shown) + (needsYou ? ', needs you' : '') + dmAria + '">'
       + orgRing(a)
       + '<span class="face"' + tint + '>' + face + '</span>'
       + (needsYou ? ONODE_WARN : '')

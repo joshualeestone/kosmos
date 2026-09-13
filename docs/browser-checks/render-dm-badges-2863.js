@@ -125,6 +125,10 @@ function chk(ok, label, extra) {
             // ada is needs_you AND has DMs: the two badges must be on opposite
             // horizontal sides (DM left, warn right), not stacked on one corner.
             oppositeSides: !w || !b || (br.left < wr.left),
+            // The badge's own aria-label is inert inside a button that carries its
+            // own aria-label, so the unread count must be folded into the button's
+            // accessible name (like ', needs you'). Read the button's aria-label.
+            btnAriaUnread: /unread/.test(n.getAttribute('aria-label') || ''),
           };
         });
       });
@@ -138,6 +142,10 @@ function chk(ok, label, extra) {
         theme + ' org: the DM badge (left) and the needs-you badge (right) do not collide', JSON.stringify(adaO));
       chk(!!cleoO && !cleoO.hasBadge,
         theme + ' org: a node with no unread DMs shows NO badge (control)', JSON.stringify(cleoO));
+      chk(!!adaO && adaO.btnAriaUnread,
+        theme + ' org: the unread-DM count is folded into the node button aria-label (the badge aria-label is inert inside a labeled button)', JSON.stringify(adaO));
+      chk(!!cleoO && !cleoO.btnAriaUnread,
+        theme + ' org: a no-unread node does not claim unread in its aria-label (control)', JSON.stringify(cleoO));
 
       // ── CONSOLIDATED LIST: the badge must NOT be hidden by the catch-all ──
       // The consolidated rail applies `.lrow > :not(.lav)...:not(.dmbadge) { display:none }`.
@@ -162,6 +170,13 @@ function chk(ok, label, extra) {
         document.body.classList.remove('consolidated');
         return { hasBadge: !!b, display: disp, controlHasBadge: !!bc };
       });
+      // display !== 'none' is the PRECISE guard for the exemption (the bug was total
+      // invisibility: WITHOUT :not(.dmbadge) the catch-all resolves the badge to
+      // display:none, which this reds on). A laidOut/geometry assertion is deliberately
+      // NOT made here: setting data-layout + body.consolidated alone does not run the
+      // full consolidated grid layout, so the rail subtree has zero geometry in this
+      // minimal harness (measured). Placement rides the same `.lrow > .dmbadge` rule
+      // the default-list arm above already asserts laid-out at the avatar corner.
       chk(cons.hasBadge && cons.display !== 'none',
         theme + ' consolidated list: the DM badge is exempt from the catch-all hide (own display not none)', JSON.stringify(cons));
       chk(!cons.controlHasBadge,
