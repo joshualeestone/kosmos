@@ -877,11 +877,6 @@ function beginInstall(opts) {
   /* A fresh press starts a fresh record: the previous attempt's failure
      is history, not a verdict on this one. */
   lastAttempt = { startedAt: new Date().toISOString(), endedAt: null, code: null, because: null, log: null };
-  /* 🪟 S4: win32 replaces its own copy through win32update.begin(), never through `/bin/sh`. The
-     branch is here, after the single-flight flag and the fresh record are set (so idempotency and
-     the attempt stamp behave exactly as the Mac path's) and before the Mac-only installRunner/spawn
-     wiring below, none of which applies on Windows. */
-  if (updatePlatform() === 'win32') return beginWindowsInstall(opts);
   /* 🛑 AN INJECTED RUNNER GOES THROUGH THE SAME WIRING, and it did not before.
      This returned immediately on `installRunner`, so the two handlers below --
      the ones that release the single-flight flag and stamp the automatic
@@ -897,6 +892,12 @@ function beginInstall(opts) {
     if (fake && typeof fake.on === 'function') { wireChild(fake, opts); return fake; }
     return fake;
   }
+  /* 🪟 S4: win32 replaces its own copy through win32update.begin(), never through `/bin/sh`. The
+     branch is here, AFTER the single-flight flag, the fresh record, and the installRunner seam (so a
+     Mac-style test double still runs on either OS) and BEFORE the `/bin/sh` spawn wiring, none of
+     which applies on Windows. In production installRunner is null, so a real win32 board reaches this
+     and a real Mac board falls through to the spawn below. */
+  if (updatePlatform() === 'win32') return beginWindowsInstall(opts);
   // The URL travels as a positional parameter, never interpolated into the
   // one command in this product that ends in `| sh`; and KOSMOS_RELEASE_BASE
   // rides along so the installer stages its tarballs from the SAME host the
