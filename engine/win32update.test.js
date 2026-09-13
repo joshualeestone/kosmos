@@ -1021,17 +1021,27 @@ test('the lock: a wall clock stepped forward never takes a live owner\'s lock', 
      auto-install), then time sync stepped the clock forward. Its process is still running. */
   const { lock } = lockDir();
   const sameProgram = () => OWN_IMAGE;
-  const mine = win32update.takeLock(lock, () => {}, { clock: { now: () => Date.now(), uptimeSeconds: () => 60 }, processImage: sameProgram });
-  for (const stepMs of [3 * 60 * 1000, 2 * 60 * 60 * 1000]) {
-    const stepped = { now: () => Date.now() + stepMs, uptimeSeconds: () => 61 };
-    assert.throws(() => win32update.takeLock(lock, () => {}, { clock: stepped, processImage: sameProgram }), (e) => heldByThisProcess.test(e.message), `a step of ${stepMs} ms`);
-    assert.equal(fs.readFileSync(lock, 'utf8'), mine, 'the live owner keeps it');
+  /* The uptime is pinned where the round-3 rule read it (os.uptime), so uptime arithmetic brought
+     back makes this red whatever this machine's real uptime is. */
+  const realUptime = os.uptime;
+  try {
+    os.uptime = () => 60;
+    const mine = win32update.takeLock(lock, () => {}, { clock: { now: () => Date.now() }, processImage: sameProgram });
+    os.uptime = () => 61;
+    for (const stepMs of [3 * 60 * 1000, 2 * 60 * 60 * 1000]) {
+      const stepped = { now: () => Date.now() + stepMs };
+      assert.throws(() => win32update.takeLock(lock, () => {}, { clock: stepped, processImage: sameProgram }), (e) => heldByThisProcess.test(e.message), `a step of ${stepMs} ms`);
+      assert.equal(fs.readFileSync(lock, 'utf8'), mine, 'the live owner keeps it');
+    }
+  } finally {
+    os.uptime = realUptime;
   }
 });
 
 test('the lock names the program that took it, and tasklist\'s answer is read for exactly that pid', T, () => {
   const body = JSON.parse(win32update.takeLock(lockDir().lock, () => {}));
-  assert.equal(body.exe, OWN_IMAGE);
+  const stamp = win32update.processImageStamp(process.execPath, fs.realpathSync.native);
+  assert.equal(body.exe, stamp === null ? undefined : stamp, 'the stamp processImageStamp gives this process, or none');
   assert.equal(body.pid, process.pid);
   assert.equal('boot' in body, false, 'no wall-clock stamp decides anything');
   const read = win32update.processImageFromTasklist;
@@ -1051,6 +1061,92 @@ test('the lock: on Windows the real lookup tells a different program apart; else
   } else {
     assert.throws(() => win32update.takeLock(lock, (l) => log.push(l)), (e) => heldByThisProcess.test(e.message));
   }
+});
+
+test('the lock records a program name only when tasklist will name the process the same way', T, () => {
+  const stamp = win32update.processImageStamp;
+  const dir = path.join(SANDBOX, 'images');
+  const at = (name) => path.join(dir, name);
+  const itself = (p) => p;
+  assert.equal(stamp(at('node.exe'), itself), 'node.exe');
+  assert.equal(stamp(at('NODE.EXE'), () => at('node.exe')), 'node.exe', 'case is not a difference');
+  assert.equal(stamp(at('node with space.exe'), itself), 'node with space.exe');
+  assert.equal(stamp(at('symlinked-name.exe'), () => at('node.exe')), null, 'launched through a symlink');
+  assert.equal(stamp(at('LONGER~1.EXE'), () => at('longer-node-runtime-name.exe')), null, 'an 8.3 short name');
+  assert.equal(stamp(at('nodeé-тест.exe'), itself), null, 'non-ASCII, which tasklist garbles');
+  assert.equal(stamp(at('node?.exe'), itself), null);
+  assert.equal(stamp(at('node.exe'), () => { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); }), null, 'a real path that cannot be read');
+});
+
+test('the lock: a tasklist answer that lost letters to its encoding holds', T, () => {
+  for (const garbled of ['node�-????.exe', 'node?.exe', 'nodeé.exe']) {
+    const { lock } = lockDir();
+    const seeded = JSON.stringify({ pid: process.pid, at: Date.now(), exe: 'node.exe' });
+    fs.writeFileSync(lock, seeded);
+    const log = [];
+    assert.throws(() => win32update.takeLock(lock, (l) => log.push(l), { processImage: () => garbled }), (e) => heldByThisProcess.test(e.message), garbled);
+    assert.equal(fs.readFileSync(lock, 'utf8'), seeded);
+    assert.ok(log.includes(`could not check which program process ${process.pid} is (code=unparsed); holding its lock`), `${garbled}\n${log.join('\n')}`);
+  }
+});
+
+test('the lock: an owner launched through a file symlink keeps its lock against a real challenger', { ...T, timeout: 30000 }, async (t) => {
+  if (!ON_WINDOWS) { t.skip('the tasklist lookup runs on Windows only'); return; }
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'symlinked-'));
+  const link = path.join(dir, 'symlinked-name.exe');
+  try { fs.symlinkSync(process.execPath, link, 'file'); } catch (e) {
+    t.skip(`this computer cannot make a file symlink without admin (code=${e && e.code})`);
+    return;
+  }
+  const lock = path.join(dir, 'prepare.lock');
+  const script = [
+    `const w = require(${JSON.stringify(path.join(__dirname, 'win32update.js'))});`,
+    `try { process.stdout.write('HELD ' + w.takeLock(${JSON.stringify(lock)}, () => {}) + '\\n'); } catch (e) { process.stdout.write('REFUSED ' + e.message + '\\n'); }`,
+    'setTimeout(() => {}, 15000);',
+  ].join('\n');
+  const owner = cp.spawn(link, ['-e', script], { env: process.env, stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true });
+  try {
+    const line = await new Promise((resolve, reject) => {
+      let out = '';
+      owner.stdout.on('data', (b) => { out += b; if (out.includes('\n')) resolve(out.trim()); });
+      owner.on('exit', () => reject(new Error('the owner exited: ' + out)));
+    });
+    assert.match(line, /^HELD /, line);
+    const body = JSON.parse(line.slice('HELD '.length));
+    assert.equal(body.pid, owner.pid);
+    assert.equal('exe' in body, false, 'a symlink-launched owner records no program name');
+    const log = [];
+    assert.throws(() => win32update.takeLock(lock, (l) => log.push(l)), (e) => e.message === `another update is already being prepared (process ${owner.pid})`, log.join('\n'));
+    assert.equal(fs.readFileSync(lock, 'utf8'), line.slice('HELD '.length), 'still the owner\'s');
+  } finally {
+    owner.kill();
+  }
+});
+
+test('the lock: a stale lock a scanner still holds refuses in words, and a later prepare recovers it', T, async () => {
+  const c = freshCase();
+  const isLock = (p) => path.basename(String(p)) === 'prepare.lock';
+  const r1 = await withStubAsync('rmSync', (real, p, o) => {
+    if (isLock(p)) throw codeError('EPERM', p);
+    return real(p, o);
+  }, () => win32update.prepare(prepareOpts(c, site(bundleZip()))));
+  assert.equal(r1.ok, true, JSON.stringify(r1));
+  assert.ok(fs.existsSync(path.join(c.work, 'prepare.lock')), 'the control: the release left the lock behind');
+
+  c.log.length = 0;
+  const r2 = await withStubAsync('unlinkSync', (real, p) => {
+    if (isLock(p)) throw codeError('EPERM', p);
+    return real(p);
+  }, () => win32update.prepare(prepareOpts(c, site(bundleZip()))));
+  assert.equal(r2.ok, false);
+  assert.equal(r2.because, 'another update is already being prepared (an old lock could not be removed yet)');
+  assert.ok(c.log.includes('could not remove a stale prepare lock yet (code=EPERM)'), c.log.join('\n'));
+  assert.equal(c.log.filter((l) => /prepare lock/.test(l)).some((l) => l.includes(c.work)), false, 'logged by code, not path');
+
+  c.log.length = 0;
+  const r3 = await win32update.prepare(prepareOpts(c, site(bundleZip())));
+  assert.equal(r3.ok, true, JSON.stringify(r3));
+  assert.ok(c.log.some((l) => /^cleared a stale prepare lock \(process \d+, left behind by an earlier prepare in this board that could not remove it\)$/.test(l)), c.log.join('\n'));
 });
 
 test('the lock: a lock the release could not remove is released on a retry, or cleared by the next prepare in this board', T, async () => {

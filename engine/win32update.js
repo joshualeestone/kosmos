@@ -381,8 +381,32 @@ function readLock(lockPath, judge) {
 /** The wall clock the age rule reads. A seam for the suite; it never decides a live owner's lock. */
 const SYSTEM_CLOCK = Object.freeze({ now: () => Date.now() });
 
-/** The program this process is, as a lock records it (`exe`) and as `tasklist` names a process. */
-const OWN_PROCESS_IMAGE = path.basename(process.execPath).toLowerCase();
+/** A program name `tasklist` and a lock can both carry without loss: printable ASCII, no `?`. */
+const PLAIN_IMAGE_NAME = /^[\x20-\x3e\x40-\x7e]+$/;
+
+/**
+ * The name a lock records for the program that took it (`exe`), or null to record none, which keeps
+ * the plain pid rule (the safe direction). A name is recorded only when `tasklist` will name the
+ * same process the same way, because a mismatch reads as a reused pid and clears a LIVE lock:
+ *   - plain printable ASCII only: `tasklist` prints a non-ASCII name with `?` and U+FFFD in place of
+ *     its letters (measured: `nodeé-тест.exe` came back `node�-????.exe`);
+ *   - the launched name must be the file's real name, compared case-insensitively: a process started
+ *     through a file symlink reports the symlink's name in execPath and the target's in `tasklist`
+ *     (measured: `symlinked-name.exe` against `node.exe`), and an 8.3 short name differs from the
+ *     long one. `realpathNative` is fs.realpathSync.native, a seam for the suite.
+ */
+function processImageStamp(execPath, realpathNative) {
+  const launched = path.basename(String(execPath));
+  if (!PLAIN_IMAGE_NAME.test(launched)) return null;
+  let real;
+  try { real = path.basename(String(realpathNative(execPath))); } catch { return null; }
+  return launched.toLowerCase() === real.toLowerCase() ? launched.toLowerCase() : null;
+}
+let ownProcessImageStamp;
+function ownProcessImage() {
+  if (ownProcessImageStamp === undefined) ownProcessImageStamp = processImageStamp(process.execPath, fs.realpathSync.native);
+  return ownProcessImageStamp;
+}
 
 /**
  * The program image `tasklist` reports for `pid` ("node.exe"), or null when its answer has no row
@@ -409,6 +433,7 @@ const DEFAULT_PROCESS_IMAGE = process.platform === 'win32' ? processImageByTaskl
  * (`stamped`, its `exe`)? Returns that program's name, or null. Every doubt holds the lock:
  *   - a lock with no `exe` (an earlier format), or no lookup on this platform: null;
  *   - a lookup that fails, times out or cannot be read: null, and the code is logged;
+ *   - an answer that is not a plain name (a `?` or U+FFFD where `tasklist` lost letters): null;
  *   - the same program: null. Another node.exe that was handed the pid holds the lock until it
  *     exits, which is the residual, in the safe direction.
  */
@@ -419,7 +444,7 @@ function pidNowBelongsToAnotherProgram(pid, stamped, judge) {
     judge.log(`could not check which program process ${pid} is (code=${(e && e.code) || 'unknown'}); holding its lock`);
     return null;
   }
-  if (typeof image !== 'string' || !image) {
+  if (typeof image !== 'string' || !PLAIN_IMAGE_NAME.test(image)) {
     judge.log(`could not check which program process ${pid} is (code=unparsed); holding its lock`);
     return null;
   }
@@ -532,7 +557,13 @@ function clearStaleLock(lockPath, stale, draft, log, hooks, judge) {
       try { now = fs.readFileSync(lockPath, 'utf8'); } catch { now = null; }
       if (now === null || now !== stale.text) return;
       if (typeof hooks.beforeRemove === 'function') hooks.beforeRemove();
-      fs.unlinkSync(lockPath);
+      /* A scanner can still hold the lock (the one a release could not remove, most often). The
+         raw error names the lock's full path, so only its code is logged, and leftBehindLockText
+         stays set for a later prepare to try again. */
+      try { fs.unlinkSync(lockPath); } catch (e) {
+        log(`could not remove a stale prepare lock yet (code=${(e && e.code) || 'unknown'})`);
+        refuse('another update is already being prepared (an old lock could not be removed yet)');
+      }
       if (stale.text === leftBehindLockText) leftBehindLockText = null;
       log(`cleared a stale prepare lock (process ${stale.pid || 'unknown'}, ${stale.why})`);
     } finally {
@@ -552,8 +583,9 @@ function clearStaleLock(lockPath, stale, draft, log, hooks, judge) {
  * reader ever sees a lock without its owner in it. A lock that readLock calls stale is removed
  * only through clearStaleLock; a lock with a running owner never is.
  *
- * The lock names the program that took it (`exe`), so a lock whose pid Windows has since handed
- * to a different program is dead (readLock).
+ * The lock names the program that took it (`exe`), when `tasklist` will name it the same way
+ * (processImageStamp), so a lock whose pid Windows has since handed to a different program is dead
+ * (readLock).
  *
  * A lock with exactly the text of one this process could not remove on release
  * (leftBehindLockText) is stale, and is cleared through the claim like any other. Only a finished
@@ -577,7 +609,8 @@ function takeLock(lockPath, log, hooks) {
   const now = judge.clock.now();
   const unique = `${process.pid}-${now}-${crypto.randomBytes(4).toString('hex')}`;
   const draft = `${lockPath}.${unique}.draft`;
-  const text = JSON.stringify({ pid: process.pid, at: now, exe: OWN_PROCESS_IMAGE, token: unique });
+  const exe = ownProcessImage();
+  const text = JSON.stringify({ pid: process.pid, at: now, ...(exe ? { exe } : {}), token: unique });
   fs.writeFileSync(draft, text, { flag: 'wx' });
   try {
     for (let attempt = 0; attempt < MAX_LOCK_ATTEMPTS; attempt += 1) {
@@ -1020,7 +1053,7 @@ async function cliMain(argv, write) {
 
 module.exports = {
   prepare, cliMain, runStagedNode, stagedNodeLaunch, workGuard, takeLock, sweepLockLeftovers, resolveWorld,
-  processImageFromTasklist,
+  processImageFromTasklist, processImageStamp,
   REQUIRED_ENTRIES, ENTRIES, WORK_DIRNAME, DEFAULT_LIMITS, STAGED_NODE_ENV_KEYS,
 };
 
