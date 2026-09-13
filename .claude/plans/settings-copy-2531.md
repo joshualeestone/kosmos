@@ -91,3 +91,18 @@ onboarding's sign-in/install throws lowercase: a fresh inconsistency ON the onbo
 exact drift the card fights, relocated. REVERTED 44984 back to lowercase, restoring onboarding to its
 exact pre-branch state (all three fr* throws lowercase). The change now touches ONLY the AI Models
 Settings acct* surface, as the scope line states. Onboarding remains a documented follow-up, untouched.
+
+## Iteration 4 challenge-review update (last same-surface sibling + exhaustive sweep)
+Sonnet review found a third missed same-surface sibling: line 18102, the disconnect/delete confirm
+handler's blocking-agents fallback `'agents are set up to run on this account.'`, which renders raw
+(String() concatenated with a capitalized `' Press again to...'` continuation) so it read lowercase at
+the sentence lead. Capitalized to `'Agents are set up to run on this account.'`.
+
+To stop finding these one per round, I then swept the ENTIRE acct* range (17400-20300) for every
+lowercase-leading string literal that looks like a sentence. 18102 was the ONLY remaining raw-rendered
+sentence-leading fallback. The rest are correctly lowercase and were verified NOT to be fixed:
+- `noneWhy` (17629), `unknownWhy` (17630), refused-import `'it could not be copied'` (19273): all
+  `because`-value fallbacks, capitalized downstream (the because-idiom, same family as pjSentence).
+- `'are signed in as '` (17548), `'there will not appear any more.'` (17797, inside a title= tooltip),
+  `'once you add this account again under the same name.'` (18097): mid-sentence CONTINUATION
+  fragments concatenated after a leading clause, so lowercase is correct.
