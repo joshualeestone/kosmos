@@ -75,6 +75,35 @@ function readUsage(page) {
       historyHasPending: /pending/.test((document.getElementById('usage-history') || {}).textContent || ''),
       historyScrolls: (() => { const b = document.getElementById('usage-history'); return b ? getComputedStyle(b).overflowY === 'auto' : null; })(),
       historyKeyboardReachable: (() => { const b = document.getElementById('usage-history'); return b ? b.getAttribute('tabindex') === '0' : null; })(),
+      // #2840: the METR "how we estimate the value" method footnote for the blended
+      // Value column. Quiet footnote, not a callout: assert the specific element, its
+      // copy, the exact approved link, its quiet styling (top hairline, NO left rule,
+      // no callout background), and its placement between the history list and the table.
+      method: (() => {
+        const m = document.querySelector('.usage-method');
+        if (!m) return null;
+        const cs = getComputedStyle(m);
+        const link = m.querySelector('a');
+        const hist = document.querySelector('.usage-hist');
+        const meas = document.querySelector('.usage-meas');
+        const moneyBox = document.querySelector('#usage-worth');
+        const DP_FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING;
+        return {
+          text: (m.textContent || '').trim(),
+          href: link ? link.getAttribute('href') : null,
+          linkText: link ? (link.textContent || '').trim() : null,
+          borderTopW: parseFloat(cs.borderTopWidth) || 0,
+          borderLeftW: parseFloat(cs.borderLeftWidth) || 0,
+          maxRadius: Math.max(
+            parseFloat(cs.borderTopLeftRadius) || 0, parseFloat(cs.borderTopRightRadius) || 0,
+            parseFloat(cs.borderBottomLeftRadius) || 0, parseFloat(cs.borderBottomRightRadius) || 0),
+          bg: cs.backgroundColor,
+          boxShadow: cs.boxShadow,
+          afterHist: hist ? !!(hist.compareDocumentPosition(m) & DP_FOLLOWING) : null,
+          beforeMeas: meas ? !!(m.compareDocumentPosition(meas) & DP_FOLLOWING) : null,
+          beforeMoney: moneyBox ? !!(m.compareDocumentPosition(moneyBox) & DP_FOLLOWING) : null,
+        };
+      })(),
     };
   });
 }
@@ -113,6 +142,20 @@ function readUsage(page) {
     ok(v.historyValueLive, 'every usage-history Value cell shows a live blended $ figure');
     ok(v.historyHasDollar === true, 'the usage-history list shows dollar Values');
     ok(v.historyHasPending === false, 'the retired "pending" stub is gone from the Value column');
+    // #2840: the METR "how we estimate the value" method footnote for the blended Value column.
+    ok(v.method, 'the METR "how we estimate the value" method footnote renders (.usage-method)');
+    ok(v.method && /^how we estimate the value/i.test(v.method.text), 'the footnote leads with "How we estimate the value"');
+    ok(v.method && /blended knowledge-work rate/i.test(v.method.text), "the footnote names the blended knowledge-work rate (the Value column's basis, not output)");
+    ok(v.method && v.method.href === 'https://metr.org/time-horizons/', `the footnote links the exact approved METR URL (got ${v.method && v.method.href})`);
+    ok(v.method && /metr/i.test(v.method.linkText || ''), `the link text names METR (meaningful, not "click here" or dropped; got ${JSON.stringify(v.method && v.method.linkText)})`);
+    ok(v.method && v.method.borderTopW === 1, `the footnote has a quiet 1px top hairline, not a thick border (got ${v.method && v.method.borderTopW})`);
+    ok(v.method && v.method.borderLeftW === 0, 'the footnote has NO left color-rule (a quiet footnote, not a styled callout)');
+    ok(v.method && v.method.maxRadius === 0, `the footnote has no rounded corners, so it is not a boxed callout (got ${v.method && v.method.maxRadius})`);
+    ok(v.method && (v.method.bg === 'rgba(0, 0, 0, 0)' || v.method.bg === 'transparent'), 'the footnote has no callout background (quiet, muted)');
+    ok(v.method && v.method.boxShadow === 'none', `the footnote has no box-shadow, so an inset box or shadow left-rule callout cannot pass unseen (got ${v.method && v.method.boxShadow})`);
+    ok(v.method && v.method.afterHist === true, 'the footnote sits under the usage-history list (beside the Value column it explains)');
+    ok(v.method && v.method.beforeMoney === true, 'the footnote sits directly under the history list, above the output money box (so it reads as the Value column\'s note, not the money box\'s)');
+    ok(v.method && v.method.beforeMeas === true, 'the footnote sits above "The measurement it comes from" table');
     await ctx.close();
   } finally {
     await browser.close();
