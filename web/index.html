@@ -169,13 +169,6 @@
      Dark #4ade80 is 10.11 on the dark card and 11.16 on the dark page. */
   --ok: #1f7a4d;
   --k-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  /* #2066 build marker: the STAGING badge's ink + ground. Mona Lisa's values
-     (installkosmos.com/design/build-marker). A dark warm-brown ink on a light
-     warm-cream ground in light; the inverse (light gold on deep brown) in dark,
-     so the badge stays loud and legible either way. Defined here and re-stated
-     in both dark blocks below, because a one-theme colour on the wrong ground is
-     the failure this palette exists to avoid. */
-  --stag: #8a5a00; --stag-bg: #fbeecb;
 
   --font-ui: -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Monaco, monospace;
@@ -311,8 +304,6 @@
     --k-side:   #111316;
     --k-side-2: #1c1f23;
     --k-optline: #6e7278;
-    /* #2066 build marker (dark): light gold ink on a deep warm-brown ground. */
-    --stag: #f0c860; --stag-bg: #3a2e10;
   }
 }
 /* ⚠️ THIS BLOCK USED TO BREAK DARK MODE, and it sits after the dark block, so it
@@ -1155,19 +1146,14 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
            margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) var(--space-6);
            padding: var(--space-8) var(--space-8) 0;
            border-bottom: 1px solid var(--k-rule); }
-/* #2066 build marker (Mona Lisa's design, installkosmos.com/design/build-marker).
-   Same fixed corner, different weight per channel: prod is quiet furniture, present
-   in every screenshot but not competing; staging spends attention on purpose so a
-   tester cannot miss it or leave it out of a shot. Below the sticky header (z 20) so
-   it never sits over the chrome; the corner keeps it clear of content. */
+/* #2066 + #2658 build marker: a uniform "beta build v<version>" in the board's fixed
+   corner, quiet furniture present in every screenshot but not competing. #2658 (option a)
+   dropped #2066's loud per-channel staging badge; the channel now rides the hover title
+   only (staging is opt-in, prod is always promoted+verified). Below the sticky header
+   (z 20) so it never sits over the chrome; the corner keeps it clear of content. */
 #buildmark { position: fixed; right: 10px; bottom: 8px; z-index: 15;
              font: 500 11px/1.4 var(--k-mono); color: var(--k-ink-2); opacity: .75;
              user-select: none; }
-#buildmark.staging { display: inline-flex; align-items: center; gap: 6px;
-             font: 700 11px/1 var(--font-ui); letter-spacing: .04em; opacity: 1;
-             color: var(--stag); background: var(--stag-bg);
-             border: 1px solid var(--stag); border-radius: 99px; padding: 3px 10px; }
-#buildmark.staging .bm-v { font: 600 11px var(--k-mono); }
 /**
  * 🛑 THE TABS CENTRED AGAINST THE GAP, NOT AGAINST THE PAGE. `auto 1fr auto`
  * gives the tab bar a middle column that is whatever is left between two
@@ -7171,8 +7157,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     --k-side:   #111316;
     --k-side-2: #1c1f23;
     --k-optline: #6e7278;
-    /* #2066 build marker (dark): light gold ink on a deep warm-brown ground. */
-    --stag: #f0c860; --stag-bg: #3a2e10;
   }
 
 @media (prefers-contrast: more) {
@@ -7418,10 +7402,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
      A fixed body corner, NOT Settings: a problem screenshot is not of Settings, and a
      click/hover reveal is not in a screenshot. Body-fixed rather than inside .apphead
      because the consolidated layout sets .apphead to position:static, so a body corner
-     is the layout-robust home for "on every tab". Prod: a small dim version string.
-     Staging: a loud coloured STAGING badge in the same slot (absence of the badge is
-     prod). Painted by paintBuildMark() off the /api/status poll; the hover title carries
-     the fuller line (channel · port). Hidden until the first paint gives it a version. -->
+     is the layout-robust home for "on every tab". A uniform "beta build v<version>" for
+     every channel (#2658 dropped #2066's per-channel loud STAGING badge; the channel rides
+     the hover title only). Painted by paintBuildMark() off the /api/status poll; the hover
+     title carries the fuller line (channel · port). Hidden until the first paint gives it a version. -->
 <div id="buildmark" hidden></div>
 <!-- ⚠️ THE STICKY UNIT IS THE WHOLE BAR, header and tabs together, pulled to
      the page edges with negative margins that mirror the body padding exactly
@@ -21179,19 +21163,21 @@ function paintBuildLine(version) {
 }
 
 /**
- * #2066: the build marker in the board's persistent chrome -- "which build am I on,
- * and is this staging or prod", answerable from a problem screenshot without asking.
+ * #2066 + #2658: the build marker in the board's persistent chrome -- "which build am I
+ * on", shown uniformly for every channel as "beta build v<version>".
  *
  * Same value logic as paintBuildLine: the BAKED version wins, because the question is
  * "what am I looking at" and only the page's own baked value knows that; the polled
  * `version` is the fallback for a source checkout that bakes nothing. Channel is
  * `sourceChannel` off the /api/status poll (never baked into the artifact -- #2036's
  * same-bytes-promotion invariant), defaulting to prod. Port comes from the URL the
- * board is served on, which is per-account (#the cabal9 "which of several apps" case).
+ * board is served on, which is per-account (the cabal9 "which of several apps" case).
  *
- * Weight, not visibility, carries the channel: prod paints a small dim version string
- * (chrome, ignorable in daily use, still in the screenshot); staging paints a loud
- * badge. The fuller line (channel, port) rides the hover title so prod stays quiet.
+ * #2658 (option a, Baron): the VISIBLE marker is uniform for every channel; the channel
+ * (staging/prod) and port ride the hover title, not the visible text. The staging safety
+ * tell lives there and in /api/accounts (#2036) -- staging is opt-in and prod is always
+ * promoted+verified, so no constantly-visible staging indicator is needed. This supersedes
+ * #2066's loud staging badge (the .staging/.bm-v CSS went with it).
  * Hidden until we actually have a version to show, so it never flashes "unknown".
  */
 function paintBuildMark(version, sourceChannel) {
@@ -21208,13 +21194,14 @@ function paintBuildMark(version, sourceChannel) {
   el.title = 'Kosmos v' + shown + ' · ' + channel
     + (port ? ' · port ' + port : '')
     + (pageIsStale(version) ? ' · page stale, reload for v' + version : '');
-  if (staging) {
-    el.className = 'staging';
-    el.innerHTML = 'STAGING <span class="bm-v">v' + esc(shown) + '</span>';
-  } else {
-    el.className = '';
-    el.textContent = 'v' + shown;
-  }
+  /* #2658: one uniform visible marker for every channel -- "beta build v<version>".
+     The staging safety tell is NOT lost: the hover title above still names the
+     channel (staging/prod), and /api/accounts carries the channel metadata (#2036).
+     Baron (who built the #2066 staging-loud marker) ruled option (a): staging is
+     opt-in and prod is always promoted+verified, so no constantly-visible staging
+     indicator is needed. textContent, so the version is escaped by construction. */
+  el.className = '';
+  el.textContent = 'beta build v' + shown;
   el.hidden = false;
 }
 
