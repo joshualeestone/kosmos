@@ -100,6 +100,35 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // settable via .value; if it were not, this reds and the reflection approach is wrong.
     ok(`${t} the sort control shows "custom" after a drag (not a stale named sort)`, after.selValue === 'custom', after.selValue);
 
+    // ---- Lower-half drop (the +1 "insert after" branch, the plan's flagged risk) + a
+    // self-drop no-op. Resets to the sorted order first so these arms stand alone. ----
+    const lower = await page.evaluate(() => {
+      PJ_ORDER = null;
+      try { localStorage.removeItem('kosmos.order.projects'); } catch { /* ignore */ }
+      PJ_SORT = 'az';
+      paintProjects();
+      const row = (id) => document.querySelector('#pj-list .pj-row[data-project="' + id + '"]');
+      const topIds = () => Array.from(document.querySelectorAll('#pj-list .pj-row[data-project]'))
+        .filter((r) => (Number(r.style.getPropertyValue('--pj-depth')) || 0) === 0)
+        .map((r) => r.dataset.project);
+      const drag = (fromId, toId, half) => {
+        const from = row(fromId); const to = row(toId);
+        const dt = new DataTransfer();
+        const rect = to.getBoundingClientRect();
+        const y = half === 'lower' ? rect.bottom - 2 : rect.top + 2;
+        const fire = (el, type) => el.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt, clientX: rect.left + 4, clientY: y }));
+        fire(from, 'dragstart'); fire(to, 'dragover'); fire(to, 'drop'); fire(from, 'dragend');
+      };
+      drag('a', 'a', 'upper');           // self-drop => guarded no-op
+      const afterSelf = topIds();
+      let selfSaved = null; try { selfSaved = localStorage.getItem('kosmos.order.projects'); } catch { selfSaved = 'ERR'; }
+      drag('a', 'c', 'lower');           // a onto c's LOWER half => a goes AFTER c => b,c,a
+      return { afterSelf, selfSaved, afterLower: topIds() };
+    });
+    ok(`${t} self-drop is a no-op (order stays a,b,c)`, JSON.stringify(lower.afterSelf) === JSON.stringify(['a', 'b', 'c']), JSON.stringify(lower.afterSelf));
+    ok(`${t} self-drop sets no manual order`, lower.selfSaved === null, String(lower.selfSaved));
+    ok(`${t} lower-half drop inserts AFTER the target (a onto c's lower half => b,c,a; exercises the +1 branch and drag-to-last)`, JSON.stringify(lower.afterLower) === JSON.stringify(['b', 'c', 'a']), JSON.stringify(lower.afterLower));
+
     // ---- Control: choosing a SORT clears the manual order (mutually exclusive) ----
     const sortReverts = await page.evaluate(() => {
       const sel = document.getElementById('pj-sort');

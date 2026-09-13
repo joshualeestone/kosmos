@@ -35286,7 +35286,13 @@ function paintProjects() {
       + '</div>');
     return;
   }
-  setIfChanged(list, pjTreeRows(active));
+  /* #2929 slice 2: do NOT replace the list's innerHTML while a cluster drag is in flight
+     -- it would destroy the drag-source node and silently abort the reorder (the poll
+     fires ~every 5s and repaints on any live-data change). The drop and a cancelled
+     dragend both clear PJ_DRAGGING and repaint, so the new order (or the caught-up poll
+     state) lands the moment the drag ends. applyConsFold below only edits classes on the
+     existing rows, so it is safe to run mid-drag. */
+  if (!PJ_DRAGGING) setIfChanged(list, pjTreeRows(active));
   /* #2929: re-apply the fold to the freshly painted rows -- a fresh paint carries no
      .pj-fold-hidden classes, so this runs every paint, not just on toggle. The fold
      set was already pruned to live active ids above (before the empty-state returns). */
@@ -35344,6 +35350,14 @@ function pjSaveOrder(ids) {
   } catch { /* display preference only, same standing as the sort setting */ }
 }
 function pjClearOrder() { pjSaveOrder(null); }
+/* #2929 slice 2: true while a cluster drag is in flight. The ~5s data poll repaints
+   #pj-list whenever any card's live data changes (a needsYou count, an unread badge),
+   and replacing the list's innerHTML mid-drag destroys the drag-source node and silently
+   aborts the reorder. paintProjects skips ONLY the #pj-list repaint while this is set
+   (the tiles still update); the drop and a cancelled dragend both clear it and repaint,
+   so a skipped poll update is caught up the moment the drag ends. Module-level so
+   paintProjects can see it (dragId itself is private to the drag IIFE's closure). */
+let PJ_DRAGGING = false;
 /* A project node in the Map. The node itself is a BUTTON that opens the project
    (`data-project`, the same handle the cards use). A parent additionally gets a fold
    disclosure -- a SEPARATE button (`data-pjfold`, checked first in the click delegate;
@@ -35603,15 +35617,20 @@ function pjTreeToggleFold(id) {
   const isTop = (r) => !!r && (Number(r.style.getPropertyValue('--pj-depth')) || 0) === 0;
   const topRow = (el) => { const r = el && el.closest && el.closest('.pj-row[data-project]'); return isTop(r) ? r : null; };
   const topIds = () => Array.from(list.querySelectorAll('.pj-row[data-project]')).filter(isTop).map((r) => r.dataset.project);
+  const endDrag = () => { dragId = null; PJ_DRAGGING = false; };   // reset both together, always paired
   list.addEventListener('dragstart', (e) => {
     if (!cons()) return;
     const row = topRow(e.target);
     if (!row) return;
     dragId = row.dataset.project;
+    PJ_DRAGGING = true;                          // pause #pj-list repaints while the drag is in flight
     row.classList.add('pj-dragging');
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = 'move';
       try { e.dataTransfer.setData('text/plain', dragId); } catch { /* some engines disallow setData here */ }
+      /* Drag the whole ROW as the ghost even when the grab started on a nested avatar
+         <img> (natively draggable, and it would otherwise become the tiny drag preview). */
+      try { e.dataTransfer.setDragImage(row, 12, 12); } catch { /* not supported everywhere */ }
     }
   });
   list.addEventListener('dragover', (e) => {
@@ -35624,25 +35643,30 @@ function pjTreeToggleFold(id) {
   list.addEventListener('drop', (e) => {
     if (!cons() || dragId == null) return;
     const row = topRow(e.target);
-    if (!row || row.dataset.project === dragId) { dragId = null; return; }
+    if (!row || row.dataset.project === dragId) { endDrag(); return; }
     e.preventDefault();
     const targetId = row.dataset.project;
     const ids = topIds();
     const from = ids.indexOf(dragId);
-    if (from === -1 || ids.indexOf(targetId) === -1) { dragId = null; return; }
+    if (from === -1 || ids.indexOf(targetId) === -1) { endDrag(); return; }
     ids.splice(from, 1);                          // remove the dragged id, then re-find the target
     let to = ids.indexOf(targetId);
     const rect = row.getBoundingClientRect();
     if (e.clientY > rect.top + rect.height / 2) to += 1;   // dropped on the lower half => after the target
     ids.splice(to, 0, dragId);
-    dragId = null;
+    endDrag();               // clear BEFORE the repaint, or paintProjects would skip the list (PJ_DRAGGING)
     pjSaveOrder(ids);        // dragging SETS the manual order (a sort choice clears it)
     paintProjects();         // repaint in the new order (replaces the rows, clearing .pj-dragging)
   });
   list.addEventListener('dragend', () => {
     const d = list.querySelector('.pj-dragging');
-    if (d) d.classList.remove('pj-dragging');   // covers a cancelled drag (no drop => no repaint)
-    dragId = null;
+    if (d) d.classList.remove('pj-dragging');
+    const wasDragging = PJ_DRAGGING;             // false already if a drop just handled it (no double repaint)
+    endDrag();
+    /* A cancelled drag (Esc, or dropped outside a valid target) fires dragend with no drop,
+       so no repaint ran and the list may have skipped a poll update while PJ_DRAGGING was set.
+       Catch up now; after a real drop wasDragging is false so this does nothing. */
+    if (wasDragging) paintProjects();
   });
 })();
 
