@@ -13,7 +13,8 @@
  * this module does the removing.
  *
  * 🔑 IN ORDER, EACH STEP WITH ITS OWN RESULT, NOTHING SILENTLY SKIPPED:
- *   1. ask the board's port who answers (win32handoff.probeBoard, the identity probe). A Kosmos
+ *   1. ask the board's port who answers, on every address a board of this user could be on
+ *      (win32handoff.probeBoardOnEveryAddress, the identity probe). A Kosmos
  *      board its logon task did NOT start (a double-clicked Kosmos.exe, say) is out of reach of
  *      every task command, and could re-register tasks and re-create folders behind the removal,
  *      so NOTHING is changed and the person is told to close Kosmos first;
@@ -305,14 +306,20 @@ function leftoverList(failures) {
 }
 
 /**
- * Is a Kosmos board answering on the port, and did its logon task start it?
- * `{answering: false}` / `{answering: true, byTask: true|false|null}`. A probe that cannot run is
- * taken as a board that answers and is not the task's, which stops the removal: the safe direction.
+ * Is a Kosmos board open on the port, and did its logon task start it?
+ *   `{answering: false}`                          no board: every address refused, or only a page that is not Kosmos
+ *   `{answering: true, byTask: true|false|null}`  a Kosmos board answered; byTask says whether its task started it
+ *   `{answering: true, byTask: false, unanswered}` no answer, only a timeout or a failed look (`unanswered` is
+ *                                                  the outcome): a board that may be open. The first look reads
+ *                                                  the board task on that (stopForUnansweredFirstLook): a task
+ *                                                  that reads running goes on to be switched off, ended and
+ *                                                  waited for; every later look counts it as still open.
+ * A probe that cannot run is a failed look.
  */
 async function boardOnPort(port, o) {
   const handoff = require('./win32handoff');
   /* Round 4, finding 1: every address a board of this user could be on, not 127.0.0.1 alone. */
-  const probe = typeof o.probe === 'function' ? o.probe : (p) => handoff.probeBoardOnEveryAddress(p, o.env || process.env);
+  const probe = typeof o.probe === 'function' ? o.probe : (p) => handoff.probeBoardOnEveryAddress(p, o.env || process.env, undefined, o.lookup);
   let answer;
   try { answer = await probe(port); } catch { return { answering: true, byTask: false, unanswered: handoff.PROBE_OUTCOMES.ERROR }; }
   /* Round 3, finding 1: only a refused connection proves nobody is there. A board that did not answer
@@ -372,10 +379,12 @@ function putBoardSwitchBack(boardSwitch, notes) {
  *   - the board task reads RUNNING: the usual busy board its task started. Go on to switch it off, end it
  *     and wait for it, which stops with the switch put back if it does not go;
  *   - the task cannot be read: round 3's stop, "Kosmos is still open";
- *   - the task is not running, and the look timed out: something accepts and never answers, which may be
- *     a hand-started board, "Kosmos is still open";
- *   - the task is not running, and the look failed: another program holds the port. A connection it
- *     reset is NOT taken as "not Kosmos", because a board mid-restart resets connections too.
+ *   - the task is not proven running, and the look timed out: something accepts and never answers, which
+ *     may be a hand-started board, "Kosmos is still open";
+ *   - the task is not proven running, and the look failed: win32handoff.cannotTellIfOpenSentence, which
+ *     names another program only when the task is known not to be registered (round 5, finding 5). A
+ *     connection that was reset is NOT taken as "not Kosmos", because a board mid-restart resets
+ *     connections too.
  */
 function stopForUnansweredFirstLook(outcome, port) {
   const handoff = require('./win32handoff');
@@ -384,7 +393,7 @@ function stopForUnansweredFirstLook(outcome, port) {
   if (!task || !task.known) return stillOpen();
   if (task.running === true) return null;
   if (outcome === handoff.PROBE_OUTCOMES.TIMED_OUT) return stillOpen();
-  return stoppedUnchanged(handoff.anotherProgramOnPort(port) + ' ' + RESTART_THEN_REMOVE_AGAIN);
+  return stoppedUnchanged(handoff.cannotTellIfOpenSentence(port, task) + ' ' + RESTART_THEN_REMOVE_AGAIN);
 }
 
 /* A stop before anything was changed, saying why. */

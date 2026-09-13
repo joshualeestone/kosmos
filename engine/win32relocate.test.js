@@ -488,6 +488,7 @@ test('🛑 round 4 finding 3, real listeners: a move over a port that times out,
   const RUNNING_ROW = '"BOX","\\Kosmos\\board","N/A","Running","Interactive only","9/13/2026 1:00:00 PM","267009"\r\n';
   const boardTask = (state) => win32board.setRunner((args) => {
     if (state === 'unreadable') return { ok: false, out: 'ERROR: The operation timed out.' };
+    if (state === 'unregistered' && args.includes('/XML')) return { ok: false, out: 'ERROR: The system cannot find the file specified.' };
     if (args.includes('/XML')) return { ok: true, out: '<?xml version="1.0"?><Task><Settings></Settings></Task>' };
     if (args.includes('/V')) return state === 'running' ? { ok: true, out: RUNNING_ROW } : { ok: false, out: 'ERROR: The system cannot find the file specified.' };
     return { ok: true, out: 'SUCCESS' };
@@ -497,8 +498,11 @@ test('🛑 round 4 finding 3, real listeners: a move over a port that times out,
   try {
     for (const [label, listener, state, expected] of [
       ['a listener that never answers', hung, 'not running', 'Kosmos was not moved, because Kosmos may be running and did not answer in time. Kosmos keeps working from here.'],
-      ['a program that is not HTTP, the board task not running', notHttp, 'not running',
+      /* Round 5, finding 5: "another program" only for a board task known not to be registered. */
+      ['a program that is not HTTP, no board task registered', notHttp, 'unregistered',
         'Another program is using port ' + notHttp.port + ', so Kosmos cannot tell whether it is still open. Restart your computer, then open Kosmos again.'],
+      ['a program that is not HTTP, the board task registered and not proven running', notHttp, 'not running',
+        'Kosmos could not tell whether it is still open. Restart your computer, then open Kosmos again.'],
       ['a program that is not HTTP, the board task running', notHttp, 'running', 'Kosmos was not moved, because Kosmos may be running and it could not tell from which folder. Kosmos keeps working from here.'],
       ['a program that is not HTTP, the board task unreadable', notHttp, 'unreadable', 'Kosmos was not moved, because Kosmos may be running and it could not tell from which folder. Kosmos keeps working from here.'],
     ]) {

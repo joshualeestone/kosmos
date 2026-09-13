@@ -806,18 +806,19 @@ const PORT_IN_USE = (port) => 'Another program is using port ' + port + ', so Ko
  * something other than HTTP ('not-http', the reviewer's VNC greeting), or one that never answers
  * ('hung'). Null when this machine cannot listen there.
  */
-async function listenerOn(host, kind) {
+async function listenerOn(host, kind, options) {
+  const o = options || {};
   const sockets = new Set();
   const server = kind === 'board'
     ? http.createServer((req, res) => {
-      res.writeHead(200, { [handoff.BOARD_IDENTITY_HEADER]: '0.6.61+abc@default', [handoff.BOARD_STARTED_BY_TASK_HEADER]: '0' });
+      res.writeHead(200, { [handoff.BOARD_IDENTITY_HEADER]: '0.6.61+abc@default', [handoff.BOARD_STARTED_BY_TASK_HEADER]: o.startedByTask || '0' });
       res.end('board');
     })
     : net.createServer((socket) => { if (kind === 'not-http') socket.end('RFB 003.008\n'); });
   server.on('connection', (socket) => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
   const listening = await new Promise((resolve) => {
     server.once('error', () => resolve(false));
-    server.listen(0, host, () => resolve(true));
+    server.listen(o.port || 0, host, () => resolve(true));
   });
   if (!listening) return null;
   let closing = null;
@@ -829,7 +830,11 @@ async function listenerOn(host, kind) {
 }
 
 test('🛑 round 4 finding 1, real listeners: a hand-started board on ::1 only, on 127.0.0.1 only, or on the KOSMOS_BIND_HOST address, stops the removal with nothing changed', WINDOWS_FOLDERS, async (t) => {
-  for (const [label, host, extraEnv] of [['::1 only', '::1', {}], ['127.0.0.1 only', '127.0.0.1', {}], ['KOSMOS_BIND_HOST=127.0.0.2', '127.0.0.2', { KOSMOS_BIND_HOST: '127.0.0.2' }]]) {
+  for (const [label, host, extraEnv] of [
+    ['::1 only', '::1', {}], ['127.0.0.1 only', '127.0.0.1', {}], ['KOSMOS_BIND_HOST=127.0.0.2', '127.0.0.2', { KOSMOS_BIND_HOST: '127.0.0.2' }],
+    /* Round 5, finding 1: a name is resolved now, and localhost still reaches a board on ::1. */
+    ['KOSMOS_BIND_HOST=localhost, the board on ::1', '::1', { KOSMOS_BIND_HOST: 'localhost' }],
+  ]) {
     const board = await listenerOn(host, 'board');
     if (!board) { t.diagnostic('ARM NOT RUN: ' + label + ', this machine cannot listen on ' + host); continue; }
     const s = sandbox();
@@ -919,12 +924,16 @@ test('🛑 round 4 finding 3, real listeners: with the board task RUNNING, a fir
   }
 });
 
-test('🛑 round 4 finding 3, real listeners: with the board task NOT running, a program that is not HTTP stops the removal with its own sentence, one that never answers is still open, and an unreadable task keeps round 3\'s stop', WINDOWS_FOLDERS, async () => {
+const COULD_NOT_TELL = 'Kosmos could not tell whether it is still open. Restart your computer, then remove Kosmos again.';
+
+test('🛑 round 4 finding 3, real listeners: with the board task NOT proven running, a program that is not HTTP stops the removal with a sentence that names another program only when no board task is registered, one that never answers is still open, and an unreadable task keeps round 3\'s stop', WINDOWS_FOLDERS, async () => {
   const notHttp = await listenerOn('127.0.0.1', 'not-http');
   const hung = await listenerOn('127.0.0.1', 'hung');
   try {
     for (const [label, listener, boardXml, expected] of [
-      ['a program that is not HTTP', notHttp, boardDefinition(true), PORT_IN_USE(notHttp.port)],
+      /* Round 5, finding 5: no boardXml is the English not-found answer, a task known not to be registered. */
+      ['a program that is not HTTP, no board task registered', notHttp, null, PORT_IN_USE(notHttp.port)],
+      ['a program that is not HTTP, the board task registered and not proven running', notHttp, boardDefinition(true), COULD_NOT_TELL],
       ['a listener that never answers', hung, boardDefinition(true), uninstaller.KOSMOS_STILL_OPEN],
       ['a program that is not HTTP, the board task unreadable', notHttp, { ok: false, out: 'ERROR: The operation timed out.' }, uninstaller.KOSMOS_STILL_OPEN],
     ]) {
@@ -938,9 +947,106 @@ test('🛑 round 4 finding 3, real listeners: with the board task NOT running, a
         assert.ok(fs.existsSync(s.runtimeDir) && fs.existsSync(path.join(s.dataDir, 'chats', 'ava.jsonl')), label + ': a folder went');
       } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
     }
-    assert.ok(PORT_IN_USE(1).startsWith(handoff.anotherProgramOnPort(1)), 'the uninstall words its port sentence apart from the move');
+    assert.ok(PORT_IN_USE(1).startsWith(handoff.cannotTellIfOpenSentence(1, { known: true, registered: false })), 'the uninstall words its port sentence apart from the move');
+    assert.ok(COULD_NOT_TELL.startsWith(handoff.cannotTellIfOpenSentence(1, { known: true, registered: true, running: null })), 'the uninstall words its could-not-tell sentence apart from the move');
   } finally {
     await notHttp.close();
     await hung.close();
+  }
+});
+
+/* ---- the round 5 review, fixed in round 6 ------------------------------------ */
+
+test('🛑 round 5 finding 2, real listeners: the task\'s board on 127.0.0.1 does not hide a hand-started board on ::1 on the same port, so nothing is asked or changed (case C); the hand-started board alone stops it too (C2)', WINDOWS_FOLDERS, async (t) => {
+  const taskBoard = await listenerOn('127.0.0.1', 'board', { startedByTask: '1' });
+  const handBoard = taskBoard && await listenerOn('::1', 'board', { port: taskBoard.port });
+  if (!taskBoard || !handBoard) {
+    if (taskBoard) await taskBoard.close();
+    t.skip('this machine cannot listen on 127.0.0.1 and ::1 on one port');
+    return;
+  }
+  const s = sandbox();
+  try {
+    const calls = stubSchedulers({ lists: [listing(['Kosmos\\board']), listing([])], boardXml: boardDefinition(true), running: true, onBoardEnd: () => { taskBoard.close(); } });
+    const r = await run(s, { deleteData: true, port: taskBoard.port, probe: undefined });
+    assert.equal(r.stillOpen, true, JSON.stringify(r));
+    assert.deepEqual(r.left, [uninstaller.KOSMOS_STILL_OPEN]);
+    assert.deepEqual(calls, [], 'the task\'s board was switched off and ended while a board no task command can stop was open: ' + calls.join(' | '));
+    assert.ok(fs.existsSync(s.runtimeDir) && fs.existsSync(path.join(s.dataDir, 'chats', 'ava.jsonl')));
+  } finally {
+    await taskBoard.close();
+    fs.rmSync(s.base, { recursive: true, force: true });
+  }
+
+  const c2 = sandbox();
+  try {
+    const calls = stubSchedulers({ lists: [listing(['Kosmos\\board']), listing([])], boardXml: boardDefinition(true), running: true });
+    const r = await run(c2, { deleteData: true, port: handBoard.port, probe: undefined });
+    assert.equal(r.stillOpen, true, 'C2: ' + JSON.stringify(r));
+    assert.deepEqual(calls, [], 'C2: something was asked or changed');
+  } finally {
+    await handBoard.close();
+    fs.rmSync(c2.base, { recursive: true, force: true });
+  }
+});
+
+/** A link-local IPv6 address of this machine, zoned, that a board can listen on and be reached on, or null. */
+async function reachableZonedLinkLocalBoard() {
+  const candidates = Object.entries(os.networkInterfaces()).flatMap(([name, list]) => (list || [])
+    .filter((i) => i.family === 'IPv6' && /^fe80:/i.test(i.address) && !i.internal)
+    .map((i) => ({ name, address: i.address, zoned: i.address + '%' + i.scopeid })));
+  for (const candidate of candidates) {
+    const board = await listenerOn(candidate.zoned, 'board');
+    if (!board) continue;
+    /* Measured on this box: the Tailscale adapter's own link-local address times out even to itself. */
+    if ((await handoff.probeBoard(board.port, candidate.zoned)).answering) return { ...candidate, board };
+    await board.close();
+  }
+  return null;
+}
+
+test('🛑 round 5 finding 1, real listeners: a hand-started board on a ZONED link-local bind host stops the removal, chats kept (case E); the same board unzoned does too (E2)', WINDOWS_FOLDERS, async (t) => {
+  const found = await reachableZonedLinkLocalBoard();
+  if (!found) { t.skip('no link-local IPv6 address on this machine takes a connection from itself'); return; }
+  try {
+    const unzonedBoard = await listenerOn(found.address, 'board');
+    const arms = [['zoned, ' + found.zoned, found.zoned, found.board]];
+    if (unzonedBoard) arms.push(['unzoned (E2), ' + found.address, found.address, unzonedBoard]);
+    else t.diagnostic('ARM NOT RUN: E2, this machine cannot listen on ' + found.address + ' without a zone');
+    try {
+      for (const [label, bindHost, board] of arms) {
+        const s = sandbox();
+        try {
+          const calls = stubSchedulers({ lists: [listing([]), listing([]), listing([])] });
+          const r = await run(s, { deleteData: true, port: board.port, probe: undefined, env: { ...s.env, KOSMOS_BIND_HOST: bindHost } });
+          assert.equal(r.stillOpen, true, label + ': the removal ran under a board on the bind host: ' + JSON.stringify(r));
+          assert.ok(fs.existsSync(path.join(s.dataDir, 'chats', 'ava.jsonl')), label + ': the chats were deleted');
+          assert.ok(!calls.some((c) => /\/(Change|End|Delete)/.test(c)), label + ': a task was changed');
+        } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+      }
+    } finally {
+      if (unzonedBoard) await unzonedBoard.close();
+    }
+  } finally {
+    await found.board.close();
+  }
+});
+
+test('🛑 round 5 finding 3: a bind host name that does not resolve, resolves elsewhere, or whose lookup fails adds nothing, so it does not block the removal (case F)', WINDOWS_FOLDERS, async () => {
+  const gone = await listenerOn('127.0.0.1', 'hung');
+  const closedPort = gone.port;
+  await gone.close();
+  for (const [label, bindHost, lookup] of [
+    ['a name that does not resolve (real DNS)', 'kosmos-no-such-host.invalid', undefined],
+    ['a name that resolves to another machine', 'board.example', async () => [{ address: '192.0.2.10', family: 4 }]],
+    ['a name whose lookup fails', 'board.example', async () => { throw Object.assign(new Error('temporary failure in name resolution'), { code: 'EAI_AGAIN' }); }],
+  ]) {
+    const s = sandbox();
+    try {
+      stubSchedulers({ lists: [listing([]), listing([]), listing([])] });
+      const r = await run(s, { port: closedPort, probe: undefined, lookup, env: { ...s.env, KOSMOS_BIND_HOST: bindHost } });
+      assert.equal(r.ok, true, label + ': the removal was blocked by a bind host nothing can listen on: ' + JSON.stringify(r.left));
+      assert.ok(!fs.existsSync(s.runtimeDir), label);
+    } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
   }
 });

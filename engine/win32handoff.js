@@ -224,14 +224,17 @@ const BOARD_LOOPBACK_V6 = '::1';
 /* Bind hosts the two loopback probes already cover: loopback itself, and the wildcards, which accept
    loopback connections. */
 const BIND_HOSTS_COVERED_BY_LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost', '0.0.0.0', '::']);
-/* Connection errors that mean nothing CAN be listening at that address on this machine (IPv6 switched
-   off, an address this machine does not have): the same proof as a refused connection. Without this a
-   PC with IPv6 off would read ::1 as a board that may be open, and never let Kosmos be removed. */
-const NOTHING_CAN_LISTEN_CODES = new Set(['ECONNREFUSED', 'EADDRNOTAVAIL', 'ENETUNREACH', 'EAFNOSUPPORT']);
+/* How long a name in KOSMOS_BIND_HOST may take to resolve before the probes go on without it. An unknown
+   name answered ENOTFOUND in 67 ms on this box; 5 s leaves a slow resolver room, and keeps the uninstall
+   from waiting on DNS for ever. */
+const BIND_HOST_LOOKUP_TIMEOUT_MS = 5000;
 
+/* Round 5, finding 4: only a refused connection proves nothing listens. Every other failure to connect
+   (EADDRNOTAVAIL, ENETUNREACH, a reset) is a failed look, which may be a board: fail closed. ::1 cannot be
+   switched off on Windows (KB 929852), so it refuses like any loopback. */
 function outcomeOfFailedLook(err, timedOut) {
   if (timedOut) return PROBE_OUTCOMES.TIMED_OUT;
-  return err && NOTHING_CAN_LISTEN_CODES.has(err.code) ? PROBE_OUTCOMES.REFUSED : PROBE_OUTCOMES.ERROR;
+  return err && err.code === 'ECONNREFUSED' ? PROBE_OUTCOMES.REFUSED : PROBE_OUTCOMES.ERROR;
 }
 
 /* Is a board answering on this port, and which board is it? Never rejects. `host` defaults to
@@ -278,48 +281,103 @@ function isKosmosBoardAnswer(answer) {
   return Boolean(answer && answer.answering && (answer.identity || typeof answer.startedByTask === 'boolean'));
 }
 
-/** Could a board bind this address? One of this machine's own addresses, and a probe of it never leaves the machine. */
-function isThisMachinesAddress(host) {
-  const kind = require('node:net').isIP(host);
-  if (kind === 0) return true; /* a host name: server.listen resolves it as the probe does */
-  if (kind === 4 && host.startsWith('127.')) return true;
-  const own = Object.values(require('node:os').networkInterfaces()).flat().map((i) => String((i && i.address) || '').toLowerCase());
-  return own.includes(host.toLowerCase());
+/** An IP address as an interface lists it: IPv4-mapped IPv6 as IPv4, IPv6 in its canonical lower-case form. */
+function canonicalAddress(bare) {
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(bare);
+  if (mapped) return mapped[1];
+  if (require('node:net').isIP(bare) !== 6) return bare;
+  try { return new URL('http://[' + bare + ']/').hostname.slice(1, -1); } catch { return bare.toLowerCase(); }
+}
+
+/**
+ * Round 5, findings 1 and 3: is this address one of this machine's own, so a board of this user could be
+ * listening on it? Loopback (127/8, ::1) always is. Anything else must be an address one of this machine's
+ * interfaces has, compared without its zone, and a zone (`%14`, `%Ethernet 2`) must name that interface,
+ * by scope id or by name: the same link-local address on another adapter is another address.
+ * `interfaces` replaces os.networkInterfaces() in a test.
+ */
+function isThisMachinesAddress(address, interfaces) {
+  const text = String(address);
+  const at = text.indexOf('%');
+  const bare = canonicalAddress(at < 0 ? text : text.slice(0, at));
+  const zone = at < 0 ? null : text.slice(at + 1).toLowerCase();
+  const kind = require('node:net').isIP(bare);
+  if (kind === 0) return false;
+  if ((kind === 4 && bare.startsWith('127.')) || bare === '::1') return true;
+  const all = interfaces || require('node:os').networkInterfaces();
+  return Object.entries(all).some(([name, list]) => (list || []).some((i) =>
+    canonicalAddress(String(i.address)) === bare && (zone === null || String(i.scopeid) === zone || name.toLowerCase() === zone)));
+}
+
+/**
+ * Round 5, findings 1 and 3: the addresses engine/bindhost.js's bindHost() names that a board of this user
+ * could be listening on.
+ *   - loopback, a wildcard, or nothing: none, because the two loopback probes cover them;
+ *   - an IP literal: itself, zone kept, if it is this machine's own;
+ *   - a name: every address dns.lookup gives, kept only when it is this machine's own.
+ * A board cannot listen on an address this machine does not have (server.listen fails), so no other
+ * address is ever probed, and no probe crosses the network to another machine. A name that does not
+ * resolve, or does not resolve within BIND_HOST_LOOKUP_TIMEOUT_MS, adds nothing: a board could not have
+ * bound it either. `lookup` replaces dns.lookup in a test.
+ */
+async function bindHostProbeAddresses(env, lookup) {
+  const bound = require('./bindhost').bindHost(env).replace(/^\[(.*)\]$/, '$1');
+  if (!bound || BIND_HOSTS_COVERED_BY_LOOPBACK.has(bound.toLowerCase())) return [];
+  let found = [bound];
+  if (require('node:net').isIP(bound) === 0) {
+    const resolve = typeof lookup === 'function' ? lookup : (name) => require('node:dns').promises.lookup(name, { all: true, verbatim: true });
+    let timer = null;
+    try {
+      const results = await Promise.race([
+        resolve(bound),
+        new Promise((resolveTimeout) => { timer = setTimeout(() => resolveTimeout([]), BIND_HOST_LOOKUP_TIMEOUT_MS); }),
+      ]);
+      found = (results || []).map((result) => String(result.address));
+    } catch {
+      found = [];
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return found.filter((address) => isThisMachinesAddress(address));
 }
 
 /**
  * Every address a Kosmos board of this user could be answering on (round 4, finding 1): both loopbacks,
- * and engine/bindhost.js's bindHost() when it names somewhere they do not cover. A wildcard bind accepts
- * loopback connections, so the loopbacks cover it. A board bound to an address set only in ANOTHER
- * process's environment cannot be seen from here; the board task's state is the backstop (the plan's
- * known limits).
+ * and the bind host's own addresses (bindHostProbeAddresses). A wildcard bind accepts loopback
+ * connections, so the loopbacks cover it. A board bound to an address set only in ANOTHER process's
+ * environment cannot be seen from here; the board task's state is the backstop (the plan's known limits).
  */
-function boardProbeAddresses(env) {
+async function boardProbeAddresses(env, lookup) {
   const addresses = [BOARD_LOOPBACK_V4, BOARD_LOOPBACK_V6];
-  const bound = require('./bindhost').bindHost(env).replace(/^\[(.*)\]$/, '$1');
-  if (!BIND_HOSTS_COVERED_BY_LOOPBACK.has(bound.toLowerCase()) && isThisMachinesAddress(bound)) addresses.push(bound);
+  for (const address of await bindHostProbeAddresses(env, lookup)) {
+    if (!addresses.some((known) => known.toLowerCase() === address.toLowerCase())) addresses.push(address);
+  }
   return addresses;
 }
 
-/* Which of several looks says most about a board that may be open, most first. A web page that is not
-   Kosmos on one address never hides a timeout or a failed look on another. */
+/* Which of several looks says most about a board that may be open, most first. A board no task command
+   can stop (it says its task did not start it, or is too old to say) outranks the task's own board, so it
+   stops the removal with nothing changed at all (round 5, finding 2). A web page that is not Kosmos on one
+   address never hides a timeout or a failed look on another. */
 function opennessRank(answer) {
-  if (isKosmosBoardAnswer(answer)) return 0;
-  if (answer.outcome === PROBE_OUTCOMES.TIMED_OUT) return 1;
-  if (answer.answering) return 3;
-  if (answer.outcome === PROBE_OUTCOMES.REFUSED) return 4;
-  return 2;
+  if (isKosmosBoardAnswer(answer)) return answer.startedByTask === true ? 1 : 0;
+  if (answer.outcome === PROBE_OUTCOMES.TIMED_OUT) return 2;
+  if (answer.answering) return 4;
+  if (answer.outcome === PROBE_OUTCOMES.REFUSED) return 5;
+  return 3;
 }
 
 /**
  * probeBoard on every address in boardProbeAddresses, all at once, so the look takes as long as its
- * slowest probe rather than their sum. The most open answer wins, with the address it came from
- * (`host`). The uninstall and the move read it with boardMayBeOpen; the launcher's hand-off does not use
- * it and still asks 127.0.0.1 alone (#2983). `probeOne` replaces probeBoard in a test.
+ * slowest probe rather than their sum (plus resolving a bind host name, when there is one). The most open
+ * answer wins, with the address it came from (`host`). The uninstall and the move read it with
+ * boardMayBeOpen; the launcher's hand-off does not use it and still asks 127.0.0.1 alone (#2983).
+ * `probeOne` replaces probeBoard and `lookup` replaces dns.lookup in a test.
  */
-async function probeBoardOnEveryAddress(port, env, probeOne) {
+async function probeBoardOnEveryAddress(port, env, probeOne, lookup) {
   const look = typeof probeOne === 'function' ? probeOne : probeBoard;
-  const answers = await Promise.all(boardProbeAddresses(env).map(async (host) => {
+  const answers = await Promise.all((await boardProbeAddresses(env, lookup)).map(async (host) => {
     try {
       return { ...(await look(port, host)), host };
     } catch {
@@ -329,9 +387,18 @@ async function probeBoardOnEveryAddress(port, env, probeOne) {
   return answers.reduce((most, answer) => (opennessRank(answer) < opennessRank(most) ? answer : most));
 }
 
-/** Round 4, finding 3: the first half of the sentence for a port another program holds, shared by the uninstall and the move. */
-function anotherProgramOnPort(port) {
-  return 'Another program is using port ' + port + ', so Kosmos cannot tell whether it is still open.';
+/**
+ * Round 4 finding 3, round 5 finding 5: why Kosmos cannot tell whether it is open, when its port gave no
+ * answer, only a failed look. Shared by the uninstall and the move, which each add what to do next.
+ * "Another program" only when the board task is KNOWN not to be registered: win32board.status() never
+ * says a registered task is not running (`running` is true or null), so a registered task could still
+ * be behind the port.
+ */
+function cannotTellIfOpenSentence(port, boardTask) {
+  if (boardTask && boardTask.known && boardTask.registered === false) {
+    return 'Another program is using port ' + port + ', so Kosmos cannot tell whether it is still open.';
+  }
+  return 'Kosmos could not tell whether it is still open.';
 }
 
 /* The logon task runs with the account's environment, not this launch's. A launch
@@ -492,7 +559,7 @@ async function handOffToTask(opts) {
 /* probeBoard is also how the Windows updater (engine/win32apply.js) confirms which board came back
    after a swap, so there is one reading of the identity header. */
 module.exports = {
-  handOffToTask, buildIdentity, boardIdentity, probeBoard, boardMayBeOpen, probeBoardOnEveryAddress, anotherProgramOnPort, PROBE_OUTCOMES, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS,
+  handOffToTask, buildIdentity, boardIdentity, probeBoard, boardMayBeOpen, probeBoardOnEveryAddress, cannotTellIfOpenSentence, PROBE_OUTCOMES, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS,
   BOARD_STARTED_BY_TASK_HEADER, boardStartedByTaskHeaderValue, startedByTaskFromHeader,
 };
 

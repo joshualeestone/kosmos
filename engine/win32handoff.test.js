@@ -18,7 +18,7 @@ const nodePath = require('node:path');
 const http = require('node:http');
 const net = require('node:net');
 
-const { handOffToTask, buildIdentity, BOARD_IDENTITY_HEADER, BOARD_STARTED_BY_TASK_HEADER, probeBoard, boardStartedByTaskHeaderValue, boardMayBeOpen, PROBE_OUTCOMES, probeBoardOnEveryAddress, anotherProgramOnPort } = require('./win32handoff');
+const { handOffToTask, buildIdentity, BOARD_IDENTITY_HEADER, BOARD_STARTED_BY_TASK_HEADER, probeBoard, boardStartedByTaskHeaderValue, boardMayBeOpen, PROBE_OUTCOMES, probeBoardOnEveryAddress, cannotTellIfOpenSentence } = require('./win32handoff');
 
 const REFRESHED = { ok: true, action: 'refreshed' };
 const MINE = '0.6.55+6182640d6a1f';
@@ -494,16 +494,21 @@ test('🛑 win32-installer-native round 4 finding 1: the uninstall and the move 
   assert.equal((await probeBoardOnEveryAddress(1, {}, answersBy({ '::1': failed }))).outcome, 'error');
   assert.equal((await probeBoardOnEveryAddress(1, {}, answersBy({}))).outcome, 'refused');
   assert.equal((await probeBoardOnEveryAddress(1, {}, async () => { throw new Error('boom'); })).outcome, 'error', 'a look that threw was taken as refused');
-  assert.equal(anotherProgramOnPort(16180), 'Another program is using port 16180, so Kosmos cannot tell whether it is still open.');
+  assert.equal(cannotTellIfOpenSentence(16180, { known: true, registered: false, running: false }), 'Another program is using port 16180, so Kosmos cannot tell whether it is still open.');
+  /* Round 5, finding 5: status() never says a registered task is not running, so these could still be a board. */
+  for (const task of [{ known: true, registered: true, running: null }, { known: false, registered: false }, null]) {
+    assert.equal(cannotTellIfOpenSentence(16180, task), 'Kosmos could not tell whether it is still open.', JSON.stringify(task));
+  }
 });
 
-/* Measured on this box (round 5): a connection to port 0 fails with EADDRNOTAVAIL, and one to 0.0.0.1
-   with ENETUNREACH, the errors a PC with IPv6 switched off gives for ::1. (0.0.0.0 gives plain
-   ECONNREFUSED here, so it cannot show the difference.) */
-test('win32-installer-native round 4 finding 1: an address nothing can listen on reads as refused, not as a failed look', { skip: process.platform !== 'win32' && 'the connection errors for these addresses were measured on Windows' }, async () => {
-  for (const [label, port, host] of [['port 0 (EADDRNOTAVAIL)', 0, '127.0.0.1'], ['0.0.0.1 (ENETUNREACH)', 9, '0.0.0.1']]) {
+/* Measured on this box with net.connect: 255.255.255.255 fails with EADDRNOTAVAIL, and 0.0.0.1 with
+   ENETUNREACH. (Not port 0: http.get takes port 0 as "no port" and asks port 80.) Round 5, finding 4:
+   neither is proof that nothing listens, so both read as a failed look. */
+test('🛑 win32-installer-native round 5 finding 4: only a refused connection is no board; EADDRNOTAVAIL and ENETUNREACH are failed looks (fail closed)', { skip: process.platform !== 'win32' && 'the connection errors for these addresses were measured on Windows' }, async () => {
+  for (const [label, port, host] of [['255.255.255.255 (EADDRNOTAVAIL)', 9, '255.255.255.255'], ['0.0.0.1 (ENETUNREACH)', 9, '0.0.0.1']]) {
     const answer = await probeBoard(port, host);
-    assert.equal(answer.outcome, PROBE_OUTCOMES.REFUSED, label + ': a PC whose ::1 cannot be reached would never let Kosmos be removed: ' + JSON.stringify(answer));
+    assert.equal(answer.outcome, PROBE_OUTCOMES.ERROR, label + ': a connection error that is not a refusal was taken as proof that no board is there: ' + JSON.stringify(answer));
+    assert.equal(boardMayBeOpen(answer), true, label);
   }
 });
 
@@ -516,6 +521,55 @@ test('win32-installer-native round 4 finding 1: the bind host is read in one pla
   assert.equal(bindHost({}), '127.0.0.1');
   assert.equal(bindHost({ KOSMOS_BIND_HOST: ' ::1 ' }), '::1');
   assert.equal(bindHost({ KOSMOS_BIND_HOST: '   ' }), '127.0.0.1');
+});
+
+test('🛑 win32-installer-native round 5 finding 2: a board no task command can stop outranks the task\'s own board on another address', async () => {
+  const REFUSED_LOOK = { answering: false, outcome: 'refused', identity: null, startedByTask: null };
+  const answersBy = (byHost) => async (port, host) => byHost[host] || REFUSED_LOOK;
+  const taskBoard = { answering: true, outcome: 'answered', identity: MINE, startedByTask: true };
+  const handBoard = { answering: true, outcome: 'answered', identity: MINE, startedByTask: false };
+  const oldBoard = { answering: true, outcome: 'answered', identity: MINE, startedByTask: null };
+  const timedOut = { answering: false, outcome: 'timed-out', identity: null, startedByTask: null };
+  assert.equal((await probeBoardOnEveryAddress(1, {}, answersBy({ '127.0.0.1': taskBoard, '::1': handBoard }))).startedByTask, false, 'case C: the task\'s board hid a hand-started board');
+  assert.equal((await probeBoardOnEveryAddress(1, {}, answersBy({ '127.0.0.1': handBoard, '::1': taskBoard }))).startedByTask, false, 'the order of the addresses decided');
+  assert.equal((await probeBoardOnEveryAddress(1, {}, answersBy({ '127.0.0.1': taskBoard, '::1': oldBoard }))).startedByTask, null, 'a board too old to say was hidden by the task\'s board');
+  assert.equal((await probeBoardOnEveryAddress(1, {}, answersBy({ '127.0.0.1': taskBoard, '::1': timedOut }))).startedByTask, true, 'the task\'s board is still what the removal ends and waits for');
+});
+
+test('🛑 win32-installer-native round 5 findings 1 and 3: the bind host is resolved, and only this machine\'s own addresses are looked on, with their zone', async (t) => {
+  const REFUSED_LOOK = { answering: false, outcome: 'refused', identity: null, startedByTask: null };
+  const asked = [];
+  const recorder = async (port, host) => { asked.push(host); return REFUSED_LOOK; };
+  const addressesFor = async (env, lookup) => { asked.length = 0; await probeBoardOnEveryAddress(16180, env, recorder, lookup); return asked.slice().sort(); };
+  const LOOPBACKS = ['127.0.0.1', '::1'].sort();
+  const resolvesTo = (...addresses) => async () => addresses.map((address) => ({ address, family: address.includes(':') ? 6 : 4 }));
+  const fails = (code) => async () => { throw Object.assign(new Error(code), { code }); };
+
+  assert.deepEqual(await addressesFor({ KOSMOS_BIND_HOST: 'board.example' }, resolvesTo('192.0.2.10')), LOOPBACKS, 'a name that resolves to another machine was probed across the network');
+  assert.deepEqual(await addressesFor({ KOSMOS_BIND_HOST: 'board.example' }, resolvesTo('192.0.2.10', '127.0.0.2')), ['127.0.0.1', '127.0.0.2', '::1'].sort());
+  assert.deepEqual(await addressesFor({ KOSMOS_BIND_HOST: 'board.example' }, resolvesTo('::1', '127.0.0.1')), LOOPBACKS, 'a name that resolves to loopback was looked on twice');
+  assert.deepEqual(await addressesFor({ KOSMOS_BIND_HOST: 'kosmos-no-such-host.invalid' }, fails('ENOTFOUND')), LOOPBACKS);
+  assert.deepEqual(await addressesFor({ KOSMOS_BIND_HOST: 'board.example' }, fails('EAI_AGAIN')), LOOPBACKS);
+  assert.equal((await probeBoardOnEveryAddress(16180, { KOSMOS_BIND_HOST: 'kosmos-no-such-host.invalid' }, recorder, fails('ENOTFOUND'))).outcome, 'refused',
+    'case F: a name nothing can listen on blocked the removal');
+  let looked = false;
+  assert.deepEqual(await addressesFor({ KOSMOS_BIND_HOST: 'localhost' }, async () => { looked = true; return []; }), LOOPBACKS);
+  assert.equal(looked, false, 'localhost was resolved instead of taken as loopback');
+
+  const own = Object.entries(os.networkInterfaces()).flatMap(([name, list]) => (list || []).map((i) => ({ name, ...i })));
+  const linkLocal = own.find((i) => i.family === 'IPv6' && /^fe80:/i.test(i.address) && !i.internal);
+  if (!linkLocal) {
+    t.diagnostic('ARMS NOT RUN: zones, this machine has no link-local IPv6 address');
+  } else {
+    const byScope = linkLocal.address + '%' + linkLocal.scopeid;
+    const byName = linkLocal.address + '%' + linkLocal.name;
+    const otherZone = linkLocal.address + '%' + (Number(linkLocal.scopeid) + 100000);
+    assert.ok((await addressesFor({ KOSMOS_BIND_HOST: byScope })).includes(byScope), 'case E: a zoned link-local bind host of this machine was not looked on');
+    assert.ok((await addressesFor({ KOSMOS_BIND_HOST: byName })).includes(byName), 'a link-local bind host zoned by interface name was not looked on');
+    assert.ok((await addressesFor({ KOSMOS_BIND_HOST: linkLocal.address })).includes(linkLocal.address), 'E2: the same address unzoned was not looked on');
+    assert.deepEqual(await addressesFor({ KOSMOS_BIND_HOST: otherZone }), LOOPBACKS, 'a zone this machine does not have was looked on');
+    assert.deepEqual(await addressesFor({ KOSMOS_BIND_HOST: 'board.example' }, resolvesTo(byScope)), ['127.0.0.1', '::1', byScope].sort(), 'a name that resolves to a zoned address of this machine was not looked on');
+  }
 });
 
 // ── buildIdentity: one derivation for both sides ───────────────────────────

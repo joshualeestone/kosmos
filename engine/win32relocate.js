@@ -212,7 +212,7 @@ async function relocate(opts) {
   }
   const handoff = require('./win32handoff');
   /* Round 4, finding 1: every address a board of this user could be on, not 127.0.0.1 alone. */
-  const probe = typeof o.probe === 'function' ? o.probe : (p) => handoff.probeBoardOnEveryAddress(p, o.env || process.env);
+  const probe = typeof o.probe === 'function' ? o.probe : (p) => handoff.probeBoardOnEveryAddress(p, o.env || process.env, undefined, o.lookup);
   let answer = null;
   try { answer = await probe(port); } catch { answer = null; }
   /* Round 3, finding 1: only a refused connection proves no board is there (win32handoff.boardMayBeOpen,
@@ -224,7 +224,7 @@ async function relocate(opts) {
     }
     let task = null;
     try { task = require('./win32board').status(); } catch { task = null; }
-    if (task && task.known && task.running !== true) return refused(handoff.anotherProgramOnPort(port) + ' ' + RESTART_THEN_OPEN_AGAIN);
+    if (task && task.known && task.running !== true) return refused(handoff.cannotTellIfOpenSentence(port, task) + ' ' + RESTART_THEN_OPEN_AGAIN);
     return refused(MAY_BE_RUNNING_FROM_UNKNOWN_FOLDER);
   }
   if (answer && answer.answering) {

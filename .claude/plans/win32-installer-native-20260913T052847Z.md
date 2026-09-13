@@ -518,13 +518,13 @@ Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
     `KOSMOS_BIND_HOST`. `server.js` requires it and listens on it exactly as before; its #1112 docblock
     moved with it.
   - `win32handoff.probeBoardOnEveryAddress(port, env)` probes `127.0.0.1`, `::1`, and `bindHost(env)`
-    when it names somewhere the loopbacks do not cover (not loopback, `localhost` or a wildcard, and one
-    of this machine's own addresses, so a probe never leaves the machine). The probes run at once.
+    when it names somewhere the loopbacks do not cover (not loopback, `localhost` or a wildcard). The
+    probes run at once. (Round 6 corrected which bind hosts are looked on: see round 5, findings 1 and 3.)
   - The most open answer wins: a Kosmos board's answer, then a timeout, then a failed look, then a page
     that is not Kosmos, then refused. So a web page on one address never hides a board on another.
-  - An address nothing can listen on at all (`EADDRNOTAVAIL`, `ENETUNREACH`, `EAFNOSUPPORT`, as a PC with
-    IPv6 switched off gives for `::1`) reads as refused, not as a failed look. Otherwise that PC could
-    never remove Kosmos.
+  - ~~An address nothing can listen on at all (`EADDRNOTAVAIL`, `ENETUNREACH`, `EAFNOSUPPORT`) reads as
+    refused.~~ Dropped in round 6 (round 5, finding 4): it rested on "a PC with IPv6 switched off", but
+    `::1` cannot be switched off on Windows (KB 929852). Only ECONNREFUSED is proof again.
   - The uninstall's every look and the move use it. **The launcher's hand-off is unchanged:** it still
     asks `127.0.0.1` alone. Noted for #2983.
   - **Known limit:** a board bound to a specific non-loopback address set only in ANOTHER process's
@@ -539,13 +539,16 @@ Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
   - running: the usual busy board its task started. The removal switches it off, ends it and waits,
     still fail-closed (if it does not go, nothing more is removed and the switch goes back);
   - unreadable: round 3's stop, "Kosmos is still open";
-  - not running, timed out: "Kosmos is still open";
-  - not running, failed look: "Another program is using port N, so Kosmos cannot tell whether it is
-    still open. Restart your computer, then remove Kosmos again." A reset connection is not taken as "not
-    Kosmos", because a board mid-restart resets connections too.
-  - The move: a timeout still says "did not answer in time". A failed look with the task not running
-    says "Another program is using port N, ... Restart your computer, then open Kosmos again." Running or
-    unreadable: "Kosmos may be running and it could not tell from which folder."
+  - not proven running, timed out: "Kosmos is still open";
+  - not proven running, failed look: "Another program is using port N, so Kosmos cannot tell whether it
+    is still open. Restart your computer, then remove Kosmos again." A reset connection is not taken as
+    "not Kosmos", because a board mid-restart resets connections too. (Round 5, finding 5, corrected this
+    in round 6: `status()` never says a registered task is not running, so "another program" is said
+    only when no board task is registered; a registered one gets "Kosmos could not tell whether it is
+    still open".)
+  - The move: a timeout still says "did not answer in time". A failed look with the task not proven
+    running says the same port sentence, ending "Restart your computer, then open Kosmos again." Running
+    or unreadable: "Kosmos may be running and it could not tell from which folder."
 - **Finding 4 [NIT]:** the `REREGISTER_SETTLE_MS` comment now says what the code does: one more look
   catches a board that registers its task, or comes up, within 3s of the folders going.
   - **Known limit:** a slow hand-started board that reaches `ensureInstalled` after that last look can
@@ -579,6 +582,47 @@ Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
     - no schtasks call was blocked on either side.
   - The real system was untouched afterwards: no real `Kosmos.lnk`, no real `Uninstall\Kosmos` key, no
     `KosmosTest` key, no `%LOCALAPPDATA%\Programs\Kosmos`, and `Kosmos\board` still running.
+
+## Round 5 review (fixed in round 6)
+
+- **Findings 1 [SAFETY] and 3 [BUG]: which bind hosts are looked on.**
+  - One function decides: `win32handoff.bindHostProbeAddresses(env, lookup)`, read by
+    `boardProbeAddresses`, read by `probeBoardOnEveryAddress`, read by the uninstall's every look and by
+    the move.
+  - `127.0.0.1` and `::1` are always probed. A bind host that is loopback, a wildcard or empty adds nothing.
+  - An IP literal is itself, zone kept. A name is resolved with `dns.lookup(name, { all: true })`, bounded
+    by `BIND_HOST_LOOKUP_TIMEOUT_MS` (5s; an unknown name answered ENOTFOUND in 67 ms here).
+  - Each address is kept only when it is this machine's own (`isThisMachinesAddress`): 127/8 and `::1`;
+    otherwise an interface address, compared without its zone and canonically, and a zone must name that
+    interface by scope id or name. So a zoned link-local bind host is looked on with its zone (case E),
+    and the same address on another adapter is not.
+  - A name that does not resolve, resolves only to other machines, or whose lookup fails or times out
+    adds nothing: a board could not have bound it either (`server.listen` fails). No probe crosses the
+    network to another machine any more.
+  - **Known limits.** A name whose lookup fails for the uninstall but succeeded for the board (a DNS
+    hiccup between the two) is not looked on; the board task's state is the backstop, as for a bind
+    address set only in another process's environment. Measured: this box's Tailscale adapter does not
+    answer its own link-local address, so a board bound only there reads as "timed out", which stops the
+    removal ("Kosmos is still open").
+- **Finding 2 [BUG]: the task's board no longer hides a hand-started one.** Among Kosmos boards' answers,
+  one whose `startedByTask` is not `true` (said false, or too old to say) outranks the task's board. A
+  hand-started board on `::1` beside the task's board on `127.0.0.1` stops the removal before any
+  schtasks call (case C).
+- **Finding 4 [NIT]: the refused reading is ECONNREFUSED alone again.** EADDRNOTAVAIL and ENETUNREACH (both
+  measured here, for `255.255.255.255` and `0.0.0.1`) read as failed looks: fail closed.
+  - Round 5's test used port 0 for EADDRNOTAVAIL. That holds for `net.connect`, but `http.get` takes port 0
+    as "no port" and asks port 80, which refused. So that arm never reached the code; only its `0.0.0.1`
+    arm did. The new test found it.
+- **Finding 5 [NIT]: "another program" only for a task known not registered.**
+  `win32handoff.cannotTellIfOpenSentence(port, boardTask)` is the one source for both modules: "Another
+  program is using port N, so Kosmos cannot tell whether it is still open." only when the board task reads
+  known and not registered; otherwise "Kosmos could not tell whether it is still open." Each module adds
+  its own next step (remove Kosmos again, or open Kosmos again).
+- **Finding 6 [NIT]:** the uninstall's header names the every-address probe, and `boardOnPort`'s comment
+  describes `unanswered` and the running-task path.
+- **The controls harness.** Round 5's "the looks run one after another" control left its brackets
+  unbalanced, so it went red from a syntax error, not from its test. It is replaced, and the harness now
+  runs `node --check` on every JavaScript control and reports one that breaks the file as INVALID.
 
 ## Follow-ups (not this slice)
 
