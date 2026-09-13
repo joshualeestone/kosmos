@@ -66,5 +66,13 @@ misclassified-as-project AND a project literally id-ed "direct"), operator/blank
 undated + bad-text skipping+counting, day grouping, render (You + time-ordering + attachments +
 blockquote/heading-hijack defense), and compileAll end-to-end (writes per-day files, originals
 unchanged, idempotent, junk + aside files skipped, onlyDay, pruning, fail-closed pruning on an
-unreadable source, readability reporting, missing-dir non-crash). `engine/forget.test.js` gains a
-test that a forget deletes the derived `chats-daily` rollup, and a full-deletable-surface pin.
+unreadable listing AND on a per-file read error while invalid JSON stays prunable-junk, readability
+reporting, missing-dir non-crash). `engine/forget.test.js` gains: a test that a forget deletes the
+derived `chats-daily` rollup, a full-deletable-surface pin, and refusal-path tests that the derived
+dir's inside-root and basename guards REFUSE (via forget's test-only `kinds` param) and delete
+nothing.
+
+Deferred NIT (pre-existing, out of #2924): forget.js's `commitments` kind builds its dir from the
+frozen `BASE` while `chats` (and the new derived entry) use the lazy `store.ROOT`; equal at load,
+they can differ after a multi-Kosmos switch. My new code uses the correct lazy form; unifying
+`commitments` is a separate latent-bug follow-up in forget's own lane.

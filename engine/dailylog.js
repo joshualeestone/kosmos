@@ -190,29 +190,40 @@ function renderDay(dayStr, rows, timeOf = localTimeOf) {
 }
 
 /**
- * Read + parse every conversation file in a chats dir. Skips individual
- * unreadable/unparseable files. Returns `{ conversations, readable }`:
- * `readable` is true ONLY if the directory listing itself succeeded. A failed
- * listing (permissions, a transient I/O error, a momentarily-wrong root, or the
- * dir being absent) yields `readable: false` so the caller can fail closed and
- * NOT treat "could not read the source" as "the source is empty" -- the
- * distinction that keeps a transient failure from pruning the compiled history.
+ * Read + parse every conversation file in a chats dir. Returns
+ * `{ conversations, readable, readErrors }`, all of which the caller needs to
+ * decide whether pruning is safe:
+ *   - `readable` is true ONLY if the directory LISTING succeeded. A failed
+ *     listing (permissions, a transient error, a wrong root, the dir absent)
+ *     means "could not read the source", which is NOT "the source is empty".
+ *   - `readErrors` counts recognized conversation files whose bytes could not be
+ *     READ (an `fs.readFileSync` throw -- EISDIR, EACCES, a transient I/O error).
+ *     A file whose bytes read fine but are not valid JSON, or are not a
+ *     conversation shape, is stable junk and is skipped WITHOUT counting: it is
+ *     "this is not a conversation", not "I could not read a conversation".
+ * The caller prunes only when the listing succeeded AND no read errored, so a
+ * transient failure at either level can never be read as "no conversations" and
+ * wipe the compiled history.
  */
 function readConversations(chatsDir) {
   let names;
   try { names = fs.readdirSync(chatsDir); }
-  catch { return { conversations: [], readable: false }; }
+  catch { return { conversations: [], readable: false, readErrors: 0 }; }
   const out = [];
+  let readErrors = 0;
   for (const name of names) {
     const desc = parseChatFileName(name);
     if (!desc) continue;
+    let raw;
+    try { raw = fs.readFileSync(path.join(chatsDir, name), 'utf8'); }
+    catch { readErrors += 1; continue; }
     let parsed;
-    try { parsed = JSON.parse(fs.readFileSync(path.join(chatsDir, name), 'utf8')); }
+    try { parsed = JSON.parse(raw); }
     catch { continue; }
     if (!parsed || !Array.isArray(parsed.messages)) continue;
     out.push({ desc, parsed });
   }
-  return { conversations: out, readable: true };
+  return { conversations: out, readable: true, readErrors };
 }
 
 /**
@@ -228,7 +239,7 @@ function compileAll(opts = {}) {
   const timeOf = opts.timeOf || localTimeOf;
   const onlyDay = opts.onlyDay || null;
 
-  const { conversations, readable } = readConversations(chatsDir);
+  const { conversations, readable, readErrors } = readConversations(chatsDir);
   const { rows, undated } = flattenMessages(conversations, dayOf);
   const byDay = groupByDay(rows);
 
@@ -252,14 +263,17 @@ function compileAll(opts = {}) {
      have put in the dir. Not a substitute for forget.js clearing the whole dir
      (this runs only when the compiler is invoked); the two are complementary.
 
-     🛑 FAIL CLOSED: prune ONLY when the source listing SUCCEEDED (`readable`).
-     If chats/ could not be read (permissions, a transient error, a wrong root),
-     `byDay` is empty for a reason that is NOT "there are no conversations", and
-     pruning on that would delete the entire compiled history for a transient
-     failure. A successful listing that is genuinely empty still prunes, which is
-     correct: chats/ is there and has nothing, so every daily file is stale. */
+     🛑 FAIL CLOSED: prune ONLY when the source listing SUCCEEDED (`readable`)
+     AND no recognized conversation file failed to read (`readErrors === 0`). If
+     chats/ could not be listed, OR a conversation file's bytes could not be read
+     this run, `byDay` is empty (or short) for a reason that is NOT "there are no
+     conversations", and pruning on that would delete the compiled history for a
+     transient failure. A successful, fully-read listing that is genuinely empty
+     still prunes, which is correct: chats/ is there and has nothing, so every
+     daily file is stale. (A file that read fine but is not valid JSON is stable
+     junk, not a read failure, and does not block pruning -- see readConversations.) */
   const pruned = [];
-  if (!onlyDay && readable) {
+  if (!onlyDay && readable && readErrors === 0) {
     const keep = new Set(written);
     let existing = [];
     try { existing = fs.readdirSync(outDir); } catch { existing = []; }
@@ -280,6 +294,7 @@ function compileAll(opts = {}) {
     pruned,
     undated,
     readable,
+    readErrors,
     outDir,
   };
 }

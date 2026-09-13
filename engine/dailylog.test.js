@@ -265,3 +265,40 @@ test('readConversations: reports readable=false on a failed listing, true on suc
   fs.mkdirSync(good, { recursive: true });
   assert.equal(dl.readConversations(good).readable, true, 'an existing (even empty) dir is readable');
 });
+
+test('compileAll: a per-file READ failure blocks pruning, but invalid JSON does not', () => {
+  const chatsDir = path.join(SANDBOX, 'chats-readerr');
+  const outDir = path.join(SANDBOX, 'chats-daily-readerr');
+  fs.mkdirSync(chatsDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(path.join(outDir, '2020-01-01.md'), 'stale but must survive a read error');
+  fs.writeFileSync(path.join(chatsDir, 'direct..ok.json'), JSON.stringify({ messages: [
+    { at: '2026-09-14T09:00:00Z', text: 'today', from: null },
+  ] }));
+  // A conversation-NAMED entry that is a DIRECTORY: readFileSync throws EISDIR,
+  // i.e. a recognized conversation file whose bytes cannot be read.
+  fs.mkdirSync(path.join(chatsDir, 'direct..unreadable.json'), { recursive: true });
+
+  const summary = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
+  assert.equal(summary.readable, true, 'the listing itself succeeded');
+  assert.ok(summary.readErrors >= 1, 'the unreadable conversation file must be counted');
+  assert.deepEqual(summary.pruned, [], 'a per-file read error must block pruning (fail closed)');
+  assert.ok(fs.existsSync(path.join(outDir, '2020-01-01.md')), 'the compiled history must survive a read error');
+  assert.ok(fs.existsSync(path.join(outDir, '2026-09-14.md')), 'a readable day is still written');
+});
+
+test('compileAll: invalid JSON is stable junk and does NOT block pruning', () => {
+  const chatsDir = path.join(SANDBOX, 'chats-junk');
+  const outDir = path.join(SANDBOX, 'chats-daily-junk');
+  fs.mkdirSync(chatsDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(path.join(outDir, '2020-01-01.md'), 'stale, should be pruned');
+  fs.writeFileSync(path.join(chatsDir, 'direct..ok.json'), JSON.stringify({ messages: [
+    { at: '2026-09-14T09:00:00Z', text: 'today', from: null },
+  ] }));
+  fs.writeFileSync(path.join(chatsDir, 'proj.bad.json'), '{ not valid json');
+
+  const summary = dl.compileAll({ chatsDir, outDir, dayOf, timeOf });
+  assert.equal(summary.readErrors, 0, 'invalid JSON is junk, not a read error');
+  assert.deepEqual(summary.pruned, ['2020-01-01'], 'junk must not block pruning of a genuinely stale day');
+});

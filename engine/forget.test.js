@@ -109,6 +109,44 @@ test('forgetting conversations also deletes their compiled daily rollup (#2924)'
     'the compiled daily rollup survived the forget - a plaintext residue');
 });
 
+test('forget REFUSES a derived dir that escapes the data root, and deletes nothing outside', () => {
+  /* The whole premise of this module is that a computed path outside the data
+     root is refused before rmSync. This drives that guard on the NEW derived-dir
+     path with a deliberately-escaping list, so a regression that flips it to
+     always-pass goes red instead of silently deleting outside the root. */
+  seed();
+  const outside = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-forget-escape-'));
+  fs.writeFileSync(nodePath.join(outside, 'sentinel'), 'x');
+  const escaping = [{
+    key: 'chats',
+    dir: () => nodePath.join(store.ROOT, 'chats'),
+    label: 'conversations', one: 'conversation',
+    derived: [{ base: nodePath.basename(outside), dir: () => outside }],
+  }];
+  const out = forget.forget(escaping);
+  assert.equal(out.ok, false, 'a derived dir outside the data root must be refused');
+  assert.match(out.because, /outside your Kosmos data folder/);
+  assert.ok(fs.existsSync(nodePath.join(outside, 'sentinel')), 'a dir outside the data root must NOT be deleted');
+  fs.rmSync(outside, { recursive: true, force: true });
+});
+
+test('forget REFUSES a derived dir whose basename does not match, and does not delete it', () => {
+  seed();
+  const insideWrong = nodePath.join(store.ROOT, 'chats-daily');
+  fs.mkdirSync(insideWrong, { recursive: true });
+  fs.writeFileSync(nodePath.join(insideWrong, 'keep'), 'x');
+  const mismatched = [{
+    key: 'chats',
+    dir: () => nodePath.join(store.ROOT, 'chats'),
+    label: 'conversations', one: 'conversation',
+    derived: [{ base: 'not-the-basename', dir: () => insideWrong }],
+  }];
+  const out = forget.forget(mismatched);
+  assert.equal(out.ok, false, 'a derived dir with a mismatched basename must be refused');
+  assert.match(out.because, /does not look like the folder/);
+  assert.ok(fs.existsSync(nodePath.join(insideWrong, 'keep')), 'a mismatched derived dir must NOT be deleted');
+});
+
 test('deleting twice is not an error', () => {
   seed();
   assert.equal(forget.forget().ok, true);

@@ -115,12 +115,18 @@ function summary() {
  * root somewhere unexpected, a symlinked directory, a future caller passing a
  * name. A guard that is only correct because of how it is called today is not a
  * guard.
+ *
+ * `kinds` defaults to the module's own frozen KINDS -- every real caller uses
+ * the default. It is a parameter ONLY so a test can drive the inside-root and
+ * basename guards with a deliberately-escaping list and prove they REFUSE; a
+ * safety guard with no test of its refusal path can be flipped to always-pass
+ * and stay green (kosmos convention: a control must be shown able to fire).
  */
-function forget() {
+function forget(kinds = KINDS) {
   const root = path.resolve(BASE);
   const altRoot = path.resolve(store.ROOT);
   const gone = [];
-  for (const k of KINDS) {
+  for (const k of kinds) {
     const dir = path.resolve(k.dir());
     const inside = (dir.startsWith(root + path.sep) || dir.startsWith(altRoot + path.sep));
     if (!inside) {
