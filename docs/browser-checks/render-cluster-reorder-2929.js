@@ -88,13 +88,17 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       const rowOrder = () => Array.from(document.querySelectorAll('#pj-list .pj-row[data-project]')).map((r) => r.dataset.project);
       let saved = null;
       try { saved = JSON.parse(localStorage.getItem('kosmos.order.projects') || 'null'); } catch { saved = 'PARSE-ERR'; }
-      return { topIds: topIds(), rowOrder: rowOrder(), saved, pjOrder: (typeof PJ_ORDER !== 'undefined' ? PJ_ORDER : 'undef') };
+      return { topIds: topIds(), rowOrder: rowOrder(), saved, pjOrder: (typeof PJ_ORDER !== 'undefined' ? PJ_ORDER : 'undef'), selValue: document.getElementById('pj-sort').value };
     });
     // Charlie is now first; a1 still directly under Alpha (cluster moved as a unit).
     ok(`${t} after drag, top order is c,a,b`, JSON.stringify(after.topIds) === JSON.stringify(['c', 'a', 'b']), JSON.stringify(after.topIds));
     ok(`${t} a1 still under a after the reorder (c,a,a1,b)`, JSON.stringify(after.rowOrder) === JSON.stringify(['c', 'a', 'a1', 'b']), JSON.stringify(after.rowOrder));
     ok(`${t} the new order PERSISTED to localStorage`, JSON.stringify(after.saved) === JSON.stringify(['c', 'a', 'b']), JSON.stringify(after.saved));
     ok(`${t} PJ_ORDER in memory matches the drop`, JSON.stringify(after.pjOrder) === JSON.stringify(['c', 'a', 'b']), JSON.stringify(after.pjOrder));
+    // The sort control honestly reflects the manual order (shows the disabled "Custom
+    // order" option, not a stale named sort). This also verifies a disabled option is
+    // settable via .value; if it were not, this reds and the reflection approach is wrong.
+    ok(`${t} the sort control shows "custom" after a drag (not a stale named sort)`, after.selValue === 'custom', after.selValue);
 
     // ---- Control: choosing a SORT clears the manual order (mutually exclusive) ----
     const sortReverts = await page.evaluate(() => {
@@ -106,9 +110,10 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         .map((r) => r.dataset.project);
       let saved = null;
       try { saved = localStorage.getItem('kosmos.order.projects'); } catch { saved = 'ERR'; }
-      return { topIds: topIds(), saved, pjOrder: (typeof PJ_ORDER !== 'undefined' ? PJ_ORDER : 'undef') };
+      return { topIds: topIds(), saved, pjOrder: (typeof PJ_ORDER !== 'undefined' ? PJ_ORDER : 'undef'), selValue: document.getElementById('pj-sort').value };
     });
     ok(`${t} choosing a sort CLEARS the manual order (localStorage removed)`, sortReverts.saved === null, String(sortReverts.saved));
+    ok(`${t} the sort control shows the chosen sort again after clearing`, sortReverts.selValue === 'az', sortReverts.selValue);
     ok(`${t} choosing a sort reverts to the sorted a,b,c`, JSON.stringify(sortReverts.topIds) === JSON.stringify(['a', 'b', 'c']), JSON.stringify(sortReverts.topIds));
 
     // ---- Scoping: the manual order is IGNORED in the tab (non-consolidated) view ----

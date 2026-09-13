@@ -10800,6 +10800,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
             <option value="oldest">Oldest first</option>
             <option value="az">Name A to Z</option>
             <option value="za">Name Z to A</option>
+            <!-- #2929 slice 2: shown (selected by JS) only while a manual drag order is in
+                 effect in the consolidated view, so the control does not falsely display a
+                 named sort that is not the one in force. `disabled` so it is never a user
+                 CHOICE (custom order is made by dragging, not picked here); picking any real
+                 sort clears the manual order. -->
+            <option value="custom" disabled>Custom order</option>
           </select>
           <svg class="sortctl-i" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </label>
@@ -35172,6 +35178,10 @@ let PJ_SORT = (() => {
   if (!sel) return;
   sel.value = PJ_SORT;
   sel.addEventListener('change', () => {
+    /* #2929 slice 2: "Custom order" is a display-only reflection of a manual drag order,
+       not a sort to apply. It is disabled (not user-pickable), so this is belt-and-braces:
+       never treat it as a sort or clear the order the user is currently in. */
+    if (sel.value === 'custom') return;
     PJ_SORT = pjSortMode(sel.value);
     sel.value = PJ_SORT;
     // Display preference only, same standing as the layout toggle.
@@ -35186,6 +35196,17 @@ let PJ_SORT = (() => {
 
 function paintProjects() {
   const list = document.getElementById('pj-list');
+  /* #2929 slice 2: keep the sort control honest. When a manual drag order is in effect in
+     the consolidated view, show the disabled "Custom order" option as selected rather than
+     a named sort that is not the one in force; otherwise show PJ_SORT. Written only on
+     change (this runs every ~5s poll). It is also what makes re-picking a named sort always
+     clear the manual order: the drag left the control on "custom", so any real pick is a
+     value change that fires the #pj-sort change handler -> pjClearOrder. */
+  { const sortSel = document.getElementById('pj-sort');
+    if (sortSel) {
+      const want = (PJ_ORDER && document.body.classList.contains('consolidated')) ? 'custom' : PJ_SORT;
+      if (sortSel.value !== want) sortSel.value = want;
+    } }
   /* #2458: the Map only earns its toggle once a project has sub-projects -- a flat
      board of top-level projects has no tree to draw, so the Map button sits out
      (spec: "when there is nothing to draw"). If the person had saved Map and the
