@@ -117,7 +117,7 @@ const SCRIPT_ONLY_BECAUSE = 'Kosmos cannot start the copy of Claude Code on this
  * and nothing else is special there (`$` and the backtick are literal), which is why the line
  * below single-quotes the path rather than double-quoting it.
  */
-const POWERSHELL_SINGLE_QUOTES = /['‘’‚‛]/g;
+const POWERSHELL_SINGLE_QUOTES = /['\u2018\u2019\u201A\u201B]/g;
 
 /**
  * What the Windows stuck card asks a person to run: the plain-text login. Never bare `claude`,
