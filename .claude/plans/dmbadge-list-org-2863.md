@@ -54,6 +54,12 @@ browser-check gained a consolidated arm asserting the badge's own computed displ
   an unrelated card, #2928, carried over by mistake) instead of `dmbadge-list-org-2863 -- ...`.
   Deferred: interactive rebase is unavailable in this environment, and this branch squash-merges,
   so the branch-local subjects collapse into the PR title (which is correct) and never reach main.
+- In consolidated view the avatar shrinks to 24px at left:5px, so the list badge's `left:44px`
+  (tuned for the default list's 34px avatar) floats a little right of the small avatar rather than
+  on its corner. Deferred: the functional requirement (the badge SHOWS, not hidden by the catch-all)
+  is met and guarded; this is a cosmetic offset for Josh's live visual pass, and the harness cannot
+  establish consolidated grid geometry to verify a tweak. A consolidated-scoped `left` is a one-value
+  change if he wants it snug.
 - The org-node DM badge (top-left) sits near where the hover callout lands for a very long name.
   Deferred: the callout is a transient hover state, the badge is `pointer-events:none` (nothing
   un-clickable), the callout is centred while the badge is top-left, so a brush only happens on an

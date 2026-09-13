@@ -1,5 +1,13 @@
 'use strict';
-// Browser-check-surface: dmbadge
+// Browser-check-surface: dmbadge lrow onode
+// (Deliberately declares lrow + onode, not just dmbadge: this check ASSERTS placement
+//  relative to the list row / org node structure -- the badge over the `.lav` corner in
+//  `.lrow`, top-left of `.onode` opposite `.owarn`, and not hidden by the consolidated
+//  `.lrow` catch-all -- so a restructuring of those surfaces can stale these assertions,
+//  which is exactly what the #2518 gate should flag. The friction of the two being core
+//  classes is the intended cost of that staleness-catch; a narrower `dmbadge`-only
+//  declaration was considered and rejected because it would leave the placement
+//  assertions unguarded against a `.lrow`/`.onode` change.)
 // #2863: the unread-DM bubble on the LIST row and the ORG node -- the follow-up to
 // the grid-card badge (#2885), from the same `a.dmUnread` and the same dmBadge()
 // helper. This drives the REAL list/org render on the REAL page with a seeded
@@ -146,6 +154,23 @@ function chk(ok, label, extra) {
         theme + ' org: the unread-DM count is folded into the node button aria-label (the badge aria-label is inert inside a labeled button)', JSON.stringify(adaO));
       chk(!!cleoO && !cleoO.btnAriaUnread,
         theme + ' org: a no-unread node does not claim unread in its aria-label (control)', JSON.stringify(cleoO));
+
+      // ── dmAria (org button) and dmBadge (span text) are TWO derivations of one
+      //    count, so pin them equal at the boundary cases a single count-3 test never
+      //    exercises: the singular n=1 and the >99 cap. If a future edit changes
+      //    dmBadge's cap/pluralization but not dmAria (or vice versa), the visible
+      //    badge and the screen-reader name silently desync -- this reds on that.
+      for (const [n, wantTxt, wantAria] of [[1, '1', '1 unread message'], [150, '99+', '99+ unread messages']]) {
+        const bd = await page.evaluate((nn) => {
+          for (const a of (LAST || [])) { if (a.sessionName === 'ada') a.dmUnread = nn; }
+          ORG_HTML = null; paintOrg();
+          const node = document.querySelector('#orgmap .onode[data-agent="ada"]');
+          const b = node ? node.querySelector('.dmbadge') : null;
+          return { txt: b ? b.textContent : null, aria: node ? node.getAttribute('aria-label') : null };
+        }, n);
+        chk(bd.txt === wantTxt && (bd.aria || '').includes(wantAria),
+          theme + ' org: badge span and button aria agree at n=' + n + ' (want "' + wantTxt + '" / "' + wantAria + '")', JSON.stringify(bd));
+      }
 
       // ── CONSOLIDATED LIST: the badge must NOT be hidden by the catch-all ──
       // The consolidated rail applies `.lrow > :not(.lav)...:not(.dmbadge) { display:none }`.
