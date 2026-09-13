@@ -37,6 +37,10 @@ const test = require('node:test');
 // file were individually hardened against in round 37. The file-level
 // default now matches the 13 sibling suites.
 const assert = require('node:assert/strict');
+/* win32-board-copy: the reveal and open arms asserted here are the Mac's (/usr/bin/open),
+   so the file states that platform instead of inheriting the host's. The Windows arm is
+   engine/projects.win32-reveal.test.js. */
+require('./projects').setRevealPlatform('darwin');
 
 const projects = require('./projects');
 const store = require('./store');

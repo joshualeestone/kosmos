@@ -69,6 +69,7 @@ const { execFileSync } = require('node:child_process');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const win32explorer = require('./win32explorer');
 const store = require('./store');
 const instructions = require('./instructions');
 // ⚠️ ONE rule for who answers, and it lives with the thread rather than being
@@ -1256,7 +1257,17 @@ function cleanDescription(text) {
  */
 let revealRunner = null;
 function setRevealRunner(f) { revealRunner = f; }
+/* win32-board-copy: which platform's opener runs. Production reads process.platform;
+   a suite states the arm it asserts, so the Mac contract below stays pinned to
+   `/usr/bin/open` on a Windows box and the Windows arm is assertable from a Mac. */
+let revealPlatform = null;
+function setRevealPlatform(p) { revealPlatform = p || null; }
+function revealOnWindows() { return (revealPlatform || process.platform) === 'win32'; }
 function revealFolder(folder) {
+  /* On Windows the folder opens in File Explorer, through the one module that
+     validates the path, holds the live-execution gate and never waits on Explorer's
+     exit code (it exits 1 on success). */
+  if (revealOnWindows()) return win32explorer.openFolder(folder);
   try {
     if (revealRunner) return revealRunner('/usr/bin/open', [folder]);
     execFileSync('/usr/bin/open', [folder], { timeout: 5000, stdio: 'ignore' });
@@ -1377,6 +1388,9 @@ function openFile(folder, name) {
   let st;
   try { st = fs.statSync(target); } catch { return { ok: false, because: 'that file is not there any more, or it was moved' }; }
   if (!st.isFile()) return { ok: false, because: 'that is not a file we can open' };
+  /* The three gates above are platform-free; only the hand-off differs. Explorer
+     opens a file with whatever Windows opens that kind of file with. */
+  if (revealOnWindows()) return win32explorer.openFile(target);
   try {
     if (revealRunner) return revealRunner('/usr/bin/open', [target]);
     /* ⚠️ STDERR IS CAPTURED, NOT IGNORED (#1199), and that is the whole fix.
@@ -2687,6 +2701,6 @@ module.exports = { memberValve, processMemberChanges, ageMemberChangesForTests, 
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE,
   findBlock, spliceBlock, removeBlock, blockBody, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
-  folderPathPreview, makeFolder, revealFolder, setRevealRunner, listFiles, openFile,
+  folderPathPreview, makeFolder, revealFolder, setRevealRunner, setRevealPlatform, listFiles, openFile,
   isUnderTmpDir, tmpFolderRefused,
 };

@@ -43,6 +43,8 @@ const EXCUSED = {
   setPaneSource: 'test seam: keeps status reads off the real machine',
   setRenderer: 'test seam (attachments preview)',
   setRevealRunner: 'test seam (projects reveal)',
+  setRevealPlatform: 'test seam (win32-board-copy): engine/projects.js picks the Mac (/usr/bin/open) or Windows (File Explorer) opener; the Mac suites state darwin through it so their pins hold on a Windows box. Production reads process.platform.',
+  setStatForTests: 'test seam (win32-board-copy): engine/win32explorer.js\'s existence check, so the Windows launcher is asserted with a Windows path from any host. Production uses fs.statSync.',
   setSessionSource: 'test seam: keeps session reads off the real machine',
   setTickInterval: 'test seam (connect pacing)',
   setUnknownGrace: 'test seam (connect pacing)',

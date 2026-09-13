@@ -6351,6 +6351,8 @@ test('the reveal-app route opens Finder through the engine and honours nothing f
   fs.mkdirSync(nodePath.join(appsDir, 'Kosmos.app'), { recursive: true });
   let ran = null;
   machine.setAppRevealRunner((cmd, a) => { ran = [cmd, a]; });
+  // win32-board-copy: this is the Mac reveal (open -R); the Windows arm is engine/machine.win32-sleep.test.js.
+  machine.setPlatform('darwin');
   try {
     const res = await req('/api/reveal-app', { method: 'POST', headers: { 'content-type': 'application/json' } });
     assert.equal(res.status, 200);
@@ -6358,6 +6360,7 @@ test('the reveal-app route opens Finder through the engine and honours nothing f
     assert.ok(ran && ran[0] === '/usr/bin/open' && ran[1][0] === '-R', 'the engine did not drive the reveal');
     assert.match(ran[1][1], /Kosmos\.app$/, 'the revealed path is not the engine-derived bundle');
   } finally {
+    machine.setPlatform(null);
     machine.setAppRevealRunner(null);
     fs.rmSync(nodePath.join(appsDir, 'Kosmos.app'), { recursive: true, force: true });
   }
@@ -9350,6 +9353,8 @@ test('the documents list reads, and opening one is a POST behind the cross-site 
 
   const calls = [];
   projects.setRevealRunner((file, args) => { calls.push([file, args]); return { ok: true }; });
+  // win32-board-copy: the opener asserted here is the Mac's; the Windows arm is engine/projects.win32-reveal.test.js.
+  projects.setRevealPlatform('darwin');
   try {
     // --- 🛑 THE GUARD, and it is the reason this route is a POST at all. A
     //     page on another site must not be able to make this machine open a
@@ -9387,6 +9392,7 @@ test('the documents list reads, and opening one is a POST behind the cross-site 
     assert.equal(calls.length, 1, 'the legitimate open never reached the opener');
     assert.equal(calls[0][1].length, 1, 'reveal-style -R leaked into the open path');
   } finally {
+    projects.setRevealPlatform(null);
     projects.setRevealRunner(null);
   }
 });
