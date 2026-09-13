@@ -2103,6 +2103,12 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 .usage-money-basis b { color: var(--k-ink); }
 .usage-meas { margin: 24px 0 0; }
 .usage-meas h4 { color: var(--k-ink); font: 600 .9375rem var(--font-ui); margin: 0 0 10px; }
+/* #2840: the "how we estimate the value" method footnote for the blended Value
+   column (Mona Lisa's token-value design). A QUIET footnote, not a callout: one
+   top hairline, muted ink, no box/border/radius and no left color-rule -- the same
+   treatment the design's .method block uses. */
+.usage-method { border-top: 1px solid var(--k-rule); margin: 20px 0 0; padding: 14px 0 0; color: var(--k-ink-2); font-size: .8125rem; line-height: 1.55; max-width: 60ch; }
+.usage-method a { color: var(--k-ink-2); text-decoration: underline; }
 /* #2840: the scrollable usage-history list (Mona's token-value design, ported to the
    app's --k-* tokens). A fixed-height scroll box; the header sticks. Same right-aligned
    tabular numerics as .usage-table so magnitudes line up. */
@@ -12488,6 +12494,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              this project's floor is AA). aria-label names the region for a screen reader. -->
         <div id="usage-history" tabindex="0" role="region" aria-label="Usage history"></div>
       </div>
+      <!-- #2840 (Mona Lisa's token-value design): the "how we estimate the value"
+           method footnote for the blended Value column above. Method-level on
+           purpose (no pinned $/hr rate, which would go stale; the figure itself
+           already shows in the column). Quiet: top hairline, muted, no callout, no
+           left rule. The METR URL is verbatim from design/token-value.html. -->
+      <p class="usage-method">How we estimate the value: each day's tokens, across all four classes, are valued at a blended knowledge-work rate. Framing informed by <a href="https://metr.org/time-horizons/" target="_blank" rel="noopener">METR's research</a> on how long AI can work unattended.</p>
       <!-- The engineering-equivalent line, quoted against OUTPUT tokens and
            saying so in the sentence itself. It sits BELOW the cards and chart on
            purpose: the four classes are the measurement, this is one
