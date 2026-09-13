@@ -9349,6 +9349,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         .s2-applbl{font:650 .75rem var(--font-ui,-apple-system,sans-serif);letter-spacing:.02em;
           color:var(--k-ink,#14161a);margin:0}
         .s2-applbl .s2-appcount{font-weight:500;color:var(--k-ink-soft,#6b7078)}
+        /* #2685: the tmux group's supporting micro-line -- explains the word "tmux" the way the
+           blessed dhint does, so it is not a naked label. Quiet: muted, small, no box. */
+        .s2-grpnote{font-size:.8125rem;line-height:1.5;color:var(--k-ink-2,#4a4f57);margin:2px 0 0;max-width:60ch}
         /* three per group across one row on the onboarding pane (~552px), collapsing to
            two then one as the width narrows -- auto-fit tiles as many >=150px columns as fit. */
         .s2-dlgrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}
@@ -9404,37 +9407,43 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p>In order to put agents to work, you will need to grant them access to files, apps, and other parts of your computer.</p>
         <p>When prompted, click Allow.</p>
 
-        <!-- #2910: six previews, grouped by the app macOS names in each prompt. Terminal's three
-             (tmux runs under it) and Kosmos's three. aria-hidden: the real focusable grant is the
-             .s2-gate-row button below; these are a mouse-only preview of what will pop up. Each
-             mock Allow keeps .s2-mockallow, so a click forwards into the one real file-access flow
-             (the #fr-pane-2 click handler targets the single .s2-allow). -->
+        <!-- #2910/#2685: six previews, grouped by the app macOS names in each prompt. tmux's three
+             and Kosmos's three. The file-access prompts come up as "tmux", not Terminal: Kosmos
+             ships and launches its own bundled tmux (macOS has none), and that tmux is the process
+             macOS holds responsible for agent FILE access (engine/fileaccessstatus.js), so it is
+             the name on the real folder prompts (Josh's screenshots). Accessibility is different --
+             it is keyed on the calling binary Kosmos, never tmux (#2125), so the S3 gate below stays
+             "Kosmos"; each screen mirrors the word its own OS prompt uses. aria-hidden: the real
+             focusable grant is the .s2-gate-row button below; these are a mouse-only preview of what
+             will pop up. Each mock Allow keeps .s2-mockallow, so a click forwards into the one real
+             file-access flow (the #fr-pane-2 click handler targets the single .s2-allow). -->
         <div class="s2-dlg-fan" aria-hidden="true">
           <div class="s2-appgrp">
-            <p class="s2-applbl">Terminal <span class="s2-appcount">(3 folders)</span></p>
+            <p class="s2-applbl">tmux <span class="s2-appcount">(3 folders)</span></p>
             <div class="s2-dlgrow">
               <div class="s2-dlg">
                 <div class="s2-dlg-head">
                   <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
-                  <p class="s2-say">"Terminal" would like to access files in your Documents folder.</p>
+                  <p class="s2-say">"tmux" would like to access files in your Documents folder.</p>
                 </div>
                 <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
               </div>
               <div class="s2-dlg">
                 <div class="s2-dlg-head">
                   <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
-                  <p class="s2-say">"Terminal" would like to access files in your Downloads folder.</p>
+                  <p class="s2-say">"tmux" would like to access files in your Downloads folder.</p>
                 </div>
                 <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
               </div>
               <div class="s2-dlg">
                 <div class="s2-dlg-head">
                   <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
-                  <p class="s2-say">"Terminal" would like to access files in your Desktop folder.</p>
+                  <p class="s2-say">"tmux" would like to access files in your Desktop folder.</p>
                 </div>
                 <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
               </div>
             </div>
+            <p class="s2-grpnote">These prompts say "tmux". That is one of your agents reaching a folder you gave it work in. Allow each one.</p>
           </div>
           <div class="s2-appgrp">
             <p class="s2-applbl">Kosmos <span class="s2-appcount">(3 folders)</span></p>
