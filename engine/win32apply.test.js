@@ -1235,3 +1235,161 @@ test('a boot resumer killed mid-rollback is finished by the next boot', LONG, ()
     assertRolledBack(c, before, null, null, `killed at rename ${nth}`);
   }
 });
+
+/* ─── review round 2 ──────────────────────────────────────────────────────────────────────── */
+
+test('SAFETY 1: WORK deleted during H7 with no resumer: the helper stops at its next write, the only build stays in ROOT, and the next resumer settles it', T, async () => {
+  const c = freshInstall();
+  stage(c);
+  const newTree = hashTree(c.staged);
+  const sim = playBoard(c, { newNeverStarts: true });
+  const r = await win32apply.applyJournal(c.journal, sim.deps({ hooks: { before: (step, d) => {
+    if (step === 'H7-run' && d.run === 1 && fs.existsSync(c.work)) fs.rmSync(c.work, { recursive: true, force: true });
+  } } }));
+  assert.equal(r.outcome, 'taken-over', JSON.stringify(r) + '\n' + c.log.join('\n'));
+  assert.equal(r.because, 'the update stopped here: its update lock is gone or belongs to someone else now, so nothing more was written');
+  assert.deepEqual(hashTree(c.root, [c.work, path.join(c.root, 'Projects')]), newTree, 'the new build, the only one left, is still in ROOT');
+  assert.equal(fs.existsSync(c.work), false, 'nothing made WORK again');
+  const j = readJson(c.journal);
+  assert.equal(j.finished, false);
+  assert.equal(j.phase, 'starting');
+  assert.match(win32apply.unfinishedUpdateRefusal(c.anchor), /can never finish, because its working folder .* is gone/);
+  assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'abandoned', 'the next resumer settles it');
+  assert.match(readJson(c.statusAt).sentence, /Download a fresh copy of Kosmos/);
+  assert.deepEqual(hashTree(c.root, [c.work, path.join(c.root, 'Projects')]), newTree);
+});
+
+test('SAFETY 1: WORK deleted during H7 while a boot resumer settles it: the helper never resurrects the settled journal, and ROOT keeps its build', T, async () => {
+  const c = freshInstall();
+  stage(c);
+  const newTree = hashTree(c.staged);
+  const sim = playBoard(c, { newNeverStarts: true });
+  let resumer = null;
+  const r = await win32apply.applyJournal(c.journal, sim.deps({ hooks: { before: (step, d) => {
+    if (step === 'H7-run' && d.run === 1 && !resumer) {
+      fs.rmSync(c.work, { recursive: true, force: true });
+      resumer = win32apply.recoverAtBoot(c.journal, sim.deps());
+    }
+  } } }));
+  assert.equal(resumer.action, 'abandoned', JSON.stringify(resumer));
+  assert.equal(r.outcome, 'taken-over', JSON.stringify(r) + '\n' + c.log.join('\n'));
+  const j = readJson(c.journal);
+  assert.equal(j.finished, true, 'the settled journal stays settled');
+  assert.equal(j.outcome, 'abandoned');
+  assert.equal(readJson(c.statusAt).outcome, 'stuck');
+  assert.match(readJson(c.statusAt).sentence, /Download a fresh copy of Kosmos/);
+  assert.deepEqual(hashTree(c.root, [c.work, path.join(c.root, 'Projects')]), newTree, 'ROOT keeps the only build');
+  assert.deepEqual(fs.existsSync(c.staged) ? fs.readdirSync(c.staged) : [], [], 'nothing was moved into the WORK the resumer made again');
+});
+
+test('SAFETY 1: with previous-<from> gone, the rollback never moves the only build out of ROOT and never calls a new app the old tree', T, async () => {
+  const c = freshInstall();
+  stage(c);
+  const newTree = hashTree(c.staged);
+  const sim = playBoard(c, { newNeverStarts: true });
+  const r = await win32apply.applyJournal(c.journal, sim.deps({ hooks: { before: (step, d) => {
+    if (step === 'H7-run' && d.run === 1 && fs.existsSync(c.previous)) fs.rmSync(c.previous, { recursive: true, force: true });
+  } } }));
+  assert.equal(r.outcome, 'stuck', JSON.stringify(r) + '\n' + c.log.join('\n'));
+  assert.equal(r.because, 'the app in the Kosmos folder is 0.6.61, not 0.6.60');
+  assert.deepEqual(hashTree(c.root, [c.work, path.join(c.root, 'Projects')]), newTree, 'every entry of the only build is still in ROOT');
+  assert.equal(readJson(c.journal).finished, false, 'not called whole');
+  assert.equal(readJson(c.statusAt).outcome, 'stuck');
+});
+
+test('SAFETY 1: a rollback with no recovery code left settles in words first, instead of reversing by names', T, async () => {
+  const c = freshInstall();
+  stage(c);
+  const sim = playBoard(c, { newNeverStarts: true });
+  const r = await win32apply.applyJournal(c.journal, sim.deps({ hooks: { before: (step, d) => {
+    if (step === 'H7-run' && d.run === 3) for (const f of readJson(c.journal).recoverFrom) fs.rmSync(f, { force: true });
+  } } }));
+  assert.equal(r.outcome, 'abandoned', JSON.stringify(r) + '\n' + c.log.join('\n'));
+  assert.match(readJson(c.statusAt).sentence, /cannot finish or undo it by itself \(no copy of the updater that could put it back is left\)\. Download a fresh copy/);
+  assert.equal(readJson(c.journal).outcome, 'abandoned');
+  assert.deepEqual(sim.calls.filter((call) => call.startsWith('/End')), ['/End /TN Kosmos\\board'], 'no reversal was attempted, so no second stop');
+});
+
+test('SAFETY 2: a journal whose Kosmos folder is on a drive that is not connected is held, never abandoned', WINDOWS_ONLY, async () => {
+  const letter = 'QRSTUVWXYZ'.split('').find((l) => !fs.existsSync(`${l}:\\`));
+  assert.ok(letter, 'the control: a drive letter nothing is mounted on');
+  const c = freshInstall();
+  const j = stage(c);
+  const root = `${letter}:\\Kosmos`;
+  const work = path.join(root, win32update.WORK_DIRNAME);
+  const previous = path.join(work, `previous-${OLD}`);
+  const moved = {
+    ...j, root, work, staged: path.join(work, win32update.STAGED_DIRNAME), previous, phase: 'moving-in',
+    pointer: { ...j.pointer, after: path.join(root, 'app', 'engine') },
+    recoverFrom: [path.join(previous, 'app', 'engine', 'win32apply.js'), path.join(root, 'app', 'engine', 'win32apply.js')],
+    steps: [{ step: 'H3', entry: 'runtime', state: 'intent' }],
+  };
+  fs.writeFileSync(c.journal, JSON.stringify(moved, null, 2));
+  assert.equal(win32apply.readJournal(c.journal).state, 'unfinished', 'the control: the journal itself reads');
+  const sim = playBoard(c);
+  const because = `the drive Kosmos is on (${letter}:\\) is not connected`;
+  assert.deepEqual(win32apply.recoverAtBoot(c.journal, sim.deps()), { action: 'unreachable', because });
+  assert.equal((await win32apply.resumeJournal(c.journal, sim.deps())).action, 'unreachable');
+  assert.deepEqual(win32apply.settleUnrecoverableJournal(c.journal, sim.deps()), { action: 'unreachable', because });
+  assert.deepEqual(readJson(c.journal), moved, 'the journal is left for when the drive comes back');
+  assert.equal(fs.existsSync(c.statusAt), false, 'no status was written');
+  assert.equal(win32apply.unfinishedUpdateRefusal(c.anchor),
+    `an earlier update to ${NEW} cannot be finished right now, because ${because}. Connect it and restart your computer, then try again`);
+});
+
+test('NIT 5: a staged journal is young only for 0 <= age < the grace; a clock stepped back or a createdAt in the future is not young', T, () => {
+  const grace = win32apply.STAGED_HELPER_STARTUP_GRACE_MS;
+  const j = { phase: 'staged', createdAt: new Date(clock).toISOString() };
+  assert.equal(win32apply.stagedIsYoung(j, clock), true, 'age 0');
+  assert.equal(win32apply.stagedIsYoung(j, clock + grace - 1), true);
+  assert.equal(win32apply.stagedIsYoung(j, clock + grace), false);
+  assert.equal(win32apply.stagedIsYoung(j, clock - 1), false, 'a clock stepped back');
+  assert.equal(win32apply.stagedIsYoung({ ...j, createdAt: new Date(clock + 60 * 60 * 1000).toISOString() }, clock), false, 'a createdAt in the future');
+  assert.equal(win32apply.stagedIsYoung({ ...j, phase: 'moving-in' }, clock), false);
+  assert.equal(win32apply.stagedIsYoung({ ...j, createdAt: 'not a date' }, clock), false);
+});
+
+const hostExists = (f) => fs.existsSync(ON_WINDOWS ? f : f.split('\\').join('/'));
+
+test('SAFETY 3: a board running from the updater\'s folder neither re-registers nor re-anchors, and its machine check reads "could not check"', T, () => {
+  const c = freshInstall();
+  const fallback = path.join(c.work, `previous-${OLD}`);
+  writeBuild(fallback, OLD, 'old in previous');
+  const calls = [];
+  const anchored = [];
+  win32board.setRunner((args) => { calls.push(args.join(' ')); return { ok: true, out: '' }; });
+  win32board.setAnchorer((spec) => { anchored.push(spec); return { ok: true, node: 'n', boot: 'b', dir: c.anchor, pointer: 'p' }; });
+  try {
+    assert.equal(win32board.bundleRoot({ platform: 'win32', root: c.root, exists: hostExists }), c.root, 'the control: the Kosmos folder itself is the bundle');
+    assert.equal(win32board.bundleRoot({ platform: 'win32', root: fallback, exists: hostExists }), null);
+    const r = win32board.ensureInstalled({ platform: 'win32', root: fallback, exists: hostExists, env: c.env });
+    assert.equal(r.action, 'skipped', JSON.stringify(r));
+    assert.deepEqual(calls, [], 'the logon task was neither read nor registered');
+    assert.deepEqual(anchored, [], 'nothing was anchored');
+    assert.equal(win32board.describe({ platform: 'win32', root: fallback, exists: hostExists, env: c.env }), null, 'machine.js renders null as "we could not check"');
+    assert.equal(win32anchor.bundleIsInUpdateWork(fallback), true);
+    assert.equal(win32anchor.bundleIsInUpdateWork(c.root), false);
+    assert.equal(win32update.WORK_DIRNAME, win32anchor.UPDATE_WORK_DIRNAME, 'one spelling of the folder name');
+  } finally {
+    win32board.setAnchorer(null);
+  }
+});
+
+test('SAFETY 3: ensureAnchored never points engine-path into the updater\'s folder, and writes nothing there', T, () => {
+  const c = freshInstall();
+  const pointerAt = path.join(c.anchor, win32anchor.POINTER_NAME);
+  const nodeAt = path.join(c.anchor, win32anchor.NODE_NAME);
+  const before = { pointer: readText(pointerAt), node: readText(nodeAt) };
+  const src = path.join(c.dir, 'other-node.exe');
+  fs.writeFileSync(src, 'a different node.exe, of another size entirely');
+  const fallbackEngine = path.join(c.work, `previous-${OLD}`, 'app', 'engine');
+  const r = win32anchor.ensureAnchored({ platform: process.platform, home: os.homedir(), env: c.env, node: src, engineDir: fallbackEngine });
+  assert.equal(r.ok, true);
+  assert.match(r.untouched, /inside the updater's folder/);
+  assert.deepEqual({ pointer: readText(pointerAt), node: readText(nodeAt) }, before, 'the pointer and the interpreter are untouched');
+  /* The control: the Kosmos folder's own engine is anchored as always. */
+  const own = win32anchor.ensureAnchored({ platform: process.platform, home: os.homedir(), env: c.env, node: src, engineDir: path.join(c.root, 'app', 'engine') });
+  assert.equal(own.ok, true, own.because);
+  assert.equal(own.untouched, undefined);
+  assert.equal(readText(pointerAt), path.join(c.root, 'app', 'engine'));
+});

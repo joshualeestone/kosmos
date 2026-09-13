@@ -77,7 +77,9 @@ test('win32anchor keeps the surface it had, and its swap constants come from win
     'RETIRED_SWEEP_MIN_AGE_MS', 'STAGED_INFIX',
     /* The Windows updater's journal and status (engine/win32apply.js), named beside the pointer. */
     'UPDATE_JOURNAL_NAME', 'UPDATE_STATUS_NAME',
-    'anchorDir', 'ensureAnchored', 'interpreterSizeDiffers', 'readPointer',
+    /* The updater's working folder, and the one test of whether a bundle sits inside it. */
+    'UPDATE_WORK_DIRNAME',
+    'anchorDir', 'bundleIsInUpdateWork', 'ensureAnchored', 'interpreterSizeDiffers', 'readPointer',
   ]);
   assert.equal(anchor.STAGED_INFIX, swap.STAGED_INFIX);
   assert.equal(anchor.RETIRED_INFIX, swap.RETIRED_INFIX);

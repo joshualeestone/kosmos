@@ -1732,6 +1732,18 @@ test('BUG 1: a begin() right after begin() does not cancel the update that is st
   assert.deepEqual(spawned, ['--kosmos-update-apply', '--kosmos-update-recover']);
 });
 
+test('CONVENTION 4 and NIT 5: begin() reads a staged journal\'s age through win32apply.stagedIsYoung, so a createdAt in the future is not young', T, async () => {
+  const c = freshCase();
+  const j = seedUnfinishedJournal(c);
+  fs.writeFileSync(path.join(c.anchor, JOURNAL_NAME), JSON.stringify({ ...j, createdAt: new Date(Date.now() + 60 * 60 * 1000).toISOString() }));
+  const spawned = [];
+  const r = await win32update.begin(prepareOpts(c, site(bundleZip()), { spawn: (file, args) => { spawned.push(args[1]); return fakeChild(); } }));
+  assert.equal(r.ok, false);
+  assert.match(r.because, /has not finished, so Kosmos is finishing it now/, 'a journal dated in the future has no helper starting for it');
+  assert.deepEqual(spawned, ['--kosmos-update-recover']);
+  assert.match(fs.readFileSync(path.join(__dirname, 'win32update.js'), 'utf8'), /apply\.stagedIsYoung\(j, now\)/, 'one reading of the grace rule');
+});
+
 test('BUG 2: begin() clears an earlier update no resumer can finish, in words, and goes on with the new one', T, async () => {
   const c = freshCase();
   seedUnfinishedJournal(c, 'moving-in');
@@ -1780,26 +1792,26 @@ test('the --apply CLI is a dry run without --yes, and writes nothing', T, () => 
   }
 });
 
-test('the --apply CLI with --yes reads "started by its task" as the task running and the port answering as this folder', T, async () => {
+test('the --apply CLI with --yes reads "started by its task" from the board\'s own header, with the port answering as this folder', T, async () => {
   const c = freshCase();
   const zip = bundleZip();
   const out = [];
-  const seams = (identity, running) => ({
-    probe: async () => ({ answering: true, identity }),
-    boardStatus: () => ({ registered: true, enabled: true, running }),
+  const seams = (identity, startedByTask) => ({
+    probe: async () => ({ answering: true, identity, startedByTask }),
+    /* #2986: Task Scheduler's running is true or null (null whenever it cannot be told), so the CLI
+       does not ask it; the stub says null, as a real read on a German Windows would. */
+    boardStatus: () => ({ known: true, registered: true, enabled: true, running: null }),
     begin: { platform: 'win32', arch: ARCH, env: c.env, fetch: site(zip).fetch, freeBytes: () => PLENTY_OF_DISK,
       runStagedNode: () => NODE_VERSION, log: () => {}, spawn: () => fakeChild() },
   });
   const argv = ['--apply', '--root', c.root, '--base', BASE, '--port', '16555', '--world', 'default', '--yes'];
-  assert.equal(await win32update.cliMain(argv, (s) => out.push(s), seams('0.6.1@default', true)), 1);
+  assert.equal(await win32update.cliMain(argv, (s) => out.push(s), seams('0.6.1@default', true)), 1, 'another build answers');
   assert.match(out.join(''), /this board was not started by its Windows logon job/);
-  out.length = 0;
-  assert.equal(await win32update.cliMain(argv, (s) => out.push(s), seams(`${INSTALLED}@default`, false)), 1, 'a task that is not running');
-  /* SAFETY 2: a running state the reading could not tell is not "started by its task". */
-  for (const running of [null, undefined, 'unknown']) {
+  /* The header's own answers: only an exact yes counts. */
+  for (const startedByTask of [false, null, undefined, 'yes', 1]) {
     out.length = 0;
-    assert.equal(await win32update.cliMain(argv, (s) => out.push(s), seams(`${INSTALLED}@default`, running)), 1, `running: ${running}`);
-    assert.match(out.join(''), /this board was not started by its Windows logon job/, `running: ${running}`);
+    assert.equal(await win32update.cliMain(argv, (s) => out.push(s), seams(`${INSTALLED}@default`, startedByTask)), 1, `startedByTask: ${startedByTask}`);
+    assert.match(out.join(''), /this board was not started by its Windows logon job/, `startedByTask: ${startedByTask}`);
   }
   out.length = 0;
   assert.equal(await win32update.cliMain(argv, (s) => out.push(s), seams(`${INSTALLED}@default`, true)), 0, out.join(''));
