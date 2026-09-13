@@ -1335,7 +1335,8 @@ test('SAFETY 2: a journal whose Kosmos folder is on a drive that is not connecte
   assert.deepEqual(readJson(c.journal), moved, 'the journal is left for when the drive comes back');
   assert.equal(fs.existsSync(c.statusAt), false, 'no status was written');
   assert.equal(win32apply.unfinishedUpdateRefusal(c.anchor),
-    `an earlier update to ${NEW} cannot be finished right now, because ${because}. Reconnect that drive, or close any program using the Kosmos folder, then restart your computer and try again`);
+    `an earlier update to ${NEW} cannot be finished right now, because ${because}. Reconnect that drive, or close any program using the Kosmos folder, then restart your computer and try again. `
+    + `If that does not help, download a fresh copy of Kosmos, unpack it over your Kosmos folder, then double-click Kosmos.exe in ${root}`);
 });
 
 test('NIT 5: a staged journal is young only for 0 <= age < the grace; a clock stepped back or a createdAt in the future is not young', T, () => {
@@ -1475,6 +1476,7 @@ test('SAFETY 3: ensureAnchored never points engine-path into the updater\'s fold
 function holdExclusively(file) {
   const script = `$held = [IO.File]::Open('${file.replace(/'/g, "''")}', 'Open', 'Read', 'None'); Start-Sleep -Seconds 600`;
   const child = cp.spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { stdio: 'ignore', windowsHide: true });
+  child.on('error', () => { /* exclusiveHoldSkipReason has already proved PowerShell starts here */ });
   const readCode = () => { try { fs.readFileSync(file); return null; } catch (e) { return e.code; } };
   const until = Date.now() + 30000;
   while (readCode() !== 'EBUSY') {
@@ -1494,6 +1496,37 @@ function holdExclusively(file) {
   return holder;
 }
 
+/**
+ * Why a real exclusive handle cannot be taken on this box (PowerShell does not start, or its hold never
+ * takes), or null. Asked before a test that needs one, so that test skips in words instead of failing
+ * after a long wait.
+ */
+async function exclusiveHoldSkipReason() {
+  const file = path.join(SANDBOX, `hold-probe-${process.pid}-${Date.now()}.txt`);
+  fs.writeFileSync(file, 'probe');
+  const script = `$held = [IO.File]::Open('${file.replace(/'/g, "''")}', 'Open', 'Read', 'None'); Start-Sleep -Seconds 60`;
+  let child;
+  try {
+    child = cp.spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { stdio: 'ignore', windowsHide: true });
+  } catch (e) {
+    return `powershell.exe could not be started (${e.code || e.message})`;
+  }
+  let ended = null;
+  child.on('error', (e) => { ended = `powershell.exe could not be started (${e.code || e.message})`; });
+  child.on('exit', (code) => { if (!ended) ended = `powershell.exe exited (code ${code}) before it held a file`; });
+  const until = Date.now() + 30000;
+  try {
+    for (;;) {
+      try { fs.readFileSync(file); } catch (e) { if (e.code === 'EBUSY') return null; }
+      if (ended) return ended;
+      if (Date.now() > until) return 'a PowerShell child did not hold a file within 30 seconds';
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  } finally {
+    try { child.kill(); } catch { /* gone */ }
+  }
+}
+
 /** Every lstat of `target` (compared case-blind) fails with `code`, `shots` times (-1: until unfaultLstat). */
 const realLstatSync = fs.lstatSync;
 function faultLstat(target, code, shots) {
@@ -1511,7 +1544,9 @@ function faultLstat(target, code, shots) {
 }
 function unfaultLstat() { fs.lstatSync = realLstatSync; }
 
-test('BUG 1: a real exclusive handle on the update lock in the forward steps: let go between two reads, the update goes in; held past the reads, it rolls back and the old board comes back', WINDOWS_ONLY, async () => {
+test('BUG 1: a real exclusive handle on the update lock in the forward steps: let go between two reads, the update goes in; held past the reads, it rolls back and the old board comes back', WINDOWS_ONLY, async (t) => {
+  const skipWhy = await exclusiveHoldSkipReason();
+  if (skipWhy) { t.skip(skipWhy); return; }
   {
     const c = freshInstall();
     stage(c);
@@ -1555,7 +1590,9 @@ test('BUG 1: a real exclusive handle on the update lock in the forward steps: le
   }
 });
 
-test('BUG 1: a real exclusive handle on the update lock inside the rollback: held, nothing more is written or asked of the scheduler, and the next board start puts the old build back', WINDOWS_ONLY, async () => {
+test('BUG 1: a real exclusive handle on the update lock inside the rollback: held, nothing more is written or asked of the scheduler, and the next board start puts the old build back', WINDOWS_ONLY, async (t) => {
+  const skipWhy = await exclusiveHoldSkipReason();
+  if (skipWhy) { t.skip(skipWhy); return; }
   const c = freshInstall();
   stage(c);
   const before = installState(c);
@@ -1599,29 +1636,36 @@ test('BUG 1: the control: a lock that reads with another update\'s bytes is proo
   assert.equal(r.because, 'the update stopped here: its update lock is gone or belongs to someone else now, so nothing more was written');
 });
 
-test('BUG 2: one EBUSY from the Kosmos folder\'s lstat as the helper begins its rollback is not "folder gone": held, and the next board start rolls it back', T, async () => {
-  const c = freshInstall();
-  stage(c);
-  const before = installState(c);
-  const sim = playBoard(c, { newNeverStarts: true });
-  let fault = null;
-  let r;
-  try {
-    r = await win32apply.applyJournal(c.journal, sim.deps({ hooks: { before: (step, d) => {
-      if (step === 'H7-run' && d.run === 3 && !fault) fault = faultLstat(c.root, 'EBUSY', 1);
-    } } }));
-  } finally {
-    unfaultLstat();
+test('BUG 2: an EBUSY from the Kosmos folder\'s lstat as the helper begins its rollback is not "folder gone": once, it is asked again and the rollback runs; past the budget, held, and the next board start rolls it back', T, async () => {
+  for (const shots of [1, -1]) {
+    const c = freshInstall();
+    stage(c);
+    const before = installState(c);
+    const sim = playBoard(c, { newNeverStarts: true });
+    let fault = null;
+    let r;
+    try {
+      r = await win32apply.applyJournal(c.journal, sim.deps({ hooks: { before: (step, d) => {
+        if (step === 'H7-run' && d.run === 3 && !fault) fault = faultLstat(c.root, 'EBUSY', shots);
+      } } }));
+    } finally {
+      unfaultLstat();
+    }
+    if (shots === 1) {
+      assert.equal(fault.hits, 1, 'the control: the Kosmos folder answered EBUSY once');
+      assertRolledBack(c, before, sim, r, 'one EBUSY, asked again');
+      continue;
+    }
+    assert.ok(fault.hits >= win32apply.OWNER_READ_BUDGET.tries, `the control: EBUSY for the whole budget (${fault.hits})`);
+    assert.equal(r.outcome, 'held', JSON.stringify(r) + '\n' + c.log.join('\n'));
+    assert.equal(r.because, `the Kosmos folder (${c.root}) cannot be reached right now (code=EBUSY)`);
+    const j = readJson(c.journal);
+    assert.equal(j.finished, false);
+    assert.equal(j.phase, 'starting');
+    assert.equal(fs.existsSync(c.statusAt), false, 'nothing was settled in words');
+    assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'rolled-back', c.log.join('\n'));
+    assert.deepEqual(installState(c), before);
   }
-  assert.equal(fault.hits, 1, 'the control: the Kosmos folder answered EBUSY once');
-  assert.equal(r.outcome, 'held', JSON.stringify(r) + '\n' + c.log.join('\n'));
-  assert.equal(r.because, `the Kosmos folder (${c.root}) cannot be reached right now (code=EBUSY)`);
-  const j = readJson(c.journal);
-  assert.equal(j.finished, false);
-  assert.equal(j.phase, 'starting');
-  assert.equal(fs.existsSync(c.statusAt), false, 'nothing was settled in words');
-  assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'rolled-back', c.log.join('\n'));
-  assert.deepEqual(installState(c), before);
 });
 
 test('BUG 2: a boot resumer that sees the Kosmos folder as gone or busy while WORK is readable takes the lock first: held by the live helper, which finishes', T, async () => {
@@ -1755,4 +1799,423 @@ test('NIT 5: losing the update during H9\'s cleanup stops the cleanup at once, a
     assert.ok(c.log.includes('left the staged folder for later (EPERM: EPERM: operation not permitted, the staged folder)'), c.log.join('\n'));
     assert.equal(fs.existsSync(path.join(c.work, win32update.DOWNLOAD_PART_NAME)), false, 'the next removal went on');
   }
+});
+
+/* ─── review round 5: a held or unreadable answer is never proof of anything ───────────────── */
+
+const realReadFileSync = fs.readFileSync;
+/** Every read of `target` (compared case-blind) fails with `code`, `shots` times (-1: until unfaultRead). */
+function faultRead(target, code, shots) {
+  const box = { left: shots, hits: 0 };
+  const wanted = path.resolve(target).toLowerCase();
+  fs.readFileSync = function faulty(p, ...rest) {
+    if (box.left !== 0 && typeof p === 'string' && path.resolve(p).toLowerCase() === wanted) {
+      box.left -= 1;
+      box.hits += 1;
+      throw Object.assign(new Error(`${code}: injected, read '${p}'`), { code });
+    }
+    return realReadFileSync.call(this, p, ...rest);
+  };
+  return box;
+}
+function unfaultRead() { fs.readFileSync = realReadFileSync; }
+
+/** Every lstat of each of `targets` fails with `code`, `shots` times each (-1: until unfaultLstat). */
+function faultLstatEach(targets, code, shots) {
+  const boxes = new Map(targets.map((f) => [path.resolve(f).toLowerCase(), { left: shots, hits: 0 }]));
+  fs.lstatSync = function faulty(p, ...rest) {
+    const box = boxes.get(path.resolve(String(p)).toLowerCase());
+    if (box && box.left !== 0) {
+      box.left -= 1;
+      box.hits += 1;
+      throw Object.assign(new Error(`${code}: injected, lstat '${p}'`), { code });
+    }
+    return realLstatSync.call(this, p, ...rest);
+  };
+  return [...boxes.values()];
+}
+
+/**
+ * A `--require` for the real logon shim: reads of KOSMOS_TEST_HELD_FILE fail with EBUSY
+ * KOSMOS_TEST_HELD_READS times (-1: always), and only once something has been renamed to
+ * KOSMOS_TEST_HOLD_AFTER_RENAME_TO when that is set. A scanner, as the shim's process sees one.
+ */
+const HELD_READS_PRELOAD = path.join(SANDBOX, 'held-reads-preload.js');
+fs.writeFileSync(HELD_READS_PRELOAD, `'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const target = path.resolve(process.env.KOSMOS_TEST_HELD_FILE).toLowerCase();
+let left = Number(process.env.KOSMOS_TEST_HELD_READS);
+const after = process.env.KOSMOS_TEST_HOLD_AFTER_RENAME_TO ? path.resolve(process.env.KOSMOS_TEST_HOLD_AFTER_RENAME_TO).toLowerCase() : null;
+let armed = !after;
+if (after) {
+  const realRename = fs.renameSync;
+  fs.renameSync = function watched(from, to) {
+    const r = realRename.apply(this, arguments);
+    if (path.resolve(String(to)).toLowerCase() === after) armed = true;
+    return r;
+  };
+}
+const realRead = fs.readFileSync;
+fs.readFileSync = function held(p, ...rest) {
+  if (armed && left !== 0 && typeof p === 'string' && path.resolve(p).toLowerCase() === target) {
+    if (left > 0) left -= 1;
+    throw Object.assign(new Error('EBUSY: resource busy or locked, open ' + p), { code: 'EBUSY' });
+  }
+  return realRead.call(this, p, ...rest);
+};
+`);
+
+const endsOf = (sim) => sim.calls.filter((call) => call.startsWith('/End'));
+const lockOf = (c) => path.join(c.work, win32update.LOCK_NAME);
+
+/** A rollback left unfinished at `rolling-back` with the new build still in ROOT: the helper died at H8. */
+async function rollbackLeftAtH8(c) {
+  stage(c);
+  const sim = playBoard(c, { newNeverStarts: true });
+  await assert.rejects(win32apply.applyJournal(c.journal, sim.deps({ hooks: { before: (step) => {
+    if (step === 'H8') throw new Error('the helper died at H8');
+  } } })), /the helper died at H8/);
+  const j = readJson(c.journal);
+  assert.equal(j.phase, 'rolling-back', 'the control: left mid-rollback');
+  assert.equal(j.finished, false);
+  return sim;
+}
+
+test('ROUND 5 BUG 2 (P1): a lock held for about a second during H4 (EBUSY, or EIO from a share) is waited out, and the update goes in with no rollback', T, async () => {
+  const shots = Math.ceil(1000 / win32apply.OWNER_READ_BUDGET.waitMs);
+  assert.ok(shots < win32apply.OWNER_READ_BUDGET.tries, 'the control: a second is inside the budget');
+  for (const code of ['EBUSY', 'EIO']) {
+    const c = freshInstall();
+    stage(c);
+    const sim = playBoard(c);
+    let fault = null;
+    let r;
+    try {
+      r = await win32apply.applyJournal(c.journal, sim.deps({ hooks: { before: (step, d) => {
+        if (step === 'H4' && d.entry === 'bin' && !fault) fault = faultRead(lockOf(c), code, shots);
+      } } }));
+    } finally {
+      unfaultRead();
+    }
+    assert.equal(fault.hits, shots, `${code}: the control: the lock was unreadable for about a second`);
+    assert.equal(r.outcome, 'updated', `${code}: ${JSON.stringify(r)}\n${c.log.join('\n')}`);
+    assert.deepEqual(endsOf(sim), ['/End /TN Kosmos\\board'], `${code}: only H2's stop`);
+    assert.equal(readJson(c.journal).steps.some((s) => String(s.step).startsWith('H8')), false, `${code}: nothing was reversed`);
+    assert.equal(readJson(c.statusAt).outcome, 'updated', code);
+  }
+});
+
+test('ROUND 5 BUG 2: a lock unreadable for longer than the helper\'s budget in the forward steps still rolls back', T, async () => {
+  const c = freshInstall();
+  stage(c);
+  const before = installState(c);
+  const sim = playBoard(c);
+  let fault = null;
+  let r;
+  try {
+    r = await win32apply.applyJournal(c.journal, sim.deps({
+      hooks: { before: (step, d) => { if (step === 'H4' && d.entry === 'bin' && !fault) fault = faultRead(lockOf(c), 'EBUSY', -1); } },
+      log: (line) => { c.log.push(line); if (line.startsWith('the update failed during ')) unfaultRead(); },
+    }));
+  } finally {
+    unfaultRead();
+  }
+  assert.equal(fault.hits, win32apply.OWNER_READ_BUDGET.tries, 'the control: unreadable for the whole budget');
+  assertRolledBack(c, before, sim, r, 'past the budget');
+});
+
+test('ROUND 5 BUG 2 (P2): a lock unreadable right after H7 confirmed the new board is never a reason to roll back; the helper records it once the lock reads again', T, async () => {
+  const c = freshInstall();
+  stage(c);
+  const sim = playBoard(c);
+  const baseProbe = sim.deps().probe;
+  let fault = null;
+  let r;
+  try {
+    r = await win32apply.applyJournal(c.journal, sim.deps({ probe: async (port) => {
+      const answer = await baseProbe(port);
+      if (!fault && win32apply.answersAs(answer, NEW_ID)) fault = faultRead(lockOf(c), 'EBUSY', win32apply.OWNER_READ_BUDGET.tries + 2);
+      return answer;
+    } }));
+  } finally {
+    unfaultRead();
+  }
+  assert.equal(fault.hits, win32apply.OWNER_READ_BUDGET.tries + 2, 'the control: past one whole budget');
+  assert.equal(r.outcome, 'updated', JSON.stringify(r) + '\n' + c.log.join('\n'));
+  assert.deepEqual(endsOf(sim), ['/End /TN Kosmos\\board'], 'the confirmed board was never stopped');
+  assert.equal(sim.identity, NEW_ID);
+  const j = readJson(c.journal);
+  assert.equal(j.outcome, 'updated');
+  assert.equal(j.steps.filter((s) => s.step === 'phase' && s.phase === 'confirmed').length, 1, 'confirmed is recorded once, not once per try');
+  assert.equal(j.steps.some((s) => String(s.step).startsWith('H8')), false);
+  assert.equal(readJson(c.statusAt).outcome, 'updated');
+});
+
+test('ROUND 5 BUG 2 (P2): past the patience the helper still reports updated and leaves `starting`; the next resume helper sees the new board answer and finishes it forward, never rolling it back', T, async () => {
+  const c = freshInstall();
+  stage(c);
+  const sim = playBoard(c);
+  const baseProbe = sim.deps().probe;
+  let fault = null;
+  let r;
+  try {
+    r = await win32apply.applyJournal(c.journal, sim.deps({ probe: async (port) => {
+      const answer = await baseProbe(port);
+      if (!fault && win32apply.answersAs(answer, NEW_ID)) fault = faultRead(lockOf(c), 'EBUSY', -1);
+      return answer;
+    } }));
+  } finally {
+    unfaultRead();
+  }
+  assert.equal(r.ok, true, JSON.stringify(r) + '\n' + c.log.join('\n'));
+  assert.equal(r.outcome, 'updated');
+  assert.ok(c.log.some((line) => line.startsWith(`the board answers as ${NEW_ID}, but that could not be recorded`)), c.log.join('\n'));
+  const left = readJson(c.journal);
+  assert.equal(left.phase, 'starting', 'the confirmation could not be recorded');
+  assert.equal(left.finished, false);
+  assert.equal(fs.existsSync(c.statusAt), false);
+  assert.deepEqual(endsOf(sim), ['/End /TN Kosmos\\board'], 'the helper never stopped the confirmed board');
+  const resumed = await win32apply.resumeJournal(c.journal, sim.deps());
+  assert.equal(resumed.outcome, 'updated', JSON.stringify(resumed) + '\n' + c.log.join('\n'));
+  assert.deepEqual(endsOf(sim), ['/End /TN Kosmos\\board'], 'nor did the resume helper');
+  assert.equal(sim.identity, NEW_ID);
+  const j = readJson(c.journal);
+  assert.equal(j.finished, true);
+  assert.equal(j.outcome, 'updated');
+  assert.equal(readJson(c.statusAt).outcome, 'updated');
+});
+
+test('ROUND 5 BUG 1 (P3): recovery files that answer EPERM are asked again; for good, they hold the helper\'s rollback, and a later boot rolls it back', T, async () => {
+  for (const shots of [1, -1]) {
+    const c = freshInstall();
+    const j0 = stage(c);
+    const before = installState(c);
+    const sim = playBoard(c, { newNeverStarts: true });
+    let boxes = null;
+    let r;
+    try {
+      r = await win32apply.applyJournal(c.journal, sim.deps({ hooks: { before: (step, d) => {
+        if (step === 'H7-run' && d.run === 3 && !boxes) boxes = faultLstatEach(j0.recoverFrom, 'EPERM', shots);
+      } } }));
+    } finally {
+      unfaultLstat();
+    }
+    assert.ok(boxes.every((b) => b.hits >= 1), `${shots}: the control: every recovery file answered EPERM`);
+    if (shots === 1) {
+      assertRolledBack(c, before, sim, r, 'EPERM once, asked again');
+      continue;
+    }
+    assert.equal(r.outcome, 'held', JSON.stringify(r) + '\n' + c.log.join('\n'));
+    assert.equal(r.because, 'no copy of the updater that could put it back can be read right now (code=EPERM)');
+    const j = readJson(c.journal);
+    assert.equal(j.finished, false, 'never settled as abandoned');
+    assert.equal(fs.existsSync(c.statusAt), false);
+    assert.deepEqual(endsOf(sim), ['/End /TN Kosmos\\board'], 'no reversal began');
+    assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'rolled-back', c.log.join('\n'));
+    assert.deepEqual(installState(c), before);
+  }
+});
+
+test('ROUND 5 BUG 1 (P3b): a boot resumer whose recovery files stay unreadable (an access denied) holds; once they read, it rolls back', T, async () => {
+  const c = freshInstall();
+  const before = installState(c);
+  const sim = await rollbackLeftAtH8(c);
+  const j0 = readJson(c.journal);
+  let boot;
+  try {
+    faultLstatEach(j0.recoverFrom, 'EPERM', -1);
+    boot = win32apply.recoverAtBoot(c.journal, sim.deps());
+  } finally {
+    unfaultLstat();
+  }
+  assert.deepEqual(boot, { action: 'unreachable', because: 'no copy of the updater that could put it back can be read right now (code=EPERM)' });
+  assert.deepEqual(readJson(c.journal), j0, 'the journal is left as it was');
+  assert.equal(fs.existsSync(c.statusAt), false);
+  assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'rolled-back', c.log.join('\n'));
+  assert.deepEqual(installState(c), before);
+});
+
+test('ROUND 5 BUG 3 (P4): a boot recovery held with no whole app in the Kosmos folder names the whole old app to start; held once the old app is back, it names none', T, async () => {
+  for (const [label, heldAt, expectBootFrom] of [['app out, old app not in', 'app', true], ['old app back', 'bin', false]]) {
+    const c = freshInstall();
+    const before = installState(c);
+    const sim = await rollbackLeftAtH8(c);
+    let boot;
+    try {
+      boot = win32apply.recoverAtBoot(c.journal, sim.deps({ hooks: { before: (step, d) => {
+        if (step === 'H8-H3' && d.entry === heldAt) faultRead(lockOf(c), 'EBUSY', -1);
+      } } }));
+    } finally {
+      unfaultRead();
+    }
+    assert.equal(boot.action, 'held', `${label}: ${JSON.stringify(boot)}\n${c.log.join('\n')}`);
+    if (expectBootFrom) {
+      assert.equal(fs.existsSync(path.join(c.root, 'app')), false, `${label}: the control: no app in the Kosmos folder`);
+      assert.equal(boot.bootFrom, path.join(c.previous, 'app', 'server.js'), label);
+    } else {
+      assert.equal(readJson(path.join(c.root, 'app', 'package.json')).version, OLD, `${label}: the control: the old app is back`);
+      assert.equal(boot.bootFrom, undefined, label);
+    }
+    assert.equal(readJson(c.journal).finished, false, label);
+    assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'rolled-back', label);
+    assert.deepEqual(installState(c), before, label);
+  }
+});
+
+test('ROUND 5 BUG 3 (P4): the real logon shim starts the whole old app from previous when its recovery is held mid-rollback, and puts it back at the next start', LONG, () => {
+  const c = freshInstall();
+  const before = installState(c);
+  stage(c);
+  crashAt(c, 'before H8', { newNeverStarts: true });
+  const held = bootShim(c, { preload: HELD_READS_PRELOAD, env: {
+    KOSMOS_TEST_HELD_FILE: lockOf(c), KOSMOS_TEST_HELD_READS: '-1', KOSMOS_TEST_HOLD_AFTER_RENAME_TO: path.join(c.staged, 'app'),
+  } });
+  assert.equal(held.status, 0, held.stderr);
+  assert.match(held.stderr, /not recovered at start \(held: /);
+  assert.match(held.stderr, /starting the previous version from /);
+  assert.equal(held.booted, `booted ${OLD} by Kosmos\\board`, held.stderr);
+  assert.equal(held.from, path.join(c.previous, 'app'), 'the whole old app, from previous');
+  assert.equal(readJson(c.journal).finished, false);
+  const next = bootShim(c);
+  assert.equal(next.booted, `booted ${OLD} by Kosmos\\board`, next.stderr);
+  assert.equal(next.from, path.join(c.root, 'app'));
+  assert.equal(readJson(c.journal).outcome, 'rolled-back');
+  assertRolledBack(c, before, null, null, 'the next start');
+});
+
+test('ROUND 5 decision 8: a journal a scanner holds when the logon shim starts is read again, and the recovery still runs', LONG, () => {
+  const c = freshInstall();
+  const before = installState(c);
+  stage(c);
+  crashAt(c, 'before H8', { newNeverStarts: true });
+  const boot = bootShim(c, { preload: HELD_READS_PRELOAD, env: { KOSMOS_TEST_HELD_FILE: c.journal, KOSMOS_TEST_HELD_READS: '3' } });
+  assert.equal(boot.status, 0, boot.stderr);
+  assert.doesNotMatch(boot.stderr, /could not be recovered/);
+  assert.equal(boot.booted, `booted ${OLD} by Kosmos\\board`, boot.stderr);
+  assert.equal(readJson(c.journal).outcome, 'rolled-back');
+  assertRolledBack(c, before, null, null, 'a held journal at boot');
+});
+
+test('ROUND 5 decision 8: the logon shim\'s held read uses the updater\'s own codes and budget', T, () => {
+  const src = win32board.BOOT_JS;
+  const codes = /const HELD_CODES = (\[[^\]]*\]);/.exec(src);
+  const tries = /tries >= (\d+)\) throw e;/.exec(src);
+  const wait = /Atomics\.wait\(new Int32Array\(new SharedArrayBuffer\(4\)\), 0, 0, (\d+)\);/.exec(src);
+  assert.ok(codes && tries && wait, 'the control: the shim has its held read');
+  assert.deepEqual(JSON.parse(codes[1].replace(/'/g, '"')), [...win32update.HELD_FILE_CODES]);
+  assert.equal(Number(tries[1]), win32apply.OWNER_READ_BUDGET.tries);
+  assert.equal(Number(wait[1]), win32apply.OWNER_READ_BUDGET.waitMs);
+  assert.ok(src.includes('JSON.parse(readHeld(journal))'), 'and the journal is read through it');
+  assert.equal(win32apply.OWNER_READ_BUDGET.tries,
+    1 + Math.ceil((win32apply.DEFAULT_APPLY_LIMITS.rollbackPasses * win32apply.DEFAULT_APPLY_LIMITS.rollbackPassWaitMs) / win32apply.DEFAULT_APPLY_LIMITS.stopPollMs));
+  assert.equal(win32apply.CONFIRMED_RECORD_PATIENCE_MS, win32apply.DEFAULT_APPLY_LIMITS.confirmRuns * win32apply.DEFAULT_APPLY_LIMITS.confirmWaitPerRunMs);
+});
+
+test('ROUND 5 NIT 4 (P6): a lock another owner took, unreadable past the budget in the forward steps: nothing reaches WORK\'s log while unknown, then the loss is proved', T, async () => {
+  const c = freshInstall();
+  stage(c);
+  const sim = playBoard(c);
+  let fault = null;
+  let r;
+  try {
+    r = await win32apply.applyJournal(c.journal, sim.deps({ log: undefined, hooks: { before: (step, d) => {
+      if (step === 'H4' && d.entry === 'bin' && !fault) {
+        fs.writeFileSync(lockOf(c), JSON.stringify({ pid: 4242, at: clock, token: 'another owner' }));
+        fault = faultRead(lockOf(c), 'EBUSY', win32apply.OWNER_READ_BUDGET.tries);
+      }
+    } } }));
+  } finally {
+    unfaultRead();
+  }
+  assert.equal(fault.hits, win32apply.OWNER_READ_BUDGET.tries, 'the control: unreadable for the whole budget');
+  assert.equal(r.outcome, 'taken-over', JSON.stringify(r));
+  const logText = readText(path.join(c.work, win32apply.APPLY_LOG_NAME)) || '';
+  assert.match(logText, /phase moving-in/, 'the control: the log was written before the hold');
+  assert.doesNotMatch(logText, /failed during|stopped without/, 'nothing after it');
+  assert.deepEqual(endsOf(sim), ['/End /TN Kosmos\\board'], 'and no stop for a rollback it did not own');
+});
+
+test('ROUND 5 NIT 5 (P5): with the record still being finished, B0 says the update worked, and --apply --wait counts the confirmed journal whose new board answers', T, async () => {
+  const c = freshInstall();
+  stage(c);
+  const sim = playBoard(c);
+  let r;
+  try {
+    r = await win32apply.applyJournal(c.journal, sim.deps({ hooks: { before: (step) => { if (step === 'H9') faultRead(lockOf(c), 'EBUSY', -1); } } }));
+  } finally {
+    unfaultRead();
+  }
+  assert.equal(r.outcome, 'updated', JSON.stringify(r));
+  const j = readJson(c.journal);
+  assert.equal(j.phase, 'confirmed', 'the control: the record is not finished');
+  assert.equal(j.finished, false);
+  assert.equal(fs.existsSync(c.statusAt), false);
+  assert.equal(win32apply.unfinishedUpdateRefusal(c.anchor), `Kosmos has updated to ${NEW} and is finishing up. Try again in a minute`);
+  const seams = (probe) => ({ probe, now: () => clock, sleep: async (ms) => { clock += ms; }, waitMs: 5000 });
+  const done = await win32update.waitForOutcome(c.journal, j.token, seams(sim.deps().probe));
+  assert.equal(done.outcome, 'updated', JSON.stringify(done));
+  assert.equal(done.version, NEW);
+  const silent = await win32update.waitForOutcome(c.journal, j.token, seams(async () => ({ answering: false, identity: null })));
+  assert.equal(silent.outcome, null, 'the control: with no board answering, it is not a success');
+  const other = await win32update.waitForOutcome(c.journal, j.token, seams(async () => ({ answering: true, identity: OLD_ID })));
+  assert.equal(other.outcome, null, 'nor with the old board answering');
+});
+
+test('ROUND 5 sweep: a node.exe a scanner holds at H5 is still there, so the rollback puts its exact bytes back instead of leaving no interpreter', T, async () => {
+  const c = freshInstall();
+  stage(c);
+  const before = installState(c);
+  const sim = playBoard(c, { newNeverStarts: true });
+  let fault = null;
+  let r;
+  try {
+    r = await win32apply.applyJournal(c.journal, sim.deps({ hooks: { before: (step) => {
+      if (step === 'H5' && !fault) fault = faultLstat(path.join(c.anchor, win32anchor.NODE_NAME), 'EBUSY', 1);
+    } } }));
+  } finally {
+    unfaultLstat();
+  }
+  assert.equal(fault.hits, 1, 'the control: node.exe answered EBUSY once');
+  assert.notEqual(readJson(c.journal).interpreter.beforeSha256, null, 'recorded as there');
+  assertRolledBack(c, before, sim, r, 'a held node.exe at H5');
+});
+
+test('ROUND 5 sweep: the staged journal records an entry a scanner holds as present, and refuses when it stays unknown', T, () => {
+  const c = freshInstall();
+  let fault;
+  try {
+    fault = faultLstat(path.join(c.root, 'bin'), 'EBUSY', 1);
+    assert.ok(stage(c).presentBefore.includes('bin'));
+  } finally {
+    unfaultLstat();
+  }
+  assert.equal(fault.hits, 1, 'the control: bin answered EBUSY once');
+  fs.rmSync(c.journal, { force: true });
+  try {
+    faultLstat(path.join(c.root, 'bin'), 'EBUSY', -1);
+    assert.throws(() => stage(c), /bin cannot be checked right now \(code=EBUSY\)/);
+  } finally {
+    unfaultLstat();
+  }
+  assert.equal(fs.existsSync(c.journal), false, 'no journal was written');
+});
+
+test('ROUND 5 sweep: a helper that cannot read the Kosmos folder\'s version holds, writing nothing, instead of settling the update as not-started', T, async () => {
+  const c = freshInstall();
+  stage(c);
+  const sim = playBoard(c);
+  const staged = readJson(c.journal);
+  let r;
+  try {
+    faultRead(path.join(c.root, 'app', 'package.json'), 'EBUSY', -1);
+    r = await win32apply.applyJournal(c.journal, sim.deps());
+  } finally {
+    unfaultRead();
+  }
+  assert.equal(r.outcome, 'held', JSON.stringify(r));
+  assert.equal(r.because, 'the update was not started, because package.json cannot be read right now (code=EBUSY)');
+  assert.deepEqual(readJson(c.journal), staged, 'the staged journal is untouched');
+  assert.equal(fs.existsSync(c.statusAt), false);
+  assert.deepEqual(sim.calls, [], 'the board was not stopped');
 });
