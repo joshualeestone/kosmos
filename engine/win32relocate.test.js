@@ -14,11 +14,15 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const http = require('node:http');
+const net = require('node:net');
 
+const handoff = require('./win32handoff');
 const relocator = require('./win32relocate');
 const { ENTRIES } = require('./win32update');
 
-const NOBODY_ANSWERING = async () => ({ answering: false, identity: null, startedByTask: null });
+/* A refused connection: the only answer that proves no board is there (round 3, finding 1). */
+const NOBODY_ANSWERING = async () => ({ answering: false, outcome: 'refused', identity: null, startedByTask: null });
 
 function scratch() {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-relocate-'));
@@ -178,7 +182,7 @@ test('🛑 never while a board from THIS folder is serving; a board serving from
     const unreadable = await move(s, { probe: answering, readPointer: () => null });
     assert.match(unreadable.because, /Kosmos may be running and it could not tell from which folder/);
     const probeThrew = await move(s, { probe: async () => { throw new Error('boom'); }, readPointer: () => path.join(s.from, 'app', 'engine') });
-    assert.match(probeThrew.because, /running from this folder right now/, 'a probe that failed was read as nobody serving');
+    assert.match(probeThrew.because, /Kosmos may be running and did not answer in time/, 'a probe that failed was read as nobody serving');
     const elsewhere = await move(s, { probe: answering, readPointer: () => path.join(s.base, 'Other', 'app', 'engine') });
     assert.equal(elsewhere.action, 'moved', JSON.stringify(elsewhere));
     const noPort = await move(s, { port: undefined });
@@ -322,4 +326,112 @@ test('🛑 without the confirm nothing is copied; the move CLI is a dry run unti
     assert.equal(relocator.reportText({ verdict: 'none', target: 'T' }), 'NONE T\r\n');
     assert.equal(relocator.reportText({ ok: false, because: 'a\nb' }), 'REFUSED a b\r\n');
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+/* ---- the round 3 review, fixed in round 4 ------------------------------------ */
+
+/* The reviewer's measured case: a hand-started board busy enough to answer after the probe's 2s. */
+const SLOW_BOARD_ANSWERS_AFTER_MS = 2500;
+
+/**
+ * Real listeners on loopback: one that accepts and never answers, a hand-started Kosmos board that
+ * answers after SLOW_BOARD_ANSWERS_AFTER_MS, and a port nothing listens on (bound, then closed).
+ */
+async function boardListeners() {
+  const sockets = new Set();
+  const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
+  const hung = net.createServer((socket) => sockets.add(socket));
+  const slow = http.createServer((req, res) => {
+    const timer = setTimeout(() => {
+      res.writeHead(200, { [handoff.BOARD_IDENTITY_HEADER]: '0.6.61@default', [handoff.BOARD_STARTED_BY_TASK_HEADER]: '0' });
+      res.end('ok');
+    }, SLOW_BOARD_ANSWERS_AFTER_MS);
+    res.on('close', () => clearTimeout(timer));
+  });
+  slow.on('connection', (socket) => sockets.add(socket));
+  const closed = net.createServer();
+  const refused = await listen(closed);
+  await new Promise((resolve) => closed.close(resolve));
+  const ports = { hung: await listen(hung), slow: await listen(slow), refused };
+  const close = async () => {
+    for (const socket of sockets) socket.destroy();
+    await Promise.all([hung, slow].map((server) => new Promise((resolve) => server.close(resolve))));
+  };
+  return { ports, close };
+}
+
+test('🛑 round 3 finding 1, real listeners: a board that never answers, or a hand-started board slower than the probe, stops a move; only a refused port lets it copy', async () => {
+  const listeners = await boardListeners();
+  try {
+    for (const [label, port] of [['a listener that never answers', listeners.ports.hung], ['a hand-started board that answers after 2.5s', listeners.ports.slow]]) {
+      const s = scratch();
+      try {
+        build(s.from);
+        const r = await move(s, { port, probe: undefined, readPointer: () => path.join(s.base, 'Other', 'app', 'engine') });
+        assert.equal(r.because, 'Kosmos was not moved, because Kosmos may be running and did not answer in time. Kosmos keeps working from here.', label + ': ' + JSON.stringify(shape(r)));
+        assert.ok(!fs.existsSync(s.to), label + ': something was copied while a board may be open');
+      } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+    }
+    const s = scratch();
+    try {
+      build(s.from);
+      const r = await move(s, { port: listeners.ports.refused, probe: undefined });
+      assert.equal(r.action, 'moved', 'a port nothing listens on stopped the move: ' + JSON.stringify(shape(r)));
+    } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  } finally { await listeners.close(); }
+
+  for (const [label, answer] of [['timed out', { answering: false, outcome: 'timed-out' }], ['the look failed', { answering: false, outcome: 'error' }], ['no reason given', { answering: false }]]) {
+    const s = scratch();
+    try {
+      build(s.from);
+      const r = await move(s, { probe: async () => answer });
+      assert.match(String(r.because), /may be running and did not answer in time/, label + ': ' + JSON.stringify(shape(r)));
+    } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  }
+});
+
+test('🛑 round 3 finding 6: the installed copy compares itself with the copy the engine pointer names, and never moves the pointer back to an older build', () => {
+  const s = scratch();
+  try {
+    build(s.to, { version: '0.6.60', source_sha: 'aaaa' });
+    const pointed = path.join(s.base, 'Downloads', 'kosmos-win-x64-new');
+    const ask = (extra) => relocator.compareWithPointer({ from: s.to, readPointer: () => path.join(pointed, 'app', 'engine'), ...extra });
+    const rebuild = (manifest) => { fs.rmSync(pointed, { recursive: true, force: true }); build(pointed, manifest); };
+
+    rebuild({ version: '0.6.61', source_sha: 'bbbb' });
+    assert.deepEqual(ask(), { verdict: 'handoff', target: pointed, build: 'this-newer' }, 'a newer copy the pointer names was not handed off to');
+    rebuild({ version: '0.6.60', source_sha: 'bbbb' });
+    assert.deepEqual(ask(), { verdict: 'handoff', target: pointed, build: 'rebuilt' }, 'the same version rebuilt from another commit was not handed off to');
+
+    rebuild({ version: '0.6.59', source_sha: 'bbbb' });
+    assert.equal(ask().verdict, 'none', 'an OLDER copy the pointer names was handed off to');
+    rebuild({ version: '0.6.60', source_sha: 'aaaa' });
+    assert.equal(ask().verdict, 'none', 'the same build');
+    rebuild({ version: 'garbage', source_sha: 'bbbb' });
+    assert.equal(ask().verdict, 'none', 'a copy whose version cannot be read was handed off to');
+    rebuild({ version: '0.6.61', source_sha: 'bbbb' });
+    fs.rmSync(path.join(pointed, 'bin'), { recursive: true });
+    assert.equal(ask().verdict, 'none', 'an incomplete copy was handed off to');
+    fs.rmSync(pointed, { recursive: true, force: true });
+    assert.equal(ask().verdict, 'none', 'a copy that is not there was handed off to');
+
+    assert.deepEqual(relocator.compareWithPointer({ from: s.to, readPointer: () => path.join(s.to, 'app', 'engine') }),
+      { verdict: 'none', target: s.to, because: 'the pointer names this copy' });
+    assert.equal(relocator.compareWithPointer({ from: s.to, readPointer: () => null }).verdict, 'none');
+    assert.equal(relocator.compareWithPointer({ from: s.to, readPointer: () => { throw new Error('unreadable'); } }).verdict, 'none');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('round 3 finding 6: --compare --pointer writes the verdict the launcher reads, and takes no --to', async () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-relocate-cli-'));
+  try {
+    const report = path.join(base, 'report.txt');
+    let asked = null;
+    const fake = (opts) => { asked = opts; return { verdict: 'handoff', target: 'C:\\Downloads\\K' }; };
+    assert.equal(await relocator.cliMain(['--compare', '--from', 'C:\\P\\Kosmos', '--pointer', '--report', report], { compareWithPointer: fake, write: () => {} }), 0);
+    assert.deepEqual(asked, { from: 'C:\\P\\Kosmos' });
+    assert.equal(fs.readFileSync(report, 'utf8'), 'HANDOFF C:\\Downloads\\K\r\n');
+    assert.equal(await relocator.cliMain(['--compare', '--from', 'C:\\P', '--pointer', '--to', 'C:\\Q'], { compareWithPointer: fake, write: () => {} }), 64);
+    assert.equal(await relocator.cliMain(['--move', '--from', 'C:\\P', '--to', 'C:\\Q', '--pointer', '--yes'], { relocate: async () => ({ ok: true }), write: () => {} }), 64);
+  } finally { fs.rmSync(base, { recursive: true, force: true }); }
 });

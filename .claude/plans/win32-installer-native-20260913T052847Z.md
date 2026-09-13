@@ -375,7 +375,9 @@ Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
     Kosmos releases carry plain `x.y.z` versions today.
 - **Finding 4 [BUG]: from any folder.** `KosmosLauncher.cs` `CompareWithInstalledCopy` runs the
   verdict wherever the running copy is, when `MoveTarget()` holds a `Kosmos.exe` and this copy is not
-  inside it. So an old copy at `D:\Kosmos-0.6.50` hands off and re-points nothing.
+  inside it. So an old copy carrying this launcher (3.0) or later, at `D:\Kosmos-0.6.50` say, hands off
+  and re-points nothing. Copies from zips already published (launcher 2.0) have no such check and still
+  take the pointer when they are started (round 3, finding 7).
   `OfferToMoveFromTemporaryPlace` (the move question) is still asked only from a temporary place.
 - **Finding 5 [NIT]:** the data folder, and the runtime folder, are kept and named when a kept
   project or working folder IS that folder or holds it, compared by real path, case-insensitively,
@@ -408,7 +410,90 @@ Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
     `liveExec.inTestProcess()`: `win32board.test.js` (#2973) forbids a second copy of that rule in the
     board, and the shared answer also covers a board a test spawned.
 
+## Round 3 review (fixed in round 4)
+
+- **Finding 1 [SAFETY]: a slow board is not a board that is gone.**
+  - `win32handoff.probeBoard` now also says why: `outcome` is `answered`, `refused` (ECONNREFUSED),
+    `timed-out` (the 2s `PROBE_TIMEOUT_MS` passed) or `error`. `answering` is unchanged, so no existing
+    caller reads it differently.
+  - One reading for the callers that take away what a running board needs: `win32handoff.boardMayBeOpen`.
+    Only a refused connection is no board. A timeout, a failed look, or no answer at all may be a busy
+    Kosmos board.
+  - Every caller of `probeBoard`, and what a timeout does now:
+    - `win32handoff.handOffToTask` (the boot hand-off, through its default probe): a timeout still
+      reads as nobody answering, so it runs the task or serves here, as before. **For #2983:** the
+      hand-off still reads a timeout as offline.
+    - `win32board.restartHelperMain` (the detached restart helper): it waits for `answering` and an
+      identity; a timeout reads as "not back yet" and it keeps polling to its own budget. Unchanged.
+    - `win32relocate.relocate` (the move): a timeout, a failed look or no reason refuses: "Kosmos was not
+      moved, because Kosmos may be running and did not answer in time." A board that answered keeps the
+      pointer check.
+    - `win32uninstall.boardOnPort`, for each of the uninstall's four looks:
+      1. the first look stops with nothing read or changed ("Kosmos is still open");
+      2. `waitForBoardToGo` waits through timeouts until its budget, counted both in tries and by the
+         clock (a timed-out probe spends its own 2s), then counts as still open and puts the switch back;
+      3. the look before the folders keeps every folder;
+      4. the look after the settle wait (finding 3) names it and the result is not ok.
+- **Finding 2 [BUG]: an unreadable switch is never switched off.**
+  - Before anything changes, `win32board.status()` must read known and registered. Unknown, or a read
+    that throws, stops with nothing changed: "Kosmos could not check whether it starts when you sign in.
+    Nothing was removed. Try again in a minute."
+  - `win32board.disable()` is checked. If it fails, nothing else is changed and the sentence names what
+    Windows said.
+  - When a switch that was on cannot be put back (the removal stopped, or the board task itself stayed
+    behind), the report says it is switched off now and to turn "Start Kosmos when I sign in to Windows"
+    back on in Settings. When it can be put back, a note says so.
+- **Finding 3 [BUG, low]: a board still starting can register again.**
+  - Once every task and folder went, the uninstall waits `REREGISTER_SETTLE_MS` (3s, from the hand-off's
+    measured ~2s from boot to hand-off, where a board registers or refreshes its task). It then reads the
+    whole task list again and probes once more with finding 1's rule.
+  - A Kosmos task found then, or a board that may be open, is named. The result is not ok, so the launcher
+    keeps the Start menu and Apps entries for removing Kosmos again.
+  - **The board's registration claim** (`win32board` `CLAIM_NAME`, `board-task-claimed`) lives in
+    `anchorDirFor`, `%LOCALAPPDATA%\Kosmos\runtime`. That is inside the runtime folder the uninstall
+    deletes, and `win32board.remove` unlinks it first.
+- **Finding 4 [TEST-GAP]: a real locked file.** `tools.win-installer-native.test.js` holds a file in a
+  scratch runtime folder open with `FileShare.None` from a PowerShell child (started with the account's
+  real profile, since PowerShell does not start from a scratch one). The REAL `removeFolderWithRetries`
+  runs against it. The leftover is named, and the launcher probe fed that report keeps the Start menu
+  entry, the Apps entry and its memory. It skips with a reason if PowerShell cannot hold the file.
+  - **What it found:** `fs.rmSync`'s own `maxRetries` did not retry. With the file held, it gave up after
+    4ms with EPERM on the folder (Node 26, this box), so "the delete retries while the ended processes
+    let go of `node.exe`" was not true.
+  - `removeFolderWithRetries` now tries again itself: one plain `rmSync` per try, on EBUSY, EPERM,
+    EACCES or ENOTEMPTY, `FOLDER_DELETE_TRIES` x `FOLDER_DELETE_WAIT_MS`.
+  - The held arm checks that it waited that long. A second arm lets go of the file after 1.5s, and the
+    folder is deleted cleanly.
+- **Finding 5 [NIT]: the compare has a time limit.** `RunEngineHelper` takes a `timeoutMs`. The two
+  compares pass `compareTimeoutMs` (10s); on timeout the helper is ended and the launcher carries on as
+  with no installed copy. The uninstall and the move pass `NoHelperTimeout` (0), because a delete or a
+  copy cut off midway leaves half a folder. Their progress window is a follow-up, with the worst case
+  below.
+- **Finding 6 [NIT]: the installed copy never downgrades the pointer.** When the running copy IS
+  `Programs\Kosmos`, the launcher asks `win32relocate.js --compare --from <here> --pointer`.
+  `compareWithPointer` reads the pointer (`win32anchor.readPointer`) and judges with `buildVerdict`:
+  - the pointed-at copy is complete and newer, or the same version from another commit: `HANDOFF <it>`.
+    The launcher starts it and re-points nothing.
+  - missing, incomplete, unreadable, not newer, no pointer, or the pointer names this copy: `NONE`. It
+    runs here and re-points, as before.
+  - The launcher never hands off to itself or to a folder without a `Kosmos.exe`, and a compare that
+    cannot run or passes its limit runs here.
+- **Finding 7 [NIT]:** the comment at `CompareWithInstalledCopy` and round 2's finding 4 above now say
+  that only copies carrying this launcher or later hand off.
+
 ## Follow-ups (not this slice)
+
+- **A progress window while the uninstall runs (round 3, finding 5).** The uninstall helper has no time
+  limit, by design. Its worst case, with every schtasks call using its whole 20s timeout, N agent tasks
+  and k data-folder paths that will not delete:
+  - probe 2s; task list 20s; board status 20s (one shared deadline); board disable and end 40s;
+  - the wait for a board that answered to go: 10s plus one 2s probe and a 0.5s wait;
+  - each agent task's disable, end and remove: 60s;
+  - board remove 20s; task list again 20s; probe 2s;
+  - the runtime folder's delete retries (20 x 500ms) about 10s, and about 10s for each held data path;
+  - the settle wait 3s, a last task list 20s, and a last probe 2s.
+  - That is about 171s + 60s x N + 10s x k: under 3 minutes with no agents, about 8 minutes with five.
+    Measured schtasks calls take 0.1-0.7s, so a usual removal takes a few seconds plus the 3s settle wait.
 
 - **Once S3 (`win32-update-apply`) has merged:** the uninstall refuses while an update journal is
   unfinished, so it cannot delete a runtime or a folder that a half-applied swap still needs.

@@ -207,18 +207,53 @@ function thisBootsWorldAttempt(deps) {
   };
 }
 
+/**
+ * Why a probe got the answer it did (win32-installer-native, round 3 finding 1).
+ *   answered   the port answered over HTTP
+ *   refused    nothing listens there (ECONNREFUSED): the only proof that no board is running
+ *   timed-out  something accepted the connection and did not answer within PROBE_TIMEOUT_MS
+ *   error      any other failure to look
+ * `answering` is unchanged for every caller that existed before (false for the last three), so the
+ * hand-off and the board restart read a slow board as they always did. See boardMayBeOpen.
+ */
+const PROBE_OUTCOMES = Object.freeze({ ANSWERED: 'answered', REFUSED: 'refused', TIMED_OUT: 'timed-out', ERROR: 'error' });
+
 /* Is a board answering on this port, and which board is it? Never rejects. */
 function probeBoard(port) {
   return new Promise((resolve) => {
+    let timedOut = false;
+    let settled = false;
+    const settle = (answer) => { if (!settled) { settled = true; resolve(answer); } };
     const req = http.get({ host: '127.0.0.1', port, path: '/', timeout: PROBE_TIMEOUT_MS }, (res) => {
       res.resume();
       const named = res.headers[BOARD_IDENTITY_HEADER];
       const startedByTask = startedByTaskFromHeader(res.headers[BOARD_STARTED_BY_TASK_HEADER]);
-      res.on('end', () => resolve({ answering: true, identity: typeof named === 'string' && named ? named : null, startedByTask }));
+      res.on('end', () => settle({ answering: true, outcome: PROBE_OUTCOMES.ANSWERED, identity: typeof named === 'string' && named ? named : null, startedByTask }));
     });
-    req.on('timeout', () => req.destroy(new Error('timeout')));
-    req.on('error', () => resolve({ answering: false, identity: null, startedByTask: null }));
+    req.on('timeout', () => { timedOut = true; req.destroy(new Error('timeout')); });
+    req.on('error', (err) => settle({
+      answering: false,
+      outcome: timedOut ? PROBE_OUTCOMES.TIMED_OUT : (err && err.code === 'ECONNREFUSED' ? PROBE_OUTCOMES.REFUSED : PROBE_OUTCOMES.ERROR),
+      identity: null,
+      startedByTask: null,
+    }));
   });
+}
+
+/**
+ * For a caller about to take away what a running board depends on (the uninstall deleting its
+ * folders, the move copying its folder): may a board be open on that port? ONE reading of a probe's
+ * answer, shared by engine/win32uninstall.js and engine/win32relocate.js (convention 5).
+ *
+ * 🛑 ONLY A REFUSED CONNECTION MEANS NO BOARD. A busy board that answers after PROBE_TIMEOUT_MS read as
+ * `answering: false`, and the uninstall ran under it (round 3, finding 1). A timeout, a failed look, or
+ * no answer at all is a board that may be open. The hand-off does not use this: it still reads a
+ * timeout as nobody there (#2983).
+ */
+function boardMayBeOpen(answer) {
+  if (!answer) return true;
+  if (answer.answering) return true;
+  return answer.outcome !== PROBE_OUTCOMES.REFUSED;
 }
 
 /* The logon task runs with the account's environment, not this launch's. A launch
@@ -379,7 +414,7 @@ async function handOffToTask(opts) {
 /* probeBoard is also how the Windows updater (engine/win32apply.js) confirms which board came back
    after a swap, so there is one reading of the identity header. */
 module.exports = {
-  handOffToTask, buildIdentity, boardIdentity, probeBoard, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS,
+  handOffToTask, buildIdentity, boardIdentity, probeBoard, boardMayBeOpen, PROBE_OUTCOMES, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS,
   BOARD_STARTED_BY_TASK_HEADER, boardStartedByTaskHeaderValue, startedByTaskFromHeader,
 };
 

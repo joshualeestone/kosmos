@@ -19,7 +19,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const http = require('node:http');
+const net = require('node:net');
 
+const handoff = require('./win32handoff');
 const win32job = require('./win32job');
 const win32board = require('./win32board');
 const store = require('./store');
@@ -29,7 +32,11 @@ const uninstaller = require('./win32uninstall');
 const WINDOWS_FOLDERS = { skip: process.platform !== 'win32' && 'the folder arms delete Windows-joined paths, which are only real folders on Windows' };
 const NOT_FOUND = { ok: false, out: 'ERROR: The system cannot find the file specified.' };
 const PORT = 16180;
-const NOBODY_ANSWERING = async () => ({ answering: false, identity: null, startedByTask: null });
+/* A refused connection: the only answer that proves no board is there (round 3, finding 1). */
+const NOBODY = { answering: false, outcome: 'refused', identity: null, startedByTask: null };
+const NOBODY_ANSWERING = async () => NOBODY;
+const TIMED_OUT = { answering: false, outcome: 'timed-out', identity: null, startedByTask: null };
+const LOOK_FAILED = { answering: false, outcome: 'error', identity: null, startedByTask: null };
 const TASK_BOARD = { answering: true, identity: '0.6.60+abc@default', startedByTask: true };
 const HAND_STARTED_BOARD = { answering: true, identity: '0.6.60+abc@default', startedByTask: false };
 
@@ -110,11 +117,12 @@ test.afterEach(() => { win32job.setRunner(null); win32board.setRunner(null); });
 test('the board is switched off and ended first, every agent task of every Kosmos goes, the board task last, and the list is READ again', WINDOWS_FOLDERS, async () => {
   const s = sandbox();
   try {
-    const calls = stubSchedulers({ lists: [listing(['Kosmos\\board', 'Kosmos\\agent-ava', 'Kosmos\\agent-bo+qa']), listing([])] });
+    const calls = stubSchedulers({ lists: [listing(['Kosmos\\board', 'Kosmos\\agent-ava', 'Kosmos\\agent-bo+qa']), listing([])], boardXml: boardDefinition(true) });
     const r = await run(s);
     assert.deepEqual(calls, [
       'job /Query /FO CSV /NH',
       'board /Query /TN Kosmos\\board /XML',
+      'board /Query /TN Kosmos\\board /FO CSV /V /NH',
       'board /Change /TN Kosmos\\board /DISABLE',
       'board /End /TN Kosmos\\board',
       'job /Change /TN Kosmos\\agent-ava /DISABLE',
@@ -125,7 +133,8 @@ test('the board is switched off and ended first, every agent task of every Kosmo
       'job /Delete /F /TN Kosmos\\agent-bo+qa',
       'board /Delete /F /TN Kosmos\\board',
       'job /Query /FO CSV /NH',
-    ]);
+      'job /Query /FO CSV /NH',
+    ], 'the order, ending with the read after the removal and the read after the settle wait');
     assert.equal(r.ok, true, JSON.stringify(r.left));
     assert.ok(!fs.existsSync(s.runtimeDir), '%LOCALAPPDATA%\\Kosmos is still there');
     assert.ok(fs.existsSync(path.join(s.dataDir, 'chats', 'ava.jsonl')), 'the chats were deleted without a yes');
@@ -195,6 +204,7 @@ test('a board task switched off before the removal stays off when the removal st
     const r = await run(t, { probe: async () => TASK_BOARD });
     assert.equal(r.left[0], uninstaller.KOSMOS_STILL_OPEN);
     assert.ok(r.left[1].startsWith('the startup job for the Kosmos board, which is switched off now'), JSON.stringify(r.left));
+    assert.ok(r.left[1].endsWith('Turn "Start Kosmos when I sign in to Windows" back on in Settings'), 'the switch left off does not say where to turn it back on: ' + JSON.stringify(r.left));
   } finally { fs.rmSync(t.base, { recursive: true, force: true }); }
 });
 
@@ -202,7 +212,7 @@ test('the task\'s board that goes after /End lets the removal carry on', WINDOWS
   const s = sandbox();
   try {
     const calls = stubSchedulers({ lists: [listing(['Kosmos\\board', 'Kosmos\\agent-ava']), listing([])], boardXml: boardDefinition(true) });
-    const r = await run(s, { probe: probeSequence(TASK_BOARD, TASK_BOARD, TASK_BOARD, { answering: false }) });
+    const r = await run(s, { probe: probeSequence(TASK_BOARD, TASK_BOARD, TASK_BOARD, NOBODY) });
     assert.equal(r.ok, true, JSON.stringify(r.left));
     assert.ok(calls.includes('job /Delete /F /TN Kosmos\\agent-ava'));
     assert.ok(!fs.existsSync(s.runtimeDir));
@@ -213,7 +223,7 @@ test('🛑 a board answering when the folders would go keeps every folder', WIND
   const s = sandbox();
   try {
     stubSchedulers({ lists: [listing([]), listing([])] });
-    const r = await run(s, { deleteData: true, probe: probeSequence({ answering: false }, HAND_STARTED_BOARD) });
+    const r = await run(s, { deleteData: true, probe: probeSequence(NOBODY, HAND_STARTED_BOARD) });
     assert.ok(r.left.includes(uninstaller.KOSMOS_STILL_OPEN), JSON.stringify(r.left));
     assert.ok(fs.existsSync(s.runtimeDir) && fs.existsSync(path.join(s.dataDir, 'chats', 'ava.jsonl')), 'a folder went while a board answered');
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
@@ -230,7 +240,7 @@ test('without a port nothing is asked or removed', async () => {
 test('the chats and settings are deleted only when the person said yes', WINDOWS_FOLDERS, async () => {
   const s = sandbox();
   try {
-    stubSchedulers({ lists: [listing(['Kosmos\\board']), listing([])] });
+    stubSchedulers({ lists: [listing(['Kosmos\\board']), listing([])], boardXml: boardDefinition(true) });
     const r = await run(s, { deleteData: true });
     assert.equal(r.ok, true, JSON.stringify(r.left));
     assert.ok(!fs.existsSync(s.dataDir), '%APPDATA%\\Kosmos survived a yes');
@@ -422,7 +432,7 @@ test('an empty Kosmos folder in Task Scheduler is a clean removal', WINDOWS_FOLD
   try {
     const calls = stubSchedulers({ lists: [listing([]), listing([])] });
     const r = await run(s, { deleteData: true });
-    assert.deepEqual(calls, ['job /Query /FO CSV /NH', 'job /Query /FO CSV /NH']);
+    assert.deepEqual(calls, ['job /Query /FO CSV /NH', 'job /Query /FO CSV /NH', 'job /Query /FO CSV /NH']);
     assert.equal(r.ok, true, JSON.stringify(r.left));
     assert.ok(!fs.existsSync(s.runtimeDir) && !fs.existsSync(s.dataDir));
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
@@ -444,7 +454,7 @@ test('a task Kosmos does not recognise is named and left in place, and both fold
 test('🛑 gone is READ, not inferred: an agent registered while the removal ran keeps both folders and is named', WINDOWS_FOLDERS, async () => {
   const s = sandbox();
   try {
-    stubSchedulers({ lists: [listing(['Kosmos\\board', 'Kosmos\\agent-ava']), listing(['Kosmos\\agent-zed'])] });
+    stubSchedulers({ lists: [listing(['Kosmos\\board', 'Kosmos\\agent-ava']), listing(['Kosmos\\agent-zed'])], boardXml: boardDefinition(true) });
     const r = await run(s, { deleteData: true });
     assert.equal(r.ok, false);
     assert.ok(r.left.some((l) => l.startsWith('the startup job for the agent "zed" (Kosmos\\agent-zed), which is still in Task Scheduler')), JSON.stringify(r.left));
@@ -459,6 +469,7 @@ test('a task that would not go is named with what Windows said, and a list that 
   try {
     stubSchedulers({
       lists: [listing(['Kosmos\\agent-ava', 'Kosmos\\board']), listing(['Kosmos\\agent-ava'])],
+      boardXml: boardDefinition(true),
       fail: { '/Delete /F /TN Kosmos\\agent-ava': { ok: false, out: 'ERROR: Access is denied.' } },
     });
     const r = await run(s);
@@ -469,7 +480,7 @@ test('a task that would not go is named with what Windows said, and a list that 
 
   const t = sandbox();
   try {
-    stubSchedulers({ lists: [listing(['Kosmos\\board']), { ok: false, out: 'ERROR: The RPC server is unavailable.' }] });
+    stubSchedulers({ lists: [listing(['Kosmos\\board']), { ok: false, out: 'ERROR: The RPC server is unavailable.' }], boardXml: boardDefinition(true) });
     const r = await run(t, { deleteData: true });
     assert.ok(r.left.some((l) => l.includes('which we could not read again to see they were gone (ERROR: The RPC server is unavailable.)')), JSON.stringify(r.left));
     assert.ok(fs.existsSync(t.runtimeDir) && fs.existsSync(t.dataDir), 'a folder went on a list that could not be read again');
@@ -482,6 +493,7 @@ test('🛑 a non-English Windows: what /End printed decides nothing, and a list 
     const FEHLER = { ok: false, out: 'FEHLER: Die Aufgabe wird derzeit nicht ausgeführt.' };
     stubSchedulers({
       lists: [listing(['Kosmos\\agent-bo', 'Kosmos\\board']), listing([])],
+      boardXml: boardDefinition(true),
       fail: { '/End /TN Kosmos\\agent-bo': FEHLER, '/End /TN Kosmos\\board': FEHLER },
     });
     const r = await run(s);
@@ -583,4 +595,197 @@ test('classifyTask: the board by its name, agents by the prefix and their world,
   assert.equal(uninstaller.classifyTask('Kosmos\\agent-').kind, 'other');
   assert.equal(uninstaller.classifyTask('Kosmos\\Agent-ava').kind, 'other', 'a prefix in another case is not win32job\'s');
   assert.equal(uninstaller.classifyTask('Kosmos\\boardroom').kind, 'other');
+});
+
+/* ---- the round 3 review, fixed in round 4 ------------------------------------ */
+
+/* The reviewer's measured case: a hand-started board busy enough to answer after the probe's 2s. */
+const SLOW_BOARD_ANSWERS_AFTER_MS = 2500;
+
+/**
+ * Real listeners on loopback: one that accepts and never answers, a hand-started Kosmos board that
+ * answers after SLOW_BOARD_ANSWERS_AFTER_MS, and a port nothing listens on (bound, then closed).
+ */
+async function boardListeners() {
+  const sockets = new Set();
+  const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
+  const hung = net.createServer((socket) => sockets.add(socket));
+  const slow = http.createServer((req, res) => {
+    const timer = setTimeout(() => {
+      res.writeHead(200, { [handoff.BOARD_IDENTITY_HEADER]: '0.6.61@default', [handoff.BOARD_STARTED_BY_TASK_HEADER]: '0' });
+      res.end('ok');
+    }, SLOW_BOARD_ANSWERS_AFTER_MS);
+    res.on('close', () => clearTimeout(timer));
+  });
+  slow.on('connection', (socket) => sockets.add(socket));
+  const closed = net.createServer();
+  const refused = await listen(closed);
+  await new Promise((resolve) => closed.close(resolve));
+  const ports = { hung: await listen(hung), slow: await listen(slow), refused };
+  const close = async () => {
+    for (const socket of sockets) socket.destroy();
+    await Promise.all([hung, slow].map((server) => new Promise((resolve) => server.close(resolve))));
+  };
+  return { ports, close };
+}
+
+test('🛑 round 3 finding 1, real listeners: a board that never answers, or a hand-started board slower than the probe, stops the removal with nothing asked or changed; only a refused port lets it run', WINDOWS_FOLDERS, async () => {
+  const listeners = await boardListeners();
+  try {
+    for (const [label, port] of [['a listener that never answers', listeners.ports.hung], ['a hand-started board that answers after 2.5s', listeners.ports.slow]]) {
+      const s = sandbox();
+      try {
+        const calls = stubSchedulers({ lists: [listing(['Kosmos\\board', 'Kosmos\\agent-ava']), listing([])], boardXml: boardDefinition(true) });
+        const r = await run(s, { deleteData: true, port, probe: undefined });
+        assert.equal(r.stillOpen, true, label + ': ' + JSON.stringify(r));
+        assert.deepEqual(r.left, [uninstaller.KOSMOS_STILL_OPEN], label);
+        assert.deepEqual(calls, [], label + ': Task Scheduler was asked or changed while a board may be open');
+        assert.ok(fs.existsSync(s.runtimeDir) && fs.existsSync(path.join(s.dataDir, 'chats', 'ava.jsonl')), label + ': a folder went while a board may be open');
+      } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+    }
+    const s = sandbox();
+    try {
+      stubSchedulers({ lists: [listing(['Kosmos\\agent-ava']), listing([])] });
+      const r = await run(s, { port: listeners.ports.refused, probe: undefined });
+      assert.equal(r.ok, true, 'a port nothing listens on stopped the removal: ' + JSON.stringify(r.left));
+      assert.ok(!fs.existsSync(s.runtimeDir));
+    } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  } finally { await listeners.close(); }
+});
+
+test('🛑 round 3 finding 1: after /End, a board that stops answering IN TIME, or a look that fails, is waited through to the end of the budget and counts as still open', WINDOWS_FOLDERS, async () => {
+  for (const [label, unanswered] of [['timed out', TIMED_OUT], ['the look failed', LOOK_FAILED], ['no reason given', { answering: false }]]) {
+    const s = sandbox();
+    try {
+      const calls = stubSchedulers({ lists: [listing(['Kosmos\\board', 'Kosmos\\agent-ava']), listing([])], boardXml: boardDefinition(true) });
+      const probe = probeSequence(TASK_BOARD, unanswered);
+      const r = await run(s, { deleteData: true, probe });
+      assert.equal(r.stillOpen, true, label + ': a board that did not answer in time was taken as gone: ' + JSON.stringify(r));
+      assert.ok(probe.count() > uninstaller.BOARD_GONE_WAIT_MS / uninstaller.FOLDER_DELETE_WAIT_MS, label + ': it stopped waiting before the budget');
+      assert.ok(!calls.some((c) => /^job \/(Change|End|Delete)/.test(c)), label + ': an agent task was touched: ' + calls.join(' | '));
+      assert.equal(calls[calls.length - 1], 'board /Change /TN Kosmos\\board /ENABLE', label + ': the switch was not put back');
+      assert.ok(fs.existsSync(s.runtimeDir) && fs.existsSync(path.join(s.dataDir, 'chats', 'ava.jsonl')), label + ': a folder went');
+    } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  }
+});
+
+test('round 3 finding 1: the wait for the board to go is bounded by the clock too, since each probe that times out spends its own 2s', WINDOWS_FOLDERS, async () => {
+  const PROBE_SPENDS_MS = 2000;
+  const s = sandbox();
+  try {
+    stubSchedulers({ lists: [listing(['Kosmos\\board']), listing([])], boardXml: boardDefinition(false) });
+    let clock = 0;
+    const answers = probeSequence(TASK_BOARD, TIMED_OUT);
+    const r = await run(s, {
+      probe: async (port) => { clock += PROBE_SPENDS_MS; return answers(port); },
+      sleep: async (ms) => { clock += ms; },
+      now: () => clock,
+    });
+    assert.equal(r.stillOpen, true, JSON.stringify(r));
+    assert.ok(answers.count() <= 2 + Math.ceil(uninstaller.BOARD_GONE_WAIT_MS / (PROBE_SPENDS_MS + uninstaller.FOLDER_DELETE_WAIT_MS)),
+      'the wait asked ' + answers.count() + ' times, far past its budget in real time');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('🛑 round 3 finding 1: a board that does not answer in time when the folders would go keeps every folder', WINDOWS_FOLDERS, async () => {
+  const s = sandbox();
+  try {
+    stubSchedulers({ lists: [listing([]), listing([])] });
+    const r = await run(s, { deleteData: true, probe: probeSequence(NOBODY, TIMED_OUT) });
+    assert.ok(r.left.includes(uninstaller.KOSMOS_STILL_OPEN), JSON.stringify(r.left));
+    assert.ok(fs.existsSync(s.runtimeDir) && fs.existsSync(path.join(s.dataDir, 'chats', 'ava.jsonl')), 'a folder went while a board may be open');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('🛑 round 3 finding 2: a startup switch that cannot be read, or a read that throws, stops the removal before anything changes, and says so plainly', WINDOWS_FOLDERS, async () => {
+  const realStatus = win32board.status;
+  for (const [label, script, status] of [
+    ['the board task\'s definition cannot be read', { boardXml: { ok: false, out: 'ERROR: The operation timed out.' } }, null],
+    ['the read throws', { boardXml: boardDefinition(true) }, () => { throw new Error('schtasks exploded'); }],
+  ]) {
+    const s = sandbox();
+    try {
+      const calls = stubSchedulers({ lists: [listing(['Kosmos\\board', 'Kosmos\\agent-ava']), listing([])], ...script });
+      if (status) win32board.status = status;
+      const r = await run(s, { deleteData: true, probe: async () => TASK_BOARD });
+      assert.equal(r.ok, false, label);
+      assert.deepEqual(r.left, [uninstaller.STARTUP_UNREADABLE], label + ': ' + JSON.stringify(r.left));
+      assert.ok(!calls.some((c) => /\/(Change|End|Delete)/.test(c)), label + ': a task was changed on a switch that could not be read: ' + calls.join(' | '));
+      assert.ok(fs.existsSync(s.runtimeDir) && fs.existsSync(path.join(s.dataDir, 'chats', 'ava.jsonl')), label + ': a folder went');
+    } finally {
+      win32board.status = realStatus;
+      fs.rmSync(s.base, { recursive: true, force: true });
+    }
+  }
+  assert.equal(uninstaller.STARTUP_UNREADABLE, 'Kosmos could not check whether it starts when you sign in. Nothing was removed. Try again in a minute.');
+});
+
+test('🛑 round 3 finding 2: a board startup job that will not switch off stops the removal with nothing else changed', WINDOWS_FOLDERS, async () => {
+  const s = sandbox();
+  try {
+    const calls = stubSchedulers({
+      lists: [listing(['Kosmos\\board', 'Kosmos\\agent-ava']), listing([])], boardXml: boardDefinition(true),
+      fail: { '/Change /TN Kosmos\\board /DISABLE': { ok: false, out: 'ERROR: Access is denied.' } },
+    });
+    const r = await run(s, { deleteData: true });
+    assert.equal(r.ok, false);
+    assert.equal(r.left.length, 1, JSON.stringify(r.left));
+    assert.ok(r.left[0].startsWith(uninstaller.STARTUP_WOULD_NOT_SWITCH_OFF) && r.left[0].includes('Access is denied'), JSON.stringify(r.left));
+    assert.deepEqual(calls.filter((c) => /\/(Change|End|Delete)/.test(c)), ['board /Change /TN Kosmos\\board /DISABLE'],
+      'something else was changed after the switch would not go off');
+    assert.ok(fs.existsSync(s.runtimeDir) && fs.existsSync(path.join(s.dataDir, 'chats', 'ava.jsonl')));
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('🛑 round 3 finding 2: a board startup job the removal leaves behind is switched back on as it was, and one that cannot be is named with where to turn it on', WINDOWS_FOLDERS, async () => {
+  const REMOVE_DENIED = { '/Delete /F /TN Kosmos\\board': { ok: false, out: 'ERROR: Access is denied.' } };
+  const s = sandbox();
+  try {
+    const calls = stubSchedulers({ lists: [listing(['Kosmos\\board']), listing(['Kosmos\\board'])], boardXml: boardDefinition(true), fail: REMOVE_DENIED });
+    const r = await run(s);
+    assert.equal(r.ok, false);
+    assert.ok(calls.includes('board /Change /TN Kosmos\\board /ENABLE'), 'the board job left behind stays switched off: ' + calls.join(' | '));
+    assert.ok(r.notes.includes('Its startup job was switched back on, as it was.'), JSON.stringify(r.notes));
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+
+  const t = sandbox();
+  try {
+    stubSchedulers({ lists: [listing(['Kosmos\\board']), listing(['Kosmos\\board'])], boardXml: boardDefinition(true),
+      fail: { ...REMOVE_DENIED, '/Change /TN Kosmos\\board /ENABLE': { ok: false, out: 'ERROR: Access is denied.' } } });
+    const r = await run(t);
+    const sentence = r.left.find((l) => l.startsWith('the startup job for the Kosmos board (Kosmos\\board), which is still in Task Scheduler'));
+    assert.ok(sentence && sentence.includes('It is switched off now') && sentence.endsWith('Turn "Start Kosmos when I sign in to Windows" back on in Settings'), JSON.stringify(r.left));
+  } finally { fs.rmSync(t.base, { recursive: true, force: true }); }
+
+  const u = sandbox();
+  try {
+    const calls = stubSchedulers({ lists: [listing(['Kosmos\\board']), listing(['Kosmos\\board'])], boardXml: boardDefinition(false), fail: REMOVE_DENIED });
+    await run(u);
+    assert.ok(!calls.some((c) => c.includes('/ENABLE')), 'a job the person had switched off was switched on');
+  } finally { fs.rmSync(u.base, { recursive: true, force: true }); }
+});
+
+test('🛑 round 3 finding 3: once everything went, it waits REREGISTER_SETTLE_MS and looks again; a task registered again, or a board come up, is named and the removal is not ok', WINDOWS_FOLDERS, async () => {
+  const CASES = [
+    ['the board task registered again', [listing(['Kosmos\\board', 'Kosmos\\agent-ava']), listing([]), listing(['Kosmos\\board'])], probeSequence(NOBODY),
+      'the startup job for the Kosmos board (Kosmos\\board), which was registered again while Kosmos was being removed. Remove Kosmos again'],
+    ['an agent task registered again', [listing(['Kosmos\\agent-ava']), listing([]), listing(['Kosmos\\agent-ava'])], probeSequence(NOBODY),
+      'the startup job for the agent "ava" (Kosmos\\agent-ava), which was registered again while Kosmos was being removed. Remove Kosmos again'],
+    ['a board came up', [listing([]), listing([])], probeSequence(NOBODY, NOBODY, HAND_STARTED_BOARD), uninstaller.KOSMOS_STILL_OPEN],
+    ['a board that does not answer in time came up', [listing([]), listing([])], probeSequence(NOBODY, NOBODY, TIMED_OUT), uninstaller.KOSMOS_STILL_OPEN],
+  ];
+  for (const [label, lists, probe, expected] of CASES) {
+    const s = sandbox();
+    try {
+      stubSchedulers({ lists, boardXml: boardDefinition(true) });
+      const slept = [];
+      const r = await run(s, { probe, sleep: async (ms) => { slept.push(ms); } });
+      assert.equal(r.ok, false, label + ': ' + JSON.stringify(r));
+      assert.deepEqual(slept, [uninstaller.REREGISTER_SETTLE_MS], label + ': no settle wait before the last look');
+      assert.ok(r.left.includes(expected), label + ': ' + JSON.stringify(r.left));
+      assert.ok(uninstaller.reportText(r).includes('LEFT ' + expected),
+        label + ': the launcher would not see it, and would take away the Start menu and Apps entries');
+    } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  }
+  assert.equal(uninstaller.REREGISTER_SETTLE_MS, 3000);
 });

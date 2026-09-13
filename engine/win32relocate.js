@@ -14,7 +14,8 @@
  *   - what a build is made of: win32update.ENTRIES, the updater's own list, so a move copies
  *     exactly what an update would swap, a build counts as complete only with every entry, and
  *     `Projects` or anything else in the folder is never copied;
- *   - whether a board answers on the port: win32handoff.probeBoard;
+ *   - whether a board may be open on the port: win32handoff.probeBoard, read by
+ *     win32handoff.boardMayBeOpen (only a refused connection is no board);
  *   - which folder the running Kosmos runs from: win32anchor.readPointer, the engine pointer;
  *   - which of two builds is newer: update.newer, the updater's own comparison.
  *
@@ -40,6 +41,7 @@
  *
  *     node app\engine\win32relocate.js --move --from <folder> --to <folder> --port <n> [--report <file>] [--yes]
  *     node app\engine\win32relocate.js --compare --from <folder> --to <folder> [--report <file>]
+ *     node app\engine\win32relocate.js --compare --from <folder> --pointer [--report <file>]
  */
 
 const fs = require('node:fs');
@@ -57,7 +59,8 @@ const STAGING_INFIX = '.kosmos-move-';
 const KEEPS_WORKING = 'Kosmos keeps working from here.';
 
 const USAGE = 'usage: node engine/win32relocate.js --move --from <folder> --to <folder> --port <n> [--report <file>] [--yes]\n'
-  + '       node engine/win32relocate.js --compare --from <folder> --to <folder> [--report <file>]';
+  + '       node engine/win32relocate.js --compare --from <folder> --to <folder> [--report <file>]\n'
+  + '       node engine/win32relocate.js --compare --from <folder> --pointer [--report <file>]';
 
 function firstLine(value) {
   return String((value && value.message) || value || 'no detail').trim().split(/\r?\n/)[0];
@@ -207,7 +210,13 @@ async function relocate(opts) {
   const probe = typeof o.probe === 'function' ? o.probe : (p) => require('./win32handoff').probeBoard(p);
   let answer = null;
   try { answer = await probe(port); } catch { answer = null; }
-  if (!answer || answer.answering) {
+  /* Round 3, finding 1: only a refused connection proves no board is there (win32handoff.boardMayBeOpen,
+     the uninstall's reading too). One that did not answer in time, or a look that failed, cannot even
+     be asked which folder it serves, so nothing moves. */
+  if ((!answer || !answer.answering) && require('./win32handoff').boardMayBeOpen(answer)) {
+    return refused('Kosmos was not moved, because Kosmos may be running and did not answer in time. ' + KEEPS_WORKING);
+  }
+  if (answer && answer.answering) {
     let pointer = null;
     try {
       pointer = typeof o.readPointer === 'function'
@@ -285,6 +294,37 @@ function compare(opts) {
   return { verdict: runsHere ? 'newer' : 'handoff', build, target: to, mine: mine ? mine.version : null, installed: theirs.version };
 }
 
+/**
+ * Round 3, finding 6: this copy IS the per-user install (`from` is `Programs\Kosmos`), and the engine
+ * pointer may name another copy the person started last, a newer downloaded zip, say. Starting the
+ * installed copy must never move the pointer back to an older build (Josh: never downgrade). From the
+ * pointer (win32anchor.readPointer) and the one build verdict, the pointed-at copy against this one:
+ *   'handoff'  the pointed-at copy is complete and newer, or the same version from another commit: it
+ *              runs, and this copy re-points nothing;
+ *   'none'     no pointer, a pointer naming this copy, or a pointed-at copy that is missing, incomplete,
+ *              unreadable or not newer: this copy runs and re-points, as before. It never hands off to a
+ *              copy that is not there.
+ */
+function compareWithPointer(opts) {
+  const o = opts || {};
+  const here = path.resolve(o.from);
+  let pointer = null;
+  try {
+    pointer = typeof o.readPointer === 'function'
+      ? o.readPointer()
+      : win32anchor.readPointer('win32', o.home || os.homedir(), o.env || process.env);
+  } catch { pointer = null; }
+  if (!pointer) return { verdict: 'none', target: here, because: 'there is no engine pointer' };
+  /* The pointer names <bundle>\app\engine. */
+  const pointed = path.resolve(pointer, '..', '..');
+  if (isSameOrInside(pointed, here) && isSameOrInside(here, pointed)) return { verdict: 'none', target: here, because: 'the pointer names this copy' };
+  const theirs = readManifest(pointed);
+  if (!isCompleteBuild(pointed, theirs, buildEntries(o))) return { verdict: 'none', target: pointed, because: 'the copy the pointer names is missing or incomplete' };
+  const build = buildVerdict(theirs, readManifest(here), o.newer);
+  if (build === 'this-newer' || build === 'rebuilt') return { verdict: 'handoff', target: pointed, build };
+  return { verdict: 'none', target: pointed, build };
+}
+
 /** The report the launcher reads: its first line is the outcome. */
 function reportText(result) {
   if (result.verdict) return result.verdict.toUpperCase() + ' ' + result.target + '\r\n';
@@ -293,11 +333,12 @@ function reportText(result) {
 }
 
 function parseCliArgs(argv) {
-  const a = { move: false, compare: false, yes: false, from: null, to: null, port: null, report: null, unknown: null };
+  const a = { move: false, compare: false, pointer: false, yes: false, from: null, to: null, port: null, report: null, unknown: null };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--move') a.move = true;
     else if (arg === '--compare') a.compare = true;
+    else if (arg === '--pointer') a.pointer = true;
     else if (arg === '--yes') a.yes = true;
     else if (['--from', '--to', '--port', '--report'].includes(arg)) { a[arg.slice(2)] = argv[i + 1] || null; i += 1; }
     else a.unknown = arg;
@@ -325,9 +366,10 @@ async function cliMain(argv, deps) {
   const d = deps || {};
   const out = typeof d.write === 'function' ? d.write : (s) => process.stdout.write(s);
   const a = parseCliArgs(argv);
-  if ((a.move === a.compare) || !a.from || !a.to || a.unknown) { out(USAGE + '\n'); return 64; }
+  const withPointer = a.compare && a.pointer;
+  if ((a.move === a.compare) || !a.from || (!withPointer && !a.to) || (a.pointer && !a.compare) || (withPointer && a.to) || a.unknown) { out(USAGE + '\n'); return 64; }
   if (a.compare) {
-    const verdict = (d.compare || compare)({ from: a.from, to: a.to });
+    const verdict = withPointer ? (d.compareWithPointer || compareWithPointer)({ from: a.from }) : (d.compare || compare)({ from: a.from, to: a.to });
     if (!writeReport(a, verdict, out)) return 1;
     out(JSON.stringify(verdict, null, 2) + '\n');
     return 0;
@@ -342,7 +384,7 @@ async function cliMain(argv, deps) {
   return result.ok ? 0 : 1;
 }
 
-module.exports = { relocate, compare, buildVerdict, cliMain, reportText, sweepInterruptedMoves, STAGING_INFIX };
+module.exports = { relocate, compare, compareWithPointer, buildVerdict, cliMain, reportText, sweepInterruptedMoves, STAGING_INFIX };
 
 /* Guarded on being the main module: requiring this file must never copy anything. */
 if (require.main === module) {

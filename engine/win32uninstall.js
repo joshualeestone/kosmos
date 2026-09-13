@@ -72,8 +72,16 @@ const BOARD_GONE_WAIT_MS = FOLDER_DELETE_TRIES * FOLDER_DELETE_WAIT_MS;
    for a person to act on the usual one or two locked files; a long list says the same thing. */
 const MAX_NAMED_LEFTOVERS = 10;
 
+/* Round 3, finding 3: how long, once everything went, before looking once more for a task registered
+   again or a board come up. A board registers or refreshes its task on the way to the hand-off, and
+   engine/win32handoff.js measured boot to the hand-off at about 2s on this box; 3s covers a board that
+   was starting as the removal began. */
+const REREGISTER_SETTLE_MS = 3000;
+
 const REFUSED_WITHOUT_CONFIRM = 'Kosmos was not removed, because the removal was not confirmed';
 const KOSMOS_STILL_OPEN = 'Kosmos is still open. Close Kosmos, then remove it again.';
+const STARTUP_UNREADABLE = 'Kosmos could not check whether it starts when you sign in. Nothing was removed. Try again in a minute.';
+const STARTUP_WOULD_NOT_SWITCH_OFF = 'Kosmos could not switch off the job that starts it when you sign in, so nothing was removed. Try again in a minute';
 
 const USAGE = 'usage: node engine/win32uninstall.js --uninstall --port <n> [--delete-data] [--root <folder>] [--report <file>] [--yes]';
 
@@ -148,8 +156,31 @@ function folderRefusal(dir, g) {
   return null;
 }
 
-function removeFolderWithRetries(dir) {
-  fs.rmSync(dir, { recursive: true, force: true, maxRetries: FOLDER_DELETE_TRIES, retryDelay: FOLDER_DELETE_WAIT_MS });
+/* The errors Windows gives while another process still holds a file in the folder (a node.exe that
+   /End has not finished ending, an editor): worth trying again. Anything else is final at once. */
+const FOLDER_DELETE_RETRY_CODES = new Set(['EBUSY', 'EPERM', 'EACCES', 'ENOTEMPTY']);
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * 🛑 THE RETRIES ARE HERE, NOT IN fs.rmSync (round 3, finding 4, measured). With a file in the folder held
+ * open without sharing, `fs.rmSync`'s own `maxRetries` gave up at once: EPERM on the folder after 4ms
+ * (Node 26, this box). So each try is one plain rmSync, and a held folder is tried FOLDER_DELETE_TRIES
+ * times, FOLDER_DELETE_WAIT_MS apart, before its error is reported.
+ */
+function removeFolderWithRetries(dir, wait) {
+  const pause = typeof wait === 'function' ? wait : sleepSync;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (e) {
+      if (attempt >= FOLDER_DELETE_TRIES || !FOLDER_DELETE_RETRY_CODES.has(e && e.code)) throw e;
+      pause(FOLDER_DELETE_WAIT_MS);
+    }
+  }
 }
 
 /* A junction or symbolic link goes as a link: the folder it points at is never entered. */
@@ -280,7 +311,12 @@ async function boardOnPort(port, o) {
   const probe = typeof o.probe === 'function' ? o.probe : (p) => require('./win32handoff').probeBoard(p);
   let answer;
   try { answer = await probe(port); } catch { return { answering: true, byTask: false }; }
-  if (!answer || !answer.answering) return { answering: false };
+  /* Round 3, finding 1: only a refused connection proves nobody is there. A board that did not answer
+     in time, or a look that failed, may be a busy Kosmos board, the very one this must not run under.
+     win32handoff.boardMayBeOpen is the one reading of that, shared with the move. */
+  if (!answer || !answer.answering) {
+    return require('./win32handoff').boardMayBeOpen(answer) ? { answering: true, byTask: false } : { answering: false };
+  }
   /* Something that is not a Kosmos board (no identity, no started-by-task word) cannot register a
      task or re-create a folder; only a Kosmos board stops the removal. */
   if (!answer.identity && typeof answer.startedByTask !== 'boolean') return { answering: false };
@@ -291,13 +327,42 @@ async function boardOnPort(port, o) {
   return { answering: true, byTask: running === true ? true : null };
 }
 
+function sleeperFor(o) {
+  return typeof o.sleep === 'function' ? o.sleep : (ms) => new Promise((r) => setTimeout(r, ms));
+}
+
+/* Waits through answers AND timeouts: a board that stops answering in time is not a board that went.
+   Bounded by the clock as well as by the count, because a probe that times out takes PROBE_TIMEOUT_MS
+   of its own on top of each wait. */
 async function waitForBoardToGo(port, o) {
-  const sleep = typeof o.sleep === 'function' ? o.sleep : (ms) => new Promise((r) => setTimeout(r, ms));
+  const sleep = sleeperFor(o);
+  const now = typeof o.now === 'function' ? o.now : Date.now;
+  const started = now();
   for (let waited = 0; ; waited += FOLDER_DELETE_WAIT_MS) {
     if (!(await boardOnPort(port, o)).answering) return true;
-    if (waited >= BOARD_GONE_WAIT_MS) return false;
+    if (waited >= BOARD_GONE_WAIT_MS || now() - started >= BOARD_GONE_WAIT_MS) return false;
     await sleep(FOLDER_DELETE_WAIT_MS);
   }
+}
+
+const TURN_SWITCH_BACK_ON = 'Turn "Start Kosmos when I sign in to Windows" back on in Settings';
+const SWITCHED_BACK_ON = 'Its startup job was switched back on, as it was.';
+
+/**
+ * Round 3, finding 2: the board task was switched off for the removal. When the removal leaves that task
+ * behind, it goes back to the position it was read in: on only if it was on. Returns the words to add to
+ * the leftover's sentence when it could not be put back ('' otherwise).
+ */
+function putBoardSwitchBack(boardSwitch, notes) {
+  if (!boardSwitch || boardSwitch.enabled !== true) return '';
+  const back = win32board.enable();
+  if (back.ok) { notes.push(SWITCHED_BACK_ON); return ''; }
+  return '. It is switched off now (' + back.because + '). ' + TURN_SWITCH_BACK_ON;
+}
+
+/* A stop before anything was changed, saying why. */
+function stoppedUnchanged(sentence) {
+  return { ok: false, refused: true, done: [], left: [oneLine(sentence)], notes: [] };
 }
 
 function stillOpen(extraLeft, notes) {
@@ -352,8 +417,13 @@ async function uninstall(opts) {
     const said = new Map();
     let boardSwitch = null;
     if (board) {
+      /* Round 3, finding 2: fail closed BEFORE changing anything. A switch that cannot be read could
+         not be put back if the removal stops, and a task that will not switch off keeps bringing the
+         board back behind the removal. */
       try { boardSwitch = win32board.status(); } catch { boardSwitch = null; }
-      win32board.disable();
+      if (!boardSwitch || !boardSwitch.known || !boardSwitch.registered) return stoppedUnchanged(STARTUP_UNREADABLE);
+      const switchedOff = win32board.disable();
+      if (!switchedOff.ok) return stoppedUnchanged(STARTUP_WOULD_NOT_SWITCH_OFF + ' (' + switchedOff.because + ').');
       win32board.end();
     }
     if (firstLook.answering && !(await waitForBoardToGo(port, o))) {
@@ -361,8 +431,8 @@ async function uninstall(opts) {
          the board task's switch, goes back to the position it was read in. */
       if (board && boardSwitch && boardSwitch.known && boardSwitch.enabled === true) {
         const back = win32board.enable();
-        if (!back.ok) return stillOpen(['the startup job for the Kosmos board, which is switched off now (' + back.because + '). Turn "Start Kosmos when I sign in to Windows" back on in Settings']);
-        return stillOpen([], ['Its startup job was switched back on, as it was.']);
+        if (!back.ok) return stillOpen(['the startup job for the Kosmos board, which is switched off now (' + back.because + '). ' + TURN_SWITCH_BACK_ON]);
+        return stillOpen([], [SWITCHED_BACK_ON]);
       }
       return stillOpen();
     }
@@ -392,7 +462,8 @@ async function uninstall(opts) {
             + 'Remove it in Task Scheduler (Task Scheduler Library, then Kosmos) and remove Kosmos again');
         } else {
           left.push((task.kind === 'board' ? 'the startup job for the Kosmos board (' + task.path + ')' : agentLabel(task))
-            + ', which is still in Task Scheduler' + (why ? ' (' + why + ')' : ''));
+            + ', which is still in Task Scheduler' + (why ? ' (' + why + ')' : '')
+            + (task.kind === 'board' ? putBoardSwitchBack(boardSwitch, notes) : ''));
         }
       }
       everyTaskGone = after.paths.length === 0;
@@ -477,6 +548,26 @@ async function uninstall(opts) {
     for (const root of kept.roots) if (fs.existsSync(root.dir)) notes.push(root.sentence);
   }
 
+  /* Round 3, finding 3: a board that was still starting as the removal began can register its task
+     again, or come up, just after everything went. So once everything went, wait REREGISTER_SETTLE_MS
+     and look once more. Anything found is named, and the result is not ok, so the launcher keeps the
+     Start menu entry and the Apps entry for removing Kosmos again. */
+  if (everyTaskGone && boardGone) {
+    await sleeperFor(o)(REREGISTER_SETTLE_MS);
+    const later = win32job.kosmosFolderTasks();
+    if (!later.known) {
+      left.push('the startup jobs in Task Scheduler\'s Kosmos folder, which we could not read a last time to see nothing came back (' + later.because + ')');
+    } else {
+      for (const task of later.paths.map(classifyTask)) {
+        const label = task.kind === 'agent' ? agentLabel(task)
+          : task.kind === 'board' ? 'the startup job for the Kosmos board (' + task.path + ')'
+            : 'a task named ' + task.path + ' in Task Scheduler\'s Kosmos folder';
+        left.push(label + ', which was registered again while Kosmos was being removed. Remove Kosmos again');
+      }
+    }
+    if ((await boardOnPort(port, o)).answering) left.push(KOSMOS_STILL_OPEN);
+  }
+
   return { ok: left.length === 0, done: done.map(oneLine), left: left.map(oneLine), notes: notes.map(oneLine) };
 }
 
@@ -542,7 +633,8 @@ async function cliMain(argv, deps) {
 
 module.exports = {
   uninstall, cliMain, classifyTask, folderRefusal, keptRoots, reportText,
-  FOLDER_DELETE_TRIES, FOLDER_DELETE_WAIT_MS, BOARD_GONE_WAIT_MS, MAX_NAMED_LEFTOVERS, KOSMOS_STILL_OPEN,
+  FOLDER_DELETE_TRIES, FOLDER_DELETE_WAIT_MS, BOARD_GONE_WAIT_MS, MAX_NAMED_LEFTOVERS, REREGISTER_SETTLE_MS,
+  KOSMOS_STILL_OPEN, STARTUP_UNREADABLE, STARTUP_WOULD_NOT_SWITCH_OFF,
 };
 
 /* Guarded on being the main module: requiring this file must never remove anything. */

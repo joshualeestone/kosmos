@@ -27,7 +27,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 const REPO = __dirname;
 const EXE_PATH = process.env.KOSMOS_LAUNCHER_EXE_UNDER_TEST || path.join(REPO, 'tools', 'windows', 'Kosmos.exe');
@@ -106,6 +106,13 @@ test('the engine helpers are armed by --yes, and speak the flags and report tags
   const offer = method('CompareWithInstalledCopy') + method('OfferToMoveFromTemporaryPlace');
   for (const tag of ['MOVED ', 'SAME ', 'REFUSED ', 'NEWER ', 'HANDOFF ']) assert.ok(offer.includes('"' + tag + '"'), 'the launcher does not read ' + tag);
   assert.match(uninstaller.reportText({ done: [], left: ['a'], notes: ['b'] }), /^LEFT a\r\nNOTE b\r\n$/);
+  /* Round 3, finding 5: only the compare, which merely reads, has a time limit. A removal or a copy cut
+     off midway would leave half a folder. */
+  assert.match(method('Uninstall'), /BoardPort\(\), NoHelperTimeout, out problem\);/, 'the uninstall helper was given a time limit');
+  assert.match(method('OfferToMoveFromTemporaryPlace'), /" --port " \+ port, NoHelperTimeout, out problem\);/, 'the move helper was given a time limit');
+  assert.equal((method('CompareWithInstalledCopy') + method('CompareWithPointedCopy')).split(', compareTimeoutMs, out compareProblem);').length - 1, 2,
+    'a compare waits on its helper with no time limit');
+  assert.match(SOURCE, /internal static int compareTimeoutMs = 10000;/);
   return Promise.all([
     relocator.cliMain(['--move', '--from', 'C:\\A', '--to', 'C:\\B', '--port', '16180', '--yes'], { relocate: async () => ({ ok: false, action: 'refused', because: 'x' }), write: () => {} }),
     relocator.cliMain(['--compare', '--from', 'C:\\A', '--to', 'C:\\B'], { compare: () => ({ verdict: 'none', target: 'C:\\B' }), write: () => {} }),
@@ -194,7 +201,8 @@ class InstallerProbe {
       case "duties": {
         /* a[1] this copy, a[2] the per-user programs folder, a[3] the compare's first word or "fail",
            a[4] Move|Keep|None, a[5] the kept-here file, a[6] person|nobody, a[7] temp (this copy is in
-           Downloads) | elsewhere (a folder that is not cleaned up, such as D:\\Kosmos-0.6.50) */
+           Downloads) | elsewhere (a folder that is not cleaned up, such as D:\\Kosmos-0.6.50),
+           a[8] (optional) the folder a --pointer compare names */
         string asked = "no"; string started = "-"; bool refreshed = false;
         List<string> helpers = new List<string>();
         KosmosLauncher.showMessageBoxes = a[6] == "person";
@@ -204,11 +212,13 @@ class InstallerProbe {
         KosmosLauncher.temporaryFolders = () => new string[0];
         KosmosLauncher.userProgramsFolder = () => a[2];
         KosmosLauncher.keptPlacesFile = () => a[5];
-        KosmosLauncher.runEngineHelper = (string node, string here, string script, string arguments, out string problem) => {
+        KosmosLauncher.runEngineHelper = (string node, string here, string script, string arguments, int timeoutMs, out string problem) => {
           problem = null;
-          helpers.Add(arguments.Split(' ')[0]);
+          bool pointer = arguments.Contains(" --pointer");
+          helpers.Add(pointer ? "--compare-pointer" : arguments.Split(' ')[0]);
           if (arguments.StartsWith("--compare")) {
             if (a[3] == "fail") { problem = "the runtime would not start"; return null; }
+            if (pointer) return new[] { a[3] + " " + (a.Length > 8 ? a[8] : "-") };
             return new[] { a[3] + " " + Path.Combine(a[2], "Kosmos") };
           }
           return new[] { "MOVED " + Path.Combine(a[2], "Kosmos") };
@@ -237,7 +247,7 @@ class InstallerProbe {
         Queue<string> answers = new Queue<string>(a[2].Split(','));
         int askedCount = 0; string helperArguments = "-"; string told = "-";
         KosmosLauncher.askYesNo = (question) => { askedCount++; return answers.Count > 0 && answers.Dequeue() == "yes"; };
-        KosmosLauncher.runEngineHelper = (string node, string here, string script, string arguments, out string problem) => {
+        KosmosLauncher.runEngineHelper = (string node, string here, string script, string arguments, int timeoutMs, out string problem) => {
           helperArguments = script + " " + arguments;
           problem = a[3] == "null" ? "the removal helper would not start" : null;
           return a[3] == "null" ? null : a[3].Split('|');
@@ -248,6 +258,16 @@ class InstallerProbe {
         using (Microsoft.Win32.RegistryKey k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(a[5] + "\\\\Kosmos")) { key = k != null; }
         Console.Write("code=" + code + "\\nasked=" + askedCount + "\\nhelper=" + helperArguments + "\\nshortcut=" + File.Exists(KosmosLauncher.StartMenuShortcutPath())
           + "\\nkey=" + key + "\\nkept=" + File.Exists(a[6]) + "\\ntold=" + told);
+        return 0;
+      }
+      case "comparetimeout": {
+        /* The REAL helper runner. a[1] this copy (its app\\engine\\win32relocate.js is a stand-in),
+           a[2] the per-user programs folder, a[3] node.exe, a[4] compareTimeoutMs */
+        KosmosLauncher.userProgramsFolder = () => a[2];
+        KosmosLauncher.compareTimeoutMs = int.Parse(a[4]);
+        System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
+        KosmosLauncher.PlaceOutcome outcome = KosmosLauncher.CompareWithInstalledCopy(a[1], a[3]);
+        Console.Write("outcome=" + outcome + "\\nelapsed=" + watch.ElapsedMilliseconds);
         return 0;
       }
     }
@@ -491,6 +511,194 @@ test('finding 4 probe: no complete Kosmos installed is the ordinary offer: Keep 
     assert.deepEqual(fields(run('duties', empty.here, empty.programs, 'NONE', 'Move', empty.kept, 'person', 'temp').out),
       { exit: 'null', refreshed: 'False', started: '-', asked: 'no', helpers: '', kept: 'False' }, 'a folder that is not a real build did an installer\'s job');
   } finally { fs.rmSync(empty.base, { recursive: true, force: true }); }
+});
+
+/* ---- the round 3 review, fixed in round 4 ------------------------------------ */
+
+test('round 3 finding 5 probe: a compare helper that hangs is stopped after compareTimeoutMs, and the launcher carries on as with no installed copy', WINDOWS_ONLY, async (t) => {
+  const run = probe(t);
+  if (!run) return;
+  const r = dutiesRig(true);
+  const pidFile = path.join(r.base, 'helper.pid');
+  const helperPid = () => (fs.existsSync(pidFile) ? Number(fs.readFileSync(pidFile, 'utf8')) : null);
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+  try {
+    const engine = path.join(r.here, 'app', 'engine');
+    fs.mkdirSync(engine, { recursive: true });
+    fs.writeFileSync(path.join(engine, 'win32relocate.js'),
+      'require("node:fs").writeFileSync(' + JSON.stringify(pidFile) + ', String(process.pid));\nsetInterval(() => {}, 1000);\n');
+    const hung = fields(run('comparetimeout', r.here, r.programs, process.execPath, '1500').out);
+    assert.equal(hung.outcome, 'NoInstalledCopy', JSON.stringify(hung));
+    assert.ok(Number(hung.elapsed) >= 1400 && Number(hung.elapsed) < 10000, 'the launcher did not wait its limit, then carry on: ' + hung.elapsed + 'ms');
+    const pid = helperPid();
+    assert.ok(pid, 'the stand-in never ran, so the limit was not what stopped the wait');
+    for (let i = 0; i < 50 && alive(pid); i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(alive(pid), false, 'the helper that passed its limit was left running');
+
+    /* The control: the same real runner, a stand-in that answers, is read. */
+    fs.rmSync(pidFile, { force: true });
+    fs.writeFileSync(path.join(engine, 'win32relocate.js'),
+      'const a = process.argv;\nrequire("node:fs").writeFileSync(a[a.indexOf("--report") + 1], "NEWER x\\r\\n");\n');
+    assert.equal(fields(run('comparetimeout', r.here, r.programs, process.execPath, '10000').out).outcome, 'NewerThanInstalledCopy');
+  } finally {
+    const pid = helperPid();
+    if (pid && alive(pid)) { try { process.kill(pid); } catch { /* already gone */ } }
+    fs.rmSync(r.base, { recursive: true, force: true });
+  }
+});
+
+/** The installed copy (Programs\Kosmos) and a newer-looking copy elsewhere for the pointer to name. */
+function pointerRig() {
+  const base = scratch();
+  const programs = path.join(base, 'Programs');
+  const here = path.join(programs, 'Kosmos');
+  const pointed = path.join(base, 'Downloads', 'kosmos-win-x64-0.6.61');
+  for (const dir of [here, pointed]) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({ product: 'kosmos', platform: 'win32', version: '0.6.60' }));
+    fs.writeFileSync(path.join(dir, 'Kosmos.exe'), 'MZ');
+  }
+  return { base, programs, here, pointed, kept: path.join(base, 'kept-here.txt') };
+}
+
+test('🛑 round 3 finding 6 probe: the installed copy hands off to a newer copy the pointer names and re-points nothing; otherwise it runs and re-points, never handing off to itself or to nothing', WINDOWS_ONLY, (t) => {
+  const run = probe(t);
+  if (!run) return;
+  const r = pointerRig();
+  try {
+    const duties = (verdict, pointedAt) => fields(run('duties', r.here, r.programs, verdict, 'None', r.kept, 'person', 'elsewhere', pointedAt).out);
+    assert.deepEqual(duties('HANDOFF', r.pointed), { exit: '0', refreshed: 'False', started: path.join(r.pointed, 'Kosmos.exe'), asked: 'no', helpers: '--compare-pointer', kept: 'False' },
+      'the installed copy moved the pointer back from a newer copy, or did not start it');
+    const runsHere = { exit: 'null', refreshed: 'True', started: '-', asked: 'no', helpers: '--compare-pointer', kept: 'False' };
+    assert.deepEqual(duties('NONE', r.pointed), runsHere, 'a pointer that names no newer copy did not run and re-point here');
+    assert.deepEqual(duties('HANDOFF', r.here), runsHere, 'the installed copy handed off to itself');
+    assert.deepEqual(duties('HANDOFF', path.join(r.base, 'gone')), runsHere, 'the installed copy handed off to a copy that is not there');
+    assert.deepEqual(duties('fail', r.pointed), runsHere, 'a compare that could not run stopped the installed copy');
+  } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
+});
+
+/**
+ * Holds a file open with FileShare.None from a PowerShell child, as a running node.exe or an editor
+ * holds one. It lets go after `letGoAfterMs` when given (a Kosmos that is just closing), else holds for
+ * two minutes. Resolves once the child says it holds it, or null when PowerShell could not.
+ */
+async function holdWithoutSharing(file, readyFile, letGoAfterMs) {
+  const quote = (p) => "'" + p.replace(/'/g, "''") + "'";
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    '$held = [System.IO.File]::Open(' + quote(file) + ', [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)',
+    '[System.IO.File]::WriteAllText(' + quote(readyFile) + ", 'held')",
+    letGoAfterMs ? 'Start-Sleep -Milliseconds ' + Number(letGoAfterMs) : 'Start-Sleep -Seconds 120',
+    '$held.Close()',
+  ].join('\r\n');
+  const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+    { windowsHide: true, stdio: 'ignore', env: realProfileEnv() });
+  const release = () => new Promise((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) { resolve(); return; }
+    child.once('exit', () => resolve());
+    child.kill();
+  });
+  for (let waited = 0; waited < 30000; waited += 100) {
+    if (fs.existsSync(readyFile)) return { release };
+    if (child.exitCode !== null) break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  await release();
+  return null;
+}
+
+test('🛑 round 3 finding 4: a file another process holds open (FileShare.None) defeats the REAL delete, is named, and the launcher keeps the Start menu and Apps entries', WINDOWS_ONLY, async (t) => {
+  const run = probe(t);
+  if (!run) return;
+  const uninstaller = require('./engine/win32uninstall');
+  const base = scratch();
+  const parent = 'Software\\KosmosTest\\' + crypto.randomUUID();
+  let holder = null;
+  try {
+    const rig = heldRuntimeRig(base);
+    const { runtimeDir, locked } = rig;
+    holder = await holdWithoutSharing(locked, path.join(base, 'holder-ready'));
+    if (!holder) { t.skip('PowerShell could not start and hold a file open here'); return; }
+    assert.throws(() => fs.readFileSync(locked), /EBUSY|EPERM/, 'CONTROL: the file is not actually held without sharing');
+
+    const removalStartedAt = Date.now();
+    const result = await removeWithNoKosmosTasks(rig);
+    assert.equal(result.ok, false, 'a removal that could not delete a held file said it was clean: ' + JSON.stringify(result));
+    const leftover = result.left.find((l) => l.startsWith('Kosmos\'s runtime folder (' + runtimeDir + ')'));
+    assert.ok(leftover, 'the held runtime folder is not named: ' + JSON.stringify(result.left));
+    const tookMs = Date.now() - removalStartedAt;
+    t.diagnostic('the removal took ' + tookMs + 'ms; it said: ' + leftover);
+    assert.ok(tookMs >= (uninstaller.FOLDER_DELETE_TRIES - 1) * uninstaller.FOLDER_DELETE_WAIT_MS * 0.9,
+      'the delete gave up after ' + tookMs + 'ms instead of trying again while the file was held');
+    assert.ok(fs.existsSync(locked), 'the held file is gone, so this did not test a lock');
+
+    const exe = path.join(base, 'Programs', 'Kosmos', 'Kosmos.exe');
+    fs.mkdirSync(path.dirname(exe), { recursive: true });
+    fs.copyFileSync(EXE_PATH, exe);
+    const lines = uninstaller.reportText(result).split('\r\n').filter(Boolean).join('|');
+    const launcher = fields(run('uninstall', 'person', 'yes,no', lines, path.join(base, 'Start Menu', 'Programs'), parent, path.join(base, 'kept-here.txt'), exe).out);
+    assert.equal(launcher.code, '1');
+    assert.deepEqual([launcher.shortcut, launcher.key, launcher.kept], ['True', 'True', 'True'],
+      'the launcher took away the Start menu entry, the Apps entry or its memory while a folder was left behind');
+    assert.ok(launcher.told.includes(runtimeDir), 'the person is not told which folder was left: ' + launcher.told);
+  } finally {
+    if (holder) await holder.release();
+    spawnSync('reg.exe', ['delete', 'HKCU\\' + parent, '/f'], { windowsHide: true });
+    const rest = spawnSync('reg.exe', ['query', 'HKCU\\Software\\KosmosTest'], { encoding: 'utf8', windowsHide: true });
+    if (rest.status === 0 && !/HKEY_CURRENT_USER\\Software\\KosmosTest\\/.test(String(rest.stdout))) spawnSync('reg.exe', ['delete', 'HKCU\\Software\\KosmosTest', '/f'], { windowsHide: true });
+    fs.rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
+});
+
+/** A scratch <LOCALAPPDATA>\Kosmos with runtime files in it, as a Kosmos that was just ended leaves it. */
+function heldRuntimeRig(base) {
+  const env = { APPDATA: path.join(base, 'Roaming'), LOCALAPPDATA: path.join(base, 'Local'), USERNAME: 'someone', USERDOMAIN: 'BOX' };
+  const home = path.join(base, 'Users', 'someone');
+  const runtimeDir = path.join(env.LOCALAPPDATA, 'Kosmos');
+  const locked = path.join(runtimeDir, 'runtime', 'node.exe');
+  fs.mkdirSync(path.dirname(locked), { recursive: true });
+  fs.writeFileSync(locked, 'MZ held open');
+  fs.writeFileSync(path.join(runtimeDir, 'runtime', 'engine-path'), 'C:\\somewhere\\app\\engine');
+  return { env, home, runtimeDir, locked };
+}
+
+/** The real removal over that folder, its folder delete NOT replaced, with no Kosmos tasks and no board. */
+async function removeWithNoKosmosTasks(rig) {
+  const uninstaller = require('./engine/win32uninstall');
+  const win32job = require('./engine/win32job');
+  const win32board = require('./engine/win32board');
+  const noKosmosTasks = (args) => (args[0] === '/Query' && !args.includes('/TN')
+    ? { ok: true, out: '"\\Microsoft\\Windows\\Defrag\\ScheduledDefrag","N/A","Ready"\r\n' }
+    : { ok: true, out: 'SUCCESS' });
+  win32job.setRunner(noKosmosTasks);
+  win32board.setRunner(noKosmosTasks);
+  try {
+    return await uninstaller.uninstall({
+      platform: 'win32', env: rig.env, home: rig.home, projectsRoot: path.join(rig.home, 'Kosmos', 'Projects'), port: 16180,
+      probe: async () => ({ answering: false, outcome: 'refused', identity: null, startedByTask: null }), sleep: async () => {},
+      liveExecutionAllowed: () => true,
+    });
+  } finally { win32job.setRunner(null); win32board.setRunner(null); }
+}
+
+test('🛑 round 3 finding 4: a file let go of while the REAL delete tries again is deleted, so a Kosmos that is just closing is removed cleanly', WINDOWS_ONLY, async (t) => {
+  const LET_GO_AFTER_MS = 1500;
+  const base = scratch();
+  let holder = null;
+  try {
+    const rig = heldRuntimeRig(base);
+    holder = await holdWithoutSharing(rig.locked, path.join(base, 'holder-ready'), LET_GO_AFTER_MS);
+    if (!holder) { t.skip('PowerShell could not start and hold a file open here'); return; }
+    assert.throws(() => fs.readFileSync(rig.locked), /EBUSY|EPERM/, 'CONTROL: the file is not actually held without sharing');
+    const startedAt = Date.now();
+    const result = await removeWithNoKosmosTasks(rig);
+    assert.equal(result.ok, true, 'the folder was not deleted once the file was let go of: ' + JSON.stringify(result.left));
+    assert.ok(!fs.existsSync(rig.runtimeDir));
+    t.diagnostic('deleted after ' + (Date.now() - startedAt) + 'ms, once the file was let go of');
+  } finally {
+    if (holder) await holder.release();
+    fs.rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  }
 });
 
 test('🛑 uninstall probe: nobody to ask, or a No, runs nothing and removes nothing', WINDOWS_ONLY, (t) => {

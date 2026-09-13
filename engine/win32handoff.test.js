@@ -16,8 +16,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
 const http = require('node:http');
+const net = require('node:net');
 
-const { handOffToTask, buildIdentity, BOARD_IDENTITY_HEADER, BOARD_STARTED_BY_TASK_HEADER, probeBoard, boardStartedByTaskHeaderValue } = require('./win32handoff');
+const { handOffToTask, buildIdentity, BOARD_IDENTITY_HEADER, BOARD_STARTED_BY_TASK_HEADER, probeBoard, boardStartedByTaskHeaderValue, boardMayBeOpen, PROBE_OUTCOMES } = require('./win32handoff');
 
 const REFRESHED = { ok: true, action: 'refreshed' };
 const MINE = '0.6.55+6182640d6a1f';
@@ -423,6 +424,38 @@ test('the default probe says "not answering" on a closed port', async () => {
   const r = await handOffToTask(opts);
   assert.equal(r.serve, true, 'nothing answers on the closed port, so the unstarted task is not proof');
   assert.deepEqual(w.taskOps(), ['run', 'end']);
+});
+
+test('🛑 win32-installer-native round 3 finding 1: the real probe says WHY nothing answered, and only a refused connection is no board', async () => {
+  const sockets = new Set();
+  const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
+  const hung = net.createServer((socket) => sockets.add(socket));
+  const slow = http.createServer((q, s) => {
+    const timer = setTimeout(() => { s.writeHead(200, { [BOARD_IDENTITY_HEADER]: MINE, [BOARD_STARTED_BY_TASK_HEADER]: '0' }); s.end('ok'); }, 2500);
+    s.on('close', () => clearTimeout(timer));
+  });
+  slow.on('connection', (socket) => sockets.add(socket));
+  const fast = http.createServer((q, s) => { s.writeHead(200, { [BOARD_IDENTITY_HEADER]: MINE, [BOARD_STARTED_BY_TASK_HEADER]: '0' }); s.end('ok'); });
+  const closed = net.createServer();
+  const refusedPort = await listen(closed);
+  await new Promise((resolve) => closed.close(resolve));
+  try {
+    const nobody = (outcome) => ({ answering: false, outcome, identity: null, startedByTask: null });
+    const startedAt = Date.now();
+    assert.deepEqual(await probeBoard(await listen(hung)), nobody(PROBE_OUTCOMES.TIMED_OUT), 'a listener that never answers');
+    assert.ok(Date.now() - startedAt >= 1900, 'the probe did not wait its timeout');
+    assert.deepEqual(await probeBoard(await listen(slow)), nobody(PROBE_OUTCOMES.TIMED_OUT), 'a hand-started board that answers after 2.5s');
+    assert.deepEqual(await probeBoard(await listen(fast)), { answering: true, outcome: PROBE_OUTCOMES.ANSWERED, identity: MINE, startedByTask: false });
+    assert.deepEqual(await probeBoard(refusedPort), nobody(PROBE_OUTCOMES.REFUSED), 'a port nothing listens on');
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await Promise.all([hung, slow, fast].map((server) => new Promise((resolve) => server.close(() => resolve()))));
+  }
+  assert.deepEqual({ ...PROBE_OUTCOMES }, { ANSWERED: 'answered', REFUSED: 'refused', TIMED_OUT: 'timed-out', ERROR: 'error' });
+  for (const [answer, mayBeOpen] of [
+    [null, true], [undefined, true], [{ answering: true, outcome: 'answered' }, true], [{ answering: false, outcome: 'refused' }, false],
+    [{ answering: false, outcome: 'timed-out' }, true], [{ answering: false, outcome: 'error' }, true], [{ answering: false }, true],
+  ]) assert.equal(boardMayBeOpen(answer), mayBeOpen, JSON.stringify(answer));
 });
 
 // ── buildIdentity: one derivation for both sides ───────────────────────────

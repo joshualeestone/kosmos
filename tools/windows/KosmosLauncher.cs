@@ -1027,7 +1027,7 @@ class KosmosLauncher
         List<string> notes = new List<string>();
         string problem;
         string[] report = runEngineHelper(node, here, UninstallHelperScript,
-            "--uninstall" + (alsoDeleteChats ? " --delete-data" : "") + " --root " + QuoteArgument(here) + " --port " + BoardPort(), out problem);
+            "--uninstall" + (alsoDeleteChats ? " --delete-data" : "") + " --root " + QuoteArgument(here) + " --port " + BoardPort(), NoHelperTimeout, out problem);
         if (report == null)
         {
             leftBehind.Add("Kosmos's startup jobs in Task Scheduler and its folders in AppData, because the removal could not run (" + problem + ")");
@@ -1092,7 +1092,16 @@ class KosmosLauncher
     // of these fields. The launcher never replaces them; the probe tools.win-installer-native.test.js
     // compiles beside this file does, so the decisions run in a test without a process, a box or
     // the real registry.
-    internal delegate string[] EngineHelperRunner(string node, string here, string script, string arguments, out string problem);
+    internal delegate string[] EngineHelperRunner(string node, string here, string script, string arguments, int timeoutMs, out string problem);
+
+    // The uninstall and the move wait for their helper however long it takes (see RunEngineHelper).
+    const int NoHelperTimeout = 0;
+
+    // Round 3, finding 5: how long the installed-copy compare may take before the launcher carries on
+    // without it. It reads two manifests and a folder listing (measured 66-88 ms), so 10 s is only a
+    // safety net for a node that hangs; the fallback is "no installed copy", the behaviour before the
+    // compare existed. Not const only so the probe a test compiles beside this file can shorten it.
+    internal static int compareTimeoutMs = 10000;
     internal static EngineHelperRunner runEngineHelper = RunEngineHelper;
     internal static Func<string, string, string> startLauncher = StartLauncherAt;
     internal static Func<string, bool> askYesNo = AskYesNo;
@@ -1132,7 +1141,10 @@ class KosmosLauncher
     // one tagged sentence per line, so nothing is redirected (the board-start rule in Main)
     // and it runs with no window. ConfirmedFlag is what arms it, and every caller runs this
     // only after the person answered.
-    static string[] RunEngineHelper(string node, string here, string script, string arguments, out string problem)
+    // timeoutMs 0 waits as long as the helper takes: the uninstall and the move are never abandoned
+    // midway, because a delete or a copy cut off leaves half a folder. Only a helper that merely reads
+    // (the installed-copy compare) is given a limit, and is ended when it passes it.
+    static string[] RunEngineHelper(string node, string here, string script, string arguments, int timeoutMs, out string problem)
     {
         problem = null;
         string helper = Path.Combine(here, "app\\engine\\" + script);
@@ -1146,7 +1158,19 @@ class KosmosLauncher
             h.UseShellExecute = false;
             h.CreateNoWindow = true;
             h.WorkingDirectory = here;
-            using (Process helperRun = Process.Start(h)) { helperRun.WaitForExit(); }
+            using (Process helperRun = Process.Start(h))
+            {
+                if (timeoutMs <= 0)
+                {
+                    helperRun.WaitForExit();
+                }
+                else if (!helperRun.WaitForExit(timeoutMs))
+                {
+                    try { helperRun.Kill(); } catch { /* it ended between the wait and the kill */ }
+                    problem = "it did not finish within " + timeoutMs + "ms, so it was stopped";
+                    return null;
+                }
+            }
             if (!File.Exists(report)) { problem = "it finished without saying what it did"; return null; }
             return File.ReadAllLines(report, Encoding.UTF8);
         }
@@ -1308,7 +1332,9 @@ class KosmosLauncher
     internal enum PlaceOutcome { NoInstalledCopy, NotATemporaryPlace, StartedInstalledCopy, InstalledCopyWouldNotStart, NewerThanInstalledCopy, StaysHere }
 
     // Round 1 finding 4, round 2 finding 4. From ANY folder outside the per-user one (MoveTarget), not
-    // only a temporary place: an old copy at D:\Kosmos-0.6.50 re-pointed everything just the same.
+    // only a temporary place. Only a copy carrying this launcher (launcher 3.0) or later asks at all: a
+    // copy from an older published zip (launcher 2.0) has no such check and still takes the pointer
+    // when it is started.
     // When that folder holds a Kosmos.exe, engine/win32relocate.js compare decides which copy runs,
     // from its one build verdict (the verdict relocate reads too):
     //   HANDOFF (the same build, an installed build that is newer, or anything unreadable) -> start
@@ -1322,12 +1348,16 @@ class KosmosLauncher
     {
         string target = MoveTarget();
         string full = FullPathOrNull(here) ?? here;
-        if (target == null || IsSameOrInside(full, target) || IsSameOrInside(target, full)) return PlaceOutcome.NoInstalledCopy;
+        if (target == null) return PlaceOutcome.NoInstalledCopy;
+        // This copy IS the per-user install (or inside it): checked before the overlap below, which the
+        // same folder also matches.
+        if (IsSameOrInside(full, target)) return CompareWithPointedCopy(full, node);
+        if (IsSameOrInside(target, full)) return PlaceOutcome.NoInstalledCopy;
         // The launcher is the only file this cheap look needs; the engine decides the rest.
         if (!File.Exists(Path.Combine(target, "Kosmos.exe"))) return PlaceOutcome.NoInstalledCopy;
         string compareProblem;
         string[] compared = runEngineHelper(node, here, RelocateHelperScript,
-            "--compare --from " + QuoteArgument(full) + " --to " + QuoteArgument(target), out compareProblem);
+            "--compare --from " + QuoteArgument(full) + " --to " + QuoteArgument(target), compareTimeoutMs, out compareProblem);
         string verdict = compared != null && compared.Length > 0 ? compared[0] : null;
         if (verdict != null && verdict.StartsWith("NEWER ", StringComparison.Ordinal)) return PlaceOutcome.NewerThanInstalledCopy;
         if (verdict != null && verdict.StartsWith("HANDOFF ", StringComparison.Ordinal))
@@ -1338,6 +1368,30 @@ class KosmosLauncher
             return PlaceOutcome.InstalledCopyWouldNotStart;
         }
         return PlaceOutcome.NoInstalledCopy;
+    }
+
+    // Round 3, finding 6: this copy IS the per-user install. Starting it must never move the engine
+    // pointer back to an older build (Josh: never downgrade), so engine/win32relocate.js
+    // compareWithPointer compares it with the copy the pointer names, with the same build verdict:
+    //   HANDOFF (that copy is complete and newer, or the same version from another commit) -> start it
+    //   and re-point nothing;
+    //   anything else (no pointer, the pointer names this copy, that copy is missing, incomplete,
+    //   unreadable or not newer, or the compare did not answer in time) -> run here and re-point, as
+    //   before. It never hands off to itself or to a copy that is not there.
+    internal static PlaceOutcome CompareWithPointedCopy(string full, string node)
+    {
+        string compareProblem;
+        string[] compared = runEngineHelper(node, full, RelocateHelperScript,
+            "--compare --from " + QuoteArgument(full) + " --pointer", compareTimeoutMs, out compareProblem);
+        string verdict = compared != null && compared.Length > 0 ? compared[0] : null;
+        if (verdict == null || !verdict.StartsWith("HANDOFF ", StringComparison.Ordinal)) return PlaceOutcome.NoInstalledCopy;
+        string pointed = FullPathOrNull(verdict.Substring("HANDOFF ".Length).Trim());
+        if (pointed == null || IsSameOrInside(pointed, full) || IsSameOrInside(full, pointed)) return PlaceOutcome.NoInstalledCopy;
+        if (!File.Exists(Path.Combine(pointed, "Kosmos.exe"))) return PlaceOutcome.NoInstalledCopy;
+        string startProblem = startLauncher(Path.Combine(pointed, "Kosmos.exe"), pointed);
+        if (startProblem == null) return PlaceOutcome.StartedInstalledCopy;
+        tellPerson("Kosmos is newer in " + pointed + ", but it would not start from there (" + startProblem + "). Double-click Kosmos.exe in that folder.", true);
+        return PlaceOutcome.InstalledCopyWouldNotStart;
     }
 
     // W-06: a copy running from a folder that gets cleaned up, with a person at the desktop and the
@@ -1360,7 +1414,7 @@ class KosmosLauncher
 
         string problem;
         string[] report = runEngineHelper(node, here, RelocateHelperScript,
-            "--move --from " + QuoteArgument(full) + " --to " + QuoteArgument(target) + " --port " + port, out problem);
+            "--move --from " + QuoteArgument(full) + " --to " + QuoteArgument(target) + " --port " + port, NoHelperTimeout, out problem);
         string outcome = report != null && report.Length > 0 ? report[0] : null;
         if (outcome != null && (outcome.StartsWith("MOVED ", StringComparison.Ordinal) || outcome.StartsWith("SAME ", StringComparison.Ordinal)))
         {
