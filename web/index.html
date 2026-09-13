@@ -32546,6 +32546,13 @@ document.getElementById('rolesel').addEventListener('change', () => {
 // person reviewed rather than a re-parse of text they may have edited after.
 let ORGCHART_PARSED = null;
 
+/* The derived-name length ceiling. It MIRRORS engine/create.nameProblem's 32-char
+   cap (engine/create.js) so a client-derived candidate is not rejected for length
+   the operator cannot see; the engine stays the authority and refuses anything
+   longer, so a future backend change to that cap degrades to a surfaced refusal,
+   never a silent accept. Named rather than inlined so the two do not drift unseen. */
+const ORGCHART_NAME_MAX = 32;
+
 function resetOrgchartPreview() {
   ORGCHART_PARSED = null;
   const box = document.getElementById('orgchart-preview-box');
@@ -32571,7 +32578,7 @@ function orgchartSlug(s) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 32)
+    .slice(0, ORGCHART_NAME_MAX)
     .replace(/-+$/g, '');
   return slug || 'agent';
 }
@@ -32588,9 +32595,20 @@ function parseOrgchart(text, useNames) {
   const rows = [];
   const used = Object.create(null);
   const uniq = (base) => {
-    let s = base;
-    let n = 1;
-    while (used[s]) { n += 1; s = (base + '-' + n).slice(0, 32).replace(/-+$/g, ''); }
+    if (!used[base]) { used[base] = true; return base; }
+    /* Reserve room for the suffix by TRUNCATING the base, never by slicing the
+       suffix off after appending. A base already at ORGCHART_NAME_MAX with the
+       suffix sliced back off reproduces the base, so `used[s]` never clears and
+       the loop spins forever -- a real browser hang on a roster with two long
+       identical titles (found in review). Truncating the base first makes every
+       n produce a distinct, in-length string, so the loop always terminates. */
+    let n = 2;
+    let s;
+    do {
+      const suffix = '-' + n;
+      s = base.slice(0, ORGCHART_NAME_MAX - suffix.length).replace(/-+$/g, '') + suffix;
+      n += 1;
+    } while (used[s]);
     used[s] = true;
     return s;
   };
@@ -32599,9 +32617,15 @@ function parseOrgchart(text, useNames) {
     if (!line) continue;
     let name = '';
     let title = '';
+    // Split at whichever separator comes FIRST, not comma-always: a tab-separated
+    // spreadsheet paste whose title carries a later comma ("Sarah\tSuccess Mgr, EMEA")
+    // must split at the tab, not fold the tab into the name at the comma.
     const ci = line.indexOf(',');
     const ti = line.indexOf('\t');
-    const at = ci >= 0 ? ci : ti;
+    let at = -1;
+    if (ci >= 0 && ti >= 0) at = Math.min(ci, ti);
+    else if (ci >= 0) at = ci;
+    else if (ti >= 0) at = ti;
     if (at >= 0) {
       name = line.slice(0, at).trim();
       title = line.slice(at + 1).trim();
@@ -32682,6 +32706,19 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
     btn.disabled = false;
     msg.hidden = false;
     msg.textContent = 'Kosmos did not answer in a way we could read. Try again.';
+    return;
+  }
+  /* A real createTeam response ALWAYS carries `outcome` -- even an HTTP 400 wholesale
+     refusal (over cap, all members dead) returns { outcome:'refused', because, refused }
+     which we DO want to surface. A transport/auth/malformed failure instead carries
+     `error` and no `outcome` (403 no board token, 503 roster-unreadable, 400 unparseable
+     body). Without this guard those fall through to the created/refused rendering below
+     and read as a bare "No agents were created", hiding the real reason on a 15-20 person
+     import. So: no `outcome` means it is not a team result -- surface its error plainly. */
+  if (result.outcome === undefined) {
+    btn.disabled = false;
+    msg.hidden = false;
+    msg.textContent = result.error ? String(result.error) : 'Kosmos refused the request.';
     return;
   }
   /* Surface created[]/refused[]/because faithfully. The over-cap refusal arrives

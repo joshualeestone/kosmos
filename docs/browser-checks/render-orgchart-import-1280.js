@@ -22,7 +22,7 @@
  *
  * Run: see the README in this directory (same shape as render-scan-board.js).
  *
- * // Browser-check-surface: pick-orgchart orgchartpick orgchart-text orgchart-usenames orgchart-preview orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-edit
+ * // Browser-check-surface: pick-orgchart orgchartpick orgchart-text orgchart-usenames orgchart-preview orgchart-preview-box orgchart-count orgchart-list orgchart-create orgchart-edit orgchart-msg
  */
 'use strict';
 
@@ -47,10 +47,11 @@ function check(name, pass, detail) {
   /* The one intercept: /api/team. A mutable response so each arm sets what the
      backend "returns" and asserts the UI surfaces it. Nothing real is created. */
   let teamResponse = { outcome: 'created', created: [], refused: [], because: null };
+  let teamStatus = 200;
   let lastTeamBody = null;
   await page.route('**/api/team', (r) => {
     lastTeamBody = JSON.parse(r.request().postData() || '{}');
-    r.fulfill({ json: teamResponse });
+    r.fulfill({ status: teamStatus, json: teamResponse });
   });
 
   /* /?tab=create is the deep link that opens the create panel and loads the
@@ -75,6 +76,18 @@ function check(name, pass, detail) {
   }));
   check('choosing it reveals the paste panel and hides the shared Continue',
     opened.panel && opened.nextHidden, JSON.stringify(opened));
+
+  // ---- Empty paste: Preview on a blank box explains, and does not open --------
+  await page.click('#orgchart-preview');
+  await page.waitForTimeout(150);
+  const empty = await page.evaluate(() => ({
+    msg: document.getElementById('orgchart-msg').textContent,
+    msgShown: !document.getElementById('orgchart-msg').hidden,
+    boxHidden: document.getElementById('orgchart-preview-box').hidden,
+  }));
+  check('an empty paste is refused with a message, not an empty preview',
+    empty.msgShown && /paste at least one/i.test(empty.msg) && empty.boxHidden,
+    JSON.stringify(empty));
 
   // ---- Parse: three rows, mixed shapes, names OFF (the default) --------------
   await page.fill('#orgchart-text', 'Marketing Lead\nSarah Chen, Head of Sales\nEngineer');
@@ -136,6 +149,10 @@ function check(name, pass, detail) {
   await page.fill('#orgchart-text', 'Marketing Lead\nEngineer');
   await page.click('#orgchart-preview');
   await page.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 5000 });
+  // A wholesale refusal (over cap, all-dead) is HTTP 400 with a full team body
+  // (server.js: outcome 'refused' -> 400). The body carries `outcome`, so the UI's
+  // error-envelope guard passes it through and renders the `because`.
+  teamStatus = 400;
   teamResponse = {
     outcome: 'refused',
     created: [],
@@ -145,13 +162,14 @@ function check(name, pass, detail) {
   await page.click('#orgchart-create');
   await page.waitForTimeout(300);
   const overcap = await page.evaluate(() => document.getElementById('orgchart-count').textContent);
-  check('an over-cap refusal surfaces the backend message verbatim',
+  check('an over-cap refusal (HTTP 400 with a team body) surfaces the message verbatim',
     /the cap is 12/.test(overcap) && /up to 50/.test(overcap), JSON.stringify(overcap));
 
   await page.click('#orgchart-edit');
   await page.fill('#orgchart-text', 'Marketing Lead\nEngineer');
   await page.click('#orgchart-preview');
   await page.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 5000 });
+  teamStatus = 200;
   teamResponse = {
     outcome: 'partial',
     created: [{ name: 'marketing-lead', shownAs: 'Marketing Lead', id: 'a1' }],
@@ -169,6 +187,24 @@ function check(name, pass, detail) {
       && partial.items.some((t) => /Marketing Lead/.test(t) && /created/.test(t))
       && partial.items.some((t) => /engineer/i.test(t) && /cannot sign in/.test(t)),
     JSON.stringify(partial));
+
+  // ---- A transport/auth error (no `outcome`) surfaces its error, not a no-op --
+  await page.click('#orgchart-edit');
+  await page.fill('#orgchart-text', 'Marketing Lead\nEngineer');
+  await page.click('#orgchart-preview');
+  await page.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 5000 });
+  // An error envelope: HTTP 403 with `error` and NO `outcome` (e.g. the board-token
+  // refusal). Must surface the error text, never fall through to "No agents were created".
+  teamStatus = 403;
+  teamResponse = { error: 'this board belongs to the account that started it; open it with `kosmos open`' };
+  await page.click('#orgchart-create');
+  await page.waitForTimeout(300);
+  const errored = await page.evaluate(() => ({
+    msg: document.getElementById('orgchart-msg').textContent,
+    msgShown: !document.getElementById('orgchart-msg').hidden,
+  }));
+  check('a transport/auth error surfaces its message, not a bare no-op',
+    errored.msgShown && /board belongs to the account/.test(errored.msg), JSON.stringify(errored));
 
   check('no page errors', errors.length === 0, errors.join(' | '));
 
