@@ -446,6 +446,51 @@ test('the helper refuses a folder that changed since the update was prepared, or
   assert.deepEqual([...s1.calls, ...s2.calls], []);
 });
 
+test('the helper never applies a journal that is past being staged, even when its helper is gone', T, async () => {
+  const c = freshInstall();
+  stage(c);
+  crashAt(c, 'after H3 bin');
+  const j = readJson(c.journal);
+  const tree = installState(c);
+  const sim = playBoard(c);
+  const r = await win32apply.applyJournal(c.journal, sim.deps());
+  assert.equal(r.ok, false);
+  assert.match(r.because, /already past being staged \(moving-out\), so it is not waiting to be applied/);
+  assert.deepEqual(readJson(c.journal), j, 'the journal is left exactly as it was, for a resumer');
+  assert.deepEqual(installState(c), tree);
+  assert.deepEqual(sim.calls, []);
+});
+
+test('the helper does not start while another holder has the update lock', T, async () => {
+  const c = freshInstall();
+  const before = installState(c);
+  const j = stage(c);
+  fs.writeFileSync(path.join(c.work, win32update.LOCK_NAME), JSON.stringify({ pid: process.pid, at: Date.now(), exe: 'node.exe', token: 'a prepare in flight' }));
+  const sim = playBoard(c);
+  const r = await win32apply.applyJournal(c.journal, sim.deps({ lockHooks: { processImage: () => 'node.exe' } }));
+  assert.deepEqual(r, { ok: false, because: 'another update is already running' });
+  assert.deepEqual(sim.calls, []);
+  assert.deepEqual(installState(c), before);
+  assert.deepEqual(readJson(c.journal), j);
+});
+
+test('H5: a safety copy that does not match the original fails the update before node.exe is touched, and rolls back', T, async () => {
+  const c = freshInstall();
+  const before = installState(c);
+  stage(c);
+  const sim = playBoard(c);
+  const realCopy = fs.copyFileSync;
+  fs.copyFileSync = function torn(from, to) {
+    realCopy.apply(this, arguments);
+    if (String(to).endsWith(win32apply.ANCHORED_NODE_COPY_NAME)) fs.writeFileSync(to, 'half a copy');
+  };
+  let r;
+  try { r = await win32apply.applyJournal(c.journal, sim.deps()); } finally { fs.copyFileSync = realCopy; }
+  assertRolledBack(c, before, sim, r, 'torn copy');
+  assert.match(readJson(c.statusAt).because, /the safety copy of Kosmos's node\.exe did not match the original/);
+  assert.equal(readJson(c.journal).steps.some((s) => s.step === 'H5' && s.state === 'intent'), false, 'replaceInterpreter never ran');
+});
+
 test('a journal whose paths were changed is unreadable, and nothing it names is moved', T, async () => {
   const c = freshInstall();
   const before = installState(c);

@@ -1545,6 +1545,9 @@ test('B0: an unfinished or unreadable update journal is refused in words, before
   const c1 = freshCase();
   seedUnfinishedJournal(c1, 'moving-in');
   await refusedBeforeStarting(c1, /an earlier update to 0\.6\.60 has not finished yet\. Kosmos finishes it, or puts 0\.6\.55 back, the next time its board starts; try again after that/);
+  assert.ok(c1.log.some((line) => /^refused before starting: an earlier update to 0\.6\.60/.test(line)),
+    'refused by B0 itself, before the lock, not only by the second look under it');
+  assert.equal(fs.existsSync(path.join(c1.work, 'prepare.lock')), false);
   const c2 = freshCase();
   fs.writeFileSync(path.join(c2.anchor, JOURNAL_NAME), '{ half a journal');
   const r = await refusedBeforeStarting(c2, /the record of an earlier update \(.*\) is not valid JSON, so the updater cannot tell whether that update finished\. Remove that file by hand/);
