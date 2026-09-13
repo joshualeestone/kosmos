@@ -279,6 +279,49 @@ healthy() {
 port_taken_by_stranger() {
   /usr/bin/curl -s -o /dev/null -m 2 "$URL/" 2>/dev/null && ! healthy
 }
+# #2988: is a listener holding our port in a way that would COLLIDE with the
+# board's bind? This catches a SILENT holder -- one that binds the port but answers
+# NO HTTP (the #2955 half-dead/zombie node) -- which neither healthy() nor
+# port_taken_by_stranger() can see, because both need an HTTP response.
+#
+# The board binds 127.0.0.1 (IPv4 loopback; server.js bindHost defaults there), so
+# the ONLY listeners that make its bind fail with EADDRINUSE are ones on 127.0.0.1
+# or on * (0.0.0.0, all interfaces, which includes loopback). A listener on a
+# specific NON-loopback IPv4 address (a LAN IP) cannot collide, and matching it
+# would make board-run defer forever, silently, on a port it could actually bind --
+# so we filter the lsof NAME to the colliding set rather than matching the bare port
+# number. (Measured: a 0.0.0.0 bind shows as `*:PORT`, so `lsof -iTCP@127.0.0.1`
+# alone would MISS it and re-open the crash-loop.)
+#
+# IPv6 note (measured): macOS `lsof -nP` renders an IPv6 wildcard `::` listener as
+# `*:PORT` too, so the `*` arm defers on it. For a dual-stack `::` (the default) that
+# is correct -- it also holds the IPv4 port. For an IPv6-only `::` (IPV6_V6ONLY=1) it
+# is a conservative OVER-defer: fail-safe (decline to start, never crash-loop), rare,
+# and not worth parsing lsof's TYPE column to split out.
+#
+# Absolute path like curl above, for the same PATH-independence reason. Fail OPEN
+# (return 1) when lsof is unavailable, so a missing tool never blocks a legitimate
+# start -- it only forgoes this extra guard. -f BEFORE -x, per the installer
+# runnable-guard: a directory carries the executable (traversable) bit, so a bare
+# -x test accepts one.
+#
+# Match on CAPTURED output with a case, NOT `lsof | grep -q`: under `set -o
+# pipefail` (line 24) grep -q closes the pipe on its first match and lsof takes
+# SIGPIPE, so the pipeline reports 141 (failure) on input that MATCHED -- here a
+# false negative that would SKIP the defer and re-open the crash-loop. healthy()
+# and running_pid follow the same rule (the pattern is banned, not the size). lsof
+# prints a LISTEN socket as `ADDR:PORT (LISTEN)`, so the address is space-bounded on
+# both sides; match only the set that collides with the board's 127.0.0.1 IPv4 bind
+# -- 127.0.0.1:PORT or *:PORT (0.0.0.0/all-interfaces, which includes loopback), not
+# a specific non-loopback address. The trailing space also rules out a longer port
+# (` :18729 ` cannot match inside `:187290`).
+port_has_listener() {
+  { [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; } || return 1
+  case "$(/usr/sbin/lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null)" in
+    *" 127.0.0.1:$PORT "*|*" *:$PORT "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 # #1946: the board token, read from the file the board wrote at boot. ONE source
 # of truth for the path -- `store.ROOT` (the same function the server uses), asked
@@ -645,6 +688,19 @@ cmd_board_run() {
   # diagnostic ("another app is using port N, quit it") is available on demand from
   # `kosmos status` / `kosmos start`, which is where a person looks.
   if port_taken_by_stranger; then exit 0; fi
+  # #2988: a SILENT holder -- one that binds the port but answers no HTTP (the
+  # #2955 half-dead/zombie node) -- is caught by NEITHER healthy() NOR
+  # port_taken_by_stranger(): both need an HTTP answer, and a holder serving
+  # nothing gives none. Without this, board-run falls through to `exec node` ->
+  # EADDRINUSE -> the server exits 1 -> launchd relaunches every ThrottleInterval,
+  # forever, spamming board.log with node stack traces until the port frees. Defer
+  # quietly instead, exactly as the stranger branch does: launchd still retries on
+  # its throttle (KeepAlive's job), silently, and the actionable diagnostic is on
+  # demand from `kosmos status` / `kosmos start`. By here healthy() and the
+  # HTTP-stranger check have both exited, so any remaining listener is the silent
+  # case; port_has_listener fails OPEN, so a box without lsof keeps the old
+  # fall-through behaviour rather than being blocked from starting.
+  if port_has_listener; then exit 0; fi
   [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ] || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"

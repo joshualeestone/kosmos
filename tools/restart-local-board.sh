@@ -232,9 +232,11 @@ WD="$(board_shape_working_dir "$INFO")"
 #   (b) libexec deploy    -- WD == install-board.sh's DEST (same KOSMOS_BOARD_LIBEXEC
 #       override, so the two agree by construction). A restart brings the board back
 #       on the code DEPLOYED into DEST.
-#   (c) end-user bundle   -- WD is neither (an installed Kosmos runs `/bin/bash
-#       .../.local/share/kosmos/bin/kosmos start`; its job has NO working directory
-#       line at all, so WD parses EMPTY). That install updates itself; the release
+#   (c) end-user bundle   -- WD is neither (an installed Kosmos's login job runs
+#       `/bin/bash .../.local/share/kosmos/bin/kosmos board-run` -- post-#2956 that
+#       is `board-run`, not the pre-#2956 `kosmos start`; either way its job has NO
+#       working directory line at all, so WD parses EMPTY, which is the load-bearing
+#       fact this detection keys on). That install updates itself; the release
 #       must not touch it.
 # We act ONLY on (a) and (b): for both, a restart returns the board to a version we
 # can NAME (from the dir it runs from) and VERIFY. 🛑 FAIL SAFE: any WD we cannot
