@@ -9608,6 +9608,51 @@ const server = http.createServer((req, res) => {
           text: body.text,
           replyExpected: body.reply_expected,
         }, roster);
+        /* #2837 (producer half): a post that reached the room is a TRUTHFUL signal
+           that this agent is working in THIS project -- "the activity carries which
+           project it belongs to". Carry that project onto the sender's state so the
+           automatic `working` heartbeats inherit it (selfreport's #763 carry-forward)
+           and the project overview lights the RIGHT tile for a multi-project agent
+           instead of none (the #2837 consumer only lights an unambiguous single
+           project otherwise). Keyed on the RESOLVED project id, not the raw input,
+           so it matches what the overview keys on (stateProject === project.id).
+           `auto:true` so the #900 guard leaves a standing needs_you/blocked untouched
+           (a blocked agent's post does not claim it is working); a later idle beat
+           returns an idle agent to idle. DONE HERE, not in sendRoomPostAsAgent, so a
+           delayed outbox-drain REPLAY does not re-attribute a project the agent may
+           have moved on from. Best-effort and fail-safe: the post already happened,
+           so nothing here may change its verdict. */
+        if (delivery && (delivery.state === chat.DELIVERY.PLACED || delivery.state === chat.DELIVERY.UNCONFIRMED)) {
+          try {
+            const denyPaneFallback = boardAuthState.on
+              && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
+            const poster = resolveAgentSender(req, body, roster, {
+              denyPaneFallback,
+              denyBecause: 'only the account that started this board carries its own project',
+            });
+            if (poster && poster.ok && poster.card && poster.card.sessionName) {
+              const who = poster.card.sessionName;
+              /* Attribute the project ONLY when the poster is ALREADY working. The
+                 overview lights 'working' tiles, so the project matters only then;
+                 we carry it onto the SAME 'working' state (never forcing a state).
+                 An idle poster stays idle (no tile lit for an idle agent), and a
+                 waiting poster (needs_you/blocked) is left untouched -- posting a
+                 question does not claim the agent is working. This keeps the common
+                 single-project heartbeat exactly as it was. */
+              const current = selfreport.read(who);
+              if (current && current.found === true && current.state === 'working') {
+                let projectId = null;
+                try {
+                  const pj = projects.get(String(body.project == null ? '' : body.project).trim(), roster);
+                  projectId = pj && pj.id;
+                } catch { projectId = null; }
+                if (projectId) {
+                  selfreport.record(who, { state: 'working', project: projectId, instance: poster.instance, auto: true });
+                }
+              }
+            }
+          } catch { /* best-effort: the post stands regardless of attribution */ }
+        }
         /* #2623: the phone seam (engine/notify.js) was deleted. A post that
            reached the room is delivered on the board as before; it no longer
            POSTs anything off the Mac. */
