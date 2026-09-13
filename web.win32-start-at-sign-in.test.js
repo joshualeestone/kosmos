@@ -5,9 +5,9 @@
  *
  * 🔑 THE SWITCH SHOWS ONLY WHAT THE ENGINE READ. It is drawn only for a boolean the engine put on
  * the row (engine/machine.js leaves it off when the task's state could not be read), and after a
- * click its position comes from a fresh /api/machine, never from the click. (A full browser check
- * of the rendered switch timed out on a file:// hit-test in CI and is deferred to a follow-up; this
- * DOM-level test is the switch's committed coverage in the meantime.)
+ * click its position comes from a fresh /api/machine, never from the click. The rendered switch is
+ * asserted in both browser engines by docs/browser-checks/render-win32-start-at-sign-in.js (#3010,
+ * HTTP-served so the click does not hit the file:// actionability timeout that removed the first one).
  *
  *   node --test web.win32-start-at-sign-in.test.js
  */

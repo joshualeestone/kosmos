@@ -262,4 +262,5 @@ jobs:
             render-build-marker-2066
             render-richtext-2067
             render-win32-board-copy
+            render-win32-start-at-sign-in
         run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
