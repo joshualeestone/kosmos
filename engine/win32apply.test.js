@@ -495,8 +495,18 @@ test('a journal whose paths were changed is unreadable, and nothing it names is 
   const c = freshInstall();
   const before = installState(c);
   const j = stage(c);
-  for (const [field, value] of [['previous', path.join(c.dir, 'somewhere')], ['root', c.dir], ['staged', path.join(c.dir, 'staged')], ['order', ['app', 'bin']], ['recoverFrom', [path.join(c.dir, 'evil.js')]]]) {
-    fs.writeFileSync(c.journal, JSON.stringify({ ...j, [field]: value }));
+  const elsewhere = path.join(c.dir, 'somewhere');
+  /* Each change is made consistently with the fields that are derived from it, so only the one
+     check for that field can catch it: a `previous` elsewhere carries a recoverFrom that agrees. */
+  const changes = [
+    ['previous', elsewhere, { recoverFrom: [path.join(elsewhere, 'app', 'engine', 'win32apply.js'), path.join(c.root, 'app', 'engine', 'win32apply.js')] }],
+    ['root', c.dir],
+    ['staged', path.join(c.dir, 'staged')],
+    ['order', ['app', 'bin']],
+    ['recoverFrom', [path.join(c.dir, 'evil.js')]],
+  ];
+  for (const [field, value, alongside] of changes) {
+    fs.writeFileSync(c.journal, JSON.stringify({ ...j, [field]: value, ...(alongside || {}) }));
     const sim = playBoard(c);
     const r = await win32apply.applyJournal(c.journal, sim.deps());
     assert.equal(r.ok, false, field);
