@@ -497,9 +497,14 @@ test('🛑 win32-installer-native round 4 finding 1: the uninstall and the move 
   assert.equal(anotherProgramOnPort(16180), 'Another program is using port 16180, so Kosmos cannot tell whether it is still open.');
 });
 
-test('win32-installer-native round 4 finding 1: an address nothing can listen on reads as refused, not as a failed look', { skip: process.platform !== 'win32' && 'Windows refuses a connection to 0.0.0.0 with EADDRNOTAVAIL; other systems route it to loopback' }, async () => {
-  const answer = await probeBoard(9, '0.0.0.0');
-  assert.equal(answer.outcome, PROBE_OUTCOMES.REFUSED, 'a PC with an address it cannot reach (IPv6 off) would never let Kosmos be removed: ' + JSON.stringify(answer));
+/* Measured on this box (round 5): a connection to port 0 fails with EADDRNOTAVAIL, and one to 0.0.0.1
+   with ENETUNREACH, the errors a PC with IPv6 switched off gives for ::1. (0.0.0.0 gives plain
+   ECONNREFUSED here, so it cannot show the difference.) */
+test('win32-installer-native round 4 finding 1: an address nothing can listen on reads as refused, not as a failed look', { skip: process.platform !== 'win32' && 'the connection errors for these addresses were measured on Windows' }, async () => {
+  for (const [label, port, host] of [['port 0 (EADDRNOTAVAIL)', 0, '127.0.0.1'], ['0.0.0.1 (ENETUNREACH)', 9, '0.0.0.1']]) {
+    const answer = await probeBoard(port, host);
+    assert.equal(answer.outcome, PROBE_OUTCOMES.REFUSED, label + ': a PC whose ::1 cannot be reached would never let Kosmos be removed: ' + JSON.stringify(answer));
+  }
 });
 
 test('win32-installer-native round 4 finding 1: the bind host is read in one place, engine/bindhost.js, by the board and by the probes', () => {
