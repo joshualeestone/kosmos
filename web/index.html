@@ -21208,13 +21208,14 @@ function paintBuildMark(version, sourceChannel) {
   el.title = 'Kosmos v' + shown + ' · ' + channel
     + (port ? ' · port ' + port : '')
     + (pageIsStale(version) ? ' · page stale, reload for v' + version : '');
-  if (staging) {
-    el.className = 'staging';
-    el.innerHTML = 'STAGING <span class="bm-v">v' + esc(shown) + '</span>';
-  } else {
-    el.className = '';
-    el.textContent = 'v' + shown;
-  }
+  /* #2658: one uniform visible marker for every channel -- "beta build v<version>".
+     The staging safety tell is NOT lost: the hover title above still names the
+     channel (staging/prod), and /api/accounts carries the channel metadata (#2036).
+     Baron (who built the #2066 staging-loud marker) ruled option (a): staging is
+     opt-in and prod is always promoted+verified, so no constantly-visible staging
+     indicator is needed. textContent, so the version is escaped by construction. */
+  el.className = '';
+  el.textContent = 'beta build v' + shown;
   el.hidden = false;
 }
 
