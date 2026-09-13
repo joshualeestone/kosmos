@@ -85,17 +85,47 @@ const POLL_INTERVAL_MS = 300;
  * ⚠️ NOT A WORST CASE. Every schtasks call in the hand-off is a synchronous spawn with
  * its own timeout, so a `/Run` that starts just inside the budget can still be confirmed
  * after this, and a slow first boot can pass it before the hand-off begins. So the
- * launcher never decides on time alone: from this mark it polls, and shows its box only
- * once this board is LISTENING, which start() does only after the hand-off has decided
- * to serve here.
+ * launcher never decides on time alone: from this mark it polls for positive proof and
+ * shows its box only on it -- this board LISTENING (which start() reaches only after the
+ * hand-off decided to serve here), or its serve-here signal (SERVE_HERE_SIGNAL_ENV),
+ * which the same decision writes. Time never shows the box.
  */
 const HANDOFF_CHECK_FOR_SERVING_AFTER_MS = HANDOFF_BUDGET_MS + PROBE_TIMEOUT_MS + MIN_PORT_RELEASE_WAIT_MS + PROBE_TIMEOUT_MS;
 
-/* Headroom past the slowest hand-off that still succeeds: at worst the budget, a `/Run`
-   that uses its whole win32board.SCHTASKS_TIMEOUT_MS, and one confirming probe
-   (12 + 20 + 2 = 34s from process start). With the 18s check mark and the 20s timeout
-   this puts HANDOFF_UNREADABLE_LISTENER_FALLBACK_MS at 45s, 11s past that. */
-const UNREADABLE_LISTENER_MARGIN_MS = 7000;
+/**
+ * 🔑 #2983: the POSITIVE "this board is serving from the launcher's console" proof.
+ * The launcher (tools/windows/KosmosLauncher.cs) mints a unique path, puts it in
+ * this environment variable, and starts server.js; this module writes the file the
+ * instant handOffToTask decides to serve here (see signalServingHere), and the
+ * launcher waits for it to exist.
+ * ⚠️ WHY A SIGNAL AND NOT A TIMER. The launcher's other proof, the board's TCP
+ * listener, cannot be read on a box where every GetExtendedTcpTable read fails, so
+ * the launcher used to fall back to a time past which a successful hand-off was
+ * ASSUMED to have exited. That assumption was wrong: on the "a same-identity board
+ * is already serving" path server.js runs ensureInstalled (two schtasks calls) and
+ * two roster syncs BEFORE the hand-off, ~72s worst case, so the timer fired a false
+ * box during a slow-but-successful launch. This file is written ONLY on the
+ * serve-here decision -- never while a hand-off is still being tried, never when one
+ * succeeds (serve:false, and the process then exits) -- so it can never fire falsely,
+ * however slow the boot. ONE spelling, pinned equal to the C# ServeHereSignalEnvVar
+ * by tools.win-launcher-native.test.js.
+ */
+const SERVE_HERE_SIGNAL_ENV = 'KOSMOS_SERVE_HERE_SIGNAL';
+
+/**
+ * Write the serve-here signal, if the launcher asked for one. `env` defaults to the
+ * real process environment, which is where the launcher sets the variable (server.js
+ * passes only its LAUNCH_ENV_OVERRIDES to handOffToTask, never the whole environment,
+ * so this reads process.env directly). The pid is the content so a paranoid launcher
+ * could match its child; the launcher's unique path already makes mere existence
+ * proof enough. Never throws: a board that cannot write the signal still serves, and
+ * the launcher's listener proof stands.
+ */
+function signalServingHere(env) {
+  const at = (env || process.env)[SERVE_HERE_SIGNAL_ENV];
+  if (!at) return;
+  try { fs.writeFileSync(at, String(process.pid)); } catch { /* the launcher's listener proof stands */ }
+}
 
 /**
  * 🔑 THE RUNNING BOARD'S IDENTITY COMES FROM A HEADER, NEVER FROM THE PAGE.
@@ -622,6 +652,16 @@ async function attemptHandOff(o, deps) {
  */
 async function handOffToTask(opts) {
   const o = opts || {};
+  const result = await decideHandOff(o);
+  /* #2983: one funnel for every serve:true outcome (skip, tried-and-unconfirmed,
+     or a caught error), so the launcher's positive proof is written exactly when,
+     and only when, this board is going to serve here. `o.signalEnv` is a test seam;
+     the real board writes through process.env. */
+  if (result && result.serve) signalServingHere(o.signalEnv);
+  return result;
+}
+
+async function decideHandOff(o) {
   try {
     const board = o.board || require('./win32board');
     const probe = o.probe || probeBoard;
@@ -654,17 +694,5 @@ async function handOffToTask(opts) {
    after a swap, so there is one reading of the identity header. */
 module.exports = {
   handOffToTask, buildIdentity, boardIdentity, probeBoard, boardMayBeOpen, probeBoardOnEveryAddress, cannotTellIfOpenSentence, PROBE_OUTCOMES, EVERY_ADDRESS_LOOK_WORST_MS, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS,
-  BOARD_STARTED_BY_TASK_HEADER, boardStartedByTaskHeaderValue, startedByTaskFromHeader,
+  BOARD_STARTED_BY_TASK_HEADER, boardStartedByTaskHeaderValue, startedByTaskFromHeader, SERVE_HERE_SIGNAL_ENV, signalServingHere,
 };
-
-/**
- * When Kosmos.exe shows its box for a board whose listener it cannot see, because the
- * TCP table has not once been readable (tools/windows/KosmosLauncher.cs,
- * UnreadableTableFallbackMs, pinned equal by tools.win-launcher-native.test.js): the
- * check mark, plus the timeout of one schtasks call, plus UNREADABLE_LISTENER_MARGIN_MS.
- * A getter, so win32board loads only when this is asked for, never with this module.
- */
-Object.defineProperty(module.exports, 'HANDOFF_UNREADABLE_LISTENER_FALLBACK_MS', {
-  enumerable: true,
-  get: () => HANDOFF_CHECK_FOR_SERVING_AFTER_MS + require('./win32board').SCHTASKS_TIMEOUT_MS + UNREADABLE_LISTENER_MARGIN_MS,
-});

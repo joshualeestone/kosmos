@@ -294,23 +294,33 @@ test('rounds 1-2 BUG: a board PROVABLY serving from the launcher (listening) get
     "Kosmos couldn't move to the background, so it's running from here instead. Keep this box open while you use Kosmos. Click OK to stop Kosmos. To see why, run Kosmos.exe --console.");
   const main = SOURCE.slice(SOURCE.indexOf('static int Main('), SOURCE.indexOf('static int Fail('));
   /* Round 2: time alone gave a healthy but slow hand-off a false box. The box is
-     reached only through the listener check, and only in GUI mode. */
-  /* Round 3: a table that cannot be read must not poll forever with no box (the round 1
-     invisible board). Only while EVERY read so far has failed does time decide, and
-     only past a mark no successful hand-off reaches; one readable poll hands the
-     decision back to the listener. */
+     reached only through positive proof, and only in GUI mode. */
+  /* #2983: a table that cannot be read must not fall back to time -- the board runs
+     ensureInstalled and its roster syncs before the hand-off, ~72s worst case, so no
+     fixed time tells a slow success from a serve-here. The box is gated on positive
+     proof only: the board LISTENING, or its serve-here signal, which the board writes
+     only when it decides to serve here. Neither can fire during a hand-off that goes
+     on to succeed. */
   assert.match(main,
-    /if \(showMessageBoxes\)\s*\{\s*int stillToWaitMs = CheckForServingAfterMs - \(int\)sinceServerStarted\.ElapsedMilliseconds;\s*if \(!p\.WaitForExit\(Math\.Max\(0, stillToWaitMs\)\)\)\s*\{\s*bool everyReadFailed = true;\s*while \(!p\.WaitForExit\(ServingPollMs\)\)\s*\{\s*ListenerAnswer answer = ListenerStateOf\(p\.Id\);\s*if \(answer != ListenerAnswer\.CouldNotRead\) everyReadFailed = false;\s*bool provablyServingHere = answer == ListenerAnswer\.Listening;\s*bool unreadableLongPastAnyHandOff = everyReadFailed && sinceServerStarted\.ElapsedMilliseconds >= UnreadableTableFallbackMs;\s*if \(provablyServingHere \|\| unreadableLongPastAnyHandOff\) \{ stoppedByPerson = KeepBoardUntilPersonStopsIt\(p\); break; \}\s*\}\s*\}\s*\}/,
-    'the box is no longer gated on the board listening, or on a table unreadable long past any hand-off (or on GUI mode)');
-  const fallback = SOURCE.match(/const int UnreadableTableFallbackMs = (\d+);/);
-  assert.ok(fallback, 'the launcher no longer names its unreadable-table fallback');
-  assert.equal(Number(fallback[1]), handoff.HANDOFF_UNREADABLE_LISTENER_FALLBACK_MS,
-    'the launcher falls back at a different time than the hand-off derives: one fact, two copies, drifted');
-  assert.match(handoffSource, /HANDOFF_CHECK_FOR_SERVING_AFTER_MS \+ require\('\.\/win32board'\)\.SCHTASKS_TIMEOUT_MS \+ UNREADABLE_LISTENER_MARGIN_MS/,
-    'the fallback is no longer derived from the check mark, the schtasks timeout and the margin');
-  assert.match(fs.readFileSync(path.join(REPO, 'engine', 'win32board.js'), 'utf8'), /execFileSync\('schtasks\.exe', args, \{ encoding: 'utf8', timeout: Math\.min\(SCHTASKS_TIMEOUT_MS, timeout\) \}\)/,
-    'win32board\'s schtasks calls no longer use the timeout the fallback is derived from');
-  assert.equal([...main.matchAll(/KeepBoardUntilPersonStopsIt\(/g)].length, 1, 'the box is reachable from Main other than through the listener gate');
+    /if \(showMessageBoxes\)\s*\{\s*int stillToWaitMs = CheckForServingAfterMs - \(int\)sinceServerStarted\.ElapsedMilliseconds;\s*if \(!p\.WaitForExit\(Math\.Max\(0, stillToWaitMs\)\)\)\s*\{\s*while \(!p\.WaitForExit\(ServingPollMs\)\)\s*\{\s*bool provablyServingHere = ListenerStateOf\(p\.Id\) == ListenerAnswer\.Listening \|\| ServeHereSignalPresent\(serveHereSignal\);\s*if \(provablyServingHere\) \{ stoppedByPerson = KeepBoardUntilPersonStopsIt\(p\); break; \}\s*\}\s*\}\s*\}/,
+    'the box is no longer gated on positive proof alone (the board listening, or its serve-here signal), in GUI mode');
+  /* #2983: the time-derived unreadable-table fallback is gone from BOTH sides. It
+     fired a false box during a slow-but-successful boot, which is the whole bug. */
+  assert.doesNotMatch(SOURCE, /UnreadableTableFallbackMs|unreadableLongPastAnyHandOff|everyReadFailed/,
+    'the launcher\'s time-derived unreadable-table fallback is back; #2983 removed it because it boxed a slow-but-successful boot');
+  assert.doesNotMatch(handoffSource, /HANDOFF_UNREADABLE_LISTENER_FALLBACK_MS|UNREADABLE_LISTENER_MARGIN_MS/,
+    'the node side still derives the removed unreadable-table fallback');
+  /* #2983: the serve-here signal is one fact in two copies (convention 5): the C#
+     env var name and the node one must be the same string. */
+  const envVar = SOURCE.match(/const string ServeHereSignalEnvVar = "([^"]+)";/);
+  assert.ok(envVar, 'the launcher no longer names the serve-here signal environment variable');
+  assert.equal(envVar[1], handoff.SERVE_HERE_SIGNAL_ENV,
+    'the launcher and the board name the serve-here signal variable differently: one fact, two copies, drifted');
+  assert.match(main, /string serveHereSignal = ServeHereSignalPath\(\);/,
+    'the launcher no longer mints a per-launch serve-here signal path');
+  assert.match(main, /if \(serveHereSignal != null\) s\.EnvironmentVariables\[ServeHereSignalEnvVar\] = serveHereSignal;/,
+    'the launcher does not tell the board where to write its serve-here signal');
+  assert.equal([...main.matchAll(/KeepBoardUntilPersonStopsIt\(/g)].length, 1, 'the box is reachable from Main other than through the positive-proof gate');
   const lookup = SOURCE.slice(SOURCE.indexOf('internal static ListenerAnswer ListenerStateOf('), SOURCE.indexOf('// ---- presenting to a person'));
   assert.ok(lookup.length > 500, 'the listener lookup moved; this reads nothing');
   assert.match(lookup, /TcpListenerStateOf\(processId, AF_INET, IPV4_ROW_BYTES, IPV4_ROW_OWNING_PID_OFFSET\)[\s\S]*TcpListenerStateOf\(processId, AF_INET6, IPV6_ROW_BYTES, IPV6_ROW_OWNING_PID_OFFSET\)/, 'the lookup no longer reads both IPv4 and IPv6 listeners');
@@ -728,6 +738,45 @@ test('rounds 2-3: the listener lookup says listening (IPv4 or IPv6), not listeni
     assert.equal(lookup(v6.child.pid), 'Listening', 'an IPv6-only listener was not found');
   } finally {
     for (const child of children) { try { child.kill(); } catch { /* already gone */ } }
+    fs.rmSync(s.base, { recursive: true, force: true });
+  }
+});
+
+test('#2983: the serve-here signal check says present for a written file, absent otherwise, and never throws', WINDOWS_ONLY, (t) => {
+  /* ServeHereSignalPresent is the launcher's authoritative "serving here" proof on a
+     box where the TCP table cannot be read. Compiled out of the real KosmosLauncher.cs
+     with a tiny probe, in scratch, never shipped. */
+  const csc = path.join(process.env.SystemRoot || 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
+  if (!fs.existsSync(csc)) { t.skip('no .NET Framework compiler on this machine'); return; }
+  const s = scratch();
+  try {
+    const probeSource = path.join(s.base, 'SignalProbe.cs');
+    fs.writeFileSync(probeSource, [
+      'class SignalProbe {',
+      '  static int Main(string[] a) {',
+      '    System.Console.Write(KosmosLauncher.ServeHereSignalPresent(a.Length > 0 ? a[0] : null) ? "present" : "absent");',
+      '    return 0;',
+      '  }',
+      '}',
+      '',
+    ].join('\n'));
+    const probe = path.join(s.base, 'signal-probe.exe');
+    const built = spawnSync(csc, ['/nologo', '/target:exe', '/main:SignalProbe', '/out:' + probe, path.join(REPO, 'tools', 'windows', 'KosmosLauncher.cs'), probeSource], { encoding: 'utf8', windowsHide: true });
+    assert.equal(built.status, 0, 'the probe did not compile: ' + built.stdout + built.stderr);
+    const present = (arg) => {
+      const r = spawnSync(probe, arg === undefined ? [] : [arg], { encoding: 'utf8', windowsHide: true });
+      return String(r.stdout || '').trim() || ('probe exited ' + r.status + ': ' + String(r.stderr || '').trim().split('\n')[0]);
+    };
+
+    const written = path.join(s.base, 'serve-here.signal');
+    fs.writeFileSync(written, String(process.pid));
+    assert.equal(present(written), 'present', 'a written serve-here signal was not seen, so the box would never appear on a locked-down box');
+
+    assert.equal(present(path.join(s.base, 'never-written.signal')), 'absent', 'a missing signal was taken for present, which would box a board that handed off');
+    /* An empty path (no signal asked for) and no argument at all are both absent, never a crash. */
+    assert.equal(present(''), 'absent', 'an empty signal path was taken for present');
+    assert.equal(present(), 'absent', 'a null signal path was taken for present');
+  } finally {
     fs.rmSync(s.base, { recursive: true, force: true });
   }
 });
