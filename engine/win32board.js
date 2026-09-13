@@ -47,6 +47,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
+const liveExec = require('./live-execution');
 const win32anchor = require('./win32anchor');
 const win32job = require('./win32job'); // taskUser + xmlEscape: the measured, shared half
 const win32swap = require('./win32swap'); // writeFileAtomic: a torn shim must never reach a logon
@@ -601,6 +602,51 @@ function enable() {
   return { ok: true };
 }
 
+/**
+ * Settings' "Start Kosmos when I sign in to Windows" switch (win32-installer-native, audit
+ * W-21a): turn the board's logon task on or off.
+ *
+ * 🔑 THE ANSWER IS THE STATE READ BACK, NEVER THE ONE ASKED FOR. `/Change` reporting success
+ * is taken as a request, and the task's own definition (`status()`, `<Settings><Enabled>`) is
+ * read again, so the switch on the screen shows what Windows will actually do at the next
+ * sign-in.
+ *
+ * 🛑 UNKNOWN IS NEVER ON (#2973). A state that could not be read refuses before anything is
+ * changed, and a read-back that cannot be read is a failure, never a guessed success.
+ *
+ * ⚠️ LIVE-EXECUTION GATED (convention 3), unless a runner is injected: it changes a durable
+ * task, so only a board that armed live execution may call it. (`run` also refuses schtasks
+ * from any test process, whatever this says.)
+ *
+ * Returns `{ok: true, on}` or `{ok: false, because}`. Never throws.
+ */
+function setStartAtSignIn(on, opts) {
+  const o = opts || {};
+  if (typeof on !== 'boolean') return { ok: false, because: 'we were not told whether to turn it on or off' };
+  const platform = o.platform || process.platform;
+  if (platform !== 'win32') return { ok: false, because: 'only Kosmos on Windows starts from a sign-in task' };
+  const live = typeof o.liveExecutionAllowed === 'function' ? o.liveExecutionAllowed() : liveExec.liveExecutionAllowed();
+  if (!runFn && !live) return { ok: false, because: 'this Kosmos is not allowed to change Task Scheduler, so nothing was changed' };
+  const before = status({ now: o.now });
+  if (!before.known) {
+    return { ok: false, because: 'we could not read the job that starts Kosmos when you sign in (' + before.because + '), so nothing was changed' };
+  }
+  if (!before.registered) {
+    return { ok: false, because: 'there is no job on this computer that starts Kosmos when you sign in, so there is nothing to turn on or off' };
+  }
+  if (before.enabled === on) return { ok: true, on };
+  const changed = on ? enable() : disable();
+  if (!changed.ok) return { ok: false, because: changed.because };
+  const after = status({ now: o.now });
+  if (!after.known || !after.registered) {
+    return { ok: false, because: 'we asked Windows to turn it ' + (on ? 'on' : 'off') + ', but could not read it back, so we cannot say it worked' };
+  }
+  if (after.enabled !== on) {
+    return { ok: false, because: 'we asked Windows to turn it ' + (on ? 'on' : 'off') + ', but it still reads ' + (after.enabled ? 'on' : 'off') };
+  }
+  return { ok: true, on: after.enabled };
+}
+
 /** End the running board. This KILLS THE CALLER when the caller is that board. */
 function end() {
   const r = run(['/End', '/TN', TASK_NAME]);
@@ -886,7 +932,7 @@ function describe(opts) {
 module.exports = {
   TASK_NAME, MARKER_ENV, BOOT_NAME, BOOT_JS, CLAIM_NAME, REMOVE_HINT, HELPER_FLAG, SCHTASKS_TIMEOUT_MS,
   taskExec, taskXml, bundleRoot, runningFromUpdateWork, install, ensureInstalled, status, describe,
-  disable, enable, end, runNow, remove, restart, startedByTask,
+  disable, enable, setStartAtSignIn, end, runNow, remove, restart, startedByTask,
   claimed, claim, restartHelperMain, pidGone,
   setRunner, setAnchorer, setSpawner,
 };

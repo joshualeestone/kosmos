@@ -1634,16 +1634,22 @@ function win32BoardAutostartCheck(opts) {
       detail: `The scheduled task that brings Kosmos back after a restart (${d.task}) is not there, so your board will not `
         + 'come back on its own -- your agents will, and you will have nowhere to watch them. Starting Kosmos once puts it back.' };
   }
+  /* win32-installer-native (W-21a): `startAtSignIn` is the switch Settings draws on this row,
+     and it rides only on the two rows where the task is registered and its state was READ
+     (describe() is null when it could not be). A missing task, a source checkout, and the
+     could-not-check row carry no switch, so unknown is never drawn as on or off. */
   if (!d.enabled) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos is set up to start when you sign in, but it is turned off',
       detail: `Its startup job (${d.task}) is on this computer but switched off, so Kosmos will not start on its own after a `
-        + 'restart. You can turn it back on in Task Scheduler, under Task Scheduler Library then Kosmos.' };
+        + 'restart. You can turn it back on with the switch below.',
+      startAtSignIn: false };
   }
   return { key: 'autostart', state: STATE.OK,
     title: 'Kosmos starts itself when you sign in',
     detail: 'Kosmos starts when you sign in to Windows, and your agents come back on their own after a restart.',
-    admin: `To remove its startup job (${d.task}): ${d.removeHint}` };
+    admin: `To remove its startup job (${d.task}): ${d.removeHint}`,
+    startAtSignIn: true };
 }
 
 function check(opts) {

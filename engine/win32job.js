@@ -431,8 +431,11 @@ function install(spec) {
  * `launchctl disable`: the job stays on disk so a later `enable` restores it,
  * and `remove.js` on the Mac records prior state for exactly that reason.
  */
-function disable(name) {
-  const r = run(['/Change', '/TN', taskName(name), '/DISABLE']);
+/* `worldId` (win32-installer-native): the uninstall reaches ANOTHER Kosmos's agent task by
+   that world's key, parsed from the task path, never by guessing. Absent means this
+   process's own world, which is every other caller. */
+function disable(name, worldId) {
+  const r = run(['/Change', '/TN', taskName(name, worldId), '/DISABLE']);
   if (!r.ok) return { ok: false, because: 'we could not stop it from starting again (' + (r.out || '').trim().split('\n')[0] + ')' };
   return { ok: true };
 }
@@ -454,8 +457,8 @@ function enable(name) {
  * `remove.js` already documents for the Mac (disable first, so a login in the
  * window between the two cannot bring it back).
  */
-function end(name) {
-  const r = run(['/End', '/TN', taskName(name)]);
+function end(name, worldId) {
+  const r = run(['/End', '/TN', taskName(name, worldId)]);
   /* A task that is not running is the end state we wanted -- the same posture the
      Mac takes toward launchd's exit 3 ("no such service"). */
   if (!r.ok && !/not running|cannot find|does not exist/i.test(r.out || '')) {
@@ -490,9 +493,9 @@ function start(name) {
 const NO_SUCH_TASK = /cannot find|does not exist/i;
 
 /** Remove the job entirely (the agent is being deleted, not stopped). */
-function remove(name) {
-  forgetTaskSpec(name);   // #2717: the task is going; its remembered definition goes with it
-  const r = run(['/Delete', '/F', '/TN', taskName(name)]);
+function remove(name, worldId) {
+  forgetTaskSpec(name, worldId);   // #2717: the task is going; its remembered definition goes with it
+  const r = run(['/Delete', '/F', '/TN', taskName(name, worldId)]);
   /* A job that was never registered is already gone -- the same posture
      win32sessions.forget takes, so a delete is idempotent. */
   if (!r.ok && !NO_SUCH_TASK.test(r.out || '')) {
@@ -586,18 +589,43 @@ function csvFields(line) {
   return fields;
 }
 
-function list() {
-  const r = run(['/Query', '/TN', TASK_PREFIX.split('\\')[0] + '\\', '/FO', 'CSV', '/NH']);
+/* The Task Scheduler folder every Kosmos task lives in, as a query names it. */
+const TASK_FOLDER = TASK_PREFIX.split('\\')[0] + '\\';
+
+/**
+ * Every task in Kosmos's Task Scheduler folder, by path (`Kosmos\agent-ava`,
+ * `Kosmos\agent-ava+qa`, `Kosmos\board`, and anything else somebody put there), across
+ * EVERY Kosmos. ONE query and ONE row reader, shared by `list` (which keeps only this
+ * world's agents) and engine/win32uninstall.js (win32-installer-native), which has to reach
+ * every task Kosmos registered on this machine, whichever Kosmos it belongs to.
+ *
+ * Returns `{known: true, paths}` (an empty folder is a real empty answer: schtasks says it
+ * cannot find the folder), or `{known: false, paths: [], because}` when schtasks would not
+ * answer. Paths come back unrooted and in schtasks' own spelling.
+ */
+function kosmosFolderTasks() {
+  const r = run(['/Query', '/TN', TASK_FOLDER, '/FO', 'CSV', '/NH']);
   if (!r.ok) {
-    if (NO_SUCH_TASK.test(r.out || '')) return { known: true, names: new Set() };
-    return { known: false, names: new Set() };
+    if (NO_SUCH_TASK.test(r.out || '')) return { known: true, paths: [] };
+    return { known: false, paths: [], because: (r.out || '').trim().split('\n')[0] || 'schtasks would not answer' };
   }
-  const names = new Set();
+  const paths = [];
   for (const line of String(r.out || '').split('\n')) {
     const fields = csvFields(line);
     if (!fields.length) continue;
-    // Task paths come back rooted ("\Kosmos\agent-ava"); our prefix is not.
+    // Task paths come back rooted ("\Kosmos\agent-ava"); our names are not.
     const at = fields[0].replace(/^\\+/, '');
+    if (!at.toLowerCase().startsWith(TASK_FOLDER.toLowerCase())) continue;
+    if (!paths.includes(at)) paths.push(at);
+  }
+  return { known: true, paths };
+}
+
+function list() {
+  const folder = kosmosFolderTasks();
+  if (!folder.known) return { known: false, names: new Set() };
+  const names = new Set();
+  for (const at of folder.paths) {
     if (!at.startsWith(TASK_PREFIX)) continue;
     /* #1704: the folder holds every Kosmos's agents; a board lists only its own,
        so another world's task is neither a member of this fleet nor a "stray". */
@@ -824,7 +852,7 @@ function configDirFor(name) {
 
 module.exports = {
   TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape, xmlUnescape, headlessExec,
-  install, disable, enable, end, start, remove, status, presence, list, configDirFor, taskSpec,
+  install, disable, enable, end, start, remove, status, presence, list, kosmosFolderTasks, configDirFor, taskSpec,
   cachedTaskSpec, taskEnabled, taskEnabledFromQuery, csvFields, commandsAreReal, REFUSED_IN_TEST,
   schtasksMayRunInThisProcess,
   setRunner, setAnchorer,
