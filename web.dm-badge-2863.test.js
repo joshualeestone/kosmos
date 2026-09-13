@@ -77,7 +77,11 @@ test('reading a thread clears the unread count via a GATED POST /api/agent/<name
 });
 
 test('the DM badge CSS is the red bubble, absolute, with a dark twin and the membadge co-occurrence offset', () => {
-  const rule = PAGE.match(/\.dmbadge \{[^}]*\}/);
+  // The BASE `.dmbadge` rule sits at line-start (no selector prefix). Anchor to the
+  // preceding newline so this does not match the #2863 descendant selectors that also
+  // contain ".dmbadge {" -- `.lrow > .dmbadge` and `.onode .dmbadge` -- one of which
+  // now precedes the base rule in source order and would otherwise be read instead.
+  const rule = PAGE.match(/\n\.dmbadge \{[^}]*\}/);
   assert.ok(rule, 'no .dmbadge rule');
   assert.match(rule[0], /position: absolute/, 'the badge is not absolute (would shift layout)');
   assert.match(rule[0], /background: #b3261e/, 'the badge is not the app red #b3261e');
