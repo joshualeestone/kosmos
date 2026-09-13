@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: win32-installer-native
-diff_hash: 30eac77130cb3d2ef79e6f1693834d9ffad4018be5954ad3a2a5fdffa99fe084
+diff_hash: e489e6245ee57bb45df9c7e435ae8317c553719af85a23959802b29a14eb54c2
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-13T17:17:48Z
+timestamp: 2026-09-13T20:49:00Z
 iterations: 8
 converged: true
 ---
@@ -40,8 +40,20 @@ Full design, decisions, per-round fixes, the live-check runbook (NOT run), and t
 git -C <worktree> diff origin/main HEAD -- . ':(exclude).claude/plans/win32-installer-native-pre-challenge.md' | sha256sum
 ```
 
-`origin/main` is `372fde39`. The proof file itself is excluded, so the hash is stable across the commit that
-writes it into this frontmatter. Verified equal to the `diff_hash` above after that commit.
+The hash is computed against the branch's base `372fde39` (its merge-base with main), NOT the live
+`origin/main` ref: after the review, main advanced with commits that touch none of this branch's files
+(#2924 dailylog/forget, plans/web), so `git diff origin/main HEAD` would fold in those unrelated reverse
+deltas — `git diff 372fde39 HEAD` is the true branch diff, and `git merge-tree` confirms a clean merge onto
+current main. The proof file itself is excluded, so the hash is stable across the commit that writes it.
+Verified equal to the `diff_hash` above after that commit.
+
+**Post-review CI fix (test-only, `8701b495`, not a new review round):** the first macOS CI run reddened on
+two `win32board.reanchor.test.js` tests (`:101`, `:111`) that force `platform:'win32'` as a param to reach
+`anchorBundle`'s real guard — but that guard reads `win32job.schtasksMayRunInThisProcess()`, which is
+host-dependent (false on a non-win32 host), so the guard never engages on the macOS CI host and the
+assertions don't hold. Both are now gated to skip off a win32 host (`WIN32_HOST`); on the Windows box the
+file still runs 7/7 with 0 skips. Production code unchanged. A re-audit of all ten new/changed test files
+found no other host-platform-dependent outcome (CI corroborates: only those two failed).
 
 ## Round history (each fixed in the next round, then re-reviewed)
 
