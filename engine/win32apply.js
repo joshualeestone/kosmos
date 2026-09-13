@@ -104,6 +104,30 @@ const DEFAULT_APPLY_LIMITS = Object.freeze({
   rollbackPassWaitMs: 2000,
 });
 
+/**
+ * The held-read budget of the helper, the resumers and the logon shim: how long they keep asking about
+ * a lock, journal, file or folder another process holds (win32update.HELD_FILE_CODES) before they call
+ * it unknown. It is the wait a whole rollback already gives a scanner or backup tool to let go
+ * (rollbackPasses x rollbackPassWaitMs, 6 s), in reads stopPollMs apart (200 ms, H2's poll): 31 reads.
+ * B0 and begin() answer a person and keep win32update.QUICK_HELD_READ_BUDGET (60 ms). Waiting is safe:
+ * a live owner's lock cannot be taken meanwhile, and nothing is written during the wait.
+ * win32board.BOOT_JS carries the same numbers for its journal read, pinned by a test.
+ */
+const OWNER_READ_BUDGET = Object.freeze({
+  tries: 1 + Math.ceil((DEFAULT_APPLY_LIMITS.rollbackPasses * DEFAULT_APPLY_LIMITS.rollbackPassWaitMs) / DEFAULT_APPLY_LIMITS.stopPollMs),
+  waitMs: DEFAULT_APPLY_LIMITS.stopPollMs,
+});
+
+/**
+ * After H7 confirmed the new board, how long the helper keeps trying to record `confirmed` while it
+ * cannot tell whether the update is still its own: as long again as H7 gave that board to answer
+ * (confirmRuns x confirmWaitPerRunMs, 60 s). Its lock stays held all that time, so no resumer can take
+ * the update and roll the confirmed board back. After it, the helper stops writing and still reports
+ * `updated`; the journal stays at `starting`, and the next begin()'s resumer finishes it forward once
+ * the new board answers (resumeJournal).
+ */
+const CONFIRMED_RECORD_PATIENCE_MS = DEFAULT_APPLY_LIMITS.confirmRuns * DEFAULT_APPLY_LIMITS.confirmWaitPerRunMs;
+
 const SLEEP_CELL = new Int32Array(new SharedArrayBuffer(4));
 function sleepSync(ms) { Atomics.wait(SLEEP_CELL, 0, 0, ms); }
 
@@ -144,16 +168,45 @@ function exists(target) {
   try { fs.lstatSync(target); return true; } catch { return false; }
 }
 /**
- * What one lstat of `target` proves: `{ state: 'there' }`, `{ state: 'gone' }` (ENOENT or ENOTDIR,
- * and nothing else), or `{ state: 'unknown', code }`. A folder held busy, an access denied or a share
- * in the middle of reconnecting is `unknown`, never gone: only this reading may decide that a folder
- * an update depends on no longer exists.
+ * 🛑 A HELD OR UNREADABLE ANSWER IS NEVER PROOF OF ANYTHING. What lstat proves about `target`:
+ * `{ state: 'there' }`, `{ state: 'gone', code }` (ENOENT or ENOTDIR, and nothing else), or
+ * `{ state: 'unknown', code }`. A held code is asked again within `reading`'s budget
+ * (win32update.tryRetryingHolds; `reading` is `{ waitSync, budget }`, the quick budget when absent),
+ * and what is still unknown after it stays unknown: held or unreachable, never gone, moved, abandoned
+ * or a reason to roll back. Every existence check that decides anything goes through this.
  */
-function presenceOf(target) {
-  try { fs.lstatSync(target); return { state: 'there' }; } catch (e) {
-    const code = codeOf(e);
-    return code === 'ENOENT' || code === 'ENOTDIR' ? { state: 'gone', code } : { state: 'unknown', code };
-  }
+function presenceOf(target, reading) {
+  const r = reading || {};
+  const looked = win32update.tryRetryingHolds(() => fs.lstatSync(target), r.waitSync, r.budget);
+  if (looked.missing) return { state: 'gone', code: looked.code };
+  if (looked.code) return { state: 'unknown', code: looked.code };
+  return { state: 'there' };
+}
+
+/** presenceOf for a decision a step or a rollback pass acts on: true or false, or a StepFailure when it
+    stays unknown, so the step fails (and a rollback pass is tried again) instead of acting on a guess.
+    The failure names the entry, not the whole path. */
+function isThere(target, reading) {
+  const p = presenceOf(target, reading);
+  if (p.state === 'unknown') throw new StepFailure(`${path.basename(target)} cannot be checked right now (code=${p.code})`);
+  return p.state === 'there';
+}
+
+/** A file's text for a decision: the text, null when it is gone, or a StepFailure when it stays
+    unreadable (win32update.readFileRetryingHolds within `reading`'s budget). */
+function readTextKnown(file, reading) {
+  const r = reading || {};
+  const read = win32update.readFileRetryingHolds(file, r.waitSync, r.budget);
+  if (read.missing) return null;
+  if (read.code) throw new StepFailure(`${path.basename(file)} cannot be read right now (code=${read.code})`);
+  return read.text;
+}
+
+/** readTextKnown, parsed: the value, null when it is gone or is not JSON, or a StepFailure. */
+function readJsonKnown(file, reading) {
+  const text = readTextKnown(file, reading);
+  if (text === null) return null;
+  try { return JSON.parse(text); } catch { return null; }
 }
 function samePath(a, b) {
   const x = path.resolve(a);
@@ -228,11 +281,12 @@ function recoverFromFor(root, previous) {
 /**
  * `{ state: 'none' }`, `{ state: 'unreadable', why, code? }` (`code` only when the file could not be
  * read at all), or `{ state: 'finished' | 'unfinished', journal }`. A writer replacing the journal
- * holds it for a moment, so the read goes through win32update.readFileRetryingHolds; `waitSync` stands
- * in for its wait. Never throws.
+ * holds it for a moment, so the read goes through win32update.readFileRetryingHolds within `reading`'s
+ * budget (`{ waitSync, budget }`; the quick budget when absent, as B0 reads it). Never throws.
  */
-function readJournal(journalAt, waitSync) {
-  const read = win32update.readFileRetryingHolds(journalAt, waitSync);
+function readJournal(journalAt, reading) {
+  const r = reading || {};
+  const read = win32update.readFileRetryingHolds(journalAt, r.waitSync, r.budget);
   if (read.missing) return { state: 'none' };
   if (read.code) return { state: 'unreadable', why: `cannot be read (code=${read.code})`, code: read.code };
   const text = read.text;
@@ -255,8 +309,12 @@ function unfinishedUpdateRefusal(anchorDir) {
   if (read.state !== 'unfinished') return null;
   const j = read.journal;
   const found = unrecoverableCase(j);
-  if (found && found.kind === 'unreachable') return `an earlier update to ${j.to.version} cannot be finished right now, because ${found.because}. Reconnect that drive, or close any program using the Kosmos folder, then restart your computer and try again`;
+  if (found && found.kind === 'unreachable') {
+    return `an earlier update to ${j.to.version} cannot be finished right now, because ${found.because}. Reconnect that drive, or close any program using the Kosmos folder, then restart your computer and try again. If that does not help, ${freshCopyWayOut(j.root)}`;
+  }
   if (found) return `an earlier update to ${j.to.version} can never finish, because ${found.because}. Asking Kosmos to update again clears that record`;
+  /* H7 proved the new board: the update worked, and only its record is still being finished. */
+  if (j.phase === 'confirmed') return `Kosmos has updated to ${j.to.version} and is finishing up. Try again in a minute`;
   return `an earlier update to ${j.to.version} has not finished yet. Kosmos finishes it, or puts ${j.from.version} back, the next time its board starts; try again after that`;
 }
 
@@ -281,13 +339,15 @@ function stagedJournal(spec) {
     outcome: null,
     root, work, staged, previous, anchor,
     order,
-    presentBefore: order.filter((e) => exists(path.join(root, e))),
-    stagedEntries: order.filter((e) => exists(path.join(staged, e))),
+    /* Held answers are asked again, and one still unknown refuses the journal (isThere throws): an
+       entry recorded absent would never be moved out, or would be moved onto one still there. */
+    presentBefore: order.filter((e) => isThere(path.join(root, e))),
+    stagedEntries: order.filter((e) => isThere(path.join(staged, e))),
     from: { version: spec.fromVersion, identity: spec.fromIdentity },
     to: { version: spec.prepared.version, identity: spec.prepared.expectedIdentity, sha256: spec.prepared.sha256 },
     runtimeChanged: Boolean(spec.prepared.runtimeChanged),
     board: { pid: Number.isInteger(spec.board.pid) ? spec.board.pid : null, port: spec.board.port },
-    pointer: { at: pointerAt, before: readText(pointerAt), after: path.join(root, 'app', 'engine') },
+    pointer: { at: pointerAt, before: readTextKnown(pointerAt), after: path.join(root, 'app', 'engine') },
     interpreter: null,
     recoverFrom: recoverFromFor(root, previous),
     helper: null,
@@ -346,7 +406,7 @@ function writeGuard(j, journalAt) {
     a prober and a clock; nothing here reads a real board unless it runs for real. */
 function depsFrom(over) {
   const o = over || {};
-  return {
+  const deps = {
     board: o.board || win32board,
     probe: o.probe || win32handoff.probeBoard,
     portFree: o.portFree || portFree,
@@ -355,10 +415,14 @@ function depsFrom(over) {
     sleepSync: o.sleepSync || sleepSync,
     now: o.now || Date.now,
     log: typeof o.log === 'function' ? o.log : null,
-    limits: { ...DEFAULT_APPLY_LIMITS, ...(o.limits || {}) },
+    limits: { ...DEFAULT_APPLY_LIMITS, recordPatienceMs: CONFIRMED_RECORD_PATIENCE_MS, ...(o.limits || {}) },
     hooks: { afterDependencies() {}, before() {}, after() {}, ...(o.hooks || {}) },
     lockHooks: o.lockHooks,
   };
+  /* How this process asks about anything another process may hold: OWNER_READ_BUDGET, waiting through
+     the sleepSync seam. */
+  deps.reading = { waitSync: deps.sleepSync, budget: OWNER_READ_BUDGET };
+  return deps;
 }
 
 /** Convention 3: a test process that reaches the helper or a resumer with no seams would stop and
@@ -370,8 +434,10 @@ function refuseInTestWithoutSeams(over, what, journalAt) {
 
 /**
  * One apply's or one resumer's state. `forward` is true only during the helper's forward steps (H2 to
- * H7); `writesStopped` becomes true once assertStillOwner has found the update lost or unknowable, and
- * from then on the log goes to stderr only: the log file is in WORK, which may be a resumer's by now.
+ * H7). `writesStopped` is true while the log must go to stderr only, because the log file is in WORK,
+ * which may be a resumer's by now: assertStillOwner sets it whenever it finds the update lost (for
+ * good) or cannot tell (in the forward steps too), and clears it only when a later check proves the
+ * update is still this context's.
  */
 function contextFor(journalAt, journal, deps, mode) {
   const j = journal;
@@ -406,8 +472,8 @@ function contextFor(journalAt, journal, deps, mode) {
  * into a WORK the resumer made again.
  *
  * A read that fails for any other reason (a scanner or backup tool holding the file: EBUSY, EPERM,
- * EACCES) is read again (win32update.readFileRetryingHolds) and, if it still fails, proves nothing
- * either way. In the forward steps that is a StepFailure, and the rollback puts the old build back
+ * EACCES, EIO) is read again for OWNER_READ_BUDGET (win32update.readFileRetryingHolds) and, if it still
+ * fails, proves nothing either way. In the forward steps that is a StepFailure, and the rollback puts the old build back
  * (checking again as it goes). Anywhere else, a rollback included, it is OwnershipUnknown: stop, write
  * nothing further, and leave the unfinished journal to the next resumer. The gap between this check
  * and the write is the residual.
@@ -418,20 +484,23 @@ function assertStillOwner(ctx) {
     throw new LostOwnership(because);
   };
   const cannotTell = (because) => {
-    if (ctx.forward) throw new StepFailure(`the updater could not check that this update is still its own, because ${because}`);
     ctx.writesStopped = true;
+    if (ctx.forward) throw new StepFailure(`the updater could not check that this update is still its own, because ${because}`);
     throw new OwnershipUnknown(because);
   };
+  const reading = ctx.deps.reading;
   if (ctx.lock && ctx.lock.text) {
-    const lock = win32update.readFileRetryingHolds(path.join(ctx.j.work, win32update.LOCK_NAME), ctx.deps.sleepSync);
+    const lock = win32update.readFileRetryingHolds(path.join(ctx.j.work, win32update.LOCK_NAME), reading.waitSync, reading.budget);
     if (lock.missing || (!lock.code && lock.text !== ctx.lock.text)) lost('its update lock is gone or belongs to someone else now');
     if (lock.code) cannotTell(`its update lock cannot be read (code=${lock.code})`);
   }
-  const read = readJournal(ctx.journalAt, ctx.deps.sleepSync);
+  const read = readJournal(ctx.journalAt, reading);
   if (read.code) cannotTell(`its journal cannot be read (code=${read.code})`);
   if (!read.journal || read.journal.token !== ctx.j.token || (read.state === 'finished' && !ctx.wroteFinish)) {
     lost('its journal was finished, replaced or removed by someone else');
   }
+  /* Proved still this context's: one that could not tell before logs to WORK again. */
+  ctx.writesStopped = false;
 }
 
 /** A result for an update this context stopped owning: nothing more was written. */
@@ -494,6 +563,13 @@ function moveRecorded(ctx, step, entry, from, to) {
 /** Where a person finds a Kosmos.exe to double-click: ROOT, or the old build's folder when a stuck
     rollback has not moved it back yet (that Kosmos.exe starts the old build from there, and the
     logon shim then finishes putting it back). */
+/** The way out when Kosmos cannot finish or undo an update by itself, in one wording wherever it is
+    offered (the unrecoverable status, B0's unreachable sentence). It names no website: whether
+    installkosmos.com serves the Windows download is still an open decision (engine/machine.js). */
+function freshCopyWayOut(root) {
+  return `download a fresh copy of Kosmos, unpack it over your Kosmos folder, then double-click Kosmos.exe in ${root}`;
+}
+
 function launcherFolder(j) {
   if (exists(path.join(j.root, 'Kosmos.exe'))) return j.root;
   if (exists(path.join(j.previous, 'Kosmos.exe'))) return j.previous;
@@ -514,7 +590,7 @@ function statusFor(j, outcome, because, at, kind) {
   else if (outcome === 'abandoned') sentence = `The update to ${j.to.version} was stopped: the Kosmos folder that update was changing (${j.root}) no longer exists.`;
   else if (outcome === 'stuck' && kind === 'unrecoverable') {
     sentence = `The update to ${j.to.version} did not finish, and Kosmos cannot finish or undo it by itself (${because}). `
-      + `Download a fresh copy of Kosmos, unpack it over your Kosmos folder, then double-click Kosmos.exe in ${j.root}.`;
+      + `${freshCopyWayOut(j.root).replace(/^d/, 'D')}.`;
   } else if (outcome === 'stuck') {
     sentence = `The update did not take, and Kosmos could not put ${j.from.version} back by itself (${because}). `
       + `Close any window or program that is using the Kosmos folder, then restart your computer, or double-click Kosmos.exe in ${launcherFolder(j)} to start it again.`;
@@ -585,6 +661,12 @@ async function stopBoard(ctx) {
  * `identity` counts: `/Run` reports success when IgnoreNew started nothing (measured,
  * win32board.taskXml), and the task's Running status says nothing about which build is serving.
  */
+/** H7's one test of a board: it answers, with exactly `identity`. The resume helper at `starting` and
+    `--apply --wait` ask the same (convention 5). */
+function answersAs(answer, identity) {
+  return Boolean(answer && answer.answering && answer.identity === identity);
+}
+
 async function startAndConfirm(ctx, identity, step) {
   const { j, deps, log } = ctx;
   const L = deps.limits;
@@ -598,7 +680,7 @@ async function startAndConfirm(ctx, identity, step) {
     const until = deps.now() + L.confirmWaitPerRunMs;
     for (;;) {
       const answer = await deps.probe(j.board.port);
-      if (answer.answering && answer.identity === identity) {
+      if (answersAs(answer, identity)) {
         log(`${step}: the board answers as ${identity}`);
         return { ok: true, run };
       }
@@ -615,7 +697,9 @@ async function startAndConfirm(ctx, identity, step) {
 function swapInterpreter(ctx) {
   const { j, deps } = ctx;
   const at = path.join(j.anchor, win32anchor.NODE_NAME);
-  const hadOne = exists(at);
+  /* A node.exe a scanner holds is still there: read as absent, the rollback would move H5's aside and
+     leave no anchored interpreter at all. */
+  const hadOne = isThere(at, deps.reading);
   j.interpreter = {
     at,
     source: path.join(j.root, 'runtime', win32anchor.NODE_NAME),
@@ -672,7 +756,7 @@ function restoreInterpreter(ctx) {
   const asideClock = () => Math.max(deps.now(), (it.stamp || 0) + 1);
   if (it.beforeSha256 === null) {
     /* There was no anchored interpreter before H5: any H5 put there moves aside, for the sweep. */
-    if (it.stamp !== null && exists(at)) {
+    if (it.stamp !== null && isThere(at, deps.reading)) {
       deps.hooks.before('H8-H5', {});
       assertStillOwner(ctx);
       win32swap.renameWithRetry(ctx.guard(at), ctx.guard(at + win32swap.RETIRED_INFIX + asideClock() + '-' + process.pid));
@@ -680,19 +764,21 @@ function restoreInterpreter(ctx) {
     }
     return;
   }
-  if (exists(at)) {
+  if (isThere(at, deps.reading)) {
     const now = win32update.sha256OfFile(at);
     if (now === it.beforeSha256 || (it.restoredSha256 && now === it.restoredSha256)) return;
   }
   const retired = it.stamp !== null ? at + win32swap.RETIRED_INFIX + it.stamp + '-' + it.pid : null;
   const oldRuntimes = [path.join(j.previous, 'runtime', nodeName), path.join(j.root, 'runtime', nodeName)];
-  let source = [it.copy, retired, ...oldRuntimes].find((c) => c && exists(c) && win32update.sha256OfFile(c) === it.beforeSha256);
+  /* An exact copy that cannot be checked right now fails this pass (isThere), rather than falling
+     back to the old runtime as if no exact copy survived. */
+  let source = [it.copy, retired, ...oldRuntimes].find((c) => c && isThere(c, deps.reading) && win32update.sha256OfFile(c) === it.beforeSha256);
   if (!source) {
     /* Neither the copy nor the retired original survived (a crash before the copy was verified,
        then the sweep): the old build's own node.exe is the next best, and the status says so.
        The old runtime is in previous-<from>, or back in ROOT once the new one is back in staged. */
-    const oldRuntime = exists(oldRuntimes[0]) ? oldRuntimes[0]
-      : exists(path.join(j.staged, 'runtime')) && exists(oldRuntimes[1]) ? oldRuntimes[1] : null;
+    const oldRuntime = isThere(oldRuntimes[0], deps.reading) ? oldRuntimes[0]
+      : isThere(path.join(j.staged, 'runtime'), deps.reading) && isThere(oldRuntimes[1], deps.reading) ? oldRuntimes[1] : null;
     if (!oldRuntime) throw new StepFailure("the node.exe Kosmos ran on before the update could not be found");
     it.restoredFrom = oldRuntime;
     it.restoredSha256 = win32update.sha256OfFile(oldRuntime);
@@ -714,7 +800,9 @@ function reversePass(ctx) {
   const { j, deps } = ctx;
   /* Every pass after the first starts after a wait, during which a resumer can have taken over. */
   assertStillOwner(ctx);
-  if (readText(j.pointer.at) !== j.pointer.before) {
+  /* A pointer that cannot be read is written back all the same: the write is the old bytes again. */
+  const pointerNow = win32update.readFileRetryingHolds(j.pointer.at, deps.reading.waitSync, deps.reading.budget);
+  if (pointerNow.text !== j.pointer.before) {
     deps.hooks.before('H8-H6', {});
     assertStillOwner(ctx);
     win32swap.writeFileAtomic(ctx.guard(j.pointer.at), j.pointer.before);
@@ -726,15 +814,15 @@ function reversePass(ctx) {
     if (!j.stagedEntries.includes(entry) || !intended(j, 'H4', entry)) continue;
     const inRoot = path.join(j.root, entry);
     const back = path.join(j.staged, entry);
-    if (exists(inRoot) && !exists(back)) {
+    if (isThere(inRoot, deps.reading) && !isThere(back, deps.reading)) {
       /* 🛑 NAMES ARE NOT BUILDS. An entry the old tree had is moved out of ROOT only while the old
          build's copy of it is in previous-<from> to take its place. Without that copy, what is in
          ROOT may be the only build left, and moving it away would leave the folder empty. */
-      if (j.presentBefore.includes(entry) && !exists(path.join(j.previous, entry))) {
+      if (j.presentBefore.includes(entry) && !isThere(path.join(j.previous, entry), deps.reading)) {
         ctx.log(`${entry} stays in the Kosmos folder: the old build's copy of it is gone, so it may be the only build left`);
         continue;
       }
-      if (!exists(j.staged)) {
+      if (!isThere(j.staged, deps.reading)) {
         assertStillOwner(ctx);
         fs.mkdirSync(ctx.guard(j.staged));
       }
@@ -745,34 +833,40 @@ function reversePass(ctx) {
     if (!j.presentBefore.includes(entry) || !intended(j, 'H3', entry)) continue;
     const away = path.join(j.previous, entry);
     const home = path.join(j.root, entry);
-    if (exists(away) && !exists(home)) moveRecorded(ctx, 'H8-H3', entry, away, home);
+    if (isThere(away, deps.reading) && !isThere(home, deps.reading)) moveRecorded(ctx, 'H8-H3', entry, away, home);
   }
 }
 
 /** Is the old tree whole again? A sentence naming the first thing that is not, or null. */
 function treeProblem(ctx) {
   const { j } = ctx;
-  for (const entry of j.order) {
-    const inRoot = exists(path.join(j.root, entry));
-    if (j.presentBefore.includes(entry)) {
-      if (!inRoot) return `${entry} is not back in the Kosmos folder`;
-      if (exists(path.join(j.previous, entry))) return `${entry} is not back in the Kosmos folder`;
-    } else if (inRoot && intended(j, 'H4', entry)) {
-      return `${entry}, which the update brought, is still in the Kosmos folder`;
+  const reading = ctx.deps.reading;
+  try {
+    for (const entry of j.order) {
+      const inRoot = isThere(path.join(j.root, entry), reading);
+      if (j.presentBefore.includes(entry)) {
+        if (!inRoot) return `${entry} is not back in the Kosmos folder`;
+        if (isThere(path.join(j.previous, entry), reading)) return `${entry} is not back in the Kosmos folder`;
+      } else if (inRoot && intended(j, 'H4', entry)) {
+        return `${entry}, which the update brought, is still in the Kosmos folder`;
+      }
     }
+    /* The right names in ROOT are not enough: the app that is back must BE the old build. */
+    if (j.presentBefore.includes('app')) {
+      const rootVersion = (readJsonKnown(path.join(j.root, 'app', 'package.json'), reading) || {}).version;
+      if (rootVersion !== j.from.version) return `the app in the Kosmos folder is ${rootVersion || 'of no known version'}, not ${j.from.version}`;
+    }
+    if (readTextKnown(j.pointer.at, reading) !== j.pointer.before) return 'the engine pointer is not back';
+    const it = j.interpreter;
+    if (it && it.beforeSha256 !== null) {
+      const now = isThere(it.at, reading) ? win32update.sha256OfFile(it.at) : null;
+      if (now !== it.beforeSha256 && !(it.restoredSha256 && now === it.restoredSha256)) return "Kosmos's node.exe is not back";
+    }
+    return null;
+  } catch (e) {
+    /* 🛑 A CHECK THAT CANNOT BE MADE IS NEVER "WHOLE": it is the problem this pass reports. */
+    return e instanceof StepFailure ? e.message : `the old tree could not be checked (${describeError(e)})`;
   }
-  /* The right names in ROOT are not enough: the app that is back must BE the old build. */
-  if (j.presentBefore.includes('app')) {
-    const rootVersion = (readJson(path.join(j.root, 'app', 'package.json')) || {}).version;
-    if (rootVersion !== j.from.version) return `the app in the Kosmos folder is ${rootVersion || 'of no known version'}, not ${j.from.version}`;
-  }
-  if (readText(j.pointer.at) !== j.pointer.before) return 'the engine pointer is not back';
-  const it = j.interpreter;
-  if (it && it.beforeSha256 !== null) {
-    const now = exists(it.at) ? win32update.sha256OfFile(it.at) : null;
-    if (now !== it.beforeSha256 && !(it.restoredSha256 && now === it.restoredSha256)) return "Kosmos's node.exe is not back";
-  }
-  return null;
 }
 
 /**
@@ -854,7 +948,7 @@ async function rollBack(ctx, because) {
   const { j, log } = ctx;
   /* First: a rollback whose working folder or recovery code is gone cannot be done by moving names
      around. It is settled in words ("download a fresh copy"), as a resumer would. */
-  const found = unrecoverableCase(j);
+  const found = unrecoverableCase(j, ctx.deps.reading);
   /* A Kosmos folder on a drive that is not connected: nothing is stopped, moved or written. */
   if (found && found.kind === 'unreachable') {
     log(`the rollback waits: ${found.because}`);
@@ -926,18 +1020,21 @@ function finishWithoutChange(ctx, because) {
 /** Why the staged journal must not be applied, checked once the lock is held, or null. */
 function applyRefusal(ctx) {
   const { j } = ctx;
-  const installed = (readJson(path.join(j.root, 'app', 'package.json')) || {}).version;
+  const reading = ctx.deps.reading;
+  /* Every read and look here goes through the held-read rule: one that stays unknown throws a
+     StepFailure (applyJournal holds), never a refusal that settles the update as not-started. */
+  const installed = (readJsonKnown(path.join(j.root, 'app', 'package.json'), reading) || {}).version;
   if (installed !== j.from.version) return `the Kosmos folder is now ${installed || 'of an unknown version'}, not the ${j.from.version} this update was prepared for`;
   if (!update.newer(j.to.version, installed)) return `${j.to.version} is not newer than ${installed}, and Kosmos never installs an older or equal version`;
-  const stagedVersion = (readJson(path.join(j.staged, 'app', 'package.json')) || {}).version;
+  const stagedVersion = (readJsonKnown(path.join(j.staged, 'app', 'package.json'), reading) || {}).version;
   if (stagedVersion !== j.to.version) return `the staged update is ${stagedVersion || 'of an unknown version'}, not the ${j.to.version} this update was prepared for`;
   for (const entry of j.order) {
-    if (exists(path.join(j.root, entry)) !== j.presentBefore.includes(entry)) return `the Kosmos folder changed after the update was prepared (${entry})`;
+    if (isThere(path.join(j.root, entry), reading) !== j.presentBefore.includes(entry)) return `the Kosmos folder changed after the update was prepared (${entry})`;
   }
   for (const entry of j.stagedEntries) {
-    if (!exists(path.join(j.staged, entry))) return `the staged update is missing ${entry}`;
+    if (!isThere(path.join(j.staged, entry), reading)) return `the staged update is missing ${entry}`;
   }
-  if (exists(j.previous)) return `${j.previous} is already there`;
+  if (isThere(j.previous, reading)) return `${j.previous} is already there`;
   return null;
 }
 
@@ -979,8 +1076,6 @@ async function runSteps(ctx) {
     deps.hooks.before('H7', {});
     const up = await startAndConfirm(ctx, j.to.identity, 'H7');
     if (!up.ok) throw new StepFailure(`the new board did not answer as ${j.to.identity} (${up.because})`);
-    setPhase(ctx, 'confirmed');
-    ctx.forward = false;
   } catch (e) {
     ctx.forward = false;
     if (stopsWriting(e)) throw e;
@@ -988,14 +1083,45 @@ async function runSteps(ctx) {
     log(`the update failed during ${j.phase}: ${because}`);
     return rollBack(ctx, because);
   }
-  /* Outside the try: nothing that goes wrong once the new board is confirmed may undo it. A journal
-     left at `confirmed` is finished forward by the next resumer, which is also where an update whose
-     record this helper could not tell was still its own (OwnershipUnknown) is left. */
+  /* 🛑 H7 CONFIRMED THE NEW BOARD: FROM HERE NOTHING ROLLS IT BACK. Everything below is outside the
+     forward try, the `confirmed` record included. What cannot be recorded is left for a resumer to
+     finish forward: at `confirmed` any resumer does; at `starting`, the resume helper does once the new
+     board answers (resumeJournal). */
+  ctx.forward = false;
+  if (!recordConfirmed(ctx)) return { ok: true, outcome: 'updated', version: j.to.version };
   deps.hooks.before('H9', {});
   try { return finishUpdated(ctx); } catch (e) {
     if (e instanceof LostOwnership) throw e;
     log(`the update is in, but its record could not be finished (${describeError(e)})`);
     return { ok: true, outcome: 'updated', version: j.to.version };
+  }
+}
+
+/**
+ * Record `confirmed` after H7. While the update cannot be told to be still this helper's
+ * (OwnershipUnknown), it tries again every stopPollMs for limits.recordPatienceMs
+ * (CONFIRMED_RECORD_PATIENCE_MS), holding its lock all the while. True once recorded; false when it
+ * gave up (still unknown past the patience, or any other failure), with the journal left at `starting`
+ * and nothing more written. A proved loss (LostOwnership) rethrows.
+ */
+function recordConfirmed(ctx) {
+  const { j, deps, log } = ctx;
+  const until = deps.now() + deps.limits.recordPatienceMs;
+  const stepsBefore = j.steps.length;
+  for (;;) {
+    try {
+      setPhase(ctx, 'confirmed');
+      return true;
+    } catch (e) {
+      if (e instanceof LostOwnership) throw e;
+      j.phase = 'starting';
+      j.steps.length = stepsBefore;
+      if (!(e instanceof OwnershipUnknown) || deps.now() >= until) {
+        log(`the board answers as ${j.to.identity}, but that could not be recorded (${describeError(e)}); the update stays in, and a resumer that sees this board finishes it`);
+        return false;
+      }
+      deps.sleepSync(deps.limits.stopPollMs);
+    }
   }
 }
 
@@ -1024,14 +1150,14 @@ function takeUpdateLock(ctx) {
 }
 function releaseUpdateLock(ctx, lock) {
   if (!lock || !lock.text) return;
-  try { win32update.releaseLock(ctx.inWork(path.join(ctx.j.work, win32update.LOCK_NAME)), lock.text, ctx.log); } catch (e) {
+  try { win32update.releaseLock(ctx.inWork(path.join(ctx.j.work, win32update.LOCK_NAME)), lock.text, ctx.log, ctx.deps.reading); } catch (e) {
     ctx.log(`could not release the update lock (code=${codeOf(e)})`);
   }
 }
 
 /** The journal at `journalAt`, still unfinished and still the one with `token`, or null. */
-function sameUnfinishedJournal(journalAt, token) {
-  const read = readJournal(journalAt);
+function sameUnfinishedJournal(journalAt, token, reading) {
+  const read = readJournal(journalAt, reading);
   return read.state === 'unfinished' && read.journal.token === token ? read.journal : null;
 }
 
@@ -1056,7 +1182,7 @@ function stagedIsYoung(j, now) {
  *     it back exists; then by what the phase says had happened:
  *     `nothing-moved` (staged, stopping), `confirmed` (the new build was proven), or `moved`.
  */
-function unrecoverableCase(j) {
+function unrecoverableCase(j, reading) {
   /* 🛑 A FOLDER ON A DRIVE THAT IS NOT CONNECTED IS NOT GONE. When the volume root itself (a drive
      letter, or a UNC or mapped share's root) cannot be reached, the tree may be whole and waiting on
      a USB drive, a late BitLocker unlock or an offline share: `unreachable`, held, never settled. */
@@ -1064,14 +1190,23 @@ function unrecoverableCase(j) {
   if (volume && !exists(volume)) return { kind: 'unreachable', because: `the drive Kosmos is on (${volume}) is not connected` };
   /* 🛑 ONLY ENOENT OR ENOTDIR PROVES A FOLDER GONE (presenceOf). ROOT or WORK answering anything else
      (busy, access denied) is `unreachable` as well: held, never settled in words. */
-  const root = presenceOf(j.root);
+  const root = presenceOf(j.root, reading);
   if (root.state === 'unknown') return { kind: 'unreachable', because: `the Kosmos folder (${j.root}) cannot be reached right now (code=${root.code})` };
   if (root.state === 'gone') return { kind: 'root-gone', because: `the Kosmos folder that update was changing (${j.root}) no longer exists` };
-  const work = presenceOf(j.work);
+  const work = presenceOf(j.work, reading);
   if (work.state === 'unknown') return { kind: 'unreachable', because: `its working folder ${j.work} cannot be reached right now (code=${work.code})` };
   let missing = null;
   if (work.state === 'gone') missing = `its working folder ${j.work} is gone`;
-  else if (!j.recoverFrom.some((f) => exists(f))) missing = 'no copy of the updater that could put it back is left';
+  else {
+    /* The recovery code is gone only when EVERY copy answers ENOENT or ENOTDIR; a copy that stays
+       unknown (a scanner, an access denied) makes the update unreachable, not lost. */
+    const copies = j.recoverFrom.map((f) => presenceOf(f, reading));
+    if (!copies.some((c) => c.state === 'there')) {
+      const unknown = copies.find((c) => c.state === 'unknown');
+      if (unknown) return { kind: 'unreachable', because: `no copy of the updater that could put it back can be read right now (code=${unknown.code})` };
+      missing = 'no copy of the updater that could put it back is left';
+    }
+  }
   if (!missing) return null;
   if (UNCHANGED_PHASES.includes(j.phase)) return { kind: 'nothing-moved', because: missing };
   if (j.phase === 'confirmed') return { kind: 'confirmed', because: missing };
@@ -1093,7 +1228,7 @@ function unrecoverableCase(j) {
  * Returns `{ text, madeWork? }`, `{ none: true }` or `{ because }`.
  */
 function lockForResume(ctx, found) {
-  const work = presenceOf(ctx.j.work);
+  const work = presenceOf(ctx.j.work, ctx.deps.reading);
   if (work.state === 'there') return takeUpdateLock(ctx);
   if (work.state === 'unknown') return { because: `the working folder cannot be reached right now (code=${work.code})` };
   if (found && found.kind === 'root-gone') return { none: true };
@@ -1115,16 +1250,16 @@ function lockForResume(ctx, found) {
  * resumer made WORK again itself (its look saw WORK gone, which is exactly what it must settle) or
  * took no lock (ROOT and WORK both gone: there is nothing more to look at).
  */
-function judgedUnderLock(j, look, lock) {
+function judgedUnderLock(j, look, lock, reading) {
   if (lock.none || lock.madeWork) return look;
-  return unrecoverableCase(j);
+  return unrecoverableCase(j, reading);
 }
 
 /** Does a look that found the update unreachable end a resumer before the lock? Only when WORK cannot
     be read either (a drive that is not connected). With WORK readable the lock is taken as always and
     the case judged again under it, so one bad lstat of ROOT never walks past a live helper's lock. */
-function unreachableBeforeLock(j, found) {
-  return Boolean(found && found.kind === 'unreachable' && presenceOf(j.work).state !== 'there');
+function unreachableBeforeLock(j, found, reading) {
+  return Boolean(found && found.kind === 'unreachable' && presenceOf(j.work, reading).state !== 'there');
 }
 
 /** Settle an unfinished journal unrecoverableCase found. Returns `{ action, because? }`. */
@@ -1160,10 +1295,10 @@ function settleUnrecoverableJournal(journalAt, overrides) {
   if (lock.because) return { action: 'held', because: lock.because };
   ctx.lock = lock;
   try {
-    const again = lock.none ? read.journal : sameUnfinishedJournal(journalAt, read.journal.token);
+    const again = lock.none ? read.journal : sameUnfinishedJournal(journalAt, read.journal.token, deps.reading);
     if (!again) return { action: 'nothing' };
     ctx.j = again;
-    const judged = judgedUnderLock(again, found, lock);
+    const judged = judgedUnderLock(again, found, lock, deps.reading);
     if (!judged) return { action: 'recoverable' };
     if (judged.kind === 'unreachable') return { action: 'unreachable', because: judged.because };
     return settleUnrecoverable(ctx, judged);
@@ -1185,15 +1320,40 @@ function settleUnrecoverableJournal(journalAt, overrides) {
  * start this is the old app on the new interpreter; every later start is old on old.
  * `{ server }` or `{ server: null, whyNot }`.
  */
-function previousAppToBoot(j) {
-  for (const entry of win32update.REQUIRED_ENTRIES.filter((e) => e.startsWith('app/'))) {
-    const file = path.join(j.previous, ...entry.split('/'));
-    if (!exists(file)) return { server: null, whyNot: `${file} is missing` };
-  }
+function previousAppToBoot(j, reading) {
   const app = path.join(j.previous, 'app');
-  const version = (readJson(path.join(app, 'package.json')) || {}).version;
-  if (version !== j.from.version) return { server: null, whyNot: `${app} is ${version || 'of no known version'}, not ${j.from.version}` };
-  return { server: path.join(app, 'server.js'), whyNot: null };
+  const whyNot = wholeAppProblem(app, j.from.version, reading);
+  return whyNot ? { server: null, whyNot } : { server: path.join(app, 'server.js'), whyNot: null };
+}
+
+/** Why the app folder `app` is not the whole `version` app (a required file missing or unreadable, or
+    another version), or null. Held answers are asked again; one still unknown is a reason too. */
+function wholeAppProblem(app, version, reading) {
+  for (const entry of win32update.REQUIRED_ENTRIES.filter((e) => e.startsWith('app/'))) {
+    const file = path.join(app, ...entry.split('/').slice(1));
+    const p = presenceOf(file, reading);
+    if (p.state === 'unknown') return `${file} cannot be checked right now (code=${p.code})`;
+    if (p.state === 'gone') return `${file} is missing`;
+  }
+  const read = win32update.readFileRetryingHolds(path.join(app, 'package.json'), reading && reading.waitSync, reading && reading.budget);
+  if (read.code) return `${app} cannot be read right now (code=${read.code})`;
+  let found = null;
+  try { found = JSON.parse(read.text).version; } catch { found = null; }
+  if (found !== version) return `${app} is ${found || 'of no known version'}, not ${version}`;
+  return null;
+}
+
+/**
+ * The app the logon shim starts when its recovery stopped part-way because it could not tell the
+ * update was still its own (held): nothing to add when the Kosmos folder's own app is the whole old
+ * one (the pointer starts it); otherwise the whole old app in previous-<from> (bootFrom), or why
+ * neither can start (bootFromWhyNot), which the shim reports before it goes on as before.
+ */
+function bootChoiceWhenHeld(j, reading) {
+  const own = wholeAppProblem(path.join(j.root, 'app'), j.from.version, reading);
+  if (!own) return {};
+  const old = previousAppToBoot(j, reading);
+  return old.server ? { bootFrom: old.server } : { bootFrom: null, bootFromWhyNot: `${own}, and ${old.whyNot}` };
 }
 
 /**
@@ -1204,7 +1364,7 @@ async function applyJournal(journalAt, overrides) {
   refuseInTestWithoutSeams(overrides, 'apply', journalAt);
   const deps = depsFrom(overrides);
   deps.hooks.afterDependencies();
-  const read = readJournal(journalAt);
+  const read = readJournal(journalAt, deps.reading);
   if (read.state === 'unreadable') return { ok: false, because: unreadableSentence(journalAt, read.why) };
   if (read.state !== 'unfinished') return { ok: false, because: 'there is no update waiting to be applied' };
   const ctx = contextFor(journalAt, read.journal, deps, 'apply');
@@ -1217,14 +1377,21 @@ async function applyJournal(journalAt, overrides) {
     /* The journal read above is only a look. Between it and the lock, a resumer can have finished
        this journal, or begin() written another: only the same journal, still unfinished and still
        staged, READ AGAIN UNDER THE LOCK, is applied. */
-    const again = sameUnfinishedJournal(journalAt, first.token);
+    const again = sameUnfinishedJournal(journalAt, first.token, deps.reading);
     if (!again || again.phase !== 'staged') {
       ctx.log('the journal was finished or replaced before this helper held the lock; nothing applied');
       return { ok: false, because: 'the update was finished or replaced before this helper could start it, so it was not applied' };
     }
     ctx.j = again;
     ctx.j.helper = { pid: process.pid, mode: 'apply' };
-    const refusal = applyRefusal(ctx);
+    let refusal;
+    try { refusal = applyRefusal(ctx); } catch (e) {
+      if (!(e instanceof StepFailure)) throw e;
+      /* A folder that cannot be checked is not a folder that changed: nothing is written, and the
+         staged journal waits for its resumer. */
+      ctx.log(`the update was not started, and nothing was written: ${e.message}`);
+      return { ok: false, outcome: 'held', action: 'held', because: `the update was not started, because ${e.message}` };
+    }
     if (refusal) return finishWithoutChange(ctx, refusal);
     return await runSteps(ctx);
   } catch (e) {
@@ -1251,25 +1418,25 @@ async function resumeJournal(journalAt, overrides) {
   refuseInTestWithoutSeams(overrides, 'resume', journalAt);
   const deps = depsFrom(overrides);
   deps.hooks.afterDependencies();
-  const read = readJournal(journalAt);
+  const read = readJournal(journalAt, deps.reading);
   if (read.state === 'unreadable') return { ok: false, because: unreadableSentence(journalAt, read.why) };
   if (read.state !== 'unfinished') return { ok: true, action: 'nothing' };
   /* A staged journal this young belongs to the helper begin() has just started: leave it, and do not
      even take the lock that helper is about to need. */
   if (stagedIsYoung(read.journal, deps.now())) return { ok: true, action: 'starting' };
   const ctx = contextFor(journalAt, read.journal, deps, 'resume');
-  const found = unrecoverableCase(read.journal);
-  if (unreachableBeforeLock(read.journal, found)) return { ok: true, action: 'unreachable', because: found.because };
+  const found = unrecoverableCase(read.journal, deps.reading);
+  if (unreachableBeforeLock(read.journal, found, deps.reading)) return { ok: true, action: 'unreachable', because: found.because };
   const lock = lockForResume(ctx, found);
   if (lock.because) return { ok: true, action: 'held', because: lock.because };
   ctx.lock = lock;
   try {
     /* Read again under the lock: the holder it waited for may have finished it or replaced it. */
-    const again = lock.none ? read.journal : sameUnfinishedJournal(journalAt, read.journal.token);
+    const again = lock.none ? read.journal : sameUnfinishedJournal(journalAt, read.journal.token, deps.reading);
     if (!again) return { ok: true, action: 'nothing' };
     ctx.j = again;
     if (stagedIsYoung(ctx.j, deps.now())) return { ok: true, action: 'starting' };
-    const judged = judgedUnderLock(again, found, lock);
+    const judged = judgedUnderLock(again, found, lock, deps.reading);
     if (judged && judged.kind === 'unreachable') return { ok: true, action: 'unreachable', because: judged.because };
     if (judged) return { ok: false, ...settleUnrecoverable(ctx, judged) };
     ctx.j.helper = { pid: process.pid, mode: 'resume' };
@@ -1285,6 +1452,14 @@ async function resumeJournal(journalAt, overrides) {
       return finishWithoutChange(ctx, stoppedBecause(ctx.j));
     }
     if (ctx.j.phase === 'confirmed') return finishUpdated(ctx);
+    /* 🛑 A BOARD H7 CONFIRMED IS NEVER ROLLED BACK. A journal left at `starting` can be one whose
+       helper saw the new board answer and could not record it (CONFIRMED_RECORD_PATIENCE_MS ran out):
+       H7's own test, asked again here, finishes it forward. */
+    if (ctx.j.phase === 'starting' && answersAs(await deps.probe(ctx.j.board.port), ctx.j.to.identity)) {
+      ctx.log(`the board answers as ${ctx.j.to.identity}, as H7 requires: finishing the update forward`);
+      setPhase(ctx, 'confirmed');
+      return finishUpdated(ctx);
+    }
     return await rollBack(ctx, stoppedBecause(ctx.j));
   } catch (e) {
     const stopped = stoppedWriting(ctx, e);
@@ -1306,23 +1481,23 @@ function recoverAtBoot(journalAt, overrides) {
   refuseInTestWithoutSeams(overrides, 'recover', journalAt);
   const deps = depsFrom(overrides);
   deps.hooks.afterDependencies();
-  const read = readJournal(journalAt);
+  const read = readJournal(journalAt, deps.reading);
   if (read.state === 'unreadable') {
     try { process.stderr.write('kosmos: ' + unreadableSentence(journalAt, read.why) + '\n'); } catch { /* stderr gone */ }
     return { action: 'unreadable', because: read.why };
   }
   if (read.state !== 'unfinished') return { action: 'nothing' };
   const ctx = contextFor(journalAt, read.journal, deps, 'boot');
-  const found = unrecoverableCase(read.journal);
-  if (unreachableBeforeLock(read.journal, found)) return { action: 'unreachable', because: found.because };
+  const found = unrecoverableCase(read.journal, deps.reading);
+  if (unreachableBeforeLock(read.journal, found, deps.reading)) return { action: 'unreachable', because: found.because };
   const lock = lockForResume(ctx, found);
   if (lock.because) return { action: 'held', because: lock.because };
   ctx.lock = lock;
   try {
-    const again = lock.none ? read.journal : sameUnfinishedJournal(journalAt, read.journal.token);
+    const again = lock.none ? read.journal : sameUnfinishedJournal(journalAt, read.journal.token, deps.reading);
     if (!again) return { action: 'nothing' };
     ctx.j = again;
-    const judged = judgedUnderLock(again, found, lock);
+    const judged = judgedUnderLock(again, found, lock, deps.reading);
     if (judged && judged.kind === 'unreachable') return { action: 'unreachable', because: judged.because };
     if (judged) return settleUnrecoverable(ctx, judged);
     if (UNCHANGED_PHASES.includes(ctx.j.phase)) { finishWithoutChange(ctx, stoppedBecause(ctx.j)); return { action: 'not-started' }; }
@@ -1330,7 +1505,7 @@ function recoverAtBoot(journalAt, overrides) {
     const tree = rollBackTree(ctx, stoppedBecause(ctx.j));
     if (!tree.whole) {
       writeStatus(ctx, 'stuck', tree.problem);
-      const old = previousAppToBoot(ctx.j);
+      const old = previousAppToBoot(ctx.j, deps.reading);
       ctx.log(old.server ? `the previous version is whole in ${path.dirname(old.server)}` : `the previous version cannot be started instead: ${old.whyNot}`);
       return { action: 'stuck', because: tree.problem, bootFrom: old.server, bootFromWhyNot: old.whyNot };
     }
@@ -1338,6 +1513,9 @@ function recoverAtBoot(journalAt, overrides) {
     return { action: r.outcome };
   } catch (e) {
     const stopped = stoppedWriting(ctx, e);
+    /* A recovery that stopped part-way (held) can leave the Kosmos folder with no whole app: the shim
+       then starts the whole old one instead, exactly as for a stuck one. */
+    if (stopped && e instanceof OwnershipUnknown) return { ...stopped, ...bootChoiceWhenHeld(ctx.j, deps.reading) };
     if (stopped) return stopped;
     throw e;
   } finally {
@@ -1376,6 +1554,7 @@ function abandonStagedJournal(journalAt, because, overrides) {
 module.exports = {
   applyJournal, resumeJournal, recoverAtBoot, abandonStagedJournal, settleUnrecoverableJournal, readJournal, writeStagedJournal,
   unfinishedUpdateRefusal, journalPathFor, statusPathFor, moveOrder, writeGuard,
-  stagedIsYoung,
+  stagedIsYoung, presenceOf, answersAs,
   MODULE_FILE_NAME, PREVIOUS_PREFIX, ANCHORED_NODE_COPY_NAME, APPLY_LOG_NAME, DEFAULT_APPLY_LIMITS, PHASES, STAGED_HELPER_STARTUP_GRACE_MS,
+  OWNER_READ_BUDGET, CONFIRMED_RECORD_PATIENCE_MS,
 };

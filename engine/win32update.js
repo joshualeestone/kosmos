@@ -133,14 +133,16 @@ const PROCESS_IMAGE_LOOKUP_TIMEOUT_MS = 5 * 1000;
     the next prepare in this board (releaseLock). */
 const LOCK_RELEASE_TRIES = 3;
 const LOCK_RELEASE_WAIT_MS = 50;
-/** Tries at READING a file another process has open without read sharing, this far apart
-    (readFileRetryingHolds): a writer replacing the file, a scanner or a backup tool. These were the
-    update journal's read tries; the lock's release and the updater's ownership check use the same. */
-const HELD_FILE_READ_TRIES = 3;
-const HELD_FILE_READ_WAIT_MS = 20;
-/** The codes Windows answers while another process holds a file: a sharing violation (EBUSY), a
-    delete pending or a writer's replace (EPERM), and a lock or scanner (EACCES). */
-const HELD_FILE_CODES = Object.freeze(['EBUSY', 'EPERM', 'EACCES']);
+/** The quick held-read budget (tryRetryingHolds): reads of a file or folder another process holds (a
+    writer replacing it, a scanner, a backup tool), this many, this far apart, 60 ms in all. For B0
+    and begin(), which answer a person; the helper, the resumers and the logon shim wait seconds
+    instead (win32apply.OWNER_READ_BUDGET). */
+const QUICK_HELD_READ_BUDGET = Object.freeze({ tries: 3, waitMs: 20 });
+/** The codes that mean another process holds a file or folder for now, never that it is gone: a
+    sharing violation (EBUSY), a delete pending or a writer's replace (EPERM), a lock or scanner
+    (EACCES), and a device or share in the middle of reconnecting (EIO). Only ENOENT and ENOTDIR
+    mean gone. */
+const HELD_FILE_CODES = Object.freeze(['EBUSY', 'EPERM', 'EACCES', 'EIO']);
 /** A lock that exists but cannot be read is read again this many times, this far apart, before it
     is called broken: a lock that is being deleted cannot be opened for a moment (Windows answers
     EPERM for a file whose delete is pending), and a broken one stays unreadable. */
@@ -765,21 +767,29 @@ function sweepLockLeftovers(work, inWork, log) {
 }
 
 /**
- * Read a file, reading again while another process holds it. Returns `{ text }`, `{ missing: true }`
- * (ENOENT, and nothing else), or `{ code, tries }` when it still cannot be read: a held code
- * (HELD_FILE_CODES) after HELD_FILE_READ_TRIES, or any other code at once. Never throws.
- * `waitSync(ms)` stands in for the wait between tries.
+ * 🛑 A HELD ANSWER IS NEVER PROOF OF ANYTHING. Try `attempt` (a read or an lstat), again while another
+ * process holds its target. Returns `{ value }`, `{ missing: true, code }` (ENOENT or ENOTDIR, and
+ * nothing else), or `{ code, tries }` when it still fails: a held code (HELD_FILE_CODES) after
+ * `budget.tries`, or any other code at once. Never throws. `waitSync(ms)` stands in for the wait
+ * between tries; `budget` is QUICK_HELD_READ_BUDGET unless the caller's process can wait longer.
  */
-function readFileRetryingHolds(file, waitSync) {
+function tryRetryingHolds(attempt, waitSync, budget) {
+  const b = budget || QUICK_HELD_READ_BUDGET;
   const wait = typeof waitSync === 'function' ? waitSync : sleepSync;
   for (let tries = 1; ; tries += 1) {
-    try { return { text: fs.readFileSync(file, 'utf8') }; } catch (e) {
+    try { return { value: attempt() }; } catch (e) {
       const code = (e && e.code) || 'unknown';
-      if (code === 'ENOENT') return { missing: true };
-      if (!HELD_FILE_CODES.includes(code) || tries >= HELD_FILE_READ_TRIES) return { code, tries };
-      wait(HELD_FILE_READ_WAIT_MS);
+      if (code === 'ENOENT' || code === 'ENOTDIR') return { missing: true, code };
+      if (!HELD_FILE_CODES.includes(code) || tries >= b.tries) return { code, tries };
+      wait(b.waitMs);
     }
   }
+}
+
+/** A file's text through tryRetryingHolds: `{ text }`, `{ missing: true, code }` or `{ code, tries }`. */
+function readFileRetryingHolds(file, waitSync, budget) {
+  const read = tryRetryingHolds(() => fs.readFileSync(file, 'utf8'), waitSync, budget);
+  return 'value' in read ? { text: read.value } : read;
 }
 
 /**
@@ -792,8 +802,8 @@ function readFileRetryingHolds(file, waitSync) {
  * process to clear through the claim. Failures are logged by code, since the raw errors name
  * internal paths.
  */
-function releaseLock(lockPath, text, log) {
-  const read = readFileRetryingHolds(lockPath);
+function releaseLock(lockPath, text, log, reading) {
+  const read = readFileRetryingHolds(lockPath, reading && reading.waitSync, reading && reading.budget);
   if (read.missing) return;
   if (read.code) {
     log(`could not read the prepare lock to release it (code=${read.code}, after ${read.tries} ${read.tries === 1 ? 'try' : 'tries'})`);
@@ -1230,7 +1240,12 @@ async function begin(opts) {
     if (settled.action === 'unreachable') return { ok: false, because: apply.unfinishedUpdateRefusal(anchorDir) };
     if (settled.action === 'held') return { ok: false, because: `an earlier update to ${j.to.version} could not be cleared yet (${settled.because})` };
     if (settled.action === 'recoverable') {
-      const oldModule = j.recoverFrom.find((f) => fs.existsSync(f));
+      /* The old build's updater, where a look proves it is (win32apply.presenceOf): a copy a scanner holds
+         is not picked, and none proved there is a refusal, never a helper started from nothing. */
+      const oldModule = j.recoverFrom.find((f) => apply.presenceOf(f).state === 'there');
+      if (!oldModule) {
+        return { ok: false, because: `an earlier update to ${j.to.version} has not finished, and the copy of the updater that finishes it cannot be read right now. Try again in a minute` };
+      }
       const script = path.join(path.dirname(oldModule), path.basename(__filename));
       const started = startHelper(spawnFn, helperLaunch(anchorDir, script, RECOVER_FLAG, journalAt), log);
       log(started.ok ? `started the helper to finish the earlier update (pid ${started.pid})` : `could not start the helper to finish the earlier update: ${started.because}`);
@@ -1296,16 +1311,30 @@ function parseCliArgs(argv) {
   return a;
 }
 
-/** `--apply --wait`: the helper's outcome for this journal, read from the status it writes. */
+/**
+ * `--apply --wait`: the helper's outcome for this journal, read from the status it writes. A journal
+ * at `confirmed` whose new board answers as the new build (H7's own test, win32apply.answersAs) is a
+ * success too: the update is in, and only its record is still being finished. Seams: sleep, now,
+ * waitMs, probe.
+ */
 async function waitForOutcome(journalAt, token, seams) {
   const s = seams || {};
   const sleep = s.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   const now = s.now || Date.now;
+  const probe = s.probe || win32handoff.probeBoard;
+  const apply = require('./win32apply'); // lazy: win32apply requires this module
   const statusAt = path.join(path.dirname(journalAt), win32anchor.UPDATE_STATUS_NAME);
   const until = now() + (s.waitMs || CLI_WAIT_MS);
   for (;;) {
     const status = readJson(statusAt);
     if (status && status.journal === token && status.outcome) return status;
+    const j = apply.readJournal(journalAt).journal;
+    if (j && j.token === token && j.phase === 'confirmed' && apply.answersAs(await probe(j.board.port), j.to.identity)) {
+      return {
+        outcome: 'updated', version: j.to.version, from: j.from.version, to: j.to.version, journal: token,
+        because: `the board answers as ${j.to.identity}; Kosmos is still finishing up the record of the update`,
+      };
+    }
     if (now() >= until) return { outcome: null, because: `no outcome was recorded within ${Math.round((s.waitMs || CLI_WAIT_MS) / 1000)} seconds; read ${statusAt} and ${journalAt}` };
     await sleep(CLI_WAIT_POLL_MS);
   }
@@ -1354,7 +1383,7 @@ async function applyCli(a, out, seams) {
   if (!r.ok) return 1;
   if (!a.wait) return 0;
   const token = (require('./win32apply').readJournal(r.journal).journal || {}).token;
-  const status = await waitForOutcome(r.journal, token, s.wait);
+  const status = await waitForOutcome(r.journal, token, { probe: s.probe, ...(s.wait || {}) });
   out(JSON.stringify(status, null, 2) + '\n');
   return status.outcome === 'updated' ? 0 : 1;
 }
@@ -1387,7 +1416,7 @@ async function cliMain(argv, write, seams) {
 
 module.exports = {
   prepare, begin, cliMain, runStagedNode, stagedNodeLaunch, workGuard, takeLock, releaseLock, sweepLockLeftovers, resolveWorld,
-  readFileRetryingHolds, HELD_FILE_READ_TRIES,
+  readFileRetryingHolds, tryRetryingHolds, QUICK_HELD_READ_BUDGET, HELD_FILE_CODES,
   processImageFromTasklist, processImageStamp, sha256OfFile, unusualLocationRefusal, helperLaunch, waitForOutcome,
   REQUIRED_ENTRIES, ENTRIES, WORK_DIRNAME, STAGED_DIRNAME, DOWNLOAD_PART_NAME, LOCK_NAME, DEFAULT_LIMITS, STAGED_NODE_ENV_KEYS,
   UNUSUAL_LOCATION_POLICY, APPLY_FLAG, RECOVER_FLAG, DEFAULT_BOARD_PORT,

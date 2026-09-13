@@ -1240,7 +1240,7 @@ test('the lock: a release that cannot read the lock logs the code, and the next 
     return real(p, o);
   }, () => win32update.prepare(prepareOpts(c, site(bundleZip()))));
   assert.equal(r1.ok, true, JSON.stringify(r1));
-  assert.ok(c.log.includes(`could not read the prepare lock to release it (code=EPERM, after ${win32update.HELD_FILE_READ_TRIES} tries)`), c.log.join('\n'));
+  assert.ok(c.log.includes(`could not read the prepare lock to release it (code=EPERM, after ${win32update.QUICK_HELD_READ_BUDGET.tries} tries)`), c.log.join('\n'));
   assert.ok(c.log.includes('left the prepare lock behind; the next prepare in this board clears it'), c.log.join('\n'));
   assert.equal(c.log.filter((l) => /prepare lock/.test(l)).some((l) => l.includes(c.work)), false, 'logged by code, not path');
   assert.equal((await win32update.prepare(prepareOpts(c, site(bundleZip())))).ok, true, 'not wedged');
