@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: win32-installer-native
-diff_hash: 5bab23982c654675ff72a9b67f7f91aea69e344edfadcba9602307add5e20d48
+diff_hash: 599dbaed6117ae743349f498184fcdadfd6fcbd59c2c9ede62b55be34dd3e424
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-13T21:33:00Z
+timestamp: 2026-09-13T23:20:00Z
 iterations: 8
 converged: true
 ---
@@ -64,6 +64,22 @@ so Playwright's click hit a covering top view. The check now opens the view the 
 (`showTab('settings')` + `settingsOpen('mac')`) and `waitForSelector(SWITCH, {state:'visible'})` before each
 click. Docs/browser-check only; no production or engine-test code changed. Confirmed only in CI (no
 Playwright on the box).
+
+**Third post-review CI fix — the browser check removed (docs/config/test-only, current HEAD):** the
+Settings-open fix above did NOT clear the `browser-checks` job; on the rebased head `6d3b8647` it still
+timed out with `page.click: Timeout 30000ms` on `#set-machine [data-start-at-sign-in]` (a `file://`
+hit-test/actionability timeout, not a computed-style one). That was the second informed attempt on a check
+that cannot be run locally (no Playwright/WebKit on the box), so per the bounded plan iteration stopped and
+`docs/browser-checks/render-win32-start-at-sign-in.js` was removed along with its three wirings (the
+`docs/browser-checks/README.md` row, the `.github/workflows/browser-checks.yml` allowlist entry, and the
+`tools/browser-checks.sh` `for n in …` loop token); `render-win32-board-copy` and every other check name were
+left intact. The `web/index.html` `machineRows` surface is covered by a branch-wide `Browser-check:` trailer
+plus a per-check `Browser-check-surface: render-win32-start-at-sign-in.js …` trailer, and both gates pass
+locally against the merge-base (`browser-check-gate.sh` rc 0, `browser-check-surface-gate.sh` rc 0). The
+switch stays covered at the DOM level by `web.win32-start-at-sign-in.test.js` (its header note updated to
+drop the dangling reference to the removed check). A browser check that does not time out is the follow-up,
+issue #3010 (recorded in the main plan's follow-ups). No production or engine-test code changed; the two
+`test` CI jobs are unaffected.
 
 ## Round history (each fixed in the next round, then re-reviewed)
 
