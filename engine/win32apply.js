@@ -128,16 +128,6 @@ const OWNER_READ_BUDGET = Object.freeze({
  */
 const CONFIRMED_RECORD_PATIENCE_MS = DEFAULT_APPLY_LIMITS.confirmRuns * DEFAULT_APPLY_LIMITS.confirmWaitPerRunMs;
 
-/**
- * How long the logon shim's recovery (recoverAtBoot) may spend before it stops as held, counted from
- * the start of the board's process as the hand-off counts its own budget: the hand-off's budget less
- * what the hand-off still needs once this board boots, an ended board's port to let go and one probe
- * (win32handoff: HANDOFF_BUDGET_MS - MIN_PORT_RELEASE_WAIT_MS - PROBE_TIMEOUT_MS, 12 - 2 - 2 = 8 s).
- * Every held wait stops at it too, so a scanner holding an entry cannot keep the board from listening
- * inside the hand-off's budget and the launcher's check mark.
- */
-const BOOT_RECOVERY_DEADLINE_MS = win32handoff.HANDOFF_BUDGET_MS - win32handoff.MIN_PORT_RELEASE_WAIT_MS - win32handoff.PROBE_TIMEOUT_MS;
-
 const SLEEP_CELL = new Int32Array(new SharedArrayBuffer(4));
 function sleepSync(ms) { Atomics.wait(SLEEP_CELL, 0, 0, ms); }
 
@@ -497,8 +487,6 @@ function assertStillOwner(ctx) {
     if (ctx.forward) throw new StepFailure(`the updater could not check that this update is still its own, because ${because}`);
     throw new OwnershipUnknown(because);
   };
-  /* The logon shim's recovery past its deadline cannot tell either: it stops, held. */
-  if (Number.isFinite(ctx.deadline) && ctx.deps.now() >= ctx.deadline) cannotTell('its time to recover before the board starts ran out');
   const reading = ctx.deps.reading;
   if (ctx.lock && ctx.lock.text) {
     const lock = win32update.readFileRetryingHolds(path.join(ctx.j.work, win32update.LOCK_NAME), reading.waitSync, reading.budget);
@@ -673,21 +661,16 @@ async function stopBoard(ctx) {
  * win32board.taskXml), and the task's Running status says nothing about which build is serving.
  */
 /** H7's one test of a board: it answers, with exactly `identity`. The resume helper at `starting` and
-    `--apply --wait` ask the same (convention 5). */
+    `--apply --wait` ask the same (convention 5). It deliberately does not ask who started the board: a
+    board the launcher serves itself after a hand-off fallback (win32handoff, started-by-task header 0)
+    is the new build too, and requiring the header rolled such a working update back (round 7).
+    Accepted residual: a board serving the same release from another folder can confirm ROOT's update;
+    harmless, because the identity matches, and the installer's anchorBundle re-points the fleet. */
 function answersAs(answer, identity) {
   return Boolean(answer && answer.answering && answer.identity === identity);
 }
 
-/** H7's test of the NEW board, which the resume helper at `starting` and `--apply --wait` ask too: it
-    answers as `identity` AND says its logon task started it (win32handoff's started-by-task header). The
-    new build always sends that header, so this never rejects a genuine confirmation; a board a person
-    started by hand with the same version does not count. H8's old board is asked answersAs only: an old
-    build may predate the header. */
-function taskBoardAnswersAs(answer, identity) {
-  return answersAs(answer, identity) && answer.startedByTask === true;
-}
-
-async function startAndConfirm(ctx, identity, step, confirms = answersAs) {
+async function startAndConfirm(ctx, identity, step) {
   const { j, deps, log } = ctx;
   const L = deps.limits;
   let last = 'no board answered';
@@ -700,12 +683,11 @@ async function startAndConfirm(ctx, identity, step, confirms = answersAs) {
     const until = deps.now() + L.confirmWaitPerRunMs;
     for (;;) {
       const answer = await deps.probe(j.board.port);
-      if (confirms(answer, identity)) {
+      if (answersAs(answer, identity)) {
         log(`${step}: the board answers as ${identity}`);
         return { ok: true, run };
       }
-      if (answersAs(answer, identity)) last = `a board answered as ${identity}, but not one its logon task started`;
-      else if (answer.answering) last = `a board answered as ${answer.identity || 'something with no Kosmos identity'}`;
+      if (answer.answering) last = `a board answered as ${answer.identity || 'something with no Kosmos identity'}`;
       if (deps.now() >= until) break;
       await deps.sleep(L.confirmPollMs);
     }
@@ -912,14 +894,7 @@ function rollBackTree(ctx, because) {
     const left = treeProblem(ctx);
     if (!left) { log(`the old tree is whole after pass ${pass}`); return { whole: true }; }
     problem = failure || left;
-    if (pass < deps.limits.rollbackPasses) {
-      /* The logon shim's recovery never waits past its deadline for another pass: it stops, held. */
-      if (Number.isFinite(ctx.deadline) && deps.now() + deps.limits.rollbackPassWaitMs >= ctx.deadline) {
-        ctx.writesStopped = true;
-        throw new OwnershipUnknown('its time to recover before the board starts ran out');
-      }
-      deps.sleepSync(deps.limits.rollbackPassWaitMs);
-    }
+    if (pass < deps.limits.rollbackPasses) deps.sleepSync(deps.limits.rollbackPassWaitMs);
   }
   j.stuckBecause = problem;
   setPhase(ctx, 'stuck');
@@ -1102,7 +1077,7 @@ async function runSteps(ctx) {
 
     setPhase(ctx, 'starting');
     deps.hooks.before('H7', {});
-    const up = await startAndConfirm(ctx, j.to.identity, 'H7', taskBoardAnswersAs);
+    const up = await startAndConfirm(ctx, j.to.identity, 'H7');
     if (!up.ok) throw new StepFailure(`the new board did not answer as ${j.to.identity} (${up.because})`);
   } catch (e) {
     ctx.forward = false;
@@ -1516,7 +1491,7 @@ async function resumeJournal(journalAt, overrides) {
     /* 🛑 A BOARD H7 CONFIRMED IS NEVER ROLLED BACK. A journal left at `starting` can be one whose
        helper saw the new board answer and could not record it (CONFIRMED_RECORD_PATIENCE_MS ran out):
        H7's own test, asked again here, finishes it forward. */
-    if (ctx.j.phase === 'starting' && taskBoardAnswersAs(await deps.probe(ctx.j.board.port), ctx.j.to.identity)) {
+    if (ctx.j.phase === 'starting' && answersAs(await deps.probe(ctx.j.board.port), ctx.j.to.identity)) {
       ctx.log(`the board answers as ${ctx.j.to.identity}, as H7 requires: finishing the update forward`);
       setPhase(ctx, 'confirmed');
       return finishUpdated(ctx);
@@ -1537,18 +1512,19 @@ async function resumeJournal(journalAt, overrides) {
  * board about to boot. Returns `{ action }`: nothing | held | not-started | updated | rolled-back |
  * stuck | abandoned | unreadable. A `stuck` result also carries `bootFrom` (the whole old app to
  * start instead of ROOT's, previousAppToBoot) or `bootFromWhyNot`.
+ *
+ * 🛑 NO OVERALL DEADLINE. Every read here gets OWNER_READ_BUDGET's retries, so a recovery that meets
+ * held answers can delay the board's `listen`, and a launcher hand-off may then end this process
+ * part-way. That is a crash at some hook point, which the next start recovers from like any other:
+ * the tests "a crash at every point of a rollback: the next board start finishes putting the old build
+ * back" and "a boot resumer killed mid-rollback is finished by the next boot" prove it. A deadline
+ * (round 6) cut the clock under read-only decisions and the lock's release instead: a boot choice with
+ * no retries named no app, a slow healthy rollback never finished, and a release with no retries left
+ * the lock naming the live board (round 7).
  */
 function recoverAtBoot(journalAt, overrides) {
   refuseInTestWithoutSeams(overrides, 'recover', journalAt);
   const deps = depsFrom(overrides);
-  /* BOOT_RECOVERY_DEADLINE_MS, counted from the start of this process as the hand-off counts its own
-     budget (a suite passes `startedAt`, or starts it at its own clock's now). Every held wait stops at
-     it, and so does the recovery, as held. */
-  const startedAt = overrides
-    ? (Number.isFinite(overrides.startedAt) ? overrides.startedAt : deps.now())
-    : deps.now() - Math.round(process.uptime() * 1000);
-  const deadline = startedAt + BOOT_RECOVERY_DEADLINE_MS;
-  deps.reading = { ...deps.reading, budget: { ...deps.reading.budget, until: deadline, now: deps.now } };
   deps.hooks.afterDependencies();
   const read = readJournal(journalAt, deps.reading);
   if (read.state === 'unreadable') {
@@ -1557,7 +1533,6 @@ function recoverAtBoot(journalAt, overrides) {
   }
   if (read.state !== 'unfinished') return { action: 'nothing' };
   const ctx = contextFor(journalAt, read.journal, deps, 'boot');
-  ctx.deadline = deadline;
   const found = unrecoverableCase(read.journal, deps.reading);
   if (unreachableBeforeLock(read.journal, found, deps.reading)) return { action: 'unreachable', because: found.because };
   const lock = lockForResume(ctx, found);
@@ -1629,7 +1604,7 @@ function abandonStagedJournal(journalAt, because, overrides) {
 module.exports = {
   applyJournal, resumeJournal, recoverAtBoot, abandonStagedJournal, settleUnrecoverableJournal, readJournal, writeStagedJournal,
   unfinishedUpdateRefusal, journalPathFor, statusPathFor, moveOrder, writeGuard,
-  stagedIsYoung, presenceOf, answersAs, taskBoardAnswersAs, previousAppMayBoot,
+  stagedIsYoung, presenceOf, answersAs, previousAppMayBoot,
   MODULE_FILE_NAME, PREVIOUS_PREFIX, ANCHORED_NODE_COPY_NAME, APPLY_LOG_NAME, DEFAULT_APPLY_LIMITS, PHASES, STAGED_HELPER_STARTUP_GRACE_MS,
-  OWNER_READ_BUDGET, CONFIRMED_RECORD_PATIENCE_MS, BOOT_RECOVERY_DEADLINE_MS,
+  OWNER_READ_BUDGET, CONFIRMED_RECORD_PATIENCE_MS,
 };

@@ -31,7 +31,6 @@ process.env.APPDATA = path.join(SANDBOX, 'appdata');
 const win32anchor = require('./win32anchor');
 const win32apply = require('./win32apply');
 const win32board = require('./win32board');
-const win32handoff = require('./win32handoff');
 const win32orphan = require('./win32orphan');
 const win32swap = require('./win32swap');
 const win32update = require('./win32update');
@@ -165,8 +164,8 @@ let clock = 1700000000000;
 /**
  * The stub scheduler and prober. `/Run` starts a board only when none runs (IgnoreNew), from whatever
  * app ROOT holds. Options: endDoesNothing (the board never stops), newNeverStarts (a new build that
- * does not boot), answerAs (id => the identity the booted board answers with), handStarted (the board
- * answers without saying its logon task started it, as one a person started by hand).
+ * does not boot), answerAs (id => the identity the booted board answers with), launcherServed (the
+ * board answers with its started-by-task header 0, as the launcher's own board after a hand-off fallback).
  */
 function playBoard(c, o = {}) {
   const sim = { running: true, identity: OLD_ID, calls: [] };
@@ -193,7 +192,7 @@ function playBoard(c, o = {}) {
     return { ok: false, out: 'the stub scheduler does not know ' + verb };
   });
   sim.deps = (extra = {}) => ({
-    probe: async () => (sim.running ? { answering: true, identity: sim.identity, startedByTask: !o.handStarted } : { answering: false, identity: null }),
+    probe: async () => (sim.running ? { answering: true, identity: sim.identity, startedByTask: !o.launcherServed } : { answering: false, identity: null }),
     portFree: async () => !sim.running,
     pidGone: () => true,
     sleep: async (ms) => { clock += ms; },
@@ -2235,7 +2234,7 @@ test('ROUND 5 sweep: the staged journal records an entry a scanner holds as pres
   assert.equal(fs.existsSync(c.journal), false, 'no journal was written');
 });
 
-test('ROUND 5 sweep: a rollback that cannot read the engine pointer back is never called whole: never concluded, and the next start finishes it', T, async () => {
+test('ROUND 5 sweep: a rollback that cannot read the engine pointer back is never called whole: stuck and unfinished, and the next start finishes it', T, async () => {
   const c = freshInstall();
   const before = installState(c);
   const sim = await rollbackLeftAtH8(c);
@@ -2246,15 +2245,13 @@ test('ROUND 5 sweep: a rollback that cannot read the engine pointer back is neve
   } finally {
     unfaultRead();
   }
-  /* Each pass waits the whole budget on the pointer, so the logon shim's deadline (round 6) is what ends
-     it: held, where round 5 reached stuck. Either way the tree is never called whole. */
-  assert.equal(boot.action, 'held', JSON.stringify(boot) + '\n' + c.log.join('\n'));
-  assert.match(boot.because, /its time to recover before the board starts ran out/);
-  assert.equal(fs.existsSync(c.statusAt), false, 'no rolled-back status');
+  /* The passes run out on the unreadable pointer (no deadline, round 7): stuck, in words. */
+  assert.equal(boot.action, 'stuck', JSON.stringify(boot) + '\n' + c.log.join('\n'));
+  assert.equal(boot.because, `${win32anchor.POINTER_NAME} cannot be read right now (code=EBUSY)`);
+  assert.equal(readJson(c.statusAt).outcome, 'stuck', 'never a rolled-back status');
   assert.equal(readJson(c.journal).finished, false, 'never concluded as rolled back');
   {
-    /* The resume helper has no deadline, so its passes run out on the unreadable pointer itself: stuck,
-       in words, and still never called whole (the boot case above is ended by the deadline first). */
+    /* The resume helper the same: its passes run out on the unreadable pointer, stuck. */
     const c2 = freshInstall();
     const sim2 = await rollbackLeftAtH8(c2);
     let resumed;
@@ -2380,7 +2377,7 @@ test('ROUND 6 F2 (PROBE6-B): a journal write held after H7 is tried again within
   try {
     r = await win32apply.applyJournal(c.journal, sim.deps({ probe: async (port) => {
       const answer = await baseProbe(port);
-      if (!box.armed && win32apply.taskBoardAnswersAs(answer, NEW_ID)) {
+      if (!box.armed && win32apply.answersAs(answer, NEW_ID)) {
         box.armed = true;
         fs.renameSync = function held(from, to) {
           if (box.hits < box.limit && path.resolve(String(to)).toLowerCase() === journalAt) {
@@ -2420,7 +2417,7 @@ test('ROUND 6 F2: a journal write held past the patience: the helper still repor
       limits: { recordPatienceMs: 2 * win32apply.DEFAULT_APPLY_LIMITS.stopPollMs },
       probe: async (port) => {
         const answer = await baseProbe(port);
-        if (!box.armed && win32apply.taskBoardAnswersAs(answer, NEW_ID)) {
+        if (!box.armed && win32apply.answersAs(answer, NEW_ID)) {
           box.armed = true;
           fs.renameSync = function held(from, to) {
             if (box.armed && path.resolve(String(to)).toLowerCase() === journalAt) {
@@ -2582,53 +2579,150 @@ test('ROUND 6 F6 (PROBE6-F): begin()\'s settlement and its abandoned staged jour
   }
 });
 
-test('ROUND 6 F6 (PROBE6-E): the logon shim\'s recovery stops as held by its deadline however long an entry stays unreadable, and names the whole old app', T, async () => {
-  assert.equal(win32apply.BOOT_RECOVERY_DEADLINE_MS,
-    win32handoff.HANDOFF_BUDGET_MS - win32handoff.MIN_PORT_RELEASE_WAIT_MS - win32handoff.PROBE_TIMEOUT_MS, 'derived from the hand-off');
-  assert.ok(win32apply.BOOT_RECOVERY_DEADLINE_MS < win32handoff.HANDOFF_BUDGET_MS);
-  const c = freshInstall();
-  const before = installState(c);
-  const sim = await rollbackLeftAtH8(c);
-  const t0 = clock;
-  let boot;
-  try {
-    faultLstat(path.join(c.root, 'bin'), 'EACCES', -1);
-    boot = win32apply.recoverAtBoot(c.journal, sim.deps());
-  } finally {
-    unfaultLstat();
+test('ROUND 7 A (PROBE6-E): an entry that answers EACCES for good at boot is asked about for the whole budget on every pass, then the recovery is stuck in words with the whole old app named; the next boot and the resume helper converge', T, async () => {
+  for (const next of ['boot', 'resume']) {
+    const c = freshInstall();
+    const before = installState(c);
+    const sim = await rollbackLeftAtH8(c);
+    let boot;
+    let fault;
+    try {
+      fault = faultLstat(path.join(c.root, 'bin'), 'EACCES', -1);
+      boot = win32apply.recoverAtBoot(c.journal, sim.deps());
+    } finally {
+      unfaultLstat();
+    }
+    assert.ok(fault.hits >= win32apply.OWNER_READ_BUDGET.tries, `${next}: the control: asked for the whole budget (${fault.hits})`);
+    assert.equal(boot.action, 'stuck', `${next}: ${JSON.stringify(boot)}\n${c.log.join('\n')}`);
+    assert.equal(boot.bootFrom, path.join(c.previous, 'app', 'server.js'), `${next}: the whole old app is named`);
+    assert.equal(readJson(c.journal).finished, false, next);
+    if (next === 'boot') {
+      assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'rolled-back', c.log.join('\n'));
+      assert.deepEqual(installState(c), before);
+    } else {
+      const resumed = await win32apply.resumeJournal(c.journal, sim.deps());
+      assertRolledBack(c, before, sim, resumed, 'the resume helper after a stuck boot');
+    }
   }
-  assert.equal(boot.action, 'held', JSON.stringify(boot) + '\n' + c.log.join('\n'));
-  assert.match(boot.because, /its time to recover before the board starts ran out/);
-  assert.ok(clock - t0 <= win32apply.BOOT_RECOVERY_DEADLINE_MS, `the recovery took ${clock - t0} ms`);
-  assert.equal(boot.bootFrom, path.join(c.previous, 'app', 'server.js'));
-  assert.equal(readJson(c.journal).finished, false);
-  assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'rolled-back', c.log.join('\n'));
-  assert.deepEqual(installState(c), before);
 });
 
-test('ROUND 6 F7: a board started by hand that answers with the new version is not a confirmation, and the resume helper does not finish forward on it', T, async () => {
+/* ─── review round 7: no boot deadline, and no started-by-task requirement ─────────────────── */
+
+test('ROUND 7 B: a board the launcher serves itself (started-by-task header 0) that answers as the new build confirms at H7, and the resume helper finishes forward on it; a board answering as the old build confirms nothing', T, async () => {
   {
     const c = freshInstall();
+    const newTree = hashTree(c.staged);
     stage(c);
-    const before = installState(c);
-    const sim = playBoard(c, { handStarted: true });
+    const sim = playBoard(c, { launcherServed: true });
     const r = await win32apply.applyJournal(c.journal, sim.deps());
-    assertRolledBack(c, before, sim, r, 'H7 with a hand-started board');
-    assert.match(readJson(c.statusAt).because, /did not answer as 0\.6\.61@default \(a board answered as 0\.6\.61@default, but not one its logon task started/);
+    assert.equal(r.outcome, 'updated', JSON.stringify(r) + '\n' + c.log.join('\n'));
+    assert.deepEqual(hashTree(c.root, [c.work, path.join(c.root, 'Projects')]), newTree);
+    assert.equal(sim.identity, NEW_ID);
+    assert.equal(readJson(c.statusAt).outcome, 'updated');
+  }
+  {
+    const c = freshInstall();
+    const newTree = hashTree(c.staged);
+    stage(c);
+    crashAt(c, 'before H7-run #1');
+    const sim = playBoard(c, { launcherServed: true });
+    sim.running = false;
+    sim.identity = null;
+    win32board.runNow();
+    assert.equal(sim.identity, NEW_ID, 'the control: the new build answers, served by the launcher');
+    sim.calls.length = 0;
+    const r = await win32apply.resumeJournal(c.journal, sim.deps());
+    assert.equal(r.outcome, 'updated', JSON.stringify(r) + '\n' + c.log.join('\n'));
+    assert.deepEqual(sim.calls, [], 'the confirmed board is left serving');
+    assert.deepEqual(hashTree(c.root, [c.work, path.join(c.root, 'Projects')]), newTree);
   }
   {
     const c = freshInstall();
     const before = installState(c);
     stage(c);
     crashAt(c, 'before H7-run #1');
-    const sim = playBoard(c, { handStarted: true });
+    const sim = playBoard(c, { launcherServed: true, answerAs: () => OLD_ID });
     sim.running = false;
     sim.identity = null;
     win32board.runNow();
-    assert.equal(sim.identity, NEW_ID, 'the control: the new build answers, by hand');
+    assert.equal(sim.identity, OLD_ID, 'the control: a board answering as the old build');
     sim.calls.length = 0;
     const r = await win32apply.resumeJournal(c.journal, sim.deps());
-    assertRolledBack(c, before, sim, r, 'the resume helper with a hand-started board');
+    assertRolledBack(c, before, sim, r, 'a board answering as the old build at starting');
     assert.deepEqual(sim.calls, ['/End /TN Kosmos\\board', '/Run /TN Kosmos\\board']);
   }
+});
+
+test('ROUND 7 A (P1): a slow boot recovery with nothing held (every hash taking 4 s) finishes rolled-back in one boot', T, async () => {
+  const c = freshInstall();
+  const before = installState(c);
+  const sim = await rollbackLeftAtH8(c);
+  const realSha = win32update.sha256OfFile;
+  let hashes = 0;
+  const t0 = clock;
+  let boot;
+  win32update.sha256OfFile = function slow(file) { hashes += 1; clock += 4000; return realSha(file); };
+  try {
+    boot = win32apply.recoverAtBoot(c.journal, sim.deps());
+  } finally {
+    win32update.sha256OfFile = realSha;
+  }
+  assert.equal(boot.action, 'rolled-back', JSON.stringify(boot) + '\n' + c.log.join('\n'));
+  assert.ok(hashes >= 3, `the control: the recovery hashed ${hashes} times`);
+  assert.ok(clock - t0 > 8000, `the control: longer than round 6's 8 s deadline allowed (${clock - t0} ms)`);
+  assert.deepEqual(installState(c), before);
+});
+
+test('ROUND 7 A (P3b): the boot choice after a held recovery asks again within the budget, so a whole previous app is always named, never no app and never the unconfirmed build', T, async () => {
+  for (const [label, heldAt] of [['the new app still in the Kosmos folder', 'H8-H4'], ['no app in the Kosmos folder', 'H8-H3']]) {
+    const c = freshInstall();
+    const sim = await rollbackLeftAtH8(c);
+    const lockAt = path.resolve(lockOf(c)).toLowerCase();
+    const packageAt = path.resolve(c.previous, 'app', 'package.json').toLowerCase();
+    const box = { held: false, packageHits: 0 };
+    fs.readFileSync = function faulty(p, ...rest) {
+      if (typeof p === 'string' && box.held) {
+        const r = path.resolve(p).toLowerCase();
+        if (r === lockAt) throw Object.assign(new Error('EBUSY: injected, the lock'), { code: 'EBUSY' });
+        if (r === packageAt && box.packageHits < 3) {
+          box.packageHits += 1;
+          throw Object.assign(new Error('EBUSY: injected, the old app'), { code: 'EBUSY' });
+        }
+      }
+      return realReadFileSync.call(this, p, ...rest);
+    };
+    let boot;
+    try {
+      boot = win32apply.recoverAtBoot(c.journal, sim.deps({ hooks: { before: (step, d) => {
+        if (step === heldAt && d.entry === 'app') box.held = true;
+      } } }));
+    } finally {
+      unfaultRead();
+    }
+    assert.equal(boot.action, 'held', `${label}: ${JSON.stringify(boot)}\n${c.log.join('\n')}`);
+    assert.equal(box.packageHits, 3, `${label}: the control: the old app's package.json was busy three times`);
+    assert.equal(boot.bootFrom, path.join(c.previous, 'app', 'server.js'), `${label}: the whole old app is named`);
+    assert.equal(readJson(c.journal).phase, 'rolling-back', label);
+  }
+});
+
+test('ROUND 7 A (P2b): the lock release after a held recovery asks again within the budget, and releases once the hold clears', T, async () => {
+  const c = freshInstall();
+  const before = installState(c);
+  const sim = await rollbackLeftAtH8(c);
+  const shots = win32apply.OWNER_READ_BUDGET.tries + 5;
+  let fault = null;
+  let boot;
+  try {
+    boot = win32apply.recoverAtBoot(c.journal, sim.deps({ hooks: { before: (step, d) => {
+      if (step === 'H8-H3' && d.entry === 'app' && !fault) fault = faultRead(lockOf(c), 'EBUSY', shots);
+    } } }));
+  } finally {
+    unfaultRead();
+  }
+  assert.equal(boot.action, 'held', JSON.stringify(boot) + '\n' + c.log.join('\n'));
+  assert.equal(fault.hits, shots, 'the control: the ownership check used its whole budget, and the release met 5 more');
+  assert.equal(fs.existsSync(lockOf(c)), false, 'released, never left naming this live process');
+  assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'rolled-back', c.log.join('\n'));
+  assert.deepEqual(installState(c), before);
 });
