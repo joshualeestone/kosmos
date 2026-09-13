@@ -13280,8 +13280,8 @@ if (require.main === module) {
     process.stderr.write(`Kosmos could not refresh what agents know about connections: ${String(err && err.message)}\n`);
   }
   /* #570: on Windows, a board started by hand from the unpacked zip (Kosmos.exe)
-     hands itself to its headless logon task and leaves, so the launcher's window
-     is never the board and a relaunch never reports "port in use" over a working
+     hands itself to its headless logon task and leaves, so the launcher is never
+     the board and a relaunch never reports "port in use" over a working
      board. Every case it cannot confirm resolves to serving here, as before. See
      engine/win32handoff.js. */
   const beforeServing = process.platform === 'win32'
@@ -13290,13 +13290,17 @@ if (require.main === module) {
   beforeServing.catch((err) => ({ serve: true, attempted: true, because: `the hand-off failed (${String(err && err.message)})` })).then((handOff) => {
     if (!handOff.serve) {
       /* A Windows console write is asynchronous, so exit from its callback. The
-         launcher's own console closes on exit 0, so this line is read by whoever
-         started Kosmos from a terminal they keep. */
+         launcher exits with this board (closing its --console window, if any), so
+         this line is read only by whoever ran Kosmos.exe --console from a terminal
+         they keep; the launcher's default console is hidden. */
       process.stdout.write(`${handOff.say}\n`, () => process.exit(handOff.exitCode || 0));
       return;
     }
     if (handOff.attempted) {
-      process.stderr.write(`Kosmos could not move to the background (${handOff.because}), so it is running in this window. Keep this window open while you use Kosmos.\n`);
+      /* Readable only in Kosmos.exe --console's window (or a terminal that ran the
+         board by hand). A double-clicked Kosmos.exe has a hidden console and shows
+         its own box with the same advice once the hand-off's worst case has passed. */
+      process.stderr.write(`Kosmos could not move to the background (${handOff.because}), so it is running from this window instead. Keep this window open while you use Kosmos.\n`);
     }
     start().then(() => {
       // Report the port actually bound, not the one requested, or a `PORT=0` run

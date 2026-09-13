@@ -25,7 +25,12 @@ What it adds is how a Windows program presents itself (win32-launcher-native):
 
 - **No console window.** It is a GUI-subsystem exe (`/target:winexe`), so a
   double-click opens nothing but the browser. The board runs on a hidden console,
-  as the logon task's board does.
+  as the logon task's board does. A board that could not move to its logon task
+  keeps serving from there. If it is still running once the hand-off's worst case
+  has passed (`HANDOFF_WORST_CASE_MS` in `engine/win32handoff.js`), a box titled
+  "Kosmos" says so and stays up as the person's handle on it. OK stops that board
+  and everything it started (`taskkill /T`), and the box closes by itself if the
+  board ends first.
 - **Problems are a message box titled "Kosmos"**, never console text a person
   cannot see. That includes the most common mistake: double-clicking `Kosmos.exe`
   inside the zip in Explorer, which runs it from a temp folder with no

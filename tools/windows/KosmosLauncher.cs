@@ -28,6 +28,8 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
+using System.Threading;
 
 // FileDescription (AssemblyTitle) is the name Task Manager, the taskbar and
 // SmartScreen's "App:" line show. AssemblyCompany is deliberately absent: it has
@@ -59,6 +61,26 @@ class KosmosLauncher
     const string WindowTitle = "Kosmos";
 
     const string ConsoleFlag = "--console";
+
+    // How long a board started here can take to hand itself to its logon task,
+    // counted from its own start: engine/win32handoff.js's HANDOFF_WORST_CASE_MS
+    // (the budget plus its floors). tools.win-launcher-native.test.js pins the
+    // two equal. A board that hands off later than this still closes the box
+    // below by itself, the moment it exits.
+    const int HandOffWorstCaseMs = 18000;
+
+    // Shown when the board is still running after HandOffWorstCaseMs: it did not
+    // move to its logon task and is serving from this launcher, which has no
+    // window, so this box is the person's handle on it.
+    const string RunningHereMessage =
+        "Kosmos couldn't move to the background, so it's running from here instead. Keep this box open while you use Kosmos. Click OK to stop Kosmos. To see why, run Kosmos.exe --console.";
+
+    // The window class of every Windows message box, ours included.
+    const string DialogWindowClass = "#32770";
+
+    // How often the box is asked to close once the board has ended: short
+    // enough that the box goes away with the board, not noticeably after.
+    const int CloseBoxRetryMs = 100;
 
     // The most common Windows mistake: double-clicking Kosmos.exe inside the zip
     // in Explorer, which runs that one file from a temp folder with nothing
@@ -167,18 +189,32 @@ class KosmosLauncher
         try { p = Process.Start(s); }
         catch (Exception e) { return Fail("the runtime would not start (" + e.Message + ")."); }
 
+        Stopwatch sinceServerStarted = Stopwatch.StartNew();
+
         if (browserProblem != null && showMessageBoxes)
         {
             ShowMessageBox(browserProblem + "\n\nOpen http://127.0.0.1:" + port + " in your browser yourself.", false);
         }
 
+        // A board that hands off to its logon task exits 0 within the hand-off's
+        // worst case. One still running after that is serving from here, on a
+        // console nobody can see, so the person gets a box to keep it by (see
+        // KeepBoardUntilPersonStopsIt). With --console, or with nobody at the
+        // desktop, the launcher just waits, as it always did.
+        bool stoppedByPerson = false;
+        if (showMessageBoxes)
+        {
+            int stillToWaitMs = HandOffWorstCaseMs - (int)sinceServerStarted.ElapsedMilliseconds;
+            if (!p.WaitForExit(Math.Max(0, stillToWaitMs))) stoppedByPerson = KeepBoardUntilPersonStopsIt(p);
+        }
+
         p.WaitForExit();
-        if (p.ExitCode != 0)
+        if (p.ExitCode != 0 && !stoppedByPerson)
         {
             if (showMessageBoxes)
             {
                 ShowMessageBox("Kosmos stopped unexpectedly (exit code " + p.ExitCode + ").\n\n"
-                    + "Double-click Kosmos.exe to try again. To see why it stopped, open Command Prompt in this folder and run:\n\n"
+                    + "Double-click Kosmos.exe to try again. To see why it stopped, open its folder in File Explorer (" + here + "), click the address bar, type cmd, press Enter, then run:\n\n"
                     + "start /wait Kosmos.exe " + ConsoleFlag, true);
             }
             else
@@ -307,6 +343,80 @@ class KosmosLauncher
         }
     }
 
+    // Set once the running-here box has returned, so the thread closing it stops.
+    static volatile bool boxIsClosed;
+
+    // The board did not move to its logon task, so it is serving from this
+    // launcher's hidden console. Nothing about that is visible or closable, so
+    // this box is the person's handle on it: OK stops the board, and the box
+    // closes by itself if the board ends first. True when the person stopped it.
+    static bool KeepBoardUntilPersonStopsIt(Process server)
+    {
+        uint boxThread = GetCurrentThreadId();
+        boxIsClosed = false;
+        Thread closeBoxWhenBoardEnds = new Thread(() =>
+        {
+            server.WaitForExit();
+            EnumWindowsProc closeDialogs = (window, unused) =>
+            {
+                StringBuilder className = new StringBuilder(64);
+                GetClassName(window, className, className.Capacity);
+                if (className.ToString() == DialogWindowClass) PostMessage(window, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                return true;
+            };
+            // Retried until the box has returned: the board can end in the moment
+            // before the box's window exists, and a WM_CLOSE then lands nowhere.
+            while (!boxIsClosed)
+            {
+                EnumThreadWindows(boxThread, closeDialogs, IntPtr.Zero);
+                Thread.Sleep(CloseBoxRetryMs);
+            }
+        });
+        closeBoxWhenBoardEnds.IsBackground = true;
+        closeBoxWhenBoardEnds.Start();
+
+        ShowMessageBox(RunningHereMessage, false);
+        boxIsClosed = true;
+        if (server.HasExited) return false;
+        StopServerAndEverythingItStarted(server);
+        return true;
+    }
+
+    // taskkill /T ends the board and every process still descended from it (its
+    // hidden console, anything it spawned). Agents are not among them: each runs
+    // under its own Scheduled Task, as does the logon task's board. There is no
+    // window to report a failed taskkill in, so it falls back to ending the
+    // board process itself.
+    static void StopServerAndEverythingItStarted(Process server)
+    {
+        try
+        {
+            ProcessStartInfo stop = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "taskkill.exe"), "/PID " + server.Id + " /T /F");
+            stop.UseShellExecute = false;
+            stop.CreateNoWindow = true;
+            using (Process taskkill = Process.Start(stop)) { taskkill.WaitForExit(); }
+        }
+        catch { /* fall through to ending the board itself */ }
+        try { if (!server.HasExited) server.Kill(); }
+        catch { /* it ended between the check and the kill */ }
+    }
+
+    const uint WM_CLOSE = 0x0010;
+
+    delegate bool EnumWindowsProc(IntPtr window, IntPtr parameter);
+
+    [DllImport("user32.dll")]
+    static extern bool EnumThreadWindows(uint threadId, EnumWindowsProc callback, IntPtr parameter);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    static extern int GetClassName(IntPtr window, StringBuilder className, int capacity);
+
+    [DllImport("user32.dll")]
+    static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("kernel32.dll")]
+    static extern uint GetCurrentThreadId();
+
     const uint MB_ICONERROR = 0x10;
     const uint MB_ICONWARNING = 0x30;
 
@@ -336,6 +446,9 @@ class KosmosLauncher
             // Never give a non-interactive run a console of its own: nobody can
             // see it, and Hold() would wait on it for a key nobody can press.
             if (!Environment.UserInteractive) return;
+            // Nor a caller that captured both outputs: every line goes to them,
+            // so a new window would stay empty and Hold() would wait on it.
+            if (outRedirected && errRedirected) return;
             AllocConsole();
         }
         if (outRedirected) SetStdHandle(STD_OUTPUT_HANDLE, stdout);
@@ -343,11 +456,13 @@ class KosmosLauncher
         if (inRedirected) SetStdHandle(STD_INPUT_HANDLE, stdin);
     }
 
+    // Redirected means a real handle that is not a console: a file, a pipe, or
+    // the NUL device (which a type check would call a character device and miss).
     static bool IsRedirected(IntPtr handle)
     {
         if (handle == IntPtr.Zero || handle == INVALID_HANDLE_VALUE) return false;
-        uint type = GetFileType(handle);
-        return type == FILE_TYPE_DISK || type == FILE_TYPE_PIPE;
+        uint mode;
+        return !GetConsoleMode(handle, out mode);
     }
 
     // ⚠️ ONLY when a console would vanish and take the message with it. A user
@@ -376,8 +491,6 @@ class KosmosLauncher
     const int STD_OUTPUT_HANDLE = -11;
     const int STD_ERROR_HANDLE = -12;
     const uint ATTACH_PARENT_PROCESS = 0xFFFFFFFF;
-    const uint FILE_TYPE_DISK = 0x0001;
-    const uint FILE_TYPE_PIPE = 0x0003;
     static readonly IntPtr INVALID_HANDLE_VALUE = new IntPtr(-1);
 
     [DllImport("kernel32.dll", SetLastError = true)]
@@ -395,6 +508,6 @@ class KosmosLauncher
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool SetStdHandle(int which, IntPtr handle);
 
-    [DllImport("kernel32.dll")]
-    static extern uint GetFileType(IntPtr handle);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool GetConsoleMode(IntPtr handle, out uint mode);
 }

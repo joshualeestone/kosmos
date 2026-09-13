@@ -1,10 +1,11 @@
 'use strict';
 /**
  * #570: a board started BY HAND from the unpacked Windows zip hands itself to its
- * logon task, instead of serving from the launcher's console window.
+ * logon task, instead of serving from the launcher's hidden console (or its
+ * --console window).
  *
- * 🛑 THE WINDOW WAS THE BOARD. `Kosmos.exe` runs server.js in the foreground of
- * the console it opens, so closing that window killed the board -- the class of
+ * 🛑 THE WINDOW WAS THE BOARD. `Kosmos.exe` ran server.js in the foreground of
+ * the console it opened, so closing that window killed the board -- the class of
  * defect #2714 removed from every Scheduled Task, left standing on the one window a
  * person is most likely to close. And from the first logon on, the task's headless
  * board is already serving, so every later double-click printed "port 16180 is
@@ -15,12 +16,14 @@
  * (`win32board.ensureInstalled` registered or refreshed it a moment earlier in the
  * same boot), it runs headless, and it is what a logon starts anyway -- so after
  * this there is one way the board runs on Windows, whichever way it was started.
- * Exiting 0 lets the launcher's console close by itself; its opener is already
- * waiting to put the board in the browser.
+ * Exiting 0 lets the launcher exit with it (closing its --console window, if it has
+ * one); its opener is already waiting to put the board in the browser.
  *
- * ⚠️ WHAT IT CANNOT CONFIRM, IT LEAVES TO THE WINDOW, which is the behaviour before
- * this module -- inside a budget that ends before the opener gives up (see
- * HANDOFF_BUDGET_MS), so a fallback still gets the browser signed in.
+ * ⚠️ WHAT IT CANNOT CONFIRM, IT LEAVES TO THE LAUNCHER, which is the behaviour
+ * before this module: this board serves from the launcher's hidden console (or its
+ * --console window), and a GUI Kosmos.exe shows a box that stays the person's handle
+ * on it (HANDOFF_WORST_CASE_MS). All inside a budget that ends before the opener
+ * gives up (see HANDOFF_BUDGET_MS), so a fallback still gets the browser signed in.
  */
 
 const fs = require('node:fs');
@@ -32,7 +35,7 @@ const path = require('node:path');
  * browser opener does not wait for us. `tools/kosmos-open-board.js` waits 20s for
  * a board and then opens the PLAIN url, which an enforcing Windows board answers
  * with the #2007 403. So whatever this does -- succeed, replace an older board, or
- * give up and serve in the window -- a board must be answering before then.
+ * give up and serve from the launcher -- a board must be answering before then.
  * ⚠️ THE BUDGET IS NOT THE WORST CASE, and the difference is spelled out so it is
  * not rediscovered: a probe already in flight at the deadline can take
  * PROBE_TIMEOUT_MS (no wait starts one past its own end), and the fallback's
@@ -72,6 +75,17 @@ const MAX_ROUNDS = 2;
 /* One probe's budget, and the gap between probes while waiting. */
 const PROBE_TIMEOUT_MS = 2000;
 const POLL_INTERVAL_MS = 300;
+
+/**
+ * The longest a hand-started board takes, from its own start, before it has either
+ * left (handed off) or begun serving from the launcher: the arithmetic spelled out at
+ * HANDOFF_BUDGET_MS, as one value. Kosmos.exe waits this long before telling the
+ * person the board is running from it (tools/windows/KosmosLauncher.cs,
+ * HandOffWorstCaseMs, pinned equal by tools.win-launcher-native.test.js). The `/End`
+ * spawn is not in it, because it is not measured; a board that hands off later than
+ * this closes the launcher's box by exiting.
+ */
+const HANDOFF_WORST_CASE_MS = HANDOFF_BUDGET_MS + PROBE_TIMEOUT_MS + MIN_PORT_RELEASE_WAIT_MS + PROBE_TIMEOUT_MS;
 
 /**
  * 🔑 THE RUNNING BOARD'S IDENTITY COMES FROM A HEADER, NEVER FROM THE PAGE.
@@ -170,7 +184,8 @@ function probeBoard(port) {
 /* The logon task runs with the account's environment, not this launch's. A launch
    that asked for its own port or its own data folder would be handed to a board
    that serves neither -- and the hand-off would then end that working board as
-   "not answering". Those launches keep their window. */
+   "not answering". Those launches serve from the launcher (its hidden console, or
+   its --console window). */
 function overriddenBy(env) {
   const e = env || {};
   if (e.PORT) return 'PORT';
@@ -191,7 +206,7 @@ function skipReason(o) {
   const e = o.ensured;
   /* Only a task that was just registered or refreshed is known to be enabled AND to
      name this install. A task the person switched off or removed means they chose
-     the window, and the window is what they get. */
+     to run Kosmos from the launcher, and that is what they get. */
   if (!e || !e.ok || (e.action !== 'registered' && e.action !== 'refreshed')) {
     return 'the logon task is not ready (' + ((e && (e.action || e.because)) || 'unknown') + ')';
   }
@@ -311,4 +326,4 @@ async function handOffToTask(opts) {
   }
 }
 
-module.exports = { handOffToTask, buildIdentity, boardIdentity, BOARD_IDENTITY_HEADER };
+module.exports = { handOffToTask, buildIdentity, boardIdentity, BOARD_IDENTITY_HEADER, HANDOFF_WORST_CASE_MS };

@@ -65,8 +65,15 @@ real zip on this box is ruled out by the safety rule below.
   parent's console, or allocates its own window when there is none. It prints the same
   lines as before ("Starting Kosmos...") and holds the window on failure exactly as
   before. The server then shares that console, as it did.
-- **Standard output already redirected** (a script capturing output): the launcher writes
-  there and allocates no console, so a caller's pipe keeps working.
+- **Output already redirected** (a script capturing it): "redirected" means a valid
+  handle for which `GetConsoleMode` fails, so a file, a pipe, and the NUL device all
+  count. With `--console`, the launcher still attaches to its parent's console when the
+  parent has one, and then puts the redirected handles back. When the attach fails, it
+  allocates a console of its own only if stdout and stderr are not both redirected. A
+  caller that captured both gets every line and no empty window that `Hold()` could wait
+  on. *Corrected in round 1 (CONVENTION 3):* the first version called `AllocConsole`
+  whenever the attach failed, and counted only DISK and PIPE, so a NUL stdin was not put
+  back and `Hold()` blocked on a new visible console.
 - **Never a message box in a non-interactive context.** If `Environment.UserInteractive`
   is false (a service, or a task running "whether the user is logged on or not", which
   gets a non-visible window station), the launcher writes to stderr and exits with the
@@ -98,11 +105,23 @@ launcher. The box for a non-zero exit therefore says how to see the details: run
 
 **Two known behaviour changes, accepted:**
 
-- When no hand-off is due (a `PORT` or `AGENT_WORKFORCE_*` override, or a logon task the
-  person switched off), the board serves from the launcher as before, but on a hidden
-  console instead of a visible window. It stops the same way the task's board does, not
-  by closing a window. The README still says "double-click Kosmos.exe again" for every
-  recovery.
+- When the board serves from the launcher instead of its logon task, it runs on a hidden
+  console instead of a visible window. That covers no hand-off being due (a `PORT` or
+  `AGENT_WORKFORCE_*` override, or a logon task the person switched off), a hand-off that
+  was tried and not confirmed, and `ensureInstalled` failing. *Changed in round 1 (BUG
+  1):* in GUI mode the launcher stays the person's handle on that board. A board that
+  hands off exits 0 within `HANDOFF_WORST_CASE_MS` (`engine/win32handoff.js`: the budget,
+  plus a probe in flight, the port-release floor, and its last probe, 18s). If the server
+  is still running after that, a box titled "Kosmos" says: "Kosmos couldn't move to the
+  background, so it's running from here instead. Keep this box open while you use
+  Kosmos. Click OK to stop Kosmos. To see why, run Kosmos.exe --console." OK ends the
+  server and its descendants with `taskkill /T /F` and suppresses the crash box. If the
+  server ends by itself, a watcher thread closes the box (WM_CLOSE, retried until it has
+  returned). With `--console`, or when nobody is at the desktop, there is no box, and the
+  launcher waits on the server as before. The C# constant `HandOffWorstCaseMs` is a second
+  copy of the JS value, pinned equal by the test, as the port already is. The `/End` spawn
+  is not in the value because it is not measured; a board that hands off later than that
+  closes the box by exiting.
 - A GUI-subsystem exe run from `cmd` or PowerShell does not block the prompt. The exit
   code is still set; `start /wait Kosmos.exe --console` gets it.
 
@@ -221,3 +240,89 @@ and `verify-launcher.ps1` must print OK on it.
   "Kosmos", with an OK button and the exact inside-the-zip or partial-extract text (read
   back through its child windows), and started no child process. Each was then killed.
   The real hand-off path was never run.
+
+## Review log
+
+### Round 1 (opus, at 292d69d8): 1 BUG, 2 CONVENTION, 3 NIT. Not converged.
+
+The coordinator rebased the branch onto `origin/main` 9ceed247 first, cleanly; main
+touched none of these files.
+
+- **BUG 1: a hand-off that does not happen served on an invisible console.** Fixed as
+  decided: the launcher stays the person's handle (see "Two known behaviour changes"
+  above).
+  - **Constants:** `HANDOFF_WORST_CASE_MS` is exported from `engine/win32handoff.js` and
+    derived from the budget and its floors. `HandOffWorstCaseMs` in the launcher is
+    pinned equal to it.
+  - **Box text:** exactly the text decided.
+  - **Stopping and closing:** OK runs `taskkill /T /F` on the server. A watcher thread
+    closes the box if the server ends first.
+  - **Where it applies:** no box with `--console` or in a non-interactive run.
+  - **Wording:** `server.js`'s stderr line now reads "running from this window instead"
+    and is commented as visible only with `--console`.
+- **CONVENTION 2: comments describing a launcher window.** Reworded in `win32handoff.js`
+  (the header, the budget comment, `overriddenBy`, `skipReason`) and in `server.js` (the
+  hand-off comments).
+- **CONVENTION 3: an allocated console on a redirected run.** "Redirected" is now "a valid
+  handle for which `GetConsoleMode` fails". There is no `AllocConsole` when stdout and
+  stderr are both redirected. The plan sentence is corrected.
+- **NIT 4:** the exit-code box now says to open the folder in File Explorer (and shows
+  its path), click the address bar, type cmd, press Enter, then run
+  `start /wait Kosmos.exe --console`.
+- **NIT 5:** the README reaches `%LOCALAPPDATA%\Programs\Kosmos` through File Explorer's
+  address bar, with a fallback for creating `Programs`, then pastes the copied path into
+  Extract All. It no longer spells out a profile path.
+- **NIT 6: the TEMP boundary.** New arms: a sibling-prefix TEMP (`...\Temp` with the exe
+  under `...\Temp2\Kosmos`) and a drive-root TEMP (`C:\`). Neither may say "inside the
+  zip".
+
+**New tests:**
+- **Static (BUG 1):** the one derivation, the message text, the boxed wait gated on GUI
+  mode, the crash box suppressed after OK, the watcher closing the box, and
+  `taskkill /T` as the only extra process start.
+- **`--console`, with a copied node and a FAKE `app\server.js`** (a script the test
+  writes, never the board, so no hand-off exists to reach):
+  - exit code 7 is passed through, with the console launcher's lines;
+  - a board still running past the worst case is neither boxed nor stopped (about 19.5s).
+- **CONVENTION 3:** a relay with no console (detached) starts `Kosmos.exe --console` with
+  both outputs piped and a NUL stdin.
+- **NIT 6:** the sibling-prefix and drive-root arms.
+
+**Measured, round 2:**
+- **Build:** `Kosmos.exe` rebuilt the documented way, 66048 bytes. `verify-launcher.ps1`
+  reports OK.
+- **Tests,** run as `node --test <explicit files>` with
+  `NODE_OPTIONS=--require=C:\Users\joshu\kosmos-scripts\no-schtasks-preload.cjs`: 96
+  tests, 94 pass across `tools.win-launcher-native`, `tools.build-windows-570`,
+  `tools.win-open-board-2007`, `engine/win32handoff`, `server.board-identity-header-570`,
+  and `engine.reachable`.
+  - The 2 failures are the known `tools.win-open-board-2007` bash-stub EFTYPE ones,
+    unchanged from `origin/main`.
+  - `tools.win-launcher-native` alone passes 20 of 20.
+  - The schtasks guard logged no attempted call.
+- **Controls:**
+
+  | Control | Result |
+  |---|---|
+  | BUG 1 (hand edit removing the boxed wait, undone) | red on the BUG 1 static test only |
+  | CONVENTION 3 (scratch build with the type-based check and unconditional `AllocConsole` restored) | red on the CONVENTION 3 arm only |
+  | NIT 6, sibling (`root + "\\"` changed to `root`) | red on the sibling-prefix arm only |
+  | NIT 6, drive root (the `EndsWith(":")` guard removed) | red on the drive-root arm only |
+
+  On CONVENTION 3, the reviewer expected `Hold()` to block in ReadKey. Measured here, a
+  NUL stdin made ReadKey throw instead, so the old code did not hang in that setup. It
+  still allocated a console window and printed "Press any key to close this window." into
+  the captured output. The first version of the arm asserted only "not killed" and stayed
+  green on the reverted build; it now also asserts that the prompt is absent, and that is
+  what goes red.
+- **Live GUI checks, not committed tests.** Each used the committed exe, a copied node,
+  and a FAKE `app\server.js` in scratch; the real server was never run.
+  - A board that never ends: the "Kosmos" box appeared at 18.8s with the exact
+    running-here text. Clicking OK (BM_CLICK) made the launcher exit (code 1, the
+    killed child's), the fake board process was gone, and no second box appeared.
+  - A board that exits 0 at 22s: the box appeared at 18.75s and closed by itself, and the
+    launcher exited 0 at 22.9s.
+- **Known limit, unchanged by this round:** a `--console` run whose parent has no console
+  and whose outputs are both captured starts the real server with `CreateNoWindow` false.
+  Node then gets a console of its own, and its output does not reach the caller's pipes.
+  Nothing calls Kosmos.exe that way today.

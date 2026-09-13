@@ -238,11 +238,48 @@ test('🛑 nothing is started before the runtime and app checks, so a runtime-le
   const appCheck = main.indexOf('if (!File.Exists(server))');
   assert.ok(runtimeCheck > 0 && appCheck > runtimeCheck, 'the runtime and app checks moved');
   const starts = [...SOURCE.matchAll(/Process\.Start\(/g)].map((m) => m.index);
-  assert.equal(starts.length, 2, 'the launcher starts something other than the opener and the server');
+  /* The one start outside the launch is taskkill, in the stop path, which only runs
+     once the server is already running. */
+  const stopAt = SOURCE.indexOf('static void StopServerAndEverythingItStarted(');
+  const stopEnd = SOURCE.indexOf('\n    }\n', stopAt);
+  assert.ok(stopAt > 0 && stopEnd > stopAt, 'the stop path moved');
+  assert.match(SOURCE.slice(stopAt, stopEnd), /"taskkill\.exe"\), "\/PID " \+ server\.Id \+ " \/T \/F"\)/,
+    'the stop path no longer ends the board and its descendants with taskkill /T');
+  const launches = starts.filter((at) => !(at > stopAt && at < stopEnd));
+  assert.equal(starts.length - launches.length, 1, 'the stop path starts something other than one taskkill');
+  assert.equal(launches.length, 2, 'the launcher starts something other than the opener and the server');
   const mainAt = SOURCE.indexOf('static int Main(');
-  for (const at of starts) {
+  for (const at of launches) {
     assert.ok(at > mainAt + appCheck, 'a process is started before the runtime and app checks; the tests below would reach the hand-off');
   }
+});
+
+test('round 1 BUG: a board still running after the hand-off\'s worst case gets a box that is the person\'s handle on it', () => {
+  /* When the hand-off does not happen, server.js serves in place, on a hidden console
+     in GUI mode. Without this box the person could neither see nor stop that board,
+     and the next Kosmos.exe would die on the port it holds. */
+  const handoff = require('./engine/win32handoff');
+  const wait = SOURCE.match(/const int HandOffWorstCaseMs = (\d+);/);
+  assert.ok(wait, 'the launcher no longer names how long a hand-off can take');
+  assert.equal(Number(wait[1]), handoff.HANDOFF_WORST_CASE_MS,
+    'the launcher waits a different time than the hand-off\'s worst case: one fact, two copies, drifted');
+  const handoffSource = fs.readFileSync(path.join(REPO, 'engine', 'win32handoff.js'), 'utf8');
+  assert.match(handoffSource, /const HANDOFF_WORST_CASE_MS = HANDOFF_BUDGET_MS \+ PROBE_TIMEOUT_MS \+ MIN_PORT_RELEASE_WAIT_MS \+ PROBE_TIMEOUT_MS;/,
+    'the worst case is no longer derived from the budget and its floors');
+  assert.equal(sourceConstant('RunningHereMessage'),
+    "Kosmos couldn't move to the background, so it's running from here instead. Keep this box open while you use Kosmos. Click OK to stop Kosmos. To see why, run Kosmos.exe --console.");
+  const main = SOURCE.slice(SOURCE.indexOf('static int Main('), SOURCE.indexOf('static int Fail('));
+  assert.match(main,
+    /if \(showMessageBoxes\)\s*\{\s*int stillToWaitMs = HandOffWorstCaseMs - \(int\)sinceServerStarted\.ElapsedMilliseconds;\s*if \(!p\.WaitForExit\(Math\.Max\(0, stillToWaitMs\)\)\) stoppedByPerson = KeepBoardUntilPersonStopsIt\(p\);\s*\}/,
+    'a GUI launch no longer boxes a board that is still running after the worst case (or --console and non-interactive runs now get the box too)');
+  assert.match(main, /if \(p\.ExitCode != 0 && !stoppedByPerson\)/, 'a board the person stopped is reported as a crash');
+  const keep = SOURCE.slice(SOURCE.indexOf('static bool KeepBoardUntilPersonStopsIt('), SOURCE.indexOf('static void StopServerAndEverythingItStarted('));
+  assert.match(keep, /server\.WaitForExit\(\);/, 'nothing watches for the board ending while the box is up');
+  assert.match(keep, /PostMessage\(window, WM_CLOSE,/, 'the box is not closed when the board ends by itself');
+  assert.match(keep, /while \(!boxIsClosed\)/, 'a board that ends before the box exists leaves the box up');
+  assert.match(keep,
+    /ShowMessageBox\(RunningHereMessage, false\);\s*boxIsClosed = true;\s*if \(server\.HasExited\) return false;\s*StopServerAndEverythingItStarted\(server\);\s*return true;/,
+    'OK does not stop the board, or it stops one that had already ended');
 });
 
 test('W-07: message boxes are for a person at a desktop, and --console keeps the console launcher', () => {
@@ -269,7 +306,12 @@ test('the zip README speaks Windows: Extract, sign in, the real prompts, a folde
   assert.match(readme, /Tip: before you extract, right-click the zip, choose Properties, tick\\r\\n'\n\s*printf 'Unblock/);
   assert.match(readme, /This preview is not signed yet; signed builds are coming\./);
   assert.doesNotMatch(readme, /have not bought/, 'the README still says a certificate was not bought');
-  assert.match(readme, /C:\\\\Users\\\\<your name>\\\\AppData\\\\Local\\\\Programs\\\\Kosmos/, 'the README does not suggest the per-user Programs folder');
+  /* %LOCALAPPDATA%, typed into File Explorer's address bar, which expands it: the
+     profile folder is often not the person's name and AppData is hidden (round 1). */
+  assert.match(readme, /folder named Kosmos inside %%LOCALAPPDATA%%\\\\Programs\./, 'the README does not suggest the per-user Programs folder');
+  assert.match(readme, /in File Explorer, click the address bar, type\\r\\n'\n\s*printf '%%LOCALAPPDATA%%\\\\Programs and press Enter\./, 'the README does not say how to reach that folder');
+  assert.match(readme, /paste that path into the box, and click Extract\./);
+  assert.doesNotMatch(readme, /AppData\\\\Local\\\\Programs/, 'the README spells out a profile path the person has to guess');
   assert.doesNotMatch(readme, /<your name>\\\\Kosmos\)/, 'the README suggests C:\\Users\\<name>\\Kosmos, where the Projects live (W-09)');
   assert.match(readme, /Bookmarks to Kosmos don\\047t stay\\r\\n'\n\s*printf 'signed in\. Always open Kosmos from Kosmos\.exe\./);
   assert.doesNotMatch(readme, /Start menu/, 'the README promises a Start menu entry this slice does not create');
@@ -293,10 +335,10 @@ function copyLauncherInto(folder, extra) {
 
 /* --console, output captured, stdin empty so a held window cannot wait, and a
    timeout so a launcher that did wait fails instead of hanging the suite. */
-function runConsole(exe, tempFolder) {
+function runConsole(exe, tempFolder, timeoutMs) {
   const env = { ...process.env, TEMP: tempFolder, TMP: tempFolder };
   delete env.PORT;
-  const r = spawnSync(exe, ['--console'], { env, stdio: ['ignore', 'pipe', 'pipe'], timeout: 20000, windowsHide: true, encoding: 'utf8' });
+  const r = spawnSync(exe, ['--console'], { env, stdio: ['ignore', 'pipe', 'pipe'], timeout: timeoutMs || 20000, windowsHide: true, encoding: 'utf8' });
   assert.equal(r.error, undefined, 'Kosmos.exe did not run: ' + (r.error && r.error.message));
   return { code: r.status, out: (r.stdout || '') + (r.stderr || '') };
 }
@@ -381,6 +423,113 @@ test('W-04 CONTROL: an ordinary folder with no runtime is a partial extract, NOT
     assert.ok(r.out.includes('Kosmos could not start: the bundled runtime is missing (runtime\\node.exe).'), r.out);
     assert.ok(r.out.includes(PARTIAL_EXTRACT_ADVICE), 'no partial-extract advice: ' + r.out);
     assert.ok(!r.out.includes(INSIDE_ZIP_MESSAGE), 'an ordinary folder was taken for the inside of a zip');
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('round 1: a sibling of TEMP that merely starts with its name (Temp2 beside Temp) is NOT inside the zip', WINDOWS_ONLY, () => {
+  const s = scratch();
+  try {
+    const temp = path.join(s.base, 'Temp');
+    fs.mkdirSync(temp, { recursive: true });
+    const exe = copyLauncherInto(path.join(s.base, 'Temp2', 'Kosmos'));
+    const r = runConsole(exe, temp);
+    assert.equal(r.code, 1, r.out);
+    assert.ok(!r.out.includes(INSIDE_ZIP_MESSAGE), 'a folder beside TEMP with a longer name was taken for TEMP: ' + r.out);
+    assert.ok(r.out.includes(PARTIAL_EXTRACT_ADVICE), r.out);
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('round 1: TEMP set to a whole drive (C:\\) does not make every folder on it "inside the zip"', WINDOWS_ONLY, () => {
+  const s = scratch();
+  try {
+    const exe = copyLauncherInto(path.join(s.elsewhere, 'Kosmos'));
+    const r = runConsole(exe, path.parse(s.base).root);
+    assert.equal(r.code, 1, r.out);
+    assert.ok(!r.out.includes(INSIDE_ZIP_MESSAGE), 'a drive-root TEMP claimed a folder on that drive: ' + r.out);
+    assert.ok(r.out.includes(PARTIAL_EXTRACT_ADVICE), r.out);
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('round 1 CONVENTION: --console with both outputs captured and no console to attach to opens no window and does not hold', WINDOWS_ONLY, async () => {
+  /* A parent with no console (a detached process, a service-like caller) makes
+     AttachConsole fail. Before the fix the launcher then allocated a visible console,
+     left the NUL stdin unrestored, and Hold() waited on that new window for a key. */
+  const s = scratch();
+  try {
+    const exe = copyLauncherInto(path.join(s.elsewhere, 'Kosmos'));
+    const resultFile = path.join(s.base, 'relay-result.json');
+    const relay = [
+      "const { spawn } = require('node:child_process');",
+      "const [exe, out, waitMs] = process.argv.slice(1);",
+      "const child = spawn(exe, ['--console'], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });",
+      "let text = ''; let killed = false;",
+      "child.stdout.on('data', (d) => { text += d; }); child.stderr.on('data', (d) => { text += d; });",
+      "const timer = setTimeout(() => { killed = true; child.kill(); }, Number(waitMs));",
+      "child.on('close', (code) => { clearTimeout(timer); require('node:fs').writeFileSync(out, JSON.stringify({ code, killed, text })); });",
+    ].join('\n');
+    const env = { ...process.env, TEMP: s.temp, TMP: s.temp };
+    delete env.PORT;
+    const RELAY_WAIT_MS = 10000;
+    /* detached on Windows is DETACHED_PROCESS: the relay has no console, so neither
+       does anything it starts, and the launcher's AttachConsole fails. */
+    const relayProcess = require('node:child_process').spawn(process.execPath, ['-e', relay, exe, resultFile, String(RELAY_WAIT_MS)],
+      { detached: true, stdio: 'ignore', windowsHide: true, env });
+    await new Promise((resolve) => relayProcess.on('exit', resolve));
+    const result = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
+    assert.equal(result.killed, false, 'the launcher held on a console of its own nobody can see, until it was killed: ' + result.text);
+    /* Only a console the launcher allocated for itself has one attached process, and
+       only then does Hold() print its prompt. Measured on the box: with a NUL stdin,
+       ReadKey threw instead of blocking, so the old code did not hang there, but it
+       still opened a console window and prompted into it. The prompt is the visible
+       trace of that window. */
+    assert.ok(!result.text.includes('Press any key to close this window.'),
+      'the launcher allocated a console window of its own although both outputs were captured: ' + result.text);
+    assert.equal(result.code, 1, result.text);
+    assert.ok(result.text.includes(PARTIAL_EXTRACT_ADVICE), 'the captured outputs did not get the message: ' + result.text);
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+/* A folder with a real node.exe and a FAKE app\server.js: the launcher's own
+   behaviour runs end to end, and the thing it starts is a script written here, not
+   the board, so no hand-off exists to reach. No open-board.js, so no opener. */
+const FAKE_BOARD_MARKER = '// fake board written by tools.win-launcher-native.test.js';
+function stageFakeBoard(folder, serverScript) {
+  fs.mkdirSync(path.join(folder, 'runtime'), { recursive: true });
+  fs.mkdirSync(path.join(folder, 'app'), { recursive: true });
+  const exe = path.join(folder, 'Kosmos.exe');
+  if (!fs.existsSync(exe)) fs.copyFileSync(EXE_PATH, exe);
+  const node = path.join(folder, 'runtime', 'node.exe');
+  if (!fs.existsSync(node)) fs.copyFileSync(process.execPath, node);
+  fs.writeFileSync(path.join(folder, 'app', 'server.js'), FAKE_BOARD_MARKER + '\n' + serverScript + '\n');
+  assert.deepEqual(fs.readdirSync(path.join(folder, 'app')), ['server.js'], 'the fake app must hold only the fake server');
+  assert.ok(fs.readFileSync(path.join(folder, 'app', 'server.js'), 'utf8').startsWith(FAKE_BOARD_MARKER));
+  assert.ok(!fs.existsSync(path.join(folder, 'open-board.js')), 'a scratch launcher folder must never start the real opener');
+  return exe;
+}
+
+test('--console waits on the board and passes its exit code through, with the console launcher\'s lines', WINDOWS_ONLY, () => {
+  const s = scratch();
+  try {
+    const exe = stageFakeBoard(path.join(s.elsewhere, 'Kosmos'), 'process.exit(7);');
+    const r = runConsole(exe, s.temp);
+    assert.equal(r.code, 7, 'the board\'s exit code did not come back: ' + r.out);
+    assert.ok(r.out.includes('Starting Kosmos. A browser will open in a moment.'), r.out);
+    assert.ok(r.out.includes('Kosmos stopped. The lines above say why.'), r.out);
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('round 1 BUG, --console arm: a board still running past the hand-off\'s worst case is neither boxed nor stopped', WINDOWS_ONLY, () => {
+  const worstCaseMs = require('./engine/win32handoff').HANDOFF_WORST_CASE_MS;
+  const PAST_THE_WORST_CASE_MS = worstCaseMs + 1500;
+  const s = scratch();
+  try {
+    const exe = stageFakeBoard(path.join(s.elsewhere, 'Kosmos'), 'setTimeout(() => process.exit(0), ' + PAST_THE_WORST_CASE_MS + ');');
+    const startedAt = Date.now();
+    const r = runConsole(exe, s.temp, PAST_THE_WORST_CASE_MS + 30000);
+    const tookMs = Date.now() - startedAt;
+    assert.equal(r.code, 0, 'the launcher did not wait for the board to end by itself: ' + r.out);
+    assert.ok(tookMs >= PAST_THE_WORST_CASE_MS, 'the launcher ended before the board did (' + tookMs + 'ms)');
+    assert.ok(!r.out.includes('Kosmos stopped'), r.out);
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
