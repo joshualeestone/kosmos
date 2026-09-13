@@ -1782,7 +1782,8 @@ test('TEST-GAP 3 (K18): the drive goes away while the helper is in H7: its rollb
     } } }));
     assert.equal(r.outcome, 'held', JSON.stringify(r) + '\n' + c.log.join('\n'));
     assert.equal(r.because, `the drive Kosmos is on (${volume}) is not connected`);
-    assert.deepEqual(sim.calls.slice(callsAtFault), [`/Run /TN Kosmos\\board`], 'only the third run: no /End, so no reversal began');
+    assert.deepEqual(sim.calls.slice(callsAtFault), [`/Run /TN Kosmos\\board`, `/Run /TN Kosmos\\board`],
+      'the third run, then one /Run of the board H2 ended once the lock is released (round 9, decision 3): no /End, so no reversal began');
     assert.equal(fs.existsSync(c.statusAt), false, 'no status');
     const j = readJson(c.journal);
     assert.equal(j.finished, false);
