@@ -2174,33 +2174,40 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    thread (`#d-talk-box` / `#d-dmthread`) was never sized.
    MECHANISM: #panel-detail is a document-scroll panel, so the fill is a definite
    viewport height on the panel plus a flex chain down to the thread. Two things are
-   load bearing, per the #980 project-room lesson (~3878 here): a bare max-height does
-   NOT grow a short box (the thread needs a REAL height on its flex container to grow
-   into), AND the thread's own `max-height: 15rem` cap (the .dmthread rule) has to be
-   lifted or it stays short regardless.
+   load bearing, per the #980 project-room lesson (the #867 sub-note in the #980 section
+   below): a bare max-height does NOT grow a short box (the thread needs a REAL height on
+   its flex container to grow into), AND the thread's own `max-height: 15rem` cap (the
+   .dmthread rule) has to be lifted or it stays short regardless.
    SCOPE: gated with :has() to the TALK section only. When Model / Memory / Terminal
-   is the shown section, none of this applies and they keep their content height.
-   OFFSET: the height offset covers only the chrome ABOVE the panel (the sticky
-   .apphead + the body's own top padding) plus the body's bottom padding. It is
-   agent-independent -- the tall, variable .dhead sits INSIDE the fill, not in the
-   offset -- which is why one fixed offset holds across window sizes. Measured with
-   docs/browser-checks/render-talk-fill-2622.js at two window heights. Uses 100vh to
-   match the sibling #d-window rule (`calc(100vh - 220px)`); a 100dvh follow-up for a
-   mobile URL bar is noted on the card. */
-/* The `:not([hidden])` on THIS rule (but not the child rules below) is load-bearing,
-   not an inconsistency: this rule sets `display: flex` on the panel, and an id selector
-   outweighs the UA `[hidden] { display: none }`, so without the guard a hidden panel
-   would be un-hidden. The child rules only touch descendants' flex/height, which are
-   inert while the panel is display:none, so they omit it. */
-#panel-detail:not([hidden]):has(#d-sec-talk:not([hidden])) {
+   is the shown section, none of this applies and they keep their content height. The
+   tall, variable .dhead sits INSIDE the fill, not in the offset.
+   OFFSET + KNOWN LIMITATION (#2622 follow-up): the offset covers the chrome ABOVE the
+   panel (sticky .apphead + body top padding) plus the body's bottom padding, as a FIXED
+   value. But .apphead grows when a persistent update/offline notice wraps (see the
+   scroll-padding-top note ~1004), most at narrow width. With a definite height a taller
+   .apphead pushes the box down without shrinking it, so in that state the box overshoots
+   the window bottom by the notice's extra height (~8px wide, up to ~59px narrow) and the
+   page scrolls a little -- bounded, and no worse than the pre-change always-scroll. A
+   robust fix would measure .apphead at runtime and set --talk-fill-top; deferred rather
+   than add a JS observer to this file here. Measured with
+   docs/browser-checks/render-talk-fill-2622.js at 1100/700/narrow window sizes. Uses
+   100vh to match the sibling #d-window rule (`calc(100vh - 220px)`); a 100dvh follow-up
+   for a mobile URL bar is noted on the card. */
+/* All six rules are :has(#d-sec-talk:not([hidden]))-gated, so the fill applies only when
+   the Talk section is the shown one. No :not([hidden]) guard on the panel is needed even
+   though this rule sets display:flex: the file's `[hidden] { display: none !important }`
+   (~470) keeps a hidden panel hidden regardless of this rule's specificity. */
+#panel-detail:has(#d-sec-talk:not([hidden])) {
   display: flex; flex-direction: column;
   /* A DEFINITE height, not min-height: the thread only scrolls INTERNALLY (flex:1
-     + min-height:0 + overflow) when its flex-container chain is bounded. A bare
-     min-height lets content grow the panel unbounded and the thread never hits a
-     limit to scroll within. The offset = the panel's own top (sticky .apphead +
-     body top padding, agent-independent) + the body's bottom padding, so the box
-     bottom lands just above the window's bottom edge with no page scroll. */
-  height: calc(100vh - var(--talk-fill-top, 152px)); }
+     + min-height:0 + overflow) when its flex-container chain is bounded; a bare
+     min-height lets content grow the panel unbounded so the thread never scrolls.
+     157px = the panel's own top (measured ~93px: the sticky .apphead plus the 24px
+     body top padding) + the 64px body bottom padding, so the box bottom lands just
+     above the window's bottom edge with no page scroll in the common (no-notice) case.
+     Override via --talk-fill-top if the chrome above the panel changes. See the KNOWN
+     LIMITATION note above for the notice-state caveat. */
+  height: calc(100vh - var(--talk-fill-top, 157px)); }
 #panel-detail:has(#d-sec-talk:not([hidden])) .dbody { flex: 1 1 auto; min-height: 0; align-items: stretch; }
 #panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { display: flex; flex-direction: column; min-height: 0; }
 #panel-detail:has(#d-sec-talk:not([hidden])) #d-sec-talk { flex: 1 1 auto; min-height: 0; }

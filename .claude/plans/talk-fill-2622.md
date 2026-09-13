@@ -22,7 +22,8 @@ New headless browser-check `docs/browser-checks/render-talk-fill-2622.js`: measu
 ## Scope / out of scope
 - CSS-only change to web/index.html + the new check + registration. No JS, no markup change.
 - Uses `100vh` to match the sibling `#d-window` rule; a `100dvh` follow-up for a mobile URL bar is noted on the card, not done here.
-- Bottom breathing room is the app's standard 64px body bottom padding (box lands ~59px above the window edge, not a void); reversible, Josh eyeballs in-app.
+- Bottom breathing room is the app's standard 64px body bottom padding (offset 157 = panelTop ~93 + 64, so the box lands 64px above the window edge, not a void); reversible, Josh eyeballs in-app.
+- KNOWN LIMITATION (follow-up): the 157px offset is fixed, but `.apphead` grows when a persistent update/offline notice wraps (most at narrow width). With a definite height the box then overshoots the window bottom by the notice's extra height (~8px wide, up to ~59px narrow), a small page scroll, bounded and no worse than the pre-change always-scroll. A robust fix would measure `.apphead` at runtime and set `--talk-fill-top`; deferred rather than adding a JS observer here.
 
 ## Also closes
 kosmos#2711 item 7 ("dialog always fully visible at any window height") — same problem, same fix.

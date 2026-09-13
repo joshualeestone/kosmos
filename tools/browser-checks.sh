@@ -1201,12 +1201,14 @@ fi
 # render-talk-fill-2622 joins the same way (#2622 part 2, the Talk dialog box fills to
 # the bottom of the window): own mktemp roots, OS-chosen port via srv.start(0),
 # server.js in-process, fleet.install, runs bare. It measures the Talk box bottom
-# against the viewport bottom at TWO window heights (1100 and 700), and the fill arms
+# against the viewport bottom at THREE window sizes -- 1100 and 700 tall (two-column),
+# and 500x900 narrow (single-column, below the 56rem breakpoint) -- and the fill arms
 # are written to RED on the pre-change page (where #d-talk-box was content-height and
 # sat hundreds of px above the window bottom -- the "big empty gap"). It also asserts
-# the thread scrolls INTERNALLY on a long conversation (the .dmthread max-height:15rem
-# cap lifted), the composer pins near the bottom, and -- the scoping arm -- that a
-# non-Talk section (Model) stays content-height, which is what makes the :has()-gated
+# the thread scrolls INTERNALLY on a long conversation AND grows past the old 15rem cap
+# (A5a/A5b), the composer pins near the bottom, the wrapped nav row does not balloon at
+# narrow width (A2c, guarding the grid-template-rows fix), and -- the scoping arm -- that
+# a non-Talk section (Model) stays content-height, which is what makes the :has()-gated
 # fill safe.
 # render-firstrun-namestep-1994wiz joins the same way (#1994, Josh's live name-step
 # fixes): own mktemp roots, OS-chosen port via srv.start(0), server.js in-process,
