@@ -61,8 +61,9 @@ const worlds = require('./worlds');
 
 /* How a folder delete waits for the processes the task ends just ended to let go of their files.
    `/End` to node exiting measured about 2s (engine/win32orphan.js); an agent's own tree or a virus
-   scanner can hold a handle a little longer. fs.rmSync retries EBUSY and EPERM itself: 20 tries
-   500ms apart is 10s. The wait for an ended board to stop answering is the same budget, polled at
+   scanner can hold a handle a little longer. removeFolderWithRetries tries again itself (fs.rmSync's
+   own maxRetries did not, measured): 20 tries 500ms apart is 10s. The wait for an ended board to stop
+   answering is the same budget, polled at
    the same interval, because it is the same process leaving. */
 const FOLDER_DELETE_TRIES = 20;
 const FOLDER_DELETE_WAIT_MS = 500;
