@@ -499,7 +499,12 @@ test('MAC UNCHANGED: every static Mac string this branch keyed or hid still read
     /<span class="s3-title">Energy<\/span>/,
     /<span class="s3-mtxt">Kosmos<small>Control your computer<\/small><\/span>/,
     /<h2>Kosmos needs your permission<\/h2>/,
-    /<p class="s2-say">"Terminal" would like to access files in your folders\.<\/p>/,
+    // #2910 split the single "in your folders" Terminal ask into six folder-specific
+    // asks (Terminal + Kosmos x Documents/Downloads/Desktop); the old single string is
+    // gone, so this pins the three shipped Terminal folder-access strings instead.
+    /<p class="s2-say">"Terminal" would like to access files in your Documents folder\.<\/p>/,
+    /<p class="s2-say">"Terminal" would like to access files in your Downloads folder\.<\/p>/,
+    /<p class="s2-say">"Terminal" would like to access files in your Desktop folder\.<\/p>/,
     /<h2>Random notifications may appear<\/h2>/,
     /"bash" can run in the background\. You can manage background activity in Login Items &amp; Extensions\./,
     /<h2>Kosmos is installed and configured\.<\/h2>/,
