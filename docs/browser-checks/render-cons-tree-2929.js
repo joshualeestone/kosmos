@@ -310,6 +310,32 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' re-home: folding P hides its rendered child D', rehome.dHiddenAfter, JSON.stringify(rehome));
     ok(t + ' re-home: folding P does NOT vanish the re-homed top-level row C', rehome.cVisibleAfter, JSON.stringify(rehome));
 
+    // ---- Layer 10: the fold set is pruned when a folded parent is archived ----
+    // paintProjects prunes PJ_TREE_FOLDED to live active ids on every paint, so a
+    // folded parent later archived/deleted cannot leave a stale id that a later
+    // un-archive resurrects as a fold. Fold a parent, archive it, repaint, and assert
+    // the id is dropped; then un-archive and assert it returns EXPANDED, not folded.
+    const prune = await page.evaluate(() => {
+      const mk = (id, name, parent, archived) => ({ id, name, parent: parent || null, parentName: parent || null, parentArchived: false, archived: !!archived, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('k', 'Kosmos'), mk('app', 'App', 'k')];
+      PJ_SORT = 'az'; PJ_TREE_FOLDED.clear(); PJ_CURRENT = null;
+      document.documentElement.setAttribute('data-layout', 'consolidated');
+      document.body.classList.add('consolidated');
+      document.getElementById('pj-list').classList.remove('asgrid');
+      paintProjects();
+      pjTreeToggleFold('k');
+      const foldedBefore = PJ_TREE_FOLDED.has('k');
+      pjById('k').archived = true; paintProjects();        // archive: the prune must drop it
+      const foldedAfterArchive = PJ_TREE_FOLDED.has('k');
+      pjById('k').archived = false; paintProjects();        // un-archive: comes back expanded
+      const kRow = document.querySelector('#pj-list .pj-row[data-project="k"]');
+      const expandedAfterUnarchive = kRow ? kRow.getAttribute('aria-expanded') : null;
+      return { foldedBefore, foldedAfterArchive, expandedAfterUnarchive };
+    });
+    ok(t + ' prune CONTROL: folding a parent records it in PJ_TREE_FOLDED', prune.foldedBefore === true, JSON.stringify(prune));
+    ok(t + ' prune: archiving a folded parent drops its id from the fold set', prune.foldedAfterArchive === false, JSON.stringify(prune));
+    ok(t + ' prune: an un-archived parent returns expanded, not stale-folded', prune.expandedAfterUnarchive === 'true', JSON.stringify(prune));
+
     await page.close();
   }
   await browser.close();

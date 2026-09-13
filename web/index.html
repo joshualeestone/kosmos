@@ -35440,7 +35440,10 @@ function applyConsFold() {
        setLive documents and dedups a few functions up. These DOM edits bypass
        setLive's string dedup, so each one must guard itself. (#2929 iter2) */
     const shouldHide = cons && depth > cutoff;
-    if (row.classList.contains('pj-fold-hidden') !== shouldHide) row.classList.toggle('pj-fold-hidden', shouldHide);
+    // classList.toggle(token, force) is already idempotent -- it writes nothing when
+    // the token's presence already matches force -- so it needs no compare-guard. The
+    // aria-expanded and caret-text writes below are NOT idempotent, so they do. (#2929 iter4)
+    row.classList.toggle('pj-fold-hidden', shouldHide);
     if (!shouldHide) {
       // A VISIBLE folded parent collapses everything deeper than it until a row
       // returns to its depth or shallower; anything else clears the collapse.
