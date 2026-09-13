@@ -270,6 +270,33 @@ release rule.
 
 Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
 
+## Results (2026-09-13, this box)
+
+- **Launcher:** rebuilt the documented way (LauncherVersion 3.0.0.0). `verify-launcher.ps1` says OK:
+  24 metadata bytes vary, and the masked hashes are equal.
+- **Comparison.** Both runs used the bundle node `v24.19.0`, the schtasks preload, and APPDATA and
+  LOCALAPPDATA in scratch. The baseline is a `git archive` of `origin/main` @ `0caa1396`. Results
+  are compared by test name and first error line.
+  - Run 1 covered 75 Windows, machine, browser-check and inventory suites. Main: 1110 tests, 93 fail.
+    Branch: 1161 tests, 94 fail.
+    - Two branch-only reds, both caused by this branch and both fixed in 18ea5d74:
+      - The `tools/browser-checks.sh` edit glued `render-sound-master-2436render-build-marker-2066`
+        together.
+      - `machine.win32-autostart-570` pinned the old "Task Scheduler" sentence.
+    - One branch-only pass, `git ls-files`, flaked on the baseline archive, which is not a repo.
+    - One reason differed only by an ephemeral port.
+  - Run 2 covered 16 source-extraction and route harness suites plus the two fixed ones, 547 tests each
+    side, 50 fail each side. It found no differences; one reason differs only by a port.
+  - Neither run blocked a schtasks call.
+- **Controls:** 19 of 19 revert controls red. The worktree was clean afterwards (restores checked
+  by hash). One first-draft control was vacuous and was replaced: "answer the asked state" is
+  equivalent after the read-back refusal, so the control now removes the refusal itself.
+- **The real system was untouched after every run:** no real `Kosmos.lnk`, no real
+  `Uninstall\Kosmos` key, no `KosmosTest` key, no `%LOCALAPPDATA%\Programs\Kosmos`, and
+  `Kosmos\board` still running.
+- **The browser check was not run here** (no Playwright on this box). CI runs it in Chromium and
+  WebKit; it is allowlisted in `.github/workflows/browser-checks.yml`.
+
 ## Follow-ups (not this slice)
 
 - A desktop shortcut offer (W-20, the once-only question).
