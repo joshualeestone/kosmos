@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: win32-installer-native
-diff_hash: DIFF_HASH_PENDING
+diff_hash: ee85df38eadd92eebe01a23fb281132b4861d94c1712404cab9dd174953ae8dd
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-13T17:17:48Z
