@@ -13237,8 +13237,11 @@ function windowsCopyTable() {
       + 'When it says it&rsquo;s finished, come back here and click <b>Try again</b>. The current instructions are at '
       + '<a href="https://code.claude.com/docs/en/quickstart" target="_blank" rel="noopener">'
       + 'code.claude.com/docs/en/quickstart</a>. You can also carry on and connect later from Settings.',
-    claudeTerminalHatch: '<details class="fr-hatch"><summary>Already use PowerShell?</summary>'
-      + 'You can sign in to Claude outside Kosmos. Open the Start menu, type <b>PowerShell</b>, and press Enter. '
+    /* Shown OPEN, unlike the Mac's closed hatch: on Windows signing in yourself is the way
+       through the stuck card, and a disclosure must not hide the only path (#570). The card
+       renders it only when the engine says canRunClaude, so "already on this PC" is true. */
+    claudeTerminalHatch: '<details class="fr-hatch" open><summary>Sign in to Claude yourself</summary>'
+      + 'Claude Code is already on this PC, so you can sign in to Claude outside Kosmos. Open the Start menu, type <b>PowerShell</b>, and press Enter. '
       + 'Type <b>claude</b>, press Enter, and follow its sign-in. Then come back here and click <b>Try again</b>.</details>',
     claudeConfirmSentence: 'Connecting to Claude needs Claude Code on this computer. Kosmos cannot install it for you on Windows yet, so if it is not here already, the next screen shows you how to install it yourself.',
     /* Settings > This computer (W-16, W-22). */
@@ -44248,8 +44251,11 @@ function frPaintConnect(st) {
     + '<div class="fr-note">'
     /* win32-board-copy (W-13, W-14): the Windows words come from the copy table, keyed on
        the platform THIS card was served with. The gate still reads BOTH fields, so the
-       note retires itself the day canInstallClaude goes true on Windows. */
-    + ((onWindows(st && st.platform) && st && st.canInstallClaude === false)
+       note retires itself the day canInstallClaude goes true on Windows.
+       win32-signin-web-copy: it also reads canRunClaude, the engine's own answer from the
+       disk, so a PC that already has Claude Code is never told to install it. The hatch
+       below is that PC's way through. */
+    + ((onWindows(st && st.platform) && st && st.canInstallClaude === false && !st.canRunClaude)
       ? windowsCopy('claudeInstallNote')
       : 'Nothing is broken by this. You can try again, or carry on and connect later from Settings.')
     + ((st && st.canRunClaude)

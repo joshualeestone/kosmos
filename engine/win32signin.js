@@ -109,8 +109,7 @@ const SCRIPT_EXTENSIONS = Object.freeze(['.cmd', '.bat', '.ps1']);
 const SCRIPT_START_ERRORS = Object.freeze(['ENOENT', 'EINVAL', 'EFTYPE']);
 const PROGRAM_EXTENSION = '.exe';
 
-const SCRIPT_ONLY_BECAUSE = 'Kosmos can only start the Claude Code program file (claude.exe), '
-  + 'and this computer has a script version it cannot start directly';
+const SCRIPT_ONLY_BECAUSE = 'Kosmos cannot start the copy of Claude Code on this computer by itself';
 
 /** Anthropic credentials (API keys and OAuth tokens) all start this way. */
 const SECRET_PATTERN = /sk-ant-[\w-]+/g;

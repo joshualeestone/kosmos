@@ -414,7 +414,9 @@ test('the Claude card on Windows: PowerShell steps, a Copy button, no macOS clau
   assert.match(table.claudeInstallNote, /^Kosmos can&rsquo;t install Claude Code for you on Windows yet, so this one step is yours\. Open the Start menu, type <b>PowerShell<\/b>, and press Enter\./);
   assert.match(table.claudeInstallNote, /<pre class="fr-cmd">irm https:\/\/claude\.ai\/install\.ps1 \| iex<\/pre><button class="btn-quiet fr-copy" type="button" data-copy-command>Copy<\/button>/);
   assert.doesNotMatch(table.claudeInstallNote, /macOS/);
-  assert.match(table.claudeTerminalHatch, /^<details class="fr-hatch"><summary>Already use PowerShell\?<\/summary>/);
+  /* win32-signin-web-copy: shown OPEN under a plain summary, because on Windows it is the way
+     through the stuck card rather than an aside for somebody who already uses PowerShell. */
+  assert.match(table.claudeTerminalHatch, /^<details class="fr-hatch" open><summary>Sign in to Claude yourself<\/summary>Claude Code is already on this PC, so you can sign in to Claude outside Kosmos\. Open the Start menu, type <b>PowerShell<\/b>, and press Enter\. /);
   assert.match(table.claudeTerminalHatch, /Type <b>claude<\/b>, press Enter, and follow its sign-in\. Then come back here and click <b>Try again<\/b>\./);
   const win = confirmSentence('win32', { platform: 'win32', canInstallClaude: false, willInstall: true });
   assert.equal(win, table.claudeConfirmSentence);
@@ -430,6 +432,25 @@ test('MAC UNCHANGED: both confirm sentences', () => {
     'In order to connect to Claude, we need to install Claude Code first. It is a large download, about 231MB.');
   assert.equal(confirmSentence('darwin', { platform: 'darwin', canInstallClaude: true }),
     'Connecting to Claude needs Claude Code on this computer. If it is not here already we will install it, a large download, about 231MB.');
+});
+
+test('CONVENTION 5 (win32-signin-web-copy): the Windows sign-in stuck reasons stay the engine\'s, with no second copy on the page', () => {
+  /* The card shows `st.because` as the engine sent it, so the page must not hold its own
+     spelling of either sentence: two copies drift. Read from the engine SOURCE, not required,
+     so no data root is frozen by this file. */
+  const connectSrc = fs.readFileSync(nodePath.join(__dirname, 'engine', 'connect.js'), 'utf8');
+  const signinSrc = fs.readFileSync(nodePath.join(__dirname, 'engine', 'win32signin.js'), 'utf8');
+  const unavailable = (connectSrc.match(/const WINDOWS_SIGNIN_UNAVAILABLE_BECAUSE = '([^']+)';/) || [])[1];
+  const scriptOnly = (signinSrc.match(/const SCRIPT_ONLY_BECAUSE = '([^']+)';/) || [])[1];
+  assert.equal(unavailable, 'Kosmos cannot run the Claude sign-in on Windows yet', 'the unavailable reason moved or changed shape');
+  assert.equal(scriptOnly, 'Kosmos cannot start the copy of Claude Code on this computer by itself', 'the script reason moved or changed shape');
+  for (const sentence of [unavailable, scriptOnly]) {
+    assert.ok(!PAGE.includes(sentence), `the page carries its own copy of the engine's sentence: ${sentence}`);
+  }
+  /* CONTROL: the same search finds a sentence this page really does own, so the absence above
+     is not an empty page or a search that can never match. */
+  assert.ok(PAGE.includes('Nothing is broken by this. You can try again, or carry on and connect later from Settings.'),
+    'the includes search found nothing it should, so the absence arms above prove nothing');
 });
 
 function machineRows(platform, report) {

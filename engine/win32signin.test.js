@@ -423,7 +423,10 @@ test('Claude Code resolved without an extension starts as claude.exe', async (t)
 test('a script-only Claude Code gets one honest sentence, whether the start fails ENOENT or EINVAL', async (t) => {
   const dir = fs.mkdtempSync(path.join(SANDBOX, 'cmd-'));
   fs.writeFileSync(path.join(dir, 'claude.cmd'), '@echo off\n');
-  const SCRIPT_SENTENCE = /can only start the Claude Code program file \(claude\.exe\), and this computer has a script version/;
+  /* win32-signin-web-copy: plain words for a person new to Windows. The stuck card's open
+     hatch says what to do next, so the sentence names no file, extension or script. */
+  const SCRIPT_SENTENCE = /^Kosmos cannot start the copy of Claude Code on this computer by itself$/;
+  const INTERNALS = /claude\.exe|script|program file|\.cmd|\.bat|\.ps1/i;
 
   const enoent = Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' });
   withSpawn(t, () => fakeChild({ error: enoent }));
@@ -436,6 +439,7 @@ test('a script-only Claude Code gets one honest sentence, whether the start fail
   const direct = await host.open({ claudeBin: path.join(dir, 'claude.cmd') });
   assert.equal(direct.ok, false);
   assert.match(direct.because, SCRIPT_SENTENCE, 'a full .cmd path failing EINVAL got a different sentence');
+  assert.doesNotMatch(direct.because, INTERNALS, 'the script sentence explains Kosmos internals to the person again');
   assert.match(direct.stderr, /EINVAL/);
 
   /* CONTROL: nothing at all there is still "could not find". */
@@ -615,7 +619,7 @@ test('EFTYPE on a script gets the script sentence; EFTYPE on a broken program fi
   const host = win32signin.createSigninHost();
   win32signin.setSpawn(() => { throw Object.assign(new Error('spawn EFTYPE'), { code: 'EFTYPE' }); });
   const script = await host.open({ claudeBin: path.join(dir, 'claude.ps1') });
-  assert.match(script.because, /can only start the Claude Code program file \(claude\.exe\)/,
+  assert.equal(script.because, 'Kosmos cannot start the copy of Claude Code on this computer by itself',
     'a .ps1 failing EFTYPE got the general sentence');
   assert.match(script.stderr, /EFTYPE/);
   const broken = await host.open({ claudeBin: path.join(dir, 'claude.exe') });
