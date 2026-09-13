@@ -179,6 +179,37 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' tab CONTROL: a consolidated fold hides nothing in the wide list', tabCtl.appVisibleInTab, JSON.stringify(tabCtl));
     ok(t + ' tab CONTROL: aria-expanded is dropped outside the rail', tabCtl.kAriaDroppedInTab, JSON.stringify(tabCtl));
 
+    // ---- Layer 5: the REAL #pj-list click delegate (fold caret vs open) ----
+    // Layers 2-3 call pjTreeToggleFold directly; this drives the SHIPPED click
+    // listener, so the ordering guarantee -- a caret click folds and returns BEFORE
+    // the row's open handler -- is verified by a real click, not just the helper.
+    // openProject is let run (as render-subprojects-1994 does): it sets PJ_CURRENT
+    // synchronously, and any file:// fetch it fires is filtered by the console
+    // listener above. This is the last layer, so its view switch disturbs nothing.
+    const clickCtl = await page.evaluate(() => {
+      const rowOf = (id) => document.querySelector('#pj-list .pj-row[data-project="' + id + '"]');
+      // Layer 4 left the page in the tab layout; the fold is a consolidated-view
+      // feature, so restore the real rail state before driving the click delegate.
+      document.documentElement.setAttribute('data-layout', 'consolidated');
+      document.body.classList.add('consolidated');
+      document.getElementById('pj-list').classList.remove('asgrid');
+      PJ_TREE_FOLDED.clear(); PJ_CURRENT = null; paintProjects();
+      const out = {};
+      // A caret click folds the branch and must NOT open the project.
+      rowOf('k').querySelector('.pjtreefold').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      out.caretFolded = rowOf('k').getAttribute('aria-expanded') === 'false';
+      out.caretDidNotOpen = (PJ_CURRENT === null);
+      // A click on the row body (the name) opens the project. 'site' is a top-level
+      // leaf, so folding k above never hid it.
+      const site = rowOf('site');
+      (site.querySelector('.pjname') || site).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      out.bodyOpened = (PJ_CURRENT === 'site');
+      return out;
+    });
+    ok(t + ' click: a caret click folds the branch', clickCtl.caretFolded, JSON.stringify(clickCtl));
+    ok(t + ' click CONTROL: a caret click does NOT open the project', clickCtl.caretDidNotOpen, JSON.stringify(clickCtl));
+    ok(t + ' click: a click on the row body opens the project', clickCtl.bodyOpened, JSON.stringify(clickCtl));
+
     await page.close();
   }
   await browser.close();

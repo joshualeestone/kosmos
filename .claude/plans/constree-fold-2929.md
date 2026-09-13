@@ -49,11 +49,13 @@ so the newer instruction wins for this view.
    `role=button` span (nested-interactive antipattern). Enter/Space keep opening
    the project (its primary action).
 
-4. **Indent step 14px, base 24px, caps at depth 3 (24/38/52px).** Rejected the
-   wide list's 22px step: too much for the narrow rail at depth 3. The name is
-   already ellipsised in the rail, so it truncates rather than the indent starving
-   it, which is the tradeoff Josh's "third-level" ask implies. Tunable if he finds
-   it tight in review.
+4. **Indent step 14px, base 24px (depth 0/1/2 = 24/38/52px), growing with the true
+   depth (no cap).** Rejected the wide list's 22px step: too much for the narrow
+   rail at depth 3. The indent is NOT capped: `--pj-depth` carries the real depth
+   and a deeper-than-3 tree keeps widening (66px, 80px, ...). That is acceptable
+   because the rail name is already ellipsised, so it truncates rather than the
+   indent starving it, which is the tradeoff Josh's "third-level" ask implies.
+   Tunable if he finds it tight in review.
 
 5. **Hide the ancestry chip on `.child` rows in the rail** (the indent now carries
    the relationship), mirroring the wide-list rule exactly; a dangling-parent child
