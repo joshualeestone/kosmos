@@ -89,10 +89,15 @@ const HELPER_FLAG = '--kosmos-board-restart';
    { ok, out } and never throws, so every caller reports rather than unwinds. */
 let runFn = null;
 function setRunner(fn) { runFn = typeof fn === 'function' ? fn : null; }
+
+/* How long one schtasks call may take before it is abandoned. Every call is a
+   synchronous spawn, so this also bounds how long the hand-off can be stuck in one:
+   engine/win32handoff.js derives the launcher's unreadable-table fallback from it. */
+const SCHTASKS_TIMEOUT_MS = 20000;
 function run(args) {
   if (runFn) return runFn(args);
   try {
-    const out = cp.execFileSync('schtasks.exe', args, { encoding: 'utf8', timeout: 20000 });
+    const out = cp.execFileSync('schtasks.exe', args, { encoding: 'utf8', timeout: SCHTASKS_TIMEOUT_MS });
     return { ok: true, out: String(out || '') };
   } catch (e) {
     return { ok: false, out: String((e && (e.stdout || e.message)) || ''), code: (e && e.status) };
@@ -625,7 +630,7 @@ function describe(opts) {
 }
 
 module.exports = {
-  TASK_NAME, MARKER_ENV, BOOT_NAME, BOOT_JS, CLAIM_NAME, REMOVE_HINT, HELPER_FLAG,
+  TASK_NAME, MARKER_ENV, BOOT_NAME, BOOT_JS, CLAIM_NAME, REMOVE_HINT, HELPER_FLAG, SCHTASKS_TIMEOUT_MS,
   taskExec, taskXml, bundleRoot, install, ensureInstalled, status, describe,
   disable, enable, end, runNow, remove, restart, startedByTask,
   claimed, claim, restartHelperMain, pidGone,

@@ -1,10 +1,11 @@
 'use strict';
 /**
  * #570: a board started BY HAND from the unpacked Windows zip hands itself to its
- * logon task, instead of serving from the launcher's console window.
+ * logon task, instead of serving from the launcher's hidden console (or its
+ * --console window).
  *
- * 🛑 THE WINDOW WAS THE BOARD. `Kosmos.exe` runs server.js in the foreground of
- * the console it opens, so closing that window killed the board -- the class of
+ * 🛑 THE WINDOW WAS THE BOARD. `Kosmos.exe` ran server.js in the foreground of
+ * the console it opened, so closing that window killed the board -- the class of
  * defect #2714 removed from every Scheduled Task, left standing on the one window a
  * person is most likely to close. And from the first logon on, the task's headless
  * board is already serving, so every later double-click printed "port 16180 is
@@ -15,12 +16,15 @@
  * (`win32board.ensureInstalled` registered or refreshed it a moment earlier in the
  * same boot), it runs headless, and it is what a logon starts anyway -- so after
  * this there is one way the board runs on Windows, whichever way it was started.
- * Exiting 0 lets the launcher's console close by itself; its opener is already
- * waiting to put the board in the browser.
+ * Exiting 0 lets the launcher exit with it (closing its --console window, if it has
+ * one); its opener is already waiting to put the board in the browser.
  *
- * ⚠️ WHAT IT CANNOT CONFIRM, IT LEAVES TO THE WINDOW, which is the behaviour before
- * this module -- inside a budget that ends before the opener gives up (see
- * HANDOFF_BUDGET_MS), so a fallback still gets the browser signed in.
+ * ⚠️ WHAT IT CANNOT CONFIRM, IT LEAVES TO THE LAUNCHER, which is the behaviour
+ * before this module: this board serves from the launcher's hidden console (or its
+ * --console window), and a GUI Kosmos.exe shows a box that stays the person's handle
+ * on it once this board is listening (HANDOFF_CHECK_FOR_SERVING_AFTER_MS). All inside
+ * a budget that ends before the opener
+ * gives up (see HANDOFF_BUDGET_MS), so a fallback still gets the browser signed in.
  */
 
 const fs = require('node:fs');
@@ -32,7 +36,7 @@ const path = require('node:path');
  * browser opener does not wait for us. `tools/kosmos-open-board.js` waits 20s for
  * a board and then opens the PLAIN url, which an enforcing Windows board answers
  * with the #2007 403. So whatever this does -- succeed, replace an older board, or
- * give up and serve in the window -- a board must be answering before then.
+ * give up and serve from the launcher -- a board must be answering before then.
  * ⚠️ THE BUDGET IS NOT THE WORST CASE, and the difference is spelled out so it is
  * not rediscovered: a probe already in flight at the deadline can take
  * PROBE_TIMEOUT_MS (no wait starts one past its own end), and the fallback's
@@ -72,6 +76,26 @@ const MAX_ROUNDS = 2;
 /* One probe's budget, and the gap between probes while waiting. */
 const PROBE_TIMEOUT_MS = 2000;
 const POLL_INTERVAL_MS = 300;
+
+/**
+ * When Kosmos.exe starts asking whether the board it started is serving from it: the
+ * arithmetic spelled out at HANDOFF_BUDGET_MS, as one value (tools/windows/
+ * KosmosLauncher.cs, CheckForServingAfterMs, pinned equal by
+ * tools.win-launcher-native.test.js).
+ * ⚠️ NOT A WORST CASE. Every schtasks call in the hand-off is a synchronous spawn with
+ * its own timeout, so a `/Run` that starts just inside the budget can still be confirmed
+ * after this, and a slow first boot can pass it before the hand-off begins. So the
+ * launcher never decides on time alone: from this mark it polls, and shows its box only
+ * once this board is LISTENING, which start() does only after the hand-off has decided
+ * to serve here.
+ */
+const HANDOFF_CHECK_FOR_SERVING_AFTER_MS = HANDOFF_BUDGET_MS + PROBE_TIMEOUT_MS + MIN_PORT_RELEASE_WAIT_MS + PROBE_TIMEOUT_MS;
+
+/* Headroom past the slowest hand-off that still succeeds: at worst the budget, a `/Run`
+   that uses its whole win32board.SCHTASKS_TIMEOUT_MS, and one confirming probe
+   (12 + 20 + 2 = 34s from process start). With the 18s check mark and the 20s timeout
+   this puts HANDOFF_UNREADABLE_LISTENER_FALLBACK_MS at 45s, 11s past that. */
+const UNREADABLE_LISTENER_MARGIN_MS = 7000;
 
 /**
  * 🔑 THE RUNNING BOARD'S IDENTITY COMES FROM A HEADER, NEVER FROM THE PAGE.
@@ -170,7 +194,8 @@ function probeBoard(port) {
 /* The logon task runs with the account's environment, not this launch's. A launch
    that asked for its own port or its own data folder would be handed to a board
    that serves neither -- and the hand-off would then end that working board as
-   "not answering". Those launches keep their window. */
+   "not answering". Those launches serve from the launcher (its hidden console, or
+   its --console window). */
 function overriddenBy(env) {
   const e = env || {};
   if (e.PORT) return 'PORT';
@@ -191,7 +216,7 @@ function skipReason(o) {
   const e = o.ensured;
   /* Only a task that was just registered or refreshed is known to be enabled AND to
      name this install. A task the person switched off or removed means they chose
-     the window, and the window is what they get. */
+     to run Kosmos from the launcher, and that is what they get. */
   if (!e || !e.ok || (e.action !== 'registered' && e.action !== 'refreshed')) {
     return 'the logon task is not ready (' + ((e && (e.action || e.because)) || 'unknown') + ')';
   }
@@ -311,4 +336,16 @@ async function handOffToTask(opts) {
   }
 }
 
-module.exports = { handOffToTask, buildIdentity, boardIdentity, BOARD_IDENTITY_HEADER };
+module.exports = { handOffToTask, buildIdentity, boardIdentity, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS };
+
+/**
+ * When Kosmos.exe shows its box for a board whose listener it cannot see, because the
+ * TCP table has not once been readable (tools/windows/KosmosLauncher.cs,
+ * UnreadableTableFallbackMs, pinned equal by tools.win-launcher-native.test.js): the
+ * check mark, plus the timeout of one schtasks call, plus UNREADABLE_LISTENER_MARGIN_MS.
+ * A getter, so win32board loads only when this is asked for, never with this module.
+ */
+Object.defineProperty(module.exports, 'HANDOFF_UNREADABLE_LISTENER_FALLBACK_MS', {
+  enumerable: true,
+  get: () => HANDOFF_CHECK_FOR_SERVING_AFTER_MS + require('./win32board').SCHTASKS_TIMEOUT_MS + UNREADABLE_LISTENER_MARGIN_MS,
+});

@@ -53,7 +53,7 @@ function staged(src) {
  * a sentence, not vanish into a character class.
  */
 const DELIBERATELY_MAC_ONLY = {
-  'assets/Kosmos.icns': 'a macOS icon format; Windows needs .ico and there is no artwork for it yet',
+  'assets/Kosmos.icns': 'a macOS icon format; the Windows icon (assets/kosmos.ico) is compiled into Kosmos.exe, not staged',
   'install/kosmos-report-hook.sh': 'a bash hook for Claude Code, which this package does not install',
   'bin/board-watchdog.sh': 'the #2955 board watchdog is a macOS launchd LaunchAgent mechanism (install/setup.sh registers com.kosmos.board.watchdog); Windows supervises the board through win32supervisor.js instead, so the script would never run there',
 };
@@ -158,18 +158,22 @@ test('the package tells the truth about itself', () => {
   assert.match(WIN, /"agents_supported": true/, 'the manifest says agents do not work, which they do');
   assert.doesNotMatch(WIN, /AGENTS DO NOT WORK/, 'the package still tells people agents are dark');
   assert.doesNotMatch(WIN, /close the black window/, 'the README still says the board lives in a window; it hands itself to its logon task');
-  assert.match(WIN, /closes by itself/, 'the README does not say the launcher window closes on its own, which looks like a crash if unexplained');
-  assert.match(WIN, /folder you will keep/, 'the README does not say the unpacked folder IS the install');
+  /* win32-launcher-native: Kosmos.exe is a GUI exe now, so there is no window to
+     close by itself, and a README that still promises one describes a program
+     that no longer exists. */
+  assert.doesNotMatch(WIN, /closes by itself/, 'the README still explains a launcher window the GUI exe no longer opens');
+  assert.match(WIN, /folder that you will keep/, 'the README does not say the extracted folder IS the install');
   /* Board auth ENFORCES on Windows (tools/kosmos-open-board.js), so the bare
      address loads a board that 403s every agent read. Relaunching is the way in. */
   assert.doesNotMatch(WIN, /go to http:\/\/127\.0\.0\.1:%s yourself/, 'the README sends people to the unsigned address as the fix');
   assert.match(WIN, /If no browser opens, or the board says it is not signed in,/, 'the README does not cover the likelier failure: a browser that opened on a board it is not signed in to');
-  assert.match(WIN, /double-click Kosmos\.exe again\. Typing http/, 'the README does not say how to get back in signed in');
+  assert.match(WIN, /double-click Kosmos\.exe again\. Bookmarks to Kosmos don\\047t stay/, 'the README does not say how to get back in signed in');
+  assert.match(WIN, /signed in\. Always open Kosmos from Kosmos\.exe\./, 'the README does not say a bookmark is not the way in');
   /* The README names the Task Scheduler folder; it must be the one the tasks
      are actually registered in (win32board.TASK_NAME, win32job.TASK_PREFIX). */
   const folder = require('./engine/win32board').TASK_NAME.split('\\')[0];
   assert.equal(require('./engine/win32job').TASK_PREFIX.split('\\')[0], folder);
-  assert.match(WIN, new RegExp("printf '" + folder + " folder\\."), 'the README names a Task Scheduler folder the tasks are not in');
+  assert.match(WIN, new RegExp("printf 'Task Scheduler Library, then the " + folder + " folder\\."), 'the README names a Task Scheduler folder the tasks are not in');
   assert.match(WIN, /Windows protected your PC/, 'the README does not warn about the unsigned warning');
 });
 
@@ -217,8 +221,13 @@ test('🛑 the warning reaches her BEFORE the launcher does, which a README cann
   assert.match(WIN, /More info/, 'the README does not name the way past');
   /* Mark of the Web: a file arriving inside a downloaded zip can be blocked by
      something that is a property of HOW IT ARRIVED, not of what it contains. */
-  assert.match(WIN, /came from another computer/, 'the README does not cover the blocked-file case');
-  assert.match(WIN, /Unblock/, 'the README does not say how to unblock it');
+  /* win32-launcher-native (audit W-03): "This file came from another computer"
+     is the label beside the Unblock checkbox, not a prompt anybody meets, so the
+     README names the dialog a person can actually see, and unblocks the ZIP
+     before extracting rather than each file after. */
+  assert.doesNotMatch(WIN, /came from another computer/, 'the README describes a checkbox label as if it were a prompt');
+  assert.match(WIN, /The publisher could not be verified", click Run\./, 'the README does not cover the Open File security warning');
+  assert.match(WIN, /Tip: before you extract, right-click the zip, choose Properties, tick/, 'the README does not say to unblock the zip before extracting');
 });
 
 test('an ABSOLUTE outdir lands where the caller asked, not under the repo', () => {
