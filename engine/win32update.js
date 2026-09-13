@@ -46,13 +46,15 @@ const update = require('./update');
 const win32anchor = require('./win32anchor');
 const win32board = require('./win32board');
 const win32handoff = require('./win32handoff');
+const win32job = require('./win32job');
 const win32orphan = require('./win32orphan');
 const win32zip = require('./win32zip');
 
 const MEGABYTE = 1024 * 1024;
 
 /* The scratch folder and the things in it. */
-const WORK_DIRNAME = '.kosmos-update';
+/* Spelled once, in win32anchor, beside the other names the updater and the board share. */
+const WORK_DIRNAME = win32anchor.UPDATE_WORK_DIRNAME;
 const DOWNLOAD_PART_NAME = 'download.part';
 const STAGED_DIRNAME = 'staged';
 const LOCK_NAME = 'prepare.lock';
@@ -356,10 +358,11 @@ function boardTaskRefusal(boardTask) {
   return null;
 }
 
-/** win32board's answers. A test process that reaches this with no seam would query the real
-    scheduler, so it throws there (convention 3). */
+/** win32board's answers. A process that may not run schtasks (win32job's one answer, #2973: a test
+    process or a board a test spawned) and reaches this with no seam refuses here, in a test process
+    by throwing (convention 3). win32board.status() refuses there too. */
 function defaultBoardTask() {
-  if (liveExec.inTestProcess()) liveExec.refuseOrWarn('engine/win32update.js', 'schtasks', ['/Query', '/TN', win32board.TASK_NAME]);
+  if (!win32job.schtasksMayRunInThisProcess()) liveExec.refuseOrWarn('engine/win32update.js', 'schtasks', ['/Query', '/TN', win32board.TASK_NAME]);
   return { startedByTask: () => win32board.startedByTask(), status: () => win32board.status() };
 }
 
@@ -1189,13 +1192,14 @@ async function begin(opts) {
     const j = earlier.journal;
     const now = typeof o.now === 'function' ? o.now() : Date.now();
     /* A staged journal this young belongs to the helper an earlier begin() has just started. A second
-       request must not cancel it (apply.STAGED_HELPER_STARTUP_GRACE_MS). */
-    if (j.phase === 'staged' && now - Date.parse(j.createdAt) < apply.STAGED_HELPER_STARTUP_GRACE_MS) {
+       request must not cancel it. The rule is win32apply's one reading of it. */
+    if (apply.stagedIsYoung(j, now)) {
       return { ok: false, because: `an update to ${j.to.version} is starting now. Try again in a minute` };
     }
     /* A journal no resumer can finish (its Kosmos folder, working folder or recovery code is gone) is
        settled here, in words, and this update goes on; otherwise it would block every update. */
     const settled = apply.settleUnrecoverableJournal(journalAt, o.applySeams);
+    if (settled.action === 'unreachable') return { ok: false, because: apply.unfinishedUpdateRefusal(anchorDir) };
     if (settled.action === 'held') return { ok: false, because: `an earlier update to ${j.to.version} could not be cleared yet (${settled.because})` };
     if (settled.action === 'recoverable') {
       const oldModule = j.recoverFrom.find((f) => fs.existsSync(f));
@@ -1312,8 +1316,10 @@ async function applyCli(a, out, seams) {
   const r = await begin({
     root, base: a.base, channel: a.channel, world: a.world, port, boardPid, fromIdentity,
     liveExecutionAllowed: () => true,
-    /* `running` must be exactly true: an unknown running state is not "started by its task". */
-    boardTask: { startedByTask: () => task.running === true && answer.answering === true && answer.identity === fromIdentity, status: () => task },
+    /* The board says itself whether its task started it (#2986, x-kosmos-board-started-by-task), and
+       only an exact yes counts. Task Scheduler's `running` is not asked: it reads null whenever its
+       CSV cannot be read, times out or meets a locale. */
+    boardTask: { startedByTask: () => answer.startedByTask === true && answer.answering === true && answer.identity === fromIdentity, status: () => task },
     ...(s.begin || {}),
   });
   out(JSON.stringify(r, null, 2) + '\n');

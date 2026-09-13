@@ -180,7 +180,7 @@ const BOOT_JS = [
   "        process.stderr.write('kosmos: an update that did not finish cannot be recovered at start: none of its recovery files exist (' + places.join(', ') + ')\\n');",
   '      } else {',
   '        const outcome = require(recoverer).recoverAtBoot(journal) || {};',
-  "        if (outcome.action === 'held' || outcome.action === 'stuck' || outcome.action === 'unreadable') {",
+  "        if (['held', 'stuck', 'unreadable', 'unreachable', 'taken-over'].includes(outcome.action)) {",
   "          process.stderr.write('kosmos: an update that did not finish was not recovered at start (' + outcome.action + (outcome.because ? ': ' + outcome.because : '') + ')\\n');",
   '        }',
   "        if (outcome.action === 'stuck' && typeof outcome.bootFrom === 'string' && fs.existsSync(outcome.bootFrom)) {",
@@ -329,6 +329,9 @@ function bundleRoot(opts) {
   /* `__dirname` is <root>/app/engine in the bundle, so the root is two up. */
   const root = o.root || path.resolve(__dirname, '..', '..');
   const exists = o.exists || ((f) => fs.existsSync(f));
+  /* A build inside the updater's folder (the logon shim's fallback while a rollback is stuck) is not
+     the install, so nothing registers or anchors from it. See win32anchor.bundleIsInUpdateWork. */
+  if (win32anchor.bundleIsInUpdateWork(root, p)) return null;
   if (exists(p.join(root, 'runtime', 'node.exe')) && exists(p.join(root, 'app', 'server.js'))) return root;
   return null;
 }
@@ -835,6 +838,9 @@ function describe(opts) {
   const o = opts || {};
   const platform = o.platform || process.platform;
   if (platform !== 'win32') return null;
+  /* A board running from inside the updater's folder is neither "from source" nor the install's own:
+     null, which machine.js renders as "we could not check". */
+  if (win32anchor.bundleIsInUpdateWork(o.root || path.resolve(__dirname, '..', '..'), path.win32)) return null;
   const bundle = bundleRoot(o);
   const st = status();
   /* #2973: a bundle whose job we could not read is not "missing" or "switched off".

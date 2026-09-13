@@ -111,6 +111,12 @@ class StepFailure extends Error {
   constructor(because) { super(because); this.name = 'StepFailure'; }
 }
 
+/** This context no longer owns the update (see assertStillOwner). Never caught as a step failure:
+    every catch rethrows it, and each entry point turns it into a `taken-over` result. */
+class LostOwnership extends Error {
+  constructor(because) { super(because); this.name = 'LostOwnership'; }
+}
+
 function firstLine(e) { return String((e && e.message) || e).split('\n')[0]; }
 function codeOf(e) { return (e && e.code) || 'unknown'; }
 function readJson(file) {
@@ -181,7 +187,11 @@ function journalProblem(j, journalAt) {
 }
 
 /** Where the OLD build's copy of this file is, in the order to look: after H3 moved `app` it is in
-    previous-<from>; before that it is still in ROOT. The first that exists is always the old one. */
+    previous-<from>; before that it is still in ROOT. The first that exists is the old build's, with
+    one exception: when previous-<from> was deleted after H4, the second is ROOT's, which is the NEW
+    build's. Loading that is safe: it reads journal format 1 or refuses the journal as unreadable, its
+    paths come from the journal's own root, and treeProblem and reversePass never call a new app the
+    old tree or move it out of ROOT, so the result is a stuck status. */
 function recoverFromFor(root, previous) {
   return [
     path.join(previous, 'app', 'engine', MODULE_FILE_NAME),
@@ -225,6 +235,7 @@ function unfinishedUpdateRefusal(anchorDir) {
   if (read.state !== 'unfinished') return null;
   const j = read.journal;
   const found = unrecoverableCase(j);
+  if (found && found.kind === 'unreachable') return `an earlier update to ${j.to.version} cannot be finished right now, because ${found.because}. Connect it and restart your computer, then try again`;
   if (found) return `an earlier update to ${j.to.version} can never finish, because ${found.because}. Asking Kosmos to update again clears that record`;
   return `an earlier update to ${j.to.version} has not finished yet. Kosmos finishes it, or puts ${j.from.version} back, the next time its board starts; try again after that`;
 }
@@ -350,9 +361,41 @@ function contextFor(journalAt, journal, deps, mode) {
   return { journalAt, j, deps, mode, log, inWork, guard: writeGuard(j, journalAt) };
 }
 
+/**
+ * 🛑 NOTHING IS WRITTEN FOR AN UPDATE THIS CONTEXT NO LONGER OWNS. Checked before every journal and
+ * status write:
+ *   - the lock this context took still holds exactly its text. The lock FILE lives in WORK, so
+ *     deleting WORK deletes it, and a resumer may then make WORK again and take a fresh lock at the
+ *     same name: holding the lock longer cannot prevent that, so its presence is checked instead
+ *     (skipped only for a ROOT-gone settlement, which takes no lock);
+ *   - the journal on disk is still this update's (same token), and unfinished unless this context
+ *     finished it itself.
+ * Either failing throws LostOwnership: the owner of this context stops at once. Without it, a helper
+ * whose WORK vanished would resurrect a journal a resumer had already settled, and move the only
+ * surviving build into a WORK the resumer made again. The gap between this check and the write is
+ * the residual.
+ */
+function assertStillOwner(ctx) {
+  if (ctx.lock && ctx.lock.text && readText(path.join(ctx.j.work, win32update.LOCK_NAME)) !== ctx.lock.text) {
+    throw new LostOwnership('its update lock is gone or belongs to someone else now');
+  }
+  const read = readJournal(ctx.journalAt);
+  if (!read.journal || read.journal.token !== ctx.j.token || (read.state === 'finished' && !ctx.wroteFinish)) {
+    throw new LostOwnership('its journal was finished, replaced or removed by someone else');
+  }
+}
+
+/** A result for an update this context stopped owning: nothing more was written. */
+function takenOver(ctx, e) {
+  ctx.log(`stopped without writing: ${e.message}`);
+  return { ok: false, outcome: 'taken-over', action: 'taken-over', because: `the update stopped here: ${e.message}, so nothing more was written` };
+}
+
 function save(ctx) {
+  assertStillOwner(ctx);
   ctx.j.updatedAt = new Date(ctx.deps.now()).toISOString();
   win32swap.writeFileAtomic(ctx.guard(ctx.journalAt), JSON.stringify(ctx.j, null, 2) + '\n');
+  if (ctx.j.finished) ctx.wroteFinish = true;
 }
 function record(ctx, step) {
   ctx.j.steps.push({ at: new Date(ctx.deps.now()).toISOString(), ...step });
@@ -425,6 +468,7 @@ function statusFor(j, outcome, because, at, kind) {
 }
 
 function writeStatus(ctx, outcome, because, kind) {
+  assertStillOwner(ctx);
   const status = statusFor(ctx.j, outcome, because, new Date(ctx.deps.now()).toISOString(), kind);
   win32swap.writeFileAtomic(ctx.guard(statusPathFor(ctx.j.anchor)), JSON.stringify(status, null, 2) + '\n');
   ctx.log(`status ${outcome}: ${status.sentence}${because && outcome !== 'stuck' ? ` (${because})` : ''}`);
@@ -605,6 +649,13 @@ function reversePass(ctx) {
     const inRoot = path.join(j.root, entry);
     const back = path.join(j.staged, entry);
     if (exists(inRoot) && !exists(back)) {
+      /* 🛑 NAMES ARE NOT BUILDS. An entry the old tree had is moved out of ROOT only while the old
+         build's copy of it is in previous-<from> to take its place. Without that copy, what is in
+         ROOT may be the only build left, and moving it away would leave the folder empty. */
+      if (j.presentBefore.includes(entry) && !exists(path.join(j.previous, entry))) {
+        ctx.log(`${entry} stays in the Kosmos folder: the old build's copy of it is gone, so it may be the only build left`);
+        continue;
+      }
       if (!exists(j.staged)) fs.mkdirSync(ctx.guard(j.staged));
       moveRecorded(ctx, 'H8-H4', entry, inRoot, back);
     }
@@ -628,6 +679,11 @@ function treeProblem(ctx) {
     } else if (inRoot && intended(j, 'H4', entry)) {
       return `${entry}, which the update brought, is still in the Kosmos folder`;
     }
+  }
+  /* The right names in ROOT are not enough: the app that is back must BE the old build. */
+  if (j.presentBefore.includes('app')) {
+    const rootVersion = (readJson(path.join(j.root, 'app', 'package.json')) || {}).version;
+    if (rootVersion !== j.from.version) return `the app in the Kosmos folder is ${rootVersion || 'of no known version'}, not ${j.from.version}`;
   }
   if (readText(j.pointer.at) !== j.pointer.before) return 'the engine pointer is not back';
   const it = j.interpreter;
@@ -653,6 +709,7 @@ function rollBackTree(ctx, because) {
   for (let pass = 1; pass <= deps.limits.rollbackPasses; pass += 1) {
     let failure = null;
     try { reversePass(ctx); } catch (e) {
+      if (e instanceof LostOwnership) throw e;
       failure = e instanceof StepFailure ? e.message : `${firstLine(e)} (code=${codeOf(e)})`;
       log(`rollback pass ${pass}: ${failure}`);
     }
@@ -692,6 +749,13 @@ function concludeRollback(ctx, boardBecause) {
 /** H8 in a helper: stop whatever board is running, reverse, start the old board, confirm it. */
 async function rollBack(ctx, because) {
   const { j, log } = ctx;
+  /* First: a rollback whose working folder or recovery code is gone cannot be done by moving names
+     around. It is settled in words ("download a fresh copy"), as a resumer would. */
+  const found = unrecoverableCase(j);
+  if (found && found.kind !== 'unreachable') {
+    const settled = settleUnrecoverable(ctx, found);
+    return { ok: false, outcome: settled.action, because: settled.because };
+  }
   const from = j.phase === 'rolling-back' || j.phase === 'stuck' ? (j.rolledBackFrom || j.phase) : j.phase;
   if (!UNCHANGED_PHASES.includes(from)) {
     const stopped = await stopBoard(ctx);
@@ -712,7 +776,10 @@ async function rollBack(ctx, because) {
     (only the newest previous-* is kept); the interpreter's retired file is the anchoring sweep's. */
 function finishUpdated(ctx) {
   const { j, log } = ctx;
-  try { writeStatus(ctx, 'updated', null); } catch (e) { log(`could not record the outcome (code=${codeOf(e)})`); }
+  try { writeStatus(ctx, 'updated', null); } catch (e) {
+    if (e instanceof LostOwnership) throw e;
+    log(`could not record the outcome (code=${codeOf(e)})`);
+  }
   ctx.deps.hooks.before('H9-finish', {});
   j.finished = true;
   j.outcome = 'updated';
@@ -801,6 +868,7 @@ async function runSteps(ctx) {
     if (!up.ok) throw new StepFailure(`the new board did not answer as ${j.to.identity} (${up.because})`);
     setPhase(ctx, 'confirmed');
   } catch (e) {
+    if (e instanceof LostOwnership) throw e;
     const because = e instanceof StepFailure ? e.message : `${firstLine(e)} (code=${codeOf(e)})`;
     log(`the update failed during ${j.phase}: ${because}`);
     return rollBack(ctx, because);
@@ -809,6 +877,7 @@ async function runSteps(ctx) {
      left at `confirmed` is finished forward by the next resumer. */
   deps.hooks.before('H9', {});
   try { return finishUpdated(ctx); } catch (e) {
+    if (e instanceof LostOwnership) throw e;
     log(`the update is in, but its record could not be finished (code=${codeOf(e)})`);
     return { ok: true, outcome: 'updated', version: j.to.version };
   }
@@ -850,10 +919,17 @@ function sameUnfinishedJournal(journalAt, token) {
   return read.state === 'unfinished' && read.journal.token === token ? read.journal : null;
 }
 
-/** Is this staged journal still inside STAGED_HELPER_STARTUP_GRACE_MS of being written? */
-function stagedIsYoung(j, deps) {
+/**
+ * Is this staged journal still inside STAGED_HELPER_STARTUP_GRACE_MS of being written, at `now`? The
+ * one reading of the grace rule, which begin() asks too. Young means 0 <= age < the grace: an age
+ * below zero (a clock stepped back, or a createdAt in the future) is not young, or it would stay
+ * young forever and block every resumer.
+ */
+function stagedIsYoung(j, now) {
   const written = Date.parse(j.createdAt);
-  return j.phase === 'staged' && Number.isFinite(written) && deps.now() - written < STAGED_HELPER_STARTUP_GRACE_MS;
+  if (j.phase !== 'staged' || !Number.isFinite(written)) return false;
+  const age = now - written;
+  return age >= 0 && age < STAGED_HELPER_STARTUP_GRACE_MS;
 }
 
 /**
@@ -865,6 +941,11 @@ function stagedIsYoung(j, deps) {
  *     `nothing-moved` (staged, stopping), `confirmed` (the new build was proven), or `moved`.
  */
 function unrecoverableCase(j) {
+  /* 🛑 A FOLDER ON A DRIVE THAT IS NOT CONNECTED IS NOT GONE. When the volume root itself (a drive
+     letter, or a UNC or mapped share's root) cannot be reached, the tree may be whole and waiting on
+     a USB drive, a late BitLocker unlock or an offline share: `unreachable`, held, never settled. */
+  const volume = path.parse(path.resolve(j.root)).root;
+  if (volume && !exists(volume)) return { kind: 'unreachable', because: `the drive Kosmos is on (${volume}) is not connected` };
   if (!exists(j.root)) return { kind: 'root-gone', because: `the Kosmos folder that update was changing (${j.root}) no longer exists` };
   let missing = null;
   if (!exists(j.work)) missing = `its working folder ${j.work} is gone`;
@@ -925,16 +1006,21 @@ function settleUnrecoverableJournal(journalAt, overrides) {
   if (read.state !== 'unfinished') return { action: 'nothing' };
   const found = unrecoverableCase(read.journal);
   if (!found) return { action: 'recoverable' };
+  if (found.kind === 'unreachable') return { action: 'unreachable', because: found.because };
   refuseInTestWithoutSeams(overrides, 'settle', journalAt);
   const deps = depsFrom(overrides);
   const ctx = contextFor(journalAt, read.journal, deps, 'settle');
   const lock = lockForResume(ctx, found);
   if (lock.because) return { action: 'held', because: lock.because };
+  ctx.lock = lock;
   try {
     const again = lock.none ? read.journal : sameUnfinishedJournal(journalAt, read.journal.token);
     if (!again) return { action: 'nothing' };
     ctx.j = again;
     return settleUnrecoverable(ctx, found);
+  } catch (e) {
+    if (e instanceof LostOwnership) return takenOver(ctx, e);
+    throw e;
   } finally {
     releaseUpdateLock(ctx, lock);
   }
@@ -942,9 +1028,12 @@ function settleUnrecoverableJournal(journalAt, overrides) {
 
 /**
  * When a boot recovery is left stuck, the build the logon shim should start instead of the app in
- * ROOT: `previous-<from>\app\server.js`, when that app is whole and is the old version. H5's reversal
- * has already put the old interpreter back, so the old app on the old interpreter is the consistent
- * pair; the new app in ROOT was never confirmed. `{ server }` or `{ server: null, whyNot }`.
+ * ROOT: `previous-<from>\app\server.js`, when that app is whole and is the old version; the new app in
+ * ROOT was never confirmed. H5's reversal has put the old interpreter's bytes back in the anchor, but
+ * the shim process running this was started on whatever node.exe its task found: after a crash past
+ * H5 that is the NEW one (a restore replaces the file, not a running image). So until the next task
+ * start this is the old app on the new interpreter; every later start is old on old.
+ * `{ server }` or `{ server: null, whyNot }`.
  */
 function previousAppToBoot(j) {
   for (const entry of win32update.REQUIRED_ENTRIES.filter((e) => e.startsWith('app/'))) {
@@ -973,6 +1062,7 @@ async function applyJournal(journalAt, overrides) {
   if (first.phase !== 'staged') return { ok: false, because: `the update is already past being staged (${first.phase}), so it is not waiting to be applied` };
   const lock = takeUpdateLock(ctx);
   if (!lock.text) return { ok: false, because: `another update is already running (${lock.because})` };
+  ctx.lock = lock;
   try {
     /* The journal read above is only a look. Between it and the lock, a resumer can have finished
        this journal, or begin() written another: only the same journal, still unfinished and still
@@ -987,6 +1077,9 @@ async function applyJournal(journalAt, overrides) {
     const refusal = applyRefusal(ctx);
     if (refusal) return finishWithoutChange(ctx, refusal);
     return await runSteps(ctx);
+  } catch (e) {
+    if (e instanceof LostOwnership) return takenOver(ctx, e);
+    throw e;
   } finally {
     releaseUpdateLock(ctx, lock);
   }
@@ -1012,17 +1105,19 @@ async function resumeJournal(journalAt, overrides) {
   if (read.state !== 'unfinished') return { ok: true, action: 'nothing' };
   /* A staged journal this young belongs to the helper begin() has just started: leave it, and do not
      even take the lock that helper is about to need. */
-  if (stagedIsYoung(read.journal, deps)) return { ok: true, action: 'starting' };
+  if (stagedIsYoung(read.journal, deps.now())) return { ok: true, action: 'starting' };
   const ctx = contextFor(journalAt, read.journal, deps, 'resume');
   const found = unrecoverableCase(read.journal);
+  if (found && found.kind === 'unreachable') return { ok: true, action: 'unreachable', because: found.because };
   const lock = lockForResume(ctx, found);
   if (lock.because) return { ok: true, action: 'held', because: lock.because };
+  ctx.lock = lock;
   try {
     /* Read again under the lock: the holder it waited for may have finished it or replaced it. */
     const again = lock.none ? read.journal : sameUnfinishedJournal(journalAt, read.journal.token);
     if (!again) return { ok: true, action: 'nothing' };
     ctx.j = again;
-    if (stagedIsYoung(ctx.j, deps)) return { ok: true, action: 'starting' };
+    if (stagedIsYoung(ctx.j, deps.now())) return { ok: true, action: 'starting' };
     if (found) return { ok: false, ...settleUnrecoverable(ctx, found) };
     ctx.j.helper = { pid: process.pid, mode: 'resume' };
     if (UNCHANGED_PHASES.includes(ctx.j.phase)) {
@@ -1038,6 +1133,9 @@ async function resumeJournal(journalAt, overrides) {
     }
     if (ctx.j.phase === 'confirmed') return finishUpdated(ctx);
     return await rollBack(ctx, stoppedBecause(ctx.j));
+  } catch (e) {
+    if (e instanceof LostOwnership) return takenOver(ctx, e);
+    throw e;
   } finally {
     releaseUpdateLock(ctx, lock);
   }
@@ -1062,8 +1160,10 @@ function recoverAtBoot(journalAt, overrides) {
   if (read.state !== 'unfinished') return { action: 'nothing' };
   const ctx = contextFor(journalAt, read.journal, deps, 'boot');
   const found = unrecoverableCase(read.journal);
+  if (found && found.kind === 'unreachable') return { action: 'unreachable', because: found.because };
   const lock = lockForResume(ctx, found);
   if (lock.because) return { action: 'held', because: lock.because };
+  ctx.lock = lock;
   try {
     const again = lock.none ? read.journal : sameUnfinishedJournal(journalAt, read.journal.token);
     if (!again) return { action: 'nothing' };
@@ -1080,6 +1180,9 @@ function recoverAtBoot(journalAt, overrides) {
     }
     const r = concludeRollback(ctx, null);
     return { action: r.outcome };
+  } catch (e) {
+    if (e instanceof LostOwnership) return takenOver(ctx, e);
+    throw e;
   } finally {
     releaseUpdateLock(ctx, lock);
   }
@@ -1097,12 +1200,16 @@ function abandonStagedJournal(journalAt, because, overrides) {
   const ctx = contextFor(journalAt, read.journal, deps, 'begin');
   const lock = takeUpdateLock(ctx);
   if (!lock.text) return { action: 'held', because: lock.because };
+  ctx.lock = lock;
   try {
     const again = sameUnfinishedJournal(journalAt, read.journal.token);
     if (!again || again.phase !== 'staged') return { action: 'nothing' };
     ctx.j = again;
     finishWithoutChange(ctx, because);
     return { action: 'not-started' };
+  } catch (e) {
+    if (e instanceof LostOwnership) return takenOver(ctx, e);
+    throw e;
   } finally {
     releaseUpdateLock(ctx, lock);
   }
@@ -1111,5 +1218,6 @@ function abandonStagedJournal(journalAt, because, overrides) {
 module.exports = {
   applyJournal, resumeJournal, recoverAtBoot, abandonStagedJournal, settleUnrecoverableJournal, readJournal, writeStagedJournal,
   unfinishedUpdateRefusal, journalPathFor, statusPathFor, moveOrder, writeGuard,
+  stagedIsYoung,
   MODULE_FILE_NAME, PREVIOUS_PREFIX, ANCHORED_NODE_COPY_NAME, APPLY_LOG_NAME, DEFAULT_APPLY_LIMITS, PHASES, STAGED_HELPER_STARTUP_GRACE_MS,
 };

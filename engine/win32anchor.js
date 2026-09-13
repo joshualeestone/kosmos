@@ -93,6 +93,22 @@ const BOOT_NAME = 'supervisor-boot.js';
    logon shim that reads the journal (win32board.BOOT_JS) spell them one way. */
 const UPDATE_JOURNAL_NAME = 'update-journal.json';
 const UPDATE_STATUS_NAME = 'update-status.json';
+/* The updater's working folder inside the Kosmos folder (engine/win32update.js WORK), named here so
+   the updater and the two places that must never treat a build inside it as the install
+   (win32board.bundleRoot, ensureAnchored below) spell it one way. */
+const UPDATE_WORK_DIRNAME = '.kosmos-update';
+
+/**
+ * Is this bundle root inside the updater's working folder (`<ROOT>\.kosmos-update\previous-<from>`,
+ * or `staged`)? A board started from there (the logon shim's fallback while a rollback is stuck) is a
+ * build the updater is holding, never the install: re-registering the logon task or pointing
+ * `engine-path` at it would move the whole fleet into WORK, where the next rollback or cleanup moves
+ * or deletes it. `p` is the path module for the platform asked about.
+ */
+function bundleIsInUpdateWork(root, p) {
+  const paths = p || path;
+  return paths.basename(paths.dirname(paths.resolve(String(root)))).toLowerCase() === UPDATE_WORK_DIRNAME;
+}
 
 /**
  * Where the anchor lives.
@@ -234,6 +250,15 @@ function ensureAnchored(opts) {
   const pointerAt = path.join(dir, POINTER_NAME);
   const bootAt = path.join(dir, BOOT_NAME);
 
+  /* 🛑 NEVER ANCHOR THE FLEET INTO THE UPDATER'S FOLDER (bundleIsInUpdateWork). A board or agent
+     install running from `.kosmos-update\previous-<from>` leaves the interpreter, the pointer and the
+     shim exactly as they are: the task it registers still runs the anchored node and shim, and the
+     pointer stays where the update's recovery put it. */
+  if (bundleIsInUpdateWork(path.resolve(String(engineDir), '..', '..'))) {
+    return { ok: true, node: nodeAt, boot: bootAt, dir, pointer: pointerAt,
+      untouched: `this app runs from inside the updater's folder (${engineDir}), so the startup files were left as they are` };
+  }
+
   try {
     fs.mkdirSync(dir, { recursive: true });
 
@@ -284,6 +309,6 @@ function readPointer(platform, home, env) {
 
 module.exports = {
   APP, NODE_NAME, POINTER_NAME, BOOT_NAME, BOOT_JS, STAGED_INFIX, RETIRED_INFIX,
-  RETIRED_SWEEP_MIN_AGE_MS, UPDATE_JOURNAL_NAME, UPDATE_STATUS_NAME,
+  RETIRED_SWEEP_MIN_AGE_MS, UPDATE_JOURNAL_NAME, UPDATE_STATUS_NAME, UPDATE_WORK_DIRNAME, bundleIsInUpdateWork,
   anchorDir, ensureAnchored, readPointer, interpreterSizeDiffers,
 };
