@@ -30756,7 +30756,7 @@ async function moveAccountNow(say) {
    hold is SUCCESS-ONLY and bounded by minBusyMs, so it can
    never trap the modal (#1313): a failure shows immediately, and `say` still always fires
    the one exit. */
-function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
+function changeDialog({ title, small, go, run, busyHtml, minBusyMs, doneLabel, onDone }) {
   const back = document.getElementById('chg-modal');
   const t = document.getElementById('chg-title');
   const sm = document.getElementById('chg-small');
@@ -30844,7 +30844,14 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
         if (back.hidden) return;
         msg.textContent = sentence;
         goBtn.hidden = true;
-        keep.textContent = ok ? 'Done' : 'Close';
+        keep.textContent = ok ? (doneLabel || 'Done') : 'Close';
+        /* #2694: on SUCCESS a caller may make the close button an action instead of a
+           plain dismiss (the reactivate flows use "Say hello to <agent>", which sends the
+           wake hello and jumps to Talk). onDone runs, then the modal closes. Only on ok
+           AND when a caller passed onDone; every other path (a non-success outcome, or a
+           caller that passed neither doneLabel nor onDone) keeps the plain close, so the
+           other changeDialog callers are unchanged. */
+        keep.onclick = (ok && onDone) ? () => { onDone(); close(); } : close;
         keep.hidden = false;
         try { keep.focus(); } catch { /* the sentence stands on its own */ }
       };
@@ -32051,13 +32058,30 @@ const chgBusyHtml = (line) => '<span class="chg-restart">'
   + '<canvas class="chg-restart-k" width="176" height="206" aria-hidden="true"></canvas>'
   + line + '</span>';
 const RESTART_BUSY_HTML = chgBusyHtml('Restarting the agent');
+/* #2694 (Josh): a reactivate confirm's success button ("Say hello to <agent>") IS the
+   say-hello action -- send the wake hello into the agent's dialog AND jump to Talk, so the
+   person does not land back on the picker and have to go say hello by hand. Shared by the
+   model-change and provider-change dialogs (the identical reactivate pattern). It runs only
+   on a real restart (changeDialog fires onDone only on the ok outcome), and these paths do
+   not otherwise auto-hello (unlike the rst-go restart path, which is why the hello is sent
+   here). The open-agent guard is the same pair autoHelloAfterRestart's other callers use, so
+   a resolution after the person has navigated away does not land the note on another agent. */
+function reactivateSayHello(forAgent, shown) {
+  detailGo('talk');
+  autoHelloAfterRestart(forAgent,
+    (t) => { const h = document.getElementById('d-talk-hint'); if (h && CURRENT && CURRENT.sessionName === forAgent) h.textContent = t; },
+    'Said hello to ' + shown + ' to wake them.',
+    'You will need to say ‘hello’ to ' + shown + ' to wake them.');
+}
 document.getElementById('d-model-go').addEventListener('click', () => {
   const sel = document.getElementById('d-model');
   if (!CURRENT || !sel.value) return;
   const label = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent.trim() : sel.value;
+  const forAgent = CURRENT.sessionName;
+  const shown = agentShown();
   changeDialog({
-    title: 'Change ' + agentShown() + ' to ' + label + '?',
-    small: agentShown() + ' restarts. It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.',
+    title: 'Change ' + shown + ' to ' + label + '?',
+    small: shown + ' restarts. It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.',
     go: 'Change and restart',
     busyHtml: RESTART_BUSY_HTML,
     /* Read the hold at click time so a hermetic browser-check can shorten it via
@@ -32065,6 +32089,9 @@ document.getElementById('d-model-go').addEventListener('click', () => {
        undefined in prod, so a real switch always holds RESTART_HOLD_MS. Same shape as
        the server's `*_SWEEP_MS` test seams. */
     minBusyMs: (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS),
+    /* #2694: the success button IS the say-hello action, then jump to Talk. */
+    doneLabel: 'Say hello to ' + shown,
+    onDone: () => reactivateSayHello(forAgent, shown),
     run: (say) => changeModelNow(say),
   });
 });
@@ -32475,8 +32502,13 @@ async function changeModelNow(say) {
        is unchanged by a model switch, so it names the agent's current one. */
     const restarted = out.outcome === 'changed';
     const provName = (providerOf(CURRENT) === 'openai') ? 'OpenAI' : 'Claude';
+    /* #2694: on a real restart the "Say hello to <agent>" half is now the dialog's action
+       BUTTON (doneLabel, set at the changeDialog call site), which sends the hello and jumps
+       to Talk; this line is the helper beneath it, so together they read "Say hello to
+       <agent> to reactivate them on <provider>." `partial` and failure keep the engine's
+       exact words (and the plain Close button), because those are different facts. */
     if (say) say(restarted
-      ? 'Say hello to ' + agentShown() + ' to reactivate them on ' + provName + '.'
+      ? 'to reactivate them on ' + provName + '.'
       : (out.because || 'Changed.'), restarted);
     sel.value = '';
     await tick();
@@ -32488,6 +32520,14 @@ async function changeModelNow(say) {
      * focus() on a display:none element does nothing, silently: a keyboard
      * user would be left on <body>. Moving them to Talk is their click, not
      * ours; the sentence above is what tells them the restart worked.
+     *
+     * #2694 (Josh, 2026-09-10) keeps that principle but changes the mechanism:
+     * the confirm dialog's success button is now "Say hello to <agent>", and
+     * clicking IT navigates to Talk (and sends the hello) -- so the trip to Talk
+     * is still THEIR click, now folded into one designed action instead of a
+     * manual hop. This picker-focus is the interim focus for the moment the
+     * confirm button is shown; when they take that button, reactivateSayHello's
+     * detailGo('talk') moves them on.
      *
      * ⚠️ THE PICKER, NOT THE BUTTON. The button was disabled before the fetch
      * and the picker's value was just cleared, so `finally` leaves the button

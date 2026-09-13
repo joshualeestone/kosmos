@@ -73,15 +73,45 @@ const CURRENT_PAGE = fs.readFileSync('web/index.html', 'utf8');
 
 test('a successful change is said in the dialog with Done; a saved-but-not-restarted one with Close; a refusal with Close', async () => {
   let got = await change(world(CURRENT_PAGE, ok('changed', 'Mara is starting again on Claude Fable 5.')));
-  /* #768-batch: on a real restart the dialog now reduces to the one action left --
-     say hello to reactivate -- naming the provider (Mara has no codex runner -> Claude).
-     The engine's fuller sentence still stands on the section line behind the dialog. */
-  assert.equal(got.msg, 'Say hello to Mara to reactivate them on Claude.');
+  /* #768-batch + #2694: on a real restart the dialog reduces to the one action left --
+     say hello to reactivate. #2694 split that: the "Say hello to <agent>" half is now the
+     changeDialog action BUTTON (doneLabel, set at the d-model-go call site), and changeModelNow's
+     message is the "to reactivate them on <provider>" helper beneath it (naming the provider;
+     Mara has no codex runner -> Claude). This `change()` helper uses a generic changeDialog call
+     with NO doneLabel, so the button stays the default 'Done' here; the doneLabel path is the
+     next test. The engine's fuller sentence still stands on the section line behind the dialog. */
+  assert.equal(got.msg, 'to reactivate them on Claude.');
   assert.equal(got.keep.textContent, 'Done'); assert.equal(got.keep.hidden, false);
   got = await change(world(CURRENT_PAGE, ok('partial', 'We saved Claude Fable 5, but could not start it again.')));
   assert.match(got.msg, /^We saved/); assert.equal(got.keep.textContent, 'Close'); assert.equal(got.keep.hidden, false);
   got = await change(world(CURRENT_PAGE, async () => ({ ok: false, json: async () => ({ outcome: 'refused', because: 'that agent has no startup file' }) })));
   assert.equal(got.msg, 'that agent has no startup file'); assert.equal(got.keep.textContent, 'Close');
+});
+
+test('#2694: doneLabel makes the success button an action (label + onDone fires); a non-success keeps Close and never fires onDone', async () => {
+  // Success: the button carries the doneLabel (not 'Done'), and clicking it fires onDone.
+  const w = world(CURRENT_PAGE, ok('changed', 'Mara is starting again on Claude Fable 5.'));
+  let fired = 0;
+  w.ctx.changeDialog({ title: 'Change Mara?', small: 'Mara restarts.', go: 'Change and restart',
+    doneLabel: 'Say hello to Mara', onDone: () => { fired += 1; },
+    run: (say) => w.ctx.changeModelNow(say) });
+  await w.el('chg-go').onclick();
+  assert.equal(w.el('chg-msg').textContent, 'to reactivate them on Claude.', 'the message is the helper half');
+  assert.equal(w.el('chg-keep').textContent, 'Say hello to Mara', 'the button is the doneLabel, not Done');
+  await w.el('chg-keep').onclick();
+  assert.equal(fired, 1, 'onDone fired exactly once on the success button click');
+  assert.equal(w.el('chg-modal').hidden, true, 'and the modal closed after onDone');
+
+  // A NON-success (partial): doneLabel is ignored, the button is Close, and onDone never fires.
+  const w2 = world(CURRENT_PAGE, ok('partial', 'We saved it, but could not start it again.'));
+  let fired2 = 0;
+  w2.ctx.changeDialog({ title: 'Change Mara?', small: 'Mara restarts.', go: 'Change and restart',
+    doneLabel: 'Say hello to Mara', onDone: () => { fired2 += 1; },
+    run: (say) => w2.ctx.changeModelNow(say) });
+  await w2.el('chg-go').onclick();
+  assert.equal(w2.el('chg-keep').textContent, 'Close', 'a non-success keeps the plain Close, not the doneLabel');
+  await w2.el('chg-keep').onclick();
+  assert.equal(fired2, 0, 'onDone does NOT fire on a non-success outcome');
 });
 
 test('control: the page before this change left the dialog on Working… after a successful change, its button hidden', async () => {

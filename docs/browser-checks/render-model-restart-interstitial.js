@@ -197,15 +197,27 @@ function check(name, pass, detail) {
       hasLoaderCanvas: !!document.querySelector('#chg-msg .chg-restart canvas.chg-restart-k'),
       loaderPainted: loaderPainted(),
       noPulsingIcon: !document.querySelector('#chg-msg .chg-restart .kspin'),
-      noReducedYet: !/Say hello/i.test(msg.textContent),
+      // #2694: the reduced HELPER line no longer contains "Say hello" (that half moved to the
+      // button), so key "not reduced yet" on the reactivate helper being absent during busy.
+      noReducedYet: !/reactivate them on/i.test(msg.textContent),
     };
     await sleep(400); // past the 300ms hold
     const reducedText = msg.textContent;
-    const modelDone = /Say hello to FClaude-Casey to reactivate them on Claude\./.test(reducedText) && keep.textContent === 'Done';
+    // #2694 (Josh): the reduced model dialog now splits "Say hello to <agent>" onto the action
+    // BUTTON (keep = doneLabel) and keeps "to reactivate them on <provider>" as the helper line
+    // beneath it. Assert BOTH halves land where they should.
+    const modelDone = /^to reactivate them on Claude\.$/.test(reducedText.trim())
+      && keep.textContent === 'Say hello to FClaude-Casey';
     // The success render detached the canvas (msg.textContent replaced the interstitial), so the
     // real loader's rAF loop bails on its next frame. It was connected during busy and is not now.
     const modelCanvasDetachedAfter = modelCanvasConnectedDuringBusy && !!modelCanvas && !modelCanvas.isConnected;
-    if (!back.hidden) keep.click();
+    // #2694: clicking that button now fires onDone (navigate to Talk + send the wake hello, a
+    // fire-and-forget async), which would move the DOM off the Model section and disrupt the
+    // sequential provider arms below. Close the modal DIRECTLY here so the check stays hermetic;
+    // the button relabel is asserted by modelDone above, and the nav+hello behaviour is wired via
+    // the existing tested detailGo / autoHelloAfterRestart paths (a dedicated click-through check
+    // for the reactivate nav is a clean follow-up, kept out of this sequential fixture).
+    if (!back.hidden) back.hidden = true;
 
     // 5. THE PROVIDER FLOW (#2463 follow-up): stub the POST, set the provider picker to
     //    OpenAI, click the real #d-provider-go handler. Same shortened hold. CURRENT is on
@@ -297,8 +309,8 @@ function check(name, pass, detail) {
     r.modelBusy && r.modelBusy.restarting && r.modelBusy.hasLoaderCanvas && r.modelBusy.loaderPainted && r.modelBusy.noReducedYet, JSON.stringify(r.modelBusy));
   check('#2692: the small pulsing .kspin mark Josh flagged is GONE from the restart interstitial',
     r.modelBusy && r.modelBusy.noPulsingIcon, JSON.stringify(r.modelBusy));
-  check('MODEL: after the hold the dialog reduces to "Say hello to <agent> to reactivate them on <provider>"',
-    r.modelDone, JSON.stringify((r.reducedText || '').slice(0, 90)));
+  check('MODEL (#2694): after the hold the dialog reduces to a "Say hello to <agent>" action button + a "to reactivate them on <provider>" helper line',
+    r.modelDone, 'keep=' + JSON.stringify(r.reducedText === undefined ? null : (r.reducedText || '').slice(0, 90)));
   check('PROVIDER: the provider switch shows the branded K-loader "Setting up OpenAI" interstitial (canvas present and painting, pulsing .kspin gone), not plain "Working…"',
     r.providerBusy && r.providerBusy.settingUp && r.providerBusy.hasLoaderCanvas && r.providerBusy.loaderPainted && r.providerBusy.noPulsingIcon && r.providerBusy.noReducedYet, JSON.stringify(r.providerBusy));
   check('PROVIDER: after the hold the provider dialog reduces to "Say hello to <agent> to reactivate them on OpenAI"',
