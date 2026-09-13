@@ -205,6 +205,21 @@ test('🛑 AGENT_WORKFORCE_DATA makes the runtime and data folders one folder: a
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
+test('🛑 a runtime folder that is not the plain <LOCALAPPDATA>\\Kosmos is kept and named, even when it overlaps nothing', WINDOWS_FOLDERS, () => {
+  const s = sandbox();
+  try {
+    stubSchedulers({ lists: [listing([]), listing([])] });
+    /* AGENT_WORKFORCE_HOME moves the anchor under the home folder; LOCALAPPDATA still names the plain one. */
+    const env = { ...s.env, AGENT_WORKFORCE_HOME: s.home };
+    const moved = path.join(s.home, 'AppData', 'Local', 'Kosmos');
+    fs.mkdirSync(path.join(moved, 'runtime'), { recursive: true });
+    fs.writeFileSync(path.join(moved, 'something-else.txt'), 'not ours to judge');
+    const r = run(s, { env });
+    assert.ok(fs.existsSync(path.join(moved, 'something-else.txt')), 'a runtime folder that was not the plain one was deleted');
+    assert.ok(r.left.some((l) => l.startsWith('Kosmos\'s runtime folder (' + moved + '), kept because it is not the usual ')), JSON.stringify(r.left));
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
 test('🛑 a runtime folder that IS the data folder (LOCALAPPDATA and APPDATA the same) is kept on a No', WINDOWS_FOLDERS, () => {
   const s = sandbox();
   try {

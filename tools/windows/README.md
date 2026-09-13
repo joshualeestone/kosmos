@@ -78,16 +78,22 @@ of the engine's own helpers, run with the bundle's node:
   name on the signing certificate, like AssemblyCompany.
 - **`Kosmos.exe --uninstall`.**
   - It asks "Remove Kosmos from this PC? Your agents will stop." and then "Also
-    delete your agents' chats and settings?". Both default to No.
+    delete your agents' chats and settings? Your projects and your agents'
+    working folders are kept either way.". Both default to No.
   - With no person to ask (`--console`, or a non-interactive run) it does nothing
     and exits 2.
-  - The removing is `app\engine\win32uninstall.js --uninstall --yes`. It removes
-    every `\Kosmos\*` task through win32job and win32board, deletes
-    `%LOCALAPPDATA%\Kosmos`, and deletes `%APPDATA%\Kosmos` only on a yes. It
-    never deletes Projects or the folder it runs from, and it names everything
-    it left.
-  - The launcher then removes the shortcut, and the Apps entry once nothing was
-    left behind.
+  - The removing is `app\engine\win32uninstall.js --uninstall --yes`. It switches
+    off and ends the board, removes every `\Kosmos\*` task through win32job and
+    win32board, then reads the task list again: a folder goes only if no Kosmos
+    task is left.
+  - It deletes `%LOCALAPPDATA%\Kosmos` only when that is the plain folder and not
+    also the data folder.
+  - On a yes it empties `%APPDATA%\Kosmos` except every Kosmos's projects and
+    agents' working folders, which it names. It leaves the data folder whole if
+    the list of Kosmoses can't be read.
+  - It never deletes the folder it runs from, and it names everything it left.
+  - The launcher then removes the shortcut, its kept-here memory and the Apps
+    entry, only once nothing was left behind.
   - It ends with "Kosmos is removed. You can now delete the folder ...". It never
     schedules deleting its own folder.
 - **Moving out of Downloads, the Desktop, OneDrive or a temporary folder.**
@@ -102,6 +108,11 @@ of the engine's own helpers, run with the bundle's node:
     Kosmos.
   - The launcher then starts the moved exe and exits, and leaves the old copy
     where it is.
+  - If `%LOCALAPPDATA%\Programs\Kosmos` already holds a complete Kosmos, the
+    launcher asks `win32relocate.js --compare` first. A copy that is the same
+    build or older starts the installed Kosmos and re-points nothing, whatever
+    Keep it here says. A newer copy runs from where it is and re-points, which
+    is how a by-hand zip update works today.
 
 Every helper is a dry run without `--yes`, which the launcher passes only after the
 question was answered. The seams tests use are `internal static` fields that only a

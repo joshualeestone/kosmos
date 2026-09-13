@@ -77,27 +77,42 @@ tools.win-launcher-native.test.js stays true).
 - The second question is "Also delete your agents' chats and settings?" [Yes] [No], defaulting to No.
 - Then `node app\engine\win32uninstall.js --uninstall [--delete-data] --root <root> --report <tmp> --yes`
   runs these steps, in order, each with its own result:
-  1. It reads the `\Kosmos\` task folder once (`win32job.kosmosFolderTasks`, the query and CSV reader
-     `list()` already uses).
-  2. Each `Kosmos\agent-<key>` task: `win32job.disable`, `end`, `remove`, with `<key>` parsed by
+  1. It reads every task in Task Scheduler's Kosmos folder from the machine's WHOLE task list
+     (`win32job.kosmosFolderTasks` over `win32job.machineTaskPaths`, labelless and so the same in every
+     language; an empty list is unknown). Round 1, finding 6: not the folder query, whose empty-folder
+     answer is translated.
+  2. It switches the board's task off and ends the board first (`win32board.disable`, `end`), so nothing
+     can re-register an agent while the agents go.
+  3. Each `Kosmos\agent-<key>` task: `win32job.disable`, `end`, `remove`, with `<key>` parsed by
      `launchidentity.parseKey`. That way another Kosmos's agent is reached by its own world, never
      by guessing.
-  3. `Kosmos\board`: `win32board.end`, `remove`. Ended last.
   4. Any other task in the folder is **left in place and named**. Kosmos does not recognise it, so it
      does not guess.
-  5. If the folder could not be read, or any task is still there, both folder deletions below are
-     **skipped and named**. A task that is still registered still needs its runtime, and its agent
-     its data.
-  6. It deletes `%LOCALAPPDATA%\Kosmos` (the parent of `win32anchor.anchorDir`). The folder must be
-     named `Kosmos`, must not hold the projects root, and must not hold the bundle root. The delete
+  5. It removes the board's task (`win32board.remove`).
+  6. It reads the whole list AGAIN. Gone is what that list shows, never what schtasks printed (which is
+     translated). If the list cannot be read, or shows any Kosmos task at all (including one registered
+     while the removal ran), both folder deletions below are **skipped and named**.
+  7. It deletes `%LOCALAPPDATA%\Kosmos` (the parent of `win32anchor.anchorDir`) only when that is exactly
+     the plain `<LOCALAPPDATA>\Kosmos` derivation, is neither the data folder nor overlaps it (compared
+     by `realpathSync.native`, case-insensitively), is not a link, is named `Kosmos`, and holds no
+     project or working folder and not the bundle root. Otherwise it is kept and named (round 1,
+     finding 2: `AGENT_WORKFORCE_DATA` made it the data folder, and a No deleted the chats). The delete
      retries while the ended processes let go of `node.exe`.
-  7. It deletes `%APPDATA%\Kosmos` (`store.dataRootFor`) only with `--delete-data`, under the same
-     guards. Without the flag it says the chats were kept.
-  8. It never deletes Projects. Any folder that holds `projects.projectsRoot()` is refused.
-     The report says where the projects are.
-- The launcher then removes `Kosmos.lnk` and the Uninstall key, each with its own result.
-  - If anything was left behind, the Uninstall key is **kept**, and the message says so, so the person
-    can run the removal again from Settings > Apps.
+  8. With `--delete-data` it empties `%APPDATA%\Kosmos` (`store.dataRootFor`) EXCEPT every Kosmos's
+     projects and agents' working folders, which are kept with the folders above them and each named
+     ("Your projects for the Kosmos "QA" were kept in ..."). The kept set comes from
+     `worlds.envOverridesFor` for every Kosmos the registry names and every world folder on disk it
+     no longer names, plus the default Kosmos's `projects.projectsRoot()` and
+     `store.workersRootFor` (round 1, finding 1). **Fail closed:** a registry that exists but cannot be
+     parsed, has the wrong shape, or names a Kosmos `readRegistry` drops (an unsafe id) leaves the data
+     folder untouched and named. Links are removed as links or kept, never followed. Without the flag
+     it says the chats were kept.
+- The launcher then removes `Kosmos.lnk`, its own `kept-here.txt` and, last, the Uninstall key, but
+  only when nothing was left behind (round 1, finding 9).
+  - If anything was left behind, all three are **kept**, and the message says so, so the person can run
+    the removal again from the Start menu or Settings > Apps.
+- The second question says what goes and what stays: "Also delete your agents' chats and settings? Your
+  projects and your agents' working folders are kept either way."
 - The final message is "Kosmos is removed. You can now delete the folder <root>." followed by "Kosmos
   can't delete the folder it is running from, so that last step is yours."
   - It never schedules a self-delete.
@@ -133,8 +148,18 @@ tools.win-launcher-native.test.js stays true).
     the folder, is never copied.
   - The launcher then starts `<target>\Kosmos.exe` and exits 0. The old copy stays where it is.
   - On a refusal it shows the sentence and carries on launching from here.
-- The relaunched board's `win32board.ensureInstalled` re-anchors, so `engine-path` moves to the new
-  folder, as it does today for any new folder.
+- `engine-path` moves to the new folder twice over. The relocate helper anchors it right after a
+  successful move (`win32anchor.ensureAnchored` with the moved `runtime\node.exe` and `app\engine`).
+  Every boot of a real bundle anchors again through `win32board.anchorBundle`, called from
+  `ensureInstalled` whatever state the board's task is in. Round 1, finding 3: before, only
+  registering or refreshing the task anchored, so a task switched off, removed or unreadable left every
+  agent starting the old copy. Anchoring re-points; it never registers, re-creates or switches on a task.
+- Before staging, the helper sweeps sibling `<target>.kosmos-move-<pid>` folders whose process is gone
+  (`win32orphan.pidState`, the updater lock's rule, never their age). A link with that name is removed as
+  a link, never followed (round 1, finding 10).
+- A target missing ANY `win32update.ENTRIES` item is incomplete and refused, naming what is missing. It is
+  never "already there" (round 1, finding 5). Our own move never leaves an incomplete target, because
+  it renames a whole staging folder into place.
 - **The updater gets its canonical location.** `%LOCALAPPDATA%\Programs\Kosmos` is the per-user
   install folder the updater design (roadmap section 3a, option C) lacked. The S3 swap can treat it
   as ROOT. The Start menu shortcut and the Uninstall key follow whichever folder last launched, so a
@@ -143,6 +168,19 @@ tools.win-launcher-native.test.js stays true).
   because its logon task started it. From then on the move is refused ("running from this folder right
   now"). So in practice the offer works on the first launch of a fresh extract, which is the case W-06
   is about. Moving a running install is the updater's End, swap, Run, not this slice's.
+- **A copy in a temporary place when Kosmos is already installed (round 1, finding 4).** Before the offer,
+  if `MoveTarget()` holds a `Kosmos.exe`, the launcher asks `win32relocate.js --compare`:
+  - `NONE`: no COMPLETE Kosmos there (a missing manifest, another product, or any ENTRIES item missing).
+    The ordinary offer applies, and so does Keep it here. A compare that cannot run also falls back to
+    the offer.
+  - `HANDOFF`: this copy is the same build or OLDER, by `update.newer`, the updater's own comparison. An
+    unreadable version is never newer. The launcher starts the installed `Kosmos.exe` and ends. This copy
+    re-points nothing (no shortcut, no Apps entry, no anchor, because the server never starts), and Keep
+    it here does not apply. That stops Keep, Esc, X or any by-hand run of a stale Downloads copy flipping
+    everything back to it.
+  - `NEWER`: this copy runs from here and re-points, which is how a v1 by-hand zip update works today
+    and is no regression against main. Replacing that is the follow-up "Update Kosmos in Programs from a
+    newer downloaded zip".
 
 ### 5. Start at sign-in switch (W-21a, W-22)
 
@@ -157,6 +195,8 @@ tools.win-launcher-native.test.js stays true).
 - `machine.win32BoardAutostartCheck` puts `startAtSignIn: <enabled>` on the row only when
   `describe()` is known and registered. An unknown row, a missing task, or a source checkout carries
   no switch. The switched-off detail points at the switch instead of Task Scheduler.
+- A task switched off is a choice, so its row is a plain OK row, "Kosmos does not start when you sign
+  in", not ATTENTION (round 1, finding 12). A missing task is still ATTENTION. The Mac rows are untouched.
 - In the page, `machineRows` renders a `.toggle` switch labelled "Start Kosmos when I sign in to
   Windows" (`windowsCopy('startAtSignInLabel')`) when the row carries the field. A click posts,
   then re-reads `/api/machine` and repaints: the position always comes from the engine. A failure
@@ -262,8 +302,9 @@ release rule.
    Expect: the board opens with the old agents' chats, the tasks are re-registered, and both entries
    are back.
 10. **Uninstall deleting chats.** Uninstall and answer Yes, then Yes.
-    Expect: `%APPDATA%\Kosmos` is also gone, Projects is untouched, and the message names the folder
-    to delete.
+    Expect: `%APPDATA%\Kosmos` is emptied except each Kosmos's `worlds\<id>\projects` and `...\workers`
+    (make a second Kosmos first, with a project in it, to see this). The message names each kept
+    folder, `%USERPROFILE%\Kosmos\Projects` is untouched, and the message names the folder to delete.
 11. **Partial failure (optional).** Make a `\Kosmos\agent-x` task undeletable, for example by
     changing its ACL, then uninstall.
     Expect: the message names the task and the kept folders, and the Apps entry is kept.
@@ -298,6 +339,11 @@ Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
   WebKit; it is allowlisted in `.github/workflows/browser-checks.yml`.
 
 ## Follow-ups (not this slice)
+
+- **Update Kosmos in Programs from a newer downloaded zip.** Today a NEWER copy running from a temporary
+  place runs from there and re-points (round 1, finding 4). The follow-up reuses S3's
+  `engine/win32apply.js` (stop, swap, restart, roll back; branch `win32-update-apply`) with that copy as
+  the staged source, instead of building a second swap. No swap is built in this PR.
 
 - A desktop shortcut offer (W-20, the once-only question).
 - A Settings > This computer "Remove Kosmos from this PC..." button (W-27a).
