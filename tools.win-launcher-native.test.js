@@ -297,7 +297,7 @@ test('rounds 1-2 BUG: a board PROVABLY serving from the launcher (listening) get
     'the launcher falls back at a different time than the hand-off derives: one fact, two copies, drifted');
   assert.match(handoffSource, /HANDOFF_CHECK_FOR_SERVING_AFTER_MS \+ require\('\.\/win32board'\)\.SCHTASKS_TIMEOUT_MS \+ UNREADABLE_LISTENER_MARGIN_MS/,
     'the fallback is no longer derived from the check mark, the schtasks timeout and the margin');
-  assert.match(fs.readFileSync(path.join(REPO, 'engine', 'win32board.js'), 'utf8'), /execFileSync\('schtasks\.exe', args, \{ encoding: 'utf8', timeout: SCHTASKS_TIMEOUT_MS \}\)/,
+  assert.match(fs.readFileSync(path.join(REPO, 'engine', 'win32board.js'), 'utf8'), /execFileSync\('schtasks\.exe', args, \{ encoding: 'utf8', timeout: Math\.min\(SCHTASKS_TIMEOUT_MS, timeout\) \}\)/,
     'win32board\'s schtasks calls no longer use the timeout the fallback is derived from');
   assert.equal([...main.matchAll(/KeepBoardUntilPersonStopsIt\(/g)].length, 1, 'the box is reachable from Main other than through the listener gate');
   const lookup = SOURCE.slice(SOURCE.indexOf('internal static ListenerAnswer ListenerStateOf('), SOURCE.indexOf('// ---- presenting to a person'));

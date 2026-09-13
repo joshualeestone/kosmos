@@ -86,18 +86,29 @@ const HELPER_FLAG = '--kosmos-board-restart';
 
 /* The command seam, in the shape win32job's is, for the reason rule 2 of this
    branch states: a test stubs this and never shells a real schtasks. Returns
-   { ok, out } and never throws, so every caller reports rather than unwinds. */
+   { ok, out } and never throws, so every caller reports rather than unwinds.
+   The injected runner is handed `{ timeoutMs }`, the time this call was given. */
 let runFn = null;
 function setRunner(fn) { runFn = typeof fn === 'function' ? fn : null; }
 
 /* How long one schtasks call may take before it is abandoned. Every call is a
    synchronous spawn, so this also bounds how long the hand-off can be stuck in one:
-   engine/win32handoff.js derives the launcher's unreadable-table fallback from it. */
+   engine/win32handoff.js derives the launcher's unreadable-table fallback from it.
+   #2973: it is also the whole budget of one `status()` read, however many queries that
+   read makes (see status), so no caller waits longer for the board's state than it did
+   when that read was one query. */
 const SCHTASKS_TIMEOUT_MS = 20000;
-function run(args) {
-  if (runFn) return runFn(args);
+function run(args, timeoutMs) {
+  const timeout = Math.min(SCHTASKS_TIMEOUT_MS, timeoutMs || SCHTASKS_TIMEOUT_MS);
+  if (runFn) return runFn(args, { timeoutMs: timeout });
+  /* #2973: never from a test process, for win32job's reasons and through its one answer.
+     Worded as win32job's refusal, which matches neither not-found nor success, so every
+     reader here concludes "could not look". */
+  if (!win32job.schtasksMayRunInThisProcess()) return { ok: false, out: win32job.REFUSED_IN_TEST };
   try {
-    const out = cp.execFileSync('schtasks.exe', args, { encoding: 'utf8', timeout: SCHTASKS_TIMEOUT_MS });
+    /* `timeout` is already capped above; the cap is spelled again HERE, at the spawn, because
+       tools.win-launcher-native.test.js pins this call to SCHTASKS_TIMEOUT_MS. */
+    const out = cp.execFileSync('schtasks.exe', args, { encoding: 'utf8', timeout: Math.min(SCHTASKS_TIMEOUT_MS, timeout) });
     return { ok: true, out: String(out || '') };
   } catch (e) {
     return { ok: false, out: String((e && (e.stdout || e.message)) || ''), code: (e && e.status) };
@@ -212,7 +223,7 @@ function taskExec(spec) {
  *
  * ⚠️ AND `schtasks /Run` REPORTS SUCCESS WHEN IgnoreNew SUPPRESSED THE START --
  * measured in the same run. Nothing may read that exit code as proof a board
- * started; `restartHelperMain` below confirms by re-querying the task instead.
+ * started; `restartHelperMain` below confirms by asking the board's port who answers.
  *
  * `ExecutionTimeLimit PT0S` is "no limit": the board is meant to run for as long
  * as the box is up, and the default three days would stop it mid-week.
@@ -238,7 +249,12 @@ function taskXml(spec, env) {
     + '<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>'
     + '<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>'
     + '<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>'
-    + '<Enabled>true</Enabled>'
+    /* #2973: the task's own switch comes from the spec, the rule #2978 set for agent
+       tasks. `ensureInstalled` passes the state it READ, so a definition is derived from
+       the task rather than asserted, and a re-registration can never quietly switch a
+       board task back on. Only an explicit `false` disables: a first registration passes
+       nothing and is enabled. */
+    + '<Enabled>' + (spec && spec.enabled === false ? 'false' : 'true') + '</Enabled>'
     + '</Settings>\n'
     + '  <Actions Context="Author"><Exec>'
     + '<Command>' + esc(exec.command) + '</Command>'
@@ -354,7 +370,7 @@ function install(spec) {
   try {
     try {
       fs.writeFileSync(xmlAt, Buffer.from('\ufeff' + taskXml({
-        node: anchor.node, boot: bootAt, workingDir: s.workingDir,
+        node: anchor.node, boot: bootAt, workingDir: s.workingDir, enabled: s.enabled,
       }, env), 'utf16le'));
     } catch (e) {
       return { ok: false, because: 'we could not write the startup job definition (' + ((e && e.message) || 'no detail') + ')' };
@@ -368,18 +384,149 @@ function install(spec) {
 }
 
 /**
- * Is the board's job registered, is it enabled, is it running right now?
- * Never throws. `{ registered:false }` when we could not see one.
+ * The result code Task Scheduler records while a task is running:
+ * SCHED_S_TASK_RUNNING, 0x00041301. Measured 2026-09-12 on a scratch task, in the
+ * verbose CSV "Last Result" column: 267011 before any run, 267009 while running (still
+ * 267009 after the task was switched off mid-run, while it kept running), 267014 after
+ * `/End`, 0 after a clean exit. A code, not a translated word: the status column beside
+ * it prints `Ready` on en-US and `Bereit` on de-DE (both MUI files are on this box).
  */
-function status() {
-  const r = run(['/Query', '/TN', TASK_NAME, '/FO', 'LIST']);
-  if (!r.ok) return { registered: false };
-  const out = r.out || '';
-  /* schtasks prints one `Status:` line whose value is Running / Ready / Disabled
-     (measured on this box). Read the negative token rather than a positive
-     spelling, as win32job does: defaulting to enabled-when-unsure would claim the
-     board comes back when we could not tell. */
-  return { registered: true, enabled: !/disabled/i.test(out), running: /\brunning\b/i.test(out) };
+const TASK_RESULT_RUNNING = 267009;
+
+/**
+ * The result code a RUNNING task carries after a `/Run` that IgnoreNew ignored:
+ * 0x800710E0 ("the operator or administrator has refused the request"), printed signed.
+ * Measured by review round 1 on a board-shaped scratch task: running read 267009; a
+ * second `/Run` changed it to -2147020576, and it STAYED there while the one instance
+ * kept running (ITaskService State 4, one running instance). When that instance ended it
+ * became 0, 1, or 267014, never a stale value. The board's restart helper, a double-click
+ * during boot, and a busy board all issue such a `/Run`, so without this code a running
+ * task board read as not running.
+ */
+const TASK_RESULT_RUN_IGNORED_WHILE_RUNNING = -2147020576;
+
+/* The codes that mean the task is running now. Every other code is not taken as proof
+   either way (see taskRunning). */
+const TASK_RESULTS_WHILE_RUNNING = new Set([TASK_RESULT_RUNNING, TASK_RESULT_RUN_IGNORED_WHILE_RUNNING]);
+
+/* The least time worth starting a schtasks query with inside one `status()` read. The
+   slowest query measured on this box, the whole machine's task list, took about 0.7s,
+   so a query with less than a second left would mostly be cut off anyway. Not starting
+   it reads as "could not look", which is the answer a cut-off query gives too. */
+const MIN_SCHTASKS_QUERY_MS = 1000;
+const NO_TIME_LEFT = 'there was no time left in this read to ask Task Scheduler';
+
+/* Positions in one `schtasks /Query /TN <task> /FO CSV /V /NH` row, which has no
+   labels: HostName, TaskName, Next Run Time, Status, Logon Mode, Last Run Time, Last
+   Result, ... Measured 2026-09-12. The task path is checked on every read, so a layout
+   that moved reads as unknown rather than as some other column's value. */
+const VERBOSE_CSV_TASK_PATH_COLUMN = 1;
+const VERBOSE_CSV_LAST_RESULT_COLUMN = 6;
+
+/* `\Kosmos\board`, the rooted spelling schtasks prints in a CSV row, lower-cased for
+   comparison (task paths are not case-sensitive). */
+function isBoardTaskPath(value) {
+  return String(value || '').replace(/^\\+/, '').toLowerCase() === TASK_NAME.toLowerCase();
+}
+
+/**
+ * Is the board's job running right now? `true`, or `null` when the task's own record
+ * does not prove it. Read from the task's Last Result CODE, never from the localized
+ * status word (#2973): on a German Windows `Running` is `Wird ausgeführt`, and a
+ * machine named `RUNNING-LAB` put the word in the LIST text of a task that was not
+ * running.
+ *
+ * ⚠️ NEVER `false`. A code outside TASK_RESULTS_WHILE_RUNNING does not prove the task is
+ * NOT running: one such code (0x800710E0) turned out to be carried by a running task. Only
+ * the hand-off asks this, and only about a board too old to say for itself
+ * (win32handoff's BOARD_STARTED_BY_TASK_HEADER), and it treats could-not-tell as "leave
+ * that board alone".
+ */
+function taskRunning(ask) {
+  const r = (ask || run)(['/Query', '/TN', TASK_NAME, '/FO', 'CSV', '/V', '/NH']);
+  if (!r.ok) return null;
+  for (const line of String(r.out || '').split('\n')) {
+    const fields = win32job.csvFields(line);
+    if (fields.length <= VERBOSE_CSV_LAST_RESULT_COLUMN || !isBoardTaskPath(fields[VERBOSE_CSV_TASK_PATH_COLUMN])) continue;
+    /* Printed as a plain decimal on en-US. Digit grouping is stripped in case a locale
+       groups it; anything else that is not a number is not a code we can read. */
+    const code = fields[VERBOSE_CSV_LAST_RESULT_COLUMN].replace(/[\s.,'  ]/g, '');
+    if (!/^-?\d+$/.test(code)) return null;
+    return TASK_RESULTS_WHILE_RUNNING.has(Number(code)) ? true : null;
+  }
+  return null;
+}
+
+/**
+ * Does the machine's whole task list PROVE the board's job is absent? Only asked when
+ * the direct read failed with something other than the English not-found sentence.
+ *
+ * 🛑 WITHOUT THIS A NON-ENGLISH WINDOWS NEVER REGISTERS THE BOARD. `win32job`'s
+ * not-found rule matches English text only, so on a German Windows a board task that
+ * was never registered fails the XML query with `FEHLER: ...`, reads unknown, and
+ * `ensureInstalled` rightly refuses to act on unknown -- on every boot, forever. The
+ * listing (`/Query /FO CSV /NH`, no task name) is labelless, and column one is the task
+ * path in every locale: measured 2026-09-12, exit 0, 259 rows, every one quoted.
+ * An empty listing proves nothing (every Windows ships Microsoft tasks), so it is not
+ * taken as absence.
+ */
+function provenAbsentFromTaskList(ask) {
+  const r = (ask || run)(['/Query', '/FO', 'CSV', '/NH']);
+  if (!r.ok) return false;
+  let rows = 0;
+  for (const line of String(r.out || '').split('\n')) {
+    const fields = win32job.csvFields(line);
+    if (!fields.length) continue;
+    rows += 1;
+    if (isBoardTaskPath(fields[0])) return false;
+  }
+  return rows > 0;
+}
+
+/**
+ * Is the board's job registered, is it switched on, is it running right now?
+ * Never throws.
+ *
+ * 🛑 #2973: NOTHING HERE READS THE LOCALIZED LIST TEXT. It did, with `/disabled/i` and
+ * `/\brunning\b/i` over output that also prints the machine's and the task's names and
+ * translates its status words: a German Windows read a switched-off task as on (so
+ * every boot re-registered it enabled), and a machine named `DISABLED-LAB` read an
+ * enabled one as off. The switch comes from the task's own definition through
+ * `win32job.taskEnabledFromQuery`, the one XML reader agent tasks use (#2978); running
+ * comes from `taskRunning`.
+ *
+ * Returns:
+ *   { known: true, registered: false, running: false }
+ *   { known: true, registered: true, enabled, running }   running: true | null (see taskRunning)
+ *   { known: false, registered: false, because }          we could not look
+ * `known: false` means NOTHING may be concluded. `registered` is false there only so a
+ * caller that ignores `known` errs toward doing nothing; every caller in this branch
+ * checks `known` first and neither re-registers, ends nor restarts the board on it.
+ */
+function status(opts) {
+  /* 🛑 ONE READ, ONE schtasks TIMEOUT, HOWEVER MANY QUERIES IT TAKES (#2973 review).
+     This read used to be one LIST query, so it could block for at most one
+     SCHTASKS_TIMEOUT_MS, and callers that run before the hand-off (ensureInstalled:
+     this read, then `/Create`) were timed on that. This keeps it true: every query here
+     shares one deadline, and a query with less than MIN_SCHTASKS_QUERY_MS left is not
+     started. Its answer is "could not look", which every caller already treats safely.
+     One read costs no more than main's single query did. Whether the launcher's
+     unreadable-table fallback covers everything a boot does before the hand-off is a
+     separate question, tracked in #2983. */
+  const now = (opts && opts.now) || Date.now;
+  const deadline = now() + SCHTASKS_TIMEOUT_MS;
+  const ask = (args) => {
+    const left = deadline - now();
+    if (left < MIN_SCHTASKS_QUERY_MS) return { ok: false, out: NO_TIME_LEFT };
+    return run(args, left);
+  };
+  const read = win32job.taskEnabledFromQuery(ask(['/Query', '/TN', TASK_NAME, '/XML']));
+  if (!read.known) {
+    if (provenAbsentFromTaskList(ask)) return { known: true, registered: false, running: false };
+    return { known: false, registered: false, because: read.because || 'schtasks would not answer' };
+  }
+  if (!read.registered) return { known: true, registered: false, running: false };
+  return { known: true, registered: true, enabled: read.enabled, running: taskRunning(ask) };
 }
 
 function disable() {
@@ -463,8 +610,15 @@ function ensureInstalled(opts) {
   if (!bundleRoot(o)) {
     return { ok: true, action: 'skipped', because: 'this board runs from a source checkout, so nothing registers it to start at logon' };
   }
-  const st = status();
-  if (st.registered && st.enabled === false) {
+  const st = status({ now: o.now });
+  /* #2973: a job we could not read is LEFT AS IT IS. Re-registering it could switch
+     back on a task the person turned off, and registering "a missing one" could
+     overwrite one that is there. `ok: false`, so the boot says it could not check. */
+  if (!st.known) {
+    return { ok: false, action: 'unknown', task: TASK_NAME,
+      because: 'we could not read the job that starts the board at logon (' + st.because + '), so Kosmos left it as it is' };
+  }
+  if (st.registered && st.enabled !== true) {
     return { ok: true, action: 'left-disabled', task: TASK_NAME, removeHint: REMOVE_HINT,
       because: 'the job that starts the board at logon is switched off, so Kosmos will not come back on its own after a restart' };
   }
@@ -472,7 +626,9 @@ function ensureInstalled(opts) {
     return { ok: false, action: 'left-removed', task: TASK_NAME,
       because: 'the job that started the board at logon was removed, so Kosmos will not come back on its own after a restart' };
   }
-  const r = install({ ...o, workingDir: o.workingDir || bundleRoot(o) });
+  /* The switch the task has, carried into its new definition (see taskXml). Here it is
+     always on or absent; passing the read keeps that true by construction. */
+  const r = install({ ...o, workingDir: o.workingDir || bundleRoot(o), enabled: st.registered ? st.enabled : undefined });
   if (!r.ok) return { ok: false, action: 'failed', because: r.because };
   if (!st.registered) claim(o);
   return { ok: true, action: st.registered ? 'refreshed' : 'registered', task: TASK_NAME, removeHint: REMOVE_HINT };
@@ -508,11 +664,23 @@ function restart(opts) {
     return { ok: false, because: 'this board was not started by its Windows logon job, so stopping it would not bring it back' };
   }
   const st = status();
+  /* #2973: never end a board on a job we could not read -- it may be one that cannot
+     bring the board back. */
+  if (!st.known) {
+    return { ok: false, because: 'we could not read the board\'s Windows logon job (' + st.because + '), so we did not stop the board; restart it by hand' };
+  }
   if (!st.registered) {
     return { ok: false, because: 'there is no Windows logon job for the board, so stopping it would not bring it back' };
   }
-  if (st.enabled === false) {
+  if (st.enabled !== true) {
     return { ok: false, because: 'the board\'s Windows logon job is switched off, so stopping it would not bring it back' };
+  }
+  /* The helper confirms the board came back by asking the port who is answering (see
+     restartHelperMain), so it needs THIS board's port -- the one the task's board
+     serves on, since this board is the task's. Without one it could never confirm. */
+  const port = Number(o.port);
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    return { ok: false, because: 'we could not tell which port this board serves on, so we could not check it came back; restart it by hand' };
   }
   const dir = anchorDirFor({ ...o, env });
   const logAt = o.log || path.join(dir || os.tmpdir(), 'board-restart.log');
@@ -523,7 +691,7 @@ function restart(opts) {
        The helper SCRIPT is this file, wherever it currently lives -- transient by
        nature (it finishes in seconds) and fully loaded into memory the moment it
        starts, so a tree replaced underneath it does not matter. */
-    child = spawner(o.node || process.execPath, [o.helper || __filename, HELPER_FLAG, String(o.pid || process.pid), logAt],
+    child = spawner(o.node || process.execPath, [o.helper || __filename, HELPER_FLAG, String(o.pid || process.pid), logAt, String(port)],
       { detached: true, stdio: 'ignore', windowsHide: true });
   } catch (e) {
     return { ok: false, because: 'could not start the board restart: ' + String((e && e.message) || e) };
@@ -561,8 +729,11 @@ async function restartHelperMain(argv, deps) {
   const d = deps || {};
   const pid = Number(argv[0]);
   const logAt = argv[1];
+  const port = Number(argv[2]);
   const sleep = d.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const gone = d.pidGone || pidGone;
+  /* The hand-off's identity probe, reused rather than copied (one derivation). */
+  const probe = d.probe || ((p) => require('./win32handoff').probeBoard(p));
   const now = d.now || (() => Date.now());
   const t0 = now();
   const lines = [];
@@ -571,7 +742,7 @@ async function restartHelperMain(argv, deps) {
     try { fs.writeFileSync(logAt, lines.join('\n') + '\n', 'utf8'); } catch { /* the restart matters more than its log */ }
   };
 
-  say('restarting the board (task ' + TASK_NAME + ', board pid ' + pid + ')');
+  say('restarting the board (task ' + TASK_NAME + ', board pid ' + pid + ', port ' + port + ')');
   const e = end();
   say('end: ' + (e.ok ? 'ok' : e.because));
 
@@ -594,15 +765,28 @@ async function restartHelperMain(argv, deps) {
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     const r = runNow();
     say('run attempt ' + attempt + ': ' + (r.ok ? 'issued' : r.because));
-    /* `/Run` reporting success is not proof (see taskXml): re-query until the
-       task says Running. */
+    /* `/Run` reporting success is not proof (see taskXml). 🛑 #2973: NOR IS THE TASK'S
+       STATUS WORD, which this used to wait for: it is translated, so a German Windows
+       never saw "Running" and logged a dead board over one that was serving. The
+       question is whether a board is serving again, so ask the port: the old board is
+       gone AND something answers with the Kosmos board identity header. */
     let up = 0;
     while (up < 12000) {
-      const st = status();
-      if (st.registered && st.running) { say('the board is running again'); return { ok: true, attempts: attempt }; }
+      if (gone(pid)) {
+        let answer = null;
+        try { answer = await probe(port); } catch { answer = null; }
+        if (answer && answer.answering && answer.identity) {
+          say('a board is answering on port ' + port + ' again (' + answer.identity + ')');
+          return { ok: true, attempts: attempt };
+        }
+      }
       await sleep(500); up += 500;
     }
-    say('attempt ' + attempt + ' did not leave the board running');
+    say('attempt ' + attempt + ' did not leave a board answering on port ' + port);
+  }
+  if (!gone(pid)) {
+    say('the old board (pid ' + pid + ') never stopped, so it is still the one serving; no new board could start beside it.');
+    return { ok: false };
   }
   say('THE BOARD DID NOT COME BACK. Start it from ' + TASK_NAME + ' in Task Scheduler, or run Kosmos again.');
   return { ok: false };
@@ -618,12 +802,19 @@ function describe(opts) {
   if (platform !== 'win32') return null;
   const bundle = bundleRoot(o);
   const st = status();
+  /* #2973: a bundle whose job we could not read is not "missing" or "switched off".
+     null is what machine.js already renders as "we could not check". */
+  if (bundle && !st.known) return null;
   return {
     task: TASK_NAME,
     bundle: Boolean(bundle),
     registered: Boolean(st.registered),
     enabled: st.registered ? st.enabled !== false : false,
-    running: Boolean(st.running),
+    /* #2973: describe runs INSIDE a board, which knows whether its task started it; that
+       is the task's board running, without asking Task Scheduler (whose running state
+       cannot be read reliably; see taskRunning). A hand-started board reads false: the
+       task is not what serves this board. */
+    running: startedByTask(machineEnv(o)),
     claimed: claimed(o),
     removeHint: REMOVE_HINT,
   };

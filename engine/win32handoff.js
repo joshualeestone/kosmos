@@ -111,6 +111,35 @@ const UNREADABLE_LISTENER_MARGIN_MS = 7000;
 const BOARD_IDENTITY_HEADER = 'x-kosmos-board';
 
 /**
+ * 🔑 #2973: WHETHER THE ANSWERING BOARD WAS STARTED BY ITS LOGON TASK, SAID BY THE BOARD.
+ * The hand-off may end only the TASK's board, and it used to ask Task Scheduler whether
+ * the task was running. That answer is not trustworthy: the localized status word
+ * cannot be read in every language, and the Last Result code stops saying "running" as
+ * soon as any `/Run` is ignored by IgnoreNew (measured, review round 1). The board
+ * knows the fact outright (win32board.startedByTask, the marker its task's boot shim
+ * stamps), and the hand-off already asks it who it is. So it says this too, on the same
+ * response, and the hand-off reads it without schtasks or a locale.
+ * `'1'` started by the task, `'0'` not. A board that predates this header sends
+ * neither, and reads as null (see startedByTaskFromHeader).
+ */
+const BOARD_STARTED_BY_TASK_HEADER = 'x-kosmos-board-started-by-task';
+
+/* The header's value for THIS process. ONE writer (server.js's GET /) and ONE reader
+   (startedByTaskFromHeader), so the two spellings cannot drift. win32board is required
+   when asked, never with this module. */
+function boardStartedByTaskHeaderValue(env) {
+  return require('./win32board').startedByTask(env) ? '1' : '0';
+}
+
+/* true / false from a board that sends the header; null from one that predates it (or
+   sends something that is not ours), which the hand-off answers the old way. */
+function startedByTaskFromHeader(value) {
+  if (value === '1') return true;
+  if (value === '0') return false;
+  return null;
+}
+
+/**
  * Which build this app is: its package.json version, plus the commit the zip was
  * built from when it runs from the bundle. The version alone is not enough:
  * Windows zips are cut from main between version bumps, so two 0.6.55 zips can
@@ -184,10 +213,11 @@ function probeBoard(port) {
     const req = http.get({ host: '127.0.0.1', port, path: '/', timeout: PROBE_TIMEOUT_MS }, (res) => {
       res.resume();
       const named = res.headers[BOARD_IDENTITY_HEADER];
-      res.on('end', () => resolve({ answering: true, identity: typeof named === 'string' && named ? named : null }));
+      const startedByTask = startedByTaskFromHeader(res.headers[BOARD_STARTED_BY_TASK_HEADER]);
+      res.on('end', () => resolve({ answering: true, identity: typeof named === 'string' && named ? named : null, startedByTask }));
     });
     req.on('timeout', () => req.destroy(new Error('timeout')));
-    req.on('error', () => resolve({ answering: false, identity: null }));
+    req.on('error', () => resolve({ answering: false, identity: null, startedByTask: null }));
   });
 }
 
@@ -264,7 +294,17 @@ async function attemptHandOff(o, deps) {
          board can be replaced from here:
          anything else on the port (a board in another window, or not a board at
          all) is somebody else's, and serving here reproduces today's message. */
-      if (!board.status().running) return serveHere('something the logon task did not start is already using port ' + port);
+      /* #2973: was the answering board started by the task? The board says so itself
+         (BOARD_STARTED_BY_TASK_HEADER), and its word wins. Only a board that predates the
+         header is looked up in Task Scheduler, whose `running` is true, false, or null
+         when it could not tell. Only a board PROVEN to be the task's is ended from here;
+         could-not-tell keeps the window. */
+      const byTask = typeof p.startedByTask === 'boolean' ? p.startedByTask : board.status().running;
+      if (byTask !== true) {
+        return serveHere(byTask === false
+          ? 'something the logon task did not start is already using port ' + port
+          : 'we could not tell whether the logon task started what is already using port ' + port + ', so it was left running');
+      }
       /* With no time left to start its replacement, a working older board is
          worth more than a window: keep it, and let this launch report the port. */
       if (left() <= 0) return serveHere('there was no time left to replace the older Kosmos that is running');
@@ -336,7 +376,10 @@ async function handOffToTask(opts) {
   }
 }
 
-module.exports = { handOffToTask, buildIdentity, boardIdentity, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS };
+module.exports = {
+  handOffToTask, buildIdentity, boardIdentity, probeBoard, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS,
+  BOARD_STARTED_BY_TASK_HEADER, boardStartedByTaskHeaderValue, startedByTaskFromHeader,
+};
 
 /**
  * When Kosmos.exe shows its box for a board whose listener it cannot see, because the

@@ -128,6 +128,18 @@ function commandsAreReal() { return !!runFn || liveExec.liveExecutionAllowed(); 
    it as "we could not look" and concludes nothing. */
 const REFUSED_IN_TEST = 'schtasks is never run from a test process that has installed no runner';
 
+/**
+ * May a real schtasks be spawned from THIS process? ONE answer for every module that
+ * shells schtasks (#2973: engine/win32board.js asks it too), so the reasons below
+ * cannot be kept in one runner and forgotten in another -- which is what happened: the
+ * board's runner had no refusal, and engine/machine.test.js read the live
+ * `\Kosmos\board` task on the Windows box. Only asked once a module has found no
+ * injected runner; a runner seam is always allowed.
+ */
+function schtasksMayRunInThisProcess() {
+  return !(liveExec.inTestProcess() || process.env.NODE_TEST_CONTEXT);
+}
+
 function run(args) {
   if (runFn) return runFn(args);
   /* 🛑 A TEST PROCESS NEVER REACHES THE REAL TASK SCHEDULER, not even to read it.
@@ -147,7 +159,7 @@ function run(args) {
      against a sandboxed fake; nothing here can be faked that way, because
      schtasks has no sandbox, so the inherited NODE_TEST_CONTEXT, which node's
      test runner sets and nothing else does, refuses it as well. */
-  if (liveExec.inTestProcess() || process.env.NODE_TEST_CONTEXT) return { ok: false, out: REFUSED_IN_TEST };
+  if (!schtasksMayRunInThisProcess()) return { ok: false, out: REFUSED_IN_TEST };
   try {
     /* ⚠️ stderr PIPED, NOT INHERITED, and that is not tidiness. execFileSync's
        default sends the child's stderr straight to OUR stderr, so every ordinary
@@ -549,6 +561,31 @@ function presence(name, worldId) {
  * Returns { known, names:Set } -- an empty folder is a real empty fleet
  * (schtasks says "cannot find"), anything else it will not answer is unknown.
  */
+/**
+ * The quoted fields of one `schtasks /FO CSV` row, left to right. ONE reader for the
+ * shape, shared by `list` (column one) and engine/win32board.js (#2973: the board
+ * task's path and its Last Result code), so the two cannot parse the same row two ways.
+ *
+ * schtasks quotes every field. It stops at the first thing that is not a quoted field
+ * followed by a comma, so a later field it cannot delimit (a "Task To Run" command line
+ * with its own quotes in it) ends the row there and never shifts the fields before it.
+ * A line that does not start with a quote (a blank line, an INFO sentence) has no fields.
+ */
+function csvFields(line) {
+  const fields = [];
+  const s = String(line || '').trim();
+  let at = 0;
+  while (at < s.length && s[at] === '"') {
+    const close = s.indexOf('"', at + 1);
+    if (close < 0) break;
+    fields.push(s.slice(at + 1, close));
+    at = close + 1;
+    if (s[at] !== ',') break;
+    at += 1;
+  }
+  return fields;
+}
+
 function list() {
   const r = run(['/Query', '/TN', TASK_PREFIX.split('\\')[0] + '\\', '/FO', 'CSV', '/NH']);
   if (!r.ok) {
@@ -557,10 +594,10 @@ function list() {
   }
   const names = new Set();
   for (const line of String(r.out || '').split('\n')) {
-    const m = /^"([^"]*)"/.exec(line.trim());
-    if (!m) continue;
+    const fields = csvFields(line);
+    if (!fields.length) continue;
     // Task paths come back rooted ("\Kosmos\agent-ava"); our prefix is not.
-    const at = m[1].replace(/^\\+/, '');
+    const at = fields[0].replace(/^\\+/, '');
     if (!at.startsWith(TASK_PREFIX)) continue;
     /* #1704: the folder holds every Kosmos's agents; a board lists only its own,
        so another world's task is neither a member of this fleet nor a "stray". */
@@ -654,7 +691,15 @@ function xmlUnescape(v) {
    `{known: true, registered: false}` for no such task; `{known: false, because}`
    when schtasks would not answer; `{known: true, registered: true, xml}` otherwise. */
 function readTaskXml(name, worldId) {
-  const r = run(['/Query', '/TN', taskName(name, worldId), '/XML']);
+  return taskXmlFromQuery(run(['/Query', '/TN', taskName(name, worldId), '/XML']));
+}
+
+/* The classify-and-decode half of `readTaskXml`, over a `/Query /XML` answer from ANY
+   runner (#2973). The board's task (`Kosmos\board`) is queried through
+   engine/win32board.js's own command seam, and it has to be read exactly the way an
+   agent's is, so both hand their raw answer here rather than keeping a second copy
+   of the decode or the not-found rule. */
+function taskXmlFromQuery(r) {
   if (!r.ok) {
     if (NO_SUCH_TASK.test(r.out || '')) return { known: true, registered: false };
     return { known: false, because: (r.out || '').trim().split('\n')[0] || 'schtasks would not answer' };
@@ -744,7 +789,19 @@ const TASK_ENABLED_DEFAULT = true;
  * `{known: true, registered: true, enabled}` otherwise.
  */
 function taskEnabled(name, worldId) {
-  const read = readTaskXml(name, worldId);
+  return enabledFromTaskXml(readTaskXml(name, worldId));
+}
+
+/* `taskEnabled` over a `/Query /XML` answer another module's runner produced (#2973:
+   the board's own task). Same three shapes, same decode, same Settings-scoped parse
+   and schema default, because it IS the same code: measured 2026-09-12 on a scratch
+   task, Windows omits `<Settings><Enabled>` for an enabled task and writes
+   `<Enabled>false</Enabled>` there after `/Change /DISABLE`. */
+function taskEnabledFromQuery(r) {
+  return enabledFromTaskXml(taskXmlFromQuery(r));
+}
+
+function enabledFromTaskXml(read) {
   if (!read.known || !read.registered) return read;
   const settings = /<Settings>([\s\S]*?)<\/Settings>/.exec(read.xml);
   if (!settings) return { known: false, because: 'the task definition had no settings we could read' };
@@ -768,6 +825,7 @@ function configDirFor(name) {
 module.exports = {
   TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape, xmlUnescape, headlessExec,
   install, disable, enable, end, start, remove, status, presence, list, configDirFor, taskSpec,
-  cachedTaskSpec, taskEnabled, commandsAreReal, REFUSED_IN_TEST,
+  cachedTaskSpec, taskEnabled, taskEnabledFromQuery, csvFields, commandsAreReal, REFUSED_IN_TEST,
+  schtasksMayRunInThisProcess,
   setRunner, setAnchorer,
 };
