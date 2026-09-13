@@ -139,6 +139,22 @@ and first error line against a `git archive` of origin/main.
 
 Runbook is in the branch report; it signs a real account in, into a SANDBOX `CLAUDE_CONFIG_DIR`.
 
+## Results (Windows box, runtime node 24.19, no-schtasks preload, scratch APPDATA/LOCALAPPDATA/USERPROFILE)
+
+- `engine/win32signin.test.js` 11/11, `engine/connect.win32signin.test.js` 11/11.
+- Suite set vs a `git archive` of origin/main, by name and first error line: main 253 pass /
+  80 fail, branch 276 / 79. No new failure. The 79 are main's own Windows failures (runner
+  download refused on win32, POSIX-only arms, cross-process flows); two differ only by the scratch
+  temp path in the message. The one main-only failure is `git ls-files` in an archive, which is not
+  a repository (environmental). Only `engine/connect.test.js` needed the darwin pin; no other suite
+  moved.
+- Revert controls, each on a scratch copy of HEAD, each red: switch defaulting on (slice 1 arm);
+  the code on a command line (3 arms); redaction removed (redaction arm); #1937 rule removed
+  (the WITHOUT-success arm); tmux used on Windows while off (slice 1 arm).
+- schtasks block log: never created by any run (nothing reached schtasks).
+- `start()` has one more `killSession()` (the #1560 leftover-session kill with no flow yet). It
+  now kills through the platform's host: tmux on a Mac as before, nothing on Windows while off.
+
 ## Risks
 
 - `resolveBin('claude')` could name a `.cmd` shim on some installs; spawning it without a shell
