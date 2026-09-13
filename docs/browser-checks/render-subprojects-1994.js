@@ -243,25 +243,36 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // names as ancestry rather than a run of unlabelled text after the card title.
     ok(t + ' ancestry: a vh "In " lead-in frames the names for a screen reader', /In\s/.test(anc.mobChain), anc.mobChain);
 
-    // #2487: the consolidated rail reuses projectCard but ships one rail-specific rule
-    // (body.consolidated .pj-anc { justify-content: flex-start }). Assert the ancestry
-    // line actually renders (and is displayed, not display:none) under consolidated, so
-    // that rule and this surface are not shipped with zero coverage.
+    // #2487 + #2929: the consolidated rail reuses projectCard and ships one rail-specific
+    // rule (body.consolidated .pj-anc { justify-content: flex-start }). #2929 turned the rail
+    // into an openable file tree, so a NESTED child (.child) now HIDES its chip there -- the
+    // indent carries the relationship. The rail chip therefore shows only on a row the indent
+    // does NOT place: a dangling/orphan child at depth 0. So assert the .pj-anc rule still has
+    // coverage on THAT row (renders + displayed under the REAL consolidated state --
+    // html[data-layout] + body, which the #2929 rule keys on), and, the #2929 control, that a
+    // nested child's chip is hidden. An earlier version tested the nested child's chip as
+    // DISPLAYED, which #2929 makes false in the real rail; it passed only because it set
+    // body.consolidated without data-layout, so the #2929 rule never fired.
     const rail = await page.evaluate(() => {
-      const mk = (id, name, parent) => ({ id, name, parent: parent || null, parentName: parent ? name + ' parent' : null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
-      PROJECTS = [mk('k', 'Kosmos'), mk('app', 'App', 'k'), mk('mob', 'Mobile', 'app')];
+      const mk = (id, name, parent, parentName) => ({ id, name, parent: parent || null, parentName: parentName || null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('k', 'Kosmos'), mk('app', 'App', 'k'), mk('mob', 'Mobile', 'app'), mk('orph', 'Orphan', 'gone', 'Gone')];
       PJ_SORT = 'az';
+      const origLayout = document.documentElement.getAttribute('data-layout');
       document.getElementById('pj-list').classList.remove('asgrid');
+      document.documentElement.setAttribute('data-layout', 'consolidated');   // the REAL rail state
       document.body.classList.add('consolidated');
       paintProjects();
-      const row = document.querySelector('#pj-list .pj-row[data-project="mob"]');
-      const t2 = row && row.querySelector('.pj-anc-t');
-      const anchor = row && row.querySelector('.pj-anc');
-      const out = { txt: t2 ? t2.textContent : '', disp: anchor ? getComputedStyle(anchor).display : 'none' };
-      document.body.classList.remove('consolidated');   // restore for later layers
+      const chipDisp = (id) => { const a = document.querySelector('#pj-list .pj-row[data-project="' + id + '"] .pj-anc'); return a ? getComputedStyle(a).display : 'none'; };
+      const ancT = (id) => { const e = document.querySelector('#pj-list .pj-row[data-project="' + id + '"] .pj-anc-t'); return e ? e.textContent : ''; };
+      const out = { orphTxt: ancT('orph'), orphDisp: chipDisp('orph'), nestedDisp: chipDisp('mob') };
+      document.documentElement.setAttribute('data-layout', origLayout || 'tabs');   // restore for later layers
+      document.body.classList.remove('consolidated');
       return out;
     });
-    ok(t + ' rail (consolidated): the ancestry line renders and is displayed', /Kosmos/.test(rail.txt) && /App/.test(rail.txt) && rail.disp !== 'none', JSON.stringify(rail));
+    ok(t + ' rail (consolidated): an orphan chip renders and is displayed (covers the .pj-anc rail rule)', /Gone/.test(rail.orphTxt) && rail.orphDisp !== 'none', JSON.stringify(rail));
+    // #2929: a nested child's chip is HIDDEN in the real consolidated rail -- the file-tree
+    // indent carries the relationship, so the chip there would be redundant clutter.
+    ok(t + ' #2929 rail: a nested child hides its chip (the tree indent carries it)', rail.nestedDisp === 'none', JSON.stringify(rail));
 
     // ---- Layer 1e: #2848 the CONSOLIDATED sub-project HEADER ----
     // Josh, 0.6.57 review: the sub-project view was "breaking across the top" --
