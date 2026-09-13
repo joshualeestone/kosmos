@@ -124,6 +124,18 @@ test('the surface is exactly two names, and widening it takes an edit here', () 
   assert.deepEqual(forget.KINDS.map((k) => k.key), ['chats', 'commitments']);
 });
 
+test('the full deletable-directory surface is pinned, derived dirs included', () => {
+  /* 🛑 KINDS keys alone do NOT see a `derived` dir, which is a second way to add
+     a deletable directory. This pins the WHOLE surface -- every dir forget()
+     can rmSync, kind dirs and derived dirs alike -- by basename, so adding or
+     repointing a derived dir also goes red and must be defended in a diff. */
+  const basenames = forget.KINDS.flatMap((k) => [
+    nodePath.basename(k.dir()),
+    ...((k.derived || []).map((d) => nodePath.basename(d.dir()))),
+  ]);
+  assert.deepEqual(basenames.sort(), ['chats', 'chats-daily', 'commitments']);
+});
+
 test('one of a thing is not "1 reports"', () => {
   seed();
   const sum = forget.summary();

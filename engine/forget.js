@@ -6,9 +6,15 @@
  * 🛑 THIS IS THE ONE CONTROL IN KOSMOS THAT TAKES SOMETHING AWAY WITH NO UNDO,
  * so the scope is named exhaustively here and nowhere else, and the screen
  * reads it from this module rather than describing it in its own words. Two
- * directories, both entirely ours:
+ * kinds, both entirely ours, plus one derived view deleted WITH its kind:
  *
  *   chats/        every conversation -- the direct threads and the project rooms
+ *   chats-daily/  the human-readable daily rollup engine/dailylog.js compiles
+ *                 FROM chats/ (#2924). A derived copy of chats content, so it is
+ *                 deleted together with chats/ (or a plaintext residue would
+ *                 survive the forget) but NOT counted on the screen -- it is a
+ *                 cache of history already counted as "conversations", not a
+ *                 separate thing a person has.
  *   commitments/  what each agent last reported it was holding
  *
  * ⚠️ AND THE LIST OF THINGS IT DOES NOT TOUCH IS THE LOAD-BEARING HALF, because
@@ -22,15 +28,21 @@
  *                          amnesia the account move refuses to cause, and it
  *                          would be Kosmos destroying another tool's data.
  *
- * 🔑 IT CAN ONLY EVER REMOVE THOSE TWO NAMES. `rm -rf` on a computed path is
- * how a delete feature becomes an incident: the paths are joined from a fixed
- * list here, checked to be inside the data root, and nothing else is reachable
- * from any caller. There is no argument that widens it.
+ * 🔑 IT CAN ONLY EVER REMOVE THOSE NAMES -- the two kinds and each kind's
+ * declared `derived` views. `rm -rf` on a computed path is how a delete feature
+ * becomes an incident: every path is joined from the fixed `KINDS` list here
+ * (kind dirs AND derived dirs), and each is re-checked to be inside the data
+ * root with a matching basename immediately before the delete. Nothing else is
+ * reachable from any caller. There is no argument that widens it; widening is an
+ * edit to KINDS here, which the surface-pinning test makes visible in a diff.
  */
 
 const fs = require('node:fs');
 const path = require('node:path');
 const store = require('./store');
+/* The derived-view dir name comes from the module that OWNS it, so the two
+   cannot drift: if dailylog renames its output dir, forget's cleanup follows. */
+const { CHATS_DAILY_DIRNAME } = require('./dailylog');
 
 // #1856: route through the one data-root derivation (store.ROOT = dataRootFor), not the raw
 // AGENT_WORKFORCE_DATA switch -- prod-inert when it is unset (byte-identical), and under a
@@ -58,7 +70,7 @@ const KINDS = [
     dir: () => path.join(store.ROOT, 'chats'),
     label: 'conversations',
     one: 'conversation',
-    derived: [{ base: 'chats-daily', dir: () => path.join(store.ROOT, 'chats-daily') }],
+    derived: [{ base: CHATS_DAILY_DIRNAME, dir: () => path.join(store.ROOT, CHATS_DAILY_DIRNAME) }],
   },
   { key: 'commitments', dir: () => path.join(BASE, 'commitments'), label: 'reports', one: 'report' },
 ];

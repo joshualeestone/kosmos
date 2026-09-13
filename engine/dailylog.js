@@ -44,10 +44,20 @@ const fs = require('fs');
 const path = require('path');
 const store = require('./store');
 
-/* Direct-thread files are `chats/direct..<key>.json` (the same pattern
-   `engine/chat.js` uses). Project-room files are `<projectId>.<key>.json` with
-   the id never being "direct". Order matters: a direct file also satisfies the
-   looser project pattern, so direct is tested FIRST. */
+/* The output directory name, exported so engine/forget.js deletes exactly the
+   dir this module writes (a single source of truth: if this name changes,
+   forget's cleanup follows it rather than silently leaving a privacy residue). */
+const CHATS_DAILY_DIRNAME = 'chats-daily';
+
+/* Direct-thread files are `chats/direct..<key>.json` (TWO dots) and project-room
+   files are `<projectId>.<key>.json` (ONE dot), the same naming engine/chat.js
+   uses. chat.js documents that the second dot is the guard: a project id never
+   contains a dot, so even a project literally named "Direct" produces the
+   one-dot `direct.<key>.json` and can never collide with a direct thread's
+   `direct..<key>.json`. Order matters: the two-dot direct form also satisfies
+   the looser project pattern, so direct is tested FIRST and returns; whatever
+   reaches the project pattern is therefore a genuine project thread, INCLUDING
+   one whose id is "direct". */
 const DIRECT_THREAD_FILE = /^direct\.\.(.+)\.json$/;
 const PROJECT_THREAD_FILE = /^([^.]+)\.(.+)\.json$/;
 
@@ -60,7 +70,7 @@ function parseChatFileName(filename) {
   const direct = DIRECT_THREAD_FILE.exec(filename);
   if (direct) return { kind: 'direct', key: direct[1] };
   const project = PROJECT_THREAD_FILE.exec(filename);
-  if (project && project[1] !== 'direct') return { kind: 'project', projectId: project[1], key: project[2] };
+  if (project) return { kind: 'project', projectId: project[1], key: project[2] };
   return null;
 }
 
@@ -121,12 +131,12 @@ function flattenMessages(conversations, dayOf = localDayOf) {
 
 /** Names of any attachments on a message, for a "[shared: ...]" note. */
 function attachmentNames(m) {
-  const out = [];
-  if (m.attachment && typeof m.attachment === 'object' && m.attachment.name) out.push(String(m.attachment.name));
+  const seen = new Set();
+  if (m.attachment && typeof m.attachment === 'object' && m.attachment.name) seen.add(String(m.attachment.name));
   if (Array.isArray(m.attachments)) {
-    for (const a of m.attachments) if (a && typeof a === 'object' && a.name) out.push(String(a.name));
+    for (const a of m.attachments) if (a && typeof a === 'object' && a.name) seen.add(String(a.name));
   }
-  return out;
+  return [...seen];
 }
 
 /** Group rows by day, then by conversation, each ordered by time. Pure. */
@@ -179,11 +189,19 @@ function renderDay(dayStr, rows, timeOf = localTimeOf) {
   return lines.join('\n').replace(/\n+$/, '\n');
 }
 
-/** Read + parse every conversation file in a chats dir. Skips unreadable ones. */
+/**
+ * Read + parse every conversation file in a chats dir. Skips individual
+ * unreadable/unparseable files. Returns `{ conversations, readable }`:
+ * `readable` is true ONLY if the directory listing itself succeeded. A failed
+ * listing (permissions, a transient I/O error, a momentarily-wrong root, or the
+ * dir being absent) yields `readable: false` so the caller can fail closed and
+ * NOT treat "could not read the source" as "the source is empty" -- the
+ * distinction that keeps a transient failure from pruning the compiled history.
+ */
 function readConversations(chatsDir) {
   let names;
   try { names = fs.readdirSync(chatsDir); }
-  catch { return []; }
+  catch { return { conversations: [], readable: false }; }
   const out = [];
   for (const name of names) {
     const desc = parseChatFileName(name);
@@ -194,7 +212,7 @@ function readConversations(chatsDir) {
     if (!parsed || !Array.isArray(parsed.messages)) continue;
     out.push({ desc, parsed });
   }
-  return out;
+  return { conversations: out, readable: true };
 }
 
 /**
@@ -205,12 +223,12 @@ function readConversations(chatsDir) {
  */
 function compileAll(opts = {}) {
   const chatsDir = opts.chatsDir || path.join(store.ROOT, 'chats');
-  const outDir = opts.outDir || path.join(store.ROOT, 'chats-daily');
+  const outDir = opts.outDir || path.join(store.ROOT, CHATS_DAILY_DIRNAME);
   const dayOf = opts.dayOf || localDayOf;
   const timeOf = opts.timeOf || localTimeOf;
   const onlyDay = opts.onlyDay || null;
 
-  const conversations = readConversations(chatsDir);
+  const { conversations, readable } = readConversations(chatsDir);
   const { rows, undated } = flattenMessages(conversations, dayOf);
   const byDay = groupByDay(rows);
 
@@ -232,9 +250,16 @@ function compileAll(opts = {}) {
      targeted and must not touch other days), and only files whose name is a
      compiled day rollup (`YYYY-MM-DD.md`) -- never anything else a person may
      have put in the dir. Not a substitute for forget.js clearing the whole dir
-     (this runs only when the compiler is invoked); the two are complementary. */
+     (this runs only when the compiler is invoked); the two are complementary.
+
+     🛑 FAIL CLOSED: prune ONLY when the source listing SUCCEEDED (`readable`).
+     If chats/ could not be read (permissions, a transient error, a wrong root),
+     `byDay` is empty for a reason that is NOT "there are no conversations", and
+     pruning on that would delete the entire compiled history for a transient
+     failure. A successful listing that is genuinely empty still prunes, which is
+     correct: chats/ is there and has nothing, so every daily file is stale. */
   const pruned = [];
-  if (!onlyDay) {
+  if (!onlyDay && readable) {
     const keep = new Set(written);
     let existing = [];
     try { existing = fs.readdirSync(outDir); } catch { existing = []; }
@@ -254,11 +279,13 @@ function compileAll(opts = {}) {
     written,
     pruned,
     undated,
+    readable,
     outDir,
   };
 }
 
 module.exports = {
+  CHATS_DAILY_DIRNAME,
   parseChatFileName,
   conversationLabel,
   localDayOf,

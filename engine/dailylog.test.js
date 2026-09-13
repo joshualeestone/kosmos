@@ -41,6 +41,15 @@ test('parseChatFileName: a direct file is NOT misclassified as a project', () =>
   assert.equal(d.kind, 'direct', 'direct must be tested before the looser project pattern');
 });
 
+test('parseChatFileName: a project literally id-ed "direct" (one dot) is a project, not dropped', () => {
+  // chat.js documents this real case: a project named "Direct" -> id "direct" ->
+  // file `direct.<key>.json` (ONE dot), distinct from the two-dot direct thread.
+  // It must classify as a project, or that project's whole history is silently
+  // missing from every daily log.
+  const d = dl.parseChatFileName('direct.agentkey.json');
+  assert.deepEqual(d, { kind: 'project', projectId: 'direct', key: 'agentkey' });
+});
+
 test('parseChatFileName: non-conversation files are skipped', () => {
   assert.equal(dl.parseChatFileName('room-seen.json'), null);
   assert.equal(dl.parseChatFileName('.DS_Store'), null);
@@ -233,4 +242,26 @@ test('compileAll: a missing chats dir yields an empty, non-crashing result', () 
   const summary = dl.compileAll({ chatsDir: path.join(SANDBOX, 'does-not-exist'), outDir: path.join(SANDBOX, 'out-empty'), dayOf, timeOf });
   assert.equal(summary.conversations, 0);
   assert.equal(summary.days, 0);
+  assert.equal(summary.readable, false, 'a missing/unreadable chats dir is not readable');
+});
+
+test('compileAll: an UNREADABLE chats dir does NOT prune the compiled history (fail closed)', () => {
+  // A pre-populated rollup dir, and a chats dir that cannot be listed. A default
+  // run must NOT treat "could not read the source" as "no conversations" and
+  // wipe the history; the stale-looking files must survive until the source is
+  // genuinely readable-and-empty.
+  const outDir = path.join(SANDBOX, 'chats-daily-failclosed');
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(path.join(outDir, '2026-09-13.md'), 'existing history');
+  const summary = dl.compileAll({ chatsDir: path.join(SANDBOX, 'no-such-chats'), outDir, dayOf, timeOf });
+  assert.equal(summary.readable, false);
+  assert.deepEqual(summary.pruned, [], 'nothing may be pruned when the source is unreadable');
+  assert.ok(fs.existsSync(path.join(outDir, '2026-09-13.md')), 'the compiled history must survive an unreadable source');
+});
+
+test('readConversations: reports readable=false on a failed listing, true on success', () => {
+  assert.equal(dl.readConversations(path.join(SANDBOX, 'nope-not-here')).readable, false);
+  const good = path.join(SANDBOX, 'readable-chats');
+  fs.mkdirSync(good, { recursive: true });
+  assert.equal(dl.readConversations(good).readable, true, 'an existing (even empty) dir is readable');
 });

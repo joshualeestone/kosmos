@@ -61,7 +61,10 @@ If a fixed timezone is preferred, `dayOf`/`timeOf` are injectable and it is a on
 
 ## Tests
 `engine/dailylog.test.js` (node --test, matched by the suite's `engine/*.test.js` glob so it runs
-and satisfies the kosmos#1934 coverage guard): filename classification (incl. direct-not-
-misclassified-as-project), operator/blank-from handling, undated + bad-text skipping+counting,
-day grouping, render (You + ordering + attachments), and compileAll end-to-end (writes per-day
-files, originals unchanged, idempotent, junk skipped, onlyDay, missing-dir non-crash). 11 tests, all pass.
+and satisfies the kosmos#1934 coverage guard) covers: filename classification (incl. direct-not-
+misclassified-as-project AND a project literally id-ed "direct"), operator/blank-from handling,
+undated + bad-text skipping+counting, day grouping, render (You + time-ordering + attachments +
+blockquote/heading-hijack defense), and compileAll end-to-end (writes per-day files, originals
+unchanged, idempotent, junk + aside files skipped, onlyDay, pruning, fail-closed pruning on an
+unreadable source, readability reporting, missing-dir non-crash). `engine/forget.test.js` gains a
+test that a forget deletes the derived `chats-daily` rollup, and a full-deletable-surface pin.
