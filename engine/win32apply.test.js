@@ -53,6 +53,7 @@ const PORT = 16555;
 const README = '! READ ME FIRST - Windows will warn you.txt';
 const APPLY_MODULE = path.join(__dirname, 'win32apply.js');
 const BOOT_REPORT_ENV = 'KOSMOS_TEST_BOOT_REPORT';
+const BOOT_DIR_ENV = 'KOSMOS_TEST_BOOT_DIR';
 
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -66,7 +67,8 @@ const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),
 /* ─── the sandbox ─────────────────────────────────────────────────────────────────────────── */
 
 /** The fake board: when the logon shim runs it, it reports which build booted and who started it. */
-const SERVER_JS = `if (process.env.${BOOT_REPORT_ENV}) require('node:fs').writeFileSync(process.env.${BOOT_REPORT_ENV}, 'booted ' + require('./package.json').version + ' by ' + process.env.KOSMOS_WIN32_BOARD_TASK);\n`;
+const SERVER_JS = `if (process.env.${BOOT_REPORT_ENV}) require('node:fs').writeFileSync(process.env.${BOOT_REPORT_ENV}, 'booted ' + require('./package.json').version + ' by ' + process.env.KOSMOS_WIN32_BOARD_TASK);\n`
+  + `if (process.env.${BOOT_DIR_ENV}) require('node:fs').writeFileSync(process.env.${BOOT_DIR_ENV}, __dirname);\n`;
 
 function writeBuild(dir, version, tag, o = {}) {
   const files = {
@@ -201,16 +203,19 @@ function playBoard(c, o = {}) {
   return sim;
 }
 
-function assertRolledBack(c, before, sim, r, label) {
+const rolledBackSentence = (c) => `The update did not take. Kosmos is still on ${OLD}. If Kosmos does not come back by itself, double-click Kosmos.exe in ${c.root}.`;
+
+/** `o.cleanupPending`: the crash came after the journal was finished and before its cleanup. */
+function assertRolledBack(c, before, sim, r, label, o = {}) {
   assert.deepEqual(installState(c), before, `${label}: the tree, node.exe and pointer are byte-identical (${JSON.stringify(r)})\n${c.log.join('\n')}`);
   const j = readJson(c.journal);
   assert.equal(j.finished, true, `${label}: the journal is finished`);
   assert.ok(['rolled-back', 'not-started'].includes(j.outcome), `${label}: ${j.outcome}`);
   const status = readJson(c.statusAt);
-  assert.equal(status.sentence, `The update did not take. Kosmos is still on ${OLD}.`, label);
+  assert.equal(status.sentence, rolledBackSentence(c), label);
   assert.equal(status.version, OLD);
   assert.ok(status.because, `${label}: the status says why`);
-  assert.equal(fs.existsSync(c.previous), false, `${label}: no previous folder is left`);
+  if (!o.cleanupPending) assert.equal(fs.existsSync(c.previous), false, `${label}: no previous folder is left`);
   if (sim) {
     assert.equal(sim.running, true, `${label}: a board is running again`);
     assert.equal(sim.identity, OLD_ID, `${label}: and it is the old one`);
@@ -344,7 +349,9 @@ async function hookPoints(o = {}) {
 
 test('an injected failure at every H step and at every single move rolls back to a byte-identical tree', LONG, async () => {
   const { points, key } = await hookPoints();
-  const failurePoints = points.filter((p) => p !== 'before H9');
+  /* H9's points come after the new board is confirmed: a crash there is a finish-forward case (the
+     crash tests), never a rollback. */
+  const failurePoints = points.filter((p) => !/ H9/.test(p));
   assert.ok(failurePoints.length >= 30, 'the control: the points were found: ' + points.join(', '));
   for (const step of ['before H2', 'before H3', 'before H3 app', 'after H3 app', 'before H4 runtime', 'after H4 app', 'before H5-copy', 'before H5-swap', 'after H5-swap', 'before H6-write', 'after H6-write', 'before H7-run #1']) {
     assert.ok(failurePoints.includes(step), `the control: ${step} is among the points`);
@@ -428,7 +435,7 @@ test('not newer: the helper refuses a build that is not newer than ROOT, and mov
     assert.match(r.because, new RegExp(`${to.replace(/\./g, '\\.')} is not newer than 0\\.6\\.60, and Kosmos never installs an older or equal version`));
     assert.deepEqual(installState(c), before);
     assert.deepEqual(sim.calls, [], 'the board was never stopped');
-    assert.equal(readJson(c.statusAt).sentence, `The update did not take. Kosmos is still on ${OLD}.`);
+    assert.equal(readJson(c.statusAt).sentence, rolledBackSentence(c));
   }
 });
 
@@ -468,7 +475,8 @@ test('the helper does not start while another holder has the update lock', T, as
   fs.writeFileSync(path.join(c.work, win32update.LOCK_NAME), JSON.stringify({ pid: process.pid, at: Date.now(), exe: 'node.exe', token: 'a prepare in flight' }));
   const sim = playBoard(c);
   const r = await win32apply.applyJournal(c.journal, sim.deps({ lockHooks: { processImage: () => 'node.exe' } }));
-  assert.deepEqual(r, { ok: false, because: 'another update is already running' });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /^another update is already running \(another update is already being prepared \(process \d+\)\)$/);
   assert.deepEqual(sim.calls, []);
   assert.deepEqual(installState(c), before);
   assert.deepEqual(readJson(c.journal), j);
@@ -576,6 +584,19 @@ const path = require('node:path');
 const spec = JSON.parse(process.argv[2]);
 const apply = require(${JSON.stringify(APPLY_MODULE)});
 const board = require(${JSON.stringify(path.join(__dirname, 'win32board.js'))});
+/* Die inside win32swap.replaceInterpreter, between its two renames: the Nth time a staged copy is
+   renamed onto the anchored node.exe, the process is killed before that rename. */
+if (spec.killOnInterpreterRename) {
+  const realRename = fs.renameSync;
+  let seen = 0;
+  fs.renameSync = function counted(from, to) {
+    if (path.basename(String(from)).includes('.staged-') && path.resolve(String(to)) === path.resolve(spec.anchoredNode)) {
+      seen += 1;
+      if (seen === spec.killOnInterpreterRename) process.kill(process.pid, 'SIGKILL');
+    }
+    return realRename.apply(this, arguments);
+  };
+}
 const sim = { running: true, identity: ${JSON.stringify(OLD_ID)} };
 const treeIdentity = () => { try { return JSON.parse(fs.readFileSync(path.join(spec.root, 'app', 'package.json'), 'utf8')).version + '@default'; } catch { return null; } };
 board.setRunner((args) => {
@@ -595,20 +616,32 @@ apply.applyJournal(spec.journal, {
 `);
 
 function crashAt(c, point, o = {}) {
-  const out = cp.spawnSync(process.execPath, [CRASH_CHILD, JSON.stringify({ journal: c.journal, root: c.root, crashAt: point, newNeverStarts: Boolean(o.newNeverStarts) })],
+  const out = cp.spawnSync(process.execPath, [CRASH_CHILD, JSON.stringify({
+    journal: c.journal, root: c.root, crashAt: point, newNeverStarts: Boolean(o.newNeverStarts),
+    killOnInterpreterRename: o.killOnInterpreterRename || 0, anchoredNode: path.join(c.anchor, win32anchor.NODE_NAME),
+  })],
     { encoding: 'utf8', timeout: 60000, env: process.env });
   assert.equal(out.stdout, '', `the helper really died at ${point} (status ${out.status}, ${out.stderr})`);
   return out;
 }
 
 /** The board's real logon shim, run the way the task runs it, from the anchor, with ROOT as its cwd. */
-function bootShim(c) {
+/**
+ * The board's real logon shim, run the way the task runs it, from the anchor, with ROOT as its cwd.
+ * Reports which build booted (`booted`) and from which app folder (`from`). `o.preload` adds a
+ * `--require` to the shim's NODE_OPTIONS (the schtasks guard stays), `o.env` extra variables.
+ */
+function bootShim(c, o = {}) {
   const shim = path.join(c.anchor, win32board.BOOT_NAME);
   fs.writeFileSync(shim, win32board.BOOT_JS);
   const report = path.join(c.dir, 'booted.txt');
+  const fromReport = path.join(c.dir, 'booted-from.txt');
   fs.rmSync(report, { force: true });
-  const out = cp.spawnSync(process.execPath, [shim], { encoding: 'utf8', timeout: 120000, cwd: c.root, env: { ...process.env, [BOOT_REPORT_ENV]: report } });
-  return { status: out.status, stderr: out.stderr, booted: readText(report) };
+  fs.rmSync(fromReport, { force: true });
+  const env = { ...process.env, [BOOT_REPORT_ENV]: report, [BOOT_DIR_ENV]: fromReport, ...(o.env || {}) };
+  if (o.preload) env.NODE_OPTIONS = `${process.env.NODE_OPTIONS || ''} --require=${o.preload}`.trim();
+  const out = cp.spawnSync(process.execPath, [shim], { encoding: 'utf8', timeout: 120000, cwd: fs.existsSync(c.root) ? c.root : c.dir, env });
+  return { status: out.status, stderr: out.stderr, booted: readText(report), from: readText(fromReport) };
 }
 
 async function assertCrashRecovers(point, o = {}) {
@@ -617,7 +650,8 @@ async function assertCrashRecovers(point, o = {}) {
   const newTree = hashTree(c.staged);
   stage(c);
   crashAt(c, point, o);
-  const phaseAtCrash = readJson(c.journal).phase;
+  const atCrash = readJson(c.journal);
+  const phaseAtCrash = atCrash.phase;
   const boot = bootShim(c);
   assert.equal(boot.status, 0, `${point}: the shim booted (${boot.stderr})`);
   const j = readJson(c.journal);
@@ -628,9 +662,11 @@ async function assertCrashRecovers(point, o = {}) {
     assert.equal(readJson(c.statusAt).outcome, 'updated');
   } else {
     assert.equal(boot.booted, `booted ${OLD} by Kosmos\\board`, `${point}: the old board boots (${boot.stderr})`);
-    assertRolledBack(c, before, null, null, point);
+    assertRolledBack(c, before, null, null, point, { cleanupPending: atCrash.finished });
   }
-  assert.equal(fs.existsSync(path.join(c.work, win32update.LOCK_NAME)), false, `${point}: the dead helper's lock was cleared and released`);
+  /* A crash after the journal was finished leaves its dead lock and cleanup to the next prepare or
+     update, which clear both; before that, the boot recovery clears the lock itself. */
+  if (!atCrash.finished) assert.equal(fs.existsSync(path.join(c.work, win32update.LOCK_NAME)), false, `${point}: the dead helper's lock was cleared and released`);
   return phaseAtCrash;
 }
 
@@ -656,11 +692,11 @@ test('a crash at every point of a rollback: the next board start finishes puttin
 
 test('the logon shim: no journal boots as before; a finished one is left alone; an unreadable one is reported and the boot goes on', T, () => {
   const c = freshInstall();
-  assert.deepEqual(bootShim(c), { status: 0, stderr: '', booted: `booted ${OLD} by Kosmos\\board` });
+  assert.deepEqual(bootShim(c), { status: 0, stderr: '', booted: `booted ${OLD} by Kosmos\\board`, from: path.join(c.root, 'app') });
   const j = stage(c);
   fs.writeFileSync(c.journal, JSON.stringify({ ...j, finished: true, outcome: 'updated', recoverFrom: [path.join(c.dir, 'win32apply.js')] }));
   fs.writeFileSync(path.join(c.dir, 'win32apply.js'), "throw new Error('a finished journal must not load recovery code');");
-  assert.deepEqual(bootShim(c), { status: 0, stderr: '', booted: `booted ${OLD} by Kosmos\\board` });
+  assert.deepEqual(bootShim(c), { status: 0, stderr: '', booted: `booted ${OLD} by Kosmos\\board`, from: path.join(c.root, 'app') });
   fs.writeFileSync(c.journal, '{ torn');
   const torn = bootShim(c);
   assert.equal(torn.status, 0);
@@ -847,7 +883,7 @@ test('a handle on a file in app, held past the rename budget: a clean rollback, 
   }
 });
 
-test('a handle on the NEW app while rolling back: stuck, in words naming Kosmos.exe, then recovered once it is released', WINDOWS_ONLY, async () => {
+test('a handle on the NEW app while rolling back: stuck in words; the logon shim starts the OLD app from previous while it is held, and puts it back once released', WINDOWS_ONLY, async () => {
   const c = freshInstall();
   const before = installState(c);
   stage(c);
@@ -861,16 +897,341 @@ test('a handle on the NEW app while rolling back: stuck, in words naming Kosmos.
     const status = readJson(c.statusAt);
     assert.equal(status.outcome, 'stuck');
     assert.equal(status.version, null);
-    assert.match(status.sentence, /^The update did not take, and Kosmos could not put 0\.6\.60 back by itself \(app could not be moved \(code=EPERM\); something may have a file in it open\)\. Close any window or program that is using the Kosmos folder, then double-click Kosmos\.exe in /);
+    assert.match(status.sentence, /^The update did not take, and Kosmos could not put 0\.6\.60 back by itself \(app could not be moved \(code=EPERM\); something may have a file in it open\)\. Close any window or program that is using the Kosmos folder, then restart your computer, or double-click Kosmos\.exe in /);
     assert.ok(status.sentence.endsWith(`double-click Kosmos.exe in ${c.root} to start it again.`), status.sentence);
     const j = readJson(c.journal);
     assert.equal(j.phase, 'stuck');
     assert.equal(j.finished, false, 'left for the next resumer');
     assert.equal(j.steps.filter((s) => s.step === 'H8-H4' && s.entry === 'app' && s.state === 'failed').length, 3, 'three passes tried it');
+    /* SAFETY 1: a logon while the handle is still held. The recovery stays stuck, and the shim starts
+       the whole OLD app from previous-0.6.60 on the old interpreter H5's reversal put back, never
+       the new app it could not confirm. */
+    const held = bootShim(c);
+    assert.equal(held.status, 0, held.stderr);
+    assert.equal(held.booted, `booted ${OLD} by Kosmos\\board`, held.stderr);
+    assert.equal(held.from, path.join(c.previous, 'app'), 'the old app, from previous');
+    assert.match(held.stderr, /not recovered at start \(stuck: app could not be moved \(code=EPERM\)/);
+    assert.match(held.stderr, /starting the previous version from .*previous-0\.6\.60.app until the update can be put back/);
+    assert.equal(fs.readFileSync(path.join(c.anchor, 'node.exe'), 'utf8'), `the anchored node.exe of ${OLD}`);
+    assert.equal(readJson(c.journal).finished, false);
   } finally {
     if (holder) holder.release();
   }
-  const again = win32apply.recoverAtBoot(c.journal, sim.deps());
-  assert.equal(again.action, 'rolled-back', c.log.join('\n'));
+  const released = bootShim(c);
+  assert.equal(released.booted, `booted ${OLD} by Kosmos\\board`, released.stderr);
+  assert.equal(released.from, path.join(c.root, 'app'), 'once released, the old app is back in ROOT and starts from there');
   assertRolledBack(c, before, null, null, 'recovered after release');
+});
+
+/* ─── review round 1 ──────────────────────────────────────────────────────────────────────── */
+
+/** A preload that kills the process at its Nth fs.renameSync (KOSMOS_TEST_KILL_AT_RENAME). */
+const KILL_AT_RENAME = path.join(SANDBOX, 'kill-at-rename.js');
+fs.writeFileSync(KILL_AT_RENAME, [
+  "'use strict';",
+  "const fs = require('node:fs');",
+  'const realRename = fs.renameSync;',
+  'const at = Number(process.env.KOSMOS_TEST_KILL_AT_RENAME || 0);',
+  'let seen = 0;',
+  'fs.renameSync = function counted() { seen += 1; if (seen === at) process.kill(process.pid, "SIGKILL"); return realRename.apply(this, arguments); };',
+  '',
+].join('\n'));
+
+test('BUG 1: a resumer that finishes the staged journal between the helper\'s look and its lock stops the helper from applying it', T, async () => {
+  const c = freshInstall();
+  const before = installState(c);
+  stage(c);
+  const sim = playBoard(c);
+  /* The interleave: the first lock draft the HELPER writes, right after its look at the journal,
+     first lets a whole boot recovery run and let go of the lock. */
+  const realWrite = fs.writeFileSync;
+  let resumer = null;
+  let inside = false;
+  fs.writeFileSync = function interleaved(p, ...rest) {
+    if (!resumer && !inside && String(p).endsWith('.draft')) {
+      inside = true;
+      try { resumer = win32apply.recoverAtBoot(c.journal, sim.deps()); } finally { inside = false; }
+    }
+    return realWrite.call(this, p, ...rest);
+  };
+  let r;
+  try { r = await win32apply.applyJournal(c.journal, sim.deps()); } finally { fs.writeFileSync = realWrite; }
+  assert.equal(resumer && resumer.action, 'not-started', 'the control: the resumer ran inside the helper\'s lock attempt');
+  assert.deepEqual(r, { ok: false, because: 'the update was finished or replaced before this helper could start it, so it was not applied' });
+  assert.deepEqual(installState(c), before, 'nothing was moved');
+  assert.deepEqual(sim.calls, [], 'the board was never stopped');
+  assert.equal(readJson(c.journal).outcome, 'not-started');
+  assert.equal(readJson(c.statusAt).outcome, 'not-started');
+});
+
+test('BUG 1: the resume helper leaves a staged journal alone while its helper is starting, and settles it only after the grace', T, async () => {
+  const c = freshInstall();
+  const before = installState(c);
+  stage(c);
+  const j = readJson(c.journal);
+  const sim = playBoard(c);
+  const young = await win32apply.resumeJournal(c.journal, sim.deps({ now: () => clock + 5000 }));
+  assert.deepEqual(young, { ok: true, action: 'starting' });
+  assert.deepEqual(readJson(c.journal), j, 'untouched');
+  assert.equal(fs.existsSync(path.join(c.work, win32update.LOCK_NAME)), false, 'not even the lock the helper needs was taken');
+  const stale = await win32apply.resumeJournal(c.journal, sim.deps({ now: () => clock + win32apply.STAGED_HELPER_STARTUP_GRACE_MS + 1 }));
+  assert.equal(stale.outcome, 'not-started', JSON.stringify(stale));
+  assert.deepEqual(installState(c), before);
+  assert.equal((await win32apply.applyJournal(c.journal, sim.deps())).ok, false, 'a helper arriving after that applies nothing');
+  assert.equal(win32apply.STAGED_HELPER_STARTUP_GRACE_MS, 2 * 60 * 1000);
+});
+
+test('BUG 2: a journal whose Kosmos folder is gone is settled as abandoned, in words, by either resumer, and no longer blocks updates', T, async () => {
+  for (const resumer of ['boot', 'resume']) {
+    const c = freshInstall();
+    stage(c);
+    crashAt(c, 'after H3 bin');
+    fs.rmSync(c.root, { recursive: true, force: true });
+    assert.match(win32apply.unfinishedUpdateRefusal(c.anchor),
+      /can never finish, because the Kosmos folder that update was changing \(.*\) no longer exists\. Asking Kosmos to update again clears that record/, 'B0 says why, truthfully');
+    const sim = playBoard(c);
+    const r = resumer === 'boot' ? win32apply.recoverAtBoot(c.journal, sim.deps()) : await win32apply.resumeJournal(c.journal, sim.deps());
+    assert.equal(r.action, 'abandoned', `${resumer}: ${JSON.stringify(r)}`);
+    const j = readJson(c.journal);
+    assert.equal(j.finished, true);
+    assert.equal(j.outcome, 'abandoned');
+    const status = readJson(c.statusAt);
+    assert.equal(status.outcome, 'abandoned');
+    assert.equal(status.version, null);
+    assert.equal(status.sentence, `The update to ${NEW} was stopped: the Kosmos folder that update was changing (${c.root}) no longer exists.`);
+    assert.equal(win32apply.unfinishedUpdateRefusal(c.anchor), null, `${resumer}: updates are no longer blocked`);
+    assert.equal(fs.existsSync(c.root), false, 'nothing made the folder again');
+    assert.deepEqual(sim.calls, []);
+  }
+});
+
+test('BUG 2: a journal whose working folder is gone: settled in words, stuck once entries had moved, not-started before, updated once confirmed', T, () => {
+  for (const [point, action, statusOutcome] of [['after H3 bin', 'abandoned', 'stuck'], ['before H2', 'not-started', 'not-started'], ['before H9', 'updated', 'updated']]) {
+    const c = freshInstall();
+    stage(c);
+    crashAt(c, point);
+    fs.rmSync(c.work, { recursive: true, force: true });
+    const sim = playBoard(c);
+    const r = win32apply.recoverAtBoot(c.journal, sim.deps());
+    assert.equal(r.action, action, `${point}: ${JSON.stringify(r)}\n${c.log.join('\n')}`);
+    const j = readJson(c.journal);
+    assert.equal(j.finished, true, point);
+    const status = readJson(c.statusAt);
+    assert.equal(status.outcome, statusOutcome, point);
+    if (statusOutcome === 'stuck') {
+      assert.equal(j.outcome, 'abandoned');
+      assert.equal(status.sentence, `The update to ${NEW} did not finish, and Kosmos cannot finish or undo it by itself (its working folder ${c.work} is gone). Download a fresh copy of Kosmos, unpack it over your Kosmos folder, then double-click Kosmos.exe in ${c.root}.`);
+    }
+    assert.equal(win32apply.unfinishedUpdateRefusal(c.anchor), null, `${point}: updates are no longer blocked`);
+    assert.deepEqual(fs.readdirSync(c.work), [], `${point}: WORK was made again only to hold the lock, and the lock was released`);
+  }
+});
+
+test('BUG 2: with no copy of the updater left to put it back, the logon shim says so and begin()\'s settlement finishes it in words', T, () => {
+  const c = freshInstall();
+  stage(c);
+  crashAt(c, 'after H4 app');
+  for (const f of readJson(c.journal).recoverFrom) fs.rmSync(f, { force: true });
+  const boot = bootShim(c);
+  assert.equal(boot.status, 0, boot.stderr);
+  assert.match(boot.stderr, /an update that did not finish cannot be recovered at start: none of its recovery files exist \(.*win32apply\.js, .*win32apply\.js\)/);
+  assert.equal(readJson(c.journal).finished, false, 'the shim has no code to settle it with');
+  assert.match(win32apply.unfinishedUpdateRefusal(c.anchor), /can never finish, because no copy of the updater that could put it back is left/);
+  const sim = playBoard(c);
+  assert.deepEqual(win32apply.settleUnrecoverableJournal(c.journal, sim.deps()), { action: 'abandoned', because: 'no copy of the updater that could put it back is left' });
+  const status = readJson(c.statusAt);
+  assert.equal(status.outcome, 'stuck');
+  assert.match(status.sentence, /cannot finish or undo it by itself \(no copy of the updater that could put it back is left\)\. Download a fresh copy of Kosmos/);
+  assert.equal(win32apply.unfinishedUpdateRefusal(c.anchor), null);
+  /* The control: a journal a resumer can finish is left to it, with nothing written. */
+  const c2 = freshInstall();
+  stage(c2);
+  crashAt(c2, 'after H4 app');
+  const j2 = readJson(c2.journal);
+  assert.deepEqual(win32apply.settleUnrecoverableJournal(c2.journal), { action: 'recoverable' });
+  assert.deepEqual(readJson(c2.journal), j2);
+});
+
+test('the logon shim says so when an unfinished update is held by a live helper, and the board still boots', T, () => {
+  const c = freshInstall();
+  stage(c);
+  crashAt(c, 'before H7-run #1');
+  fs.writeFileSync(path.join(c.work, win32update.LOCK_NAME), JSON.stringify({ pid: process.pid, at: Date.now(), exe: path.basename(process.execPath).toLowerCase(), token: 'a live helper' }));
+  const boot = bootShim(c);
+  assert.equal(boot.status, 0, boot.stderr);
+  assert.match(boot.stderr, /an update that did not finish was not recovered at start \(held: another update is already being prepared \(process \d+\)\)/);
+  assert.equal(boot.booted, `booted ${NEW} by Kosmos\\board`, 'the tree is its helper\'s, so the app in ROOT starts');
+  assert.equal(readJson(c.journal).phase, 'starting');
+});
+
+/** Apply with the new board never starting and something in app's way back to staged: stuck. */
+async function stuckOnApp(c) {
+  const sim = playBoard(c, { newNeverStarts: true });
+  const blocker = path.join(c.staged, 'app');
+  const r = await win32apply.applyJournal(c.journal, sim.deps({ hooks: { before: (s) => { if (s === 'H8' && !fs.existsSync(blocker)) fs.mkdirSync(blocker); } } }));
+  assert.equal(r.outcome, 'stuck', c.log.join('\n'));
+  return blocker;
+}
+
+test('SAFETY 1: a boot recovery left stuck starts the whole OLD app from previous, never the new unconfirmed one, and puts it back once it can', T, async () => {
+  const c = freshInstall();
+  const before = installState(c);
+  stage(c);
+  const blocker = await stuckOnApp(c);
+  const boot = bootShim(c);
+  assert.equal(boot.status, 0, boot.stderr);
+  assert.equal(boot.booted, `booted ${OLD} by Kosmos\\board`, boot.stderr);
+  assert.equal(boot.from, path.join(c.previous, 'app'), 'the old app, from previous-0.6.60');
+  assert.match(boot.stderr, /not recovered at start \(stuck: app is not back in the Kosmos folder\)/);
+  assert.match(boot.stderr, /starting the previous version from .*previous-0\.6\.60.app until the update can be put back/);
+  assert.equal(readJson(c.journal).phase, 'stuck');
+  assert.equal(fs.readFileSync(path.join(c.anchor, 'node.exe'), 'utf8'), `the anchored node.exe of ${OLD}`, 'on the old interpreter');
+  fs.rmdirSync(blocker);
+  const again = bootShim(c);
+  assert.equal(again.booted, `booted ${OLD} by Kosmos\\board`, again.stderr);
+  assert.equal(again.from, path.join(c.root, 'app'));
+  assertRolledBack(c, before, null, null, 'put back');
+});
+
+test('SAFETY 1: when the old app in previous is not whole, the shim says so and the folder\'s app starts as before', T, async () => {
+  const c = freshInstall();
+  stage(c);
+  await stuckOnApp(c);
+  fs.rmSync(path.join(c.previous, 'app', 'web', 'index.html'));
+  const boot = bootShim(c);
+  assert.equal(boot.status, 0, boot.stderr);
+  assert.equal(boot.from, path.join(c.root, 'app'));
+  assert.equal(boot.booted, `booted ${NEW} by Kosmos\\board`);
+  assert.match(boot.stderr, /the previous version cannot be started instead \(.*index\.html is missing\), so the app in the Kosmos folder starts/);
+});
+
+test('the update lock is released when the sweep beside it throws, and the next helper applies', T, async () => {
+  const c = freshInstall();
+  stage(c);
+  const sim = playBoard(c);
+  const realSweep = win32update.sweepLockLeftovers;
+  win32update.sweepLockLeftovers = () => { throw Object.assign(new Error('simulated'), { code: 'EIO' }); };
+  let r;
+  try { r = await win32apply.applyJournal(c.journal, sim.deps()); } finally { win32update.sweepLockLeftovers = realSweep; }
+  assert.equal(r.ok, false);
+  assert.match(r.because, /the update lock could not be tidied \(code=EIO\)/);
+  assert.equal(fs.existsSync(path.join(c.work, win32update.LOCK_NAME)), false, 'the lock was not leaked');
+  assert.equal((await win32apply.applyJournal(c.journal, sim.deps())).outcome, 'updated');
+});
+
+test('the helper refuses a staged app whose version is not the one the update was prepared for', T, async () => {
+  const c = freshInstall();
+  const before = installState(c);
+  stage(c);
+  fs.writeFileSync(path.join(c.staged, 'app', 'package.json'), JSON.stringify({ version: '0.6.99' }));
+  const sim = playBoard(c);
+  const r = await win32apply.applyJournal(c.journal, sim.deps());
+  assert.equal(r.outcome, 'not-started');
+  assert.match(r.because, /the staged update is 0\.6\.99, not the 0\.6\.61 this update was prepared for/);
+  assert.deepEqual(installState(c), before);
+  assert.deepEqual(sim.calls, []);
+});
+
+test('the path guard holds for every resumer: a boot recovery, the resume helper, a settlement, an abandoned staged journal', T, async () => {
+  const outside = (c, written, alsoAllowed = []) => written.filter((p) => !allowedWrite(c, p) && !alsoAllowed.map((a) => path.resolve(a)).includes(p));
+  {
+    const c = freshInstall();
+    const before = installState(c);
+    stage(c);
+    crashAt(c, 'after H4 bin');
+    const sim = playBoard(c);
+    const written = await recordWrites(async () => { win32apply.recoverAtBoot(c.journal, sim.deps()); });
+    assertRolledBack(c, before, null, null, 'boot');
+    assert.ok(written.length > 10);
+    assert.deepEqual(outside(c, written), [], 'boot recovery');
+  }
+  {
+    const c = freshInstall();
+    const before = installState(c);
+    stage(c);
+    crashAt(c, 'before H7-run #1');
+    const sim = playBoard(c);
+    sim.running = false;
+    sim.identity = null;
+    win32board.runNow();
+    sim.calls.length = 0;
+    const written = await recordWrites(async () => { await win32apply.resumeJournal(c.journal, sim.deps()); });
+    assertRolledBack(c, before, sim, null, 'resume');
+    assert.ok(written.length > 10);
+    assert.deepEqual(outside(c, written), [], 'resume helper');
+  }
+  {
+    const c = freshInstall();
+    stage(c);
+    crashAt(c, 'after H3 bin');
+    fs.rmSync(c.work, { recursive: true, force: true });
+    const sim = playBoard(c);
+    const written = await recordWrites(async () => { win32apply.recoverAtBoot(c.journal, sim.deps()); });
+    assert.equal(readJson(c.journal).outcome, 'abandoned');
+    assert.deepEqual(outside(c, written, [c.work]), [], 'settlement: WORK itself is made again, and nothing else outside');
+  }
+  {
+    const c = freshInstall();
+    const before = installState(c);
+    stage(c);
+    const sim = playBoard(c);
+    const written = await recordWrites(async () => { win32apply.abandonStagedJournal(c.journal, 'no helper could be started', sim.deps()); });
+    assert.equal(readJson(c.journal).outcome, 'not-started');
+    assert.deepEqual(installState(c), before);
+    assert.deepEqual(outside(c, written), [], 'abandoned staged journal');
+  }
+});
+
+test('the path guard holds for a recovery the logon shim runs: nothing outside what an update owns changes', T, () => {
+  const c = freshInstall();
+  const before = installState(c);
+  stage(c);
+  crashAt(c, 'after H4 app');
+  const appData = appDataKosmos();
+  const skip = [path.join(c.anchor, win32board.BOOT_NAME), path.join(c.dir, 'booted.txt'), path.join(c.dir, 'booted-from.txt'), c.work, c.anchor, c.root].map((p) => path.resolve(p));
+  const outside = () => Object.fromEntries(Object.entries(hashTree(c.dir)).filter(([rel]) => {
+    const abs = path.resolve(c.dir, rel);
+    return !skip.includes(abs) && !allowedWrite(c, abs);
+  }));
+  const outsideBefore = outside();
+  const appDataBefore = hashTree(appData);
+  assert.ok(Object.keys(outsideBefore).some((k) => k.includes('Projects')), 'the control: the person\'s projects are among what is watched');
+  const boot = bootShim(c);
+  assert.equal(boot.booted, `booted ${OLD} by Kosmos\\board`, boot.stderr);
+  assertRolledBack(c, before, null, null, 'shim');
+  assert.deepEqual(outside(), outsideBefore);
+  assert.deepEqual(hashTree(appData), appDataBefore);
+});
+
+test('a power loss between replaceInterpreter\'s two renames (H5, and H8 putting it back) leaves no anchored node.exe; a recovery restores its exact bytes', LONG, () => {
+  for (const [nth, newNeverStarts, label, phase] of [[1, false, 'H5', 'interpreter'], [2, true, 'H8-H5', 'rolling-back']]) {
+    const c = freshInstall();
+    const before = installState(c);
+    stage(c);
+    crashAt(c, null, { newNeverStarts, killOnInterpreterRename: nth });
+    /* The window design section 9 names: no anchored node.exe at all, so no logon task can start and
+       no shim runs. Kosmos.exe in the Kosmos folder is the way back (the status sentences name it).
+       Here the recovery is run directly, as the next task start would once anything re-anchors. */
+    assert.equal(fs.existsSync(path.join(c.anchor, 'node.exe')), false, `${label}: no anchored interpreter`);
+    assert.ok(fs.readdirSync(c.anchor).some((n) => n.startsWith('node.exe' + win32swap.RETIRED_INFIX)), `${label}: the interpreter it replaced is aside`);
+    assert.equal(readJson(c.journal).phase, phase, label);
+    const boot = bootShim(c);
+    assert.equal(boot.booted, `booted ${OLD} by Kosmos\\board`, `${label}: ${boot.stderr}`);
+    assertRolledBack(c, before, null, null, label);
+  }
+});
+
+test('a boot resumer killed mid-rollback is finished by the next boot', LONG, () => {
+  for (const nth of [1, 3, 6, 10, 15, 25]) {
+    const c = freshInstall();
+    const before = installState(c);
+    stage(c);
+    crashAt(c, 'before H7-run #1');
+    const killed = bootShim(c, { preload: KILL_AT_RENAME, env: { KOSMOS_TEST_KILL_AT_RENAME: String(nth) } });
+    assert.equal(killed.booted, null, `rename ${nth}: the first boot's recovery really died (status ${killed.status}, ${killed.stderr})`);
+    assert.equal(readJson(c.journal).finished, false, `rename ${nth}`);
+    const boot = bootShim(c);
+    assert.equal(boot.booted, `booted ${OLD} by Kosmos\\board`, `rename ${nth}: ${boot.stderr}`);
+    assertRolledBack(c, before, null, null, `killed at rename ${nth}`);
+  }
 });

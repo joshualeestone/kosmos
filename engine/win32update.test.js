@@ -1515,17 +1515,29 @@ test('B0: a Kosmos folder under OneDrive or Program Files is refused with the ma
   assert.equal((await win32update.prepare(prepareOpts(c, site(bundleZip()), { env: { ...c.env, OneDrive: elsewhere, ProgramFiles: elsewhere } }))).ok, true);
 });
 
+const UNREADABLE_TASK = /^Kosmos could not read its Windows logon job \(Kosmos\\board\), so it did not start the update$/;
+
 test('B0: the board must be its logon task\'s, and the task registered and switched on; checked only after the live gate', T, async () => {
   const cases = [
     [{ startedByTask: () => false, status: () => ({ registered: true, enabled: true }) }, /this board was not started by its Windows logon job \(Kosmos\\board\)/],
     [{ startedByTask: () => true, status: () => ({ registered: false }) }, /there is no Windows logon job for the board \(Kosmos\\board\)/],
     [{ startedByTask: () => true, status: () => ({ registered: true, enabled: false }) }, /is switched off, so an update could not start Kosmos again/],
+    /* SAFETY 2: a status the reading could not tell never reads as yes. */
+    [{ startedByTask: () => true, status: () => ({ known: false, registered: false }) }, UNREADABLE_TASK],
+    [{ startedByTask: () => true, status: () => ({ registered: true }) }, UNREADABLE_TASK],
+    [{ startedByTask: () => true, status: () => ({ enabled: true }) }, UNREADABLE_TASK],
+    [{ startedByTask: () => true, status: () => ({ registered: 'yes', enabled: true }) }, UNREADABLE_TASK],
+    [{ startedByTask: () => true, status: () => ({ registered: true, enabled: null, running: true }) }, UNREADABLE_TASK],
   ];
   for (const [boardTask, pattern] of cases) {
     const c = freshCase();
     await refusedBeforeStarting(c, pattern, { boardTask });
     assert.equal(fs.existsSync(c.work), false, 'refused before the lock');
   }
+  /* The control: registered and enabled, whatever `running` says, passes B0 (the CLI reads running). */
+  assert.equal((await win32update.prepare(prepareOpts(freshCase(), site(bundleZip()), {
+    boardTask: { startedByTask: () => true, status: () => ({ registered: true, enabled: true, running: null }) },
+  }))).ok, true);
   /* A process that never armed live execution never asks the scheduler anything. */
   let asked = 0;
   const counting = { startedByTask: () => { asked += 1; return true; }, status: () => { asked += 1; return {}; } };
@@ -1645,7 +1657,7 @@ test('B5: a helper that cannot be started leaves the journal finished as not-sta
   assert.equal(j.finished, true);
   assert.equal(j.outcome, 'not-started');
   const status = readJson(path.join(c.anchor, 'update-status.json'));
-  assert.equal(status.sentence, 'The update did not take. Kosmos is still on 0.6.55.');
+  assert.equal(status.sentence, `The update did not take. Kosmos is still on 0.6.55. If Kosmos does not come back by itself, double-click Kosmos.exe in ${c.root}.`);
   assert.match(status.because, /could not be started/);
   assert.equal(fs.existsSync(path.join(c.root, 'bin')), false, 'nothing moved');
 });
@@ -1699,6 +1711,53 @@ test('B5: a build that is not newer is refused by begin, and no journal is writt
   assert.equal(fs.existsSync(path.join(c.anchor, JOURNAL_NAME)), false);
 });
 
+test('BUG 1: a begin() right after begin() does not cancel the update that is starting', T, async () => {
+  const c = freshCase();
+  const s = site(bundleZip());
+  const spawned = [];
+  const spawn = (file, args) => { spawned.push(args[1]); return fakeChild(); };
+  const first = await win32update.begin(prepareOpts(c, s, { spawn }));
+  assert.equal(first.ok, true, first.because);
+  const journalAt = path.join(c.anchor, JOURNAL_NAME);
+  const written = readJson(journalAt);
+  const again = await win32update.begin(prepareOpts(c, s, { spawn }));
+  assert.equal(again.ok, false);
+  assert.equal(again.because, 'an update to 0.6.60 is starting now. Try again in a minute');
+  assert.deepEqual(spawned, ['--kosmos-update-apply'], 'no resume helper was started against it');
+  assert.deepEqual(readJson(journalAt), written, 'the update that is starting is untouched');
+  /* Past the grace the same journal has no helper coming, and the resume helper is started for it. */
+  const grace = require('./win32apply').STAGED_HELPER_STARTUP_GRACE_MS;
+  const later = await win32update.begin(prepareOpts(c, s, { spawn, now: () => Date.parse(written.createdAt) + grace + 1 }));
+  assert.match(later.because, /has not finished, so Kosmos is finishing it now/);
+  assert.deepEqual(spawned, ['--kosmos-update-apply', '--kosmos-update-recover']);
+});
+
+test('BUG 2: begin() clears an earlier update no resumer can finish, in words, and goes on with the new one', T, async () => {
+  const c = freshCase();
+  seedUnfinishedJournal(c, 'moving-in');
+  fs.rmSync(c.work, { recursive: true, force: true });
+  const r = await win32update.begin(prepareOpts(c, site(bundleZip()), { spawn: () => fakeChild(), applySeams: { log: (line) => c.log.push(line) } }));
+  assert.equal(r.ok, true, r.because);
+  assert.ok(c.log.some((line) => /cleared an earlier update no resumer could finish \(abandoned: its working folder .* is gone\)/.test(line)), c.log.join('\n'));
+  assert.equal(readJson(path.join(c.anchor, JOURNAL_NAME)).phase, 'staged', 'the new update\'s own journal');
+  const status = readJson(path.join(c.anchor, 'update-status.json'));
+  assert.equal(status.outcome, 'stuck');
+  assert.match(status.sentence, /Download a fresh copy of Kosmos/);
+});
+
+test('the path guard holds for begin(): WORK and the anchor\'s journal, nothing else', T, async () => {
+  const c = freshCase();
+  const before = snapshot(SANDBOX, [c.work, c.anchor]);
+  let r;
+  const written = await recordWrites(async () => { r = await win32update.begin(prepareOpts(c, site(bundleZip()), { spawn: () => fakeChild() })); });
+  assert.equal(r.ok, true, r.because);
+  const journalAt = path.join(c.anchor, JOURNAL_NAME);
+  assert.ok(written.length > 10, 'the control: the writes were recorded');
+  assert.ok(written.includes(journalAt), 'the control: the journal is among them');
+  assert.deepEqual(written.filter((p) => !under(p, c.work) && !(path.dirname(p) === c.anchor && path.basename(p).startsWith(JOURNAL_NAME))), []);
+  assert.deepEqual(snapshot(SANDBOX, [c.work, c.anchor]), before);
+});
+
 /* ─── S3: the --apply CLI ─────────────────────────────────────────────────────────────────── */
 
 test('the --apply CLI is a dry run without --yes, and writes nothing', T, () => {
@@ -1736,6 +1795,12 @@ test('the --apply CLI with --yes reads "started by its task" as the task running
   assert.match(out.join(''), /this board was not started by its Windows logon job/);
   out.length = 0;
   assert.equal(await win32update.cliMain(argv, (s) => out.push(s), seams(`${INSTALLED}@default`, false)), 1, 'a task that is not running');
+  /* SAFETY 2: a running state the reading could not tell is not "started by its task". */
+  for (const running of [null, undefined, 'unknown']) {
+    out.length = 0;
+    assert.equal(await win32update.cliMain(argv, (s) => out.push(s), seams(`${INSTALLED}@default`, running)), 1, `running: ${running}`);
+    assert.match(out.join(''), /this board was not started by its Windows logon job/, `running: ${running}`);
+  }
   out.length = 0;
   assert.equal(await win32update.cliMain(argv, (s) => out.push(s), seams(`${INSTALLED}@default`, true)), 0, out.join(''));
   assert.equal(JSON.parse(out.join('')).journal, path.join(c.anchor, JOURNAL_NAME));
