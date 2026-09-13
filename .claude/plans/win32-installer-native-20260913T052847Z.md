@@ -390,6 +390,24 @@ Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
   after it, not pre-merged. Two conflict hunks are expected in `engine/win32board.js`: next to
   `bundleRoot`, where this branch adds `isKosmosBuildRoot` and `anchorBundle`, and in `module.exports`.
 
+- **Round 3 results (this box).**
+  - Engine suites 154/154 and launcher/installer/web suites 49/49, with APPDATA, LOCALAPPDATA and
+    USERPROFILE in scratch and the schtasks preload on.
+  - `verify-launcher.ps1`: OK.
+  - Revert controls: 52 of 52 red (14 new for round 3, and the earlier 38 restated), with the worktree
+    clean afterwards.
+  - The comparison against an archive of `feb30b80` (101 suites; name and first error line):
+    - base 1774 tests, 154 fail; branch 1863 tests, 153 fail;
+    - 0 new failures;
+    - the one base-only failure is `git ls-files` in an archive;
+    - 2 tests differ only by an ephemeral port;
+    - `tools.win-staging-verify` "never over an existing record" differed under load. Run alone it
+      fails the same way on both sides (`spawnSync bash ENOENT`).
+  - No schtasks calls were blocked.
+  - The anchor's test-process guard asks `win32job.schtasksMayRunInThisProcess()`, not
+    `liveExec.inTestProcess()`: `win32board.test.js` (#2973) forbids a second copy of that rule in the
+    board, and the shared answer also covers a board a test spawned.
+
 ## Follow-ups (not this slice)
 
 - **Once S3 (`win32-update-apply`) has merged:** the uninstall refuses while an update journal is
