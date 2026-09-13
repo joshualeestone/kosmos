@@ -127,5 +127,56 @@ else
   echo "SKIP  stranger-on-port case (no system node)"
 fi
 
+# 6. A SILENT holder (#2988): a process BINDS the port but answers NO HTTP -- the
+# #2955 half-dead/zombie case. healthy() and port_taken_by_stranger() BOTH need an
+# HTTP response, so both read false; only port_has_listener() (lsof) sees it, so
+# board-run must still DEFER -- exit 0, no node exec, pidfile untouched -- rather
+# than fall through to a doomed EADDRINUSE crash-loop. Uses a raw TCP listener
+# (node `net`, which accepts but never answers) and lsof. The guard itself fails
+# OPEN without lsof, so the case is skipped when /usr/sbin/lsof is absent -- matching
+# that fall-through, not asserting a defer the guard cannot make. NOTE the board-run
+# line runs with PATH=/usr/bin:/bin (no /usr/sbin), which is exactly why the guard
+# calls lsof by its absolute path.
+if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ] && [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; then
+  H="$(new_home)"
+  PORTZ=18729
+  "$NODE_BIN" -e 'require("net").createServer(function(){}).listen('"$PORTZ"',"127.0.0.1")' &
+  SRV=$!
+  for i in $(seq 1 40); do /usr/sbin/lsof -nP -iTCP:$PORTZ -sTCP:LISTEN >/dev/null 2>&1 && break; sleep 0.1; done
+  printf 'SENTINEL-8888' > "$H/board.pid"
+  PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTZ /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
+  kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+  [ "$rc" = 0 ] && ok "silent holder: board-run exits 0 (defers)" || bad "silent holder: exit $rc (want 0)"
+  [ ! -f "$H/.node-ran" ] && ok "silent holder: node not exec'd (no EADDRINUSE crash-loop)" || bad "silent holder: node ran into EADDRINUSE"
+  [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-8888" ] && ok "silent holder: pidfile NOT clobbered" || bad "silent holder: pidfile clobbered"
+  rm -rf "$H"
+else
+  echo "SKIP  silent-holder case (needs system node + /usr/sbin/lsof)"
+fi
+
+# 7. A SILENT holder on * / 0.0.0.0 (#2988): the board binds 127.0.0.1, and a
+# listener on * (all interfaces) DOES collide with that bind, so board-run must
+# still DEFER. This guards the specific mistake of scoping the lsof query to
+# `@127.0.0.1`: a * bind shows as `*:PORT`, which that form MISSES (measured),
+# re-opening the crash-loop. (The mirror case -- a specific NON-loopback bind such
+# as a LAN IP must NOT defer -- needs a stable non-loopback address the test cannot
+# assume across machines/CI, so it is verified manually (2026-09-13), not here.)
+if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ] && [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; then
+  H="$(new_home)"
+  PORTW=18731
+  "$NODE_BIN" -e 'require("net").createServer(function(){}).listen('"$PORTW"',"0.0.0.0")' &
+  SRV=$!
+  for i in $(seq 1 40); do /usr/sbin/lsof -nP -iTCP:$PORTW -sTCP:LISTEN >/dev/null 2>&1 && break; sleep 0.1; done
+  printf 'SENTINEL-9999' > "$H/board.pid"
+  PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTW /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
+  kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+  [ "$rc" = 0 ] && ok "all-interfaces (*) holder: board-run exits 0 (defers)" || bad "all-interfaces (*) holder: exit $rc (want 0)"
+  [ ! -f "$H/.node-ran" ] && ok "all-interfaces (*) holder: node not exec'd (no EADDRINUSE crash-loop)" || bad "all-interfaces (*) holder: node ran into EADDRINUSE"
+  [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-9999" ] && ok "all-interfaces (*) holder: pidfile NOT clobbered" || bad "all-interfaces (*) holder: pidfile clobbered"
+  rm -rf "$H"
+else
+  echo "SKIP  all-interfaces-holder case (needs system node + /usr/sbin/lsof)"
+fi
+
 if [ "$fails" = 0 ]; then echo "ALL PASS (test-board-foreground-2956)"; else echo "FAILURES (test-board-foreground-2956)"; fi
 exit "$fails"
