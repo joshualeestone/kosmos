@@ -32537,10 +32537,10 @@ document.getElementById('rolesel').addEventListener('change', () => {
    so the person's name is used only when the operator opts in, and even then it
    is the machine name only because that opt-in IS the "name the agents after
    the people" choice. The cap is Kosmos's, not the paste's -- over it the
-   backend refuses the whole request with a message naming the cap and how the
-   OPERATOR raises it (AGENT_WORKFORCE_TEAM_CAP); we surface that verbatim
-   rather than trying to raise it from here (a request cannot raise its own
-   bound, by design: engine/team.js). */
+   backend refuses the whole request with a message naming the cap and its
+   ceiling and saying only the OPERATOR can raise it; we surface that message
+   verbatim rather than trying to raise the cap from here (a request cannot
+   raise its own bound, by design: engine/team.js). */
 
 // The parse held between Preview and Create, so Create builds exactly what the
 // person reviewed rather than a re-parse of text they may have edited after.

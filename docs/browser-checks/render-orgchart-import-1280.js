@@ -206,6 +206,27 @@ function check(name, pass, detail) {
   check('a transport/auth error surfaces its message, not a bare no-op',
     errored.msgShown && /board belongs to the account/.test(errored.msg), JSON.stringify(errored));
 
+  // ---- Duplicate titles de-dup to distinct in-length names, and do NOT hang ---
+  // Two identical short titles AND two identical LONG titles (slug > 32 chars).
+  // The long pair exercises uniq()'s termination fix: if the suffix were sliced
+  // back off, "Preview" would spin forever and this waitForSelector would time out.
+  await page.click('#orgchart-edit');
+  await page.fill('#orgchart-text',
+    'Engineer\nEngineer\nSenior Site Reliability Engineering Manager\nSenior Site Reliability Engineering Manager');
+  await page.click('#orgchart-preview');
+  await page.waitForSelector('#orgchart-preview-box:not([hidden])', { timeout: 5000 });
+  const dedup = await page.evaluate(() => {
+    const rows = [...document.getElementById('orgchart-list').querySelectorAll('li')];
+    const names = rows.map((li) => {
+      const t = li.textContent;
+      const i = t.lastIndexOf('→'); // the '→' the row renders before the derived name
+      return (i >= 0 ? t.slice(i + 1) : t).trim();
+    });
+    return { count: rows.length, names, distinct: new Set(names).size, maxLen: Math.max(...names.map((n) => n.length)) };
+  });
+  check('duplicate titles de-duplicate to distinct names within the length cap (no hang)',
+    dedup.count === 4 && dedup.distinct === 4 && dedup.maxLen <= 32, JSON.stringify(dedup));
+
   check('no page errors', errors.length === 0, errors.join(' | '));
 
   await browser.close();
