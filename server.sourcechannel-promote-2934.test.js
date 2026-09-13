@@ -187,39 +187,5 @@ test('#2066 still holds: trimmed, lowercased, and anything unexpected folds to p
   }
 });
 
-// ---- THE PREDICATE ITSELF, unit-level ---------------------------------------------
-
-test('prodPublishesRunning: true ONLY on exact equality, null for every unknown', async () => {
-  const updates = require('./engine/update');
-  updates.setAutoPref(() => false);
-  updates.setInstalledRoot(() => null);
-
-  const look = async (version, { throws = false } = {}) => {
-    updates.resetCache();
-    updates.setFetcher(async () => {
-      if (throws) throw new Error('offline');
-      return { ok: true, json: async () => ({ version }) };
-    });
-    await updates.refresh().catch(() => {});
-  };
-
-  updates.resetCache();
-  assert.equal(updates.prodPublishesRunning(), null, 'never looked -> null, not false');
-
-  await look(RUNNING);
-  assert.equal(updates.prodPublishesRunning(), true, 'exact equality is the only true');
-
-  await look(PROD_AHEAD);
-  assert.equal(updates.prodPublishesRunning(), false, 'prod ahead is NOT evidence our bytes shipped');
-
-  await look(PROD_BEHIND);
-  assert.equal(updates.prodPublishesRunning(), false);
-
-  await look(null, { throws: true });
-  assert.equal(updates.prodPublishesRunning(), null, 'unreachable -> null, never false');
-
-  await look('not-a-version');
-  assert.equal(updates.prodPublishesRunning(), null, 'an unreadable pointer -> null');
-
-  updates.resetCache();
-});
+// The predicate's own contract is pinned beside the module that owns the cache, in
+// engine/update.test.js (#2934). This file covers the board's /api/status integration.

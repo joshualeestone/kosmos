@@ -151,4 +151,6 @@ worst direction: a comparison that can never fire reads as "prod caught up", so 
 dark on a box that is genuinely ahead of prod -- the precise case the badge exists for -- while
 passing every test that only checks the promoted case.
 
-Why the accessor is named `cachedLatestVersion` and not `cachedLatest`: the name is the guard.
+That draft is gone: there is no accessor to name carefully any more, because the
+comparison never crosses a module boundary. `prodPublishesRunning()` reads the cache and
+returns a verdict, so `cache.latest`'s shape is not something a caller can get wrong.
