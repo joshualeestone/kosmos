@@ -4293,6 +4293,38 @@ test('disabledJobs reads the launchd overrides and fails soft to an empty set (#
   }
 });
 
+test('#2977: disabledJobsResult says whether it could LOOK, distinguishing "we looked, nothing is off" from "we could not look"', () => {
+  // Read succeeded: ok:true with the parsed set (same parse disabledJobs uses).
+  create.setRunner(() => ({ ok: true, stdout: 'disabled services = {\n\t"com.kosmos.agent.rick" => disabled\n}\n' }));
+  create.setDryRun(false);
+  try {
+    const r = create.disabledJobsResult();
+    assert.equal(r.ok, true);
+    assert.deepEqual([...r.jobs].sort(), ['rick']);
+    assert.equal(create.disabledJobs().size, 1, 'disabledJobs must still unwrap the result to a plain Set');
+  } finally {
+    create.setRunner(null);
+  }
+  // A THROWN probe is "could not look": ok:false, and no jobs set to misread as "nothing off".
+  create.setRunner(() => { throw new Error('no launchctl here'); });
+  create.setDryRun(false);
+  try {
+    assert.deepEqual(create.disabledJobsResult(), { ok: false }, 'a thrown probe must report it could not look');
+    assert.equal(create.disabledJobs().size, 0, 'and disabledJobs still fails soft to an empty set for its other callers');
+  } finally {
+    create.setRunner(null);
+  }
+  // A runner that RETURNS ok:false (the live-execution-refused / non-mutating-gate shape) is the
+  // same "could not look", not an empty read -- this is the shape worldstarts' Mac arm keys off.
+  create.setRunner(() => ({ ok: false }));
+  create.setDryRun(false);
+  try {
+    assert.deepEqual(create.disabledJobsResult(), { ok: false }, 'an ok:false runner result must report it could not look, not an empty set');
+  } finally {
+    create.setRunner(null);
+  }
+});
+
 /* ---- #1026: a model belongs to a provider ------------------------------- */
 
 test("#1026: modelsFor scopes to the provider, and today OpenAI's list is empty", () => {
