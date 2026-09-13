@@ -152,6 +152,47 @@ let failed = 0;
      would fail for the wrong reason. This says so in its own line instead. */
   say('the accounts render grouped by provider', groups.length > 0 && rows.length > 0,
     JSON.stringify(groups.map((g) => g.provider + ':' + g.rows.length)));
+  /* 🛑 #1143: THE NEGATIVE CONTROL THIS CHECK NEVER HAD -- "sees THAT account and
+     NOT the operator's". Every assertion above is OPEN-WORLD (`some` group is
+     OpenAI, `some` row holds the key tail, both seeded Claude rows are present),
+     so if the board's config sandbox ever regressed and the operator's REAL
+     Claude accounts leaked into the list, they would render as EXTRA rows and
+     every assertion above would still pass. That silent read is exactly what
+     #1143 is about, and the runtime guard cannot catch it: engine/status.js
+     `sandboxIsInconsistent()` can only fire for a fixture (DATA under a temp
+     root) and can never distinguish a real production board, so a board booted
+     with no config seam reads the operator's own machine with nothing to say so.
+     This check's subject IS the accounts list, so the control belongs here.
+     ✅ THE FIXTURE IS CLOSED AND KNOWN: tools/browser-checks.sh (sb4) seeds
+     EXACTLY two Claude accounts, main@example.com and walk@example.com, and this
+     walk adds one OpenAI account. The only emails that may appear are therefore
+     at example.com; a real operator account carries a real domain (never
+     example.com), so an email outside example.com is a leak and reds here.
+     ⚠️ It also makes a DIRECT invocation (the card's other gap) fail loud: point
+     this check at a real board and the operator's own accounts trip this line,
+     instead of the check silently asserting green against real data.
+     📌 RETRY-SAFE ON PURPOSE. The runner's flaky-retry re-runs this against the
+     SAME live board with a fresh per-attempt OpenAI label, so a total-row count
+     would climb on a retry. Both controls below are keyed on the CLAUDE side,
+     which the walk never adds to, so a retry cannot make them false: the email
+     control ignores the OpenAI row (it carries a key tail, no email), and the
+     count control reads the non-OpenAI group only. */
+  const foreignEmails = rows
+    .flatMap((r) => r.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/g) || [])
+    .filter((e) => !/@example\.com$/i.test(e));
+  say('no account outside the seeded example.com fixtures is shown (config sandbox holds; #1143)',
+    foreignEmails.length === 0, JSON.stringify(foreignEmails));
+  /* A count control alongside the domain one, because a leaked account that
+     happened to carry NO email (a `.claude-*` dir with no oauthAccount record)
+     would slip the domain line but not this: the fixture is exactly two Claude
+     accounts, so the non-OpenAI group holds two rows and no more. Keyed on
+     "not OpenAI" rather than a Claude label because this file's whole history is
+     provider-label churn, and the OpenAI group is the one this walk creates. */
+  const claudeRows = groups
+    .filter((g) => !/OpenAI/.test(g.provider))
+    .flatMap((g) => g.rows);
+  say('exactly the two seeded Claude fixture accounts render, no operator account leaked (#1143)',
+    claudeRows.length === 2, JSON.stringify(claudeRows));
   /* 🛑 SURVIVING MUTATION, found by Baron Draxum on review: `some()` CANNOT SEE A
      DUPLICATE. Render TWO OpenAI groups and every assertion in this block still
      passes, because one matching group is all `some` ever asks for.
