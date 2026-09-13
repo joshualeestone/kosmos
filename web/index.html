@@ -169,13 +169,6 @@
      Dark #4ade80 is 10.11 on the dark card and 11.16 on the dark page. */
   --ok: #1f7a4d;
   --k-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  /* #2066 build marker: the STAGING badge's ink + ground. Mona Lisa's values
-     (installkosmos.com/design/build-marker). A dark warm-brown ink on a light
-     warm-cream ground in light; the inverse (light gold on deep brown) in dark,
-     so the badge stays loud and legible either way. Defined here and re-stated
-     in both dark blocks below, because a one-theme colour on the wrong ground is
-     the failure this palette exists to avoid. */
-  --stag: #8a5a00; --stag-bg: #fbeecb;
 
   --font-ui: -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Monaco, monospace;
@@ -311,8 +304,6 @@
     --k-side:   #111316;
     --k-side-2: #1c1f23;
     --k-optline: #6e7278;
-    /* #2066 build marker (dark): light gold ink on a deep warm-brown ground. */
-    --stag: #f0c860; --stag-bg: #3a2e10;
   }
 }
 /* ⚠️ THIS BLOCK USED TO BREAK DARK MODE, and it sits after the dark block, so it
@@ -7166,8 +7157,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     --k-side:   #111316;
     --k-side-2: #1c1f23;
     --k-optline: #6e7278;
-    /* #2066 build marker (dark): light gold ink on a deep warm-brown ground. */
-    --stag: #f0c860; --stag-bg: #3a2e10;
   }
 
 @media (prefers-contrast: more) {
@@ -7413,10 +7402,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
      A fixed body corner, NOT Settings: a problem screenshot is not of Settings, and a
      click/hover reveal is not in a screenshot. Body-fixed rather than inside .apphead
      because the consolidated layout sets .apphead to position:static, so a body corner
-     is the layout-robust home for "on every tab". Prod: a small dim version string.
-     Staging: a loud coloured STAGING badge in the same slot (absence of the badge is
-     prod). Painted by paintBuildMark() off the /api/status poll; the hover title carries
-     the fuller line (channel · port). Hidden until the first paint gives it a version. -->
+     is the layout-robust home for "on every tab". A uniform "beta build v<version>" for
+     every channel (#2658 dropped #2066's per-channel loud STAGING badge; the channel rides
+     the hover title only). Painted by paintBuildMark() off the /api/status poll; the hover
+     title carries the fuller line (channel · port). Hidden until the first paint gives it a version. -->
 <div id="buildmark" hidden></div>
 <!-- ⚠️ THE STICKY UNIT IS THE WHOLE BAR, header and tabs together, pulled to
      the page edges with negative margins that mirror the body padding exactly
