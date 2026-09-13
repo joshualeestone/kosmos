@@ -13299,7 +13299,7 @@ if (require.main === module) {
     if (handOff.attempted) {
       /* Readable only in Kosmos.exe --console's window (or a terminal that ran the
          board by hand). A double-clicked Kosmos.exe has a hidden console and shows
-         its own box with the same advice once the hand-off's worst case has passed. */
+         its own box with the same advice once this board is listening. */
       process.stderr.write(`Kosmos could not move to the background (${handOff.because}), so it is running from this window instead. Keep this window open while you use Kosmos.\n`);
     }
     start().then(() => {

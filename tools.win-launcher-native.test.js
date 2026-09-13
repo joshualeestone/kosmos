@@ -31,7 +31,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const REPO = __dirname;
 const EXE_PATH = process.env.KOSMOS_LAUNCHER_EXE_UNDER_TEST || path.join(REPO, 'tools', 'windows', 'Kosmos.exe');
@@ -254,32 +256,45 @@ test('🛑 nothing is started before the runtime and app checks, so a runtime-le
   }
 });
 
-test('round 1 BUG: a board still running after the hand-off\'s worst case gets a box that is the person\'s handle on it', () => {
+test('rounds 1-2 BUG: a board PROVABLY serving from the launcher (listening) gets a box that is the person\'s handle on it', () => {
   /* When the hand-off does not happen, server.js serves in place, on a hidden console
      in GUI mode. Without this box the person could neither see nor stop that board,
      and the next Kosmos.exe would die on the port it holds. */
   const handoff = require('./engine/win32handoff');
-  const wait = SOURCE.match(/const int HandOffWorstCaseMs = (\d+);/);
-  assert.ok(wait, 'the launcher no longer names how long a hand-off can take');
-  assert.equal(Number(wait[1]), handoff.HANDOFF_WORST_CASE_MS,
-    'the launcher waits a different time than the hand-off\'s worst case: one fact, two copies, drifted');
+  const wait = SOURCE.match(/const int CheckForServingAfterMs = (\d+);/);
+  assert.ok(wait, 'the launcher no longer names when it starts checking whether the board serves from it');
+  assert.equal(Number(wait[1]), handoff.HANDOFF_CHECK_FOR_SERVING_AFTER_MS,
+    'the launcher starts checking at a different time than the hand-off says: one fact, two copies, drifted');
   const handoffSource = fs.readFileSync(path.join(REPO, 'engine', 'win32handoff.js'), 'utf8');
-  assert.match(handoffSource, /const HANDOFF_WORST_CASE_MS = HANDOFF_BUDGET_MS \+ PROBE_TIMEOUT_MS \+ MIN_PORT_RELEASE_WAIT_MS \+ PROBE_TIMEOUT_MS;/,
-    'the worst case is no longer derived from the budget and its floors');
+  assert.match(handoffSource, /const HANDOFF_CHECK_FOR_SERVING_AFTER_MS = HANDOFF_BUDGET_MS \+ PROBE_TIMEOUT_MS \+ MIN_PORT_RELEASE_WAIT_MS \+ PROBE_TIMEOUT_MS;/,
+    'the check mark is no longer derived from the budget and its floors');
+  assert.doesNotMatch(SOURCE + handoffSource, /HandOffWorstCaseMs|HANDOFF_WORST_CASE_MS/, 'a constant still claims to be the hand-off\'s worst case, which round 2 measured it is not');
   assert.equal(sourceConstant('RunningHereMessage'),
     "Kosmos couldn't move to the background, so it's running from here instead. Keep this box open while you use Kosmos. Click OK to stop Kosmos. To see why, run Kosmos.exe --console.");
   const main = SOURCE.slice(SOURCE.indexOf('static int Main('), SOURCE.indexOf('static int Fail('));
+  /* Round 2: time alone gave a healthy but slow hand-off a false box. The box is
+     reached only through the listener check, and only in GUI mode. */
   assert.match(main,
-    /if \(showMessageBoxes\)\s*\{\s*int stillToWaitMs = HandOffWorstCaseMs - \(int\)sinceServerStarted\.ElapsedMilliseconds;\s*if \(!p\.WaitForExit\(Math\.Max\(0, stillToWaitMs\)\)\) stoppedByPerson = KeepBoardUntilPersonStopsIt\(p\);\s*\}/,
-    'a GUI launch no longer boxes a board that is still running after the worst case (or --console and non-interactive runs now get the box too)');
+    /if \(showMessageBoxes\)\s*\{\s*int stillToWaitMs = CheckForServingAfterMs - \(int\)sinceServerStarted\.ElapsedMilliseconds;\s*if \(!p\.WaitForExit\(Math\.Max\(0, stillToWaitMs\)\)\)\s*\{\s*while \(!p\.WaitForExit\(ServingPollMs\)\)\s*\{\s*if \(IsListeningOnAnyPort\(p\.Id\)\) \{ stoppedByPerson = KeepBoardUntilPersonStopsIt\(p\); break; \}\s*\}\s*\}\s*\}/,
+    'the box is no longer gated on the board listening (or on GUI mode): a slow hand-off gets a false box again');
+  assert.equal([...main.matchAll(/KeepBoardUntilPersonStopsIt\(/g)].length, 1, 'the box is reachable from Main other than through the listener gate');
+  const lookup = SOURCE.slice(SOURCE.indexOf('internal static bool IsListeningOnAnyPort('), SOURCE.indexOf('// ---- presenting to a person'));
+  assert.match(lookup, /OwnsATcpListener\(processId, AF_INET, IPV4_ROW_BYTES, IPV4_ROW_OWNING_PID_OFFSET\)\s*\|\| OwnsATcpListener\(processId, AF_INET6, IPV6_ROW_BYTES, IPV6_ROW_OWNING_PID_OFFSET\)/, 'the lookup no longer reads both IPv4 and IPv6 listeners');
+  assert.match(lookup, /const int TCP_TABLE_OWNER_PID_LISTENER = 3;/);
+  assert.match(lookup, /if \(result == ERROR_INSUFFICIENT_BUFFER\) continue;/, 'the lookup no longer resizes its buffer');
+  assert.match(lookup, /finally\s*\{\s*if \(table != IntPtr\.Zero\) Marshal\.FreeHGlobal\(table\);\s*\}/, 'the lookup no longer frees its buffer on every path');
   assert.match(main, /if \(p\.ExitCode != 0 && !stoppedByPerson\)/, 'a board the person stopped is reported as a crash');
   const keep = SOURCE.slice(SOURCE.indexOf('static bool KeepBoardUntilPersonStopsIt('), SOURCE.indexOf('static void StopServerAndEverythingItStarted('));
   assert.match(keep, /server\.WaitForExit\(\);/, 'nothing watches for the board ending while the box is up');
   assert.match(keep, /PostMessage\(window, WM_CLOSE,/, 'the box is not closed when the board ends by itself');
-  assert.match(keep, /while \(!boxIsClosed\)/, 'a board that ends before the box exists leaves the box up');
+  /* Retried until the box has returned, and (round 2) checked and enumerated under
+     the lock the main thread takes to mark it closed, so no WM_CLOSE reaches the
+     crash box shown after it. */
+  assert.match(keep, /while \(true\)\s*\{\s*lock \(runningHereBoxLock\)\s*\{\s*if \(boxIsClosed\) return;\s*EnumThreadWindows\(boxThread, closeDialogs, IntPtr\.Zero\);\s*\}/,
+    'the watcher checks the box flag and enumerates outside the lock, so it can close the crash box');
   assert.match(keep,
-    /ShowMessageBox\(RunningHereMessage, false\);\s*boxIsClosed = true;\s*if \(server\.HasExited\) return false;\s*StopServerAndEverythingItStarted\(server\);\s*return true;/,
-    'OK does not stop the board, or it stops one that had already ended');
+    /ShowMessageBox\(RunningHereMessage, false\);\s*lock \(runningHereBoxLock\) \{ boxIsClosed = true; \}\s*if \(server\.HasExited\) return false;\s*StopServerAndEverythingItStarted\(server\);\s*return true;/,
+    'OK does not stop the board, stops one that had already ended, or marks the box closed outside the lock');
 });
 
 test('W-07: message boxes are for a person at a desktop, and --console keeps the console launcher', () => {
@@ -518,19 +533,122 @@ test('--console waits on the board and passes its exit code through, with the co
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
-test('round 1 BUG, --console arm: a board still running past the hand-off\'s worst case is neither boxed nor stopped', WINDOWS_ONLY, () => {
-  const worstCaseMs = require('./engine/win32handoff').HANDOFF_WORST_CASE_MS;
-  const PAST_THE_WORST_CASE_MS = worstCaseMs + 1500;
+/* The top-level windows a process owns: its main window handle, and how many message
+   boxes (#32770) belong to it. PowerShell, because node has no window API; the script
+   travels base64 so no quoting reaches a command line. */
+function windowsOwnedBy(pid) {
+  const script = [
+    '$id = ' + Number(pid),
+    "Add-Type -TypeDefinition @'",
+    'using System; using System.Text; using System.Runtime.InteropServices;',
+    'public static class LauncherWindowProbe {',
+    '  public delegate bool Visit(IntPtr window, IntPtr parameter);',
+    '  [DllImport("user32.dll")] static extern bool EnumWindows(Visit visit, IntPtr parameter);',
+    '  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint processId);',
+    '  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr window, StringBuilder name, int capacity);',
+    '  public static int Dialogs(uint owner) {',
+    '    int count = 0;',
+    '    Visit visit = (window, parameter) => { uint processId; GetWindowThreadProcessId(window, out processId);',
+    '      if (processId == owner) { var name = new StringBuilder(64); GetClassName(window, name, name.Capacity); if (name.ToString() == "#32770") count++; }',
+    '      return true; };',
+    '    EnumWindows(visit, IntPtr.Zero);',
+    '    return count;',
+    '  }',
+    '}',
+    "'@",
+    '$p = Get-Process -Id $id -ErrorAction SilentlyContinue',
+    '$main = 0; if ($p) { $main = [int64]$p.MainWindowHandle }',
+    'Write-Output ("{0} {1}" -f $main, [LauncherWindowProbe]::Dialogs([uint32]$id))',
+  ].join('\r\n');
+  const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+    { encoding: 'utf8', windowsHide: true, timeout: 30000 });
+  const m = String(r.stdout || '').trim().match(/(-?\d+) (\d+)\s*$/);
+  assert.ok(m, 'the window probe did not run: ' + (r.stderr || r.stdout || (r.error && r.error.message)));
+  return { mainWindow: Number(m[1]), dialogs: Number(m[2]) };
+}
+
+function killTree(pid) {
+  spawnSync(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe'), ['/PID', String(pid), '/T', '/F'], { windowsHide: true });
+}
+
+test('rounds 1-2 BUG, --console arm: a board LISTENING past the check mark is neither boxed nor stopped, and the launcher opens no window', WINDOWS_ONLY, async () => {
+  /* The fake board listens (on an ephemeral loopback port, never 16180), so a
+     regression that let --console reach the box would show one: the listener gate
+     alone would not keep it away. A box closed by the watcher when the board ends
+     would leave the exit code green, so the window itself is looked for while the
+     board is still up. */
+  const checkAfterMs = require('./engine/win32handoff').HANDOFF_CHECK_FOR_SERVING_AFTER_MS;
+  const LOOK_FOR_A_WINDOW_AT_MS = checkAfterMs + 2000;
+  const BOARD_ENDS_AT_MS = LOOK_FOR_A_WINDOW_AT_MS + 8000;
   const s = scratch();
+  let launcher = null;
   try {
-    const exe = stageFakeBoard(path.join(s.elsewhere, 'Kosmos'), 'setTimeout(() => process.exit(0), ' + PAST_THE_WORST_CASE_MS + ');');
+    const exe = stageFakeBoard(path.join(s.elsewhere, 'Kosmos'),
+      "require('node:net').createServer().listen(0, '127.0.0.1'); setTimeout(() => process.exit(0), " + BOARD_ENDS_AT_MS + ');');
+    const env = { ...process.env, TEMP: s.temp, TMP: s.temp };
+    delete env.PORT;
     const startedAt = Date.now();
-    const r = runConsole(exe, s.temp, PAST_THE_WORST_CASE_MS + 30000);
+    launcher = spawn(exe, ['--console'], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    let out = '';
+    launcher.stdout.on('data', (d) => { out += d; });
+    launcher.stderr.on('data', (d) => { out += d; });
+    const exited = new Promise((resolve) => launcher.on('exit', (code) => resolve(code)));
+    await Promise.race([exited, sleep(LOOK_FOR_A_WINDOW_AT_MS)]);
+    const windows = windowsOwnedBy(launcher.pid);
+    if (windows.mainWindow !== 0 || windows.dialogs > 0) {
+      killTree(launcher.pid);
+      assert.fail('the --console launcher showed a window while its board was listening: ' + JSON.stringify(windows));
+    }
+    const code = await exited;
     const tookMs = Date.now() - startedAt;
-    assert.equal(r.code, 0, 'the launcher did not wait for the board to end by itself: ' + r.out);
-    assert.ok(tookMs >= PAST_THE_WORST_CASE_MS, 'the launcher ended before the board did (' + tookMs + 'ms)');
-    assert.ok(!r.out.includes('Kosmos stopped'), r.out);
-  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+    assert.equal(code, 0, 'the launcher did not wait for the board to end by itself: ' + out);
+    assert.ok(tookMs >= BOARD_ENDS_AT_MS, 'the launcher ended before the board did (' + tookMs + 'ms)');
+    assert.ok(!out.includes('Kosmos stopped'), out);
+  } finally {
+    if (launcher && launcher.exitCode === null) killTree(launcher.pid);
+    fs.rmSync(s.base, { recursive: true, force: true });
+  }
+});
+
+test('round 2: the listener lookup finds a process listening on IPv4 or IPv6, and not one that is not listening', WINDOWS_ONLY, async (t) => {
+  /* The lookup is compiled out of the real KosmosLauncher.cs together with a
+     four-line probe, in scratch, and never shipped. Real node processes do the
+     listening, on ephemeral loopback ports (never 16180). */
+  const csc = path.join(process.env.SystemRoot || 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
+  if (!fs.existsSync(csc)) { t.skip('no .NET Framework compiler on this machine'); return; }
+  const s = scratch();
+  const children = [];
+  try {
+    const probeSource = path.join(s.base, 'ListenerProbe.cs');
+    fs.writeFileSync(probeSource, 'class ListenerProbe { static int Main(string[] a) { System.Console.Write(KosmosLauncher.IsListeningOnAnyPort(int.Parse(a[0])) ? "listening" : "not-listening"); return 0; } }\n');
+    const probe = path.join(s.base, 'probe.exe');
+    const built = spawnSync(csc, ['/nologo', '/target:exe', '/main:ListenerProbe', '/out:' + probe, path.join(REPO, 'tools', 'windows', 'KosmosLauncher.cs'), probeSource], { encoding: 'utf8', windowsHide: true });
+    assert.equal(built.status, 0, 'the probe did not compile: ' + built.stdout + built.stderr);
+    const lookup = (pid) => spawnSync(probe, [String(pid)], { encoding: 'utf8', windowsHide: true }).stdout.trim();
+
+    const startChild = (script) => new Promise((resolve) => {
+      const child = spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+      children.push(child);
+      child.stdout.on('data', (d) => resolve({ child, said: String(d).trim() }));
+      child.on('exit', () => resolve({ child, said: 'exited' }));
+    });
+    const LISTEN = (host) => "const s = require('node:net').createServer(); s.on('error', () => { console.log('cannot'); }); s.listen(0, '" + host + "', () => console.log('up')); setInterval(() => {}, 1000);";
+
+    const v4 = await startChild(LISTEN('127.0.0.1'));
+    assert.equal(v4.said, 'up');
+    assert.equal(lookup(v4.child.pid), 'listening', 'an IPv4 listener was not found');
+
+    const idle = await startChild("console.log('idle'); setInterval(() => {}, 1000);");
+    assert.equal(idle.said, 'idle');
+    assert.equal(lookup(idle.child.pid), 'not-listening', 'a process that listens on nothing was reported listening');
+
+    const v6 = await startChild(LISTEN('::1'));
+    if (v6.said !== 'up') { t.diagnostic('no IPv6 loopback here; the IPv6 arm did not run'); return; }
+    assert.equal(lookup(v6.child.pid), 'listening', 'an IPv6-only listener was not found');
+  } finally {
+    for (const child of children) { try { child.kill(); } catch { /* already gone */ } }
+    fs.rmSync(s.base, { recursive: true, force: true });
+  }
 });
 
 test('a runtime with no app is a partial extract naming app\\server.js, and never starts anything', WINDOWS_ONLY, () => {

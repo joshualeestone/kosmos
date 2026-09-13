@@ -26,10 +26,11 @@ What it adds is how a Windows program presents itself (win32-launcher-native):
 - **No console window.** It is a GUI-subsystem exe (`/target:winexe`), so a
   double-click opens nothing but the browser. The board runs on a hidden console,
   as the logon task's board does. A board that could not move to its logon task
-  keeps serving from there. If it is still running once the hand-off's worst case
-  has passed (`HANDOFF_WORST_CASE_MS` in `engine/win32handoff.js`), a box titled
-  "Kosmos" says so and stays up as the person's handle on it. OK stops that board
-  and everything it started (`taskkill /T`), and the box closes by itself if the
+  keeps serving from there. From `HANDOFF_CHECK_FOR_SERVING_AFTER_MS` (in
+  `engine/win32handoff.js`) on, the launcher checks whether that board is listening
+  on a TCP port, which it does only once it has decided to serve there. When it is,
+  a box titled "Kosmos" says so and stays up as the person's handle on it. OK stops that board
+  and everything still descended from it (`taskkill /T`), and the box closes by itself if the
   board ends first.
 - **Problems are a message box titled "Kosmos"**, never console text a person
   cannot see. That includes the most common mistake: double-clicking `Kosmos.exe`

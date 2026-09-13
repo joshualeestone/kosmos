@@ -22,7 +22,8 @@
  * ⚠️ WHAT IT CANNOT CONFIRM, IT LEAVES TO THE LAUNCHER, which is the behaviour
  * before this module: this board serves from the launcher's hidden console (or its
  * --console window), and a GUI Kosmos.exe shows a box that stays the person's handle
- * on it (HANDOFF_WORST_CASE_MS). All inside a budget that ends before the opener
+ * on it once this board is listening (HANDOFF_CHECK_FOR_SERVING_AFTER_MS). All inside
+ * a budget that ends before the opener
  * gives up (see HANDOFF_BUDGET_MS), so a fallback still gets the browser signed in.
  */
 
@@ -77,15 +78,18 @@ const PROBE_TIMEOUT_MS = 2000;
 const POLL_INTERVAL_MS = 300;
 
 /**
- * The longest a hand-started board takes, from its own start, before it has either
- * left (handed off) or begun serving from the launcher: the arithmetic spelled out at
- * HANDOFF_BUDGET_MS, as one value. Kosmos.exe waits this long before telling the
- * person the board is running from it (tools/windows/KosmosLauncher.cs,
- * HandOffWorstCaseMs, pinned equal by tools.win-launcher-native.test.js). The `/End`
- * spawn is not in it, because it is not measured; a board that hands off later than
- * this closes the launcher's box by exiting.
+ * When Kosmos.exe starts asking whether the board it started is serving from it: the
+ * arithmetic spelled out at HANDOFF_BUDGET_MS, as one value (tools/windows/
+ * KosmosLauncher.cs, CheckForServingAfterMs, pinned equal by
+ * tools.win-launcher-native.test.js).
+ * ⚠️ NOT A WORST CASE. Every schtasks call in the hand-off is a synchronous spawn with
+ * its own timeout, so a `/Run` that starts just inside the budget can still be confirmed
+ * after this, and a slow first boot can pass it before the hand-off begins. So the
+ * launcher never decides on time alone: from this mark it polls, and shows its box only
+ * once this board is LISTENING, which start() does only after the hand-off has decided
+ * to serve here.
  */
-const HANDOFF_WORST_CASE_MS = HANDOFF_BUDGET_MS + PROBE_TIMEOUT_MS + MIN_PORT_RELEASE_WAIT_MS + PROBE_TIMEOUT_MS;
+const HANDOFF_CHECK_FOR_SERVING_AFTER_MS = HANDOFF_BUDGET_MS + PROBE_TIMEOUT_MS + MIN_PORT_RELEASE_WAIT_MS + PROBE_TIMEOUT_MS;
 
 /**
  * 🔑 THE RUNNING BOARD'S IDENTITY COMES FROM A HEADER, NEVER FROM THE PAGE.
@@ -326,4 +330,4 @@ async function handOffToTask(opts) {
   }
 }
 
-module.exports = { handOffToTask, buildIdentity, boardIdentity, BOARD_IDENTITY_HEADER, HANDOFF_WORST_CASE_MS };
+module.exports = { handOffToTask, buildIdentity, boardIdentity, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS };

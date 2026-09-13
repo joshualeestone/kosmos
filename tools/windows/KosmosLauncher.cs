@@ -62,16 +62,24 @@ class KosmosLauncher
 
     const string ConsoleFlag = "--console";
 
-    // How long a board started here can take to hand itself to its logon task,
-    // counted from its own start: engine/win32handoff.js's HANDOFF_WORST_CASE_MS
-    // (the budget plus its floors). tools.win-launcher-native.test.js pins the
-    // two equal. A board that hands off later than this still closes the box
-    // below by itself, the moment it exits.
-    const int HandOffWorstCaseMs = 18000;
+    // When to start asking whether the board started here is serving from here,
+    // counted from its own start: engine/win32handoff.js's
+    // HANDOFF_CHECK_FOR_SERVING_AFTER_MS (the budget plus its floors), pinned
+    // equal by tools.win-launcher-native.test.js. It is NOT a worst case: the
+    // hand-off's schtasks calls and a slow first boot can both run past it. So
+    // time alone never shows the box. From this mark the launcher polls, and the
+    // box waits for the board to be listening, which it does only once it has
+    // decided to serve here.
+    const int CheckForServingAfterMs = 18000;
 
-    // Shown when the board is still running after HandOffWorstCaseMs: it did not
-    // move to its logon task and is serving from this launcher, which has no
-    // window, so this box is the person's handle on it.
+    // How often, from that mark, the launcher looks for the board's listener:
+    // quick enough that the box follows the board within a moment, rare enough
+    // that reading the TCP table costs nothing noticeable.
+    const int ServingPollMs = 300;
+
+    // Shown once the board is listening from here: it did not move to its logon
+    // task and is serving from this launcher, which has no window, so this box
+    // is the person's handle on it.
     const string RunningHereMessage =
         "Kosmos couldn't move to the background, so it's running from here instead. Keep this box open while you use Kosmos. Click OK to stop Kosmos. To see why, run Kosmos.exe --console.";
 
@@ -196,16 +204,23 @@ class KosmosLauncher
             ShowMessageBox(browserProblem + "\n\nOpen http://127.0.0.1:" + port + " in your browser yourself.", false);
         }
 
-        // A board that hands off to its logon task exits 0 within the hand-off's
-        // worst case. One still running after that is serving from here, on a
-        // console nobody can see, so the person gets a box to keep it by (see
-        // KeepBoardUntilPersonStopsIt). With --console, or with nobody at the
-        // desktop, the launcher just waits, as it always did.
+        // A board that hands off to its logon task exits 0. One that serves from
+        // here does so on a console nobody can see, so the person gets a box to
+        // keep it by (see KeepBoardUntilPersonStopsIt). Time alone cannot tell the
+        // two apart, so the box waits for proof: the board LISTENING, which it
+        // does only once it has decided to serve here. With --console, or with
+        // nobody at the desktop, the launcher just waits, as it always did.
         bool stoppedByPerson = false;
         if (showMessageBoxes)
         {
-            int stillToWaitMs = HandOffWorstCaseMs - (int)sinceServerStarted.ElapsedMilliseconds;
-            if (!p.WaitForExit(Math.Max(0, stillToWaitMs))) stoppedByPerson = KeepBoardUntilPersonStopsIt(p);
+            int stillToWaitMs = CheckForServingAfterMs - (int)sinceServerStarted.ElapsedMilliseconds;
+            if (!p.WaitForExit(Math.Max(0, stillToWaitMs)))
+            {
+                while (!p.WaitForExit(ServingPollMs))
+                {
+                    if (IsListeningOnAnyPort(p.Id)) { stoppedByPerson = KeepBoardUntilPersonStopsIt(p); break; }
+                }
+            }
         }
 
         p.WaitForExit();
@@ -318,6 +333,69 @@ class KosmosLauncher
         catch { return null; /* a malformed value is not a folder to compare */ }
     }
 
+    // ---- is the board serving from here? ------------------------------------
+
+    // True when the process owns a TCP socket in LISTEN state, over IPv4 or IPv6.
+    // The board's only TCP listener is its http server, which server.js starts
+    // only after deciding not to hand off (named pipes, which agents use, are not
+    // in this table). internal rather than private only so that a probe compiled
+    // beside this file in a test's scratch folder can call it.
+    internal static bool IsListeningOnAnyPort(int processId)
+    {
+        return OwnsATcpListener(processId, AF_INET, IPV4_ROW_BYTES, IPV4_ROW_OWNING_PID_OFFSET)
+            || OwnsATcpListener(processId, AF_INET6, IPV6_ROW_BYTES, IPV6_ROW_OWNING_PID_OFFSET);
+    }
+
+    static bool OwnsATcpListener(int processId, int addressFamily, int rowBytes, int owningPidOffset)
+    {
+        int bufferBytes = 0;
+        for (int attempt = 0; attempt < TCP_TABLE_READ_ATTEMPTS; attempt++)
+        {
+            IntPtr table = bufferBytes > 0 ? Marshal.AllocHGlobal(bufferBytes) : IntPtr.Zero;
+            try
+            {
+                uint result = GetExtendedTcpTable(table, ref bufferBytes, false, addressFamily, TCP_TABLE_OWNER_PID_LISTENER, 0);
+                // Too small (or the first, sizing call): bufferBytes now holds the
+                // size needed, and the table may grow again before the next read.
+                if (result == ERROR_INSUFFICIENT_BUFFER) continue;
+                if (result != NO_ERROR || table == IntPtr.Zero) return false;
+                int rows = Marshal.ReadInt32(table);
+                for (int row = 0; row < rows; row++)
+                {
+                    if (Marshal.ReadInt32(table, TCP_TABLE_ROWS_OFFSET + row * rowBytes + owningPidOffset) == processId) return true;
+                }
+                return false;
+            }
+            finally
+            {
+                if (table != IntPtr.Zero) Marshal.FreeHGlobal(table);
+            }
+        }
+        return false;
+    }
+
+    const int AF_INET = 2;
+    const int AF_INET6 = 23;
+    // Only rows in LISTEN state, each with its owning process id.
+    const int TCP_TABLE_OWNER_PID_LISTENER = 3;
+    const uint NO_ERROR = 0;
+    const uint ERROR_INSUFFICIENT_BUFFER = 122;
+    // MIB_TCPTABLE_OWNER_PID and MIB_TCP6TABLE_OWNER_PID: a DWORD row count, then the rows.
+    const int TCP_TABLE_ROWS_OFFSET = 4;
+    // MIB_TCPROW_OWNER_PID: six DWORDs -- state, local address, local port,
+    // remote address, remote port, owning pid.
+    const int IPV4_ROW_BYTES = 24;
+    const int IPV4_ROW_OWNING_PID_OFFSET = 20;
+    // MIB_TCP6ROW_OWNER_PID: local address (16 bytes), local scope, local port,
+    // remote address (16 bytes), remote scope, remote port, state, owning pid.
+    const int IPV6_ROW_BYTES = 56;
+    const int IPV6_ROW_OWNING_PID_OFFSET = 52;
+    // The table can grow between the sizing call and the read; a few tries cover it.
+    const int TCP_TABLE_READ_ATTEMPTS = 5;
+
+    [DllImport("iphlpapi.dll", SetLastError = true)]
+    static extern uint GetExtendedTcpTable(IntPtr table, ref int bufferBytes, bool sorted, int addressFamily, int tableClass, uint reserved);
+
     // ---- presenting to a person ----------------------------------------------
 
     // In its own method, and never inlined, so the ordinary launch -- which
@@ -344,7 +422,9 @@ class KosmosLauncher
     }
 
     // Set once the running-here box has returned, so the thread closing it stops.
-    static volatile bool boxIsClosed;
+    // Read and written only under runningHereBoxLock.
+    static bool boxIsClosed;
+    static readonly object runningHereBoxLock = new object();
 
     // The board did not move to its logon task, so it is serving from this
     // launcher's hidden console. Nothing about that is visible or closable, so
@@ -366,9 +446,16 @@ class KosmosLauncher
             };
             // Retried until the box has returned: the board can end in the moment
             // before the box's window exists, and a WM_CLOSE then lands nowhere.
-            while (!boxIsClosed)
+            // The check and the enumeration happen under the lock the main thread
+            // takes to mark the box closed, so a box shown after this one (the
+            // crash box) can never be sent a WM_CLOSE meant for this one.
+            while (true)
             {
-                EnumThreadWindows(boxThread, closeDialogs, IntPtr.Zero);
+                lock (runningHereBoxLock)
+                {
+                    if (boxIsClosed) return;
+                    EnumThreadWindows(boxThread, closeDialogs, IntPtr.Zero);
+                }
                 Thread.Sleep(CloseBoxRetryMs);
             }
         });
@@ -376,7 +463,7 @@ class KosmosLauncher
         closeBoxWhenBoardEnds.Start();
 
         ShowMessageBox(RunningHereMessage, false);
-        boxIsClosed = true;
+        lock (runningHereBoxLock) { boxIsClosed = true; }
         if (server.HasExited) return false;
         StopServerAndEverythingItStarted(server);
         return true;

@@ -109,19 +109,23 @@ launcher. The box for a non-zero exit therefore says how to see the details: run
   console instead of a visible window. That covers no hand-off being due (a `PORT` or
   `AGENT_WORKFORCE_*` override, or a logon task the person switched off), a hand-off that
   was tried and not confirmed, and `ensureInstalled` failing. *Changed in round 1 (BUG
-  1):* in GUI mode the launcher stays the person's handle on that board. A board that
-  hands off exits 0 within `HANDOFF_WORST_CASE_MS` (`engine/win32handoff.js`: the budget,
-  plus a probe in flight, the port-release floor, and its last probe, 18s). If the server
-  is still running after that, a box titled "Kosmos" says: "Kosmos couldn't move to the
+  1, gate changed in round 2):* in GUI mode the launcher stays the person's handle on that
+  board. From `HANDOFF_CHECK_FOR_SERVING_AFTER_MS` (`engine/win32handoff.js`: the budget,
+  plus a probe in flight, the port-release floor, and its last probe, 18s), it polls every
+  300ms with `GetExtendedTcpTable` (LISTEN rows, IPv4 and IPv6). Only when a LISTEN row is
+  owned by the server's PID does a box titled "Kosmos" say: "Kosmos couldn't move to the
   background, so it's running from here instead. Keep this box open while you use
   Kosmos. Click OK to stop Kosmos. To see why, run Kosmos.exe --console." OK ends the
   server and its descendants with `taskkill /T /F` and suppresses the crash box. If the
   server ends by itself, a watcher thread closes the box (WM_CLOSE, retried until it has
   returned). With `--console`, or when nobody is at the desktop, there is no box, and the
-  launcher waits on the server as before. The C# constant `HandOffWorstCaseMs` is a second
-  copy of the JS value, pinned equal by the test, as the port already is. The `/End` spawn
-  is not in the value because it is not measured; a board that hands off later than that
-  closes the box by exiting.
+  launcher waits on the server as before. The C# constant `CheckForServingAfterMs` is a
+  second copy of the JS value, pinned equal by the test, as the port already is. The 18s is
+  not a worst case (round 2): the hand-off's schtasks calls are synchronous with their own
+  timeouts, and a slow first boot can pass 18s before the hand-off begins. So the mark only
+  starts the checking; the listener is the proof. `server.js`'s single TCP listen is inside
+  `start()`, which runs only after `handOffToTask` resolves to serve here, and agents'
+  channels are named pipes, which the TCP table does not show.
 - A GUI-subsystem exe run from `cmd` or PowerShell does not block the prompt. The exit
   code is still set; `start /wait Kosmos.exe --console` gets it.
 
@@ -322,6 +326,67 @@ touched none of these files.
     killed child's), the fake board process was gone, and no second box appeared.
   - A board that exits 0 at 22s: the box appeared at 18.75s and closed by itself, and the
     launcher exited 0 at 22.9s.
+### Round 2 (opus, at a20d304e): 1 BUG (low), 1 TEST-GAP, 2 NIT. Not converged.
+
+The reviewer verified all six round 1 fixes and found no safety issue.
+
+- **BUG (low): 18s is not the worst case, so a healthy hand-off could get a false box.**
+  Every schtasks call in the hand-off is a synchronous `execFileSync` with a 20s timeout,
+  so a `/Run` started at 11.99s is confirmed later than 18s. A slow first boot can also
+  pass 18s before `handOffToTask`. Fixed as decided: the box needs proof.
+  - **Proof:** from the 18s mark the launcher polls every 300ms with
+    `GetExtendedTcpTable` (`TCP_TABLE_OWNER_PID_LISTENER`, IPv4 and IPv6: a sizing loop
+    of up to 5 reads, fixed row layouts of 24 and 56 bytes, the buffer freed in
+    `finally`). The box shows only when a LISTEN row belongs to `server.Id`.
+  - **Why that is proof:** `server.js`'s only TCP listen is in `start()`, reached only
+    after the hand-off resolves to serve here. Agents' channels are named pipes, which
+    the TCP table does not list.
+  - **Renames:** the constant is now `HANDOFF_CHECK_FOR_SERVING_AFTER_MS` in JS and
+    `CheckForServingAfterMs` in C#, and both comments say it is not a worst case. A test
+    pins the old names absent.
+- **TEST-GAP: the `--console` arm could not see a box the watcher closed.** It now starts
+  the exe asynchronously with a fake board that LISTENS on an ephemeral loopback port.
+  At the check mark + 2s, it asks PowerShell (a base64 script) for the launcher's
+  MainWindowHandle and its `#32770` count, fails if either is non-zero, and kills the
+  launcher tree.
+- **NIT: the watcher could close the crash box.** The check of `boxIsClosed` and
+  `EnumThreadWindows` now run under `runningHereBoxLock`, which the main thread also
+  takes to set the flag.
+- **NIT:** `tools/windows/README.md` now says "everything still descended from it".
+
+**Listener lookup test (my choice):** `tools.win-launcher-native.test.js` compiles the
+real `KosmosLauncher.cs` with a one-line `ListenerProbe` class (`csc /main:ListenerProbe`)
+in scratch, never shipped. `IsListeningOnAnyPort` is `internal` for this reason alone.
+It then asks about real node children: listening on 127.0.0.1:0, listening on [::1]:0,
+and not listening. It skips if there is no .NET Framework compiler.
+
+**Measured, round 3:**
+- **Build:** `Kosmos.exe` rebuilt the documented way, 67584 bytes. `verify-launcher.ps1`
+  reports OK.
+- **Tests,** the six files with the schtasks guard: 97 tests, 95 pass. The 2 failures are
+  the known `tools.win-open-board-2007` bash-stub EFTYPE ones. No schtasks call was
+  attempted (no block log).
+- **Controls:**
+
+  | Control | Result |
+  |---|---|
+  | Listener gate removed, plus the IPv4 owning-pid offset moved to 16 (hand edits, undone) | red on exactly the static gate pin and the listener lookup test |
+  | Scratch build with `if (showMessageBoxes)` changed to `if (true)` on the box path only | red on the `--console` window arm only (`{"mainWindow":4260068,"dialogs":1}`); the box it showed was killed by the test |
+
+  A broader first control (`showMessageBoxes = Environment.UserInteractive`) also went
+  red on that arm, for the same reason. It also made every `--console` failure a
+  blocking box, so ten other arms timed out, which is why the narrow control above was
+  added.
+- **Live GUI checks, not committed tests.** Each used the committed exe, a copied node,
+  and a fake `app\server.js` on an ephemeral port, never 16180; the real server was
+  never run.
+  - **(a) listens and never exits:** the box appeared at 19.3s with the exact text. OK
+    made the launcher exit (code 1), and the fake board was gone.
+  - **(b) never listens, exits 0 at 25s:** no box at any point, and the launcher exited 0
+    at 25.9s.
+  - **(c) listens, exits 0 at 24s:** the box appeared at 19.3s and closed itself, and the
+    launcher exited 0 at 25.0s.
+
 - **Known limit, unchanged by this round:** a `--console` run whose parent has no console
   and whose outputs are both captured starts the real server with `CreateNoWindow` false.
   Node then gets a console of its own, and its output does not reach the caller's pipes.
