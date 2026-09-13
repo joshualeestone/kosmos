@@ -188,9 +188,10 @@ let failed = 0;
      `walk@example.comWork`. The domain class `[A-Za-z0-9.-]+` then over-consumes
      past `example.com`, and a `/@example\.com$/` test would FALSE-POSITIVE that
      legit fixture account as a leak the moment a future fixture grows a qualifier
-     or a keyTail. A leaked operator account carries a real domain (book.io,
-     gmail.com), whose token never contains the substring `@example.com`, so a
-     contains-check catches the leak and cannot be tripped by adjacency. */
+     or a keyTail. A leaked operator account carries a real domain (its own
+     organisation's, or a mail provider's), whose token never contains the
+     substring `@example.com`, so a contains-check catches the leak and cannot
+     be tripped by adjacency. */
   const foreignEmails = rows
     .flatMap((r) => r.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/g) || [])
     .filter((e) => !e.toLowerCase().includes('@example.com'));
