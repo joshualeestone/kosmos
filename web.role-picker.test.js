@@ -63,7 +63,7 @@ test('a role\'s limit is said on step one, under the dropdown, the moment it is 
   assert.equal(run('ea', true, 'It never sends anything.').hidden, true, 'the line shows while the dropdown is closed');
   assert.equal(run('own', false, 'x').hidden, true, 'describe-it-yourself has no limit to say');
   assert.match(SCRIPT, /PICKED = document\.getElementById\('rolesel'\)\.value;\n  paintPickLimit\(\);/);
-  assert.match(SCRIPT, /getElementById\('role-next'\)\.disabled = importing;\n  paintPickLimit\(\);\n\}/);
+  assert.match(SCRIPT, /getElementById\('role-next'\)\.disabled = importing \|\| orgcharting;\n  paintPickLimit\(\);\n\}/);
 });
 
 test('the fourth option imports an agent from a file: its own panel, the shared Continue hidden, a client-side read into the textarea, and a parse-only post', () => {
@@ -105,7 +105,7 @@ test('the fourth option imports an agent from a file: its own panel, the shared 
   // of the flow -- the panel's own button is the advance.
   assert.match(SCRIPT, /const importing = mode === 'import';/);
   assert.match(SCRIPT, /getElementById\('importpick'\)\.hidden = !importing;/);
-  assert.match(SCRIPT, /getElementById\('role-next'\)\.hidden = importing;/);
+  assert.match(SCRIPT, /getElementById\('role-next'\)\.hidden = importing \|\| orgcharting;/);
   // Import PARSES then reuses the one create path: it reads the file client-side,
   // posts it to the parse endpoint, and a refusal is shown rather than advanced past.
   assert.match(SCRIPT, /readAsText\(f\)/);
