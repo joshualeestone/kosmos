@@ -703,6 +703,40 @@ Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
     reads `timed-out` after 5 s. A bind host of that address stops the removal ("Kosmos is still open"):
     fail closed.
 
+- **Round 7 results (this box).** Every heavy step ran alone: the suites one file at a time behind a free
+  memory check, then (on the coordinator's word) inside the shared `heavy-run-mutex.ps1` lock, which waits for
+  free commit memory above 1.2 GB and for the other builder's step.
+  - `win32handoff.test.js` 61 of 61, `win32uninstall.test.js` 49 of 49, `win32relocate.test.js` 22 of 22, full
+    sandbox, no schtasks call blocked.
+    - The own-address arms ran on `100.75.98.125`, where a closed port was refused after 2036 ms: A (nothing
+      listening, the removal runs), A by this PC's host name, B (the task's board gone on `/End`, the removal
+      runs), the hung listener (still stops it), and C (Kosmos moves).
+    - The hand-off pin ran on this PC's own IPv4 address: the hand-off look still reads `timed-out` at 2 s
+      there, while the every-address look waits for the refusal.
+  - The test helpers choose their address with their own looks (an explicit 5 s connect limit, a port closed
+    without being probed), so a control on the every-address look makes the test go red instead of skip.
+  - Revert controls: 110 of 110 red, none invalid (10 new for round 7; the earlier ones restated), tree clean
+    afterwards, no schtasks call blocked, every baseline green.
+    - The first run was stopped by the system for low commit memory (another builder's controls were running
+      too). It left one control's edit in `KosmosLauncher.cs`, which was put back by hand and checked against
+      the committed blob before anything else ran.
+    - Rounds 7 and 6 then ran one round per process (10 of 10, 12 of 12). Rounds 5, 4, 3, 1 and 0 ran one
+      control per process inside the lock (27 baselines, then 88 of 88): `controls.cjs` saves each file's
+      bytes and a restore record before editing it, and the driver restores a step the system kills, by
+      hash, before the next one. None needed it.
+  - The launcher (`KosmosLauncher.cs`) did not change, so it was not rebuilt.
+  - The comparison against an archive of `aa30db6c` (101 suites; name and first error line), one test file
+    per locked step, each in its own full sandbox:
+    - base 1782 tests, 154 fail; branch 1908 tests, 153 fail;
+    - 0 new failures;
+    - the one base-only failure is `git ls-files` in an archive;
+    - 2 tests differ only by an ephemeral port (`absolute-form naming this server is routed`, and
+      `tools.win-open-board-2007`'s end-to-end);
+    - 151 shared failures;
+    - no schtasks call was blocked on either side.
+  - The real system was untouched afterwards: no real `Kosmos.lnk`, no real `Uninstall\Kosmos` key, no
+    `KosmosTest` key, no `%LOCALAPPDATA%\Programs\Kosmos`, and `Kosmos\board` still running.
+
 ## Follow-ups (not this slice)
 
 - **A progress window while the uninstall runs (round 3, finding 5).** The uninstall helper has no time
