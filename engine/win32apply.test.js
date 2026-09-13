@@ -2235,7 +2235,7 @@ test('ROUND 5 sweep: the staged journal records an entry a scanner holds as pres
   assert.equal(fs.existsSync(c.journal), false, 'no journal was written');
 });
 
-test('ROUND 5 sweep: a rollback that cannot read the engine pointer back is never called whole: stuck and unfinished, and the next start finishes it', T, async () => {
+test('ROUND 5 sweep: a rollback that cannot read the engine pointer back is never called whole: never concluded, and the next start finishes it', T, async () => {
   const c = freshInstall();
   const before = installState(c);
   const sim = await rollbackLeftAtH8(c);
@@ -2246,8 +2246,11 @@ test('ROUND 5 sweep: a rollback that cannot read the engine pointer back is neve
   } finally {
     unfaultRead();
   }
-  assert.equal(boot.action, 'stuck', JSON.stringify(boot) + '\n' + c.log.join('\n'));
-  assert.equal(boot.because, `${win32anchor.POINTER_NAME} cannot be read right now (code=EBUSY)`);
+  /* Each pass waits the whole budget on the pointer, so the logon shim's deadline (round 6) is what ends
+     it: held, where round 5 reached stuck. Either way the tree is never called whole. */
+  assert.equal(boot.action, 'held', JSON.stringify(boot) + '\n' + c.log.join('\n'));
+  assert.match(boot.because, /its time to recover before the board starts ran out/);
+  assert.equal(fs.existsSync(c.statusAt), false, 'no rolled-back status');
   assert.equal(readJson(c.journal).finished, false, 'never concluded as rolled back');
   assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'rolled-back', c.log.join('\n'));
   assert.deepEqual(installState(c), before);
