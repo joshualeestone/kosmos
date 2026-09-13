@@ -40,9 +40,23 @@ The unread-DM badge shows on the list-view row and the org-chart node (from the 
 grid card uses), correctly placed in both, with no collision with the needs-you badge; full suite
 green; CI green. #2863 stays open for any further tallies Josh names.
 
+## Consolidated list (added after review)
+A blind review caught that the consolidated rail's catch-all
+`.lrow > :not(.lav):not(.lname):not(.ltitle):not(.lstate) { display: none }` would hide the badge
+(a direct .lrow child) entirely in consolidated view -- and that the real mechanism is that
+catch-all, NOT `.lav` being overflow:visible (my first reasoning was wrong). Since consolidated is a
+primary view, the badge must show there too: the catch-all now carries `:not(.dmbadge)`. The
+browser-check gained a consolidated arm asserting the badge's own computed display is not `none`
+(the precise guard for the exemption) with a no-unread control.
+
+## Deferred
+- The org-node DM badge (top-left) sits near where the hover callout lands for a very long name.
+  Deferred: the callout is a transient hover state, the badge is `pointer-events:none` (nothing
+  un-clickable), the callout is centred while the badge is top-left, so a brush only happens on an
+  unusually long name. A one-value nudge if it ever bothers anyone.
+
 ## Weakest premise
-That the list badge's `left: 44px` corner offset (derived from the 34px avatar + 16px/12px row
-padding) reads well at Josh's live rendering. Mitigated: the browser-check asserts the badge is at
-the avatar corner and not clipped/off-row in both themes; if Josh wants it nudged, it is a one-value
-CSS change. The consolidated list view is out of scope here (its `.lav` is overflow:visible, a
-separate case); this is the default list the card named.
+That the list badge's `left: 44px` corner offset (avatar right edge at 16px padding + 34px = 50px,
+so a ~6px inward overlap) reads well at Josh's live rendering. Mitigated: the browser-check asserts
+the badge is at the avatar corner and not clipped/off-row in both themes; if Josh wants it nudged,
+it is a one-value CSS change.

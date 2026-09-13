@@ -139,6 +139,34 @@ function chk(ok, label, extra) {
       chk(!!cleoO && !cleoO.hasBadge,
         theme + ' org: a node with no unread DMs shows NO badge (control)', JSON.stringify(cleoO));
 
+      // ── CONSOLIDATED LIST: the badge must NOT be hidden by the catch-all ──
+      // The consolidated rail applies `.lrow > :not(.lav)...:not(.dmbadge) { display:none }`.
+      // Before the #2863 exemption the badge (a direct .lrow child) was caught by it and went
+      // fully invisible in consolidated. Assert the badge's OWN computed display is not none
+      // (getComputedStyle resolves the element's own display regardless of ancestor layout),
+      // which is the precise guard for the exemption. Control: WITHOUT :not(.dmbadge) this reds.
+      const cons = await page.evaluate(() => {
+        document.documentElement.setAttribute('data-layout', 'consolidated');
+        document.body.classList.add('consolidated');
+        for (const a of (LAST || [])) {
+          if (a.sessionName === 'ada') a.dmUnread = 3;
+          else if (a.sessionName === 'cleo') a.dmUnread = 0;
+        }
+        document.getElementById('alist').innerHTML = (LAST || []).map(lrow).join('');
+        const r = document.querySelector('#alist .lrow[data-agent="ada"]');
+        const b = r ? r.querySelector('.dmbadge') : null;
+        const disp = b ? getComputedStyle(b).display : null;
+        const rc = document.querySelector('#alist .lrow[data-agent="cleo"]');
+        const bc = rc ? rc.querySelector('.dmbadge') : null;
+        document.documentElement.removeAttribute('data-layout');
+        document.body.classList.remove('consolidated');
+        return { hasBadge: !!b, display: disp, controlHasBadge: !!bc };
+      });
+      chk(cons.hasBadge && cons.display !== 'none',
+        theme + ' consolidated list: the DM badge is exempt from the catch-all hide (own display not none)', JSON.stringify(cons));
+      chk(!cons.controlHasBadge,
+        theme + ' consolidated list: a no-unread agent still shows no badge (control)', JSON.stringify(cons));
+
       chk(errs.length === 0, theme + ': no page errors', errs.join(' | '));
       await page.close();
     }

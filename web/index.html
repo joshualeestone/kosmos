@@ -2363,9 +2363,10 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
    overflow:hidden (it clips a corner badge) and cannot be wrapped -- the
    consolidated rail selects `.lrow > .lav` as a direct child (grid-row spans) --
    so the badge is a direct child of the position:relative .lrow instead, placed
-   over the avatar's top-right corner. The avatar is the 34px first column at the
-   16px/12px padding, so its top-right sits at ~left:44px/top:6px. Same red
-   dmBadge() and a.dmUnread as the grid card and org node. */
+   over the avatar's top-right corner. The avatar's right edge is at 16px padding +
+   34px = 50px; the badge sits at left:44px, a ~6px inward overlap onto that corner
+   (the hang the grid card's -6px gives), and top:6px just above the 12px-padded
+   avatar top. Same red dmBadge() and a.dmUnread as the grid card and org node. */
 .lrow > .dmbadge { top: 6px; left: 44px; right: auto; }
 .ltitle { font-size: .8125rem; color: var(--k-ink-2); }
 .lmodel { font-size: .75rem; color: var(--k-ink-2); overflow: hidden;
@@ -3358,7 +3359,11 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate .alsowork > .act { display: none; }
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate .alsowork { font-size: inherit; }
   html[data-layout="consolidated"] body.consolidated .lrow:has(.lstate .ansgo) > .lav { grid-row: 1 / span 3; }
-  html[data-layout="consolidated"] body.consolidated .lrow > :not(.lav):not(.lname):not(.ltitle):not(.lstate) { display: none; }
+  /* #2863: the unread-DM bubble is exempt from this catch-all hide, so it shows in
+     the consolidated list too (an agent DMing you must signal in every list view, not
+     just the default one). It is a direct .lrow child like .lav, absolute, so it does
+     not consume a grid track. */
+  html[data-layout="consolidated"] body.consolidated .lrow > :not(.lav):not(.lname):not(.ltitle):not(.lstate):not(.dmbadge) { display: none; }
   /* The face shrinks to 24px inside its 34px cell so the ring sits OUTSIDE
      it with a gap of ground (an inside-edge ring vanished on Josh's screen);
      the warning sits over the face. Both stay inside the 34px cell, so the
