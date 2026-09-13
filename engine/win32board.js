@@ -106,6 +106,8 @@ function run(args, timeoutMs) {
      reader here concludes "could not look". */
   if (!win32job.schtasksMayRunInThisProcess()) return { ok: false, out: win32job.REFUSED_IN_TEST };
   try {
+    /* `timeout` is already capped above; the cap is spelled again HERE, at the spawn, because
+       tools.win-launcher-native.test.js pins this call to SCHTASKS_TIMEOUT_MS. */
     const out = cp.execFileSync('schtasks.exe', args, { encoding: 'utf8', timeout: Math.min(SCHTASKS_TIMEOUT_MS, timeout) });
     return { ok: true, out: String(out || '') };
   } catch (e) {
@@ -391,6 +393,22 @@ function install(spec) {
  */
 const TASK_RESULT_RUNNING = 267009;
 
+/**
+ * The result code a RUNNING task carries after a `/Run` that IgnoreNew ignored:
+ * 0x800710E0 ("the operator or administrator has refused the request"), printed signed.
+ * Measured by review round 1 on a board-shaped scratch task: running read 267009; a
+ * second `/Run` changed it to -2147020576, and it STAYED there while the one instance
+ * kept running (ITaskService State 4, one running instance). When that instance ended it
+ * became 0, 1, or 267014, never a stale value. The board's restart helper, a double-click
+ * during boot, and a busy board all issue such a `/Run`, so without this code a running
+ * task board read as not running.
+ */
+const TASK_RESULT_RUN_IGNORED_WHILE_RUNNING = -2147020576;
+
+/* The codes that mean the task is running now. Every other code is not taken as proof
+   either way (see taskRunning). */
+const TASK_RESULTS_WHILE_RUNNING = new Set([TASK_RESULT_RUNNING, TASK_RESULT_RUN_IGNORED_WHILE_RUNNING]);
+
 /* The least time worth starting a schtasks query with inside one `status()` read. The
    slowest query measured on this box, the whole machine's task list, took about 0.7s,
    so a query with less than a second left would mostly be cut off anyway. Not starting
@@ -412,10 +430,17 @@ function isBoardTaskPath(value) {
 }
 
 /**
- * Is the board's job running right now? `true`, `false`, or `null` when we could not
- * tell. Read from the task's Last Result CODE, never from the localized status word
- * (#2973): on a German Windows `Running` is `Wird ausgeführt`, and a machine named
- * `RUNNING-LAB` put the word in the LIST text of a task that was not running.
+ * Is the board's job running right now? `true`, or `null` when the task's own record
+ * does not prove it. Read from the task's Last Result CODE, never from the localized
+ * status word (#2973): on a German Windows `Running` is `Wird ausgeführt`, and a
+ * machine named `RUNNING-LAB` put the word in the LIST text of a task that was not
+ * running.
+ *
+ * ⚠️ NEVER `false`. A code outside TASK_RESULTS_WHILE_RUNNING does not prove the task is
+ * NOT running: one such code (0x800710E0) turned out to be carried by a running task. Only
+ * the hand-off asks this, and only about a board too old to say for itself
+ * (win32handoff's BOARD_STARTED_BY_TASK_HEADER), and it treats could-not-tell as "leave
+ * that board alone".
  */
 function taskRunning(ask) {
   const r = (ask || run)(['/Query', '/TN', TASK_NAME, '/FO', 'CSV', '/V', '/NH']);
@@ -427,7 +452,7 @@ function taskRunning(ask) {
        groups it; anything else that is not a number is not a code we can read. */
     const code = fields[VERBOSE_CSV_LAST_RESULT_COLUMN].replace(/[\s.,'  ]/g, '');
     if (!/^-?\d+$/.test(code)) return null;
-    return Number(code) === TASK_RESULT_RUNNING;
+    return TASK_RESULTS_WHILE_RUNNING.has(Number(code)) ? true : null;
   }
   return null;
 }
@@ -472,7 +497,7 @@ function provenAbsentFromTaskList(ask) {
  *
  * Returns:
  *   { known: true, registered: false, running: false }
- *   { known: true, registered: true, enabled, running }   running: true | false | null
+ *   { known: true, registered: true, enabled, running }   running: true | null (see taskRunning)
  *   { known: false, registered: false, because }          we could not look
  * `known: false` means NOTHING may be concluded. `registered` is false there only so a
  * caller that ignores `known` errs toward doing nothing; every caller in this branch
@@ -480,15 +505,14 @@ function provenAbsentFromTaskList(ask) {
  */
 function status(opts) {
   /* 🛑 ONE READ, ONE schtasks TIMEOUT, HOWEVER MANY QUERIES IT TAKES (#2973 review).
-     This read used to be one LIST query, and two timings were built on that:
-     `ensureInstalled` (this read, then `/Create`) runs before the hand-off, and the
-     launcher's unreadable-table fallback (win32handoff's
-     HANDOFF_UNREADABLE_LISTENER_FALLBACK_MS, 45s) assumes a hand-off that succeeds has
-     exited by then. The slowest such exit is a boot whose ensure takes both calls' whole
-     timeouts and then finds this board already running: 20 + 20 + a 2s probe = 42s. Two
-     queries each allowed the full 20s would make it 62s. So every query here shares
-     one deadline, and a query with less than MIN_SCHTASKS_QUERY_MS left is not started;
-     its answer is "could not look", which every caller already treats safely. */
+     This read used to be one LIST query, so it could block for at most one
+     SCHTASKS_TIMEOUT_MS, and callers that run before the hand-off (ensureInstalled:
+     this read, then `/Create`) were timed on that. This keeps it true: every query here
+     shares one deadline, and a query with less than MIN_SCHTASKS_QUERY_MS left is not
+     started. Its answer is "could not look", which every caller already treats safely.
+     One read costs no more than main's single query did. Whether the launcher's
+     unreadable-table fallback covers everything a boot does before the hand-off is a
+     separate question, tracked in #2983. */
   const now = (opts && opts.now) || Date.now;
   const deadline = now() + SCHTASKS_TIMEOUT_MS;
   const ask = (args) => {
@@ -786,7 +810,11 @@ function describe(opts) {
     bundle: Boolean(bundle),
     registered: Boolean(st.registered),
     enabled: st.registered ? st.enabled !== false : false,
-    running: Boolean(st.running),
+    /* #2973: describe runs INSIDE a board, which knows whether its task started it; that
+       is the task's board running, without asking Task Scheduler (whose running state
+       cannot be read reliably; see taskRunning). A hand-started board reads false: the
+       task is not what serves this board. */
+    running: startedByTask(machineEnv(o)),
     claimed: claimed(o),
     removeHint: REMOVE_HINT,
   };

@@ -181,7 +181,7 @@ const { version } = require('./package.json');
    that is running from the files on disk, and from a board serving another world.
    The module loads on every platform for these; it has no side effects at load
    and requires win32board only when a hand-off runs. */
-const { buildIdentity, boardIdentity, BOARD_IDENTITY_HEADER } = require('./engine/win32handoff');
+const { buildIdentity, boardIdentity, BOARD_IDENTITY_HEADER, BOARD_STARTED_BY_TASK_HEADER, boardStartedByTaskHeaderValue } = require('./engine/win32handoff');
 const BOARD_IDENTITY = boardIdentity(buildIdentity(__dirname) || version, require('./engine/worldenv').bootedWorld());
 
 /**
@@ -12735,8 +12735,10 @@ const server = http.createServer((req, res) => {
        is read per request, so a new zip unpacked over the running install makes
        an old board serve the new page and name the new version. The Windows
        hand-off (engine/win32handoff.js) must tell the running code from the files
-       on disk, and this header is that answer. */
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', [BOARD_IDENTITY_HEADER]: BOARD_IDENTITY });
+       on disk, and this header is that answer.
+       #2973: and whether this board's logon task started it, which the hand-off needs
+       before it may end the board, and which Task Scheduler cannot say reliably. */
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', [BOARD_IDENTITY_HEADER]: BOARD_IDENTITY, [BOARD_STARTED_BY_TASK_HEADER]: boardStartedByTaskHeaderValue() });
     res.end(buf);
   });
 });
