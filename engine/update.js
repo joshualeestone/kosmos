@@ -836,26 +836,36 @@ function setFetcher(f) { fetcher = f; }
 function resetCache() { cache = emptyCache(); inFlight = null; installStarted = false; autoFailedAt = 0; lastAttempt = null; }
 
 /**
- * #2934: what the last look established, for the board's source-channel field.
+ * #2934: has the build this box is RUNNING been published on prod?
  *
- * The board needs to know whether THIS box's running version has reached prod yet.
- * On a prod-polling box that answer is already in this cache, refreshed every TTL
- * by the poller running anyway, so a cosmetic field costs no network and still
- * behaves offline (null -> the caller keeps its install stamp).
+ * Returns true / false / null, where **null means "cannot tell"** and is the answer
+ * whenever this cache cannot speak to the question: we have never looked, the host was
+ * unreachable, the pointer was unreadable, or the look went to the STAGING pointer (whose
+ * version says nothing about what prod publishes). The caller treats null as "keep what
+ * you already believed", so an unknown can never darken a badge.
  *
- * 🛑 `cachedLatestVersion` returns the VERSION STRING, not the manifest. `cache.latest`
- * is the validated manifest object ({version} on mac, plus sha256/versioned on win32),
- * and handing that to `newer()` makes parts() return null, which makes newer() return
- * FALSE for every input -- a comparison that cannot fail is worse here than no
- * comparison, because it reads as "prod caught up" on a box that is genuinely ahead.
- * The name carries the shape so the next caller cannot repeat it.
+ * 🛑 EQUALITY, NOT ">=", AND THE DIFFERENCE IS THE WHOLE POINT. "prod publishes something
+ * at least as new as us" is NOT "our bytes reached prod": a staging build that was
+ * ABANDONED rather than promoted, while prod later published a different, newer build,
+ * satisfies the >= test while this box runs bytes that never went to prod at all. That is
+ * exactly the box the STAGING badge exists for. Only equality is sound, and it is sound
+ * precisely because of #2036's invariant: the same bytes are promoted with no rebuild, so
+ * the prod pointer naming our exact version means our bytes ARE the prod bytes.
  *
- * `cachedChannel` is the channel the cached value CAME FROM (recorded by refresh()),
- * not what the environment would choose now. Those differ whenever the channel changed
- * since the last look, and only the recorded one describes the number being compared.
+ * Living here rather than in the caller is deliberate (one derivation of one fact): the
+ * cache's shape is this module's business. `cache.latest` is the validated MANIFEST OBJECT
+ * ({version} on mac, plus sha256/versioned on win32), and an earlier draft of this feature
+ * handed that object straight to `newer()`, where `parts()` returns null and `newer()` then
+ * returns false for EVERY input -- a comparison that cannot fire, reading as "prod caught
+ * up", darkening the badge on exactly the pre-release box it exists for. Keeping the
+ * comparison inside the module that owns the shape is what makes that unrepeatable, rather
+ * than a warning comment at a boundary.
  */
-function cachedLatestVersion() { return cache.latest ? cache.latest.version : null; }
-function cachedChannel() { return cache.channel; }
+function prodPublishesRunning() {
+  if (cache.channel !== 'prod') return null;
+  if (!cache.latest || typeof cache.latest.version !== 'string') return null;
+  return cache.latest.version === RUNNING;
+}
 
 module.exports = {
   available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
@@ -866,6 +876,5 @@ module.exports = {
   selfInstallRefusal, // #570: null where self-update works, else the sentence to show
   alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,
   resetCache, RUNNING, TTL, lastLook, checkNow,
-  cachedLatestVersion, cachedChannel, // #2934: let the board re-derive its channel after a promote, offline
-
+  prodPublishesRunning, // #2934: has prod published the build we are running? true/false/null(unknown)
 };

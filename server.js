@@ -331,33 +331,38 @@ function recordedSourceChannel() {
 /* #2934: A PROMOTE MOVES NO BYTES, SO THE INSTALL STAMP GOES STALE AND NOTHING CAN
    REWRITE IT. The file above records which pointer this box last FETCHED from, written
    once per install/update by setup.sh. #2036's invariant is that the same bytes are
-   promoted to prod with no rebuild -- so when a staging build is promoted, this box gets
-   no update, setup.sh never re-runs, and the stamp says 'staging' forever. Measured on the
+   promoted to prod with no rebuild, so when a staging build is promoted this box gets no
+   update, setup.sh never re-runs, and the stamp says 'staging' forever. Measured on the
    mortals box at 0.6.59: installed and served both prod, both pointers on the same sha, a
    loud STAGING badge. The badge's own question ("which channel am I served from") has no
-   single answer after a promote, because the build is on BOTH pointers by design.
+   single answer after a promote, because the build is then on BOTH pointers by design.
 
-   So re-derive it: staging means THESE BYTES ARE AHEAD OF PROD, which is offline-computable
-   from what the updater already caches. On a prod-polling box the poller refreshes the prod
-   pointer's version every TTL anyway; if that version has caught up to the one we are
-   running, our bytes are on prod and the badge goes dark.
+   So re-derive it: staging means THESE BYTES ARE NOT (YET) PUBLISHED ON PROD, which the
+   updater can answer offline from the pointer it already polls every TTL. The predicate
+   lives in engine/update.js because the cache's shape is that module's business; it
+   answers true/false/null, and only a positive TRUE darkens the badge. Unknown, offline,
+   never-looked and staging-pointer all return null and keep the recorded stamp, so this
+   can only ever turn a 'staging' into a 'prod' on positive evidence, never the reverse.
 
-   Every rung falls back to the recorded stamp, so this can only ever turn a 'staging' into
-   a 'prod' when we positively know prod caught up -- never the reverse. A box that cannot
-   reach the host, has not looked yet, or is polling the STAGING pointer (whose version says
-   nothing about prod) keeps today's behavior exactly. */
+   🔑 THIS FIX AND #2969 ARE COUPLED, AND THE COUPLING IS EASY TO BREAK BY ACCIDENT.
+   The reported mortals box only reaches the prod-pointer rung BECAUSE it had silently
+   lost its staging subscription at login (#2969): with no channel in the environment the
+   poller fetches latest.json, so the cache can speak about prod. Fix #2969 so the
+   subscription survives, and that same box resumes polling the STAGING pointer, this
+   predicate returns null, and the box shows STAGING again. That is not a regression of
+   this card so much as the honest answer for a real staging subscriber, but anyone
+   closing #2969 must decide deliberately what a subscriber sitting on a promoted build
+   should display, rather than discovering it from a reopened #2934. Said on both cards. */
 function sourceChannelNow() {
   const recorded = recordedSourceChannel();
   if (recorded !== 'staging') return 'prod';
+  /* Any throw here (a future rename of the accessor, a module-load failure) keeps the
+     recorded stamp, which is this function's behavior before #2934 existed. */
   try {
-    /* The channel the CACHED NUMBER came from, not what the environment would pick now:
-       a staging pointer's version says nothing about whether prod has caught up. */
-    if (updates.cachedChannel() !== 'prod') return 'staging';
-    const prodVersion = updates.cachedLatestVersion();
-    if (!prodVersion) return 'staging';
-    return updates.newer(updates.RUNNING, prodVersion) ? 'staging' : 'prod';
+    return updates.prodPublishesRunning() === true ? 'prod' : 'staging';
   } catch { return 'staging'; }
 }
+
 const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on context fill
 const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the consume half (the sweep)
 const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopback bind so another macOS account cannot reach it
@@ -3221,8 +3226,10 @@ const server = http.createServer((req, res) => {
       body = JSON.stringify({
         ...snap, agents: withDmUnread(agents.concat(offline)), counts, connection, version, dependsOnClaude,
         /* #2066: the build marker reads (version, sourceChannel). Channel rides
-           the 5s status tick the board already polls -- one file read, defaulting
-           to 'prod', so a prod board is unchanged and a staging board is loud. */
+           the 5s status tick the board already polls. #2934: no longer just a file
+           read -- it is the recorded install stamp, then (only when that says staging)
+           a cached-pointer check that can downgrade it to prod. Never a network call
+           on this path, and every unknown keeps the stamp. */
         sourceChannel: sourceChannelNow(),
         /* 🛑 NO OFFER FROM A BOARD THAT CANNOT TAKE ONE. A Kosmos running from
            its source (this Mac's, under the hand plist) cannot install: the

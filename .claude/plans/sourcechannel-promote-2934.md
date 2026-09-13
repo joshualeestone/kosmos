@@ -46,23 +46,58 @@ are pre-release", and after a promote that is false.
 Re-derive the channel instead of trusting the install stamp, using data the board ALREADY
 HAS, with no new network call:
 
-  sourceChannel = 'staging' only if the recorded file says staging AND this box's running
-  version is NOT yet on prod.
+  sourceChannel = 'staging' unless the updater can POSITIVELY show that prod publishes the
+  exact version this box is running.
 
-"Not yet on prod" is computable offline: on a prod-polling box the updater already caches
-the prod pointer's version every 15 minutes (update.js:184). If that cached version is >=
-RUNNING, prod has caught up and our bytes are on prod, so the badge goes dark. If RUNNING
-is newer than the prod pointer, we are genuinely ahead of prod and the badge is correct.
+The predicate is `update.prodPublishesRunning()`, which returns true / false / **null**,
+where null means "this cache cannot speak to the question". Only a positive `true`
+downgrades the badge:
 
-Precedence, in order:
-  - file says prod            -> 'prod'      (unchanged, the overwhelming majority)
-  - cached pointer is NOT the prod pointer -> 'staging'  (cannot compare; keep the stamp)
-  - no readable cached version (offline, first 15 min) -> 'staging'  (today's behavior)
-  - RUNNING newer than cached prod version -> 'staging'  (genuinely pre-release)
-  - otherwise                 -> 'prod'      (prod caught up; THE FIX)
+  - file says prod                  -> 'prod'    (unchanged, the overwhelming majority)
+  - prod pointer names OUR version  -> 'prod'    **the fix**
+  - anything else, including every unknown -> 'staging' (keeps the recorded stamp)
+
+### 🛑 EQUALITY, NOT ">=", and this is the correction that matters
+
+The first draft asked "is prod at least as new as us?" That is NOT the same question as
+"did our bytes reach prod", and the gap is exactly the box the badge exists for: a staging
+build that was **abandoned** rather than promoted, while prod later published a different,
+newer build, satisfies `>=` while this box runs bytes that never went to prod at all. The
+draft would have darkened the badge there. Auto-update being on by default bounds the
+window to about one update cycle, but a tester who turned auto-update off would keep a dark
+badge on pre-release bytes indefinitely.
+
+Equality is sound for one specific reason, and it is #2036's invariant: the same bytes are
+promoted with no rebuild, so the prod pointer naming our exact version means our bytes ARE
+the prod bytes. Nothing weaker than equality carries that.
+
+### Where the predicate lives, and why not in server.js
+
+Inside `engine/update.js`, as one named export rather than four raw ones assembled at the
+call site. The cache's shape is that module's business, and `available()` already performs
+the mirror-image comparison there. Two derivations of one fact is this repo's own
+most-shipped defect; an earlier draft of this change had the caller reach in for
+`cache.latest` and got its shape wrong (see the trap section below), which is precisely the
+failure a single named predicate makes unavailable.
+
+## 🔑 THIS FIX AND #2969 ARE COUPLED
+
+The reported mortals box only reaches the prod-pointer rung BECAUSE it had silently lost its
+staging subscription at login (#2969): with no channel in the environment the poller fetches
+`latest.json`, so the cache can speak about prod. **Fix #2969 so the subscription survives,
+and that same box resumes polling the STAGING pointer, the predicate returns null, and the
+box displays STAGING again.**
+
+That is not straightforwardly a regression: for a genuine staging subscriber, "you are on
+the staging channel" is arguably the honest badge. But it must be a decision somebody makes
+deliberately when closing #2969, not something discovered from a reopened #2934. Stated in
+the code comment, on this card, and on #2969.
 
 ### What I rejected, and why
 
+- **Treat "prod is at least as new as us" as proof our bytes shipped.** This was the first
+  draft and it is wrong; see the equality section above. Kept here because it is the
+  attractive wrong answer, not a hypothetical one.
 - **Fetch the prod pointer from the board.** Precise, but it adds a network dependency to a
   cosmetic field, and the answer would be unavailable offline. The cached pointer already
   carries it for free on exactly the boxes where the bug was reported.
