@@ -2926,43 +2926,45 @@ async function finishConnected(owner, sub) {
  * becomeStuck entirely, so `writeState` never runs and the person is left on no
  * screen at all. Mona Lisa found that; two blind reviewers hit it on her branch.
  *
- * 📌 Asked through `isRunnable`, never through a raw execute-permission check,
- * which SUCCEEDS ON A DIRECTORY and is the whole of #1592.
+ * 📌 Asked through `runnableCandidate` (the same loop `isRunnable` answers with), never through
+ * a raw execute-permission check, which SUCCEEDS ON A DIRECTORY and is the whole of #1592.
+ *
+ * win32-signin-web-copy: the resolution and its try live in claudeRunnableFile, so becomeStuck
+ * resolves ONCE and hands the one file to both this and windowsClaudeSigninCommand. Called with
+ * no argument, this still resolves for itself.
  */
-function claudeHatchAvailable() {
+function claudeHatchAvailable(claudeFile = claudeRunnableFile()) {
+  return Boolean(claudeFile);
+}
+
+/**
+ * The Claude Code file this PC would run, or null on any error (the try is load-bearing, see
+ * claudeHatchAvailable above).
+ */
+function claudeRunnableFile() {
   try {
-    /* ONE RESOLUTION, per the resolution rule at the head of this file. This read
-       `isRunnable(claudeBinPath())`, and claudeBinPath() is
-       `resolveBin('claude').bin`, so it resolved and stat'd twice. That is the
-       exact shape removed from willInstall IN THE SAME COMMIT, under a comment
-       about asking the question in one spelling; leaving it here made that
-       comment half true. `resolveBin` is still looked up late, so the
-       throw-escapes arm is unaffected. */
-    return require('./runners').resolveBin('claude').present;
+    /* ONE RESOLUTION, per the resolution rule at the head of this file: the presence the stuck
+       screen is gated on and the file the Windows line names both come off this answer.
+       `resolveBin` is still looked up late, so the throw-escapes arm is unaffected. */
+    const runners = require('./runners');
+    return runners.runnableCandidate(runners.resolveBin('claude').bin);
   } catch {
-    return false;
+    return null;
   }
 }
 
 /**
- * win32-signin-web-copy: the PowerShell line the Windows stuck card offers, naming the Claude
- * Code file this PC would run, or null (not Windows, nothing runnable, or any error). Recorded
- * beside canRunClaude when a flow goes stuck. The page shows the hatch only when both are
- * there, so if the two asks ever disagree the hatch is withheld rather than offered with a
- * line that fails.
+ * win32-signin-web-copy: the PowerShell line the Windows stuck card offers for `claudeFile` (the
+ * one resolution becomeStuck made), or null: not Windows, no file, a script-only install, or any
+ * error. The page shows the hatch only when this line and canRunClaude are both there.
  *
  * ⚠️ NOT PATH. `claude` typed into PowerShell resolves through PATH, and resolveBin looks at a
- * file, so the line names the file. ONE RESOLUTION, both reads off it (the rule at the head of
- * this file): the presence gate and the file named come from the same answer.
+ * file, so the line names the file.
  */
-function windowsClaudeSigninCommand() {
-  if (signinPlatform() !== 'win32') return null;
+function windowsClaudeSigninCommand(claudeFile) {
+  if (signinPlatform() !== 'win32' || !claudeFile) return null;
   try {
-    const runners = require('./runners');
-    const resolved = runners.resolveBin('claude');
-    if (!resolved.present) return null;
-    const file = runners.pathextCandidates(resolved.bin).find((candidate) => runners.runnableExactly(candidate));
-    return file ? require('./win32signin').powershellCommandToSignInClaude(file) : null;
+    return require('./win32signin').signinLineForClaudeFile(claudeFile);
   } catch {
     return null;
   }
@@ -3010,7 +3012,8 @@ function becomeStuck(owner, because, tail) {
    * cannot work. A missing way out is a smaller harm than a way out that fails
    * in front of somebody already stuck.
    */
-  writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable(), claudeSigninCommand: windowsClaudeSigninCommand() });
+  const claudeFile = claudeRunnableFile();
+  writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable(claudeFile), claudeSigninCommand: windowsClaudeSigninCommand(claudeFile) });
 }
 
 /**

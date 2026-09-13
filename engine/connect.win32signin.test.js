@@ -192,8 +192,9 @@ winTest('slice 1: with the Windows host off, a sign-in goes stuck with the true 
   assert.equal(st.because, connect.WINDOWS_SIGNIN_UNAVAILABLE_BECAUSE);
   assert.equal(st.canRunClaude, connect.claudeHatchAvailable(), 'the stuck record lost the hatch fact');
   assert.equal(st.canRunClaude, true, 'CONTROL: the binary here is present, so the hatch must be offered');
-  assert.ok(!/['‘’‚‛\r\n]/.test(process.execPath), 'this arm assumes a node path with no quote in it');
-  assert.equal(st.claudeSigninCommand, "& '" + process.execPath + "' auth login",
+  assert.ok(!/['\u2018\u2019\u201A\u201B\r\n]/.test(process.execPath), 'this arm assumes a node path with no quote in it');
+  assert.ok(!/[[\]`]/.test(process.execPath), 'this arm assumes a node path with no bracket or backtick in it');
+  assert.equal(st.claudeSigninCommand, "& '" + process.execPath + "' auth login --claudeai",
     'the stuck record does not carry the sign-in line for the file this PC would run');
   await connect.cancel();
   assert.deepEqual(tmuxCommands(ctx.calls), [], 'a tmux command went out on Windows, where there is no tmux');
@@ -233,9 +234,25 @@ winTest('win32-signin-web-copy #2645: an EXPIRED sign-in with the host off goes 
   assert.equal(st.because, connect.WINDOWS_SIGNIN_UNAVAILABLE_BECAUSE, 'the expired sign-in did not reach the host-off stop');
   assert.equal(st.canRunClaude, true);
   assert.ok(!/'/.test(SANDBOX), 'this arm assumes a sandbox path with no quote of its own');
-  assert.equal(st.claudeSigninCommand, "& '" + nodePath.join(SANDBOX, "Mary O''Brien", '.local', 'bin', 'claude.exe') + "' auth login",
+  assert.equal(st.claudeSigninCommand, "& '" + nodePath.join(SANDBOX, "Mary O''Brien", '.local', 'bin', 'claude.exe') + "' auth login --claudeai",
     'the record does not carry the auth login line, quoted, for the file this PC would run');
   assert.equal(ctx.spawns.length, 0, 'the switched-off Windows host started a program');
+});
+
+winTest('win32-signin-web-copy: a script-only Claude Code install goes stuck with canRunClaude but no line, so the card shows the install steps', async () => {
+  connect.setWindowsSigninHostForTests(false);
+  const dir = nodePath.join(SANDBOX, 'script-only', '.local', 'bin');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = nodePath.join(dir, 'claude.cmd');
+  fs.writeFileSync(file, '@echo off\n');
+  fs.chmodSync(file, 0o755);
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = file;
+  await connect.start();
+  await until(() => phase() === connect.PHASE.STUCK, 5000);
+  const st = connect.state();
+  assert.equal(st.because, connect.WINDOWS_SIGNIN_UNAVAILABLE_BECAUSE);
+  assert.equal(st.canRunClaude, true, 'CONTROL: the script is runnable, so a missing line is the script rule, not the file');
+  assert.equal(st.claudeSigninCommand, null, 'a script-only install was given a PowerShell line, which cmd.exe would run with %VAR% expanded');
 });
 
 winTest('win32-signin-web-copy CONTROL: a Mac flow that goes stuck records no Windows sign-in line', async (ctx) => {

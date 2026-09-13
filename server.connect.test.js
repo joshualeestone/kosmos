@@ -1603,9 +1603,9 @@ const WINDOWS_SIGNIN_UNAVAILABLE = fs.readFileSync(path.join(__dirname, 'engine'
 /* The line connect.js records for a Windows PC whose Claude Code sits under a user name with a
    space and an apostrophe, built by the engine's own quoting (engine/win32signin.test.js pins it). */
 const WINDOWS_CLAUDE_FILE = "C:\\Users\\Mary O'Brien\\.local\\bin\\claude.exe";
-const WINDOWS_SIGNIN_LINE = require('./engine/win32signin').powershellCommandToSignInClaude(WINDOWS_CLAUDE_FILE);
+const WINDOWS_SIGNIN_LINE = require('./engine/win32signin').signinLineForClaudeFile(WINDOWS_CLAUDE_FILE);
 const WINDOWS_SIGNIN_LINE_ON_THE_CARD = '<div class="fr-cmd-row"><pre class="fr-cmd">'
-  + "&amp; 'C:\\Users\\Mary O''Brien\\.local\\bin\\claude.exe' auth login"
+  + "&amp; 'C:\\Users\\Mary O''Brien\\.local\\bin\\claude.exe' auth login --claudeai"
   + '</pre><button class="btn-quiet fr-copy" type="button" data-copy-command>Copy</button></div>';
 
 test('win32-signin-web-copy: a Windows PC that already has Claude Code is not told to install it, and sees the sign-in steps open', () => {
@@ -1642,7 +1642,7 @@ test('win32-signin-web-copy #2645: an EXPIRED sign-in stuck with no Windows host
   const { els } = connectHarness({ ...served, progress: { got: 0, total: null } });
   const html = els['fr-sub'].innerHTML;
   const shown = (html.match(/<pre class="fr-cmd">([^<]*)<\/pre>/) || [])[1];
-  assert.equal(shown, "&amp; 'C:\\Users\\Mary O''Brien\\.local\\bin\\claude.exe' auth login",
+  assert.equal(shown, "&amp; 'C:\\Users\\Mary O''Brien\\.local\\bin\\claude.exe' auth login --claudeai",
     'the expired sign-in card does not show the engine\'s auth login line');
   assert.doesNotMatch(html, /type <b>claude<\/b>/i);
 });

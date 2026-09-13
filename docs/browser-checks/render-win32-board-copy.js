@@ -135,7 +135,7 @@ async function readPage(browser, platform) {
 const SIGNIN_UNAVAILABLE = 'Kosmos cannot run the Claude sign-in on Windows yet';
 /* The line the engine records for Claude Code under a user name with a space and an
    apostrophe (engine/win32signin.js quotes it; the page shows it verbatim). */
-const SIGNIN_LINE = "& 'C:\\Users\\Mary O''Brien\\.local\\bin\\claude.exe' auth login";
+const SIGNIN_LINE = "& 'C:\\Users\\Mary O''Brien\\.local\\bin\\claude.exe' auth login --claudeai";
 const CONNECT_ARMS = {
   windowsHasClaude: { phase: 'stuck', because: SIGNIN_UNAVAILABLE, platform: 'win32', canInstallClaude: false, canRunClaude: true, claudeSigninCommand: SIGNIN_LINE },
   windowsNoLine: { phase: 'stuck', because: 'Kosmos could not start the Claude sign-in on this computer', platform: 'win32', canInstallClaude: false, canRunClaude: true, claudeSigninCommand: null },
