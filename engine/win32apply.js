@@ -415,6 +415,7 @@ function intended(j, step, entry) {
 function moveRecorded(ctx, step, entry, from, to) {
   record(ctx, { step, entry, from, to, state: 'intent' });
   ctx.deps.hooks.before(step, { entry, from, to });
+  assertStillOwner(ctx);
   try {
     win32swap.renameWithRetry(ctx.guard(from), ctx.guard(to));
   } catch (e) {
@@ -491,6 +492,10 @@ function portFree(port) {
 async function stopBoard(ctx) {
   const { j, deps, log } = ctx;
   const L = deps.limits;
+  /* 🛑 A process that no longer owns the update never touches the board: it cannot know which build
+     is in ROOT or what the resumer that took over decided, and that resumer (the logon shim of the
+     board that just booted) owns the recovery now. */
+  assertStillOwner(ctx);
   const ended = deps.board.end();
   log(`end the board: ${ended.ok ? 'ok' : ended.because}`);
   if (!ended.ok) return { ok: false, because: ended.because };
@@ -523,6 +528,7 @@ async function startAndConfirm(ctx, identity, step) {
   let last = 'no board answered';
   for (let run = 1; run <= L.confirmRuns; run += 1) {
     deps.hooks.before(step + '-run', { run });
+    assertStillOwner(ctx);
     const r = deps.board.runNow();
     record(ctx, { step, run, state: r.ok ? 'issued' : 'failed', because: r.ok ? undefined : r.because });
     log(`${step} run ${run}: ${r.ok ? 'issued' : r.because}`);
@@ -560,6 +566,7 @@ function swapInterpreter(ctx) {
   save(ctx);
   if (hadOne) {
     deps.hooks.before('H5-copy', {});
+    assertStillOwner(ctx);
     fs.copyFileSync(at, ctx.guard(j.interpreter.copy));
     if (win32update.sha256OfFile(j.interpreter.copy) !== j.interpreter.beforeSha256) {
       throw new StepFailure("the safety copy of Kosmos's node.exe did not match the original");
@@ -570,6 +577,7 @@ function swapInterpreter(ctx) {
   j.interpreter.stamp = deps.now();
   record(ctx, { step: 'H5', state: 'intent' });
   deps.hooks.before('H5-swap', {});
+  assertStillOwner(ctx);
   win32swap.replaceInterpreter(j.interpreter.source, ctx.guard(at), () => j.interpreter.stamp);
   deps.hooks.after('H5-swap', {});
   record(ctx, { step: 'H5', state: 'done' });
@@ -579,6 +587,7 @@ function writePointer(ctx) {
   const { j, deps } = ctx;
   record(ctx, { step: 'H6', state: 'intent' });
   deps.hooks.before('H6-write', {});
+  assertStillOwner(ctx);
   win32swap.writeFileAtomic(ctx.guard(j.pointer.at), j.pointer.after);
   deps.hooks.after('H6-write', {});
   record(ctx, { step: 'H6', state: 'done' });
@@ -594,6 +603,7 @@ function restoreInterpreter(ctx) {
   const nodeName = win32anchor.NODE_NAME;
   if (it.stamp !== null) {
     const mySide = at + win32swap.STAGED_INFIX + it.stamp + '-' + it.pid;
+    if (exists(mySide)) assertStillOwner(ctx);
     if (exists(mySide)) { try { fs.unlinkSync(ctx.guard(mySide)); } catch (e) { log(`left a staged node.exe copy for the sweep (code=${codeOf(e)})`); } }
   }
   const asideClock = () => Math.max(deps.now(), (it.stamp || 0) + 1);
@@ -601,6 +611,7 @@ function restoreInterpreter(ctx) {
     /* There was no anchored interpreter before H5: any H5 put there moves aside, for the sweep. */
     if (it.stamp !== null && exists(at)) {
       deps.hooks.before('H8-H5', {});
+      assertStillOwner(ctx);
       win32swap.renameWithRetry(ctx.guard(at), ctx.guard(at + win32swap.RETIRED_INFIX + asideClock() + '-' + process.pid));
       record(ctx, { step: 'H8-H5', state: 'done' });
     }
@@ -628,6 +639,7 @@ function restoreInterpreter(ctx) {
   }
   record(ctx, { step: 'H8-H5', state: 'intent' });
   deps.hooks.before('H8-H5', {});
+  assertStillOwner(ctx);
   win32swap.replaceInterpreter(source, ctx.guard(at), asideClock);
   record(ctx, { step: 'H8-H5', state: 'done' });
 }
@@ -637,8 +649,11 @@ function restoreInterpreter(ctx) {
     is already back. */
 function reversePass(ctx) {
   const { j, deps } = ctx;
+  /* Every pass after the first starts after a wait, during which a resumer can have taken over. */
+  assertStillOwner(ctx);
   if (readText(j.pointer.at) !== j.pointer.before) {
     deps.hooks.before('H8-H6', {});
+    assertStillOwner(ctx);
     win32swap.writeFileAtomic(ctx.guard(j.pointer.at), j.pointer.before);
     record(ctx, { step: 'H8-H6', state: 'done' });
   }
@@ -656,7 +671,10 @@ function reversePass(ctx) {
         ctx.log(`${entry} stays in the Kosmos folder: the old build's copy of it is gone, so it may be the only build left`);
         continue;
       }
-      if (!exists(j.staged)) fs.mkdirSync(ctx.guard(j.staged));
+      if (!exists(j.staged)) {
+        assertStillOwner(ctx);
+        fs.mkdirSync(ctx.guard(j.staged));
+      }
       moveRecorded(ctx, 'H8-H4', entry, inRoot, back);
     }
   }
@@ -726,7 +744,7 @@ function rollBackTree(ctx, because) {
 /** What a rollback that left the tree whole leaves behind: nothing of the new build. Best effort. */
 function cleanupAfterRollback(ctx) {
   const { j, log } = ctx;
-  const tidy = (what, fn) => { try { fn(); } catch (e) { log(`left ${what} for later (code=${codeOf(e)})`); } };
+  const tidy = (what, fn) => { try { assertStillOwner(ctx); fn(); } catch (e) { log(`left ${what} for later (code=${codeOf(e)})`); } };
   tidy('the safety copy of node.exe', () => fs.rmSync(ctx.guard(path.join(j.previous, ANCHORED_NODE_COPY_NAME)), { force: true }));
   tidy('the empty previous folder', () => { if (exists(j.previous)) fs.rmdirSync(ctx.guard(j.previous)); });
   tidy('the staged update', () => fs.rmSync(ctx.guard(j.staged), { recursive: true, force: true }));
@@ -752,7 +770,12 @@ async function rollBack(ctx, because) {
   /* First: a rollback whose working folder or recovery code is gone cannot be done by moving names
      around. It is settled in words ("download a fresh copy"), as a resumer would. */
   const found = unrecoverableCase(j);
-  if (found && found.kind !== 'unreachable') {
+  /* A Kosmos folder on a drive that is not connected: nothing is stopped, moved or written. */
+  if (found && found.kind === 'unreachable') {
+    log(`the rollback waits: ${found.because}`);
+    return { ok: false, outcome: 'held', because: found.because };
+  }
+  if (found) {
     const settled = settleUnrecoverable(ctx, found);
     return { ok: false, outcome: settled.action, because: settled.because };
   }
@@ -785,7 +808,7 @@ function finishUpdated(ctx) {
   j.outcome = 'updated';
   save(ctx);
   ctx.deps.hooks.before('H9-cleanup', {});
-  const tidy = (what, fn) => { try { fn(); } catch (e) { log(`left ${what} for later (code=${codeOf(e)})`); } };
+  const tidy = (what, fn) => { try { assertStillOwner(ctx); fn(); } catch (e) { log(`left ${what} for later (code=${codeOf(e)})`); } };
   tidy('the staged folder', () => fs.rmSync(ctx.guard(j.staged), { recursive: true, force: true }));
   tidy('the download', () => fs.rmSync(ctx.guard(path.join(j.work, win32update.DOWNLOAD_PART_NAME)), { force: true }));
   tidy('the safety copy of node.exe', () => fs.rmSync(ctx.guard(path.join(j.previous, ANCHORED_NODE_COPY_NAME)), { force: true }));
@@ -841,6 +864,7 @@ async function runSteps(ctx) {
 
     setPhase(ctx, 'moving-out');
     deps.hooks.before('H3', {});
+    assertStillOwner(ctx);
     fs.mkdirSync(ctx.guard(j.previous));
     for (const entry of j.order) {
       if (j.presentBefore.includes(entry)) moveRecorded(ctx, 'H3', entry, path.join(j.root, entry), path.join(j.previous, entry));

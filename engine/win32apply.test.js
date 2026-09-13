@@ -225,9 +225,10 @@ function assertRolledBack(c, before, sim, r, label, o = {}) {
 
 /* ─── the happy path and the path guard ───────────────────────────────────────────────────── */
 
-async function recordWrites(run) {
+/** `when`, if given, records only the writes made while it returns true. */
+async function recordWrites(run, when) {
   const written = [];
-  const note = (p) => { if (p !== undefined && p !== null && typeof p !== 'number') written.push(path.resolve(String(p))); };
+  const note = (p) => { if ((!when || when()) && p !== undefined && p !== null && typeof p !== 'number') written.push(path.resolve(String(p))); };
   const spies = {
     openSync: (p, flags) => { if (flags !== undefined && flags !== 'r' && flags !== 'rs' && flags !== 0) note(p); },
     writeFileSync: (p) => note(p), appendFileSync: (p) => note(p), mkdirSync: (p) => note(p), rmSync: (p) => note(p),
@@ -1386,6 +1387,56 @@ test('SAFETY 3: a board running from the updater\'s folder neither re-registers 
   }
 });
 
+/* ─── review round 3 ──────────────────────────────────────────────────────────────────────── */
+
+test('SAFETY A: a helper that lost the update to a boot resumer makes no scheduler call and no write after the takeover (V5 at H5\'s safety copy, V7 in H7\'s last run)', LONG, async () => {
+  for (const [label, boardOptions, where] of [['V5', {}, 'H5-copy'], ['V7', { newNeverStarts: true }, 'last-run']]) {
+    const c = freshInstall();
+    stage(c);
+    const sim = playBoard(c, boardOptions);
+    const taken = { on: false, resumer: null, callsAtTakeover: null };
+    const takeOver = () => {
+      if (taken.resumer) return;
+      fs.rmSync(c.work, { recursive: true, force: true });
+      taken.resumer = win32apply.recoverAtBoot(c.journal, sim.deps());
+      taken.callsAtTakeover = sim.calls.length;
+      taken.on = true;
+    };
+    const baseProbe = sim.deps().probe;
+    const extra = where === 'H5-copy'
+      ? { hooks: { before: (step) => { if (step === 'H5-copy') takeOver(); } } }
+      : { probe: async (port) => { if (sim.calls.filter((call) => call.startsWith('/Run')).length >= 3) takeOver(); return baseProbe(port); } };
+    let r;
+    const written = await recordWrites(async () => { r = await win32apply.applyJournal(c.journal, sim.deps(extra)); }, () => taken.on);
+    assert.ok(taken.resumer, `${label}: the control: the takeover happened`);
+    assert.equal(taken.resumer.action, 'abandoned', `${label}: ${JSON.stringify(taken.resumer)}`);
+    assert.equal(r.outcome, 'taken-over', `${label}: ${JSON.stringify(r)}\n${c.log.join('\n')}`);
+    assert.deepEqual(sim.calls.slice(taken.callsAtTakeover), [], `${label}: no /End and no /Run after the takeover`);
+    assert.deepEqual(written, [], `${label}: no write after the takeover`);
+    const j = readJson(c.journal);
+    assert.equal(j.finished, true, label);
+    assert.equal(j.outcome, 'abandoned', label);
+    assert.match(readJson(c.statusAt).sentence, /Download a fresh copy of Kosmos/, label);
+  }
+});
+
+test('NIT B: a build in the updater\'s folder is recognised through an 8.3 short name too', { ...T, skip: !ON_WINDOWS && 'short names are a Windows file-system feature' }, (t) => {
+  const kosmos = path.join(SANDBOX, 'ShortNameKosmosFolder');
+  const long = path.join(kosmos, win32update.WORK_DIRNAME, `previous-${OLD}`);
+  fs.mkdirSync(long, { recursive: true });
+  const shortOf = (p) => cp.execFileSync('powershell.exe', ['-NoProfile', '-Command',
+    `(New-Object -ComObject Scripting.FileSystemObject).GetFolder('${p.replace(/'/g, "''")}').ShortPath`], { encoding: 'utf8', windowsHide: true, timeout: 60000 }).trim();
+  const short = shortOf(long);
+  if (!short || short.toLowerCase() === long.toLowerCase() || !/~\d/.test(short)) {
+    t.skip('this volume makes no 8.3 short names');
+    return;
+  }
+  assert.notEqual(path.win32.basename(path.win32.dirname(short)).toLowerCase(), win32update.WORK_DIRNAME, 'the control: the short spelling hides the folder name');
+  assert.equal(win32anchor.bundleIsInUpdateWork(short, path.win32), true);
+  assert.equal(win32anchor.bundleIsInUpdateWork(shortOf(kosmos), path.win32), false, 'the Kosmos folder itself, short-named, is not inside it');
+  assert.equal(win32board.bundleRoot({ platform: 'win32', root: short, exists: () => true }), null);
+});
+
 test('SAFETY 3: ensureAnchored never points engine-path into the updater\'s folder, and writes nothing there', T, () => {
   const c = freshInstall();
   const pointerAt = path.join(c.anchor, win32anchor.POINTER_NAME);
@@ -1398,6 +1449,15 @@ test('SAFETY 3: ensureAnchored never points engine-path into the updater\'s fold
   assert.equal(r.ok, true);
   assert.match(r.untouched, /inside the updater's folder/);
   assert.deepEqual({ pointer: readText(pointerAt), node: readText(nodeAt) }, before, 'the pointer and the interpreter are untouched');
+  /* NIT C: a pointer that names no app is refused in words, so a job an agent registers from such a
+     board cannot look registered while its shim would exit 3. */
+  const gone = path.join(c.dir, 'gone', 'app', 'engine');
+  fs.writeFileSync(pointerAt, gone);
+  const dangling = win32anchor.ensureAnchored({ platform: process.platform, home: os.homedir(), env: c.env, node: src, engineDir: fallbackEngine });
+  assert.equal(dangling.ok, false);
+  assert.match(dangling.because, /runs from inside the updater's folder .*and the engine pointer names no app .*so a job registered now could not start/);
+  assert.equal(readText(pointerAt), gone, 'still untouched');
+  fs.writeFileSync(pointerAt, before.pointer);
   /* The control: the Kosmos folder's own engine is anchored as always. */
   const own = win32anchor.ensureAnchored({ platform: process.platform, home: os.homedir(), env: c.env, node: src, engineDir: path.join(c.root, 'app', 'engine') });
   assert.equal(own.ok, true, own.because);

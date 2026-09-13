@@ -107,7 +107,12 @@ const UPDATE_WORK_DIRNAME = '.kosmos-update';
  */
 function bundleIsInUpdateWork(root, p) {
   const paths = p || path;
-  return paths.basename(paths.dirname(paths.resolve(String(root)))).toLowerCase() === UPDATE_WORK_DIRNAME;
+  /* The real spelling first: an 8.3 short name (`KOSMOS~1\PREVIO~1.60`) or a junction hides the
+     folder's name, and realpathSync.native expands both (plain realpathSync keeps the short form,
+     measured). A path that does not exist on this host falls back to its spelling. */
+  let full;
+  try { full = fs.realpathSync.native(String(root)); } catch { full = paths.resolve(String(root)); }
+  return paths.basename(paths.dirname(full)).toLowerCase() === UPDATE_WORK_DIRNAME;
 }
 
 /**
@@ -255,6 +260,12 @@ function ensureAnchored(opts) {
      shim exactly as they are: the task it registers still runs the anchored node and shim, and the
      pointer stays where the update's recovery put it. */
   if (bundleIsInUpdateWork(path.resolve(String(engineDir), '..', '..'))) {
+    /* Left untouched only while the pointer still names an app a registered task can start. */
+    let current = '';
+    try { current = String(fs.readFileSync(pointerAt, 'utf8')).trim(); } catch { current = ''; }
+    if (!current || !fs.existsSync(path.join(current, '..', 'server.js'))) {
+      return { ok: false, because: `this app runs from inside the updater's folder (${engineDir}), and the engine pointer names no app (${current || 'none'}), so a job registered now could not start. Try again once Kosmos has put its update back` };
+    }
     return { ok: true, node: nodeAt, boot: bootAt, dir, pointer: pointerAt,
       untouched: `this app runs from inside the updater's folder (${engineDir}), so the startup files were left as they are` };
   }
