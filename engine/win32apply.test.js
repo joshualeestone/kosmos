@@ -1662,7 +1662,9 @@ test('BUG 1: a real exclusive handle on the update lock inside the rollback: hel
     assert.ok(holder, 'the control: the rollback began');
     assert.equal(r.outcome, 'held', JSON.stringify(r) + '\n' + c.log.join('\n'));
     assert.match(r.because, /its update lock cannot be read \(code=EBUSY\)/);
-    assert.deepEqual(written.filter((p) => p !== path.resolve(lockAt)), [], 'nothing is written once the rollback cannot tell, but releasing its own lock');
+    /* The shim file is this test's own write, standing in for the installed shim the /Run starts. */
+    const testOwn = [path.resolve(lockAt), path.resolve(path.join(c.anchor, win32board.BOOT_NAME))];
+    assert.deepEqual(written.filter((p) => !testOwn.includes(p)), [], 'nothing is written once the rollback cannot tell, but releasing its own lock');
     assert.deepEqual(sim.calls.slice(callsAtHold), ['/Run /TN Kosmos\\board'], 'one /Run of the board this helper ended');
     assert.equal(box.lockAtRun, false, 'the /Run came after the lock was released (round 9, decision 1)');
   } finally {
