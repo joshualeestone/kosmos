@@ -10,10 +10,10 @@
  * forever, which is what the mortals box measured at 0.6.59 (installed and served both
  * prod, both pointers on the same sha, a loud STAGING badge).
  *
- * So the board re-derives it: staging means THESE BYTES ARE AHEAD OF PROD, computed from
- * the prod pointer version the updater already caches. Every rung falls back to the
- * recorded stamp, so the re-derivation can only ever turn 'staging' into 'prod' on
- * positive evidence that prod caught up -- never the reverse.
+ * So the board re-derives it from `update.prodPublishesRunning()`, which answers
+ * true/false/null off the pointer the updater already polls. ONLY A POSITIVE TRUE
+ * darkens the badge; every unknown keeps the recorded stamp, so the re-derivation can
+ * turn 'staging' into 'prod' on positive evidence and never the reverse.
  *
  *   node --test server.sourcechannel-promote-2934.test.js
  */
@@ -29,25 +29,48 @@ const { execFileSync } = require('node:child_process');
 const REPO = __dirname;
 const RUNNING = require('./package.json').version;
 
-// The version arithmetic is derived from the RUNNING version, never hardcoded: a release
-// bump must not silently turn these arms into a different experiment.
-function bump(v, delta) {
+/**
+ * Version arithmetic derived from RUNNING, never hardcoded, so a release bump cannot
+ * silently turn these arms into a different experiment.
+ *
+ * 🛑 IT MUST NOT UNDERFLOW. Decrementing the patch of an `x.y.0` release yields
+ * "0.7.-1", which `parts()` rejects, so `readManifest()` returns null, the cache holds
+ * no version, and the arm that means to exercise the COMPARISON silently routes through
+ * the UNKNOWN rung instead -- passing green while testing nothing it claims to test.
+ * So borrow from the minor (and the major) instead, and assert the result parses.
+ */
+function decrement(v) {
   const p = String(v).trim().split('.').map(Number);
-  p[2] += delta;
-  return p.join('.');
+  if (p[2] > 0) return [p[0], p[1], p[2] - 1].join('.');
+  if (p[1] > 0) return [p[0], p[1] - 1, 999].join('.');
+  return [p[0] - 1, 999, 999].join('.');
 }
-const PROD_BEHIND = bump(RUNNING, -1); // prod has NOT caught up: we are pre-release
-const PROD_AHEAD = bump(RUNNING, +1);  // prod is past us entirely
+function increment(v) {
+  const p = String(v).trim().split('.').map(Number);
+  return [p[0], p[1], p[2] + 1].join('.');
+}
+const PROD_BEHIND = decrement(RUNNING); // prod publishes something OLDER than us
+const PROD_AHEAD = increment(RUNNING);  // prod publishes something NEWER than us
+
+// The guard that makes the underflow above impossible to reintroduce unnoticed: if any
+// derived version stops looking like a version, these tests must fail loudly here rather
+// than quietly re-route through the unknown rung.
+const SEMVER = /^\d+\.\d+\.\d+$/;
+for (const [name, v] of [['RUNNING', RUNNING], ['PROD_BEHIND', PROD_BEHIND], ['PROD_AHEAD', PROD_AHEAD]]) {
+  assert.match(v, SEMVER, `${name} (${v}) must parse as x.y.z or the arms below test a different rung`);
+}
 
 /**
  * Boot the real server against a fresh sandbox, seed the source-channel file, and
  * populate the updater's cache through its REAL refresh() path with an injected
- * fetcher -- so the cache carries the same shape production writes (a validated
- * manifest object, and the channel the look went to), not a hand-built stand-in.
+ * fetcher -- so the cache carries the shape production writes (a validated manifest
+ * object, and the channel the look went to), not a hand-built stand-in.
  *
  * latest: a version string to serve, or null for "the host could not be reached".
+ * look:   pass false to skip refresh() entirely -- the never-looked state a real board
+ *         serves in the window between boot and its first poll landing.
  */
-function statusWith({ content, latest, channel }) {
+function statusWith({ content, latest, channel, look = true }) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-sc2934-'));
   const dataRoot = nodePath.join(sb, 'data', store.APP);
   fs.mkdirSync(nodePath.join(dataRoot, 'profiles'), { recursive: true });
@@ -63,6 +86,7 @@ function statusWith({ content, latest, channel }) {
     const app = require(${JSON.stringify(nodePath.join(REPO, 'server.js'))});
     const updates = require(${JSON.stringify(nodePath.join(REPO, 'engine', 'update.js'))});
     const LATEST = ${JSON.stringify(latest)};
+    const LOOK = ${JSON.stringify(look)};
     // Never let a look try to install anything in a sandbox.
     updates.setAutoPref(() => false);
     updates.setInstalledRoot(() => null);
@@ -72,7 +96,9 @@ function statusWith({ content, latest, channel }) {
     });
     const srv = app.server || app;
     (async () => {
-      await updates.refresh().catch(() => { /* poke() catches too; the miss stamp is in refresh's finally */ });
+      // poke()/refresh() reject on an unreachable host; production catches it too and the
+      // miss stamp is written in refresh()'s finally.
+      if (LOOK) await updates.refresh().catch(() => {});
       srv.listen(0, '127.0.0.1', () => {
         http.get({ host: '127.0.0.1', port: srv.address().port, path: '/api/status' }, (res) => {
           let s = ''; res.on('data', (d) => { s += d; }); res.on('end', () => {
@@ -93,6 +119,7 @@ function statusWith({ content, latest, channel }) {
     AGENT_WORKFORCE_LAUNCH: nodePath.join(sb, 'launch'),
     AGENT_WORKFORCE_PROJECTS: nodePath.join(sb, 'projects'),
   };
+  // An operator running the suite on a staging-subscribed box must not change the answer.
   delete env.AGENT_WORKFORCE_UPDATE_CHANNEL;
   delete env.KOSMOS_UPDATE_CHANNEL;
   if (channel) env.AGENT_WORKFORCE_UPDATE_CHANNEL = channel;
@@ -104,25 +131,33 @@ function statusWith({ content, latest, channel }) {
 
 // ---- THE REPORTED BOX -------------------------------------------------------------
 
-test('THE CARD: installed from staging, build since promoted -- prod pointer names our exact version -> prod', () => {
+test('THE CARD: installed from staging, build since promoted -- prod publishes our exact version -> prod', () => {
   const got = statusWith({ content: 'staging', latest: RUNNING }).sourceChannel;
   assert.equal(got, 'prod',
-    'a board whose running version is the one prod publishes is a prod board; the install stamp is stale');
+    'the prod pointer naming our exact version means our bytes ARE the prod bytes (#2036: same bytes promoted)');
 });
 
-test('prod has moved PAST us -- our bytes are certainly on prod -> prod', () => {
-  assert.equal(statusWith({ content: 'staging', latest: PROD_AHEAD }).sourceChannel, 'prod');
-});
+// ---- THE CASES THE BADGE EXISTS FOR, which must survive the fix --------------------
 
-// ---- THE CASE THE BADGE EXISTS FOR, which must survive the fix ---------------------
-
-test('genuinely pre-release: we are NEWER than what prod publishes -> staging', () => {
+test('we are NEWER than what prod publishes -> staging (unpromoted pre-release bytes)', () => {
   const got = statusWith({ content: 'staging', latest: PROD_BEHIND }).sourceChannel;
   assert.equal(got, 'staging',
     'a box ahead of prod is exactly what the STAGING badge is for; darkening it here is the regression');
 });
 
-// ---- EVERY FALLBACK KEEPS TODAY'S BEHAVIOR ----------------------------------------
+test('prod publishes something NEWER but DIFFERENT -> staging, because ">=" is not "our bytes shipped"', () => {
+  const got = statusWith({ content: 'staging', latest: PROD_AHEAD }).sourceChannel;
+  assert.equal(got, 'staging',
+    'an ABANDONED staging build while prod moved on satisfies >= yet never reached prod; only equality is sound');
+});
+
+// ---- EVERY UNKNOWN KEEPS THE RECORDED STAMP ---------------------------------------
+
+test('never looked yet (boot, before the first poll lands) -> keeps the recorded stamp', () => {
+  const got = statusWith({ content: 'staging', latest: RUNNING, look: false }).sourceChannel;
+  assert.equal(got, 'staging',
+    'an empty cache must not be read as evidence about prod');
+});
 
 test('host unreachable -- no cached prod version to compare -> keeps the recorded stamp', () => {
   assert.equal(statusWith({ content: 'staging', latest: null }).sourceChannel, 'staging');
@@ -152,21 +187,39 @@ test('#2066 still holds: trimmed, lowercased, and anything unexpected folds to p
   }
 });
 
-// ---- THE SHAPE TRAP, asserted directly ---------------------------------------------
+// ---- THE PREDICATE ITSELF, unit-level ---------------------------------------------
 
-test('cachedLatestVersion returns a STRING newer() can actually compare, not the manifest object', () => {
+test('prodPublishesRunning: true ONLY on exact equality, null for every unknown', async () => {
   const updates = require('./engine/update');
-  updates.resetCache();
   updates.setAutoPref(() => false);
   updates.setInstalledRoot(() => null);
-  updates.setFetcher(async () => ({ ok: true, json: async () => ({ version: PROD_BEHIND }) }));
-  return updates.refresh().catch(() => {}).then(() => {
-    const v = updates.cachedLatestVersion();
-    assert.equal(typeof v, 'string', 'the manifest object would make newer() return false for every input');
-    assert.equal(v, PROD_BEHIND);
-    assert.equal(updates.newer(RUNNING, v), true,
-      'this is the comparison the board makes; if it cannot fire, the badge darkens on a pre-release box');
-    assert.equal(updates.cachedChannel(), 'prod');
+
+  const look = async (version, { throws = false } = {}) => {
     updates.resetCache();
-  });
+    updates.setFetcher(async () => {
+      if (throws) throw new Error('offline');
+      return { ok: true, json: async () => ({ version }) };
+    });
+    await updates.refresh().catch(() => {});
+  };
+
+  updates.resetCache();
+  assert.equal(updates.prodPublishesRunning(), null, 'never looked -> null, not false');
+
+  await look(RUNNING);
+  assert.equal(updates.prodPublishesRunning(), true, 'exact equality is the only true');
+
+  await look(PROD_AHEAD);
+  assert.equal(updates.prodPublishesRunning(), false, 'prod ahead is NOT evidence our bytes shipped');
+
+  await look(PROD_BEHIND);
+  assert.equal(updates.prodPublishesRunning(), false);
+
+  await look(null, { throws: true });
+  assert.equal(updates.prodPublishesRunning(), null, 'unreachable -> null, never false');
+
+  await look('not-a-version');
+  assert.equal(updates.prodPublishesRunning(), null, 'an unreadable pointer -> null');
+
+  updates.resetCache();
 });
