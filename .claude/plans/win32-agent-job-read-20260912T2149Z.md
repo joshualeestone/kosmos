@@ -85,6 +85,32 @@ platform-gate-wiring, win32-separator-guard, create and win32job. The full suite
 compared by name against a clean origin/main (this box has about 820 baseline
 Mac-assumption failures).
 
+## As built (additions found while verifying)
+
+- **Injected platforms now reach readJob.** readJob follows the platform, so two
+  callers that already take one had to pass it on:
+  - `remove.restoreBlockedByMissingAccountDir`: its Mac arm called `readJob(clean)`.
+  - `worldimport.launchSpecOf`: its Mac arm did the same. Its separate uncached
+    `win32job.taskSpec` arm was a second derivation of the job read, so it now makes
+    the one `create.readJob(name, sourceWorldId, platform)` call.
+  A Mac-injected test on a Windows host was reading that host's Task Scheduler
+  through both.
+- **No schtasks from a board a test spawns.** Several server suites stand up a real
+  board with `node -e`. That child has no `--test` flag, so the first guard missed
+  it, and on this box it queried `/XML` for fixture task names. `win32job.run` now also
+  refuses when `NODE_TEST_CONTEXT` is set. Only node's test runner sets it; a probe
+  measured it inherited by `-e`, stdin, and spread-env children.
+- **Measured on origin/main before this branch.** The suite on this box attempts
+  4337 real schtasks calls, including `/Create /F`, `/End` and `/Delete` for
+  `Kosmos\agent-ct-*` from `create.trust-configdir-1629.test.js`. A preload blocked
+  them for the comparison. The branch guard stops them at the source. The 10
+  `Kosmos\board` queries from `engine/win32board.js`'s own runner remain, unchanged
+  from main.
+- **Expected Windows-host differences.** Tests that seed a plist and then read it
+  through a caller with no platform parameter now read the Scheduled Task on a
+  Windows host: `accountForAgent`, `status.readCodexSession`, `recordedRunner`. Mac CI
+  is unaffected.
+
 ## Out of scope, noted
 
 - `remove.restart`'s "was not started by Kosmos" on win32 when schtasks cannot
