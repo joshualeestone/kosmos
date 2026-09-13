@@ -62,9 +62,12 @@ function check(name, pass, detail) {
   check('the fifth option (Upload an org chart) is offered',
     await page.isVisible('#pick-orgchart'));
 
-  // Choose it: the radio's change fires pickMode('orgchart'), which reveals the
-  // panel and hides the shared Continue (the panel has its own button).
-  await page.check('input[name="rmode"][value="orgchart"]');
+  // Choose it by clicking the LABEL, the way a person does: the native radio is
+  // opacity:0 / pointer-events:none (.pick2 > input[type=radio]), so a direct
+  // input click is intercepted by the fieldset. Clicking the label checks the
+  // radio and fires the change that pickMode('orgchart') listens for -- which
+  // reveals the panel and hides the shared Continue (the panel has its own button).
+  await page.click('#pick-orgchart');
   await page.waitForSelector('#orgchartpick', { state: 'visible', timeout: 8000 });
   const opened = await page.evaluate(() => ({
     panel: !document.getElementById('orgchartpick').hidden,
