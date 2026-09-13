@@ -18214,14 +18214,14 @@ async function paintAccounts() {
           body: JSON.stringify({ dir: btn.dataset.share }),
         });
         const out = await res.json().catch(() => null);
-        if (!res.ok) throw new Error((out && out.error) || 'we could not change that');
+        if (!res.ok) throw new Error((out && out.error) || 'We could not change that.');
         await paintAccounts();
       } catch (err) {
         btn.disabled = false;
         /* Same reason as the forget catch above: this write lands after an await,
            so the pre-fetch cancel cannot protect it. */
         acctCancelSay();
-        if (msg) msg.textContent = String((err && err.message) || 'we could not change that');
+        if (msg) msg.textContent = String((err && err.message) || 'We could not change that.');
       }
     });
   }
@@ -18682,7 +18682,7 @@ document.getElementById('acct-openai-install-go').addEventListener('click', asyn
   try {
     const res = await fetch('/api/runners/openai/install', { method: 'POST' });
     const out = await res.json().catch(() => null);
-    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'we could not start that install');
+    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'We could not start that install.');
     if (msg) msg.textContent = 'Installing…';
     acctOpenaiWatch();
   } catch (err) {
@@ -19995,13 +19995,13 @@ document.getElementById('acct-openai-sub-go').addEventListener('click', async (e
       /* A runner is a prerequisite here too: the engine answers needsRunner, so
          route to the install step in place, the same as the key path (#979). */
       if (out && out.needsRunner) { ACCT_OPENAI_READY = false; acctOpenaiStep(false); if (msg) msg.textContent = ''; return; }
-      throw new Error((out && (out.error || out.because)) || 'we could not start that sign-in');
+      throw new Error((out && (out.error || out.because)) || 'We could not start that sign-in.');
     }
     /* A 2xx with no sessionId is a start we cannot poll: treat it as a failure so
        the catch re-enables the button, rather than leaving a dead form behind a
        stuck "Starting the sign-in…" (the key path's finally covers the same gap). */
     if (!out || !out.sessionId) {
-      throw new Error((out && (out.error || out.because)) || 'we could not start that sign-in');
+      throw new Error((out && (out.error || out.because)) || 'We could not start that sign-in.');
     }
     ACCT_OPENAI_SUB_SESSION = out.sessionId;
     acctOpenaiSubShowStart(out);

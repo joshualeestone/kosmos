@@ -60,3 +60,21 @@ inventory comment makes the rest cheap to pick up.
 - Not rebuilding sub-fix #1 (already fixed).
 - Not touching the Styles/Advanced strings (already gone).
 - Not touching pjSentence (it is correct; capitalizing there would double-capitalize the routed ones).
+
+## Iteration 1 challenge-review update (surface completion)
+The blind reviewer correctly caught that I had missed SAME-SURFACE siblings on the AI Models
+Settings account/connect surface (the `acct*` functions) - leaving them lowercase reproduced the
+very inconsistency the card exists to fix, beside the strings I had just capitalized. Fixed 5 more:
+- `we could not change that` (acct share handler, 18217 throw + 18224 String) -> capitalized.
+- `we could not start that install` (acctOpenaiInstall, 18685) -> capitalized.
+- `we could not start that sign-in` (acctOpenaiSubConnected, 19998 + 20004) -> capitalized.
+
+Refined scope line: the fix now covers the whole AI Models **Settings** account/connect surface
+(all `acct*` raw-rendered fallbacks). Still DELIBERATELY OUT:
+- The `fr*` first-run ONBOARDING duplicates (`frOpenaiSubConnected`/`frOpenaiSubWatch`, 44804 sign-in
+  + 44864 install) carry identical strings but are a different surface (onboarding, not Settings).
+  Left lowercase as a documented follow-up; capitalizing only the sign-in/install there would create
+  a new onboarding-internal inconsistency I would then have to chase.
+- `unknownWhy` (17630) is a `because`-value fallback (capitalized downstream by the display, same
+  idiom as pjSentence), correctly left lowercase.
+- plusSay relay (29932/29933), tasks/notes (36xxx), friends (43290): other surfaces, out of lane.
