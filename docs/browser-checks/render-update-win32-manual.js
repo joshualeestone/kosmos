@@ -155,6 +155,10 @@ async function readCard(pg) {
       chk(card.describedBy === 'upd-line', state + ': the link is described by the sentence, so it is not just "Download"', String(card.describedBy));
       chk(card.target === '_blank', state + ': the link opens its own tab, so the board stays put', String(card.target));
       chk(!card.buttonShown, state + ': the check button stands down beside the link', JSON.stringify(card));
+      chk(card.stepsShown && card.steps.length === 5 && card.steps.includes(MANUAL_STEP_REPLACE),
+        state + ': the numbered steps show and name Windows\' Replace dialog (W-25)', JSON.stringify(card.steps));
+      chk(card.openFolderShown && card.openFolderText === 'Open my Kosmos folder',
+        state + ': the "Open my Kosmos folder" button shows beside Download (W-25)', JSON.stringify(card));
       chk(state === 'staging' ? (card.channelShown && card.channelText === 'Staging channel') : !card.channelShown,
         state + ': the channel tag ' + (state === 'staging' ? 'reads "Staging channel"' : 'is hidden on prod'), JSON.stringify(card));
       const box = await pg.$('#s-sec-updates');
