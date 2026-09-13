@@ -376,6 +376,8 @@ async function handOffToTask(opts) {
   }
 }
 
+/* probeBoard is also how the Windows updater (engine/win32apply.js) confirms which board came back
+   after a swap, so there is one reading of the identity header. */
 module.exports = {
   handOffToTask, buildIdentity, boardIdentity, probeBoard, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS,
   BOARD_STARTED_BY_TASK_HEADER, boardStartedByTaskHeaderValue, startedByTaskFromHeader,

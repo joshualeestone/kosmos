@@ -88,6 +88,11 @@ const APP = store.APP || 'AgentWorkforce';
 const NODE_NAME = 'node.exe';
 const POINTER_NAME = 'engine-path';
 const BOOT_NAME = 'supervisor-boot.js';
+/* The Windows updater's two records (engine/win32apply.js), kept beside the pointer they
+   change. Here, with the other anchor names, so the updater that writes them and the board's
+   logon shim that reads the journal (win32board.BOOT_JS) spell them one way. */
+const UPDATE_JOURNAL_NAME = 'update-journal.json';
+const UPDATE_STATUS_NAME = 'update-status.json';
 
 /**
  * Where the anchor lives.
@@ -279,6 +284,6 @@ function readPointer(platform, home, env) {
 
 module.exports = {
   APP, NODE_NAME, POINTER_NAME, BOOT_NAME, BOOT_JS, STAGED_INFIX, RETIRED_INFIX,
-  RETIRED_SWEEP_MIN_AGE_MS,
+  RETIRED_SWEEP_MIN_AGE_MS, UPDATE_JOURNAL_NAME, UPDATE_STATUS_NAME,
   anchorDir, ensureAnchored, readPointer, interpreterSizeDiffers,
 };

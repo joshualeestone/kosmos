@@ -74,7 +74,10 @@ test('win32anchor keeps the surface it had, and its swap constants come from win
     'APP', 'BOOT_JS', 'BOOT_NAME', 'NODE_NAME', 'POINTER_NAME', 'RETIRED_INFIX',
     /* interpreterSizeDiffers: the anchor's own size rule, which the Windows updater
        (win32update.js runtimeChanged) starts from, so the two share one derivation. */
-    'RETIRED_SWEEP_MIN_AGE_MS', 'STAGED_INFIX', 'anchorDir', 'ensureAnchored', 'interpreterSizeDiffers', 'readPointer',
+    'RETIRED_SWEEP_MIN_AGE_MS', 'STAGED_INFIX',
+    /* The Windows updater's journal and status (engine/win32apply.js), named beside the pointer. */
+    'UPDATE_JOURNAL_NAME', 'UPDATE_STATUS_NAME',
+    'anchorDir', 'ensureAnchored', 'interpreterSizeDiffers', 'readPointer',
   ]);
   assert.equal(anchor.STAGED_INFIX, swap.STAGED_INFIX);
   assert.equal(anchor.RETIRED_INFIX, swap.RETIRED_INFIX);
