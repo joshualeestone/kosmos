@@ -1501,6 +1501,11 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
   position: absolute; top: -3px; right: -3px;
   width: 19px; height: 17px; pointer-events: none;
 }
+/* #2863: the unread-DM bubble on the org node. Top-LEFT, the free corner --
+   needs-you (.owarn) owns top-right, so a node that both needs you and has
+   unread DMs shows the two on opposite corners rather than stacked. Same
+   dmBadge()/a.dmUnread as the grid card and list row. */
+.onode .dmbadge { top: -6px; left: -6px; right: auto; }
 /* ⚠️ THERE IS NO PERSISTENT SELECTED STATE, and Josh's two notes together are
    why. Faces dim until moused over, AND clicking one opens that agent's page.
    So a click LEAVES: nothing stays selected because nothing stays. The solid
@@ -2353,7 +2358,15 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
         grid-template-columns: 34px minmax(7rem, 1fr) minmax(6rem, .7fr) minmax(6rem, .8fr) minmax(7rem, 1.3fr) minmax(5rem, .6fr) 8.5rem;
         background: var(--k-surface); color: var(--k-ink);
         border: 1px solid var(--k-rule); border-radius: 12px;
-        padding: 12px 16px; cursor: pointer; }
+        padding: 12px 16px; cursor: pointer; position: relative; }
+/* #2863: the unread-DM bubble on a list row. The default list's .lav is
+   overflow:hidden (it clips a corner badge) and cannot be wrapped -- the
+   consolidated rail selects `.lrow > .lav` as a direct child (grid-row spans) --
+   so the badge is a direct child of the position:relative .lrow instead, placed
+   over the avatar's top-right corner. The avatar is the 34px first column at the
+   16px/12px padding, so its top-right sits at ~left:44px/top:6px. Same red
+   dmBadge() and a.dmUnread as the grid card and org node. */
+.lrow > .dmbadge { top: 6px; left: 44px; right: auto; }
 .ltitle { font-size: .8125rem; color: var(--k-ink-2); }
 .lmodel { font-size: .75rem; color: var(--k-ink-2); overflow: hidden;
           text-overflow: ellipsis; white-space: nowrap; }
@@ -14658,7 +14671,7 @@ function lrow(a) {
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
     return `<div class="lrow off notrunning" data-agent="${esc(a.sessionName)}">
-      <div class="lav">${off}</div>
+      <div class="lav">${off}</div>${dmBadge(a)}
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
       <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}">${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}</div>
@@ -14717,7 +14730,7 @@ function lrow(a) {
     ? `<span class="bar unknown"></span><span class="pct"><span aria-hidden="true">${memu.word}</span><span class="vh">${memu.aria}</span></span>`
     : `<span class="bar"><i class="${band}" style="width:${pct}%"></i></span><span class="pct">${memPrint(a.context, pct)}</span>`;
   return `<div class="lrow ${boardMods(a, m)}" data-agent="${esc(a.sessionName)}">
-    <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}</div>
+    <div class="lav">${av}${lrowRing(a)}${m.st === 'attn' ? LROW_WARN : ''}</div>${dmBadge(a)}
     <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</b></div>
     <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
     <!-- #569: the said line stacks INSIDE the state cell -- the seven-slot
@@ -20932,6 +20945,12 @@ function paintOrg() {
       + orgRing(a)
       + '<span class="face"' + tint + '>' + face + '</span>'
       + (needsYou ? ONODE_WARN : '')
+      /* #2863: the unread-DM bubble on the org node, the same dmBadge() the grid
+         card and (below) the list row use, from the same a.dmUnread. It sits
+         TOP-LEFT here, the free corner: needs-you (.owarn) owns top-right, so the
+         two attention channels never collide on a node that is both. Suppressed
+         for the open agent (CURRENT) inside dmBadge, exactly as on the grid. */
+      + dmBadge(a)
       + (nameAtRest ? '<span class="oname">' + esc(shown) + '</span>' : '')
       /* A name alone is a label; "Open Anna" is a control, and the node IS one
          (#284: "say what it does"). The gold is the app's action treatment, so
