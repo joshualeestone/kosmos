@@ -404,7 +404,6 @@ const create = require('./engine/create');
    key through the same writer the create path uses (native-realpath-keyed since
    #2382), so the one-click escape and the automatic create-time write can never
    disagree about the spelling. The codex-side writer lives in create. */
-const trust = require('./engine/trust');
 /* #2129 companion: the launch-terminal route opens a real Terminal.app window
    attached to a live agent's tmux session (read-only -- adds a viewer, does not
    touch the session). Its osascript call goes through terminal.js's own runner
@@ -4930,8 +4929,9 @@ const server = http.createServer((req, res) => {
    * ⚠️ PER RUNNER, keyed off the agent's OWN launch job, never the request: a
    * codex agent's trust lives in its CODEX_HOME's config.toml
    * (trustCodexFolder), a claude agent's in its account's .claude.json
-   * (trustFolder). `readJob` carries the runner and the account dir. With no
-   * job there is no folder to key a trust write on, so it is skipped and
+   * (trustFolder). The job (a plist on the Mac, a Scheduled Task on Windows)
+   * carries the runner and the account dir; create.trustAgentFolder reads it and
+   * writes. With no job there is no folder to key a trust write on, so it is skipped and
    * `restart` gives its own friendly "not started by Kosmos" refusal -- the
    * same shape the plain /restart route above returns.
    *
@@ -4948,32 +4948,12 @@ const server = http.createServer((req, res) => {
        -- cleanName is only a trim, but keeping the three name forms identical
        removes the one place they could drift. */
     const clean = create.cleanName(name);
+    /* The trust step lives in the engine (create.trustAgentFolder) so its job
+       read follows the platform: on Windows the job is a Scheduled Task, and the
+       plist-only read this route used to make skipped the trust write there. */
     let trusted;
-    let job = null;
-    try { job = create.readJob(clean); } catch { job = null; }
-    if (!job) {
-      trusted = { wrote: false, because: 'this agent has no Kosmos launch job, so there was no folder to trust' };
-    } else {
-      /* A truthy job means the name passed readJob's NAME_RE, so workerDir
-         returns a real path under WORKERS -- never falsy -- and the trust
-         writers below always have a folder to key on. */
-      const folder = create.workerDir(clean);
-      if (job.runner === 'codex') {
-        try { create.trustCodexFolder(folder, job.configDir, !job.configDir); trusted = { wrote: true, runner: 'codex' }; }
-        catch (err) { trusted = { wrote: false, runner: 'codex', because: String(err && err.message || err) }; }
-      } else {
-        /* trustFolder soft-fails (returns {ok:false, because}) rather than
-           throwing, so read ok -- do not rely on a catch. createIfAbsent
-           matches the create path: on a truly fresh user the file may not
-           exist yet. */
-        let t = null;
-        try { t = trust.trustFolder(folder, { configDir: job.configDir, createIfAbsent: true, agentDefaultAccount: !job.configDir }); }
-        catch (err) { t = { ok: false, because: String(err && err.message || err) }; }
-        trusted = t && t.ok
-          ? { wrote: true, runner: 'claude', already: !!t.already }
-          : { wrote: false, runner: 'claude', because: (t && t.because) || 'the trust write did not complete' };
-      }
-    }
+    try { trusted = create.trustAgentFolder(clean); }
+    catch (err) { trusted = { wrote: false, because: String((err && err.message) || err) }; }
     /* The restart is genuine, so it carries the honest generic 'restart'
        cause: the board renders "Restarting agent" from it. A dedicated 'trust'
        cause would need a matching sentence on the frontend (disruption.CAUSES

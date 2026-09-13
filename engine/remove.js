@@ -1554,15 +1554,10 @@ function restoreInner(name, platform) {
       - A GONE plist makes readJob return null, so this does not fire; that is the
         separate `plistGone` case reported below. This fires only when the plist
         EXISTS and names a configDir that does not.
-      - 🛑 MAC ONLY, and the class is NOT closed on win32. This reads the account dir
-        out of the launchd PLIST via readJob; a win32 agent has no plist (a registered
-        Scheduled Task), so readJob returns null and this never fires -- yet a win32
-        agent DOES carry an account dir (win32job puts configDir into the task argv).
-        A Windows agent whose account was deleted still restores unchecked. Closing it
-        needs new plumbing (win32job.status exposes only {registered, enabled}, no
-        configDir readback), and whether #2570's delete-for-good is win32-live is
-        unconfirmed, so it is a follow-up rather than this card -- named here so a
-        reader does not mistake the two bullets above for the whole story.
+      - win32 is covered too (#2614): restoreBlockedByMissingAccountDir reads a
+        win32 agent's account dir back from its Scheduled Task (win32job.configDirFor,
+        a projection of the same remembered task definition create.readJob's win32
+        arm reads), so the one check runs on both platforms.
       - It fires regardless of `record.label` (whether launchd would re-enable a job).
         That is intended: a label-less agent restores by "put the card back, start it
         the way you did before", and a manual start points at the same gone dir -- so
@@ -1585,11 +1580,8 @@ function restoreInner(name, platform) {
         account dir replaced by a stray same-named file would pass here and fail
         later. `dirForLabel`/`prepare` always mkdir the directory and removal always
         operates on the whole dir, so the lifecycle never produces this.
-     🛑 The `(platform || process.platform) === 'win32'` guard below (the file's own
-     idiom, as in jobFor) makes the MAC-ONLY scope STRUCTURAL
-     rather than incidental (readJob happens to return null on win32 for lack of a
-     plist): a win32 configDir rides the Scheduled Task argv, not a plist, and needs
-     its own readback (the follow-up named above). */
+     The platform split lives inside restoreBlockedByMissingAccountDir (the file's
+     own `(platform || process.platform) === 'win32'` idiom, as in jobFor). */
   const goneDir = restoreBlockedByMissingAccountDir(clean, platform);
   if (goneDir) {
     return {
