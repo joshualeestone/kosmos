@@ -4509,7 +4509,22 @@ const server = http.createServer((req, res) => {
            (route and engine both read the same env, no drift); wiring `deps.cap`
            from a real operator-config source belongs with the agent-token slice,
            where the cap story is finished. */
-        const cap = team.resolveCap(undefined, process.env);
+        /* #2972: the OPERATOR (board-token) path may raise the team cap in-flow
+           via a `cap` in the request body, up to MAX_TEAM_CAP -- the trusted
+           deps.cap channel engine/team.js blesses (the board token IS the
+           operator, the exact "Pass a higher cap deliberately means the OPERATOR"
+           seam). The AGENT path never gets this: a model cannot raise its own
+           bound, so capDeps stays undefined there and "Kosmos owns the bound, not
+           the prompt" still holds against a model. An absent/invalid body.cap is
+           ignored (resolveCap then falls back to env/default), and any value is
+           clamped to MAX_TEAM_CAP by resolveCap. Passed to BOTH this pre-check
+           resolveCap and createTeam below so the effective cap never drifts. */
+        let capDeps;
+        if (callerKind === 'operator' && body.cap !== undefined && body.cap !== null) {
+          const requested = Number(body.cap);
+          if (Number.isInteger(requested) && requested > 0) capDeps = { cap: requested };
+        }
+        const cap = team.resolveCap(capDeps, process.env);
         const overCap = !!(members && members.length > cap);
 
         /* Per-member #1903 liveness pre-flight, run in parallel, mirroring the
@@ -4641,7 +4656,7 @@ const server = http.createServer((req, res) => {
                 return { gcap, already, add: liveMembers.length };
               }
             }
-            result = team.createTeam(teamOpts);
+            result = team.createTeam(teamOpts, capDeps);
             return null;
           });
           if (capRefusal) {
@@ -4657,7 +4672,7 @@ const server = http.createServer((req, res) => {
             return;
           }
         } else {
-          result = team.createTeam(teamOpts);
+          result = team.createTeam(teamOpts, capDeps);
         }
 
         /* Merge the liveness refusals into the engine's own refused[] and
