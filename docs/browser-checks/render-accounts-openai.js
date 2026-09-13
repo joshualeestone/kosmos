@@ -19,6 +19,10 @@
  * on the list, and the second press is what removes it; and the answer says
  * the sign-in file is still on the computer and nothing was deleted, which is
  * the promise the whole removal turns on and was never enumerated here.
+ * #1143: and a negative control that the list holds ONLY the seeded fixtures
+ * and not the operator's own accounts (no email outside example.com, and the
+ * Claude group is exactly the two seeded rows), so a regressed config sandbox
+ * that leaked the real machine cannot pass this check silently.
  *
  * Computed-state only, so headless is sound. First run is completed
  * through the product's own route first: on a fresh board the first-run
@@ -177,9 +181,19 @@ let failed = 0;
      which the walk never adds to, so a retry cannot make them false: the email
      control ignores the OpenAI row (it carries a key tail, no email), and the
      count control reads the non-OpenAI group only. */
+  /* A CONTAINS check, not a `$`-anchored suffix, and the difference is load-bearing.
+     The email `<b>` in a row is followed by qualTag/keyTail/org as inline siblings
+     inside `.acct-who` with no separating text node (web/index.html), so innerText
+     can render a fixture email with adjacent text and NO whitespace, e.g.
+     `walk@example.comWork`. The domain class `[A-Za-z0-9.-]+` then over-consumes
+     past `example.com`, and a `/@example\.com$/` test would FALSE-POSITIVE that
+     legit fixture account as a leak the moment a future fixture grows a qualifier
+     or a keyTail. A leaked operator account carries a real domain (book.io,
+     gmail.com), whose token never contains the substring `@example.com`, so a
+     contains-check catches the leak and cannot be tripped by adjacency. */
   const foreignEmails = rows
     .flatMap((r) => r.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+/g) || [])
-    .filter((e) => !/@example\.com$/i.test(e));
+    .filter((e) => !e.toLowerCase().includes('@example.com'));
   say('no account outside the seeded example.com fixtures is shown (config sandbox holds; #1143)',
     foreignEmails.length === 0, JSON.stringify(foreignEmails));
   /* A count control alongside the domain one, because a leaked account that
