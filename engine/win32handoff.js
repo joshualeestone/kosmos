@@ -381,6 +381,9 @@ async function handOffToTask(opts) {
 module.exports = {
   handOffToTask, buildIdentity, boardIdentity, probeBoard, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS,
   BOARD_STARTED_BY_TASK_HEADER, boardStartedByTaskHeaderValue, startedByTaskFromHeader,
+  /* The hand-off's budget and what it still needs after the board boots: win32apply builds its logon
+     recovery's deadline from these (BOOT_RECOVERY_DEADLINE_MS). */
+  HANDOFF_BUDGET_MS, MIN_PORT_RELEASE_WAIT_MS, PROBE_TIMEOUT_MS,
 };
 
 /**

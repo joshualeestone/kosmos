@@ -128,6 +128,16 @@ const OWNER_READ_BUDGET = Object.freeze({
  */
 const CONFIRMED_RECORD_PATIENCE_MS = DEFAULT_APPLY_LIMITS.confirmRuns * DEFAULT_APPLY_LIMITS.confirmWaitPerRunMs;
 
+/**
+ * How long the logon shim's recovery (recoverAtBoot) may spend before it stops as held, counted from
+ * the start of the board's process as the hand-off counts its own budget: the hand-off's budget less
+ * what the hand-off still needs once this board boots, an ended board's port to let go and one probe
+ * (win32handoff: HANDOFF_BUDGET_MS - MIN_PORT_RELEASE_WAIT_MS - PROBE_TIMEOUT_MS, 12 - 2 - 2 = 8 s).
+ * Every held wait stops at it too, so a scanner holding an entry cannot keep the board from listening
+ * inside the hand-off's budget and the launcher's check mark.
+ */
+const BOOT_RECOVERY_DEADLINE_MS = win32handoff.HANDOFF_BUDGET_MS - win32handoff.MIN_PORT_RELEASE_WAIT_MS - win32handoff.PROBE_TIMEOUT_MS;
+
 const SLEEP_CELL = new Int32Array(new SharedArrayBuffer(4));
 function sleepSync(ms) { Atomics.wait(SLEEP_CELL, 0, 0, ms); }
 
@@ -291,15 +301,19 @@ function readJournal(journalAt, reading) {
   return { state: j.finished ? 'finished' : 'unfinished', journal: j };
 }
 
-function unreadableSentence(journalAt, why) {
-  return `the record of an earlier update (${journalAt}) ${why}, so the updater cannot tell whether that update finished. Remove that file by hand once Kosmos is working normally, then try again`;
+/** The sentence for a journal readJournal could not use. One it could not read at all (a code: a
+    scanner or backup holding it, most often) is busy, and nothing is to be removed; only a journal that
+    read and is not a valid one is named for removal by hand. */
+function unreadableSentence(journalAt, read) {
+  if (read.code) return `the record of an earlier update (${journalAt}) is busy right now (code=${read.code}), so the updater cannot read it yet. Try again in a minute`;
+  return `the record of an earlier update (${journalAt}) ${read.why}, so the updater cannot tell whether that update finished. Remove that file by hand once Kosmos is working normally, then try again`;
 }
 
 /** B0's journal precondition, as a sentence, or null. */
 function unfinishedUpdateRefusal(anchorDir) {
   const journalAt = journalPathFor(anchorDir);
   const read = readJournal(journalAt);
-  if (read.state === 'unreadable') return unreadableSentence(journalAt, read.why);
+  if (read.state === 'unreadable') return unreadableSentence(journalAt, read);
   if (read.state !== 'unfinished') return null;
   const j = read.journal;
   const found = unrecoverableCase(j);
@@ -398,7 +412,7 @@ function writeGuard(j, journalAt) {
 
 /** The seams, each with its production default. A suite passes a scheduler (win32board.setRunner),
     a prober and a clock; nothing here reads a real board unless it runs for real. */
-function depsFrom(over) {
+function depsFrom(over, budget) {
   const o = over || {};
   const deps = {
     board: o.board || win32board,
@@ -413,9 +427,10 @@ function depsFrom(over) {
     hooks: { afterDependencies() {}, before() {}, after() {}, ...(o.hooks || {}) },
     lockHooks: o.lockHooks,
   };
-  /* How this process asks about anything another process may hold: OWNER_READ_BUDGET, waiting through
-     the sleepSync seam. */
-  deps.reading = { waitSync: deps.sleepSync, budget: OWNER_READ_BUDGET };
+  /* How this process asks about anything another process may hold, waiting through the sleepSync seam:
+     the budget its caller chose. The helper and the resumers take OWNER_READ_BUDGET (the default);
+     begin()'s entry points, in the board's own process, pass win32update.QUICK_HELD_READ_BUDGET. */
+  deps.reading = { waitSync: deps.sleepSync, budget: budget || OWNER_READ_BUDGET };
   return deps;
 }
 
@@ -482,6 +497,8 @@ function assertStillOwner(ctx) {
     if (ctx.forward) throw new StepFailure(`the updater could not check that this update is still its own, because ${because}`);
     throw new OwnershipUnknown(because);
   };
+  /* The logon shim's recovery past its deadline cannot tell either: it stops, held. */
+  if (Number.isFinite(ctx.deadline) && ctx.deps.now() >= ctx.deadline) cannotTell('its time to recover before the board starts ran out');
   const reading = ctx.deps.reading;
   if (ctx.lock && ctx.lock.text) {
     const lock = win32update.readFileRetryingHolds(path.join(ctx.j.work, win32update.LOCK_NAME), reading.waitSync, reading.budget);
@@ -661,7 +678,16 @@ function answersAs(answer, identity) {
   return Boolean(answer && answer.answering && answer.identity === identity);
 }
 
-async function startAndConfirm(ctx, identity, step) {
+/** H7's test of the NEW board, which the resume helper at `starting` and `--apply --wait` ask too: it
+    answers as `identity` AND says its logon task started it (win32handoff's started-by-task header). The
+    new build always sends that header, so this never rejects a genuine confirmation; a board a person
+    started by hand with the same version does not count. H8's old board is asked answersAs only: an old
+    build may predate the header. */
+function taskBoardAnswersAs(answer, identity) {
+  return answersAs(answer, identity) && answer.startedByTask === true;
+}
+
+async function startAndConfirm(ctx, identity, step, confirms = answersAs) {
   const { j, deps, log } = ctx;
   const L = deps.limits;
   let last = 'no board answered';
@@ -674,11 +700,12 @@ async function startAndConfirm(ctx, identity, step) {
     const until = deps.now() + L.confirmWaitPerRunMs;
     for (;;) {
       const answer = await deps.probe(j.board.port);
-      if (answersAs(answer, identity)) {
+      if (confirms(answer, identity)) {
         log(`${step}: the board answers as ${identity}`);
         return { ok: true, run };
       }
-      if (answer.answering) last = `a board answered as ${answer.identity || 'something with no Kosmos identity'}`;
+      if (answersAs(answer, identity)) last = `a board answered as ${identity}, but not one its logon task started`;
+      else if (answer.answering) last = `a board answered as ${answer.identity || 'something with no Kosmos identity'}`;
       if (deps.now() >= until) break;
       await deps.sleep(L.confirmPollMs);
     }
@@ -885,7 +912,14 @@ function rollBackTree(ctx, because) {
     const left = treeProblem(ctx);
     if (!left) { log(`the old tree is whole after pass ${pass}`); return { whole: true }; }
     problem = failure || left;
-    if (pass < deps.limits.rollbackPasses) deps.sleepSync(deps.limits.rollbackPassWaitMs);
+    if (pass < deps.limits.rollbackPasses) {
+      /* The logon shim's recovery never waits past its deadline for another pass: it stops, held. */
+      if (Number.isFinite(ctx.deadline) && deps.now() + deps.limits.rollbackPassWaitMs >= ctx.deadline) {
+        ctx.writesStopped = true;
+        throw new OwnershipUnknown('its time to recover before the board starts ran out');
+      }
+      deps.sleepSync(deps.limits.rollbackPassWaitMs);
+    }
   }
   j.stuckBecause = problem;
   setPhase(ctx, 'stuck');
@@ -1068,7 +1102,7 @@ async function runSteps(ctx) {
 
     setPhase(ctx, 'starting');
     deps.hooks.before('H7', {});
-    const up = await startAndConfirm(ctx, j.to.identity, 'H7');
+    const up = await startAndConfirm(ctx, j.to.identity, 'H7', taskBoardAnswersAs);
     if (!up.ok) throw new StepFailure(`the new board did not answer as ${j.to.identity} (${up.because})`);
   } catch (e) {
     ctx.forward = false;
@@ -1110,7 +1144,10 @@ function recordConfirmed(ctx) {
       if (e instanceof LostOwnership) throw e;
       j.phase = 'starting';
       j.steps.length = stepsBefore;
-      if (!(e instanceof OwnershipUnknown) || deps.now() >= until) {
+      /* One rule for waiting: an ownership that cannot be told, or a journal write another process holds
+         (win32update.HELD_FILE_CODES), is tried again within the patience; anything else gives up at once. */
+      const held = e instanceof OwnershipUnknown || win32update.HELD_FILE_CODES.includes(e && e.code);
+      if (!held || deps.now() >= until) {
         log(`the board answers as ${j.to.identity}, but that could not be recorded (${describeError(e)}); the update stays in, and a resumer that sees this board finishes it`);
         return false;
       }
@@ -1149,10 +1186,21 @@ function releaseUpdateLock(ctx, lock) {
   }
 }
 
-/** The journal at `journalAt`, still unfinished and still the one with `token`, or null. */
+/**
+ * The journal at `journalAt` read again under the lock: `{ journal }`, still unfinished and still
+ * `token`'s; `{ journal: null }` when it proved finished, replaced or gone; or `{ journal: null, code }`
+ * when it could not be read (held, or unreadable), which every caller reports as held, never as
+ * "nothing" and never as "finished or replaced".
+ */
 function sameUnfinishedJournal(journalAt, token, reading) {
   const read = readJournal(journalAt, reading);
-  return read.state === 'unfinished' && read.journal.token === token ? read.journal : null;
+  if (read.code) return { journal: null, code: read.code };
+  return { journal: read.state === 'unfinished' && read.journal.token === token ? read.journal : null };
+}
+
+/** Why a journal read again under the lock gave nothing to act on. */
+function heldRereadBecause(reread) {
+  return `its journal cannot be read right now (code=${reread.code})`;
 }
 
 /**
@@ -1283,13 +1331,15 @@ function settleUnrecoverableJournal(journalAt, overrides) {
   if (!found) return { action: 'recoverable' };
   if (unreachableBeforeLock(read.journal, found)) return { action: 'unreachable', because: found.because };
   refuseInTestWithoutSeams(overrides, 'settle', journalAt);
-  const deps = depsFrom(overrides);
+  const deps = depsFrom(overrides, win32update.QUICK_HELD_READ_BUDGET);
   const ctx = contextFor(journalAt, read.journal, deps, 'settle');
   const lock = lockForResume(ctx, found);
   if (lock.because) return { action: 'held', because: lock.because };
   ctx.lock = lock;
   try {
-    const again = lock.none ? read.journal : sameUnfinishedJournal(journalAt, read.journal.token, deps.reading);
+    const reread = lock.none ? { journal: read.journal } : sameUnfinishedJournal(journalAt, read.journal.token, deps.reading);
+    if (reread.code) return { action: 'held', because: heldRereadBecause(reread) };
+    const again = reread.journal;
     if (!again) return { action: 'nothing' };
     ctx.j = again;
     const judged = judgedUnderLock(again, found, lock, deps.reading);
@@ -1337,6 +1387,14 @@ function wholeAppProblem(app, version, reading) {
   return null;
 }
 
+/** May a held boot start the previous app instead of the pointer's? Only before H7 confirmed the new
+    build (a phase before `confirmed`), or once a rollback of it has begun (`rolling-back`, `stuck`, or
+    `rolledBackFrom` recorded). */
+function previousAppMayBoot(j) {
+  if (j.phase === 'rolling-back' || j.phase === 'stuck' || j.rolledBackFrom) return true;
+  return PHASES.indexOf(j.phase) < PHASES.indexOf('confirmed');
+}
+
 /**
  * The app the logon shim starts when its recovery stopped part-way because it could not tell the
  * update was still its own (held): nothing to add when the Kosmos folder's own app is the whole old
@@ -1344,6 +1402,8 @@ function wholeAppProblem(app, version, reading) {
  * neither can start (bootFromWhyNot), which the shim reports before it goes on as before.
  */
 function bootChoiceWhenHeld(j, reading) {
+  /* 🛑 NEVER THE OLD APP FOR A CONFIRMED UPDATE: its new build is what the pointer starts. */
+  if (!previousAppMayBoot(j)) return {};
   const own = wholeAppProblem(path.join(j.root, 'app'), j.from.version, reading);
   if (!own) return {};
   const old = previousAppToBoot(j, reading);
@@ -1359,7 +1419,7 @@ async function applyJournal(journalAt, overrides) {
   const deps = depsFrom(overrides);
   deps.hooks.afterDependencies();
   const read = readJournal(journalAt, deps.reading);
-  if (read.state === 'unreadable') return { ok: false, because: unreadableSentence(journalAt, read.why) };
+  if (read.state === 'unreadable') return { ok: false, because: unreadableSentence(journalAt, read) };
   if (read.state !== 'unfinished') return { ok: false, because: 'there is no update waiting to be applied' };
   const ctx = contextFor(journalAt, read.journal, deps, 'apply');
   const first = read.journal;
@@ -1371,7 +1431,12 @@ async function applyJournal(journalAt, overrides) {
     /* The journal read above is only a look. Between it and the lock, a resumer can have finished
        this journal, or begin() written another: only the same journal, still unfinished and still
        staged, READ AGAIN UNDER THE LOCK, is applied. */
-    const again = sameUnfinishedJournal(journalAt, first.token, deps.reading);
+    const reread = sameUnfinishedJournal(journalAt, first.token, deps.reading);
+    if (reread.code) {
+      ctx.log(`the update was not started, and nothing was written: ${heldRereadBecause(reread)}`);
+      return { ok: false, outcome: 'held', action: 'held', because: `the update was not started, because ${heldRereadBecause(reread)}` };
+    }
+    const again = reread.journal;
     if (!again || again.phase !== 'staged') {
       ctx.log('the journal was finished or replaced before this helper held the lock; nothing applied');
       return { ok: false, because: 'the update was finished or replaced before this helper could start it, so it was not applied' };
@@ -1413,7 +1478,7 @@ async function resumeJournal(journalAt, overrides) {
   const deps = depsFrom(overrides);
   deps.hooks.afterDependencies();
   const read = readJournal(journalAt, deps.reading);
-  if (read.state === 'unreadable') return { ok: false, because: unreadableSentence(journalAt, read.why) };
+  if (read.state === 'unreadable') return { ok: false, because: unreadableSentence(journalAt, read) };
   if (read.state !== 'unfinished') return { ok: true, action: 'nothing' };
   /* A staged journal this young belongs to the helper begin() has just started: leave it, and do not
      even take the lock that helper is about to need. */
@@ -1426,7 +1491,9 @@ async function resumeJournal(journalAt, overrides) {
   ctx.lock = lock;
   try {
     /* Read again under the lock: the holder it waited for may have finished it or replaced it. */
-    const again = lock.none ? read.journal : sameUnfinishedJournal(journalAt, read.journal.token, deps.reading);
+    const reread = lock.none ? { journal: read.journal } : sameUnfinishedJournal(journalAt, read.journal.token, deps.reading);
+    if (reread.code) return { ok: true, action: 'held', because: heldRereadBecause(reread) };
+    const again = reread.journal;
     if (!again) return { ok: true, action: 'nothing' };
     ctx.j = again;
     if (stagedIsYoung(ctx.j, deps.now())) return { ok: true, action: 'starting' };
@@ -1449,7 +1516,7 @@ async function resumeJournal(journalAt, overrides) {
     /* 🛑 A BOARD H7 CONFIRMED IS NEVER ROLLED BACK. A journal left at `starting` can be one whose
        helper saw the new board answer and could not record it (CONFIRMED_RECORD_PATIENCE_MS ran out):
        H7's own test, asked again here, finishes it forward. */
-    if (ctx.j.phase === 'starting' && answersAs(await deps.probe(ctx.j.board.port), ctx.j.to.identity)) {
+    if (ctx.j.phase === 'starting' && taskBoardAnswersAs(await deps.probe(ctx.j.board.port), ctx.j.to.identity)) {
       ctx.log(`the board answers as ${ctx.j.to.identity}, as H7 requires: finishing the update forward`);
       setPhase(ctx, 'confirmed');
       return finishUpdated(ctx);
@@ -1474,21 +1541,33 @@ async function resumeJournal(journalAt, overrides) {
 function recoverAtBoot(journalAt, overrides) {
   refuseInTestWithoutSeams(overrides, 'recover', journalAt);
   const deps = depsFrom(overrides);
+  /* BOOT_RECOVERY_DEADLINE_MS, counted from the start of this process as the hand-off counts its own
+     budget (a suite passes `startedAt`, or starts it at its own clock's now). Every held wait stops at
+     it, and so does the recovery, as held. */
+  const startedAt = overrides
+    ? (Number.isFinite(overrides.startedAt) ? overrides.startedAt : deps.now())
+    : deps.now() - Math.round(process.uptime() * 1000);
+  const deadline = startedAt + BOOT_RECOVERY_DEADLINE_MS;
+  deps.reading = { ...deps.reading, budget: { ...deps.reading.budget, until: deadline, now: deps.now } };
   deps.hooks.afterDependencies();
   const read = readJournal(journalAt, deps.reading);
   if (read.state === 'unreadable') {
-    try { process.stderr.write('kosmos: ' + unreadableSentence(journalAt, read.why) + '\n'); } catch { /* stderr gone */ }
+    try { process.stderr.write('kosmos: ' + unreadableSentence(journalAt, read) + '\n'); } catch { /* stderr gone */ }
     return { action: 'unreadable', because: read.why };
   }
   if (read.state !== 'unfinished') return { action: 'nothing' };
   const ctx = contextFor(journalAt, read.journal, deps, 'boot');
+  ctx.deadline = deadline;
   const found = unrecoverableCase(read.journal, deps.reading);
   if (unreachableBeforeLock(read.journal, found, deps.reading)) return { action: 'unreachable', because: found.because };
   const lock = lockForResume(ctx, found);
   if (lock.because) return { action: 'held', because: lock.because };
   ctx.lock = lock;
   try {
-    const again = lock.none ? read.journal : sameUnfinishedJournal(journalAt, read.journal.token, deps.reading);
+    const reread = lock.none ? { journal: read.journal } : sameUnfinishedJournal(journalAt, read.journal.token, deps.reading);
+    /* A re-read that cannot be made is held, never "nothing": the boot choice comes from the first read. */
+    if (reread.code) return { action: 'held', because: heldRereadBecause(reread), ...bootChoiceWhenHeld(read.journal, deps.reading) };
+    const again = reread.journal;
     if (!again) return { action: 'nothing' };
     ctx.j = again;
     const judged = judgedUnderLock(again, found, lock, deps.reading);
@@ -1523,7 +1602,7 @@ function recoverAtBoot(journalAt, overrides) {
  */
 function abandonStagedJournal(journalAt, because, overrides) {
   refuseInTestWithoutSeams(overrides, 'abandon', journalAt);
-  const deps = depsFrom(overrides);
+  const deps = depsFrom(overrides, win32update.QUICK_HELD_READ_BUDGET);
   const read = readJournal(journalAt);
   if (read.state !== 'unfinished' || read.journal.phase !== 'staged') return { action: 'nothing' };
   const ctx = contextFor(journalAt, read.journal, deps, 'begin');
@@ -1531,7 +1610,9 @@ function abandonStagedJournal(journalAt, because, overrides) {
   if (!lock.text) return { action: 'held', because: lock.because };
   ctx.lock = lock;
   try {
-    const again = sameUnfinishedJournal(journalAt, read.journal.token);
+    const reread = sameUnfinishedJournal(journalAt, read.journal.token, deps.reading);
+    if (reread.code) return { action: 'held', because: heldRereadBecause(reread) };
+    const again = reread.journal;
     if (!again || again.phase !== 'staged') return { action: 'nothing' };
     ctx.j = again;
     finishWithoutChange(ctx, because);
@@ -1548,7 +1629,7 @@ function abandonStagedJournal(journalAt, because, overrides) {
 module.exports = {
   applyJournal, resumeJournal, recoverAtBoot, abandonStagedJournal, settleUnrecoverableJournal, readJournal, writeStagedJournal,
   unfinishedUpdateRefusal, journalPathFor, statusPathFor, moveOrder, writeGuard,
-  stagedIsYoung, presenceOf, answersAs,
+  stagedIsYoung, presenceOf, answersAs, taskBoardAnswersAs, previousAppMayBoot,
   MODULE_FILE_NAME, PREVIOUS_PREFIX, ANCHORED_NODE_COPY_NAME, APPLY_LOG_NAME, DEFAULT_APPLY_LIMITS, PHASES, STAGED_HELPER_STARTUP_GRACE_MS,
-  OWNER_READ_BUDGET, CONFIRMED_RECORD_PATIENCE_MS,
+  OWNER_READ_BUDGET, CONFIRMED_RECORD_PATIENCE_MS, BOOT_RECOVERY_DEADLINE_MS,
 };

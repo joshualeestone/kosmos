@@ -781,6 +781,9 @@ function tryRetryingHolds(attempt, waitSync, budget) {
       const code = (e && e.code) || 'unknown';
       if (code === 'ENOENT' || code === 'ENOTDIR') return { missing: true, code };
       if (!HELD_FILE_CODES.includes(code) || tries >= b.tries) return { code, tries };
+      /* A caller with a deadline (`budget.until`, read with `budget.now`: the logon shim's recovery)
+         stops waiting once the next wait would pass it. */
+      if (typeof b.now === 'function' && Number.isFinite(b.until) && b.now() + b.waitMs > b.until) return { code, tries };
       wait(b.waitMs);
     }
   }
@@ -1313,7 +1316,7 @@ function parseCliArgs(argv) {
 
 /**
  * `--apply --wait`: the helper's outcome for this journal, read from the status it writes. A journal
- * at `confirmed` whose new board answers as the new build (H7's own test, win32apply.answersAs) is a
+ * at `confirmed` whose new board answers as the new build (H7's own test, win32apply.taskBoardAnswersAs) is a
  * success too: the update is in, and only its record is still being finished. Seams: sleep, now,
  * waitMs, probe.
  */
@@ -1329,7 +1332,7 @@ async function waitForOutcome(journalAt, token, seams) {
     const status = readJson(statusAt);
     if (status && status.journal === token && status.outcome) return status;
     const j = apply.readJournal(journalAt).journal;
-    if (j && j.token === token && j.phase === 'confirmed' && apply.answersAs(await probe(j.board.port), j.to.identity)) {
+    if (j && j.token === token && j.phase === 'confirmed' && apply.taskBoardAnswersAs(await probe(j.board.port), j.to.identity)) {
       return {
         outcome: 'updated', version: j.to.version, from: j.from.version, to: j.to.version, journal: token,
         because: `the board answers as ${j.to.identity}; Kosmos is still finishing up the record of the update`,
