@@ -492,7 +492,10 @@ _kosmos_board_label() {
 # domain is not a test's to touch) and never without launchctl (non-macOS).
 _kosmos_board_supervised() {
   [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] || return 1
-  [ -x "$LAUNCHCTL" ] || command -v "$LAUNCHCTL" >/dev/null 2>&1 || return 1
+  # `command -v` (not a bare `[ -x ]`, which a DIRECTORY passes -- the installer
+  # runnable-guard convention) resolves both an absolute path (accepting only an
+  # executable file) and a bare command name on PATH; empty => no launchctl here.
+  command -v "$LAUNCHCTL" >/dev/null 2>&1 || return 1
   local _label _uid _print
   _label="$(_kosmos_board_label)"; _uid="$(/usr/bin/id -u)"
   _print="$("$LAUNCHCTL" print "gui/$_uid/$_label" 2>/dev/null)" || return 1
