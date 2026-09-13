@@ -47,6 +47,8 @@ let macDisabled = new Set(); // agents launchd reports switched off (print-disab
 let winDisabled = new Set(); // agents whose Scheduled Task reports Disabled
 let winMissing = new Set();  // agents with no Scheduled Task at all (an import's first start)
 let winGerman = false;       // the LIST status printed as a German Windows prints it
+let winXmlFails = new Set();  // #2977: the /XML read (taskEnabled) FAILS while the LIST read (jobFor) still succeeds -> known:false
+let macProbeFails = false;    // #2977: the Mac print-disabled probe itself fails (disabledJobsResult ok:false)
 
 function answerMac(file, args) {
   const line = [nodePath.basename(file), ...args].join(' ');
@@ -66,6 +68,9 @@ function answerWin(args) {
     if ([...winMissing].some((n) => args.includes(win32job.taskName(n)))) return { ok: false, out: 'ERROR: The system cannot find the file specified.' };
     const off = [...winDisabled].some((n) => args.includes(win32job.taskName(n)));
     /* The switched-off decision reads the task's own definition (win32job.taskEnabled). */
+    /* #2977: only the XML read fails (not NO_SUCH_TASK), so jobFor's LIST read still
+       sees the task as ours while taskEnabled reads known:false -- the card's window. */
+    if (args.includes('/XML') && [...winXmlFails].some((n) => args.includes(win32job.taskName(n)))) return { ok: false, out: 'ERROR: The RPC server is unavailable.' };
     if (args.includes('/XML')) return { ok: true, out: '<Task><Settings><Enabled>' + (off ? 'false' : 'true') + '</Enabled></Settings></Task>' };
     if (winGerman) return { ok: true, out: off ? 'Status: Deaktiviert\n' : 'Status: Bereit\n' };
     return { ok: true, out: off ? 'Status: Disabled\n' : 'Status: Ready\n' };
@@ -80,6 +85,7 @@ function answerWin(args) {
 // is Kosmos "test"'s. In the default world a key is the bare name.
 function answerCreate(file, args) {
   if (args[0] === 'print-disabled') {
+    if (macProbeFails) return { ok: false }; // #2977: the probe itself could not look
     return { ok: true, stdout: [...macDisabled].map((k) => `\t"${create.SERVICE_LABEL_PREFIX}${k}" => disabled`).join('\n') };
   }
   return { ok: true, stdout: '' };
@@ -111,6 +117,7 @@ const writeRecord = (entries) => {
 test.beforeEach(() => {
   calls = []; failing = []; onFirstCall = null;
   macDisabled = new Set(); winDisabled = new Set(); winMissing = new Set();
+  winXmlFails = new Set(); macProbeFails = false; winGerman = false;
   remove.setRunner(answerMac);
   create.setRunner(answerCreate);
   win32job.setRunner(answerWin);
@@ -469,6 +476,36 @@ test('R1-4 (Mac): a job launchd reports switched off is left off: not recorded, 
   assert.match(out.notPaused[0].because, /already switched off/);
   assert.deepEqual(calls, []);
   assert.equal(fs.existsSync(worldstarts.RECORD_FILE), false);
+});
+
+test('#2977 (Windows): a task whose switched-off state cannot be READ is left as it is -- not paused, not recorded', () => {
+  // jobFor's LIST read succeeds (the task is ours), but taskEnabled's XML read fails.
+  winXmlFails.add('ava');
+  const out = worldstarts.pauseForSwitch([{ name: 'ava', session: 'ava', tied: true }], { platform: WIN });
+  assert.deepEqual(out.paused, []);
+  assert.equal(out.notPaused[0].name, 'ava');
+  assert.match(out.notPaused[0].because, /could not tell whether ava was switched on/);
+  assert.equal(calls.some((c) => /\/Change|\/End/.test(c)), false, 'an unreadable agent must not be disabled or stopped');
+  assert.equal(fs.existsSync(worldstarts.RECORD_FILE), false, 'recording it would let the resume switch an off agent on -- the #2977 harm');
+});
+
+test('#2977 (Mac): when the switched-off probe itself cannot look, the agent is left as it is -- not paused, not recorded', () => {
+  macProbeFails = true;
+  const out = worldstarts.pauseForSwitch([{ name: 'ava', session: 'ava-discord', tied: true }], { platform: MAC });
+  assert.deepEqual(out.paused, []);
+  assert.equal(out.notPaused[0].name, 'ava');
+  assert.match(out.notPaused[0].because, /could not tell whether ava was switched on/);
+  assert.deepEqual(calls, [], 'nothing is disabled or stopped when we could not read the state');
+  assert.equal(fs.existsSync(worldstarts.RECORD_FILE), false);
+});
+
+test('#2977: an unknown pause records nothing, so the matching resume has nothing to switch back on (the reported harm)', () => {
+  winXmlFails.add('ava');
+  worldstarts.pauseForSwitch([{ name: 'ava', session: 'ava', tied: true }], { platform: WIN });
+  assert.equal(fs.existsSync(worldstarts.RECORD_FILE), false);
+  calls = [];
+  worldstarts.resumePaused({ platform: WIN });
+  assert.deepEqual(calls, [], 'the resume acted on an agent the pause deliberately left alone -- this is exactly the bug');
 });
 
 test('R1-4: an agent THIS Kosmos already paused (switched off by us) stays paused and keeps its entry', () => {

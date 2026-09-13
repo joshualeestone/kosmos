@@ -248,29 +248,42 @@ function actSucceeded(act) {
 }
 
 /**
- * Is this agent's launch job ALREADY switched off -- a half-finished removal, or
- * switched off by hand in Login Items / Task Scheduler? Such an agent is not
- * paused and not recorded: a record would make the resume switch it back on and
- * start it, overriding somebody else's choice. (Review round 1; the alternative,
- * recording it as "was off" and leaving it off at resume, writes an entry nothing
- * acts on.)
- * Mac: launchd's per-user overrides, one probe for the fleet
- * (`create.disabledJobs`, passed in as `macOff`). Windows: the task's own state.
- * Both fail soft to "not off", which pauses it -- the behaviour before this check.
- * Both answer for THIS Kosmos only: `disabledJobs` names this world's agents, and
- * the task name is this world's key.
+ * What state is this agent's launch job in -- 'off', 'on', or 'unknown'?
+ *   'off'     ALREADY switched off: a half-finished removal, or switched off by hand
+ *             in Login Items / Task Scheduler. Such an agent is not paused and not
+ *             recorded: a record would make the resume switch it back on and start it,
+ *             overriding somebody else's choice. (Review round 1; the alternative,
+ *             recording it as "was off" and leaving it off at resume, writes an entry
+ *             nothing acts on.)
+ *   'on'      live, or not ours to judge: pause it, the behaviour before this check.
+ *   'unknown' we could not read its state. #2977: the old code FAILED SOFT to "not off"
+ *             here ("A look that fails is still 'not off', as it always was"), which
+ *             pauses-and-records the agent -- and the matching resume then switches an
+ *             OFF agent ON, overriding the person's choice, on the narrow window where
+ *             the read fails (Windows: jobFor's LIST read succeeds, then taskEnabled's
+ *             XML read fails ~20ms later). 'unknown' is now its own answer and the
+ *             caller LEAVES the agent exactly as it is: not paused, not recorded. An off
+ *             agent stays off; an on agent keeps running through the switch. Not-pausing
+ *             an on agent is the lesser harm than switching an off one on.
+ * Mac: launchd's per-user overrides, one probe for the fleet (`create.disabledJobsResult`,
+ * passed in as `macOff`; its `ok:false` IS the unknown). Windows: the task's own
+ * definition via `win32job.taskEnabled`, whose `known:false` IS the unknown (its XML
+ * read would not answer, or the definition was not a shape it could read).
+ * Both answer for THIS Kosmos only: `disabledJobs` names this world's agents, and the
+ * task name is this world's key.
  */
-function switchedOffOnMac(platform) { return platform === 'win32' ? null : create.disabledJobs(); }
-function jobIsSwitchedOff(name, platform, macOff) {
+function switchedOffOnMac(platform) { return platform === 'win32' ? null : create.disabledJobsResult(); }
+function jobSwitchState(name, platform, macOff) {
   if (platform === 'win32') {
     /* The task's own definition, not the LIST text (win32-agent-job-read round 2):
        a pause decides from this, and the LIST text calls an agent named
-       `disabled-bot` switched off and every task on a non-English Windows on.
-       A look that fails is still "not off", as it always was. */
+       `disabled-bot` switched off and every task on a non-English Windows on. */
     const st = win32job.taskEnabled(name);
-    return st.known === true && st.registered === true && st.enabled === false;
+    if (st.known === false) return 'unknown';
+    return (st.registered === true && st.enabled === false) ? 'off' : 'on';
   }
-  return macOff.has(name);
+  if (!macOff || macOff.ok === false) return 'unknown';
+  return macOff.jobs.has(name) ? 'off' : 'on';
 }
 
 /* ── pause ───────────────────────────────────────────────────────────────── */
@@ -346,12 +359,23 @@ function pauseForSwitch(agents, opts = {}) {
       notPaused.push({ name: c.name, because: `${c.name} was not started by Kosmos, so we could not pause it and it keeps running` });
       continue;
     }
-    if (!heldForRetry.has(c.name) && jobIsSwitchedOff(c.name, platform, macOff)) {
-      // An earlier pause of this same Kosmos (a board that could not restart
-      // itself, paused twice): it IS paused, and its entry stands as written.
-      if (alreadyPaused.has(c.name)) paused.push(c.name);
-      else notPaused.push({ name: c.name, because: `${c.name} was already switched off, so we left it off` });
-      continue;
+    if (!heldForRetry.has(c.name)) {
+      const sw = jobSwitchState(c.name, platform, macOff);
+      if (sw === 'unknown') {
+        // #2977: we could not read whether it was switched on, so we must not guess.
+        // Leave it exactly as it is -- neither paused nor recorded -- so the matching
+        // resume cannot switch an already-off agent on. An on agent keeps running
+        // through the switch, which is the lesser harm.
+        notPaused.push({ name: c.name, because: `we could not tell whether ${c.name} was switched on, so we left it as it was` });
+        continue;
+      }
+      if (sw === 'off') {
+        // An earlier pause of this same Kosmos (a board that could not restart
+        // itself, paused twice): it IS paused, and its entry stands as written.
+        if (alreadyPaused.has(c.name)) paused.push(c.name);
+        else notPaused.push({ name: c.name, because: `${c.name} was already switched off, so we left it off` });
+        continue;
+      }
     }
     withJobs.push({ ...c, job });
   }
