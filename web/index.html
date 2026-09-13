@@ -11742,7 +11742,6 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <button type="button" data-go="usage" aria-controls="s-sec-usage">Token Usage</button>
     <button type="button" data-go="updates" aria-controls="s-sec-updates">Updates</button>
     <button type="button" data-go="plus" aria-controls="s-sec-plus"><span>Kosmos Plus</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
-    <button type="button" data-go="styles" aria-controls="s-sec-styles">Styles</button>
     <button type="button" data-go="advanced" aria-controls="s-sec-advanced">Advanced</button>
   </nav>
   <div class="dsecs">
@@ -12759,59 +12758,6 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     </div>
   </section>
 
-  <!-- ============ STYLES (#480, Josh 19:15) ============
-       Function and plain words, polish deferred by his own ruling. Two
-       ways in: a few named themes, and a pasted style an agent wrote.
-       Tokens only, never a stylesheet: a paste can recolor the page and
-       cannot make it do anything. Applied on the root element, so a
-       custom style shows in light and dark alike, said below in words. -->
-  <section class="dsec" id="s-sec-styles" data-sec="styles" tabindex="-1" aria-label="Styles" hidden>
-    <h2>Styles</h2>
-
-    <!-- #520: how Kosmos is laid out. Two tiles, tabs by default (Josh,
-         2026-08-24 13:39: easier and less overwhelming; the consolidated
-         view is for people who want the whole thing on one screen). The
-         choice is saved with the style (/api/style `layout`) and painted
-         from what the engine says, never from a click alone. -->
-    <div class="field" id="layout-field">
-      <div class="laytiles" role="radiogroup" aria-label="How Kosmos is laid out">
-        <button class="laytile" type="button" role="radio" aria-checked="true" data-layout-pick="tabs">
-          <svg viewBox="0 0 220 132" aria-hidden="true"><rect x="0" y="0" width="220" height="132" rx="6" fill="var(--k-bg)" stroke="var(--k-rule)"/><rect x="70" y="10" width="26" height="10" rx="2" fill="var(--gold)"/><rect x="102" y="10" width="26" height="10" rx="2" fill="var(--k-rule)"/><rect x="134" y="10" width="26" height="10" rx="2" fill="var(--k-rule)"/><g fill="var(--k-surface)" stroke="var(--k-rule)"><rect x="12" y="32" width="60" height="42" rx="5"/><rect x="80" y="32" width="60" height="42" rx="5"/><rect x="148" y="32" width="60" height="42" rx="5"/><rect x="12" y="80" width="60" height="42" rx="5"/><rect x="80" y="80" width="60" height="42" rx="5"/><rect x="148" y="80" width="60" height="42" rx="5"/></g><g fill="var(--k-rule)"><circle cx="42" cy="46" r="7"/><circle cx="110" cy="46" r="7"/><circle cx="178" cy="46" r="7"/><circle cx="42" cy="94" r="7"/><circle cx="110" cy="94" r="7"/><circle cx="178" cy="94" r="7"/></g></svg>
-          <b>Tab view</b>
-        </button>
-        <button class="laytile" type="button" role="radio" aria-checked="false" data-layout-pick="consolidated">
-          <svg viewBox="0 0 220 132" aria-hidden="true"><rect x="0" y="0" width="220" height="132" rx="6" fill="var(--k-bg)" stroke="var(--k-rule)"/><rect x="8" y="8" width="28" height="116" rx="4" fill="var(--k-surface)" stroke="var(--k-rule)"/><g fill="var(--k-rule)"><circle cx="22" cy="22" r="6"/><circle cx="22" cy="40" r="6"/><circle cx="22" cy="58" r="6"/><circle cx="22" cy="76" r="6"/><circle cx="22" cy="94" r="6"/></g><rect x="42" y="8" width="34" height="116" rx="4" fill="var(--k-surface)" stroke="var(--k-rule)"/><g fill="var(--k-rule)"><rect x="48" y="16" width="22" height="6" rx="2"/><rect x="48" y="30" width="22" height="6" rx="2"/><rect x="48" y="44" width="22" height="6" rx="2"/></g><rect x="82" y="8" width="84" height="116" rx="4" fill="var(--k-surface)" stroke="var(--k-rule)"/><g fill="var(--k-rule)"><rect x="90" y="18" width="60" height="5" rx="2"/><rect x="90" y="30" width="48" height="5" rx="2"/><rect x="90" y="42" width="56" height="5" rx="2"/></g><rect x="90" y="106" width="68" height="10" rx="3" fill="var(--k-bg)" stroke="var(--k-rule)"/><rect x="140" y="108" width="16" height="6" rx="2" fill="var(--gold)"/><rect x="172" y="8" width="40" height="116" rx="4" fill="var(--k-surface)" stroke="var(--k-rule)"/><g fill="var(--k-rule)"><rect x="178" y="16" width="28" height="26" rx="3"/><rect x="178" y="48" width="28" height="26" rx="3"/><rect x="178" y="80" width="28" height="26" rx="3"/></g></svg>
-          <b>Consolidated view</b>
-        </button>
-      </div>
-        <!-- 🔑 CHOOSE THEN CONFIRM (kosmos#1216). Josh: "I want a button so that
-             once you click one of the two, it says something like Activate and
-             when you click Activate it takes you to the view of whatever you've
-             selected." Picking a tile now only SELECTS; Activate applies it and
-             goes there. -->
-        <div class="frow" style="margin-top:12px;">
-          <button class="btn uprime" type="button" id="layout-activate" disabled>Activate</button>
-        </div>
-      <p class="fmsg" id="layout-msg" role="status" aria-live="polite"></p>
-    </div>
-
-    <div class="field">
-      <label class="flabel" for="style-theme">Theme</label>
-      <select class="tk-inp" id="style-theme"></select>
-      <p class="fhint">Changes apply as soon as you pick one.</p>
-      <!-- 🛑 #style-msg LIVES HERE NOW, and moving it was not optional
-           (kosmos#1001). It used to sit inside the "A style of your own" block
-           that this card removes, but it was never that block's message slot --
-           the THEME picker writes its save failures here, and so does the
-           corrupt-saved-style notice. Deleting the block with it inside, which
-           is what the card literally described, leaves
-           `document.getElementById('style-msg').textContent = ''` running
-           against null and throws on every theme change.
-           ⚠️ A removal is two changes: what goes, and what was quietly leaning
-           on it. -->
-      <p class="fmsg" id="style-msg" role="alert" aria-live="assertive"></p>
-    </div>
-  </section>
 
   <section class="dsec" id="s-sec-advanced" data-sec="advanced" tabindex="-1" aria-label="Advanced" hidden>
     <section class="dbox">
@@ -24314,7 +24260,7 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
    #2054: 'talking' removed -- the "Agents Talking" tab is deleted and its one
    block moved into 'automation'. A leftover 'talking' here would keep a dead
    section key reachable by URL that no nav pill points at. */
-const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'policy', 'mac', 'automation', 'usage', 'updates', 'plus', 'styles', 'advanced'];
+const SETTINGS_SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'policy', 'mac', 'automation', 'usage', 'updates', 'plus', 'advanced'];
 function settingsGo(section, opts) {
   if (!SETTINGS_SECTIONS.includes(section)) section = 'you';
   SETTINGS_SEC = section;
@@ -24341,10 +24287,6 @@ function settingsGo(section, opts) {
      canvases; teardown + un-blue for every other section. syncPlusChrome reads
      the true state itself, so it is a safe no-op elsewhere. */
   syncPlusChrome();
-  /* apply=true: if the one boot-time fetch failed, arriving here
-     heals it; applyStyle removes before re-adding, so a repaint of an
-     already-applied style is a no-op on screen. */
-  if (section === 'styles') paintStyles(true);
   syncUrl();
 }
 /* #734: the Agents count, while it is a floor, opens This Mac on a tap or
@@ -29358,47 +29300,9 @@ function openConsolidatedSettings() {
   settingsOpen(SETTINGS_SEC);
   syncPlusChrome();
 }
-/* 🔑 SELECT, THEN ACTIVATE (kosmos#1216). A tile used to save and apply on
-   click; Josh asked for the press to be the commitment. */
-let LAYOUT_PICK = null;
-document.querySelectorAll('[data-layout-pick]').forEach((b) => {
-  b.addEventListener('click', () => {
-    LAYOUT_PICK = b.dataset.layoutPick;
-    document.querySelectorAll('[data-layout-pick]').forEach((o) => o.setAttribute('aria-checked', String(o === b)));
-    const go = document.getElementById('layout-activate');
-    if (go) go.disabled = false;
-    const m = document.getElementById('layout-msg');
-    if (m) m.textContent = '';
-  });
-});
-document.getElementById('layout-activate').addEventListener('click', async () => {
-  const msg = document.getElementById('layout-msg');
-  const go = document.getElementById('layout-activate');
-  if (!LAYOUT_PICK) return;
-  msg.textContent = '';
-  go.disabled = true;
-  try {
-    const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ layout: LAYOUT_PICK }) });
-    if (!res.ok) { msg.textContent = ((await res.json().catch(() => null)) || {}).error || 'we could not save that'; go.disabled = false; return; }
-    const r = await res.json();
-    applyLayout(r.layout, true);
-    /* 🛑 THE SUCCESS CHATTER GOES AND THE WIDTH WARNING STAYS, AND THEY WERE THE
-       SAME SENTENCE. Josh named ONE line: "Saved. Agents and Projects now share
-       one screen." The narrow-window line ALSO opened with "Saved.", so deleting
-       "the success message" as a CATEGORY would have taken the only remaining
-       statement of the 960px fact, since the tile description that also carried
-       it is removed above. Deleting by category rather than by text is how a
-       constraint vanishes alongside the chatter it happened to sit next to.
-       ⇒ Nothing is said when it simply worked. The width warning is said when it
-       APPLIES, at the moment of the press, which is a better home than a line
-       standing on the page for everyone it does not affect. */
-    if (r.layout === 'consolidated' && window.innerWidth < CONSOLIDATED_MIN_WIDTH) {
-      msg.textContent = 'This window is narrower than ' + CONSOLIDATED_MIN_WIDTH + ' pixels, so the side columns are folded for now.';
-    }
-    const tab = document.querySelector('.tab[data-tab="agents"]');
-    if (tab) tab.click();
-  } catch { msg.textContent = 'we could not save that'; go.disabled = false; }
-});
+/* #2618: the in-tab layout tiles + Activate (kosmos#1216) lived in the removed
+   Settings > Styles tab. The header board-view toggle below (#2154) is now the only
+   layout flipper; the saved layout is still applied on load by paintStyles. */
 /* #2154: the header board-view toggle. A delegated click, matching the header
    theme picker's pattern, and one press applies (the Settings tiles keep their
    deliberate select-then-activate; this is the quick flip). It writes the SAME
@@ -29565,20 +29469,11 @@ async function paintStyles(apply) {
     else if (STYLE_STORE_MSG) { smsg.textContent = ''; STYLE_STORE_MSG = false; }
   }
 }
+/* #2618: paintStyles(true) still runs on load -- it applies the saved LAYOUT
+   (applyLayout) and any saved palette tokens, and self-guards the now-removed
+   #style-theme / #style-msg elements. The Settings > Styles theme <select> and its
+   change handler were removed with the tab. */
 paintStyles(true);
-if (document.getElementById('style-theme')) document.getElementById('style-theme').addEventListener('change', async (e) => {
-  const msg = document.getElementById('style-msg');
-  msg.textContent = '';
-  try {
-    STYLE_REQ += 1;
-    const res = await fetch('/api/style', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ theme: e.target.value }) });
-    const body = await res.json().catch(() => null);
-    /* A failed save reverts the select: the control shows what is
-       standing, never a pick that neither saved nor applied. */
-    if (!res.ok) { msg.textContent = (body && body.error) || 'we could not save the style'; paintStyles(false); return; }
-    applyStyle(body.tokens);
-  } catch { msg.textContent = 'we could not save the style'; paintStyles(false); }
-});
 /* ---- Kosmos Plus (the relay service's Settings home) -----------------
    The holding place is the RESTING state: the flow renders only when this
    machine actually has a relay configured, so nothing on the tab can look

@@ -43,7 +43,8 @@ require('../../engine/you').save({ name: 'Josh', does: 'runs the company', know:
 const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'snav-shots-'));
 // #2054: 'talking' removed -- the Agents Talking tab is deleted and its block folded
 // into Automation. 'automation' is exercised by render-prompter-label-1843.js.
-const SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'policy', 'mac', 'updates', 'plus', 'styles', 'advanced'];
+// #2618: 'styles' removed -- the Settings > Styles tab was deleted entirely.
+const SECTIONS = ['you', 'accounts', 'connect', 'gskills', 'policy', 'mac', 'updates', 'plus', 'advanced'];
 const fail = [];
 function chk(ok, label, extra) {
   console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
@@ -94,14 +95,14 @@ function chk(ok, label, extra) {
       await page.fill('#you-name', 'Josh'); await page.click('#you-name-save');
       await page.waitForFunction(() => /^Saved\. Told/.test(document.getElementById('you-name-msg').textContent), null, { timeout: 8000 });
       chk(SECTIONS.filter((k) => k !== 'you').every((k) => r[k] === 0),
-        `[${theme}] control: the other ten sections measure zero before any click`, JSON.stringify(r));
+        `[${theme}] control: the other sections measure zero before any click`, JSON.stringify(r));
 
       for (const k of SECTIONS) {
         await page.click('#s-nav button[data-go="' + k + '"]');
         await page.waitForTimeout(150);
         r = await rects();
         chk(SECTIONS.every((j) => (j === k ? r[j] > 0 : r[j] === 0)),
-          `[${theme}] click ${k}: that section is on screen and the ten others are not`, JSON.stringify(r));
+          `[${theme}] click ${k}: that section is on screen and the others are not`, JSON.stringify(r));
         const pill = await page.evaluate((key) => {
           const b = document.querySelector('#s-nav button[data-go="' + key + '"]');
           const on = [...document.querySelectorAll('#s-nav button.on')].map((x) => x.dataset.go);
@@ -112,6 +113,17 @@ function chk(ok, label, extra) {
         chk(pill.focus === k, `[${theme}] click ${k}: focus moved into the section`, String(pill.focus));
         await page.screenshot({ path: path.join(OUT, `settings-${theme}-${k}.png`), fullPage: false });
       }
+
+      // #2618 absence assertion: the Styles tab is gone in BOTH places (a removal
+      // ships with a guard, or a later refactor re-adds it silently). Checks the nav
+      // button, the section, and that 'styles' is not a reachable settings section.
+      const styleGone = await page.evaluate(() => ({
+        navBtn: !document.querySelector('#s-nav button[data-go="styles"]'),
+        section: !document.getElementById('s-sec-styles'),
+        notInSections: (typeof SETTINGS_SECTIONS === 'undefined') || !SETTINGS_SECTIONS.includes('styles'),
+      }));
+      chk(styleGone.navBtn && styleGone.section && styleGone.notInSections,
+        `[${theme}] #2618: no Styles nav button, no s-sec-styles section, not in SETTINGS_SECTIONS`, JSON.stringify(styleGone));
 
       // The switches resolved and are measurable from inside their sections.
       /* #2623: tell-toggle and notify-toggle (the telemetry opt-outs) were
