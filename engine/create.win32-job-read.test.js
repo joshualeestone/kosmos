@@ -278,6 +278,24 @@ test('win32job never spawns schtasks from a test process that installed no runne
   } finally { cp.execFileSync = realExec; }
 });
 
+test('a board a test spawns (no --test in its execArgv) never spawns schtasks either', () => {
+  /* The shape server.leftover-removable and its siblings use: `node -e` with the
+     test's env. The child stubs its OWN execFileSync first, so even with the guard
+     reverted it counts an attempt and never reaches the real Task Scheduler. */
+  const script = [
+    "const cp = require('node:child_process');",
+    'let spawned = 0;',
+    "cp.execFileSync = () => { spawned += 1; throw Object.assign(new Error('stubbed'), { stderr: 'ERROR: stubbed' }); };",
+    'const job = require(' + JSON.stringify(path.join(__dirname, 'win32job.js')) + ');',
+    "const p = job.presence('guard-child');",
+    'process.stdout.write(JSON.stringify({ spawned, testFlag: process.execArgv.some((a) => a.startsWith("--test")), because: p.because }));',
+  ].join('\n');
+  const out = JSON.parse(cp.execFileSync(process.execPath, ['-e', script], { encoding: 'utf8', env: { ...process.env } }));
+  assert.equal(out.testFlag, false, 'control: the child must look like a spawned board, not a test process');
+  assert.equal(out.spawned, 0, 'a board spawned by a test reached execFileSync for schtasks');
+  assert.equal(out.because, job.REFUSED_IN_TEST);
+});
+
 /* ── Trust & Restart ───────────────────────────────────────────────────────── */
 
 test('trustAgentFolder on win32 writes the trust entry for a task-started Claude agent', () => {

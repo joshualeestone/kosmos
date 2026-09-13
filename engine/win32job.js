@@ -136,9 +136,18 @@ function run(args) {
      test that seeds a plist and reads it back takes the win32 arm on that box,
      and without this it would query real `Kosmos\agent-*` tasks. On a Mac this
      is behaviour-equivalent: `schtasks.exe` does not exist there, so the spawn
-     already failed as ok:false. Keyed on `--test` in execArgv, like
-     live-execution's own detector, so a server a test spawns is unaffected. */
-  if (liveExec.inTestProcess()) return { ok: false, out: REFUSED_IN_TEST };
+     already failed as ok:false.
+     🛑 AND A BOARD A TEST SPAWNS IS REFUSED TOO, which is where this deliberately
+     parts from live-execution's detector. Several suites stand up a real server
+     with `node -e` (server.leftover-removable, server.stray-removable,
+     web.not-running, server.forget-*): that child has no `--test` in its execArgv,
+     so `inTestProcess()` cannot see it, and on a Windows host it read real tasks
+     (measured: /Query /XML for Kosmos\agent-leftover and five more fixture names).
+     live-execution keys on execArgv so a spawned server can still use launchctl
+     against a sandboxed fake; nothing here can be faked that way, because
+     schtasks has no sandbox, so the inherited NODE_TEST_CONTEXT, which node's
+     test runner sets and nothing else does, refuses it as well. */
+  if (liveExec.inTestProcess() || process.env.NODE_TEST_CONTEXT) return { ok: false, out: REFUSED_IN_TEST };
   try {
     /* ⚠️ stderr PIPED, NOT INHERITED, and that is not tidiness. execFileSync's
        default sends the child's stderr straight to OUR stderr, so every ordinary
