@@ -405,3 +405,24 @@ test('CAP: the OPERATOR path is EXEMPT from the per-creator cap (board token, sa
     assert.ok(birthOf('opsnewone'), 'the operator create should have succeeded despite the seeded load');
   } finally { board.restore(); create.setClaudeProbe(null); fs.rmSync(logFile, { force: true }); }
 });
+
+test('#2972 AGENT path IGNORES body.cap: a model cannot raise its own bound (stays the default 12)', async () => {
+  // The operator (board-token) path honours body.cap (#2972). The AGENT path must
+  // NOT: otherwise a model could defeat the runaway guard by asking for a higher
+  // cap in its own request. 13 members + body.cap:15 over an agent token must still
+  // refuse at the default per-team cap 12. If the wiring leaked body.cap to the
+  // agent path, the resolved cap would be 15 and this would not refuse at 12.
+  const tok = sendertoken.mint('capignore').token;
+  liveness.seen('capignore');
+  const board = fleet.install([]);
+  try {
+    const members = Array.from({ length: 13 }, (_, i) => ({ name: 'ci' + i, role: 'pm' }));
+    const r = await postTeam(
+      { creator: 'capignore', purpose: 'try to raise my own bound', members, cap: 15 },
+      { 'x-kosmos-agent-token': tok },
+    );
+    assert.equal(r.status, 400, 'the agent over-cap request should be refused: ' + JSON.stringify(r.json));
+    assert.equal(r.json.cap, 12, 'the AGENT path must not honour body.cap; the cap must stay 12, got ' + JSON.stringify(r.json.cap));
+    assert.match(r.json.because || '', /cap is 12/, 'the refusal must name the default per-team cap 12, not the requested 15');
+  } finally { board.restore(); }
+});

@@ -358,3 +358,37 @@ test('merge arithmetic under BOTH a createTeam per-member refusal AND a liveness
     assert.ok(!birthOf('deadthree'), 'the dead member reached createAgent');
   } finally { create.setClaudeProbe(null); }
 });
+
+// ── #2972: the OPERATOR (board-token) path may raise the team cap in-flow via a
+// `cap` in the request body, so a 15-20 person org-chart import works without the
+// operator setting AGENT_WORKFORCE_TEAM_CAP out-of-band and restarting. postTeam
+// posts with no agent token, so these exercise the operator path. Asserted at the
+// refusal boundary (no real creates): the response echoes the RESOLVED cap, which
+// is 12 if the override was ignored and the raised value if it took effect. ──
+const many = (n) => Array.from({ length: n }, (_, i) => ({ name: 'capm' + i, role: 'pm' }));
+
+test('#2972 operator raises the cap in-flow: body.cap lifts the effective per-team cap above the default 12', async () => {
+  // 16 members with cap:15 -> still over 15, so refused WITHOUT any create, but the
+  // refusal must name 15 (the raised cap), not 12. If body.cap were ignored the
+  // resolved cap would be 12 (this is the mutation that reds the test).
+  const r = await postTeam({ creator: 'operator', purpose: 'org-chart import of a big team', members: many(16), cap: 15 });
+  assert.equal(r.status, 400, 'expected an over-(raised)-cap refusal: ' + JSON.stringify(r.json));
+  assert.equal(r.json.cap, 15, 'the operator body.cap did not raise the effective cap: ' + JSON.stringify(r.json));
+  assert.match(r.json.because || '', /16 agents/, 'the refusal must count the original 16');
+  assert.match(r.json.because || '', /cap is 15/, 'the refusal must name the RAISED cap 15, not the default 12');
+});
+
+test('#2972 the raised cap is still clamped to MAX_TEAM_CAP (50): body.cap over 50 cannot exceed the ceiling', async () => {
+  const r = await postTeam({ creator: 'operator', purpose: 'too ambitious', members: many(51), cap: 100 });
+  assert.equal(r.status, 400, JSON.stringify(r.json));
+  assert.equal(r.json.cap, 50, 'body.cap over MAX must clamp to 50, not pass through: ' + JSON.stringify(r.json));
+  assert.match(r.json.because || '', /cap is 50/, 'the refusal must name the clamped ceiling 50');
+});
+
+test('#2972 an invalid body.cap is IGNORED (falls back to the default), never trusted blindly', async () => {
+  for (const bad of ['abc', 0, -5, 15.5]) {
+    const r = await postTeam({ creator: 'operator', purpose: 'bad cap', members: many(13), cap: bad });
+    assert.equal(r.status, 400, 'a 13-member team should refuse at the default 12 for cap=' + JSON.stringify(bad) + ': ' + JSON.stringify(r.json));
+    assert.equal(r.json.cap, 12, 'an invalid body.cap (' + JSON.stringify(bad) + ') must NOT change the cap; got ' + JSON.stringify(r.json.cap));
+  }
+});
