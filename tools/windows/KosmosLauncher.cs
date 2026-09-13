@@ -19,10 +19,21 @@
 // behaviour for support. It still does no thinking of its own about the board:
 // a launcher that does is a second place for Windows-only bugs to live.
 //
+// AND IT DOES AN INSTALLER'S JOB (win32-installer-native), a deliberate reversal of
+// "does nothing more than the .cmd did": the zip has no installer, so the launcher
+// gives Kosmos a Start menu entry, an entry in Settings > Apps whose Uninstall runs
+// `--uninstall`, and an offer to move out of Downloads. Only the Windows-shell half
+// lives here (IShellLink, the registry, Known Folders, the questions). Everything
+// that is already a fact in the engine -- the tasks, the data folders, what a build
+// is made of, whether a board serves from this folder -- is asked of the engine's
+// own helpers (app\engine\win32uninstall.js, win32relocate.js), so there is still
+// one copy of each.
+//
 // It is a .NET Framework app because every Windows 10/11 machine ships the 4.x
 // runtime -- no dependency to install, no bundled runtime to sign.
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
@@ -30,6 +41,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using Microsoft.Win32;
 
 // FileDescription (AssemblyTitle) is the name Task Manager, the taskbar and
 // SmartScreen's "App:" line show. AssemblyCompany is deliberately absent: it has
@@ -45,11 +57,12 @@ class KosmosLauncher
     // The LAUNCHER's version, not the app's. This binary is committed and copied
     // into every zip unchanged (tools/windows/README.md), so an app version
     // stamped here would be wrong from the next release on. It moves only when
-    // this file does. 1 was the #2086 console launcher; 2 is the GUI one.
-    public const string LauncherVersion = "2.0.0.0";
+    // this file does. 1 was the #2086 console launcher; 2 is the GUI one; 3 does
+    // an installer's job (win32-installer-native).
+    public const string LauncherVersion = "3.0.0.0";
     // Explorer's "Product version". Worded so nobody reads it as the Kosmos
     // version, which lives in manifest.json and on the board.
-    public const string LauncherProductVersion = "launcher 2.0";
+    public const string LauncherProductVersion = "launcher 3.0";
 
     // Kept in step with tools/build-kosmos-windows.sh, which reads the board's
     // default out of server.js and refuses the build if this disagrees. If it
@@ -61,6 +74,15 @@ class KosmosLauncher
     const string WindowTitle = "Kosmos";
 
     const string ConsoleFlag = "--console";
+
+    // What Settings > Apps > Installed apps > Uninstall runs (see Uninstall).
+    const string UninstallFlag = "--uninstall";
+
+    // The engine helpers' word that the person confirmed: engine/win32uninstall.js and
+    // win32relocate.js are dry runs without it. Passed only after the question was answered.
+    const string ConfirmedFlag = "--yes";
+    const string UninstallHelperScript = "win32uninstall.js";
+    const string RelocateHelperScript = "win32relocate.js";
 
     // When to start asking whether the board started here is serving from here,
     // counted from its own start: engine/win32handoff.js's
@@ -122,9 +144,13 @@ class KosmosLauncher
         return Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
     }
 
+    // STA: the move dialog is Windows Forms and the Start menu shortcut is COM, and both
+    // expect the thread a GUI program's Main runs on.
+    [STAThread]
     static int Main(string[] args)
     {
         bool wantsConsole = Array.Exists(args, a => string.Equals(a, ConsoleFlag, StringComparison.OrdinalIgnoreCase));
+        bool wantsUninstall = Array.Exists(args, a => string.Equals(a, UninstallFlag, StringComparison.OrdinalIgnoreCase));
         showMessageBoxes = !wantsConsole && Environment.UserInteractive;
         if (!showMessageBoxes) ConnectToAConsole();
 
@@ -134,7 +160,12 @@ class KosmosLauncher
         string opener = Path.Combine(here, "open-board.js");
         string app = Path.Combine(here, "app");
 
-        // 🛑 NOTHING IS STARTED ABOVE THESE TWO CHECKS. The board's hand-off to its
+        // --uninstall is its own errand, decided before anything else: it asks first, never
+        // starts the board, never offers a move or refreshes the Start menu, and checks for
+        // the two files it needs itself (Uninstall, RunEngineHelper).
+        if (wantsUninstall) return Uninstall(here, node);
+
+        // 🛑 NOTHING OF THE BOARD'S IS STARTED ABOVE THESE TWO CHECKS. The board's hand-off to its
         // logon task happens inside server.js, so a folder without the runtime
         // provably never reaches it -- which is what lets the tests run this exe.
         if (!File.Exists(node))
@@ -154,6 +185,17 @@ class KosmosLauncher
             // environment variable into "Kosmos is broken" on a machine where the
             // server would have come up fine.
             if (int.TryParse(env, out parsed) && parsed > 0 && parsed < 65536) port = parsed;
+        }
+
+        // win32-installer-native: a real build (manifest.json, see IsKosmosBuild) is offered a
+        // move out of Downloads, the Desktop, OneDrive or a temporary folder, and then points
+        // its Start menu shortcut and its Settings > Apps entry at wherever it runs from. A
+        // folder without the manifest -- a partial extract, or any test's scratch folder --
+        // does neither, so it never touches the Start menu or the registry.
+        if (IsKosmosBuild(here))
+        {
+            if (showMessageBoxes && OfferToMoveOutOfATemporaryPlace(here, node, port)) return 0;
+            RefreshWindowsRegistration(here);
         }
 
         // The opener waits for the board itself and falls back to the plain url,
@@ -554,6 +596,657 @@ class KosmosLauncher
 
     [DllImport("user32.dll")]
     static extern bool SetProcessDPIAware();
+
+    // A yes/no question, No by default: every question this launcher asks with it is about
+    // removing something, and Enter on a default Yes would be the dangerous slip.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static bool AskYesNo(string question)
+    {
+        try { SetProcessDPIAware(); } catch { /* blurry text is better than no text */ }
+        try
+        {
+            System.Windows.Forms.Application.EnableVisualStyles();
+            return System.Windows.Forms.MessageBox.Show(question, WindowTitle,
+                System.Windows.Forms.MessageBoxButtons.YesNo, System.Windows.Forms.MessageBoxIcon.Question,
+                System.Windows.Forms.MessageBoxDefaultButton.Button2) == System.Windows.Forms.DialogResult.Yes;
+        }
+        catch
+        {
+            return MessageBoxW(IntPtr.Zero, question, WindowTitle, MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2) == IDYES;
+        }
+    }
+
+    // A finished piece of news, not a problem: the removal that worked.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static void ShowNotice(string text)
+    {
+        try { SetProcessDPIAware(); } catch { /* blurry text is better than no text */ }
+        try
+        {
+            System.Windows.Forms.Application.EnableVisualStyles();
+            System.Windows.Forms.MessageBox.Show(text, WindowTitle,
+                System.Windows.Forms.MessageBoxButtons.OK, System.Windows.Forms.MessageBoxIcon.Information);
+        }
+        catch
+        {
+            MessageBoxW(IntPtr.Zero, text, WindowTitle, MB_ICONINFORMATION);
+        }
+    }
+
+    internal enum MoveAnswer { Move, Keep, NoAnswer }
+
+    // The move question needs two named buttons, which a MessageBox cannot have, so it is a
+    // small dialog. Closing it is no answer: nothing is remembered and it asks again next time.
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static MoveAnswer AskMoveOrKeep(string question)
+    {
+        try { SetProcessDPIAware(); } catch { /* blurry text is better than no text */ }
+        try
+        {
+            System.Windows.Forms.Application.EnableVisualStyles();
+            using (System.Windows.Forms.Form form = new System.Windows.Forms.Form())
+            {
+                form.Text = WindowTitle;
+                form.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
+                form.MaximizeBox = false;
+                form.MinimizeBox = false;
+                form.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
+                form.Font = System.Drawing.SystemFonts.MessageBoxFont;
+                form.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+                form.AutoSize = true;
+                form.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+                try { form.Icon = System.Drawing.Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location); }
+                catch { /* the default window icon */ }
+
+                System.Windows.Forms.Label text = new System.Windows.Forms.Label();
+                text.AutoSize = true;
+                text.MaximumSize = new System.Drawing.Size(420, 0);
+                text.Text = question;
+                text.Margin = new System.Windows.Forms.Padding(0, 0, 0, 18);
+
+                System.Windows.Forms.Button move = new System.Windows.Forms.Button();
+                move.Text = MoveButton;
+                move.AutoSize = true;
+                move.DialogResult = System.Windows.Forms.DialogResult.Yes;
+                System.Windows.Forms.Button keep = new System.Windows.Forms.Button();
+                keep.Text = KeepButton;
+                keep.AutoSize = true;
+                keep.DialogResult = System.Windows.Forms.DialogResult.No;
+
+                System.Windows.Forms.FlowLayoutPanel buttons = new System.Windows.Forms.FlowLayoutPanel();
+                buttons.FlowDirection = System.Windows.Forms.FlowDirection.RightToLeft;
+                buttons.AutoSize = true;
+                buttons.Dock = System.Windows.Forms.DockStyle.Fill;
+                buttons.WrapContents = false;
+                buttons.Controls.Add(keep);
+                buttons.Controls.Add(move);
+
+                System.Windows.Forms.TableLayoutPanel layout = new System.Windows.Forms.TableLayoutPanel();
+                layout.AutoSize = true;
+                layout.AutoSizeMode = System.Windows.Forms.AutoSizeMode.GrowAndShrink;
+                layout.ColumnCount = 1;
+                layout.RowCount = 2;
+                layout.Padding = new System.Windows.Forms.Padding(18);
+                layout.Controls.Add(text, 0, 0);
+                layout.Controls.Add(buttons, 0, 1);
+                form.Controls.Add(layout);
+                form.AcceptButton = move;
+
+                System.Windows.Forms.DialogResult result = form.ShowDialog();
+                if (result == System.Windows.Forms.DialogResult.Yes) return MoveAnswer.Move;
+                if (result == System.Windows.Forms.DialogResult.No) return MoveAnswer.Keep;
+                return MoveAnswer.NoAnswer;
+            }
+        }
+        catch
+        {
+            // The plain user32 box, for ShowMessageBox's reason: a question that never shows is
+            // worse than one with plainer buttons.
+            int said = MessageBoxW(IntPtr.Zero, question + "\n\nYes: " + MoveButton + ". No: " + KeepButton + ".", WindowTitle, MB_YESNOCANCEL | MB_ICONQUESTION);
+            if (said == IDYES) return MoveAnswer.Move;
+            if (said == IDNO) return MoveAnswer.Keep;
+            return MoveAnswer.NoAnswer;
+        }
+    }
+
+    const uint MB_YESNOCANCEL = 0x03;
+    const uint MB_YESNO = 0x04;
+    const uint MB_ICONQUESTION = 0x20;
+    const uint MB_ICONINFORMATION = 0x40;
+    const uint MB_DEFBUTTON2 = 0x100;
+    const int IDYES = 6;
+    const int IDNO = 7;
+
+    // ---- an installer's job, without an installer (win32-installer-native) ----
+
+    // What Windows lists Kosmos as, in the Start menu and in Settings > Apps.
+    const string DisplayName = "Kosmos";
+
+    // 🛑 EMPTY UNTIL JOSH NAMES IT. Settings > Apps shows a Publisher, and it has to be the
+    // legal company name on the code-signing certificate -- the same name AssemblyCompany
+    // waits for. A guessed name would contradict the signature once it lands. Written only
+    // when non-empty; a stale value is deleted while it is empty.
+    internal const string PublisherLegalName = "";
+
+    const string ManifestFileName = "manifest.json";
+    const string ShortcutFileName = "Kosmos.lnk";
+    const string ShortcutDescription = "Open Kosmos";
+    const string UninstallKeyName = "Kosmos";
+
+    // Where Windows keeps per-user uninstall entries: HKCU, so no admin prompt. Not const
+    // only so the probe a test compiles beside this file can point it at
+    // HKCU\Software\KosmosTest\<guid>; the launcher itself never changes it.
+    internal static string uninstallKeyParent = @"Software\Microsoft\Windows\CurrentVersion\Uninstall";
+
+    // The per-user Start menu's Programs folder (%APPDATA%\Microsoft\Windows\Start Menu\Programs).
+    // A seam for the same probe, which points it at a temp folder.
+    internal static Func<string> startMenuProgramsFolder = () => Environment.GetFolderPath(Environment.SpecialFolder.Programs);
+
+    // The build's folders whose size Settings > Apps shows, with this exe. Only these, never
+    // the whole folder: a zip extracted straight into Downloads would otherwise be walked on
+    // every launch. They are engine/win32update.js ENTRIES' folders, pinned equal by
+    // tools.win-installer-native.test.js.
+    static readonly string[] SizedFolders = { "app", "bin", "runtime" };
+
+    // A real Kosmos build: its manifest.json names the product and the platform at its top
+    // level. Only a real build is advertised in the Start menu and Settings > Apps, or
+    // offered a move.
+    internal static bool IsKosmosBuild(string root)
+    {
+        try
+        {
+            string manifest = Path.Combine(root, ManifestFileName);
+            if (!File.Exists(manifest)) return false;
+            string text = File.ReadAllText(manifest, Encoding.UTF8);
+            return TopLevelJsonString(text, "product") == "kosmos" && TopLevelJsonString(text, "platform") == "win32";
+        }
+        catch { return false; }
+    }
+
+    // The app version Settings > Apps shows: manifest.json's own top-level "version", never
+    // the "version" of the "node" object beside it.
+    internal static string AppVersionFromManifest(string manifestText)
+    {
+        return TopLevelJsonString(manifestText ?? "", "version");
+    }
+
+    // The string value of `key` at the top level of a JSON object, or null. A deliberately
+    // small reader: .NET Framework has no JSON reader without an extra assembly reference,
+    // which would change the build flags verify-launcher.ps1 pins, and manifest.json is the
+    // build script's own nearly flat file.
+    internal static string TopLevelJsonString(string json, string key)
+    {
+        int depth = 0;
+        for (int i = 0; i < json.Length; i++)
+        {
+            char c = json[i];
+            if (c == '{' || c == '[') { depth++; continue; }
+            if (c == '}' || c == ']') { depth--; continue; }
+            if (c != '"') continue;
+            int end;
+            string token = ReadJsonString(json, i, out end);
+            if (token == null) return null;
+            i = end;
+            if (depth != 1 || token != key) continue;
+            int j = end + 1;
+            while (j < json.Length && char.IsWhiteSpace(json[j])) j++;
+            if (j >= json.Length || json[j] != ':') continue;
+            j++;
+            while (j < json.Length && char.IsWhiteSpace(json[j])) j++;
+            if (j >= json.Length || json[j] != '"') return null;
+            int valueEnd;
+            return ReadJsonString(json, j, out valueEnd);
+        }
+        return null;
+    }
+
+    // One JSON string starting at the quote at `start`; `end` is its closing quote. Null when
+    // it never closes.
+    static string ReadJsonString(string json, int start, out int end)
+    {
+        StringBuilder value = new StringBuilder();
+        for (int i = start + 1; i < json.Length; i++)
+        {
+            char c = json[i];
+            if (c == '"') { end = i; return value.ToString(); }
+            if (c != '\\' || i + 1 >= json.Length) { value.Append(c); continue; }
+            char escaped = json[++i];
+            switch (escaped)
+            {
+                case 'n': value.Append('\n'); break;
+                case 't': value.Append('\t'); break;
+                case 'r': value.Append('\r'); break;
+                case 'b': value.Append('\b'); break;
+                case 'f': value.Append('\f'); break;
+                case 'u':
+                    if (i + 4 < json.Length) { value.Append((char)Convert.ToInt32(json.Substring(i + 1, 4), 16)); i += 4; }
+                    break;
+                default: value.Append(escaped); break;
+            }
+        }
+        end = json.Length;
+        return null;
+    }
+
+    // Every launch of a real build: point the Start menu shortcut and the Settings > Apps entry
+    // at the folder Kosmos runs from now. Refreshing each time is what repairs both after
+    // Kosmos is extracted to, or moved to, another folder.
+    // No box on a problem: a person who opened Kosmos to use it is not interrupted about its
+    // shortcut on every launch, and neither one affects Kosmos running. --console says it.
+    static void RefreshWindowsRegistration(string root)
+    {
+        string exe = Assembly.GetExecutingAssembly().Location;
+        string shortcutProblem = RefreshStartMenuShortcut(exe, root);
+        string version = null;
+        try { version = AppVersionFromManifest(File.ReadAllText(Path.Combine(root, ManifestFileName), Encoding.UTF8)); }
+        catch { /* no version is written rather than a wrong one */ }
+        string entryProblem = RegisterUninstallEntry(exe, root, version, BuildSizeInKilobytes(root, exe));
+        if (showMessageBoxes) return;
+        if (shortcutProblem != null) Console.Error.WriteLine("Kosmos could not update its Start menu shortcut: " + shortcutProblem);
+        if (entryProblem != null) Console.Error.WriteLine("Kosmos could not update its entry in Settings > Apps: " + entryProblem);
+    }
+
+    internal static string StartMenuShortcutPath()
+    {
+        string programs = startMenuProgramsFolder();
+        return string.IsNullOrEmpty(programs) ? null : Path.Combine(programs, ShortcutFileName);
+    }
+
+    // The Start menu shortcut, through IShellLink: in-process COM, so no PowerShell and no
+    // WScript.Shell process. It points at this exe, starts in the Kosmos folder, and shows the
+    // icon compiled into the exe. Null when it was written, or what went wrong.
+    internal static string RefreshStartMenuShortcut(string exe, string workingDirectory)
+    {
+        string at = StartMenuShortcutPath();
+        if (at == null) return "Windows did not say where the Start menu is";
+        object link = null;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(at));
+            link = new ShellLinkObject();
+            IShellLinkW shellLink = (IShellLinkW)link;
+            shellLink.SetPath(exe);
+            shellLink.SetWorkingDirectory(workingDirectory);
+            shellLink.SetIconLocation(exe, 0);
+            shellLink.SetDescription(ShortcutDescription);
+            ((System.Runtime.InteropServices.ComTypes.IPersistFile)link).Save(at, true);
+            return null;
+        }
+        catch (Exception e) { return e.Message; }
+        finally
+        {
+            if (link != null) Marshal.FinalReleaseComObject(link);
+        }
+    }
+
+    internal static string RemoveStartMenuShortcut()
+    {
+        string at = StartMenuShortcutPath();
+        if (at == null) return "the Start menu shortcut, because Windows did not say where the Start menu is";
+        try
+        {
+            if (File.Exists(at)) File.Delete(at);
+            return null;
+        }
+        catch (Exception e) { return "the Start menu shortcut (" + at + "), which could not be deleted (" + e.Message + ")"; }
+    }
+
+    // The entry in Settings > Apps > Installed apps, per user, so no admin prompt. Its
+    // Uninstall button runs this exe with --uninstall. Null when it was written, or what went
+    // wrong.
+    internal static string RegisterUninstallEntry(string exe, string root, string version, long sizeInKilobytes)
+    {
+        try
+        {
+            using (RegistryKey key = Registry.CurrentUser.CreateSubKey(uninstallKeyParent + "\\" + UninstallKeyName))
+            {
+                if (key == null) return "Windows would not open " + uninstallKeyParent + "\\" + UninstallKeyName;
+                string uninstall = "\"" + exe + "\" " + UninstallFlag;
+                key.SetValue("DisplayName", DisplayName, RegistryValueKind.String);
+                key.SetValue("DisplayIcon", exe, RegistryValueKind.String);
+                if (!string.IsNullOrEmpty(version)) key.SetValue("DisplayVersion", version, RegistryValueKind.String);
+                else key.DeleteValue("DisplayVersion", false);
+                key.SetValue("InstallLocation", root, RegistryValueKind.String);
+                key.SetValue("UninstallString", uninstall, RegistryValueKind.String);
+                key.SetValue("QuietUninstallString", uninstall, RegistryValueKind.String);
+                key.SetValue("NoModify", 1, RegistryValueKind.DWord);
+                key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
+                if (sizeInKilobytes > 0) key.SetValue("EstimatedSize", (int)Math.Min(sizeInKilobytes, int.MaxValue), RegistryValueKind.DWord);
+                else key.DeleteValue("EstimatedSize", false);
+                if (PublisherLegalName.Length > 0) key.SetValue("Publisher", PublisherLegalName, RegistryValueKind.String);
+                else key.DeleteValue("Publisher", false);
+                return null;
+            }
+        }
+        catch (Exception e) { return e.Message; }
+    }
+
+    internal static string RemoveUninstallEntry()
+    {
+        try
+        {
+            Registry.CurrentUser.DeleteSubKeyTree(uninstallKeyParent + "\\" + UninstallKeyName, false);
+            return null;
+        }
+        catch (Exception e) { return "the Kosmos entry in Settings > Apps, which could not be removed (" + e.Message + ")"; }
+    }
+
+    // What Settings > Apps shows as the size: the build's own folders and this exe. An
+    // estimate, and never an error: a folder that cannot be read adds nothing.
+    internal static long BuildSizeInKilobytes(string root, string exe)
+    {
+        long bytes = 0;
+        try { bytes += new FileInfo(exe).Length; } catch { /* no size for the exe */ }
+        foreach (string name in SizedFolders)
+        {
+            Stack<DirectoryInfo> pending = new Stack<DirectoryInfo>();
+            pending.Push(new DirectoryInfo(Path.Combine(root, name)));
+            while (pending.Count > 0)
+            {
+                DirectoryInfo dir = pending.Pop();
+                try
+                {
+                    foreach (FileInfo f in dir.GetFiles()) bytes += f.Length;
+                    foreach (DirectoryInfo d in dir.GetDirectories())
+                    {
+                        if ((d.Attributes & FileAttributes.ReparsePoint) == 0) pending.Push(d);
+                    }
+                }
+                catch { /* unreadable or missing: it adds nothing to an estimate */ }
+            }
+        }
+        return (bytes + 1023) / 1024;
+    }
+
+    // IShellLinkW and the ShellLink coclass (shobjidl.h), in the order the vtable declares them.
+    [ComImport, Guid("00021401-0000-0000-C000-000000000046")]
+    class ShellLinkObject { }
+
+    [ComImport, InterfaceType(ComInterfaceType.InterfaceIsIUnknown), Guid("000214F9-0000-0000-C000-000000000046")]
+    interface IShellLinkW
+    {
+        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder file, int capacity, IntPtr findData, uint flags);
+        void GetIDList(out IntPtr idList);
+        void SetIDList(IntPtr idList);
+        void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder name, int capacity);
+        void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string name);
+        void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder directory, int capacity);
+        void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string directory);
+        void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder arguments, int capacity);
+        void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string arguments);
+        void GetHotkey(out short hotkey);
+        void SetHotkey(short hotkey);
+        void GetShowCmd(out int showCommand);
+        void SetShowCmd(int showCommand);
+        void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder iconPath, int capacity, out int iconIndex);
+        void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string iconPath, int iconIndex);
+        void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string relativePath, uint reserved);
+        void Resolve(IntPtr window, uint flags);
+        void SetPath([MarshalAs(UnmanagedType.LPWStr)] string file);
+    }
+
+    // ---- --uninstall (W-27a) --------------------------------------------------
+
+    const string RemoveQuestion = "Remove Kosmos from this PC? Your agents will stop.";
+    const string RemoveChatsQuestion = "Also delete your agents' chats and settings?";
+    const string CannotDeleteOwnFolder = "Kosmos can't delete the folder it is running from, so that last step is yours.";
+    const string UninstallNeedsAPersonMessage =
+        "Kosmos is removed only when you confirm it, and there is nobody here to ask. Remove Kosmos from Settings > Apps > Installed apps, or run Kosmos.exe --uninstall without --console.";
+    // --uninstall had nobody to confirm it, so it did nothing.
+    const int UninstallNotConfirmedExitCode = 2;
+
+    // Kosmos.exe --uninstall: what Settings > Apps > Installed apps > Uninstall runs.
+    // 🛑 THE CONFIRM COMES BEFORE ANY ACTION, and without a person there is no confirm, so
+    // nothing happens at all -- QuietUninstallString asks too, because a destructive act never
+    // runs unconfirmed. The removing is the engine's (engine/win32uninstall.js); this asks,
+    // takes away the two things this file made (the shortcut and the Apps entry), and says
+    // what happened. It never schedules deleting its own folder.
+    static int Uninstall(string here, string node)
+    {
+        if (!showMessageBoxes)
+        {
+            Console.Error.WriteLine(UninstallNeedsAPersonMessage);
+            return UninstallNotConfirmedExitCode;
+        }
+        if (!AskYesNo(RemoveQuestion)) return 0;
+        bool alsoDeleteChats = AskYesNo(RemoveChatsQuestion);
+
+        List<string> leftBehind = new List<string>();
+        List<string> notes = new List<string>();
+        string problem;
+        string[] report = RunEngineHelper(node, here, UninstallHelperScript,
+            "--uninstall" + (alsoDeleteChats ? " --delete-data" : "") + " --root " + QuoteArgument(here), out problem);
+        if (report == null)
+        {
+            leftBehind.Add("Kosmos's startup jobs in Task Scheduler and its folders in AppData, because the removal could not run (" + problem + ")");
+        }
+        else
+        {
+            foreach (string line in report)
+            {
+                if (line.StartsWith("LEFT ", StringComparison.Ordinal)) leftBehind.Add(line.Substring("LEFT ".Length));
+                else if (line.StartsWith("NOTE ", StringComparison.Ordinal)) notes.Add(line.Substring("NOTE ".Length));
+            }
+        }
+
+        string shortcutProblem = RemoveStartMenuShortcut();
+        if (shortcutProblem != null) leftBehind.Add(shortcutProblem);
+
+        // The Apps entry is how a person runs this again, so it stays while anything else did.
+        if (leftBehind.Count == 0)
+        {
+            string entryProblem = RemoveUninstallEntry();
+            if (entryProblem != null) leftBehind.Add(entryProblem);
+        }
+        else
+        {
+            notes.Add("Kosmos is still listed in Settings > Apps > Installed apps, so you can remove it again from there.");
+        }
+
+        string said = notes.Count > 0 ? "\n\n" + string.Join("\n", notes.ToArray()) : "";
+        if (leftBehind.Count == 0)
+        {
+            ShowNotice("Kosmos is removed. You can now delete the folder " + here + ".\n\n" + CannotDeleteOwnFolder + said);
+            return 0;
+        }
+        ShowMessageBox("Kosmos could not remove everything. These were left behind:\n\n- " + string.Join("\n- ", leftBehind.ToArray()) + said, true);
+        return 1;
+    }
+
+    // Runs one of the engine's own helpers with this folder's node and returns the lines it
+    // reported, or null with `problem` saying why. The helper writes its outcome to a file,
+    // one tagged sentence per line, so nothing is redirected (the board-start rule in Main)
+    // and it runs with no window. ConfirmedFlag is what arms it, and every caller runs this
+    // only after the person answered.
+    static string[] RunEngineHelper(string node, string here, string script, string arguments, out string problem)
+    {
+        problem = null;
+        string helper = Path.Combine(here, "app\\engine\\" + script);
+        if (!File.Exists(node)) { problem = "the bundled runtime is missing (runtime\\node.exe)"; return null; }
+        if (!File.Exists(helper)) { problem = "a Kosmos file is missing (app\\engine\\" + script + ")"; return null; }
+        string report = Path.Combine(Path.GetTempPath(), "kosmos-" + Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            ProcessStartInfo h = new ProcessStartInfo(node,
+                QuoteArgument(helper) + " " + arguments + " --report " + QuoteArgument(report) + " " + ConfirmedFlag);
+            h.UseShellExecute = false;
+            h.CreateNoWindow = true;
+            h.WorkingDirectory = here;
+            using (Process helperRun = Process.Start(h)) { helperRun.WaitForExit(); }
+            if (!File.Exists(report)) { problem = "it finished without saying what it did"; return null; }
+            return File.ReadAllLines(report, Encoding.UTF8);
+        }
+        catch (Exception e) { problem = e.Message; return null; }
+        finally
+        {
+            try { File.Delete(report); } catch { /* a temp file, and its answer is already read */ }
+        }
+    }
+
+    // One command-line argument, quoted. A trailing backslash is doubled so it cannot escape
+    // the closing quote (a quoted C:\ would otherwise read as C:").
+    internal static string QuoteArgument(string value)
+    {
+        return "\"" + (value.EndsWith("\\") ? value + "\\" : value) + "\"";
+    }
+
+    // ---- moving out of a folder that gets cleaned up (W-06) -------------------
+
+    internal static readonly Guid FOLDERID_Downloads = new Guid("374DE290-123F-4565-9164-39C4925E467B");
+    internal static readonly Guid FOLDERID_Desktop = new Guid("B4BFCC3A-DB2C-424C-B029-7FE99A87C641");
+    internal static readonly Guid FOLDERID_UserProgramFiles = new Guid("5CD7AEE2-2219-4A67-B85D-6C9CE15660CB");
+
+    // The folders that get cleaned up, synced or redirected, each resolved when asked. The
+    // Known Folder API is what finds a Desktop or Downloads that OneDrive redirected (this
+    // box's Desktop is C:\Users\joshu\OneDrive\Desktop). Replaceable only by the probe a test
+    // compiles beside this file.
+    internal static Func<string> downloadsFolder = () => KnownFolderPath(FOLDERID_Downloads);
+    internal static Func<string> desktopFolder = () => KnownFolderPath(FOLDERID_Desktop);
+    internal static Func<string, string> environmentVariable = Environment.GetEnvironmentVariable;
+    internal static Func<string[]> temporaryFolders = TempFolders;
+    // Where Kosmos moves to: the per-user programs folder VS Code, Discord and Slack install
+    // into. It is also the one install location the updater's in-place swap can count on.
+    internal static Func<string> userProgramsFolder = () =>
+        KnownFolderPath(FOLDERID_UserProgramFiles)
+        ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs");
+    // "Keep it here", remembered per folder, one full path per line. Under the engine's own
+    // %LOCALAPPDATA%\Kosmos, so removing Kosmos forgets it too.
+    internal static Func<string> keptPlacesFile = () =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Kosmos\\launcher\\kept-here.txt");
+
+    static readonly string[] OneDriveVariables = { "OneDrive", "OneDriveConsumer", "OneDriveCommercial" };
+    const string InstallFolderName = "Kosmos";
+    const string KeepsWorkingHere = "Kosmos keeps working from here.";
+    const string MoveButton = "Move Kosmos";
+    const string KeepButton = "Keep it here";
+
+    internal static string MoveQuestion(string place)
+    {
+        return "Kosmos is running from " + place + ". If that folder is cleaned up, Kosmos stops working. Move Kosmos to its own folder now?";
+    }
+
+    // Which cleaned-up or synced place this folder is in, as the question names it, or null.
+    // Most specific first: a Desktop inside OneDrive is "your Desktop".
+    internal static string TemporaryPlaceOf(string folder)
+    {
+        string directory = FullPathOrNull(folder) ?? folder;
+        string profile = environmentVariable("USERPROFILE");
+        if (IsSameOrInside(directory, FullPathOrNull(downloadsFolder()))
+            || (!string.IsNullOrEmpty(profile) && IsSameOrInside(directory, FullPathOrNull(profile.TrimEnd('\\', '/') + "\\Downloads"))))
+        {
+            return "your Downloads folder";
+        }
+        if (IsSameOrInside(directory, FullPathOrNull(desktopFolder()))) return "your Desktop";
+        foreach (string name in OneDriveVariables)
+        {
+            if (IsSameOrInside(directory, FullPathOrNull(environmentVariable(name)))) return "your OneDrive folder";
+        }
+        foreach (string temp in temporaryFolders())
+        {
+            if (IsSameOrInside(directory, temp)) return "a temporary folder";
+        }
+        return null;
+    }
+
+    // The Known Folder API: the folder Windows itself uses, wherever it was redirected.
+    // KF_FLAG_DONT_VERIFY answers for a folder that does not exist yet. Null when Windows has
+    // no answer.
+    internal static string KnownFolderPath(Guid folder)
+    {
+        IntPtr found = IntPtr.Zero;
+        try
+        {
+            if (SHGetKnownFolderPath(folder, KF_FLAG_DONT_VERIFY, IntPtr.Zero, out found) != 0) return null;
+            return Marshal.PtrToStringUni(found);
+        }
+        catch { return null; }
+        finally
+        {
+            if (found != IntPtr.Zero) Marshal.FreeCoTaskMem(found);
+        }
+    }
+
+    const uint KF_FLAG_DONT_VERIFY = 0x00004000;
+
+    [DllImport("shell32.dll")]
+    static extern int SHGetKnownFolderPath([MarshalAs(UnmanagedType.LPStruct)] Guid folder, uint flags, IntPtr token, out IntPtr path);
+
+    internal static bool PlaceWasKept(string folder)
+    {
+        try
+        {
+            string file = keptPlacesFile();
+            if (!File.Exists(file)) return false;
+            string mine = (FullPathOrNull(folder) ?? folder).TrimEnd('\\', '/');
+            foreach (string line in File.ReadAllLines(file, Encoding.UTF8))
+            {
+                if (string.Equals(line.Trim().TrimEnd('\\', '/'), mine, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+        catch { return false; /* an unreadable memory asks again, which is the harmless direction */ }
+    }
+
+    internal static bool RememberPlaceKept(string folder)
+    {
+        try
+        {
+            string file = keptPlacesFile();
+            Directory.CreateDirectory(Path.GetDirectoryName(file));
+            File.AppendAllText(file, (FullPathOrNull(folder) ?? folder).TrimEnd('\\', '/') + "\r\n", new UTF8Encoding(false));
+            return true;
+        }
+        catch { return false; /* not remembered: the question comes back next launch, nothing worse */ }
+    }
+
+    internal static string MoveTarget()
+    {
+        string programs = userProgramsFolder();
+        return string.IsNullOrEmpty(programs) ? null : FullPathOrNull(Path.Combine(programs, InstallFolderName));
+    }
+
+    // W-06. True when Kosmos was started from its new folder and this launch should end.
+    // Asked only of a real build, with a person at the desktop (see Main). Whether it may move
+    // is the engine's rule (engine/win32relocate.js: never while a board from this folder
+    // serves, never over a different Kosmos), and a refusal is shown as the engine words it.
+    static bool OfferToMoveOutOfATemporaryPlace(string here, string node, int port)
+    {
+        string place = TemporaryPlaceOf(here);
+        if (place == null || PlaceWasKept(here)) return false;
+        string target = MoveTarget();
+        string full = FullPathOrNull(here) ?? here;
+        if (target == null || IsSameOrInside(full, target) || IsSameOrInside(target, full)) return false;
+
+        MoveAnswer answer = AskMoveOrKeep(MoveQuestion(place));
+        if (answer == MoveAnswer.Keep) { RememberPlaceKept(here); return false; }
+        if (answer != MoveAnswer.Move) return false;
+
+        string problem;
+        string[] report = RunEngineHelper(node, here, RelocateHelperScript,
+            "--move --from " + QuoteArgument(full) + " --to " + QuoteArgument(target) + " --port " + port, out problem);
+        string outcome = report != null && report.Length > 0 ? report[0] : null;
+        if (outcome != null && (outcome.StartsWith("MOVED ", StringComparison.Ordinal) || outcome.StartsWith("SAME ", StringComparison.Ordinal)))
+        {
+            try
+            {
+                ProcessStartInfo moved = new ProcessStartInfo(Path.Combine(target, "Kosmos.exe"));
+                moved.UseShellExecute = false;
+                moved.WorkingDirectory = target;
+                using (Process.Start(moved)) { }
+                return true;
+            }
+            catch (Exception e)
+            {
+                ShowMessageBox("Kosmos is in " + target + " now, but it would not start from there (" + e.Message + "). " + KeepsWorkingHere, true);
+                return false;
+            }
+        }
+        string because = outcome != null && outcome.StartsWith("REFUSED ", StringComparison.Ordinal)
+            ? outcome.Substring("REFUSED ".Length)
+            : "Kosmos could not be moved (" + (problem ?? "the move did not say what happened") + "). " + KeepsWorkingHere;
+        ShowMessageBox(because, false);
+        return false;
+    }
 
     // ---- the console, for --console and non-interactive runs -----------------
 

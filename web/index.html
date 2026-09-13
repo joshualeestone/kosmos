@@ -13346,6 +13346,10 @@ function windowsCopyTable() {
     settingsRevealButton: 'Open the Kosmos folder',
     settingsOpenKosmos: 'To open Kosmos later, double-click <b>Kosmos.exe</b> in your Kosmos folder. Tip: right-click Kosmos.exe and choose <b>Pin to Start</b>.',
     adminDetailsSummary: 'For IT admins',
+    /* The switch on the autostart row (W-21a, win32-installer-native). */
+    startAtSignInLabel: 'Start Kosmos when I sign in to Windows',
+    startAtSignInFailure: 'We could not change whether Kosmos starts when you sign in just now.',
+    startAtSignInUnread: 'We could not read whether Kosmos starts when you sign in just now.',
     /* Settings > Updates, the manual offer (W-25). */
     updateManualLead: 'To install it, follow these steps.',
     updateManualSteps: '<li>Click <b>Download</b>.</li>'
@@ -16763,7 +16767,70 @@ function machineRows(report) {
     + (c.admin
       ? '<details class="fr-hatch"><summary>' + windowsCopy('adminDetailsSummary') + '</summary>'
         + '<p class="dhint" style="margin:6px 0 0;"><code>' + esc(c.admin) + '</code></p></details>'
+      : '')
+    /* win32-installer-native (W-21a): the switch rides only on a row whose state the engine READ.
+       engine/machine.js puts a boolean there, and nothing when it could not look, so the switch is
+       never drawn in a position nobody checked. After a click it is repainted from /api/machine. */
+    + (typeof c.startAtSignIn === 'boolean'
+      ? '<div class="setrow" style="margin-top:12px;align-items:center;"><div><b>' + windowsCopy('startAtSignInLabel') + '</b></div>'
+        + '<button class="toggle' + (c.startAtSignIn ? ' on' : '') + '" type="button" role="switch" aria-checked="' + c.startAtSignIn + '"'
+        + ' aria-label="' + windowsCopy('startAtSignInLabel') + '" data-start-at-sign-in><i></i></button></div>'
       : ''))).join('');
+}
+/* The controls the machine rows carry, wired after every paint of `#set-machine`. */
+function wireMachineRows(mach) {
+  for (const sleepBtn of mach.querySelectorAll('[data-sleep-settings]')) {
+    sleepBtn.addEventListener('click', async () => {
+      // The pane opening IS the success feedback; words appear on refusal
+      // (a click that silently does nothing reads as a broken button).
+      const failMsg = document.getElementById('set-machine-msg');
+      try {
+        const r = await fetch('/api/open-sleep-settings', { method: 'POST' });
+        failMsg.hidden = r.ok;
+        if (!r.ok) failMsg.textContent = 'We could not open sleep settings just now.';
+      } catch {
+        failMsg.hidden = false;
+        failMsg.textContent = 'We could not open sleep settings just now.';
+      }
+    });
+  }
+  for (const sw of mach.querySelectorAll('[data-start-at-sign-in]')) {
+    sw.addEventListener('click', () => startAtSignInClick(sw));
+  }
+}
+/* "Start Kosmos when I sign in to Windows": ask for the other position, say why if Windows would
+   not, then repaint from what the engine reads now. The switch never shows the position clicked. */
+async function startAtSignInClick(sw) {
+  const failMsg = document.getElementById('set-machine-msg');
+  const want = sw.getAttribute('aria-checked') !== 'true';
+  sw.disabled = true;
+  let said = '';
+  try {
+    const r = await fetch('/api/machine/start-at-sign-in', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: want }),
+    });
+    const out = await r.json().catch(() => ({}));
+    if (!r.ok || typeof out.on !== 'boolean') said = (out && out.error) || windowsCopy('startAtSignInFailure');
+  } catch {
+    said = windowsCopy('startAtSignInFailure');
+  }
+  if (!(await refreshMachineRows())) said = said || windowsCopy('startAtSignInUnread');
+  failMsg.hidden = !said;
+  failMsg.textContent = said;
+}
+/* Repaint the machine rows from the engine. When they cannot be read, a switch already on screen
+   is taken away: its position is no longer something anybody checked. */
+async function refreshMachineRows() {
+  const mach = document.getElementById('set-machine');
+  try {
+    const m = await (await fetch('/api/machine', { cache: 'no-store' })).json();
+    mach.innerHTML = machineRows(m);
+    wireMachineRows(mach);
+    return true;
+  } catch {
+    for (const sw of mach.querySelectorAll('[data-start-at-sign-in]')) sw.closest('.setrow').remove();
+    return false;
+  }
 }
 /* The person's record, as last read, so a name-only save can carry the
    other two fields whole. Null until read; a save with no record is refused
@@ -17093,21 +17160,7 @@ async function paintSettings() {
   try {
     const m = await (await fetch('/api/machine')).json();
     mach.innerHTML = machineRows(m);
-    for (const sleepBtn of mach.querySelectorAll('[data-sleep-settings]')) {
-      sleepBtn.addEventListener('click', async () => {
-        // The pane opening IS the success feedback; words appear on refusal
-        // (a click that silently does nothing reads as a broken button).
-        const failMsg = document.getElementById('set-machine-msg');
-        try {
-          const r = await fetch('/api/open-sleep-settings', { method: 'POST' });
-          failMsg.hidden = r.ok;
-          if (!r.ok) failMsg.textContent = 'We could not open sleep settings just now.';
-        } catch {
-          failMsg.hidden = false;
-          failMsg.textContent = 'We could not open sleep settings just now.';
-        }
-      });
-    }
+    wireMachineRows(mach);
     const al = m.appLocation;
     loc.innerHTML = al ? chkRow(al) : '';
     /* The reveal button only when the engine can actually reveal (it

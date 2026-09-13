@@ -229,9 +229,9 @@ function uninstall(opts) {
 /** The report the launcher reads: one tagged sentence per line. */
 function reportText(result) {
   return [
-    ...result.done.map((s) => 'DONE ' + s),
-    ...result.left.map((s) => 'LEFT ' + s),
-    ...result.notes.map((s) => 'NOTE ' + s),
+    ...(result.done || []).map((s) => 'DONE ' + oneLine(s)),
+    ...(result.left || []).map((s) => 'LEFT ' + oneLine(s)),
+    ...(result.notes || []).map((s) => 'NOTE ' + oneLine(s)),
   ].join('\r\n') + '\r\n';
 }
 
@@ -286,7 +286,7 @@ function cliMain(argv, deps) {
   return result.ok ? 0 : 1;
 }
 
-module.exports = { uninstall, cliMain, classifyTask, reportText, FOLDER_DELETE_TRIES, FOLDER_DELETE_WAIT_MS };
+module.exports = { uninstall, cliMain, classifyTask, folderRefusal, reportText, FOLDER_DELETE_TRIES, FOLDER_DELETE_WAIT_MS };
 
 /* Guarded on being the main module: requiring this file must never remove anything. */
 if (require.main === module) {

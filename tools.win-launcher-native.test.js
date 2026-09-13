@@ -259,11 +259,22 @@ test('🛑 nothing is started before the runtime and app checks, so a runtime-le
     'the stop path no longer ends the board and its descendants with taskkill /T');
   const launches = starts.filter((at) => !(at > stopAt && at < stopEnd));
   assert.equal(starts.length - launches.length, 1, 'the stop path starts something other than one taskkill');
-  assert.equal(launches.length, 2, 'the launcher starts something other than the opener and the server');
+  /* win32-installer-native: every start, by the method it is in. Main starts the opener and the
+     board; RunEngineHelper starts an engine helper (the uninstall or the move), only after a
+     question was answered (tools.win-installer-native.test.js); the move starts the moved exe. */
+  const declarations = [...SOURCE.matchAll(/\n {4}(?:internal |public |private )?static [^\n(=]*?\b(\w+)\(/g)].map((m) => ({ name: m[1], at: m.index }));
+  const ownerOf = (at) => declarations.filter((d) => d.at < at).pop().name;
+  assert.deepEqual(launches.map(ownerOf).sort(), ['Main', 'Main', 'OfferToMoveOutOfATemporaryPlace', 'RunEngineHelper'],
+    'the launcher starts something other than the opener, the server, an engine helper and the moved launcher');
   const mainAt = SOURCE.indexOf('static int Main(');
-  for (const at of launches) {
+  for (const at of launches.filter((l) => ownerOf(l) === 'Main')) {
     assert.ok(at > mainAt + appCheck, 'a process is started before the runtime and app checks; the tests below would reach the hand-off');
   }
+  /* The move is offered only after the checks too; --uninstall comes before them, and starts nothing
+     of the board's. */
+  assert.ok(main.indexOf('OfferToMoveOutOfATemporaryPlace(') > appCheck, 'the move is offered before the runtime and app checks');
+  assert.ok(main.indexOf('if (wantsUninstall) return Uninstall(here, node);') > -1 && main.indexOf('if (wantsUninstall)') < runtimeCheck,
+    '--uninstall is no longer its own errand decided before the launch');
 });
 
 test('rounds 1-2 BUG: a board PROVABLY serving from the launcher (listening) gets a box that is the person\'s handle on it', () => {

@@ -7850,6 +7850,24 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* win32-installer-native (W-21a): Settings' "Start Kosmos when I sign in to Windows" switch.
+     POST, so it inherits the cross-site guard: it changes a durable task on the machine. It takes
+     one boolean and nothing else, and answers with the state engine/win32board.js READ BACK from
+     the task, never the one asked for, so the switch the page repaints is what Windows will do. */
+  if (pathname === '/api/machine/start-at-sign-in' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'say whether Kosmos should start when you sign in (on: true or false)' }); return; }
+        const r = require('./engine/win32board').setStartAtSignIn(body.on);
+        if (r.ok) { sendJson(res, 200, { ok: true, on: r.on }); return; }
+        sendJson(res, 409, { error: r.because });
+      })
+      .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
   /* The Accessibility pane (kosmos#1344). Josh asked for a button that opens the
      setting so a person can grant it, beside a sentence saying why.
      ⚠️ POST, so it inherits the cross-site guard above, exactly like its sleep
