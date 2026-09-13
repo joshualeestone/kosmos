@@ -175,11 +175,108 @@ test('no verb, or an unknown one, is a usage error', async () => {
   assert.equal((await run(['start'])).code, 2, 'the board is Kosmos.exe; this command has no start');
 });
 
+// ── win32-cli-verbs: task message, room reopen, feedback, --help ────────────
+
+test('task message: POST .../task/<n>/message with the Mac\'s body AND the agent token; ok -> 0; refusal -> 1; timeout -> 3', async () => {
+  const ok = await run(['task', 'message', 'proj/1', '4', 'looks', 'good'], () => ({ body: { ok: true, delivered: [] } }));
+  assert.equal(ok.code, 0);
+  assert.equal(ok.calls[0].route, '/api/project/proj1/task/4/message');
+  assert.equal(ok.calls[0].method, 'POST');
+  assert.deepEqual(ok.calls[0].body, { text: 'looks good', from_pane: '' });
+  assert.equal(ok.calls[0].headers['x-kosmos-agent-token'], AGENT, 'without the token the board cannot name a Windows sender or leave it off the notified list');
+  assert.equal(ok.out, 'Message recorded on task 4 of proj/1; any agents assigned to it were notified.');
+  const no = await run(['task', 'message', 'p1', '4', 'x'], () => ({ status: 404, body: { error: 'there is no task by that number.' } }));
+  assert.equal(no.code, 1);
+  assert.equal(no.err, 'Kosmos refused that message: there is no task by that number.');
+  const slow = await run(['task', 'message', 'p1', '4', 'x'], refusedWith(Object.assign(new Error('t'), { name: 'TimeoutError' })));
+  assert.equal(slow.code, 3, 'the board may already have recorded and delivered it; 1 invites the duplicate');
+  const odd = await run(['task', 'message', 'p1', '4', 'x'], () => ({ body: '<html>' }));
+  assert.equal(odd.code, 1, 'an answer that is not the board\'s {ok:true} must not read as done');
+});
+
+test('task message: a missing part or a non-number task is a usage error that sends nothing', async () => {
+  for (const argv of [['task', 'message'], ['task', 'message', 'p1'], ['task', 'message', 'p1', '4'], ['task', 'message', 'p1', 'four', 'hi']]) {
+    const r = await run(argv);
+    assert.equal(r.code, 2, argv.join(' '));
+    assert.equal(r.calls.length, 0, argv.join(' '));
+  }
+});
+
+test('an unknown task subcommand lists all four, as install/kosmos does', async () => {
+  const r = await run(['task', 'reassign', 'p1']);
+  assert.equal(r.code, 2);
+  assert.equal(r.err, 'Unknown: kosmos task reassign. Try: list | add | close | message');
+});
+
+test('room reopen: POST .../room/reopen with no body and no agent token; 2xx -> 0, 404 -> 1, other -> 1 with the board\'s because', async () => {
+  const ok = await run(['room', 'reopen', 'proj 1'], () => ({ body: { ok: true } }));
+  assert.equal(ok.code, 0);
+  assert.equal(ok.calls[0].route, '/api/project/proj1/room/reopen');
+  assert.equal(ok.calls[0].method, 'POST');
+  assert.equal(ok.calls[0].body, undefined);
+  assert.equal(ok.calls[0].headers['x-kosmos-agent-token'], undefined);
+  const missing = await run(['room', 'reopen', 'nope'], () => ({ status: 404, body: { ok: false, because: 'there is no project by that name' } }));
+  assert.equal(missing.code, 1);
+  assert.equal(missing.err, 'There is no project called "nope", so there is no room to reopen.');
+  const bad = await run(['room', 'reopen', 'p1'], () => ({ status: 400, body: { ok: false, because: 'that project id contains characters we cannot read' } }));
+  assert.equal(bad.code, 1);
+  assert.equal(bad.err, 'We could not reopen that room: that project id contains characters we cannot read');
+  const bare = await run(['room', 'reopen']);
+  assert.equal(bare.code, 2);
+  assert.equal(bare.calls.length, 0, 'a bare reopen must not read a room called "reopen"');
+});
+
+test('feedback verbs call the engine and send nothing to the board', async () => {
+  const written = [];
+  const engine = {
+    feedback: { write: (b) => { written.push(b); return { ok: true }; }, today: () => '2026-09-12', isDateKey: (d) => /^\d{4}-\d{2}-\d{2}$/.test(d), readBody: (d) => (d === '2026-09-12' ? 'today\'s note\n' : null), list: () => ['2026-09-12', '2026-09-11'] },
+    feedbackpull: { pull: async () => ({ ok: false, because: 'the collected-feedback token is not filed yet' }) },
+  };
+  const go = async (argv, stdin) => {
+    const out = []; const err = []; const calls = [];
+    const code = await cli.main(argv, { env: {}, hook: hookStub, engine, readStdin: () => stdin || '', out: (s) => out.push(s), err: (s) => err.push(s), fetch: async () => { calls.push(1); throw new Error('feedback reached the network'); } });
+    return { code, out: out.join('\n'), err: err.join('\n'), calls };
+  };
+  assert.equal((await go(['feedback', 'write', 'two', 'words'])).code, 0);
+  assert.equal((await go(['feedback', 'write'], 'from stdin')).code, 0);
+  assert.deepEqual(written, ['two words', 'from stdin']);
+  assert.equal((await go(['feedback', 'write'], '   ')).code, 2);
+  assert.equal((await go(['feedback', 'show'])).out, 'today\'s note');
+  assert.equal((await go(['feedback', 'show', '2026-01-01'])).code, 1);
+  assert.equal((await go(['feedback', 'show', 'junk'])).code, 2);
+  assert.equal((await go(['feedback', 'list'])).out, '2026-09-12\n2026-09-11');
+  const pull = await go(['feedback', 'pull']);
+  assert.equal(pull.code, 1);
+  assert.match(pull.err, /not filed yet/);
+  assert.equal((await go(['feedback', 'pull', '--dir'])).code, 2);
+  assert.equal((await go(['feedback'])).code, 2);
+});
+
+test('#1674: `kosmos reply --help` prints the usage and SENDS NOTHING (it used to send "--help" to the person)', async () => {
+  for (const argv of [['reply', '--help'], ['reply', '-h'], ['reply', 'real words', '--help'], ['msg', 'mara', '--help'], ['report', '--help'], ['whoami', '-h']]) {
+    const r = await run(argv, () => { throw new Error('--help sent a request'); });
+    assert.equal(r.calls.length, 0, argv.join(' '));
+    assert.equal(r.code, 0, argv.join(' '));
+    assert.equal(r.out, cli.USAGE[argv[0]]);
+  }
+  const mention = await run(['reply', 'use --help next time'], () => ({ body: { kept: true } }));
+  assert.equal(mention.calls.length, 1, 'a message that only MENTIONS --help must still be sent');
+});
+
+test('kosmos --help, -h and help print the verb list, exit 0, and send nothing', async () => {
+  for (const argv of [['--help'], ['-h'], ['help'], ['start', '--help']]) {
+    const r = await run(argv);
+    assert.equal(r.code, 0, argv.join(' '));
+    assert.equal(r.calls.length, 0);
+    assert.match(r.out, /^Usage: kosmos <msg\|/);
+  }
+});
+
 // ── one derivation: the routes are install/kosmos's routes ──────────────────
 
 test('every route this sends is one install/kosmos sends', () => {
   const bash = fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8');
-  for (const route of ['/api/msg', '/api/reply', '/api/post', '/api/react', '/api/report', '/api/whoami', '/api/tasks?project=', '/room?as=text', '/tasks', '/close']) {
+  for (const route of ['/api/msg', '/api/reply', '/api/post', '/api/react', '/api/report', '/api/whoami', '/api/tasks?project=', '/room?as=text', '/tasks', '/close', '/message', '/room/reopen']) {
     assert.ok(bash.includes(route), 'install/kosmos no longer uses ' + route + '; the Windows CLI is speaking a route the board may have dropped');
   }
 });

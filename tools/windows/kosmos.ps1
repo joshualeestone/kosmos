@@ -19,7 +19,16 @@
 # failure here is 1 with a sentence. Stop is set ONLY around what this script does
 # itself: under `2>&1` PowerShell turns node's stderr into error records, and Stop
 # there would turn every refusal and every "maybe" into a 1 (review round 3).
+#
+# Pipeline input (`'...' | kosmos feedback write`) travels the same way as the
+# arguments: as UTF-8 text in a second private temp file, named after
+# --kosmos-stdin-file, never piped into node. Measured: PowerShell 5.1 piping into
+# node.exe delivered a byte order mark and `?` for every non-ASCII character, even
+# with $OutputEncoding set to UTF-8. With no pipeline the call is exactly what it
+# always was.
+$piped = @($input)
 $argvFile = $null
+$stdinFile = $null
 $code = 1
 try {
   $node = Join-Path $PSScriptRoot '..\runtime\node.exe'
@@ -29,13 +38,22 @@ try {
   $ErrorActionPreference = 'Stop'
   [IO.File]::WriteAllText($argvFile, (ConvertTo-Json -InputObject $words -Compress -Depth 1), (New-Object Text.UTF8Encoding $false))
   $ErrorActionPreference = 'Continue'
-  & $node "$PSScriptRoot\kosmos-cli.js" --kosmos-argv-file $argvFile
+  if ($piped.Count -gt 0) {
+    $ErrorActionPreference = 'Stop'
+    $stdinFile = [IO.Path]::Combine([IO.Path]::GetTempPath(), 'kosmos-stdin-' + [Guid]::NewGuid().ToString('N') + '.txt')
+    [IO.File]::WriteAllText($stdinFile, ((@($piped | ForEach-Object { [string]$_ })) -join "`n"), (New-Object Text.UTF8Encoding $false))
+    $ErrorActionPreference = 'Continue'
+    & $node "$PSScriptRoot\kosmos-cli.js" --kosmos-argv-file $argvFile --kosmos-stdin-file $stdinFile
+  } else {
+    & $node "$PSScriptRoot\kosmos-cli.js" --kosmos-argv-file $argvFile
+  }
   $code = $LASTEXITCODE
 } catch {
   [Console]::Error.WriteLine('kosmos could not run: ' + $_.Exception.Message)
   $code = 1
 } finally {
   if ($argvFile) { Remove-Item -LiteralPath $argvFile -Force -ErrorAction SilentlyContinue }
+  if ($stdinFile) { Remove-Item -LiteralPath $stdinFile -Force -ErrorAction SilentlyContinue }
 }
 if ($null -eq $code) { $code = 1 }
 exit $code

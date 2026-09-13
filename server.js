@@ -11932,6 +11932,15 @@ const server = http.createServer((req, res) => {
         return;
       }
       try {
+        /* win32-cli-verbs: a Windows agent has no pane, so its `kosmos task message`
+           names itself with its per-run agent token, resolved through the chain
+           /api/msg, /api/post and /api/react use. BEFORE the message is recorded: a
+           presented token that does not resolve is refused, never recorded as "An
+           agent" (a bad credential is not swapped for a weaker one). No token leaves
+           the pane path below exactly as it was. */
+        const roster = safeRoster();
+        const tokenSender = senderFromAgentToken(req, body, roster);
+        if (tokenSender && !tokenSender.ok) { sendJson(res, 403, { error: tokenSender.because }); return; }
         const t = tasks.say(id, taskSay[2], body.text);
         /* Deliver to the agents ASSIGNED to the task (Josh, 2026-09-12: "only to
            the agents assigned to the task"), never the whole project. The full
@@ -11941,7 +11950,6 @@ const server = http.createServer((req, res) => {
            line never bumps chat's length cap. chat.deliver carries the rails
            (addressable, the trust-dialog guard, body validation); every task route
            that notifies people goes through the same roster. */
-        const roster = safeRoster();
         const named = tasks.whoOf(t);
         const chat = require('./engine/chat');
         const proj = projects.get(id);
@@ -11962,7 +11970,7 @@ const server = http.createServer((req, res) => {
            colleague spoke -- the room does the same (its pane envelope names `from`).
            The operator has no pane here and is not on `named` anyway. */
         const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
-        const senderCard = fromPane ? roster.find((c) => c && c.target === fromPane) : null;
+        const senderCard = tokenSender ? tokenSender.card : (fromPane ? roster.find((c) => c && c.target === fromPane) : null);
         const senderName = clean(senderCard && senderCard.sessionName);
         const recipients = senderName ? named.filter((m) => m !== senderName) : named;
         const who = viaScreen ? 'The person' : (senderName || 'An agent');

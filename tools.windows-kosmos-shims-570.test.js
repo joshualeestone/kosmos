@@ -45,6 +45,7 @@ function zipRoot() {
       "try {",
       "  const w = require('" + real + "').argvFrom(a);",
       "  process.stdout.write(JSON.stringify(w) + '\\n');",
+      "  if (w[0] === 'stdin') process.stdout.write('STDIN ' + JSON.stringify(require('" + real + "').pipedInputFrom(a)) + '\\n');",
       "  if (w[0] === 'maybe') { process.stderr.write('stderr line one\\nstderr line two\\n'); process.exitCode = 3; } else { process.exitCode = 7; }",
       "} catch (e) { process.stdout.write('ERR ' + e.message + '\\n'); process.exitCode = 2; }",
       "process.stderr.write('FILE ' + JSON.stringify({ file, existed, after: file ? fs.existsSync(file) : null }) + '\\n');",
@@ -149,6 +150,22 @@ test('PowerShell: the CLI\'s "maybe" (exit 3, on stderr) comes back as 3, redire
       const r = ps(root, [call, '"exit=$LASTEXITCODE"']);
       assert.equal(r.lines[r.lines.length - 1], 'exit=3', call + ' lost the exit code: ' + r.lines.join(' | ') + ' ' + r.stderr.slice(0, 200));
     }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('win32-cli-verbs: PowerShell pipeline input (`... | kosmos feedback write`) reaches the CLI\'s stdin, non-ASCII intact', { skip: !ON_WINDOWS && 'Windows only' }, () => {
+  /* PowerShell 5.1 pipes to a native command in $OutputEncoding, ASCII by default,
+     which turns every non-ASCII character into `?`. The characters are built in
+     PowerShell from code points so the command line itself carries only ASCII. */
+  const root = zipRoot();
+  try {
+    const r = ps(root, ["('piped ' + [char]0x00E9 + ' ' + [char]0x2713) | kosmos stdin x", '"exit=$LASTEXITCODE"']);
+    assert.deepEqual(JSON.parse(r.lines[0]), ['stdin', 'x']);
+    const stdin = JSON.parse((/^STDIN (.*)$/.exec(r.lines[1]) || [])[1] || 'null');
+    assert.equal(stdin, 'piped é ✓', 'the piped words changed on the way: ' + r.lines.join(' | ') + ' ' + r.stderr.slice(0, 200));
+    assert.equal(r.lines[2], 'exit=7');
+    const leftovers = fs.readdirSync(os.tmpdir()).filter((f) => /^kosmos-stdin-/.test(f));
+    assert.deepEqual(leftovers, [], 'the piped words were left on disk');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
