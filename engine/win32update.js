@@ -1049,6 +1049,15 @@ function verifyStaged(ctx, latest) {
   const namedNode = manifest.node && manifest.node.version;
   if (namedNode && printed !== namedNode) refuse(`the Node runtime inside the update is ${printed}, but its manifest.json names ${namedNode}`);
 
+  /* AUTHENTICODE-SEAM (S4 follow-up): the staged Kosmos.exe's Authenticode signature is NOT
+     verified here. Trust today rests on the sha matching the channel manifest over HTTPS (B2), which
+     is what this whole flow checks; a signature check is defence in depth for a tampered-but-matching
+     mirror. It is deferred because Azure code signing is not landed (DUNS/paperwork pending), so
+     there is no signature to verify yet. When signing lands, add the check on `stagedExe` HERE, in
+     B4, before H1 ever runs. Tracked as a GitHub issue linked from
+     .claude/plans/win32-update-arm-20260913T230101Z.md. */
+  const stagedExe = path.join(staged, 'Kosmos.exe'); void stagedExe;
+
   const anchoredNode = path.join(win32anchor.anchorDir(process.platform, ctx.home, ctx.env), win32anchor.NODE_NAME);
   const runtimeChanged = interpreterDiffers(stagedNode, anchoredNode);
 
