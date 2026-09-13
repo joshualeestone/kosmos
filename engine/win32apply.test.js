@@ -1901,10 +1901,12 @@ const endsOf = (sim) => sim.calls.filter((call) => call.startsWith('/End'));
 const lockOf = (c) => path.join(c.work, win32update.LOCK_NAME);
 
 /** A rollback left unfinished at `rolling-back` with the new build still in ROOT: the helper died at H8. */
-async function rollbackLeftAtH8(c) {
+async function rollbackLeftAtH8(c, o = {}) {
   stage(c);
   const sim = playBoard(c, { newNeverStarts: true });
-  await assert.rejects(win32apply.applyJournal(c.journal, sim.deps({ hooks: { before: (step) => {
+  await assert.rejects(win32apply.applyJournal(c.journal, sim.deps({ hooks: { before: (step, d) => {
+    /* `appOut`: the update failed just before H4 moved `app` in, so the Kosmos folder has no app. */
+    if (o.appOut && step === 'H4' && d && d.entry === 'app') throw new Error('failed before H4 moved app in');
     if (step === 'H8') throw new Error('the helper died at H8');
   } } })), /the helper died at H8/);
   const j = readJson(c.journal);
@@ -2435,7 +2437,7 @@ test('ROUND 6 F2: a journal write held past the patience: the helper still repor
     fs.renameSync = realRename;
   }
   assert.equal(r.outcome, 'updated', JSON.stringify(r) + '\n' + c.log.join('\n'));
-  assert.ok(c.log.some((line) => line.includes('but that could not be recorded (EBUSY: ')), c.log.join('\n'));
+  assert.ok(c.log.some((line) => line.includes('but that could not be recorded (HeldWrite: the journal cannot be written right now (code=EBUSY))')), c.log.join('\n'));
   const left = readJson(c.journal);
   assert.equal(left.phase, 'starting');
   assert.equal(left.finished, false);
@@ -2725,4 +2727,229 @@ test('ROUND 7 A (P2b): the lock release after a held recovery asks again within 
   assert.equal(fs.existsSync(lockOf(c)), false, 'released, never left naming this live process');
   assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'rolled-back', c.log.join('\n'));
   assert.deepEqual(installState(c), before);
+});
+
+/* ─── review round 8: the held rule for writes ────────────────────────────────────────────── */
+
+const realRenameSync = fs.renameSync;
+/** Every rename onto `target` fails with EBUSY while `box.on()` says so (or always), `box.limit` times at most. */
+function holdRenamesOnto(target, o = {}) {
+  const box = { hits: 0, limit: o.limit === undefined ? Infinity : o.limit, on: o.on || (() => true), code: o.code || 'EBUSY' };
+  const wanted = path.resolve(target).toLowerCase();
+  fs.renameSync = function held(from, to) {
+    if (box.on() && box.hits < box.limit && path.resolve(String(to)).toLowerCase() === wanted) {
+      box.hits += 1;
+      throw Object.assign(new Error(`${box.code}: injected, rename onto '${to}'`), { code: box.code });
+    }
+    return realRenameSync.apply(this, arguments);
+  };
+  return box;
+}
+function unholdRenames() { fs.renameSync = realRenameSync; }
+
+/** A `--require` for the real logon shim: renames onto KOSMOS_TEST_RENAME_TARGET fail with EBUSY, and lstats
+    of KOSMOS_TEST_LSTAT_TARGET with EACCES, for good. */
+const HELD_WRITES_PRELOAD = path.join(SANDBOX, 'held-writes-preload.js');
+fs.writeFileSync(HELD_WRITES_PRELOAD, `'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const n = (p) => path.resolve(String(p)).toLowerCase();
+const renameTarget = process.env.KOSMOS_TEST_RENAME_TARGET ? n(process.env.KOSMOS_TEST_RENAME_TARGET) : null;
+const lstatTarget = process.env.KOSMOS_TEST_LSTAT_TARGET ? n(process.env.KOSMOS_TEST_LSTAT_TARGET) : null;
+const realRename = fs.renameSync;
+fs.renameSync = function held(from, to) {
+  if (renameTarget && n(to) === renameTarget) throw Object.assign(new Error('EBUSY: injected by the test, rename onto ' + to), { code: 'EBUSY' });
+  return realRename.apply(this, arguments);
+};
+const realLstat = fs.lstatSync;
+fs.lstatSync = function held(p, ...rest) {
+  if (lstatTarget && n(p) === lstatTarget) throw Object.assign(new Error('EACCES: injected by the test, lstat ' + p), { code: 'EACCES' });
+  return realLstat.call(this, p, ...rest);
+};
+`);
+
+test('ROUND 8 decisions 1 and 3 (W1, W2): a journal write held at boot mid-rollback is held with the whole old app named, in-process and in the real shim, never the unconfirmed build nor no board; the next start converges', LONG, async () => {
+  for (const [label, appOut, crashPoint] of [['W1 the new app still in the Kosmos folder', false, 'before H8'], ['W2 no app in the Kosmos folder', true, 'before H4 app']]) {
+    {
+      const c = freshInstall();
+      const before = installState(c);
+      const sim = await rollbackLeftAtH8(c, { appOut });
+      let boot;
+      let box;
+      try {
+        box = holdRenamesOnto(c.journal);
+        boot = win32apply.recoverAtBoot(c.journal, sim.deps());
+      } finally {
+        unholdRenames();
+      }
+      assert.ok(box.hits > 0, `${label}: the control: the journal write was held`);
+      assert.equal(boot.action, 'held', `${label}: ${JSON.stringify(boot)}\n${c.log.join('\n')}`);
+      assert.match(boot.because, /the journal cannot be written right now \(code=EBUSY\)/, label);
+      assert.equal(boot.bootFrom, path.join(c.previous, 'app', 'server.js'), `${label}: the whole old app is named`);
+      assert.equal(readJson(c.journal).finished, false, label);
+      assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'rolled-back', `${label}: ${c.log.join('\n')}`);
+      assert.deepEqual(installState(c), before, label);
+    }
+    {
+      const c = freshInstall();
+      const before = installState(c);
+      stage(c);
+      crashAt(c, crashPoint, { newNeverStarts: true });
+      const held = bootShim(c, { preload: HELD_WRITES_PRELOAD, env: { KOSMOS_TEST_RENAME_TARGET: c.journal } });
+      assert.equal(held.status, 0, `${label} real shim: ${held.stderr}`);
+      assert.match(held.stderr, /not recovered at start \(held: /, label);
+      assert.equal(held.booted, `booted ${OLD} by Kosmos\\board`, `${label} real shim: ${held.stderr}`);
+      assert.equal(held.from, path.join(c.previous, 'app'), `${label}: the whole old app, from previous`);
+      assert.equal(readJson(c.journal).finished, false, label);
+      const next = bootShim(c);
+      assert.equal(next.booted, `booted ${OLD} by Kosmos\\board`, `${label} next start: ${next.stderr}`);
+      assertRolledBack(c, before, null, null, `${label}: the next start`);
+    }
+  }
+});
+
+test('ROUND 8 decision 3 (W3): a stuck boot recovery whose status write is held stays stuck with the whole old app named, in-process and in the real shim; the next start converges', LONG, async () => {
+  {
+    const c = freshInstall();
+    const before = installState(c);
+    const sim = await rollbackLeftAtH8(c);
+    let boot;
+    try {
+      faultLstat(path.join(c.root, 'bin'), 'EACCES', -1);
+      holdRenamesOnto(c.statusAt);
+      boot = win32apply.recoverAtBoot(c.journal, sim.deps());
+    } finally {
+      unholdRenames();
+      unfaultLstat();
+    }
+    assert.equal(boot.action, 'stuck', JSON.stringify(boot) + '\n' + c.log.join('\n'));
+    assert.equal(boot.bootFrom, path.join(c.previous, 'app', 'server.js'));
+    assert.equal(boot.statusHeld, 'the status cannot be written right now (code=EBUSY)');
+    assert.equal(fs.existsSync(c.statusAt), false, 'the status was not recorded');
+    const j = readJson(c.journal);
+    assert.equal(j.phase, 'stuck');
+    assert.equal(j.finished, false);
+    assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'rolled-back', c.log.join('\n'));
+    assert.deepEqual(installState(c), before);
+  }
+  {
+    const c = freshInstall();
+    const before = installState(c);
+    stage(c);
+    crashAt(c, 'before H8', { newNeverStarts: true });
+    const held = bootShim(c, { preload: HELD_WRITES_PRELOAD, env: { KOSMOS_TEST_RENAME_TARGET: c.statusAt, KOSMOS_TEST_LSTAT_TARGET: path.join(c.root, 'bin') } });
+    assert.equal(held.status, 0, held.stderr);
+    assert.match(held.stderr, /not recovered at start \(stuck: /);
+    assert.match(held.stderr, /starting the previous version from /);
+    assert.equal(held.booted, `booted ${OLD} by Kosmos\\board`, held.stderr);
+    assert.equal(held.from, path.join(c.previous, 'app'));
+    assert.equal(readJson(c.journal).phase, 'stuck');
+    const next = bootShim(c);
+    assert.equal(next.booted, `booted ${OLD} by Kosmos\\board`, next.stderr);
+    assertRolledBack(c, before, null, null, 'W3: the next start');
+  }
+});
+
+test('ROUND 8 decisions 1 and 2 (W4): the helper\'s rollback tries a held journal write again within its budget; held past it, the helper ends held, starts the board it ended once, and the next boot converges', T, async () => {
+  {
+    /* Held for a rename window and a half: one try fails whole, the next succeeds, and the rollback goes on. */
+    const c = freshInstall();
+    stage(c);
+    const before = installState(c);
+    const sim = playBoard(c, { newNeverStarts: true });
+    const box = { armed: false };
+    let r;
+    let hold;
+    try {
+      hold = holdRenamesOnto(c.journal, { on: () => box.armed, limit: 15 });
+      r = await win32apply.applyJournal(c.journal, sim.deps({ log: (line) => { c.log.push(line); if (line.startsWith('the update failed during ')) box.armed = true; } }));
+    } finally {
+      unholdRenames();
+    }
+    assert.equal(hold.hits, 15, 'the control: the journal write was held');
+    assertRolledBack(c, before, sim, r, 'a write held within the budget');
+  }
+  {
+    const c = freshInstall();
+    stage(c);
+    const before = installState(c);
+    const sim = playBoard(c, { newNeverStarts: true });
+    const box = { armed: false };
+    let r;
+    let hold;
+    try {
+      hold = holdRenamesOnto(c.journal, { on: () => box.armed });
+      r = await win32apply.applyJournal(c.journal, sim.deps({ log: (line) => { c.log.push(line); if (line.startsWith('the update failed during ')) box.armed = true; } }));
+    } finally {
+      unholdRenames();
+    }
+    assert.ok(hold.hits > 0, 'the control: the journal write was held');
+    assert.equal(r.outcome, 'held', JSON.stringify(r) + '\n' + c.log.join('\n'));
+    assert.match(r.because, /the journal cannot be written right now \(code=EBUSY\)/);
+    assert.deepEqual(sim.calls.slice(sim.calls.lastIndexOf('/End /TN Kosmos\\board')), ['/End /TN Kosmos\\board', '/Run /TN Kosmos\\board'], 'the board this helper ended is started once');
+    assert.ok(c.log.includes('started the board again, so its logon shim finishes the update'), c.log.join('\n'));
+    assert.equal(readJson(c.journal).finished, false);
+    assert.equal(fs.existsSync(c.statusAt), false);
+    assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'rolled-back', c.log.join('\n'));
+    assert.deepEqual(installState(c), before);
+  }
+});
+
+test('ROUND 8 decision 2 (W5): the resume helper whose rollback meets a journal write held past its budget ends held and starts the board it ended once; the next boot converges', T, async () => {
+  const c = freshInstall();
+  const before = installState(c);
+  stage(c);
+  crashAt(c, 'before H7-run #1', { newNeverStarts: true });
+  assert.equal(readJson(c.journal).phase, 'starting', 'the control: left at starting');
+  const sim = playBoard(c, { newNeverStarts: true });
+  const box = { armed: false };
+  let r;
+  try {
+    holdRenamesOnto(c.journal, { on: () => box.armed });
+    r = await win32apply.resumeJournal(c.journal, sim.deps({ log: (line) => { c.log.push(line); if (line === 'the board is stopped') box.armed = true; } }));
+  } finally {
+    unholdRenames();
+  }
+  assert.equal(r.outcome, 'held', JSON.stringify(r) + '\n' + c.log.join('\n'));
+  assert.deepEqual(sim.calls, ['/End /TN Kosmos\\board', '/Run /TN Kosmos\\board'], 'the board this resume helper ended is started once');
+  assert.equal(readJson(c.journal).finished, false);
+  assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'rolled-back', c.log.join('\n'));
+  assert.deepEqual(installState(c), before);
+});
+
+test('ROUND 8 decision 4: an error the helper cannot handle (ENOSPC on a journal write) is thrown as before and reaches update-apply.log with its code and message', T, async () => {
+  const c = freshInstall();
+  stage(c);
+  const sim = playBoard(c, { newNeverStarts: true });
+  const box = { armed: false };
+  try {
+    holdRenamesOnto(c.journal, { on: () => box.armed, code: 'ENOSPC' });
+    await assert.rejects(win32apply.applyJournal(c.journal, sim.deps({ log: undefined, hooks: { before: (step, d) => {
+      if (step === 'H7-run' && d.run === 3) box.armed = true;
+    } } })), /ENOSPC/);
+  } finally {
+    unholdRenames();
+  }
+  const logText = readText(path.join(c.work, win32apply.APPLY_LOG_NAME)) || '';
+  assert.match(logText, /the update stopped on an error it cannot handle \(ENOSPC: ENOSPC: injected, rename onto/);
+  assert.deepEqual(sim.calls.filter((call) => call.startsWith('/Run')).length, 3, 'no /Run for an error that is not a hold');
+});
+
+test('ROUND 8 sweep: begin()\'s journal write tries a held rename again within the quick budget, and refuses in words when it stays held', T, () => {
+  const c = freshInstall();
+  let hold;
+  try {
+    hold = holdRenamesOnto(c.journal, { limit: 10 });
+    stage(c);
+  } finally {
+    unholdRenames();
+  }
+  assert.equal(hold.hits, 10, 'the control: one whole write was held');
+  assert.equal(readJson(c.journal).phase, 'staged', 'written on the next try');
+  try {
+    holdRenamesOnto(c.journal);
+    assert.throws(() => stage(c), /the update journal cannot be written right now \(code=EBUSY\)/);
+  } finally {
+    unholdRenames();
+  }
 });

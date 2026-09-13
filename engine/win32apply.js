@@ -150,6 +150,13 @@ class OwnershipUnknown extends Error {
   constructor(because) { super(because); this.name = 'OwnershipUnknown'; }
 }
 
+/** A journal or status write that another process held (win32update.HELD_FILE_CODES) for its whole
+    budget (writeRetryingHolds). It IS an OwnershipUnknown: this context cannot record what it did, so it
+    stops writing exactly as for an ownership it cannot tell, and each entry point reports `held`. */
+class HeldWrite extends OwnershipUnknown {
+  constructor(because) { super(because); this.name = 'HeldWrite'; }
+}
+
 /** Does this error mean the context must write nothing more? */
 function stopsWriting(e) { return e instanceof LostOwnership || e instanceof OwnershipUnknown; }
 
@@ -361,7 +368,14 @@ function writeStagedJournal(journalAt, spec) {
   const problem = journalProblem(j, journalAt);
   if (problem) throw new Error(`the update journal ${problem}`);
   if (!samePath(path.join(j.staged), spec.prepared.stagedDir)) throw new Error('the staged update is not where the journal expects it');
-  win32swap.writeFileAtomic(journalAt, JSON.stringify(j, null, 2) + '\n');
+  /* begin()'s write, in the board's own process: a held rename is tried again within the quick budget,
+     and one still held refuses the update in words (begin() reports it). */
+  const tried = win32update.tryRetryingHolds(
+    () => win32swap.writeFileAtomic(journalAt, JSON.stringify(j, null, 2) + '\n'), null, writeBudgetFrom(win32update.QUICK_HELD_READ_BUDGET));
+  if (!('value' in tried)) {
+    if (win32update.HELD_FILE_CODES.includes(tried.code)) throw new Error(`the update journal cannot be written right now (code=${tried.code})`);
+    throw tried.error;
+  }
   return j;
 }
 
@@ -515,6 +529,22 @@ function heldUnknown(ctx, e) {
   return { ok: false, outcome: 'held', action: 'held', because: `the update stopped here: ${e.message}, so nothing more was written, and the next start of the board finishes it` };
 }
 
+/**
+ * 🛑 NEVER LEAVE THE BOARD DOWN FOR A HOLD. When a helper or resume helper that ended the board stops
+ * `held` (a write held past its budget, or an ownership it could not tell), it issues one `/Run`: the
+ * logon shim that starts then finishes the update crash-safely, with its boot choice. Never after a
+ * proven takeover (takenOver): there another owner has the recovery. A `/Run` that fails is logged.
+ */
+function startBoardAfterHold(ctx) {
+  if (!ctx.boardEnded) return;
+  try {
+    const r = ctx.deps.board.runNow();
+    ctx.log(r.ok ? 'started the board again, so its logon shim finishes the update' : `could not start the board again: ${r.because}`);
+  } catch (e) {
+    ctx.log(`could not start the board again (${describeError(e)})`);
+  }
+}
+
 /** The entry points' one reading of an error that stopped the writing, or null for any other error. */
 function stoppedWriting(ctx, e) {
   if (e instanceof LostOwnership) return takenOver(ctx, e);
@@ -522,10 +552,37 @@ function stoppedWriting(ctx, e) {
   return null;
 }
 
+/**
+ * A write's held budget from a read budget: the same total wait ((tries - 1) x waitMs), in tries that
+ * each already spend win32swap.RENAME_RETRY_WINDOW_MS retrying their own rename. OWNER_READ_BUDGET's
+ * 6 s gives 6 tries; the quick budget's 60 ms gives 2.
+ */
+function writeBudgetFrom(readBudget) {
+  const totalMs = (readBudget.tries - 1) * readBudget.waitMs;
+  return { tries: 1 + Math.ceil(totalMs / (win32swap.RENAME_RETRY_WINDOW_MS + readBudget.waitMs)), waitMs: readBudget.waitMs };
+}
+
+/**
+ * 🛑 THE HELD RULE FOR WRITES. Every journal and status write goes through here: a failure with a held code
+ * (win32update.HELD_FILE_CODES) is tried again within the context's budget (writeBudgetFrom, through the
+ * one retry primitive); one still held throws HeldWrite, which every entry point reports as `held`. Any
+ * other failure (ENOSPC, say) is thrown as it was.
+ */
+function writeRetryingHolds(ctx, what, write) {
+  const r = ctx.deps.reading;
+  const tried = win32update.tryRetryingHolds(write, r.waitSync, writeBudgetFrom(r.budget));
+  if ('value' in tried) return tried.value;
+  if (win32update.HELD_FILE_CODES.includes(tried.code)) {
+    ctx.writesStopped = true;
+    throw new HeldWrite(`${what} cannot be written right now (code=${tried.code})`);
+  }
+  throw tried.error;
+}
+
 function save(ctx) {
   assertStillOwner(ctx);
   ctx.j.updatedAt = new Date(ctx.deps.now()).toISOString();
-  win32swap.writeFileAtomic(ctx.guard(ctx.journalAt), JSON.stringify(ctx.j, null, 2) + '\n');
+  writeRetryingHolds(ctx, 'the journal', () => win32swap.writeFileAtomic(ctx.guard(ctx.journalAt), JSON.stringify(ctx.j, null, 2) + '\n'));
   if (ctx.j.finished) ctx.wroteFinish = true;
 }
 function record(ctx, step) {
@@ -609,7 +666,7 @@ function statusFor(j, outcome, because, at, kind) {
 function writeStatus(ctx, outcome, because, kind) {
   assertStillOwner(ctx);
   const status = statusFor(ctx.j, outcome, because, new Date(ctx.deps.now()).toISOString(), kind);
-  win32swap.writeFileAtomic(ctx.guard(statusPathFor(ctx.j.anchor)), JSON.stringify(status, null, 2) + '\n');
+  writeRetryingHolds(ctx, 'the status', () => win32swap.writeFileAtomic(ctx.guard(statusPathFor(ctx.j.anchor)), JSON.stringify(status, null, 2) + '\n'));
   ctx.log(`status ${outcome}: ${status.sentence}${because && outcome !== 'stuck' ? ` (${because})` : ''}`);
   return status;
 }
@@ -635,6 +692,8 @@ async function stopBoard(ctx) {
      board that just booted) owns the recovery now. */
   assertStillOwner(ctx);
   const ended = deps.board.end();
+  /* Remembered, so a run that ends held starts the board it ended (startBoardAfterHold). */
+  if (ended.ok) ctx.boardEnded = true;
   log(`end the board: ${ended.ok ? 'ok' : ended.because}`);
   if (!ended.ok) return { ok: false, because: ended.because };
   const until = deps.now() + L.stopWaitMs;
@@ -1119,9 +1178,10 @@ function recordConfirmed(ctx) {
       if (e instanceof LostOwnership) throw e;
       j.phase = 'starting';
       j.steps.length = stepsBefore;
-      /* One rule for waiting: an ownership that cannot be told, or a journal write another process holds
-         (win32update.HELD_FILE_CODES), is tried again within the patience; anything else gives up at once. */
-      const held = e instanceof OwnershipUnknown || win32update.HELD_FILE_CODES.includes(e && e.code);
+      /* One rule for waiting: an ownership that cannot be told, or a journal write held past its own budget
+         (HeldWrite, which is an OwnershipUnknown: writeRetryingHolds), is tried again within the patience;
+         anything else gives up at once. */
+      const held = e instanceof OwnershipUnknown;
       if (!held || deps.now() >= until) {
         log(`the board answers as ${j.to.identity}, but that could not be recorded (${describeError(e)}); the update stays in, and a resumer that sees this board finishes it`);
         return false;
@@ -1430,7 +1490,12 @@ async function applyJournal(journalAt, overrides) {
     return await runSteps(ctx);
   } catch (e) {
     const stopped = stoppedWriting(ctx, e);
-    if (stopped) return stopped;
+    if (stopped) {
+      if (e instanceof OwnershipUnknown) startBoardAfterHold(ctx);
+      return stopped;
+    }
+    /* Diagnosable from the log alone: the detached helper's stderr goes nowhere (begin() ignores it). */
+    ctx.log(`the update stopped on an error it cannot handle (${describeError(e)})`);
     throw e;
   } finally {
     releaseUpdateLock(ctx, lock);
@@ -1499,7 +1564,11 @@ async function resumeJournal(journalAt, overrides) {
     return await rollBack(ctx, stoppedBecause(ctx.j));
   } catch (e) {
     const stopped = stoppedWriting(ctx, e);
-    if (stopped) return stopped;
+    if (stopped) {
+      if (e instanceof OwnershipUnknown) startBoardAfterHold(ctx);
+      return stopped;
+    }
+    ctx.log(`the update stopped on an error it cannot handle (${describeError(e)})`);
     throw e;
   } finally {
     releaseUpdateLock(ctx, lock);
@@ -1509,9 +1578,13 @@ async function resumeJournal(journalAt, overrides) {
 /**
  * The logon shim's resumer, run by win32board.BOOT_JS before it reads the pointer, from the OLD
  * build's copy of this file. Synchronous, and it never stops or starts a board: this process is the
- * board about to boot. Returns `{ action }`: nothing | held | not-started | updated | rolled-back |
- * stuck | abandoned | unreadable. A `stuck` result also carries `bootFrom` (the whole old app to
- * start instead of ROOT's, previousAppToBoot) or `bootFromWhyNot`.
+ * board about to boot. Returns `{ action, because? }`, the action one of: nothing | unreadable |
+ * unreachable | held | taken-over | not-started | updated | rolled-back | stuck | abandoned.
+ * Both `stuck` and `held` may carry `bootFrom` (the whole old app to start instead of the pointer's,
+ * previousAppToBoot) or `bootFromWhyNot`: `stuck` always names one or says why not; `held` does when the
+ * recovery stopped part-way (an ownership it could not tell, a write held past its budget, or a re-read
+ * under the lock it could not make), under previousAppMayBoot's rule. A `stuck` whose status write was
+ * held also carries `statusHeld`.
  *
  * 🛑 NO OVERALL DEADLINE. Every read here gets OWNER_READ_BUDGET's retries, so a recovery that meets
  * held answers can delay the board's `listen`, and a launcher hand-off may then end this process
@@ -1552,10 +1625,17 @@ function recoverAtBoot(journalAt, overrides) {
     if (ctx.j.phase === 'confirmed') { finishUpdated(ctx); return { action: 'updated' }; }
     const tree = rollBackTree(ctx, stoppedBecause(ctx.j));
     if (!tree.whole) {
-      writeStatus(ctx, 'stuck', tree.problem);
+      /* Stuck is what the journal already says: a status write held past its budget does not turn it
+         into held, and the shim still starts the whole old app. */
+      let statusHeld = null;
+      try { writeStatus(ctx, 'stuck', tree.problem); } catch (e) {
+        if (!(e instanceof HeldWrite)) throw e;
+        statusHeld = e.message;
+        ctx.log(`the stuck status was not recorded (${e.message}); the journal says stuck`);
+      }
       const old = previousAppToBoot(ctx.j, deps.reading);
       ctx.log(old.server ? `the previous version is whole in ${path.dirname(old.server)}` : `the previous version cannot be started instead: ${old.whyNot}`);
-      return { action: 'stuck', because: tree.problem, bootFrom: old.server, bootFromWhyNot: old.whyNot };
+      return { action: 'stuck', because: tree.problem, bootFrom: old.server, bootFromWhyNot: old.whyNot, ...(statusHeld ? { statusHeld } : {}) };
     }
     const r = concludeRollback(ctx, null);
     return { action: r.outcome };
@@ -1565,6 +1645,7 @@ function recoverAtBoot(journalAt, overrides) {
        then starts the whole old one instead, exactly as for a stuck one. */
     if (stopped && e instanceof OwnershipUnknown) return { ...stopped, ...bootChoiceWhenHeld(ctx.j, deps.reading) };
     if (stopped) return stopped;
+    ctx.log(`the recovery stopped on an error it cannot handle (${describeError(e)})`);
     throw e;
   } finally {
     releaseUpdateLock(ctx, lock);

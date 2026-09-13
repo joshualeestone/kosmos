@@ -45,6 +45,10 @@ const RETIRED_INFIX = '.retired-';
    not only reporting speed. */
 const RENAME_ATTEMPTS = 10;
 const RENAME_RETRY_DELAY_MS = 100;
+/** How long one renameWithRetry (and so one writeFileAtomic) can spend retrying before it gives up. The
+    updater's held-write budget counts it (win32apply.writeBudgetFrom), so a write's retries wait no
+    longer in all than its read budget allows. */
+const RENAME_RETRY_WINDOW_MS = RENAME_ATTEMPTS * RENAME_RETRY_DELAY_MS;
 const TRANSIENT_RENAME_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);
 
 /* The sweep leaves a retired interpreter younger than this alone. It may belong
@@ -244,6 +248,6 @@ function writeFileAtomic(target, data) {
 }
 
 module.exports = {
-  STAGED_INFIX, RETIRED_INFIX, RETIRED_SWEEP_MIN_AGE_MS,
+  STAGED_INFIX, RETIRED_INFIX, RETIRED_SWEEP_MIN_AGE_MS, RENAME_RETRY_WINDOW_MS,
   renameWithRetry, replaceInterpreter, retireLeftoverInterpreters, writeFileAtomic,
 };

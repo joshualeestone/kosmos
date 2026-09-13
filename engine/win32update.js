@@ -767,9 +767,9 @@ function sweepLockLeftovers(work, inWork, log) {
 }
 
 /**
- * 🛑 A HELD ANSWER IS NEVER PROOF OF ANYTHING. Try `attempt` (a read or an lstat), again while another
- * process holds its target. Returns `{ value }`, `{ missing: true, code }` (ENOENT or ENOTDIR, and
- * nothing else), or `{ code, tries }` when it still fails: a held code (HELD_FILE_CODES) after
+ * 🛑 A HELD ANSWER IS NEVER PROOF OF ANYTHING. Try `attempt` (a read, an lstat or a write), again while
+ * another process holds its target. Returns `{ value }`, `{ missing: true, code, error }` (ENOENT or
+ * ENOTDIR, and nothing else), or `{ code, tries, error }` when it still fails: a held code (HELD_FILE_CODES) after
  * `budget.tries`, or any other code at once. Never throws. `waitSync(ms)` stands in for the wait
  * between tries; `budget` is QUICK_HELD_READ_BUDGET unless the caller's process can wait longer.
  */
@@ -779,8 +779,8 @@ function tryRetryingHolds(attempt, waitSync, budget) {
   for (let tries = 1; ; tries += 1) {
     try { return { value: attempt() }; } catch (e) {
       const code = (e && e.code) || 'unknown';
-      if (code === 'ENOENT' || code === 'ENOTDIR') return { missing: true, code };
-      if (!HELD_FILE_CODES.includes(code) || tries >= b.tries) return { code, tries };
+      if (code === 'ENOENT' || code === 'ENOTDIR') return { missing: true, code, error: e };
+      if (!HELD_FILE_CODES.includes(code) || tries >= b.tries) return { code, tries, error: e };
       wait(b.waitMs);
     }
   }
