@@ -92,6 +92,9 @@ function readUsage(page) {
           href: link ? link.getAttribute('href') : null,
           borderTopW: parseFloat(cs.borderTopWidth) || 0,
           borderLeftW: parseFloat(cs.borderLeftWidth) || 0,
+          maxRadius: Math.max(
+            parseFloat(cs.borderTopLeftRadius) || 0, parseFloat(cs.borderTopRightRadius) || 0,
+            parseFloat(cs.borderBottomLeftRadius) || 0, parseFloat(cs.borderBottomRightRadius) || 0),
           bg: cs.backgroundColor,
           afterHist: hist ? !!(hist.compareDocumentPosition(m) & DP_FOLLOWING) : null,
           beforeMeas: meas ? !!(m.compareDocumentPosition(meas) & DP_FOLLOWING) : null,
@@ -137,11 +140,12 @@ function readUsage(page) {
     ok(v.historyHasPending === false, 'the retired "pending" stub is gone from the Value column');
     // #2840: the METR "how we estimate the value" method footnote for the blended Value column.
     ok(v.method, 'the METR "how we estimate the value" method footnote renders (.usage-method)');
-    ok(v.method && /how we estimate the value/i.test(v.method.text), 'the footnote leads with "How we estimate the value"');
+    ok(v.method && /^how we estimate the value/i.test(v.method.text), 'the footnote leads with "How we estimate the value"');
     ok(v.method && /blended knowledge-work rate/i.test(v.method.text), "the footnote names the blended knowledge-work rate (the Value column's basis, not output)");
     ok(v.method && v.method.href === 'https://metr.org/time-horizons/', `the footnote links the exact approved METR URL (got ${v.method && v.method.href})`);
-    ok(v.method && v.method.borderTopW >= 1, 'the footnote has its quiet top hairline');
+    ok(v.method && v.method.borderTopW === 1, `the footnote has a quiet 1px top hairline, not a thick border (got ${v.method && v.method.borderTopW})`);
     ok(v.method && v.method.borderLeftW === 0, 'the footnote has NO left color-rule (a quiet footnote, not a styled callout)');
+    ok(v.method && v.method.maxRadius === 0, `the footnote has no rounded corners, so it is not a boxed callout (got ${v.method && v.method.maxRadius})`);
     ok(v.method && (v.method.bg === 'rgba(0, 0, 0, 0)' || v.method.bg === 'transparent'), 'the footnote has no callout background (quiet, muted)');
     ok(v.method && v.method.afterHist === true, 'the footnote sits under the usage-history list (beside the Value column it explains)');
     ok(v.method && v.method.beforeMeas === true, 'the footnote sits above "The measurement it comes from" table');
