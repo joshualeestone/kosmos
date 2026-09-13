@@ -2,9 +2,8 @@
 /**
  * The WRITE side of the on-demand permission-prompt seam (#1 / #2189). The install
  * flow's permission screens must fire the REAL macOS prompts when the person clicks a
- * grant button -- "tmux would like to access your Documents" (the file-access prompt is
- * attributed to the bundled tmux, see below), the Accessibility prompt that puts Kosmos
- * in the list -- not merely open System Settings (Josh's 0.6.39
+ * grant button -- "Terminal would like to access your Documents", the Accessibility
+ * prompt that puts tmux in the list -- not merely open System Settings (Josh's 0.6.39
  * #1: "clicking the grant button ... didn't actually ask for the correct permission").
  *
  * 🔑 WHY THE ENGINE ONLY SIGNALS, AND THE NATIVE APP FIRES. Firing these prompts must

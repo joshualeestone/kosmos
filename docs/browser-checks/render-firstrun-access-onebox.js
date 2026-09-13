@@ -7,8 +7,9 @@
  * that tmux is the process macOS holds responsible for agent FILE access
  * (engine/fileaccessstatus.js), so it is the name on the real folder prompts
  * (Josh's screenshots say "tmux would like to access files in your ... folder").
- * Accessibility is the opposite: keyed on the calling binary Kosmos, never tmux
- * (#2125), so the S3 gate stays "Kosmos" -- each screen mirrors its own OS prompt.
+ * This check covers the FILE-access screen only; the accessibility step (S3) is
+ * separate, its tmux-vs-Kosmos attribution is being verified (#2911), and this
+ * check does not assert it.
  *
  * FILENAME IS HISTORICAL. This check began at 0.6.39 #8 asserting ONE box
  * ("onebox") that replaced a three-card fan; #2910 reverses that to six labeled

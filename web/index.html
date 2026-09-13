@@ -9339,11 +9339,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            file-access flow (.s2-mockallow), so it is no longer purely illustrative;
            the keyboard/AT path stays the real Allow Access button in the
            .s2-gate-row below. */
-        /* #2910 (Josh 6.59): the person will see SIX real macOS prompts, three from Terminal
+        /* #2910 (Josh 6.59) + #2685: the person will see SIX real macOS prompts, three from tmux
            and three from Kosmos, one per folder. Show all six, grouped and labeled by the app
            that actually raises them, so the screen matches what pops up (the old single box said
-           "Terminal" while the real prompt is often Kosmos). Two labeled groups, three compact
-           previews each; the row wraps at narrow widths so it never overflows the pane. */
+           "Terminal", but the real file-access prompt names tmux, the bundled process macOS holds
+           responsible for agent file access). Two labeled groups, three compact previews each;
+           the row wraps at narrow widths so it never overflows the pane. */
         .s2-dlg-fan{display:flex;flex-direction:column;gap:14px;align-items:stretch;margin:2px 0 16px}
         .s2-appgrp{display:flex;flex-direction:column;gap:7px}
         .s2-applbl{font:650 .75rem var(--font-ui,-apple-system,sans-serif);letter-spacing:.02em;
@@ -9411,9 +9412,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              and Kosmos's three. The file-access prompts come up as "tmux", not Terminal: Kosmos
              ships and launches its own bundled tmux (macOS has none), and that tmux is the process
              macOS holds responsible for agent FILE access (engine/fileaccessstatus.js), so it is
-             the name on the real folder prompts (Josh's screenshots). Accessibility is different --
-             it is keyed on the calling binary Kosmos, never tmux (#2125), so the S3 gate below stays
-             "Kosmos"; each screen mirrors the word its own OS prompt uses. aria-hidden: the real
+             the name on the real folder prompts (Josh's screenshots). This screen is FILE access
+             only; the accessibility step is S3 and is handled separately (its tmux-vs-Kosmos
+             attribution is being verified, #2911, and is not asserted here). aria-hidden: the real
              focusable grant is the .s2-gate-row button below; these are a mouse-only preview of what
              will pop up. Each mock Allow keeps .s2-mockallow, so a click forwards into the one real
              file-access flow (the #fr-pane-2 click handler targets the single .s2-allow). -->
@@ -12322,10 +12323,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            originates with the person's own instruction, so the fix that is
            left is words: agents pre-warn (the boot block), and this box is
            the standing answer for someone who met it cold. -->
-      <!-- ⚠️ THIS BOX IS THE ONE PLACE THE WORD tmux IS ALLOWED TO REACH A
-           PERSON, and the distinction matters because two rulings in this
-           codebase say it must not. Those are about Kosmos INTRODUCING the
-           word. Here macOS puts it on the screen itself, in a box we do not
+      <!-- ⚠️ THE WORD tmux MAY REACH A PERSON ONLY WHERE macOS SHOWS IT FIRST,
+           and the distinction matters because two rulings in this codebase say
+           Kosmos must not INTRODUCE it. This box is one such place; the S2
+           Access screen, which previews the real file-access prompt, is another
+           (#2685). Here macOS puts it on the screen itself, in a box we do not
            control, and a person who has just been shown a word deserves to be
            told what it is. Explaining a word they were handed is the opposite
            of using jargon at them.
@@ -12361,8 +12363,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            the box is, what to press, what each choice costs, and the reassurance,
            which had to be rewritten because the old one was only true of folders.
            📌 The heading still leads with what the person SEES, and the note above
-           still applies: this is the one place the word tmux may reach a person,
-           because macOS put it on their screen first. -->
+           still applies: the word tmux reaches a person only where macOS put it on
+           their screen first (this box and the S2 preview). -->
       <p class="dhint" style="margin:0;">
         macOS sometimes asks whether <i>&ldquo;tmux&rdquo;</i> can open one of your
         folders, or control this computer. That is one of your agents, reaching a

@@ -17,12 +17,18 @@ is the process macOS holds **responsible for agent FILE access** (`engine/fileac
 so the real folder prompts come up as "tmux" -- which is exactly what Josh's screenshots show.
 The old copy said "Terminal", which is wrong on this machine: nothing here is Apple Terminal.
 
-## The asymmetry, preserved deliberately (Mona Lisa's constraint)
+## Scope: this branch is FILE access only (S2)
 
-FILE access is keyed on the responsible process = the bundled tmux, so S2 says **tmux**.
-ACCESSIBILITY is keyed on the calling binary = Kosmos.app, and tmux can never hold it (#2125),
-so the S3 gate stays **"Open Accessibility settings for Kosmos"**. Each screen mirrors the word
-its own OS prompt uses. The relabel MUST NOT bleed into S3. Verified: S3 gate untouched.
+FILE access is attributed to the responsible process = the bundled tmux, so the S2 file-access
+prompts (and this relabel) name **tmux**. This branch does NOT touch S3 and does NOT assert the
+accessibility mechanism. A live macOS prompt (Josh, 2026-09-13, Mortals box) showed the
+ACCESSIBILITY prompt ALSO names tmux, refuting the earlier "accessibility is Kosmos, never tmux"
+premise. The accessibility attribution and its screen copy are a separate, reopened piece
+(#2911, now "two asks" per Josh: a tmux a11y ask plus a Kosmos a11y ask), led by Mona Lisa and
+pending ICK's deny-test. Verified: S3 gate untouched here. The #1214 "one place the word tmux may
+reach a person" invariant is reframed to the principle (tmux appears only where macOS shows it
+first) because S2 is now a second such place; Mona Lisa's wording, applied to the box comment and
+web.tmux-box-1214.test.js.
 
 ## Division of work (Mona Lisa's ruling)
 
