@@ -1212,3 +1212,102 @@ test('#570 7c-2 waiting does not burn the throttle a crash never earned', () => 
   assert.equal(kids.length, 1, 'and starts at once rather than serving a penalty');
   h.stop();
 });
+
+/* ── #2281: the started-but-never-registered diagnostic ─────────────────────── */
+
+test('#2281 a start that never registers past the grace says so ONCE, and names the trust prompt', () => {
+  /* The invisible-hang state: an untrusted folder leaves the agent parked on
+     Claude Code's workspace-trust dialog in a hidden console, so it never appears
+     in `claude agents --json`. The diagnostic converts that silence into a
+     sentence the task log keeps. */
+  const events = [];
+  const regTimers = [];
+  let seen = null;
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w', configDir: 'C:\cfg' }, {
+    liveReader: () => [],                          // nobody registered, ever
+    throttleMs: 0, now: () => 0, setTimer: () => {},   // no restarts in play
+    registrationTimer: (fn) => regTimers.push(fn),
+    trustWait: (pid, cfg) => { seen = { pid, cfg }; return true; },
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: streamingChild(4242) }),
+  });
+
+  assert.equal(regTimers.length, 1, 'the start armed exactly one registration check');
+  regTimers[0]();                                  // the grace elapses
+  const unreg = events.filter((e) => e.action === 'unregistered');
+  assert.equal(unreg.length, 1, 'one diagnostic, not a flood');
+  assert.equal(unreg[0].sessionId, 'sess-1');
+  assert.match(unreg[0].because, /workspace-trust prompt/);
+  assert.deepEqual(seen, { pid: 4242, cfg: 'C:\cfg' }, 'it asked trustWait about THIS child, in THIS account');
+  h.stop();
+});
+
+test('#2281 a start that DID register fires no diagnostic', () => {
+  const events = [];
+  const regTimers = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: () => [{ sessionId: 'sess-1', pid: 4242 }],   // it registered
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    registrationTimer: (fn) => regTimers.push(fn),
+    trustWait: () => true,                        // would say stuck -- but we never ask
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: streamingChild(4242) }),
+  });
+  regTimers[0]();
+  assert.equal(events.filter((e) => e.action === 'unregistered').length, 0, 'a healthy agent is not called stuck');
+  h.stop();
+});
+
+test('#2281 a stopped agent fires no diagnostic -- the check is guarded on the live child', () => {
+  const events = [];
+  const regTimers = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: () => [],
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    registrationTimer: (fn) => regTimers.push(fn),
+    trustWait: () => true,
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: streamingChild(4242) }),
+  });
+  h.stop();                                        // the agent is gone before the grace fires
+  regTimers[0]();
+  assert.equal(events.filter((e) => e.action === 'unregistered').length, 0, 'a run that ended does not get diagnosed');
+});
+
+test('#2281 an unreadable runner at check time makes NO claim (false-zero rule)', () => {
+  /* Live at start (so it launches), null at the check (so we cannot ask). Crying
+     "stuck" on a look that failed is the false-zero this whole family refuses. */
+  const events = [];
+  const regTimers = [];
+  let calls = 0;
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: () => (calls++ === 0 ? [] : null),
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    registrationTimer: (fn) => regTimers.push(fn),
+    trustWait: () => true,
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: streamingChild(4242) }),
+  });
+  regTimers[0]();
+  assert.equal(events.filter((e) => e.action === 'unregistered').length, 0, 'no runner read, no claim');
+  h.stop();
+});
+
+test('#2281 unregistered but trust looks fine reads as a generic stall, not a trust claim', () => {
+  const events = [];
+  const regTimers = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: () => [],
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    registrationTimer: (fn) => regTimers.push(fn),
+    trustWait: () => false,                        // no lone .key for this pid
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: streamingChild(4242) }),
+  });
+  regTimers[0]();
+  const unreg = events.filter((e) => e.action === 'unregistered');
+  assert.equal(unreg.length, 1);
+  assert.doesNotMatch(unreg[0].because, /workspace-trust prompt/);
+  assert.match(unreg[0].because, /has not registered/);
+  h.stop();
+});

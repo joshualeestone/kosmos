@@ -56,6 +56,16 @@ const THROTTLE_MS = 30 * 1000;
    --json`) and 5s is far below any human-visible restart delay. */
 const POLL_MS = 5 * 1000;
 
+/* How long after a start to check the agent actually REGISTERED before calling it
+   stuck (#2281). win32launch measured a trust-pre-accepted streaming session
+   registering in `claude agents --json` in ~5s; 45s is far past any healthy
+   delay, so a session still absent at this point started and did not register --
+   the invisible-hang state, which on an untrusted folder means it is parked on
+   Claude Code's workspace-trust prompt in a console nobody can see. Checked ONCE
+   per start (a one-shot timer that self-cancels the moment the agent is its own
+   child no longer), never a poll: a healthy agent registers long before it fires. */
+const REGISTRATION_GRACE_MS = 45 * 1000;
+
 /* The liveness seam. Tests replace it; production asks the runner. Returns the
    array `claude agents --json` produces, or null when we could not ask -- and
    NULL IS NOT DEATH, which is the distinction the whole loop turns on. */
@@ -410,6 +420,24 @@ function superviseStreaming(spec, opts) {
     : (name, instance) => require('./win32create').retireRun(name, instance);
   /* The ownership record, injectable so a test can make a record fail. */
   const sessions = o.sessions || win32sessions;
+  /* How long a start is given to register before the unregistered diagnostic
+     fires (#2281), and how "is this pid waiting at a trust prompt" is answered.
+     Both injectable so a test drives the diagnostic without a real clock or a
+     real Claude session dir. The trustWait default reads Claude Code's own
+     sessions dir for the agent's account, the same account its CLAUDE_CONFIG_DIR
+     names -- lazily required so it never loads on the happy path. */
+  const registrationGraceMs = o.registrationGraceMs === undefined ? REGISTRATION_GRACE_MS : o.registrationGraceMs;
+  const trustWait = typeof o.trustWait === 'function' ? o.trustWait
+    : (pid, configDir) => require('./win32trustwait').pidWaiting(pid, { configDir, olderThanMs: 0 });
+  /* ⚠️ ITS OWN TIMER, NOT `timer`, ON PURPOSE. `timer` (o.setTimer) is driven by
+     the restart/throttle arms as `(fn) => fn()` -- fire immediately -- so routing
+     this one-shot through it would make the registration check run synchronously
+     inside every existing arm and inject an `unregistered` event none of them
+     expects. A separate seam keeps the diagnostic isolated; its default is an
+     UNREF'd setTimeout so a real 45s timer never holds a test process open and
+     never fires inside a suite that finishes in well under the grace. */
+  const registrationTimer = typeof o.registrationTimer === 'function' ? o.registrationTimer
+    : (fn, ms) => { const t = setTimeout(fn, ms); if (t && typeof t.unref === 'function') t.unref(); return t; };
 
   /* Where the agent's working/idle goes (7c-5). The default does nothing, so no
      suite that drives this loop writes state files; `main()` passes the real
@@ -639,6 +667,34 @@ function superviseStreaming(spec, opts) {
     }
   }
 
+  /* #2281: the started-but-never-registered diagnostic. Armed once per start, it
+     fires at most one `unregistered` event and only while THIS child is still the
+     running one, so a restart's timer never speaks for the run that replaced it.
+     A null live read (we could not ask) makes NO claim -- crying "stuck" on a
+     failed look is the false-zero this whole family refuses. A healthy agent is
+     listed in `claude agents --json` long before the grace, so a session still
+     absent then started and did not register; on an untrusted folder that means
+     it is parked on Claude Code's workspace-trust dialog in a hidden console,
+     which trustWait confirms from the pid's lone `.key` (see win32trustwait). */
+  function armRegistrationCheck(startedChild, startedId) {
+    if (!startedChild || typeof startedId !== 'string' || !startedId) return;
+    const pid = startedChild.pid;
+    registrationTimer(() => {
+      if (!running || child !== startedChild) return;                 // replaced, stopped, or dead
+      const live = readLive();
+      if (live === null) return;                                      // could not ask -- no claim
+      if (live.some((a) => a && a.sessionId === startedId)) return;   // registered -- healthy
+      let waiting = false;
+      try { waiting = Number.isInteger(pid) && trustWait(pid, s.configDir || null); }
+      catch { waiting = false; }
+      const secs = Math.round(registrationGraceMs / 1000);
+      onEvent({ action: 'unregistered', sessionId: startedId,
+        because: waiting
+          ? 'it started ' + secs + 's ago and never registered -- it is waiting at a workspace-trust prompt no one can see (its folder is untrusted: a pre-seed a live Claude Code save dropped, a folder the user chose, or a config flip)'
+          : 'it started ' + secs + 's ago and has not registered -- it may be starting slowly, or waiting at a prompt no one can see' });
+    }, registrationGraceMs);
+  }
+
   function startOnce() {
     if (!running) return;
     let may = true;
@@ -678,6 +734,10 @@ function superviseStreaming(spec, opts) {
     onEvent(Object.assign({ action: r.resumed ? 'resumed' : 'started', sessionId: r.sessionId },
       r.tokenBecause ? { because: 'it has no reporting token: ' + r.tokenBecause } : {}));
     if (!r.resumed) pruneEndedRows(r.sessionId);   // a resume adds no row, so it has nothing to prune
+    /* #2281: a fresh start AND a resume can both land on an untrusted folder (the
+       trust write can be dropped by a live Claude Code save, or revoked while the
+       agent was down), so both are checked. */
+    armRegistrationCheck(r.child, r.sessionId);
   }
 
   /* The Mac's ThrottleInterval, gating the RESTART. A crash-loop must limp, not
@@ -749,7 +809,7 @@ function superviseStreaming(spec, opts) {
 }
 
 module.exports = {
-  THROTTLE_MS, POLL_MS,
+  THROTTLE_MS, POLL_MS, REGISTRATION_GRACE_MS,
   isAlive, ourLiveSession, ensureRunning, supervise, superviseStreaming, specFromArgv,
   setLiveReader, liveSessions, main,
 };
