@@ -212,7 +212,7 @@ function taskExec(spec) {
  *
  * ⚠️ AND `schtasks /Run` REPORTS SUCCESS WHEN IgnoreNew SUPPRESSED THE START --
  * measured in the same run. Nothing may read that exit code as proof a board
- * started; `restartHelperMain` below confirms by re-querying the task instead.
+ * started; `restartHelperMain` below confirms by asking the board's port who answers.
  *
  * `ExecutionTimeLimit PT0S` is "no limit": the board is meant to run for as long
  * as the box is up, and the default three days would stop it mid-week.
