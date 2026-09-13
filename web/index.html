@@ -2166,6 +2166,41 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    interactive visual verification. */
 #panel-detail .dhead { max-width: none; margin: 0 0 30px; }
 @media (max-width: 60rem) { #panel-detail .dhead { max-width: none; margin: 0 0 30px; } }
+/* #2622 part 2 (Josh product-review): the Talk dialog box fills to the bottom of
+   the window, no empty gap below it ("the dialog box should fill the bottom of the
+   screen 100%... regardless of where the window's bottom edge is dragged"). This is
+   the Talk-box analog of what #2012 did for the Terminal window (#d-window). It is
+   NOT already done by #2012: that fixed WIDTH and the Terminal `#d-window`; the Talk
+   thread (`#d-talk-box` / `#d-dmthread`) was never sized.
+   MECHANISM: #panel-detail is a document-scroll panel, so the fill is a viewport
+   min-height on the panel plus a flex chain down to the thread. Two things are load
+   bearing, per the #980 project-room lesson (~3878 here): a bare max-height does NOT
+   grow a short box (the thread needs a REAL height on its flex container to grow
+   into), AND the thread's own `max-height: 15rem` cap (the .dmthread rule) has to be
+   lifted or it stays short regardless.
+   SCOPE: gated with :has() to the TALK section only. When Model / Memory / Terminal
+   is the shown section, none of this applies and they keep their content height.
+   OFFSET: the min-height offset covers only the chrome ABOVE the panel (the sticky
+   .apphead + the body's own top padding) plus the body's bottom padding. It is
+   agent-independent -- the tall, variable .dhead sits INSIDE the fill, not in the
+   offset -- which is why one fixed offset holds across window sizes. Measured with
+   docs/browser-checks/render-talk-fill-2622.js at two window heights. Uses 100vh to
+   match the sibling #d-window rule (`calc(100vh - 220px)`); a 100dvh follow-up for a
+   mobile URL bar is noted on the card. */
+#panel-detail:not([hidden]):has(#d-sec-talk:not([hidden])) {
+  display: flex; flex-direction: column;
+  /* A DEFINITE height, not min-height: the thread only scrolls INTERNALLY (flex:1
+     + min-height:0 + overflow) when its flex-container chain is bounded. A bare
+     min-height lets content grow the panel unbounded and the thread never hits a
+     limit to scroll within. The offset = the panel's own top (sticky .apphead +
+     body top padding, agent-independent) + the body's bottom padding, so the box
+     bottom lands just above the window's bottom edge with no page scroll. */
+  height: calc(100vh - var(--talk-fill-top, 152px)); }
+#panel-detail:has(#d-sec-talk:not([hidden])) .dbody { flex: 1 1 auto; min-height: 0; align-items: stretch; }
+#panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { display: flex; flex-direction: column; min-height: 0; }
+#panel-detail:has(#d-sec-talk:not([hidden])) #d-sec-talk { flex: 1 1 auto; min-height: 0; }
+#panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+#panel-detail:has(#d-sec-talk:not([hidden])) #d-dmthread { flex: 1 1 auto; min-height: 0; max-height: none; }
 .snav { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 16px; }
 .snav button { position: relative; display: block; width: 100%; text-align: center; padding: 8px 28px;
                border-radius: 100px; border: 1px solid var(--k-rule); background: var(--k-surface);
