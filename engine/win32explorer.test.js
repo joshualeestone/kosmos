@@ -179,6 +179,21 @@ test('each allowed document type OPENS, in any letter case', () => {
   });
 });
 
+test('a trailing dot or space is judged the way Windows judges it: stripped, so notes.pdf. is a .pdf', () => {
+  /* Windows drops trailing dots and spaces from a file name, so these ARE the .pdf and the
+     .bat. The allow-list already fails closed on an undetermined type, so the dangerous half
+     is covered either way; this is the half that must still OPEN. */
+  withWorld({ stat: () => REGULAR_FILE }, (calls) => {
+    for (const name of ['notes.pdf.', 'notes.pdf ', 'notes.pdf. .']) {
+      assert.deepEqual(explorer.openFile(DIR + name), { ok: true }, `${JSON.stringify(name)} was not opened as the .pdf it is`);
+      assert.ok(!calls[calls.length - 1].args[0].startsWith('/select,'), `${JSON.stringify(name)} was only shown`);
+    }
+    for (const name of ['notes.bat.', 'notes.bat ']) {
+      assert.equal(explorer.openFile(DIR + name).revealedInstead, true, `${JSON.stringify(name)} was opened`);
+    }
+  });
+});
+
 test('openFile refuses a folder, a stream and a network file before any launch', () => {
   withWorld({ stat: () => DIRECTORY }, (calls) => {
     assert.equal(explorer.openFile(FOLDER).ok, false);
