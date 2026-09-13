@@ -387,6 +387,13 @@ and not listening. It skips if there is no .NET Framework compiler.
   - **(c) listens, exits 0 at 24s:** the box appeared at 19.3s and closed itself, and the
     launcher exited 0 at 25.0s.
 
+**Rebase:** after the round 3 commit, `origin/main` had moved to 04e23b70 (10 commits).
+The only file both sides touched was `tools.build-windows-570.test.js`, and git merged it
+cleanly: main added a `bin/board-watchdog.sh` entry to `DELIBERATELY_MAC_ONLY` beside
+this branch's `.icns` reason. On the rebased tree, the six files pass 95 of 97 (the same
+2 known EFTYPE failures), no schtasks call was attempted, and `verify-launcher.ps1`
+reports OK.
+
 - **Known limit, unchanged by this round:** a `--console` run whose parent has no console
   and whose outputs are both captured starts the real server with `CreateNoWindow` false.
   Node then gets a console of its own, and its output does not reach the caller's pipes.
