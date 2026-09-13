@@ -648,7 +648,18 @@ Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
       `browser-checks-reason-grep`: 17 of 18. The one failure ("could not run the real grep") fails the
       same way on an archive of `aa30db6c`.
   - The launcher (`KosmosLauncher.cs`) did not change, so it was not rebuilt.
-  - COMPARISON-PENDING
+  - The comparison against an archive of `aa30db6c` (101 suites, full sandbox; name and first error line):
+    - the first run was stopped by the system for low memory (other sessions on the box), before any test
+      ran; it was rerun one test file at a time (`--test-concurrency=1`);
+    - base 1782 tests, 154 fail; branch 1901 tests, 153 fail;
+    - 0 new failures;
+    - the one base-only failure is `git ls-files` in an archive;
+    - 2 tests differ only by an ephemeral port (`absolute-form naming this server is routed`, and
+      `tools.win-open-board-2007`'s end-to-end);
+    - 151 shared failures;
+    - no schtasks call was blocked on either side.
+  - The real system was untouched afterwards: no real `Kosmos.lnk`, no real `Uninstall\Kosmos` key, no
+    `KosmosTest` key, no `%LOCALAPPDATA%\Programs\Kosmos`, and `Kosmos\board` still running.
 
 ## Follow-ups (not this slice)
 
