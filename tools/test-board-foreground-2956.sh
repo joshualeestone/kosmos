@@ -106,5 +106,26 @@ else
   echo "SKIP  foreign-healthy-board case (no system node to run a stub server)"
 fi
 
+# 5. A STRANGER (non-Kosmos) permanently holds the port: board-run must NOT exec
+# node into a doomed EADDRINUSE crash-loop -- it exits without spawning node or
+# clobbering the pidfile. Server serves a body that is NOT our identity string, so
+# healthy() is false but port_taken_by_stranger is true.
+if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ]; then
+  H="$(new_home)"
+  PORTY=18723
+  "$NODE_BIN" -e 'require("http").createServer((_,r)=>r.end("some other app")).listen('"$PORTY"',"127.0.0.1")' &
+  SRV=$!
+  for i in $(seq 1 40); do /usr/bin/curl -fsS -m1 "http://127.0.0.1:$PORTY/" >/dev/null 2>&1 && break; sleep 0.1; done
+  printf 'SENTINEL-7777' > "$H/board.pid"
+  PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTY /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
+  kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+  [ "$rc" = 0 ] && ok "stranger on port: board-run exits 0 (no doomed exec)" || bad "stranger on port: exit $rc (want 0)"
+  [ ! -f "$H/.node-ran" ] && ok "stranger on port: node not exec'd (no crash-loop)" || bad "stranger on port: node ran into EADDRINUSE"
+  [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-7777" ] && ok "stranger on port: pidfile NOT clobbered" || bad "stranger on port: pidfile clobbered"
+  rm -rf "$H"
+else
+  echo "SKIP  stranger-on-port case (no system node)"
+fi
+
 if [ "$fails" = 0 ]; then echo "ALL PASS (test-board-foreground-2956)"; else echo "FAILURES (test-board-foreground-2956)"; fi
 exit "$fails"

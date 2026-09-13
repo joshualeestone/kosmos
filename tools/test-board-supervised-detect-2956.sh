@@ -63,6 +63,36 @@ export KOSMOS_HOME="$HOME/.local/share/kosmos"   # the default -> literal label
   && ok "label: non-default KOSMOS_HOME -> hash-suffixed" \
   || bad "label: non-default home not hash-suffixed"
 
+# --- #2956 / CLAUDE.md #5: PIN the label derivation equal across the TWO files.
+# The label is derived in BOTH install/kosmos (_kosmos_board_label) and
+# install/setup.sh (an inline _board_label block). They are structurally different
+# (function vs inline, inverted condition) so a byte-diff cannot pin them the way
+# the port derivation is pinned; instead run BOTH against identical inputs and
+# assert equal OUTPUTS, so a formula drift in either file (e.g. a changed hash input
+# or width) is caught rather than silently breaking supervised detection. The
+# setup.sh block is EXTRACTED from source (a change there that the test cannot find
+# fails loudly) rather than re-implemented.
+SETUP_SRC="$PWD/install/setup.sh"
+SETUP_LABEL_BLOCK="$(awk '/^_board_label=com\.kosmos\.board$/{f=1} f{print} f&&/^fi$/{exit}' "$SETUP_SRC")"
+if printf '%s' "$SETUP_LABEL_BLOCK" | grep -q 'shasum'; then
+  setup_label() {  # $1=HOME $2=KOSMOS_HOME -> setup.sh's derived label
+    local HOME="$1" KOSMOS_HOME="$2" _kosmos_home_default _board_label
+    _kosmos_home_default="$(printf '%s' "$HOME/.local/share/kosmos" | /usr/bin/tr -s '/')"; _kosmos_home_default="${_kosmos_home_default%/}"
+    eval "$SETUP_LABEL_BLOCK"
+    printf '%s' "$_board_label"
+  }
+  drift_ok=1
+  for kh in "/testhome/.local/share/kosmos" "/opt/custom/kosmos-home" "/testhome/.local/share/kosmos/"; do
+    a="$( HOME=/testhome; KOSMOS_HOME="$kh"; _kosmos_board_label )"
+    b="$(setup_label /testhome "$kh")"
+    [ "$a" = "$b" ] || { drift_ok=0; echo "    drift for KOSMOS_HOME=$kh: install/kosmos='$a' setup.sh='$b'"; }
+  done
+  [ "$drift_ok" = 1 ] && ok "label derivation is byte-equal between install/kosmos and install/setup.sh" \
+    || bad "label derivation DRIFTED between install/kosmos and install/setup.sh (#5)"
+else
+  bad "could not extract setup.sh's _board_label block (formula moved?) -- the drift pin is vacuous"
+fi
+
 # --- _kosmos_board_supervised ---
 # 1. loaded job runs board-run -> supervised
 export KOSMOS_STUB_PRINT=board-run; unset AGENT_WORKFORCE_LAUNCH 2>/dev/null || true

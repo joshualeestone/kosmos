@@ -636,6 +636,15 @@ cmd_board_run() {
   # fresh-install case to a single supervised board (via `kosmos restart` after
   # bootstrap), so this is the defensive backstop, not the normal path.
   if healthy; then exit 0; fi
+  # #2956: likewise do not crash-loop against a STRANGER on the port. If a
+  # non-Kosmos process holds it, healthy() is false (its body is not ours), so we
+  # would fall through and exec node -> EADDRINUSE -> the server exits 1 -> launchd
+  # relaunches every ThrottleInterval, forever, spamming board.log with node stack
+  # traces. Exit quietly instead: no doomed spawn, no spam. launchd still retries on
+  # its throttle (that is KeepAlive's job), but silently, and the actionable
+  # diagnostic ("another app is using port N, quit it") is available on demand from
+  # `kosmos status` / `kosmos start`, which is where a person looks.
+  if port_taken_by_stranger; then exit 0; fi
   [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ] || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
