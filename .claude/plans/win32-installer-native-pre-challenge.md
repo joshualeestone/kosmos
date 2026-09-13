@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: win32-installer-native
-diff_hash: e489e6245ee57bb45df9c7e435ae8317c553719af85a23959802b29a14eb54c2
+diff_hash: b11e3d735835e7d8675f8433ed6f9b75354ad62ed5a14985564a826e26efe35e
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-13T20:49:00Z
+timestamp: 2026-09-13T21:14:00Z
 iterations: 8
 converged: true
 ---
@@ -54,6 +54,15 @@ host-dependent (false on a non-win32 host), so the guard never engages on the ma
 assertions don't hold. Both are now gated to skip off a win32 host (`WIN32_HOST`); on the Windows box the
 file still runs 7/7 with 0 skips. Production code unchanged. A re-audit of all ten new/changed test files
 found no other host-platform-dependent outcome (CI corroborates: only those two failed).
+
+**Second post-review CI fix (test/docs-only, `3f042dda`):** with the test jobs green, the `browser-checks`
+job reddened on the new `render-win32-start-at-sign-in.js` — `page.click` timed out on
+`#set-machine [data-start-at-sign-in]`. The switch rendered into the DOM (the DOM test
+`web.win32-start-at-sign-in.test.js` passes), but `#set-machine` sits in the hidden Settings `mac` section,
+so Playwright's click hit a covering top view. The check now opens the view the way the app does
+(`showTab('settings')` + `settingsOpen('mac')`) and `waitForSelector(SWITCH, {state:'visible'})` before each
+click. Docs/browser-check only; no production or engine-test code changed. Confirmed only in CI (no
+Playwright on the box).
 
 ## Round history (each fixed in the next round, then re-reviewed)
 
