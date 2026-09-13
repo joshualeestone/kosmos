@@ -392,7 +392,28 @@ function renderDigest(result, meta) {
   return out.join('\n');
 }
 
+/**
+ * The whole digest `kosmos feedback triage` prints, from the reports
+ * (engine/feedback.js reportsForTriage) and the open-card titles as text, one per
+ * line. Still pure. Both CLIs call this rather than each assembling the range
+ * line and the card list, so the Mac and Windows digests are one derivation
+ * (win32-cli-verbs).
+ *
+ * The range reads "no reports found" only when there are none; reports with no
+ * dated filename say so rather than heading real items with "no reports found".
+ */
+function digestFor(reports, cardsText) {
+  const all = Array.isArray(reports) ? reports : [];
+  const openCards = String(cardsText == null ? '' : cardsText).split('\n').map((s) => s.trim()).filter(Boolean);
+  const result = triage(all, { openCards });
+  const dates = all.map((r) => r.date).filter(Boolean).sort();
+  const range = all.length === 0 ? 'no reports found'
+    : dates.length ? (dates[0] + ' .. ' + dates[dates.length - 1])
+    : all.length + ' report(s), no dated filenames';
+  return renderDigest(result, { range });
+}
+
 module.exports = {
   normalize, tokens, parseItems, classify, similarity,
-  groupDuplicates, matchOpenCard, triage, renderDigest,
+  groupDuplicates, matchOpenCard, triage, renderDigest, digestFor,
 };

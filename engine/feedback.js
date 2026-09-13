@@ -172,4 +172,46 @@ function list() {
     .reverse();
 }
 
-module.exports = { dir, dateKey, isDateKey, today, pathFor, write, read, readBody, stripFrontmatter, frontmatterDate, has, list };
+/**
+ * The reports `kosmos feedback triage` reads (#2246): the store, or a directory of
+ * collected or tester reports (`--dir`), optionally only those on or after
+ * `since`. ONE reader for both CLIs (install/kosmos and the Windows
+ * tools/windows/kosmos-cli.js), so the two cannot disagree about which reports a
+ * digest covers (win32-cli-verbs).
+ *
+ * Returns { ok, reports: [{date, body}], notes, because }. `notes` are the
+ * per-file skips (a subdirectory named x.md, a file that cannot be read), which
+ * the caller prints and carries on past; `ok:false` is a refusal (a bad --since,
+ * an unreadable --dir), whose `because` the caller prints before exiting 2.
+ *
+ * A --dir file named `YYYY-MM-DD.md` takes its day from the name; any other name
+ * (a pulled `<date>__<install>.md`) takes it from the frontmatter, and one with
+ * neither has a null date, which a --since filter skips because it cannot confirm
+ * the day.
+ */
+function reportsForTriage(opts) {
+  const o = opts || {};
+  const since = o.since || '';
+  const notes = [];
+  if (since && !isDateKey(since)) return { ok: false, because: '--since must be YYYY-MM-DD', reports: [], notes };
+  const reports = [];
+  if (o.dir) {
+    let names;
+    try { names = fs.readdirSync(o.dir); } catch { return { ok: false, because: 'cannot read --dir: ' + o.dir, reports: [], notes }; }
+    for (const name of names.filter((n) => /\.md$/.test(n)).sort()) {
+      let raw;
+      try { raw = fs.readFileSync(path.join(o.dir, name), 'utf8'); } catch { notes.push('skipping unreadable report: ' + name); continue; }
+      const date = /^\d{4}-\d{2}-\d{2}\.md$/.test(name) ? name.slice(0, -3) : frontmatterDate(raw);
+      if (since && (date === null || date < since)) continue;
+      reports.push({ date, body: stripFrontmatter(raw) });
+    }
+  } else {
+    for (const date of list()) {
+      if (since && date < since) continue;
+      reports.push({ date, body: readBody(date) });
+    }
+  }
+  return { ok: true, reports, notes };
+}
+
+module.exports = { dir, dateKey, isDateKey, today, pathFor, write, read, readBody, stripFrontmatter, frontmatterDate, has, list, reportsForTriage };

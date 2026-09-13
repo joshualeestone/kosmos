@@ -19,6 +19,14 @@
 # failure here is 1 with a sentence. Stop is set ONLY around what this script does
 # itself: under `2>&1` PowerShell turns node's stderr into error records, and Stop
 # there would turn every refusal and every "maybe" into a 1 (review round 3).
+#
+# NEVER READ $input IN THIS FILE (win32-cli-verbs, review round 1, measured). Under
+# `powershell -File`, merely referencing $input makes PowerShell wait for its stdin
+# to close, and a tool runner can hold that pipe open for good: every verb hung,
+# `kosmos reply` included. Gating it on $MyInvocation.ExpectingInput, or reading it
+# only for `feedback write`, did not help. So PowerShell pipeline input does not
+# reach the CLI; the two verbs that read stdin (`feedback write` with no text and
+# `feedback triage --cards -`) say to pass the text as an argument instead.
 $argvFile = $null
 $code = 1
 try {
