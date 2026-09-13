@@ -903,11 +903,11 @@ function classifyPane(text) {
   if (/\? for shortcuts/.test(t)) return { kind: 'repl' };
   if (/Login successful|Logged in as/i.test(t)) return { kind: 'login-done' };
   if (/Paste code here/i.test(t)) {
-    const url = extractOauthUrl(t);
+    const url = usableOauthUrl(t);
     return { kind: 'awaiting-code', url };
   }
   if (/Opening browser to sign in|Use the url below to sign in/i.test(t)) {
-    return { kind: 'browser-open', url: extractOauthUrl(t) };
+    return { kind: 'browser-open', url: usableOauthUrl(t) };
   }
   // press-enter outranks the choosing screens: it is the later state when
   // both share an accumulated pane, and its arm runs the subscription check
@@ -939,6 +939,18 @@ function extractOauthUrl(text) {
     return url;
   }
   return null;
+}
+
+/**
+ * The OAuth URL on screen, unless redaction has been through it. The Windows sign-in
+ * host redacts anything matching a code it sent, and a person who pastes a wrong
+ * thing that happens to equal part of the URL (its `state`) gets that part of the URL
+ * redacted on the next screen. A redacted URL is not a link anybody can open, so it
+ * counts as no URL, and every writer keeps the good one it already stored (`mem.url`).
+ */
+function usableOauthUrl(text) {
+  const url = extractOauthUrl(text);
+  return url && !url.includes(require('./win32signin').REDACTION_MARKER) ? url : null;
 }
 
 function tailOf(text) {

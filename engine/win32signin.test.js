@@ -444,6 +444,121 @@ test('a script-only Claude Code gets one honest sentence, whether the start fail
   assert.equal(nothing.because, 'Kosmos could not find Claude Code to run its sign-in');
 });
 
+/* Round 2 redaction arms. A real OAuth code has long halves; these are 38 and 35 characters. */
+const LONG_CODE_HALF = 'CODEhalfQ7w9Zk3mP2vB8nL4tR6yH1jF5dS0aG';
+const LONG_STATE_HALF = 'STATEhalfu2Wq8Er4Ty6Ui0Op1As3Df5Gh7';
+const LONG_CODE = LONG_CODE_HALF + '#' + LONG_STATE_HALF;
+
+/* Any prefix or suffix of either half of six characters or more, found in `text`. */
+function sentCodeLeaks(text) {
+  const found = [];
+  for (const secret of [LONG_CODE_HALF, LONG_STATE_HALF]) {
+    for (let len = 6; len <= secret.length; len++) {
+      if (text.includes(secret.slice(0, len))) found.push(`${secret.slice(0, 5)} prefix ${len}`);
+      if (text.includes(secret.slice(secret.length - len))) found.push(`${secret.slice(0, 5)} suffix ${len}`);
+    }
+  }
+  return found;
+}
+
+test('R1: the 64 KB cap can never cut an echoed code and leave part of it readable', async (t) => {
+  const spawn = withSpawn(t);
+  const host = win32signin.createSigninHost();
+  const limit = win32signin.SIGNIN_OUTPUT_LIMIT_CHARS;
+  for (const [i, shift] of [5, 20, 40, 60].entries()) {
+    await host.open({ claudeBin: CLAUDE_BIN });
+    const child = spawn.calls[i].child;
+    child.stdout.write(OUT_PROMPT);
+    await host.sendCode(LONG_CODE);
+    /* One long line: the code, then filler sized so the cap lands `shift` characters into it. */
+    child.stdout.write('echo ' + LONG_CODE + ' ');
+    const fillLen = limit - (LONG_CODE.length + 1 - shift);
+    child.stdout.write('w '.repeat(Math.ceil(fillLen / 2)).slice(0, fillLen - 1) + '\n');
+    await settle();
+    const cap = await host.capture();
+    assert.ok(cap.stdout.length <= limit);
+    assert.deepEqual(sentCodeLeaks(cap.stdout), [], `shift ${shift}: the cap left part of the code readable`);
+  }
+  for (const [i, shift] of [10, 30].entries()) {
+    await host.open({ claudeBin: CLAUDE_BIN });
+    const child = spawn.calls[4 + i].child;
+    child.stdout.write(OUT_PROMPT);
+    await host.sendCode(LONG_CODE);
+    /* The code on its own line, then newline-delimited filler. */
+    child.stdout.write('\n' + LONG_CODE + '\n');
+    let remaining = limit - (LONG_CODE.length + 1 - shift);
+    let filler = '';
+    while (remaining > 0) { const l = 'y'.repeat(Math.max(0, Math.min(99, remaining - 1))) + '\n'; filler += l; remaining -= l.length; }
+    child.stdout.write(filler);
+    await settle();
+    const cap = await host.capture();
+    assert.deepEqual(sentCodeLeaks(cap.stdout), [], `line shift ${shift}: the cap left part of the code readable`);
+  }
+  /* The stderr tail too: an echo, then enough stderr to cap the stderr keeper inside it. */
+  await host.open({ claudeBin: CLAUDE_BIN });
+  const child = spawn.calls[6].child;
+  await host.sendCode(LONG_CODE);
+  child.stderr.write('Login failed for ' + LONG_CODE + ' ');
+  const fillLen = limit - (LONG_CODE.length + 1 - 25);
+  child.stderr.write('e '.repeat(Math.ceil(fillLen / 2)).slice(0, fillLen - 1) + '\n');
+  child.exit(1);
+  await settle();
+  await host.capture();
+  const tail = await host.capture();
+  assert.equal(tail.ok, false);
+  assert.deepEqual(sentCodeLeaks(tail.stderr), [], 'the stderr tail kept part of the code');
+  await host.kill();
+});
+
+test('R3: an echo split across chunks never shows a readable piece of the code on the unfinished line', async (t) => {
+  const spawn = withSpawn(t);
+  const host = win32signin.createSigninHost();
+  await host.open({ claudeBin: CLAUDE_BIN });
+  const child = spawn.calls[0].child;
+  child.stdout.write(OUT_PROMPT);
+  await host.sendCode(LONG_CODE);
+  child.stdout.write('got ' + LONG_CODE.slice(0, 20));
+  await settle();
+  const mid = await host.capture();
+  assert.deepEqual(sentCodeLeaks(mid.stdout), [], 'the unfinished line showed the start of the code: ' + mid.stdout);
+  assert.match(mid.stdout, /^got \[redacted code\]$/);
+  child.stdout.write(LONG_CODE.slice(20) + ' ok\n');
+  await settle();
+  const end = await host.capture();
+  assert.deepEqual(sentCodeLeaks(end.stdout), []);
+  assert.equal(end.stdout, 'got [redacted code] ok\n');
+  /* CONTROL: ordinary text that shares no four characters with the code is untouched. */
+  child.stdout.write('Login successful.\n');
+  await settle();
+  assert.match((await host.capture()).stdout, /Login successful\.\n$/);
+  await host.kill();
+});
+
+test('EFTYPE on a script gets the script sentence; EFTYPE on a broken program file does not', async (t) => {
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'eftype-'));
+  fs.writeFileSync(path.join(dir, 'claude.ps1'), 'exit 0\n');
+  fs.writeFileSync(path.join(dir, 'claude.exe'), '');
+  withSpawn(t);
+  const host = win32signin.createSigninHost();
+  win32signin.setSpawn(() => { throw Object.assign(new Error('spawn EFTYPE'), { code: 'EFTYPE' }); });
+  const script = await host.open({ claudeBin: path.join(dir, 'claude.ps1') });
+  assert.match(script.because, /can only start the Claude Code program file \(claude\.exe\)/,
+    'a .ps1 failing EFTYPE got the general sentence');
+  assert.match(script.stderr, /EFTYPE/);
+  const broken = await host.open({ claudeBin: path.join(dir, 'claude.exe') });
+  assert.equal(broken.because, 'Kosmos could not start the Claude sign-in on this computer',
+    'a broken claude.exe was told it is a script');
+  assert.match(broken.stderr, /EFTYPE/);
+});
+
+test('every redaction this host writes carries the marker connect.js looks for', () => {
+  assert.equal(win32signin.REDACTION_MARKER, '[redacted');
+  assert.ok(win32signin.redactSecrets('sk-ant-oat01-abcdef').includes(win32signin.REDACTION_MARKER));
+  const keeper = win32signin.createTextKeeper(1000, () => ['abcdefgh12345678']);
+  keeper.push('x abcdefgh12345678 y\n');
+  assert.ok(keeper.text().includes(win32signin.REDACTION_MARKER));
+});
+
 test('Convention 3: with no spawn seam and live execution not armed, nothing is started', async () => {
   win32signin.setSpawn(null);
   liveExecution.resetForTests();

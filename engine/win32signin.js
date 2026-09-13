@@ -21,10 +21,11 @@
  * (`WINDOWS_SIGNIN_HOST_ENABLED`).
  *
  * 📌 SENSITIVE VALUES. The pasted code goes to stdin and nowhere else: never on a
- * command line (the Mac's `send-keys` does put it on tmux's), never in any text this
- * module returns, even if the program echoes it. Captured output lives in memory
- * only, is never logged, and has `sk-ant-…` tokens redacted before anything can
- * read it.
+ * command line (the Mac's `send-keys` does put it on tmux's) and never in a result
+ * this module returns. What a program ECHOES back is redacted as `redactSentPieces`
+ * and `createTextKeeper` describe, with the limits they state. Captured output lives
+ * in memory only, is never logged, and has `sk-ant-…` tokens redacted before the
+ * 64 KB cap.
  */
 
 const { spawn } = require('node:child_process');
@@ -75,6 +76,21 @@ const EXIT_PIPE_GRACE_MS = 1000;
  * screen, while every half a real OAuth code has is far longer.
  */
 const SENT_FRAGMENT_MIN_CHARS = 8;
+
+/**
+ * The shortest partial of a sent piece masked where text was CUT: the start of the
+ * kept text (the 64 KB cap, or a long line committed early) and the end of a line
+ * still arriving. Four random characters reveal next to nothing about a code of dozens;
+ * masking shorter edges would keep blanking ordinary text that happens to match.
+ */
+const SENT_PARTIAL_MIN_CHARS = 4;
+
+/**
+ * Every redaction this module writes contains this, so a reader of captured text
+ * (connect.js's URL extraction) can tell a value that was redacted from one that
+ * was not.
+ */
+const REDACTION_MARKER = '[redacted';
 const SENT_REPLACEMENT = '[redacted code]';
 
 /**
@@ -86,10 +102,11 @@ const INVALID_CODE_PATTERN = /Invalid code/i;
 
 /**
  * Script launchers a directly started program cannot be. Without a shell, Windows
- * starts only program files, so a `claude.cmd` fails with EINVAL, and an
- * extensionless path whose only sibling is a script fails with ENOENT.
+ * starts only program files: a `claude.cmd` fails with EINVAL, a `.ps1` with EFTYPE,
+ * and an extensionless path whose only sibling is a script fails with ENOENT.
  */
 const SCRIPT_EXTENSIONS = Object.freeze(['.cmd', '.bat', '.ps1']);
+const SCRIPT_START_ERRORS = Object.freeze(['ENOENT', 'EINVAL', 'EFTYPE']);
 const PROGRAM_EXTENSION = '.exe';
 
 const SCRIPT_ONLY_BECAUSE = 'Kosmos can only start the Claude Code program file (claude.exe), '
@@ -131,22 +148,80 @@ function keepNewest(text, limit) {
 }
 
 /**
+ * The strings a sent code could leak as: the whole code, and each `#` half of at
+ * least SENT_FRAGMENT_MIN_CHARS. Longest first, so the whole code is replaced before
+ * its halves are looked for.
+ */
+function sentFragmentsOf(code) {
+  const whole = String(code || '');
+  const pieces = [whole, ...whole.split('#')].filter((p) => p.length >= SENT_FRAGMENT_MIN_CHARS);
+  return [...new Set(pieces)].sort((a, b) => b.length - a.length);
+}
+
+/** Every whole occurrence of a sent piece, replaced. */
+function redactSentPieces(text, pieces) {
+  let out = String(text || '');
+  for (const piece of pieces) out = out.split(piece).join(SENT_REPLACEMENT);
+  return out;
+}
+
+/** A suffix of a sent piece (SENT_PARTIAL_MIN_CHARS or longer) at the very start, masked. */
+function maskLeadingSentPartial(text, pieces) {
+  let out = String(text || '');
+  for (const piece of pieces) {
+    for (let len = piece.length - 1; len >= SENT_PARTIAL_MIN_CHARS; len--) {
+      if (out.startsWith(piece.slice(piece.length - len))) { out = SENT_REPLACEMENT + out.slice(len); break; }
+    }
+  }
+  return out;
+}
+
+/** A prefix of a sent piece (SENT_PARTIAL_MIN_CHARS or longer) at the very end, masked. */
+function maskTrailingSentPartial(text, pieces) {
+  let out = String(text || '');
+  for (const piece of pieces) {
+    for (let len = piece.length - 1; len >= SENT_PARTIAL_MIN_CHARS; len--) {
+      if (out.endsWith(piece.slice(0, len))) { out = out.slice(0, out.length - len) + SENT_REPLACEMENT; break; }
+    }
+  }
+  return out;
+}
+
+/* A segment of text about to be kept or shown: whole pieces, and a partial at either
+   cut edge. */
+function maskSentPieces(text, pieces) {
+  if (!pieces.length) return text;
+  return maskTrailingSentPartial(maskLeadingSentPartial(redactSentPieces(text, pieces), pieces), pieces);
+}
+
+/**
  * An accumulating screen, like a tmux pane that never scrolls away.
  *
  * ⚠️ NORMALISED A WHOLE LINE AT A TIME. A chunk boundary can fall inside an escape
  * sequence, between a CR and its LF, or inside a token. Committed text is always cut
  * at a newline, and the unfinished last line is normalised afresh on every read, so
- * none of those is ever processed in halves. Redaction runs BEFORE the cap, so the
- * cap can never cut a token and leave its tail readable.
+ * none of those is ever processed in halves.
+ *
+ * 🔑 WHAT IS REDACTED, AND WHERE. `sk-ant-` tokens, and the pieces `sentPieces()`
+ * returns when the text is committed or read, are replaced BEFORE the cap, so the cap
+ * cuts through a redaction marker, never through a secret. Where text was cut (the
+ * start of the kept text after the cap or an early commit, the end of the line still
+ * arriving) a partial sent piece of SENT_PARTIAL_MIN_CHARS or more is masked too.
+ * ⚠️ NOT GUARANTEED: a partial shorter than that at a cut edge, and a piece echoed in
+ * text committed BEFORE the code was sent (the host's capture covers that case for
+ * whole pieces).
  *
  * 🛑 A LINE THAT OUTGROWS THE LIMIT is committed at its last non-token character, so
- * no token is split; if it has none, it is dropped whole. Failing closed on text the
- * redactor cannot delimit is the Sensitive values convention.
+ * no `sk-ant-` token is split; if it has none, it is dropped whole. Failing closed on
+ * text the redactor cannot delimit is the Sensitive values convention.
  */
-function createTextKeeper(limit) {
+function createTextKeeper(limit, sentPieces) {
+  const piecesNow = typeof sentPieces === 'function' ? sentPieces : () => [];
   let kept = '';
   let partial = '';
-  const commit = (raw) => { kept = keepNewest(kept + normaliseSignInText(raw), limit); };
+  const protectSegment = (text) => maskSentPieces(text, piecesNow());
+  const protectHead = (text) => maskLeadingSentPartial(text, piecesNow());
+  const commit = (raw) => { kept = protectHead(keepNewest(kept + protectSegment(normaliseSignInText(raw)), limit)); };
   return {
     push(chunk) {
       const raw = partial + String(chunk);
@@ -171,26 +246,9 @@ function createTextKeeper(limit) {
       }
     },
     text() {
-      return keepNewest(kept + normaliseSignInText(partial), limit);
+      return protectHead(keepNewest(kept + protectSegment(normaliseSignInText(partial)), limit));
     },
   };
-}
-
-/**
- * The strings a sent code could leak as: the whole code, and each `#` half long
- * enough to be unmistakably part of it. Longest first, so the whole code is replaced
- * before its halves are looked for.
- */
-function sentFragmentsOf(code) {
-  const whole = String(code || '');
-  const pieces = [whole, ...whole.split('#')].filter((p) => p.length >= SENT_FRAGMENT_MIN_CHARS);
-  return [...new Set(pieces)].sort((a, b) => b.length - a.length);
-}
-
-function redactSentFragments(text, fragments) {
-  let out = String(text || '');
-  for (const fragment of fragments) out = out.split(fragment).join(SENT_REPLACEMENT);
-  return out;
 }
 
 /**
@@ -220,10 +278,12 @@ function setSpawn(fn) { spawnFn = typeof fn === 'function' ? fn : null; }
 function startFailure(error, bin) {
   const code = (error && error.code) || 'unknown error';
   let because = 'Kosmos could not start the Claude sign-in on this computer';
-  /* ENOENT beside a script, and EINVAL on a script, are one situation: Claude Code is
-     installed, as something this host cannot start without a shell. Saying "could not
-     find Claude Code" there would contradict the stuck card's own offer to run it. */
-  if ((code === 'ENOENT' || code === 'EINVAL') && onlyAScriptIsThere(bin)) because = SCRIPT_ONLY_BECAUSE;
+  /* ENOENT beside a script, and EINVAL or EFTYPE on one, are one situation: Claude Code
+     is installed, as something this host cannot start without a shell. Saying "could
+     not find Claude Code" there would contradict the stuck card's own offer to run it.
+     A broken `.exe` also fails EFTYPE, and is not a script, so it keeps the general
+     sentence. */
+  if (SCRIPT_START_ERRORS.includes(code) && onlyAScriptIsThere(bin)) because = SCRIPT_ONLY_BECAUSE;
   else if (code === 'ENOENT') because = 'Kosmos could not find Claude Code to run its sign-in';
   return {
     ok: false,
@@ -276,8 +336,8 @@ function createSigninHost() {
     const env = require('./win32launch').childEnv(process.env, null, spec.launchDir || null, null);
     const session = {
       child: null,
-      screen: createTextKeeper(SIGNIN_OUTPUT_LIMIT_CHARS),
-      stderr: createTextKeeper(SIGNIN_OUTPUT_LIMIT_CHARS),
+      screen: null,
+      stderr: null,
       /* Set by sendCode: the screen since the last code went in, and whether the
          program's answer to it is still pending (see capture). */
       sinceSend: null,
@@ -290,6 +350,9 @@ function createSigninHost() {
       drained: false,
       killed: false,
     };
+    const sentPieces = () => session.sentFragments;
+    session.screen = createTextKeeper(SIGNIN_OUTPUT_LIMIT_CHARS, sentPieces);
+    session.stderr = createTextKeeper(SIGNIN_OUTPUT_LIMIT_CHARS, sentPieces);
     let child;
     try {
       /* No shell and no `cmd /c`: the program is started directly, so nothing is
@@ -377,7 +440,9 @@ function createSigninHost() {
   async function capture() {
     const session = current;
     if (!session) return { ok: false, stdout: '', stderr: 'the sign-in is not running' };
-    const redact = (text) => redactSentFragments(text, session.sentFragments);
+    /* The keepers already redacted what arrived after each send, before the cap. This
+       second pass covers whole pieces in text kept BEFORE the code was sent. */
+    const redact = (text) => redactSentPieces(text, session.sentFragments);
     /* The FIRST read after the program ends still returns its final screen, so a
        "Login successful." printed just before exiting is seen (it sets
        connect.js's sawLoginDone). Every later read fails, which is how a closed
@@ -405,8 +470,9 @@ function createSigninHost() {
       if (!session.sentFragments.includes(fragment)) session.sentFragments.push(fragment);
     }
     session.sentFragments.sort((a, b) => b.length - a.length);
-    session.sinceSend = createTextKeeper(SIGNIN_OUTPUT_LIMIT_CHARS);
-    session.stderrSinceSend = createTextKeeper(SIGNIN_OUTPUT_LIMIT_CHARS);
+    const sentPieces = () => session.sentFragments;
+    session.sinceSend = createTextKeeper(SIGNIN_OUTPUT_LIMIT_CHARS, sentPieces);
+    session.stderrSinceSend = createTextKeeper(SIGNIN_OUTPUT_LIMIT_CHARS, sentPieces);
     session.awaitingVerdict = true;
     /* The error CODE only on failure: the code itself must never ride back out. */
     return new Promise((resolve) => {
@@ -432,5 +498,6 @@ function createSigninHost() {
 module.exports = {
   createSigninHost, setSpawn,
   SIGNIN_ARGS, SIGNIN_OUTPUT_LIMIT_CHARS, STDERR_TAIL_LINES, SENT_FRAGMENT_MIN_CHARS,
+  REDACTION_MARKER,
   normaliseSignInText, redactSecrets, createTextKeeper,
 };

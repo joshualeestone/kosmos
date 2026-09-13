@@ -361,6 +361,22 @@ winTest('Windows host: an Invalid code takes the rejection arm, and a second cod
   assert.equal(ctx.spawns.length, 1, 'a retry started a second program');
 });
 
+winTest('R4: a wrong paste that equals the URL state is refused, and the stored sign-in link is not replaced by a redacted one', async (ctx) => {
+  const STATE = 'STATEhalfu2Wq8Er4Ty6Ui0Op1As3Df5Gh7';
+  /* Synthesised: whether auth login prints its URL at all is an L-1 measurement. */
+  const URL = 'https://claude.ai/oauth/authorize?code=true&client_id=abc&state=' + STATE;
+  ctx.behaviour = {
+    onSpawn: (c) => c.say(OUT_BROWSER + 'If the browser did not open, visit: ' + URL + '\n' + OUT_PROMPT),
+    onLine: signsInOnAWholeCode(ctx),
+  };
+  await connect.start();
+  await until(() => phase() === connect.PHASE.SIGNIN_AWAITING_CODE && connect.state().url, 5000);
+  assert.equal(connect.state().url, URL, 'CONTROL: the link was stored before the paste');
+  assert.equal(connect.submitCode(STATE).ok, true);
+  await until(() => phase() === connect.PHASE.SIGNIN_AWAITING_CODE && /did not work/.test(connect.state().because || ''), 15000);
+  assert.equal(connect.state().url, URL, 'the rejection arm replaced the sign-in link with a redacted, broken one');
+});
+
 winTest('Windows host: cancel kills the program', async (ctx) => {
   ctx.behaviour = { onSpawn: (c) => c.say(OUT_BROWSER + OUT_PROMPT) };
   await connect.start();
