@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: win32-board-copy
-diff_hash: ca9f2dd6ad36fad8c1cb04f61b6aac7a3d6fa1d1d54c412018548e1b5fdb22bc
+diff_hash: a5820d70a5df865d860c7b32fcd39840cde0e50f24bac41f02ae1d2c2ea16498
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-13T12:00:00Z
+timestamp: 2026-09-13T04:40:40Z
 iterations: 3
 converged: true
 ---
@@ -14,7 +14,7 @@ converged: true
 
 **Iterations:** 3 (opus, opus, sonnet).
 **Converged:** yes. Round 3 found NO NEW FINDINGS.
-**Fixed:** everything from rounds 1-2: 3 SAFETY, 1 BUG (a11y), 3 CONVENTIONs, 4 NITs, 2 TEST-GAPs, plus 2 residuals taken.
+**Fixed:** everything from rounds 1-2: 3 SAFETY, 1 BUG (a11y), 3 CONVENTIONs, 4 NITs, 2 TEST-GAPs, plus 2 residuals taken. After convergence, two CI failures on PR #2984 were also fixed (see "After convergence: CI").
 
 **Asked (awaiting user):** 0. The coordinator made these design calls:
 - an allow-list for opening documents on Windows; anything else is revealed;
@@ -23,7 +23,12 @@ converged: true
 - `.rtf` dropped from the open list;
 - a 1.5 s powercfg cache.
 
-**How the hash was taken:** `diff_hash` is the sha256 of the raw bytes of `git diff origin/main HEAD -- . ':!.claude/plans/win32-board-copy-pre-challenge.md'`, computed with node over git's own output. It was taken at `db765875` (222,829 bytes), on origin/main `c05c662d`, 11 commits ahead and 0 behind. The pre-challenge-gate hook isn't installed on this Windows box, so the recipe is written out here.
+**How the hash was taken:** `diff_hash` is the sha256 of the raw bytes of `git diff origin/main HEAD -- . ':!.claude/plans/win32-board-copy-pre-challenge.md'`, computed with node over git's own output.
+- It was re-taken after the CI fixes at `04bc30a3` (261,625 bytes), against `origin/main` `169c1a33`.
+- The branch's merge-base is `c05c662d`; the branch is 14 commits ahead and 3 behind.
+- Because that recipe diffs two trees, the hashed bytes also carry `origin/main`'s three commits since the base (#2977: `engine/create.js`, `engine/worldstarts.js`, their tests, `server.world-switch-agents-1704.test.js` and its plan files). None of those files overlap the 34 this branch changes, so the branch was not rebased.
+- The earlier hash (`ca9f2dd6…`, taken at `db765875` on `c05c662d`) is superseded.
+- The pre-challenge-gate hook isn't installed on this Windows box, so the recipe is written out here.
 
 ## Validation of record
 
@@ -34,7 +39,7 @@ All runs used the Kosmos runtime node v24.19 via PowerShell, the schtasks guard 
 - **Harness scan:** no source-extraction harness newly fails. Every harness that lifts page functions loads the copy layer via `PLATFORM_COPY_FNS`.
 - **Block log:** only read-only `schtasks /Query` calls from pre-existing suites. No test launched Explorer, Settings or a powercfg change; everything went through runner seams.
 - **Mac unchanged:** a headless Edge render of head vs base (round 1 and round 2) showed only new elements hidden on the Mac. Every Mac painter's output and the wizard walk match.
-- **CI browser check:** `render-win32-board-copy.js` is in `KOSMOS_BC_CI_ALLOWLIST`; its in-page logic replayed in headless Chromium/Edge passed 31/31.
+- **CI browser check:** `render-win32-board-copy.js` is in `KOSMOS_BC_CI_ALLOWLIST`. Its in-page logic replayed in headless Chromium/Edge passed 31/31, but that replay could not see the WebKit-only failure described below.
 - **Real powercfg:** a read-only `powercfg /qh SCHEME_CURRENT SUB_SLEEP STANDBYIDLE` capture from this box is the en-US fixture.
 
 ## Control runs
@@ -74,3 +79,17 @@ All runs used the Kosmos runtime node v24.19 via PowerShell, the schtasks guard 
 - **NIT 1/2:** confirmed.
 - **Mac:** unchanged.
 - **Rebase:** no overlap with #2972.
+
+## After convergence: CI
+
+PR #2984 at head `f5938bb3` was red on two jobs. Both causes were in files this branch added; neither changes product code.
+
+1. **Test jobs (runs 34737981633, 34737983327): `✖ the browser-checks README names every script, and no script it does not have`.**
+   - **Cause:** the new `docs/browser-checks/render-win32-board-copy.js` had no row in `docs/browser-checks/README.md`, which `browser-checks-indexed.test.js` requires for every script.
+   - **Fix:** a row after `render-connect-win32-install-570.js`, in the same format as its neighbours.
+   - **Local result:** `browser-checks-indexed.test.js` and `tools.browser-checks-wired.test.js` pass 9/9. `browser-checks-reason-grep` and `browser-checks-selectors` are 8/9 here; the one miss ("could not run the real grep") fails identically on the `c05c662d` archive, because this box has no grep to spawn, and it passed on CI's macOS runner.
+2. **browser-checks job (run 34737983351): `render-win32-board-copy (failed twice)`, webkit only.**
+   - **Cause:** the failing arm was "win32 page raised no errors". Over file:// the page's own boot reads (`/api/status`, `/api/worlds`, `/api/first-run` and ten more) cannot load, and WebKit reports each as a page error ("... due to access control checks."). Chromium does not, so the Chromium/Edge replay passed. The two file:// checks that passed in webkit in that same job, `render-firstrun-connect-fires` and `render-observed-consumers-1959`, never count page errors, so they cannot hit it.
+   - **Fix:** copied from `render-autohello-2686.js`, an allowlisted check that asserts zero page errors on the same page. Its `initStub` is installed with `addInitScript` before any page script runs and replaces `window.fetch` with a benign `{ agents: [] }` answer. The boot fetches never reach file://, so no message is filtered, and every page error that still arrives is a real one.
+   - **Still fails on a real script error:** a new CONTROL throws a real error on each page and requires the listener to catch it, in both engines, and the Mac page gained the same no-errors arm.
+   - **Not run locally:** Playwright is not on this Windows box. The file is `node --check` clean, and the pattern is already green in that CI job.
