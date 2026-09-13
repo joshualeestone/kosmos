@@ -15,11 +15,36 @@ only file they double-click was the one file in the package that is structurally
 unsignable. A PE binary can be signed. The entry point had to become one before a
 certificate bought anything.
 
-`KosmosLauncher.cs` therefore does **exactly** what `Kosmos.cmd` did and nothing
-more — start the browser-open helper, run the board in the foreground, propagate
-its exit code, hold the window open on failure. A launcher that starts doing its
-own thinking is a second place for Windows-only bugs to live, and the whole point
-of this file is to remove a Windows-only problem.
+`KosmosLauncher.cs` therefore starts the same two things `Kosmos.cmd` did, with
+the same arguments — the browser-open helper, then the board — and propagates the
+board's exit code. It does no thinking of its own about the board. A launcher that
+does is a second place for Windows-only bugs to live, and the whole point of this
+file is to remove a Windows-only problem.
+
+What it adds is how a Windows program presents itself (win32-launcher-native):
+
+- **No console window.** It is a GUI-subsystem exe (`/target:winexe`), so a
+  double-click opens nothing but the browser. The board runs on a hidden console,
+  as the logon task's board does.
+- **Problems are a message box titled "Kosmos"**, never console text a person
+  cannot see. That includes the most common mistake: double-clicking `Kosmos.exe`
+  inside the zip in Explorer, which runs it from a temp folder with no
+  `runtime\node.exe` beside it. That case gets its own message, telling them to
+  use Extract All.
+- **`Kosmos.exe --console`** is the old console behaviour, for support: the same
+  status lines, the board's own output, and a window held open on failure. From
+  Command Prompt, run `start /wait Kosmos.exe --console`. A GUI exe does not
+  otherwise hold the prompt.
+- **Never a box nobody can see.** In a non-interactive context (a service, or a
+  task that runs whether or not the user is signed in), it writes to stderr
+  instead. Nothing calls it that way today: the board's logon task runs `node.exe`
+  directly, not this exe.
+- **An icon and version information.** The icon is `assets/kosmos.ico`, generated
+  by `assets/make-kosmos-ico.ps1`. FileDescription and ProductName are "Kosmos".
+  CompanyName is left out until it can match the code-signing certificate's
+  subject. The version is the **launcher's** own (`LauncherVersion`, currently
+  2.0.0.0), not the app's. This binary is copied unchanged into every release, so
+  an app version stamped into it would be wrong from the next release on.
 
 It targets .NET Framework 4.x, which ships in-box on every Windows 10 and 11
 machine: no runtime to install, and no bundled runtime to sign.
@@ -92,12 +117,18 @@ If you change `KosmosLauncher.cs`, rebuild the binary **in the same commit**:
 
 ```
 C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe ^
-  /nologo /target:exe /optimize+ /platform:anycpu ^
+  /nologo /target:winexe /optimize+ /platform:anycpu ^
+  /win32icon:assets\kosmos.ico ^
   /out:tools\windows\Kosmos.exe tools\windows\KosmosLauncher.cs
 ```
 
 Those flags are the ones `verify-launcher.ps1` uses. If they change, they must
 change in both places, and the binary must be rebuilt.
+`tools.win-launcher-native.test.js` compares the two.
+
+If you change the icon master, regenerate the icon first
+(`powershell -ExecutionPolicy Bypass -File assets/make-kosmos-ico.ps1`), then
+rebuild the binary: the icon is compiled into it.
 
 ## The port
 
