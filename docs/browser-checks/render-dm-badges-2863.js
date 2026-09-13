@@ -172,6 +172,26 @@ function chk(ok, label, extra) {
           theme + ' org: badge span and button aria agree at n=' + n + ' (want "' + wantTxt + '" / "' + wantAria + '")', JSON.stringify(bd));
       }
 
+      // The CURRENT-suppression predicate is the OTHER fact dmBadge and dmAria each
+      // re-derive ("don't badge the agent you're reading"). Pin them equal too: with
+      // ada open as CURRENT and a positive count, BOTH the visible badge AND the aria
+      // "unread" phrase must be gone. If a future edit changes one suppression but not
+      // the other, this reds (a node with a badge but no announcement, or vice versa).
+      const supp = await page.evaluate(() => {
+        for (const a of (LAST || [])) { if (a.sessionName === 'ada') a.dmUnread = 3; }
+        CURRENT = (LAST || []).find((a) => a.sessionName === 'ada') || null;
+        ORG_HTML = null; paintOrg();
+        const node = document.querySelector('#orgmap .onode[data-agent="ada"]');
+        const res = {
+          hasBadge: !!(node && node.querySelector('.dmbadge')),
+          ariaUnread: /unread/.test((node && node.getAttribute('aria-label')) || ''),
+        };
+        CURRENT = null; ORG_HTML = null; paintOrg();
+        return res;
+      });
+      chk(!supp.hasBadge && !supp.ariaUnread,
+        theme + ' org: the open (CURRENT) agent is suppressed in BOTH the badge and the aria (one suppression, pinned)', JSON.stringify(supp));
+
       // ── CONSOLIDATED LIST: the badge must NOT be hidden by the catch-all ──
       // The consolidated rail applies `.lrow > :not(.lav)...:not(.dmbadge) { display:none }`.
       // Before the #2863 exemption the badge (a direct .lrow child) was caught by it and went
