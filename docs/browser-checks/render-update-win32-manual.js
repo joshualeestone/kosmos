@@ -44,7 +44,10 @@ const OUT = process.argv[2] || '/tmp/uwshots';
 const NEWER = '99.0.0';
 const PROD_ZIP = 'https://installkosmos.com/dist/kosmos-' + NEWER + '-win-x64.zip';
 const STAGED = 'http://127.0.0.1:9/dist/kosmos-' + NEWER + '-win-x64.zip';
-const MANUAL_SENTENCE = 'Version ' + NEWER + ' is ready. Download it, unpack it over your Kosmos folder, then double-click Kosmos.exe.';
+/* win32-board-copy (W-25): the offer is a lead sentence plus numbered steps and an "Open my
+   Kosmos folder" button, because "unpack it over your Kosmos folder" is not what Extract All does. */
+const MANUAL_SENTENCE = 'Version ' + NEWER + ' is ready. To install it, follow these steps.';
+const MANUAL_STEP_REPLACE = 'When Windows asks, choose Replace the files in the destination.';
 const fail = [];
 function chk(ok, label, extra) {
   console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));
@@ -95,6 +98,11 @@ async function readCard(pg) {
       buttonShown: shown(btn),
       channelShown: shown(chan),
       channelText: chan ? chan.textContent.trim() : null,
+      /* win32-board-copy (W-25): the numbered steps and the folder button beside Download. */
+      stepsShown: shown(document.getElementById('upd-manual-steps')),
+      steps: [...document.querySelectorAll('#upd-manual-steps li')].map((li) => li.textContent.trim()),
+      openFolderShown: shown(document.getElementById('upd-open-folder')),
+      openFolderText: (document.getElementById('upd-open-folder') || {}).textContent || null,
     };
   });
 }

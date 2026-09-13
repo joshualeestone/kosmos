@@ -886,9 +886,13 @@ function connectHarness(st) {
     'const esc = ' + realEsc.toString() + ';\n'
     + 'const document = { getElementById: () => null };');
 
+  /* win32-board-copy: the painter's Windows arms ask the platform copy layer; lifted as
+     the page's own source, and "not Windows" here unless a state names win32. */
+  const platformCopyLayer = require('./test-support/page').PLATFORM_COPY_FNS.map((n) => pageFnSource(n)).join('\n');
   const prelude = `
     const esc = ${realEsc.toString()};
     ${tables}
+    ${platformCopyLayer}
     const frCheckRow = ${realRow.toString()};
     const frMB = ${realMB.toString()};
     const frConnBefore = ${realBefore.toString()};

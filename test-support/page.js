@@ -171,4 +171,13 @@ function liftConst(script, name) {
 const FOUND_PAINTER_FNS = ['esc', 'foundCountLine', 'foundOverflows', 'foundCountRefresh',
   'foundRowsHtml', 'frFoundOffer', 'adoptRowsHtml', 'cssId'];
 
-module.exports = { scriptOf, lift, liftAll, liftConst, FOUND_PAINTER_FNS };
+/**
+ * The page's platform copy layer (win32-board-copy), in ONE list for the same reason as
+ * the list above: every painter with a Windows arm now calls these, so a harness that
+ * lifts such a painter must lift these too, and a second copy of the list is a second
+ * place to forget a name. With no stamped `<meta name="kosmos-platform">` in the
+ * harness's document they answer "not Windows", so a Mac harness keeps its Mac page.
+ */
+const PLATFORM_COPY_FNS = ['servedPlatform', 'onWindows', 'windowsCopyTable', 'windowsCopy', 'platformCopy'];
+
+module.exports = { scriptOf, lift, liftAll, liftConst, FOUND_PAINTER_FNS, PLATFORM_COPY_FNS };

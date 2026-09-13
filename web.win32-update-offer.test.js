@@ -12,6 +12,10 @@
  * platform and bundle seamed), builds the status fields with the same expressions server.js
  * uses (pinned against server.js's source below, so the two cannot drift), and paints them
  * through the REAL paintUpdateCard lifted from web/index.html.
+ *
+ * win32-board-copy (W-25): the offer is numbered steps now, with an "Open my Kosmos folder"
+ * button beside Download, because "unpack it over your Kosmos folder" is not what Extract All
+ * does. The sentence and the steps come from the page's platform copy table.
  */
 
 const test = require('node:test');
@@ -33,7 +37,7 @@ const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
 
 const ARCH = process.arch;
 const NEWER = '99.0.0';
-const MANUAL_SENTENCE = 'Version ' + NEWER + ' is ready. Download it, unpack it over your Kosmos folder, then double-click Kosmos.exe.';
+const MANUAL_SENTENCE = 'Version ' + NEWER + ' is ready. To install it, follow these steps.';
 const ENV_KEYS = ['KOSMOS_UPDATE_CHANNEL', 'KOSMOS_RELEASE_BASE', 'AGENT_WORKFORCE_RELEASE_BASE'];
 let savedEnv = {};
 
@@ -87,6 +91,8 @@ function paintStatus(st, asked, focusedId) {
     'upd-btn': { textContent: '', dataset: {}, hidden: true, disabled: true },
     'upd-channel': { hidden: true },
     'upd-download': dl,
+    'upd-manual-steps': { hidden: true, innerHTML: '' },
+    'upd-open-folder': { hidden: true },
   };
   const doc = {
     activeElement: focusedId ? els[focusedId] : null,
@@ -96,7 +102,7 @@ function paintStatus(st, asked, focusedId) {
   };
   // eslint-disable-next-line no-new-func
   new Function('document', 'UPD_ASKED', 'UPD_CHECKING', 'ENGINE_STALE', 'ST',
-    page.liftAll(SCRIPT, ['bakedVersion', 'pageIsStale', 'paintUpdateCard'])
+    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'paintUpdateCard'])
     + '\npaintUpdateCard(ST.version, ST.update, ST.updateLook, ST.updateManual, ST.updateChannel);')(doc, asked, false, null, st);
   return {
     line: els['upd-line'].textContent,
@@ -105,6 +111,9 @@ function paintStatus(st, asked, focusedId) {
     href: dl.attrs.href,
     channelShown: els['upd-channel'].hidden === false,
     downloadFocused: dl.focused,
+    stepsShown: els['upd-manual-steps'].hidden === false,
+    steps: els['upd-manual-steps'].innerHTML,
+    openFolderShown: els['upd-open-folder'].hidden === false,
   };
 }
 
@@ -134,6 +143,32 @@ test('⭐ a Windows bundle with a newer Windows build published: the manual offe
     assert.equal(card.btnHidden, true, 'the card offers the check button beside the download');
     assert.equal(card.channelShown, false, 'a prod board claimed the staging channel');
   }
+});
+
+test('win32-board-copy (W-25): the manual offer is numbered steps that name Windows\' own dialog, with a folder button', async () => {
+  const st = await statusAfterLook(async () => ({ ok: true, json: async () => winManifest(NEWER) }));
+  const card = paintStatus(st, false);
+  assert.equal(card.stepsShown, true, 'the steps are not shown with the offer');
+  assert.equal(card.openFolderShown, true, 'the Open my Kosmos folder button is not shown with the offer');
+  const steps = [...card.steps.matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => m[1].replace(/<[^>]+>/g, ''));
+  assert.deepEqual(steps, [
+    'Click Download.',
+    'Click Open my Kosmos folder.',
+    'Open the downloaded zip, select everything inside it (Ctrl+A), and drag it into your Kosmos folder.',
+    'When Windows asks, choose Replace the files in the destination.',
+    'Double-click Kosmos.exe. Your agents keep running.',
+  ]);
+  assert.doesNotMatch(card.line + card.steps, /unpack/i, 'Mac vocabulary is back in the Windows offer');
+  /* CONTROL: with nothing newer, neither the steps nor the button shows. */
+  const current = paintStatus(await statusAfterLook(async () => ({ ok: true, json: async () => winManifest(RUNNING) })), true);
+  assert.equal(current.stepsShown, false, 'steps shown with nothing to install');
+  assert.equal(current.openFolderShown, false, 'the folder button shown with nothing to install');
+  /* The button is the same engine reveal as Settings' "Open the Kosmos folder". */
+  assert.match(PAGE, /<button class="btn-quiet" type="button" id="upd-open-folder" hidden>Open my Kosmos folder<\/button>/);
+  const handlerAt = SCRIPT.indexOf("getElementById('upd-open-folder').addEventListener('click'");
+  assert.ok(handlerAt > -1, 'the folder button has no handler');
+  assert.match(SCRIPT.slice(handlerAt, handlerAt + 400), /fetch\('\/api\/reveal-app', \{ method: 'POST' \}\)/,
+    'the folder button does not use the one Kosmos-folder reveal');
 });
 
 test('THE BUG\'S SHAPE: a newer MAC build with the Windows build current is "Up to date." on Windows', async () => {
@@ -188,6 +223,8 @@ test('CONTROL: the Mac\'s install offer still wins the card, and the manual arm 
   assert.equal(card.line, 'Version ' + NEWER + ' is ready.');
   assert.equal(card.downloadHidden, true);
   assert.equal(card.btnHidden, false);
+  assert.equal(card.stepsShown, false, 'the Windows steps showed on the Mac offer');
+  assert.equal(card.openFolderShown, false, 'the Windows folder button showed on the Mac offer');
 });
 
 test('one derivation: the status route, the check route and every card caller carry the same two fields', () => {

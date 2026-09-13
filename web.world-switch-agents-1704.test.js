@@ -160,7 +160,11 @@ async function runSwitch(agents, responseBody) {
     posted.push({ url, body: JSON.parse(opts.body) });
     return { ok: true, status: 200, json: async () => responseBody };
   };
+  /* win32-board-copy: worldswSwitch's could-not-restart sentence asks the platform copy
+     layer; sliced from the page like everything else here ("not Windows" with no meta). */
+  const platformLayer = require('./test-support/page').PLATFORM_COPY_FNS.map(slice).join('\n');
   const src = `let WORLDSW_SWITCHING = false;
+${platformLayer}
 ${NOTE}
 ${SWITCH}
 return worldswSwitch(_id, _name, _agents);`;

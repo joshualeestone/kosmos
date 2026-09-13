@@ -24,7 +24,7 @@ function slotAfter(calls, { baked = '0.2.87', host = '127.0.0.1:16180' } = {}) {
     querySelector: () => (baked === undefined ? null : { getAttribute: () => baked }),
   };
   const fn = new Function('document', 'esc', 'location',
-    `${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
+    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
     doc, (x) => String(x == null ? '' : x), host === null ? null : { host },
   );
   for (const down of calls) fn(down);
@@ -172,7 +172,7 @@ test('it does not re-announce itself on every poll while the condition holds', (
 function slotAfterAgain(slot) {
   const doc = { getElementById: () => slot, querySelector: () => ({ getAttribute: () => '0.2.87' }) };
   new Function('document', 'esc', 'location',
-    `${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
+    `${page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS)}\n${page.lift(SCRIPT, 'bakedVersion')}\n${page.lift(SCRIPT, 'paintOfflineNote')}\nreturn paintOfflineNote;`)(
     doc, (x) => String(x), { host: 'h' },
   )(true);
 }
