@@ -818,6 +818,24 @@ CI-flake fix, two notes, then the rebase and the proof.
   call at all (case-C). It stays fail-closed: the bind-host board keeps answering, the wait times out, and the
   board task's switch is restored. Nothing is deleted. No code change; recorded as an accepted limit.
 
+- **Round 9 results (this box).** Rebased onto `origin/main` `b31b7610` (#2997, which fixed
+  `web.win32-board-copy.test.js`); the only overlap was `web/index.html` and it merged cleanly, with this
+  branch's sign-in switch in `machineRows` intact. Every heavy step ran inside the shared lock, one file or
+  one control at a time.
+  - `engine/win32handoff.test.js` 65 of 65 (the two widened timing tests pass), `web.win32-board-copy.test.js`
+    26 of 26 on the rebased base.
+  - Revert controls: 123 of 123 red, none invalid, every baseline green, tree clean afterwards, no schtasks
+    call blocked.
+  - The comparison against an archive of `b31b7610` (101 suites plus the branch's real-board suite; name and
+    first error line), one file per locked step: base 1782 tests / 154 fail; branch 1918 / 153 fail; 0 new
+    failures; the one base-only failure is `git ls-files` in an archive; 2 tests differ only by an ephemeral
+    port; 151 shared; no schtasks call blocked. `web.win32-board-copy` passes on both sides.
+  - The launcher (`KosmosLauncher.cs`) did not change, so it was not rebuilt. The real system was untouched:
+    no real `Kosmos.lnk`, no real `Uninstall\Kosmos` key, no `KosmosTest` key, no `%LOCALAPPDATA%\Programs\Kosmos`,
+    and `Kosmos\board` still running.
+  - The `/challenge-loop` converged over 8 review rounds (rounds 1-8); round 9 is the CI-flake fix, these
+    notes, the rebase and the proof. The pre-challenge proof is `.claude/plans/win32-installer-native-pre-challenge.md`.
+
 ## Follow-ups (not this slice)
 
 - **The no-connect-limit `probeBoard` can hang on a headers-then-stall response (#2983's owner).** With no
