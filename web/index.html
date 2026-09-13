@@ -2172,21 +2172,26 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    the Talk-box analog of what #2012 did for the Terminal window (#d-window). It is
    NOT already done by #2012: that fixed WIDTH and the Terminal `#d-window`; the Talk
    thread (`#d-talk-box` / `#d-dmthread`) was never sized.
-   MECHANISM: #panel-detail is a document-scroll panel, so the fill is a viewport
-   min-height on the panel plus a flex chain down to the thread. Two things are load
-   bearing, per the #980 project-room lesson (~3878 here): a bare max-height does NOT
-   grow a short box (the thread needs a REAL height on its flex container to grow
+   MECHANISM: #panel-detail is a document-scroll panel, so the fill is a definite
+   viewport height on the panel plus a flex chain down to the thread. Two things are
+   load bearing, per the #980 project-room lesson (~3878 here): a bare max-height does
+   NOT grow a short box (the thread needs a REAL height on its flex container to grow
    into), AND the thread's own `max-height: 15rem` cap (the .dmthread rule) has to be
    lifted or it stays short regardless.
    SCOPE: gated with :has() to the TALK section only. When Model / Memory / Terminal
    is the shown section, none of this applies and they keep their content height.
-   OFFSET: the min-height offset covers only the chrome ABOVE the panel (the sticky
+   OFFSET: the height offset covers only the chrome ABOVE the panel (the sticky
    .apphead + the body's own top padding) plus the body's bottom padding. It is
    agent-independent -- the tall, variable .dhead sits INSIDE the fill, not in the
    offset -- which is why one fixed offset holds across window sizes. Measured with
    docs/browser-checks/render-talk-fill-2622.js at two window heights. Uses 100vh to
    match the sibling #d-window rule (`calc(100vh - 220px)`); a 100dvh follow-up for a
    mobile URL bar is noted on the card. */
+/* The `:not([hidden])` on THIS rule (but not the child rules below) is load-bearing,
+   not an inconsistency: this rule sets `display: flex` on the panel, and an id selector
+   outweighs the UA `[hidden] { display: none }`, so without the guard a hidden panel
+   would be un-hidden. The child rules only touch descendants' flex/height, which are
+   inert while the panel is display:none, so they omit it. */
 #panel-detail:not([hidden]):has(#d-sec-talk:not([hidden])) {
   display: flex; flex-direction: column;
   /* A DEFINITE height, not min-height: the thread only scrolls INTERNALLY (flex:1
@@ -2247,6 +2252,12 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
      matching-width request) and needs the same restatement for the same
      reason. */
   #panel-settings .dbody, #panel-detail .dbody { grid-template-columns: minmax(0, 1fr); }
+  /* #2622 part 2, narrow width: when the grid collapses to one column the snav and
+     .dsecs stack as two rows. The talk fill gives .dbody a tall definite height, and a
+     single-column grid's default row sizing would stretch BOTH rows equally, ballooning
+     the snav row and re-opening the very gap this change closes. Pin the snav row to its
+     content (auto) and let only the .dsecs row grow. Talk-scoped, like the wide rule. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dbody { grid-template-rows: auto minmax(0, 1fr); }
   .snav { position: static; flex-direction: row; flex-wrap: wrap; }
   .snav button { width: auto; }
   .snav .sep { display: none; }

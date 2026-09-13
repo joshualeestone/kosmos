@@ -10,10 +10,11 @@
  * it's a big empty gap)."
  *
  * This is the Talk-box analog of #2012 (which fixed WIDTH + the Terminal
- * #d-window, never the Talk #d-talk-box). The fix is a viewport min-height on
+ * #d-window, never the Talk #d-talk-box). The fix is a definite viewport height on
  * the document-scroll #panel-detail plus a flex chain down to #d-dmthread, with
  * the thread's own `max-height: 15rem` cap lifted (per the #980 lesson: a bare
- * max-height does not grow a short box).
+ * max-height does not grow a short box, and a min-height lets content grow the
+ * panel unbounded so the thread never scrolls).
  *
  * 🛑 THE FILL ASSERTIONS ARE CONTROLS, not bare reads. Each would FAIL on the
  * pre-change build: #d-talk-box was content-height (~short), so on a tall window
@@ -127,9 +128,17 @@ async function measure(page) {
     chk(tall.composerBottom !== null && tall.composerBottom > tall.innerHeight - 200 && tall.composerBottom <= tall.innerHeight + 5,
       'A4 tall window: the composer is pinned near the bottom of the window',
       'composerBottom=' + tall.composerBottom + ' innerHeight=' + tall.innerHeight);
+    // A5 has two arms so it discriminates the CAP LIFT, not just "it scrolls": a thread
+    // still capped at 15rem (~240px) would ALSO scroll on 40 rows, so scrollH>clientH alone
+    // does not red on the pre-change page. threadClientH growing well past 240px on a tall
+    // window is what the lifted cap buys (measured ~532 lifted vs <=240 capped), and it reds
+    // on the pre-change page where the cap holds.
     chk(tall.threadScrollH > tall.threadClientH + 20,
-      'A5 the thread scrolls INTERNALLY on a long conversation (cap lifted, own overflow)',
+      'A5a the thread scrolls INTERNALLY on a long conversation (own overflow)',
       'threadScrollH=' + tall.threadScrollH + ' threadClientH=' + tall.threadClientH);
+    chk(tall.threadClientH > 240,
+      'A5b the thread height grows well past the old 15rem (~240px) cap (control: capped stays <=240)',
+      'threadClientH=' + tall.threadClientH);
 
     // --- Short window (700): fill must still hold when the edge is dragged up ---
     await page.setViewportSize({ width: 1400, height: 700 });
@@ -139,6 +148,29 @@ async function measure(page) {
     chk(short.boxBottom > short.innerHeight - TOL,
       'A2 short window: the Talk box still fills to near the viewport bottom',
       'boxBottom=' + short.boxBottom + ' innerHeight=' + short.innerHeight + ' gap=' + short.gapBelowBox);
+
+    // --- Narrow width (<=56rem): the grid collapses to one column and the snav
+    // wraps to a row above .dsecs. The talk fill must still hold WITHOUT ballooning
+    // the snav row (the failure this arm guards: a single-column grid stretching both
+    // rows equally). Measured at 500px wide, a phone-ish width below the 56rem breakpoint. ---
+    await page.setViewportSize({ width: 500, height: 900 });
+    await page.waitForTimeout(200);
+    const narrow = await measure(page);
+    const narrowNav = await page.evaluate(() => {
+      const snav = document.querySelector('#panel-detail .snav');
+      const box = document.getElementById('d-talk-box');
+      return {
+        snavHeight: snav ? Math.round(snav.getBoundingClientRect().height) : null,
+        boxHeight: box ? Math.round(box.getBoundingClientRect().height) : null,
+      };
+    });
+    console.log('MEASURE narrow(500x900): ' + JSON.stringify(narrow) + ' nav=' + JSON.stringify(narrowNav));
+    chk(narrow.boxBottom > narrow.innerHeight - TOL,
+      'A2b narrow width: the Talk box still fills to near the viewport bottom',
+      'boxBottom=' + narrow.boxBottom + ' innerHeight=' + narrow.innerHeight + ' gap=' + narrow.gapBelowBox);
+    chk(narrowNav.snavHeight !== null && narrowNav.boxHeight !== null && narrowNav.snavHeight < narrowNav.boxHeight,
+      'A2c narrow width: the wrapped snav row stays content-height (not ballooned to rival the talk box)',
+      'snavHeight=' + narrowNav.snavHeight + ' boxHeight=' + narrowNav.boxHeight);
 
     // --- Scoping guard: a non-Talk section (Model) is NOT forced tall ---
     await page.setViewportSize({ width: 1400, height: 1100 });
