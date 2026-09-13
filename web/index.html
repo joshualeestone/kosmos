@@ -17973,7 +17973,7 @@ async function paintAccounts() {
            wiring-fault message and replace it. A comment that says "every" is
            falsified by one exception, and this was the exception. */
         acctCancelSay();
-        if (msg) msg.textContent = 'we could not tell which provider that account belongs to, so nothing was changed';
+        if (msg) msg.textContent = 'We could not tell which provider that account belongs to, so nothing was changed.';
         return;
       }
       if (!armed) { armed = true; btn.textContent = CONFIRM; btn.classList.add('armed'); armLabel(true); return; }
@@ -18116,7 +18116,7 @@ async function paintAccounts() {
           btn.focus({ preventScroll: true });
           return;
         }
-        if (!res.ok) throw new Error((out && out.error) || 'we could not remove that account');
+        if (!res.ok) throw new Error((out && out.error) || 'We could not remove that account.');
         stopFor = null;
         /* 🛑 THE REPAINT MUST COME FIRST, AND THIS ORDER IS THE WHOLE
            PROMISE OF THE CARD. paintAccounts() opens by writing "Checking your
@@ -18167,7 +18167,7 @@ async function paintAccounts() {
              the every-writer-cancels rule. It was not. This was the second and
              the share handler was the third. A count in a comment is a claim. */
           acctCancelSay();
-          msg.textContent = String((err && err.message) || 'we could not remove that account');
+          msg.textContent = String((err && err.message) || 'We could not remove that account.');
           /* 🛑 THIS ONE MATTERS MOST OF THE THREE. On the failure path the
              sentence is a REFUSAL that names the agents blocking the removal
              ("marlowe is running on this account"), which the person has to read
@@ -19778,7 +19778,7 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
     });
     const out = await res.json().catch(() => null);
     if (!res.ok) {
-      const e = new Error((out && (out.error || out.because)) || 'we could not add that account');
+      const e = new Error((out && (out.error || out.because)) || 'We could not add that account.');
       e.needsRunner = !!(out && out.needsRunner);
       throw e;
     }
@@ -19846,7 +19846,7 @@ document.getElementById('acct-claude-go').addEventListener('click', async () => 
     });
     const out = await res.json().catch(() => null);
     if (!res.ok) {
-      const e = new Error((out && (out.error || out.because)) || 'we could not add that account');
+      const e = new Error((out && (out.error || out.because)) || 'We could not add that account.');
       e.needsRunner = !!(out && out.needsRunner);
       throw e;
     }
@@ -44981,7 +44981,7 @@ document.getElementById('fr-openai-go').addEventListener('click', async () => {
       body: JSON.stringify({ key }),
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'we could not add that account');
+    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'We could not add that account.');
     // The key leaves the field the moment it is stored, same as Settings.
     keyField.value = '';
     frPaintOpenai({ connected: true, keyTail: out && out.account && out.account.keyTail, justAdded: true });
