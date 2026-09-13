@@ -2,13 +2,24 @@
 pre_challenge: true
 method: challenge-loop
 branch: orgchart-agents-1280
-diff_hash: cdd22d313a4bde9e2440980562f70cf3f82df8ff6214307c11ee8376f1e2a960
+diff_hash: ec54f635495a6ea1413bc17701d516055aaf93e82b41495cb3e96952115d92e0
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-13T04:44:59Z
+timestamp: 2026-09-13T21:48:25Z
 iterations: 4
 converged: true
 ---
+
+## Rebase note (post-review)
+
+After the loop converged, the branch was rebased onto origin/main `948783c2` (a clean
+rebase, merge-tree conflict-free, no change to the feature code). The full suite is green
+on the new base (7199 tests, 0 fail) and all three Playwright checks pass in-driver
+(render-orgchart-import-1280 13/13, render-role-order, click-first-run). The 4-iteration
+review below covers the unchanged feature code; `diff_hash` and `timestamp` were reconciled
+to the rebased diff. (The rebase caught up to a moved main whose earlier tip carried a
+fleet-wide stale-snapshot break in web.win32-board-copy.test.js, since fixed on main by
+#2997 — unrelated to this branch.)
 
 ## [CHALLENGE-LOOP] Summary
 
