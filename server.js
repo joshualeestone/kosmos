@@ -2451,7 +2451,7 @@ function remoteWriteGuard(req, pathname) {
   if (isLoopbackPeer(req)) return null;
   const NOPE = 'this board only accepts agent reports from the network';
   if (!REMOTE_AGENT_ROUTES.has(`${req.method} ${pathname}`)) return NOPE;
-  const presented = req.headers && req.headers['x-kosmos-agent-token'];
+  const presented = presentedAgentToken(req);   // the header only: no body has been read here
   // Validate existence constant-time via the store, WITHOUT the roster: the
   // route's own resolveAgentSender then enforces liveness + tie. This is an
   // early reject of network noise, not the identity decision.
@@ -4464,10 +4464,10 @@ const server = http.createServer((req, res) => {
            its pane-fallback (the thing report/reply's denyPaneFallback guards) is
            structurally unreachable on this path -- which is why this call does not
            pass denyPaneFallback (it would be inert). */
-        const presentedAgentToken = (req.headers && req.headers['x-kosmos-agent-token']) || body.token;
+        const presented = presentedAgentToken(req, body);
         let effectiveCreator;
         let callerKind;
-        if (presentedAgentToken) {
+        if (presented) {
           const authRoster = safeRoster();
           if (authRoster === null) {
             // A transient server condition (the roster read failed), so 503
@@ -8849,7 +8849,7 @@ const server = http.createServer((req, res) => {
            mismatch visible. Re-derived from the same inputs resolveAgentSender
            read rather than threaded back through it, because report/reply share
            that resolver and do not want this label. */
-        const identitySource = ((req.headers && req.headers['x-kosmos-agent-token']) || (body && body.token))
+        const identitySource = presentedAgentToken(req, body)
           ? 'its launch token'
           : 'the tmux pane it is running in';
         /* #1899: the NAMES of the agent's projects, via the PURE membership
@@ -10995,11 +10995,12 @@ const server = http.createServer((req, res) => {
         // `everSeen`, the write permission, and what the response reports.
         const roster = safeRoster();
         /* Who is asking (#327): a browser sends sec-fetch-site, a curl does
-           not, and the header is the BROWSER'S, not the request body's -- so
-           the screen/process split cannot be minted by a local process lying
-           about itself in JSON. A process that offered its pane gets named
-           through the same roster the write already trusts. Advisory: an
-           agent runs as the operator; this is for telling things apart. */
+           not. A request that presents an agent token, in the header or the
+           body, is always a process (isViaScreen). For a tokenless caller the
+           split is ADVISORY: a local process can send the same header. A
+           process that offered its pane gets named through the same roster the
+           write already trusts. An agent runs as the operator; this is for
+           telling things apart. */
         const viaScreen = isViaScreen(req, body);
         const paneCard = !viaScreen && typeof body.from_pane === 'string'
           ? (Array.isArray(roster) ? roster.find((c) => c && c.target === body.from_pane) : null)
@@ -11721,12 +11722,13 @@ const server = http.createServer((req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}'); }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const roster = safeRoster();
-        /* Who is asking (#485, extending #327's shape verbatim): the header
-           is the browser's, not the body's, so the screen/process split
-           cannot be minted by a process lying in JSON; a process that
-           offered its pane gets named through the same roster the write
-           already trusts. */
-        const viaScreen = isViaScreen(req);
+        /* Who is asking (#485, extending #327's shape): a request that presents
+           an agent token, in the header or the body, is always a process
+           (isViaScreen). For a tokenless caller the screen/process split is
+           ADVISORY: a local process can send Sec-Fetch-Site too. A process that
+           offered its pane gets named through the same roster the write already
+           trusts. */
+        const viaScreen = isViaScreen(req, body);
         const paneCard = !viaScreen && typeof body.from_pane === 'string'
           ? (Array.isArray(roster) ? roster.find((c) => c && c.target === body.from_pane) : null)
           : null;
@@ -11936,10 +11938,11 @@ const server = http.createServer((req, res) => {
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
       if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
       /* Who is sending: the screen (the operator's board) or a process (an agent
-         running `kosmos task message`). The header is the browser's, not the body's,
-         so a process cannot mint the screen posture, and a request presenting an
-         agent token is an agent whatever else it carries (isViaScreen). Read after
-         the body, so a token in the body counts. Only a process is rate-valved. */
+         running `kosmos task message`). A request that presents an agent token, in
+         the header or the body, is always an agent (isViaScreen), so it is named and
+         valved. For a tokenless caller the screen posture is ADVISORY: a local
+         process can send Sec-Fetch-Site too. Read after the body, so a body token
+         counts. Only a process is rate-valved. */
       const viaScreen = isViaScreen(req, body);
       /* The valve, before the record+deliver: a looping agent must not be able to
          spam a task's people. Counted for PROCESS senders only; the operator is
@@ -12039,7 +12042,7 @@ const server = http.createServer((req, res) => {
     readBody(req).then((raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
-      const screen = isViaScreen(req);
+      const screen = isViaScreen(req, body);
       /* The parts valve (#803): the WRITE is refused for a process past
          twelve part changes an hour, counted across projects from the
          records themselves; the screen is never valved. The sentence says
@@ -12078,7 +12081,7 @@ const server = http.createServer((req, res) => {
     readBody(req).then((raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
-      const screen = isViaScreen(req);
+      const screen = isViaScreen(req, body);
       const verb = partAct[4];
       /* The parts valve (#803), the move half: a process reassigning parts in
          a loop is the same runaway as adding them. Close and reopen are not

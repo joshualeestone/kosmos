@@ -98,6 +98,8 @@ const USAGE = {
     '       kosmos feedback list',
     '       kosmos feedback pull [--dir PATH]  (bring collected reports down for triage)',
     '       kosmos feedback triage [--since YYYY-MM-DD] [--dir PATH] [--cards FILE|-]',
+    '       (write reads piped text to its END: text that stops for 3 s without ending is refused, not saved)',
+    '       (triage --cards - waits for the piped list to END, through up to 120 s of silence, then refuses rather than use part of a list)',
     '       (in PowerShell, pass the report as text: text piped into kosmos there does not reach it)',
   ].join('\n'),
 };
@@ -156,24 +158,26 @@ const STDIN_QUIET_LIMIT_MS = 3000;
 
 /**
  * What was piped in, for `feedback write` with no text and `feedback triage
- * --cards -`: the only two readers, as on the Mac. Resolves to the text.
+ * --cards -`: the only two readers, as on the Mac. Resolves to `{ text, ended }`.
+ * - `ended` is true ONLY when the input really ended. A quiet limit, an error, or a
+ *   console answers `ended: false`, and each caller refuses to act on text that did
+ *   not end (review round 2: a slow pipe cut short was saved, and exited 0).
  * - A console is NOT read: an agent never has one, and a person at one would sit at
- *   a silent prompt; they get the "nothing to write" sentence instead.
- * - Reading stops at the end of the input or once it has been quiet for
- *   STDIN_QUIET_LIMIT_MS, whichever is first; what arrived by then is the text. A
- *   stdin that errors is the same as an empty one, and the caller's sentence says
- *   what to do.
- * `stream` and `quietMs` are seams for a test.
+ *   a silent prompt.
+ * - Reading stops at the end of the input or once it has been quiet for `quietMs`
+ *   (default STDIN_QUIET_LIMIT_MS), whichever is first, so an open pipe nobody
+ *   writes to can never hang the command.
+ * `stream` and `quietMs` are also the seams a test drives.
  */
 function readStandardInput(stream, quietMs) {
   const input = stream || process.stdin;
-  if (input.isTTY) return Promise.resolve('');
+  if (input.isTTY) return Promise.resolve({ text: '', ended: false });
   const limit = quietMs || STDIN_QUIET_LIMIT_MS;
   return new Promise((resolve) => {
     const chunks = [];
     let timer = null;
     let done = false;
-    const finish = () => {
+    const finish = (ended) => {
       if (done) return;
       done = true;
       clearTimeout(timer);
@@ -181,13 +185,13 @@ function readStandardInput(stream, quietMs) {
       /* Let go of the pipe: a read still pending on it keeps this process alive. */
       input.pause();
       if (typeof input.destroy === 'function') input.destroy();
-      resolve(Buffer.concat(chunks).toString('utf8').replace(BYTE_ORDER_MARK_AT_START, ''));
+      resolve({ text: Buffer.concat(chunks).toString('utf8').replace(BYTE_ORDER_MARK_AT_START, ''), ended });
     };
-    const restartQuietTimer = () => { clearTimeout(timer); timer = setTimeout(finish, limit); };
+    const restartQuietTimer = () => { clearTimeout(timer); timer = setTimeout(() => finish(false), limit); };
     function onData(chunk) { chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))); restartQuietTimer(); }
     input.on('data', onData);
-    input.once('end', finish);
-    input.once('error', finish);
+    input.once('end', () => finish(true));
+    input.once('error', () => finish(false));
     restartQuietTimer();
   });
 }
@@ -195,6 +199,18 @@ function readStandardInput(stream, quietMs) {
 /* kosmos.ps1 never reads PowerShell pipeline input (see the NEVER READ $input note in
    that file), so the two stdin readers say how to hand the text over there. */
 const POWERSHELL_PIPE_NOTE = '(in PowerShell, pass the text as an argument: text piped into kosmos there does not reach it)';
+
+/* `feedback triage --cards -` asks for stdin explicitly, and docs/feedback-triage.md
+   pipes `gh issue list` into it, which can sit silent for many seconds on a slow
+   network before its first line. So that read waits for the input to END, through
+   up to two minutes of silence: long past a slow listing, and still a sentence
+   rather than a hang when the pipe never closes. The usage text states it (the
+   parity test pins the number there). */
+const CARDS_STDIN_QUIET_LIMIT_MS = 120000;
+
+/* A report that arrived and then stopped without the input ending may be a slow
+   writer cut short, so it is refused whole rather than saved in part (review round 2). */
+const FEEDBACK_WRITE_NOT_ENDED = 'Nothing was saved: the piped report stopped arriving for ' + (STDIN_QUIET_LIMIT_MS / 1000) + ' seconds without ending, so it may be cut short. Pass the report as an argument instead: kosmos feedback write "<the report>"';
 
 // ── the verbs ───────────────────────────────────────────────────────────────
 // Each handler is (ctx, args) -> exit code. `ctx` is built once per run in main.
@@ -404,7 +420,12 @@ async function taskMessage(ctx, args) {
 /* The feedback verbs are engine-direct, as install/kosmos's `node -e` snippets are:
    the report store is local (engine/feedback.js), so they work with no board. */
 async function feedbackWrite(ctx, args) {
-  const body = args.length ? args.join(' ') : await ctx.readStdin();
+  let body = args.join(' ');
+  if (!args.length) {
+    const piped = await ctx.readStdin(STDIN_QUIET_LIMIT_MS);
+    body = piped.text;
+    if (String(body).trim() && !piped.ended) { ctx.err(FEEDBACK_WRITE_NOT_ENDED); return 2; }
+  }
   if (!String(body).trim()) {
     ctx.err('Nothing to write: a feedback report needs a body (pass it as an argument, or pipe it in on stdin).');
     ctx.err(POWERSHELL_PIPE_NOTE);
@@ -448,7 +469,16 @@ async function feedbackTriage(ctx, args) {
     o[m[1]] = args.shift();
   }
   let cardsText = '';
-  if (o.cards === '-') cardsText = await ctx.readStdin();
+  if (o.cards === '-') {
+    const piped = await ctx.readStdin(CARDS_STDIN_QUIET_LIMIT_MS);
+    /* A partial card list would show already-filed items as new, so only an input
+       that ENDED is used; never an empty or partial list with exit 0. */
+    if (!piped.ended) {
+      ctx.err('Nothing was triaged: the card list on stdin did not end within ' + (CARDS_STDIN_QUIET_LIMIT_MS / 1000) + ' seconds of silence, and part of a list would show filed items as new. Pass the titles in a file instead: --cards <file>');
+      return 2;
+    }
+    cardsText = piped.text;
+  }
   else if (o.cards) {
     try { cardsText = fs.readFileSync(o.cards, 'utf8'); } catch { ctx.err('could not read cards file: ' + o.cards); return 2; }
   }
@@ -592,7 +622,7 @@ async function main(argv, io) {
     err,
     call,
     outbox,
-    readStdin: o.readStdin || (() => readStandardInput()),
+    readStdin: o.readStdin || ((quietMs) => readStandardInput(undefined, quietMs)),
     /* The feedback verbs' engine modules, required on use: each reads store.ROOT,
        which this agent's environment points at its own Kosmos, as outbox does. */
     engine: (name) => (o.engine && o.engine[name]) || require(path.join(engineDir(), name + '.js')),
@@ -620,7 +650,7 @@ function clause(s) { return s ? String(s).replace(/[.\s]+$/, '') : ''; }
 /* A "maybe" is exit 3, never 1: 1 invites the retry that duplicates the send. */
 function maybe(err, sentence) { err(sentence); return 3; }
 
-module.exports = { main, argvFrom, readStandardInput, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG };
+module.exports = { main, argvFrom, readStandardInput, engineDir, projectSlug, VERBS, SUBCOMMANDS, USAGE, HELP_FLAGS, REQUEST_TIMEOUT_MS, POST_TIMEOUT_MS, STDIN_QUIET_LIMIT_MS, CARDS_STDIN_QUIET_LIMIT_MS, ARGV_FILE_FLAG };
 
 if (require.main === module) {
   main(process.argv.slice(2)).then((code) => { process.exitCode = code; }, (e) => {

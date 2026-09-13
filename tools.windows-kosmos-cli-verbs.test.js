@@ -118,6 +118,18 @@ test('review round 1: a valid agent token plus Sec-Fetch-Site is still that AGEN
   assert.match(typedInto[0].line, /leo said: "dressed as the screen"/, 'an agent token with a browser header took the screen posture: ' + typedInto[0].line);
 });
 
+test('review round 2: a token in the BODY counts too: with Sec-Fetch-Site it is still that agent ("leo said")', async () => {
+  typedInto.length = 0;
+  const r = await fetch(base + '/api/project/' + encodeURIComponent(projectId) + '/task/' + taskNumber + '/message', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', origin: base },
+    body: JSON.stringify({ text: 'body token', token: tokens.leo }),
+  });
+  assert.equal(r.status, 200);
+  assert.equal(typedInto.length, 1);
+  assert.match(typedInto[0].line, /leo said: "body token"/, 'a body token with a browser header took the screen posture: ' + typedInto[0].line);
+});
+
 test('task message from the assignee itself is not typed back to it', async () => {
   typedInto.length = 0;
   const r = await kosmos(['task', 'message', projectId, String(taskNumber), 'done on my side'], tokens.mona);

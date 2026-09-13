@@ -120,7 +120,7 @@ async function runWindows(argv) {
     hook: { resolveUrl: () => 'http://127.0.0.1:1', readBoardToken: () => null, agentToken: () => null },
     fetch: async (url, init) => { calls.push({ url, init }); return { status: 200, text: async () => '{}' }; },
     engine: stubEngine,
-    readStdin: () => '',
+    readStdin: () => ({ text: '', ended: true }),
     out: (s) => out.push(s),
     err: (s) => err.push(s),
   });
