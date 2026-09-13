@@ -405,10 +405,11 @@ function parsePowercfgSleep(text) {
 /**
  * How long one powercfg reading answers for. The first-run sleep gate polls every 750ms
  * and the read is a synchronous child process (up to its 5s timeout), so reading on every
- * poll would stall the board's event loop each time, and for five seconds on a hang. A
- * sleep time changed in Settings still shows within this window.
+ * poll would stall the board's event loop each time. 1.5s is two poll ticks (review
+ * round 2): short enough that "Check again" on S3 reflects a sleep time just changed in
+ * Settings within a poll or two, long enough that most ticks answer from the reading.
  */
-const WIN32_SLEEP_READING_TTL_MS = 5000;
+const WIN32_SLEEP_READING_TTL_MS = 1500;
 let win32SleepReading = null;   // { runner, at, reading }
 let win32SleepClock = () => Date.now();
 /** Test seam: the clock the reading's age is measured on. */

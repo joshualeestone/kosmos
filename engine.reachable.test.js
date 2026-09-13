@@ -45,6 +45,7 @@ const EXCUSED = {
   setRevealRunner: 'test seam (projects reveal)',
   setRevealPlatform: 'test seam (win32-board-copy): engine/projects.js picks the Mac (/usr/bin/open) or Windows (File Explorer) opener; the Mac suites state darwin through it so their pins hold on a Windows box. Production reads process.platform.',
   setStatForTests: 'test seam (win32-board-copy): engine/win32explorer.js\'s existence check, so the Windows launcher is asserted with a Windows path from any host. Production uses fs.statSync.',
+  setFsWorldForTests: 'test seam (win32-board-copy review round 2): engine/projects.js reads a project folder and its files through realpath/stat/access together, so a mapped drive (Z:\\ resolving to \\\\server\\share) is asserted without mapping a drive. Production uses the real filesystem.',
   setWin32SleepClockForTests: 'test seam (win32-board-copy review round 1): engine/machine.js measures the age of its cached powercfg reading on this clock, so the cache window is asserted without sleeping. Production uses Date.now.',
   resetWin32SleepReading: 'test hook (win32-board-copy review round 1): forgets engine/machine.js\'s cached powercfg reading between tests, the same role as resetSleepPaneCache.',
   setSessionSource: 'test seam: keeps session reads off the real machine',

@@ -124,6 +124,70 @@ test('openFile on Windows hands a document to File Explorer as one quoted path, 
   });
 });
 
+/**
+ * NIT 3 (review round 2): a project on a MAPPED drive. `Z:\proj` resolves to
+ * `\\server\share\proj`, which no test machine can reach, so the filesystem the project is
+ * read through is the seam (realpath, stat and access together) and Explorer's existence
+ * check is its own seam. The record path is what the drive-letter rule judges; the
+ * resolved target is what the type is judged on.
+ */
+function mappedDriveWorld(recordFolder, uncFolder, names) {
+  const FILE = { isFile: () => true, isDirectory: () => false };
+  const DIR = { isFile: () => false, isDirectory: () => true };
+  const files = new Set(names);
+  const toUnc = (p) => (p.startsWith(recordFolder) ? uncFolder + p.slice(recordFolder.length) : p);
+  projects.setFsWorldForTests({
+    realpath: (p) => {
+      const unc = toUnc(p);
+      if (unc === uncFolder || files.has(unc.slice(uncFolder.length + 1))) return unc;
+      throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    },
+    stat: (p) => (p === uncFolder ? DIR : FILE),
+    access: () => {},
+  });
+  explorer.setStatForTests((p) => (/\.\w+$/.test(p) ? FILE : DIR));
+}
+
+test('NIT 3: a document in a project on a mapped drive (Z:\\ resolving to \\\\server\\share) OPENS, handed to Explorer by its Z:\\ name', () => {
+  const calls = [];
+  projects.setRevealPlatform('win32');
+  explorer.setRunner((exe, args) => { calls.push(args); return { ok: true }; });
+  mappedDriveWorld('Z:\\proj', '\\\\server\\share\\proj', ['a.pdf', 'b.bat']);
+  try {
+    assert.deepEqual(projects.openFile('Z:\\proj', 'a.pdf'), { ok: true }, 'a mapped-drive document was refused');
+    /* The type is still judged on the resolved target, so the drive letter buys no way around the allow-list. */
+    assert.equal(projects.openFile('Z:\\proj', 'b.bat').revealedInstead, true, 'a mapped-drive .bat was opened');
+    assert.deepEqual(calls, [['"Z:\\proj\\a.pdf"'], ['/select,"Z:\\proj\\b.bat"']],
+      'Explorer was not handed the drive-letter path the project record names');
+    /* And the folder button agrees: the same Z:\ folder opens. */
+    assert.deepEqual(projects.revealFolder('Z:\\proj'), { ok: true });
+  } finally {
+    projects.setFsWorldForTests(null);
+    projects.setRevealPlatform(null);
+    explorer.setRunner(null);
+    explorer.setStatForTests(null);
+  }
+});
+
+test('NIT 3: a project record that names a UNC path ITSELF is still refused, for its documents and its folder', () => {
+  const calls = [];
+  projects.setRevealPlatform('win32');
+  explorer.setRunner((exe, args) => { calls.push(args); return { ok: true }; });
+  mappedDriveWorld('\\\\server\\share\\proj', '\\\\server\\share\\proj', ['a.pdf']);
+  try {
+    const doc = projects.openFile('\\\\server\\share\\proj', 'a.pdf');
+    assert.equal(doc.ok, false, 'a literal UNC record opened a document');
+    assert.match(doc.because, /not network shares or device paths/);
+    assert.equal(projects.revealFolder('\\\\server\\share\\proj').ok, false, 'a literal UNC record opened its folder');
+    assert.equal(calls.length, 0, 'a UNC record reached Explorer');
+  } finally {
+    projects.setFsWorldForTests(null);
+    projects.setRevealPlatform(null);
+    explorer.setRunner(null);
+    explorer.setStatForTests(null);
+  }
+});
+
 test('SAFETY 1 through the project route: an agent-written .bat is SHOWN, never run, and the answer says why', { skip: NEEDS_A_WINDOWS_PATH }, () => {
   withRealDocs(['Q3 report.pdf.bat'], (dir, calls) => {
     const out = projects.openFile(dir, 'Q3 report.pdf.bat');

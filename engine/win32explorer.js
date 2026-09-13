@@ -57,13 +57,17 @@ const SETTINGS_PAGES = Object.freeze({ sleep: 'ms-settings:powersleep' });
  * .pif .cpl .msc .msi .appref-ms, and whatever an installed program registers next);
  * a list of what is safe to open can only fail by showing a harmless file instead of
  * opening it. Everything not listed is revealed in File Explorer instead.
+ *
+ * `.rtf` is deliberately NOT here (review round 2): its default handler has a long
+ * history of parser bugs reachable by simply opening a crafted file, and an agent can
+ * write one into a project. It is shown in File Explorer like any unlisted type.
  */
 const OPENABLE_FILE_EXTENSIONS = Object.freeze(new Set([
   '.txt', '.md', '.csv', '.tsv', '.log', '.json',
   '.pdf',
   '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.heic',
   '.mp3', '.m4a', '.wav', '.mp4', '.mov',
-  '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp', '.rtf',
+  '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp',
   '.zip',
 ]));
 
@@ -174,16 +178,43 @@ function openFolder(folder) {
 }
 
 /**
+ * Why a RESOLVED target must not be judged or opened, or null. It may be a UNC path (a
+ * mapped drive resolves to one), but never a device form, a stream or an unsafe character.
+ */
+function resolvedTargetRefusal(resolved) {
+  if (typeof resolved !== 'string' || !resolved || UNSAFE_PATH_CHARACTERS.test(resolved)) return NOT_A_PLACE;
+  const normalized = path.win32.normalize(resolved);
+  if (/^\\\\[?.]\\/.test(normalized) || /^[\\/]{2}[?.][\\/]/.test(resolved)) return NOT_A_LOCAL_PLACE;
+  const streamFrom = DRIVE_LETTER_PATH.test(normalized) ? 2 : 0;
+  if (normalized.indexOf(':', streamFrom) > -1) return NOT_A_PLACE;
+  return null;
+}
+
+/**
  * Open one file with whatever Windows opens that kind of file with, when its type is
  * one that displays rather than runs; otherwise show it selected in its folder, and
  * say so. `revealedInstead` and `say` travel to the page, which shows the sentence.
+ *
+ * 🔑 TWO PATHS, TWO QUESTIONS (review round 2). `file` is the RESOLVED target, which is
+ * what actually opens, so its type decides open versus reveal. `opts.namedAs` is the path
+ * the person's project record names, before resolution. The drive-letter rule applies
+ * to THAT path, and Explorer is handed it. A folder on a mapped drive (`Z:\`) resolves to
+ * `\\server\share`, and refusing it here while "Open in File Explorer" opens the same
+ * `Z:\` folder raw would be two answers to one question; the person or their IT chose
+ * that server, and the board's own folder check already reaches it. A record that names
+ * a UNC or device path itself is still refused.
  */
-function openFile(file) {
-  const refusal = targetRefusal(file, 'file');
+function openFile(file, opts) {
+  const namedAs = opts && typeof opts.namedAs === 'string' ? opts.namedAs : file;
+  const refusal = targetRefusal(namedAs, 'file');
   if (refusal) return { ok: false, because: refusal };
-  const normalized = path.win32.normalize(file);
-  if (OPENABLE_FILE_EXTENSIONS.has(fileTypeOf(normalized))) return launch([quotedPath(normalized)]);
-  const shown = launch(['/select,' + quotedPath(normalized)]);
+  if (namedAs !== file) {
+    const resolvedRefusal = resolvedTargetRefusal(file);
+    if (resolvedRefusal) return { ok: false, because: resolvedRefusal };
+  }
+  const launched = path.win32.normalize(namedAs);
+  if (OPENABLE_FILE_EXTENSIONS.has(fileTypeOf(path.win32.normalize(file)))) return launch([quotedPath(launched)]);
+  const shown = launch(['/select,' + quotedPath(launched)]);
   return shown.ok ? { ok: true, revealedInstead: true, say: REVEALED_INSTEAD_SENTENCE } : shown;
 }
 

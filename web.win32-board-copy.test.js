@@ -199,6 +199,37 @@ test('SAFETY 1 UI (review round 1): every Documents open handler shows the sente
     'the open-file route no longer carries the sentence to the page');
 });
 
+test('NIT 1 (review round 2): open, then a file shown instead, then open again leaves no stale sentence, in all three handlers', async () => {
+  /* Each handler is the page's own listener, run as the page runs it: the listener body is
+     lifted from its addEventListener call and driven by a stub click and a stub fetch. */
+  const LISTENERS = [['docs-list', 'docs-msg'], ['pj-docs', 'pj-docs-msg'], ['pj-room', 'pj-room-msg']];
+  for (const [listId, msgId] of LISTENERS) {
+    const anchor = "document.getElementById('" + listId + "').addEventListener('click', ";
+    const at = SCRIPT.indexOf(anchor);
+    assert.ok(at > -1, `the ${listId} open handler moved`);
+    const body = SCRIPT.slice(at + anchor.length, SCRIPT.indexOf('\n});', at) + 2);
+    const msg = { textContent: '' };
+    const answers = [
+      { ok: true, json: async () => ({ ok: true }) },
+      { ok: true, json: async () => ({ ok: true, revealedInstead: true, say: table.copyLabel && 'SHOWN INSTEAD' }) },
+      { ok: true, json: async () => ({ ok: true }) },
+    ];
+    // eslint-disable-next-line no-new-func
+    const handler = new Function('document', 'fetch', 'PJ_CURRENT', 'pjSentence', 'asSentence', 'return ' + body)(
+      { getElementById: (id) => (id === msgId ? msg : null) },
+      async () => answers.shift(),
+      'proj', (s) => s, (s) => s,
+    );
+    const click = { target: { closest: () => ({ dataset: { doc: 'notes.pdf', ref: 'notes.pdf' } }) } };
+    await handler(click);
+    assert.equal(msg.textContent, '', `${listId}: a plain open wrote something`);
+    await handler(click);
+    assert.equal(msg.textContent, 'SHOWN INSTEAD', `${listId}: the shown-instead sentence did not appear`);
+    await handler(click);
+    assert.equal(msg.textContent, '', `${listId}: the shown-instead sentence stayed under the next document`);
+  }
+});
+
 test('one CSS rule hides the Mac-only surfaces, and it is on each one the audits named', () => {
   assert.match(PAGE, /html\[data-kosmos-platform="win32"\] \[data-win-hide\] \{ display: none !important; \}/);
   const HIDDEN_ON_WINDOWS = {
@@ -342,8 +373,10 @@ function offlineNote(platform) {
 test('the recovery toasts on Windows say to restart Kosmos by double-clicking Kosmos.exe or signing out, never Quit', () => {
   const restart = 'restart Kosmos by double-clicking Kosmos.exe in your Kosmos folder, or by signing out of Windows and signing back in.';
   const abort = abortToast('win32');
-  assert.ok(abort.includes('Kosmos was busy each time. To clear it, ' + restart), abort);
-  assert.doesNotMatch(abort, /Quit/);
+  /* Review round 2: for a STUCK UPDATE, double-clicking Kosmos.exe only says "already
+     running" (same build), so the abort toast names the one true remedy, a fresh sign-in. */
+  assert.ok(abort.includes('Kosmos was busy each time. To clear it, sign out of Windows and sign back in. That usually clears whatever'), abort);
+  assert.doesNotMatch(abort, /Quit|Kosmos\.exe/, 'the stuck-update toast offers a relaunch that only says "already running"');
   const engine = engineToast('win32');
   assert.ok(engine.includes('Only a restart picks it up: ' + restart + '</small>'), engine);
   assert.doesNotMatch(engine, /kosmos restart/);

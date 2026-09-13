@@ -137,9 +137,10 @@ test('a folder that is gone, or is a file, is refused with a sentence and no lau
   });
 });
 
-const DANGEROUS = ['.bat', '.cmd', '.exe', '.lnk', '.url', '.hta', '.vbs', '.js', '.wsf', '.ps1', '.scr', '.pif', '.cpl', '.msc', '.msi', '.appref-ms'];
+/* `.rtf` is on the reveal side since review round 2 (its handler's parser-bug history). */
+const DANGEROUS = ['.bat', '.cmd', '.exe', '.lnk', '.url', '.hta', '.vbs', '.js', '.wsf', '.ps1', '.scr', '.pif', '.cpl', '.msc', '.msi', '.appref-ms', '.rtf'];
 const ALLOWED = ['.txt', '.md', '.csv', '.tsv', '.log', '.json', '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.heic',
-  '.mp3', '.m4a', '.wav', '.mp4', '.mov', '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp', '.rtf', '.zip'];
+  '.mp3', '.m4a', '.wav', '.mp4', '.mov', '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp', '.zip'];
 const DIR = 'C:\\Users\\someone\\Kosmos\\Projects\\Brief\\';
 
 test('SAFETY 1: a file whose type can run a program is SHOWN in File Explorer, never opened, and the person is told why', () => {
@@ -204,6 +205,24 @@ test('openFile refuses a folder, a stream and a network file before any launch',
     assert.equal(explorer.openFile('\\\\attacker\\share\\notes.pdf').ok, false);
     assert.equal(calls.length, 0);
     assert.deepEqual(explorer.openFile(FILE), { ok: true });
+  });
+});
+
+test('NIT 3 (review round 2): the drive-letter rule judges the NAMED path, the type judges the RESOLVED one', () => {
+  withWorld({ stat: () => REGULAR_FILE }, (calls) => {
+    /* A mapped drive: named Z:\, resolved to a share. It opens, and Explorer gets the Z:\ name. */
+    assert.deepEqual(explorer.openFile('\\\\server\\share\\proj\\a.pdf', { namedAs: 'Z:\\proj\\a.pdf' }), { ok: true });
+    assert.deepEqual(calls[calls.length - 1].args, [q('Z:\\proj\\a.pdf')]);
+    /* The type is the resolved target's: a .pdf NAME resolving to a .bat is shown, not opened. */
+    assert.equal(explorer.openFile('\\\\server\\share\\proj\\b.bat', { namedAs: 'Z:\\proj\\a.pdf' }).revealedInstead, true);
+    const before = calls.length;
+    /* A record naming a share ITSELF is refused, whatever it resolves to. */
+    assert.match(explorer.openFile('C:\\x\\a.pdf', { namedAs: '\\\\server\\share\\a.pdf' }).because, /not network shares or device paths/);
+    /* A resolved device form, stream or unsafe character is refused even under a drive-letter name. */
+    for (const resolved of ['\\\\?\\GLOBALROOT\\Device\\x\\a.pdf', '\\\\.\\pipe\\a.pdf', '\\\\server\\share\\a.pdf:evil.exe', 'C:\\x\\a.pdf:evil.exe', 'C:\\x\\a"b.pdf']) {
+      assert.equal(explorer.openFile(resolved, { namedAs: 'Z:\\proj\\a.pdf' }).ok, false, `a resolved ${resolved} was accepted`);
+    }
+    assert.equal(calls.length, before, 'a refused pair reached Explorer');
   });
 });
 

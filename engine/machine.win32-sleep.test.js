@@ -120,7 +120,7 @@ test('the real read is the read-only powercfg /qh query (hidden settings include
   assert.deepEqual(calls[0][1], ['/qh', 'SCHEME_CURRENT', 'SUB_SLEEP', 'STANDBYIDLE']);
 });
 
-test('NIT (review round 1): one powercfg reading answers the 750ms first-run poll for five seconds, then is read again', () => {
+test('NIT (review rounds 1 and 2): one powercfg reading answers two 750ms poll ticks, then a change shows on the next', () => {
   let now = 1_000_000;
   let reads = 0;
   const runner = () => { reads += 1; return { ok: true, stdout: reads === 1 ? EN_US_AC_30_MIN : EN_US_AC_NEVER }; };
@@ -128,12 +128,14 @@ test('NIT (review round 1): one powercfg reading answers the 750ms first-run pol
   machine.setWin32SleepClockForTests(() => now);
   try {
     assert.equal(machine.sleepGate({ ...WIN, runner }).prevented, false);
-    for (const later of [750, 1500, 4999]) {
+    for (const later of [750, 1499]) {
       now = 1_000_000 + later;
       assert.equal(machine.sleepGate({ ...WIN, runner }).prevented, false, `the cached reading did not answer at +${later}ms`);
     }
     assert.equal(reads, 1, 'the poll shelled powercfg on every tick');
-    now = 1_000_000 + 5000;
+    /* 1.5s, not the round-1 5s: "Check again" after changing the setting must show it
+       within a poll or two. */
+    now = 1_000_000 + 1500;
     assert.equal(machine.sleepGate({ ...WIN, runner }).prevented, true, 'a changed setting never showed after the window');
     assert.equal(reads, 2);
     /* A different runner is a different world: it never answers from another's reading. */

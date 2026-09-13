@@ -501,12 +501,24 @@ function tmpFolderRefused(folder, storeRoot) {
   return isUnderTmpDir(folder) && !isUnderTmpDir(storeRoot);
 }
 
+/* win32-board-copy (review round 2): the filesystem a project folder and its files are
+   read through, as one seam. A mapped network drive (Z:\) resolves to a UNC path the
+   test machine cannot reach, so a suite that must assert "a Z:\ record whose realpath is
+   \\server\share opens" replaces realpath, stat and access TOGETHER; replacing only one
+   would let the others read the real disk and fail for a reason that is not the rule.
+   Production uses the real filesystem. */
+let fsWorldForTests = null;
+function setFsWorldForTests(world) { fsWorldForTests = world || null; }
+function realpathOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.realpath ? fsWorldForTests.realpath(p) : resolveReal(p); }
+function statOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.stat ? fsWorldForTests.stat(p) : fs.statSync(p); }
+function accessOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.access ? fsWorldForTests.access(p) : fs.accessSync(p, fs.constants.R_OK); }
+
 function folderState(folder) {
   const given = String(folder || '');
   if (!given) return { state: FOLDER.MISSING, because: 'no folder was recorded for this project', real: null };
   let real = given;
   try {
-    real = resolveReal(given);
+    real = realpathOfFolderPath(given);
   } catch (err) {
     if (err && err.code === 'ENOENT') {
       return { state: FOLDER.MISSING, because: 'this folder is not there any more, or it was moved', real: null };
@@ -515,7 +527,7 @@ function folderState(folder) {
   }
   let st;
   try {
-    st = fs.statSync(real);
+    st = statOfFolderPath(real);
   } catch {
     return { state: FOLDER.UNREADABLE, because: 'we cannot read this folder', real };
   }
@@ -523,7 +535,7 @@ function folderState(folder) {
     return { state: FOLDER.NOT_A_FOLDER, because: 'this is a file, not a folder', real };
   }
   try {
-    fs.accessSync(real, fs.constants.R_OK);
+    accessOfFolderPath(real);
   } catch {
     return { state: FOLDER.UNREADABLE, because: 'this folder is there, but we are not allowed to read it', real };
   }
@@ -1377,7 +1389,7 @@ function openFile(folder, name) {
   }
   let target;
   try {
-    target = resolveReal(path.join(state.real, given));
+    target = realpathOfFolderPath(path.join(state.real, given));
   } catch {
     return { ok: false, because: 'that file is not there any more, or it was moved' };
   }
@@ -1386,11 +1398,14 @@ function openFile(folder, name) {
     return { ok: false, because: 'that file lives outside this project, so we will not open it' };
   }
   let st;
-  try { st = fs.statSync(target); } catch { return { ok: false, because: 'that file is not there any more, or it was moved' }; }
+  try { st = statOfFolderPath(target); } catch { return { ok: false, because: 'that file is not there any more, or it was moved' }; }
   if (!st.isFile()) return { ok: false, because: 'that is not a file we can open' };
   /* The three gates above are platform-free; only the hand-off differs. Explorer
-     opens a file with whatever Windows opens that kind of file with. */
-  if (revealOnWindows()) return win32explorer.openFile(target);
+     opens a file with whatever Windows opens that kind of file with. It judges the
+     file's TYPE on the resolved target and applies the drive-letter rule to the path
+     the project record names (review round 2), so a mapped Z:\ project opens its
+     documents the same way "Open in File Explorer" opens its folder. */
+  if (revealOnWindows()) return win32explorer.openFile(target, { namedAs: path.join(String(folder), given) });
   try {
     if (revealRunner) return revealRunner('/usr/bin/open', [target]);
     /* ⚠️ STDERR IS CAPTURED, NOT IGNORED (#1199), and that is the whole fix.
@@ -2701,6 +2716,6 @@ module.exports = { memberValve, processMemberChanges, ageMemberChangesForTests, 
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE,
   findBlock, spliceBlock, removeBlock, blockBody, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
-  folderPathPreview, makeFolder, revealFolder, setRevealRunner, setRevealPlatform, listFiles, openFile,
+  folderPathPreview, makeFolder, revealFolder, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile,
   isUnderTmpDir, tmpFolderRefused,
 };

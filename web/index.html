@@ -13211,7 +13211,10 @@ function windowsCopyTable() {
     signinPanel: '<p><b>This board is not signed in.</b><br>It cannot read your agents or projects yet. To fix it, '
       + 'open Kosmos by double-clicking <b>Kosmos.exe</b> in your Kosmos folder. It opens this page signed in.</p>',
     restartKosmos,
-    updateAbortRemedy: 'Kosmos was busy each time. To clear it, ' + restartKosmos + ' That usually clears whatever '
+    /* NOT restartKosmos (review round 2): double-clicking Kosmos.exe while the same build is
+       running only says "already running" (the launcher's hand-off), so for a stuck update
+       the one remedy that is true is a fresh sign-in. */
+    updateAbortRemedy: 'Kosmos was busy each time. To clear it, sign out of Windows and sign back in. That usually clears whatever '
       + 'was holding the update, so the next one can finish. Your agents keep working, they do not live in this window.',
     engineStaleRemedy: 'Only a restart picks it up: ' + restartKosmos,
     /* %NAME% is the Kosmos being switched to, filled in by the caller. */
@@ -37489,7 +37492,8 @@ document.getElementById('docs-list').addEventListener('click', async (e) => {
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: row.dataset.doc }) });
     if (!res.ok) { const b = await res.json().catch(() => null); msg.textContent = pjSentence((b && (b.error || b.because)) || 'we could not open that file'); }
     /* win32-board-copy: Windows shows a file that can run a program instead of opening it, and the engine says so. */
-    else { const b = await res.json().catch(() => null); if (b && b.revealedInstead && b.say) msg.textContent = b.say; }
+    /* The sentence is cleared on every other open (review round 2), so it never sits under the next document. */
+    else { const b = await res.json().catch(() => null); msg.textContent = (b && b.revealedInstead && b.say) || ''; }
   } catch { msg.textContent = 'We could not reach Kosmos to open that file.'; }
 });
 
