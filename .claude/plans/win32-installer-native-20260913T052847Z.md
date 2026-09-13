@@ -481,6 +481,36 @@ Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
 - **Finding 7 [NIT]:** the comment at `CompareWithInstalledCopy` and round 2's finding 4 above now say
   that only copies carrying this launcher or later hand off.
 
+- **Round 4 results (this box).**
+  - Before the rebase, with APPDATA, LOCALAPPDATA and USERPROFILE in scratch and the schtasks preload on:
+    - the engine suites (uninstall, relocate, hand-off, board, re-anchor, sign-in switch): 172 of 172;
+    - the launcher, installer and web suites: 59 of 59;
+    - the uninstall and installer suites again after the delete-retry fix: 64 of 64.
+  - `verify-launcher.ps1`: OK, after each rebuild and again after the rebase.
+  - Revert controls: 73 of 73 red (21 new for round 4, and the earlier 52 restated, three with their
+    find text updated), with the worktree clean afterwards and no schtasks call blocked.
+  - The locked-file arm, measured: held, the removal gave up after 9.7s and named the folder; let go of
+    after 1.5s, it was deleted after 1.5s.
+  - `origin/main` moved twice (#2994, then #2995), so the branch was rebased once, onto `b20d495c`,
+    after #2995 merged. `docs/browser-checks/README.md` and the `tools/browser-checks.sh` loop line
+    conflicted, and both sides were kept: main's `render-win32-board-copy` row with #2995's sign-in
+    card, this branch's `render-win32-start-at-sign-in` row, and every check name from both sides.
+    `web/index.html` merged cleanly with #2995's sign-in hatch (`frPaintConnect`) and this branch's
+    `machineRows` switch both present.
+  - Source-extraction harnesses that read a changed file: `server.board-identity-header-570` passes.
+    `tools.win-open-board-2007` has 2 failures (`spawn EFTYPE` from the opener stand-in), and an archive
+    of the base fails the same 2 the same way.
+  - The comparison against an archive of `b20d495c` (101 suites, full sandbox; name and first error line):
+    - base 1782 tests, 154 fail; branch 1887 tests, 153 fail;
+    - 0 new failures;
+    - the one base-only failure is `git ls-files` in an archive;
+    - 2 tests differ only by an ephemeral port (`absolute-form naming this server is routed`, and
+      `tools.win-open-board-2007`'s end-to-end, which fails the same `spawn EFTYPE` way on both sides);
+    - 151 shared failures;
+    - no schtasks call was blocked on either side.
+  - The real system was untouched afterwards: no real `Kosmos.lnk`, no real `Uninstall\Kosmos` key, no
+    `KosmosTest` key, no `%LOCALAPPDATA%\Programs\Kosmos`, and `Kosmos\board` still running.
+
 ## Follow-ups (not this slice)
 
 - **A progress window while the uninstall runs (round 3, finding 5).** The uninstall helper has no time
