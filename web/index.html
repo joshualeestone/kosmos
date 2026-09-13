@@ -5777,6 +5777,23 @@ body.plus-active .dm.theirs .dm-b[data-am], body.plus-active .msg:not(.you) .msg
      path) breaks rather than re-opening the letterbox. */
   white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; }
 .fr-scanpreview:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
+/* #1280 org-chart import. Its own textarea rule (NOT folded into the #1800
+   shared #create-instr/#import-text pair, which is deliberately pinned to
+   exactly those two) but the same appearance, so a person recognises the
+   surface. The preview is a plain card + numbered list: styled to the app, real
+   controls, because an unstyled block is exactly the defect #2025 was. */
+#orgchart-text { width: 100%; font: var(--text-callout) var(--font-mono);
+  color: var(--label); background: var(--field-fill);
+  border: 0.5px solid var(--border-strong); border-radius: var(--radius-control);
+  padding: 10px 12px; resize: vertical; box-sizing: border-box; }
+#orgchart-text:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
+.orgchart-preview { margin-top: var(--space-2); padding: 12px;
+  background: var(--field-fill); border: 0.5px solid var(--border-strong);
+  border-radius: var(--radius-control); box-sizing: border-box; }
+.orgchart-count { margin: 0 0 8px; font: var(--text-callout); color: var(--label); }
+.orgchart-list { margin: 0; padding-left: 1.4em; max-height: 18rem; overflow: auto;
+  display: flex; flex-direction: column; gap: 4px; }
+.orgchart-list li { font: var(--text-callout); color: var(--label); }
 /* #1652 PR2: the found-on-this-computer import list. Each row shows the file's name,
    its title, its path, and a read-only preview (the same "SHOW the file, do not assert"
    rule the scan panel keeps), then a single Import action. Dressed with the shared
@@ -10134,6 +10151,54 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              holds, found by the disk scan and offered for one-click import. Hidden until
              the scan finds any; the paste/choose controls above work regardless. -->
         <div class="import-found" id="import-found" hidden></div>
+      </div>
+      <!-- ⚠️ FIFTH OPTION: upload an org chart (#1280). It is the ONLY entry in
+           this list that creates MANY agents at once, so it needs what a bulk
+           operation needs and the other four do not: a preview with a count
+           before it commits, and a way back. Objective is THROUGHPUT (Josh's
+           ruling) -- paste 15-20 names and titles, get that many agents in
+           seconds -- not a clever chart parser. Gated on OWN_ROLE like pick-own
+           and pick-import, because each row is created down the SAME 'own'
+           (define-your-own) path, its title as the role label. Names are OFF by
+           default (an agent under a real person's name has consequences in logs,
+           commits and messages); the person's name is a label the operator opts
+           into, never the agent's machine name unless they ask. -->
+      <label class="pick2 own" hidden id="pick-orgchart">
+        <input type="radio" name="rmode" value="orgchart">
+        <span class="pickmark" aria-hidden="true">&#10003;</span>
+        <span class="p2n">Upload an org chart</span>
+        <span class="p2d">Create a whole team at once from a list</span>
+        <span class="p2full">Paste your people and their titles, one per line. We will show you the full list before creating anything, and you can raise or cancel it first.</span>
+      </label>
+      <!-- The panel only exists once its radio is chosen (mirrors #rolepick and
+           #importpick), so the screen stays the options tall until someone asks
+           to build a team. -->
+      <div class="rolepick" id="orgchartpick" hidden>
+        <label class="flabel" for="orgchart-text">Your people</label>
+        <textarea id="orgchart-text" rows="6" placeholder="One person per line, for example:&#10;Marketing Lead&#10;Sarah Chen, Head of Sales&#10;Engineer"></textarea>
+        <p class="rolehelp">One person per line. Put the title on its own, or write the name and title separated by a comma. We create one agent per line, named for the title.</p>
+        <label class="pick2 own" style="margin-top:6px;">
+          <input type="checkbox" id="orgchart-usenames">
+          <span class="p2n">Name the agents after the people</span>
+          <span class="p2d">Off by default</span>
+          <span class="p2full">Leave this off and each agent is named for its title (Marketing Lead), not the person. Turn it on only if you want agents named after your staff: their name will then appear in that agent's logs, messages and commits.</span>
+        </label>
+        <div class="importrow">
+          <button class="btn uprime" type="button" id="orgchart-preview">Preview the team</button>
+        </div>
+        <!-- The preview: a count and the list of agents this will create, shown
+             BEFORE anything is created. This is not friction -- it is what makes
+             "in seconds" safe, because twenty agents made with no glance is a
+             worse surprise than twenty made after one. Hidden until a parse. -->
+        <div class="orgchart-preview" id="orgchart-preview-box" hidden>
+          <p class="orgchart-count" id="orgchart-count"></p>
+          <ol class="orgchart-list" id="orgchart-list"></ol>
+          <div class="importrow">
+            <button class="btn uprime" type="button" id="orgchart-create">Create the team</button>
+            <button class="btn" type="button" id="orgchart-edit">Back to the list</button>
+          </div>
+        </div>
+        <p class="rolelimit" id="orgchart-msg" role="status" aria-live="polite" hidden></p>
       </div>
       </fieldset>
     </div>
@@ -32282,7 +32347,7 @@ async function loadRoles(initialMode) {
     // no-hardcoded-list rule exists for, arriving through a stale cache).
     OWN_ROLE = null;
     CREATE_MODELS = [];
-    ['pick-pm', 'pick-list', 'pick-own', 'pick-import', 'rolepick', 'importpick'].forEach((id) => {
+    ['pick-pm', 'pick-list', 'pick-own', 'pick-import', 'pick-orgchart', 'rolepick', 'importpick', 'orgchartpick'].forEach((id) => {
       document.getElementById(id).hidden = true;
     });
     // Not `esc()`: this goes into textContent, which does its own escaping, so
@@ -32339,6 +32404,9 @@ function buildPicker() {
   // Import uses the `own` role's key, so it is offered on exactly the same
   // condition the `own` option is.
   document.getElementById('pick-import').hidden = !OWN_ROLE;
+  // #1280: the org-chart import creates every row down the `own` path, so it is
+  // offered on the same condition as `own` and `import`.
+  document.getElementById('pick-orgchart').hidden = !OWN_ROLE;
 }
 
 /**
@@ -32396,11 +32464,14 @@ function pickMode(mode) {
   const input = document.querySelector(`input[name="rmode"][value="${mode}"]`);
   if (input) input.checked = true;
   document.getElementById('rolepick').hidden = mode !== 'list';
-  /* Import shows its own panel and advances with its own button, so the shared
-     Continue is hidden for it and shown for every other mode. */
+  /* Import and org-chart each show their own panel and advance with their own
+     button, so the shared Continue is hidden for them and shown for every other
+     mode. */
   const importing = mode === 'import';
+  const orgcharting = mode === 'orgchart';
   document.getElementById('importpick').hidden = !importing;
-  document.getElementById('role-next').hidden = importing;
+  document.getElementById('orgchartpick').hidden = !orgcharting;
+  document.getElementById('role-next').hidden = importing || orgcharting;
   /* Supersede any import still in flight so its resolution cannot yank the screen
      after the person moved on, and give the panel a fresh enabled button whenever
      it is shown. */
@@ -32411,20 +32482,28 @@ function pickMode(mode) {
     // opens. Best-effort and async; the paste/choose controls do not wait on it.
     populateFoundImports();
   }
+  if (orgcharting) {
+    // #1280: a fresh panel each time it opens. The pasted text is kept (like
+    // import-text) so a person who tabbed away does not lose it, but the preview
+    // is hidden and the status cleared -- the text may have changed since the
+    // last parse, so a stale count must not stand as if it still described it.
+    resetOrgchartPreview();
+  }
   if (mode === 'pm') {
     PICKED = (roleByKey('pm') || ROLES[0]).key;
   } else if (mode === 'own') {
     // Not in the fetched menu on purpose; the key is the contract with the
     // engine, which holds the example text and the label gate.
     PICKED = 'own';
-  } else if (importing) {
-    // No role yet: a successful read of the file sets 'own'. Continue stays
-    // hidden; the panel's own button is the advance.
+  } else if (importing || orgcharting) {
+    // No single role: import sets 'own' on a successful read; org-chart creates
+    // many agents down its own button. The shared Continue stays hidden; each
+    // panel's own button is the advance.
     PICKED = null;
   } else {
     PICKED = document.getElementById('rolesel').value;
   }
-  document.getElementById('role-next').disabled = importing;
+  document.getElementById('role-next').disabled = importing || orgcharting;
   paintPickLimit();
 }
 
@@ -32446,6 +32525,189 @@ function paintPickLimit() {
 document.getElementById('rolesel').addEventListener('change', () => {
   PICKED = document.getElementById('rolesel').value;
   paintPickLimit();
+});
+
+/* ── #1280 org-chart import: paste a roster, create a whole team ────────────
+   THROUGHPUT, not interpretation (Josh's ruling): one agent per line, in
+   seconds. Each row is created down the SAME 'own' (define-your-own) path the
+   single-create form uses -- its title is the agent's role label -- via
+   POST /api/team (engine/team.createTeam), the one create surface that makes
+   MANY agents under one creator+purpose. Names are OFF by default: an agent
+   under a real person's name carries that name in logs, commits and messages,
+   so the person's name is used only when the operator opts in, and even then it
+   is the machine name only because that opt-in IS the "name the agents after
+   the people" choice. The cap is Kosmos's, not the paste's -- over it the
+   backend refuses the whole request with a message naming the cap and how the
+   OPERATOR raises it (AGENT_WORKFORCE_TEAM_CAP); we surface that verbatim
+   rather than trying to raise it from here (a request cannot raise its own
+   bound, by design: engine/team.js). */
+
+// The parse held between Preview and Create, so Create builds exactly what the
+// person reviewed rather than a re-parse of text they may have edited after.
+let ORGCHART_PARSED = null;
+
+function resetOrgchartPreview() {
+  ORGCHART_PARSED = null;
+  const box = document.getElementById('orgchart-preview-box');
+  if (box) box.hidden = true;
+  const list = document.getElementById('orgchart-list');
+  if (list) list.innerHTML = '';
+  const count = document.getElementById('orgchart-count');
+  if (count) count.textContent = '';
+  const msg = document.getElementById('orgchart-msg');
+  if (msg) { msg.textContent = ''; msg.hidden = true; }
+  const create = document.getElementById('orgchart-create');
+  if (create) create.disabled = false;
+}
+
+/* A title (or a person's name, when opted in) into a machine name the engine
+   will accept. engine/create.nameProblem is the AUTHORITY and refuses a bad one
+   with a reason we surface; this only makes a reasonable candidate so the common
+   case is not a wall of refusals. Lowercase, any run of non [a-z0-9] to a single
+   hyphen, trimmed of hyphens, 32 max. Empty (a title of only punctuation) falls
+   back to 'agent' so the row still has a candidate the engine can rule on. */
+function orgchartSlug(s) {
+  const slug = String(s == null ? '' : s)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32)
+    .replace(/-+$/g, '');
+  return slug || 'agent';
+}
+
+/* Parse the pasted roster. One agent per non-blank line. A line splits on its
+   FIRST comma (then tab) into two fields "Name, Title"; a single field is the
+   TITLE with no name (the names-off default shape). Names OFF: the agent is
+   named for its title and the person's name is dropped; names ON: named for the
+   person when there is one, else still the title. The title is always the role
+   label. Machine names are de-duplicated among the parsed set (twenty "Engineer"
+   rows would otherwise collide on one name and return as nineteen refusals); the
+   engine still has the final say, this only spares the common case. */
+function parseOrgchart(text, useNames) {
+  const rows = [];
+  const used = Object.create(null);
+  const uniq = (base) => {
+    let s = base;
+    let n = 1;
+    while (used[s]) { n += 1; s = (base + '-' + n).slice(0, 32).replace(/-+$/g, ''); }
+    used[s] = true;
+    return s;
+  };
+  for (const raw of String(text == null ? '' : text).split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    let name = '';
+    let title = '';
+    const ci = line.indexOf(',');
+    const ti = line.indexOf('\t');
+    const at = ci >= 0 ? ci : ti;
+    if (at >= 0) {
+      name = line.slice(0, at).trim();
+      title = line.slice(at + 1).trim();
+    } else {
+      title = line;
+    }
+    // A "Name," with an empty title degrades to the present field being the
+    // title -- the tolerant shape the plan asks for.
+    if (!title && name) { title = name; name = ''; }
+    if (!title) continue;
+    const person = (useNames && name) ? name : '';
+    const machine = uniq(orgchartSlug(person || title));
+    rows.push({ name: machine, role: 'own', label: title, person });
+  }
+  return rows;
+}
+
+document.getElementById('orgchart-preview').addEventListener('click', () => {
+  const rows = parseOrgchart(
+    document.getElementById('orgchart-text').value,
+    document.getElementById('orgchart-usenames').checked,
+  );
+  const msg = document.getElementById('orgchart-msg');
+  const box = document.getElementById('orgchart-preview-box');
+  if (!rows.length) {
+    ORGCHART_PARSED = null;
+    box.hidden = true;
+    msg.textContent = 'Paste at least one line: a title on its own, or a name and a title.';
+    msg.hidden = false;
+    return;
+  }
+  ORGCHART_PARSED = rows;
+  msg.textContent = ''; msg.hidden = true;
+  document.getElementById('orgchart-count').textContent =
+    'This will create ' + rows.length + (rows.length === 1 ? ' agent:' : ' agents:');
+  document.getElementById('orgchart-list').innerHTML = rows.map((r) =>
+    '<li>' + esc(r.label)
+      + (r.person ? ' <span class="dhint">named ' + esc(r.person) + '</span>' : '')
+      + ' <span class="dhint">&rarr; ' + esc(r.name) + '</span></li>').join('');
+  document.getElementById('orgchart-create').disabled = false;
+  box.hidden = false;
+});
+
+/* Pre-commit undo: back to the paste box with the text intact, so a person who
+   does not like the preview edits it rather than starting over. */
+document.getElementById('orgchart-edit').addEventListener('click', () => {
+  document.getElementById('orgchart-preview-box').hidden = true;
+  document.getElementById('orgchart-text').focus();
+});
+
+document.getElementById('orgchart-create').addEventListener('click', async () => {
+  if (!ORGCHART_PARSED || !ORGCHART_PARSED.length) return;
+  const btn = document.getElementById('orgchart-create');
+  const msg = document.getElementById('orgchart-msg');
+  const countEl = document.getElementById('orgchart-count');
+  const listEl = document.getElementById('orgchart-list');
+  btn.disabled = true;
+  msg.textContent = ''; msg.hidden = true;
+  countEl.textContent = 'Creating ' + ORGCHART_PARSED.length
+    + (ORGCHART_PARSED.length === 1 ? ' agent…' : ' agents…');
+  const members = ORGCHART_PARSED.map((r) => ({ name: r.name, role: 'own', label: r.label }));
+  let result = null;
+  try {
+    const res = await fetch('/api/team', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ creator: 'operator', purpose: 'Imported from an org chart', members }),
+    });
+    result = await res.json().catch(() => null);
+  } catch (err) {
+    btn.disabled = false;
+    msg.hidden = false;
+    msg.textContent = 'We could not reach Kosmos to create the team ('
+      + ((err && err.message) ? err.message : 'network error') + '). Try again.';
+    return;
+  }
+  if (!result) {
+    btn.disabled = false;
+    msg.hidden = false;
+    msg.textContent = 'Kosmos did not answer in a way we could read. Try again.';
+    return;
+  }
+  /* Surface created[]/refused[]/because faithfully. The over-cap refusal arrives
+     here as `because` with nothing created, carrying the count, the cap, MAX 50,
+     and how the OPERATOR raises it -- shown verbatim, not reworded. */
+  const created = Array.isArray(result.created) ? result.created : [];
+  const refused = Array.isArray(result.refused) ? result.refused : [];
+  if (created.length && !refused.length) {
+    countEl.textContent = 'Created ' + created.length
+      + (created.length === 1 ? ' agent. It will appear on your board in a moment.'
+                              : ' agents. They will appear on your board in a moment.');
+  } else if (created.length) {
+    countEl.textContent = 'Created ' + created.length + ' of ' + (created.length + refused.length)
+      + '. ' + refused.length + (refused.length === 1 ? ' was not created:' : ' were not created:');
+  } else {
+    countEl.textContent = result.because || 'No agents were created.';
+  }
+  listEl.innerHTML =
+    created.map((c) => '<li>' + esc(c.shownAs || c.name) + ' <span class="dhint">created</span></li>').join('')
+    + refused.map((r) => '<li>' + esc(r.name || 'One agent')
+        + ' <span class="dhint">not created: ' + esc(r.because || 'no reason given') + '</span></li>').join('');
+  /* After a run the button stays disabled: the created agents now exist, so a
+     second press of the same reviewed set would only collide with them. To make
+     more, "Back to the list" reopens the paste box; editing and re-previewing
+     arms a fresh parse. */
+  btn.disabled = true;
 });
 
 /* 🛑 THE ARROW-KEY HANDLER THAT WAS HERE IS DELETED, and nothing replaced it.
@@ -32474,6 +32736,12 @@ function openCreate(initialMode) {
   document.getElementById('import-load').disabled = false;
   const importMsgEl = document.getElementById('import-msg');
   importMsgEl.textContent = ''; importMsgEl.hidden = true;
+  /* #1280: org-chart panel back to closed and empty -- text, the names toggle,
+     and the preview must not carry over from a previous open. */
+  document.getElementById('orgchartpick').hidden = true;
+  document.getElementById('orgchart-text').value = '';
+  document.getElementById('orgchart-usenames').checked = false;
+  resetOrgchartPreview();
   CREATING = false;
   WATCH += 1;
   document.getElementById('create-name').value = '';
