@@ -1,8 +1,9 @@
 'use strict';
 /**
- * #520: the consolidated view is one option in Settings > Styles, tabs by
- * default. What this pins: the picker's two tiles with tabs checked in the
- * markup; the page writes data-layout only from what the engine answered
+ * #520: the consolidated view. #2618 removed the in-tab Settings > Styles picker
+ * (tiles + Activate), so the header one-press flipper (data-layout-switch) is now the
+ * layout control; the first test asserts the picker's absence. What this still pins:
+ * the page writes data-layout only from what the engine answered
  * (never from a click alone); the mode exists at 960px and up, with both
  * rails auto-folding below 1280px rather than the view dropping straight
  * to tabs (2026-08-25, Josh: "thats perfect, lets try that"); and the
@@ -41,29 +42,18 @@ const stripCssComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '');
    runs first. Same bug, one variable over, inside the fix for it. */
 const GUARD = /(?:#pj-room|#pj-room-search|\.composer)(?:(?!scrollbar)[^{])*\{[^}]*display: none/;
 
-test('the picker sits at the top of Styles with two tiles, tabs checked in the markup', () => {
-  const at = PAGE.indexOf('id="s-sec-styles"');
-  const theme = PAGE.indexOf('id="style-theme"', at);
-  const sec = PAGE.slice(at, theme);
-  assert.match(sec, /id="layout-field"/, 'the picker is not in Styles, above the theme');
-  assert.match(sec, /role="radio" aria-checked="true" data-layout-pick="tabs"/);
-  assert.match(sec, /role="radio" aria-checked="false" data-layout-pick="consolidated"/);
-  /* 🔑 REWRITTEN FOR kosmos#1216. This pinned the tile description VERBATIM,
-     which was the vehicle. The PROPERTY is that the 960px constraint reaches the
-     person somewhere, and Josh asked for the descriptions gone: "I don't want any
-     descriptive text underneath."
-     🛑 THAT SENTENCE WAS LOAD-BEARING AND THE OBVIOUS DELETION LOSES IT. It was
-     one of only two places the width was ever stated; the other opened with
-     "Saved." and would have gone with the success chatter he also asked to
-     remove. Both deleted, and a person picks Consolidated on a laptop, gets a
-     folded layout, and is told nothing.
-     ⇒ It now lives on the Activate press, where it applies. This asserts the
-     FACT survives and is attached to that press, not any particular wording. */
-  assert.match(PAGE, new RegExp('narrower than \' \\+ CONSOLIDATED_MIN_WIDTH \\+ \' pixels'),
-    'the 960px constraint is no longer stated anywhere a person can read it');
-  assert.match(PAGE, /layout-activate'\)\.addEventListener[\s\S]{0,1600}CONSOLIDATED_MIN_WIDTH/,
-    'the width warning is not reachable from the Activate press, so it fires nowhere the person will be');
-  assert.equal((PAGE.match(/data-layout-pick="/g) || []).length, 2);
+test('#2618: the in-tab layout picker and the Styles tab are gone; the header flipper is the surviving control', () => {
+  // The Settings > Styles tab (its layout tiles + Activate + the theme select) was
+  // removed entirely. What replaced the in-tab tiles is the header one-press flipper
+  // (data-layout-switch, #2154), which stays. The saved layout is still applied on
+  // load by paintStyles. Absence assertions so a silent re-add is caught.
+  assert.equal(PAGE.indexOf('id="s-sec-styles"'), -1, 'the Styles section is gone');
+  assert.equal((PAGE.match(/data-layout-pick="/g) || []).length, 0, 'the in-tab layout tiles are gone');
+  assert.doesNotMatch(SCRIPT, /getElementById\('layout-activate'\)/, 'the (unguarded) layout-activate handler is gone');
+  assert.doesNotMatch(SCRIPT, /getElementById\('style-theme'\)\.addEventListener/, 'the theme-select change handler is gone');
+  // The header flipper survives, still wired to applyLayout over /api/style.
+  assert.ok((PAGE.match(/data-layout-switch="/g) || []).length >= 2, 'the header flipper (two segments) survives');
+  assert.match(SCRIPT, /applyLayout\(r\.layout, apply\)/, 'paintStyles still applies the saved layout on load');
 });
 
 test('the root attribute is written from the engine\'s answer, and a click only asks the engine', () => {
@@ -72,7 +62,10 @@ test('the root attribute is written from the engine\'s answer, and a click only 
   assert.match(fn, /const want = layout === 'consolidated' \? 'consolidated' : 'tabs'/, 'anything but consolidated is the tabs');
   const click = fn.slice(fn.indexOf("addEventListener('click'"));
   assert.match(click, /fetch\('\/api\/style', \{ method: 'PUT'/);
-  assert.match(click, /applyLayout\(r\.layout, true\)/, 'the click applies its own wish rather than the engine\'s answer');
+  // #2618: with the in-tab Activate handler removed, the first click handler in this
+  // range is the header flipper (data-layout-switch), which applies the engine's answer
+  // and falls back to the pressed segment.
+  assert.match(click, /applyLayout\(\(r && r\.layout\) \|\| want, true\)/, 'the header flipper applies via applyLayout (engine answer, falling back to the pressed segment)');
   assert.doesNotMatch(click, /setAttribute\('data-layout'/, 'the click writes the root attribute directly');
   assert.match(SCRIPT, /applyLayout\(r\.layout, apply\);/, 'paintStyles does not carry the layout');
 });
@@ -90,8 +83,9 @@ test('the mode is gated on width and on the two tabs it merges; Settings stays a
 });
 
 test('the consolidated CSS re-lays the board list and the projects panel; it hides nothing a person needs', () => {
-  const css = PAGE.slice(PAGE.indexOf('/* ---- #520: the consolidated view'), PAGE.indexOf('.laytiles {'));
-  assert.ok(css.length > 200, 'the CSS block moved; re-anchor');
+  // #2618: the old `css` sanity-slice ended on `.laytiles {`, which was removed with the
+  // Styles tab. The real coverage is the @media block below (its own anchor is the
+  // tripwire if the region moves), so the vestigial length check is dropped.
   /* The whole media block, to its closing brace, so an added rule can never
      push the ones asserted on out of the window. */
   const start = PAGE.indexOf('@media (min-width: 960px) {\n  html[data-layout="consolidated"]');
@@ -119,10 +113,10 @@ test('the consolidated CSS re-lays the board list and the projects panel; it hid
     'control: a comment naming the composer can redden the guard again');
 });
 
-test('no em dash in what a person reads', () => {
-  const at = PAGE.indexOf('id="layout-field"');
-  assert.doesNotMatch(PAGE.slice(at, at + 4000), /—/);
-});
+// #2618: the "no em dash in what a person reads" test anchored on id="layout-field"
+// (the removed in-tab picker), so after the removal its slice was empty (PAGE.indexOf
+// returns -1) and it tested nothing -- a vacuous green. Removed rather than left in
+// place; no live coverage is lost, because the region it checked no longer exists.
 
 test('piece two: the rail heads exist once, hidden until the mode, with a + on the board\'s own actions and a fold per rail', () => {
   assert.equal((PAGE.match(/id="rail-agents"/g) || []).length, 1);

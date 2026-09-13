@@ -66,7 +66,7 @@ test('the nav is in the ruled order, only You shows before a click, and the two 
      obeyed. ⚠️ The POSITION within the nav is mine and carries no ruling: it sits
      with the other machine-wide, non-account sections. Moving it costs one line
      here and one in the page; the SHAPE is the part with a decision behind it. */
-  assert.deepEqual(gos, ['you', 'accounts', 'connect', 'gskills', 'policy', 'mac', 'automation', 'usage', 'updates', 'plus', 'styles', 'advanced']); // AI policy after Global Skills (#479); Styles before Advanced (#480); Automation after Mac, both machine-wide (#1724); 'talking' removed and folded into Automation (#2054)
+  assert.deepEqual(gos, ['you', 'accounts', 'connect', 'gskills', 'policy', 'mac', 'automation', 'usage', 'updates', 'plus', 'advanced']); // AI policy after Global Skills (#479); Automation after Mac, both machine-wide (#1724); 'talking' removed and folded into Automation (#2054); Styles removed entirely (#2618, the tab/consolidated flipper covers it)
   const secs = [...BODY.matchAll(/<section class="dsec" id="s-sec-[a-z]+" data-sec="([a-z]+)"[^>]*?( hidden)?>/g)]
     .map((m) => ({ key: m[1], hidden: !!m[2] }));
   assert.deepEqual(secs.map((s) => s.key), gos, 'the sections are not in the order the nav lists them');
