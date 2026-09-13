@@ -661,18 +661,61 @@ Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
   - The real system was untouched afterwards: no real `Kosmos.lnk`, no real `Uninstall\Kosmos` key, no
     `KosmosTest` key, no `%LOCALAPPDATA%\Programs\Kosmos`, and `Kosmos\board` still running.
 
+## Round 6 review (fixed in round 7)
+
+- **The [BUG]: this PC's own non-loopback bind host always read as "still open".**
+  - Measured (the reviewer, and again here): a closed port on this PC's own non-loopback addresses (LAN,
+    Tailscale, link-local) is refused only after 2.0-2.07 s, because Windows retries the SYN after a reset;
+    loopback refuses in 1-2 ms. One 2 s limit on the connect and the answer together read every such refusal
+    as `timed-out`: the uninstall with nothing running stopped (A), the task's board that went on `/End`
+    kept reading open for the whole wait (B), and the move always refused (C).
+  - `win32handoff.probeBoard(port, host, options)`: with `options.connectTimeoutMs` the connection gets that
+    long to be made, and `PROBE_TIMEOUT_MS` (2 s) starts only once it is. The new constant
+    `CONNECT_TIMEOUT_MS` is 5 s. Only `probeBoardOnEveryAddress` passes it.
+  - **The launcher's hand-off is unchanged.** It and the board restart call `probeBoard` with no options:
+    one 2 s limit for the connect and the answer, and the same kept-alive agent, exactly as before. A test
+    pins it: a hung listener still takes 2 s, and this PC's own closed port still reads `timed-out` at 2 s
+    there, while the every-address look waits for the refusal. Noted for #2983.
+  - **The outcomes:** `answered`; `refused` (the connection was refused, the only proof); `timed-out`
+    (nothing came back in 2 s; with a connect limit, after the connection was made); `connect-timed-out`
+    (new: with a connect limit, the connection was not made in 5 s); `error` (anything else). The comment on
+    `PROBE_OUTCOMES` says which means what, with and without a connect limit.
+  - `connect-timed-out` is a board that may be open (`boardMayBeOpen`), counts as unanswered at the first
+    look like `timed-out` ("Kosmos is still open" unless the task reads running), says "did not answer in
+    time" for the move, and ranks with `timed-out`.
+  - **Found while testing, and fixed:**
+    - a look made right after a board went away reused the kept-alive socket of the look before and failed
+      at once (`error` in 0 ms) instead of being refused. A look with a connect limit now makes its own
+      connection (`agent: false`);
+    - this PC's host name resolves to its link-local address without a zone, which cannot be reached on its
+      own; it is now probed with its interface's zone.
+    - the test's socket seam was first ignored (Node's `agent: false` builds a fresh Agent that skips
+      `createConnection`), so that test's look went to port 16180 and got the live board's answer to a plain
+      `GET /`. Nothing was changed on the board. The seam is fixed, the test uses port 9, and it asserts its
+      socket was used.
+  - **The budget.** One every-address look can take `EVERY_ADDRESS_LOOK_WORST_MS` = the bind host lookup
+    (5 s) + the connect (5 s) + the answer (2 s) = 12 s. The wait for an ended board was bounded at 10 s by
+    the clock, which would have allowed a single slow look. Its clock bound is now `BOARD_GONE_CLOCK_MS` =
+    max(10 s, 2 x (12 s + 0.5 s)) = 25 s, derived from the probe limits, so it always allows at least two
+    whole looks. Looks that come back at once still end on the count bound, after about 10 s. The first
+    look is one look, up to 12 s.
+  - **Known limit.** This PC's Tailscale adapter does not answer its own link-local address: a board there
+    reads `timed-out` after 5 s. A bind host of that address stops the removal ("Kosmos is still open"):
+    fail closed.
+
 ## Follow-ups (not this slice)
 
 - **A progress window while the uninstall runs (round 3, finding 5).** The uninstall helper has no time
   limit, by design. Its worst case, with every schtasks call using its whole 20s timeout, N agent tasks
   and k data-folder paths that will not delete:
-  - probe 2s; task list 20s; board status 20s (one shared deadline); board disable and end 40s;
-  - the wait for a board that answered to go: 10s plus one 2s probe and a 0.5s wait;
+  - a look 12s (round 7: a bind host name's lookup 5s, a connect 5s, an answer 2s); task list 20s; board
+    status 20s (one shared deadline); board disable and end 40s;
+  - the wait for a board that answered to go: its 25s clock bound, plus one more 12s look and a 0.5s wait;
   - each agent task's disable, end and remove: 60s;
-  - board remove 20s; task list again 20s; probe 2s;
+  - board remove 20s; task list again 20s; a look 12s;
   - the runtime folder's delete retries (20 x 500ms) about 10s, and about 10s for each held data path;
-  - the settle wait 3s, a last task list 20s, and a last probe 2s.
-  - That is about 171s + 60s x N + 10s x k: under 3 minutes with no agents, about 8 minutes with five.
+  - the settle wait 3s, a last task list 20s, and a last look 12s.
+  - That is about 226s + 60s x N + 10s x k: under 4 minutes with no agents, about 9 minutes with five.
     Measured schtasks calls take 0.1-0.7s, so a usual removal takes a few seconds plus the 3s settle wait.
 
 - **Once S3 (`win32-update-apply`) has merged:** the uninstall refuses while an update journal is

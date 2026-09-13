@@ -689,7 +689,7 @@ test('round 3 finding 1: the wait for the board to go is bounded by the clock to
       now: () => clock,
     });
     assert.equal(r.stillOpen, true, JSON.stringify(r));
-    assert.ok(answers.count() <= 2 + Math.ceil(uninstaller.BOARD_GONE_WAIT_MS / (PROBE_SPENDS_MS + uninstaller.FOLDER_DELETE_WAIT_MS)),
+    assert.ok(answers.count() <= 2 + Math.ceil(uninstaller.BOARD_GONE_CLOCK_MS / (PROBE_SPENDS_MS + uninstaller.FOLDER_DELETE_WAIT_MS)),
       'the wait asked ' + answers.count() + ' times, far past its budget in real time');
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
@@ -1049,4 +1049,138 @@ test('🛑 round 5 finding 3: a bind host name that does not resolve, resolves e
       assert.ok(!fs.existsSync(s.runtimeDir), label);
     } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
   }
+});
+
+/* ---- the round 6 review, fixed in round 7 ------------------------------------ */
+
+/**
+ * One of this PC's own NON-loopback addresses (LAN, VPN, or link-local with its zone) that a board can listen
+ * on and be reached on through the every-address look, and where a closed port is refused within the
+ * look's connect limit. IPv4 first. Null when there is none. Measured on this PC: those refusals take about
+ * 2 s, where loopback's take 1-2 ms.
+ */
+let ownNonLoopbackAddressFound;
+function ownNonLoopbackAddress() {
+  if (!ownNonLoopbackAddressFound) {
+    ownNonLoopbackAddressFound = (async () => {
+      const candidates = Object.values(os.networkInterfaces()).flat()
+        .filter((i) => i && !i.internal)
+        .sort((a, b) => (a.family === b.family ? 0 : a.family === 'IPv4' ? -1 : 1))
+        .map((i) => (i.family === 'IPv6' && /^fe80:/i.test(i.address) ? i.address + '%' + i.scopeid : i.address));
+      /* The helper's own looks, with an explicit 5 s connect limit and a port closed without ever being probed,
+         so a control that changes the every-address look cannot make the helper find nothing (and the test
+         skip) instead of the test going red. */
+      const LOOK = { connectTimeoutMs: 5000 };
+      for (const address of candidates) {
+        const board = await listenerOn(address, 'board');
+        if (!board) continue;
+        const reached = await handoff.probeBoard(board.port, address, LOOK);
+        await board.close();
+        if (!reached.answering) continue;
+        const gone = await listenerOn(address, 'hung');
+        const closedPort = gone.port;
+        await gone.close();
+        const startedAt = Date.now();
+        const closed = await handoff.probeBoard(closedPort, address, LOOK);
+        if (closed.outcome === handoff.PROBE_OUTCOMES.REFUSED) return { address, refusedAfterMs: Date.now() - startedAt };
+      }
+      return null;
+    })();
+  }
+  return ownNonLoopbackAddressFound;
+}
+
+test('🛑 round 6 finding 1, real listeners: KOSMOS_BIND_HOST set to this PC\'s own non-loopback address. Nothing listening lets the removal run (A); the task\'s board serving there, gone on /End, lets it run (B); a listener there that never answers still stops it', WINDOWS_FOLDERS, async (t) => {
+  const own = await ownNonLoopbackAddress();
+  if (!own) { t.skip('this PC has no non-loopback address that takes its own connections and refuses a closed port within the connect limit'); return; }
+  t.diagnostic('using ' + own.address + ': a closed port there was refused after ' + own.refusedAfterMs + ' ms');
+  const bindHostEnv = (s) => ({ ...s.env, KOSMOS_BIND_HOST: own.address });
+
+  const gone = await listenerOn(own.address, 'hung');
+  const closedPort = gone.port;
+  await gone.close();
+  const a = sandbox();
+  try {
+    stubSchedulers({ lists: [listing(['Kosmos\\board', 'Kosmos\\agent-ava']), listing([]), listing([])], boardXml: boardDefinition(true) });
+    const r = await run(a, { port: closedPort, probe: undefined, env: bindHostEnv(a) });
+    assert.equal(r.ok, true, 'A: nothing listening on this PC\'s own address read as Kosmos still open: ' + JSON.stringify(r.left));
+    assert.ok(!fs.existsSync(a.runtimeDir), 'A');
+  } finally { fs.rmSync(a.base, { recursive: true, force: true }); }
+
+  /* A, by host name: every address the name resolves to that is this PC's own is looked on. Run only when each
+     of them refuses a closed port in time; an adapter that does not take its own connections (measured: the
+     Tailscale adapter's link-local address) still reads as possibly open, which is fail closed. */
+  const byName = await handoff.probeBoardOnEveryAddress(closedPort, { KOSMOS_BIND_HOST: os.hostname() });
+  if (byName.outcome !== handoff.PROBE_OUTCOMES.REFUSED) {
+    t.diagnostic('ARM NOT RUN: A by host name, ' + os.hostname() + ' resolves to ' + byName.host + ', which gave ' + byName.outcome);
+  } else {
+    const n = sandbox();
+    try {
+      stubSchedulers({ lists: [listing(['Kosmos\\board', 'Kosmos\\agent-ava']), listing([]), listing([])], boardXml: boardDefinition(true) });
+      const r = await run(n, { port: closedPort, probe: undefined, env: { ...n.env, KOSMOS_BIND_HOST: os.hostname() } });
+      assert.equal(r.ok, true, 'A by host name: nothing listening read as Kosmos still open: ' + JSON.stringify(r.left));
+    } finally { fs.rmSync(n.base, { recursive: true, force: true }); }
+  }
+
+  const taskBoard = await listenerOn(own.address, 'board', { startedByTask: '1' });
+  const b = sandbox();
+  try {
+    const calls = stubSchedulers({ lists: [listing(['Kosmos\\board', 'Kosmos\\agent-ava']), listing([]), listing([])], boardXml: boardDefinition(true), running: true, onBoardEnd: () => { taskBoard.close(); } });
+    const r = await run(b, { port: taskBoard.port, probe: undefined, env: bindHostEnv(b) });
+    assert.equal(r.ok, true, 'B: the task\'s board that went on /End kept reading open: ' + JSON.stringify(r));
+    for (const c of ['board /Change /TN Kosmos\\board /DISABLE', 'board /End /TN Kosmos\\board', 'job /Delete /F /TN Kosmos\\agent-ava']) assert.ok(calls.includes(c), 'B: "' + c + '" was not issued');
+    assert.ok(!calls.includes('board /Change /TN Kosmos\\board /ENABLE'), 'B: the switch was put back, so the removal stopped');
+  } finally {
+    await taskBoard.close();
+    fs.rmSync(b.base, { recursive: true, force: true });
+  }
+
+  const hung = await listenerOn(own.address, 'hung');
+  const h = sandbox();
+  try {
+    const calls = stubSchedulers({ lists: [listing(['Kosmos\\board', 'Kosmos\\agent-ava']), listing([])], boardXml: boardDefinition(true) });
+    const r = await run(h, { deleteData: true, port: hung.port, probe: undefined, env: bindHostEnv(h) });
+    assert.deepEqual(r.left, [uninstaller.KOSMOS_STILL_OPEN], 'a listener there that never answers: ' + JSON.stringify(r.left));
+    assert.ok(!calls.some((c) => /\/(Change|End|Delete)/.test(c)), 'a task was changed');
+    assert.ok(fs.existsSync(h.runtimeDir) && fs.existsSync(path.join(h.dataDir, 'chats', 'ava.jsonl')), 'a folder went');
+  } finally {
+    await hung.close();
+    fs.rmSync(h.base, { recursive: true, force: true });
+  }
+});
+
+test('🛑 round 6 finding 1: a connection not made in time counts as unanswered, like a timeout: still open at the first look, and waited through after /End', WINDOWS_FOLDERS, async () => {
+  const CONNECT_TIMED_OUT = { answering: false, outcome: handoff.PROBE_OUTCOMES.CONNECT_TIMED_OUT, identity: null, startedByTask: null };
+  const s = sandbox();
+  try {
+    const calls = stubSchedulers({ lists: [listing(['Kosmos\\board', 'Kosmos\\agent-ava']), listing([])], boardXml: boardDefinition(true) });
+    const r = await run(s, { deleteData: true, probe: async () => CONNECT_TIMED_OUT });
+    assert.deepEqual(r.left, [uninstaller.KOSMOS_STILL_OPEN], JSON.stringify(r.left));
+    assert.ok(!calls.some((c) => /\/(Change|End|Delete)/.test(c)));
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+
+  const w = sandbox();
+  try {
+    const calls = stubSchedulers({ lists: [listing(['Kosmos\\board', 'Kosmos\\agent-ava']), listing([])], boardXml: boardDefinition(true) });
+    const r = await run(w, { deleteData: true, probe: probeSequence(TASK_BOARD, CONNECT_TIMED_OUT) });
+    assert.equal(r.stillOpen, true, JSON.stringify(r));
+    assert.equal(calls[calls.length - 1], 'board /Change /TN Kosmos\\board /ENABLE');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('🛑 round 6 finding 1: the wait for an ended board allows at least two whole looks when every look takes the longest it can', WINDOWS_FOLDERS, async () => {
+  const s = sandbox();
+  try {
+    stubSchedulers({ lists: [listing(['Kosmos\\board']), listing([])], boardXml: boardDefinition(false) });
+    let clock = 0;
+    const answers = probeSequence(TASK_BOARD, TIMED_OUT);
+    const r = await run(s, {
+      probe: async (port) => { clock += handoff.EVERY_ADDRESS_LOOK_WORST_MS; return answers(port); },
+      sleep: async (ms) => { clock += ms; },
+      now: () => clock,
+    });
+    assert.equal(r.stillOpen, true, JSON.stringify(r));
+    assert.ok(answers.count() >= 1 + 2, 'the wait gave up after ' + (answers.count() - 1) + ' look(s) of ' + handoff.EVERY_ADDRESS_LOOK_WORST_MS + ' ms each');
+    assert.equal(uninstaller.BOARD_GONE_CLOCK_MS, Math.max(uninstaller.BOARD_GONE_WAIT_MS, 2 * (handoff.EVERY_ADDRESS_LOOK_WORST_MS + uninstaller.FOLDER_DELETE_WAIT_MS)));
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });

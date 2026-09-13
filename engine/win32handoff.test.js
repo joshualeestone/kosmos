@@ -451,10 +451,10 @@ test('🛑 win32-installer-native round 3 finding 1: the real probe says WHY not
     for (const socket of sockets) socket.destroy();
     await Promise.all([hung, slow, fast].map((server) => new Promise((resolve) => server.close(() => resolve()))));
   }
-  assert.deepEqual({ ...PROBE_OUTCOMES }, { ANSWERED: 'answered', REFUSED: 'refused', TIMED_OUT: 'timed-out', ERROR: 'error' });
+  assert.deepEqual({ ...PROBE_OUTCOMES }, { ANSWERED: 'answered', REFUSED: 'refused', TIMED_OUT: 'timed-out', CONNECT_TIMED_OUT: 'connect-timed-out', ERROR: 'error' });
   for (const [answer, mayBeOpen] of [
     [null, true], [undefined, true], [{ answering: true, outcome: 'answered' }, true], [{ answering: false, outcome: 'refused' }, false],
-    [{ answering: false, outcome: 'timed-out' }, true], [{ answering: false, outcome: 'error' }, true], [{ answering: false }, true],
+    [{ answering: false, outcome: 'timed-out' }, true], [{ answering: false, outcome: 'connect-timed-out' }, true], [{ answering: false, outcome: 'error' }, true], [{ answering: false }, true],
   ]) assert.equal(boardMayBeOpen(answer), mayBeOpen, JSON.stringify(answer));
 });
 
@@ -566,10 +566,99 @@ test('🛑 win32-installer-native round 5 findings 1 and 3: the bind host is res
     const otherZone = linkLocal.address + '%' + (Number(linkLocal.scopeid) + 100000);
     assert.ok((await addressesFor({ KOSMOS_BIND_HOST: byScope })).includes(byScope), 'case E: a zoned link-local bind host of this machine was not looked on');
     assert.ok((await addressesFor({ KOSMOS_BIND_HOST: byName })).includes(byName), 'a link-local bind host zoned by interface name was not looked on');
-    assert.ok((await addressesFor({ KOSMOS_BIND_HOST: linkLocal.address })).includes(linkLocal.address), 'E2: the same address unzoned was not looked on');
+    /* Round 6, finding 1: unzoned, it is looked on through its own interface. */
+    assert.ok((await addressesFor({ KOSMOS_BIND_HOST: linkLocal.address })).includes(byScope), 'E2: the same address unzoned was not looked on through its interface');
+    assert.deepEqual(await addressesFor({ KOSMOS_BIND_HOST: 'board.example' }, resolvesTo(linkLocal.address)), ['127.0.0.1', '::1', byScope].sort(),
+      'a name that resolves to this PC\'s link-local address without a zone (as its own host name does) was not looked on through that interface');
     assert.deepEqual(await addressesFor({ KOSMOS_BIND_HOST: otherZone }), LOOPBACKS, 'a zone this machine does not have was looked on');
     assert.deepEqual(await addressesFor({ KOSMOS_BIND_HOST: 'board.example' }, resolvesTo(byScope)), ['127.0.0.1', '::1', byScope].sort(), 'a name that resolves to a zoned address of this machine was not looked on');
   }
+});
+
+/* ---- the round 6 review, fixed in round 7 ------------------------------------ */
+
+test('🛑 win32-installer-native round 6 finding 1: with a connect limit, a connection not made in time is connect-timed-out, and it ranks with a timeout', async () => {
+  const { Duplex } = require('node:stream');
+  /* A socket that never connects, handed to the real probe in place of the network. */
+  const neverConnects = () => {
+    const socket = new Duplex({ read() {}, write(chunk, encoding, done) { done(); } });
+    socket.connecting = true;
+    for (const name of ['setTimeout', 'setNoDelay', 'setKeepAlive', 'ref', 'unref']) socket[name] = () => socket;
+    return socket;
+  };
+  /* Port 9 (discard), never a Kosmos board's: even if the socket seam were ignored, no board is asked. */
+  let socketsMade = 0;
+  const startedAt = Date.now();
+  const answer = await probeBoard(9, '127.0.0.1', { connectTimeoutMs: 200, createConnection: () => { socketsMade += 1; return neverConnects(); } });
+  assert.equal(socketsMade, 1, 'the probe did not use the socket it was handed, so it opened a real connection');
+  assert.equal(answer.outcome, PROBE_OUTCOMES.CONNECT_TIMED_OUT, JSON.stringify(answer));
+  assert.ok(Date.now() - startedAt < 1500, 'the connect limit was not what ended the look');
+  assert.equal(boardMayBeOpen(answer), true);
+
+  const REFUSED_LOOK = { answering: false, outcome: 'refused', identity: null, startedByTask: null };
+  const answersBy = (byHost) => async (port, host) => byHost[host] || REFUSED_LOOK;
+  const connectTimedOut = { answering: false, outcome: 'connect-timed-out', identity: null, startedByTask: null };
+  const failed = { answering: false, outcome: 'error', identity: null, startedByTask: null };
+  assert.equal((await probeBoardOnEveryAddress(1, {}, answersBy({ '127.0.0.1': failed, '::1': connectTimedOut }))).outcome, 'connect-timed-out', 'a failed look hid a connection not made in time');
+
+  const limits = [];
+  await probeBoardOnEveryAddress(1, {}, async (port, host, options) => { limits.push(options && options.connectTimeoutMs); return REFUSED_LOOK; });
+  assert.deepEqual(limits, [5000, 5000], 'the every-address look did not give each connection its own limit');
+});
+
+test('🛑 win32-installer-native round 6 finding 1: a look right after a board went away makes its own connection, so it is refused, not a failed look on the old kept-alive socket', async () => {
+  const sockets = new Set();
+  const board = http.createServer((q, s) => { s.writeHead(200, { [BOARD_IDENTITY_HEADER]: MINE }); s.end('ok'); });
+  board.on('connection', (socket) => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
+  await new Promise((resolve) => board.listen(0, '127.0.0.1', resolve));
+  const port = board.address().port;
+  assert.equal((await probeBoardOnEveryAddress(port, {})).outcome, PROBE_OUTCOMES.ANSWERED);
+  for (const socket of sockets) socket.destroy();
+  await new Promise((resolve) => board.close(resolve));
+  const after = await probeBoardOnEveryAddress(port, {});
+  assert.equal(after.outcome, PROBE_OUTCOMES.REFUSED, 'the look after the board went away: ' + JSON.stringify(after));
+});
+
+test('🛑 win32-installer-native round 6 finding 1: the launcher\'s hand-off probe is unchanged: one 2 s limit for the connect and the answer (#2983)', async (t) => {
+  const source = fs.readFileSync(nodePath.join(__dirname, 'win32handoff.js'), 'utf8');
+  assert.match(source, /const probe = o\.probe \|\| probeBoard;/, 'the hand-off no longer probes with probeBoard and no options');
+
+  /* A listener that accepts and never answers: the hand-off's worst case per look is still PROBE_TIMEOUT_MS. */
+  const sockets = new Set();
+  const hung = net.createServer((socket) => sockets.add(socket));
+  await new Promise((resolve) => hung.listen(0, '127.0.0.1', resolve));
+  try {
+    const startedAt = Date.now();
+    const answer = await probeBoard(hung.address().port);
+    const tookMs = Date.now() - startedAt;
+    assert.equal(answer.outcome, PROBE_OUTCOMES.TIMED_OUT);
+    assert.ok(tookMs >= 1900 && tookMs < 2600, 'the hand-off look took ' + tookMs + ' ms, not its 2 s');
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await new Promise((resolve) => hung.close(resolve));
+  }
+
+  /* On this PC's own non-loopback address a closed port is refused only after about 2 s: the hand-off still
+     reads that as timed-out at 2 s, exactly as before, while the every-address look waits for the refusal. */
+  if (process.platform !== 'win32') { t.diagnostic('ARM NOT RUN: the slow refusal on a PC\'s own addresses was measured on Windows'); return; }
+  const own = Object.values(os.networkInterfaces()).flat().filter((i) => i && !i.internal && i.family === 'IPv4').map((i) => i.address);
+  for (const address of own) {
+    const listener = net.createServer();
+    const listening = await new Promise((resolve) => { listener.once('error', () => resolve(false)); listener.listen(0, address, () => resolve(true)); });
+    if (!listening) continue;
+    const port = listener.address().port;
+    await new Promise((resolve) => listener.close(resolve));
+    const limited = await probeBoardOnEveryAddress(port, { KOSMOS_BIND_HOST: address });
+    const startedAt = Date.now();
+    const handoffLook = await probeBoard(port, address);
+    const tookMs = Date.now() - startedAt;
+    if (handoffLook.outcome === PROBE_OUTCOMES.REFUSED && tookMs < 1000) { t.diagnostic(address + ' refuses at once here, so it cannot show the difference'); continue; }
+    assert.equal(handoffLook.outcome, PROBE_OUTCOMES.TIMED_OUT, address + ': the hand-off look changed: ' + JSON.stringify(handoffLook) + ' in ' + tookMs + ' ms');
+    assert.ok(tookMs < 2600, address + ': the hand-off look took ' + tookMs + ' ms');
+    assert.equal(limited.outcome, PROBE_OUTCOMES.REFUSED, address + ': the every-address look did not wait for the slow refusal');
+    return;
+  }
+  t.diagnostic('ARM NOT RUN: no IPv4 address of this PC refuses slowly');
 });
 
 // ── buildIdentity: one derivation for both sides ───────────────────────────

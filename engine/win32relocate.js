@@ -219,7 +219,7 @@ async function relocate(opts) {
      the uninstall's reading too). One that did not answer, or a look that failed, cannot even be asked
      which folder it serves, so nothing moves. Round 4, finding 3: the sentence says which. */
   if ((!answer || !answer.answering) && handoff.boardMayBeOpen(answer)) {
-    if (answer && answer.outcome === handoff.PROBE_OUTCOMES.TIMED_OUT) {
+    if (answer && (answer.outcome === handoff.PROBE_OUTCOMES.TIMED_OUT || answer.outcome === handoff.PROBE_OUTCOMES.CONNECT_TIMED_OUT)) {
       return refused('Kosmos was not moved, because Kosmos may be running and did not answer in time. ' + KEEPS_WORKING);
     }
     let task = null;

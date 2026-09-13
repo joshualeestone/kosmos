@@ -523,3 +523,38 @@ test('🛑 round 4 finding 3, real listeners: a move over a port that times out,
     await hung.close();
   }
 });
+
+/* ---- the round 6 review, fixed in round 7 ------------------------------------ */
+
+test('🛑 round 6 finding 1, real listener: with KOSMOS_BIND_HOST set to this PC\'s own non-loopback address and nothing listening, Kosmos moves (C); a connection not made in time says "did not answer in time"', async (t) => {
+  const connectTimedOut = await move((() => { const s = scratch(); build(s.from); return s; })(), { probe: async () => ({ answering: false, outcome: handoff.PROBE_OUTCOMES.CONNECT_TIMED_OUT }) });
+  assert.match(String(connectTimedOut.because), /may be running and did not answer in time/, JSON.stringify(shape(connectTimedOut)));
+
+  if (process.platform !== 'win32') { t.diagnostic('ARM NOT RUN: C, the slow refusal on a PC\'s own addresses was measured on Windows'); return; }
+  const candidates = Object.values(os.networkInterfaces()).flat()
+    .filter((i) => i && !i.internal)
+    .sort((a, b) => (a.family === b.family ? 0 : a.family === 'IPv4' ? -1 : 1))
+    .map((i) => (i.family === 'IPv6' && /^fe80:/i.test(i.address) ? i.address + '%' + i.scopeid : i.address));
+  /* The choice uses its own looks (an explicit 5 s connect limit, a port closed without ever being probed), so a
+     control that changes the every-address look cannot make this skip instead of going red. */
+  const LOOK = { connectTimeoutMs: 5000 };
+  let chosen = null;
+  for (const address of candidates) {
+    const board = await listenerOn(address, 'board');
+    if (!board) continue;
+    const reached = await handoff.probeBoard(board.port, address, LOOK);
+    await board.close();
+    if (!reached.answering) continue;
+    const gone = await listenerOn(address, 'hung');
+    const closedPort = gone.port;
+    await gone.close();
+    if ((await handoff.probeBoard(closedPort, address, LOOK)).outcome === handoff.PROBE_OUTCOMES.REFUSED) { chosen = { address, port: closedPort }; break; }
+  }
+  if (!chosen) { t.skip('this PC has no non-loopback address that takes its own connections and refuses a closed port within the connect limit'); return; }
+  const s = scratch();
+  try {
+    build(s.from);
+    const r = await move(s, { port: chosen.port, probe: undefined, env: { ...process.env, KOSMOS_BIND_HOST: chosen.address } });
+    assert.equal(r.action, 'moved', 'C: nothing listening on ' + chosen.address + ' refused the move: ' + JSON.stringify(shape(r)));
+  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});

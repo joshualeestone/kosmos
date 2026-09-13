@@ -69,6 +69,13 @@ const worlds = require('./worlds');
 const FOLDER_DELETE_TRIES = 20;
 const FOLDER_DELETE_WAIT_MS = 500;
 const BOARD_GONE_WAIT_MS = FOLDER_DELETE_TRIES * FOLDER_DELETE_WAIT_MS;
+/* Round 6, finding 1: that wait is also bounded by the clock, and one look can take up to
+   win32handoff.EVERY_ADDRESS_LOOK_WORST_MS (a bind host name to resolve, a connect, an answer). So the clock
+   bound allows at least BOARD_GONE_MIN_LOOKS whole looks with their waits, and is never less than
+   BOARD_GONE_WAIT_MS. Looks that come back at once (every address refusing) still end on the count bound,
+   after about BOARD_GONE_WAIT_MS. */
+const BOARD_GONE_MIN_LOOKS = 2;
+const BOARD_GONE_CLOCK_MS = Math.max(BOARD_GONE_WAIT_MS, BOARD_GONE_MIN_LOOKS * (require('./win32handoff').EVERY_ADDRESS_LOOK_WORST_MS + FOLDER_DELETE_WAIT_MS));
 
 /* How many paths that would not delete are named one by one before the rest are counted. Enough
    for a person to act on the usual one or two locked files; a long list says the same thing. */
@@ -345,15 +352,15 @@ function sleeperFor(o) {
 }
 
 /* Waits through answers AND timeouts: a board that stops answering in time is not a board that went.
-   Bounded by the clock as well as by the count, because a probe that times out takes PROBE_TIMEOUT_MS
-   of its own on top of each wait. */
+   Bounded by the count, and by the clock (BOARD_GONE_CLOCK_MS), because a slow look spends its own time
+   on top of each wait. */
 async function waitForBoardToGo(port, o) {
   const sleep = sleeperFor(o);
   const now = typeof o.now === 'function' ? o.now : Date.now;
   const started = now();
   for (let waited = 0; ; waited += FOLDER_DELETE_WAIT_MS) {
     if (!(await boardOnPort(port, o)).answering) return true;
-    if (waited >= BOARD_GONE_WAIT_MS || now() - started >= BOARD_GONE_WAIT_MS) return false;
+    if (waited >= BOARD_GONE_WAIT_MS || now() - started >= BOARD_GONE_CLOCK_MS) return false;
     await sleep(FOLDER_DELETE_WAIT_MS);
   }
 }
@@ -379,8 +386,8 @@ function putBoardSwitchBack(boardSwitch, notes) {
  *   - the board task reads RUNNING: the usual busy board its task started. Go on to switch it off, end it
  *     and wait for it, which stops with the switch put back if it does not go;
  *   - the task cannot be read: round 3's stop, "Kosmos is still open";
- *   - the task is not proven running, and the look timed out: something accepts and never answers, which
- *     may be a hand-started board, "Kosmos is still open";
+ *   - the task is not proven running, and the look timed out, or its connection was not made in time
+ *     (round 6, finding 1): something that may be a hand-started board, "Kosmos is still open";
  *   - the task is not proven running, and the look failed: win32handoff.cannotTellIfOpenSentence, which
  *     names another program only when the task is known not to be registered (round 5, finding 5). A
  *     connection that was reset is NOT taken as "not Kosmos", because a board mid-restart resets
@@ -392,7 +399,7 @@ function stopForUnansweredFirstLook(outcome, port) {
   try { task = win32board.status(); } catch { task = null; }
   if (!task || !task.known) return stillOpen();
   if (task.running === true) return null;
-  if (outcome === handoff.PROBE_OUTCOMES.TIMED_OUT) return stillOpen();
+  if (outcome === handoff.PROBE_OUTCOMES.TIMED_OUT || outcome === handoff.PROBE_OUTCOMES.CONNECT_TIMED_OUT) return stillOpen();
   return stoppedUnchanged(handoff.cannotTellIfOpenSentence(port, task) + ' ' + RESTART_THEN_REMOVE_AGAIN);
 }
 
@@ -681,7 +688,7 @@ async function cliMain(argv, deps) {
 
 module.exports = {
   uninstall, cliMain, classifyTask, folderRefusal, keptRoots, reportText,
-  FOLDER_DELETE_TRIES, FOLDER_DELETE_WAIT_MS, BOARD_GONE_WAIT_MS, MAX_NAMED_LEFTOVERS, REREGISTER_SETTLE_MS,
+  FOLDER_DELETE_TRIES, FOLDER_DELETE_WAIT_MS, BOARD_GONE_WAIT_MS, BOARD_GONE_CLOCK_MS, MAX_NAMED_LEFTOVERS, REREGISTER_SETTLE_MS,
   KOSMOS_STILL_OPEN, STARTUP_UNREADABLE, STARTUP_WOULD_NOT_SWITCH_OFF,
 };
 

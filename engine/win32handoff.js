@@ -208,15 +208,20 @@ function thisBootsWorldAttempt(deps) {
 }
 
 /**
- * Why a probe got the answer it did (win32-installer-native, round 3 finding 1).
- *   answered   the port answered over HTTP
- *   refused    nothing listens there (ECONNREFUSED): the only proof that no board is running
- *   timed-out  something accepted the connection and did not answer within PROBE_TIMEOUT_MS
- *   error      any other failure to look
- * `answering` is unchanged for every caller that existed before (false for the last three), so the
- * hand-off and the board restart read a slow board as they always did. See boardMayBeOpen.
+ * Why a probe got the answer it did (win32-installer-native, round 3 finding 1; round 6 finding 1).
+ *   answered           the port answered over HTTP
+ *   refused            the connection was refused (ECONNREFUSED): the only proof that no board listens there
+ *   timed-out          nothing came back within PROBE_TIMEOUT_MS. With a connect limit (the uninstall's and
+ *                      the move's looks, probeBoardOnEveryAddress) the connection WAS made first. Without one
+ *                      (the launcher's hand-off, the board restart) the one limit covers the connect as well,
+ *                      so this is also a connect that did not finish, or a refusal slower than 2 s, which
+ *                      Windows gives on this PC's own non-loopback addresses
+ *   connect-timed-out  with a connect limit only: the connection was not made within CONNECT_TIMEOUT_MS
+ *   error              any other failure to look: a reset, an unreachable address, a reply that is not HTTP
+ * `answering` is false for every outcome but answered, as it always was, so the hand-off and the board
+ * restart read a slow board as they always did. See boardMayBeOpen.
  */
-const PROBE_OUTCOMES = Object.freeze({ ANSWERED: 'answered', REFUSED: 'refused', TIMED_OUT: 'timed-out', ERROR: 'error' });
+const PROBE_OUTCOMES = Object.freeze({ ANSWERED: 'answered', REFUSED: 'refused', TIMED_OUT: 'timed-out', CONNECT_TIMED_OUT: 'connect-timed-out', ERROR: 'error' });
 
 /* Where the launcher's hand-off looks, and one of the two loopbacks the uninstall and the move look on. */
 const BOARD_LOOPBACK_V4 = '127.0.0.1';
@@ -228,32 +233,74 @@ const BIND_HOSTS_COVERED_BY_LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost',
    name answered ENOTFOUND in 67 ms on this box; 5 s leaves a slow resolver room, and keeps the uninstall
    from waiting on DNS for ever. */
 const BIND_HOST_LOOKUP_TIMEOUT_MS = 5000;
+/* Round 6, finding 1: how long the uninstall's and the move's looks give a connection to be made, before
+   PROBE_TIMEOUT_MS starts counting the answer. Measured on this PC: a closed port on its own non-loopback
+   addresses (LAN, Tailscale, link-local) is refused only after 2.02-2.04 s, because Windows retries the SYN
+   after a reset, while loopback refuses in 1-2 ms. One 2 s limit on the connect and the answer together read
+   every such refusal as a timeout, so a bind host of this PC's own address always looked open. 5 s is well
+   above that. The launcher's hand-off does not use it (#2983). */
+const CONNECT_TIMEOUT_MS = 5000;
+/* The longest one every-address look can take: resolving a bind host name, then a connect and an answer on
+   every address at once. The uninstall sizes its wait for an ended board from it. */
+const EVERY_ADDRESS_LOOK_WORST_MS = BIND_HOST_LOOKUP_TIMEOUT_MS + CONNECT_TIMEOUT_MS + PROBE_TIMEOUT_MS;
 
 /* Round 5, finding 4: only a refused connection proves nothing listens. Every other failure to connect
    (EADDRNOTAVAIL, ENETUNREACH, a reset) is a failed look, which may be a board: fail closed. ::1 cannot be
    switched off on Windows (KB 929852), so it refuses like any loopback. */
-function outcomeOfFailedLook(err, timedOut) {
+function outcomeOfFailedLook(err, timedOut, connectTimedOut) {
+  if (connectTimedOut) return PROBE_OUTCOMES.CONNECT_TIMED_OUT;
   if (timedOut) return PROBE_OUTCOMES.TIMED_OUT;
   return err && err.code === 'ECONNREFUSED' ? PROBE_OUTCOMES.REFUSED : PROBE_OUTCOMES.ERROR;
 }
 
-/* Is a board answering on this port, and which board is it? Never rejects. `host` defaults to
-   127.0.0.1, the only address the launcher's hand-off asks (#2983). */
-function probeBoard(port, host) {
+/**
+ * Is a board answering on this port, and which board is it? Never rejects. `host` defaults to 127.0.0.1,
+ * the only address the launcher's hand-off asks (#2983).
+ *
+ * `options.connectTimeoutMs` (round 6, finding 1) splits the one limit in two: the connection gets that long
+ * to be made, and PROBE_TIMEOUT_MS starts only once it is. Without it -- the hand-off and the board restart
+ * -- one PROBE_TIMEOUT_MS covers the connect and the answer, exactly as before. `options.createConnection`
+ * replaces the socket in a test.
+ */
+function probeBoard(port, host, options) {
+  const connectLimit = options && options.connectTimeoutMs;
   return new Promise((resolve) => {
     let timedOut = false;
+    let connectTimedOut = false;
+    let connectTimer = null;
     let settled = false;
-    const settle = (answer) => { if (!settled) { settled = true; resolve(answer); } };
-    const req = http.get({ host: host || BOARD_LOOPBACK_V4, port, path: '/', timeout: PROBE_TIMEOUT_MS }, (res) => {
+    const settle = (answer) => { if (!settled) { settled = true; clearTimeout(connectTimer); resolve(answer); } };
+    const request = { host: host || BOARD_LOOPBACK_V4, port, path: '/' };
+    if (!connectLimit) {
+      request.timeout = PROBE_TIMEOUT_MS;
+    } else if (options && typeof options.createConnection === 'function') {
+      /* A test's socket. No `agent` with it: for `agent: false` Node's http builds a fresh Agent, which ignores
+         createConnection and opens a real connection. */
+      request.createConnection = options.createConnection;
+    } else {
+      /* Round 6, finding 1, measured: a look made right after a board went away reused the kept-alive socket of
+         the look before it, and failed at once (`error`) instead of being refused. So a look with a connect
+         limit always makes its own connection (`agent: false`: a fresh Agent that keeps nothing alive). */
+      request.agent = false;
+    }
+    const req = http.get(request, (res) => {
       res.resume();
       const named = res.headers[BOARD_IDENTITY_HEADER];
       const startedByTask = startedByTaskFromHeader(res.headers[BOARD_STARTED_BY_TASK_HEADER]);
       res.on('end', () => settle({ answering: true, outcome: PROBE_OUTCOMES.ANSWERED, identity: typeof named === 'string' && named ? named : null, startedByTask }));
     });
+    if (connectLimit) {
+      req.on('socket', (socket) => {
+        const limitTheAnswer = () => { clearTimeout(connectTimer); req.setTimeout(PROBE_TIMEOUT_MS); };
+        if (!socket.connecting) { limitTheAnswer(); return; }
+        connectTimer = setTimeout(() => { connectTimedOut = true; req.destroy(new Error('connect timeout')); }, connectLimit);
+        socket.once('connect', limitTheAnswer);
+      });
+    }
     req.on('timeout', () => { timedOut = true; req.destroy(new Error('timeout')); });
     req.on('error', (err) => settle({
       answering: false,
-      outcome: outcomeOfFailedLook(err, timedOut),
+      outcome: outcomeOfFailedLook(err, timedOut, connectTimedOut),
       identity: null,
       startedByTask: null,
     }));
@@ -291,22 +338,35 @@ function canonicalAddress(bare) {
 
 /**
  * Round 5, findings 1 and 3: is this address one of this machine's own, so a board of this user could be
- * listening on it? Loopback (127/8, ::1) always is. Anything else must be an address one of this machine's
- * interfaces has, compared without its zone, and a zone (`%14`, `%Ethernet 2`) must name that interface,
- * by scope id or by name: the same link-local address on another adapter is another address.
- * `interfaces` replaces os.networkInterfaces() in a test.
+ * listening on it? Returns the spelling to probe it by, or null when it is not this machine's. Loopback
+ * (127/8, ::1) always is. Anything else must be an address one of this machine's interfaces has, compared
+ * without its zone, and a zone (`%14`, `%Ethernet 2`) must name that interface, by scope id or by name: the
+ * same link-local address on another adapter is another address.
+ *
+ * Round 6, finding 1: a link-local address WITHOUT a zone (as a host name's lookup gives this PC's own) is
+ * reached only through its interface, so it is probed with that interface's zone. `interfaces` replaces
+ * os.networkInterfaces() in a test.
  */
-function isThisMachinesAddress(address, interfaces) {
+function thisMachinesSpelling(address, interfaces) {
   const text = String(address);
   const at = text.indexOf('%');
   const bare = canonicalAddress(at < 0 ? text : text.slice(0, at));
   const zone = at < 0 ? null : text.slice(at + 1).toLowerCase();
   const kind = require('node:net').isIP(bare);
-  if (kind === 0) return false;
-  if ((kind === 4 && bare.startsWith('127.')) || bare === '::1') return true;
+  if (kind === 0) return null;
+  if ((kind === 4 && bare.startsWith('127.')) || bare === '::1') return text;
   const all = interfaces || require('node:os').networkInterfaces();
-  return Object.entries(all).some(([name, list]) => (list || []).some((i) =>
-    canonicalAddress(String(i.address)) === bare && (zone === null || String(i.scopeid) === zone || name.toLowerCase() === zone)));
+  for (const [name, list] of Object.entries(all)) {
+    for (const i of list || []) {
+      if (canonicalAddress(String(i.address)) !== bare) continue;
+      if (zone !== null) {
+        if (String(i.scopeid) === zone || name.toLowerCase() === zone) return text;
+        continue;
+      }
+      return /^fe80:/i.test(bare) && i.scopeid ? bare + '%' + i.scopeid : text;
+    }
+  }
+  return null;
 }
 
 /**
@@ -339,7 +399,7 @@ async function bindHostProbeAddresses(env, lookup) {
       clearTimeout(timer);
     }
   }
-  return found.filter((address) => isThisMachinesAddress(address));
+  return found.map((address) => thisMachinesSpelling(address)).filter(Boolean);
 }
 
 /**
@@ -362,7 +422,7 @@ async function boardProbeAddresses(env, lookup) {
    address never hides a timeout or a failed look on another. */
 function opennessRank(answer) {
   if (isKosmosBoardAnswer(answer)) return answer.startedByTask === true ? 1 : 0;
-  if (answer.outcome === PROBE_OUTCOMES.TIMED_OUT) return 2;
+  if (answer.outcome === PROBE_OUTCOMES.TIMED_OUT || answer.outcome === PROBE_OUTCOMES.CONNECT_TIMED_OUT) return 2;
   if (answer.answering) return 4;
   if (answer.outcome === PROBE_OUTCOMES.REFUSED) return 5;
   return 3;
@@ -379,7 +439,7 @@ async function probeBoardOnEveryAddress(port, env, probeOne, lookup) {
   const look = typeof probeOne === 'function' ? probeOne : probeBoard;
   const answers = await Promise.all((await boardProbeAddresses(env, lookup)).map(async (host) => {
     try {
-      return { ...(await look(port, host)), host };
+      return { ...(await look(port, host, { connectTimeoutMs: CONNECT_TIMEOUT_MS })), host };
     } catch {
       return { answering: false, outcome: PROBE_OUTCOMES.ERROR, identity: null, startedByTask: null, host };
     }
@@ -559,7 +619,7 @@ async function handOffToTask(opts) {
 /* probeBoard is also how the Windows updater (engine/win32apply.js) confirms which board came back
    after a swap, so there is one reading of the identity header. */
 module.exports = {
-  handOffToTask, buildIdentity, boardIdentity, probeBoard, boardMayBeOpen, probeBoardOnEveryAddress, cannotTellIfOpenSentence, PROBE_OUTCOMES, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS,
+  handOffToTask, buildIdentity, boardIdentity, probeBoard, boardMayBeOpen, probeBoardOnEveryAddress, cannotTellIfOpenSentence, PROBE_OUTCOMES, EVERY_ADDRESS_LOOK_WORST_MS, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS,
   BOARD_STARTED_BY_TASK_HEADER, boardStartedByTaskHeaderValue, startedByTaskFromHeader,
 };
 
