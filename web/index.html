@@ -2193,8 +2193,10 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    docs/browser-checks/render-talk-fill-2622.js at 1100/700/narrow window sizes. Uses
    100vh to match the sibling #d-window rule (`calc(100vh - 220px)`); a 100dvh follow-up
    for a mobile URL bar is noted on the card. */
-/* All six rules are :has(#d-sec-talk:not([hidden]))-gated, so the fill applies only when
-   the Talk section is the shown one. No :not([hidden]) guard on the panel is needed even
+/* Every rule in this fill block (and the narrow-width one in the 56rem media query) is
+   :has(#d-sec-talk:not([hidden]))-gated, so the fill applies only when the Talk section is
+   the shown one. (No count named on purpose: a fixed count drifts the moment a rule is added.)
+   No :not([hidden]) guard on the panel is needed even
    though this rule sets display:flex: the file's `[hidden] { display: none !important }`
    (~470) keeps a hidden panel hidden regardless of this rule's specificity. */
 #panel-detail:has(#d-sec-talk:not([hidden])) {
