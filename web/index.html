@@ -35425,16 +35425,25 @@ function applyConsFold() {
     }
   }
   for (const row of list.querySelectorAll('.pj-row[data-project]')) {
-    row.classList.toggle('pj-fold-hidden', hidden.has(row.dataset.project));
+    /* Compare before every write. applyConsFold runs on EVERY ~5s data poll (via
+       paintProjects), and a bare setAttribute/classList/textContent re-writes even
+       when the value is unchanged. A re-written aria-expanded is re-announced by a
+       screen reader ("expanded"/"collapsed") every poll, forever -- the exact churn
+       setLive documents and dedups a few functions up. These DOM edits bypass
+       setLive's string dedup, so each one must guard itself. (#2929 iter2) */
+    const shouldHide = hidden.has(row.dataset.project);
+    if (row.classList.contains('pj-fold-hidden') !== shouldHide) row.classList.toggle('pj-fold-hidden', shouldHide);
     const caret = row.querySelector('.pjtreefold');
     if (!caret) continue;                          // a leaf: nothing to expand
     const folded = PJ_TREE_FOLDED.has(row.dataset.project);
     if (cons) {
-      row.setAttribute('aria-expanded', folded ? 'false' : 'true');
-    } else {
+      const want = folded ? 'false' : 'true';
+      if (row.getAttribute('aria-expanded') !== want) row.setAttribute('aria-expanded', want);
+    } else if (row.hasAttribute('aria-expanded')) {
       row.removeAttribute('aria-expanded');        // no folding outside the rail
     }
-    caret.textContent = folded ? '▸' : '▾';   // ▸ folded / ▾ open
+    const glyph = folded ? '▸' : '▾';         // ▸ folded / ▾ open
+    if (caret.textContent !== glyph) caret.textContent = glyph;
   }
 }
 
@@ -41887,6 +41896,12 @@ document.getElementById('pj-list').addEventListener('click', (e) => {
    closest() match finds nothing in the flat list or grid. */
 document.getElementById('pj-list').addEventListener('keydown', (e) => {
   if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+  /* Fold is a consolidated-rail action only. Gate on the effective view rather than
+     leaning on aria-expanded being absent in the tab list: a resize that drops below
+     the consolidated width leaves stale aria-expanded on the rows for up to one poll
+     (~5s) until applyConsFold clears them, and without this guard an arrow press in
+     that window would toggle a fold invisibly in the flat list. (#2929 iter2) */
+  if (!document.body.classList.contains('consolidated')) return;
   const row = e.target.closest('.pj-row[aria-expanded]');
   if (!row) return;
   const folded = row.getAttribute('aria-expanded') === 'false';

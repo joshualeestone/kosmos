@@ -210,6 +210,74 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' click CONTROL: a caret click does NOT open the project', clickCtl.caretDidNotOpen, JSON.stringify(clickCtl));
     ok(t + ' click: a click on the row body opens the project', clickCtl.bodyOpened, JSON.stringify(clickCtl));
 
+    // ---- Layer 6: a no-op repaint does not re-write aria-expanded (no SR churn) ----
+    // applyConsFold runs on every ~5s poll; a bare setAttribute re-announces
+    // "expanded"/"collapsed" to a screen reader even when unchanged. Assert a second
+    // paint with no state change writes aria-expanded ZERO times, via a real
+    // MutationObserver, and prove the observer is live with a control that folds.
+    const churn = await page.evaluate(async () => {
+      const rowOf = (id) => document.querySelector('#pj-list .pj-row[data-project="' + id + '"]');
+      document.documentElement.setAttribute('data-layout', 'consolidated');
+      document.body.classList.add('consolidated');
+      document.getElementById('pj-list').classList.remove('asgrid');
+      PJ_TREE_FOLDED.clear(); PJ_CURRENT = null; paintProjects();
+      const k = rowOf('k');
+      let ariaMutations = 0;
+      const obs = new MutationObserver((recs) => { for (const r of recs) if (r.attributeName === 'aria-expanded') ariaMutations += 1; });
+      obs.observe(k, { attributes: true, attributeFilter: ['aria-expanded'] });
+      paintProjects();          // no state change -> must not re-write aria-expanded
+      applyConsFold();          // nor a direct re-sync
+      await new Promise((r) => setTimeout(r, 0));   // flush the observer
+      obs.disconnect();
+      return { ariaMutations, stillExpanded: k.getAttribute('aria-expanded') };
+    });
+    ok(t + ' no-op repaint does not re-write aria-expanded (no SR re-announce)', churn.ariaMutations === 0 && churn.stillExpanded === 'true', JSON.stringify(churn));
+    const churnCtl = await page.evaluate(async () => {
+      const k = document.querySelector('#pj-list .pj-row[data-project="k"]');
+      let ariaMutations = 0;
+      const obs = new MutationObserver((recs) => { for (const r of recs) if (r.attributeName === 'aria-expanded') ariaMutations += 1; });
+      obs.observe(k, { attributes: true, attributeFilter: ['aria-expanded'] });
+      pjTreeToggleFold('k');    // a real state change -> exactly one mutation
+      await new Promise((r) => setTimeout(r, 0));
+      obs.disconnect();
+      return { ariaMutations };
+    });
+    ok(t + ' CONTROL: a real fold DOES record an aria-expanded mutation (observer is live)', churnCtl.ariaMutations === 1, JSON.stringify(churnCtl));
+
+    // ---- Layer 7: keydown fold is inert in the tab layout even with a STALE attr ----
+    // A resize below the consolidated width can leave aria-expanded on a row for one
+    // poll. The keydown handler gates on body.consolidated, so an arrow press must NOT
+    // toggle a fold in the flat tab list even when a stale aria-expanded is present.
+    const kbdTab = await page.evaluate(() => {
+      const rowOf = (id) => document.querySelector('#pj-list .pj-row[data-project="' + id + '"]');
+      PJ_TREE_FOLDED.clear();
+      document.documentElement.setAttribute('data-layout', 'tabs');
+      document.body.classList.remove('consolidated');
+      document.getElementById('pj-list').classList.remove('asgrid');
+      paintProjects();
+      const k = rowOf('k');
+      k.setAttribute('aria-expanded', 'true');   // simulate the stale attr a resize leaves
+      const before = PJ_TREE_FOLDED.size;
+      k.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+      return { before, after: PJ_TREE_FOLDED.size };
+    });
+    ok(t + ' keydown is inert in the tab layout despite a stale aria-expanded', kbdTab.before === 0 && kbdTab.after === 0, JSON.stringify(kbdTab));
+
+    // ---- Layer 8: the caret is hidden in the grid (asgrid) sub-view too ----
+    // Layer 4 proves it for the wide list; the shared global default rule also covers
+    // the grid tiles. Assert it explicitly so the grid path is not left uncovered.
+    const gridCtl = await page.evaluate(() => {
+      document.documentElement.setAttribute('data-layout', 'tabs');
+      document.body.classList.remove('consolidated');
+      document.getElementById('pj-list').classList.add('asgrid');   // grid tiles
+      PJ_TREE_FOLDED.clear(); paintProjects();
+      const caret = document.querySelector('#pj-list .pj-row[data-project="k"] .pjtreefold');
+      const out = { caretHiddenInGrid: caret ? getComputedStyle(caret).display === 'none' : true };
+      document.getElementById('pj-list').classList.remove('asgrid');   // restore
+      return out;
+    });
+    ok(t + ' grid CONTROL: the fold caret is hidden in the asgrid grid sub-view too', gridCtl.caretHiddenInGrid, JSON.stringify(gridCtl));
+
     await page.close();
   }
   await browser.close();
