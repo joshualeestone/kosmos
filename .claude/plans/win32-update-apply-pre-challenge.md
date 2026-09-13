@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: win32-update-apply
-diff_hash: a32816f265afe8b6a020a2ab3395192febf0c4da82ce5f7a13df0424b288f43d
+diff_hash: 0689109d620cb483eaa1ba27c59cd615ab38b2ff03dc2d94438623d654b2e50a
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-13T17:30:00Z
+timestamp: 2026-09-13T17:54:00Z
 iterations: 11
 converged: true
 ---
@@ -24,10 +24,17 @@ verified, and the three new controls proved non-vacuous (each revert reddens its
 **Proof hash.** `diff_hash` is the sha256 of the raw bytes of
 `git diff origin/main HEAD -- . ':(exclude).claude/plans/win32-update-apply-pre-challenge.md'`,
 computed with node over git's own output.
-- Taken at HEAD `04f9406d` on origin/main `e0e1a922` (502,874 bytes; 11 files, +8044/-47),
-  after a clean rebase onto the current main (the only new main commit since review,
-  `e0e1a922`/#3000, touches an unrelated browser-check fixture; merge-tree clean).
+- Taken on origin/main `c2cf75c1` (503,755 bytes; 11 files), after clean rebases onto each new
+  main (the commits that landed since the review — #3000 a browser-check fixture, #2531 settings
+  copy — touch only `web/index.html` and browser checks, none of the updater's files; merge-tree
+  clean each time).
 - The proof file is excluded, so the hash is stable across the hash-writing commit.
+- **Post-review CI fix (test-only, not a new review round):** the first macOS CI run reddened on
+  ~23 brand-new `win32apply.test.js` tests that spawn the REAL logon shim/board — they aren't
+  runnable on the macOS lane. They are now gated to skip off-win32 (`WIN32_ONLY`), matching the
+  existing handle-test gate; on the Windows box the full file still runs 101/101 with 0 skips.
+  No production code changed. The Windows-box comparison can't catch this class (branch-new
+  tests have no base counterpart on macOS), so CI is the gate that caught it.
 - The pre-challenge-gate hook isn't installed on this Windows box, so the recipe is written out.
 
 ## What shipped
