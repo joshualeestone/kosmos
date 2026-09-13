@@ -5794,6 +5794,8 @@ body.plus-active .dm.theirs .dm-b[data-am], body.plus-active .msg:not(.you) .msg
 .orgchart-list { margin: 0; padding-left: 1.4em; max-height: 18rem; overflow: auto;
   display: flex; flex-direction: column; gap: 4px; }
 .orgchart-list li { font: var(--text-callout); color: var(--label); }
+.orgchart-nameopt { display: flex; align-items: center; gap: 8px; margin-top: 8px;
+  font: var(--text-callout); color: var(--label); cursor: pointer; }
 /* #1652 PR2: the found-on-this-computer import list. Each row shows the file's name,
    its title, its path, and a read-only preview (the same "SHOW the file, do not assert"
    rule the scan panel keeps), then a single Import action. Dressed with the shared
@@ -10177,12 +10179,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <label class="flabel" for="orgchart-text">Your people</label>
         <textarea id="orgchart-text" rows="6" placeholder="One person per line, for example:&#10;Marketing Lead&#10;Sarah Chen, Head of Sales&#10;Engineer"></textarea>
         <p class="rolehelp">One person per line. Put the title on its own, or write the name and title separated by a comma. We create one agent per line, named for the title.</p>
-        <label class="pick2 own" style="margin-top:6px;">
+        <!-- ⚠️ The caution below is a PLAIN, always-visible help line, NOT a
+             .pick2/.p2full card. .p2full is display:none until its input is
+             :checked (it is a radio option's extended text), so used here the
+             safety caution would be hidden in the UNCHECKED default and appear
+             only AFTER the operator opted in -- the one state it does not need
+             to warn. A caution about naming agents after real people has to be
+             visible while the box is still off. -->
+        <label class="orgchart-nameopt">
           <input type="checkbox" id="orgchart-usenames">
-          <span class="p2n">Name the agents after the people</span>
-          <span class="p2d">Off by default</span>
-          <span class="p2full">Leave this off and each agent is named for its title (Marketing Lead), not the person. Turn it on only if you want agents named after your staff: their name will then appear in that agent's logs, messages and commits.</span>
+          <span>Name the agents after the people (off by default)</span>
         </label>
+        <p class="rolehelp">Leave this off and each agent is named for its title (Marketing Lead), not the person. Turn it on only if you want agents named after your staff: their name will then appear in that agent's logs, messages and commits.</p>
         <div class="importrow">
           <button class="btn uprime" type="button" id="orgchart-preview">Preview the team</button>
         </div>
@@ -32476,6 +32484,8 @@ function pickMode(mode) {
      after the person moved on, and give the panel a fresh enabled button whenever
      it is shown. */
   IMPORT_GEN += 1;
+  // #1280: any mode change supersedes an in-flight team create (mirrors IMPORT_GEN).
+  ORGCHART_GEN += 1;
   if (importing) {
     document.getElementById('import-load').disabled = false;
     // #1652 PR2: fill (or refresh) the found-on-this-computer list each time the panel
@@ -32545,6 +32555,10 @@ document.getElementById('rolesel').addEventListener('change', () => {
 // The parse held between Preview and Create, so Create builds exactly what the
 // person reviewed rather than a re-parse of text they may have edited after.
 let ORGCHART_PARSED = null;
+/* Supersedes an in-flight team create the way IMPORT_GEN does for import: bumped
+   on any mode change (pickMode) so a late /api/team response cannot yank the
+   screen after the operator switched away or reopened the form. */
+let ORGCHART_GEN = 0;
 
 /* The derived-name length ceiling. It MIRRORS engine/create.nameProblem's 32-char
    cap (engine/create.js) so a client-derived candidate is not rejected for length
@@ -32678,6 +32692,10 @@ document.getElementById('orgchart-edit').addEventListener('click', () => {
 
 document.getElementById('orgchart-create').addEventListener('click', async () => {
   if (!ORGCHART_PARSED || !ORGCHART_PARSED.length) return;
+  // Capture the generation: if the operator changes mode or reopens the form while
+  // this create is in flight, pickMode bumps ORGCHART_GEN and every DOM write below
+  // is skipped, so a late response cannot yank a screen the person has left.
+  const gen = ORGCHART_GEN;
   const btn = document.getElementById('orgchart-create');
   const msg = document.getElementById('orgchart-msg');
   const countEl = document.getElementById('orgchart-count');
@@ -32696,12 +32714,14 @@ document.getElementById('orgchart-create').addEventListener('click', async () =>
     });
     result = await res.json().catch(() => null);
   } catch (err) {
+    if (gen !== ORGCHART_GEN) return;   // superseded during the fetch
     btn.disabled = false;
     msg.hidden = false;
     msg.textContent = 'We could not reach Kosmos to create the team ('
       + ((err && err.message) ? err.message : 'network error') + '). Try again.';
     return;
   }
+  if (gen !== ORGCHART_GEN) return;   // superseded during the fetch: do not touch the screen
   if (!result) {
     btn.disabled = false;
     msg.hidden = false;
