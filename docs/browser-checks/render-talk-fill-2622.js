@@ -66,6 +66,7 @@ async function measure(page) {
     const panel = document.getElementById('panel-detail');
     const thread = document.getElementById('d-dmthread');
     const composer = document.querySelector('#d-talk-box .dmbar.composerbox');
+    const back = document.getElementById('detail-back');
     const br = box.getBoundingClientRect();
     const pr = panel.getBoundingClientRect();
     const cr = composer ? composer.getBoundingClientRect() : null;
@@ -73,6 +74,8 @@ async function measure(page) {
       innerHeight: window.innerHeight,
       panelTop: Math.round(pr.top),
       panelBottom: Math.round(pr.bottom),
+      panelWidth: Math.round(pr.width),
+      backWidth: back ? Math.round(back.getBoundingClientRect().width) : null,
       boxTop: Math.round(br.top),
       boxBottom: Math.round(br.bottom),
       gapBelowBox: Math.round(window.innerHeight - br.bottom),
@@ -139,6 +142,12 @@ async function measure(page) {
     chk(tall.threadClientH > 240,
       'A5b the thread height grows well past the old 15rem (~240px) cap (control: capped stays <=240)',
       'threadClientH=' + tall.threadClientH);
+    // A8: the flex column must not stretch the .back button to full width (its content would
+    // then center). Control: pre-fix (align-items default stretch, no align-self) backWidth
+    // equals panelWidth; the intrinsic button is a small fraction of the wide panel.
+    chk(tall.backWidth !== null && tall.backWidth < tall.panelWidth * 0.6,
+      'A8 the back button keeps its intrinsic left-aligned width (not stretched by the flex column)',
+      'backWidth=' + tall.backWidth + ' panelWidth=' + tall.panelWidth);
 
     // --- Short window (700): fill must still hold when the edge is dragged up ---
     await page.setViewportSize({ width: 1400, height: 700 });
@@ -171,6 +180,42 @@ async function measure(page) {
     chk(narrowNav.snavHeight !== null && narrowNav.boxHeight !== null && narrowNav.snavHeight < narrowNav.boxHeight,
       'A2c narrow width: the wrapped snav row stays content-height (not ballooned to rival the talk box)',
       'snavHeight=' + narrowNav.snavHeight + ' boxHeight=' + narrowNav.boxHeight);
+
+    // --- Live-question (#d-qask) in a SHORT window: the answer options + composer must stay
+    // reachable. With the thread shrunk to 0 they can exceed the fixed-height box; the box's
+    // overflow-y:auto fallback must let them be scrolled to. Control: pre-fix (overflow-y
+    // visible) the box cannot scroll, so an overflowing composer is unreachable. ---
+    await page.setViewportSize({ width: 1400, height: 440 });
+    await page.evaluate(() => {
+      const q = document.getElementById('d-qask');
+      if (q) {
+        q.hidden = false;
+        const lab = document.getElementById('d-qask-lab');
+        if (lab) lab.textContent = 'The agent is asking you something';
+        const txt = document.getElementById('d-qask-text');
+        if (txt) { txt.hidden = false; txt.textContent = Array.from({ length: 12 }, (_, i) => 'command line ' + i).join('\n'); }
+        const opts = document.getElementById('d-qopts');
+        if (opts) { opts.hidden = false; opts.innerHTML = Array.from({ length: 6 }, (_, i) => '<button class="btn">Option ' + i + '</button>').join(''); }
+      }
+    });
+    await page.waitForTimeout(150);
+    const qask = await page.evaluate(() => {
+      window.scrollTo(0, 0);
+      const box = document.getElementById('d-talk-box');
+      const composer = document.querySelector('#d-talk-box .dmbar.composerbox');
+      const overflows = box.scrollHeight > box.clientHeight + 4;
+      box.scrollTop = box.scrollHeight;               // scroll the box to its foot
+      const br = box.getBoundingClientRect();
+      const cr = composer.getBoundingClientRect();
+      return { overflows, overflowY: getComputedStyle(box).overflowY, composerWithinBox: cr.bottom <= br.bottom + 4 };
+    });
+    console.log('MEASURE qask-short(1400x440): ' + JSON.stringify(qask));
+    chk(!qask.overflows || (qask.overflowY === 'auto' && qask.composerWithinBox),
+      'A9 with a live question in a short window, the composer stays reachable (the box scrolls when content overflows)',
+      'overflows=' + qask.overflows + ' overflowY=' + qask.overflowY + ' composerWithinBox=' + qask.composerWithinBox);
+
+    // Clear the injected question so the scoping guard below sees a normal talk section.
+    await page.evaluate(() => { const q = document.getElementById('d-qask'); if (q) q.hidden = true; });
 
     // --- Scoping guard: a non-Talk section (Model) is NOT forced tall ---
     await page.setViewportSize({ width: 1400, height: 1100 });

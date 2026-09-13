@@ -2211,8 +2211,20 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 #panel-detail:has(#d-sec-talk:not([hidden])) .dbody { flex: 1 1 auto; min-height: 0; align-items: stretch; }
 #panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { display: flex; flex-direction: column; min-height: 0; }
 #panel-detail:has(#d-sec-talk:not([hidden])) #d-sec-talk { flex: 1 1 auto; min-height: 0; }
-#panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+/* overflow-y:auto is a FALLBACK: normally #d-dmthread (flex:1) absorbs the height and the box
+   does not overflow, so no box scrollbar shows. But when #d-qask (a live question) is showing
+   in a SHORT window, the non-thread children (label, question + options, composer) can exceed
+   the box after the thread has shrunk to 0; without this they would be clipped below the
+   fixed-height box with no page scroll to reach them, hiding the answer buttons (#2622 iter-4).
+   The box then scrolls to keep the composer and options reachable. Mutually exclusive with the
+   thread's own scroll in practice: the box overflows only once the thread is already at 0. */
+#panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
 #panel-detail:has(#d-sec-talk:not([hidden])) #d-dmthread { flex: 1 1 auto; min-height: 0; max-height: none; }
+/* The panel is a flex column, so its direct children stretch by default. That is right for
+   .dhead/.dbody (full-width), but .back is a button whose content would then CENTER instead of
+   sitting top-left, and only on the Talk section (this is :has()-gated), so it would visibly
+   jump between sections. Pin it to its intrinsic left-aligned width (#2622 iter-4). */
+#panel-detail:has(#d-sec-talk:not([hidden])) > .back { align-self: flex-start; }
 .snav { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 16px; }
 .snav button { position: relative; display: block; width: 100%; text-align: center; padding: 8px 28px;
                border-radius: 100px; border: 1px solid var(--k-rule); background: var(--k-surface);
