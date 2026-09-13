@@ -1611,7 +1611,7 @@ test('BUG 1: a real exclusive handle on the update lock in the forward steps: le
   }
 });
 
-test('BUG 1: a real exclusive handle on the update lock inside the rollback: held, nothing more is written or asked of the scheduler, and the next board start puts the old build back', WINDOWS_ONLY, async (t) => {
+test('BUG 1: a real exclusive handle on the update lock inside the rollback: held, nothing more is written, the board it ended is started once, and the next board start puts the old build back', WINDOWS_ONLY, async (t) => {
   const skipWhy = await exclusiveHoldSkipReason();
   if (skipWhy) { t.skip(skipWhy); return; }
   const c = freshInstall();
@@ -1632,7 +1632,8 @@ test('BUG 1: a real exclusive handle on the update lock inside the rollback: hel
     assert.equal(r.outcome, 'held', JSON.stringify(r) + '\n' + c.log.join('\n'));
     assert.match(r.because, /its update lock cannot be read \(code=EBUSY\)/);
     assert.deepEqual(written, [], 'nothing is written once the rollback cannot tell the update is still its own');
-    assert.deepEqual(sim.calls.slice(callsAtHold), [], 'and nothing is asked of the scheduler');
+    assert.deepEqual(sim.calls.slice(callsAtHold), ['/Run /TN Kosmos\\board'],
+      'the only scheduler call is one /Run of the board this helper ended, so it is not left down (round 8, decision 2)');
     const j = readJson(c.journal);
     assert.equal(j.finished, false, 'the journal is left for the next resumer');
     assert.equal(j.phase, 'rolling-back');

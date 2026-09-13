@@ -61,7 +61,9 @@ function pointerSideFiles(runtime) {
 
 test('win32swap exports exactly the primitives the anchor and the updater share', () => {
   assert.deepEqual(Object.keys(swap).sort(), [
-    'RETIRED_INFIX', 'RETIRED_SWEEP_MIN_AGE_MS', 'STAGED_INFIX',
+    /* RENAME_RETRY_WINDOW_MS: one renameWithRetry's retry window, which the updater's held-write budget
+       counts (win32apply.writeBudgetFrom), so the two share one derivation. */
+    'RENAME_RETRY_WINDOW_MS', 'RETIRED_INFIX', 'RETIRED_SWEEP_MIN_AGE_MS', 'STAGED_INFIX',
     'renameWithRetry', 'replaceInterpreter', 'retireLeftoverInterpreters', 'writeFileAtomic',
   ]);
   for (const name of ['renameWithRetry', 'replaceInterpreter', 'retireLeftoverInterpreters', 'writeFileAtomic']) {
