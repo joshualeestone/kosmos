@@ -18,7 +18,7 @@ const nodePath = require('node:path');
 const http = require('node:http');
 const net = require('node:net');
 
-const { handOffToTask, buildIdentity, BOARD_IDENTITY_HEADER, BOARD_STARTED_BY_TASK_HEADER, probeBoard, boardStartedByTaskHeaderValue, boardMayBeOpen, PROBE_OUTCOMES } = require('./win32handoff');
+const { handOffToTask, buildIdentity, BOARD_IDENTITY_HEADER, BOARD_STARTED_BY_TASK_HEADER, probeBoard, boardStartedByTaskHeaderValue, boardMayBeOpen, PROBE_OUTCOMES, probeBoardOnEveryAddress, anotherProgramOnPort } = require('./win32handoff');
 
 const REFRESHED = { ok: true, action: 'refreshed' };
 const MINE = '0.6.55+6182640d6a1f';
@@ -456,6 +456,61 @@ test('🛑 win32-installer-native round 3 finding 1: the real probe says WHY not
     [null, true], [undefined, true], [{ answering: true, outcome: 'answered' }, true], [{ answering: false, outcome: 'refused' }, false],
     [{ answering: false, outcome: 'timed-out' }, true], [{ answering: false, outcome: 'error' }, true], [{ answering: false }, true],
   ]) assert.equal(boardMayBeOpen(answer), mayBeOpen, JSON.stringify(answer));
+});
+
+test('🛑 win32-installer-native round 4 finding 1: the uninstall and the move look on every address a board of this user could be on, all at once, and the most open answer wins', async () => {
+  const REFUSED_LOOK = { answering: false, outcome: 'refused', identity: null, startedByTask: null };
+  const asked = [];
+  let inFlight = 0;
+  let mostAtOnce = 0;
+  const recorder = async (port, host) => {
+    asked.push(host);
+    inFlight += 1;
+    mostAtOnce = Math.max(mostAtOnce, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    inFlight -= 1;
+    return REFUSED_LOOK;
+  };
+  const addressesFor = async (env) => { asked.length = 0; await probeBoardOnEveryAddress(16180, env, recorder); return asked.slice().sort(); };
+  const LOOPBACKS = ['127.0.0.1', '::1'].sort();
+
+  assert.deepEqual(await addressesFor({}), LOOPBACKS);
+  assert.equal(mostAtOnce, 2, 'the looks ran one after another, so the first look took their sum');
+  for (const covered of ['127.0.0.1', '::1', 'localhost', '0.0.0.0', '::', '   ']) {
+    assert.deepEqual(await addressesFor({ KOSMOS_BIND_HOST: covered }), LOOPBACKS, covered + ' is covered by the loopback looks');
+  }
+  assert.deepEqual(await addressesFor({ KOSMOS_BIND_HOST: '127.0.0.2' }), ['127.0.0.1', '127.0.0.2', '::1'].sort(), 'the bind host was not looked on');
+  assert.deepEqual(await addressesFor({ KOSMOS_BIND_HOST: '192.0.2.10' }), LOOPBACKS, 'an address this machine does not have was probed across the network');
+
+  const answersBy = (byHost) => async (port, host) => byHost[host] || REFUSED_LOOK;
+  const kosmos = { answering: true, outcome: 'answered', identity: MINE, startedByTask: false };
+  const webPage = { answering: true, outcome: 'answered', identity: null, startedByTask: null };
+  const timedOut = { answering: false, outcome: 'timed-out', identity: null, startedByTask: null };
+  const failed = { answering: false, outcome: 'error', identity: null, startedByTask: null };
+  assert.equal((await probeBoardOnEveryAddress(1, {}, answersBy({ '::1': kosmos }))).identity, MINE, 'a board on ::1 was not seen');
+  assert.equal((await probeBoardOnEveryAddress(1, {}, answersBy({ '::1': kosmos }))).host, '::1');
+  assert.equal((await probeBoardOnEveryAddress(1, {}, answersBy({ '127.0.0.1': webPage, '::1': timedOut }))).outcome, 'timed-out', 'a web page on one address hid a board that did not answer in time on the other');
+  assert.equal((await probeBoardOnEveryAddress(1, {}, answersBy({ '127.0.0.1': failed, '::1': timedOut }))).outcome, 'timed-out');
+  assert.equal((await probeBoardOnEveryAddress(1, {}, answersBy({ '::1': failed }))).outcome, 'error');
+  assert.equal((await probeBoardOnEveryAddress(1, {}, answersBy({}))).outcome, 'refused');
+  assert.equal((await probeBoardOnEveryAddress(1, {}, async () => { throw new Error('boom'); })).outcome, 'error', 'a look that threw was taken as refused');
+  assert.equal(anotherProgramOnPort(16180), 'Another program is using port 16180, so Kosmos cannot tell whether it is still open.');
+});
+
+test('win32-installer-native round 4 finding 1: an address nothing can listen on reads as refused, not as a failed look', { skip: process.platform !== 'win32' && 'Windows refuses a connection to 0.0.0.0 with EADDRNOTAVAIL; other systems route it to loopback' }, async () => {
+  const answer = await probeBoard(9, '0.0.0.0');
+  assert.equal(answer.outcome, PROBE_OUTCOMES.REFUSED, 'a PC with an address it cannot reach (IPv6 off) would never let Kosmos be removed: ' + JSON.stringify(answer));
+});
+
+test('win32-installer-native round 4 finding 1: the bind host is read in one place, engine/bindhost.js, by the board and by the probes', () => {
+  const serverSource = fs.readFileSync(nodePath.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(serverSource, /const \{ bindHost \} = require\('\.\/engine\/bindhost'\);/, 'server.js does not bind through engine/bindhost.js');
+  assert.doesNotMatch(serverSource, /\.KOSMOS_BIND_HOST|\[['"]KOSMOS_BIND_HOST['"]\]/, 'server.js reads the bind host itself again');
+  assert.match(fs.readFileSync(nodePath.join(__dirname, 'win32handoff.js'), 'utf8'), /require\('\.\/bindhost'\)\.bindHost\(env\)/, 'the probes do not look where the board binds');
+  const { bindHost } = require('./bindhost');
+  assert.equal(bindHost({}), '127.0.0.1');
+  assert.equal(bindHost({ KOSMOS_BIND_HOST: ' ::1 ' }), '::1');
+  assert.equal(bindHost({ KOSMOS_BIND_HOST: '   ' }), '127.0.0.1');
 });
 
 // ── buildIdentity: one derivation for both sides ───────────────────────────

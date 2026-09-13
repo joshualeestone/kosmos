@@ -182,7 +182,7 @@ test('🛑 never while a board from THIS folder is serving; a board serving from
     const unreadable = await move(s, { probe: answering, readPointer: () => null });
     assert.match(unreadable.because, /Kosmos may be running and it could not tell from which folder/);
     const probeThrew = await move(s, { probe: async () => { throw new Error('boom'); }, readPointer: () => path.join(s.from, 'app', 'engine') });
-    assert.match(probeThrew.because, /Kosmos may be running and did not answer in time/, 'a probe that failed was read as nobody serving');
+    assert.match(probeThrew.because, /Kosmos may be running and it could not tell from which folder/, 'a probe that failed was read as nobody serving');
     const elsewhere = await move(s, { probe: answering, readPointer: () => path.join(s.base, 'Other', 'app', 'engine') });
     assert.equal(elsewhere.action, 'moved', JSON.stringify(elsewhere));
     const noPort = await move(s, { port: undefined });
@@ -380,12 +380,18 @@ test('🛑 round 3 finding 1, real listeners: a board that never answers, or a h
     } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
   } finally { await listeners.close(); }
 
-  for (const [label, answer] of [['timed out', { answering: false, outcome: 'timed-out' }], ['the look failed', { answering: false, outcome: 'error' }], ['no reason given', { answering: false }]]) {
+  for (const [label, answer, expected] of [
+    ['timed out', { answering: false, outcome: 'timed-out' }, /may be running and did not answer in time/],
+    /* Round 4, finding 3: only an actual timeout says "did not answer in time". A test process cannot
+       read the board task, so a failed look says it could not tell. */
+    ['the look failed', { answering: false, outcome: 'error' }, /may be running and it could not tell from which folder/],
+    ['no reason given', { answering: false }, /may be running and it could not tell from which folder/],
+  ]) {
     const s = scratch();
     try {
       build(s.from);
       const r = await move(s, { probe: async () => answer });
-      assert.match(String(r.because), /may be running and did not answer in time/, label + ': ' + JSON.stringify(shape(r)));
+      assert.match(String(r.because), expected, label + ': ' + JSON.stringify(shape(r)));
     } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
   }
 });
@@ -434,4 +440,82 @@ test('round 3 finding 6: --compare --pointer writes the verdict the launcher rea
     assert.equal(await relocator.cliMain(['--compare', '--from', 'C:\\P', '--pointer', '--to', 'C:\\Q'], { compareWithPointer: fake, write: () => {} }), 64);
     assert.equal(await relocator.cliMain(['--move', '--from', 'C:\\P', '--to', 'C:\\Q', '--pointer', '--yes'], { relocate: async () => ({ ok: true }), write: () => {} }), 64);
   } finally { fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+/* ---- the round 4 review, fixed in round 5 ------------------------------------ */
+
+/**
+ * A real listener on one address: a hand-started Kosmos board ('board'), a program that answers in
+ * something other than HTTP ('not-http'), or one that never answers ('hung'). Null when this machine
+ * cannot listen there.
+ */
+async function listenerOn(host, kind) {
+  const sockets = new Set();
+  const server = kind === 'board'
+    ? http.createServer((req, res) => {
+      res.writeHead(200, { [handoff.BOARD_IDENTITY_HEADER]: '0.6.61+abc@default', [handoff.BOARD_STARTED_BY_TASK_HEADER]: '0' });
+      res.end('board');
+    })
+    : net.createServer((socket) => { if (kind === 'not-http') socket.end('RFB 003.008\n'); });
+  server.on('connection', (socket) => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
+  const listening = await new Promise((resolve) => {
+    server.once('error', () => resolve(false));
+    server.listen(0, host, () => resolve(true));
+  });
+  if (!listening) return null;
+  return { port: server.address().port, close: () => new Promise((resolve) => { for (const socket of sockets) socket.destroy(); server.close(() => resolve()); }) };
+}
+
+test('🛑 round 4 finding 1, real listeners: a board from this folder on ::1 only, on 127.0.0.1 only, or on the KOSMOS_BIND_HOST address stops a move', async (t) => {
+  for (const [label, host, extraEnv] of [['::1 only', '::1', {}], ['127.0.0.1 only', '127.0.0.1', {}], ['KOSMOS_BIND_HOST=127.0.0.2', '127.0.0.2', { KOSMOS_BIND_HOST: '127.0.0.2' }]]) {
+    const board = await listenerOn(host, 'board');
+    if (!board) { t.diagnostic('ARM NOT RUN: ' + label + ', this machine cannot listen on ' + host); continue; }
+    const s = scratch();
+    try {
+      build(s.from);
+      const r = await move(s, { port: board.port, probe: undefined, env: { ...process.env, ...extraEnv }, readPointer: () => path.join(s.from, 'app', 'engine') });
+      assert.equal(r.because, 'Kosmos is running from this folder right now, so it was not moved. Kosmos keeps working from here.', label + ': ' + JSON.stringify(shape(r)));
+      assert.ok(!fs.existsSync(s.to), label + ': something was copied');
+    } finally {
+      await board.close();
+      fs.rmSync(s.base, { recursive: true, force: true });
+    }
+  }
+});
+
+test('🛑 round 4 finding 3, real listeners: a move over a port that times out, holds another program, or fails while the board task runs, says which', async () => {
+  const win32board = require('./win32board');
+  const RUNNING_ROW = '"BOX","\\Kosmos\\board","N/A","Running","Interactive only","9/13/2026 1:00:00 PM","267009"\r\n';
+  const boardTask = (state) => win32board.setRunner((args) => {
+    if (state === 'unreadable') return { ok: false, out: 'ERROR: The operation timed out.' };
+    if (args.includes('/XML')) return { ok: true, out: '<?xml version="1.0"?><Task><Settings></Settings></Task>' };
+    if (args.includes('/V')) return state === 'running' ? { ok: true, out: RUNNING_ROW } : { ok: false, out: 'ERROR: The system cannot find the file specified.' };
+    return { ok: true, out: 'SUCCESS' };
+  });
+  const notHttp = await listenerOn('127.0.0.1', 'not-http');
+  const hung = await listenerOn('127.0.0.1', 'hung');
+  try {
+    for (const [label, listener, state, expected] of [
+      ['a listener that never answers', hung, 'not running', 'Kosmos was not moved, because Kosmos may be running and did not answer in time. Kosmos keeps working from here.'],
+      ['a program that is not HTTP, the board task not running', notHttp, 'not running',
+        'Another program is using port ' + notHttp.port + ', so Kosmos cannot tell whether it is still open. Restart your computer, then open Kosmos again.'],
+      ['a program that is not HTTP, the board task running', notHttp, 'running', 'Kosmos was not moved, because Kosmos may be running and it could not tell from which folder. Kosmos keeps working from here.'],
+      ['a program that is not HTTP, the board task unreadable', notHttp, 'unreadable', 'Kosmos was not moved, because Kosmos may be running and it could not tell from which folder. Kosmos keeps working from here.'],
+    ]) {
+      const s = scratch();
+      try {
+        build(s.from);
+        boardTask(state);
+        const r = await move(s, { port: listener.port, probe: undefined });
+        assert.equal(r.because, expected, label + ': ' + JSON.stringify(shape(r)));
+        assert.ok(!fs.existsSync(s.to), label + ': something was copied');
+      } finally {
+        win32board.setRunner(null);
+        fs.rmSync(s.base, { recursive: true, force: true });
+      }
+    }
+  } finally {
+    await notHttp.close();
+    await hung.close();
+  }
 });

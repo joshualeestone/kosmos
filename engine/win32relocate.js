@@ -14,8 +14,9 @@
  *   - what a build is made of: win32update.ENTRIES, the updater's own list, so a move copies
  *     exactly what an update would swap, a build counts as complete only with every entry, and
  *     `Projects` or anything else in the folder is never copied;
- *   - whether a board may be open on the port: win32handoff.probeBoard, read by
- *     win32handoff.boardMayBeOpen (only a refused connection is no board);
+ *   - whether a board may be open on the port: win32handoff.probeBoardOnEveryAddress (both loopbacks
+ *     and engine/bindhost.js's bind host), read by win32handoff.boardMayBeOpen (only a refused
+ *     connection is no board);
  *   - which folder the running Kosmos runs from: win32anchor.readPointer, the engine pointer;
  *   - which of two builds is newer: update.newer, the updater's own comparison.
  *
@@ -57,6 +58,8 @@ const MANIFEST_NAME = 'manifest.json';
 const STAGING_INFIX = '.kosmos-move-';
 
 const KEEPS_WORKING = 'Kosmos keeps working from here.';
+const MAY_BE_RUNNING_FROM_UNKNOWN_FOLDER = 'Kosmos was not moved, because Kosmos may be running and it could not tell from which folder. ' + KEEPS_WORKING;
+const RESTART_THEN_OPEN_AGAIN = 'Restart your computer, then open Kosmos again.';
 
 const USAGE = 'usage: node engine/win32relocate.js --move --from <folder> --to <folder> --port <n> [--report <file>] [--yes]\n'
   + '       node engine/win32relocate.js --compare --from <folder> --to <folder> [--report <file>]\n'
@@ -207,14 +210,22 @@ async function relocate(opts) {
   if (!Number.isInteger(port) || port <= 0 || port > 65535) {
     return refused('Kosmos was not moved, because it could not tell which port Kosmos uses, so it could not check whether Kosmos is running from this folder. ' + KEEPS_WORKING);
   }
-  const probe = typeof o.probe === 'function' ? o.probe : (p) => require('./win32handoff').probeBoard(p);
+  const handoff = require('./win32handoff');
+  /* Round 4, finding 1: every address a board of this user could be on, not 127.0.0.1 alone. */
+  const probe = typeof o.probe === 'function' ? o.probe : (p) => handoff.probeBoardOnEveryAddress(p, o.env || process.env);
   let answer = null;
   try { answer = await probe(port); } catch { answer = null; }
   /* Round 3, finding 1: only a refused connection proves no board is there (win32handoff.boardMayBeOpen,
-     the uninstall's reading too). One that did not answer in time, or a look that failed, cannot even
-     be asked which folder it serves, so nothing moves. */
-  if ((!answer || !answer.answering) && require('./win32handoff').boardMayBeOpen(answer)) {
-    return refused('Kosmos was not moved, because Kosmos may be running and did not answer in time. ' + KEEPS_WORKING);
+     the uninstall's reading too). One that did not answer, or a look that failed, cannot even be asked
+     which folder it serves, so nothing moves. Round 4, finding 3: the sentence says which. */
+  if ((!answer || !answer.answering) && handoff.boardMayBeOpen(answer)) {
+    if (answer && answer.outcome === handoff.PROBE_OUTCOMES.TIMED_OUT) {
+      return refused('Kosmos was not moved, because Kosmos may be running and did not answer in time. ' + KEEPS_WORKING);
+    }
+    let task = null;
+    try { task = require('./win32board').status(); } catch { task = null; }
+    if (task && task.known && task.running !== true) return refused(handoff.anotherProgramOnPort(port) + ' ' + RESTART_THEN_OPEN_AGAIN);
+    return refused(MAY_BE_RUNNING_FROM_UNKNOWN_FOLDER);
   }
   if (answer && answer.answering) {
     let pointer = null;
@@ -223,9 +234,7 @@ async function relocate(opts) {
         ? o.readPointer()
         : win32anchor.readPointer('win32', o.home || os.homedir(), o.env || process.env);
     } catch { pointer = null; }
-    if (!pointer) {
-      return refused('Kosmos was not moved, because Kosmos may be running and it could not tell from which folder. ' + KEEPS_WORKING);
-    }
+    if (!pointer) return refused(MAY_BE_RUNNING_FROM_UNKNOWN_FOLDER);
     if (isSameOrInside(pointer, from)) {
       return refused('Kosmos is running from this folder right now, so it was not moved. ' + KEEPS_WORKING);
     }

@@ -511,6 +511,48 @@ Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
   - The real system was untouched afterwards: no real `Kosmos.lnk`, no real `Uninstall\Kosmos` key, no
     `KosmosTest` key, no `%LOCALAPPDATA%\Programs\Kosmos`, and `Kosmos\board` still running.
 
+## Round 4 review (fixed in round 5)
+
+- **Finding 1 [SAFETY]: the probes look where the board can be.**
+  - `bindHost()` moved from `server.js` into `engine/bindhost.js`, the ONE reading of
+    `KOSMOS_BIND_HOST`. `server.js` requires it and listens on it exactly as before; its #1112 docblock
+    moved with it.
+  - `win32handoff.probeBoardOnEveryAddress(port, env)` probes `127.0.0.1`, `::1`, and `bindHost(env)`
+    when it names somewhere the loopbacks do not cover (not loopback, `localhost` or a wildcard, and one
+    of this machine's own addresses, so a probe never leaves the machine). The probes run at once.
+  - The most open answer wins: a Kosmos board's answer, then a timeout, then a failed look, then a page
+    that is not Kosmos, then refused. So a web page on one address never hides a board on another.
+  - An address nothing can listen on at all (`EADDRNOTAVAIL`, `ENETUNREACH`, `EAFNOSUPPORT`, as a PC with
+    IPv6 switched off gives for `::1`) reads as refused, not as a failed look. Otherwise that PC could
+    never remove Kosmos.
+  - The uninstall's every look and the move use it. **The launcher's hand-off is unchanged:** it still
+    asks `127.0.0.1` alone. Noted for #2983.
+  - **Known limit:** a board bound to a specific non-loopback address set only in ANOTHER process's
+    environment cannot be seen from the uninstall's process. The board task's state (finding 3) is the
+    backstop, and the removal still switches the task off, ends it and reads the task list back.
+- **Finding 2 [BUG]: the switch is put back when the list cannot be read again.** When the board job's
+  delete was not ok and the second list cannot be read, the report names the board job ("which Windows
+  would not remove") and its switch goes back as it was read, with the words for either result.
+  - A delete that Windows reported ok is not switched back on, because there is then no job to switch on.
+- **Finding 3 [BUG]: something else on the port.** At the first look, a timeout or a failed look reads
+  the board task:
+  - running: the usual busy board its task started. The removal switches it off, ends it and waits,
+    still fail-closed (if it does not go, nothing more is removed and the switch goes back);
+  - unreadable: round 3's stop, "Kosmos is still open";
+  - not running, timed out: "Kosmos is still open";
+  - not running, failed look: "Another program is using port N, so Kosmos cannot tell whether it is
+    still open. Restart your computer, then remove Kosmos again." A reset connection is not taken as "not
+    Kosmos", because a board mid-restart resets connections too.
+  - The move: a timeout still says "did not answer in time". A failed look with the task not running
+    says "Another program is using port N, ... Restart your computer, then open Kosmos again." Running or
+    unreadable: "Kosmos may be running and it could not tell from which folder."
+- **Finding 4 [NIT]:** the `REREGISTER_SETTLE_MS` comment now says what the code does: one more look
+  catches a board that registers its task, or comes up, within 3s of the folders going.
+  - **Known limit:** a slow hand-started board that reaches `ensureInstalled` after that last look can
+    register its task again. Its registration claim was in the runtime folder, which is already gone, so
+    nothing stops it. The person sees Kosmos at the next sign-in, and the Start menu and Apps entries may
+    already be removed; running `Kosmos.exe --uninstall` from the folder removes it again.
+
 ## Follow-ups (not this slice)
 
 - **A progress window while the uninstall runs (round 3, finding 5).** The uninstall helper has no time

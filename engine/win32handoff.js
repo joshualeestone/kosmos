@@ -218,13 +218,30 @@ function thisBootsWorldAttempt(deps) {
  */
 const PROBE_OUTCOMES = Object.freeze({ ANSWERED: 'answered', REFUSED: 'refused', TIMED_OUT: 'timed-out', ERROR: 'error' });
 
-/* Is a board answering on this port, and which board is it? Never rejects. */
-function probeBoard(port) {
+/* Where the launcher's hand-off looks, and one of the two loopbacks the uninstall and the move look on. */
+const BOARD_LOOPBACK_V4 = '127.0.0.1';
+const BOARD_LOOPBACK_V6 = '::1';
+/* Bind hosts the two loopback probes already cover: loopback itself, and the wildcards, which accept
+   loopback connections. */
+const BIND_HOSTS_COVERED_BY_LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost', '0.0.0.0', '::']);
+/* Connection errors that mean nothing CAN be listening at that address on this machine (IPv6 switched
+   off, an address this machine does not have): the same proof as a refused connection. Without this a
+   PC with IPv6 off would read ::1 as a board that may be open, and never let Kosmos be removed. */
+const NOTHING_CAN_LISTEN_CODES = new Set(['ECONNREFUSED', 'EADDRNOTAVAIL', 'ENETUNREACH', 'EAFNOSUPPORT']);
+
+function outcomeOfFailedLook(err, timedOut) {
+  if (timedOut) return PROBE_OUTCOMES.TIMED_OUT;
+  return err && NOTHING_CAN_LISTEN_CODES.has(err.code) ? PROBE_OUTCOMES.REFUSED : PROBE_OUTCOMES.ERROR;
+}
+
+/* Is a board answering on this port, and which board is it? Never rejects. `host` defaults to
+   127.0.0.1, the only address the launcher's hand-off asks (#2983). */
+function probeBoard(port, host) {
   return new Promise((resolve) => {
     let timedOut = false;
     let settled = false;
     const settle = (answer) => { if (!settled) { settled = true; resolve(answer); } };
-    const req = http.get({ host: '127.0.0.1', port, path: '/', timeout: PROBE_TIMEOUT_MS }, (res) => {
+    const req = http.get({ host: host || BOARD_LOOPBACK_V4, port, path: '/', timeout: PROBE_TIMEOUT_MS }, (res) => {
       res.resume();
       const named = res.headers[BOARD_IDENTITY_HEADER];
       const startedByTask = startedByTaskFromHeader(res.headers[BOARD_STARTED_BY_TASK_HEADER]);
@@ -233,7 +250,7 @@ function probeBoard(port) {
     req.on('timeout', () => { timedOut = true; req.destroy(new Error('timeout')); });
     req.on('error', (err) => settle({
       answering: false,
-      outcome: timedOut ? PROBE_OUTCOMES.TIMED_OUT : (err && err.code === 'ECONNREFUSED' ? PROBE_OUTCOMES.REFUSED : PROBE_OUTCOMES.ERROR),
+      outcome: outcomeOfFailedLook(err, timedOut),
       identity: null,
       startedByTask: null,
     }));
@@ -254,6 +271,67 @@ function boardMayBeOpen(answer) {
   if (!answer) return true;
   if (answer.answering) return true;
   return answer.outcome !== PROBE_OUTCOMES.REFUSED;
+}
+
+/** An answer from a Kosmos board: it names its build, or says whether its task started it. */
+function isKosmosBoardAnswer(answer) {
+  return Boolean(answer && answer.answering && (answer.identity || typeof answer.startedByTask === 'boolean'));
+}
+
+/** Could a board bind this address? One of this machine's own addresses, and a probe of it never leaves the machine. */
+function isThisMachinesAddress(host) {
+  const kind = require('node:net').isIP(host);
+  if (kind === 0) return true; /* a host name: server.listen resolves it as the probe does */
+  if (kind === 4 && host.startsWith('127.')) return true;
+  const own = Object.values(require('node:os').networkInterfaces()).flat().map((i) => String((i && i.address) || '').toLowerCase());
+  return own.includes(host.toLowerCase());
+}
+
+/**
+ * Every address a Kosmos board of this user could be answering on (round 4, finding 1): both loopbacks,
+ * and engine/bindhost.js's bindHost() when it names somewhere they do not cover. A wildcard bind accepts
+ * loopback connections, so the loopbacks cover it. A board bound to an address set only in ANOTHER
+ * process's environment cannot be seen from here; the board task's state is the backstop (the plan's
+ * known limits).
+ */
+function boardProbeAddresses(env) {
+  const addresses = [BOARD_LOOPBACK_V4, BOARD_LOOPBACK_V6];
+  const bound = require('./bindhost').bindHost(env).replace(/^\[(.*)\]$/, '$1');
+  if (!BIND_HOSTS_COVERED_BY_LOOPBACK.has(bound.toLowerCase()) && isThisMachinesAddress(bound)) addresses.push(bound);
+  return addresses;
+}
+
+/* Which of several looks says most about a board that may be open, most first. A web page that is not
+   Kosmos on one address never hides a timeout or a failed look on another. */
+function opennessRank(answer) {
+  if (isKosmosBoardAnswer(answer)) return 0;
+  if (answer.outcome === PROBE_OUTCOMES.TIMED_OUT) return 1;
+  if (answer.answering) return 3;
+  if (answer.outcome === PROBE_OUTCOMES.REFUSED) return 4;
+  return 2;
+}
+
+/**
+ * probeBoard on every address in boardProbeAddresses, all at once, so the look takes as long as its
+ * slowest probe rather than their sum. The most open answer wins, with the address it came from
+ * (`host`). The uninstall and the move read it with boardMayBeOpen; the launcher's hand-off does not use
+ * it and still asks 127.0.0.1 alone (#2983). `probeOne` replaces probeBoard in a test.
+ */
+async function probeBoardOnEveryAddress(port, env, probeOne) {
+  const look = typeof probeOne === 'function' ? probeOne : probeBoard;
+  const answers = await Promise.all(boardProbeAddresses(env).map(async (host) => {
+    try {
+      return { ...(await look(port, host)), host };
+    } catch {
+      return { answering: false, outcome: PROBE_OUTCOMES.ERROR, identity: null, startedByTask: null, host };
+    }
+  }));
+  return answers.reduce((most, answer) => (opennessRank(answer) < opennessRank(most) ? answer : most));
+}
+
+/** Round 4, finding 3: the first half of the sentence for a port another program holds, shared by the uninstall and the move. */
+function anotherProgramOnPort(port) {
+  return 'Another program is using port ' + port + ', so Kosmos cannot tell whether it is still open.';
 }
 
 /* The logon task runs with the account's environment, not this launch's. A launch
@@ -414,7 +492,7 @@ async function handOffToTask(opts) {
 /* probeBoard is also how the Windows updater (engine/win32apply.js) confirms which board came back
    after a swap, so there is one reading of the identity header. */
 module.exports = {
-  handOffToTask, buildIdentity, boardIdentity, probeBoard, boardMayBeOpen, PROBE_OUTCOMES, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS,
+  handOffToTask, buildIdentity, boardIdentity, probeBoard, boardMayBeOpen, probeBoardOnEveryAddress, anotherProgramOnPort, PROBE_OUTCOMES, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS,
   BOARD_STARTED_BY_TASK_HEADER, boardStartedByTaskHeaderValue, startedByTaskFromHeader,
 };
 

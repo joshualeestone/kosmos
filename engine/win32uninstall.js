@@ -73,11 +73,12 @@ const BOARD_GONE_WAIT_MS = FOLDER_DELETE_TRIES * FOLDER_DELETE_WAIT_MS;
    for a person to act on the usual one or two locked files; a long list says the same thing. */
 const MAX_NAMED_LEFTOVERS = 10;
 
-/* Round 3, finding 3: how long, once everything went, before looking once more for a task registered
-   again or a board come up. A board registers or refreshes its task on the way to the hand-off, and
-   engine/win32handoff.js measured boot to the hand-off at about 2s on this box; 3s covers a board that
-   was starting as the removal began. */
+/* Round 3, finding 3: once the folders went, how long before one last look for a Kosmos task or a board.
+   It catches a board that registers its task, or comes up, within 3s of the folders going. A board that
+   reaches its registration later is not seen (the plan's known limits). The value is from
+   engine/win32handoff.js's measured ~2s from a board's boot to its hand-off, where it registers. */
 const REREGISTER_SETTLE_MS = 3000;
+const RESTART_THEN_REMOVE_AGAIN = 'Restart your computer, then remove Kosmos again.';
 
 const REFUSED_WITHOUT_CONFIRM = 'Kosmos was not removed, because the removal was not confirmed';
 const KOSMOS_STILL_OPEN = 'Kosmos is still open. Close Kosmos, then remove it again.';
@@ -309,14 +310,18 @@ function leftoverList(failures) {
  * taken as a board that answers and is not the task's, which stops the removal: the safe direction.
  */
 async function boardOnPort(port, o) {
-  const probe = typeof o.probe === 'function' ? o.probe : (p) => require('./win32handoff').probeBoard(p);
+  const handoff = require('./win32handoff');
+  /* Round 4, finding 1: every address a board of this user could be on, not 127.0.0.1 alone. */
+  const probe = typeof o.probe === 'function' ? o.probe : (p) => handoff.probeBoardOnEveryAddress(p, o.env || process.env);
   let answer;
-  try { answer = await probe(port); } catch { return { answering: true, byTask: false }; }
+  try { answer = await probe(port); } catch { return { answering: true, byTask: false, unanswered: handoff.PROBE_OUTCOMES.ERROR }; }
   /* Round 3, finding 1: only a refused connection proves nobody is there. A board that did not answer
      in time, or a look that failed, may be a busy Kosmos board, the very one this must not run under.
-     win32handoff.boardMayBeOpen is the one reading of that, shared with the move. */
+     win32handoff.boardMayBeOpen is the one reading of that, shared with the move. `unanswered` says why,
+     for the first look (round 4, finding 3). */
   if (!answer || !answer.answering) {
-    return require('./win32handoff').boardMayBeOpen(answer) ? { answering: true, byTask: false } : { answering: false };
+    if (!handoff.boardMayBeOpen(answer)) return { answering: false };
+    return { answering: true, byTask: false, unanswered: (answer && answer.outcome) || handoff.PROBE_OUTCOMES.ERROR };
   }
   /* Something that is not a Kosmos board (no identity, no started-by-task word) cannot register a
      task or re-create a folder; only a Kosmos board stops the removal. */
@@ -359,6 +364,27 @@ function putBoardSwitchBack(boardSwitch, notes) {
   const back = win32board.enable();
   if (back.ok) { notes.push(SWITCHED_BACK_ON); return ''; }
   return '. It is switched off now (' + back.because + '). ' + TURN_SWITCH_BACK_ON;
+}
+
+/**
+ * Round 4, finding 3: the first look got no answer, only a timeout or a failed look. Returns the stop, or
+ * null to go on as with the task's own board.
+ *   - the board task reads RUNNING: the usual busy board its task started. Go on to switch it off, end it
+ *     and wait for it, which stops with the switch put back if it does not go;
+ *   - the task cannot be read: round 3's stop, "Kosmos is still open";
+ *   - the task is not running, and the look timed out: something accepts and never answers, which may be
+ *     a hand-started board, "Kosmos is still open";
+ *   - the task is not running, and the look failed: another program holds the port. A connection it
+ *     reset is NOT taken as "not Kosmos", because a board mid-restart resets connections too.
+ */
+function stopForUnansweredFirstLook(outcome, port) {
+  const handoff = require('./win32handoff');
+  let task = null;
+  try { task = win32board.status(); } catch { task = null; }
+  if (!task || !task.known) return stillOpen();
+  if (task.running === true) return null;
+  if (outcome === handoff.PROBE_OUTCOMES.TIMED_OUT) return stillOpen();
+  return stoppedUnchanged(handoff.anotherProgramOnPort(port) + ' ' + RESTART_THEN_REMOVE_AGAIN);
 }
 
 /* A stop before anything was changed, saying why. */
@@ -405,7 +431,12 @@ async function uninstall(opts) {
 
   /* 1: a Kosmos board no task command can stop means nothing is changed at all. */
   const firstLook = await boardOnPort(port, o);
-  if (firstLook.answering && firstLook.byTask !== true) return stillOpen();
+  if (firstLook.unanswered) {
+    const stop = stopForUnansweredFirstLook(firstLook.unanswered, port);
+    if (stop) return stop;
+  } else if (firstLook.answering && firstLook.byTask !== true) {
+    return stillOpen();
+  }
 
   /* 2-7: the tasks. Commands are issued in order; whether each is gone is READ afterwards. */
   let everyTaskGone = false;
@@ -443,13 +474,20 @@ async function uninstall(opts) {
       const removed = win32job.remove(task.name, task.worldId);
       if (!removed.ok) said.set(task.path.toLowerCase(), removed.because);
     }
+    let boardRemoval = null;
     if (board) {
-      const removed = win32board.remove({ platform, env, home });
-      if (!removed.ok) said.set(board.path.toLowerCase(), removed.because);
+      boardRemoval = win32board.remove({ platform, env, home });
+      if (!boardRemoval.ok) said.set(board.path.toLowerCase(), boardRemoval.because);
     }
     const after = win32job.kosmosFolderTasks();
     if (!after.known) {
       left.push('the startup jobs in Task Scheduler\'s Kosmos folder, which we could not read again to see they were gone (' + after.because + ')');
+      /* Round 4, finding 2: a board job Windows would not remove is still there, switched off by this
+         removal, even though the list cannot show it. Its switch goes back as it was read. */
+      if (board && !boardRemoval.ok) {
+        left.push('the startup job for the Kosmos board (' + board.path + '), which Windows would not remove (' + boardRemoval.because + ')'
+          + putBoardSwitchBack(boardSwitch, notes));
+      }
     } else {
       const remaining = new Set(after.paths.map((p) => p.toLowerCase()));
       for (const task of tasks) {
