@@ -30,6 +30,11 @@ function seed() {
   fs.writeFileSync(nodePath.join(store.ROOT, 'chats', 'april.json'), '[]');
   fs.writeFileSync(nodePath.join(store.ROOT, 'chats', 'room-1.json'), '[]');
   fs.writeFileSync(nodePath.join(store.ROOT, 'commitments', 'april.json'), '{}');
+  // The compiled daily rollup (#2924): a DERIVED view of chats/, deleted WITH
+  // the chats kind but not counted. Seeded so its deletion is observed.
+  fs.rmSync(nodePath.join(store.ROOT, 'chats-daily'), { recursive: true, force: true });
+  fs.mkdirSync(nodePath.join(store.ROOT, 'chats-daily'), { recursive: true });
+  fs.writeFileSync(nodePath.join(store.ROOT, 'chats-daily', '2026-09-13.md'), '# a day');
   // The things that MUST survive, seeded so their survival is observed rather
   // than assumed.
   fs.mkdirSync(nodePath.join(store.ROOT, 'profiles'), { recursive: true });
@@ -92,6 +97,83 @@ test('it deletes both kinds and NOTHING else', () => {
   assert.ok(fs.existsSync(store.ROOT), 'the data folder itself was deleted');
 });
 
+test('forgetting conversations also deletes their compiled daily rollup (#2924)', () => {
+  /* The derived chats-daily rollup holds conversation content in a second place,
+     so a forget that leaves it behind is a plaintext privacy residue. It is not
+     counted (summary total stays 3), but it must be GONE after the forget. */
+  seed();
+  assert.ok(fs.existsSync(nodePath.join(store.ROOT, 'chats-daily')), 'fixture must seed chats-daily');
+  const out = forget.forget();
+  assert.equal(out.ok, true, out.because);
+  assert.equal(fs.existsSync(nodePath.join(store.ROOT, 'chats-daily')), false,
+    'the compiled daily rollup survived the forget - a plaintext residue');
+});
+
+test('forget REFUSES a derived dir that escapes the data root, and deletes nothing outside', () => {
+  /* The whole premise of this module is that a computed path outside the data
+     root is refused before rmSync. This drives that guard on the NEW derived-dir
+     path with a deliberately-escaping list, so a regression that flips it to
+     always-pass goes red instead of silently deleting outside the root. */
+  seed();
+  const outside = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-forget-escape-'));
+  fs.writeFileSync(nodePath.join(outside, 'sentinel'), 'x');
+  const escaping = [{
+    key: 'chats',
+    dir: () => nodePath.join(store.ROOT, 'chats'),
+    label: 'conversations', one: 'conversation',
+    derived: [{ base: nodePath.basename(outside), dir: () => outside }],
+  }];
+  const out = forget.forget(escaping);
+  assert.equal(out.ok, false, 'a derived dir outside the data root must be refused');
+  assert.match(out.because, /outside your Kosmos data folder/);
+  assert.ok(fs.existsSync(nodePath.join(outside, 'sentinel')), 'a dir outside the data root must NOT be deleted');
+  // Atomicity: a derived-guard failure must delete NOTHING, including the kind's
+  // own dir -- guards all run before any delete.
+  assert.ok(fs.existsSync(nodePath.join(store.ROOT, 'chats')), 'a refusal must not have already deleted the parent kind');
+  fs.rmSync(outside, { recursive: true, force: true });
+});
+
+test('forget REFUSES a derived dir whose basename does not match, and does not delete it', () => {
+  seed();
+  const insideWrong = nodePath.join(store.ROOT, 'chats-daily');
+  fs.mkdirSync(insideWrong, { recursive: true });
+  fs.writeFileSync(nodePath.join(insideWrong, 'keep'), 'x');
+  const mismatched = [{
+    key: 'chats',
+    dir: () => nodePath.join(store.ROOT, 'chats'),
+    label: 'conversations', one: 'conversation',
+    derived: [{ base: 'not-the-basename', dir: () => insideWrong }],
+  }];
+  const out = forget.forget(mismatched);
+  assert.equal(out.ok, false, 'a derived dir with a mismatched basename must be refused');
+  assert.match(out.because, /does not look like the folder/);
+  assert.ok(fs.existsSync(nodePath.join(insideWrong, 'keep')), 'a mismatched derived dir must NOT be deleted');
+  assert.ok(fs.existsSync(nodePath.join(store.ROOT, 'chats')), 'a refusal must not have already deleted the parent kind');
+});
+
+test('a mid-delete I/O failure never leaves the source gone while its rollup remains', () => {
+  /* The derived rollup is deleted BEFORE its source (chats-daily before chats),
+     so if an rmSync throws mid-operation, the failure can never leave the source
+     erased with its plaintext copy surviving. Simulate an I/O failure on the
+     source dir and assert the rollup is already gone and the source remains. */
+  seed();
+  const realRm = fs.rmSync;
+  let attemptedSource = false;
+  fs.rmSync = (p, opts) => {
+    if (nodePath.basename(nodePath.resolve(p)) === 'chats') {
+      attemptedSource = true;
+      throw new Error('simulated I/O failure on the source dir');
+    }
+    return realRm(p, opts);
+  };
+  let out;
+  try { out = forget.forget(); } finally { fs.rmSync = realRm; }
+  assert.equal(out.ok, false, 'a mid-delete I/O failure is reported, not swallowed');
+  assert.ok(attemptedSource, 'the source delete was attempted (after the rollup)');
+  assert.equal(fs.existsSync(nodePath.join(store.ROOT, 'chats-daily')), false, 'the rollup was deleted before the source failed');
+  assert.equal(fs.existsSync(nodePath.join(store.ROOT, 'chats')), true, 'the source remains, so there is no residue and a re-run finishes');
+});
+
 test('deleting twice is not an error', () => {
   seed();
   assert.equal(forget.forget().ok, true);
@@ -105,6 +187,18 @@ test('the surface is exactly two names, and widening it takes an edit here', () 
      kind cannot happen as a side effect of some other change: it goes red, and
      whoever widened it has to say so in a diff somebody reads. */
   assert.deepEqual(forget.KINDS.map((k) => k.key), ['chats', 'commitments']);
+});
+
+test('the full deletable-directory surface is pinned, derived dirs included', () => {
+  /* 🛑 KINDS keys alone do NOT see a `derived` dir, which is a second way to add
+     a deletable directory. This pins the WHOLE surface -- every dir forget()
+     can rmSync, kind dirs and derived dirs alike -- by basename, so adding or
+     repointing a derived dir also goes red and must be defended in a diff. */
+  const basenames = forget.KINDS.flatMap((k) => [
+    nodePath.basename(k.dir()),
+    ...((k.derived || []).map((d) => nodePath.basename(d.dir()))),
+  ]);
+  assert.deepEqual(basenames.sort(), ['chats', 'chats-daily', 'commitments']);
 });
 
 test('one of a thing is not "1 reports"', () => {
