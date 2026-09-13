@@ -61,7 +61,9 @@ function pointerSideFiles(runtime) {
 
 test('win32swap exports exactly the primitives the anchor and the updater share', () => {
   assert.deepEqual(Object.keys(swap).sort(), [
-    'RETIRED_INFIX', 'RETIRED_SWEEP_MIN_AGE_MS', 'STAGED_INFIX',
+    /* RENAME_RETRY_WINDOW_MS: one renameWithRetry's retry window, which the updater's held-write budget
+       counts (win32apply.writeBudgetFrom), so the two share one derivation. */
+    'RENAME_RETRY_WINDOW_MS', 'RETIRED_INFIX', 'RETIRED_SWEEP_MIN_AGE_MS', 'STAGED_INFIX',
     'renameWithRetry', 'replaceInterpreter', 'retireLeftoverInterpreters', 'writeFileAtomic',
   ]);
   for (const name of ['renameWithRetry', 'replaceInterpreter', 'retireLeftoverInterpreters', 'writeFileAtomic']) {
@@ -74,7 +76,12 @@ test('win32anchor keeps the surface it had, and its swap constants come from win
     'APP', 'BOOT_JS', 'BOOT_NAME', 'NODE_NAME', 'POINTER_NAME', 'RETIRED_INFIX',
     /* interpreterSizeDiffers: the anchor's own size rule, which the Windows updater
        (win32update.js runtimeChanged) starts from, so the two share one derivation. */
-    'RETIRED_SWEEP_MIN_AGE_MS', 'STAGED_INFIX', 'anchorDir', 'ensureAnchored', 'interpreterSizeDiffers', 'readPointer',
+    'RETIRED_SWEEP_MIN_AGE_MS', 'STAGED_INFIX',
+    /* The Windows updater's journal and status (engine/win32apply.js), named beside the pointer. */
+    'UPDATE_JOURNAL_NAME', 'UPDATE_STATUS_NAME',
+    /* The updater's working folder, and the one test of whether a bundle sits inside it. */
+    'UPDATE_WORK_DIRNAME',
+    'anchorDir', 'bundleIsInUpdateWork', 'ensureAnchored', 'interpreterSizeDiffers', 'readPointer',
   ]);
   assert.equal(anchor.STAGED_INFIX, swap.STAGED_INFIX);
   assert.equal(anchor.RETIRED_INFIX, swap.RETIRED_INFIX);

@@ -88,6 +88,32 @@ const APP = store.APP || 'AgentWorkforce';
 const NODE_NAME = 'node.exe';
 const POINTER_NAME = 'engine-path';
 const BOOT_NAME = 'supervisor-boot.js';
+/* The Windows updater's two records (engine/win32apply.js), kept beside the pointer they
+   change. Here, with the other anchor names, so the updater that writes them and the board's
+   logon shim that reads the journal (win32board.BOOT_JS) spell them one way. */
+const UPDATE_JOURNAL_NAME = 'update-journal.json';
+const UPDATE_STATUS_NAME = 'update-status.json';
+/* The updater's working folder inside the Kosmos folder (engine/win32update.js WORK), named here so
+   the updater and the two places that must never treat a build inside it as the install
+   (win32board.bundleRoot, ensureAnchored below) spell it one way. */
+const UPDATE_WORK_DIRNAME = '.kosmos-update';
+
+/**
+ * Is this bundle root inside the updater's working folder (`<ROOT>\.kosmos-update\previous-<from>`,
+ * or `staged`)? A board started from there (the logon shim's fallback while a rollback is stuck) is a
+ * build the updater is holding, never the install: re-registering the logon task or pointing
+ * `engine-path` at it would move the whole fleet into WORK, where the next rollback or cleanup moves
+ * or deletes it. `p` is the path module for the platform asked about.
+ */
+function bundleIsInUpdateWork(root, p) {
+  const paths = p || path;
+  /* The real spelling first: an 8.3 short name (`KOSMOS~1\PREVIO~1.60`) or a junction hides the
+     folder's name, and realpathSync.native expands both (plain realpathSync keeps the short form,
+     measured). A path that does not exist on this host falls back to its spelling. */
+  let full;
+  try { full = fs.realpathSync.native(String(root)); } catch { full = paths.resolve(String(root)); }
+  return paths.basename(paths.dirname(full)).toLowerCase() === UPDATE_WORK_DIRNAME;
+}
 
 /**
  * Where the anchor lives.
@@ -229,6 +255,21 @@ function ensureAnchored(opts) {
   const pointerAt = path.join(dir, POINTER_NAME);
   const bootAt = path.join(dir, BOOT_NAME);
 
+  /* 🛑 NEVER ANCHOR THE FLEET INTO THE UPDATER'S FOLDER (bundleIsInUpdateWork). A board or agent
+     install running from `.kosmos-update\previous-<from>` leaves the interpreter, the pointer and the
+     shim exactly as they are: the task it registers still runs the anchored node and shim, and the
+     pointer stays where the update's recovery put it. */
+  if (bundleIsInUpdateWork(path.resolve(String(engineDir), '..', '..'))) {
+    /* Left untouched only while the pointer still names an app a registered task can start. */
+    let current = '';
+    try { current = String(fs.readFileSync(pointerAt, 'utf8')).trim(); } catch { current = ''; }
+    if (!current || !fs.existsSync(path.join(current, '..', 'server.js'))) {
+      return { ok: false, because: `this app runs from inside the updater's folder (${engineDir}), and the engine pointer names no app (${current || 'none'}), so a job registered now could not start. Try again once Kosmos has put its update back` };
+    }
+    return { ok: true, node: nodeAt, boot: bootAt, dir, pointer: pointerAt,
+      untouched: `this app runs from inside the updater's folder (${engineDir}), so the startup files were left as they are` };
+  }
+
   try {
     fs.mkdirSync(dir, { recursive: true });
 
@@ -279,6 +320,6 @@ function readPointer(platform, home, env) {
 
 module.exports = {
   APP, NODE_NAME, POINTER_NAME, BOOT_NAME, BOOT_JS, STAGED_INFIX, RETIRED_INFIX,
-  RETIRED_SWEEP_MIN_AGE_MS,
+  RETIRED_SWEEP_MIN_AGE_MS, UPDATE_JOURNAL_NAME, UPDATE_STATUS_NAME, UPDATE_WORK_DIRNAME, bundleIsInUpdateWork,
   anchorDir, ensureAnchored, readPointer, interpreterSizeDiffers,
 };

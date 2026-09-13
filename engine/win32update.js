@@ -1,8 +1,10 @@
 'use strict';
 /**
- * The Windows in-app updater, slice S2: download, verify and STAGE a newer Windows build.
- * It never swaps anything in. The swap (S3) and the button (S4) are later slices; nothing in the
- * product calls `prepare()` yet, and SELF_INSTALL is still darwin-only.
+ * The Windows in-app updater, slice S2: download, verify and STAGE a newer Windows build; and slice
+ * S3's board side, B5 (`begin()`): stage it, write the update journal, and start the detached helper
+ * (engine/win32apply.js) that swaps it in. `prepare()` itself never swaps anything in. The button
+ * (S4) is a later slice; nothing in the product calls `prepare()` or `begin()` yet (only the
+ * live-check CLI below), and SELF_INSTALL is still darwin-only.
  *
  * 🔑 THE WHOLE SLICE WRITES INSIDE ONE FOLDER, `<ROOT>\.kosmos-update\` (WORK), where ROOT is
  * the unpacked Kosmos folder the board runs from. On the same volume as ROOT, so the S3 swap is
@@ -23,8 +25,13 @@
  * Returns `{ ok: true, version, sha256, stagedDir, runtimeChanged, expectedIdentity }` or
  * `{ ok: false, because }`, and never throws for an expected failure.
  *
- * A CLI for the live check (a dry run unless --yes):
+ * A CLI for the live checks (each a dry run unless --yes):
  *     node engine/win32update.js --prepare --root <folder> [--base <url>] [--channel staging] [--world <id>] [--yes]
+ *     node engine/win32update.js --apply --root <folder> [--base <url>] [--channel staging] [--world <id>]
+ *                                [--board-pid <pid>] [--port <n>] [--wait] [--yes]
+ * and the helper's own entry points, started by begin() and never by hand:
+ *     <anchored node.exe> <ROOT>\app\engine\win32update.js --kosmos-update-apply <journal>
+ *     <anchored node.exe> <old build>\app\engine\win32update.js --kosmos-update-recover <journal>
  */
 
 const cp = require('node:child_process');
@@ -39,13 +46,15 @@ const update = require('./update');
 const win32anchor = require('./win32anchor');
 const win32board = require('./win32board');
 const win32handoff = require('./win32handoff');
+const win32job = require('./win32job');
 const win32orphan = require('./win32orphan');
 const win32zip = require('./win32zip');
 
 const MEGABYTE = 1024 * 1024;
 
 /* The scratch folder and the things in it. */
-const WORK_DIRNAME = '.kosmos-update';
+/* Spelled once, in win32anchor, beside the other names the updater and the board share. */
+const WORK_DIRNAME = win32anchor.UPDATE_WORK_DIRNAME;
 const DOWNLOAD_PART_NAME = 'download.part';
 const STAGED_DIRNAME = 'staged';
 const LOCK_NAME = 'prepare.lock';
@@ -124,6 +133,16 @@ const PROCESS_IMAGE_LOOKUP_TIMEOUT_MS = 5 * 1000;
     the next prepare in this board (releaseLock). */
 const LOCK_RELEASE_TRIES = 3;
 const LOCK_RELEASE_WAIT_MS = 50;
+/** The quick held-read budget (tryRetryingHolds): reads of a file or folder another process holds (a
+    writer replacing it, a scanner, a backup tool), this many, this far apart: (3 - 1) x 20 = 40 ms of waiting in all. For B0
+    and begin(), which answer a person; the helper, the resumers and the logon shim wait seconds
+    instead (win32apply.OWNER_READ_BUDGET). */
+const QUICK_HELD_READ_BUDGET = Object.freeze({ tries: 3, waitMs: 20 });
+/** The codes that mean another process holds a file or folder for now, never that it is gone: a
+    sharing violation (EBUSY), a delete pending or a writer's replace (EPERM), a lock or scanner
+    (EACCES), and a device or share in the middle of reconnecting (EIO). Only ENOENT and ENOTDIR
+    mean gone. */
+const HELD_FILE_CODES = Object.freeze(['EBUSY', 'EPERM', 'EACCES', 'EIO']);
 /** A lock that exists but cannot be read is read again this many times, this far apart, before it
     is called broken: a lock that is being deleted cannot be opened for a moment (Windows answers
     EPERM for a file whose delete is pending), and a broken one stays unreadable. */
@@ -150,6 +169,28 @@ const DEFAULT_LIMITS = Object.freeze({
 });
 
 const LIVE_REFUSAL = 'Kosmos is not allowed to change files on this computer from here (live execution is off), so nothing was downloaded';
+
+/**
+ * ⚠️ PENDING JOSH'S ANSWER (design question 5, open as of 2026-09-12): a Kosmos folder under OneDrive
+ * or Program Files is refused an in-app update, with a plain sentence and the manual download.
+ * OneDrive can hold files as online-only placeholders and syncs them while they are renamed; Program
+ * Files needs administrator rights to rename anything. `'refuse'` is the recommendation; `'allow'`
+ * turns the rule off. This one word is the whole switch.
+ */
+const UNUSUAL_LOCATION_POLICY = 'refuse';
+/** The variables Windows and the OneDrive client set for those folders. */
+const ONEDRIVE_ENV_KEYS = Object.freeze(['OneDrive', 'OneDriveConsumer', 'OneDriveCommercial']);
+const PROGRAM_FILES_ENV_KEYS = Object.freeze(['ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432']);
+
+/** The helper's two entry points (begin() starts them; engine/win32apply.js runs them). */
+const APPLY_FLAG = '--kosmos-update-apply';
+const RECOVER_FLAG = '--kosmos-update-recover';
+/** The board's port when nothing sets PORT: server.js's own default, which the suite pins equal. */
+const DEFAULT_BOARD_PORT = 16180;
+/** How long `--apply --wait` watches for the helper's outcome: H2 (30 s), H7 (60 s) and a full H8
+    (30 s, 60 s and three passes) with room to spare. */
+const CLI_WAIT_MS = 10 * 60 * 1000;
+const CLI_WAIT_POLL_MS = 1000;
 
 class PrepareRefusal extends Error {
   constructor(because) { super(because); this.name = 'PrepareRefusal'; }
@@ -283,12 +324,75 @@ function protectedFolders(env, home) {
 
 let preparing = false;
 
+/**
+ * B0's unusual-location rule (UNUSUAL_LOCATION_POLICY), as a sentence, or null. Compared as spelled
+ * and as resolved, like the protected folders. `policy` defaults to the rule's one switch.
+ */
+function unusualLocationRefusal(root, env, base, policy) {
+  if ((policy || UNUSUAL_LOCATION_POLICY) !== 'refuse') return null;
+  const realRoot = realPathOf(root);
+  let site = String(base || '');
+  try { site = new URL(site).host; } catch { /* keep what was given */ }
+  for (const [label, keys] of [['OneDrive', ONEDRIVE_ENV_KEYS], ['Program Files', PROGRAM_FILES_ENV_KEYS]]) {
+    for (const key of keys) {
+      const dir = env && env[key];
+      if (typeof dir !== 'string' || !path.isAbsolute(dir)) continue;
+      if (insideOrEqual(root, dir) || insideOrEqual(realRoot, realPathOf(dir))) {
+        return `${root} is inside ${label} (${dir}), where Kosmos does not update itself. Download the new version from ${site || 'the Kosmos website'}, unpack it over your Kosmos folder, then double-click Kosmos.exe`;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * B0's board-task preconditions (S3), as a sentence, or null. The update stops the board and starts
+ * it again through its logon task, so the board must be that task's, and the task must be there and
+ * switched on. `boardTask` is `{ startedByTask(), status() }` (win32board's, by default).
+ */
+function boardTaskRefusal(boardTask) {
+  const task = win32board.TASK_NAME;
+  if (!boardTask.startedByTask()) {
+    return `this board was not started by its Windows logon job (${task}), so an update could not start it again. Double-click Kosmos.exe so Kosmos moves to the background, then try again`;
+  }
+  /* Only a status that says, in so many words, registered AND enabled lets an update stop the board.
+     Anything the reading could not tell (a status marked unknown, a field missing or not a boolean)
+     refuses: an unknown must never read as yes. */
+  const st = boardTask.status() || {};
+  const unreadable = `Kosmos could not read its Windows logon job (${task}), so it did not start the update`;
+  if (st.known === false) return unreadable;
+  if (st.registered === false) return `there is no Windows logon job for the board (${task}), so an update could not start Kosmos again`;
+  if (st.registered !== true) return unreadable;
+  if (st.enabled === false) return `the board's Windows logon job (${task}) is switched off, so an update could not start Kosmos again. Switch it back on in Task Scheduler, then try again`;
+  if (st.enabled !== true) return unreadable;
+  return null;
+}
+
+/** win32board's answers. A process that may not run schtasks (win32job's one answer, #2973: a test
+    process or a board a test spawned) and reaches this with no seam refuses here, in a test process
+    by throwing (convention 3). win32board.status() refuses there too. */
+function defaultBoardTask() {
+  if (!win32job.schtasksMayRunInThisProcess()) liveExec.refuseOrWarn('engine/win32update.js', 'schtasks', ['/Query', '/TN', win32board.TASK_NAME]);
+  return { startedByTask: () => win32board.startedByTask(), status: () => win32board.status() };
+}
+
+/** B0's journal precondition: no earlier update left unfinished (engine/win32apply.js). */
+function journalRefusal(env, home) {
+  let anchor;
+  try { anchor = win32anchor.anchorDir(process.platform, home, env); } catch (e) {
+    return `we could not work out where Kosmos keeps its update records (${firstLine(e)})`;
+  }
+  return require('./win32apply').unfinishedUpdateRefusal(anchor); // lazy: win32apply requires this module
+}
+
 /** The first B0 precondition that fails, as a sentence, or null. Reads only. */
-function preconditionRefusal(root, env, home) {
+function preconditionRefusal(root, env, home, base) {
   const realRoot = realPathOf(root);
   for (const form of [root, realRoot]) {
     if (path.parse(form).root === form) return `${root} is the top of a drive, and the updater only replaces a Kosmos folder`;
   }
+  const unusual = unusualLocationRefusal(root, env, base);
+  if (unusual) return unusual;
   const work = path.join(root, WORK_DIRNAME);
   const moved = [WORK_DIRNAME, ...ENTRIES].map((entry) => path.join(root, entry));
   /* Compared twice: as spelled, and as the operating system resolves them, so a junction, a
@@ -317,7 +421,7 @@ function preconditionRefusal(root, env, home) {
   if (st && st.isSymbolicLink()) return `the updater's folder ${work} is a link to somewhere else`;
   if (st && !st.isDirectory()) return `the updater's folder ${work} is a file, not a folder`;
   if (preparing) return 'an update is already being prepared';
-  return null;
+  return journalRefusal(env, home);
 }
 
 /* ─── the lock ───────────────────────────────────────────────────────────────────────────── */
@@ -663,31 +767,63 @@ function sweepLockLeftovers(work, inWork, log) {
 }
 
 /**
+ * 🛑 A HELD ANSWER IS NEVER PROOF OF ANYTHING. Try `attempt` (a read, an lstat or a write), again while
+ * another process holds its target. Returns `{ value }`, `{ missing: true, code, error }` (ENOENT or
+ * ENOTDIR, and nothing else), or `{ code, tries, error }` when it still fails: a held code (HELD_FILE_CODES) after
+ * `budget.tries`, or any other code at once. Never throws. `waitSync(ms)` stands in for the wait
+ * between tries; `budget` is QUICK_HELD_READ_BUDGET unless the caller's process can wait longer.
+ */
+function tryRetryingHolds(attempt, waitSync, budget) {
+  const b = budget || QUICK_HELD_READ_BUDGET;
+  const wait = typeof waitSync === 'function' ? waitSync : sleepSync;
+  for (let tries = 1; ; tries += 1) {
+    try { return { value: attempt() }; } catch (e) {
+      const code = (e && e.code) || 'unknown';
+      if (code === 'ENOENT' || code === 'ENOTDIR') return { missing: true, code, error: e };
+      if (!HELD_FILE_CODES.includes(code) || tries >= b.tries) return { code, tries, error: e };
+      wait(b.waitMs);
+    }
+  }
+}
+
+/** A file's text through tryRetryingHolds: `{ text }`, `{ missing: true, code }` or `{ code, tries }`. */
+function readFileRetryingHolds(file, waitSync, budget) {
+  const read = tryRetryingHolds(() => fs.readFileSync(file, 'utf8'), waitSync, budget);
+  return 'value' in read ? { text: read.value } : read;
+}
+
+/**
  * Release the lock only if it is still the one this prepare took.
  *
- * A scanner or backup tool can hold the file without delete sharing, so the read and the removal
- * are tried LOCK_RELEASE_TRIES times. If the lock still cannot be removed it would name this
- * board's own live process and refuse every later prepare here until a restart, so its exact text
- * is remembered (leftBehindLockText) for the next takeLock in this process to clear through the
- * claim. Failures are logged by code, since the raw errors name internal paths.
+ * A scanner or backup tool can hold the file: the read is retried as every held read is
+ * (readFileRetryingHolds), and the removal LOCK_RELEASE_TRIES times. If the lock still cannot be read
+ * or removed it would name this board's own live process and refuse every later prepare here until
+ * a restart, so its exact text is remembered (leftBehindLockText) for the next takeLock in this
+ * process to clear through the claim. Failures are logged by code, since the raw errors name
+ * internal paths.
  */
-function releaseLock(lockPath, text, log) {
+function releaseLock(lockPath, text, log, reading) {
+  /* Returns what is left at the lock's name: 'released' (no lock of this prepare's: removed, or already
+     gone), 'not-ours' (another update's lock stands there), or 'left' (this prepare's lock could not be
+     read or removed, so it still names this process). The updater starts the board it ended only after
+     'released' (win32apply.restartBoardAfterExit). */
+  const read = readFileRetryingHolds(lockPath, reading && reading.waitSync, reading && reading.budget);
+  if (read.missing) return 'released';
+  if (read.code) {
+    log(`could not read the prepare lock to release it (code=${read.code}, after ${read.tries} ${read.tries === 1 ? 'try' : 'tries'})`);
+    leftBehindLockText = text;
+    log('left the prepare lock behind; the next prepare in this board clears it');
+    return 'left';
+  }
+  if (read.text !== text) { log('the prepare lock was taken over while this prepare ran; leaving it'); return 'not-ours'; }
   for (let tries = 1; ; tries += 1) {
-    let now = null;
-    try { now = fs.readFileSync(lockPath, 'utf8'); } catch (e) {
-      if (e && e.code === 'ENOENT') return;
-      log(`could not read the prepare lock to release it (code=${(e && e.code) || 'unknown'}, try ${tries} of ${LOCK_RELEASE_TRIES})`);
-    }
-    if (now !== null && now !== text) { log('the prepare lock was taken over while this prepare ran; leaving it'); return; }
-    if (now === text) {
-      try { fs.rmSync(lockPath, { force: true }); return; } catch (e) {
-        log(`could not remove the prepare lock (code=${(e && e.code) || 'unknown'}, try ${tries} of ${LOCK_RELEASE_TRIES})`);
-      }
+    try { fs.rmSync(lockPath, { force: true }); return 'released'; } catch (e) {
+      log(`could not remove the prepare lock (code=${(e && e.code) || 'unknown'}, try ${tries} of ${LOCK_RELEASE_TRIES})`);
     }
     if (tries >= LOCK_RELEASE_TRIES) {
       leftBehindLockText = text;
       log('left the prepare lock behind; the next prepare in this board clears it');
-      return;
+      return 'left';
     }
     sleepSync(LOCK_RELEASE_WAIT_MS);
   }
@@ -935,7 +1071,10 @@ function verifyStaged(ctx, latest) {
  *   expectVersion  when given, the version the person accepted; a pointer that moved is refused
  *   world     the world the new board will serve (resolveWorld: this board's, else the registry's)
  * and the seams a suite or the live-check CLI sets: platform, env, home, fetch, freeBytes,
- * runStagedNode, liveExecutionAllowed, limits, log, lockHooks.
+ * runStagedNode, liveExecutionAllowed, limits, log, lockHooks, and boardTask
+ * (`{ startedByTask(), status() }`, B0's board-task preconditions).
+ * `whileLocked(result, ctx)` runs after a successful stage while the lock is still held (B5 writes
+ * the journal there); a throw from it fails the prepare.
  */
 async function prepare(opts) {
   const o = opts || {};
@@ -949,13 +1088,16 @@ async function prepare(opts) {
   const root = path.resolve(given);
   const base = String(o.base || update.releaseBase()).replace(/\/+$/, '');
 
-  const b0 = preconditionRefusal(root, env, home);
+  const b0 = preconditionRefusal(root, env, home, base);
   if (b0) { log(`refused before starting: ${b0}`); return { ok: false, because: b0 }; }
   const allowed = typeof o.liveExecutionAllowed === 'function' ? o.liveExecutionAllowed : liveExec.liveExecutionAllowed;
   if (!allowed()) {
     liveExec.refuseOrWarn('engine/win32update.js', 'prepare', ['--root', root, '--base', base]);
     return { ok: false, because: LIVE_REFUSAL };
   }
+  /* After the live gate, so a process that never armed it never queries the scheduler. */
+  const taskRefusal = boardTaskRefusal(o.boardTask || defaultBoardTask());
+  if (taskRefusal) { log(`refused before starting: ${taskRefusal}`); return { ok: false, because: taskRefusal }; }
 
   const work = path.join(root, WORK_DIRNAME);
   const inWork = workGuard(work);
@@ -977,6 +1119,9 @@ async function prepare(opts) {
   preparing = true;
   let lockText = null;
   let result;
+  /* Set when the refusal is an earlier update's unfinished journal: WORK's staged tree and download
+     then belong to that update's rollback, and are left exactly as they are. */
+  let workBelongsToAnotherUpdate = false;
   try {
     if (!fs.existsSync(work)) fs.mkdirSync(work);
     if (!samePath(fs.realpathSync.native(work), path.join(fs.realpathSync.native(root), WORK_DIRNAME))) {
@@ -984,6 +1129,10 @@ async function prepare(opts) {
     }
     lockText = takeLock(inWork(lockPath), log, o.lockHooks);
     sweepLockLeftovers(work, inWork, log);
+    /* B0's journal precondition again, now that the lock is held: a journal written between the
+       first look and the lock is an update whose helper owns WORK. */
+    const unfinished = journalRefusal(env, home);
+    if (unfinished) { workBelongsToAnotherUpdate = true; refuse(unfinished); }
     /* Whatever an earlier attempt left. Both are WORK's own. */
     fs.rmSync(inWork(ctx.part), { force: true });
     fs.rmSync(inWork(ctx.staged), { recursive: true, force: true });
@@ -993,6 +1142,7 @@ async function prepare(opts) {
     unpack(ctx, downloaded.bytes);
     const verified = verifyStaged(ctx, latest);
     result = { ok: true, version: latest.version, sha256: downloaded.sha256, stagedDir: ctx.staged, runtimeChanged: verified.runtimeChanged, expectedIdentity: verified.expectedIdentity };
+    if (typeof o.whileLocked === 'function') o.whileLocked(result, ctx);
   } catch (e) {
     if (e instanceof PrepareRefusal) {
       result = { ok: false, because: e.message };
@@ -1005,7 +1155,7 @@ async function prepare(opts) {
   }
 
   if (lockText) {
-    if (!result.ok) {
+    if (!result.ok && !workBelongsToAnotherUpdate) {
       try { fs.rmSync(inWork(ctx.part), { force: true }); } catch (e) { log(`could not remove ${ctx.part}: ${firstLine(e)}`); }
       try { fs.rmSync(inWork(ctx.staged), { recursive: true, force: true }); } catch (e) { log(`could not remove ${ctx.staged}: ${firstLine(e)}`); }
     }
@@ -1018,20 +1168,228 @@ async function prepare(opts) {
   return result;
 }
 
+/* ─── B5 ─────────────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * How the helper is started: the ANCHORED node.exe (the extract tree is exactly what it replaces),
+ * with its cwd in the anchor folder (a process whose cwd is inside `app` makes renaming `app` fail
+ * with EPERM, measured), detached, with no window and no stdio (the win32board.restart pattern).
+ */
+function helperLaunch(anchorDir, script, flag, journalAt) {
+  return {
+    file: path.join(anchorDir, win32anchor.NODE_NAME),
+    args: [script, flag, journalAt],
+    options: { cwd: anchorDir, detached: true, stdio: 'ignore', windowsHide: true },
+  };
+}
+
+/** Spawn it. spawn reports ENOENT and EACCES by an `error` event, not a throw, and an unheard one
+    would kill the board this runs in, so it is listened for. */
+function startHelper(spawnFn, launch, log) {
+  let child;
+  try { child = spawnFn(launch.file, launch.args, launch.options); } catch (e) { return { ok: false, because: firstLine(e) }; }
+  if (child && typeof child.on === 'function') child.on('error', (err) => log(`the update helper could not start: ${firstLine(err)}`));
+  if (child && typeof child.unref === 'function') child.unref();
+  return { ok: true, pid: child ? child.pid : undefined };
+}
+
+/**
+ * B5: prepare the newest build, record the update journal while the lock is still held, and start
+ * the helper that applies it. Resolves to prepare()'s result plus `{ journal, helperPid }`, or
+ * `{ ok: false, because }`.
+ *
+ * An earlier update's journal left unfinished is not overwritten: the helper is started in resume
+ * mode from the OLD build's code (journal.recoverFrom), and this refuses with a sentence. So the next
+ * update is also a resumer, for the case no logon ever brings (a helper killed while a board runs).
+ *
+ * Options are prepare()'s, plus: port (the board's, DEFAULT_BOARD_PORT), boardPid (this board's pid
+ * when known), fromIdentity (this board's identity header; computed from ROOT's app and the world
+ * otherwise), spawn (a seam for child_process.spawn).
+ */
+async function begin(opts) {
+  const o = opts || {};
+  const log = typeof o.log === 'function' ? o.log : defaultLog;
+  const platform = o.platform || process.platform;
+  const env = o.env || process.env;
+  const home = o.home || os.homedir();
+  if (platform !== 'win32') return { ok: false, because: 'the in-app updater is for Kosmos on Windows, and this is not Windows' };
+  const given = o.root || win32board.bundleRoot({ platform });
+  if (!given) return { ok: false, because: 'this Kosmos is not running from the Windows download, so there is nothing for the updater to replace' };
+  const root = path.resolve(given);
+  const apply = require('./win32apply'); // lazy: win32apply requires this module
+  const allowed = typeof o.liveExecutionAllowed === 'function' ? o.liveExecutionAllowed : liveExec.liveExecutionAllowed;
+  const spawnFn = typeof o.spawn === 'function' ? o.spawn : cp.spawn;
+  let anchorDir;
+  try { anchorDir = win32anchor.anchorDir(process.platform, home, env); } catch (e) {
+    return { ok: false, because: `we could not work out where Kosmos keeps its update records (${firstLine(e)})` };
+  }
+  const journalAt = apply.journalPathFor(anchorDir);
+
+  const earlier = apply.readJournal(journalAt);
+  if (earlier.state === 'unfinished') {
+    if (!allowed()) {
+      liveExec.refuseOrWarn('engine/win32update.js', 'begin', ['--root', root]);
+      return { ok: false, because: LIVE_REFUSAL };
+    }
+    const j = earlier.journal;
+    const now = typeof o.now === 'function' ? o.now() : Date.now();
+    /* A staged journal this young belongs to the helper an earlier begin() has just started. A second
+       request must not cancel it. The rule is win32apply's one reading of it. */
+    if (apply.stagedIsYoung(j, now)) {
+      return { ok: false, because: `an update to ${j.to.version} is starting now. Try again in a minute` };
+    }
+    /* A journal no resumer can finish (its Kosmos folder, working folder or recovery code is gone) is
+       settled here, in words, and this update goes on; otherwise it would block every update. */
+    const settled = apply.settleUnrecoverableJournal(journalAt, o.applySeams);
+    if (settled.action === 'unreachable') return { ok: false, because: apply.unfinishedUpdateRefusal(anchorDir) };
+    if (settled.action === 'held') return { ok: false, because: `an earlier update to ${j.to.version} could not be cleared yet (${settled.because})` };
+    if (settled.action === 'recoverable') {
+      /* The old build's updater, where a look proves it is (win32apply.presenceOf): a copy a scanner holds
+         is not picked, and none proved there is a refusal, never a helper started from nothing. */
+      const oldModule = j.recoverFrom.find((f) => apply.presenceOf(f).state === 'there');
+      if (!oldModule) {
+        return { ok: false, because: `an earlier update to ${j.to.version} has not finished, and the copy of the updater that finishes it cannot be read right now. Try again in a minute` };
+      }
+      const script = path.join(path.dirname(oldModule), path.basename(__filename));
+      const started = startHelper(spawnFn, helperLaunch(anchorDir, script, RECOVER_FLAG, journalAt), log);
+      log(started.ok ? `started the helper to finish the earlier update (pid ${started.pid})` : `could not start the helper to finish the earlier update: ${started.because}`);
+      return { ok: false, because: `an earlier update to ${j.to.version} has not finished, so Kosmos is finishing it now, or putting ${j.from.version} back. Try again in a minute` };
+    }
+    log(`cleared an earlier update no resumer could finish (${settled.action}${settled.because ? ': ' + settled.because : ''})`);
+  }
+
+  const script = path.join(root, 'app', 'engine', path.basename(__filename));
+  if (!fs.existsSync(script) || !fs.existsSync(path.join(root, 'app', 'engine', apply.MODULE_FILE_NAME))) {
+    return { ok: false, because: `the Kosmos in ${root} is too old to install an update by itself. Download the new version, unpack it over your Kosmos folder, then double-click Kosmos.exe` };
+  }
+  const fromVersion = (readJson(path.join(root, 'app', 'package.json')) || {}).version;
+  const board = { pid: Number.isInteger(o.boardPid) ? o.boardPid : null, port: Number.isInteger(o.port) ? o.port : DEFAULT_BOARD_PORT };
+
+  let journal = null;
+  const prepared = await prepare({
+    ...o, root, platform, env, home, log,
+    whileLocked: (result, ctx) => {
+      const fromIdentity = o.fromIdentity || win32handoff.boardIdentity(win32handoff.buildIdentity(path.join(root, 'app')), resolveWorld(ctx.world));
+      /* A previous-<from> can only be left from an earlier update away from this same version
+         (a person unpacked it again by hand since). The swap needs the name free. */
+      const previous = path.join(ctx.work, apply.PREVIOUS_PREFIX + fromVersion);
+      try { fs.rmSync(ctx.inWork(previous), { recursive: true, force: true }); } catch (e) {
+        refuse(`an older copy of ${fromVersion} in ${previous} could not be cleared (code=${(e && e.code) || 'unknown'})`);
+      }
+      try {
+        journal = apply.writeStagedJournal(journalAt, { root, anchor: anchorDir, prepared: result, fromVersion, fromIdentity, board, now: Date.now() });
+      } catch (e) {
+        refuse(`the update could not be recorded, so it was not started (${firstLine(e)})`);
+      }
+    },
+  });
+  if (!prepared.ok) return prepared;
+
+  const started = startHelper(spawnFn, helperLaunch(anchorDir, script, APPLY_FLAG, journalAt), log);
+  if (!started.ok) {
+    const because = `the update helper could not be started (${started.because})`;
+    apply.abandonStagedJournal(journalAt, because, o.applySeams);
+    return { ok: false, because };
+  }
+  log(`started the update helper (pid ${started.pid}) for ${journal.to.version}; journal ${journalAt}`);
+  return { ...prepared, journal: journalAt, helperPid: started.pid };
+}
+
 /* ─── the live-check CLI ─────────────────────────────────────────────────────────────────── */
 
-const USAGE = 'usage: node engine/win32update.js --prepare --root <folder> [--base <url>] [--channel prod|staging] [--world <id>] [--yes]';
+const USAGE = 'usage: node engine/win32update.js --prepare --root <folder> [--base <url>] [--channel prod|staging] [--world <id>] [--yes]\n'
+  + '       node engine/win32update.js --apply --root <folder> [--base <url>] [--channel prod|staging] [--world <id>] [--board-pid <pid>] [--port <n>] [--wait] [--yes]';
 
 function parseCliArgs(argv) {
-  const a = { prepare: false, yes: false, root: null, base: null, channel: null, world: null, unknown: null };
+  const a = { prepare: false, apply: false, yes: false, wait: false, root: null, base: null, channel: null, world: null, boardPid: null, port: null, unknown: null };
+  const valued = { '--root': 'root', '--base': 'base', '--channel': 'channel', '--world': 'world', '--board-pid': 'boardPid', '--port': 'port' };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--prepare') a.prepare = true;
+    else if (arg === '--apply') a.apply = true;
     else if (arg === '--yes') a.yes = true;
-    else if (['--root', '--base', '--channel', '--world'].includes(arg)) { a[arg.slice(2)] = argv[i + 1] || null; i += 1; }
+    else if (arg === '--wait') a.wait = true;
+    else if (valued[arg]) { a[valued[arg]] = argv[i + 1] || null; i += 1; }
     else a.unknown = arg;
   }
   return a;
+}
+
+/**
+ * `--apply --wait`: the helper's outcome for this journal, read from the status it writes. A journal
+ * at `confirmed` whose new board answers as the new build (H7's own test, win32apply.answersAs) is a
+ * success too: the update is in, and only its record is still being finished. Seams: sleep, now,
+ * waitMs, probe.
+ */
+async function waitForOutcome(journalAt, token, seams) {
+  const s = seams || {};
+  const sleep = s.sleep || ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+  const now = s.now || Date.now;
+  const probe = s.probe || win32handoff.probeBoard;
+  const apply = require('./win32apply'); // lazy: win32apply requires this module
+  const statusAt = path.join(path.dirname(journalAt), win32anchor.UPDATE_STATUS_NAME);
+  const until = now() + (s.waitMs || CLI_WAIT_MS);
+  for (;;) {
+    const status = readJson(statusAt);
+    if (status && status.journal === token && status.outcome) return status;
+    const j = apply.readJournal(journalAt).journal;
+    if (j && j.token === token && j.phase === 'confirmed' && apply.answersAs(await probe(j.board.port), j.to.identity)) {
+      return {
+        outcome: 'updated', version: j.to.version, from: j.from.version, to: j.to.version, journal: token,
+        because: `the board answers as ${j.to.identity}; Kosmos is still finishing up the record of the update`,
+      };
+    }
+    if (now() >= until) return { outcome: null, because: `no outcome was recorded within ${Math.round((s.waitMs || CLI_WAIT_MS) / 1000)} seconds; read ${statusAt} and ${journalAt}` };
+    await sleep(CLI_WAIT_POLL_MS);
+  }
+}
+
+/**
+ * `--apply`. Outside a board, "started by its task" is read as: the task is running AND the port
+ * answers with ROOT's own identity. Seams for the suite: probe, boardStatus, begin (extra begin
+ * options), wait (waitForOutcome's).
+ */
+async function applyCli(a, out, seams) {
+  const s = seams || {};
+  const port = a.port === null ? DEFAULT_BOARD_PORT : Number(a.port);
+  const boardPid = a.boardPid === null ? null : Number(a.boardPid);
+  const badNumber = !Number.isInteger(port) || port <= 0 || (boardPid !== null && !(Number.isInteger(boardPid) && boardPid > 0));
+  if (!a.root || a.unknown || a.prepare || badNumber) { out(USAGE + '\n'); return 64; }
+  const root = path.resolve(a.root);
+  const world = resolveWorld(a.world);
+  let anchorDir = null;
+  try { anchorDir = win32anchor.anchorDir(process.platform, os.homedir(), process.env); } catch { anchorDir = null; }
+  if (!a.yes) {
+    out(JSON.stringify({
+      dryRun: true, action: 'apply', root, base: a.base || update.releaseBase(), channel: a.channel || update.updateChannel('win32'),
+      world, port, boardPid,
+      journal: anchorDir && path.join(anchorDir, win32anchor.UPDATE_JOURNAL_NAME),
+      status: anchorDir && path.join(anchorDir, win32anchor.UPDATE_STATUS_NAME),
+      writesUnder: path.join(root, WORK_DIRNAME),
+      moves: ENTRIES.map((entry) => path.join(root, entry)),
+      because: 'nothing was changed: add --yes to download and stage the update, stop the board, swap the new build in, and start the board again',
+    }, null, 2) + '\n');
+    return 2;
+  }
+  const answer = await (s.probe || win32handoff.probeBoard)(port);
+  const fromIdentity = win32handoff.boardIdentity(win32handoff.buildIdentity(path.join(root, 'app')), world);
+  const task = (s.boardStatus || win32board.status)() || {};
+  const r = await begin({
+    root, base: a.base, channel: a.channel, world: a.world, port, boardPid, fromIdentity,
+    liveExecutionAllowed: () => true,
+    /* The board says itself whether its task started it (#2986, x-kosmos-board-started-by-task), and
+       only an exact yes counts. Task Scheduler's `running` is not asked: it reads null whenever its
+       CSV cannot be read, times out or meets a locale. */
+    boardTask: { startedByTask: () => answer.startedByTask === true && answer.answering === true && answer.identity === fromIdentity, status: () => task },
+    ...(s.begin || {}),
+  });
+  out(JSON.stringify(r, null, 2) + '\n');
+  if (!r.ok) return 1;
+  if (!a.wait) return 0;
+  const token = (require('./win32apply').readJournal(r.journal).journal || {}).token;
+  const status = await waitForOutcome(r.journal, token, { probe: s.probe, ...(s.wait || {}) });
+  out(JSON.stringify(status, null, 2) + '\n');
+  return status.outcome === 'updated' ? 0 : 1;
 }
 
 /**
@@ -1040,9 +1398,10 @@ function parseCliArgs(argv) {
  * Without `--world`, the world is the registry's active one (resolveWorld), and the dry run says
  * which.
  */
-async function cliMain(argv, write) {
+async function cliMain(argv, write, seams) {
   const out = typeof write === 'function' ? write : (s) => process.stdout.write(s);
   const a = parseCliArgs(argv);
+  if (a.apply) return applyCli(a, out, seams);
   if (!a.prepare || !a.root || a.unknown) { out(USAGE + '\n'); return 64; }
   if (!a.yes) {
     const root = path.resolve(a.root);
@@ -1060,15 +1419,28 @@ async function cliMain(argv, write) {
 }
 
 module.exports = {
-  prepare, cliMain, runStagedNode, stagedNodeLaunch, workGuard, takeLock, sweepLockLeftovers, resolveWorld,
-  processImageFromTasklist, processImageStamp,
-  REQUIRED_ENTRIES, ENTRIES, WORK_DIRNAME, DEFAULT_LIMITS, STAGED_NODE_ENV_KEYS,
+  prepare, begin, cliMain, runStagedNode, stagedNodeLaunch, workGuard, takeLock, releaseLock, sweepLockLeftovers, resolveWorld,
+  readFileRetryingHolds, tryRetryingHolds, QUICK_HELD_READ_BUDGET, HELD_FILE_CODES,
+  processImageFromTasklist, processImageStamp, sha256OfFile, unusualLocationRefusal, helperLaunch, waitForOutcome,
+  REQUIRED_ENTRIES, ENTRIES, WORK_DIRNAME, STAGED_DIRNAME, DOWNLOAD_PART_NAME, LOCK_NAME, DEFAULT_LIMITS, STAGED_NODE_ENV_KEYS,
+  UNUSUAL_LOCATION_POLICY, APPLY_FLAG, RECOVER_FLAG, DEFAULT_BOARD_PORT,
 };
 
-/* Guarded on being the main module: requiring this file must never download anything. */
+/* Guarded on being the main module: requiring this file must never download or swap anything. */
 if (require.main === module) {
-  cliMain(process.argv.slice(2)).then(
-    (code) => { process.exitCode = code; },
-    (e) => { process.stderr.write(String((e && e.stack) || e) + '\n'); process.exitCode = 1; },
-  );
+  const flag = process.argv[2];
+  if (flag === APPLY_FLAG || flag === RECOVER_FLAG) {
+    /* The helper. H1: engine/win32apply.js and everything it needs load HERE, from this build,
+       before any step runs. */
+    const apply = require('./win32apply');
+    (flag === APPLY_FLAG ? apply.applyJournal : apply.resumeJournal)(process.argv[3]).then(
+      (r) => { process.exitCode = r && r.ok ? 0 : 1; },
+      (e) => { process.stderr.write(String((e && e.stack) || e) + '\n'); process.exitCode = 1; },
+    );
+  } else {
+    cliMain(process.argv.slice(2)).then(
+      (code) => { process.exitCode = code; },
+      (e) => { process.stderr.write(String((e && e.stack) || e) + '\n'); process.exitCode = 1; },
+    );
+  }
 }

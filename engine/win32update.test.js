@@ -74,6 +74,9 @@ function freshCase(o = {}) {
     fs.writeFileSync(path.join(root, 'app', 'server.js'), '// the installed server');
     fs.writeFileSync(path.join(root, 'app', 'package.json'), JSON.stringify({ version: INSTALLED }));
     fs.writeFileSync(path.join(root, 'Projects', 'garden', 'notes.txt'), "a person's own work");
+    /* The installed build carries S3's helper (begin() refuses a build too old to have one). */
+    fs.writeFileSync(path.join(root, 'app', 'engine', 'win32apply.js'), '// the installed updater');
+    fs.writeFileSync(path.join(root, 'app', 'engine', 'win32update.js'), '// the installed updater entry');
   }
   fs.mkdirSync(anchor, { recursive: true });
   fs.writeFileSync(path.join(anchor, win32anchor.NODE_NAME), o.anchoredNode !== undefined ? o.anchoredNode : 'the anchored node.exe of 0.6.55');
@@ -141,10 +144,13 @@ function prepareOpts(c, s, over) {
     freeBytes: () => PLENTY_OF_DISK,
     runStagedNode: (exe) => { c.nodeRuns.push(exe); return NODE_VERSION + '\n'; },
     liveExecutionAllowed: () => true,
+    /* S3's board-task preconditions: a board its logon task started, registered and switched on. */
+    boardTask: TASK_BOARD,
     log: (line) => c.log.push(line),
     ...(over || {}),
   };
 }
+const TASK_BOARD = Object.freeze({ startedByTask: () => true, status: () => ({ registered: true, enabled: true, running: true }) });
 /**
  * Every file and folder under `top` (contents and mtime), except the folders in `skip`. A folder
  * that HOLDS a skipped one (ROOT, which holds WORK) is recorded without its mtime: creating or
@@ -1234,7 +1240,8 @@ test('the lock: a release that cannot read the lock logs the code, and the next 
     return real(p, o);
   }, () => win32update.prepare(prepareOpts(c, site(bundleZip()))));
   assert.equal(r1.ok, true, JSON.stringify(r1));
-  for (const n of [1, 2, 3]) assert.ok(c.log.includes(`could not read the prepare lock to release it (code=EPERM, try ${n} of 3)`), c.log.join('\n'));
+  assert.ok(c.log.includes(`could not read the prepare lock to release it (code=EPERM, after ${win32update.QUICK_HELD_READ_BUDGET.tries} tries)`), c.log.join('\n'));
+  assert.ok(c.log.includes('left the prepare lock behind; the next prepare in this board clears it'), c.log.join('\n'));
   assert.equal(c.log.filter((l) => /prepare lock/.test(l)).some((l) => l.includes(c.work)), false, 'logged by code, not path');
   assert.equal((await win32update.prepare(prepareOpts(c, site(bundleZip())))).ok, true, 'not wedged');
 });
@@ -1471,6 +1478,369 @@ test('a real Kosmos build stages end to end under the real caps, and its real no
     assert.equal(fs.statSync(path.join(r.stagedDir, 'runtime', 'node.exe')).size,
       entries.find((e) => e.name === 'runtime/node.exe').uncompressedSize);
   });
+
+/* ─── S3: B0's new preconditions ──────────────────────────────────────────────────────────── */
+
+const JOURNAL_NAME = 'update-journal.json';
+
+/** An unfinished update journal from 0.6.55 to 0.6.60, in the exact shape B5 writes. */
+function seedUnfinishedJournal(c, phase) {
+  const apply = require('./win32apply');
+  fs.mkdirSync(path.join(c.work, 'staged'), { recursive: true });
+  const j = apply.writeStagedJournal(path.join(c.anchor, JOURNAL_NAME), {
+    root: c.root, anchor: c.anchor, fromVersion: INSTALLED, fromIdentity: `${INSTALLED}@default`,
+    prepared: { version: NEXT, expectedIdentity: `${NEXT}@default`, sha256: 'a'.repeat(64), runtimeChanged: true, stagedDir: path.join(c.work, 'staged') },
+    board: { pid: null, port: 16555 }, now: Date.now(),
+  });
+  if (phase) {
+    j.phase = phase;
+    fs.writeFileSync(path.join(c.anchor, JOURNAL_NAME), JSON.stringify(j));
+  }
+  return j;
+}
+
+test('B0: a Kosmos folder under OneDrive or Program Files is refused with the manual download, behind one switch', T, async () => {
+  assert.equal(win32update.UNUSUAL_LOCATION_POLICY, 'refuse', 'PENDING JOSH: the recommendation is to refuse');
+  for (const key of ['OneDrive', 'OneDriveConsumer', 'OneDriveCommercial', 'ProgramFiles', 'ProgramFiles(x86)', 'ProgramW6432']) {
+    const c = freshCase();
+    const label = key.startsWith('OneDrive') ? 'OneDrive' : 'Program Files';
+    const r = await refusedBeforeStarting(c, new RegExp(`is inside ${label} .*where Kosmos does not update itself\\. Download the new version from updates\\.example\\.test, unpack it over your Kosmos folder, then double-click Kosmos\\.exe`),
+      { env: { ...c.env, [key]: c.dir } });
+    assert.ok(r.because.includes(c.dir));
+    assert.equal(fs.existsSync(c.work), false);
+    assert.equal(win32update.unusualLocationRefusal(c.root, { [key]: c.dir }, BASE, 'allow'), null, 'the switch turns the rule off');
+  }
+  /* The control: the same variables naming somewhere else. */
+  const c = freshCase();
+  const elsewhere = path.join(SANDBOX, 'elsewhere-onedrive');
+  assert.equal((await win32update.prepare(prepareOpts(c, site(bundleZip()), { env: { ...c.env, OneDrive: elsewhere, ProgramFiles: elsewhere } }))).ok, true);
+});
+
+const UNREADABLE_TASK = /^Kosmos could not read its Windows logon job \(Kosmos\\board\), so it did not start the update$/;
+
+test('B0: the board must be its logon task\'s, and the task registered and switched on; checked only after the live gate', T, async () => {
+  const cases = [
+    [{ startedByTask: () => false, status: () => ({ registered: true, enabled: true }) }, /this board was not started by its Windows logon job \(Kosmos\\board\)/],
+    [{ startedByTask: () => true, status: () => ({ registered: false }) }, /there is no Windows logon job for the board \(Kosmos\\board\)/],
+    [{ startedByTask: () => true, status: () => ({ registered: true, enabled: false }) }, /is switched off, so an update could not start Kosmos again/],
+    /* SAFETY 2: a status the reading could not tell never reads as yes. */
+    [{ startedByTask: () => true, status: () => ({ known: false, registered: false }) }, UNREADABLE_TASK],
+    [{ startedByTask: () => true, status: () => ({ registered: true }) }, UNREADABLE_TASK],
+    [{ startedByTask: () => true, status: () => ({ enabled: true }) }, UNREADABLE_TASK],
+    [{ startedByTask: () => true, status: () => ({ registered: 'yes', enabled: true }) }, UNREADABLE_TASK],
+    [{ startedByTask: () => true, status: () => ({ registered: true, enabled: null, running: true }) }, UNREADABLE_TASK],
+  ];
+  for (const [boardTask, pattern] of cases) {
+    const c = freshCase();
+    await refusedBeforeStarting(c, pattern, { boardTask });
+    assert.equal(fs.existsSync(c.work), false, 'refused before the lock');
+  }
+  /* The control: registered and enabled, whatever `running` says, passes B0 (the CLI reads running). */
+  assert.equal((await win32update.prepare(prepareOpts(freshCase(), site(bundleZip()), {
+    boardTask: { startedByTask: () => true, status: () => ({ registered: true, enabled: true, running: null }) },
+  }))).ok, true);
+  /* A process that never armed live execution never asks the scheduler anything. */
+  let asked = 0;
+  const counting = { startedByTask: () => { asked += 1; return true; }, status: () => { asked += 1; return {}; } };
+  await refusedBeforeStarting(freshCase(), /live execution is off/, { liveExecutionAllowed: () => false, boardTask: counting, log: () => {} })
+    .catch(() => {});
+  assert.equal(asked, 0);
+});
+
+test('B0: a test process with no board-task seam throws instead of querying the real scheduler', T, async () => {
+  const c = freshCase();
+  const o = prepareOpts(c, site(bundleZip()));
+  delete o.boardTask;
+  await assert.rejects(win32update.prepare(o), /tried to execute "schtasks \/Query \/TN Kosmos\\board" for real inside a test process/);
+});
+
+test('B0: an unfinished or unreadable update journal is refused in words, before the network', T, async () => {
+  const c1 = freshCase();
+  seedUnfinishedJournal(c1, 'moving-in');
+  await refusedBeforeStarting(c1, /an earlier update to 0\.6\.60 has not finished yet\. Kosmos finishes it, or puts 0\.6\.55 back, the next time its board starts; try again after that/);
+  assert.ok(c1.log.some((line) => /^refused before starting: an earlier update to 0\.6\.60/.test(line)),
+    'refused by B0 itself, before the lock, not only by the second look under it');
+  assert.equal(fs.existsSync(path.join(c1.work, 'prepare.lock')), false);
+  const c2 = freshCase();
+  fs.writeFileSync(path.join(c2.anchor, JOURNAL_NAME), '{ half a journal');
+  const r = await refusedBeforeStarting(c2, /the record of an earlier update \(.*\) is not valid JSON, so the updater cannot tell whether that update finished\. Remove that file by hand/);
+  assert.ok(r.because.includes(path.join(c2.anchor, JOURNAL_NAME)));
+  /* The control: a finished journal is history, not a refusal. */
+  const c3 = freshCase();
+  const j = seedUnfinishedJournal(c3);
+  fs.writeFileSync(path.join(c3.anchor, JOURNAL_NAME), JSON.stringify({ ...j, finished: true, outcome: 'updated' }));
+  fs.rmSync(path.join(c3.work, 'staged'), { recursive: true, force: true });
+  assert.equal((await win32update.prepare(prepareOpts(c3, site(bundleZip())))).ok, true);
+});
+
+test('B0: a journal that appears after the first look is caught under the lock, and that update\'s WORK is left alone', T, async () => {
+  const c = freshCase();
+  fs.mkdirSync(path.join(c.work, 'staged', 'app'), { recursive: true });
+  fs.writeFileSync(path.join(c.work, 'staged', 'app', 'server.js'), 'the other update\'s new build');
+  fs.writeFileSync(path.join(c.work, 'download.part'), 'the other update\'s download');
+  /* The board-task check runs after B0's first look and before the lock: the journal lands there. */
+  const boardTask = { startedByTask: () => true, status: () => { seedUnfinishedJournal(c, 'moving-out'); return { registered: true, enabled: true }; } };
+  const s = site(bundleZip());
+  const r = await win32update.prepare(prepareOpts(c, s, { boardTask }));
+  assert.equal(r.ok, false);
+  assert.match(r.because, /an earlier update to 0\.6\.60 has not finished yet/);
+  assert.deepEqual(s.urls, []);
+  assert.equal(fs.readFileSync(path.join(c.work, 'staged', 'app', 'server.js'), 'utf8'), 'the other update\'s new build');
+  assert.equal(fs.readFileSync(path.join(c.work, 'download.part'), 'utf8'), 'the other update\'s download');
+  assert.equal(fs.existsSync(path.join(c.work, 'prepare.lock')), false, 'the lock is released');
+});
+
+/* ─── S3: B5, begin() ─────────────────────────────────────────────────────────────────────── */
+
+function fakeChild() {
+  const child = { pid: 4242, events: [], unrefd: false };
+  child.on = (event) => { child.events.push(event); return child; };
+  child.unref = () => { child.unrefd = true; };
+  return child;
+}
+
+test('B5: begin stages, writes the journal while the lock is held, then starts the helper detached from the anchor', T, async () => {
+  const c = freshCase();
+  const zip = bundleZip();
+  const journalAt = path.join(c.anchor, JOURNAL_NAME);
+  const lockAt = path.join(c.work, 'prepare.lock');
+  const spawned = [];
+  const child = fakeChild();
+  let lockHeldWhenJournalLanded = null;
+  const realRename = fs.renameSync;
+  fs.renameSync = function spied(from, to) {
+    const out = realRename.apply(this, arguments);
+    if (path.resolve(String(to)) === journalAt) lockHeldWhenJournalLanded = fs.existsSync(lockAt);
+    return out;
+  };
+  let r;
+  try {
+    r = await win32update.begin(prepareOpts(c, site(zip), {
+      port: 16555, boardPid: 777, fromIdentity: `${INSTALLED}@default`,
+      spawn: (file, args, options) => { spawned.push({ file, args, options, journalThere: fs.existsSync(journalAt) }); return child; },
+    }));
+  } finally { fs.renameSync = realRename; }
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.journal, journalAt);
+  assert.equal(r.helperPid, 4242);
+  assert.equal(lockHeldWhenJournalLanded, true, 'the journal is written before prepare() lets go of the lock');
+  const j = readJson(journalAt);
+  assert.equal(j.phase, 'staged');
+  assert.equal(j.finished, false);
+  assert.deepEqual(j.from, { version: INSTALLED, identity: `${INSTALLED}@default` });
+  assert.deepEqual(j.to, { version: NEXT, identity: `${NEXT}+${SOURCE_SHA.slice(0, 12)}@default`, sha256: sha256(zip) });
+  assert.equal(j.runtimeChanged, true);
+  assert.deepEqual(j.board, { pid: 777, port: 16555 });
+  assert.deepEqual(j.pointer, { at: path.join(c.anchor, 'engine-path'), before: path.join(c.root, 'app', 'engine'), after: path.join(c.root, 'app', 'engine') });
+  assert.deepEqual(j.presentBefore, ['runtime', 'app'], 'exactly what the installed folder has');
+  assert.deepEqual(j.stagedEntries, ['runtime', 'bin', 'Kosmos.exe', 'open-board.js', README, 'manifest.json', 'app']);
+  assert.equal(j.previous, path.join(c.work, `previous-${INSTALLED}`));
+  assert.deepEqual(spawned, [{
+    file: path.join(c.anchor, 'node.exe'),
+    args: [path.join(c.root, 'app', 'engine', 'win32update.js'), '--kosmos-update-apply', journalAt],
+    options: { cwd: c.anchor, detached: true, stdio: 'ignore', windowsHide: true },
+    journalThere: true,
+  }]);
+  assert.deepEqual(child.events, ['error'], 'an asynchronous spawn failure is listened for');
+  assert.equal(child.unrefd, true);
+  assert.equal(fs.existsSync(lockAt), false, 'the lock is free for the helper to take');
+});
+
+test('B5: a helper that cannot be started leaves the journal finished as not-started, in words', T, async () => {
+  const c = freshCase();
+  const r = await win32update.begin(prepareOpts(c, site(bundleZip()), {
+    spawn: () => { throw Object.assign(new Error('spawn EACCES'), { code: 'EACCES' }); },
+    applySeams: { log: (line) => c.log.push(line) },
+  }));
+  assert.equal(r.ok, false);
+  assert.match(r.because, /the update helper could not be started \(spawn EACCES\)/);
+  const j = readJson(path.join(c.anchor, JOURNAL_NAME));
+  assert.equal(j.finished, true);
+  assert.equal(j.outcome, 'not-started');
+  const status = readJson(path.join(c.anchor, 'update-status.json'));
+  assert.equal(status.sentence, `The update did not take. Kosmos is still on 0.6.55. If Kosmos does not come back by itself, double-click Kosmos.exe in ${c.root}.`);
+  assert.match(status.because, /could not be started/);
+  assert.equal(fs.existsSync(path.join(c.root, 'bin')), false, 'nothing moved');
+});
+
+test('B5: an earlier unfinished update starts the resume helper from the OLD build, and refuses the new one in words', T, async () => {
+  const c = freshCase();
+  seedUnfinishedJournal(c, 'moving-in');
+  const spawned = [];
+  const s = site(bundleZip());
+  const r = await win32update.begin(prepareOpts(c, s, { spawn: (file, args, options) => { spawned.push({ file, args, options }); return fakeChild(); } }));
+  assert.equal(r.ok, false);
+  assert.match(r.because, /an earlier update to 0\.6\.60 has not finished, so Kosmos is finishing it now, or putting 0\.6\.55 back\. Try again in a minute/);
+  assert.deepEqual(s.urls, [], 'no new download');
+  const journalAt = path.join(c.anchor, JOURNAL_NAME);
+  assert.deepEqual(spawned, [{
+    file: path.join(c.anchor, 'node.exe'),
+    args: [path.join(c.root, 'app', 'engine', 'win32update.js'), '--kosmos-update-recover', journalAt],
+    options: { cwd: c.anchor, detached: true, stdio: 'ignore', windowsHide: true },
+  }]);
+  /* After H3 moved `app`, the old build's code is in previous-<from>, and that one is started. */
+  const previousEngine = path.join(c.work, `previous-${INSTALLED}`, 'app', 'engine');
+  fs.mkdirSync(previousEngine, { recursive: true });
+  fs.writeFileSync(path.join(previousEngine, 'win32apply.js'), '// the old updater, moved');
+  spawned.length = 0;
+  await win32update.begin(prepareOpts(c, s, { spawn: (file, args) => { spawned.push(args[0]); return fakeChild(); } }));
+  assert.deepEqual(spawned, [path.join(previousEngine, 'win32update.js')]);
+  /* And a process that never armed live execution starts nothing. */
+  spawned.length = 0;
+  const off = await win32update.begin(prepareOpts(c, s, { liveExecutionAllowed: () => false, spawn: () => { spawned.push('x'); return fakeChild(); } }))
+    .catch((e) => ({ threw: e.message }));
+  assert.match(off.threw, /tried to execute "begin --root/);
+  assert.deepEqual(spawned, []);
+});
+
+test('B5: a Kosmos too old to carry the helper is refused before anything is downloaded', T, async () => {
+  const c = freshCase();
+  fs.rmSync(path.join(c.root, 'app', 'engine', 'win32apply.js'));
+  const s = site(bundleZip());
+  const r = await win32update.begin(prepareOpts(c, s, { spawn: () => assert.fail('nothing may be started') }));
+  assert.equal(r.ok, false);
+  assert.match(r.because, /is too old to install an update by itself/);
+  assert.deepEqual(s.urls, []);
+});
+
+test('B5: a build that is not newer is refused by begin, and no journal is written', T, async () => {
+  const c = freshCase();
+  const zip = bundleZip({ version: INSTALLED });
+  const r = await win32update.begin(prepareOpts(c, site(zip, { pointer: pointerBody(zip, { version: INSTALLED }) }), { spawn: () => assert.fail('nothing may be started') }));
+  assert.equal(r.ok, false);
+  assert.match(r.because, /there is nothing newer to install/);
+  assert.equal(fs.existsSync(path.join(c.anchor, JOURNAL_NAME)), false);
+});
+
+test('BUG 1: a begin() right after begin() does not cancel the update that is starting', T, async () => {
+  const c = freshCase();
+  const s = site(bundleZip());
+  const spawned = [];
+  const spawn = (file, args) => { spawned.push(args[1]); return fakeChild(); };
+  const first = await win32update.begin(prepareOpts(c, s, { spawn }));
+  assert.equal(first.ok, true, first.because);
+  const journalAt = path.join(c.anchor, JOURNAL_NAME);
+  const written = readJson(journalAt);
+  const again = await win32update.begin(prepareOpts(c, s, { spawn }));
+  assert.equal(again.ok, false);
+  assert.equal(again.because, 'an update to 0.6.60 is starting now. Try again in a minute');
+  assert.deepEqual(spawned, ['--kosmos-update-apply'], 'no resume helper was started against it');
+  assert.deepEqual(readJson(journalAt), written, 'the update that is starting is untouched');
+  /* Past the grace the same journal has no helper coming, and the resume helper is started for it. */
+  const grace = require('./win32apply').STAGED_HELPER_STARTUP_GRACE_MS;
+  const later = await win32update.begin(prepareOpts(c, s, { spawn, now: () => Date.parse(written.createdAt) + grace + 1 }));
+  assert.match(later.because, /has not finished, so Kosmos is finishing it now/);
+  assert.deepEqual(spawned, ['--kosmos-update-apply', '--kosmos-update-recover']);
+});
+
+test('CONVENTION 4 and NIT 5: begin() reads a staged journal\'s age through win32apply.stagedIsYoung, so a createdAt in the future is not young', T, async () => {
+  const c = freshCase();
+  const j = seedUnfinishedJournal(c);
+  fs.writeFileSync(path.join(c.anchor, JOURNAL_NAME), JSON.stringify({ ...j, createdAt: new Date(Date.now() + 60 * 60 * 1000).toISOString() }));
+  const spawned = [];
+  const r = await win32update.begin(prepareOpts(c, site(bundleZip()), { spawn: (file, args) => { spawned.push(args[1]); return fakeChild(); } }));
+  assert.equal(r.ok, false);
+  assert.match(r.because, /has not finished, so Kosmos is finishing it now/, 'a journal dated in the future has no helper starting for it');
+  assert.deepEqual(spawned, ['--kosmos-update-recover']);
+  assert.match(fs.readFileSync(path.join(__dirname, 'win32update.js'), 'utf8'), /apply\.stagedIsYoung\(j, now\)/, 'one reading of the grace rule');
+});
+
+test('BUG 2: begin() clears an earlier update no resumer can finish, in words, and goes on with the new one', T, async () => {
+  const c = freshCase();
+  seedUnfinishedJournal(c, 'moving-in');
+  fs.rmSync(c.work, { recursive: true, force: true });
+  const r = await win32update.begin(prepareOpts(c, site(bundleZip()), { spawn: () => fakeChild(), applySeams: { log: (line) => c.log.push(line) } }));
+  assert.equal(r.ok, true, r.because);
+  assert.ok(c.log.some((line) => /cleared an earlier update no resumer could finish \(abandoned: its working folder .* is gone\)/.test(line)), c.log.join('\n'));
+  assert.equal(readJson(path.join(c.anchor, JOURNAL_NAME)).phase, 'staged', 'the new update\'s own journal');
+  const status = readJson(path.join(c.anchor, 'update-status.json'));
+  assert.equal(status.outcome, 'stuck');
+  assert.match(status.sentence, /Download a fresh copy of Kosmos/);
+});
+
+test('the path guard holds for begin(): WORK and the anchor\'s journal, nothing else', T, async () => {
+  const c = freshCase();
+  const before = snapshot(SANDBOX, [c.work, c.anchor]);
+  let r;
+  const written = await recordWrites(async () => { r = await win32update.begin(prepareOpts(c, site(bundleZip()), { spawn: () => fakeChild() })); });
+  assert.equal(r.ok, true, r.because);
+  const journalAt = path.join(c.anchor, JOURNAL_NAME);
+  assert.ok(written.length > 10, 'the control: the writes were recorded');
+  assert.ok(written.includes(journalAt), 'the control: the journal is among them');
+  assert.deepEqual(written.filter((p) => !under(p, c.work) && !(path.dirname(p) === c.anchor && path.basename(p).startsWith(JOURNAL_NAME))), []);
+  assert.deepEqual(snapshot(SANDBOX, [c.work, c.anchor]), before);
+});
+
+/* ─── S3: the --apply CLI ─────────────────────────────────────────────────────────────────── */
+
+test('the --apply CLI is a dry run without --yes, and writes nothing', T, () => {
+  const c = freshCase();
+  const env = { ...process.env, AGENT_WORKFORCE_DATA: c.env.AGENT_WORKFORCE_DATA };
+  const dry = cp.spawnSync(process.execPath, [CLI, '--apply', '--root', c.root, '--base', BASE, '--port', '16555'], { encoding: 'utf8', env });
+  assert.equal(dry.status, 2, dry.stderr);
+  const said = JSON.parse(dry.stdout);
+  assert.equal(said.dryRun, true);
+  assert.equal(said.action, 'apply');
+  assert.equal(said.port, 16555);
+  assert.equal(said.journal, path.join(c.anchor, JOURNAL_NAME));
+  assert.match(said.because, /^nothing was changed: add --yes/);
+  assert.equal(fs.existsSync(c.work), false);
+  assert.equal(fs.existsSync(path.join(c.anchor, JOURNAL_NAME)), false);
+  for (const bad of [['--apply'], ['--apply', '--root', c.root, '--port', 'abc'], ['--apply', '--root', c.root, '--board-pid', '-3'], ['--apply', '--prepare', '--root', c.root]]) {
+    const usage = cp.spawnSync(process.execPath, [CLI, ...bad], { encoding: 'utf8', env });
+    assert.equal(usage.status, 64, bad.join(' '));
+    assert.match(usage.stdout, /--apply --root <folder>/);
+  }
+});
+
+test('the --apply CLI with --yes reads "started by its task" from the board\'s own header, with the port answering as this folder', T, async () => {
+  const c = freshCase();
+  const zip = bundleZip();
+  const out = [];
+  const seams = (identity, startedByTask) => ({
+    probe: async () => ({ answering: true, identity, startedByTask }),
+    /* #2986: Task Scheduler's running is true or null (null whenever it cannot be told), so the CLI
+       does not ask it; the stub says null, as a real read on a German Windows would. */
+    boardStatus: () => ({ known: true, registered: true, enabled: true, running: null }),
+    begin: { platform: 'win32', arch: ARCH, env: c.env, fetch: site(zip).fetch, freeBytes: () => PLENTY_OF_DISK,
+      runStagedNode: () => NODE_VERSION, log: () => {}, spawn: () => fakeChild() },
+  });
+  const argv = ['--apply', '--root', c.root, '--base', BASE, '--port', '16555', '--world', 'default', '--yes'];
+  assert.equal(await win32update.cliMain(argv, (s) => out.push(s), seams('0.6.1@default', true)), 1, 'another build answers');
+  assert.match(out.join(''), /this board was not started by its Windows logon job/);
+  /* The header's own answers: only an exact yes counts. */
+  for (const startedByTask of [false, null, undefined, 'yes', 1]) {
+    out.length = 0;
+    assert.equal(await win32update.cliMain(argv, (s) => out.push(s), seams(`${INSTALLED}@default`, startedByTask)), 1, `startedByTask: ${startedByTask}`);
+    assert.match(out.join(''), /this board was not started by its Windows logon job/, `startedByTask: ${startedByTask}`);
+  }
+  out.length = 0;
+  assert.equal(await win32update.cliMain(argv, (s) => out.push(s), seams(`${INSTALLED}@default`, true)), 0, out.join(''));
+  assert.equal(JSON.parse(out.join('')).journal, path.join(c.anchor, JOURNAL_NAME));
+});
+
+test('--apply --wait reports the outcome the helper records for this journal, and gives up in words', T, async () => {
+  const c = freshCase();
+  const j = seedUnfinishedJournal(c);
+  const journalAt = path.join(c.anchor, JOURNAL_NAME);
+  const statusAt = path.join(c.anchor, 'update-status.json');
+  let clock = 0;
+  const wait = { now: () => clock, sleep: async (ms) => { clock += ms; if (clock === 3000) fs.writeFileSync(statusAt, JSON.stringify({ outcome: 'updated', journal: j.token })); }, waitMs: 60000 };
+  fs.writeFileSync(statusAt, JSON.stringify({ outcome: 'rolled-back', journal: 'an older update' }));
+  assert.deepEqual(await win32update.waitForOutcome(journalAt, j.token, wait), { outcome: 'updated', journal: j.token });
+  clock = 0;
+  fs.rmSync(statusAt);
+  const gaveUp = await win32update.waitForOutcome(journalAt, 'another token', { ...wait, sleep: async (ms) => { clock += ms; } });
+  assert.equal(gaveUp.outcome, null);
+  assert.match(gaveUp.because, /no outcome was recorded within 60 seconds/);
+});
+
+test('DEFAULT_BOARD_PORT is server.js\'s own default port', T, () => {
+  const src = fs.readFileSync(path.join(REPO, 'server.js'), 'utf8');
+  const m = /const PORT = Number\(process\.env\.PORT \|\| (\d+)\);/.exec(src);
+  assert.ok(m, 'server.js no longer derives its port in the shape this pin reads');
+  assert.equal(win32update.DEFAULT_BOARD_PORT, Number(m[1]));
+});
 
 /* ─── the world in the expected identity (these run last: the second boots a world) ───────── */
 

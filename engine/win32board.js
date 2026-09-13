@@ -160,17 +160,63 @@ const BOOT_JS = [
   '   app\'s server.js, so an app that moved does not strand a registered task. */',
   "const fs = require('node:fs');",
   "const path = require('node:path');",
+  '/* An update that did not finish (engine/win32apply.js) is recovered FIRST, by the OLD build\'s',
+  '   copy of the updater, which is always whole in one of the places its journal names (a crash',
+  '   can leave the app folder empty). It puts the old app back, or finishes an update already',
+  '   confirmed, before the pointer is read. With no journal this is one existsSync; with the',
+  '   finished record an earlier update left, a read of a few kilobytes and a parse. Nothing is',
+  '   loaded unless the journal is unfinished. A failure is reported and the boot goes on. */',
+  'const journal = path.join(__dirname, ' + JSON.stringify(win32anchor.UPDATE_JOURNAL_NAME) + ');',
+  '/* A recovery left stuck names the whole OLD app to start instead of the new, unconfirmed one',
+  '   (its interpreter is already back), until the update can be put back. */',
+  'let bootFrom = null;',
+  '/* The journal is read as the updater reads it (win32update.tryRetryingHolds, within',
+  '   win32apply.OWNER_READ_BUDGET): a scanner holding it for a moment does not skip the recovery. */',
+  "const HELD_CODES = ['EBUSY', 'EPERM', 'EACCES', 'EIO'];",
+  'function readHeld(file) {',
+  '  for (let tries = 1; ; tries += 1) {',
+  "    try { return fs.readFileSync(file, 'utf8'); } catch (e) {",
+  '      if (!e || !HELD_CODES.includes(e.code) || tries >= 31) throw e;',
+  '      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);',
+  '    }',
+  '  }',
+  '}',
+  'if (fs.existsSync(journal)) {',
+  '  try {',
+  '    const record = JSON.parse(readHeld(journal));',
+  '    if (record && !record.finished) {',
+  '      const places = Array.isArray(record.recoverFrom) ? record.recoverFrom : [];',
+  "      const recoverer = places.find((f) => typeof f === 'string' && path.basename(f) === 'win32apply.js' && fs.existsSync(f));",
+  '      if (!recoverer) {',
+  "        process.stderr.write('kosmos: an update that did not finish cannot be recovered at start: none of its recovery files exist (' + places.join(', ') + ')\\n');",
+  '      } else {',
+  '        const outcome = require(recoverer).recoverAtBoot(journal) || {};',
+  "        if (['held', 'stuck', 'unreadable', 'unreachable', 'taken-over'].includes(outcome.action)) {",
+  "          process.stderr.write('kosmos: an update that did not finish was not recovered at start (' + outcome.action + (outcome.because ? ': ' + outcome.because : '') + ')\\n');",
+  '        }',
+  "        if ((outcome.action === 'stuck' || outcome.action === 'held') && typeof outcome.bootFrom === 'string' && fs.existsSync(outcome.bootFrom)) {",
+  '          bootFrom = outcome.bootFrom;',
+  "          process.stderr.write('kosmos: starting the previous version from ' + path.dirname(bootFrom) + ' until the update can be put back\\n');",
+  "        } else if (outcome.action === 'stuck' || outcome.bootFromWhyNot) {",
+  "          process.stderr.write('kosmos: the previous version cannot be started instead (' + (outcome.bootFromWhyNot || 'no detail') + '), so the app in the Kosmos folder starts\\n');",
+  '        }',
+  '      }',
+  '    }',
+  '  } catch (e) {',
+  "    process.stderr.write('kosmos: an update that did not finish could not be recovered (' + ((e && e.message) || e) + ')\\n');",
+  '  }',
+  '}',
   'const pointer = path.join(__dirname, ' + JSON.stringify(win32anchor.POINTER_NAME) + ');',
   "let engine = '';",
   "try { engine = String(fs.readFileSync(pointer, 'utf8')).trim(); } catch {}",
-  'if (!engine) {',
+  'if (!engine && !bootFrom) {',
   "  process.stderr.write('kosmos: no engine pointer beside ' + __dirname + '\\n');",
   '  process.exit(3);',
   '}',
   '/* The pointer names the ENGINE directory; the board is its sibling. True of both',
   '   layouts this ships in: <extract>/app/engine -> <extract>/app/server.js, and a',
   '   source checkout <repo>/engine -> <repo>/server.js. */',
-  "const entry = path.join(engine, '..', 'server.js');",
+  "const entry = bootFrom || path.join(engine, '..', 'server.js');",
   'if (!fs.existsSync(entry)) {',
   "  process.stderr.write('kosmos: the app this board was registered against is gone (' + entry + ')\\n');",
   '  process.exit(3);',
@@ -294,8 +340,22 @@ function bundleRoot(opts) {
   /* `__dirname` is <root>/app/engine in the bundle, so the root is two up. */
   const root = o.root || path.resolve(__dirname, '..', '..');
   const exists = o.exists || ((f) => fs.existsSync(f));
+  /* A build inside the updater's folder (the logon shim's fallback while a rollback is stuck) is not
+     the install, so nothing registers or anchors from it. See win32anchor.bundleIsInUpdateWork. */
+  if (win32anchor.bundleIsInUpdateWork(root, p)) return null;
   if (exists(p.join(root, 'runtime', 'node.exe')) && exists(p.join(root, 'app', 'server.js'))) return root;
   return null;
+}
+
+/**
+ * Is THIS board (or the bundle `opts.root` names) running from inside the updater's folder, the
+ * logon shim's fallback while a rollback is stuck? bundleRoot answers null there, and so it does for
+ * a source checkout; the screens that must not call such a board "from source" (describe, and
+ * machine.js's Kosmos-folder row and reveal) ask this.
+ */
+function runningFromUpdateWork(opts) {
+  const o = opts || {};
+  return win32anchor.bundleIsInUpdateWork(o.root || path.resolve(__dirname, '..', '..'), path.win32);
 }
 
 /* 🛑 #2628: THE BOARD'S MACHINE PATHS COME FROM THE ENVIRONMENT IT WAS LAUNCHED
@@ -800,6 +860,9 @@ function describe(opts) {
   const o = opts || {};
   const platform = o.platform || process.platform;
   if (platform !== 'win32') return null;
+  /* A board running from inside the updater's folder is neither "from source" nor the install's own:
+     null, which machine.js renders as "we could not check". */
+  if (runningFromUpdateWork(o)) return null;
   const bundle = bundleRoot(o);
   const st = status();
   /* #2973: a bundle whose job we could not read is not "missing" or "switched off".
@@ -822,7 +885,7 @@ function describe(opts) {
 
 module.exports = {
   TASK_NAME, MARKER_ENV, BOOT_NAME, BOOT_JS, CLAIM_NAME, REMOVE_HINT, HELPER_FLAG, SCHTASKS_TIMEOUT_MS,
-  taskExec, taskXml, bundleRoot, install, ensureInstalled, status, describe,
+  taskExec, taskXml, bundleRoot, runningFromUpdateWork, install, ensureInstalled, status, describe,
   disable, enable, end, runNow, remove, restart, startedByTask,
   claimed, claim, restartHelperMain, pidGone,
   setRunner, setAnchorer, setSpawner,

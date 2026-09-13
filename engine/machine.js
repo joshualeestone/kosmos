@@ -1098,10 +1098,20 @@ function windowsKosmosFolder(opts) {
   return require('./win32board').bundleRoot({ platform: 'win32' });
 }
 
+/* win32-update-apply: is this board running from inside the updater's folder (the logon shim's
+   fallback while an update is being put back)? bundleRoot is null there as it is for a source
+   checkout, and such a board must not be told it runs "from source". `opts.bundleInUpdateWork` is
+   the seam; production asks win32board, the same answer describe() gives. */
+function windowsBundleInUpdateWork(opts) {
+  if (opts && 'bundleInUpdateWork' in opts) return Boolean(opts.bundleInUpdateWork);
+  return require('./win32board').runningFromUpdateWork();
+}
+
 function win32AppLocationCheck(opts) {
   let root;
   try {
     root = windowsKosmosFolder(opts);
+    if (!root && windowsBundleInUpdateWork(opts)) return appLocationUnknown('win32');
   } catch {
     return appLocationUnknown('win32');
   }
@@ -1119,6 +1129,9 @@ function win32AppLocationCheck(opts) {
 function revealApp(opts) {
   if (platformOf(opts) === 'win32') {
     const root = windowsKosmosFolder(opts);
+    if (!root && windowsBundleInUpdateWork(opts)) {
+      throw new Error('Kosmos is running from a copy the updater is holding while it puts an update back, so there is no Kosmos folder to show just now');
+    }
     if (!root) throw new Error('this Kosmos is running from source, so there is no Kosmos folder to show');
     const opened = win32explorer.openFolder(root);
     if (!opened.ok) throw new Error('we could not open your Kosmos folder: ' + opened.because);
