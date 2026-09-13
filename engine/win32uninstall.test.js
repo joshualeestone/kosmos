@@ -326,6 +326,7 @@ test('🛑 round 2 finding 7: every file that would not delete is named, the fol
     assert.ok(sentence, JSON.stringify(r.left));
     assert.ok(sentence.includes(path.join(s.dataDir, 'aaa')) && sentence.includes(path.join(s.dataDir, 'bbb')), 'a later leftover was hidden behind the first: ' + sentence);
     assert.ok(!fs.existsSync(path.join(s.dataDir, 'worlds', 'zz', 'Kosmos')), 'a folder after the first failure was not tidied');
+    assert.ok(!fs.existsSync(path.join(s.dataDir, 'worlds', 'zz')), 'a folder above a later, successful delete was left behind, unnamed, after an earlier failure');
     assert.ok(!fs.existsSync(path.join(s.dataDir, 'chats')));
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 

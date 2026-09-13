@@ -397,10 +397,12 @@ function anchorBundle(opts) {
   const root = bundleRoot(o);
   if (!root || !isKosmosBuildRoot(root, o)) return { ok: true, action: 'skipped' };
   /* Round 2, finding 1: the real anchorer rewrites %LOCALAPPDATA%\Kosmos, so it is never reached
-     from a test process (engine/win32relocate.js anchorTo's rule) and only once production armed
-     live execution (server.js arms it before ensureInstalled runs). An injected anchorer is a seam. */
+     from a test (engine/win32relocate.js anchorTo's rule), and only once production armed live
+     execution (server.js arms it before ensureInstalled runs). An injected anchorer is a seam.
+     "Is this a test" is win32job's ONE answer (#2973: this file keeps no second copy of the rule),
+     which also covers a board a test spawned. */
   if (!anchorFn) {
-    if (liveExec.inTestProcess()) {
+    if (!win32job.schtasksMayRunInThisProcess()) {
       throw new Error('win32board.anchorBundle: a test must install an anchorer (setAnchorer); the real one rewrites %LOCALAPPDATA%\\Kosmos');
     }
     if (!liveExec.liveExecutionAllowed()) {

@@ -117,7 +117,10 @@ test('🛑 round 2 finding 1: outside a test, the real anchor needs live executi
         node: path.join(b.root, 'runtime', 'node.exe'), engineDir: path.join(b.root, 'app', 'engine') }) + ');',
       'process.stdout.write(JSON.stringify(r));',
     ].join('\n');
-    const r = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', windowsHide: true, timeout: 60000 });
+    /* Not a test process, and not a child one either: the first guard is proven above, this arm is the second. */
+    const env = { ...process.env };
+    delete env.NODE_TEST_CONTEXT;
+    const r = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', windowsHide: true, timeout: 60000, env });
     assert.equal(r.status, 0, r.stderr);
     const said = JSON.parse(r.stdout);
     assert.equal(said.action, 'refused', 'a process that never armed live execution anchored: ' + r.stdout);
