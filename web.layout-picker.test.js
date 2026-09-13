@@ -114,8 +114,9 @@ test('the consolidated CSS re-lays the board list and the projects panel; it hid
 });
 
 // #2618: the "no em dash in what a person reads" test anchored on id="layout-field"
-// (the removed in-tab picker), so it now tests nothing. Removed rather than left as a
-// vacuous green; em-dash coverage for the page lives in the fleet em-dash sweep.
+// (the removed in-tab picker), so after the removal its slice was empty (PAGE.indexOf
+// returns -1) and it tested nothing -- a vacuous green. Removed rather than left in
+// place; no live coverage is lost, because the region it checked no longer exists.
 
 test('piece two: the rail heads exist once, hidden until the mode, with a + on the board\'s own actions and a fold per rail', () => {
   assert.equal((PAGE.match(/id="rail-agents"/g) || []).length, 1);
