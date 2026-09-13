@@ -2108,7 +2108,6 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 .uhrow .uh-d { font-weight: 600; color: var(--k-ink); }
 .uhrow .uh-m { color: var(--k-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .uhrow .uh-n { text-align: right; font-variant-numeric: tabular-nums; color: var(--k-ink-2); }
-.uhrow .uh-stub { font-style: italic; }
 .dstack { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 14px; }
 .dstack > .dbox { align-self: stretch; }
 /* The agent page's left nav (Mona Lisa's agent-page mock, 2026-08-22). A
@@ -12319,14 +12318,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <!-- #2840 (Mona's 0.6.57 token-value design): the scrollable usage-history
            list, above the estimate note. Newest day+model first, fixed-height
            scroll. Day / Model / Total tokens / Value.
-           🛑 THE VALUE COLUMN IS STUBBED (renders "pending", never a live $)
-           pending Josh's ruling on the blend-vs-output headline: the design
-           derives Value from a BLENDED total of all four classes, which #2617
-           deliberately refused (cache_read ~440x output). The real math drops in
-           at usageHistoryHtml once he decides. See .claude/plans/token-value-2840.md. -->
+           The Value column is the BLENDED per-row dollar figure the approved
+           /design/token-value derives (all four classes summed, valued at a blended
+           knowledge-work rate). Josh RULED to keep this blend (the design's ~$135M
+           headline); usageRowValue computes it. Note: this is the only blended figure
+           surfaced -- the design's blended "total tokens" hero stays OUT, because a
+           single blended token total is what #2617 refused (cache_read ~440x output). -->
       <div class="usage-hist">
         <h4>Usage history</h4>
-        <p class="dhint">Your most recent days, newest first. It scrolls when the history runs long. Value is pending a pricing decision.</p>
+        <p class="dhint">Your most recent days, newest first. It scrolls when the history runs long. Value estimates the human work each day represents.</p>
         <!-- tabindex="0" so a keyboard-only user can reach and scroll this fixed-height
              region: it has no focusable descendant (pure text rows), so without it the
              scroll is mouse-only. Same rule + reason as .pj-screen (WCAG 2.1 SC 2.1.1;
@@ -24268,19 +24268,41 @@ function usageAbbr(n) {
   if (v >= 1e3) return (v / 1e3).toFixed(0) + 'K';
   return String(v);
 }
-/* 🛑 THE VALUE COLUMN STUB (#2840). The design derives a per-row dollar Value from a
-   BLENDED total of all four token classes; #2617 deliberately refused to blend
-   (cache_read ~440x output, so a blended figure is ~440x too large, and its money box
-   is output-only "so a large number is never turned into a large dollar amount it did
-   not earn"). Blend-vs-output is a Josh call on his #1 demo headline, unsettled as this
-   ships. So Value renders a visible "pending", never a live number. Replace this with
-   the real per-row math once Josh rules (and pin it in the node test then). */
-const USAGE_VALUE_STUB = '<span class="uh-stub" title="Value is pending a pricing decision (kosmos#2840)">pending</span>';
+/* THE VALUE COLUMN (#2840), now LIVE. The per-row Value is the BLENDED dollar figure
+   the approved /design/token-value derives: the row's own 4-class token total valued at
+   a blended knowledge-work rate. Blend-vs-output was a Josh call on his #1 demo headline;
+   he RULED to KEEP THE BLENDED number (the design's ~$135M "Approximate Human Cost"), so
+   the earlier "pending" stub is retired here. Scope note: this is the ONLY blended figure
+   added. The design's blended "150B Total Tokens" hero is deliberately NOT brought in,
+   because a single blended token total is exactly what Josh's #2617 overrule refused
+   (cache_read ~440x output); the four classes stay shown separately and in full above,
+   and the output-only money box keeps its own named basis. The two constants below are the
+   design's and belong to a person, not the engine (like USAGE_RATE_PER_HOUR): 100,000
+   tokens ~ one hour of focused knowledge work (the METR framing), valued at a blended
+   $90/hr across roles. Kept together so a rate change is one edit. Pure + node-tested. */
+const USAGE_VALUE_TOKENS_PER_HOUR = 100000;
+const USAGE_VALUE_BLENDED_RATE = 90;
+/* Dollar formatter matching the approved design's usd(): $X.XXB / $XM / $N,NNN / $N.
+   Reuses usageNum for the thousands-separated middle band so one number format drives
+   the page. Pure. */
+function usageUsd(n) {
+  const v = Number(n) || 0;
+  if (v >= 1e9) return '$' + (v / 1e9).toFixed(2) + 'B';
+  if (v >= 1e6) return '$' + (v / 1e6).toFixed(0) + 'M';
+  if (v >= 1e3) return '$' + usageNum(Math.round(v));
+  return '$' + v.toFixed(v < 10 ? 2 : 0);
+}
+/* The per-row blended dollar Value: the row's 4-class token total, valued at the
+   design's blended rate. Pure. */
+function usageRowValue(total) {
+  return usageUsd((Number(total) || 0) / USAGE_VALUE_TOKENS_PER_HOUR * USAGE_VALUE_BLENDED_RATE);
+}
 /* #2840: the scrollable usage-history list -- one row per day+model, newest first,
    matching Mona's 0.6.57 token-value design. Day / Model / Total tokens / Value.
    Total is the row's own 4-class sum (a labeled per-row breakdown, not the single
-   blended HEADLINE #2617 rejects); Value is stubbed (see USAGE_VALUE_STUB). Pure so
-   the node test can lift it out and run it against a fixture, like its siblings. */
+   blended HEADLINE #2617 rejects); Value is the blended per-row dollar figure
+   (usageRowValue, Josh's blend ruling). Pure so the node test can lift it out and
+   run it against a fixture, like its siblings. */
 function usageHistoryHtml(byDay) {
   const days = Object.keys(byDay || {}).sort().reverse();
   const rows = [];
@@ -24293,7 +24315,7 @@ function usageHistoryHtml(byDay) {
       rows.push('<div class="uhrow"><div class="uh-d">' + esc(day) + '</div>'
         + '<div class="uh-m">' + esc(model) + '</div>'
         + '<div class="uh-n" title="' + usageNum(total) + '">' + esc(usageAbbr(total)) + '</div>'
-        + '<div class="uh-n">' + USAGE_VALUE_STUB + '</div></div>');
+        + '<div class="uh-n">' + usageRowValue(total) + '</div></div>');
     }
   }
   if (!rows.length) return '';
