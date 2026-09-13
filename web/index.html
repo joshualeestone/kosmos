@@ -2727,8 +2727,15 @@ body.consolidated .pj-anc { justify-content: flex-start; }
 .pj-back { background: none; border: 0; padding: 2px; color: var(--k-ink-2); cursor: pointer;
            display: inline-flex; flex: none; border-radius: 6px; }
 .pj-back:hover { background: var(--k-sunk); color: var(--k-ink); }
-.pj-crumb { font-size: .8125rem; color: var(--k-ink-2); min-width: 0; overflow: hidden;
-            text-overflow: ellipsis; white-space: nowrap; }
+/* #2928: the current project (the "you are here" end) is a protected crumb that
+   truncates only as a last resort; the ancestor lead absorbs the shrink first (a
+   high flex-shrink), so a deep chain or a long name never cuts off the current name
+   and leaves only the least-useful root. A plain single-ellipsis container did the
+   opposite -- end-truncation ate the current name and kept the root. A screen reader
+   still hears the whole chain via the vh names beside each separator. */
+.pj-crumb { display: flex; align-items: baseline; min-width: 0; font-size: .8125rem; color: var(--k-ink-2); }
+.pj-crumb-lead { min-width: 0; flex: 0 999 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-crumb-cur { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pj-crumb .pj-crumb-sep { opacity: .55; }
 .pj-subs { margin: 4px 0 8px; }
 .pj-subs .dlab { margin: 0 0 8px; }
@@ -10634,7 +10641,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              paintOneProject via pjAncestry, the same chain the cards use. -->
         <div class="pj-crumbrow">
           <button class="pj-back" id="pj-back" type="button" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
-          <nav class="pj-crumb" id="pj-crumb" aria-label="Project location"></nav>
+          <p class="pj-crumb" id="pj-crumb"></p>
         </div>
         <div class="pjtitle-row">
           <h2 class="dname" id="pj-one-name"></h2>
@@ -36969,12 +36976,31 @@ function paintOneProject() {
   const crumbEl = document.getElementById('pj-crumb');
   if (crumbEl) {
     const chain = pjAncestry(p).concat([p.name]);
+    const cur = chain[chain.length - 1];
+    const anc = chain.slice(0, -1);
     /* The visible " / " is aria-hidden, so a vh comma rides alongside it to give a
        screen reader an announced separation ("Kosmos, App, Mobile") rather than one
        unbroken run -- the same pairing the card ancestry chain uses (search
        pj-anc-sep). */
     const sep = '<span class="pj-crumb-sep" aria-hidden="true"> / </span><span class="vh">, </span>';
-    crumbEl.innerHTML = chain.map((n) => esc(n)).join(sep);
+    /* #2928: the current project is its own protected crumb (.pj-crumb-cur); the
+       ancestor lead (.pj-crumb-lead) carries the ellipsis and shrinks first, so the
+       "you are here" name is never the piece CSS truncates away. A top-level project
+       has no lead -- just the single current crumb. */
+    if (anc.length) {
+      crumbEl.innerHTML = '<span class="pj-crumb-lead">' + anc.map((n) => esc(n)).join(sep) + sep + '</span>'
+        + '<span class="pj-crumb-cur">' + esc(cur) + '</span>';
+    } else {
+      crumbEl.innerHTML = '<span class="pj-crumb-cur">' + esc(cur) + '</span>';
+    }
+  }
+  /* #2928: name the back chevron's live target so a screen-reader user hears where it
+     goes ("Back to Kosmos" / "Back to all projects"), not a bare "Back". Set here from
+     the then-current project; the click handler recomputes the target independently. */
+  const backEl = document.getElementById('pj-back');
+  if (backEl) {
+    const backParent = p.parent && pjById(p.parent);
+    backEl.setAttribute('aria-label', backParent ? ('Back to ' + backParent.name) : 'Back to all projects');
   }
   const subsEl = document.getElementById('pj-one-subprojects');
   if (subsEl) {

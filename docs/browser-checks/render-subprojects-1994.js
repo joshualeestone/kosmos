@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: pj-parent pjsub pj-one-subprojects pj-crumb pj-back
+// Browser-check-surface: pj-parent pjsub pj-one-subprojects pj-crumb pj-back pj-crumb-cur pj-crumb-lead
 // (#2518) the distinctive web/index.html tokens this check asserts (the ancestry/parent
 // chip + the sub-projects line + the detail/consolidated sub-projects strip); a change to
 // them must update this check at PR time. #2487 changed pj-parent to a full ancestry line
@@ -164,6 +164,11 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         const back = document.getElementById('pj-back');
         const subs = document.getElementById('pj-one-subprojects');
         out.crumbText = crumb ? crumb.textContent : null; out.hasBack = !!back;
+        // #2928: the current project is a protected crumb (.pj-crumb-cur) so CSS
+        // truncation eats the ancestor lead (.pj-crumb-lead), never the "you are
+        // here" name. Capture both to assert the structure, not just the joined text.
+        out.crumbCur = crumb ? (crumb.querySelector('.pj-crumb-cur') || {}).textContent || null : null;
+        out.crumbLead = crumb ? (crumb.querySelector('.pj-crumb-lead') || {}).textContent || null : null;
         out.subsHidden = subs.hidden; out.subKid = !!subs.querySelector('.pj-subrow[data-project="gc"]');
         // #2487: the row must actually OPEN on click. It lives in #pj-one-view, a
         // sibling of #pj-list, so the list delegate does not cover it -- this proves
@@ -174,7 +179,10 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         // #2487 hidden branches (both empty states, like the Map check): a top-level
         // project hides the parent trail; a leaf hides the sub-projects section.
         PJ_CURRENT = 'k'; paintOneProject();
-        out.topCrumbText = (document.getElementById('pj-crumb') || {}).textContent;
+        const topCrumbEl = document.getElementById('pj-crumb');
+        out.topCrumbText = topCrumbEl ? topCrumbEl.textContent : null;
+        out.topCrumbCur = topCrumbEl ? ((topCrumbEl.querySelector('.pj-crumb-cur') || {}).textContent || null) : null;
+        out.topHasLead = topCrumbEl ? !!topCrumbEl.querySelector('.pj-crumb-lead') : null;
         PJ_CURRENT = 'gc'; paintOneProject();   // gc is a leaf (no children)
         out.leafSubsHidden = document.getElementById('pj-one-subprojects').hidden;
         // #2928: the back chevron NAVIGATES, it is not just present. A subproject
@@ -214,6 +222,12 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // a garbled or reversed concatenation ("Mobile ... App ... Kosmos") would pass a
     // bare substring check but is the dangerous answer this asserts against.
     ok(t + ' detail: breadcrumb reads root-to-current in order', anc.detailErr === null && (anc.crumbText || '').indexOf('Kosmos') < (anc.crumbText || '').indexOf('App') && (anc.crumbText || '').indexOf('App') < (anc.crumbText || '').indexOf('Mobile'), JSON.stringify({ txt: anc.crumbText }));
+    // #2928: the current project is its OWN protected crumb (.pj-crumb-cur) and the
+    // ancestors sit in .pj-crumb-lead, which carries the ellipsis and shrinks first.
+    // A single-ellipsis container truncated the tail -- i.e. the current name, the one
+    // piece a "you are here" breadcrumb exists to show -- so this asserts the structure
+    // that protects it, not merely the joined text.
+    ok(t + ' #2928 detail: current project is a protected crumb, ancestors in the lead', anc.detailErr === null && anc.crumbCur === 'Mobile' && /Kosmos/.test(anc.crumbLead || '') && /App/.test(anc.crumbLead || ''), JSON.stringify({ cur: anc.crumbCur, lead: anc.crumbLead }));
     // #2928: clicking the back chevron NAVIGATES (the card's core behavior), not
     // merely renders. A subproject goes UP to its parent; a top-level goes to the list.
     ok(t + ' #2928 back: clicking the chevron on a subproject opens its parent', anc.detailErr === null && anc.backSubCurrent === 'app' && anc.backSubView === 'one', JSON.stringify({ err: anc.detailErr, cur: anc.backSubCurrent, view: anc.backSubView }));
@@ -221,6 +235,9 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' detail: sub-projects section lists a direct child', anc.detailErr === null && anc.subsHidden === false && anc.subKid === true, JSON.stringify({ err: anc.detailErr, h: anc.subsHidden, kid: anc.subKid }));
     ok(t + ' detail: a sub-project row OPENS on click (its own delegate, not the list’s)', anc.detailErr === null && anc.opened === true, JSON.stringify({ err: anc.detailErr, opened: anc.opened }));
     ok(t + ' detail: a top-level project shows just its own name as the single crumb (no ancestor separators)', anc.detailErr === null && /Kosmos/.test(anc.topCrumbText || '') && !/\//.test(anc.topCrumbText || ''), JSON.stringify({ err: anc.detailErr, txt: anc.topCrumbText }));
+    // #2928: and that single crumb is the protected current crumb, with NO ancestor
+    // lead element at all (a top-level project has no ancestors to truncate).
+    ok(t + ' #2928 detail: a top-level project is a single protected crumb with no lead', anc.detailErr === null && anc.topCrumbCur === 'Kosmos' && anc.topHasLead === false, JSON.stringify({ cur: anc.topCrumbCur, hasLead: anc.topHasLead }));
     ok(t + ' detail: a leaf project hides the sub-projects section', anc.detailErr === null && anc.leafSubsHidden === true, JSON.stringify({ err: anc.detailErr, leafSubsHidden: anc.leafSubsHidden }));
     // #2487: the card chain gets a vh "In " lead-in so a screen reader frames the
     // names as ancestry rather than a run of unlabelled text after the card title.
