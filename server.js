@@ -4520,7 +4520,11 @@ const server = http.createServer((req, res) => {
            clamped to MAX_TEAM_CAP by resolveCap. Passed to BOTH this pre-check
            resolveCap and createTeam below so the effective cap never drifts. */
         let capDeps;
-        if (callerKind === 'operator' && body.cap !== undefined && body.cap !== null) {
+        // Accept only a number or a numeric string, so a nonsense JSON shape is
+        // rejected rather than silently coerced (Number(true)===1, Number([30])===30
+        // both pass Number.isInteger). Operator-path-only and clamped to
+        // MAX_TEAM_CAP regardless, so this is robustness, not a security boundary.
+        if (callerKind === 'operator' && (typeof body.cap === 'number' || typeof body.cap === 'string')) {
           const requested = Number(body.cap);
           if (Number.isInteger(requested) && requested > 0) capDeps = { cap: requested };
         }
