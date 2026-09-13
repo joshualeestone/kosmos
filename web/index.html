@@ -44801,7 +44801,7 @@ document.getElementById('fr-openai-sub-go').addEventListener('click', async (e) 
     });
     const out = await res.json().catch(() => null);
     if (!res.ok || !out || !out.sessionId) {
-      throw new Error((out && (out.error || out.because)) || 'we could not start that sign-in');
+      throw new Error((out && (out.error || out.because)) || 'We could not start that sign-in.');
     }
     ACCT_OPENAI_SUB_SESSION = out.sessionId;
     frOpenaiSubShowStart(out);
@@ -44861,7 +44861,7 @@ document.getElementById('fr-openai-confirm-go').addEventListener('click', async 
   try {
     const res = await fetch('/api/runners/openai/install', { method: 'POST' });
     const out = await res.json().catch(() => null);
-    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'we could not start that install');
+    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'We could not start that install.');
     if (msg) msg.textContent = 'Installing\u2026 this screen will move on when it is done.';
     /* Rough on purpose, and said out loud: this polls for the runner rather
        than following the install job's own phases the way Settings does. It
@@ -44981,7 +44981,7 @@ document.getElementById('fr-openai-go').addEventListener('click', async () => {
       body: JSON.stringify({ key }),
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'we could not add that account');
+    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'We could not add that account.');
     // The key leaves the field the moment it is stored, same as Settings.
     keyField.value = '';
     frPaintOpenai({ connected: true, keyTail: out && out.account && out.account.keyTail, justAdded: true });
