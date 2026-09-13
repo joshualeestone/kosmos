@@ -161,7 +161,11 @@ test('applyPlatformCopy: on Windows it stamps <html>, swaps every keyed element 
 test('BUG a11y (review round 1): the agent\'s Terminal section is NAMED what its tab says, "Live output" on Windows', () => {
   /* The tab's visible label and the section's accessible name are one fact, so they come
      from one key: a screen reader must not announce "Terminal" under a "Live output" tab. */
-  assert.match(PAGE, /<button type="button" data-go="term" aria-controls="d-sec-term" data-win-copy="terminalTab">Terminal<\/button>/);
+  // #2916 (Josh 6.59) renamed this nav PILL's Mac label "Terminal" -> "Advanced". The
+  // data-win-copy="terminalTab" key is kept so the pill still reads "Live output" on Windows,
+  // matching the section below it (the one-key win32 consistency this test guards is preserved;
+  // only the Mac string moved).
+  assert.match(PAGE, /<button type="button" data-go="term" aria-controls="d-sec-term" data-win-copy="terminalTab">Advanced<\/button>/);
   assert.match(PAGE, /<section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-win-aria-label="terminalTab" data-tied="1" hidden>/,
     'the Terminal section is not named from the same key as its tab');
   assert.match(page.lift(SCRIPT, 'applyPlatformCopy'),
@@ -516,7 +520,7 @@ test('MAC UNCHANGED: every static Mac string this branch keyed or hid still read
     />Open Accessibility settings<\/button>/,
     /<h3 class="dlab">If you see a box asking about &ldquo;tmux&rdquo;<\/h3>/,
     /<b>Update Kosmos automatically<\/b>\s*<p class="dhint" style="margin:2px 0 0;">On by default\. New versions install themselves, which takes a few seconds and reloads this board\. Agents keep running throughout\.<\/p>/,
-    />Terminal<\/button>/,
+    />Advanced<\/button>/,  // #2916 renamed the nav pill Mac label Terminal -> Advanced
     />This agent&rsquo;s Terminal<\/h3>/,
     />Open Terminal<\/button>/,
     />Opens this agent&rsquo;s Terminal window on this computer\.<\/p>/,
