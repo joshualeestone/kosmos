@@ -83,5 +83,28 @@ run_br "$H"; rc=$?
 [ ! -f "$H/.node-ran" ] && ok "missing runtime: node not started" || bad "missing runtime: node ran"
 rm -rf "$H"
 
+# 4. A foreign healthy board already serves the port (the fresh-install RunAtLoad
+# collision, #2956): board-run must DEFER -- exit 0, leave the pidfile untouched,
+# and never exec node -- instead of clobbering the pidfile and exec'ing a doomed
+# second node onto the taken port. Needs a real HTTP server on the port (healthy()
+# curls it), so this uses the system node; skipped if none is available.
+NODE_BIN="$(command -v node 2>/dev/null || true)"
+if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ]; then
+  H="$(new_home)"
+  PORTX=18719
+  "$NODE_BIN" -e 'require("http").createServer((_,r)=>r.end("Kosmos board")).listen('"$PORTX"',"127.0.0.1")' &
+  SRV=$!
+  for i in $(seq 1 40); do /usr/bin/curl -fsS -m1 "http://127.0.0.1:$PORTX/" >/dev/null 2>&1 && break; sleep 0.1; done
+  printf 'SENTINEL-4242' > "$H/board.pid"
+  PATH=/usr/bin:/bin KOSMOS_TMUX_KNOWN="" KOSMOS_HOME="$H" KOSMOS_PORT=$PORTX /bin/bash "$KOSMOS" board-run >/dev/null 2>&1; rc=$?
+  kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null
+  [ "$rc" = 0 ] && ok "foreign healthy board: board-run exits 0 (defers)" || bad "foreign healthy board: exit $rc (want 0)"
+  [ "$(cat "$H/board.pid" 2>/dev/null)" = "SENTINEL-4242" ] && ok "foreign healthy board: pidfile NOT clobbered" || bad "foreign healthy board: pidfile clobbered -> $(cat "$H/board.pid" 2>/dev/null)"
+  [ ! -f "$H/.node-ran" ] && ok "foreign healthy board: node not exec'd (no doomed second bind)" || bad "foreign healthy board: node ran anyway"
+  rm -rf "$H"
+else
+  echo "SKIP  foreign-healthy-board case (no system node to run a stub server)"
+fi
+
 if [ "$fails" = 0 ]; then echo "ALL PASS (test-board-foreground-2956)"; else echo "FAILURES (test-board-foreground-2956)"; fi
 exit "$fails"

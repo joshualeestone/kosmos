@@ -54,11 +54,22 @@ Left in place (dormant) this release as belt-and-braces for boards not yet reboo
 plist (an update rewrites the plist file but does not reload a loaded job until next login). Remove
 in a follow-up once installs have cycled through a reboot.
 
-## Weakest premise (measure on staging)
-That launchd re-evaluates `KeepAlive.PathState` and relaunches promptly when `kosmos start` removes
-the marker. `kickstart -k` on start closes the promptness gap; the deliberate-stop-stays-down and
-crash-relaunch behaviors must be MEASURED on a real launchd board (the staging cut), as they are not
-locally reproducible on a box without a running installed board.
+## Weakest premises (measure on staging — not locally reproducible)
+The test sandbox sets AGENT_WORKFORCE_LAUNCH and skips all real `launchctl`, so anything that
+depends on real launchd (bootstrap/RunAtLoad/KeepAlive) is verified on the staging cut, not by
+`yarn test`:
+1. **PathState promptness**: that launchd re-evaluates `KeepAlive.PathState` and relaunches promptly
+   when `kosmos start` removes the marker. `kickstart -k` on start closes the promptness gap; the
+   deliberate-stop-stays-down and crash-relaunch behaviors must be MEASURED on a real board.
+2. **Fresh-install reconciliation (#2956 blind-challenge BLOCKER, fixed)**: bootstrap RunAtLoad-starts
+   `board-run` immediately, but "Starting Kosmos" already nohup'd a board, so board-run would collide
+   (EADDRINUSE + pidfile clobber). FIX, two layers: (a) `cmd_board_run` defers (exit 0, no clobber,
+   no exec) when a board already serves — a testable, red-capability-proven correctness backstop; and
+   (b) setup.sh runs `kosmos restart` after a fresh bootstrap to hand the port from the nohup board to
+   the supervised board-run, eliminating the otherwise-harmless launchd respawn churn. Layer (b) runs
+   only on the real-launchd path (sandbox skips it), so MEASURE on staging: after a fresh install,
+   exactly ONE board, launchd-owned (`launchctl print gui/<uid>/com.kosmos.board` shows board-run
+   running), `kosmos stop`/`status` work, and no respawn churn in the log.
 
 ## Tests
 - tools/test-board-foreground-2956.sh — board-run (marker guard, pidfile=$$ exec, integrity).

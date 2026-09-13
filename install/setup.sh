@@ -3853,6 +3853,19 @@ if [ "$_board_ok" = yes ]; then
       # machine, 2026-08-24): not fatal, but a different true sentence.
       if ! /bin/launchctl bootstrap "gui/$_uid" "$_board_plist" 2>/dev/null; then
         _board_ok=later
+      else
+        # #2956: the job now runs `board-run`, and bootstrap RunAtLoad-starts it
+        # immediately -- but the "Starting Kosmos" step above already brought up a
+        # board with `kosmos start` (nohup, since no job was loaded then), so
+        # board-run cannot bind the port and would be relaunched on a throttle
+        # (board-run's own guard keeps that harmless, but it churns until reboot).
+        # Reconcile to ONE launchd-supervised board now: `kosmos restart` retires the
+        # nohup board and starts the supervised one (start detects the loaded
+        # board-run job and kickstarts it). Best-effort: if anything here fails, the
+        # board-run guard still prevents a double-bind, so this only ever improves on
+        # the churn, never worsens it. (Bootstrap RunAtLoad is real launchd, skipped
+        # under the sandbox above, so this path is verified on a real box, not here.)
+        "$KOSMOS_HOME/bin/kosmos" restart >/dev/null 2>&1 || true
       fi
     fi
   else

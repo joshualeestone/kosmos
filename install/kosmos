@@ -622,6 +622,20 @@ cmd_board_run() {
     say "Kosmos was deliberately stopped; not starting. Resume with: kosmos start"
     exit 0
   fi
+  # #2956: NEVER start a second board. A supervised job's RunAtLoad fires on
+  # `launchctl bootstrap` too, not only at reboot (the open-once job relies on the
+  # same fact). On a FRESH install the "Starting Kosmos" step brings a board up with
+  # `kosmos start` (nohup, since no job is loaded yet) BEFORE this job is
+  # bootstrapped, so RunAtLoad would fire board-run against an already-served port:
+  # a doomed EADDRINUSE exec that also CLOBBERS the pidfile (breaking stop/status).
+  # Pre-#2956 the login job ran `kosmos start`, which is idempotent (healthy-check
+  # first); board-run must be too. Exit BEFORE the pidfile write and the exec, so a
+  # foreign healthy board is left untouched and its pidfile intact. Silent on
+  # purpose: launchd may relaunch us on its throttle until that foreign board goes
+  # away (a reboot), and a log line each time would be spam. setup.sh reconciles the
+  # fresh-install case to a single supervised board (via `kosmos restart` after
+  # bootstrap), so this is the defensive backstop, not the normal path.
+  if healthy; then exit 0; fi
   [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ] || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
