@@ -77,6 +77,15 @@ class KosmosLauncher
     // that reading the TCP table costs nothing noticeable.
     const int ServingPollMs = 300;
 
+    // When the TCP table cannot be read at all (every poll so far failed), there is
+    // no listener proof, so the box falls back to time -- but a time no successful
+    // hand-off reaches: CheckForServingAfterMs, plus win32board's schtasks call
+    // timeout, plus a margin. That is engine/win32handoff.js's
+    // HANDOFF_UNREADABLE_LISTENER_FALLBACK_MS, pinned equal by the test. The
+    // slowest hand-off that still succeeds (the 12s budget, a /Run that takes its
+    // whole 20s timeout, and a 2s confirming probe) has exited by then.
+    const int UnreadableTableFallbackMs = 45000;
+
     // Shown once the board is listening from here: it did not move to its logon
     // task and is serving from this launcher, which has no window, so this box
     // is the person's handle on it.
@@ -208,17 +217,25 @@ class KosmosLauncher
         // here does so on a console nobody can see, so the person gets a box to
         // keep it by (see KeepBoardUntilPersonStopsIt). Time alone cannot tell the
         // two apart, so the box waits for proof: the board LISTENING, which it
-        // does only once it has decided to serve here. With --console, or with
-        // nobody at the desktop, the launcher just waits, as it always did.
+        // does only once it has decided to serve here. If the TCP table has never
+        // once been readable, there can be no proof, and the box falls back to a
+        // time past any successful hand-off (UnreadableTableFallbackMs); a single
+        // readable poll puts the listener rule back in charge. With --console, or
+        // with nobody at the desktop, the launcher just waits, as it always did.
         bool stoppedByPerson = false;
         if (showMessageBoxes)
         {
             int stillToWaitMs = CheckForServingAfterMs - (int)sinceServerStarted.ElapsedMilliseconds;
             if (!p.WaitForExit(Math.Max(0, stillToWaitMs)))
             {
+                bool everyReadFailed = true;
                 while (!p.WaitForExit(ServingPollMs))
                 {
-                    if (IsListeningOnAnyPort(p.Id)) { stoppedByPerson = KeepBoardUntilPersonStopsIt(p); break; }
+                    ListenerAnswer answer = ListenerStateOf(p.Id);
+                    if (answer != ListenerAnswer.CouldNotRead) everyReadFailed = false;
+                    bool provablyServingHere = answer == ListenerAnswer.Listening;
+                    bool unreadableLongPastAnyHandOff = everyReadFailed && sinceServerStarted.ElapsedMilliseconds >= UnreadableTableFallbackMs;
+                    if (provablyServingHere || unreadableLongPastAnyHandOff) { stoppedByPerson = KeepBoardUntilPersonStopsIt(p); break; }
                 }
             }
         }
@@ -335,18 +352,32 @@ class KosmosLauncher
 
     // ---- is the board serving from here? ------------------------------------
 
-    // True when the process owns a TCP socket in LISTEN state, over IPv4 or IPv6.
-    // The board's only TCP listener is its http server, which server.js starts
-    // only after deciding not to hand off (named pipes, which agents use, are not
-    // in this table). internal rather than private only so that a probe compiled
-    // beside this file in a test's scratch folder can call it.
-    internal static bool IsListeningOnAnyPort(int processId)
+    internal enum ListenerAnswer { Listening, NotListening, CouldNotRead }
+
+    // Whether the process owns a TCP socket in LISTEN state, over IPv4 or IPv6,
+    // or that the table could not be read. The board's only TCP listener is its
+    // http server, which server.js starts only after deciding not to hand off
+    // (named pipes, which agents use, are not in this table).
+    // Never throws: a missing iphlpapi entry point, a buffer that cannot be
+    // allocated, anything, is CouldNotRead, because a crash here would take the
+    // person's only handle on the board with it. internal rather than private
+    // only so that a probe compiled beside this file in a test's scratch folder
+    // can call it.
+    internal static ListenerAnswer ListenerStateOf(int processId)
     {
-        return OwnsATcpListener(processId, AF_INET, IPV4_ROW_BYTES, IPV4_ROW_OWNING_PID_OFFSET)
-            || OwnsATcpListener(processId, AF_INET6, IPV6_ROW_BYTES, IPV6_ROW_OWNING_PID_OFFSET);
+        try
+        {
+            ListenerAnswer overIPv4 = TcpListenerStateOf(processId, AF_INET, IPV4_ROW_BYTES, IPV4_ROW_OWNING_PID_OFFSET);
+            if (overIPv4 == ListenerAnswer.Listening) return overIPv4;
+            ListenerAnswer overIPv6 = TcpListenerStateOf(processId, AF_INET6, IPV6_ROW_BYTES, IPV6_ROW_OWNING_PID_OFFSET);
+            if (overIPv6 == ListenerAnswer.Listening) return overIPv6;
+            bool eitherUnreadable = overIPv4 == ListenerAnswer.CouldNotRead || overIPv6 == ListenerAnswer.CouldNotRead;
+            return eitherUnreadable ? ListenerAnswer.CouldNotRead : ListenerAnswer.NotListening;
+        }
+        catch { return ListenerAnswer.CouldNotRead; }
     }
 
-    static bool OwnsATcpListener(int processId, int addressFamily, int rowBytes, int owningPidOffset)
+    static ListenerAnswer TcpListenerStateOf(int processId, int addressFamily, int rowBytes, int owningPidOffset)
     {
         int bufferBytes = 0;
         for (int attempt = 0; attempt < TCP_TABLE_READ_ATTEMPTS; attempt++)
@@ -354,24 +385,24 @@ class KosmosLauncher
             IntPtr table = bufferBytes > 0 ? Marshal.AllocHGlobal(bufferBytes) : IntPtr.Zero;
             try
             {
-                uint result = GetExtendedTcpTable(table, ref bufferBytes, false, addressFamily, TCP_TABLE_OWNER_PID_LISTENER, 0);
+                uint result = readTcpTable(table, ref bufferBytes, addressFamily);
                 // Too small (or the first, sizing call): bufferBytes now holds the
                 // size needed, and the table may grow again before the next read.
                 if (result == ERROR_INSUFFICIENT_BUFFER) continue;
-                if (result != NO_ERROR || table == IntPtr.Zero) return false;
+                if (result != NO_ERROR || table == IntPtr.Zero) return ListenerAnswer.CouldNotRead;
                 int rows = Marshal.ReadInt32(table);
                 for (int row = 0; row < rows; row++)
                 {
-                    if (Marshal.ReadInt32(table, TCP_TABLE_ROWS_OFFSET + row * rowBytes + owningPidOffset) == processId) return true;
+                    if (Marshal.ReadInt32(table, TCP_TABLE_ROWS_OFFSET + row * rowBytes + owningPidOffset) == processId) return ListenerAnswer.Listening;
                 }
-                return false;
+                return ListenerAnswer.NotListening;
             }
             finally
             {
                 if (table != IntPtr.Zero) Marshal.FreeHGlobal(table);
             }
         }
-        return false;
+        return ListenerAnswer.CouldNotRead;
     }
 
     const int AF_INET = 2;
@@ -395,6 +426,17 @@ class KosmosLauncher
 
     [DllImport("iphlpapi.dll", SetLastError = true)]
     static extern uint GetExtendedTcpTable(IntPtr table, ref int bufferBytes, bool sorted, int addressFamily, int tableClass, uint reserved);
+
+    // The one call that reads the table, as a replaceable delegate. The launcher
+    // never replaces it; the listener probe a test compiles beside this file swaps
+    // in a failing or throwing reader, to prove both come back as CouldNotRead.
+    internal delegate uint TcpTableReader(IntPtr table, ref int bufferBytes, int addressFamily);
+    internal static TcpTableReader readTcpTable = ReadTcpTableFromWindows;
+
+    static uint ReadTcpTableFromWindows(IntPtr table, ref int bufferBytes, int addressFamily)
+    {
+        return GetExtendedTcpTable(table, ref bufferBytes, false, addressFamily, TCP_TABLE_OWNER_PID_LISTENER, 0);
+    }
 
     // ---- presenting to a person ----------------------------------------------
 

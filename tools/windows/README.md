@@ -29,7 +29,10 @@ What it adds is how a Windows program presents itself (win32-launcher-native):
   keeps serving from there. From `HANDOFF_CHECK_FOR_SERVING_AFTER_MS` (in
   `engine/win32handoff.js`) on, the launcher checks whether that board is listening
   on a TCP port, which it does only once it has decided to serve there. When it is,
-  a box titled "Kosmos" says so and stays up as the person's handle on it. OK stops that board
+  a box titled "Kosmos" says so and stays up as the person's handle on it. If
+  Windows will not let the launcher read its TCP table at all, the box falls back to
+  `HANDOFF_UNREADABLE_LISTENER_FALLBACK_MS` (45s), a time no successful hand-off
+  reaches; one readable poll puts the listener rule back in charge. OK stops that board
   and everything still descended from it (`taskkill /T`), and the box closes by itself if the
   board ends first.
 - **Problems are a message box titled "Kosmos"**, never console text a person

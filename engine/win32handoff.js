@@ -91,6 +91,12 @@ const POLL_INTERVAL_MS = 300;
  */
 const HANDOFF_CHECK_FOR_SERVING_AFTER_MS = HANDOFF_BUDGET_MS + PROBE_TIMEOUT_MS + MIN_PORT_RELEASE_WAIT_MS + PROBE_TIMEOUT_MS;
 
+/* Headroom past the slowest hand-off that still succeeds: at worst the budget, a `/Run`
+   that uses its whole win32board.SCHTASKS_TIMEOUT_MS, and one confirming probe
+   (12 + 20 + 2 = 34s from process start). With the 18s check mark and the 20s timeout
+   this puts HANDOFF_UNREADABLE_LISTENER_FALLBACK_MS at 45s, 11s past that. */
+const UNREADABLE_LISTENER_MARGIN_MS = 7000;
+
 /**
  * 🔑 THE RUNNING BOARD'S IDENTITY COMES FROM A HEADER, NEVER FROM THE PAGE.
  * server.js reads `web/index.html` per request, so a new zip unpacked over the
@@ -331,3 +337,15 @@ async function handOffToTask(opts) {
 }
 
 module.exports = { handOffToTask, buildIdentity, boardIdentity, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS };
+
+/**
+ * When Kosmos.exe shows its box for a board whose listener it cannot see, because the
+ * TCP table has not once been readable (tools/windows/KosmosLauncher.cs,
+ * UnreadableTableFallbackMs, pinned equal by tools.win-launcher-native.test.js): the
+ * check mark, plus the timeout of one schtasks call, plus UNREADABLE_LISTENER_MARGIN_MS.
+ * A getter, so win32board loads only when this is asked for, never with this module.
+ */
+Object.defineProperty(module.exports, 'HANDOFF_UNREADABLE_LISTENER_FALLBACK_MS', {
+  enumerable: true,
+  get: () => HANDOFF_CHECK_FOR_SERVING_AFTER_MS + require('./win32board').SCHTASKS_TIMEOUT_MS + UNREADABLE_LISTENER_MARGIN_MS,
+});

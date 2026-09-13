@@ -130,10 +130,23 @@ launcher. The box for a non-zero exit therefore says how to see the details: run
   code is still set; `start /wait Kosmos.exe --console` gets it.
 
 **Safety for this box.** The hand-off (registering or claiming `\Kosmos\board`, moving
-`engine-path`) happens inside `app\server.js`, which only runs after both `File.Exists`
-checks pass. When `runtime\node.exe` is missing, `Main` returns before any
-`Process.Start`. That is the only state the tests run the built exe in, and a static test
-pins that ordering in the source.
+`engine-path`) happens inside the real `app\server.js`, and no test ever gives the exe
+that file. The tests run the built exe only in scratch folders under `os.tmpdir()`, in
+three states:
+
+1. **No `runtime\node.exe`:** `Main` returns before any `Process.Start`. A static test
+   pins that ordering in the source.
+2. **A placeholder `runtime\node.exe` and no `app\server.js`:** `Main` also returns
+   before any `Process.Start`.
+3. **`stageFakeBoard` (added in round 1, named here in round 3):** a real `node.exe`
+   copied from the test runner, and an `app\server.js` the test writes itself. That file
+   starts with `FAKE_BOARD_MARKER` and is the only file in `app\`. There is no
+   `open-board.js`, so no opener, and `PORT` is deleted from the environment. The helper
+   asserts the folder is under `os.tmpdir()`. What runs is a few lines the test wrote, not
+   the board, so there is no hand-off to reach, and its listeners use ephemeral loopback
+   ports, never 16180.
+
+The live GUI checks use the same third shape, built by hand.
 
 ### 3. W-08: icon and version metadata
 
@@ -393,6 +406,70 @@ cleanly: main added a `bin/board-watchdog.sh` entry to `DELIBERATELY_MAC_ONLY` b
 this branch's `.icns` reason. On the rebased tree, the six files pass 95 of 97 (the same
 2 known EFTYPE failures), no schtasks call was attempted, and `verify-launcher.ps1`
 reports OK.
+
+### Round 3 (opus, at 4176322b): 1 CONVENTION, 2 NIT. No BUG, no safety issue.
+
+The reviewer verified:
+- the P/Invoke layouts (IPv4 PID at offset 20 in 24-byte rows, IPv6 PID at 52 in 56-byte
+  rows, a 4-byte header);
+- the sizing loop and the `finally` free;
+- x86 and AnyCPU;
+- that the lock cannot deadlock;
+- that the `--console` window arm's cleanup is safe, with no flake in 3 runs.
+
+- **CONVENTION (convention 5): two safety statements named only two of the three states
+  the exe runs in.** The test header and "Safety for this box" above now name the third,
+  `stageFakeBoard`, and what makes it safe: a copied node, a test-written `app\server.js`
+  starting with `FAKE_BOARD_MARKER` and alone in `app\`, no `open-board.js`, `PORT`
+  deleted, and a folder under `os.tmpdir()`. `stageFakeBoard` now asserts that last
+  condition.
+- **NIT 1: a failed TCP-table read looked like "not listening", and exceptions were not
+  caught.** Fixed as decided.
+  - **Three answers:** `ListenerStateOf` returns `Listening`, `NotListening` or
+    `CouldNotRead`, and catches every exception as `CouldNotRead`.
+  - **Fallback:** while every poll so far has been `CouldNotRead`, the box also shows once
+    the board has been alive for `UnreadableTableFallbackMs` (45s). One readable poll puts
+    the listener rule back in charge.
+  - **One derivation:** the JS side exports `HANDOFF_UNREADABLE_LISTENER_FALLBACK_MS` =
+    `HANDOFF_CHECK_FOR_SERVING_AFTER_MS` + `win32board.SCHTASKS_TIMEOUT_MS` (a named 20s
+    constant now, used by win32board's schtasks call) + `UNREADABLE_LISTENER_MARGIN_MS`
+    (7s). It is a getter, so win32board loads only when asked. The C# copy is pinned
+    equal.
+  - **Why 45s:** the slowest hand-off that still succeeds is about 34s (the 12s budget, a
+    20s `/Run`, a 2s probe).
+  - **Seam (my choice):** the table read is an internal delegate, `readTcpTable`. The
+    launcher never replaces it. The scratch-compiled probe swaps in a reader that returns
+    error 87 and one that throws `EntryPointNotFoundException`.
+- **NIT 2: the async `--console` window arm could pass wrongly under load.** The fake board
+  now writes a "listening" marker, and the look is timed from that marker (check mark +
+  2s). The board exits 0 only when the test writes a stop file after the look, and exits 3
+  if it reaches its own 60s cap. The test requires exit 0, so a board that ended before
+  the look fails.
+
+**Measured, round 4.** Not rebased: a 0.6.61 release cut is active, and merges are on hold.
+- **Build:** `Kosmos.exe` rebuilt the documented way, 68096 bytes. `verify-launcher.ps1`
+  reports OK, including after the controls were undone.
+- **Tests,** with the schtasks guard: the six files plus `engine/win32board.test.js`
+  (win32board changed) give 128 tests, 126 pass. The 2 failures are the known
+  `tools.win-open-board-2007` EFTYPE ones. No schtasks call was attempted.
+  `tools.win-launcher-native` passes 21 of 21 in that run and again, 21 of 21, run alone.
+- **Controls:** hand edits, undone, with both in one run:
+
+  | Control | Result |
+  |---|---|
+  | The fallback removed from the box condition | red on the static gate pin only ("...or on a table unreadable long past any hand-off...") |
+  | The catch narrowed to `DivideByZeroException` | red on the lookup test's throwing-read assertion: the probe died with "Unhandled Exception: System.EntryPointNotFoundException: forced by the probe" |
+
+  The static pin on `catch { return ListenerAnswer.CouldNotRead; }` sits in that same
+  static test, which was already red from the first edit.
+- **Live GUI fallback checks, not committed tests.** Each used a scratch build whose
+  `readTcpTable` always returns error 87, a copied node, and a fake `app\server.js` (an
+  ephemeral port; the real server never runs).
+  - **A board that listens and never exits:** the "Kosmos" box appeared at 46.0s (not
+    19s), with the exact running-here text. OK made the launcher exit, and the fake board
+    was gone.
+  - **A board that never listens and exits 0 at 40s:** no box, and the launcher exited 0
+    at 41.1s.
 
 - **Known limit, unchanged by this round:** a `--console` run whose parent has no console
   and whose outputs are both captured starts the real server with `CreateNoWindow` false.

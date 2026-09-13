@@ -17,9 +17,19 @@
  *
  * 🛑 THE EXE IS ONLY EVER RUN WHERE IT CANNOT REACH THE HAND-OFF. The board's
  * hand-off to its logon task (registering \Kosmos\board, moving engine-path)
- * lives in app\server.js. Every run below is in a scratch folder with no
- * runtime\node.exe, or with a placeholder one and no app\server.js, and the
- * source-order test pins that nothing is started before both checks.
+ * lives in the real app\server.js, and no test ever gives the exe one. Every run
+ * below is in a scratch folder under os.tmpdir(), in one of three states:
+ *   1. no runtime\node.exe: Main returns before any Process.Start;
+ *   2. a placeholder runtime\node.exe and no app\server.js: Main returns before
+ *      any Process.Start;
+ *   3. stageFakeBoard: a real node.exe copied from the test runner, and an
+ *      app\server.js the test writes itself -- it starts with FAKE_BOARD_MARKER and
+ *      is the only file in app\ -- with no open-board.js (so no opener) and PORT
+ *      deleted from the environment. What runs is a few lines this file wrote, not
+ *      the board, so there is no hand-off to reach. Its listeners use ephemeral
+ *      loopback ports, never the board's.
+ * The source-order test pins that nothing is started before the runtime and app
+ * checks.
  *
  * KOSMOS_LAUNCHER_EXE_UNDER_TEST points every binary test at another build,
  * which is how the revert controls (a console build, a build without the icon,
@@ -274,12 +284,26 @@ test('rounds 1-2 BUG: a board PROVABLY serving from the launcher (listening) get
   const main = SOURCE.slice(SOURCE.indexOf('static int Main('), SOURCE.indexOf('static int Fail('));
   /* Round 2: time alone gave a healthy but slow hand-off a false box. The box is
      reached only through the listener check, and only in GUI mode. */
+  /* Round 3: a table that cannot be read must not poll forever with no box (the round 1
+     invisible board). Only while EVERY read so far has failed does time decide, and
+     only past a mark no successful hand-off reaches; one readable poll hands the
+     decision back to the listener. */
   assert.match(main,
-    /if \(showMessageBoxes\)\s*\{\s*int stillToWaitMs = CheckForServingAfterMs - \(int\)sinceServerStarted\.ElapsedMilliseconds;\s*if \(!p\.WaitForExit\(Math\.Max\(0, stillToWaitMs\)\)\)\s*\{\s*while \(!p\.WaitForExit\(ServingPollMs\)\)\s*\{\s*if \(IsListeningOnAnyPort\(p\.Id\)\) \{ stoppedByPerson = KeepBoardUntilPersonStopsIt\(p\); break; \}\s*\}\s*\}\s*\}/,
-    'the box is no longer gated on the board listening (or on GUI mode): a slow hand-off gets a false box again');
+    /if \(showMessageBoxes\)\s*\{\s*int stillToWaitMs = CheckForServingAfterMs - \(int\)sinceServerStarted\.ElapsedMilliseconds;\s*if \(!p\.WaitForExit\(Math\.Max\(0, stillToWaitMs\)\)\)\s*\{\s*bool everyReadFailed = true;\s*while \(!p\.WaitForExit\(ServingPollMs\)\)\s*\{\s*ListenerAnswer answer = ListenerStateOf\(p\.Id\);\s*if \(answer != ListenerAnswer\.CouldNotRead\) everyReadFailed = false;\s*bool provablyServingHere = answer == ListenerAnswer\.Listening;\s*bool unreadableLongPastAnyHandOff = everyReadFailed && sinceServerStarted\.ElapsedMilliseconds >= UnreadableTableFallbackMs;\s*if \(provablyServingHere \|\| unreadableLongPastAnyHandOff\) \{ stoppedByPerson = KeepBoardUntilPersonStopsIt\(p\); break; \}\s*\}\s*\}\s*\}/,
+    'the box is no longer gated on the board listening, or on a table unreadable long past any hand-off (or on GUI mode)');
+  const fallback = SOURCE.match(/const int UnreadableTableFallbackMs = (\d+);/);
+  assert.ok(fallback, 'the launcher no longer names its unreadable-table fallback');
+  assert.equal(Number(fallback[1]), handoff.HANDOFF_UNREADABLE_LISTENER_FALLBACK_MS,
+    'the launcher falls back at a different time than the hand-off derives: one fact, two copies, drifted');
+  assert.match(handoffSource, /HANDOFF_CHECK_FOR_SERVING_AFTER_MS \+ require\('\.\/win32board'\)\.SCHTASKS_TIMEOUT_MS \+ UNREADABLE_LISTENER_MARGIN_MS/,
+    'the fallback is no longer derived from the check mark, the schtasks timeout and the margin');
+  assert.match(fs.readFileSync(path.join(REPO, 'engine', 'win32board.js'), 'utf8'), /execFileSync\('schtasks\.exe', args, \{ encoding: 'utf8', timeout: SCHTASKS_TIMEOUT_MS \}\)/,
+    'win32board\'s schtasks calls no longer use the timeout the fallback is derived from');
   assert.equal([...main.matchAll(/KeepBoardUntilPersonStopsIt\(/g)].length, 1, 'the box is reachable from Main other than through the listener gate');
-  const lookup = SOURCE.slice(SOURCE.indexOf('internal static bool IsListeningOnAnyPort('), SOURCE.indexOf('// ---- presenting to a person'));
-  assert.match(lookup, /OwnsATcpListener\(processId, AF_INET, IPV4_ROW_BYTES, IPV4_ROW_OWNING_PID_OFFSET\)\s*\|\| OwnsATcpListener\(processId, AF_INET6, IPV6_ROW_BYTES, IPV6_ROW_OWNING_PID_OFFSET\)/, 'the lookup no longer reads both IPv4 and IPv6 listeners');
+  const lookup = SOURCE.slice(SOURCE.indexOf('internal static ListenerAnswer ListenerStateOf('), SOURCE.indexOf('// ---- presenting to a person'));
+  assert.ok(lookup.length > 500, 'the listener lookup moved; this reads nothing');
+  assert.match(lookup, /TcpListenerStateOf\(processId, AF_INET, IPV4_ROW_BYTES, IPV4_ROW_OWNING_PID_OFFSET\)[\s\S]*TcpListenerStateOf\(processId, AF_INET6, IPV6_ROW_BYTES, IPV6_ROW_OWNING_PID_OFFSET\)/, 'the lookup no longer reads both IPv4 and IPv6 listeners');
+  assert.match(lookup, /catch \{ return ListenerAnswer\.CouldNotRead; \}/, 'an exception reading the table can crash the launcher again, taking the person\'s handle with it');
   assert.match(lookup, /const int TCP_TABLE_OWNER_PID_LISTENER = 3;/);
   assert.match(lookup, /if \(result == ERROR_INSUFFICIENT_BUFFER\) continue;/, 'the lookup no longer resizes its buffer');
   assert.match(lookup, /finally\s*\{\s*if \(table != IntPtr\.Zero\) Marshal\.FreeHGlobal\(table\);\s*\}/, 'the lookup no longer frees its buffer on every path');
@@ -509,6 +533,8 @@ test('round 1 CONVENTION: --console with both outputs captured and no console to
    the board, so no hand-off exists to reach. No open-board.js, so no opener. */
 const FAKE_BOARD_MARKER = '// fake board written by tools.win-launcher-native.test.js';
 function stageFakeBoard(folder, serverScript) {
+  const scratchRoot = path.resolve(os.tmpdir()).toLowerCase() + path.sep;
+  assert.ok(path.resolve(folder).toLowerCase().startsWith(scratchRoot), 'a fake board must be staged under os.tmpdir(), never beside a real install: ' + folder);
   fs.mkdirSync(path.join(folder, 'runtime'), { recursive: true });
   fs.mkdirSync(path.join(folder, 'app'), { recursive: true });
   const exe = path.join(folder, 'Kosmos.exe');
@@ -571,38 +597,60 @@ function killTree(pid) {
   spawnSync(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe'), ['/PID', String(pid), '/T', '/F'], { windowsHide: true });
 }
 
-test('rounds 1-2 BUG, --console arm: a board LISTENING past the check mark is neither boxed nor stopped, and the launcher opens no window', WINDOWS_ONLY, async () => {
+test('rounds 1-3 BUG, --console arm: a board LISTENING past the check mark is neither boxed nor stopped, and the launcher opens no window', WINDOWS_ONLY, async () => {
   /* The fake board listens (on an ephemeral loopback port, never 16180), so a
      regression that let --console reach the box would show one: the listener gate
      alone would not keep it away. A box closed by the watcher when the board ends
      would leave the exit code green, so the window itself is looked for while the
-     board is still up. */
+     board is still up.
+     Round 3: nothing here is timed from the test's own start. The look is timed from
+     the board's "listening" marker, and the board stays up until the test writes a
+     stop file AFTER the look, so neither a slow start nor a slow look (the probe
+     compiles C#) lets a regressed box close, or appear, unseen. */
   const checkAfterMs = require('./engine/win32handoff').HANDOFF_CHECK_FOR_SERVING_AFTER_MS;
-  const LOOK_FOR_A_WINDOW_AT_MS = checkAfterMs + 2000;
-  const BOARD_ENDS_AT_MS = LOOK_FOR_A_WINDOW_AT_MS + 8000;
+  /* The board starts before it listens, and a regressed box would appear within the
+     check mark plus a few polls of the board starting, so this long after the marker
+     is past it. */
+  const LOOK_AFTER_LISTENING_MS = checkAfterMs + 2000;
+  /* Only a board the test forgot to stop ends by itself, with a code the test can tell
+     apart from being stopped, so it can never linger or pass unnoticed. */
+  const BOARD_SELF_EXIT_CAP_MS = 60000;
+  const BOARD_STOPPED_BY_TEST = 0;
+  const BOARD_HIT_ITS_CAP = 3;
   const s = scratch();
   let launcher = null;
   try {
-    const exe = stageFakeBoard(path.join(s.elsewhere, 'Kosmos'),
-      "require('node:net').createServer().listen(0, '127.0.0.1'); setTimeout(() => process.exit(0), " + BOARD_ENDS_AT_MS + ');');
+    const listeningMarker = path.join(s.base, 'board-listening');
+    const stopFile = path.join(s.base, 'board-stop');
+    const exe = stageFakeBoard(path.join(s.elsewhere, 'Kosmos'), [
+      "const fs = require('node:fs');",
+      "require('node:net').createServer().listen(0, '127.0.0.1', () => fs.writeFileSync(" + JSON.stringify(listeningMarker) + ", 'listening'));",
+      'setInterval(() => { if (fs.existsSync(' + JSON.stringify(stopFile) + ')) process.exit(' + BOARD_STOPPED_BY_TEST + '); }, 100);',
+      'setTimeout(() => process.exit(' + BOARD_HIT_ITS_CAP + '), ' + BOARD_SELF_EXIT_CAP_MS + ');',
+    ].join('\n'));
     const env = { ...process.env, TEMP: s.temp, TMP: s.temp };
     delete env.PORT;
-    const startedAt = Date.now();
     launcher = spawn(exe, ['--console'], { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     let out = '';
     launcher.stdout.on('data', (d) => { out += d; });
     launcher.stderr.on('data', (d) => { out += d; });
     const exited = new Promise((resolve) => launcher.on('exit', (code) => resolve(code)));
-    await Promise.race([exited, sleep(LOOK_FOR_A_WINDOW_AT_MS)]);
+    let listeningAt = null;
+    for (const giveUpAt = Date.now() + BOARD_SELF_EXIT_CAP_MS; Date.now() < giveUpAt && launcher.exitCode === null;) {
+      if (fs.existsSync(listeningMarker)) { listeningAt = Date.now(); break; }
+      await sleep(100);
+    }
+    assert.ok(listeningAt, 'the fake board never started listening: ' + out);
+    await Promise.race([exited, sleep(LOOK_AFTER_LISTENING_MS)]);
     const windows = windowsOwnedBy(launcher.pid);
     if (windows.mainWindow !== 0 || windows.dialogs > 0) {
       killTree(launcher.pid);
       assert.fail('the --console launcher showed a window while its board was listening: ' + JSON.stringify(windows));
     }
+    fs.writeFileSync(stopFile, 'stop');
     const code = await exited;
-    const tookMs = Date.now() - startedAt;
-    assert.equal(code, 0, 'the launcher did not wait for the board to end by itself: ' + out);
-    assert.ok(tookMs >= BOARD_ENDS_AT_MS, 'the launcher ended before the board did (' + tookMs + 'ms)');
+    assert.equal(code, BOARD_STOPPED_BY_TEST,
+      'the launcher did not stay up with its board until the test stopped it (exit ' + code + '), so the look proved nothing: ' + out);
     assert.ok(!out.includes('Kosmos stopped'), out);
   } finally {
     if (launcher && launcher.exitCode === null) killTree(launcher.pid);
@@ -610,7 +658,7 @@ test('rounds 1-2 BUG, --console arm: a board LISTENING past the check mark is ne
   }
 });
 
-test('round 2: the listener lookup finds a process listening on IPv4 or IPv6, and not one that is not listening', WINDOWS_ONLY, async (t) => {
+test('rounds 2-3: the listener lookup says listening (IPv4 or IPv6), not listening, or could not read (a failing or throwing table read)', WINDOWS_ONLY, async (t) => {
   /* The lookup is compiled out of the real KosmosLauncher.cs together with a
      four-line probe, in scratch, and never shipped. Real node processes do the
      listening, on ephemeral loopback ports (never 16180). */
@@ -620,11 +668,27 @@ test('round 2: the listener lookup finds a process listening on IPv4 or IPv6, an
   const children = [];
   try {
     const probeSource = path.join(s.base, 'ListenerProbe.cs');
-    fs.writeFileSync(probeSource, 'class ListenerProbe { static int Main(string[] a) { System.Console.Write(KosmosLauncher.IsListeningOnAnyPort(int.Parse(a[0])) ? "listening" : "not-listening"); return 0; } }\n');
+    /* The second argument swaps the table read through the launcher's internal seam:
+       one that returns an error, and one that throws what a missing iphlpapi entry
+       point would. */
+    fs.writeFileSync(probeSource, [
+      'class ListenerProbe {',
+      '  static int Main(string[] a) {',
+      '    if (a.Length > 1 && a[1] == "reader-fails") KosmosLauncher.readTcpTable = (System.IntPtr t, ref int b, int f) => 87u;',
+      '    if (a.Length > 1 && a[1] == "reader-throws") KosmosLauncher.readTcpTable = (System.IntPtr t, ref int b, int f) => { throw new System.EntryPointNotFoundException("forced by the probe"); };',
+      '    System.Console.Write(KosmosLauncher.ListenerStateOf(int.Parse(a[0])));',
+      '    return 0;',
+      '  }',
+      '}',
+      '',
+    ].join('\n'));
     const probe = path.join(s.base, 'probe.exe');
     const built = spawnSync(csc, ['/nologo', '/target:exe', '/main:ListenerProbe', '/out:' + probe, path.join(REPO, 'tools', 'windows', 'KosmosLauncher.cs'), probeSource], { encoding: 'utf8', windowsHide: true });
     assert.equal(built.status, 0, 'the probe did not compile: ' + built.stdout + built.stderr);
-    const lookup = (pid) => spawnSync(probe, [String(pid)], { encoding: 'utf8', windowsHide: true }).stdout.trim();
+    const lookup = (pid, reader) => {
+      const r = spawnSync(probe, reader ? [String(pid), reader] : [String(pid)], { encoding: 'utf8', windowsHide: true });
+      return String(r.stdout || '').trim() || ('probe exited ' + r.status + ': ' + String(r.stderr || '').trim().split('\n')[0]);
+    };
 
     const startChild = (script) => new Promise((resolve) => {
       const child = spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
@@ -636,15 +700,21 @@ test('round 2: the listener lookup finds a process listening on IPv4 or IPv6, an
 
     const v4 = await startChild(LISTEN('127.0.0.1'));
     assert.equal(v4.said, 'up');
-    assert.equal(lookup(v4.child.pid), 'listening', 'an IPv4 listener was not found');
+    assert.equal(lookup(v4.child.pid), 'Listening', 'an IPv4 listener was not found');
 
     const idle = await startChild("console.log('idle'); setInterval(() => {}, 1000);");
     assert.equal(idle.said, 'idle');
-    assert.equal(lookup(idle.child.pid), 'not-listening', 'a process that listens on nothing was reported listening');
+    assert.equal(lookup(idle.child.pid), 'NotListening', 'a process that listens on nothing was reported listening');
+
+    /* Round 3: a read that fails, or throws, is neither answer. It must never read as
+       "not listening" (the launcher would poll forever with no box) and never crash
+       the launcher -- even for a process that IS listening. */
+    assert.equal(lookup(v4.child.pid, 'reader-fails'), 'CouldNotRead', 'a failed table read was taken for an answer');
+    assert.equal(lookup(v4.child.pid, 'reader-throws'), 'CouldNotRead', 'a throwing table read escaped the lookup, which would crash the launcher');
 
     const v6 = await startChild(LISTEN('::1'));
     if (v6.said !== 'up') { t.diagnostic('no IPv6 loopback here; the IPv6 arm did not run'); return; }
-    assert.equal(lookup(v6.child.pid), 'listening', 'an IPv6-only listener was not found');
+    assert.equal(lookup(v6.child.pid), 'Listening', 'an IPv6-only listener was not found');
   } finally {
     for (const child of children) { try { child.kill(); } catch { /* already gone */ } }
     fs.rmSync(s.base, { recursive: true, force: true });
