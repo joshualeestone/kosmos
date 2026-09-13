@@ -624,6 +624,32 @@ Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
   unbalanced, so it went red from a syntax error, not from its test. It is replaced, and the harness now
   runs `node --check` on every JavaScript control and reports one that breaks the file as INVALID.
 
+- **Round 6 results (this box).**
+  - The affected engine suites (uninstall, relocate, hand-off, board, re-anchor, sign-in switch,
+    `engine.reachable`, `server.remote-bind-1112`), full sandbox: every round 6 test passes, and the one
+    failure is `server.remote-bind-1112`'s, which fails the same way on `b20d495c`.
+    - The real-listener arms all ran: case C (the task's board on `127.0.0.1` and a hand-started board on
+      `::1`, one port) and C2; case E on a zoned link-local address of this machine that takes its own
+      connections, and E2 unzoned; case F with real DNS; `localhost` with a board on `::1`.
+  - The first run of the fail-closed test found that `http.get` takes port 0 as port 80 (see finding 4);
+    the test now uses `255.255.255.255`, and the hand-off suite is 58 of 58.
+  - Revert controls: 100 of 100 red, none INVALID (12 new for round 6; the earlier ones restated, with
+    the two tied to the dropped mapping and the old bind-host check removed), worktree clean afterwards,
+    no schtasks call blocked.
+  - `origin/main` moved to `aa30db6c` (#2996, the Styles tab removed). The branch was rebased onto it after
+    the controls, with no conflict: `web/index.html` has neither the Styles tab nor its markers, and still
+    has this branch's sign-in switch in `machineRows`.
+  - After the rebase:
+    - `web.win32-start-at-sign-in`, `machine.win32-autostart-570`, `web.settings-nav`, `web.url-state` and
+      `web.layout-picker`: 37 of 37;
+    - the browser-check gate (`tools/lib/browser-check-gate.sh`) against `aa30db6c`: exit 0 (the branch
+      adds `render-win32-start-at-sign-in.js` with its `web/index.html` change);
+    - `tools.browser-checks-wired`, `browser-checks-indexed`, `browser-checks-selectors` and
+      `browser-checks-reason-grep`: 17 of 18. The one failure ("could not run the real grep") fails the
+      same way on an archive of `aa30db6c`.
+  - The launcher (`KosmosLauncher.cs`) did not change, so it was not rebuilt.
+  - COMPARISON-PENDING
+
 ## Follow-ups (not this slice)
 
 - **A progress window while the uninstall runs (round 3, finding 5).** The uninstall helper has no time
