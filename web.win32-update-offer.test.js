@@ -164,7 +164,7 @@ test('win32-board-copy (W-25): the manual offer is numbered steps that name Wind
   assert.equal(current.stepsShown, false, 'steps shown with nothing to install');
   assert.equal(current.openFolderShown, false, 'the folder button shown with nothing to install');
   /* The button is the same engine reveal as Settings' "Open the Kosmos folder". */
-  assert.match(PAGE, /<button class="btn-quiet" type="button" id="upd-open-folder" hidden>Open my Kosmos folder<\/button>/);
+  assert.match(PAGE, /<button class="btn-quiet" type="button" id="upd-open-folder" hidden data-win-copy="updateOpenFolder">Open my Kosmos folder<\/button>/);
   const handlerAt = SCRIPT.indexOf("getElementById('upd-open-folder').addEventListener('click'");
   assert.ok(handlerAt > -1, 'the folder button has no handler');
   assert.match(SCRIPT.slice(handlerAt, handlerAt + 400), /fetch\('\/api\/reveal-app', \{ method: 'POST' \}\)/,

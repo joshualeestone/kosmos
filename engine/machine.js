@@ -352,9 +352,11 @@ function sleepGate(opts) {
 /**
  * The read-only query for the active power plan's "Sleep after" setting, which is what
  * Settings shows as "When plugged in, put my device to sleep after". AC is plugged in,
- * DC is on battery, both in seconds, and 0 means Never. `/query` changes nothing.
+ * DC is on battery, both in seconds, and 0 means Never. `/qh` is `/query` including
+ * settings an OEM or a policy marked hidden, so a machine that hides this one still
+ * reads rather than leaving the first-run pill on "Checking..."; neither changes anything.
  */
-const POWERCFG_SLEEP_QUERY = Object.freeze(['/query', 'SCHEME_CURRENT', 'SUB_SLEEP', 'STANDBYIDLE']);
+const POWERCFG_SLEEP_QUERY = Object.freeze(['/qh', 'SCHEME_CURRENT', 'SUB_SLEEP', 'STANDBYIDLE']);
 
 /** STANDBYIDLE's GUID, which powercfg prints untranslated in every language. */
 const STANDBYIDLE_GUID = '29f6c1db-86da-48c5-9fdb-f2b67b1f44da';
@@ -400,11 +402,35 @@ function parsePowercfgSleep(text) {
   return { acSeconds: values[POWERCFG_AC_POSITION], dcSeconds: values[POWERCFG_DC_POSITION] };
 }
 
-/** The powercfg answer: injected text (`opts.powercfg`), or the runner with its timeout. */
+/**
+ * How long one powercfg reading answers for. The first-run sleep gate polls every 750ms
+ * and the read is a synchronous child process (up to its 5s timeout), so reading on every
+ * poll would stall the board's event loop each time, and for five seconds on a hang. A
+ * sleep time changed in Settings still shows within this window.
+ */
+const WIN32_SLEEP_READING_TTL_MS = 5000;
+let win32SleepReading = null;   // { runner, at, reading }
+let win32SleepClock = () => Date.now();
+/** Test seam: the clock the reading's age is measured on. */
+function setWin32SleepClockForTests(fn) { win32SleepClock = typeof fn === 'function' ? fn : () => Date.now(); }
+/** Test hook: forget the cached reading. */
+function resetWin32SleepReading() { win32SleepReading = null; }
+
+/**
+ * The powercfg answer: injected text (`opts.powercfg`), or the runner with its timeout,
+ * reused for WIN32_SLEEP_READING_TTL_MS. The cache is keyed on the runner, so a different
+ * runner (another test's world) never answers from this one's reading.
+ */
 function readWin32Sleep(opts) {
   if (opts && typeof opts.powercfg === 'string') return { ok: true, stdout: opts.powercfg };
   const runner = (opts && opts.runner) || run;
-  return runner(powercfgPath(), [...POWERCFG_SLEEP_QUERY]);
+  const now = win32SleepClock();
+  if (win32SleepReading && win32SleepReading.runner === runner && now - win32SleepReading.at < WIN32_SLEEP_READING_TTL_MS) {
+    return win32SleepReading.reading;
+  }
+  const reading = runner(powercfgPath(), [...POWERCFG_SLEEP_QUERY]);
+  win32SleepReading = { runner, at: now, reading };
+  return reading;
 }
 
 /**
@@ -1665,4 +1691,4 @@ function check(opts) {
   };
 }
 
-module.exports = { check, parsePmset, sleepCheck, sleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, sleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };

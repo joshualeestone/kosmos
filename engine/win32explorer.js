@@ -16,12 +16,20 @@
  * is spawned detached with no stdio and unref'd; "it opened" is the window itself,
  * and only a spawn that throws synchronously is reported as a failure.
  *
- * 🛑 NOTHING FROM A PAGE IS PASSED THROUGH UNCHECKED. Explorer parses its own command
- * line, and `/select,`, `/e,` and `/root,` are switches, so a string that begins with
- * a switch character is not a path. Every target must be an absolute drive or UNC
- * path with no quote or control character, and must exist as the kind of thing the
- * caller asked to open. Settings pages are a closed list; no caller can name a URI.
- * Arguments go as an array with no shell, so nothing is ever interpreted by cmd.
+ * 🛑 THREE WAYS A PATH BECOMES AN ATTACK, EACH CLOSED HERE (review round 1):
+ *
+ *   1. A NETWORK OR DEVICE PATH. Opening `\\host\share` makes Explorer authenticate to
+ *      that host over SMB or WebDAV, handing it the person's NTLMv2 hash; `\\?\`,
+ *      `\\.\` and GLOBALROOT reach devices and shadow copies. Only a path on one of
+ *      this computer's own drive letters is accepted, for both open and reveal.
+ *   2. A FILE THAT RUNS. Explorer "opens" a .bat, .lnk, .hta or .vbs by running it, and
+ *      a file an agent wrote carries no Mark of the Web, so SmartScreen never asks. A
+ *      file opens only when its type is on OPENABLE_FILE_EXTENSIONS; anything else is
+ *      SHOWN in File Explorer (selected in its folder) and never run.
+ *   3. A COMMA. Explorer splits its command line on commas, and Node quotes an argument
+ *      only for spaces, tabs and quotes, so `Q3,Q4` opened the wrong place and
+ *      `x,/root,` rewrote Explorer's switches. The path always travels as ONE quoted
+ *      argument, passed verbatim, and a path containing a quote is refused.
  *
  * ⚠️ LIVE-EXECUTION GATED (repo convention 3). Without the production opt-in and
  * without an injected runner this refuses, and inside a `node --test` process it
@@ -42,17 +50,36 @@ const liveExecution = require('./live-execution');
 const SETTINGS_PAGES = Object.freeze({ sleep: 'ms-settings:powersleep' });
 
 /**
- * A drive path (`C:\...`) or a UNC share (`\\server\share...`). A bare rooted path
- * (`\foo`) is refused because its drive is whatever the process's is, and a leading
- * `/` is refused because Explorer reads it as a switch.
+ * The file types Kosmos will OPEN from a project's Documents list: documents, images,
+ * audio, video and archives, whose default Windows handlers display content rather
+ * than execute it. An allow-list rather than a deny-list because the set of types
+ * Windows will run is open-ended (.bat .cmd .exe .lnk .url .hta .vbs .js .wsf .ps1 .scr
+ * .pif .cpl .msc .msi .appref-ms, and whatever an installed program registers next);
+ * a list of what is safe to open can only fail by showing a harmless file instead of
+ * opening it. Everything not listed is revealed in File Explorer instead.
  */
-const ABSOLUTE_WINDOWS_PATH = /^(?:[A-Za-z]:\\|\\\\[^\\/]+\\[^\\/]+)/;
+const OPENABLE_FILE_EXTENSIONS = Object.freeze(new Set([
+  '.txt', '.md', '.csv', '.tsv', '.log', '.json',
+  '.pdf',
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.heic',
+  '.mp3', '.m4a', '.wav', '.mp4', '.mov',
+  '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp', '.rtf',
+  '.zip',
+]));
 
-/** A quote would end Node's argument quoting early; a control character is never a real path. */
+/** What a person reads when a file was shown rather than opened. */
+const REVEALED_INSTEAD_SENTENCE = 'Kosmos showed this file in File Explorer instead of opening it, because files of this type can run programs.';
+
+/** The only accepted shape: a path on a drive letter of this computer. */
+const DRIVE_LETTER_PATH = /^[A-Za-z]:\\/;
+
+/** A quote would end the quoting this module adds; a control character is never a real path. */
 const UNSAFE_PATH_CHARACTERS = /["\u0000-\u001f]/;
 
 /** The sentence every refused or failed launch reports, so the page says one true thing. */
 const EXPLORER_DID_NOT_OPEN = 'File Explorer did not open';
+const NOT_A_LOCAL_PLACE = 'Kosmos only opens places on this computer\'s own drives, not network shares or device paths';
+const NOT_A_PLACE = 'that is not a place File Explorer can open';
 
 let runner = null;
 /** Test seam: receives (explorerPath, args) instead of a real spawn. */
@@ -74,9 +101,15 @@ function explorerPath() {
  */
 function targetRefusal(target, kind) {
   if (typeof target !== 'string' || !target) return 'there is nothing to open';
-  if (UNSAFE_PATH_CHARACTERS.test(target)) return 'that is not a place File Explorer can open';
+  if (UNSAFE_PATH_CHARACTERS.test(target)) return NOT_A_PLACE;
+  /* Checked on the RAW string as well as the normalized one: `//host/share` and
+     `\\?\C:\` are both network or device forms before normalization tidies them. */
+  if (/^[\\/]{2}/.test(target)) return NOT_A_LOCAL_PLACE;
   const normalized = path.win32.normalize(target);
-  if (!ABSOLUTE_WINDOWS_PATH.test(normalized)) return 'that is not a place File Explorer can open';
+  if (normalized.startsWith('\\\\')) return NOT_A_LOCAL_PLACE;
+  if (!DRIVE_LETTER_PATH.test(normalized)) return NOT_A_PLACE;
+  /* A colon past the drive letter is an alternate data stream (`notes.txt:evil.exe`). */
+  if (normalized.indexOf(':', 2) > -1) return NOT_A_PLACE;
   let stat;
   try {
     stat = (statForTests || fs.statSync)(normalized);
@@ -88,6 +121,25 @@ function targetRefusal(target, kind) {
   return null;
 }
 
+/**
+ * The file's type as Windows will judge it: the last extension, lowercased, after the
+ * trailing dots and spaces Windows itself strips (`report.pdf.bat.` runs as a .bat).
+ */
+function fileTypeOf(file) {
+  const name = path.win32.basename(file).replace(/[. ]+$/, '');
+  return path.win32.extname(name).toLowerCase();
+}
+
+/**
+ * ONE argument, quoted, and passed verbatim so Node adds nothing and Explorer reads the
+ * whole path as one path, commas and all. Trailing separators are dropped (a quoted
+ * `C:\x\"` would read as an escaped quote), except on a bare drive root.
+ */
+function quotedPath(normalized) {
+  const trimmed = normalized.length > 3 ? normalized.replace(/\\+$/, '') : normalized;
+  return '"' + trimmed + '"';
+}
+
 function launch(args) {
   const exe = explorerPath();
   if (runner) return runner(exe, args);
@@ -96,7 +148,7 @@ function launch(args) {
     return { ok: false, because: EXPLORER_DID_NOT_OPEN };
   }
   try {
-    const child = spawn(exe, args, { detached: true, stdio: 'ignore', windowsHide: false, shell: false });
+    const child = spawn(exe, args, { detached: true, stdio: 'ignore', windowsHide: false, shell: false, windowsVerbatimArguments: true });
     /* A missing explorer.exe arrives here asynchronously, after we have answered.
        It cannot change the answer any more, so it is logged with the command, which
        is what makes that rare failure diagnosable from the board's log alone. */
@@ -118,14 +170,21 @@ function launch(args) {
 function openFolder(folder) {
   const refusal = targetRefusal(folder, 'folder');
   if (refusal) return { ok: false, because: refusal };
-  return launch([path.win32.normalize(folder)]);
+  return launch([quotedPath(path.win32.normalize(folder))]);
 }
 
-/** Open one file with whatever Windows opens that kind of file with. */
+/**
+ * Open one file with whatever Windows opens that kind of file with, when its type is
+ * one that displays rather than runs; otherwise show it selected in its folder, and
+ * say so. `revealedInstead` and `say` travel to the page, which shows the sentence.
+ */
 function openFile(file) {
   const refusal = targetRefusal(file, 'file');
   if (refusal) return { ok: false, because: refusal };
-  return launch([path.win32.normalize(file)]);
+  const normalized = path.win32.normalize(file);
+  if (OPENABLE_FILE_EXTENSIONS.has(fileTypeOf(normalized))) return launch([quotedPath(normalized)]);
+  const shown = launch(['/select,' + quotedPath(normalized)]);
+  return shown.ok ? { ok: true, revealedInstead: true, say: REVEALED_INSTEAD_SENTENCE } : shown;
 }
 
 /** Open one of the closed list of Settings pages, by purpose. */
@@ -138,6 +197,8 @@ function openSettingsPage(purpose) {
 
 module.exports = {
   SETTINGS_PAGES,
+  OPENABLE_FILE_EXTENSIONS,
+  REVEALED_INSTEAD_SENTENCE,
   EXPLORER_DID_NOT_OPEN,
   explorerPath,
   openFolder,

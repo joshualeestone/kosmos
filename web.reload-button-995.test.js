@@ -43,7 +43,9 @@ function paint({ baked, running, asked, look, offer, engineStale }) {
   };
   // eslint-disable-next-line no-new-func
   new Function('document', 'UPD_ASKED', 'UPD_CHECKING', 'ENGINE_STALE', 'RUNNING', 'LOOK', 'OFFER',
-    page.liftAll(SCRIPT, ['bakedVersion', 'pageIsStale', 'paintUpdateCard'])
+    /* win32-board-copy: the card's manual arm reads the platform copy layer; loaded here so a
+       future arm this harness drives cannot ReferenceError ("not Windows" with no meta). */
+    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'paintUpdateCard'])
     + '\npaintUpdateCard(RUNNING, OFFER, LOOK);')(doc, asked, false, engineStale || null, running, look, offer);
   return { label: btn.textContent, act: btn.dataset.act, line: line.textContent };
 }

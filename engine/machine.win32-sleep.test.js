@@ -23,7 +23,8 @@ const explorer = require('./win32explorer');
 
 /**
  * CAPTURED, verbatim, from `powercfg /query SCHEME_CURRENT SUB_SLEEP STANDBYIDLE` on the
- * Windows 11 Pro 26100 box this was written on (en-US), 2026-09-13. A read-only query.
+ * Windows 11 Pro 26100 box this was written on (en-US), 2026-09-13, and re-captured with
+ * `/qh` (review round 1): byte-for-byte the same shape. A read-only query.
  * AC index 0 is "Never"; DC 0xb4 is 180 seconds.
  */
 const EN_US_AC_NEVER = `Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)
@@ -111,12 +112,40 @@ test('the Windows sleep row: an unreadable or failed read is UNKNOWN with the Wi
   }
 });
 
-test('the real read is the read-only powercfg query, through the runner, with no Mac command', () => {
+test('the real read is the read-only powercfg /qh query (hidden settings included), through the runner, with no Mac command', () => {
   const calls = [];
   machine.sleepGate({ ...WIN, runner: (cmd, args) => { calls.push([cmd, args]); return { ok: true, stdout: EN_US_AC_NEVER }; } });
   assert.equal(calls.length, 1);
   assert.match(calls[0][0], /\\System32\\powercfg\.exe$/i);
-  assert.deepEqual(calls[0][1], ['/query', 'SCHEME_CURRENT', 'SUB_SLEEP', 'STANDBYIDLE']);
+  assert.deepEqual(calls[0][1], ['/qh', 'SCHEME_CURRENT', 'SUB_SLEEP', 'STANDBYIDLE']);
+});
+
+test('NIT (review round 1): one powercfg reading answers the 750ms first-run poll for five seconds, then is read again', () => {
+  let now = 1_000_000;
+  let reads = 0;
+  const runner = () => { reads += 1; return { ok: true, stdout: reads === 1 ? EN_US_AC_30_MIN : EN_US_AC_NEVER }; };
+  machine.resetWin32SleepReading();
+  machine.setWin32SleepClockForTests(() => now);
+  try {
+    assert.equal(machine.sleepGate({ ...WIN, runner }).prevented, false);
+    for (const later of [750, 1500, 4999]) {
+      now = 1_000_000 + later;
+      assert.equal(machine.sleepGate({ ...WIN, runner }).prevented, false, `the cached reading did not answer at +${later}ms`);
+    }
+    assert.equal(reads, 1, 'the poll shelled powercfg on every tick');
+    now = 1_000_000 + 5000;
+    assert.equal(machine.sleepGate({ ...WIN, runner }).prevented, true, 'a changed setting never showed after the window');
+    assert.equal(reads, 2);
+    /* A different runner is a different world: it never answers from another's reading. */
+    let otherReads = 0;
+    machine.sleepGate({ ...WIN, runner: () => { otherReads += 1; return { ok: false }; } });
+    assert.equal(otherReads, 1, 'a different runner was answered from the cache');
+    /* Injected text never touches the cache in either direction. */
+    assert.equal(machine.sleepGate({ ...WIN, powercfg: EN_US_AC_30_MIN }).prevented, false);
+  } finally {
+    machine.setWin32SleepClockForTests(null);
+    machine.resetWin32SleepReading();
+  }
 });
 
 test('the first-run sleep gate on Windows: never -> prevented, a sleep time -> not prevented, unreadable -> uncheckable', () => {
@@ -165,16 +194,17 @@ test('the Kosmos folder row on Windows reports the real folder with backslashes,
   assert.match(source.title, /running from source/);
 });
 
-test('"Open the Kosmos folder" hands the bundle root to Explorer, and refuses from source', () => {
+test('"Open the Kosmos folder" hands the bundle root to Explorer as one quoted path, and refuses from source or a share', () => {
   const root = 'C:\\Users\\someone\\Kosmos';
   const calls = [];
   explorer.setRunner((exe, args) => { calls.push(args); return { ok: true }; });
   explorer.setStatForTests(() => ({ isDirectory: () => true, isFile: () => false }));
   try {
     assert.deepEqual(machine.revealApp({ ...WIN, bundleRoot: root }), { ok: true });
-    assert.deepEqual(calls, [[root]]);
+    assert.deepEqual(calls, [['"' + root + '"']]);
     assert.throws(() => machine.revealApp({ ...WIN, bundleRoot: null }), /running from source/);
-    assert.equal(calls.length, 1, 'a from-source refusal still launched Explorer');
+    assert.throws(() => machine.revealApp({ ...WIN, bundleRoot: '\\\\fileserver\\apps\\Kosmos' }), /not network shares or device paths/);
+    assert.equal(calls.length, 1, 'a refusal still launched Explorer');
   } finally {
     explorer.setRunner(null);
     explorer.setStatForTests(null);

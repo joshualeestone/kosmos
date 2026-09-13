@@ -178,6 +178,7 @@ const FOUND_PAINTER_FNS = ['esc', 'foundCountLine', 'foundOverflows', 'foundCoun
  * place to forget a name. With no stamped `<meta name="kosmos-platform">` in the
  * harness's document they answer "not Windows", so a Mac harness keeps its Mac page.
  */
-const PLATFORM_COPY_FNS = ['servedPlatform', 'onWindows', 'windowsCopyTable', 'windowsCopy', 'platformCopy'];
+const PLATFORM_COPY_FNS = ['servedPlatform', 'onWindows', 'windowsCopyTable', 'windowsCopy', 'platformCopy',
+  'platformHides', 'frStepSequence', 'frStepAfter', 'frStepProgress'];
 
 module.exports = { scriptOf, lift, liftAll, liftConst, FOUND_PAINTER_FNS, PLATFORM_COPY_FNS };

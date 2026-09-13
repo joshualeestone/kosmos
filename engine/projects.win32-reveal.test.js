@@ -9,8 +9,8 @@
  *
  * ⚠️ NO REAL EXPLORER. The launcher's runner seam stands in for the spawn, and the
  * folder is a Windows path with an injected existence check, so a Mac asserts this arm
- * too. The one arm that needs a real resolved file (openFile does its own folder gates
- * against the real filesystem first) runs only where that file has a Windows path.
+ * too. The arms that need a real resolved file (openFile does its own folder gates
+ * against the real filesystem first) run only where that file has a Windows path.
  *
  *   node --test engine/projects.win32-reveal.test.js
  */
@@ -32,6 +32,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const projects = require('./projects');
 const explorer = require('./win32explorer');
+
+const q = (p) => '"' + p + '"';
+const NEEDS_A_WINDOWS_PATH = process.platform !== 'win32'
+  && 'openFile resolves a real folder first, so its Windows hand-off needs a Windows path on disk';
 
 function onWindowsWith(seams, body) {
   const calls = [];
@@ -56,14 +60,14 @@ test('revealFolder on Windows opens the folder in File Explorer, never /usr/bin/
     assert.deepEqual(projects.revealFolder(folder), { ok: true });
     assert.equal(calls.length, 1);
     assert.match(calls[0][0], /\\explorer\.exe$/i);
-    assert.deepEqual(calls[0][1], [folder], 'the folder did not arrive as exactly one argument');
+    assert.deepEqual(calls[0][1], [q(folder)], 'the folder did not arrive as exactly one quoted argument');
     assert.equal(macCalls.length, 0, 'the Mac opener ran on Windows');
   });
 });
 
-test('revealFolder on Windows refuses a switch-shaped or relative "folder" before any launch', () => {
+test('revealFolder on Windows refuses a switch-shaped, relative or network "folder" before any launch', () => {
   onWindowsWith({}, (calls) => {
-    for (const bad of ['/select,C:\\Windows\\notepad.exe', 'Projects\\Launch plan', '']) {
+    for (const bad of ['/select,C:\\Windows\\notepad.exe', 'Projects\\Launch plan', '', '\\\\attacker\\share\\Projects']) {
       const out = projects.revealFolder(bad);
       assert.equal(out.ok, false, `accepted ${JSON.stringify(bad)}`);
     }
@@ -95,23 +99,35 @@ test('CONTROL: with the platform stated as darwin the Mac opener still runs, unc
   }
 });
 
-test('openFile on Windows hands the resolved file to File Explorer after its own gates', {
-  skip: process.platform !== 'win32' && 'openFile resolves a real folder first, so its Windows hand-off needs a Windows path on disk',
-}, () => {
-  const dir = path.join(SANDBOX, 'docs');
+function withRealDocs(names, body) {
+  const dir = path.join(SANDBOX, 'docs-' + Math.random().toString(36).slice(2));
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'notes.docx'), 'x');
+  for (const n of names) fs.writeFileSync(path.join(dir, n), 'x');
   projects.setRevealPlatform('win32');
   const calls = [];
   explorer.setRunner((exe, args) => { calls.push(args); return { ok: true }; });
   try {
-    assert.deepEqual(projects.openFile(dir, 'notes.docx'), { ok: true });
-    assert.deepEqual(calls, [[fs.realpathSync(path.join(dir, 'notes.docx'))]]);
-    /* The name gates are platform-free and still run first. */
-    assert.equal(projects.openFile(dir, '..\\secret.txt').ok, false);
-    assert.equal(calls.length, 1, 'a refused name reached Explorer');
+    return body(dir, calls);
   } finally {
     projects.setRevealPlatform(null);
     explorer.setRunner(null);
   }
+}
+
+test('openFile on Windows hands a document to File Explorer as one quoted path, after its own gates', { skip: NEEDS_A_WINDOWS_PATH }, () => {
+  withRealDocs(['notes.docx'], (dir, calls) => {
+    assert.deepEqual(projects.openFile(dir, 'notes.docx'), { ok: true });
+    assert.deepEqual(calls, [[q(fs.realpathSync.native(path.join(dir, 'notes.docx')))]]);
+    /* The name gates are platform-free and still run first. */
+    assert.equal(projects.openFile(dir, '..\\secret.txt').ok, false);
+    assert.equal(calls.length, 1, 'a refused name reached Explorer');
+  });
+});
+
+test('SAFETY 1 through the project route: an agent-written .bat is SHOWN, never run, and the answer says why', { skip: NEEDS_A_WINDOWS_PATH }, () => {
+  withRealDocs(['Q3 report.pdf.bat'], (dir, calls) => {
+    const out = projects.openFile(dir, 'Q3 report.pdf.bat');
+    assert.deepEqual(out, { ok: true, revealedInstead: true, say: explorer.REVEALED_INSTEAD_SENTENCE });
+    assert.deepEqual(calls, [['/select,' + q(fs.realpathSync.native(path.join(dir, 'Q3 report.pdf.bat')))]]);
+  });
 });

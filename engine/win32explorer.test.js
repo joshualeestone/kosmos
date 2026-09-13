@@ -7,6 +7,9 @@
  * test process instead of spawning. Targets are Windows paths with an injected
  * existence check, so a Mac asserts the same arms a Windows box does.
  *
+ * ⚠️ THE ARGV IS THE ASSERTION. The runner seam receives exactly what would be handed to
+ * explorer.exe, verbatim, so every test below pins the argument list Explorer would parse.
+ *
  *   node --test engine/win32explorer.test.js
  */
 const test = require('node:test');
@@ -18,6 +21,7 @@ const FOLDER = 'C:\\Users\\someone\\Kosmos\\Projects\\Brief';
 const FILE = 'C:\\Users\\someone\\Kosmos\\Projects\\Brief\\notes.docx';
 const DIRECTORY = { isDirectory: () => true, isFile: () => false };
 const REGULAR_FILE = { isDirectory: () => false, isFile: () => true };
+const q = (p) => '"' + p + '"';
 
 function withWorld({ stat, runnerResult = { ok: true } }, body) {
   const calls = [];
@@ -31,30 +35,59 @@ function withWorld({ stat, runnerResult = { ok: true } }, body) {
   }
 }
 
-test('a real folder is handed to explorer.exe as ONE argument, never through a shell', () => {
+test('a real folder is handed to explorer.exe as ONE quoted argument, never through a shell', () => {
   withWorld({}, (calls) => {
     assert.deepEqual(explorer.openFolder(FOLDER), { ok: true });
     assert.equal(calls.length, 1);
     assert.match(calls[0].exe, /\\explorer\.exe$/i, 'the launcher is not explorer.exe');
-    assert.deepEqual(calls[0].args, [FOLDER], 'the folder did not arrive as one argument');
+    assert.deepEqual(calls[0].args, [q(FOLDER)], 'the folder did not arrive as exactly one quoted argument');
   });
 });
 
-test('a forward-slash spelling is normalized before Explorer sees it', () => {
+test('a forward-slash spelling is normalized, and a trailing separator is dropped before quoting', () => {
   withWorld({}, (calls) => {
-    assert.equal(explorer.openFolder('C:/Users/someone/Kosmos').ok, true);
-    assert.deepEqual(calls[0].args, ['C:\\Users\\someone\\Kosmos']);
+    assert.equal(explorer.openFolder('C:/Users/someone/Kosmos/').ok, true);
+    assert.deepEqual(calls[0].args, [q('C:\\Users\\someone\\Kosmos')]);
   });
 });
 
-test('a UNC share is a real Windows folder too', () => {
+test('SAFETY 3: a comma stays inside the ONE quoted argument, so it can neither split the path nor add a switch', () => {
   withWorld({}, (calls) => {
-    assert.equal(explorer.openFolder('\\\\fileserver\\team\\Kosmos').ok, true);
-    assert.deepEqual(calls[0].args, ['\\\\fileserver\\team\\Kosmos']);
+    assert.equal(explorer.openFolder('C:\\Users\\someone\\Kosmos\\Projects\\Q3,Q4').ok, true);
+    assert.equal(explorer.openFolder('C:\\Users\\someone\\x,/root,C:\\Windows').ok, true);
+    assert.deepEqual(calls.map((c) => c.args), [
+      [q('C:\\Users\\someone\\Kosmos\\Projects\\Q3,Q4')],
+      [q('C:\\Users\\someone\\x,/root,C:\\Windows')],
+    ]);
+  });
+  /* And the spawn itself passes the argument verbatim, so Node adds no quoting of its own. */
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'win32explorer.js'), 'utf8');
+  assert.match(src, /windowsVerbatimArguments: true/);
+});
+
+test('SAFETY 2: network shares and device paths are refused for both open and reveal, before any launch', () => {
+  const shapes = [
+    '\\\\attacker\\share\\x',
+    '//attacker/share/x',
+    '\\\\attacker@SSL\\DavWWWRoot\\x',
+    '\\\\?\\C:\\Users\\someone',
+    '\\\\?\\UNC\\attacker\\share',
+    '\\\\.\\pipe\\x',
+    '\\\\.\\C:\\Users',
+    '\\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy1\\Users',
+  ];
+  withWorld({ stat: () => REGULAR_FILE }, (calls) => {
+    for (const shape of shapes) {
+      for (const [label, out] of [['openFolder', explorer.openFolder(shape)], ['openFile', explorer.openFile(shape)]]) {
+        assert.equal(out.ok, false, `${label} accepted ${JSON.stringify(shape)}`);
+        assert.match(out.because, /not network shares or device paths/, `${label} ${shape}: ${out.because}`);
+      }
+    }
+    assert.equal(calls.length, 0, 'a network or device path reached Explorer');
   });
 });
 
-test('ARGUMENT INJECTION: anything Explorer could read as a switch, or that is not an absolute path, is refused before any launch', () => {
+test('ARGUMENT INJECTION: anything Explorer could read as a switch, or that is not an absolute drive path, is refused', () => {
   const shapes = [
     '/select,C:\\Windows\\System32\\calc.exe',
     '/e,C:\\',
@@ -64,6 +97,7 @@ test('ARGUMENT INJECTION: anything Explorer could read as a switch, or that is n
     '\\rooted-without-a-drive',
     'C:\\Users\\someone\\" /select,"C:\\Windows',
     'C:\\Users\\someone\\Kos\nmos',
+    'C:\\Users\\someone\\notes.txt:evil.exe',
     'ms-settings:privacy',
     'shell:startup',
     'https://example.com',
@@ -99,14 +133,64 @@ test('a folder that is gone, or is a file, is refused with a sentence and no lau
   });
 });
 
-test('openFile opens a regular file and refuses a folder', () => {
+const DANGEROUS = ['.bat', '.cmd', '.exe', '.lnk', '.url', '.hta', '.vbs', '.js', '.wsf', '.ps1', '.scr', '.pif', '.cpl', '.msc', '.msi', '.appref-ms'];
+const ALLOWED = ['.txt', '.md', '.csv', '.tsv', '.log', '.json', '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.heic',
+  '.mp3', '.m4a', '.wav', '.mp4', '.mov', '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp', '.rtf', '.zip'];
+const DIR = 'C:\\Users\\someone\\Kosmos\\Projects\\Brief\\';
+
+test('SAFETY 1: a file whose type can run a program is SHOWN in File Explorer, never opened, and the person is told why', () => {
+  const names = [
+    ...DANGEROUS.map((ext) => 'Q3 report' + ext),
+    'Q3 report.pdf.bat',
+    'Q3 report.PDF.BAT',
+    'Q3 report.pdf.bat.',
+    'Q3 report.pdf.bat ',
+    'Q3 report.pdf.bat. .',
+    'README',
+  ];
   withWorld({ stat: () => REGULAR_FILE }, (calls) => {
-    assert.deepEqual(explorer.openFile(FILE), { ok: true });
-    assert.deepEqual(calls[0].args, [FILE]);
+    for (const name of names) {
+      const out = explorer.openFile(DIR + name);
+      assert.deepEqual(out, { ok: true, revealedInstead: true, say: explorer.REVEALED_INSTEAD_SENTENCE }, `${name} was not revealed instead`);
+      const args = calls[calls.length - 1].args;
+      assert.equal(args.length, 1, `${name}: more than one argument`);
+      assert.ok(args[0].startsWith('/select,"'), `${name} was OPENED, not selected: ${args[0]}`);
+    }
+    assert.equal(calls.length, names.length);
   });
+  assert.equal(explorer.REVEALED_INSTEAD_SENTENCE,
+    'Kosmos showed this file in File Explorer instead of opening it, because files of this type can run programs.');
+});
+
+test('each allowed document type OPENS, in any letter case', () => {
+  assert.deepEqual([...explorer.OPENABLE_FILE_EXTENSIONS].sort(), [...ALLOWED].sort(), 'the allow-list changed without this test');
+  withWorld({ stat: () => REGULAR_FILE }, (calls) => {
+    for (const ext of ALLOWED) {
+      for (const spelled of [ext, ext.toUpperCase()]) {
+        const file = DIR + 'Q3 report' + spelled;
+        assert.deepEqual(explorer.openFile(file), { ok: true }, `${spelled} did not open`);
+        assert.deepEqual(calls[calls.length - 1].args, [q(file)], `${spelled} was not opened as one quoted path`);
+      }
+    }
+  });
+});
+
+test('openFile refuses a folder, a stream and a network file before any launch', () => {
   withWorld({ stat: () => DIRECTORY }, (calls) => {
     assert.equal(explorer.openFile(FOLDER).ok, false);
     assert.equal(calls.length, 0);
+  });
+  withWorld({ stat: () => REGULAR_FILE }, (calls) => {
+    assert.equal(explorer.openFile(DIR + 'notes.txt:hidden.exe').ok, false, 'an alternate data stream was opened');
+    assert.equal(explorer.openFile('\\\\attacker\\share\\notes.pdf').ok, false);
+    assert.equal(calls.length, 0);
+    assert.deepEqual(explorer.openFile(FILE), { ok: true });
+  });
+});
+
+test('a failed reveal reports the failure, not a reveal', () => {
+  withWorld({ stat: () => REGULAR_FILE, runnerResult: { ok: false, because: explorer.EXPLORER_DID_NOT_OPEN } }, () => {
+    assert.deepEqual(explorer.openFile(DIR + 'setup.exe'), { ok: false, because: 'File Explorer did not open' });
   });
 });
 
@@ -136,7 +220,7 @@ test('the launch never waits on an exit code: success is answered from the spawn
      the exit status would report every success as a failure, which is exactly what
      this module exists to avoid, so the shape is pinned. */
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'win32explorer.js'), 'utf8');
-  assert.match(src, /spawn\(exe, args, \{ detached: true, stdio: 'ignore', windowsHide: false, shell: false \}\)/);
+  assert.match(src, /spawn\(exe, args, \{ detached: true, stdio: 'ignore', windowsHide: false, shell: false, windowsVerbatimArguments: true \}\)/);
   assert.match(src, /child\.unref\(\);\s*return \{ ok: true \};/);
   assert.doesNotMatch(src, /execFileSync|spawnSync|\.on\('exit'|\.on\('close'/, 'the launcher waits on Explorer\'s exit status');
 });

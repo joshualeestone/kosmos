@@ -8379,7 +8379,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   <div class="fmsg" id="d-role-msg"></div>
   </section>
   </section>
-  <section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-tied="1" hidden>
+  <section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-win-aria-label="terminalTab" data-tied="1" hidden>
 
   <!-- #5 insurance + terminal-window actions (Josh 0.6.44). These sit ABOVE the window
        box (which hides when the capture cannot land) on purpose: an agent stuck at the
@@ -12425,7 +12425,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <a class="btn-quiet" id="upd-download" href="#" target="_blank" rel="noopener" aria-describedby="upd-line" hidden>Download</a>
         <!-- win32-board-copy (W-25): the manual offer's second button, shown only in that arm.
              It is the same engine reveal as Settings' "Open the Kosmos folder". -->
-        <button class="btn-quiet" type="button" id="upd-open-folder" hidden>Open my Kosmos folder</button>
+        <button class="btn-quiet" type="button" id="upd-open-folder" hidden data-win-copy="updateOpenFolder">Open my Kosmos folder</button>
       </div>
       <ol class="dhint upd-manual-steps" id="upd-manual-steps" hidden></ol>
       <p class="dhint" id="upd-open-folder-msg" role="status" hidden></p>
@@ -13165,6 +13165,7 @@ function onWindows(platform) {
   return known === 'win32';
 }
 function windowsCopyTable() {
+  const restartKosmos = 'restart Kosmos by double-clicking Kosmos.exe in your Kosmos folder, or by signing out of Windows and signing back in.';
   return {
     /* First run, S3 "Kosmos never sleeps" (W-11). Values used as innerHTML may carry
        markup; values used as textContent are plain. */
@@ -13209,7 +13210,19 @@ function windowsCopyTable() {
     signinSentence: 'This board is not signed in, so it cannot read your agents or projects. To fix it, open Kosmos by double-clicking Kosmos.exe in your Kosmos folder.',
     signinPanel: '<p><b>This board is not signed in.</b><br>It cannot read your agents or projects yet. To fix it, '
       + 'open Kosmos by double-clicking <b>Kosmos.exe</b> in your Kosmos folder. It opens this page signed in.</p>',
-    restartKosmos: 'restart Kosmos by double-clicking Kosmos.exe in your Kosmos folder, or by signing out of Windows and signing back in.',
+    restartKosmos,
+    updateAbortRemedy: 'Kosmos was busy each time. To clear it, ' + restartKosmos + ' That usually clears whatever '
+      + 'was holding the update, so the next one can finish. Your agents keep working, they do not live in this window.',
+    engineStaleRemedy: 'Only a restart picks it up: ' + restartKosmos,
+    /* %NAME% is the Kosmos being switched to, filled in by the caller. */
+    worldSwitchRestart: 'Kosmos could not restart itself. To finish switching to %NAME%, ' + restartKosmos,
+    /* The Copy button beside a command a person must paste (W-14). */
+    copyLabel: 'Copy',
+    copyDone: 'Copied',
+    copyFallback: 'Select it and copy',
+    /* The manual update offer's folder button (W-25). */
+    updateOpenFolder: 'Open my Kosmos folder',
+    openKosmosFolderFailure: windowsCopy('openKosmosFolderFailure'),
     offlineRemedy: 'Double-click Kosmos.exe in your Kosmos folder and it will start again if it needs to.',
   };
 }
@@ -13231,6 +13244,9 @@ function applyPlatformCopy(root) {
   document.documentElement.setAttribute('data-kosmos-platform', 'win32');
   root.querySelectorAll('[data-win-copy]').forEach((el) => { el.innerHTML = windowsCopy(el.getAttribute('data-win-copy')); });
   root.querySelectorAll('[data-win-only]').forEach((el) => { el.hidden = false; });
+  /* An accessible name has to say what the visible label says (the Terminal tab reads
+     "Live output" on Windows, and its section is named from the same key). */
+  root.querySelectorAll('[data-win-aria-label]').forEach((el) => { el.setAttribute('aria-label', windowsCopy(el.getAttribute('data-win-aria-label'))); });
 }
 applyPlatformCopy(typeof document === 'undefined' ? null : document);
 
@@ -14967,9 +14983,7 @@ function paintUpdateAbort(ab) {
     + '<small>This computer has tried to install it ' + times + ' and could not, because '
     /* win32-board-copy (W-26): there is no Kosmos window to Quit on Windows. */
     + (onWindows()
-      ? 'Kosmos was busy each time. To clear it, ' + windowsCopy('restartKosmos') + ' That usually clears whatever '
-        + 'was holding the update, so the next one can finish. Your agents keep working, they do '
-        + 'not live in this window.'
+      ? windowsCopy('updateAbortRemedy')
       : 'Kosmos was busy each time. Quit and reopen Kosmos: reopening usually clears whatever '
         + 'was holding the update, so the next one can finish. Your agents keep working, they do '
         + 'not live in this window.')
@@ -15000,7 +15014,7 @@ function renderUpdateToast(u) {
       + '<div class="utxt"><b>Kosmos changed on disk</b><small>'
       + (since ? 'The board is running code from ' + esc(since) + '. ' : 'The board is running older code. ')
       + (onWindows()
-        ? 'Only a restart picks it up: ' + windowsCopy('restartKosmos')
+        ? windowsCopy('engineStaleRemedy')
         : 'Only a restart picks it up: <code>kosmos restart</code>')
       + '</small></div>'
       + '</div>';
@@ -18915,7 +18929,7 @@ async function worldswSwitch(id, name, agents) {
        auto-restart button could not finish it. Josh scrapped the old "run kosmos
        restart" CLI instruction; give the gentle GUI action instead, no command. */
     say(onWindows()
-      ? 'Kosmos could not restart itself. To finish switching to ' + switchedName + ', ' + windowsCopy('restartKosmos')
+      ? windowsCopy('worldSwitchRestart').replace('%NAME%', () => switchedName)
       : 'Kosmos could not restart itself. Quit and reopen Kosmos to finish switching to ' + switchedName + '.');
     worldswFocusTrigger();
   } finally {
@@ -20417,10 +20431,10 @@ document.getElementById('upd-open-folder').addEventListener('click', async () =>
   try {
     const r = await fetch('/api/reveal-app', { method: 'POST' });
     const body = await r.json().catch(() => ({}));
-    msg.textContent = r.ok ? '' : (body.error || 'We could not open your Kosmos folder just now.');
+    msg.textContent = r.ok ? '' : (body.error || windowsCopy('openKosmosFolderFailure'));
     msg.hidden = r.ok;
   } catch {
-    msg.textContent = 'We could not open your Kosmos folder just now.';
+    msg.textContent = windowsCopy('openKosmosFolderFailure');
     msg.hidden = false;
   }
 });
@@ -37474,6 +37488,8 @@ document.getElementById('docs-list').addEventListener('click', async (e) => {
     const res = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/open-file',
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: row.dataset.doc }) });
     if (!res.ok) { const b = await res.json().catch(() => null); msg.textContent = pjSentence((b && (b.error || b.because)) || 'we could not open that file'); }
+    /* win32-board-copy: Windows shows a file that can run a program instead of opening it, and the engine says so. */
+    else { const b = await res.json().catch(() => null); if (b && b.revealedInstead && b.say) msg.textContent = b.say; }
   } catch { msg.textContent = 'We could not reach Kosmos to open that file.'; }
 });
 
@@ -38210,7 +38226,12 @@ document.getElementById('pj-docs').addEventListener('click', async (e) => {
       { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name: row.dataset.doc }) });
     if (PJ_CURRENT !== forProject) return;
-    if (res.ok) { msg.textContent = ''; return; }
+    if (res.ok) {
+      /* win32-board-copy: a file shown rather than opened (Windows, a type that can run a program) is said. */
+      const b = await res.json().catch(() => null);
+      msg.textContent = (b && b.revealedInstead && b.say) || '';
+      return;
+    }
     /* The refusal is the ENGINE's sentence, shown verbatim. It already says
        what happened in words a person can act on ("that file lives outside
        this project"), and rewriting it here would be a second, weaker copy. */
@@ -38237,7 +38258,12 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
       { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name: go.dataset.ref }) });
     if (PJ_CURRENT !== forProject) return;
-    if (res.ok) { msg.textContent = ''; return; }
+    if (res.ok) {
+      /* win32-board-copy: a file shown rather than opened (Windows, a type that can run a program) is said. */
+      const b = await res.json().catch(() => null);
+      msg.textContent = (b && b.revealedInstead && b.say) || '';
+      return;
+    }
     let because = 'That file did not open.';
     try { because = asSentence((await res.json()).error) || because; } catch { /* keep the fallback */ }
     msg.textContent = because;
@@ -44090,8 +44116,8 @@ async function copyCommandFrom(button) {
       copied = document.execCommand('copy');
     } catch { copied = false; }
   }
-  button.textContent = copied ? 'Copied' : 'Select it and copy';
-  setTimeout(() => { button.textContent = 'Copy'; }, 2000);
+  button.textContent = windowsCopy(copied ? 'copyDone' : 'copyFallback');
+  setTimeout(() => { button.textContent = windowsCopy('copyLabel'); }, 2000);
 }
 if (typeof document !== 'undefined' && document && typeof document.addEventListener === 'function') {
   document.addEventListener('click', (e) => {

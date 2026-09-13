@@ -11617,7 +11617,9 @@ const server = http.createServer((req, res) => {
          * planted inside the folder). A second, weaker copy of the rules at
          * this layer is how two validators drift and the looser one wins. */
         const opened = projects.openFile(record.folder, named);
-        if (opened.ok) { sendJson(res, 200, { ok: true }); return; }
+        /* win32-board-copy (review round 1, SAFETY 1): on Windows a file whose type can run
+           a program is shown in File Explorer rather than opened, and the page says so. */
+        if (opened.ok) { sendJson(res, 200, opened.revealedInstead ? { ok: true, revealedInstead: true, say: opened.say } : { ok: true }); return; }
         sendJson(res, 409, { error: opened.because });
       })
       .catch((err) => sendJson(res, 400,
