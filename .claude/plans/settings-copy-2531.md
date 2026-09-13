@@ -78,3 +78,12 @@ Refined scope line: the fix now covers the whole AI Models **Settings** account/
 - `unknownWhy` (17630) is a `because`-value fallback (capitalized downstream by the display, same
   idiom as pjSentence), correctly left lowercase.
 - plusSay relay (29932/29933), tasks/notes (36xxx), friends (43290): other surfaces, out of lane.
+
+## Iteration 2 challenge-review correction (conjunctive defect I created)
+Sonnet review caught that my FIRST commit's `replace_all` on 'we could not add that account' also hit
+line 44984 - which is in `frEnterSubmit`, the `fr*` ONBOARDING wizard, NOT the acct* Settings surface.
+So I had capitalized onboarding's "add account" throw while (iteration 1) deliberately leaving
+onboarding's sign-in/install throws lowercase: a fresh inconsistency ON the onboarding surface, the
+exact drift the card fights, relocated. REVERTED 44984 back to lowercase, restoring onboarding to its
+exact pre-branch state (all three fr* throws lowercase). The change now touches ONLY the AI Models
+Settings acct* surface, as the scope line states. Onboarding remains a documented follow-up, untouched.

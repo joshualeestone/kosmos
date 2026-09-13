@@ -44981,7 +44981,7 @@ document.getElementById('fr-openai-go').addEventListener('click', async () => {
       body: JSON.stringify({ key }),
     });
     const out = await res.json().catch(() => null);
-    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'We could not add that account.');
+    if (!res.ok) throw new Error((out && (out.error || out.because)) || 'we could not add that account');
     // The key leaves the field the moment it is stored, same as Settings.
     keyField.value = '';
     frPaintOpenai({ connected: true, keyTail: out && out.account && out.account.keyTail, justAdded: true });
