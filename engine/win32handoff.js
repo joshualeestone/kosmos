@@ -264,7 +264,14 @@ async function attemptHandOff(o, deps) {
          board can be replaced from here:
          anything else on the port (a board in another window, or not a board at
          all) is somebody else's, and serving here reproduces today's message. */
-      if (!board.status().running) return serveHere('something the logon task did not start is already using port ' + port);
+      /* #2973: `running` is true, false, or null when the task could not be read. Only
+         a task PROVEN to be running is ended from here; could-not-tell keeps the window. */
+      const task = board.status();
+      if (task.running !== true) {
+        return serveHere(task.running === false
+          ? 'something the logon task did not start is already using port ' + port
+          : 'we could not tell whether the logon task started what is already using port ' + port + ', so it was left running');
+      }
       /* With no time left to start its replacement, a working older board is
          worth more than a window: keep it, and let this launch report the port. */
       if (left() <= 0) return serveHere('there was no time left to replace the older Kosmos that is running');
@@ -336,7 +343,7 @@ async function handOffToTask(opts) {
   }
 }
 
-module.exports = { handOffToTask, buildIdentity, boardIdentity, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS };
+module.exports = { handOffToTask, buildIdentity, boardIdentity, probeBoard, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS };
 
 /**
  * When Kosmos.exe shows its box for a board whose listener it cannot see, because the

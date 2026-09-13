@@ -3727,7 +3727,7 @@ const server = http.createServer((req, res) => {
            no-ops, and the client reconnect degrades to the manual path). */
         if (restarting) {
           setTimeout(() => {
-            try { require('./engine/boardrestart').selfRestart(); }
+            try { require('./engine/boardrestart').selfRestart(process.platform, { port: PORT }); }
             catch { /* best effort: a failed stop leaves the board serving the old world, still honest via restartRequired */ }
           }, 500);
         }
@@ -13203,6 +13203,9 @@ if (require.main === module) {
       win32BoardEnsured = r;
       if (r.action === 'registered') {
         process.stdout.write(`Kosmos will now start when you log in. Task Scheduler > Kosmos > board; remove it with: ${r.removeHint}\n`);
+      } else if (r.action === 'unknown') {
+        /* #2973: could not read the job, so nothing was changed. Not "will not start". */
+        process.stderr.write(`Kosmos could not check whether it starts when you log in: ${r.because}\n`);
       } else if (!r.ok) {
         /* The whole point of this slice: when the board will NOT come back, say
            so, rather than let a person find out after a reboot. */
