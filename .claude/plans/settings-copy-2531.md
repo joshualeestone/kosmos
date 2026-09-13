@@ -71,10 +71,14 @@ very inconsistency the card exists to fix, beside the strings I had just capital
 
 Refined scope line: the fix now covers the whole AI Models **Settings** account/connect surface
 (all `acct*` raw-rendered fallbacks). Still DELIBERATELY OUT:
-- The `fr*` first-run ONBOARDING duplicates (`frOpenaiSubConnected`/`frOpenaiSubWatch`, 44804 sign-in
-  + 44864 install) carry identical strings but are a different surface (onboarding, not Settings).
-  Left lowercase as a documented follow-up; capitalizing only the sign-in/install there would create
-  a new onboarding-internal inconsistency I would then have to chase.
+- The `fr*` first-run ONBOARDING duplicates (`frOpenaiSubConnected`/`frOpenaiSubWatch`/`frEnterSubmit`,
+  44804 sign-in + 44864 install + 44984 add) carry identical strings but are a different surface
+  (onboarding, not Settings), so they are out of THIS card's Settings lane and left as a follow-up.
+  FOLLOW-UP DIRECTION (measured): fr* is NOT uniform-lowercase - its THROW fallbacks (44804/44864/44984)
+  are lowercase while its CATCH fallbacks (44811/44877/44989) are ALREADY capitalized on origin/main.
+  So fr* already carries the same throw/catch split this card fixed on acct*, and the follow-up is to
+  capitalize the three fr* THROWS to MATCH their catches (which reduces inconsistency), not to leave
+  them lowercase.
 - `unknownWhy` (17630) is a `because`-value fallback (capitalized downstream by the display, same
   idiom as pjSentence), correctly left lowercase.
 - plusSay relay (29932/29933), tasks/notes (36xxx), friends (43290): other surfaces, out of lane.
