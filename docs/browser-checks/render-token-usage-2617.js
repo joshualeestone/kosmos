@@ -86,7 +86,7 @@ function readUsage(page) {
         const link = m.querySelector('a');
         const hist = document.querySelector('.usage-hist');
         const meas = document.querySelector('.usage-meas');
-        const money = document.querySelector('#usage-worth');
+        const moneyBox = document.querySelector('#usage-worth');
         const DP_FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING;
         return {
           text: (m.textContent || '').trim(),
@@ -101,7 +101,7 @@ function readUsage(page) {
           boxShadow: cs.boxShadow,
           afterHist: hist ? !!(hist.compareDocumentPosition(m) & DP_FOLLOWING) : null,
           beforeMeas: meas ? !!(m.compareDocumentPosition(meas) & DP_FOLLOWING) : null,
-          beforeMoney: money ? !!(m.compareDocumentPosition(money) & DP_FOLLOWING) : null,
+          beforeMoney: moneyBox ? !!(m.compareDocumentPosition(moneyBox) & DP_FOLLOWING) : null,
         };
       })(),
     };
