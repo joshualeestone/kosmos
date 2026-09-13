@@ -158,20 +158,29 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(`${t} a cancelled drag removes the .pj-dragging class`, cancel.classCleared === true, String(cancel.classCleared));
     ok(`${t} paintProjects self-heals a stranded PJ_DRAGGING flag (never freezes the list)`, cancel.stranded === false, String(cancel.stranded));
 
-    // ---- Control: choosing a SORT clears the manual order (mutually exclusive) ----
+    // ---- Control: choosing a SORT clears an ACTIVE manual order (mutually exclusive) ----
     const sortReverts = await page.evaluate(() => {
+      // Activate a manual order FIRST (PJ_ORDER + localStorage set, control -> 'custom'), so this
+      // genuinely tests that a sort choice CLEARS it -- not a vacuous pass against an already-null
+      // order. Without this, deleting pjClearOrder() from the change handler would still pass.
+      pjSaveOrder(['c', 'a', 'b']);
+      paintProjects();
       const sel = document.getElementById('pj-sort');
+      let savedBefore = null;
+      try { savedBefore = localStorage.getItem('kosmos.order.projects'); } catch { savedBefore = 'ERR'; }
+      const before = { selValue: sel.value, saved: savedBefore };
       sel.value = 'az';
       sel.dispatchEvent(new Event('change', { bubbles: true }));
-      const topIds = () => Array.from(document.querySelectorAll('#pj-list .pj-row[data-project]'))
+      const topIds = Array.from(document.querySelectorAll('#pj-list .pj-row[data-project]'))
         .filter((r) => (Number(r.style.getPropertyValue('--pj-depth')) || 0) === 0)
         .map((r) => r.dataset.project);
       let saved = null;
       try { saved = localStorage.getItem('kosmos.order.projects'); } catch { saved = 'ERR'; }
-      return { topIds: topIds(), saved, pjOrder: (typeof PJ_ORDER !== 'undefined' ? PJ_ORDER : 'undef'), selValue: document.getElementById('pj-sort').value };
+      return { before, topIds, saved, selValue: sel.value };
     });
-    ok(`${t} choosing a sort CLEARS the manual order (localStorage removed)`, sortReverts.saved === null, String(sortReverts.saved));
-    ok(`${t} the sort control shows the chosen sort again after clearing`, sortReverts.selValue === 'az', sortReverts.selValue);
+    ok(`${t} precondition: a manual order is active before the sort pick (control 'custom', localStorage set)`, sortReverts.before.selValue === 'custom' && sortReverts.before.saved !== null && sortReverts.before.saved !== 'ERR', JSON.stringify(sortReverts.before));
+    ok(`${t} choosing a sort CLEARS the active manual order (localStorage removed)`, sortReverts.saved === null, String(sortReverts.saved));
+    ok(`${t} the sort control shows the chosen sort after clearing`, sortReverts.selValue === 'az', sortReverts.selValue);
     ok(`${t} choosing a sort reverts to the sorted a,b,c`, JSON.stringify(sortReverts.topIds) === JSON.stringify(['a', 'b', 'c']), JSON.stringify(sortReverts.topIds));
 
     // ---- Scoping: the manual order is IGNORED in the tab (non-consolidated) view ----
