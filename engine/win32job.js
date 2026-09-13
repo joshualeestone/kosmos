@@ -38,6 +38,7 @@ const path = require('node:path');
 
 const win32anchor = require('./win32anchor');
 const launchidentity = require('./launchidentity');
+const liveExec = require('./live-execution');
 
 /* One namespace so a person reading Task Scheduler can see what these are, and
    so `list()` can find ours without guessing. The Mac's serviceLabel plays the
@@ -61,59 +62,83 @@ function taskName(agentName, worldId) {
    { ok, out } and never throws, so every caller can report rather than unwind. */
 let runFn = null;
 /**
- * 🛑 #2717: THE CONFIGDIR PATH, REMEMBERED. The PATH is immutable for the life of
- * a task; only whether the directory still EXISTS changes, and that is checked
- * live by the caller on every ask. So this caches the answer to "what path did
- * this task record", never "does it still exist".
+ * 🛑 #2717: A TASK'S DEFINITION, REMEMBERED. The argument line is immutable for the
+ * life of a registration; only `install` (`/Create /F`) and `remove` (`/Delete`)
+ * change it. So this caches the answer to "what did this task record" (its
+ * runner, model, account dir, binary), never anything that moves under a
+ * registered task -- whether an account directory still EXISTS is checked live
+ * by the caller on every ask.
  *
- * Why it is worth caching at all: `configDirFor` shells `schtasks /Query /XML`,
- * and `/api/removed` calls the predicate that uses it ONCE PER REMOVED AGENT on
- * the board's five-second poll. On Windows that was one process spawn per
- * removed agent, every five seconds, forever. On darwin the same predicate is a
- * cheap plist read, which is why it went unnoticed: the accepted-cost note on
- * #2615 was measured on the Mac and stopped being true when #2614 widened the
- * predicate underneath it.
+ * Why it is worth caching at all: reading a task shells `schtasks /Query /XML`,
+ * and two readers ask on the board's five-second poll, once per agent:
+ * `/api/removed` through `configDirFor` (one spawn per removed agent), and every
+ * `create.readJob` caller on the status path through `cachedTaskSpec`
+ * (`accountForAgent`, `status.readCodexSession`). Uncached that is one process
+ * spawn per agent, every five seconds, forever. On darwin the same questions are
+ * cheap plist reads, which is why the first instance went unnoticed: the
+ * accepted-cost note on #2615 was measured on the Mac.
+ *
+ * 🔑 ONE CACHE FOR BOTH READERS, deliberately. It started as a configDir-only
+ * cache; when `readJob` gained its win32 arm the alternative was a second cache
+ * of the same `/Query /XML` answer with its own busting rules, which is two
+ * derivations of one fact (convention 5). `configDirFor` is now a projection of
+ * the remembered spec.
  *
  * ⚠️ ONLY A `known` ANSWER IS CACHED. A read that failed (`known: false`) is a
  * statement about the moment, not about the task; caching it would turn one
- * transient schtasks failure into a permanently disarmed safety check.
+ * transient schtasks failure into a permanently disarmed safety check, or a
+ * setter that refuses forever.
  *
- * ⚠️ AND IT IS BUSTED WHERE THE ARGV CAN CHANGE, which is `install` (`/Create /F`
- * rewrites the definition, so a re-registered agent can carry a different
- * account) and `remove` (`/Delete`). `disable` and `enable` are `/Change` on the
- * STATE only and cannot move the path, so they deliberately do not bust it.
+ * ⚠️ AND IT IS BUSTED WHERE THE ARGV CAN CHANGE, which is `install` (a
+ * re-registered agent can carry a different account, model or runner) and
+ * `remove`. `disable` and `enable` are `/Change` on the STATE only and cannot
+ * move the argv, so they deliberately do not bust it.
  */
-const CONFIG_DIR_CACHE = new Map();
-function forgetConfigDir(name, worldId) { CONFIG_DIR_CACHE.delete(taskName(name, worldId)); }
-/* 🔑 ONE WRITER, so "which answers are cacheable" is decided in a single place
-   rather than at each `return`. It takes only `known` answers and hands the
-   value straight back, so a call site reads `return rememberConfigDir(n, {...})`
-   and cannot accidentally cache a failure by forgetting which branch it is in.
-   🛑 EVERY RETURN GOES THROUGH HERE, INCLUDING THE FAILURES, AND THAT IS THE
-   POINT. An earlier version routed only the `known: true` returns, which left
-   the `known === true` test below VACUOUS: no failure ever reached it, so
-   deleting it changed nothing and the arm asserting "a failed read is never
-   cached" could not fail. The one branch that would permanently disarm a safety
-   check was the only one with no live guard behind it.
-   ⇒ Sending failures through the writer too costs nothing today (they are still
-   refused) and makes the refusal LOAD-BEARING, so that arm kills the mutant and
-   the natural future refactor, "route everything through the one writer", is
-   safe by construction rather than by nobody having done it yet.
-   ⚠️ FROZEN ON THE WAY IN. Before the cache every call built a fresh object;
-   now callers share one, so a caller that mutated what it got would poison every
-   later answer. Nothing does today (`remove.js` reads `.configDir`), which is
-   exactly when it is cheap to make impossible. */
-function rememberConfigDir(name, answer) {
-  if (answer && answer.known === true) CONFIG_DIR_CACHE.set(taskName(name), Object.freeze(answer));
+const TASK_SPEC_CACHE = new Map();
+function forgetTaskSpec(name, worldId) { TASK_SPEC_CACHE.delete(taskName(name, worldId)); }
+/* 🔑 ONE WRITER, so "which answers are cacheable" is decided in a single place.
+   Every read goes through it, failures included, which keeps the `known === true`
+   test LOAD-BEARING: delete it and the arm asserting "a failed read is never
+   cached" goes red (an earlier version routed only successes here, which left
+   that test vacuous).
+   ⚠️ FROZEN ON THE WAY IN, spec included. Callers share the one object, so a
+   caller that mutated what it got would poison every later answer. */
+function rememberTaskSpec(name, worldId, answer) {
+  if (answer && answer.known === true) {
+    if (answer.spec) Object.freeze(answer.spec);
+    TASK_SPEC_CACHE.set(taskName(name, worldId), Object.freeze(answer));
+  }
   return answer;
 }
 
 /* 🔑 The runner swap clears it too. Without this a stubbed answer outlives the
    stub and the NEXT test reads the previous one's task, which is the kind of
    cross-test leak that reads as a flake rather than as a cache. */
-function setRunner(fn) { runFn = typeof fn === 'function' ? fn : null; CONFIG_DIR_CACHE.clear(); }
+function setRunner(fn) { runFn = typeof fn === 'function' ? fn : null; TASK_SPEC_CACHE.clear(); }
+
+/* Whether a schtasks call made now would either go to an injected runner or is
+   authorized to reach the real Task Scheduler (#1598). The same two halves as
+   `remove.commandsAreReal`, for this module's own seam, which no other module can
+   see. A caller about to change a task (create.js's setters re-registering one)
+   asks this first and refuses rather than act unauthorized. */
+function commandsAreReal() { return !!runFn || liveExec.liveExecutionAllowed(); }
+
+/* The sentence `run` answers with when it will not spawn from a test process.
+   Worded to match neither NO_SUCH_TASK nor a success, so every reader classifies
+   it as "we could not look" and concludes nothing. */
+const REFUSED_IN_TEST = 'schtasks is never run from a test process that has installed no runner';
+
 function run(args) {
   if (runFn) return runFn(args);
+  /* 🛑 A TEST PROCESS NEVER REACHES THE REAL TASK SCHEDULER, not even to read it.
+     The fleet's Windows box runs the suite beside the live fleet, whose tasks
+     share this namespace. Once `create.readJob` follows the platform, every Mac
+     test that seeds a plist and reads it back takes the win32 arm on that box,
+     and without this it would query real `Kosmos\agent-*` tasks. On a Mac this
+     is behaviour-equivalent: `schtasks.exe` does not exist there, so the spawn
+     already failed as ok:false. Keyed on `--test` in execArgv, like
+     live-execution's own detector, so a server a test spawns is unaffected. */
+  if (liveExec.inTestProcess()) return { ok: false, out: REFUSED_IN_TEST };
   try {
     /* ⚠️ stderr PIPED, NOT INHERITED, and that is not tidiness. execFileSync's
        default sends the child's stderr straight to OUR stderr, so every ordinary
@@ -325,16 +350,16 @@ function install(spec) {
      LINE must agree, or the supervisor would serve one world's pipe under
      another world's task and nothing could find it again (review round 1). */
   const world = s.world !== undefined ? s.world : launchidentity.currentWorldId();
-  /* 🛑 #2717: FORGET THE REMEMBERED PATH AT THE TOP, before anything can fail
-     partway. `/Create /F` REWRITES the definition, so a re-registered agent can
-     carry a different account, and a cache kept across that would hand out the
-     OLD path on a SAFETY check.
+  /* 🛑 #2717: FORGET THE REMEMBERED DEFINITION AT THE TOP, before anything can
+     fail partway. `/Create /F` REWRITES the definition, so a re-registered agent
+     can carry a different account or model, and a cache kept across that would
+     hand out the OLD one on a SAFETY check or to the next setter.
      ⚠️ Deliberately broader than "only when the write succeeded": this also
      forgets when `install` bails early and nothing changed. That costs ONE
      re-read, and it removes the reasoning step "did this particular failure
      reach the create?" from a correctness argument. A first version put it
      beside the `/Create` and an early return walked straight past it. */
-  forgetConfigDir(s.name, world);
+  forgetTaskSpec(s.name, world);
   /* 🔑 ANCHOR FIRST, THEN REGISTER, and the order is the point: a task built from
      this app's paths outlives the app. `ensureAnchored` copies node out of the
      extract tree and refreshes the shared engine pointer, so the command written
@@ -439,7 +464,7 @@ const NO_SUCH_TASK = /cannot find|does not exist/i;
 
 /** Remove the job entirely (the agent is being deleted, not stopped). */
 function remove(name) {
-  forgetConfigDir(name);   // #2717: the task is going; its remembered path goes with it
+  forgetTaskSpec(name);   // #2717: the task is going; its remembered definition goes with it
   const r = run(['/Delete', '/F', '/TN', taskName(name)]);
   /* A job that was never registered is already gone -- the same posture
      win32sessions.forget takes, so a delete is idempotent. */
@@ -602,8 +627,8 @@ function xmlUnescape(v) {
    can read the whole spec (runner, model, account) of ANOTHER Kosmos's task
    (`worldId`). `{known: true, registered: false}` when there is no such task;
    `{known: false, because}` when it could not be read or is not a shape we
-   understand; `{known: true, registered: true, spec}` otherwise. Uncached: the
-   cache below belongs to configDirFor's per-poll answer. */
+   understand; `{known: true, registered: true, spec}` otherwise. This is the RAW
+   read, uncached; every production reader goes through `cachedTaskSpec` below. */
 function taskSpec(name, worldId) {
   const r = run(['/Query', '/TN', taskName(name, worldId), '/XML']);
   if (!r.ok) {
@@ -650,22 +675,31 @@ function taskSpec(name, worldId) {
   return { known: true, registered: true, spec };
 }
 
+/* The task's definition, answered from memory when it is known (#2717). Same
+   three shapes as `taskSpec`. "There is no task" is as stable as a definition,
+   and it is the case a REMOVED agent whose task is already gone hits on every
+   single poll, so it is remembered like any other known answer; `install`
+   re-registering one busts it. `worldId` names ANOTHER Kosmos's task, keyed
+   apart from this world's. */
+function cachedTaskSpec(name, worldId) {
+  const remembered = TASK_SPEC_CACHE.get(taskName(name, worldId));
+  if (remembered) return remembered;
+  return rememberTaskSpec(name, worldId, taskSpec(name, worldId));
+}
+
 function configDirFor(name) {
-  /* #2717: a remembered PATH answers without a spawn. Existence is not cached
-     and is still checked by the caller on every ask. */
-  const cached = CONFIG_DIR_CACHE.get(taskName(name));
-  if (cached) return cached;
-  const read = taskSpec(name);
-  if (!read.known) return rememberConfigDir(name, { known: false, because: read.because });
-  /* "There is no task" is as stable as a path, and it is the case a REMOVED agent
-     whose task is already gone hits on every single poll, so it is cached like
-     any other known answer. `install` re-registering one busts it. */
-  if (!read.registered) return rememberConfigDir(name, { known: true, configDir: null });
-  return rememberConfigDir(name, { known: true, configDir: read.spec.configDir || null });
+  /* A projection of the one remembered definition. Existence is not cached and
+     is still checked by the caller on every ask. Each answer is a fresh frozen
+     object, so a caller cannot poison the next one. */
+  const read = cachedTaskSpec(name);
+  if (!read.known) return { known: false, because: read.because };
+  if (!read.registered) return Object.freeze({ known: true, configDir: null });
+  return Object.freeze({ known: true, configDir: read.spec.configDir || null });
 }
 
 module.exports = {
   TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape, xmlUnescape, headlessExec,
   install, disable, enable, end, start, remove, status, presence, list, configDirFor, taskSpec,
+  cachedTaskSpec, commandsAreReal, REFUSED_IN_TEST,
   setRunner, setAnchorer,
 };
