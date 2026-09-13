@@ -392,3 +392,17 @@ test('#2972 an invalid body.cap is IGNORED (falls back to the default), never tr
     assert.equal(r.json.cap, 12, 'an invalid body.cap (' + JSON.stringify(bad) + ') must NOT change the cap; got ' + JSON.stringify(r.json.cap));
   }
 });
+
+test('#2972 positive path: with body.cap:15 the operator can CREATE a team larger than the default 12', async () => {
+  // The direct end-to-end proof of the card's goal: 13 live members (over the
+  // default cap 12) with cap:15 are all CREATED, where without the raise the same
+  // request would refuse for the cap. Complements the refusal-boundary tests above.
+  create.setClaudeProbe(LIVE);
+  try {
+    const members = Array.from({ length: 13 }, (_, i) => ({ name: 'big' + i, role: 'pm' }));
+    const r = await postTeam({ creator: 'operator', purpose: 'a 13-person org-chart import', members, cap: 15 });
+    assert.equal(r.status, 200, 'a raised-cap team over the default was not created: ' + JSON.stringify(r.json));
+    assert.equal(r.json.outcome, 'created', 'outcome was not created: ' + JSON.stringify(r.json));
+    assert.equal(r.json.created.length, 13, 'all 13 members should be created under the raised cap: ' + JSON.stringify(r.json));
+  } finally { create.setClaudeProbe(null); }
+});
