@@ -4502,13 +4502,7 @@ const server = http.createServer((req, res) => {
            the true original count and creates nothing (its refuseAll fires before
            the member loop), rather than the count being silently reduced by
            liveness first. The effective cap is read from createTeam's own
-           resolveCap so the two never drift.
-           📌 The override in THIS slice is the operator env AGENT_WORKFORCE_TEAM_CAP
-           only: the route passes no `deps` to createTeam, so resolveCap's
-           `deps.cap` operator-config channel is unreachable over HTTP. Consistent
-           (route and engine both read the same env, no drift); wiring `deps.cap`
-           from a real operator-config source belongs with the agent-token slice,
-           where the cap story is finished. */
+           resolveCap so the two never drift. */
         /* #2972: the OPERATOR (board-token) path may raise the team cap in-flow
            via a `cap` in the request body, up to MAX_TEAM_CAP -- the trusted
            deps.cap channel engine/team.js blesses (the board token IS the

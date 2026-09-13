@@ -386,11 +386,27 @@ test('#2972 the raised cap is still clamped to MAX_TEAM_CAP (50): body.cap over 
 });
 
 test('#2972 an invalid body.cap is IGNORED (falls back to the default), never trusted blindly', async () => {
-  for (const bad of ['abc', 0, -5, 15.5]) {
+  // Bad numeric values AND non-number/non-string shapes. The shape cases (true,
+  // [30], {}) are what the typeof pre-guard exists for: Number(true)===1 and
+  // Number([30])===30 both pass Number.isInteger, so without the guard a loosened
+  // check (e.g. `body.cap != null`) would silently raise the cap to 1 or 30 and
+  // this assertion (cap stays 12) would red -- which is exactly the point.
+  for (const bad of ['abc', 0, -5, 15.5, true, [30], {}]) {
     const r = await postTeam({ creator: 'operator', purpose: 'bad cap', members: many(13), cap: bad });
     assert.equal(r.status, 400, 'a 13-member team should refuse at the default 12 for cap=' + JSON.stringify(bad) + ': ' + JSON.stringify(r.json));
     assert.equal(r.json.cap, 12, 'an invalid body.cap (' + JSON.stringify(bad) + ') must NOT change the cap; got ' + JSON.stringify(r.json.cap));
   }
+});
+
+test('#2972 a NUMERIC-STRING body.cap is accepted (a UI form value arrives as a string)', async () => {
+  // The typeof guard accepts strings so a form-submitted "15" works; resolveCap
+  // coerces and validates it. 16 members + cap:'15' is still over 15, so it refuses
+  // WITHOUT a create, but the resolved cap must be 15 (the string was honoured),
+  // not the default 12.
+  const r = await postTeam({ creator: 'operator', purpose: 'string cap from a form', members: many(16), cap: '15' });
+  assert.equal(r.status, 400, JSON.stringify(r.json));
+  assert.equal(r.json.cap, 15, "a numeric-string body.cap ('15') must be honoured on the operator path; got " + JSON.stringify(r.json.cap));
+  assert.match(r.json.because || '', /cap is 15/, 'the refusal must name the string-supplied cap 15');
 });
 
 test('#2972 positive path: with body.cap:15 the operator can CREATE a team larger than the default 12', async () => {
