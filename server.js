@@ -322,11 +322,41 @@ function importIntoWorld(base, targetId, picks, opts = {}) {
    it already resolves AGENT_WORKFORCE_DATA, so a sandboxed test seeds this file in the
    same place the read looks. Only the two known values are honoured; any other content
    folds to 'prod' so a corrupt file can never paint a loud STAGING badge on a prod board. */
-function sourceChannelNow() {
+function recordedSourceChannel() {
   try {
     const raw = fs.readFileSync(path.join(store.ROOT, 'source-channel'), 'utf8').trim().toLowerCase();
     return raw === 'staging' ? 'staging' : 'prod';
   } catch { return 'prod'; }
+}
+/* #2934: A PROMOTE MOVES NO BYTES, SO THE INSTALL STAMP GOES STALE AND NOTHING CAN
+   REWRITE IT. The file above records which pointer this box last FETCHED from, written
+   once per install/update by setup.sh. #2036's invariant is that the same bytes are
+   promoted to prod with no rebuild -- so when a staging build is promoted, this box gets
+   no update, setup.sh never re-runs, and the stamp says 'staging' forever. Measured on the
+   mortals box at 0.6.59: installed and served both prod, both pointers on the same sha, a
+   loud STAGING badge. The badge's own question ("which channel am I served from") has no
+   single answer after a promote, because the build is on BOTH pointers by design.
+
+   So re-derive it: staging means THESE BYTES ARE AHEAD OF PROD, which is offline-computable
+   from what the updater already caches. On a prod-polling box the poller refreshes the prod
+   pointer's version every TTL anyway; if that version has caught up to the one we are
+   running, our bytes are on prod and the badge goes dark.
+
+   Every rung falls back to the recorded stamp, so this can only ever turn a 'staging' into
+   a 'prod' when we positively know prod caught up -- never the reverse. A box that cannot
+   reach the host, has not looked yet, or is polling the STAGING pointer (whose version says
+   nothing about prod) keeps today's behavior exactly. */
+function sourceChannelNow() {
+  const recorded = recordedSourceChannel();
+  if (recorded !== 'staging') return 'prod';
+  try {
+    /* The channel the CACHED NUMBER came from, not what the environment would pick now:
+       a staging pointer's version says nothing about whether prod has caught up. */
+    if (updates.cachedChannel() !== 'prod') return 'staging';
+    const prodVersion = updates.cachedLatestVersion();
+    if (!prodVersion) return 'staging';
+    return updates.newer(updates.RUNNING, prodVersion) ? 'staging' : 'prod';
+  } catch { return 'staging'; }
 }
 const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on context fill
 const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the consume half (the sweep)
