@@ -109,8 +109,64 @@ const SCRIPT_EXTENSIONS = Object.freeze(['.cmd', '.bat', '.ps1']);
 const SCRIPT_START_ERRORS = Object.freeze(['ENOENT', 'EINVAL', 'EFTYPE']);
 const PROGRAM_EXTENSION = '.exe';
 
-const SCRIPT_ONLY_BECAUSE = 'Kosmos can only start the Claude Code program file (claude.exe), '
-  + 'and this computer has a script version it cannot start directly';
+const SCRIPT_ONLY_BECAUSE = 'Kosmos cannot start the copy of Claude Code on this computer by itself';
+
+/**
+ * PowerShell's single-quote characters: the ASCII one and the four typographic ones it also
+ * reads as quotes. Inside a single-quoted string each is written twice to stand for itself,
+ * and nothing else is special there (`$` and the backtick are literal), which is why the line
+ * below single-quotes the path rather than double-quoting it.
+ */
+const POWERSHELL_SINGLE_QUOTES = /['\u2018\u2019\u201A\u201B]/g;
+
+/**
+ * What PowerShell's `&` still reads as wildcard syntax in a path, even inside single quotes: `[`
+ * and `]` open a character class, and a backtick escapes the character after it. A path holding a
+ * bracket has all three backtick-escaped; a path with no bracket is left alone.
+ *
+ * MEASURED, Windows PowerShell 5.1.26100, a stand-in claude.exe that records its own path, in
+ * real folders, each case with ONE decoy sibling (two matching decoys make PowerShell fall back
+ * to the literal path and hide the match):
+ *   - brackets unescaped: 9 of 20 bracket paths ran a sibling or nothing (`z[a-c]` ran `zb`,
+ *     `[s]tart` ran `start`, and a lone `a[b` is an invalid pattern that runs nothing);
+ *   - only `[` and `]` escaped: 3 of 20 failed, every one with a backtick beside a bracket;
+ *   - backtick, `[` and `]` escaped: 20 of 20 exact (a backtick before, after or doubled beside
+ *     a class, `'` and U+2019 beside one, classes in two segments, at a segment's start or end,
+ *     matching nothing, nested, and a lone `[` or `]`);
+ *   - all 30 bracket-free paths (quotes, `$`, backticks, `%`, `&`, non-BMP) were exact with no
+ *     escaping, so those lines stay the form already verified.
+ */
+const POWERSHELL_WILDCARD_SYNTAX = /[`[\]]/g;
+const POWERSHELL_WILDCARD_CLASS = /[[\]]/;
+
+/**
+ * The line a person pastes into PowerShell to sign Claude Code in, naming `programPath` exactly
+ * and running the arguments Kosmos's own sign-in runs (SIGNIN_ARGS; `--claudeai` skips the
+ * login-method chooser, #1937): `& '<path>' auth login --claudeai`. Every PowerShell single-quote
+ * character is doubled, then a path holding a bracket is wildcard-escaped (see above). Null when
+ * there is no path, or one that cannot be written on a single line.
+ */
+function powershellCommandToSignInClaude(programPath) {
+  const given = typeof programPath === 'string' ? programPath : '';
+  if (!given || /[\r\n\0]/.test(given)) return null;
+  let quoted = given.replace(POWERSHELL_SINGLE_QUOTES, (quote) => quote + quote);
+  if (POWERSHELL_WILDCARD_CLASS.test(given)) quoted = quoted.replace(POWERSHELL_WILDCARD_SYNTAX, (mark) => '`' + mark);
+  return "& '" + quoted + "' " + SIGNIN_ARGS.join(' ');
+}
+
+/**
+ * The stuck card's PowerShell line for a Claude Code file this PC would run, or null. Only a file
+ * Kosmos's own sign-in would start gets one: programFileFor's program file, and never a script
+ * by SCRIPT_EXTENSIONS. A person pasting `& '<...>\claude.cmd'` runs cmd.exe, which expands
+ * `%VAR%` and splits at `&` in the path (measured: a .cmd under `100%USERNAME%` ran nothing and
+ * one under `Tom & Jerry` got a cut-off path), so a script-only install is shown the install card.
+ */
+function signinLineForClaudeFile(claudeFile) {
+  if (typeof claudeFile !== 'string' || !claudeFile) return null;
+  const file = programFileFor(claudeFile);
+  if (onlyAScriptIsThere(file)) return null;
+  return powershellCommandToSignInClaude(file);
+}
 
 /** Anthropic credentials (API keys and OAuth tokens) all start this way. */
 const SECRET_PATTERN = /sk-ant-[\w-]+/g;
@@ -522,7 +578,7 @@ function createSigninHost() {
 }
 
 module.exports = {
-  createSigninHost, setSpawn,
+  createSigninHost, setSpawn, signinLineForClaudeFile,
   SIGNIN_ARGS, SIGNIN_OUTPUT_LIMIT_CHARS, STDERR_TAIL_LINES, SENT_FRAGMENT_MIN_CHARS,
   REDACTION_MARKER,
   normaliseSignInText, redactSecrets, createTextKeeper,

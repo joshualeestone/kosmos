@@ -1,4 +1,4 @@
-// Browser-check-surface: data-win-copy data-win-hide data-kosmos-platform fr-cmd-row fr-copy
+// Browser-check-surface: data-win-copy data-win-hide data-kosmos-platform fr-cmd-row fr-copy fr-hatch fr-note
 /**
  * win32-board-copy: the board page on Windows, rendered, and the same page on a Mac.
  *
@@ -128,6 +128,65 @@ async function readPage(browser, platform) {
   return { got, errors };
 }
 
+/* win32-signin-web-copy: the stuck Claude card, painted by the page's own frPaintConnect with
+   the state connect.js serves (the card's platform comes from that state, as it does live).
+   Each arm's `because` differs from the arm before it, so the painter's repaint key (phase plus
+   because) never skips one. */
+const SIGNIN_UNAVAILABLE = 'Kosmos cannot run the Claude sign-in on Windows yet';
+/* The line the engine records for Claude Code under a user name with a space and an
+   apostrophe (engine/win32signin.js quotes it; the page shows it verbatim). */
+const SIGNIN_LINE = "& 'C:\\Users\\Mary O''Brien\\.local\\bin\\claude.exe' auth login --claudeai";
+const CONNECT_ARMS = {
+  windowsHasClaude: { phase: 'stuck', because: SIGNIN_UNAVAILABLE, platform: 'win32', canInstallClaude: false, canRunClaude: true, claudeSigninCommand: SIGNIN_LINE },
+  windowsNoLine: { phase: 'stuck', because: 'Kosmos could not start the Claude sign-in on this computer', platform: 'win32', canInstallClaude: false, canRunClaude: true, claudeSigninCommand: null },
+  windowsNoClaude: { phase: 'stuck', because: 'Kosmos could not find Claude Code to run its sign-in', platform: 'win32', canInstallClaude: false, canRunClaude: false },
+  macHasClaude: { phase: 'stuck', because: 'we could not open the window Claude signs in through', platform: 'darwin', canInstallClaude: true, canRunClaude: true },
+};
+
+async function readConnectCard(browser) {
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  await ctx.addInitScript(stubPageFetches);
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('file://' + PAGE);
+  const got = await page.evaluate((arms) => {
+    const host = document.getElementById('fr-sub');
+    if (!host || typeof frPaintConnect !== 'function') return { noCard: true };
+    /* Ancestors only, as render-connect-win32-install-570.js does: #fr-sub's own display is
+       styled conditionally, and the heights below need real layout. */
+    host.removeAttribute('hidden');
+    for (let n = host.parentElement; n; n = n.parentElement) {
+      n.removeAttribute('hidden');
+      if (getComputedStyle(n).display === 'none') n.style.display = 'block';
+    }
+    const out = {};
+    for (const [name, st] of Object.entries(arms)) {
+      frPaintConnect(st);
+      const cmd = host.querySelector('.fr-cmd');
+      const hatch = host.querySelector('details.fr-hatch');
+      const summary = hatch && hatch.querySelector('summary');
+      const row = cmd && cmd.closest('.fr-cmd-row');
+      out[name] = {
+        showsCommand: Boolean(cmd && cmd.getBoundingClientRect().height > 0),
+        commandText: cmd ? cmd.textContent : '',
+        commandInHatch: Boolean(cmd && cmd.closest('details.fr-hatch')),
+        copyBeside: Boolean(row && row.querySelector('button.fr-copy[data-copy-command]')
+          && row.querySelector('button.fr-copy[data-copy-command]').getBoundingClientRect().height > 0),
+        hasHatch: Boolean(hatch),
+        open: Boolean(hatch && hatch.open),
+        summary: summary ? summary.textContent.trim() : '',
+        /* How much of the hatch is on screen below its summary: the steps, when it is open. */
+        stepsHeight: hatch && summary ? hatch.getBoundingClientRect().height - summary.getBoundingClientRect().height : 0,
+        text: host.textContent.replace(/\s+/g, ' ').trim(),
+      };
+    }
+    return out;
+  }, CONNECT_ARMS);
+  await ctx.close();
+  return { got, errors };
+}
+
 (async () => {
   for (const engine of ENGINES) {
     const browser = await playwright[engine].launch({ headless: process.env.HEADED === '0' });
@@ -161,6 +220,36 @@ async function readPage(browser, platform) {
     check(`${engine}: CONTROL Mac wizard walks all nine steps`, JSON.stringify(mac.got.steps) === '[1,2,3,4,5,6,7,8,9]', JSON.stringify(mac.got.steps));
     check(`${engine}: CONTROL Mac not-signed-in panel is unchanged`, /fix itself the next/.test(mac.got.signin), mac.got.signin.slice(0, 120));
     check(`${engine}: Mac page raised no errors`, mac.errors.length === 0, mac.errors.join(' | '));
+
+    const card = await readConnectCard(browser);
+    if (card.got.noCard) {
+      check(`${engine}: the connect card is reachable`, false, 'no #fr-sub or no frPaintConnect');
+    } else {
+      const has = card.got.windowsHasClaude;
+      check(`${engine}: a Windows PC that has Claude Code is not shown the install command`, !/install\.ps1/.test(has.text), JSON.stringify(has.text.slice(0, 160)));
+      check(`${engine}: its card says the engine's reason once`, has.text.split(SIGNIN_UNAVAILABLE).length - 1 === 1, JSON.stringify(has.text.slice(0, 160)));
+      check(`${engine}: its sign-in steps render open under "Sign in to Claude yourself"`,
+        has.hasHatch && has.open && has.summary === 'Sign in to Claude yourself' && has.stepsHeight > 20,
+        `hatch ${has.hasHatch}, open ${has.open}, summary ${JSON.stringify(has.summary)}, steps ${Math.round(has.stepsHeight)}px`);
+      check(`${engine}: the engine's line is shown verbatim inside the hatch, with real area and a Copy button beside it`,
+        has.showsCommand && has.commandText === SIGNIN_LINE && has.commandInHatch && has.copyBeside,
+        `text ${JSON.stringify(has.commandText)}, in hatch ${has.commandInHatch}, copy ${has.copyBeside}`);
+      check(`${engine}: and the steps end at Login successful and Try again`,
+        /If PowerShell asks for a code, copy the code your browser shows and paste it into PowerShell\. When PowerShell says Login successful, come back here and click Try again\./.test(has.text) && !/type claude/i.test(has.text),
+        JSON.stringify(has.text.slice(-160)));
+      const noLine = card.got.windowsNoLine;
+      check(`${engine}: a Windows PC the engine named no file for gets the install command and no hatch`,
+        noLine.showsCommand && /install\.ps1/.test(noLine.commandText) && !noLine.hasHatch,
+        `command ${JSON.stringify(noLine.commandText)}, hatch ${noLine.hasHatch}`);
+      const none = card.got.windowsNoClaude;
+      check(`${engine}: CONTROL a Windows PC without Claude Code still sees the install command and no sign-in hatch`,
+        none.showsCommand && !none.hasHatch, `command ${none.showsCommand}, hatch ${none.hasHatch}`);
+      const macCard = card.got.macHasClaude;
+      check(`${engine}: CONTROL the Mac hatch is still closed under "Already use Terminal?"`,
+        !macCard.showsCommand && macCard.hasHatch && !macCard.open && macCard.summary === 'Already use Terminal?' && macCard.stepsHeight < 5,
+        `open ${macCard.open}, summary ${JSON.stringify(macCard.summary)}, steps ${Math.round(macCard.stepsHeight)}px`);
+    }
+    check(`${engine}: connect card page raised no errors`, card.errors.length === 0, card.errors.join(' | '));
 
     await browser.close();
   }

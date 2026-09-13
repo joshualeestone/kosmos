@@ -423,7 +423,10 @@ test('Claude Code resolved without an extension starts as claude.exe', async (t)
 test('a script-only Claude Code gets one honest sentence, whether the start fails ENOENT or EINVAL', async (t) => {
   const dir = fs.mkdtempSync(path.join(SANDBOX, 'cmd-'));
   fs.writeFileSync(path.join(dir, 'claude.cmd'), '@echo off\n');
-  const SCRIPT_SENTENCE = /can only start the Claude Code program file \(claude\.exe\), and this computer has a script version/;
+  /* win32-signin-web-copy: plain words for a person new to Windows. The stuck card's open
+     hatch says what to do next, so the sentence names no file, extension or script. */
+  const SCRIPT_SENTENCE = /^Kosmos cannot start the copy of Claude Code on this computer by itself$/;
+  const INTERNALS = /claude\.exe|script|program file|\.cmd|\.bat|\.ps1/i;
 
   const enoent = Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' });
   withSpawn(t, () => fakeChild({ error: enoent }));
@@ -436,6 +439,7 @@ test('a script-only Claude Code gets one honest sentence, whether the start fail
   const direct = await host.open({ claudeBin: path.join(dir, 'claude.cmd') });
   assert.equal(direct.ok, false);
   assert.match(direct.because, SCRIPT_SENTENCE, 'a full .cmd path failing EINVAL got a different sentence');
+  assert.doesNotMatch(direct.because, INTERNALS, 'the script sentence explains Kosmos internals to the person again');
   assert.match(direct.stderr, /EINVAL/);
 
   /* CONTROL: nothing at all there is still "could not find". */
@@ -615,7 +619,7 @@ test('EFTYPE on a script gets the script sentence; EFTYPE on a broken program fi
   const host = win32signin.createSigninHost();
   win32signin.setSpawn(() => { throw Object.assign(new Error('spawn EFTYPE'), { code: 'EFTYPE' }); });
   const script = await host.open({ claudeBin: path.join(dir, 'claude.ps1') });
-  assert.match(script.because, /can only start the Claude Code program file \(claude\.exe\)/,
+  assert.equal(script.because, 'Kosmos cannot start the copy of Claude Code on this computer by itself',
     'a .ps1 failing EFTYPE got the general sentence');
   assert.match(script.stderr, /EFTYPE/);
   const broken = await host.open({ claudeBin: path.join(dir, 'claude.exe') });
@@ -623,6 +627,111 @@ test('EFTYPE on a script gets the script sentence; EFTYPE on a broken program fi
     'a broken claude.exe was told it is a script');
   assert.match(broken.stderr, /EFTYPE/);
 });
+
+test('win32-signin-web-copy: the PowerShell sign-in line names a program file exactly, for the path shapes measured on PowerShell 5.1', () => {
+  /* Each expected line below ran the exact stand-in claude.exe on Windows PowerShell 5.1 in real
+     folders with one decoy sibling (the table is in engine/win32signin.js and the plan). The
+     win32-only arm below re-runs the bracket shapes for real on every Windows run. */
+  const line = win32signin.signinLineForClaudeFile;
+  const TAIL = ' auth login --claudeai';
+  const LEFT = String.fromCharCode(0x2018);
+  const RIGHT = String.fromCharCode(0x2019);
+  const LOW = String.fromCharCode(0x201A);
+  const REVERSED = String.fromCharCode(0x201B);
+  assert.deepEqual(win32signin.SIGNIN_ARGS, ['auth', 'login', '--claudeai'],
+    'the line a person runs and the sign-in Kosmos runs no longer share one argument list');
+
+  assert.equal(line('C:\\Users\\josh\\.local\\bin\\claude.exe'), "& 'C:\\Users\\josh\\.local\\bin\\claude.exe'" + TAIL);
+  assert.equal(line('C:\\Users\\Mary Ann\\.local\\bin\\claude.exe'), "& 'C:\\Users\\Mary Ann\\.local\\bin\\claude.exe'" + TAIL, 'a space broke the line');
+  assert.equal(line("C:\\Users\\Mary O'Brien\\.local\\bin\\claude.exe"), "& 'C:\\Users\\Mary O''Brien\\.local\\bin\\claude.exe'" + TAIL, 'an apostrophe was not doubled');
+  assert.equal(line('C:\\Users\\a$env:USERNAME `n $(Get-Date)\\claude.exe'), "& 'C:\\Users\\a$env:USERNAME `n $(Get-Date)\\claude.exe'" + TAIL,
+    '$ and a backtick with no bracket are literal inside single quotes, so nothing may be added around them');
+  assert.equal(line('C:\\Users\\curly ' + LEFT + 'left' + RIGHT + ' ' + LOW + 'low' + REVERSED + '\\claude.exe'),
+    "& 'C:\\Users\\curly " + LEFT + LEFT + 'left' + RIGHT + RIGHT + ' ' + LOW + LOW + 'low' + REVERSED + REVERSED + "\\claude.exe'" + TAIL,
+    'PowerShell reads the typographic single quotes as quotes too, and they were not doubled');
+
+  /* Brackets: `&` reads `[` `]` as a wildcard class even inside single quotes, so a path holding
+     one has every backtick, `[` and `]` backtick-escaped. Unescaped, `z[a-c]` ran its sibling `zb`. */
+  assert.equal(line('C:\\Users\\z[a-c]\\claude.exe'), "& 'C:\\Users\\z`[a-c`]\\claude.exe'" + TAIL, 'a bracket class was left for PowerShell to expand');
+  assert.equal(line('C:\\Users\\a`b[c]\\claude.exe'), "& 'C:\\Users\\a``b`[c`]\\claude.exe'" + TAIL,
+    'a backtick beside a bracket was not escaped, which PowerShell 5.1 then reads as an escape');
+  assert.equal(line('C:\\Users\\a`[b]\\claude.exe'), "& 'C:\\Users\\a```[b`]\\claude.exe'" + TAIL);
+  assert.equal(line("C:\\Users\\O'B[r]\\claude.exe"), "& 'C:\\Users\\O''B`[r`]\\claude.exe'" + TAIL, 'quote doubling and bracket escaping did not compose');
+  assert.equal(line('C:\\Users\\O' + RIGHT + 'B[r]\\claude.exe'), "& 'C:\\Users\\O" + RIGHT + RIGHT + "B`[r`]\\claude.exe'" + TAIL);
+  assert.equal(line('C:\\Users\\a[b\\claude.exe'), "& 'C:\\Users\\a`[b\\claude.exe'" + TAIL, 'a lone [ is an invalid wildcard pattern unescaped');
+  assert.equal(line('C:\\Users\\x[1]\\y[2]\\claude.exe'), "& 'C:\\Users\\x`[1`]\\y`[2`]\\claude.exe'" + TAIL);
+
+  /* No bracket, no wildcard escaping: these lines stay the ones already verified byte for byte. */
+  assert.equal(line('C:\\Users\\back`tick\\claude.exe'), "& 'C:\\Users\\back`tick\\claude.exe'" + TAIL);
+  assert.equal(line('C:\\Users\\two``ticks\\claude.exe'), "& 'C:\\Users\\two``ticks\\claude.exe'" + TAIL);
+
+  for (const unusable of ['', null, undefined, 42, 'C:\\a\nb\\claude.exe', 'C:\\a\rb\\claude.exe', 'C:\\a\0b\\claude.exe']) {
+    assert.equal(line(unusable), null, `an unusable path produced a line: ${JSON.stringify(unusable)}`);
+  }
+  /* A script is never given a line: cmd.exe expands %VAR% and splits at & in the pasted path. */
+  for (const script of ['C:\\Users\\josh\\.local\\bin\\claude.cmd', 'C:\\x\\claude.bat', 'C:\\x\\claude.ps1', 'C:\\x\\CLAUDE.CMD']) {
+    assert.equal(line(script), null, `a script install was given a line: ${script}`);
+  }
+});
+
+test('win32-signin-web-copy: a script-only Claude Code install gets no line, and the program file beside a script does', () => {
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'line-'));
+  assert.ok(!/['[\]`]/.test(dir), 'this arm assumes a sandbox path with no quote, bracket or backtick of its own');
+  fs.writeFileSync(path.join(dir, 'claude.cmd'), '@echo off\n');
+  assert.equal(win32signin.signinLineForClaudeFile(path.join(dir, 'claude')), null, 'an extensionless path whose only file is a .cmd got a line');
+  assert.equal(win32signin.signinLineForClaudeFile(path.join(dir, 'claude.cmd')), null, 'a .cmd got a line');
+  fs.writeFileSync(path.join(dir, 'claude.exe'), '');
+  assert.equal(win32signin.signinLineForClaudeFile(path.join(dir, 'claude')), "& '" + path.join(dir, 'claude.exe') + "' auth login --claudeai",
+    'the program file beside the script was not the one named');
+});
+
+test('win32-signin-web-copy: on Windows, PowerShell runs exactly the file each line names, never a sibling its brackets match',
+  { skip: process.platform === 'win32' ? false : 'needs Windows PowerShell and the Windows loader to run the lines' }, (t) => {
+    const { spawnSync } = require('node:child_process');
+    const root = fs.mkdtempSync(path.join(SANDBOX, 'psline-'));
+    assert.ok(!/['[\]`]/.test(root), 'this arm assumes a sandbox path with no quote, bracket or backtick of its own');
+    const out = path.join(root, 'ran.txt');
+    /* The stand-in: this node.exe, hard-linked (or copied) in as claude.exe. Given `auth login
+       --claudeai` it runs the script file `auth` from PowerShell's working folder, which records
+       the path of the program that actually started. */
+    const cwd = path.join(root, 'cwd');
+    fs.mkdirSync(cwd);
+    fs.writeFileSync(path.join(cwd, 'auth'),
+      "require('fs').writeFileSync(process.env.KOSMOS_LINE_PROBE_OUT, process.execPath + '\\n' + process.argv.slice(2).join(' '));\n");
+    const plant = (rel) => {
+      const dir = path.join(root, rel);
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, 'claude.exe');
+      try { fs.linkSync(process.execPath, file); } catch { fs.copyFileSync(process.execPath, file); }
+      return file;
+    };
+    const run = (text) => {
+      fs.rmSync(out, { force: true });
+      const r = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(text, 'utf16le').toString('base64')],
+        { cwd, env: { ...process.env, KOSMOS_LINE_PROBE_OUT: out }, encoding: 'utf8', timeout: 60000, windowsHide: true });
+      const ran = fs.existsSync(out) ? fs.readFileSync(out, 'utf8').split('\n') : null;
+      return { error: r.error, ran, stderr: String(r.stderr || '').trim().split('\n')[0] };
+    };
+    if (run('exit 0').error) {
+      t.skip('powershell.exe could not be started here');
+      return;
+    }
+    /* Each case in its own folder with ONE decoy sibling its brackets would match. */
+    const CASES = [['z[a-c]', 'zb'], ['a`b[c]', 'abc'], ['a`[b]', 'a[b]'], ["O'B[r]", "O'Br"], ['[s]tart', 'start'], ['plain', null]];
+    CASES.forEach(([target, decoy], i) => {
+      const file = plant(path.join('c' + i, target));
+      const decoyFile = decoy ? plant(path.join('c' + i, decoy)) : null;
+      const result = run(win32signin.signinLineForClaudeFile(file));
+      assert.ok(result.ran, `the line for ${target} ran nothing: ${result.stderr}`);
+      assert.equal(result.ran[0], file, `the line for ${target} ran a different program${decoyFile ? ' (its decoy sibling)' : ''}`);
+      assert.equal(result.ran[1], 'login --claudeai');
+      if (i === 0) {
+        /* CONTROL: the same path left unescaped runs the decoy, so an exact run above is the escaping. */
+        const naive = run("& '" + file + "' auth login --claudeai");
+        assert.equal(naive.ran && naive.ran[0], decoyFile, 'CONTROL: the unescaped line did not run the decoy, so this arm cannot tell escaping from luck');
+      }
+    });
+  });
 
 test('every redaction this host writes carries the marker connect.js looks for', () => {
   assert.equal(win32signin.REDACTION_MARKER, '[redacted');

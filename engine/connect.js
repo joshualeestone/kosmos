@@ -580,6 +580,10 @@ function publicView(s, platform = process.platform) {
        phase (the only writer and the only reader); false everywhere else is
        correct. Same class as `tail` (#1585) and the #1556 missing-field bug. */
     canRunClaude: s.canRunClaude || false,
+    /* win32-signin-web-copy: the finished PowerShell line the Windows stuck card shows, recorded
+       beside canRunClaude when the flow went stuck (windowsClaudeSigninCommand). Passed through,
+       never built here; a Mac record never carries one, so it serves null there. */
+    claudeSigninCommand: s.claudeSigninCommand || null,
     /* 🛑 #570: THE STUCK SCREEN COULD SAY WHY, AND HAD NOTHING TO SAY NEXT.
      * `download()` refuses on any platform Kosmos publishes no runner build for,
      * and the refusal sentence reaches the card verbatim -- so a Windows user is
@@ -1048,10 +1052,14 @@ function setWindowsSigninHostForTests(on) {
   windowsSigninHostForcedForTests = Boolean(on);
 }
 
+/** The platform the sign-in runs for: the test pin, or this process. */
+function signinPlatform() {
+  return signinPlatformForTests || process.platform;
+}
+
 /** The host for this platform, or null when there is none to run the sign-in with. */
 function signinHost() {
-  const platform = signinPlatformForTests || process.platform;
-  if (platform !== 'win32') return tmuxSigninHost;
+  if (signinPlatform() !== 'win32') return tmuxSigninHost;
   if (!WINDOWS_SIGNIN_HOST_ENABLED && !windowsSigninHostForcedForTests) return null;
   if (!windowsSigninHost) windowsSigninHost = require('./win32signin').createSigninHost();
   return windowsSigninHost;
@@ -2918,21 +2926,47 @@ async function finishConnected(owner, sub) {
  * becomeStuck entirely, so `writeState` never runs and the person is left on no
  * screen at all. Mona Lisa found that; two blind reviewers hit it on her branch.
  *
- * 📌 Asked through `isRunnable`, never through a raw execute-permission check,
- * which SUCCEEDS ON A DIRECTORY and is the whole of #1592.
+ * 📌 Asked through `runnableCandidate` (the same loop `isRunnable` answers with), never through
+ * a raw execute-permission check, which SUCCEEDS ON A DIRECTORY and is the whole of #1592.
+ *
+ * win32-signin-web-copy: the resolution and its try live in claudeRunnableFile, so becomeStuck
+ * resolves ONCE and hands the one file to both this and windowsClaudeSigninCommand. Called with
+ * no argument, this still resolves for itself.
  */
-function claudeHatchAvailable() {
+function claudeHatchAvailable(claudeFile = claudeRunnableFile()) {
+  return Boolean(claudeFile);
+}
+
+/**
+ * The Claude Code file this PC would run, or null on any error (the try is load-bearing, see
+ * claudeHatchAvailable above).
+ */
+function claudeRunnableFile() {
   try {
-    /* ONE RESOLUTION, per the resolution rule at the head of this file. This read
-       `isRunnable(claudeBinPath())`, and claudeBinPath() is
-       `resolveBin('claude').bin`, so it resolved and stat'd twice. That is the
-       exact shape removed from willInstall IN THE SAME COMMIT, under a comment
-       about asking the question in one spelling; leaving it here made that
-       comment half true. `resolveBin` is still looked up late, so the
-       throw-escapes arm is unaffected. */
-    return require('./runners').resolveBin('claude').present;
+    /* ONE RESOLUTION, per the resolution rule at the head of this file: the presence the stuck
+       screen is gated on and the file the Windows line names both come off this answer.
+       `resolveBin` is still looked up late, so the throw-escapes arm is unaffected. */
+    const runners = require('./runners');
+    return runners.runnableCandidate(runners.resolveBin('claude').bin);
   } catch {
-    return false;
+    return null;
+  }
+}
+
+/**
+ * win32-signin-web-copy: the PowerShell line the Windows stuck card offers for `claudeFile` (the
+ * one resolution becomeStuck made), or null: not Windows, no file, a script-only install, or any
+ * error. The page shows the hatch only when this line and canRunClaude are both there.
+ *
+ * ⚠️ NOT PATH. `claude` typed into PowerShell resolves through PATH, and resolveBin looks at a
+ * file, so the line names the file.
+ */
+function windowsClaudeSigninCommand(claudeFile) {
+  if (signinPlatform() !== 'win32' || !claudeFile) return null;
+  try {
+    return require('./win32signin').signinLineForClaudeFile(claudeFile);
+  } catch {
+    return null;
   }
 }
 
@@ -2978,7 +3012,8 @@ function becomeStuck(owner, because, tail) {
    * cannot work. A missing way out is a smaller harm than a way out that fails
    * in front of somebody already stuck.
    */
-  writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable() });
+  const claudeFile = claudeRunnableFile();
+  writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable(claudeFile), claudeSigninCommand: windowsClaudeSigninCommand(claudeFile) });
 }
 
 /**
