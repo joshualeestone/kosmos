@@ -40,6 +40,7 @@ cat > "$STUBDIR/launchctl" <<'LC'
 case "$1 ${KOSMOS_STUB_PRINT:-}" in
   "print board-run") printf '\tstate = running\n\targuments = {\n\t\t/bin/bash\n\t\t/home/x/.local/share/kosmos/bin/kosmos\n\t\tboard-run\n\t}\n'; exit 0 ;;
   "print start")     printf '\tstate = running\n\targuments = {\n\t\t/bin/bash\n\t\t/home/x/.local/share/kosmos/bin/kosmos\n\t\tstart\n\t}\n'; exit 0 ;;
+  "print start-pathmatch") printf '\tstate = running\n\targuments = {\n\t\t/bin/bash\n\t\t/Users/board-run/.local/share/kosmos/bin/kosmos\n\t\tstart\n\t}\n'; exit 0 ;;
   "print absent")    exit 1 ;;
 esac
 exit 0
@@ -70,6 +71,12 @@ if _kosmos_board_supervised; then ok "supervised: loaded board-run job -> yes"; 
 # 2. loaded job still runs `start` (update window) -> NOT supervised (recursion guard)
 export KOSMOS_STUB_PRINT=start
 if _kosmos_board_supervised; then bad "recursion guard: an old 'start' job was treated as supervised"; else ok "recursion guard: old 'start' job -> NOT supervised"; fi
+
+# 2b. a `start` job whose kosmos PATH literally contains "board-run" -> NOT
+# supervised (the #5 false-positive: board-run must match only as a standalone
+# argument line, never as a substring of a path).
+export KOSMOS_STUB_PRINT=start-pathmatch
+if _kosmos_board_supervised; then bad "path false-positive: 'board-run' in a path treated as supervised"; else ok "path containing 'board-run' on a 'start' job -> NOT supervised"; fi
 
 # 3. no job loaded -> NOT supervised
 export KOSMOS_STUB_PRINT=absent

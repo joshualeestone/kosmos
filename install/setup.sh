@@ -3878,18 +3878,25 @@ else
   info "Opening the Kosmos icon starts it, as it always has."
 fi
 
-# #2955: THE BOARD WATCHDOG login job. The board plist above is RunAtLoad + NO
-# KeepAlive by design (`kosmos start` daemonises and exits, so launchd cannot
-# supervise the real detached board process). If that process fails to start on a
-# reboot -- a zombie holding port 16180 after an unclean power-down, a not-yet-
-# ready dependency -- or dies later, NOTHING relaunches it and the app is stuck on
-# "could not refresh". Josh hit exactly this on live 0.6.59. This second job runs
-# bin/board-watchdog.sh on an interval and brings the board back when it has died
-# and the user did not deliberately stop it (the watchdog reads the STOP_MARKER
-# `kosmos stop` writes / `kosmos start` clears). Additive supervision: it touches
-# neither the board job nor kosmos stop/start beyond that marker. The launchd-shape
-# fix (foreground mode, so launchd owns the board process) is the deferred
-# done-right follow-up; this is the interim that unblocks the live bug.
+# #2955: THE BOARD WATCHDOG login job.
+# ⚠️ #2956 UPDATE: the board plist above is NO LONGER RunAtLoad-with-no-KeepAlive.
+# It now runs `kosmos board-run` (a foreground mode) under a KeepAlive keyed on the
+# stop-marker, so launchd itself supervises and relaunches the board process -- the
+# done-right follow-up this comment used to defer. So on a machine rebooted onto
+# the new plist, launchd KeepAlive AND this watchdog both cover a crash (redundant,
+# but each guarded by the same STOP_MARKER, so they agree). The watchdog is kept
+# for ONE release as belt-and-braces: an update rewrites the plist file but does not
+# reload a loaded job until the next login, so a board that has updated-but-not-yet-
+# rebooted is still the old detached shape that only the watchdog supervises. Remove
+# the watchdog in a follow-up once installs have cycled through a reboot.
+# The original #2955 rationale (unchanged for the not-yet-rebooted case): if the
+# detached board fails to start on a reboot -- a zombie holding port 16180 after an
+# unclean power-down, a not-yet-ready dependency -- or dies later, NOTHING relaunches
+# it and the app is stuck on "could not refresh" (Josh hit exactly this on live
+# 0.6.59). This job runs bin/board-watchdog.sh on an interval and brings the board
+# back when it has died and the user did not deliberately stop it (it reads the
+# STOP_MARKER `kosmos stop` writes / `kosmos start` clears). Touches neither the
+# board job nor kosmos stop/start beyond that marker.
 #
 # Everything below MIRRORS the board plist block above: the same non-default-
 # KOSMOS_HOME hash suffix, the same _xmlq escaping, the same $_extra_env_kv (built
