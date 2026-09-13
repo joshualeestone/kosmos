@@ -3226,7 +3226,9 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
   }
   // eslint-disable-next-line no-new-func
   new Function('document', 'checked', 'esc', 'err', 'BOARD_SEEN', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN',
-    script.slice(beAt, beEnd) + '\n' + script.slice(from, end))(
+    /* win32-board-copy: boardEmpty asks the platform copy layer ("not Windows" here). */
+    require('./test-support/page').PLATFORM_COPY_FNS.map(pageFnSource).join('\n') + '\n'
+    + script.slice(beAt, beEnd) + '\n' + script.slice(from, end))(
     { getElementById: (id) => els[id] }, checked, (s) => String(s), { message: 'boom' },
     true, 'boom', false);
 
