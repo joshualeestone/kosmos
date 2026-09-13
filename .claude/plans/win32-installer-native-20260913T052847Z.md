@@ -338,7 +338,62 @@ Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
 - **The browser check was not run here** (no Playwright on this box). CI runs it in Chromium and
   WebKit; it is allowlisted in `.github/workflows/browser-checks.yml`.
 
+## Round 2 review (fixed in round 3)
+
+- **Finding 1 [SAFETY]: `win32board.anchorBundle` guards.** With no injected anchorer it throws in a
+  test process (the rule `win32relocate.js` `anchorTo` has). Outside a test it refuses unless live
+  execution is armed (`server.js` arms it at 13181, before `ensureInstalled` at 13298).
+- **Finding 2 [BUG]: never delete a folder while a Kosmos board answers.**
+  - The launcher passes its port (`BoardPort()`, the one derivation it already had, now shared with
+    Main) to `win32uninstall.js --port`.
+  - Before anything is read or changed, the helper asks that port with `win32handoff.probeBoard`.
+  - A Kosmos board that says its logon task did NOT start it, or is too old to say and Task Scheduler
+    does not show the task running, stops the removal with nothing changed: "Kosmos is still open.
+    Close Kosmos, then remove it again."
+  - Something on the port that is not a Kosmos board (no identity header) does not stop it.
+  - After the board task is switched off and ended, the helper waits for the board to stop answering,
+    for `BOARD_GONE_WAIT_MS`: `FOLDER_DELETE_TRIES x FOLDER_DELETE_WAIT_MS` (10s), the existing budget
+    for exactly this process leaving. If it still answers, no agent task is removed and no folder
+    deleted.
+  - The board task's switch is then put back to the position read before (`win32board.status()`):
+    back on only if it was on. That is the honest option, because the removal has changed nothing else,
+    and leaving the task silently off would change what happens at the next sign-in for a removal that
+    did not happen. If it cannot be switched back, the report names it and says where to turn it on.
+  - A board that answers when the folders would go keeps every folder.
+  - There is no existing live-gated stop for a board process by pid: `win32stop` ends agent sessions
+    and `win32handoff` stops nothing. So the helper refuses rather than inventing a killer.
+- **Finding 3 [BUG]: one build verdict.** `win32relocate.buildVerdict(mine, theirs)` is read by both
+  `compare` and `relocate`:
+  - `same` (version and source_sha): compare hands off; relocate says already there.
+  - `installed-newer` (`update.newer`): compare hands off; relocate refuses.
+  - `this-newer`: compare says run here; relocate refuses.
+  - `rebuilt` (the same readable version from another commit): compare says run here, which staging
+    verification of a rebuilt candidate needs; relocate refuses.
+  - `unreadable`: compare hands off; relocate refuses.
+  - **Prerelease:** `update.newer` reads only `x.y.z`, so `0.6.62-rc.1` against `0.6.61` is
+    `unreadable`. A prerelease copy hands off to an installed Kosmos and never re-points over it.
+    Kosmos releases carry plain `x.y.z` versions today.
+- **Finding 4 [BUG]: from any folder.** `KosmosLauncher.cs` `CompareWithInstalledCopy` runs the
+  verdict wherever the running copy is, when `MoveTarget()` holds a `Kosmos.exe` and this copy is not
+  inside it. So an old copy at `D:\Kosmos-0.6.50` hands off and re-points nothing.
+  `OfferToMoveFromTemporaryPlace` (the move question) is still asked only from a temporary place.
+- **Finding 5 [NIT]:** the data folder, and the runtime folder, are kept and named when a kept
+  project or working folder IS that folder or holds it, compared by real path, case-insensitively,
+  with separators normalised.
+- **Finding 6 [NIT]:** a plain file in `<data>\worlds` (`desktop.ini`) is skipped. A stray folder
+  with an unsafe name still fails closed. `worlds.js` writes no temporary folder there (its only
+  temporary file is the registry's own, in the data folder), so there is no pattern to share.
+- **Finding 7 [NIT]:** the data-folder walk collects EVERY path that would not delete, keeps tidying
+  the folders after the first failure, and names them up to `MAX_NAMED_LEFTOVERS` (10), then
+  "and N more".
+- **Finding 8 [NIT]: the merge with S3.** `win32-update-apply` merges first, and this branch rebases
+  after it, not pre-merged. Two conflict hunks are expected in `engine/win32board.js`: next to
+  `bundleRoot`, where this branch adds `isKosmosBuildRoot` and `anchorBundle`, and in `module.exports`.
+
 ## Follow-ups (not this slice)
+
+- **Once S3 (`win32-update-apply`) has merged:** the uninstall refuses while an update journal is
+  unfinished, so it cannot delete a runtime or a folder that a half-applied swap still needs.
 
 - **Update Kosmos in Programs from a newer downloaded zip.** Today a NEWER copy running from a temporary
   place runs from there and re-points (round 1, finding 4). The follow-up reuses S3's

@@ -6,27 +6,36 @@
  * 🛑 WHY THIS IS NODE AND NOT THE LAUNCHER. Deleting the folder was the only "uninstall" a
  * Windows user had, and it left `Kosmos\board` and every `Kosmos\agent-*` task firing at each
  * sign-in, plus both data folders. Removing those needs the task names, the schtasks seam, the
- * anchor's folder, the store's folder and every Kosmos's project and working folders, and every
- * one of them is already derived once, in win32job, win32board, win32anchor, store and worlds. A
- * C# copy in the launcher would be a second derivation of each (convention 5). So the launcher
- * asks the questions and shows the answer, and this module does the removing.
+ * anchor's folder, the store's folder, every Kosmos's project and working folders and the board's
+ * identity probe, and every one of them is already derived once, in win32job, win32board,
+ * win32anchor, store, worlds and win32handoff. A C# copy in the launcher would be a second
+ * derivation of each (convention 5). So the launcher asks the questions and shows the answer, and
+ * this module does the removing.
  *
  * 🔑 IN ORDER, EACH STEP WITH ITS OWN RESULT, NOTHING SILENTLY SKIPPED:
- *   1. read every task in Task Scheduler's Kosmos folder from the machine's whole task list
+ *   1. ask the board's port who answers (win32handoff.probeBoard, the identity probe). A Kosmos
+ *      board its logon task did NOT start (a double-clicked Kosmos.exe, say) is out of reach of
+ *      every task command, and could re-register tasks and re-create folders behind the removal,
+ *      so NOTHING is changed and the person is told to close Kosmos first;
+ *   2. read every task in Task Scheduler's Kosmos folder from the machine's whole task list
  *      (win32job.kosmosFolderTasks, locale-independent);
- *   2. switch the board's task off and end the board FIRST, so nothing can re-register an agent
- *      while the agents are being removed;
- *   3. every agent task, of every Kosmos: disable, end, remove (win32job, by the world its own
+ *   3. switch the board's task off and end the board. If a board was answering, wait for it to
+ *      stop; one that still answers means no agent task is removed and no folder deleted, and the
+ *      board task's switch is put back the way it was read;
+ *   4. every agent task, of every Kosmos: disable, end, remove (win32job, by the world its own
  *      path names);
- *   4. a task in the folder that is neither is LEFT, and named, never guessed at;
- *   5. remove the board's task;
- *   6. read the whole task list AGAIN. Only a list that shows no Kosmos task at all lets a folder
- *      go. Success is never inferred from what schtasks printed, which is translated;
- *   7. %LOCALAPPDATA%\Kosmos (the anchor's folder) goes only when it is exactly the plain
- *      `<LOCALAPPDATA>\Kosmos` and is neither the data folder nor overlaps it;
- *   8. on the second yes, %APPDATA%\Kosmos (the store) is emptied EXCEPT every Kosmos's projects
+ *   5. a task in the folder that is neither is LEFT, and named, never guessed at;
+ *   6. remove the board's task;
+ *   7. read the whole task list AGAIN. Only a list that shows no Kosmos task at all, and a port
+ *      where no Kosmos board answers, lets a folder go. Success is never inferred from what
+ *      schtasks printed, which is translated;
+ *   8. %LOCALAPPDATA%\Kosmos (the anchor's folder) goes only when it is exactly the plain
+ *      `<LOCALAPPDATA>\Kosmos`, is neither the data folder nor overlaps it, and is not inside a
+ *      projects or working folder;
+ *   9. on the second yes, %APPDATA%\Kosmos (the store) is emptied EXCEPT every Kosmos's projects
  *      and working folders, which are kept with the folders above them, and each is named. When
- *      the list of Kosmoses cannot be read, the store is not touched at all.
+ *      the list of Kosmoses cannot be read, or a kept folder IS the store or holds it, the store is
+ *      not touched at all.
  * Every refusal and failure comes back as a sentence naming what was left behind.
  *
  * ⚠️ GATED TWICE (convention 3). `uninstall()` refuses without `liveExecutionAllowed`, and the
@@ -35,7 +44,7 @@
  * schtasks from any test process.
  *
  * The launcher's CLI:
- *     node app\engine\win32uninstall.js --uninstall [--delete-data] [--root <bundle>] [--report <file>] [--yes]
+ *     node app\engine\win32uninstall.js --uninstall --port <n> [--delete-data] [--root <bundle>] [--report <file>] [--yes]
  */
 
 const fs = require('node:fs');
@@ -53,13 +62,20 @@ const worlds = require('./worlds');
 /* How a folder delete waits for the processes the task ends just ended to let go of their files.
    `/End` to node exiting measured about 2s (engine/win32orphan.js); an agent's own tree or a virus
    scanner can hold a handle a little longer. fs.rmSync retries EBUSY and EPERM itself: 20 tries
-   500ms apart is 10s. */
+   500ms apart is 10s. The wait for an ended board to stop answering is the same budget, polled at
+   the same interval, because it is the same process leaving. */
 const FOLDER_DELETE_TRIES = 20;
 const FOLDER_DELETE_WAIT_MS = 500;
+const BOARD_GONE_WAIT_MS = FOLDER_DELETE_TRIES * FOLDER_DELETE_WAIT_MS;
+
+/* How many paths that would not delete are named one by one before the rest are counted. Enough
+   for a person to act on the usual one or two locked files; a long list says the same thing. */
+const MAX_NAMED_LEFTOVERS = 10;
 
 const REFUSED_WITHOUT_CONFIRM = 'Kosmos was not removed, because the removal was not confirmed';
+const KOSMOS_STILL_OPEN = 'Kosmos is still open. Close Kosmos, then remove it again.';
 
-const USAGE = 'usage: node engine/win32uninstall.js --uninstall [--delete-data] [--root <folder>] [--report <file>] [--yes]';
+const USAGE = 'usage: node engine/win32uninstall.js --uninstall --port <n> [--delete-data] [--root <folder>] [--report <file>] [--yes]';
 
 function firstLine(value) {
   return String((value && value.message) || value || 'no detail').trim().split(/\r?\n/)[0];
@@ -103,18 +119,19 @@ function isSameOrInside(child, parent, platform) {
 /**
  * A folder as the disk names it, for comparing two folders: its real path when it exists
  * (`realpathSync.native` expands an 8.3 short name and resolves a junction), otherwise its
- * resolved spelling; always without a trailing separator and lower-cased, because Windows paths
- * are not case-sensitive.
+ * resolved spelling; always with one kind of separator, without a trailing one, and lower-cased,
+ * because Windows paths are not case-sensitive.
  */
 function onDisk(dir) {
   let at;
   try { at = fs.realpathSync.native(dir); } catch { at = path.resolve(String(dir)); }
-  return at.replace(/[\\/]+$/, '').toLowerCase();
+  return at.replace(/[\\/]+/g, '/').replace(/\/+$/, '').toLowerCase();
 }
+/** Is `child` the same folder as `parent`, or inside it? */
 function onDiskInside(child, parent) {
   const c = onDisk(child);
   const r = onDisk(parent);
-  return c === r || c.startsWith(r + path.sep.toLowerCase()) || c.startsWith(r + '/') || c.startsWith(r + '\\');
+  return c === r || c.startsWith(r + '/');
 }
 
 /**
@@ -156,8 +173,10 @@ function isLink(at) {
  *
  * ⚠️ FAIL CLOSED. `worlds.readRegistry` quietly falls back to the default Kosmos when the file is
  * unreadable, which is right for a board and wrong here: a registry that exists but cannot be
- * read, or names a Kosmos it drops, or a world folder whose name is not a safe id, means we do not
- * know what is somebody's work, and nothing in the data folder is deleted.
+ * read, or names a Kosmos it drops, or a world FOLDER whose name is not a safe id, means we do not
+ * know what is somebody's work, and nothing in the data folder is deleted. A plain FILE in the
+ * worlds folder (Explorer's `desktop.ini`, say) is nobody's Kosmos and is not a reason to stop
+ * (round 2, finding 6).
  *
  * Returns `{known: true, roots: [{dir, sentence}]}` or `{known: false, because}`.
  */
@@ -183,6 +202,7 @@ function keptRoots(o) {
   const worldsFolder = path.dirname(worlds.worldBaseDir(base, { id: 'kosmos' }));
   try {
     for (const entry of fs.readdirSync(worldsFolder, { withFileTypes: true })) {
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
       if (candidates.some((w) => w.id === entry.name)) continue;
       candidates.push({ id: entry.name, name: entry.name });
     }
@@ -207,35 +227,36 @@ function keptRoots(o) {
 
 /**
  * Delete everything in `dir` except `keep` (folders), keeping each kept folder's parents. Links are
- * removed as links, or kept when they lead to a kept folder; they are never followed. Returns the
- * sentences for what could not be deleted.
+ * removed as links, or kept when they lead to a kept folder; they are never followed. Returns EVERY
+ * path that could not be deleted (round 2, finding 7: one failure used to stop every folder above
+ * it being tidied, unreported).
  */
 function deleteAllExcept(dir, keep, rm) {
   const kept = keep.map(onDisk);
-  const holdsKept = (at) => { const d = onDisk(at); return kept.some((k) => k === d || k.startsWith(d + '\\') || k.startsWith(d + '/')); };
+  const holdsKept = (at) => { const d = onDisk(at); return kept.some((k) => k === d || k.startsWith(d + '/')); };
   const failures = [];
   const walk = (folder) => {
     let names;
     try { names = fs.readdirSync(folder); } catch (e) { failures.push(folder + ' (' + firstLine(e) + ')'); return true; }
-    let keptHere = false;
+    let staysHere = false;
     for (const name of names) {
       const at = path.join(folder, name);
       let st;
       try { st = fs.lstatSync(at); } catch { continue; }
-      if (holdsKept(at) && (st.isSymbolicLink() || kept.includes(onDisk(at)))) { keptHere = true; continue; }
+      if (holdsKept(at) && (st.isSymbolicLink() || kept.includes(onDisk(at)))) { staysHere = true; continue; }
       if (st.isSymbolicLink()) {
-        try { removeLink(at); } catch (e) { failures.push(at + ' (' + firstLine(e) + ')'); }
+        try { removeLink(at); } catch (e) { failures.push(at + ' (' + firstLine(e) + ')'); staysHere = true; }
         continue;
       }
       if (st.isDirectory() && holdsKept(at)) {
-        if (walk(at)) keptHere = true;
-        else { try { fs.rmdirSync(at); } catch (e) { failures.push(at + ' (' + firstLine(e) + ')'); } }
+        if (walk(at)) { staysHere = true; continue; }
+        try { fs.rmdirSync(at); } catch (e) { failures.push(at + ' (' + firstLine(e) + ')'); staysHere = true; }
         continue;
       }
-      try { rm(at); } catch (e) { failures.push(at + ' (' + firstLine(e) + ')'); continue; }
-      if (fs.existsSync(at)) failures.push(at + ' (it was still there after deleting it)');
+      try { rm(at); } catch (e) { failures.push(at + ' (' + firstLine(e) + ')'); staysHere = true; continue; }
+      if (fs.existsSync(at)) { failures.push(at + ' (it was still there after deleting it)'); staysHere = true; }
     }
-    return keptHere || failures.length > 0;
+    return staysHere;
   };
   if (!walk(dir)) {
     try { fs.rmdirSync(dir); } catch (e) { failures.push(dir + ' (' + firstLine(e) + ')'); }
@@ -243,25 +264,70 @@ function deleteAllExcept(dir, keep, rm) {
   return failures;
 }
 
+/** Every leftover, named up to MAX_NAMED_LEFTOVERS and counted after that. */
+function leftoverList(failures) {
+  const named = failures.slice(0, MAX_NAMED_LEFTOVERS).join('; ');
+  const more = failures.length - MAX_NAMED_LEFTOVERS;
+  return more > 0 ? named + '; and ' + more + ' more' : named;
+}
+
+/**
+ * Is a Kosmos board answering on the port, and did its logon task start it?
+ * `{answering: false}` / `{answering: true, byTask: true|false|null}`. A probe that cannot run is
+ * taken as a board that answers and is not the task's, which stops the removal: the safe direction.
+ */
+async function boardOnPort(port, o) {
+  const probe = typeof o.probe === 'function' ? o.probe : (p) => require('./win32handoff').probeBoard(p);
+  let answer;
+  try { answer = await probe(port); } catch { return { answering: true, byTask: false }; }
+  if (!answer || !answer.answering) return { answering: false };
+  /* Something that is not a Kosmos board (no identity, no started-by-task word) cannot register a
+     task or re-create a folder; only a Kosmos board stops the removal. */
+  if (!answer.identity && typeof answer.startedByTask !== 'boolean') return { answering: false };
+  if (typeof answer.startedByTask === 'boolean') return { answering: true, byTask: answer.startedByTask };
+  /* A board older than the started-by-task word: Task Scheduler's own running state, true or unknown. */
+  let running = null;
+  try { running = win32board.status().running; } catch { running = null; }
+  return { answering: true, byTask: running === true ? true : null };
+}
+
+async function waitForBoardToGo(port, o) {
+  const sleep = typeof o.sleep === 'function' ? o.sleep : (ms) => new Promise((r) => setTimeout(r, ms));
+  for (let waited = 0; ; waited += FOLDER_DELETE_WAIT_MS) {
+    if (!(await boardOnPort(port, o)).answering) return true;
+    if (waited >= BOARD_GONE_WAIT_MS) return false;
+    await sleep(FOLDER_DELETE_WAIT_MS);
+  }
+}
+
+function stillOpen(extraLeft, notes) {
+  return { ok: false, refused: true, stillOpen: true, done: [], left: [KOSMOS_STILL_OPEN].concat(extraLeft || []).map(oneLine), notes: (notes || []).map(oneLine) };
+}
+
 /**
  * Remove Kosmos from this computer, except the folder it runs from and every Kosmos's projects and
  * agents' working folders.
  *
  * @param {object} opts
+ *   port                  the board's port, as the launcher derives it; without one nothing is removed
  *   deleteData            also empty the store (the person said yes to the second question)
  *   bundleRoot            the Kosmos folder running this, which is never deleted from here
  *   liveExecutionAllowed  () => boolean; without it this refuses and changes nothing
- *   platform, env, home, projectsRoot, removeFolder   seams, with real defaults
- * @returns {{ok: boolean, refused?: boolean, done: string[], left: string[], notes: string[]}}
+ *   platform, env, home, projectsRoot, removeFolder, probe, sleep   seams, with real defaults
+ * @returns {Promise<{ok: boolean, refused?: boolean, stillOpen?: boolean, done: string[], left: string[], notes: string[]}>}
  *   `left` names everything still on the computer that the removal was meant to take away.
  */
-function uninstall(opts) {
+async function uninstall(opts) {
   const o = opts || {};
   const allowed = typeof o.liveExecutionAllowed === 'function' ? o.liveExecutionAllowed() : liveExec.liveExecutionAllowed();
   if (!allowed) return { ok: false, refused: true, done: [], left: [REFUSED_WITHOUT_CONFIRM], notes: [] };
   const platform = o.platform || process.platform;
   if (platform !== 'win32') {
     return { ok: false, refused: true, done: [], left: ['Kosmos removes itself this way only on Windows'], notes: [] };
+  }
+  const port = Number(o.port);
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    return { ok: false, refused: true, done: [], left: ['Kosmos was not removed, because it could not tell which port Kosmos uses, so it could not check whether Kosmos is still open'], notes: [] };
   }
   const env = worlds.preWorldEnv(o.env || process.env);
   const home = o.home || env.AGENT_WORKFORCE_HOME || os.homedir();
@@ -271,7 +337,11 @@ function uninstall(opts) {
   const left = [];
   const notes = [];
 
-  /* 1-6: the tasks. Commands are issued in order; whether each is gone is READ afterwards. */
+  /* 1: a Kosmos board no task command can stop means nothing is changed at all. */
+  const firstLook = await boardOnPort(port, o);
+  if (firstLook.answering && firstLook.byTask !== true) return stillOpen();
+
+  /* 2-7: the tasks. Commands are issued in order; whether each is gone is READ afterwards. */
   let everyTaskGone = false;
   const before = win32job.kosmosFolderTasks();
   if (!before.known) {
@@ -280,9 +350,21 @@ function uninstall(opts) {
     const tasks = before.paths.map(classifyTask);
     const board = tasks.find((t) => t.kind === 'board');
     const said = new Map();
+    let boardSwitch = null;
     if (board) {
+      try { boardSwitch = win32board.status(); } catch { boardSwitch = null; }
       win32board.disable();
       win32board.end();
+    }
+    if (firstLook.answering && !(await waitForBoardToGo(port, o))) {
+      /* The board that answered did not go. Nothing else is touched, and the one thing this changed,
+         the board task's switch, goes back to the position it was read in. */
+      if (board && boardSwitch && boardSwitch.known && boardSwitch.enabled === true) {
+        const back = win32board.enable();
+        if (!back.ok) return stillOpen(['the startup job for the Kosmos board, which is switched off now (' + back.because + '). Turn "Start Kosmos when I sign in to Windows" back on in Settings']);
+        return stillOpen([], ['Its startup job was switched back on, as it was.']);
+      }
+      return stillOpen();
     }
     for (const task of tasks.filter((t) => t.kind === 'agent')) {
       win32job.disable(task.name, task.worldId);
@@ -317,7 +399,14 @@ function uninstall(opts) {
     }
   }
 
-  /* 7-8: the folders, only once nothing registered still needs them. */
+  /* A board that started while the tasks went (or answers now for any reason) keeps every folder. */
+  let boardGone = true;
+  if (everyTaskGone && (await boardOnPort(port, o)).answering) {
+    boardGone = false;
+    left.push(KOSMOS_STILL_OPEN);
+  }
+
+  /* 8-9: the folders, only once nothing registered, and no board, still needs them. */
   let runtimeDir = null;
   let plainRuntimeDir = null;
   let dataDir = null;
@@ -331,19 +420,21 @@ function uninstall(opts) {
   const guards = { platform, home, bundleRoot: o.bundleRoot || null };
   const kept = dataDir ? keptRoots({ dataDir, env, home, projectsRoot }) : { known: false, because: 'we could not find your data folder' };
   const keptDirs = kept.known ? kept.roots.map((r) => r.dir) : [];
+  const defaultRoots = [projectsRoot, store.workersRootFor(env, home, 'win32')];
+  /* A kept folder that IS this folder, or holds it (round 2, finding 5). */
+  const keptHolding = (dir, roots) => roots.find((k) => onDiskInside(dir, k));
 
   if (runtimeDir) {
     const label = 'Kosmos\'s runtime folder';
+    const guardDirs = kept.known ? keptDirs : defaultRoots;
     let refusal = null;
     if (!everyTaskGone) refusal = 'Kosmos startup jobs are still registered and need it';
+    else if (!boardGone) refusal = 'Kosmos is still open';
     else if (onDisk(runtimeDir) !== onDisk(plainRuntimeDir)) refusal = 'it is not the usual ' + plainRuntimeDir + ', so Kosmos cannot be sure nothing else lives there';
     else if (dataDir && (onDiskInside(runtimeDir, dataDir) || onDiskInside(dataDir, runtimeDir))) refusal = 'your agents\' chats and settings are in the same place (' + dataDir + ')';
     else if (isLink(runtimeDir)) refusal = 'it is a link to another folder';
-    /* Named Kosmoses keep their work under the DATA folder, which the runtime folder was just shown
-       not to overlap, so an unreadable list still leaves the default Kosmos's own roots to check. */
-    else if ((kept.known ? keptDirs : [projectsRoot, store.workersRootFor(env, home, 'win32')]).some((k) => onDiskInside(k, runtimeDir))) {
-      refusal = 'some of your projects or working folders are inside it';
-    }
+    else if (keptHolding(runtimeDir, guardDirs)) refusal = 'it is inside your projects or working folders (' + keptHolding(runtimeDir, guardDirs) + ')';
+    else if (guardDirs.some((k) => onDiskInside(k, runtimeDir))) refusal = 'some of your projects or working folders are inside it';
     else refusal = folderRefusal(runtimeDir, { ...guards, leaf: win32anchor.APP });
     if (refusal) {
       left.push(label + ' (' + runtimeDir + '), kept because ' + refusal);
@@ -366,8 +457,10 @@ function uninstall(opts) {
     } else {
       let refusal = null;
       if (!everyTaskGone) refusal = 'Kosmos startup jobs are still registered and their agents use them';
+      else if (!boardGone) refusal = 'Kosmos is still open';
       else if (!kept.known) refusal = kept.because;
       else if (isLink(dataDir)) refusal = 'it is a link to another folder';
+      else if (keptHolding(dataDir, keptDirs)) refusal = 'it is one of your projects or working folders, or inside one (' + keptHolding(dataDir, keptDirs) + ')';
       else refusal = folderRefusal(dataDir, { ...guards, leaf: store.APP });
       if (refusal) {
         left.push(label + ' (' + dataDir + '), kept because ' + refusal);
@@ -375,7 +468,7 @@ function uninstall(opts) {
         done.push(label + ' (' + dataDir + ') were already gone');
       } else {
         const failures = deleteAllExcept(dataDir, keptDirs, rm);
-        if (failures.length) left.push(label + ' in ' + dataDir + ', some of which could not be deleted: ' + failures.join('; '));
+        if (failures.length) left.push(label + ' in ' + dataDir + ', ' + failures.length + ' of which could not be deleted: ' + leftoverList(failures));
         else done.push('deleted ' + label + ' (' + dataDir + '), keeping your projects and working folders');
       }
     }
@@ -397,13 +490,13 @@ function reportText(result) {
 }
 
 function parseCliArgs(argv) {
-  const a = { uninstall: false, deleteData: false, yes: false, root: null, report: null, unknown: null };
+  const a = { uninstall: false, deleteData: false, yes: false, root: null, report: null, port: null, unknown: null };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--uninstall') a.uninstall = true;
     else if (arg === '--delete-data') a.deleteData = true;
     else if (arg === '--yes') a.yes = true;
-    else if (arg === '--root' || arg === '--report') { a[arg.slice(2)] = argv[i + 1] || null; i += 1; }
+    else if (arg === '--root' || arg === '--report' || arg === '--port') { a[arg.slice(2)] = argv[i + 1] || null; i += 1; }
     else a.unknown = arg;
   }
   return a;
@@ -414,7 +507,7 @@ function parseCliArgs(argv) {
  * allowLiveExecution(), which only server.js's real start may call. Without it this prints what
  * it would remove and exits 2, having changed nothing.
  */
-function cliMain(argv, deps) {
+async function cliMain(argv, deps) {
   const d = deps || {};
   const out = typeof d.write === 'function' ? d.write : (s) => process.stdout.write(s);
   const a = parseCliArgs(argv);
@@ -434,7 +527,7 @@ function cliMain(argv, deps) {
     }, null, 2) + '\n');
     return 2;
   }
-  const result = (d.uninstall || uninstall)({ deleteData: a.deleteData, bundleRoot: a.root, liveExecutionAllowed: () => true });
+  const result = await (d.uninstall || uninstall)({ deleteData: a.deleteData, bundleRoot: a.root, port: a.port, liveExecutionAllowed: () => true });
   if (a.report) {
     try {
       fs.writeFileSync(a.report, reportText(result), 'utf8');
@@ -447,9 +540,15 @@ function cliMain(argv, deps) {
   return result.ok ? 0 : 1;
 }
 
-module.exports = { uninstall, cliMain, classifyTask, folderRefusal, keptRoots, reportText, FOLDER_DELETE_TRIES, FOLDER_DELETE_WAIT_MS };
+module.exports = {
+  uninstall, cliMain, classifyTask, folderRefusal, keptRoots, reportText,
+  FOLDER_DELETE_TRIES, FOLDER_DELETE_WAIT_MS, BOARD_GONE_WAIT_MS, MAX_NAMED_LEFTOVERS, KOSMOS_STILL_OPEN,
+};
 
 /* Guarded on being the main module: requiring this file must never remove anything. */
 if (require.main === module) {
-  process.exitCode = cliMain(process.argv.slice(2));
+  cliMain(process.argv.slice(2)).then(
+    (code) => { process.exitCode = code; },
+    (e) => { process.stderr.write(String((e && e.stack) || e) + '\n'); process.exitCode = 1; },
+  );
 }

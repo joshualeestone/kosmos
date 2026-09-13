@@ -98,6 +98,29 @@ function sameBuild(a, b) {
   return String(a.version || '') === String(b.version || '') && String(a.source_sha || '') === String(b.source_sha || '');
 }
 
+/**
+ * The ONE verdict on two Kosmos builds, this copy (`mine`) against the installed one (`theirs`),
+ * read by both `compare` and `relocate` so they can never disagree about "the same build" (round 2,
+ * finding 3: compare looked at the version alone, relocate at the version and the commit).
+ *   'same'             same version AND same source_sha
+ *   'installed-newer'  the installed version is newer, by update.newer (the updater's comparison)
+ *   'this-newer'       this copy's version is newer, by update.newer
+ *   'rebuilt'          the same readable version from another commit (a rebuilt candidate)
+ *   'unreadable'       anything else: a missing manifest, or a version update.newer cannot read.
+ *                      update.newer reads only `x.y.z`, so `0.6.62-rc.1` is unreadable here too.
+ */
+function buildVerdict(mine, theirs, newer) {
+  if (!mine || !theirs) return 'unreadable';
+  if (sameBuild(mine, theirs)) return 'same';
+  const isNewer = typeof newer === 'function' ? newer : require('./update').newer;
+  if (isNewer(theirs.version, mine.version)) return 'installed-newer';
+  if (isNewer(mine.version, theirs.version)) return 'this-newer';
+  /* A version update.newer can read is newer than 0.0.0 or IS 0.0.0; one it cannot read is neither. */
+  const readable = (v) => isNewer(v, '0.0.0') || String(v).trim() === '0.0.0';
+  if (String(mine.version).trim() === String(theirs.version).trim() && readable(mine.version)) return 'rebuilt';
+  return 'unreadable';
+}
+
 function refused(because) { return { ok: false, action: 'refused', because }; }
 
 /**
@@ -213,7 +236,7 @@ async function relocate(opts) {
       if (theirsMissing.length) {
         return refused('Kosmos was not moved, because the Kosmos in ' + to + ' is incomplete (it is missing ' + theirsMissing.join(', ') + '). ' + KEEPS_WORKING);
       }
-      if (!sameBuild(mine, theirs)) {
+      if (buildVerdict(mine, theirs, o.newer) !== 'same') {
         return refused('There is already a different Kosmos (version ' + (theirs.version || 'unknown') + ') in ' + to
           + ', so this one was not moved there. ' + KEEPS_WORKING);
       }
@@ -239,14 +262,15 @@ async function relocate(opts) {
 }
 
 /**
- * Round 1, finding 4: this copy runs from a temporary place and `to` (the per-user folder) exists.
- * Which one should run?
+ * Round 1 finding 4, round 2 findings 3 and 4: this copy runs from anywhere outside `to` (the per-user
+ * folder) and `to` exists. Which one should run? From buildVerdict, the one derivation:
  *   'none'     `to` holds no complete Kosmos (a missing manifest, another product, any ENTRIES item
- *              missing): the launcher's ordinary offer applies, and so does Keep it here.
- *   'newer'    this copy is newer than the one in `to` by update.newer, the updater's comparison:
- *              run from here and re-point, as a by-hand update does today (until the in-app update
- *              from a downloaded zip reuses engine/win32apply.js).
- *   'handoff'  otherwise, including a version either side cannot parse (never newer): the installed
+ *              missing): the launcher's ordinary behaviour applies, and so does Keep it here.
+ *   'newer'    this copy is newer ('this-newer'), or the same version rebuilt from another commit
+ *              ('rebuilt', which staging verification of a rebuilt candidate needs): run from here and
+ *              re-point, as a by-hand update does today (until the in-app update from a downloaded zip
+ *              reuses engine/win32apply.js).
+ *   'handoff'  the same build, an installed build that is newer, or anything unreadable: the installed
  *              Kosmos is the one that runs, and this copy re-points nothing.
  */
 function compare(opts) {
@@ -256,9 +280,9 @@ function compare(opts) {
   const theirs = readManifest(to);
   if (!isCompleteBuild(to, theirs, buildEntries(o))) return { verdict: 'none', target: to };
   const mine = readManifest(from);
-  const newer = (o.newer || require('./update').newer);
-  if (mine && newer(mine.version, theirs.version)) return { verdict: 'newer', target: to, mine: mine.version, installed: theirs.version };
-  return { verdict: 'handoff', target: to, mine: mine ? mine.version : null, installed: theirs.version };
+  const build = buildVerdict(mine, theirs, o.newer);
+  const runsHere = build === 'this-newer' || build === 'rebuilt';
+  return { verdict: runsHere ? 'newer' : 'handoff', build, target: to, mine: mine ? mine.version : null, installed: theirs.version };
 }
 
 /** The report the launcher reads: its first line is the outcome. */
@@ -318,7 +342,7 @@ async function cliMain(argv, deps) {
   return result.ok ? 0 : 1;
 }
 
-module.exports = { relocate, compare, cliMain, reportText, sweepInterruptedMoves, STAGING_INFIX };
+module.exports = { relocate, compare, buildVerdict, cliMain, reportText, sweepInterruptedMoves, STAGING_INFIX };
 
 /* Guarded on being the main module: requiring this file must never copy anything. */
 if (require.main === module) {

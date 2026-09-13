@@ -396,6 +396,18 @@ function anchorBundle(opts) {
   if ((o.platform || process.platform) !== 'win32') return { ok: true, action: 'skipped' };
   const root = bundleRoot(o);
   if (!root || !isKosmosBuildRoot(root, o)) return { ok: true, action: 'skipped' };
+  /* Round 2, finding 1: the real anchorer rewrites %LOCALAPPDATA%\Kosmos, so it is never reached
+     from a test process (engine/win32relocate.js anchorTo's rule) and only once production armed
+     live execution (server.js arms it before ensureInstalled runs). An injected anchorer is a seam. */
+  if (!anchorFn) {
+    if (liveExec.inTestProcess()) {
+      throw new Error('win32board.anchorBundle: a test must install an anchorer (setAnchorer); the real one rewrites %LOCALAPPDATA%\\Kosmos');
+    }
+    if (!liveExec.liveExecutionAllowed()) {
+      liveExec.refuseOrWarn('engine/win32board.js', 'win32anchor.ensureAnchored', [root]);
+      return { ok: false, action: 'refused', because: 'this Kosmos is not allowed to change its startup files, so they still point where they did' };
+    }
+  }
   const anchored = anchorFor({ platform: o.platform, home: o.home, env: machineEnv(o), node: o.node, engineDir: o.engineDir });
   if (!anchored.ok) return { ok: false, action: 'failed', because: anchored.because };
   return { ok: true, action: 'anchored', pointer: anchored.pointer };

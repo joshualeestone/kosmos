@@ -263,16 +263,37 @@ test('🛑 which Kosmos runs: same or older than the installed one hands off, ne
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
 
-test('compare uses the updater\'s own newer(), one derivation', () => {
-  const s = scratch();
-  try {
-    build(s.from, { version: '1.0.0' });
-    build(s.to, { version: '2.0.0' });
-    const seen = [];
-    relocator.compare({ from: s.from, to: s.to, newer: (a, b) => { seen.push([a, b]); return true; } });
-    assert.deepEqual(seen, [['1.0.0', '2.0.0']]);
-    assert.equal(fs.readFileSync(path.join(__dirname, 'win32relocate.js'), 'utf8').includes("require('./update').newer"), true, 'compare no longer defaults to update.newer');
-  } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+test('the build verdict uses the updater\'s own newer(), one derivation', () => {
+  const seen = [];
+  assert.equal(relocator.buildVerdict({ version: '1.0.0', source_sha: 'a' }, { version: '2.0.0', source_sha: 'b' }, (a, b) => { seen.push([a, b]); return true; }), 'installed-newer');
+  assert.deepEqual(seen, [['2.0.0', '1.0.0']]);
+  assert.equal(fs.readFileSync(path.join(__dirname, 'win32relocate.js'), 'utf8').includes("require('./update').newer"), true, 'the verdict no longer defaults to update.newer');
+});
+
+test('🛑 round 2 finding 3: compare and relocate read ONE build verdict, so they agree on every pair', async () => {
+  const CASES = [
+    /* this copy, the installed one, the verdict, compare's answer, relocate's answer */
+    ['same build', { version: '0.6.61', source_sha: 'aaaa' }, { version: '0.6.61', source_sha: 'aaaa' }, 'same', 'handoff', 'already-there'],
+    ['installed is newer', { version: '0.6.60', source_sha: 'bbbb' }, { version: '0.6.61', source_sha: 'aaaa' }, 'installed-newer', 'handoff', 'refused'],
+    ['this copy is newer', { version: '0.6.62', source_sha: 'bbbb' }, { version: '0.6.61', source_sha: 'aaaa' }, 'this-newer', 'newer', 'refused'],
+    ['same version rebuilt from another commit', { version: '0.6.61', source_sha: 'bbbb' }, { version: '0.6.61', source_sha: 'aaaa' }, 'rebuilt', 'newer', 'refused'],
+    ['unreadable version', { version: 'garbage', source_sha: 'bbbb' }, { version: '0.6.61', source_sha: 'aaaa' }, 'unreadable', 'handoff', 'refused'],
+    ['a prerelease update.newer cannot read', { version: '0.6.62-rc.1', source_sha: 'bbbb' }, { version: '0.6.61', source_sha: 'aaaa' }, 'unreadable', 'handoff', 'refused'],
+    ['the same unreadable version from another commit', { version: 'garbage', source_sha: 'bbbb' }, { version: 'garbage', source_sha: 'aaaa' }, 'unreadable', 'handoff', 'refused'],
+  ];
+  for (const [label, mine, theirs, verdict, compared, moved] of CASES) {
+    const s = scratch();
+    try {
+      build(s.from, mine);
+      build(s.to, theirs);
+      assert.equal(relocator.buildVerdict(mine, theirs), verdict, label);
+      assert.equal(relocator.compare({ from: s.from, to: s.to }).verdict, compared, label + ': compare');
+      const r = await move(s, { copy: () => { throw new Error('nothing may be copied over an installed Kosmos'); } });
+      assert.equal(r.action, moved, label + ': relocate ' + JSON.stringify(shape(r)));
+      /* The agreement itself: relocate calls it the same build exactly when compare's verdict is 'same'. */
+      assert.equal(r.action === 'already-there', relocator.compare({ from: s.from, to: s.to }).build === 'same', label + ': compare and relocate disagree about the same build');
+    } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  }
 });
 
 test('🛑 without the confirm nothing is copied; the move CLI is a dry run until --yes; --compare only reads', async () => {

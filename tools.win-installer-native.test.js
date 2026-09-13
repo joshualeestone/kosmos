@@ -103,7 +103,7 @@ test('the engine helpers are armed by --yes, and speak the flags and report tags
     assert.notEqual(uninstaller.cliMain(['--uninstall', '--delete-data', '--root', 'C:\\K', '--report', report, '--yes'],
       { uninstall: () => ({ ok: true, done: [], left: [], notes: [] }), write: () => {} }), 64);
   } finally { fs.rmSync(report, { force: true }); }
-  const offer = method('LaunchFromTemporaryPlace');
+  const offer = method('CompareWithInstalledCopy') + method('OfferToMoveFromTemporaryPlace');
   for (const tag of ['MOVED ', 'SAME ', 'REFUSED ', 'NEWER ', 'HANDOFF ']) assert.ok(offer.includes('"' + tag + '"'), 'the launcher does not read ' + tag);
   assert.match(uninstaller.reportText({ done: [], left: ['a'], notes: ['b'] }), /^LEFT a\r\nNOTE b\r\n$/);
   return Promise.all([
@@ -193,11 +193,12 @@ class InstallerProbe {
         return 0;
       case "duties": {
         /* a[1] this copy, a[2] the per-user programs folder, a[3] the compare's first word or "fail",
-           a[4] Move|Keep|None, a[5] the kept-here file, a[6] person|nobody */
+           a[4] Move|Keep|None, a[5] the kept-here file, a[6] person|nobody, a[7] temp (this copy is in
+           Downloads) | elsewhere (a folder that is not cleaned up, such as D:\\Kosmos-0.6.50) */
         string asked = "no"; string started = "-"; bool refreshed = false;
         List<string> helpers = new List<string>();
         KosmosLauncher.showMessageBoxes = a[6] == "person";
-        KosmosLauncher.downloadsFolder = () => Path.GetDirectoryName(a[1]);
+        KosmosLauncher.downloadsFolder = () => a[7] == "elsewhere" ? null : Path.GetDirectoryName(a[1]);
         KosmosLauncher.desktopFolder = () => null;
         KosmosLauncher.environmentVariable = (name) => null;
         KosmosLauncher.temporaryFolders = () => new string[0];
@@ -433,14 +434,14 @@ test('🛑 finding 4 probe: a stale or same-build copy in Downloads hands off to
   if (!run) return;
   const r = dutiesRig(true);
   try {
-    const got = fields(run('duties', r.here, r.programs, 'HANDOFF', 'Keep', r.kept, 'person').out);
+    const got = fields(run('duties', r.here, r.programs, 'HANDOFF', 'Keep', r.kept, 'person', 'temp').out);
     assert.deepEqual(got, { exit: '0', refreshed: 'False', started: r.installed, asked: 'no', helpers: '--compare', kept: 'False' },
       'a stale copy re-pointed the Start menu, the Apps entry or the pointer, or did not start the installed Kosmos');
     fs.writeFileSync(r.kept, r.here + '\r\n');
-    const kept = fields(run('duties', r.here, r.programs, 'HANDOFF', 'Keep', r.kept, 'person').out);
+    const kept = fields(run('duties', r.here, r.programs, 'HANDOFF', 'Keep', r.kept, 'person', 'temp').out);
     assert.equal(kept.refreshed, 'False', 'Keep it here let a stale copy re-point everything while a complete Kosmos is installed');
     assert.equal(kept.started, r.installed);
-    const console = fields(run('duties', r.here, r.programs, 'HANDOFF', 'None', r.kept, 'nobody').out);
+    const console = fields(run('duties', r.here, r.programs, 'HANDOFF', 'None', r.kept, 'nobody', 'temp').out);
     assert.equal(console.refreshed, 'False', 'with --console a stale copy re-pointed everything');
   } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
 });
@@ -450,8 +451,23 @@ test('🛑 finding 4 probe: a NEWER copy runs from here and re-points, as a by-h
   if (!run) return;
   const r = dutiesRig(true);
   try {
-    assert.deepEqual(fields(run('duties', r.here, r.programs, 'NEWER', 'Move', r.kept, 'person').out),
+    assert.deepEqual(fields(run('duties', r.here, r.programs, 'NEWER', 'Move', r.kept, 'person', 'temp').out),
       { exit: 'null', refreshed: 'True', started: '-', asked: 'no', helpers: '--compare', kept: 'False' });
+  } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
+});
+
+test('🛑 round 2 finding 4 probe: an old copy in a folder that is NOT cleaned up hands off and re-points nothing; a newer one re-points; no install carries on', WINDOWS_ONLY, (t) => {
+  const run = probe(t);
+  if (!run) return;
+  const r = dutiesRig(true);
+  try {
+    assert.deepEqual(fields(run('duties', r.here, r.programs, 'HANDOFF', 'Move', r.kept, 'person', 'elsewhere').out),
+      { exit: '0', refreshed: 'False', started: r.installed, asked: 'no', helpers: '--compare', kept: 'False' },
+      'a stale copy outside a temporary place re-pointed the Start menu, the Apps entry or the pointer');
+    assert.deepEqual(fields(run('duties', r.here, r.programs, 'NEWER', 'Move', r.kept, 'person', 'elsewhere').out),
+      { exit: 'null', refreshed: 'True', started: '-', asked: 'no', helpers: '--compare', kept: 'False' });
+    assert.deepEqual(fields(run('duties', r.here, r.programs, 'NONE', 'Move', r.kept, 'person', 'elsewhere').out),
+      { exit: 'null', refreshed: 'True', started: '-', asked: 'no', helpers: '--compare', kept: 'False' }, 'a folder that is not cleaned up was offered a move');
   } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
 });
 
@@ -460,19 +476,19 @@ test('finding 4 probe: no complete Kosmos installed is the ordinary offer: Keep 
   if (!run) return;
   const r = dutiesRig(true);
   try {
-    assert.deepEqual(fields(run('duties', r.here, r.programs, 'NONE', 'Keep', r.kept, 'person').out),
+    assert.deepEqual(fields(run('duties', r.here, r.programs, 'NONE', 'Keep', r.kept, 'person', 'temp').out),
       { exit: 'null', refreshed: 'True', started: '-', asked: 'yes', helpers: '--compare', kept: 'True' });
-    assert.deepEqual(fields(run('duties', r.here, r.programs, 'NONE', 'Keep', r.kept, 'person').out),
+    assert.deepEqual(fields(run('duties', r.here, r.programs, 'NONE', 'Keep', r.kept, 'person', 'temp').out),
       { exit: 'null', refreshed: 'True', started: '-', asked: 'no', helpers: '--compare', kept: 'True' }, 'a kept folder was asked again');
-    assert.deepEqual(fields(run('duties', r.here, r.programs, 'fail', 'None', path.join(r.base, 'other.txt'), 'person').out),
+    assert.deepEqual(fields(run('duties', r.here, r.programs, 'fail', 'None', path.join(r.base, 'other.txt'), 'person', 'temp').out),
       { exit: 'null', refreshed: 'True', started: '-', asked: 'yes', helpers: '--compare', kept: 'False' }, 'a compare that could not run did not fall back to the offer');
   } finally { fs.rmSync(r.base, { recursive: true, force: true }); }
   const empty = dutiesRig(false);
   try {
-    assert.deepEqual(fields(run('duties', empty.here, empty.programs, 'NONE', 'Move', empty.kept, 'person').out),
+    assert.deepEqual(fields(run('duties', empty.here, empty.programs, 'NONE', 'Move', empty.kept, 'person', 'temp').out),
       { exit: '0', refreshed: 'False', started: empty.installed, asked: 'yes', helpers: '--move', kept: 'False' });
     fs.rmSync(path.join(empty.here, 'manifest.json'));
-    assert.deepEqual(fields(run('duties', empty.here, empty.programs, 'NONE', 'Move', empty.kept, 'person').out),
+    assert.deepEqual(fields(run('duties', empty.here, empty.programs, 'NONE', 'Move', empty.kept, 'person', 'temp').out),
       { exit: 'null', refreshed: 'False', started: '-', asked: 'no', helpers: '', kept: 'False' }, 'a folder that is not a real build did an installer\'s job');
   } finally { fs.rmSync(empty.base, { recursive: true, force: true }); }
 });
@@ -514,7 +530,8 @@ test('🛑 uninstall probe: a clean removal takes the shortcut, the Apps entry a
     const clean = fields(run('uninstall', 'person', 'yes,no', 'DONE removed x|NOTE Your projects were kept in P.', programs, parent, kept, exe).out);
     assert.equal(clean.code, '0');
     assert.equal(clean.asked, '2');
-    assert.equal(clean.helper, 'win32uninstall.js --uninstall --root "' + path.dirname(exe) + '"', 'a No to the chats question still asked for them to be deleted');
+    assert.match(clean.helper, new RegExp('^win32uninstall\\.js --uninstall --root "' + path.dirname(exe).replace(/[\\^$.*+?()[\]{}|]/g, '\\$&') + '" --port \\d+$'),
+      'a No to the chats question still asked for them to be deleted, or the helper was not told the board\'s port');
     assert.deepEqual([clean.shortcut, clean.key, clean.kept], ['False', 'False', 'False'], 'a clean removal left the Start menu entry, the Apps entry or the memory');
     assert.ok(clean.told.startsWith('NOTICE Kosmos is removed. You can now delete the folder ' + path.dirname(exe) + '.'), clean.told);
     assert.ok(clean.told.includes('Your projects were kept in P.'), clean.told);

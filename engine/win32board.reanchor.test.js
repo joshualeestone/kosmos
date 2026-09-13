@@ -17,6 +17,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 
 const board = require('./win32board');
 
@@ -82,6 +83,46 @@ test('an anchor that fails is reported on the answer, and the task\'s own state 
   const { r } = boot(definition(false), { anchorFails: true });
   assert.equal(r.action, 'left-disabled');
   assert.deepEqual(r.anchor, { ok: false, action: 'failed', because: 'the disk is full' });
+});
+
+/** A real Kosmos build on disk, as bundleRoot and the manifest check read it, with scratch roots. */
+function realBundle() {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-anchor-guard-'));
+  const root = path.join(base, 'bundle');
+  fs.mkdirSync(path.join(root, 'app', 'engine'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'runtime'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'app', 'server.js'), '');
+  fs.writeFileSync(path.join(root, 'runtime', 'node.exe'), 'node');
+  fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify({ product: 'kosmos', platform: 'win32', version: '0.6.61' }));
+  const env = { LOCALAPPDATA: path.join(base, 'Local'), APPDATA: path.join(base, 'Roaming'), USERNAME: 'x' };
+  return { base, root, env, pointer: path.join(env.LOCALAPPDATA, 'Kosmos', 'runtime', 'engine-path') };
+}
+
+test('🛑 round 2 finding 1: with no anchorer, a test process never reaches the real anchor, and writes nothing', () => {
+  const b = realBundle();
+  try {
+    board.setAnchorer(null);
+    assert.throws(() => board.anchorBundle({ platform: 'win32', root: b.root, env: b.env, home: path.join(b.base, 'home'),
+      node: path.join(b.root, 'runtime', 'node.exe'), engineDir: path.join(b.root, 'app', 'engine') }), /a test must install an anchorer/);
+    assert.ok(!fs.existsSync(b.pointer), 'the real anchor wrote the engine pointer from a test process');
+  } finally { fs.rmSync(b.base, { recursive: true, force: true }); }
+});
+
+test('🛑 round 2 finding 1: outside a test, the real anchor needs live execution armed', () => {
+  const b = realBundle();
+  try {
+    const script = [
+      "const board = require(" + JSON.stringify(path.join(__dirname, 'win32board.js')) + ");",
+      'const r = board.anchorBundle(' + JSON.stringify({ platform: 'win32', root: b.root, env: b.env, home: path.join(b.base, 'home'),
+        node: path.join(b.root, 'runtime', 'node.exe'), engineDir: path.join(b.root, 'app', 'engine') }) + ');',
+      'process.stdout.write(JSON.stringify(r));',
+    ].join('\n');
+    const r = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', windowsHide: true, timeout: 60000 });
+    assert.equal(r.status, 0, r.stderr);
+    const said = JSON.parse(r.stdout);
+    assert.equal(said.action, 'refused', 'a process that never armed live execution anchored: ' + r.stdout);
+    assert.ok(!fs.existsSync(b.pointer), 'the engine pointer was written without live execution');
+  } finally { fs.rmSync(b.base, { recursive: true, force: true }); }
 });
 
 test('🛑 a Mac, a source checkout, and a folder with no Kosmos manifest never anchor', () => {

@@ -176,17 +176,7 @@ class KosmosLauncher
         }
         if (!File.Exists(server)) return Fail("the application is missing (app\\server.js).");
 
-        int port = DefaultPort;
-        string env = Environment.GetEnvironmentVariable("PORT");
-        if (!string.IsNullOrEmpty(env))
-        {
-            int parsed;
-            // ⚠️ A bad PORT is IGNORED, not fatal. The server reads PORT itself and
-            // applies its own default; refusing to start here would turn a stray
-            // environment variable into "Kosmos is broken" on a machine where the
-            // server would have come up fine.
-            if (int.TryParse(env, out parsed) && parsed > 0 && parsed < 65536) port = parsed;
-        }
+        int port = BoardPort();
 
         // win32-installer-native: a real build (manifest.json, see IsKosmosBuild) running from
         // Downloads, the Desktop, OneDrive or a temporary folder hands off to the Kosmos already
@@ -298,6 +288,25 @@ class KosmosLauncher
             }
         }
         return p.ExitCode;
+    }
+
+    // The board's port: PORT when it is a usable number, the board's default otherwise. ONE
+    // derivation, read by the browser opener, the move, and the uninstall's "is Kosmos still open"
+    // check (engine/win32uninstall.js asks this port who answers before it changes anything).
+    static int BoardPort()
+    {
+        int port = DefaultPort;
+        string env = Environment.GetEnvironmentVariable("PORT");
+        if (!string.IsNullOrEmpty(env))
+        {
+            int parsed;
+            // ⚠️ A bad PORT is IGNORED, not fatal. The server reads PORT itself and
+            // applies its own default; refusing to start here would turn a stray
+            // environment variable into "Kosmos is broken" on a machine where the
+            // server would have come up fine.
+            if (int.TryParse(env, out parsed) && parsed > 0 && parsed < 65536) port = parsed;
+        }
+        return port;
     }
 
     static int Fail(string what)
@@ -1018,7 +1027,7 @@ class KosmosLauncher
         List<string> notes = new List<string>();
         string problem;
         string[] report = runEngineHelper(node, here, UninstallHelperScript,
-            "--uninstall" + (alsoDeleteChats ? " --delete-data" : "") + " --root " + QuoteArgument(here), out problem);
+            "--uninstall" + (alsoDeleteChats ? " --delete-data" : "") + " --root " + QuoteArgument(here) + " --port " + BoardPort(), out problem);
         if (report == null)
         {
             leftBehind.Add("Kosmos's startup jobs in Task Scheduler and its folders in AppData, because the removal could not run (" + problem + ")");
@@ -1287,53 +1296,62 @@ class KosmosLauncher
     internal static int? RunInstallerDuties(string here, string node, int port)
     {
         if (!IsKosmosBuild(here)) return null;
-        PlaceOutcome outcome = LaunchFromTemporaryPlace(here, node, port);
-        if (outcome == PlaceOutcome.StartedInstalledCopy) return 0;
-        if (outcome == PlaceOutcome.InstalledCopyWouldNotStart) return 1;
+        PlaceOutcome installed = CompareWithInstalledCopy(here, node);
+        if (installed == PlaceOutcome.StartedInstalledCopy) return 0;
+        if (installed == PlaceOutcome.InstalledCopyWouldNotStart) return 1;
+        if (installed != PlaceOutcome.NewerThanInstalledCopy
+            && OfferToMoveFromTemporaryPlace(here, node, port) == PlaceOutcome.StartedInstalledCopy) return 0;
         refreshWindowsRegistration(here);
         return null;
     }
 
-    internal enum PlaceOutcome { NotATemporaryPlace, StartedInstalledCopy, InstalledCopyWouldNotStart, NewerThanInstalledCopy, StaysHere }
+    internal enum PlaceOutcome { NoInstalledCopy, NotATemporaryPlace, StartedInstalledCopy, InstalledCopyWouldNotStart, NewerThanInstalledCopy, StaysHere }
 
-    // W-06, and round 1 finding 4. A copy running from a folder that gets cleaned up:
-    //   1. The per-user folder (MoveTarget) already holds a COMPLETE Kosmos (engine/win32relocate.js
-    //      compare, which checks every ENTRIES item):
-    //        this copy is the same build or OLDER (update.newer, the updater's comparison; an
-    //        unreadable version is never newer) -> start the installed Kosmos and end here. This copy
-    //        re-points nothing: no shortcut, no Apps entry, no engine pointer. Keep it here does not
-    //        apply, because a stale copy kept in Downloads is exactly what re-pointed everything.
-    //        this copy is NEWER -> run from here and re-point, which is how a by-hand zip update
-    //        works today, until "Update Kosmos in Programs from a newer downloaded zip" reuses
-    //        engine/win32apply.js.
-    //   2. Otherwise, with a person at the desktop and the folder not kept: ask Move Kosmos or Keep it
-    //      here. Whether it may move is the engine's rule (never while a board from this folder
-    //      serves, never over a different or incomplete Kosmos), and a refusal is shown as it is worded.
-    internal static PlaceOutcome LaunchFromTemporaryPlace(string here, string node, int port)
+    // Round 1 finding 4, round 2 finding 4. From ANY folder outside the per-user one (MoveTarget), not
+    // only a temporary place: an old copy at D:\Kosmos-0.6.50 re-pointed everything just the same.
+    // When that folder holds a Kosmos.exe, engine/win32relocate.js compare decides which copy runs,
+    // from its one build verdict (the verdict relocate reads too):
+    //   HANDOFF (the same build, an installed build that is newer, or anything unreadable) -> start
+    //   the installed Kosmos and end here. This copy re-points nothing: no shortcut, no Apps entry, no
+    //   engine pointer. Keep it here does not apply: a stale copy is exactly what re-pointed everything.
+    //   NEWER (this copy is newer, or the same version rebuilt from another commit) -> run from here and
+    //   re-point, which is how a by-hand zip update works today, until "Update Kosmos in Programs from a
+    //   newer downloaded zip" reuses engine/win32apply.js.
+    //   NONE (no complete Kosmos there), or a compare that could not run -> carry on as before.
+    internal static PlaceOutcome CompareWithInstalledCopy(string here, string node)
+    {
+        string target = MoveTarget();
+        string full = FullPathOrNull(here) ?? here;
+        if (target == null || IsSameOrInside(full, target) || IsSameOrInside(target, full)) return PlaceOutcome.NoInstalledCopy;
+        // The launcher is the only file this cheap look needs; the engine decides the rest.
+        if (!File.Exists(Path.Combine(target, "Kosmos.exe"))) return PlaceOutcome.NoInstalledCopy;
+        string compareProblem;
+        string[] compared = runEngineHelper(node, here, RelocateHelperScript,
+            "--compare --from " + QuoteArgument(full) + " --to " + QuoteArgument(target), out compareProblem);
+        string verdict = compared != null && compared.Length > 0 ? compared[0] : null;
+        if (verdict != null && verdict.StartsWith("NEWER ", StringComparison.Ordinal)) return PlaceOutcome.NewerThanInstalledCopy;
+        if (verdict != null && verdict.StartsWith("HANDOFF ", StringComparison.Ordinal))
+        {
+            string startProblem = startLauncher(Path.Combine(target, "Kosmos.exe"), target);
+            if (startProblem == null) return PlaceOutcome.StartedInstalledCopy;
+            tellPerson("Kosmos is installed in " + target + ", but it would not start from there (" + startProblem + "). Double-click Kosmos.exe in that folder.", true);
+            return PlaceOutcome.InstalledCopyWouldNotStart;
+        }
+        return PlaceOutcome.NoInstalledCopy;
+    }
+
+    // W-06: a copy running from a folder that gets cleaned up, with a person at the desktop and the
+    // folder not kept, is asked Move Kosmos or Keep it here. Whether it may move is the engine's rule
+    // (never while a board from this folder serves, never over a different or incomplete Kosmos), and a
+    // refusal is shown as it is worded. Only temporary places are asked; the installed-copy verdict above
+    // has already run for every folder.
+    internal static PlaceOutcome OfferToMoveFromTemporaryPlace(string here, string node, int port)
     {
         string place = TemporaryPlaceOf(here);
         if (place == null) return PlaceOutcome.NotATemporaryPlace;
         string target = MoveTarget();
         string full = FullPathOrNull(here) ?? here;
         if (target == null || IsSameOrInside(full, target) || IsSameOrInside(target, full)) return PlaceOutcome.NotATemporaryPlace;
-
-        // The launcher is the only file this cheap look needs; the engine decides the rest.
-        if (File.Exists(Path.Combine(target, "Kosmos.exe")))
-        {
-            string compareProblem;
-            string[] compared = runEngineHelper(node, here, RelocateHelperScript,
-                "--compare --from " + QuoteArgument(full) + " --to " + QuoteArgument(target), out compareProblem);
-            string verdict = compared != null && compared.Length > 0 ? compared[0] : null;
-            if (verdict != null && verdict.StartsWith("NEWER ", StringComparison.Ordinal)) return PlaceOutcome.NewerThanInstalledCopy;
-            if (verdict != null && verdict.StartsWith("HANDOFF ", StringComparison.Ordinal))
-            {
-                string startProblem = startLauncher(Path.Combine(target, "Kosmos.exe"), target);
-                if (startProblem == null) return PlaceOutcome.StartedInstalledCopy;
-                tellPerson("Kosmos is installed in " + target + ", but it would not start from there (" + startProblem + "). Double-click Kosmos.exe in that folder.", true);
-                return PlaceOutcome.InstalledCopyWouldNotStart;
-            }
-            // NONE (no complete Kosmos there), or a compare that could not run: the ordinary offer.
-        }
 
         if (!showMessageBoxes || PlaceWasKept(here)) return PlaceOutcome.StaysHere;
         MoveAnswer answer = askMoveOrKeep(MoveQuestion(place));
