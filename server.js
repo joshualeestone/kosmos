@@ -9627,8 +9627,8 @@ const server = http.createServer((req, res) => {
            the projects store, and the client is already holding the post's verdict,
            so this best-effort attribution must not sit on the response's latency.
            The response is sent; a throw here is caught and changes nothing. */
-        if (delivery && (delivery.state === chat.DELIVERY.PLACED || delivery.state === chat.DELIVERY.UNCONFIRMED)) {
-          try {
+        try {
+          if (delivery && (delivery.state === chat.DELIVERY.PLACED || delivery.state === chat.DELIVERY.UNCONFIRMED)) {
             const denyPaneFallback = boardAuthState.on
               && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
             const poster = resolveAgentSender(req, body, roster, {
@@ -9643,7 +9643,13 @@ const server = http.createServer((req, res) => {
                  An idle poster stays idle (no tile lit for an idle agent), and a
                  waiting poster (needs_you/blocked) is left untouched -- posting a
                  question does not claim the agent is working. This keeps the common
-                 single-project heartbeat exactly as it was. */
+                 single-project heartbeat exactly as it was.
+                 The fresh `at` this writes can REVIVE a working tile that had aged
+                 out (the #763 consumer freshness-gates 'working' on `at`) -- for a
+                 paneless agent with no intervening heartbeat, especially. That
+                 revival is intended: the agent just acted, so it IS a live working
+                 signal right now, and it re-ages-out on the same decay if no further
+                 activity follows. */
               const current = selfreport.read(who);
               if (current && current.found === true && current.state === 'working') {
                 let projectId = null;
@@ -9665,8 +9671,8 @@ const server = http.createServer((req, res) => {
                 }
               }
             }
-          } catch { /* best-effort: the post stands regardless of attribution */ }
-        }
+          }
+        } catch { /* best-effort: the post stands regardless of attribution */ }
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
         { error: String((err && err.message) || 'we could not read that request') }));
