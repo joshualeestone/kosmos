@@ -225,6 +225,19 @@ test('the Windows host cannot be forced on outside a node --test process', () =>
   assert.match(out, /^REFUSED .*WINDOWS_SIGNIN_HOST_ENABLED/m, 'a plain process switched the Windows host on: ' + out);
 });
 
+winTest('slice 1: start() on an already-connected machine kills no tmux session on Windows', async (ctx) => {
+  connect.setWindowsSigninHostForTests(false);
+  writeClaudeConfig(CONNECTED_CONFIG);
+  ctx.live.loggedIn = true;
+  let liveChecks = 0;
+  subscription.setRunner(async () => { liveChecks += 1; return { stdout: JSON.stringify({ loggedIn: true }), err: null }; });
+  const view = await connect.start();
+  assert.equal(view.phase, connect.PHASE.CONNECTED);
+  assert.ok(liveChecks >= 1, 'CONTROL: the live check never ran, so this did not reach the #1560 leftover-session kill');
+  assert.deepEqual(tmuxCommands(ctx.calls), [], 'the #1560 leftover-session kill sent a tmux command on Windows');
+  assert.equal(ctx.spawns.length, 0);
+});
+
 /* ── slice 2: the driver on the Windows host ───────────────────────────────── */
 
 winTest('Windows host: browser, the code prompt, the code on stdin, then Login successful and exit 0 is CONNECTED', async (ctx) => {
@@ -274,6 +287,52 @@ winTest('#1937 on Windows: the same reauth exiting 0 WITHOUT Login successful go
     '#1937: a reauth whose program ended with no login evidence was reported connected off the old credential');
   assert.match(st.because, /closed before Claude finished/);
   assert.match(st.tail, /exited with code 0/);
+});
+
+winTest('#2645/#1922 on Windows: a DEAD credential whose program exits 0 without the success text finishes once the live check says connected', async (ctx) => {
+  writeClaudeConfig(CONNECTED_CONFIG);   // the file says connected...
+  ctx.live.loggedIn = false;             // ...and the live check says the credential is dead
+  ctx.behaviour = { onSpawn: (c) => c.say(OUT_BROWSER) };
+  await connect.start();
+  await until(() => phase() === connect.PHASE.SIGNIN_BROWSER_OPEN, 5000);
+  /* The login lands (dead -> live) and the program exits before any "Login successful." is read. */
+  ctx.live.loggedIn = true;
+  ctx.spawns[0].child.exit(0);
+  await until(() => phase() === connect.PHASE.CONNECTED || phase() === connect.PHASE.STUCK, 15000);
+  assert.equal(phase(), connect.PHASE.CONNECTED,
+    'a dead credential repaired by a login whose success text was missed was not finished through deadCredential: '
+    + connect.state().because);
+});
+
+winTest('Windows host: a VALID code whose exchange takes 9 s is never told it did not work', async (ctx, t) => {
+  /* The blank grace is 4.5x the unknown grace: 45 s in production. This suite's 300 ms
+     would make it 1.35 s, shorter than the exchange, so the arm uses 3 s (13.5 s). */
+  connect.setUnknownGrace(3000);
+  let exchange = null;
+  t.after(() => clearTimeout(exchange));   // never let a late sign-in land in the next arm
+  ctx.behaviour = {
+    onSpawn: (c) => c.say(OUT_BROWSER + OUT_PROMPT),
+    onLine: (child, line) => {
+      if (child.stdinLines.length !== 1) return;
+      exchange = setTimeout(() => { if (child.killCalls === 0) signsInOnAWholeCode(ctx)(child, line); }, 9000);
+    },
+  };
+  await connect.start();
+  await until(() => phase() === connect.PHASE.SIGNIN_AWAITING_CODE, 5000);
+  assert.equal(connect.submitCode(CODE).ok, true);
+  const seen = [];
+  const watch = setInterval(() => {
+    const s = connect.state();
+    const k = s.phase + ' | ' + (s.because || '');
+    if (seen[seen.length - 1] !== k) seen.push(k);
+  }, 20);
+  try {
+    await until(() => phase() === connect.PHASE.CONNECTED || phase() === connect.PHASE.STUCK, 25000);
+  } finally { clearInterval(watch); }
+  assert.ok(!seen.some((k) => /did not work/.test(k)),
+    'a valid code still being exchanged was reported as not working:\n' + seen.join('\n'));
+  assert.equal(phase(), connect.PHASE.CONNECTED, seen.join('\n'));
+  assert.deepEqual(ctx.spawns[0].child.stdinLines, [CODE], 'a second code reached a program still handling the first');
 });
 
 winTest('Windows host: exit 1 with Login failed goes stuck, and the tail shows what Claude said', async (ctx) => {

@@ -22,11 +22,14 @@
  *
  * 📌 SENSITIVE VALUES. The pasted code goes to stdin and nowhere else: never on a
  * command line (the Mac's `send-keys` does put it on tmux's), never in any text this
- * module returns. Captured output lives in memory only, is never logged, and has
- * `sk-ant-…` tokens redacted before anything can read it.
+ * module returns, even if the program echoes it. Captured output lives in memory
+ * only, is never logged, and has `sk-ant-…` tokens redacted before anything can
+ * read it.
  */
 
 const { spawn } = require('node:child_process');
+const fs = require('node:fs');
+const path = require('node:path');
 const liveExecution = require('./live-execution');
 
 /**
@@ -63,6 +66,34 @@ const STDERR_TAIL_LINES = 12;
  * bound. Whether this happens at all is an L-1 measurement.
  */
 const EXIT_PIPE_GRACE_MS = 1000;
+
+/**
+ * The shortest piece of a sent code that is redacted on its own. A code is
+ * `<code>#<state>` and each half is a long random string, so either half appearing
+ * in the output is the code leaking. Eight characters keeps a stray short fragment
+ * (a code with a two-letter half, say) from blanking ordinary words all over the
+ * screen, while every half a real OAuth code has is far longer.
+ */
+const SENT_FRAGMENT_MIN_CHARS = 8;
+const SENT_REPLACEMENT = '[redacted code]';
+
+/**
+ * What `auth login` writes to stderr when a pasted line is not `<code>#<state>`
+ * (read from the binary: `process.stderr.write("Invalid code…")`). After a send it is
+ * the one signal that the code was refused and the prompt is waiting again.
+ */
+const INVALID_CODE_PATTERN = /Invalid code/i;
+
+/**
+ * Script launchers a directly started program cannot be. Without a shell, Windows
+ * starts only program files, so a `claude.cmd` fails with EINVAL, and an
+ * extensionless path whose only sibling is a script fails with ENOENT.
+ */
+const SCRIPT_EXTENSIONS = Object.freeze(['.cmd', '.bat', '.ps1']);
+const PROGRAM_EXTENSION = '.exe';
+
+const SCRIPT_ONLY_BECAUSE = 'Kosmos can only start the Claude Code program file (claude.exe), '
+  + 'and this computer has a script version it cannot start directly';
 
 /** Anthropic credentials (API keys and OAuth tokens) all start this way. */
 const SECRET_PATTERN = /sk-ant-[\w-]+/g;
@@ -145,22 +176,62 @@ function createTextKeeper(limit) {
   };
 }
 
+/**
+ * The strings a sent code could leak as: the whole code, and each `#` half long
+ * enough to be unmistakably part of it. Longest first, so the whole code is replaced
+ * before its halves are looked for.
+ */
+function sentFragmentsOf(code) {
+  const whole = String(code || '');
+  const pieces = [whole, ...whole.split('#')].filter((p) => p.length >= SENT_FRAGMENT_MIN_CHARS);
+  return [...new Set(pieces)].sort((a, b) => b.length - a.length);
+}
+
+function redactSentFragments(text, fragments) {
+  let out = String(text || '');
+  for (const fragment of fragments) out = out.split(fragment).join(SENT_REPLACEMENT);
+  return out;
+}
+
+/**
+ * The file to start for a resolved Claude path. The resolver names the vendor's
+ * extensionless `~\.local\bin\claude`; on Windows the program on disk is
+ * `claude.exe`, so that is named outright rather than left to the loader's search.
+ */
+function programFileFor(bin) {
+  const given = String(bin || 'claude');
+  if (path.win32.extname(given)) return given;
+  try { if (fs.existsSync(given + PROGRAM_EXTENSION)) return given + PROGRAM_EXTENSION; } catch { /* fall through to the name as given */ }
+  return given;
+}
+
+/** Is the file we tried a script, or the only thing at its path a script? */
+function onlyAScriptIsThere(bin) {
+  const ext = path.win32.extname(String(bin)).toLowerCase();
+  if (ext) return SCRIPT_EXTENSIONS.includes(ext);
+  return SCRIPT_EXTENSIONS.some((e) => { try { return fs.existsSync(String(bin) + e); } catch { return false; } });
+}
+
 /* The spawn seam. Tests replace it; nothing else does. The same shape as
    `win32launch.setSpawn`. */
 let spawnFn = null;
 function setSpawn(fn) { spawnFn = typeof fn === 'function' ? fn : null; }
 
-function startFailure(error) {
+function startFailure(error, bin) {
   const code = (error && error.code) || 'unknown error';
+  let because = 'Kosmos could not start the Claude sign-in on this computer';
+  /* ENOENT beside a script, and EINVAL on a script, are one situation: Claude Code is
+     installed, as something this host cannot start without a shell. Saying "could not
+     find Claude Code" there would contradict the stuck card's own offer to run it. */
+  if ((code === 'ENOENT' || code === 'EINVAL') && onlyAScriptIsThere(bin)) because = SCRIPT_ONLY_BECAUSE;
+  else if (code === 'ENOENT') because = 'Kosmos could not find Claude Code to run its sign-in';
   return {
     ok: false,
     stdout: '',
     /* The code only, never the message: a spawn error message repeats the command
        line and the environment is not ours to echo. */
     stderr: redactSecrets('claude auth login did not start (' + code + ')'),
-    because: code === 'ENOENT'
-      ? 'Kosmos could not find Claude Code to run its sign-in'
-      : 'Kosmos could not start the Claude sign-in on this computer',
+    because,
   };
 }
 
@@ -185,7 +256,7 @@ function createSigninHost() {
   async function open(launch) {
     await kill();
     const spec = launch || {};
-    const bin = String(spec.claudeBin || 'claude');
+    const bin = programFileFor(spec.claudeBin);
     /* Convention 3: a real program starts only in a process that armed live
        execution (server.js's real start) or under a test's spawn seam. In a test
        process with neither, refuseOrWarn throws, surfacing the missing seam. */
@@ -207,6 +278,12 @@ function createSigninHost() {
       child: null,
       screen: createTextKeeper(SIGNIN_OUTPUT_LIMIT_CHARS),
       stderr: createTextKeeper(SIGNIN_OUTPUT_LIMIT_CHARS),
+      /* Set by sendCode: the screen since the last code went in, and whether the
+         program's answer to it is still pending (see capture). */
+      sinceSend: null,
+      stderrSinceSend: null,
+      awaitingVerdict: false,
+      sentFragments: [],
       closed: false,
       exitCode: null,
       signal: null,
@@ -223,7 +300,7 @@ function createSigninHost() {
         stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (e) {
-      return startFailure(e);
+      return startFailure(e, bin);
     }
     session.child = child;
     current = session;
@@ -240,7 +317,15 @@ function createSigninHost() {
       if (typeof stream.setEncoding === 'function') stream.setEncoding('utf8');
       stream.on('data', (d) => {
         session.screen.push(d);
-        if (isStderr) session.stderr.push(d);
+        if (session.sinceSend) session.sinceSend.push(d);
+        if (!isStderr) return;
+        session.stderr.push(d);
+        if (session.stderrSinceSend) {
+          session.stderrSinceSend.push(d);
+          if (session.awaitingVerdict && INVALID_CODE_PATTERN.test(session.stderrSinceSend.text())) {
+            session.awaitingVerdict = false;
+          }
+        }
       });
       stream.on('error', () => { /* the exit handling below reports the ending */ });
     }
@@ -264,7 +349,7 @@ function createSigninHost() {
     const error = await started;
     if (error) {
       if (current === session) current = null;
-      return startFailure(error);
+      return startFailure(error, bin);
     }
     if (current !== session) {
       return { ok: false, stdout: '', stderr: 'the sign-in was stopped before it started' };
@@ -272,18 +357,36 @@ function createSigninHost() {
     return { ok: true, stdout: '', stderr: '' };
   }
 
+  /**
+   * 🛑 AFTER A CODE GOES IN, THE SCREEN SHOWS ONLY WHAT CAME SINCE, until the program
+   * refuses the code. A tmux pane redraws: once Claude takes a pasted code the prompt
+   * leaves the screen. This kept text never loses anything, so without this the
+   * prompt stayed visible through the whole token exchange, and connect.js's rule
+   * "the prompt is still up 6 s after a code was typed, so the code was rejected"
+   * told the person a VALID code did not work whenever Anthropic took longer than
+   * that, and invited a second paste into a program still handling the first.
+   * So a send hides everything before it; an `Invalid code` line arriving after the
+   * send brings the whole screen back, prompt included, which is exactly the
+   * rejection the driver's rule exists to see. While hidden, an empty screen reads as
+   * blank and gets the driver's blank grace; an exit still drains and fails as below.
+   */
+  function visibleScreen(session) {
+    return session.awaitingVerdict ? session.sinceSend.text() : session.screen.text();
+  }
+
   async function capture() {
     const session = current;
     if (!session) return { ok: false, stdout: '', stderr: 'the sign-in is not running' };
+    const redact = (text) => redactSentFragments(text, session.sentFragments);
     /* The FIRST read after the program ends still returns its final screen, so a
        "Login successful." printed just before exiting is seen (it sets
        connect.js's sawLoginDone). Every later read fails, which is how a closed
        tmux pane looks to the driver, and its #1922 rescue takes it from there. */
     if (!session.closed || !session.drained) {
       if (session.closed) session.drained = true;
-      return { ok: true, stdout: session.screen.text(), stderr: '' };
+      return { ok: true, stdout: redact(visibleScreen(session)), stderr: '' };
     }
-    const lines = session.stderr.text().split('\n').map((l) => l.trimEnd()).filter((l) => l.trim())
+    const lines = redact(session.stderr.text()).split('\n').map((l) => l.trimEnd()).filter((l) => l.trim())
       .slice(-STDERR_TAIL_LINES);
     lines.push(session.exitCode !== null
       ? 'claude auth login exited with code ' + session.exitCode
@@ -297,6 +400,14 @@ function createSigninHost() {
     if (!session || session.closed || !stdin || stdin.destroyed || stdin.writableEnded) {
       return { ok: false, stderr: 'the sign-in is no longer running, so the code had nowhere to go' };
     }
+    /* Remembered BEFORE the write, so an echo racing the write is redacted too. */
+    for (const fragment of sentFragmentsOf(code)) {
+      if (!session.sentFragments.includes(fragment)) session.sentFragments.push(fragment);
+    }
+    session.sentFragments.sort((a, b) => b.length - a.length);
+    session.sinceSend = createTextKeeper(SIGNIN_OUTPUT_LIMIT_CHARS);
+    session.stderrSinceSend = createTextKeeper(SIGNIN_OUTPUT_LIMIT_CHARS);
+    session.awaitingVerdict = true;
     /* The error CODE only on failure: the code itself must never ride back out. */
     return new Promise((resolve) => {
       try {
@@ -320,6 +431,6 @@ function createSigninHost() {
 
 module.exports = {
   createSigninHost, setSpawn,
-  SIGNIN_ARGS, SIGNIN_OUTPUT_LIMIT_CHARS, STDERR_TAIL_LINES,
+  SIGNIN_ARGS, SIGNIN_OUTPUT_LIMIT_CHARS, STDERR_TAIL_LINES, SENT_FRAGMENT_MIN_CHARS,
   normaliseSignInText, redactSecrets, createTextKeeper,
 };

@@ -319,6 +319,131 @@ test('a missing program is an honest failure, not a hang', async (t) => {
   assert.equal((await host.capture()).ok, false, 'a program that never started captures as running');
 });
 
+test('after a code is sent the screen hides the old prompt, and only an Invalid code line brings it back', async (t) => {
+  const spawn = withSpawn(t);
+  const host = win32signin.createSigninHost();
+  await host.open({ claudeBin: CLAUDE_BIN });
+  const child = spawn.calls[0].child;
+  child.stdout.write(OUT_BROWSER + OUT_PROMPT);
+  await settle();
+  assert.match((await host.capture()).stdout, /Paste code here/, 'CONTROL: the prompt is on screen before the send');
+
+  await host.sendCode(CODE);
+  await settle();
+  const pending = await host.capture();
+  assert.equal(pending.ok, true);
+  assert.doesNotMatch(pending.stdout, /Paste code here/,
+    'the prompt stayed on screen while the code was being exchanged, so a slow valid code reads as rejected');
+  assert.equal(pending.stdout, '', 'the screen since the send should be empty until the program answers');
+
+  child.stderr.write('Invalid code\n');
+  await settle();
+  const refused = await host.capture();
+  assert.match(refused.stdout, /Paste code here/, 'a refused code did not bring the prompt back');
+  assert.match(refused.stdout, /Invalid code/);
+
+  await host.sendCode('zyXW9876#vuTS5432');
+  await settle();
+  assert.doesNotMatch((await host.capture()).stdout, /Paste code here/, 'a second send did not hide the prompt again');
+  child.stdout.write(OUT_SUCCESS);
+  await settle();
+  assert.equal((await host.capture()).stdout, OUT_SUCCESS, 'the answer to the second code is not what the screen shows');
+  await host.kill();
+});
+
+test('an exit whose pipes never close still ends the sign-in after the grace', async (t) => {
+  const spawn = withSpawn(t);
+  const host = win32signin.createSigninHost();
+  await host.open({ claudeBin: CLAUDE_BIN });
+  const child = spawn.calls[0].child;
+  child.stdout.write(OUT_BROWSER + OUT_SUCCESS);
+  await settle();
+  /* 'exit' alone: a browser the program started still holds the pipes, so 'close' never comes. */
+  child.emit('exit', 0, null);
+  await settle();
+  assert.equal((await host.capture()).ok, true, 'the pipes were treated as closed before the grace');
+  assert.equal((await host.capture()).ok, true, 'a still-open program drained early');
+  await new Promise((r) => setTimeout(r, 1300));
+  const drained = await host.capture();
+  assert.equal(drained.ok, true, 'the final screen was not drained once after the grace');
+  assert.match(drained.stdout, /Login successful\./);
+  const after = await host.capture();
+  assert.equal(after.ok, false, 'an exited program whose pipes stay open captures as running forever');
+  assert.match(after.stderr, /exited with code 0/);
+});
+
+test('a program that echoes the pasted code has it redacted, whole and by halves, but short fragments are left alone', async (t) => {
+  const spawn = withSpawn(t);
+  const host = win32signin.createSigninHost();
+  await host.open({ claudeBin: CLAUDE_BIN });
+  const child = spawn.calls[0].child;
+  child.stdout.write(OUT_PROMPT);
+  await host.sendCode(CODE);
+  child.stdout.write('received ' + CODE + '\n');
+  child.stderr.write('exchange failed for abCD1234 with state efGH5678 about the code\n');
+  await settle();
+  const screen = await host.capture();
+  for (const piece of [CODE, 'abCD1234', 'efGH5678']) {
+    assert.ok(!screen.stdout.includes(piece), `the screen exposed ${piece}`);
+  }
+  assert.match(screen.stdout, /\[redacted code\]/);
+  child.exit(1);
+  await settle();
+  await host.capture();
+  const tail = await host.capture();
+  for (const piece of [CODE, 'abCD1234', 'efGH5678']) {
+    assert.ok(!tail.stderr.includes(piece), `the stderr tail exposed ${piece}`);
+  }
+  assert.match(tail.stderr, /about the code/, 'ordinary words were redacted too');
+
+  /* A code with a half shorter than the floor: that half is not hunted for everywhere. */
+  await host.open({ claudeBin: CLAUDE_BIN });
+  const second = spawn.calls[1].child;
+  second.stdout.write(OUT_PROMPT);
+  await host.sendCode('ab#cdEFgh1234');
+  second.stdout.write('about cdEFgh1234\n');
+  await settle();
+  const short = await host.capture();
+  assert.match(short.stdout, /about/, 'a two-character half blanked ordinary words');
+  assert.ok(!short.stdout.includes('cdEFgh1234'), 'the long half leaked');
+  assert.equal(win32signin.SENT_FRAGMENT_MIN_CHARS, 8);
+  await host.kill();
+});
+
+test('Claude Code resolved without an extension starts as claude.exe', async (t) => {
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'exe-'));
+  fs.writeFileSync(path.join(dir, 'claude.exe'), '');
+  const spawn = withSpawn(t);
+  const host = win32signin.createSigninHost();
+  await host.open({ claudeBin: path.join(dir, 'claude') });
+  assert.equal(spawn.calls[0].file, path.join(dir, 'claude.exe'), 'the program file was left for the loader to guess');
+  await host.kill();
+});
+
+test('a script-only Claude Code gets one honest sentence, whether the start fails ENOENT or EINVAL', async (t) => {
+  const dir = fs.mkdtempSync(path.join(SANDBOX, 'cmd-'));
+  fs.writeFileSync(path.join(dir, 'claude.cmd'), '@echo off\n');
+  const SCRIPT_SENTENCE = /can only start the Claude Code program file \(claude\.exe\), and this computer has a script version/;
+
+  const enoent = Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' });
+  withSpawn(t, () => fakeChild({ error: enoent }));
+  const host = win32signin.createSigninHost();
+  const viaSibling = await host.open({ claudeBin: path.join(dir, 'claude') });
+  assert.equal(viaSibling.ok, false);
+  assert.match(viaSibling.because, SCRIPT_SENTENCE, 'a .cmd install was told Claude Code could not be found');
+
+  win32signin.setSpawn(() => { throw Object.assign(new Error('spawn EINVAL'), { code: 'EINVAL' }); });
+  const direct = await host.open({ claudeBin: path.join(dir, 'claude.cmd') });
+  assert.equal(direct.ok, false);
+  assert.match(direct.because, SCRIPT_SENTENCE, 'a full .cmd path failing EINVAL got a different sentence');
+  assert.match(direct.stderr, /EINVAL/);
+
+  /* CONTROL: nothing at all there is still "could not find". */
+  win32signin.setSpawn(() => fakeChild({ error: enoent }));
+  const nothing = await host.open({ claudeBin: path.join(fs.mkdtempSync(path.join(SANDBOX, 'none-')), 'claude') });
+  assert.equal(nothing.because, 'Kosmos could not find Claude Code to run its sign-in');
+});
+
 test('Convention 3: with no spawn seam and live execution not armed, nothing is started', async () => {
   win32signin.setSpawn(null);
   liveExecution.resetForTests();
