@@ -46,11 +46,14 @@ function bundle() {
     + lift('usageChartSvg') + '\n'
     + lift('usageLegendHtml') + '\n'
     + lift('usageTableHtml') + '\n'
-    // #2840: the usage-history list + its abbr helper + the value stub const.
-    + page.liftConst(SCRIPT, 'USAGE_VALUE_STUB') + '\n'
+    // #2840: the usage-history list + its abbr helper + the blended Value math.
+    + page.liftConst(SCRIPT, 'USAGE_VALUE_TOKENS_PER_HOUR') + '\n'
+    + page.liftConst(SCRIPT, 'USAGE_VALUE_BLENDED_RATE') + '\n'
+    + lift('usageUsd') + '\n'
+    + lift('usageRowValue') + '\n'
     + lift('usageAbbr') + '\n'
     + lift('usageHistoryHtml') + '\n'
-    + 'return { usageTotals, usageDailySeries, usageCardsHtml, usageMoneyHtml, usageChartSvg, usageLegendHtml, usageTableHtml, usageDayLabel, usageNum, USAGE_CLASS_COLORS, usageAbbr, usageHistoryHtml, USAGE_VALUE_STUB };'
+    + 'return { usageTotals, usageDailySeries, usageCardsHtml, usageMoneyHtml, usageChartSvg, usageLegendHtml, usageTableHtml, usageDayLabel, usageNum, USAGE_CLASS_COLORS, usageAbbr, usageHistoryHtml, usageUsd, usageRowValue };'
   )();
 }
 const U = bundle();
@@ -196,15 +199,31 @@ test('#2840: usageHistoryHtml renders a row per day/model, newest first, with th
   assert.ok(html.includes('>1.0B<'), 'the 09-01 row shows the abbreviated total');
 });
 
-test('#2840: the Value column is STUBBED (pending), never a live dollar figure', () => {
+test('#2840: the Value column is the blended per-row dollar figure (Josh ruled: keep the blend)', () => {
   const html = U.usageHistoryHtml(FIXTURE);
-  // The stub must be present per row...
-  assert.ok(html.includes('pending'), 'the Value cell shows the pending stub');
-  assert.match(html, /class="uh-stub"/, 'the stub carries its class');
-  // ...and NO dollar amount may appear anywhere, because the blend-vs-output
-  // decision is unsettled. This guard fails the moment someone drops a live $
-  // value in before Josh rules -- exactly the contested number we are protecting.
-  assert.ok(!/\$/.test(html), 'no dollar sign appears in the usage-history list while Value is stubbed');
+  // Josh ruled to KEEP the blended Value (the design's ~$135M headline), so the
+  // "pending" stub is retired and each row shows its own blended dollar figure:
+  //   Value = usd( rowTotal / 100,000 * 90 )   (the approved /design/token-value math)
+  //   2026-09-01: 1,035,748,100 / 1e5 * 90 = 932,173.29 -> "$932,173"
+  //   2026-08-31:   951,972,673 / 1e5 * 90 = 856,775.41 -> "$856,775"
+  assert.ok(html.includes('$932,173'), 'the 09-01 row shows its blended dollar Value');
+  assert.ok(html.includes('$856,775'), 'the 08-31 row shows its blended dollar Value');
+  assert.ok(!/pending/.test(html), 'the "pending" stub is gone');
+  assert.ok(!/uh-stub/.test(html), 'the retired stub class is gone');
+});
+
+test('#2840: usageRowValue + usageUsd match the approved design formula and format bands', () => {
+  // Row value = the design's (tok / tokPerHr) * blendedRate, formatted by usd().
+  assert.equal(U.usageRowValue(1035748100), '$932,173', 'billion-scale row -> thousands-separated $');
+  assert.equal(U.usageRowValue(951972673), '$856,775', 'the older row matches its hand-computed value');
+  // usd() format bands, straight from the design's usd():
+  assert.equal(U.usageUsd(2.5e9), '$2.50B', 'billions keep two decimals with a B');
+  assert.equal(U.usageUsd(3.4e6), '$3M', 'millions round to a whole M');
+  assert.equal(U.usageUsd(932173.29), '$932,173', 'the thousands band is separated and rounded');
+  assert.equal(U.usageUsd(50), '$50', 'tens..hundreds print as a whole dollar');
+  assert.equal(U.usageUsd(5.5), '$5.50', 'under $10 keeps cents');
+  // Sanity: the grand-total blend lands on the design's ~$135M headline scale.
+  assert.equal(U.usageUsd(150005932754 / 1e5 * 90), '$135M', 'the blended grand total is the design ~$135M');
 });
 
 test('#2840: usageAbbr abbreviates B/M/K and passes small numbers through', () => {

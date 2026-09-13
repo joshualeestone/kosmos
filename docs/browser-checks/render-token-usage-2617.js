@@ -70,8 +70,9 @@ function readUsage(page) {
       // #2840: the scrollable usage-history list.
       historyRows: document.querySelectorAll('#usage-history .uhrow:not(.uhhead)').length,
       historyHeaders: [...document.querySelectorAll('#usage-history .uhrow.uhhead > div')].map((d) => (d.textContent || '').trim()),
-      historyValueStubbed: [...document.querySelectorAll('#usage-history .uhrow:not(.uhhead)')].every((r) => /pending/.test((r.textContent || ''))),
+      historyValueLive: [...document.querySelectorAll('#usage-history .uhrow:not(.uhhead) .uh-n:last-child')].every((c) => /^\$[\d.,]+[BMK]?$/.test((c.textContent || '').trim())),
       historyHasDollar: /\$/.test((document.getElementById('usage-history') || {}).textContent || ''),
+      historyHasPending: /pending/.test((document.getElementById('usage-history') || {}).textContent || ''),
       historyScrolls: (() => { const b = document.getElementById('usage-history'); return b ? getComputedStyle(b).overflowY === 'auto' : null; })(),
       historyKeyboardReachable: (() => { const b = document.getElementById('usage-history'); return b ? b.getAttribute('tabindex') === '0' : null; })(),
     };
@@ -107,11 +108,11 @@ function readUsage(page) {
       `the usage-history columns are Day/Model/Total tokens/Value (got ${JSON.stringify(v.historyHeaders)})`);
     ok(v.historyScrolls === true, 'the usage-history box is a fixed-height scroller (overflow-y:auto)');
     ok(v.historyKeyboardReachable === true, 'the scroll region is keyboard-reachable (tabindex=0, WCAG AA)');
-    // The contested $ value is STUBBED pending Josh's blend-vs-output ruling: every
-    // Value cell says "pending" and NO dollar sign appears. This fails the moment a
-    // live $ figure lands before the ruling -- the guard on the demo headline number.
-    ok(v.historyValueStubbed, 'every usage-history Value cell shows the "pending" stub');
-    ok(v.historyHasDollar === false, 'no dollar sign in the usage-history list while Value is stubbed');
+    // #2840: Josh ruled to KEEP the blended Value (the design's ~$135M headline), so
+    // every Value cell now shows a live blended dollar figure and "pending" is gone.
+    ok(v.historyValueLive, 'every usage-history Value cell shows a live blended $ figure');
+    ok(v.historyHasDollar === true, 'the usage-history list shows dollar Values');
+    ok(v.historyHasPending === false, 'the retired "pending" stub is gone from the Value column');
     await ctx.close();
   } finally {
     await browser.close();
