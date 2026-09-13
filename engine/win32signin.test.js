@@ -534,6 +534,79 @@ test('R3: an echo split across chunks never shows a readable piece of the code o
   await host.kill();
 });
 
+/* Any 8-character window of either half: an interior piece leaking. */
+function sentCodeWindowLeaks(text) {
+  const found = [];
+  for (const secret of [LONG_CODE_HALF, LONG_STATE_HALF]) {
+    for (let i = 0; i + 8 <= secret.length; i++) {
+      if (text.includes(secret.slice(i, i + 8))) { found.push(`${secret.slice(0, 5)} window at ${i}`); break; }
+    }
+  }
+  return found;
+}
+const allSentLeaks = (text) => sentCodeLeaks(text).concat(sentCodeWindowLeaks(text));
+
+async function hostWithSentCode(t, spawn, host) {
+  await host.open({ claudeBin: CLAUDE_BIN });
+  const child = spawn.calls[spawn.calls.length - 1].child;
+  child.stdout.write(OUT_PROMPT);
+  await host.sendCode(LONG_CODE);
+  return child;
+}
+
+test('round 3: a sent piece wrapped across real newlines leaks no readable part, in the capture or the stderr tail', async (t) => {
+  const spawn = withSpawn(t);
+  const host = win32signin.createSigninHost();
+  const S = LONG_STATE_HALF;   // 35 characters
+  const C = LONG_CODE_HALF;    // 38 characters
+  const cases = [
+    ['one newline, in one push', [`warn: saw ${S.slice(0, 20)}\n${S.slice(20)} (unexpected)\n`]],
+    ['one newline, straddling two pushes (the review repro)', [`warn: saw ${S.slice(0, 20)}\n`, `${S.slice(20)} (unexpected)\n`]],
+    ['two newlines: prefix / interior of 15 / suffix', [`saw ${C.slice(0, 10)}\n${C.slice(10, 25)}\n${C.slice(25)} end\n`]],
+    ['three newlines: 9 / 9 / 9 / rest', [`${S.slice(0, 9)}\n`, `${S.slice(9, 18)}\n${S.slice(18, 27)}\n`, `${S.slice(27)}\n`]],
+    ['CRLF line endings', [`saw ${C.slice(0, 10)}\r\n${C.slice(10, 25)}\r\n${C.slice(25)} end\r\n`]],
+  ];
+  for (const [name, chunks] of cases) {
+    const child = await hostWithSentCode(t, spawn, host);
+    for (const chunk of chunks) { child.stdout.write(chunk); await settle(); }
+    const cap = await host.capture();
+    assert.equal(cap.ok, true);
+    assert.deepEqual(allSentLeaks(cap.stdout), [], `${name}: the capture left part of the code readable:\n${cap.stdout}`);
+    assert.match(cap.stdout, /\[redacted code\]/, `${name}: nothing was redacted at all`);
+    await host.kill();
+  }
+  /* The stderr tail: the same wraps, on stderr, after exit. */
+  const child = await hostWithSentCode(t, spawn, host);
+  child.stderr.write(`Login failed near ${S.slice(0, 12)}\n`);
+  child.stderr.write(`${S.slice(12, 24)}\n${S.slice(24)}\n`);
+  child.exit(1);
+  await settle();
+  await host.capture();
+  const tail = await host.capture();
+  assert.equal(tail.ok, false);
+  assert.deepEqual(allSentLeaks(tail.stderr), [], 'the stderr tail left part of the code readable:\n' + tail.stderr);
+  assert.match(tail.stderr, /^Login failed near \[redacted code\]$/m);
+});
+
+test('round 3 CONTROL: lines that share only a short edge or a short interior with the code, and the sign-in URL, are left intact', async (t) => {
+  const spawn = withSpawn(t);
+  const host = win32signin.createSigninHost();
+  const child = await hostWithSentCode(t, spawn, host);
+  const url = 'https://claude.ai/oauth/authorize?code=true&client_id=abc&state=OTHERstate0123456789';
+  const lines = [
+    `we saw ${LONG_CODE_HALF.slice(0, 3)}`,                            // a 3-character prefix at a line end
+    `${LONG_CODE_HALF.slice(-3)} is here`,                             // a 3-character suffix at a line start
+    LONG_CODE_HALF.slice(10, 17),                                      // a 7-character interior line of its own
+    'If the browser did not open, visit: ' + url,
+    'Login successful.',
+  ];
+  child.stdout.write(lines.join('\n') + '\n');
+  await settle();
+  const cap = await host.capture();
+  assert.equal(cap.stdout, lines.join('\n') + '\n', 'ordinary text was masked');
+  await host.kill();
+});
+
 test('EFTYPE on a script gets the script sentence; EFTYPE on a broken program file does not', async (t) => {
   const dir = fs.mkdtempSync(path.join(SANDBOX, 'eftype-'));
   fs.writeFileSync(path.join(dir, 'claude.ps1'), 'exit 0\n');

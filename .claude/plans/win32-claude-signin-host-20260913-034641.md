@@ -236,6 +236,26 @@ Round 3 results (08ff4646 on 169c1a33; same guard and scratch roots):
   switch on, code on a command line, token redaction, #1937, tmux on Windows).
 - No schtasks block log was created by any run.
 
+### Round 3 (sonnet) on 29ddd377: 1 BUG, 1 TEST-GAP
+
+Rebased onto `da1b5a21` first (clean).
+
+- BUG, a sent piece split by a REAL newline leaked: `maskTrailingSentPartial` only fired when the
+  text ENDED with a piece prefix, and a committed line always ends with `\n`, so on the normal path
+  it never fired (`warn: saw <20 chars of the state>\n<rest>\n` kept the 20 characters). Stripping
+  the newline alone would still leak the MIDDLE of a piece wrapped across 3+ lines. FIX (the
+  coordinator's broader decision): `maskSentPieces` treats every line boundary as a cut edge. Per
+  line (a trailing CR ignored): a line that is wholly an interior piece of a sent code of 8+
+  characters is masked; otherwise a line-starting suffix and a line-ending prefix of 4+ are masked.
+  Each committed line's end is checked when it commits, so a wrap straddling two pushes is caught
+  at both halves. The keeper docblock states the guarantee and its limits (an interior fragment
+  under 8 on its own line, a partial under 4 at an edge, an interior fragment sharing its line
+  with other text, and pre-send text beyond whole pieces).
+- TEST-GAP: arms for one newline (one push, and straddling two pushes, the repro), two newlines
+  (prefix / 15-character interior / suffix), three newlines (9/9/9/rest), CRLF, and the stderr
+  tail; leak check is any 6+ prefix or suffix and any 8-character window of either half. Control
+  arm: a 3-character edge, a 7-character interior line and an unrelated OAuth URL line stay intact.
+
 ## Results (Windows box, runtime node 24.19, no-schtasks preload, scratch APPDATA/LOCALAPPDATA/USERPROFILE)
 
 - `engine/win32signin.test.js` 11/11, `engine/connect.win32signin.test.js` 11/11.

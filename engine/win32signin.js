@@ -187,11 +187,32 @@ function maskTrailingSentPartial(text, pieces) {
   return out;
 }
 
-/* A segment of text about to be kept or shown: whole pieces, and a partial at either
-   cut edge. */
+/**
+ * One line of a segment, masked as a place a sent piece can be WRAPPED: a line that is
+ * wholly an interior piece of a sent code (SENT_FRAGMENT_MIN_CHARS or longer), or else
+ * a suffix of one where the line starts and a prefix of one where it ends
+ * (SENT_PARTIAL_MIN_CHARS or longer). A trailing CR is kept and ignored.
+ */
+function maskSentLine(line, pieces) {
+  const cr = line.endsWith('\r') ? '\r' : '';
+  const body = cr ? line.slice(0, -1) : line;
+  if (body.length >= SENT_FRAGMENT_MIN_CHARS && pieces.some((piece) => piece.includes(body))) {
+    return SENT_REPLACEMENT + cr;
+  }
+  return maskTrailingSentPartial(maskLeadingSentPartial(body, pieces), pieces) + cr;
+}
+
+/**
+ * A segment of text about to be kept or shown: every whole piece, then every LINE
+ * BOUNDARY treated as a cut edge. A program that wraps an echoed code across lines
+ * leaves no whole piece to find, so each line is masked on its own (maskSentLine).
+ * Each committed line's end is checked when it commits, so a wrap that straddles two
+ * pushes is caught at both halves: the prefix when the first line commits, the suffix
+ * as the first line of the next segment.
+ */
 function maskSentPieces(text, pieces) {
   if (!pieces.length) return text;
-  return maskTrailingSentPartial(maskLeadingSentPartial(redactSentPieces(text, pieces), pieces), pieces);
+  return redactSentPieces(text, pieces).split('\n').map((line) => maskSentLine(line, pieces)).join('\n');
 }
 
 /**
@@ -204,12 +225,17 @@ function maskSentPieces(text, pieces) {
  *
  * 🔑 WHAT IS REDACTED, AND WHERE. `sk-ant-` tokens, and the pieces `sentPieces()`
  * returns when the text is committed or read, are replaced BEFORE the cap, so the cap
- * cuts through a redaction marker, never through a secret. Where text was cut (the
- * start of the kept text after the cap or an early commit, the end of the line still
- * arriving) a partial sent piece of SENT_PARTIAL_MIN_CHARS or more is masked too.
- * ⚠️ NOT GUARANTEED: a partial shorter than that at a cut edge, and a piece echoed in
- * text committed BEFORE the code was sent (the host's capture covers that case for
- * whole pieces).
+ * cuts through a redaction marker, never through a secret. Every line boundary counts
+ * as a cut edge (maskSentPieces), as do the start of the kept text after the cap or
+ * an early commit and the end of the line still arriving. Masked at each: a line-ending
+ * prefix or line-starting suffix of a sent piece of SENT_PARTIAL_MIN_CHARS (4) or more,
+ * and a whole line that is an interior piece of a sent code of SENT_FRAGMENT_MIN_CHARS
+ * (8) or more.
+ * ⚠️ NOT GUARANTEED: an interior fragment shorter than 8 characters on a line of its
+ * own; a partial shorter than 4 at an edge; an interior fragment sharing its line with
+ * other text (it is neither the whole line nor at an edge); and a piece echoed in text
+ * committed BEFORE the code was sent (the host's capture covers that case for whole
+ * pieces).
  *
  * 🛑 A LINE THAT OUTGROWS THE LIMIT is committed at its last non-token character, so
  * no `sk-ant-` token is split; if it has none, it is dropped whole. Failing closed on
