@@ -44,6 +44,13 @@ test.after(() => {
 
 const T = { timeout: 30000 };
 const LONG = { timeout: 600000 };
+/* A test that spawns the REAL logon shim or a real board (bootShim/bootShimAsync, and the crash- and
+   boot-recovery tests that boot the shim after a crashAt) can only run on win32: the shim resolves
+   Kosmos\\board paths and a win32 board. These skip off-win32 so the macOS CI lane does not red on a
+   shim spawn it cannot satisfy; every pure in-process logic test stays ungated so macOS still runs it. */
+const WIN32_ONLY = process.platform === 'win32' ? false : 'win32-only: spawns the real logon shim/board';
+const WIN32_ONLY_T = { ...T, skip: WIN32_ONLY };
+const WIN32_ONLY_LONG = { ...LONG, skip: WIN32_ONLY };
 const ON_WINDOWS = process.platform === 'win32';
 const OLD = '0.6.60';
 const NEW = '0.6.61';
@@ -695,7 +702,7 @@ async function assertCrashRecovers(point, o = {}) {
   return phaseAtCrash;
 }
 
-test('a crash at every point of an apply: the next board start rolls it back, or finishes it once confirmed', LONG, async () => {
+test('a crash at every point of an apply: the next board start rolls it back, or finishes it once confirmed', WIN32_ONLY_LONG, async () => {
   const { points } = await hookPoints();
   assert.ok(points.length >= 30, points.join(', '));
   const phases = new Set();
@@ -705,7 +712,7 @@ test('a crash at every point of an apply: the next board start rolls it back, or
   }
 });
 
-test('a crash at every point of a rollback: the next board start finishes putting the old build back', LONG, async () => {
+test('a crash at every point of a rollback: the next board start finishes putting the old build back', WIN32_ONLY_LONG, async () => {
   const { points } = await hookPoints({ board: { newNeverStarts: true } });
   const rollbackPoints = points.filter((p) => / H8/.test(p));
   assert.ok(rollbackPoints.length >= 15, rollbackPoints.join(', '));
@@ -715,7 +722,7 @@ test('a crash at every point of a rollback: the next board start finishes puttin
   for (const point of rollbackPoints) await assertCrashRecovers(point, { newNeverStarts: true });
 });
 
-test('the logon shim: no journal boots as before; a finished one is left alone; an unreadable one is reported and the boot goes on', T, () => {
+test('the logon shim: no journal boots as before; a finished one is left alone; an unreadable one is reported and the boot goes on', WIN32_ONLY_T, () => {
   const c = freshInstall();
   assert.deepEqual(bootShim(c), { status: 0, stderr: '', booted: `booted ${OLD} by Kosmos\\board`, from: path.join(c.root, 'app') });
   const j = stage(c);
@@ -1072,7 +1079,7 @@ test('BUG 2: a journal whose working folder is gone: settled in words, stuck onc
   }
 });
 
-test('BUG 2: with no copy of the updater left to put it back, the logon shim says so and begin()\'s settlement finishes it in words', T, () => {
+test('BUG 2: with no copy of the updater left to put it back, the logon shim says so and begin()\'s settlement finishes it in words', WIN32_ONLY_T, () => {
   const c = freshInstall();
   stage(c);
   crashAt(c, 'after H4 app');
@@ -1097,7 +1104,7 @@ test('BUG 2: with no copy of the updater left to put it back, the logon shim say
   assert.deepEqual(readJson(c2.journal), j2);
 });
 
-test('the logon shim says so when an unfinished update is held by a live helper, and the board still boots', T, () => {
+test('the logon shim says so when an unfinished update is held by a live helper, and the board still boots', WIN32_ONLY_T, () => {
   const c = freshInstall();
   stage(c);
   crashAt(c, 'before H7-run #1');
@@ -1118,7 +1125,7 @@ async function stuckOnApp(c) {
   return blocker;
 }
 
-test('SAFETY 1: a boot recovery left stuck starts the whole OLD app from previous, never the new unconfirmed one, and puts it back once it can', T, async () => {
+test('SAFETY 1: a boot recovery left stuck starts the whole OLD app from previous, never the new unconfirmed one, and puts it back once it can', WIN32_ONLY_T, async () => {
   const c = freshInstall();
   const before = installState(c);
   stage(c);
@@ -1138,7 +1145,7 @@ test('SAFETY 1: a boot recovery left stuck starts the whole OLD app from previou
   assertRolledBack(c, before, null, null, 'put back');
 });
 
-test('SAFETY 1: when the old app in previous is not whole, the shim says so and the folder\'s app starts as before', T, async () => {
+test('SAFETY 1: when the old app in previous is not whole, the shim says so and the folder\'s app starts as before', WIN32_ONLY_T, async () => {
   const c = freshInstall();
   stage(c);
   await stuckOnApp(c);
@@ -1227,7 +1234,7 @@ test('the path guard holds for every resumer: a boot recovery, the resume helper
   }
 });
 
-test('the path guard holds for a recovery the logon shim runs: nothing outside what an update owns changes', T, () => {
+test('the path guard holds for a recovery the logon shim runs: nothing outside what an update owns changes', WIN32_ONLY_T, () => {
   const c = freshInstall();
   const before = installState(c);
   stage(c);
@@ -1248,7 +1255,7 @@ test('the path guard holds for a recovery the logon shim runs: nothing outside w
   assert.deepEqual(hashTree(appData), appDataBefore);
 });
 
-test('a power loss between replaceInterpreter\'s two renames (H5, and H8 putting it back) leaves no anchored node.exe; a recovery restores its exact bytes', LONG, () => {
+test('a power loss between replaceInterpreter\'s two renames (H5, and H8 putting it back) leaves no anchored node.exe; a recovery restores its exact bytes', WIN32_ONLY_LONG, () => {
   for (const [nth, newNeverStarts, label, phase] of [[1, false, 'H5', 'interpreter'], [2, true, 'H8-H5', 'rolling-back']]) {
     const c = freshInstall();
     const before = installState(c);
@@ -1266,7 +1273,7 @@ test('a power loss between replaceInterpreter\'s two renames (H5, and H8 putting
   }
 });
 
-test('a boot resumer killed mid-rollback is finished by the next boot', LONG, () => {
+test('a boot resumer killed mid-rollback is finished by the next boot', WIN32_ONLY_LONG, () => {
   for (const nth of [1, 3, 6, 10, 15, 25]) {
     const c = freshInstall();
     const before = installState(c);
@@ -2135,7 +2142,7 @@ test('ROUND 5 BUG 3 (P4): a boot recovery held with no whole app in the Kosmos f
   }
 });
 
-test('ROUND 5 BUG 3 (P4): the real logon shim starts the whole old app from previous when its recovery is held mid-rollback, and puts it back at the next start', LONG, () => {
+test('ROUND 5 BUG 3 (P4): the real logon shim starts the whole old app from previous when its recovery is held mid-rollback, and puts it back at the next start', WIN32_ONLY_LONG, () => {
   const c = freshInstall();
   const before = installState(c);
   stage(c);
@@ -2156,7 +2163,7 @@ test('ROUND 5 BUG 3 (P4): the real logon shim starts the whole old app from prev
   assertRolledBack(c, before, null, null, 'the next start');
 });
 
-test('ROUND 5 decision 8 and ROUND 6 F4: a journal a scanner holds when the logon shim starts is read again, for every held code, and the recovery still runs', LONG, () => {
+test('ROUND 5 decision 8 and ROUND 6 F4: a journal a scanner holds when the logon shim starts is read again, for every held code, and the recovery still runs', WIN32_ONLY_LONG, () => {
   for (const code of win32update.HELD_FILE_CODES) {
     const c = freshInstall();
     const before = installState(c);
@@ -2362,7 +2369,7 @@ async function confirmedLeftAtH9(c) {
   return sim;
 }
 
-test('ROUND 6 F1 (PROBE6-A): a confirmed update whose lock cannot be read at boot is held with no app named, and the real shim starts the confirmed new build', LONG, async () => {
+test('ROUND 6 F1 (PROBE6-A): a confirmed update whose lock cannot be read at boot is held with no app named, and the real shim starts the confirmed new build', WIN32_ONLY_LONG, async () => {
   {
     const c = freshInstall();
     const sim = await confirmedLeftAtH9(c);
@@ -2484,7 +2491,7 @@ test('ROUND 6 F2: a journal write held past the patience: the helper still repor
   assertRolledBack(c, before, null, null, 'past the patience');
 });
 
-test('ROUND 6 F3 (PROBE6-C): a journal that cannot be read again under the lock is held, never nothing, for every resumer; the real shim starts the whole old app and leaves the journal unfinished', LONG, async () => {
+test('ROUND 6 F3 (PROBE6-C): a journal that cannot be read again under the lock is held, never nothing, for every resumer; the real shim starts the whole old app and leaves the journal unfinished', WIN32_ONLY_LONG, async () => {
   {
     const c = freshInstall();
     const before = installState(c);
@@ -2807,7 +2814,7 @@ fs.lstatSync = function held(p, ...rest) {
 };
 `);
 
-test('ROUND 8 decisions 1 and 3 (W1, W2): a journal write held at boot mid-rollback is held with the whole old app named, in-process and in the real shim, never the unconfirmed build nor no board; the next start converges', LONG, async () => {
+test('ROUND 8 decisions 1 and 3 (W1, W2): a journal write held at boot mid-rollback is held with the whole old app named, in-process and in the real shim, never the unconfirmed build nor no board; the next start converges', WIN32_ONLY_LONG, async () => {
   for (const [label, appOut, crashPoint] of [['W1 the new app still in the Kosmos folder', false, 'before H8'], ['W2 no app in the Kosmos folder', true, 'before H4 app']]) {
     {
       const c = freshInstall();
@@ -2847,7 +2854,7 @@ test('ROUND 8 decisions 1 and 3 (W1, W2): a journal write held at boot mid-rollb
   }
 });
 
-test('ROUND 8 decision 3 (W3): a stuck boot recovery whose status write is held stays stuck with the whole old app named, in-process and in the real shim; the next start converges', LONG, async () => {
+test('ROUND 8 decision 3 (W3): a stuck boot recovery whose status write is held stays stuck with the whole old app named, in-process and in the real shim; the next start converges', WIN32_ONLY_LONG, async () => {
   {
     const c = freshInstall();
     const before = installState(c);
@@ -2889,7 +2896,7 @@ test('ROUND 8 decision 3 (W3): a stuck boot recovery whose status write is held 
   }
 });
 
-test('ROUND 8 decisions 1 and 2 (W4): the helper\'s rollback tries a held journal write again within its budget; held past it, the helper ends held, starts the board it ended once, and the next boot converges', T, async () => {
+test('ROUND 8 decisions 1 and 2 (W4): the helper\'s rollback tries a held journal write again within its budget; held past it, the helper ends held, starts the board it ended once, and the next boot converges', WIN32_ONLY_T, async () => {
   {
     /* Held for a rename window and a half: one try fails whole, the next succeeds, and the rollback goes on. */
     const c = freshInstall();
@@ -2948,7 +2955,7 @@ test('ROUND 8 decisions 1 and 2 (W4): the helper\'s rollback tries a held journa
   }
 });
 
-test('ROUND 8 decision 2 (W5): the resume helper whose rollback meets a journal write held past its budget ends held and starts the board it ended once; the next boot converges', T, async () => {
+test('ROUND 8 decision 2 (W5): the resume helper whose rollback meets a journal write held past its budget ends held and starts the board it ended once; the next boot converges', WIN32_ONLY_T, async () => {
   const c = freshInstall();
   const before = installState(c);
   stage(c);
@@ -2980,7 +2987,7 @@ test('ROUND 8 decision 2 (W5): the resume helper whose rollback meets a journal 
   assertRolledBack(c, before, null, null, 'after the shim the resume helper started');
 });
 
-test('ROUND 8 decision 4 and ROUND 9 decision 3 (P4): an error the helper cannot handle (ENOSPC on a journal write) is thrown as before, reaches update-apply.log, and after the lock is released the board it ended is started, whose real shim puts the old build back', T, async () => {
+test('ROUND 8 decision 4 and ROUND 9 decision 3 (P4): an error the helper cannot handle (ENOSPC on a journal write) is thrown as before, reaches update-apply.log, and after the lock is released the board it ended is started, whose real shim puts the old build back', WIN32_ONLY_T, async () => {
   const c = freshInstall();
   stage(c);
   const before = installState(c);
@@ -3060,7 +3067,7 @@ test('ROUND 9 decision 1 (P1b): a rollback held because its lock cannot be read,
   assert.deepEqual(installState(c), before);
 });
 
-test('ROUND 9 decision 2 (P2): a rollback that waits on an unreachable working folder RETURNS held; after the lock is released the board it ended is started, and its real shim puts the old build back', T, async () => {
+test('ROUND 9 decision 2 (P2): a rollback that waits on an unreachable working folder RETURNS held; after the lock is released the board it ended is started, and its real shim puts the old build back', WIN32_ONLY_T, async () => {
   const c = freshInstall();
   stage(c);
   const before = installState(c);
@@ -3094,7 +3101,7 @@ test('ROUND 9 decision 2 (P2): a rollback that waits on an unreachable working f
   assertRolledBack(c, before, null, null, 'after the shim');
 });
 
-test('ROUND 9 decision 3 (P3): a helper rollback that ends stuck starts the board it ended after the lock is released, and its real shim puts the old build back', T, async () => {
+test('ROUND 9 decision 3 (P3): a helper rollback that ends stuck starts the board it ended after the lock is released, and its real shim puts the old build back', WIN32_ONLY_T, async () => {
   const c = freshInstall();
   stage(c);
   const before = installState(c);
@@ -3127,7 +3134,7 @@ test('ROUND 9 decision 3 (P3): a helper rollback that ends stuck starts the boar
 
 /* ─── review round 10 ─────────────────────────────────────────────────────────────────────── */
 
-test('ROUND 10 decision 1 (P8): an /End that stops the board but reports a failure still counts as ended: a run that then ends held starts the board once, after the lock is released, and its real shim puts the old build back', T, async () => {
+test('ROUND 10 decision 1 (P8): an /End that stops the board but reports a failure still counts as ended: a run that then ends held starts the board once, after the lock is released, and its real shim puts the old build back', WIN32_ONLY_T, async () => {
   const c = freshInstall();
   stage(c);
   const before = installState(c);
@@ -3214,7 +3221,7 @@ test('ROUND 10 decision 2 (P10): a stuck rollback whose lock proves another upda
   assert.ok(fs.readFileSync(lockOf(c), 'utf8').includes('another-update'), 'the other update\'s lock is left standing');
 });
 
-test('ROUND 9 decision 3 (P5b): a rollback stuck on a held engine-path rename starts the board after the release; the real shim, meeting the same hold, starts the whole old app from previous; the next start converges', LONG, async () => {
+test('ROUND 9 decision 3 (P5b): a rollback stuck on a held engine-path rename starts the board after the release; the real shim, meeting the same hold, starts the whole old app from previous; the next start converges', WIN32_ONLY_LONG, async () => {
   const c = freshInstall();
   stage(c);
   const before = installState(c);
