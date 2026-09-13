@@ -96,6 +96,7 @@ function readUsage(page) {
             parseFloat(cs.borderTopLeftRadius) || 0, parseFloat(cs.borderTopRightRadius) || 0,
             parseFloat(cs.borderBottomLeftRadius) || 0, parseFloat(cs.borderBottomRightRadius) || 0),
           bg: cs.backgroundColor,
+          boxShadow: cs.boxShadow,
           afterHist: hist ? !!(hist.compareDocumentPosition(m) & DP_FOLLOWING) : null,
           beforeMeas: meas ? !!(m.compareDocumentPosition(meas) & DP_FOLLOWING) : null,
         };
@@ -147,6 +148,7 @@ function readUsage(page) {
     ok(v.method && v.method.borderLeftW === 0, 'the footnote has NO left color-rule (a quiet footnote, not a styled callout)');
     ok(v.method && v.method.maxRadius === 0, `the footnote has no rounded corners, so it is not a boxed callout (got ${v.method && v.method.maxRadius})`);
     ok(v.method && (v.method.bg === 'rgba(0, 0, 0, 0)' || v.method.bg === 'transparent'), 'the footnote has no callout background (quiet, muted)');
+    ok(v.method && v.method.boxShadow === 'none', `the footnote has no box-shadow, so an inset box or shadow left-rule callout cannot pass unseen (got ${v.method && v.method.boxShadow})`);
     ok(v.method && v.method.afterHist === true, 'the footnote sits under the usage-history list (beside the Value column it explains)');
     ok(v.method && v.method.beforeMeas === true, 'the footnote sits above "The measurement it comes from" table');
     await ctx.close();
