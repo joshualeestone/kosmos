@@ -743,10 +743,11 @@ test('a resumer leaves an update alone while its helper is alive, and takes over
   assertRolledBack(c2, before, s2, r, 'resumed');
 });
 
-test('the resume helper: a new board left running is stopped and rolled back; a confirmed update is finished; a stopped board is started', T, async () => {
-  /* A helper killed while the new board kept serving, and no logon comes. */
+test('the resume helper: a new board answering as the new build is finished forward, one that does not is stopped and rolled back; a confirmed update is finished; a stopped board is started', T, async () => {
+  /* A helper killed during H7 while the new board it started kept serving, and no logon comes. That
+     board answers as H7 requires, so the update is finished forward, never rolled back (round 5). */
   const c1 = freshInstall();
-  const before1 = installState(c1);
+  const newTree1 = hashTree(c1.staged);
   stage(c1);
   crashAt(c1, 'before H7-run #1');
   const s1 = playBoard(c1);
@@ -756,8 +757,22 @@ test('the resume helper: a new board left running is stopped and rolled back; a 
   assert.equal(s1.identity, NEW_ID, 'the new board is serving');
   s1.calls.length = 0;
   const r1 = await win32apply.resumeJournal(c1.journal, s1.deps());
-  assertRolledBack(c1, before1, s1, r1, 'resume from starting');
-  assert.deepEqual(s1.calls, ['/End /TN Kosmos\\board', '/Run /TN Kosmos\\board']);
+  assert.equal(r1.outcome, 'updated', JSON.stringify(r1) + '\n' + c1.log.join('\n'));
+  assert.deepEqual(hashTree(c1.root, [c1.work, path.join(c1.root, 'Projects')]), newTree1);
+  assert.deepEqual(s1.calls, [], 'the board H7 would confirm is left serving');
+  assert.equal(readJson(c1.statusAt).outcome, 'updated');
+
+  /* The same crash with no board answering as the new build: stopped, rolled back, the old one started. */
+  const c1b = freshInstall();
+  const before1b = installState(c1b);
+  stage(c1b);
+  crashAt(c1b, 'before H7-run #1');
+  const s1b = playBoard(c1b, { newNeverStarts: true });
+  s1b.running = false;
+  s1b.identity = null;
+  const r1b = await win32apply.resumeJournal(c1b.journal, s1b.deps());
+  assertRolledBack(c1b, before1b, s1b, r1b, 'resume from starting');
+  assert.deepEqual(s1b.calls, ['/End /TN Kosmos\\board', '/Run /TN Kosmos\\board']);
 
   const c2 = freshInstall();
   const newTree = hashTree(c2.staged);
@@ -1151,11 +1166,11 @@ test('the path guard holds for every resumer: a boot recovery, the resume helper
     const before = installState(c);
     stage(c);
     crashAt(c, 'before H7-run #1');
-    const sim = playBoard(c);
+    /* No board answers as the new build, so the resume helper rolls back (a board that did is finished
+       forward: the resume helper's own test). */
+    const sim = playBoard(c, { newNeverStarts: true });
     sim.running = false;
     sim.identity = null;
-    win32board.runNow();
-    sim.calls.length = 0;
     const written = await recordWrites(async () => { await win32apply.resumeJournal(c.journal, sim.deps()); });
     assertRolledBack(c, before, sim, null, 'resume');
     assert.ok(written.length > 10);
@@ -2199,6 +2214,24 @@ test('ROUND 5 sweep: the staged journal records an entry a scanner holds as pres
     unfaultLstat();
   }
   assert.equal(fs.existsSync(c.journal), false, 'no journal was written');
+});
+
+test('ROUND 5 sweep: a rollback that cannot read the engine pointer back is never called whole: stuck and unfinished, and the next start finishes it', T, async () => {
+  const c = freshInstall();
+  const before = installState(c);
+  const sim = await rollbackLeftAtH8(c);
+  let boot;
+  try {
+    faultRead(path.join(c.anchor, win32anchor.POINTER_NAME), 'EBUSY', -1);
+    boot = win32apply.recoverAtBoot(c.journal, sim.deps());
+  } finally {
+    unfaultRead();
+  }
+  assert.equal(boot.action, 'stuck', JSON.stringify(boot) + '\n' + c.log.join('\n'));
+  assert.equal(boot.because, `${win32anchor.POINTER_NAME} cannot be read right now (code=EBUSY)`);
+  assert.equal(readJson(c.journal).finished, false, 'never concluded as rolled back');
+  assert.equal(win32apply.recoverAtBoot(c.journal, sim.deps()).action, 'rolled-back', c.log.join('\n'));
+  assert.deepEqual(installState(c), before);
 });
 
 test('ROUND 5 sweep: a helper that cannot read the Kosmos folder\'s version holds, writing nothing, instead of settling the update as not-started', T, async () => {

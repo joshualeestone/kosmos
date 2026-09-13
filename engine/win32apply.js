@@ -157,12 +157,6 @@ function firstLine(e) { return String((e && e.message) || e).split('\n')[0]; }
 function codeOf(e) { return (e && e.code) || 'unknown'; }
 /** An error for a log line: its code, or its name when it has none, and its first line. */
 function describeError(e) { return `${(e && (e.code || e.name)) || 'error'}: ${firstLine(e)}`; }
-function readJson(file) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
-}
-function readText(file) {
-  try { return fs.readFileSync(file, 'utf8'); } catch { return null; }
-}
 /** Is there anything at this name? A link counts, whatever it points at. */
 function exists(target) {
   try { fs.lstatSync(target); return true; } catch { return false; }
