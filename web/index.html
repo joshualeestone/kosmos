@@ -35276,7 +35276,10 @@ function paintProjects() {
   document.getElementById('st-pjdm').textContent = String(pjDmTotal);
   document.getElementById('st-pjdm-tile').hidden = pjDmTotal <= 0;
   if (!PROJECTS.length) {
-    setIfChanged(list, '<div class="pj-empty">'
+    // #2929 slice 2: PJ_DRAGGING-gated like the other #pj-list writers -- another agent
+    // emptying the board mid-drag must not detach the drag-source node (the self-heal
+    // recovers on the next paint either way, so a race degrades to a lost drag, not a freeze).
+    if (!PJ_DRAGGING) setIfChanged(list, '<div class="pj-empty">'
       + '<p><b>No projects yet.</b><br>Point Kosmos at a folder you already have, '
       + 'and put an agent on it.</p>'
       /* Matched to the agents empty state (2026-08-22): the two are the same
@@ -35290,7 +35293,8 @@ function paintProjects() {
     // ⚠️ NOT the "No projects yet" card: there are projects, they are all
     // archived, and saying "none yet" beside a disclosure holding three of
     // them would be the screen contradicting itself.
-    setIfChanged(list, '<div class="pj-empty">'
+    // #2929 slice 2: PJ_DRAGGING-gated, same reason as the "No projects yet" writer above.
+    if (!PJ_DRAGGING) setIfChanged(list, '<div class="pj-empty">'
       + '<p><b>Nothing here right now.</b><br>Everything you have is archived.</p>'
       + '</div>');
     return;
@@ -35658,12 +35662,12 @@ function pjTreeToggleFold(id) {
   list.addEventListener('drop', (e) => {
     if (!cons() || dragId == null) return;
     const row = topRow(e.target);
-    if (!row || row.dataset.project === dragId) { endDrag(); return; }
+    if (!row || row.dataset.project === dragId) return;   // no reorder: dragend clears + catches up
     e.preventDefault();
     const targetId = row.dataset.project;
     const ids = topIds();
     const from = ids.indexOf(dragId);
-    if (from === -1 || ids.indexOf(targetId) === -1) { endDrag(); return; }
+    if (from === -1 || ids.indexOf(targetId) === -1) return;   // no reorder: dragend clears + catches up
     ids.splice(from, 1);                          // remove the dragged id, then re-find the target
     let to = ids.indexOf(targetId);
     const rect = row.getBoundingClientRect();
@@ -35676,11 +35680,13 @@ function pjTreeToggleFold(id) {
   list.addEventListener('dragend', () => {
     const d = list.querySelector('.pj-dragging');
     if (d) d.classList.remove('pj-dragging');
-    const wasDragging = PJ_DRAGGING;             // false already if a drop just handled it (no double repaint)
+    const wasDragging = PJ_DRAGGING;             // false already if a SUCCESSFUL reorder cleared it first
     endDrag();
-    /* A cancelled drag (Esc, or dropped outside a valid target) fires dragend with no drop,
-       so no repaint ran and the list may have skipped a poll update while PJ_DRAGGING was set.
-       Catch up now; after a real drop wasDragging is false so this does nothing. */
+    /* Cleanup + catch-up for every path that did NOT reorder: a cancelled drag (Esc, or a
+       drop outside a valid target), AND the drop handler's no-reorder returns (self-drop and
+       target-not-found), which now leave PJ_DRAGGING set for exactly this. Any poll update
+       skipped while the flag was set is caught up here. A successful reorder cleared the flag
+       before its own repaint, so wasDragging is false there and this is a no-op (no double paint). */
     if (wasDragging) paintProjects();
   });
 })();
