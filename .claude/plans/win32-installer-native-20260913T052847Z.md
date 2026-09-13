@@ -775,7 +775,28 @@ Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
   first) and listens on this PC's own non-loopback address: a hand-started board stops the removal with
   nothing changed and refuses the move; with the board task running the removal switches it off, ends it and
   runs once the board goes. It skips in words when the PC has no usable address.
-- ROUND-8-RESULTS-PENDING
+- **Round 8 results (this box).** Every heavy step ran inside the shared `heavy-run-mutex.ps1` lock, one test
+  file or one control at a time.
+  - `win32handoff.test.js` 65 of 65, `win32uninstall.test.js` 51 of 51, `win32relocate.test.js` 23 of 23,
+    `win32uninstall.realboard.test.js` 3 of 3, full sandbox, no schtasks call blocked. The real board listened
+    on `100.75.98.125`, and the own-address arms ran there (a closed port refused after 2040 ms).
+  - The guard self-tests call the 16180 check as a plain function and check the connect wrapper is installed by
+    its name, never through a socket: a first draft called `net.connect(16180)` and relied on the guard to
+    throw, so its own revert control would have sent a connection to the live board. Nothing reached 16180.
+  - Revert controls: 123 of 123 red, none invalid (13 new for round 8; the earlier ones restated where their
+    text moved), every baseline green, tree clean afterwards, no schtasks call blocked.
+  - The launcher (`KosmosLauncher.cs`) did not change, so it was not rebuilt.
+  - The comparison against an archive of `aa30db6c` (101 suites, plus the new real-board suite on the branch;
+    name and first error line), one test file per locked step, each in its own full sandbox:
+    - base 1782 tests, 154 fail; branch 1918 tests, 153 fail;
+    - 0 new failures;
+    - the one base-only failure is `git ls-files` in an archive;
+    - 2 tests differ only by an ephemeral port (`absolute-form naming this server is routed`, and
+      `tools.win-open-board-2007`'s end-to-end);
+    - 151 shared failures;
+    - no schtasks call was blocked on either side.
+  - The real system was untouched afterwards: no real `Kosmos.lnk`, no real `Uninstall\Kosmos` key, no
+    `KosmosTest` key, no `%LOCALAPPDATA%\Programs\Kosmos`, and `Kosmos\board` still running.
 
 ## Follow-ups (not this slice)
 
