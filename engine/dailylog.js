@@ -243,7 +243,11 @@ function readConversations(chatsDir) {
  * Compile the daily logs. Reads `chatsDir`, writes one `<day>.md` per day into
  * `outDir` (created if absent). Returns a summary. `onlyDay` restricts the write
  * to a single day (a targeted run); by default every day found is written.
- * `dayOf`/`timeOf` are injectable for deterministic tests.
+ * `dayOf`/`timeOf` are injectable for deterministic tests. `prune` (default
+ * true) enables removing stale day files from `outDir`; the CLI turns it OFF for
+ * an operator-supplied `--out` dir, so pruning a day-named file the operator
+ * happens to keep in an arbitrary directory is never a surprise -- only the
+ * tool's own managed rollup dir is pruned.
  */
 function compileAll(opts = {}) {
   const chatsDir = opts.chatsDir || path.join(store.ROOT, 'chats');
@@ -251,6 +255,7 @@ function compileAll(opts = {}) {
   const dayOf = opts.dayOf || localDayOf;
   const timeOf = opts.timeOf || localTimeOf;
   const onlyDay = opts.onlyDay || null;
+  const prune = opts.prune !== false;
 
   const { conversations, readable, readErrors } = readConversations(chatsDir);
   const { rows, undated } = flattenMessages(conversations, dayOf);
@@ -286,7 +291,7 @@ function compileAll(opts = {}) {
      daily file is stale. (A file that read fine but is not valid JSON is stable
      junk, not a read failure, and does not block pruning -- see readConversations.) */
   const pruned = [];
-  if (!onlyDay && readable && readErrors === 0) {
+  if (prune && !onlyDay && readable && readErrors === 0) {
     const keep = new Set(written);
     let existing = [];
     try { existing = fs.readdirSync(outDir); } catch { existing = []; }
@@ -331,7 +336,8 @@ module.exports = {
    Default is --all (write every day found), which is what a once-a-day
    scheduled run wants; --day targets one day. */
 if (require.main === module) {
-  const USAGE = 'usage: node engine/dailylog.js [--all | --day YYYY-MM-DD] [--out <dir>]\n';
+  const USAGE = 'usage: node engine/dailylog.js [--all | --day YYYY-MM-DD] [--out <dir>]\n'
+    + '  the default run prunes stale day files in the rollup dir; --out disables pruning\n';
   const die = (msg) => { process.stderr.write(`dailylog: ${msg}\n` + USAGE); process.exit(2); };
   const argv = process.argv.slice(2);
   const opts = {};
@@ -346,7 +352,13 @@ if (require.main === module) {
         // an unpadded `2026-9-3` matches no dayOf output and would write nothing.
         if (!DAY_STEM_RE.test(val)) die(`--day expects YYYY-MM-DD, got '${val}'`);
         opts.onlyDay = val;
-      } else opts.outDir = val;
+      } else {
+        opts.outDir = val;
+        // An operator-supplied dir is not the tool's managed rollup dir, so do
+        // NOT prune day-named files there -- deleting a file the operator kept
+        // in their own directory would be a surprise.
+        opts.prune = false;
+      }
       i += 1;
     } else if (argv[i] === '--all') { /* the default; accepted explicitly */ }
     // Fail loud on an unrecognized flag rather than silently running a full

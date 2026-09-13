@@ -252,6 +252,21 @@ test('compileAll: pruning only removes day-named files, and never on an onlyDay 
   assert.deepEqual(summary.pruned, ['2020-01-01']);
 });
 
+test('compileAll: prune:false leaves stale day files untouched (operator --out safety)', () => {
+  const chatsDir = path.join(SANDBOX, 'chats-noprune');
+  const outDir = path.join(SANDBOX, 'chats-daily-noprune');
+  fs.mkdirSync(chatsDir, { recursive: true });
+  fs.mkdirSync(outDir, { recursive: true });
+  fs.writeFileSync(path.join(outDir, '2019-01-01.md'), 'a day-named file the operator kept');
+  fs.writeFileSync(path.join(chatsDir, 'direct..z.json'), JSON.stringify({ messages: [
+    { at: '2026-09-14T09:00:00Z', text: 'today', from: null },
+  ] }));
+  const summary = dl.compileAll({ chatsDir, outDir, dayOf, timeOf, prune: false });
+  assert.deepEqual(summary.pruned, [], 'prune:false must prune nothing');
+  assert.ok(fs.existsSync(path.join(outDir, '2019-01-01.md')), 'a stale day file must survive when pruning is off');
+  assert.ok(fs.existsSync(path.join(outDir, '2026-09-14.md')), 'writing still happens with prune off');
+});
+
 test('compileAll: onlyDay restricts the write to a single day', () => {
   const chatsDir = path.join(SANDBOX, 'chats2');
   const outDir = path.join(SANDBOX, 'chats-daily2');
