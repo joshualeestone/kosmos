@@ -1367,6 +1367,17 @@ test('SAFETY 3: a board running from the updater\'s folder neither re-registers 
     assert.deepEqual(calls, [], 'the logon task was neither read nor registered');
     assert.deepEqual(anchored, [], 'nothing was anchored');
     assert.equal(win32board.describe({ platform: 'win32', root: fallback, exists: hostExists, env: c.env }), null, 'machine.js renders null as "we could not check"');
+    assert.equal(win32board.runningFromUpdateWork({ root: fallback }), true);
+    assert.equal(win32board.runningFromUpdateWork({ root: c.root }), false);
+    /* #2984's Kosmos-folder row and reveal: "could not check", never "running from source". */
+    const machine = require('./machine');
+    const row = machine.appLocationCheck({ platform: 'win32', bundleRoot: null, bundleInUpdateWork: true });
+    assert.equal(row.state, machine.STATE.UNKNOWN);
+    assert.doesNotMatch(row.title + row.detail, /from source/);
+    assert.throws(() => machine.revealApp({ platform: 'win32', bundleRoot: null, bundleInUpdateWork: true }),
+      /running from a copy the updater is holding while it puts an update back/);
+    assert.match(machine.appLocationCheck({ platform: 'win32', bundleRoot: null, bundleInUpdateWork: false }).title, /running from source/,
+      'the control: a real source checkout still says so');
     assert.equal(win32anchor.bundleIsInUpdateWork(fallback), true);
     assert.equal(win32anchor.bundleIsInUpdateWork(c.root), false);
     assert.equal(win32update.WORK_DIRNAME, win32anchor.UPDATE_WORK_DIRNAME, 'one spelling of the folder name');

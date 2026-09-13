@@ -336,6 +336,17 @@ function bundleRoot(opts) {
   return null;
 }
 
+/**
+ * Is THIS board (or the bundle `opts.root` names) running from inside the updater's folder, the
+ * logon shim's fallback while a rollback is stuck? bundleRoot answers null there, and so it does for
+ * a source checkout; the screens that must not call such a board "from source" (describe, and
+ * machine.js's Kosmos-folder row and reveal) ask this.
+ */
+function runningFromUpdateWork(opts) {
+  const o = opts || {};
+  return win32anchor.bundleIsInUpdateWork(o.root || path.resolve(__dirname, '..', '..'), path.win32);
+}
+
 /* 🛑 #2628: THE BOARD'S MACHINE PATHS COME FROM THE ENVIRONMENT IT WAS LAUNCHED
    WITH. A board serving a named world has that world's AGENT_WORKFORCE_DATA in
    process.env (worldenv), and win32anchor.anchorDir honours it. Without this, a
@@ -840,7 +851,7 @@ function describe(opts) {
   if (platform !== 'win32') return null;
   /* A board running from inside the updater's folder is neither "from source" nor the install's own:
      null, which machine.js renders as "we could not check". */
-  if (win32anchor.bundleIsInUpdateWork(o.root || path.resolve(__dirname, '..', '..'), path.win32)) return null;
+  if (runningFromUpdateWork(o)) return null;
   const bundle = bundleRoot(o);
   const st = status();
   /* #2973: a bundle whose job we could not read is not "missing" or "switched off".
@@ -863,7 +874,7 @@ function describe(opts) {
 
 module.exports = {
   TASK_NAME, MARKER_ENV, BOOT_NAME, BOOT_JS, CLAIM_NAME, REMOVE_HINT, HELPER_FLAG, SCHTASKS_TIMEOUT_MS,
-  taskExec, taskXml, bundleRoot, install, ensureInstalled, status, describe,
+  taskExec, taskXml, bundleRoot, runningFromUpdateWork, install, ensureInstalled, status, describe,
   disable, enable, end, runNow, remove, restart, startedByTask,
   claimed, claim, restartHelperMain, pidGone,
   setRunner, setAnchorer, setSpawner,
