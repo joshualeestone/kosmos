@@ -29164,11 +29164,10 @@ function layoutConsolidated() {
 }
 function applyLayout(layout, apply) {
   const want = layout === 'consolidated' ? 'consolidated' : 'tabs';
-  document.querySelectorAll('[data-layout-pick]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.layoutPick === want)));
-  /* #2154: the header toggle is the SAME choice as the Settings tiles, so it is
-     re-painted from every path that lands a layout -- boot (paintStyles), a tile
-     activate, a resize re-check. Kept beside the tile sync, above the apply gate,
-     so a paintStyles(false) with apply=false still corrects the header. */
+  /* #2154 + #2618: the header board-view toggle is re-painted from every path that
+     lands a layout -- boot (paintStyles) and a resize re-check -- above the apply gate,
+     so a paintStyles(false) with apply=false still corrects the header. (The Settings
+     layout tiles it used to also mirror were removed with the Styles tab in #2618.) */
   document.querySelectorAll('[data-layout-switch]').forEach((b) => b.setAttribute('aria-checked', String(b.dataset.layoutSwitch === want)));
   if (!apply) return;
   const was = document.documentElement.getAttribute('data-layout') || 'tabs';

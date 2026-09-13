@@ -61,6 +61,10 @@ test('#725: the Settings section rides the address, You stays clean, and the sec
   assert.deepEqual(drive({ tab: 'agents', sec: 'policy', search: '?tab=settings&sec=policy' }), ['/']);
   assert.match(SCRIPT, /if \(BOOT_TAB === 'settings' && PARAMS\.get\('sec'\)\) settingsOpen\(PARAMS\.get\('sec'\), \{ focus: false \}\);/, 'boot reads it once, through the door the nav click uses');
   assert.match(SCRIPT, /function settingsGo\(section, opts\) \{\n  if \(!SETTINGS_SECTIONS\.includes\(section\)\) section = 'you';\n  SETTINGS_SEC = section;/);
-  assert.match(SCRIPT, /if \(section === 'styles'\) paintStyles\(true\);\n  syncUrl\(\);\n\}/);
+  // #2618: the Settings > Styles tab was removed, so settingsGo no longer carries a
+  // `section === 'styles'` paintStyles hook. Assert its absence (a removal ships with a
+  // guard, or the hook creeps back), and that settingsGo still ends by syncing the URL.
+  assert.doesNotMatch(SCRIPT, /section === 'styles'/, '#2618: no styles hook in settingsGo after the tab was removed');
+  assert.match(SCRIPT, /syncPlusChrome\(\);\n  syncUrl\(\);\n\}/, 'settingsGo still ends by writing the URL');
   assert.match(SCRIPT, /settingsOpen\(b\.dataset\.go\);/, 'the nav click goes through the shared door');
 });

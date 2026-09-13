@@ -70,3 +70,27 @@ Weakest premise: that the header one-press flipper fully covers the need the in-
 tiles+Activate served, so removing the tiles loses no capability Josh wants. His "we have
 the flipper" supports it; if he actually wanted the tiles kept, this is a one-section
 revert.
+
+## Test files the full suite caught (a removal is two changes; the diff review missed these)
+
+The in-index.html removal is clean, but three UNIT test files pinned the removed UI and
+only the full `node --test` run surfaced them (a diff review cannot see a test in an
+untouched file):
+- `web.url-state.test.js`: pinned the `section === 'styles'` settingsGo hook. Flipped to
+  an absence assertion + a positive check that settingsGo still ends by syncing the URL.
+- `web.settings-nav.test.js`: pinned the exact nav-button list including `'styles'`.
+  Removed `'styles'` from the expected list.
+- `web.layout-picker.test.js`: test 1 pinned the in-tab picker markup (now absent, so it
+  threw); test 2's click-slice now lands on the surviving header `data-layout-switch`
+  handler (different `applyLayout` form); the "no em dash" test anchored on the removed
+  `id="layout-field"` (vacuous). Rewrote test 1 as an absence assertion, updated test 2 to
+  the header flipper's form, removed the vacuous em-dash test, refreshed the file header.
+  Tests 2-10 (the consolidated-view "piece" mechanics) are unchanged and still pass.
+
+## Deferred NIT (documented, not dropped)
+
+The `.laytiles` / `.laytile` CSS rules are now orphaned dead CSS (their only consumers,
+the removed tiles, are gone). Kept for now because `web.layout-picker.test.js` test 4
+anchors its consolidated-CSS slice on `.laytiles {`; removing the CSS would need that test
+re-anchored to a stable following selector. Harmless dead CSS; a future cleanup should
+re-anchor test 4 and drop `.laytiles`/`.laytile`.
