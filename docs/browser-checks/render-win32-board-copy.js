@@ -20,6 +20,14 @@
  * un-hidden (ancestors only) so computed display is a rendering result, as in
  * render-connect-win32-install-570.js.
  *
+ * 🔑 THE PAGE'S OWN BOOT FETCHES ARE STUBBED BEFORE IT LOADS, the way render-autohello-2686.js
+ * does it (its initStub, installed with addInitScript, answering a benign `{ agents: [] }`).
+ * Over file:// the board's /api reads cannot succeed, and WebKit reports each one as a page
+ * error ("... due to access control checks."), which reddened this check's no-errors arm in CI
+ * (PR #2984) while Chromium stayed quiet. Stubbing fetch at the source means NOTHING has to be
+ * filtered: every page error that still arrives is a real one, and the control arm below
+ * proves the listener catches a real script error in each engine.
+ *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-win32-board-copy.js
  *   (HEADED by default; HEADED=0 on a console-less machine, as run_one sets it.)
@@ -69,8 +77,19 @@ function check(name, pass, detail) {
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? '  ' + detail : ''}`);
 }
 
+/* The fetch stub, in render-autohello-2686.js's shape: installed before any page script runs,
+   answering every request with a benign JSON body so the boot polls resolve instead of being
+   refused by file://. Nothing this check asserts reads a fetched value. */
+function stubPageFetches() {
+  const enc = (o, status) => new Response(JSON.stringify(o), {
+    status: status || 200, headers: { 'content-type': 'application/json' },
+  });
+  window.fetch = async () => enc({ agents: [] });
+}
+
 async function readPage(browser, platform) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  await ctx.addInitScript(stubPageFetches);
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -105,8 +124,15 @@ async function readPage(browser, platform) {
     const stamped = document.documentElement.getAttribute('data-kosmos-platform');
     return { hidden, text, signin, steps, stamped };
   }, { platform, macOnly: MAC_ONLY, words: WORDS[platform] });
+  /* CONTROL for the no-errors arm: a real uncaught script error thrown on this same page must
+     reach the listener, so "no errors" above means none happened, not that none were heard. */
+  const before = errors.length;
+  await page.evaluate(() => { setTimeout(() => { throw new Error('win32-board-copy listener probe'); }, 0); });
+  await page.waitForTimeout(250);
+  const probeHeard = errors.slice(before).some((m) => /win32-board-copy listener probe/.test(m));
+  const pageErrors = errors.slice(0, before);
   await ctx.close();
-  return { got, errors };
+  return { got, errors: pageErrors, probeHeard };
 }
 
 (async () => {
@@ -130,6 +156,7 @@ async function readPage(browser, platform) {
       /Kosmos\.exe/.test(win.got.signin) && !/~\/\.local|fix itself/.test(win.got.signin), win.got.signin.slice(0, 120));
     check(`${engine}: win32 wizard skips S2 and S4`, JSON.stringify(win.got.steps) === '[1,3,5,6,7,8,9]', JSON.stringify(win.got.steps));
     check(`${engine}: win32 page raised no errors`, win.errors.length === 0, win.errors.join(' | '));
+    check(`${engine}: CONTROL a real script error on the page reaches the listener`, win.probeHeard === true, String(win.probeHeard));
 
     const mac = await readPage(browser, 'darwin');
     check(`${engine}: CONTROL a Mac page is not stamped`, mac.got.stamped === null, String(mac.got.stamped));
@@ -141,6 +168,7 @@ async function readPage(browser, platform) {
     }
     check(`${engine}: CONTROL Mac wizard walks all nine steps`, JSON.stringify(mac.got.steps) === '[1,2,3,4,5,6,7,8,9]', JSON.stringify(mac.got.steps));
     check(`${engine}: CONTROL Mac not-signed-in panel is unchanged`, /fix itself the next/.test(mac.got.signin), mac.got.signin.slice(0, 120));
+    check(`${engine}: Mac page raised no errors`, mac.errors.length === 0, mac.errors.join(' | '));
 
     await browser.close();
   }
