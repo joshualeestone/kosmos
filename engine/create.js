@@ -2452,17 +2452,31 @@ function nameInThisWorld(key) {
   return launchidentity.nameInWorld(key, launchidentity.currentWorldId());
 }
 
-function disabledJobs() {
+/* #2977: the SAME probe, but it says whether it could look. `disabledJobs` below
+   fails soft to an empty set, which reads as "nothing is switched off" -- fine for
+   callers that only ask "is THIS name off", but a caller deciding whether to PAUSE
+   an agent on a world switch must tell "we looked and it is not off" apart from "we
+   could not look": treating the second as the first switches a hand-disabled agent
+   back on at the next resume. `ok:false` is returned for a thrown probe (prod
+   execFileSync on a non-zero exit) AND for a runner/gate result that carries
+   `ok:false` (the live-execution-refused path, and the test seam), so the unknown
+   state is seen the same way in both. */
+function disabledJobsResult() {
   try {
     const out = run('/bin/launchctl', ['print-disabled', `gui/${process.getuid()}`]);
+    if (out && out.ok === false) return { ok: false };
     const text = String((out && out.stdout) || '');
     const names = new Set();
     for (const m of text.matchAll(/"com\.kosmos\.agent\.([^"]+)"\s*=>\s*(?:true|disabled)/g)) {
       const name = nameInThisWorld(m[1]);
       if (name !== null) names.add(name);
     }
-    return names;
-  } catch { return new Set(); }
+    return { ok: true, jobs: names };
+  } catch { return { ok: false }; }
+}
+function disabledJobs() {
+  const r = disabledJobsResult();
+  return r.ok ? r.jobs : new Set();
 }
 
 /* ── the job launchd says is running (#668) ──────────────────────────────
@@ -4461,7 +4475,7 @@ module.exports = {
   defaultModelKeyFor,
   modelFor,
   SELF_STARTS,
-  createdLog, createdLogFile, disabledJobs, runningJobs,
+  createdLog, createdLogFile, disabledJobs, disabledJobsResult, runningJobs,
 
   /* ⚠️ Exported as the ONE machine-name rule. `slugFor` lower-cases and folds
      whitespace and periods to hyphens — it is a converter, not a gate — so
