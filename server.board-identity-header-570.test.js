@@ -35,6 +35,26 @@ test('GET / names the build this process loaded and the world it booted, the sam
   assert.ok(named, 'the page response no longer names the running build');
   assert.equal(named, boardIdentity(buildIdentity(__dirname), require('./engine/worldenv').bootedWorld()), 'the header and the hand-off derive the identity two different ways');
   assert.ok(named.startsWith(version), 'the build does not lead with package.json\'s version');
+
+  /* #2973 review round 1: the board also says whether its logon task started it, which
+     the Windows hand-off needs before it may end a board, and reads it per request from
+     the marker the task's boot shim stamps. '1' only when that marker is there. */
+  const { BOARD_STARTED_BY_TASK_HEADER } = require('./engine/win32handoff');
+  const { MARKER_ENV, TASK_NAME } = require('./engine/win32board');
+  const saved = process.env[MARKER_ENV];
+  try {
+    delete process.env[MARKER_ENV];
+    const byHand = await fetch(`http://127.0.0.1:${server.address().port}/`);
+    assert.equal(byHand.headers.get(BOARD_STARTED_BY_TASK_HEADER), '0', 'a board its task did not start must not claim it');
+    process.env[MARKER_ENV] = TASK_NAME;
+    const byTask = await fetch(`http://127.0.0.1:${server.address().port}/`);
+    assert.equal(byTask.headers.get(BOARD_STARTED_BY_TASK_HEADER), '1', 'a board its task started says so');
+    process.env[MARKER_ENV] = 'Kosmos\\agent-fred';
+    const other = await fetch(`http://127.0.0.1:${server.address().port}/`);
+    assert.equal(other.headers.get(BOARD_STARTED_BY_TASK_HEADER), '0', 'only the BOARD task\'s marker counts');
+  } finally {
+    if (saved === undefined) delete process.env[MARKER_ENV]; else process.env[MARKER_ENV] = saved;
+  }
 });
 
 test('#570: the hand-off is given the LAUNCH env, copied before the world bootstrap, and the identity is the BOOTED world', () => {

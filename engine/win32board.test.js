@@ -231,12 +231,14 @@ test('install reports the removal hint, so the caller can print it', () => {
 test('status reads registered / enabled / running from the definition and the result code', () => {
   board.setRunner(runner(NONE));
   assert.deepEqual(board.status(), { known: true, registered: false, running: false });
+  /* A code that is not one a running task carries is not proof it stopped (review round 1:
+     a running task can carry 0x800710E0), so a Ready task's running reads null, never false. */
   board.setRunner(runner(READY));
-  assert.deepEqual(board.status(), { known: true, registered: true, enabled: true, running: false });
+  assert.deepEqual(board.status(), { known: true, registered: true, enabled: true, running: null });
   board.setRunner(runner(RUNNING));
   assert.deepEqual(board.status(), { known: true, registered: true, enabled: true, running: true });
   board.setRunner(runner(DISABLED));
-  assert.deepEqual(board.status(), { known: true, registered: true, enabled: false, running: false });
+  assert.deepEqual(board.status(), { known: true, registered: true, enabled: false, running: null });
 });
 
 // ── ensureInstalled: refresh, never re-impose ───────────────────────────────
@@ -430,6 +432,12 @@ test('describe is machine facts only, and returns null off win32', () => {
   assert.equal(d.registered, true);
   assert.equal(d.enabled, true);
   assert.equal(d.bundle, true);
+  /* #2973 review round 1: describe runs inside a board, so running is whether ITS task
+     started it, not Task Scheduler's unreliable running state. */
+  assert.equal(d.running, false, 'a hand-started board (no marker) is not the task running, whatever schtasks says');
+  board.setRunner(runner(READY));
+  const byTask = board.describe({ platform: 'win32', env: { ...ENV, [board.MARKER_ENV]: board.TASK_NAME }, home: ANCHOR, root: 'C:\\kosmos-win', exists: () => true });
+  assert.equal(byTask.running, true, 'a board its task started is the task running, even when its Last Result code says nothing');
 });
 
 // ── #2973: the task's state is read without localized text, and unknown is never acted on ──
@@ -544,7 +552,18 @@ test('#2973 running is the Last Result code, in any language and on any machine 
   board.setRunner(runner({ xml: XML_ENABLED, verbose: verboseRow('Wird ausgeführt', '267009', 'BUERO-PC'), list: listText('BUERO-PC', 'Wird ausgeführt') }));
   assert.equal(board.status().running, true, 'German "running"');
   board.setRunner(runner({ xml: XML_ENABLED, verbose: verboseRow('Bereit', '267014', 'RUNNING-LAB'), list: listText('RUNNING-LAB', 'Bereit') }));
-  assert.equal(board.status().running, false, 'a machine named RUNNING-LAB is not a running task');
+  assert.notEqual(board.status().running, true, 'a machine named RUNNING-LAB is not a running task');
+  assert.equal(board.status().running, null, 'and a code that is not a running one proves nothing either way');
+  /* Review round 1, measured: after a `/Run` that IgnoreNew ignored, a task that is STILL
+     running carries 0x800710E0 (-2147020576) until that instance ends. */
+  board.setRunner(runner({ xml: XML_ENABLED, verbose: verboseRow('Running', '-2147020576') }));
+  assert.equal(board.status().running, true, 'a running task whose extra /Run was ignored is still running');
+  board.setRunner(runner({ xml: XML_ENABLED, verbose: verboseRow('Wird ausgeführt', '-2147020576', 'BUERO-PC') }));
+  assert.equal(board.status().running, true, 'in German too');
+  for (const other of ['0', '1', '267011', '267014', '-2147024894']) {
+    board.setRunner(runner({ xml: XML_ENABLED, verbose: verboseRow('Running', other) }));
+    assert.equal(board.status().running, null, 'code ' + other + ' is not one a running task was measured carrying');
+  }
   board.setRunner(runner({ xml: XML_ENABLED, verbose: verboseRow('Running', '267.009') }));
   assert.equal(board.status().running, true, 'digit grouping does not hide the code');
   board.setRunner(runner({ xml: XML_ENABLED, verbose: DENIED }));
@@ -632,22 +651,19 @@ test('#2973 review: a query with too little time left is not started, and that r
   assert.equal(st.running, null, 'an unasked running state is unknown, never "not running"');
 });
 
-test('#2973 review: ensureInstalled before the hand-off takes at most two schtasks timeouts, which the launcher fallback was sized for', () => {
+test('#2973 review: ensureInstalled spends no more schtasks time than on main (its status read, then /Create)', () => {
   const T = board.SCHTASKS_TIMEOUT_MS;
-  /* The launcher's fallback assumes a hand-off that succeeds has exited by then. The
-     slowest success after a slow ensure is ensure's two timeouts and one probe of a board
-     already running. The probe's budget is read from the hand-off, not copied. */
-  const handoffSource = fs.readFileSync(nodePath.join(__dirname, 'win32handoff.js'), 'utf8');
-  const probeMs = Number((handoffSource.match(/const PROBE_TIMEOUT_MS = (\d+);/) || [])[1]);
-  assert.ok(probeMs > 0, 'the hand-off no longer names its probe timeout');
-  const fallback = require('./win32handoff').HANDOFF_UNREADABLE_LISTENER_FALLBACK_MS;
+  /* On main, ensure was one LIST query and one /Create: at most two schtasks timeouts. This
+     branch's status read makes more queries, and this pins that the whole read still costs
+     one timeout, so ensure is no slower than it was. This is NOT a claim that the launcher's
+     unreadable-table fallback covers a boot: other work before the hand-off counts too,
+     tracked in #2983. */
   for (const [what, script] of SLOW_SCRIPTS) {
     const clock = { t: 0 };
     const r = timedRunner(script, clock, (granted) => granted);
     board.setRunner(r);
     board.ensureInstalled({ ...BUNDLE, now: () => clock.t });
-    assert.ok(clock.t <= 2 * T, what + ': ensure took ' + clock.t + 'ms (' + r.calls.join(' | ') + ')');
-    assert.ok(clock.t + probeMs < fallback, what + ': ensure (' + clock.t + 'ms) and one probe reach the launcher\'s fallback (' + fallback + 'ms)');
+    assert.ok(clock.t <= 2 * T, what + ': ensure took ' + clock.t + 'ms, more than main\'s two schtasks timeouts (' + r.calls.join(' | ') + ')');
   }
 });
 

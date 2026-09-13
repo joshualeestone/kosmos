@@ -17,7 +17,7 @@ const os = require('node:os');
 const nodePath = require('node:path');
 const http = require('node:http');
 
-const { handOffToTask, buildIdentity, BOARD_IDENTITY_HEADER } = require('./win32handoff');
+const { handOffToTask, buildIdentity, BOARD_IDENTITY_HEADER, BOARD_STARTED_BY_TASK_HEADER, probeBoard, boardStartedByTaskHeaderValue } = require('./win32handoff');
 
 const REFRESHED = { ok: true, action: 'refreshed' };
 const MINE = '0.6.55+6182640d6a1f';
@@ -159,23 +159,90 @@ test('#2973 a task whose running state could not be read is never ended: serve h
   }
 });
 
-test('#2973 German Windows: the REAL status read sees the task running, so the older board is replaced', async () => {
-  const realBoard = require('./win32board');
-  realBoard.setRunner((args) => {
-    if (args.includes('/XML')) return { ok: true, out: '<?xml version="1.0" encoding="UTF-16"?>\r\n<Task><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy></Settings></Task>' };
-    if (args.includes('/V')) return { ok: true, out: '"BUERO-PC","\\Kosmos\\board","N/A","Wird ausgeführt","Nur interaktiv","12.09.2026 22:41:43","267009","N/A"\r\n' };
-    if (args.includes('LIST')) return { ok: true, out: 'Hostname: BUERO-PC\r\nAufgabenname: \\Kosmos\\board\r\nStatus: Wird ausgeführt\r\n' };
-    return { ok: false, out: 'FEHLER: Zugriff verweigert' };
-  });
-  try {
+test('#2973 German Windows, a board too old to say: the REAL status read sees the task running, so the older board is replaced', async () => {
+  /* 267009 while running; -2147020576 (0x800710E0) while running after a /Run that
+     IgnoreNew ignored (review round 1, measured). Both are running. */
+  for (const code of ['267009', '-2147020576']) {
+    const realBoard = require('./win32board');
+    realBoard.setRunner((args) => {
+      if (args.includes('/XML')) return { ok: true, out: '<?xml version="1.0" encoding="UTF-16"?>\r\n<Task><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy></Settings></Task>' };
+      if (args.includes('/V')) return { ok: true, out: '"BUERO-PC","\\Kosmos\\board","N/A","Wird ausgeführt","Nur interaktiv","12.09.2026 22:41:43","' + code + '","N/A"\r\n' };
+      if (args.includes('LIST')) return { ok: true, out: 'Hostname: BUERO-PC\r\nAufgabenname: \\Kosmos\\board\r\nStatus: Wird ausgeführt\r\n' };
+      return { ok: false, out: 'FEHLER: Zugriff verweigert' };
+    });
+    try {
+      const w = world({ occupant: OLDER, taskRunning: true });
+      const board = { ...w.board, status: () => realBoard.status() };
+      const r = await handOffToTask(w.opts({ board }));
+      assert.equal(r.serve, false, code + ': ' + r.because);
+      assert.deepEqual(w.taskOps(), ['end', 'run'], code);
+    } finally {
+      realBoard.setRunner(null);
+    }
+  }
+});
+
+// ── #2973 review round 1: the answering board says whether its task started it ──
+
+/* The fake world's probe, plus what the answering board says about its task. */
+function sayingStartedByTask(w, startedByTask) {
+  const inner = w.probe;
+  return async (port) => {
+    const p = await inner(port);
+    return p.answering ? { ...p, startedByTask } : { ...p, startedByTask: null };
+  };
+}
+
+test('#2973 a board that SAYS its task started it is replaced without asking Task Scheduler, whatever schtasks would say', async () => {
+  for (const scheduler of [{ running: null }, { known: false, registered: false, because: 'x' }, { known: true, registered: true, enabled: true, running: null }]) {
     const w = world({ occupant: OLDER, taskRunning: true });
-    const board = { ...w.board, status: () => realBoard.status() };
-    const r = await handOffToTask(w.opts({ board }));
+    let asked = 0;
+    w.board.status = () => { asked += 1; return scheduler; };
+    const r = await handOffToTask(w.opts({ probe: sayingStartedByTask(w, true) }));
     assert.equal(r.serve, false, r.because);
     assert.deepEqual(w.taskOps(), ['end', 'run']);
-  } finally {
-    realBoard.setRunner(null);
+    assert.equal(asked, 0, 'the board\'s own word needs no schtasks and no locale');
   }
+});
+
+test('#2973 a board that SAYS its task did not start it is never ended, even when Task Scheduler reads running', async () => {
+  const w = world({ occupant: OLDER, taskRunning: true });
+  let asked = 0;
+  w.board.status = () => { asked += 1; return { known: true, registered: true, enabled: true, running: true }; };
+  const r = await handOffToTask(w.opts({ probe: sayingStartedByTask(w, false) }));
+  assert.equal(r.serve, true);
+  assert.match(r.because, /something the logon task did not start is already using port 16180/);
+  assert.deepEqual(w.taskOps(), [], 'a hand-started board in another window is somebody else\'s');
+  assert.equal(asked, 0);
+});
+
+test('#2973 a board that predates the header falls back to Task Scheduler', async () => {
+  const w = world({ occupant: OLDER, taskRunning: true });
+  let asked = 0;
+  w.board.status = () => { asked += 1; return { known: true, registered: true, enabled: true, running: true }; };
+  const r = await handOffToTask(w.opts({ probe: sayingStartedByTask(w, null) }));
+  assert.equal(r.serve, false, r.because);
+  assert.equal(asked, 1);
+  assert.deepEqual(w.taskOps(), ['end', 'run']);
+});
+
+test('#2973 the real probe reads the started-by-task header: 1, 0, absent', async () => {
+  for (const [sent, expected] of [['1', true], ['0', false], [undefined, null], ['yes', null]]) {
+    const headers = { [BOARD_IDENTITY_HEADER]: OLDER };
+    if (sent !== undefined) headers[BOARD_STARTED_BY_TASK_HEADER] = sent;
+    await serveOnce((q, s) => { s.writeHead(200, headers); s.end('<html></html>'); }, async (port) => {
+      const p = await probeBoard(port);
+      assert.equal(p.answering, true);
+      assert.equal(p.startedByTask, expected, 'header ' + String(sent));
+    });
+  }
+});
+
+test('#2973 the header value is the board\'s own marker, one writer for the reader above', () => {
+  const board = require('./win32board');
+  assert.equal(boardStartedByTaskHeaderValue({ [board.MARKER_ENV]: board.TASK_NAME }), '1');
+  assert.equal(boardStartedByTaskHeaderValue({}), '0');
+  assert.equal(boardStartedByTaskHeaderValue({ [board.MARKER_ENV]: 'Kosmos\\agent-fred' }), '0');
 });
 
 test('🛑 the SAME version from a different commit is an update, not "already running"', async () => {
