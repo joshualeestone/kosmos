@@ -88,17 +88,20 @@ async function openPage(browser, platform) {
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('file://' + PAGE);
   const ready = await page.evaluate((plat) => {
-    if (typeof refreshMachineRows !== 'function' || typeof applyPlatformCopy !== 'function') return false;
+    if (typeof refreshMachineRows !== 'function' || typeof applyPlatformCopy !== 'function'
+      || typeof showTab !== 'function' || typeof settingsOpen !== 'function') return false;
     window.__machine.platform = plat;
     if (plat === 'win32') {
       document.querySelector('meta[name="kosmos-platform"]').setAttribute('content', 'win32');
       applyPlatformCopy(document);
     }
-    const mach = document.getElementById('set-machine');
-    for (let n = mach; n; n = n.parentElement) {
-      n.removeAttribute('hidden');
-      if (getComputedStyle(n).display === 'none') n.style.display = 'block';
-    }
+    /* Open "This computer" the way the app does (index.html: showTab('settings') then
+       settingsOpen('mac')), so #set-machine is the visible, hit-testable top view.
+       Merely stripping `hidden`/`display:none` off its ancestors left the other
+       top-level views stacked over it, so page.click hit a covering element and timed
+       out on a target it could never reach. */
+    showTab('settings');
+    settingsOpen('mac', { focus: false });
     return true;
   }, platform);
   return { ctx, page, errors, ready };
@@ -146,6 +149,7 @@ async function readSwitch(page) {
       check(`${engine}: the switch is a labelled switch, on`, on.role === 'switch' && on.checked === 'true' && on.label === LABEL, JSON.stringify(on));
       check(`${engine}: the knob sits at the on end`, on.knobShift > 10, String(on.knobShift));
 
+      await win.page.waitForSelector(SWITCH, { state: 'visible' });
       await win.page.click(SWITCH);
       await win.page.waitForFunction((sel) => window.__posts.length === 1 && document.querySelector(sel)
         && document.querySelector(sel).getAttribute('aria-checked') === 'false', SWITCH, { timeout: 5000 }).catch(() => {});
@@ -156,6 +160,7 @@ async function readSwitch(page) {
       check(`${engine}: a change that worked shows no message`, !off.msgShown, off.msg);
 
       await win.page.evaluate((error) => { window.__machine.postStatus = 409; window.__machine.postError = error; }, REFUSAL);
+      await win.page.waitForSelector(SWITCH, { state: 'visible' });
       await win.page.click(SWITCH);
       await win.page.waitForFunction(() => window.__posts.length === 2 && !document.getElementById('set-machine-msg').hidden, null, { timeout: 5000 }).catch(() => {});
       const refused = await readSwitch(win.page);
@@ -163,6 +168,7 @@ async function readSwitch(page) {
       check(`${engine}: a refused click leaves the switch where the engine says (off)`, refused.present && refused.checked === 'false', JSON.stringify(refused));
 
       await win.page.evaluate(() => { window.__machine.postStatus = 200; window.__machine.readable = false; });
+      await win.page.waitForSelector(SWITCH, { state: 'visible' });
       await win.page.click(SWITCH);
       await win.page.waitForFunction((sel) => window.__posts.length === 3 && !document.querySelector(sel), SWITCH, { timeout: 5000 }).catch(() => {});
       const unread = await readSwitch(win.page);
