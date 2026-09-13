@@ -84,13 +84,14 @@ test('servedPlatform: unstamped is not Windows, win32 is, and a payload\'s own p
 });
 
 test('ONE comparison: the page compares against win32 in exactly one place', () => {
+  /* Counts COMPARISONS (===, !==, ==, != against the literal, either side), not every
+     appearance of the word: the <html> stamp writes the literal and decides nothing. */
   const code = SCRIPT.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/[^\n]*$/gm, '');
-  const hits = code.match(/['"]win32['"]/g) || [];
-  assert.equal(hits.length, 2, 'a second platform check appeared: ' + hits.length
-    + ' (expected the one in onWindows and the one in applyPlatformCopy\'s stamp)');
+  const comparisons = code.match(/[!=]==?\s*['"]win32['"]|['"]win32['"]\s*[!=]==?/g) || [];
+  assert.deepEqual(comparisons, ["=== 'win32'"], 'the page compares against win32 somewhere other than onWindows');
   assert.match(code, /return known === 'win32';/);
-  assert.match(code, /setAttribute\('data-kosmos-platform', 'win32'\)/);
-  assert.doesNotMatch(code, /\.platform === 'win32'/, 'a painter compares the platform itself again');
+  /* CONTROL: the counter really sees a comparison written the other way round. */
+  assert.equal(("if ('win32' === p) {}").match(/[!=]==?\s*['"]win32['"]|['"]win32['"]\s*[!=]==?/g).length, 1);
 });
 
 /* ---------------------------------------------------------------------------
@@ -98,7 +99,8 @@ test('ONE comparison: the page compares against win32 in exactly one place', () 
 --------------------------------------------------------------------------- */
 
 const COPY_KEYS_IN_MARKUP = ['s3Lead', 's3SleepCaption', 's3SleepHow', 's3BatteryNote', 's7Body', 's7Tip',
-  'settingsRevealButton', 'settingsOpenKosmos', 'terminalTab', 'terminalBoxTitle', 'trustRestartHint', 'docsOpenFolder'];
+  'settingsRevealButton', 'settingsOpenKosmos', 'terminalTab', 'terminalBoxTitle', 'trustRestartHint', 'docsOpenFolder',
+  'updateOpenFolder'];
 
 test('every data-win-copy key in the markup has a Windows string, and the list is the one expected', () => {
   const keys = [...PAGE.matchAll(/data-win-copy="([^"]+)"/g)].map((m) => m[1]);
@@ -122,8 +124,14 @@ test('applyPlatformCopy: on Windows it stamps <html>, swaps every keyed element 
     const copyEls = [...PAGE.matchAll(/<(\w+)([^>]*?)data-win-copy="([^"]+)"([^>]*)>([^<]*)/g)]
       .map((m) => ({ key: m[3], innerHTML: m[5], getAttribute: (n) => (n === 'data-win-copy' ? m[3] : null) }));
     const onlyEls = [...PAGE.matchAll(/<p data-win-only hidden data-win-copy="([^"]+)">/g)].map(() => ({ hidden: true }));
-    const root = { querySelectorAll: (sel) => (sel === '[data-win-copy]' ? copyEls : sel === '[data-win-only]' ? onlyEls : []) };
-    return { html, copyEls, onlyEls, root };
+    const ariaEls = [...PAGE.matchAll(/<(\w+)[^>]*?aria-label="([^"]*)"[^>]*?data-win-aria-label="([^"]+)"/g)].map((m) => ({
+      key: m[3], attrs: { 'aria-label': m[2] },
+      getAttribute(n) { return n === 'data-win-aria-label' ? m[3] : this.attrs[n]; },
+      setAttribute(n, v) { this.attrs[n] = v; },
+    }));
+    const root = { querySelectorAll: (sel) => (sel === '[data-win-copy]' ? copyEls : sel === '[data-win-only]' ? onlyEls
+      : sel === '[data-win-aria-label]' ? ariaEls : []) };
+    return { html, copyEls, onlyEls, ariaEls, root };
   };
   const apply = (platform, world) => {
     const doc = { ...docFor(platform), documentElement: world.html };
@@ -137,6 +145,7 @@ test('applyPlatformCopy: on Windows it stamps <html>, swaps every keyed element 
   assert.deepEqual(mac.html.attrs, {}, 'a Mac page was stamped as Windows');
   assert.deepEqual(mac.copyEls.map((e) => e.innerHTML), before, 'a Mac element was rewritten');
   assert.ok(mac.onlyEls.length === 2 && mac.onlyEls.every((e) => e.hidden), 'a Windows-only paragraph showed on a Mac');
+  assert.deepEqual(mac.ariaEls.map((e) => e.attrs['aria-label']), ['Terminal'], 'a Mac accessible name was renamed');
 
   const win = build();
   apply('win32', win);
@@ -144,8 +153,50 @@ test('applyPlatformCopy: on Windows it stamps <html>, swaps every keyed element 
   assert.ok(win.copyEls.length >= COPY_KEYS_IN_MARKUP.length);
   for (const el of win.copyEls) assert.equal(el.innerHTML, table[el.key], `${el.key} was not swapped`);
   assert.ok(win.onlyEls.every((e) => e.hidden === false), 'a Windows-only paragraph stayed hidden on Windows');
+  for (const el of win.ariaEls) assert.equal(el.attrs['aria-label'], table[el.key], `${el.key} accessible name was not swapped`);
 
   assert.match(PAGE, /applyPlatformCopy\(typeof document === 'undefined' \? null : document\);/, 'the layer is never applied at load');
+});
+
+test('BUG a11y (review round 1): the agent\'s Terminal section is NAMED what its tab says, "Live output" on Windows', () => {
+  /* The tab's visible label and the section's accessible name are one fact, so they come
+     from one key: a screen reader must not announce "Terminal" under a "Live output" tab. */
+  assert.match(PAGE, /<button type="button" data-go="term" aria-controls="d-sec-term" data-win-copy="terminalTab">Terminal<\/button>/);
+  assert.match(PAGE, /<section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-win-aria-label="terminalTab" data-tied="1" hidden>/,
+    'the Terminal section is not named from the same key as its tab');
+  assert.match(page.lift(SCRIPT, 'applyPlatformCopy'),
+    /querySelectorAll\('\[data-win-aria-label\]'\)\.forEach\(\(el\) => \{ el\.setAttribute\('aria-label', windowsCopy\(el\.getAttribute\('data-win-aria-label'\)\)\); \}\)/);
+  assert.equal(table.terminalTab, 'Live output');
+});
+
+test('CONVENTION (review round 1): the Copy button, the folder button and every composed Windows sentence read the table', () => {
+  const copy = page.lift(SCRIPT, 'copyCommandFrom');
+  assert.match(copy, /button\.textContent = windowsCopy\(copied \? 'copyDone' : 'copyFallback'\);/);
+  assert.match(copy, /button\.textContent = windowsCopy\('copyLabel'\);/);
+  assert.doesNotMatch(copy, /'Copied'|'Select it and copy'|'Copy'/, 'a Copy button label is inline again');
+  assert.deepEqual([table.copyLabel, table.copyDone, table.copyFallback], ['Copy', 'Copied', 'Select it and copy']);
+  assert.equal(table.updateOpenFolder, 'Open my Kosmos folder');
+  const handlerAt = SCRIPT.indexOf("getElementById('upd-open-folder').addEventListener('click'");
+  const handler = SCRIPT.slice(handlerAt, SCRIPT.indexOf('\n});', handlerAt));
+  assert.equal((handler.match(/windowsCopy\('openKosmosFolderFailure'\)/g) || []).length, 2);
+  assert.doesNotMatch(handler, /We could not open your Kosmos folder/, 'the folder failure sentence is inline again');
+  assert.match(page.lift(SCRIPT, 'paintUpdateAbort'), /\? windowsCopy\('updateAbortRemedy'\)/);
+  assert.match(page.lift(SCRIPT, 'renderUpdateToast'), /\? windowsCopy\('engineStaleRemedy'\)/);
+});
+
+test('SAFETY 1 UI (review round 1): every Documents open handler shows the sentence when Windows showed a file instead of opening it', () => {
+  const handlers = [];
+  let at = SCRIPT.indexOf("/open-file',");
+  while (at > -1) {
+    handlers.push(SCRIPT.slice(at, at + 900));
+    at = SCRIPT.indexOf("/open-file',", at + 1);
+  }
+  assert.equal(handlers.length, 3, 'an open-file handler was added or lost');
+  for (const h of handlers) {
+    assert.match(h, /b && b\.revealedInstead && b\.say/, 'an open-file handler drops the "shown instead of opened" sentence: ' + h.slice(0, 160));
+  }
+  assert.ok(SERVER.includes("opened.revealedInstead ? { ok: true, revealedInstead: true, say: opened.say } : { ok: true }"),
+    'the open-file route no longer carries the sentence to the page');
 });
 
 test('one CSS rule hides the Mac-only surfaces, and it is on each one the audits named', () => {
@@ -300,7 +351,10 @@ test('the recovery toasts on Windows say to restart Kosmos by double-clicking Ko
   assert.match(offline, /Double-click Kosmos\.exe in your Kosmos folder and it will start again if it needs to\./);
   assert.doesNotMatch(offline, /Applications folder/);
   const sw = page.lift(SCRIPT, 'worldswSwitch');
-  assert.match(sw, /\? 'Kosmos could not restart itself\. To finish switching to ' \+ switchedName \+ ', ' \+ windowsCopy\('restartKosmos'\)/);
+  assert.match(sw, /\? windowsCopy\('worldSwitchRestart'\)\.replace\('%NAME%', \(\) => switchedName\)/);
+  assert.equal(table.worldSwitchRestart.replace('%NAME%', () => 'Side $& Project'),
+    'Kosmos could not restart itself. To finish switching to Side $& Project, ' + restart,
+    'a Kosmos name is not inserted literally (a replacement pattern in the name was interpreted)');
 });
 
 test('MAC UNCHANGED: the three recovery toasts and the world-switch sentence', () => {

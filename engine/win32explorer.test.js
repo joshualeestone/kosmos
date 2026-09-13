@@ -54,11 +54,15 @@ test('a forward-slash spelling is normalized, and a trailing separator is droppe
 test('SAFETY 3: a comma stays inside the ONE quoted argument, so it can neither split the path nor add a switch', () => {
   withWorld({}, (calls) => {
     assert.equal(explorer.openFolder('C:\\Users\\someone\\Kosmos\\Projects\\Q3,Q4').ok, true);
-    assert.equal(explorer.openFolder('C:\\Users\\someone\\x,/root,C:\\Windows').ok, true);
+    assert.equal(explorer.openFolder('C:\\Users\\someone\\x,/root,').ok, true);
     assert.deepEqual(calls.map((c) => c.args), [
       [q('C:\\Users\\someone\\Kosmos\\Projects\\Q3,Q4')],
-      [q('C:\\Users\\someone\\x,/root,C:\\Windows')],
+      [q('C:\\Users\\someone\\x,\\root,')],
     ]);
+    /* A switch that names a second drive path carries a colon past the drive letter, which is
+       refused outright (the alternate-data-stream rule) before quoting is even reached. */
+    assert.equal(explorer.openFolder('C:\\Users\\someone\\x,/root,C:\\Windows').ok, false);
+    assert.equal(calls.length, 2);
   });
   /* And the spawn itself passes the argument verbatim, so Node adds no quoting of its own. */
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'win32explorer.js'), 'utf8');
