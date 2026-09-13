@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: win32-board-copy
-diff_hash: 03f1df25f5eac559c3ec0b46a9b7868bfaa34e95d4e9cf4a3f729ccfe6c87004
+diff_hash: ddb4017196f3507c91733204747c68e34c8f26f400489664fb7eb26bb9f3116e
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-13T05:01:04Z
+timestamp: 2026-09-13T05:07:06Z
 iterations: 3
 converged: true
 ---
@@ -14,7 +14,7 @@ converged: true
 
 **Iterations:** 3 (opus, opus, sonnet).
 **Converged:** yes. Round 3 found NO NEW FINDINGS.
-**Fixed:** everything from rounds 1-2: 3 SAFETY, 1 BUG (a11y), 3 CONVENTIONs, 4 NITs, 2 TEST-GAPs, plus 2 residuals taken. After convergence, three CI failure causes on PR #2984 were also fixed (see "After convergence: CI").
+**Fixed:** everything from rounds 1-2: 3 SAFETY, 1 BUG (a11y), 3 CONVENTIONs, 4 NITs, 2 TEST-GAPs, plus 2 residuals taken. After convergence, three CI failure causes on PR #2984 were fixed, then the branch was rebased onto main for a merge conflict (see "After convergence: CI").
 
 **Asked (awaiting user):** 0. The coordinator made these design calls:
 - an allow-list for opening documents on Windows; anything else is revealed;
@@ -24,11 +24,9 @@ converged: true
 - a 1.5 s powercfg cache.
 
 **How the hash was taken:** `diff_hash` is the sha256 of the raw bytes of `git diff origin/main HEAD -- . ':!.claude/plans/win32-board-copy-pre-challenge.md'`, computed with node over git's own output.
-- It was re-taken after the CI fixes at `91bc02af` (328,213 bytes), against `origin/main` `c6812e0a`.
-- The branch's merge-base is `c05c662d`; the branch is 17 commits ahead and 4 behind.
-- Because the recipe diffs two trees, the hashed bytes also carry `origin/main`'s four commits since the base: #2977 (`engine/create.js`, `engine/worldstarts.js`, their tests, `server.world-switch-agents-1704.test.js`) and #2985 (`install/kosmos`, `install/setup.sh`, `package.json`, installer tests), plus their plan files.
-- Those 16 files overlap none of the 34 this branch changes. `git merge-tree` onto `c6812e0a` is clean, and GitHub reports the PR `MERGEABLE`, so the branch was not rebased.
-- Earlier hashes (`ca9f2dd6…` at `db765875`, `a5820d70…` at `04bc30a3`) are superseded.
+- It was taken at `1df837c4` (239,315 bytes), after the rebase.
+- `origin/main` is `da1b5a21`, which is also the merge-base; the branch is 19 commits ahead and 0 behind. The hashed bytes are therefore exactly this branch's own changes, with none of main's.
+- Superseded hashes (each taken while main had moved past the old base, so each also carried main's commits): `ca9f2dd6…` at `db765875`, `a5820d70…` at `04bc30a3`, `03f1df25…` at `91bc02af`.
 - The pre-challenge-gate hook isn't installed on this Windows box, so the recipe is written out here.
 
 ## Validation of record
@@ -37,6 +35,7 @@ All runs used the Kosmos runtime node v24.19 via PowerShell, the schtasks guard 
 
 - **Round 2 fixes, builder:** the same 238 files on the branch and on a `git archive` of `c05c662d`. Both sides have 111 failures, with 0 differences by name and first error line (ports, temp suffixes and hashes normalized). The shared failures are Mac-assumption suites that fail on this box on main.
 - **Round 3, reviewer:** 17 named suites in the worktree, 145/145 pass. The archive comparison of the 13 overlapping files is identical; the one failure on both sides is `fixture-discipline`'s `git ls-files` check, which can't run in a `.git`-less archive.
+- **After the rebase onto `da1b5a21`:** 10 targeted suites pass 88/88. They include #2986's `server.board-identity-header-570.test.js`, `web.win32-board-copy`, `engine.reachable`, the explorer, machine-sleep and project-reveal suites, and the browser-check index and wiring tests. The full 238-file comparison was not re-run after the rebase.
 - **Harness scan:** no source-extraction harness newly fails. Every harness that lifts page functions loads the copy layer via `PLATFORM_COPY_FNS`.
 - **Block log:** only read-only `schtasks /Query` calls from pre-existing suites. No test launched Explorer, Settings or a powercfg change; everything went through runner seams.
 - **Mac unchanged:** a headless Edge render of head vs base (round 1 and round 2) showed only new elements hidden on the Mac. Every Mac painter's output and the wizard walk match.
@@ -83,7 +82,7 @@ All runs used the Kosmos runtime node v24.19 via PowerShell, the schtasks guard 
 
 ## After convergence: CI
 
-PR #2984 went red at head `f5938bb3`, and a first fix at `84790346` surfaced a third cause. All three were in browser-check files and gates; none changes product code.
+PR #2984 went red at head `f5938bb3`, and a first fix at `84790346` surfaced a third cause. All three were in browser-check files and gates; none changes product code. Then main merged #2986 and the PR conflicted, so the branch was rebased.
 
 1. **Test jobs (runs 34737981633, 34737983327): `✖ the browser-checks README names every script, and no script it does not have`.**
    - **Cause:** the new `docs/browser-checks/render-win32-board-copy.js` had no row in `docs/browser-checks/README.md`, which `browser-checks-indexed.test.js` requires for every script.
@@ -99,6 +98,11 @@ PR #2984 went red at head `f5938bb3`, and a first fix at `84790346` surfaced a t
    - **Neither check is affected:**
      - `render-first-run.js` only anchors its S7 screenshot on `#fr-success`, and `data-win-hide` applies only under `html[data-kosmos-platform="win32"]`, which a Mac board never stamps.
      - `render-connect-win32-install-570.js` asserts the `.fr-cmd` text, its pre-wrap wrapping, the Try again tail and the platform plus `canInstallClaude` gate, all unchanged.
-   - **Fix:** the gate's own per-check override, two `Browser-check-surface:` trailers with those reasons, in commit `66d2f98b`.
-   - **Local result** through Git bash against origin/main: the surface gate (#2518) exits 0 and names both overrides; the coarse gate (#1720) exits 0.
+   - **Fix:** the gate's own per-check override, two `Browser-check-surface:` trailers with those reasons, carried through the rebase.
+   - **Local result** through Git bash against origin/main, before and after the rebase: the surface gate (#2518) exits 0 and names both overrides; the coarse gate (#1720) exits 0.
    - **CONTROL:** the same surface gate with the two trailers withheld from the commit messages refuses, naming exactly the two checks CI named, and exits 1.
+4. **Merge conflict after the push of `a50ea99e`: rebased onto origin/main `da1b5a21`.**
+   - **Cause:** main merged #2986 (win32-board-status-2973), and GitHub reported the PR `CONFLICTING`, the one condition under which this branch is rebased. The single conflict was in `server.js` at the page write: #2986 extended the comment and added `[BOARD_STARTED_BY_TASK_HEADER]: boardStartedByTaskHeaderValue()` to the `writeHead` line, directly above this branch's `res.end(stampServedPlatform(buf))`.
+   - **Resolution:** keep both, main's comment and two-header `writeHead`, then the stamped `res.end`. No other file conflicted.
+   - **Verified:** 10 targeted suites pass 88/88 on the rebased tree, including #2986's header test and the stamp pin in `web.win32-board-copy`; both browser-check gates re-run as above.
+   - **Push:** a force-push with lease pinned to the old remote head `a50ea99e`, since a rebased branch cannot fast-forward.
