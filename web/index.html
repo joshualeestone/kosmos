@@ -8653,7 +8653,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
 <div class="rm-back" id="updconfirm" hidden>
   <div class="rm-box" role="dialog" aria-modal="true" aria-labelledby="uc-t" aria-describedby="uc-small">
     <h2 class="rm-title" id="uc-t">Update Kosmos?</h2>
-    <p class="rm-small" id="uc-small">Kosmos closes for a few seconds while it updates.
+    <p class="rm-small" id="uc-small" data-win-copy="updateConfirmBody">Kosmos closes for a few seconds while it updates.
       <b>Your agents keep working the whole time.</b></p>
     <p class="rm-small" id="uc-err" role="alert" hidden></p>
     <div class="rm-acts">
@@ -13350,6 +13350,14 @@ function windowsCopyTable() {
     startAtSignInLabel: 'Start Kosmos when I sign in to Windows',
     startAtSignInFailure: 'We could not change whether Kosmos starts when you sign in just now.',
     startAtSignInUnread: 'We could not read whether Kosmos starts when you sign in just now.',
+    /* Settings > Updates, the in-app updater armed (S4). The confirm dialog: the win32 updater
+       downloads first, THEN stops the board to swap the new build in place, which the Mac's does not,
+       so its body names both steps. */
+    updateConfirmBody: 'Kosmos downloads the update, then closes for a few seconds while it swaps it in. <b>Your agents keep working the whole time.</b>',
+    /* The overlay's outcome copy (S4). A win32 rollback leaves the box exactly as it was, so the
+       failure sentence says so; the slow remedy points at Kosmos.exe rather than the Mac's Applications. */
+    updateNothingChanged: 'Nothing else was changed.',
+    updateSlowRemedy: 'If Kosmos does not come back on its own, double-click Kosmos.exe in your Kosmos folder.',
     /* Settings > Updates, the manual offer (W-25). */
     updateManualLead: 'To install it, follow these steps.',
     updateManualSteps: '<li>Click <b>Download</b>.</li>'
@@ -15598,9 +15606,14 @@ document.getElementById('uc-go').addEventListener('click', async () => {
    * a ring that fills would claim to know how far along an update is, on the one
    * screen that cannot know — the same claim this app refuses everywhere else.
    */
+  /* 🪟 win32: the swap downloads FIRST while the board still runs, then stops it to swap in place, so
+     the overlay leads with "Downloading X." and turns to "Updating." when the board goes away (the
+     poll loop below tracks that by reachability). The Mac installer does it all after the board stops,
+     so its lead stays "Updating." -- updateOverlayLead returns that verbatim off Windows. */
+  const downloading = body && body.updating ? String(body.updating) : '';
   back.innerHTML = '<div class="upd-msg" role="alert" tabindex="-1">'
     + '<canvas class="upd-k" width="176" height="206" role="img" aria-label="Updating"></canvas>'
-    + '<b>Updating.</b> Your agents keep working.</div>';
+    + '<b>' + esc(updateOverlayLead(true, downloading)) + '</b> Your agents keep working.</div>';
   document.body.appendChild(back);
   /* After it is in the document: the loader measures the canvas, and a detached
      one has no layout to measure. */
@@ -15635,14 +15648,7 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   const bootBefore = LAST_BOOTED_AT || null;
   const settle = (verdict, versionNow, attempt) => {
     const logAt = (attempt && attempt.log) || logSeen || null;
-    const still = versionNow ? ' Kosmos is still on ' + esc(versionNow) + '.' : '';
-    const notes = logAt ? ' The installer\'s notes are at <code>' + esc(logAt) + '</code>.' : '';
-    const text = verdict === 'failed'
-      ? '<b>The update did not take.</b>The installer ' + (attempt && attempt.code != null ? 'stopped (code ' + esc(String(attempt.code)) + ')' : 'could not be started') + '.' + still + notes
-      : verdict === 'did-not-take'
-        ? '<b>The update did not take.</b>Kosmos came back on the same version.' + still + notes
-        : '<b>This is taking longer than expected.</b>' + still.replace(/^ /, '')
-          + ' If Kosmos does not come back on its own, open it again from Applications.' + notes;
+    const text = updateSettleText(verdict, versionNow, attempt, logAt);
     /* One span for the sentence: .upd-msg is a flex column, so bare
        inline children (the <code> path, the closing period) would each
        become their own row. */
@@ -15665,9 +15671,13 @@ document.getElementById('uc-go').addEventListener('click', async () => {
         bootNow = st.bootedAt || null; if (st.updateLog) logSeen = st.updateLog;
       }
     } catch { /* a throw is not evidence of anything; the boot identity is */ }
+    /* 🪟 win32: while the board still answers it is downloading; when it stops answering the swap is
+       under way. Update the lead from that, and skip the Mac-only "Still updating." relabel below,
+       whose wording this two-state Windows lead replaces. */
+    if (onWindows()) { const b = msg.querySelector('b'); if (b) b.textContent = updateOverlayLead(reached, downloading); }
     const verdict = updateVerdict({ elapsedMs: Date.now() - t0, reached, before, now: versionNow, attempt, myStart, bootBefore, bootNow });
     if (verdict === 'done') { location.reload(); return; }
-    if (verdict === 'slow') { msg.querySelector('b').textContent = 'Still updating.'; continue; }
+    if (verdict === 'slow') { if (!onWindows()) msg.querySelector('b').textContent = 'Still updating.'; continue; }
     if (verdict !== 'waiting') { settle(verdict, versionNow, attempt); return; }
   }
 });
@@ -15690,6 +15700,32 @@ function updateVerdict(v) {
   if (v.elapsedMs >= 3 * 60 * 1000) return 'deadline';
   if (v.elapsedMs >= 90 * 1000 && v.reached && !rebooted) return 'slow';
   return 'waiting';
+}
+
+/* #553 + S4: the overlay's failure/slow sentence, pure so the suite drives every branch on either
+   platform. `logAt` is the installer's notes path, already resolved by the caller. win32 rolls the
+   box back to exactly where it was, so 'failed' and 'did-not-take' read one honest sentence there;
+   the Mac keeps its installer-worded pair byte-for-byte. `platform` is a seam defaulting to the
+   served platform, so a test can drive either OS. */
+function updateSettleText(verdict, versionNow, attempt, logAt, platform) {
+  const still = versionNow ? ' Kosmos is still on ' + esc(versionNow) + '.' : '';
+  const notes = logAt ? ' The installer\'s notes are at <code>' + esc(logAt) + '</code>.' : '';
+  if (verdict === 'failed' || verdict === 'did-not-take') {
+    if (onWindows(platform)) return '<b>The update did not take.</b>' + still + ' ' + windowsCopy('updateNothingChanged') + notes;
+    return verdict === 'failed'
+      ? '<b>The update did not take.</b>The installer ' + (attempt && attempt.code != null ? 'stopped (code ' + esc(String(attempt.code)) + ')' : 'could not be started') + '.' + still + notes
+      : '<b>The update did not take.</b>Kosmos came back on the same version.' + still + notes;
+  }
+  return '<b>This is taking longer than expected.</b>' + still.replace(/^ /, '') + ' '
+    + platformCopy('updateSlowRemedy', 'If Kosmos does not come back on its own, open it again from Applications.', platform) + notes;
+}
+
+/* 🪟 S4: the win32 overlay lead -- "Downloading X." while the board still answers, "Updating." once
+   it stops to swap. Off Windows the Mac overlay says "Updating." throughout, returned verbatim so the
+   served Mac page stays byte-identical. `platform` is a seam defaulting to the served platform. */
+function updateOverlayLead(reached, version, platform) {
+  if (!onWindows(platform)) return 'Updating.';
+  return reached ? ('Downloading ' + version + '.') : 'Updating.';
 }
 
 /* "Updated. You are on Kosmos X." -- once, from the first status after a
