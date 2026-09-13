@@ -235,7 +235,7 @@ async function readConnectCard(browser) {
         has.showsCommand && has.commandText === SIGNIN_LINE && has.commandInHatch && has.copyBeside,
         `text ${JSON.stringify(has.commandText)}, in hatch ${has.commandInHatch}, copy ${has.copyBeside}`);
       check(`${engine}: and the steps end at Login successful and Try again`,
-        /When PowerShell says Login successful, come back here and click Try again\./.test(has.text) && !/type claude/i.test(has.text),
+        /If PowerShell asks for a code, copy the code your browser shows and paste it into PowerShell\. When PowerShell says Login successful, come back here and click Try again\./.test(has.text) && !/type claude/i.test(has.text),
         JSON.stringify(has.text.slice(-160)));
       const noLine = card.got.windowsNoLine;
       check(`${engine}: a Windows PC the engine named no file for gets the install command and no hatch`,

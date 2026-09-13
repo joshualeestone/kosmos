@@ -418,8 +418,11 @@ test('the Claude card on Windows: PowerShell steps, a Copy button, no macOS clau
      PowerShell line (the stuck card puts it, with Copy, between these two halves). */
   assert.equal(table.claudeSigninHatchLead, '<details class="fr-hatch" open><summary>Sign in to Claude yourself</summary>'
     + 'Claude Code is already on this PC, so you can sign in to Claude outside Kosmos. Open the Start menu, type <b>PowerShell</b>, and press Enter. '
-    + 'Paste this line and press Enter, then finish signing in in your browser:');
-  assert.equal(table.claudeSigninHatchEnd, 'When PowerShell says <b>Login successful</b>, come back here and click <b>Try again</b>.</details>');
+    + 'Paste this line and press Enter, then follow the steps in your browser:');
+  /* Whether the sign-in finishes in the browser alone or asks for a pasted code is unmeasured
+     until the live check (L-1 iii and iv), so the steps cover both. */
+  assert.equal(table.claudeSigninHatchEnd, 'If PowerShell asks for a code, copy the code your browser shows and paste it into PowerShell. '
+    + 'When PowerShell says <b>Login successful</b>, come back here and click <b>Try again</b>.</details>');
   assert.ok(!('claudeTerminalHatch' in table), 'the "type claude" Windows hatch is back in the table');
   const win = confirmSentence('win32', { platform: 'win32', canInstallClaude: false, willInstall: true });
   assert.equal(win, table.claudeConfirmSentence);

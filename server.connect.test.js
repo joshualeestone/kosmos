@@ -1627,7 +1627,8 @@ test('win32-signin-web-copy: a Windows PC that already has Claude Code is not to
   assert.ok(html.includes(WINDOWS_SIGNIN_LINE_ON_THE_CARD), 'the engine\'s line is not on the card verbatim beside a Copy button: ' + html);
   assert.equal((html.match(/<pre class="fr-cmd">/g) || []).length, 1, 'the card shows more than one command');
   assert.doesNotMatch(html, /type <b>claude<\/b>/i, 'the card tells the person to type bare claude, which a PATH may not find');
-  assert.match(html, /When PowerShell says <b>Login successful<\/b>, come back here and click <b>Try again<\/b>\.<\/details>/);
+  assert.match(html, /If PowerShell asks for a code, copy the code your browser shows and paste it into PowerShell\. When PowerShell says <b>Login successful<\/b>, come back here and click <b>Try again<\/b>\.<\/details>/,
+    'the hatch no longer tells the person what to do if PowerShell asks for a code');
   assert.match(html, /Nothing is broken by this\. You can try again, or carry on and connect later from Settings\./);
   assert.ok(actions && actions.primary === 'Try again' && actions.alt === 'Continue anyway');
 });
