@@ -2736,6 +2736,10 @@ body.consolidated .pj-anc { justify-content: flex-start; }
 .pj-crumb { display: flex; align-items: baseline; min-width: 0; font-size: .8125rem; color: var(--k-ink-2); }
 .pj-crumb-lead { min-width: 0; flex: 0 999 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pj-crumb-cur { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The separator between the lead and the current crumb is a direct flex child; keep it
+   from shrinking so it stays visible even when the lead truncates. The inter-ancestor
+   separators live inside .pj-crumb-lead and are not matched by this child combinator. */
+.pj-crumb > .pj-crumb-sep { flex: none; }
 .pj-crumb .pj-crumb-sep { opacity: .55; }
 .pj-subs { margin: 4px 0 8px; }
 .pj-subs .dlab { margin: 0 0 8px; }
@@ -36988,7 +36992,12 @@ function paintOneProject() {
        "you are here" name is never the piece CSS truncates away. A top-level project
        has no lead -- just the single current crumb. */
     if (anc.length) {
-      crumbEl.innerHTML = '<span class="pj-crumb-lead">' + anc.map((n) => esc(n)).join(sep) + sep + '</span>'
+      /* The separator BEFORE the current crumb sits OUTSIDE the lead (a flex:none child
+         of .pj-crumb), so when the lead ellipsis-truncates hard it is not eaten with the
+         lead -- the row stays "Kosm… / Mobile", never an ambiguous "Kosm… Mobile". The
+         inter-ancestor separators stay inside the lead and truncate with it. */
+      crumbEl.innerHTML = '<span class="pj-crumb-lead">' + anc.map((n) => esc(n)).join(sep) + '</span>'
+        + sep
         + '<span class="pj-crumb-cur">' + esc(cur) + '</span>';
     } else {
       crumbEl.innerHTML = '<span class="pj-crumb-cur">' + esc(cur) + '</span>';

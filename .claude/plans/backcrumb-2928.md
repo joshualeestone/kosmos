@@ -56,4 +56,21 @@ Project detail shows a top-left back chevron (up one nesting level, or to the li
 ## Weakest premise
 That nesting-based back (not a literal last-screen history) is what Josh means by "prior screen." Mitigated: it matches the breadcrumb, needs no fragile history stack, and is a one-line change if he wants literal history later.
 
-## STATUS: code applied and committed on branch backcrumb-2928 (rebased onto current origin/main). Edits 1-4, the test/gate work (render-subprojects-1994.js updated: reads #pj-crumb, asserts the full ordered chain, clicks #pj-back and asserts navigation up/to-list), and web.consolidated-980.test.js count guard (5 -> 6) are all in. Full suite green. Challenge-loop in progress; PR to follow on convergence.
+## Challenge-loop refinements (as-built deviations from the exact edits above)
+The exact edits above are the initial design; the challenge loop hardened three points. Recording
+the deviations so the plan matches what shipped:
+- **Container element: `<p>`, not `<nav aria-label="Project location">`.** A `nav` landmark wrapping
+  non-interactive spans (the crumb segments are plain text, not links) presents an EMPTY landmark to
+  assistive tech, which the WAI-ARIA breadcrumb pattern reserves for navigable items. A `<p>` reads
+  the same chain (the vh commas preserve the spoken separation) without the misleading landmark. The
+  aria-label was dropped too: on a non-landmark element it can suppress the crumb text in some AT.
+- **Current project is a protected crumb.** The breadcrumb renders `<span class="pj-crumb-lead">`
+  (ancestors, carries the ellipsis, `flex: 0 999 auto` so it shrinks first) + a separator + a
+  `<span class="pj-crumb-cur">` (current project, `flex: 0 1 auto`). A single overflow:hidden
+  container end-truncated the TAIL, i.e. the current project's own name, the one piece a "you are
+  here" breadcrumb must show. The lead now absorbs the truncation instead. The separator before the
+  current crumb sits OUTSIDE the lead (a `flex: none` child) so hard truncation cannot eat it.
+- **Back chevron aria-label names its live target** ("Back to <parent>" / "Back to all projects"),
+  set in paintOneProject via setAttribute, rather than a bare static "Back".
+
+## STATUS: code applied and committed on branch backcrumb-2928 (rebased onto current origin/main). Edits 1-4, the test/gate work (render-subprojects-1994.js reads #pj-crumb / #pj-crumb-cur / #pj-crumb-lead, asserts the full ordered chain + the protected-current structure, clicks #pj-back and asserts navigation up/to-list), and web.consolidated-980.test.js count guard (5 -> 6) are all in. Full suite green. Challenge-loop in progress; PR to follow on convergence.
