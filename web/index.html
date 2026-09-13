@@ -2768,10 +2768,15 @@ body.consolidated .pj-anc { justify-content: flex-start; }
 .pj-subrow-n { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: .9375rem; }
 .pj-subrow-n b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pj-subrow-m { font-size: .8125rem; color: var(--k-ink-2); flex: none; }
-/* The tree indent lives ONLY in the wide Projects tab, list sub-view. Not in
-   the asgrid grid (tiles), and not under body.consolidated (the narrow rail
-   reuses this markup and would run out of room) -- both fall back to the chip. */
+/* The wide Projects tab (list sub-view) carries tree depth by this margin indent.
+   The asgrid grid (tiles) still falls back to the ancestry chip. The consolidated
+   rail USED to fall back to the chip too, but #2929 (Josh, 6.59 QA) turns it into
+   an openable file tree -- indent + a fold caret -- so its indent rule lives in the
+   consolidated block below, not here. */
 body:not(.consolidated) #pj-list:not(.asgrid) .pj-row { margin-left: calc(var(--pj-depth, 0) * 22px); }
+/* #2929: the fold caret is hidden everywhere by default; only the consolidated
+   rail rule below turns it on. So the wide list and the grid never show one. */
+#pj-list .pjtreefold { display: none; }
 body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child { border-left: 2px solid var(--k-rule); }
 /* Hide the chip ONLY on rows the indent already places (.child). A child whose
    parent is archived/dangling falls back to depth 0 with no indent and no
@@ -3558,6 +3563,34 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated .pj-row .pjcard-h { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
   html[data-layout="consolidated"] body.consolidated .pj-row .pjname { order: 0; justify-content: flex-start; min-width: 0; width: 100%; }
   html[data-layout="consolidated"] body.consolidated .pj-row .pjpill { order: 1; }
+  /* #2929 (Josh, 6.59 QA): the consolidated projects rail reads as an openable
+     file structure -- each row indented by its tree depth, a fold caret on any
+     parent, a folded branch's descendants hidden. This supersedes the earlier
+     "narrow rail uses the chip, not indent" choice for THIS view. The step is
+     deliberately small (14px) so three levels still fit the rail; the name is
+     already ellipsised here, so it truncates rather than the indent starving it.
+     The caret sits in the reserved gutter (padding-left leaves room), positioned
+     absolutely at the row's depth so leaves and parents at the same depth align. */
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row {
+    position: relative;
+    padding-left: calc(24px + var(--pj-depth, 0) * 14px); }
+  html[data-layout="consolidated"] body.consolidated #pj-list .pjtreefold {
+    display: inline-flex; align-items: center; justify-content: center;
+    position: absolute; top: 8px; left: calc(6px + var(--pj-depth, 0) * 14px);
+    width: 16px; height: 16px; border-radius: 4px;
+    font-size: 10px; line-height: 1; color: var(--k-ink-2);
+    cursor: pointer; user-select: none; }
+  html[data-layout="consolidated"] body.consolidated #pj-list .pjtreefold:hover {
+    background: var(--k-surface); color: var(--k-ink); }
+  /* A folded branch's descendants leave the rail. .pj-fold-hidden is set in the
+     consolidated view only (applyConsFold) AND hidden only here, so the shared
+     markup the wide tab list reuses is never reshaped by a consolidated fold. */
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row.pj-fold-hidden { display: none; }
+  /* The indent now carries the relationship, so drop the ancestry chip on rows the
+     indent actually places (.child) -- the wide-list rule mirrored for the rail. A
+     dangling child that fell back to depth 0 keeps its chip (no indent to carry
+     it), so the relationship is never silently lost. */
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row.child .pj-parent { display: none; }
   html[data-layout="consolidated"] body.consolidated .pj-row .pc-t { display: none; }
   /* #867 (Josh, 2026-08-25 15:52, against the real consolidated-mock): each
      project row names its own agent count as a subtitle under the title
@@ -29203,6 +29236,11 @@ function applyLayout(layout, apply) {
   // toggle (the one place that knows the EFFECTIVE view, resize included),
   // not here -- this function only knows the saved preference.
   if (was !== want && typeof URL_TAB === 'string') showTab(URL_TAB);
+  /* #2929: switching INTO or OUT of the consolidated rail changes whether the
+     project tree folds, so re-sync the fold state onto the rows -- add/drop
+     aria-expanded and re-apply (or clear) the folded-descendant hiding. Safe
+     before the list exists (it no-ops) and cheap (a class/attr pass). */
+  if (typeof applyConsFold === 'function') applyConsFold();
 }
 /* #520 piece nine (the card's finesse item 1), then #761 (Josh, 2026-08-25
    10:12 CDT: "still some styling changes... moving the title and
@@ -35176,6 +35214,14 @@ function paintProjects() {
     return;
   }
   setIfChanged(list, pjTreeRows(active));
+  /* #2929: prune the consolidated tree's fold set to live active projects (a
+     folded parent later archived or deleted must not leave a stale id lingering),
+     mirroring the Map view's PJ_MAP_FOLDED pruning, then re-apply the fold to the
+     freshly painted rows. A fresh paint carries no .pj-fold-hidden classes, so
+     this must run every paint, not just on toggle. */
+  const treeActiveIds = new Set(active.map((p) => p.id));
+  for (const id of PJ_TREE_FOLDED) { if (!treeActiveIds.has(id)) PJ_TREE_FOLDED.delete(id); }
+  applyConsFold();
 }
 
 /* #2458: the Projects tab Map layout -- an org chart of the project tree, drawn
@@ -35199,6 +35245,13 @@ function pjHasSubprojects() {
    id. Module-level so it survives the re-render on every data poll -- FULLY EXPANDED
    is the default (empty set), nothing auto-folds. Cleared entries reappear expanded. */
 let PJ_MAP_FOLDED = new Set();
+/* #2929: the consolidated rail's OWN tree fold, by project id. SEPARATE from
+   PJ_MAP_FOLDED (the tab Map view) on purpose -- the two tree views fold
+   independently, so folding a branch in one never silently reshapes the other,
+   and this stays a tight consolidated-only change. Module-level so it survives
+   the data-poll repaint; FULLY EXPANDED is the default (empty set). Pruned to
+   live active projects in paintProjects, exactly as PJ_MAP_FOLDED is. */
+let PJ_TREE_FOLDED = new Set();
 /* A project node in the Map. The node itself is a BUTTON that opens the project
    (`data-project`, the same handle the cards use). A parent additionally gets a fold
    disclosure -- a SEPARATE button (`data-pjfold`, checked first in the click delegate;
@@ -35343,6 +35396,56 @@ function pjTreeRows(active) {
     rows.push(projectCard(p, PJ_AGENTS_UNREADABLE, 0, (kids.get(p.id) || []).length));
   }
   return rows.join('');
+}
+
+/* #2929: sync the consolidated tree's fold state onto the already-painted
+   #pj-list. Runs AFTER every paint (setLive) and after every fold toggle. Three
+   jobs, all keyed on whether the EFFECTIVE view is consolidated (body.consolidated,
+   the same signal the CSS uses -- so a narrow window that drops out of the rail
+   drops the tree behaviour with it):
+     - hide the descendants of any folded parent (pjDescendantIds, the same
+       downward walk the parent <select> uses, so a deep branch folds whole);
+     - carry aria-expanded on each PARENT row, but ONLY in the consolidated view
+       where folding is possible -- the flat tab list and the grid never gain the
+       claim (their carets are hidden by CSS and their rows never fold);
+     - flip the caret glyph to match the fold state.
+   The .pj-fold-hidden class is set only in the consolidated view AND only hidden
+   there by CSS, so the shared markup the wide tab list reuses is never reshaped by
+   a consolidated fold (and its rows keep no unreachable disclosure). setLive
+   compares the string it last WROTE, not live innerHTML, so these DOM edits never
+   trigger a repaint loop. */
+function applyConsFold() {
+  const list = document.getElementById('pj-list');
+  if (!list) return;
+  const cons = document.body.classList.contains('consolidated');
+  const hidden = new Set();
+  if (cons) {
+    for (const id of PJ_TREE_FOLDED) {
+      for (const d of pjDescendantIds(id)) hidden.add(d);
+    }
+  }
+  for (const row of list.querySelectorAll('.pj-row[data-project]')) {
+    row.classList.toggle('pj-fold-hidden', hidden.has(row.dataset.project));
+    const caret = row.querySelector('.pjtreefold');
+    if (!caret) continue;                          // a leaf: nothing to expand
+    const folded = PJ_TREE_FOLDED.has(row.dataset.project);
+    if (cons) {
+      row.setAttribute('aria-expanded', folded ? 'false' : 'true');
+    } else {
+      row.removeAttribute('aria-expanded');        // no folding outside the rail
+    }
+    caret.textContent = folded ? '▸' : '▾';   // ▸ folded / ▾ open
+  }
+}
+
+/* #2929: flip one branch's fold in the consolidated tree, then re-sync the DOM.
+   Unlike the Map (which rebuilds every node and must re-home focus), the row and
+   its caret are the same elements before and after, so focus is never lost -- no
+   re-homing needed. */
+function pjTreeToggleFold(id) {
+  if (!id) return;
+  if (PJ_TREE_FOLDED.has(id)) PJ_TREE_FOLDED.delete(id); else PJ_TREE_FOLDED.add(id);
+  applyConsFold();
 }
 
 /* The failure treatment for the tiles, called by loadProjects' catch:
@@ -35501,9 +35604,23 @@ function projectCard(p, unreadable, depth, childCount) {
      the click, not on the next list repaint. */
   const subCount = subs
     ? '<span class="pjsub">' + subs + (subs === 1 ? ' sub-project' : ' sub-projects') + '</span>' : '';
+  /* #2929: the consolidated tree's fold caret, rendered for any parent (subs>0).
+     Hidden by CSS outside the consolidated rail (the wide list carries depth by
+     indent alone, the grid by the ancestry chip), so this is inert there. It is
+     aria-hidden: the row button carries aria-expanded as the accessible fold
+     signal (added per-view in applyConsFold), and this glyph is the visual
+     affordance only. The glyph baked here is ALWAYS the open ▾, so the painted
+     string never changes with fold state -- otherwise setLive would repaint the
+     whole list on every fold. applyConsFold sets the true ▾/▸. The
+     data-pjtreefold handle is distinct from the Map's data-pjfold and the rail
+     column's data-fold, so no global [data-...] sweep can cross the three. */
+  const treeCaret = subs
+    ? '<span class="pjtreefold" data-pjtreefold="' + esc(p.id) + '" aria-hidden="true">▾</span>'
+    : '';
   return '<button class="pj-row' + (pill.cls === 'attn' ? ' attn' : '') + (p.id === PJ_CURRENT ? ' open' : '')
     + (dep ? ' child' : '') + '"' + (dep ? ' style="--pj-depth:' + dep + '"' : '')
     + (p.id === PJ_CURRENT ? ' aria-current="true"' : '') + ' type="button" data-project="' + esc(p.id) + '">'
+    + treeCaret
     + '<span class="pjcard-h"><span class="pjname"><b>' + esc(p.name) + '</b>'
     /* The room the person is looking at has no unread: the engine's cursor
        moves when the room paints, and the poll between could otherwise flash
@@ -41754,8 +41871,27 @@ document.getElementById('pj-add-back').addEventListener('click', () => { PJ_CURR
 
 document.getElementById('pj-list').addEventListener('click', (e) => {
   if (e.target.closest('#pj-new-empty')) { openAddProject(); return; }
+  /* #2929: a fold-caret click toggles the consolidated tree branch and NEVER
+     opens the project -- checked BEFORE the row's open handler, the same order the
+     Map view uses for its data-pjfold. The caret is CSS-hidden outside the
+     consolidated rail, so this only fires there. */
+  const foldEl = e.target.closest('[data-pjtreefold]');
+  if (foldEl) { pjTreeToggleFold(foldEl.dataset.pjtreefold); return; }
   const row = e.target.closest('[data-project]');
   if (row) openProject(row.dataset.project);
+});
+/* #2929: keyboard fold for the consolidated tree, the ARIA tree convention --
+   Right expands a collapsed parent, Left collapses an open one, on the focused row
+   (Enter/Space still OPEN it, the row's primary action). Inert outside the
+   consolidated rail: only there does a parent row carry aria-expanded, so the
+   closest() match finds nothing in the flat list or grid. */
+document.getElementById('pj-list').addEventListener('keydown', (e) => {
+  if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+  const row = e.target.closest('.pj-row[aria-expanded]');
+  if (!row) return;
+  const folded = row.getAttribute('aria-expanded') === 'false';
+  if (e.key === 'ArrowRight' && folded) { pjTreeToggleFold(row.dataset.project); e.preventDefault(); }
+  else if (e.key === 'ArrowLeft' && !folded) { pjTreeToggleFold(row.dataset.project); e.preventDefault(); }
 });
 
 /* #2487: the detail page's sub-projects section is its OWN delegate. Its rows carry
