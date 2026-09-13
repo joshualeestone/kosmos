@@ -3,11 +3,11 @@
  * The Settings page's left nav, on a screen (settings-nav, 2026-08-23).
  *
  * Same shape as render-agent-nav.js and for the same reason: the text tests
- * can prove the eleven sections exist and which box is in which; only a
+ * can prove the settings sections exist and which box is in which; only a
  * browser can prove a click puts that section on screen and takes the others
  * off it, in both themes, at phone width, and in the 56 to 60rem band where
  * the nav sits beside a fluid section, with the centred pair measured above
- * 60rem. Leads with a control (ten sections at zero height before any
+ * 60rem. Leads with a control (the other sections at zero height before any
  * click), measures by rectangle.
  *
  * The server runs in this process against a fixture fleet with every state

@@ -2846,7 +2846,8 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 @media (max-width: 68rem) { .pj3 { grid-template-columns: minmax(0, 1fr); } }
 
 /* ---- #520: the consolidated view -----------------------------------------
-   One option in Settings > Styles, tabs by default. Nothing is re-rendered
+   Tabs by default, switched via the header board-view flipper (the in-tab picker
+   was removed in #2618). Nothing is re-rendered
    for it: the agents LIST (the board's own list layout) becomes the left
    rail, the projects panel shows its list as the second rail and the open
    project as the centre and right, and the rest of the page is untouched.
@@ -2861,14 +2862,9 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    perfect, lets try that." See railFoldsApply() for the auto-fold logic;
    the CSS below needs no new rules for it, since .fold-a/.fold-p already
    exist for the manual case and this reuses them exactly. */
-.laytiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: var(--space-4); }
-.laytile { text-align: left; border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface);
-  padding: 12px; cursor: pointer; font: inherit; color: var(--k-ink); }
-.laytile:hover { border-color: var(--label-3); }
-.laytile[aria-checked="true"] { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold-bright); }
-.laytile svg { width: 100%; height: auto; display: block; border-radius: 8px; margin-bottom: 8px; }
-.laytile b { display: block; font-size: .9375rem; }
-.laytile small { display: block; font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-top: 2px; }
+/* #2618: the .laytiles/.laytile CSS (the in-tab layout-picker preview tiles) was
+   removed with the Settings > Styles tab. The consolidated view itself is unchanged;
+   it is switched via the header board-view flipper now. */
 /* #980 (Josh, 2026-08-26 08:31): NO page scrollbar, ever -- "no matter
    what size... it has a 10% or 15% scroll so you can scroll down and see
    a nothingness space" (the page-level body padding was most of it). The
@@ -12757,7 +12753,6 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <p class="fmsg" id="plus-msg" role="alert" aria-live="assertive"></p>
     </div>
   </section>
-
 
   <section class="dsec" id="s-sec-advanced" data-sec="advanced" tabindex="-1" aria-label="Advanced" hidden>
     <section class="dbox">

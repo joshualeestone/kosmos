@@ -83,8 +83,9 @@ test('the mode is gated on width and on the two tabs it merges; Settings stays a
 });
 
 test('the consolidated CSS re-lays the board list and the projects panel; it hides nothing a person needs', () => {
-  const css = PAGE.slice(PAGE.indexOf('/* ---- #520: the consolidated view'), PAGE.indexOf('.laytiles {'));
-  assert.ok(css.length > 200, 'the CSS block moved; re-anchor');
+  // #2618: the old `css` sanity-slice ended on `.laytiles {`, which was removed with the
+  // Styles tab. The real coverage is the @media block below (its own anchor is the
+  // tripwire if the region moves), so the vestigial length check is dropped.
   /* The whole media block, to its closing brace, so an added rule can never
      push the ones asserted on out of the window. */
   const start = PAGE.indexOf('@media (min-width: 960px) {\n  html[data-layout="consolidated"]');

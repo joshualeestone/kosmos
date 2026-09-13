@@ -87,10 +87,13 @@ untouched file):
   the header flipper's form, removed the vacuous em-dash test, refreshed the file header.
   Tests 2-10 (the consolidated-view "piece" mechanics) are unchanged and still pass.
 
-## Deferred NIT (documented, not dropped)
+## Dead CSS removed (an earlier deferral rationale was wrong)
 
-The `.laytiles` / `.laytile` CSS rules are now orphaned dead CSS (their only consumers,
-the removed tiles, are gone). Kept for now because `web.layout-picker.test.js` test 4
-anchors its consolidated-CSS slice on `.laytiles {`; removing the CSS would need that test
-re-anchored to a stable following selector. Harmless dead CSS; a future cleanup should
-re-anchor test 4 and drop `.laytiles`/`.laytile`.
+The `.laytiles` / `.laytile` CSS rules (the in-tab picker preview tiles) are orphaned dead
+CSS now the tiles are gone, so they were removed. An earlier draft of this plan DEFERRED
+that, claiming `web.layout-picker.test.js` test 4 was coupled to `.laytiles {` as its slice
+end-anchor. That was wrong: iteration-2 review verified test 4 only did `css.length > 200`,
+and `String.slice(start, -1)` does not throw when `indexOf('.laytiles {')` returns -1 (it
+slices to the file's second-to-last char, still > 200), so removing the CSS never broke it.
+The vestigial `css` length-check (whose sole anchor was `.laytiles {`) was dropped; test 4's
+real coverage is its independent `@media (min-width: 960px)` block slice, which stays.
