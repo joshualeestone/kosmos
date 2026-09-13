@@ -2,13 +2,22 @@
 pre_challenge: true
 method: challenge-loop
 branch: dmbadge-list-org-2863
-diff_hash: 8ddab54c6323ca84e37f75c1e3103943d2416570dfb8c7fa2baccf0e7602631b
+diff_hash: 1ded4dc75375be94261ad561955aaea713ec17c90c1b69c55da49d523e9cde6e
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-13T05:10:13Z
-iterations: 7
+timestamp: 2026-09-13T05:35:00Z
+iterations: 8
 converged: true
 ---
+
+<!-- Re-entry after a rebase onto origin/main (PR #2990 already open + green). The rebase had
+     ONE conflict, in tools/browser-checks.sh's shared `for n` loop line, resolved additively
+     to keep both this branch's render-dm-badges-2863 and another agent's render-win32-board-copy;
+     all feature code (web/index.html, render-dm-badges-2863.js, web.dm-badge-2863.test.js) replayed
+     byte-identical. Iteration 8 (opus) re-reviewed the rebased diff and the conflict resolution,
+     found no issues, and confirmed the clean merge; the full suite re-ran green (6951 pass, 0 fail)
+     on the new hash. This proof's diff_hash is the post-rebase value. -->
+
 
 ## [CHALLENGE-LOOP] Summary
 
