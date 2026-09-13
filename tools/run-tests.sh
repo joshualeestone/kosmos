@@ -231,6 +231,16 @@ if [ "$_considered" -ne "$_exist" ]; then
   exit 1
 fi
 
+# --- #3011: snapshot the real ~/Library/LaunchAgents before the suite runs ----
+# A test that creates agents without sandboxing AGENT_WORKFORCE_LAUNCH leaks a real
+# com.kosmos.agent.* plist into launchd (phantom agents on the board). Snapshot the
+# real set now; the leak check after the suite refuses any created or modified during
+# it. Fail-soft: a snapshot failure leaves an empty baseline, never a false red here.
+. "$(dirname "$0")/lib/launchagent-leak-guard.sh"
+_la_guard_dir="${HOME}/Library/LaunchAgents"
+_la_guard_before="$(mktemp "${TMPDIR:-/tmp}/la-leak-before.XXXXXXXXXX")" || _la_guard_before=""
+[ -n "$_la_guard_before" ] && launchagent_snapshot "$_la_guard_dir" > "$_la_guard_before"
+
 # --- the suite ----------------------------------------------------------------
 # Run the SAME set the coverage assertion counted, so the count and the run cannot drift.
 node --test "${KOSMOS_TEST_FILES[@]}" "$@"
@@ -238,6 +248,16 @@ NODE_STATUS=$?
 if [ "$NODE_STATUS" -eq 0 ]; then
   yarn -s test:shell
   NODE_STATUS=$?
+fi
+# --- #3011: refuse if the suite created or modified a real com.kosmos.agent.* plist -
+# The whole-suite guard for the leak class (a test missing its AGENT_WORKFORCE_LAUNCH
+# sandbox). Runs regardless of the test verdict, so a leak is reported even beside a red.
+if [ -n "$_la_guard_before" ]; then
+  if ! launchagent_leak_check "$_la_guard_dir" "$_la_guard_before"; then
+    echo "run-tests: #3011 LEAK -- the suite created or modified real LaunchAgents (a create/discover test is missing 'process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, \"LaunchAgents\")'). Leaked plists listed above; move them out of ~/Library/LaunchAgents and sandbox that test." >&2
+    [ "$NODE_STATUS" -eq 0 ] && NODE_STATUS=1
+  fi
+  rm -f "$_la_guard_before"
 fi
 # --- #1720: the repo-local browser-check gate ---------------------------------
 # A committed web/ change must carry a docs/browser-checks/ assertion update, or an
