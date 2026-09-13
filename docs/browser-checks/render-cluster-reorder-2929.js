@@ -129,6 +129,35 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(`${t} self-drop sets no manual order`, lower.selfSaved === null, String(lower.selfSaved));
     ok(`${t} lower-half drop inserts AFTER the target (a onto c's lower half => b,c,a; exercises the +1 branch and drag-to-last)`, JSON.stringify(lower.afterLower) === JSON.stringify(['b', 'c', 'a']), JSON.stringify(lower.afterLower));
 
+    // ---- Cancelled drag + stranded-flag self-heal: the repaint guard must never freeze
+    // the list. draggingDuring=true is the non-vacuous control (the guard IS engaged). ----
+    const cancel = await page.evaluate(() => {
+      PJ_ORDER = null;
+      try { localStorage.removeItem('kosmos.order.projects'); } catch { /* ignore */ }
+      PJ_SORT = 'az';
+      if (typeof PJ_DRAGGING !== 'undefined') PJ_DRAGGING = false;
+      paintProjects();
+      const list = document.getElementById('pj-list');
+      const rowA = list.querySelector('.pj-row[data-project="a"]');
+      const dt = new DataTransfer();
+      rowA.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: dt }));
+      const draggingDuring = (typeof PJ_DRAGGING !== 'undefined') ? PJ_DRAGGING : 'undef';
+      rowA.dispatchEvent(new DragEvent('dragend', { bubbles: true, cancelable: true, dataTransfer: dt }));   // no drop
+      const draggingAfter = (typeof PJ_DRAGGING !== 'undefined') ? PJ_DRAGGING : 'undef';
+      const classCleared = !list.querySelector('.pj-dragging');
+      let stranded = 'n/a';
+      if (typeof PJ_DRAGGING !== 'undefined') {
+        PJ_DRAGGING = true;   // simulate a flag stranded by a detach (no .pj-dragging row present)
+        paintProjects();      // the self-heal at the top of paintProjects must clear it
+        stranded = PJ_DRAGGING;
+      }
+      return { draggingDuring, draggingAfter, classCleared, stranded };
+    });
+    ok(`${t} PJ_DRAGGING is set true during a drag (the repaint guard engages)`, cancel.draggingDuring === true, String(cancel.draggingDuring));
+    ok(`${t} a cancelled drag (dragend, no drop) clears PJ_DRAGGING`, cancel.draggingAfter === false, String(cancel.draggingAfter));
+    ok(`${t} a cancelled drag removes the .pj-dragging class`, cancel.classCleared === true, String(cancel.classCleared));
+    ok(`${t} paintProjects self-heals a stranded PJ_DRAGGING flag (never freezes the list)`, cancel.stranded === false, String(cancel.stranded));
+
     // ---- Control: choosing a SORT clears the manual order (mutually exclusive) ----
     const sortReverts = await page.evaluate(() => {
       const sel = document.getElementById('pj-sort');

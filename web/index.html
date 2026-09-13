@@ -35192,6 +35192,15 @@ let PJ_SORT = (() => {
 
 function paintProjects() {
   const list = document.getElementById('pj-list');
+  /* #2929 slice 2: self-heal a stranded drag flag. PJ_DRAGGING pauses the #pj-list repaint
+     during a drag, and the drag's own dragstart marks the live source row .pj-dragging. If
+     that row is no longer in #pj-list, the drag is over (or an un-guarded rewrite detached
+     the node mid-drag, so the delegated dragend can never fire to clear the flag): the flag
+     is stale, so clear it -- otherwise every future paint would skip the list repaint and
+     freeze the board. A live drag keeps its .pj-dragging row present, so this never clears
+     mid-drag. This is the backstop that makes the "no un-guarded #pj-list writer mid-drag"
+     invariant self-correcting rather than load-bearing. */
+  if (PJ_DRAGGING && list && !list.querySelector('.pj-dragging')) PJ_DRAGGING = false;
   /* #2929 slice 2: keep the sort control honest. When a manual drag order is in effect in
      the consolidated view, show the disabled "Custom order" option as selected rather than
      a named sort that is not the one in force; otherwise show PJ_SORT. Written only on
@@ -35356,7 +35365,13 @@ function pjClearOrder() { pjSaveOrder(null); }
    aborts the reorder. paintProjects skips ONLY the #pj-list repaint while this is set
    (the tiles still update); the drop and a cancelled dragend both clear it and repaint,
    so a skipped poll update is caught up the moment the drag ends. Module-level so
-   paintProjects can see it (dragId itself is private to the drag IIFE's closure). */
+   paintProjects can see it (dragId itself is private to the drag IIFE's closure).
+   ⚠️ The drop/dragend clear depends on the drag-source node staying in #pj-list (dragend
+   is delegated there): any UN-guarded #pj-list rewrite mid-drag would detach it and strand
+   this flag true. Every #pj-list writer is therefore PJ_DRAGGING-gated (paintProjects and
+   the loadProjects error path), and paintProjects self-heals a stranded flag as a backstop
+   (it clears the flag when no .pj-dragging row is present), so a future un-guarded writer
+   degrades to a lost drag, never a frozen board. */
 let PJ_DRAGGING = false;
 /* A project node in the Map. The node itself is a BUTTON that opens the project
    (`data-project`, the same handle the cards use). A parent additionally gets a fold
@@ -36083,7 +36098,12 @@ async function loadProjects() {
     // aria-live regions -- so an unguarded write read the same sentence aloud
     // every 5 seconds, forever. The error path was the one caller that skipped
     // the guard written for exactly this.
-    setIfChanged(document.getElementById('pj-list'), BOARD_NEEDS_SIGNIN ? boardSigninHtml()
+    /* #2929 slice 2: like the paintProjects writer, do NOT replace #pj-list mid cluster
+       drag -- a store error firing during a drag would detach the drag-source node, and
+       since dragend is delegated on #pj-list a detached node's dragend never fires to
+       clear PJ_DRAGGING. paintProjects self-heals a stranded flag as a backstop, but not
+       detaching in the first place keeps the drag itself alive through a transient blip. */
+    if (!PJ_DRAGGING) setIfChanged(document.getElementById('pj-list'), BOARD_NEEDS_SIGNIN ? boardSigninHtml()
       : '<div class="err"><b>We cannot read your projects right now.</b><br>'
       + 'This is not saying you have none, it is saying we cannot see them.</div>');
     // The tiles are claims too: confident counts one element above the
