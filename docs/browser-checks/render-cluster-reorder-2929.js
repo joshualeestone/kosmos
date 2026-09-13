@@ -180,11 +180,17 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       document.body.classList.remove('consolidated');   // ...but the tab view is showing
       document.documentElement.setAttribute('data-layout', 'tabs');
       paintProjects();
-      return Array.from(document.querySelectorAll('#pj-list .pj-row[data-project]'))
+      const topIds = Array.from(document.querySelectorAll('#pj-list .pj-row[data-project]'))
         .filter((r) => (Number(r.style.getPropertyValue('--pj-depth')) || 0) === 0)
         .map((r) => r.dataset.project);
+      return { topIds, selValue: document.getElementById('pj-sort').value };
     });
-    ok(`${t} tab view IGNORES the manual order (keeps sorted a,b,c)`, JSON.stringify(tabIgnores) === JSON.stringify(['a', 'b', 'c']), JSON.stringify(tabIgnores));
+    ok(`${t} tab view IGNORES the manual order (keeps sorted a,b,c)`, JSON.stringify(tabIgnores.topIds) === JSON.stringify(['a', 'b', 'c']), JSON.stringify(tabIgnores.topIds));
+    // Both gates read the single pjManualOrderActive() predicate: outside consolidated not
+    // only the rows ignore PJ_ORDER, the sort control also shows the named sort (not 'custom').
+    // Pins the two gates equal, so a drift where one honors the manual order and the other
+    // does not (repo convention #5, the screen contradicting itself) is caught.
+    ok(`${t} tab view sort control shows the sort, not 'custom' (both gates agree)`, tabIgnores.selValue === 'az', tabIgnores.selValue);
 
     await page.close();
   }

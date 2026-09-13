@@ -35209,7 +35209,7 @@ function paintProjects() {
      value change that fires the #pj-sort change handler -> pjClearOrder. */
   { const sortSel = document.getElementById('pj-sort');
     if (sortSel) {
-      const want = (PJ_ORDER && document.body.classList.contains('consolidated')) ? 'custom' : PJ_SORT;
+      const want = pjManualOrderActive() ? 'custom' : PJ_SORT;
       if (sortSel.value !== want) sortSel.value = want;
     } }
   /* #2458: the Map only earns its toggle once a project has sub-projects -- a flat
@@ -35363,6 +35363,16 @@ function pjSaveOrder(ids) {
   } catch { /* display preference only, same standing as the sort setting */ }
 }
 function pjClearOrder() { pjSaveOrder(null); }
+/* #2929 slice 2: the SINGLE source of truth for "a manual drag order is in force right
+   now" -- PJ_ORDER set AND the consolidated view showing. Both the sort-control reflection
+   (paintProjects, which shows the disabled "Custom order" option) and the actual row
+   reorder (pjTreeRows) read THIS one predicate, so they can never drift into the screen
+   contradicting itself, e.g. the control showing "Custom order" while the rows are sorted
+   (repo convention #5: two derivations of one fact). */
+function pjManualOrderActive() {
+  return !!PJ_ORDER && typeof document !== 'undefined' && !!document.body
+    && document.body.classList.contains('consolidated');
+}
 /* #2929 slice 2: true while a cluster drag is in flight. The ~5s data poll repaints
    #pj-list whenever any card's live data changes (a needsYou count, an unread badge),
    and replacing the list's innerHTML mid-drag destroys the drag-source node and silently
@@ -35509,8 +35519,7 @@ function pjTreeRows(active) {
      top-level project not listed (e.g. created since the last drag) keeps its sorted
      position after them, so a new project is never hidden. Non-mutating (a decorated
      copy), gated on body.consolidated so the tab list and grid keep the sort order. */
-  if (PJ_ORDER && typeof document !== 'undefined' && document.body
-      && document.body.classList.contains('consolidated')) {
+  if (pjManualOrderActive()) {
     const top = kids.get('');
     if (top && top.length > 1) {
       const rank = new Map(PJ_ORDER.map((id, i) => [id, i]));
