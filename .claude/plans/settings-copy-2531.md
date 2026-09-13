@@ -98,11 +98,18 @@ handler's blocking-agents fallback `'agents are set up to run on this account.'`
 (String() concatenated with a capitalized `' Press again to...'` continuation) so it read lowercase at
 the sentence lead. Capitalized to `'Agents are set up to run on this account.'`.
 
-To stop finding these one per round, I then swept the ENTIRE acct* range (17400-20300) for every
-lowercase-leading string literal that looks like a sentence. 18102 was the ONLY remaining raw-rendered
-sentence-leading fallback. The rest are correctly lowercase and were verified NOT to be fixed:
-- `noneWhy` (17629), `unknownWhy` (17630), refused-import `'it could not be copied'` (19273): all
-  `because`-value fallbacks, capitalized downstream (the because-idiom, same family as pjSentence).
-- `'are signed in as '` (17548), `'there will not appear any more.'` (17797, inside a title= tooltip),
-  `'once you add this account again under the same name.'` (18097): mid-sentence CONTINUATION
-  fragments concatenated after a leading clause, so lowercase is correct.
+To stop finding these one per round, I then swept the ENTIRE acct* range (17400-20300). 18102 was the
+only remaining raw-rendered TOAST/error-MESSAGE fallback. The other lowercase literals in range were
+verified and correctly left, on these (measured) grounds:
+- Status-badge "Why" family: `noneWhy` (17629), `unknownWhy` (17630) - and their siblings
+  connectedWhy/workingWhy/rejectedWhy/unverifiedWhy (17642-17653). ALL SIX are lowercase-leading by
+  design. They render via `esc()` (14438, which ONLY HTML-escapes, does NOT capitalize) into a
+  status-badge tooltip/label, a different UI idiom from the toast messages this card targets;
+  capitalizing one would break the family's deliberate consistency. (Correcting my earlier note: these
+  are NOT "capitalized downstream" - they render raw. The exclusion stands on the family idiom, not on
+  a downstream capitalizer.)
+- `because`-value fallback: refused-import `'it could not be copied'` (19273) is inserted after the
+  literal `', because '`, so lowercase is correct.
+- Mid-sentence CONTINUATION fragments concatenated after a leading clause, lowercase correct:
+  `'are signed in as '` (17548), `'there will not appear any more.'` (17797, in a title= tooltip),
+  `'once you add this account again under the same name.'` (18097).
