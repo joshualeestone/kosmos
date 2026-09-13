@@ -39,7 +39,9 @@ const selfreport = require('./engine/selfreport');
 // One install for the whole file (a second install() fails its own arrangement
 // assertion once a prior test has left projects/reports behind). mara is the
 // standing co-member; leo/lee/lou/liv are one-per-test posters.
-const POSTERS = ['leo', 'lee', 'lou', 'liv'];
+// `fixture` is the pane-path poster: the test fake-tmux resolves every pane's
+// session_name to `fixture-discord`, so a tokenless post from any pane resolves to it.
+const POSTERS = ['leo', 'lee', 'lou', 'liv', 'lex', 'fixture'];
 let board;
 test.before(async () => {
   await start(0);
@@ -112,6 +114,29 @@ test('a post that did NOT reach a room (no such project) does not attribute any 
   const r = await post({ project: 'no-such-project-xyz', text: 'nowhere', from_pane: '' }, { 'x-kosmos-agent-token': tok });
   assert.equal(r.json.delivery.state, 'could_not', 'a post to a missing project should not be placed');
   assert.equal(selfreport.read('liv').project, null, 'a failed post must not attribute a project onto a working agent');
+});
+
+test('a PANE-resolved poster (no agent token) is attributed the same way (the resolveAgentSender pane branch)', async () => {
+  const p = room('Pane 2837', 'fixture');
+  selfreport.record('fixture', { state: 'working' });
+  // No token: the sender is resolved from the pane. The test fake-tmux answers
+  // session_name as `fixture-discord`, which ties to the installed `fixture` agent.
+  const r = await post({ project: p.id, text: 'pane-path post', from_pane: '%7' });
+  assert.ok(['placed', 'unconfirmed'].includes(r.json.delivery.state), 'the pane post did not reach the room: ' + (r.json.delivery.because || ''));
+  assert.equal(selfreport.read('fixture').project, p.id, 'a pane-resolved working poster was not attributed (the pane branch of resolveAgentSender)');
+});
+
+test('attribution preserves the existing working content (on/because), adding only the project', async () => {
+  const tok = sendertoken.mint('lex').token;
+  const p = room('Lex 2837', 'lex');
+  // A working report that carries explicit content the CLI's free-form `working` allows.
+  selfreport.record('lex', { state: 'working', on: 'the refactor', because: 'halfway through' });
+  const r = await post({ project: p.id, text: 'posting from the refactor', from_pane: '' }, { 'x-kosmos-agent-token': tok });
+  assert.ok(['placed', 'unconfirmed'].includes(r.json.delivery.state), 'the post did not reach the room: ' + (r.json.delivery.because || ''));
+  const rep = selfreport.read('lex');
+  assert.equal(rep.project, p.id, 'the project was not attributed');
+  assert.equal(rep.on, 'the refactor', 'attribution dropped the working report\'s `on` content');
+  assert.equal(rep.because, 'halfway through', 'attribution dropped the working report\'s note');
 });
 
 test('a post does NOT clobber a standing waiting state: a needs_you agent stays needs_you, unattributed', async () => {
