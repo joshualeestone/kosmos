@@ -27,7 +27,7 @@ function toast({ baked, served, offer, updating = false, later = null, engine = 
     querySelector: () => (baked === undefined ? null : { getAttribute: () => baked }),
   };
   new Function('document', 'esc', 'UPDATING_NOW', 'SERVED_VERSION', 'updateLaterSuppresses', 'UPD_CONFIRM_OPENER', 'OFFER', 'ENGINE_STALE',
-    page.liftAll(SCRIPT, ['bakedVersion', 'pageIsStale', 'renderUpdateToast'])
+    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'renderUpdateToast'])
     + '\nrenderUpdateToast(OFFER);')(doc, (x) => String(x), updating, served, (v) => later === v, null, offer, engine);
   return { html: slot.innerHTML, v: slot.dataset.v, listeners };
 }
@@ -127,7 +127,7 @@ test('the same page is not repainted every five seconds', () => {
     querySelector: () => ({ getAttribute: () => '0.2.75' }),
   };
   const run = new Function('document', 'esc', 'UPDATING_NOW', 'SERVED_VERSION', 'updateLaterSuppresses', 'ENGINE_STALE',
-    page.liftAll(SCRIPT, ['bakedVersion', 'pageIsStale', 'renderUpdateToast'])
+    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'renderUpdateToast'])
     + '\nreturn renderUpdateToast;')(doc, (x) => String(x), false, '0.2.76', () => false, null);
   run(null);
   slot.innerHTML = 'MARKED';

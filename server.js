@@ -123,6 +123,19 @@ function trustDialogHold(card, seen, capture) {
 const leftover = require('./engine/delete-leftover');
 const firstrun = require('./engine/firstrun');
 const platformGate = require('./engine/platform');
+/* win32-board-copy: the page's platform fact. The page needs it before any signed-in
+   API answers (the not-signed-in panel is painted exactly when /api/* refuses), so the
+   open static shell carries it in `<meta name="kosmos-platform">`, stamped per request
+   from the same describe() firstrun.state() and connect's publicView report. An
+   unstamped page (file://, a harness) reads as "not Windows", so the Mac page is the
+   default everywhere nothing says otherwise. */
+const PAGE_PLATFORM_MARKER = '__KOSMOS_PLATFORM__';
+function stampServedPlatform(pageBuffer) {
+  const text = pageBuffer.toString('utf8');
+  return text.includes(PAGE_PLATFORM_MARKER)
+    ? text.replace(PAGE_PLATFORM_MARKER, platformGate.describe().platform)
+    : pageBuffer;
+}
 const discover = require('./engine/discover');
 const subscription = require('./engine/subscription');
 /* 🛑 #1938: THE DISK SCAN IS HEAVIER THAN found() AND THE BOARD POLLS IT EVERY 5s.
@@ -11604,7 +11617,9 @@ const server = http.createServer((req, res) => {
          * planted inside the folder). A second, weaker copy of the rules at
          * this layer is how two validators drift and the looser one wins. */
         const opened = projects.openFile(record.folder, named);
-        if (opened.ok) { sendJson(res, 200, { ok: true }); return; }
+        /* win32-board-copy (review round 1, SAFETY 1): on Windows a file whose type can run
+           a program is shown in File Explorer rather than opened, and the page says so. */
+        if (opened.ok) { sendJson(res, 200, opened.revealedInstead ? { ok: true, revealedInstead: true, say: opened.say } : { ok: true }); return; }
         sendJson(res, 409, { error: opened.because });
       })
       .catch((err) => sendJson(res, 400,
@@ -12739,7 +12754,7 @@ const server = http.createServer((req, res) => {
        #2973: and whether this board's logon task started it, which the hand-off needs
        before it may end the board, and which Task Scheduler cannot say reliably. */
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', [BOARD_IDENTITY_HEADER]: BOARD_IDENTITY, [BOARD_STARTED_BY_TASK_HEADER]: boardStartedByTaskHeaderValue() });
-    res.end(buf);
+    res.end(stampServedPlatform(buf));
   });
 });
 

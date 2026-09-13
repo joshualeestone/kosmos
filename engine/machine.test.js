@@ -10,6 +10,10 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const machine = require('./machine');
+/* win32-board-copy: this file is the Mac contract (pmset, /Applications, open -R), so it
+   states its platform rather than inheriting the host's; the Windows arms live in
+   engine/machine.win32-sleep.test.js. */
+machine.setPlatform('darwin');
 
 /* ---------------------------------------------------------------------------
    Fixtures, and where each one came from — because a fixture whose provenance
@@ -999,7 +1003,10 @@ test('the app-location check looks in both folders and answers all four states',
   assert.equal(none.state, machine.STATE.ATTENTION);
   assert.match(none.detail, /not the same as it not being there/);
   assert.match(none.detail, /Spotlight/);
-  const noneWin = machine.appLocationCheck({ appDirs: [sys, home], platform: 'win32' });
+  /* win32-board-copy: a NON-mac platform, not Windows specifically. Windows no longer
+     looks in Applications folders at all (W-16: it reports the Kosmos folder, asserted
+     in machine.win32-sleep.test.js), so the neutral-wording arm is Linux-shaped now. */
+  const noneWin = machine.appLocationCheck({ appDirs: [sys, home], platform: 'linux' });
   assert.equal(noneWin.state, machine.STATE.ATTENTION, 'the state is the same off macOS; only the wording changes');
   assert.match(noneWin.detail, /not the same as it not being there/);
   assert.doesNotMatch(noneWin.detail, /Spotlight|the Dock|Applications folder/,
@@ -1549,7 +1556,8 @@ test('#2304 Windows: tmux is not probed at all (present.tmux is undefined on win
 test('#2304 the platform threads through machine.check to the installed sub-check', () => {
   const os2 = require('node:os'); const path2 = require('node:path'); const fs2 = require('node:fs');
   const empty = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'kosmos-2304-'));
-  const got = machine.check({ platform: 'win32', claudeBin: REAL_BIN, tmuxBin: '/definitely/not/here/tmux', pmset: 'System-wide power settings:\n', appDirs: [empty, empty] });
+  // win32-board-copy: `powercfg: ''` so the win32 sleep arm reads injected text, never the host's powercfg.
+  const got = machine.check({ platform: 'win32', claudeBin: REAL_BIN, tmuxBin: '/definitely/not/here/tmux', pmset: 'System-wide power settings:\n', powercfg: '', appDirs: [empty, empty] });
   fs2.rmSync(empty, { recursive: true, force: true });
   const installed = got.checks.find((c) => c.key === 'installed');
   assert.equal(installed.state, 'ok', 'check({platform:win32}) reaches installedCheck: runner present -> ok, not a tmux attention');

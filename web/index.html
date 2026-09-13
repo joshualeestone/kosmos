@@ -15,6 +15,8 @@
      marker as "no answer" rather than printing it, so a developer sees the
      polled version exactly as before. -->
 <meta name="kosmos-version" content="__KOSMOS_VERSION__">
+<!-- win32-board-copy: the platform the board runs on, stamped per request by server.js (stampServedPlatform) and read by servedPlatform(). -->
+<meta name="kosmos-platform" content="__KOSMOS_PLATFORM__">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kosmos</title>
 <!-- The tab icons (#45): the SITE's exact shape, four explicit PNGs and
@@ -6662,6 +6664,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
           border-radius: 8px; padding: var(--space-4) var(--space-5);
           margin: var(--space-4) 0; overflow-x: auto;
           white-space: pre-wrap; overflow-wrap: anywhere; }
+/* win32-board-copy: the platform copy layer's one hiding rule. applyPlatformCopy()
+   stamps data-kosmos-platform on <html> only on Windows, so on a Mac nothing matches. */
+html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
+/* The Windows install command and its Copy button (W-14). The command keeps its own
+   wrapping rule above; the row only puts the button beside it. */
+.fr-cmd-row { display: flex; align-items: flex-start; gap: var(--space-4); }
+.fr-cmd-row .fr-cmd { flex: 1 1 auto; min-width: 0; }
+.fr-copy { margin: var(--space-4) 0; flex: none; }
+/* The manual update offer's numbered steps (W-25). */
+.upd-manual-steps { margin: 8px 0 0; padding-left: 1.4em; }
+.upd-manual-steps li { margin: 2px 0; }
 .fr-code-row { display: flex; gap: var(--space-4); margin-top: var(--space-4); flex-wrap: wrap; }
 .fr-code-row input { flex: 1; min-width: 200px; font: var(--text-body) var(--font-mono);
                      padding: var(--space-4) var(--space-5); border-radius: var(--radius-control);
@@ -7765,7 +7778,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <button type="button" data-go="instr" aria-controls="d-sec-instr"><span>Instructions</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
     <button type="button" data-go="skills" aria-controls="d-sec-skills">Skills</button>
       <button type="button" data-go="profile" aria-controls="d-sec-profile">Profile</button>
-    <button type="button" data-go="term" aria-controls="d-sec-term">Terminal</button>
+    <button type="button" data-go="term" aria-controls="d-sec-term" data-win-copy="terminalTab">Terminal</button>
     <div class="sep" role="separator"></div>
     <button type="button" data-go="remove" aria-controls="d-sec-remove" class="danger"><span id="d-nav-remove">Remove this agent</span></button>
   </nav>
@@ -8366,7 +8379,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   <div class="fmsg" id="d-role-msg"></div>
   </section>
   </section>
-  <section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-tied="1" hidden>
+  <section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-win-aria-label="terminalTab" data-tied="1" hidden>
 
   <!-- #5 insurance + terminal-window actions (Josh 0.6.44). These sit ABOVE the window
        box (which hides when the capture cannot land) on purpose: an agent stuck at the
@@ -8377,19 +8390,20 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
        menu. "Open Terminal" (added with Pete's second route) opens the real window.
        Copy: Mona Lisa. -->
   <section class="dbox" id="d-term-actions">
-    <h3 class="dlab">This agent&rsquo;s Terminal</h3>
+    <h3 class="dlab" data-win-copy="terminalBoxTitle">This agent&rsquo;s Terminal</h3>
     <!-- Two grouped actions. "Open Terminal" first: it is the lighter, read-only one (it
          only attaches a viewer to the live tmux session; it does NOT restart the agent).
          "Trust & Restart" is the heavier one (it restarts). Each carries its own hint +
          receipt line so the association is unambiguous. -->
-    <div class="field">
+    <!-- win32-board-copy (W-18): hidden on Windows, where an agent runs headless and there is no Terminal window to attach. -->
+    <div class="field" data-win-hide>
       <button class="btn" id="d-open-terminal" type="button">Open Terminal</button>
       <p class="fhint" id="d-open-terminal-hint" style="margin-top:8px;">Opens this agent&rsquo;s Terminal window on this computer.</p>
       <p class="fmsg" id="d-open-terminal-msg" role="status" aria-live="polite"></p>
     </div>
     <div class="field" style="margin-top:14px;">
       <button class="btn" id="d-trust-restart" type="button">Trust &amp; Restart</button>
-      <p class="fhint" id="d-trust-restart-hint" style="margin-top:8px;">Approves this agent's folder so it can start without the macOS permission prompt each time.</p>
+      <p class="fhint" id="d-trust-restart-hint" style="margin-top:8px;" data-win-copy="trustRestartHint">Approves this agent's folder so it can start without the macOS permission prompt each time.</p>
       <p class="fmsg" id="d-trust-restart-msg" role="status" aria-live="polite"></p>
     </div>
   </section>
@@ -9415,16 +9429,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
 
         <p class="fc-eyebrow">Automation</p>
         <h2>Kosmos never sleeps</h2>
-        <p>To get the most out of your agents we need to ensure they can stay awake and access the computer.</p>
+        <p data-win-copy="s3Lead">To get the most out of your agents we need to ensure they can stay awake and access the computer.</p>
 
-        <p class="s3-step-cap">1 &middot; keep this computer awake</p>
+        <p class="s3-step-cap" data-win-copy="s3SleepCaption">1 &middot; keep this computer awake</p>
+        <!-- win32-board-copy (W-11): Windows' own steps, shown only there (data-win-only stays hidden on a Mac). -->
+        <p data-win-only hidden data-win-copy="s3SleepHow"></p>
         <!-- #2620: the mock stays decorative (aria-hidden, pointer-events:none) so a click
              on the decoy switch cannot be mistaken for the real action (0.6.41). The real,
              focusable .s3-sw-open button is a SIBLING of the mock (lifted OUT of the
              aria-hidden subtree), positioned over the switch by frSyncSwitchOverlays(), and
              opens the exact macOS pane. The switch VISUAL (gray -> blue + swipe hint) is
              mirrored from the gate row's state by frPollGates. -->
-        <div class="s3-mock">
+        <div class="s3-mock" data-win-hide>
           <div class="s3-win" aria-hidden="true">
             <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Energy</span></div>
             <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">Prevent automatic sleeping when the display is off</span><span class="s3-sw" data-sw-gate="sleep"></span></div></div>
@@ -9446,7 +9462,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           </div>
         </div>
 
-        <p class="s3-step-cap">2 &middot; when prompted, switch Kosmos to On</p>
+        <p data-win-only hidden data-win-copy="s3BatteryNote"></p>
+        <!-- win32-board-copy (W-11): Windows has no Accessibility grant for this, so the whole second step is hidden there. -->
+        <p class="s3-step-cap" data-win-hide>2 &middot; when prompted, switch Kosmos to On</p>
         <!-- #2236/0.6.42 #1 (Josh): the grant is Privacy & Security > Accessibility
              ("control your computer"), NOT Login Items. The old mock showed the Login Items
              pane, which sent Josh to the wrong Settings pane. Depict Accessibility here.
@@ -9456,14 +9474,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              onboarding registers), not tmux -- so this mock and the gate row below read
              "Kosmos". The internal data-gate key stays "tmux" (it is the FR_GATES /
              handler / browser-check selector; the subject is Kosmos.app). -->
-        <div class="s3-mock">
+        <div class="s3-mock" data-win-hide>
           <div class="s3-win" aria-hidden="true">
             <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Accessibility</span></div>
             <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">Kosmos<small>Control your computer</small></span><span class="s3-sw" data-sw-gate="tmux"></span></div></div>
           </div>
           <button class="s3-sw-open" type="button" data-sw-gate="tmux" aria-label="Open Accessibility settings for Kosmos"></button>
         </div>
-        <div class="s3-gate-row" data-gate="tmux">
+        <div class="s3-gate-row" data-gate="tmux" data-win-hide>
           <span class="s3-gate-lbl">Kosmos</span>
           <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button">Turn On</button></span>
           <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
@@ -9868,10 +9886,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
 
         <p class="fc-eyebrow">Success</p>
         <h2>Kosmos is installed and configured.</h2>
-        <p>Kosmos is now in your applications folder, and you will see Kosmos in your dock.</p>
-        <p>Drag the Kosmos icon to the far left so it stays there and is easy to find later.</p>
+        <p data-win-copy="s7Body">Kosmos is now in your applications folder, and you will see Kosmos in your dock.</p>
+        <p data-win-copy="s7Tip">Drag the Kosmos icon to the far left so it stays there and is easy to find later.</p>
 
-        <div class="s7-dock-wrap" id="fr-success">
+        <div class="s7-dock-wrap" id="fr-success" data-win-hide>
           <svg class="s7-arrow" viewBox="0 0 300 34" fill="none" aria-hidden="true">
             <path d="M232 26 C 190 2, 90 2, 40 20" stroke-width="2.4" stroke-linecap="round" fill="none"/>
             <path d="M40 20 l 12 -8 M40 20 l 11 7" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
@@ -11233,7 +11251,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <h2 class="dname">Documents</h2>
         <p class="pj-desc">In <b id="docs-project"></b>.</p>
       </div>
-      <button class="linkish" id="docs-finder" type="button">Open this folder in Finder</button>
+      <button class="linkish" id="docs-finder" type="button" data-win-copy="docsOpenFolder">Open this folder in Finder</button>
     </div>
     <!-- Two sources, said apart (#131, Josh's 08-20 ruling): files from the
          CONVERSATION live in the attachment store, not the folder, so a
@@ -12020,7 +12038,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <div class="dstack">
         <!-- Quiet and its own width (#371): a convenience, not the page's main
              action. The same size as "Open sleep settings" two rows down. -->
-        <button class="btn-quiet" type="button" id="set-reveal" hidden style="font-size:.875rem;">Show me where it is</button>
+        <button class="btn-quiet" type="button" id="set-reveal" hidden style="font-size:.875rem;" data-win-copy="settingsRevealButton">Show me where it is</button>
       </div>
       <p class="dhint" id="set-reveal-msg" style="margin:12px 0 0;" hidden></p>
       <!-- 🔑 THE ICON STANDS BESIDE THE SENTENCE THAT NAMES IT (kosmos#1212).
@@ -12041,9 +12059,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            Six sizes already ship, so this is a reference, not new artwork, and it
            cannot drift from the real icon. -->
       <div class="dockrow">
-        <img class="dockrow-i" src="/icons/kosmos-180.png" width="44" height="44"
+        <img class="dockrow-i" data-win-hide src="/icons/kosmos-180.png" width="44" height="44"
              alt="The Kosmos app icon" decoding="async">
-        <p class="dhint" style="margin:0;">
+        <p class="dhint" style="margin:0;" data-win-copy="settingsOpenKosmos">
           Kosmos is already in your Dock. Drag it to the far left so it stays handy.
         </p>
       </div>
@@ -12071,8 +12089,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            relayed 2026-08-28 and honoured by #1214 in the box above: agents
            acting in your other applications IS the feature. "Work in your other
            applications" is the plain version, not the reassuring one. -->
-      <p class="dhint" id="set-a11y-say" style="margin:14px 0 6px;">Turning on accessibility lets Kosmos agents work in your other applications on this computer.</p>
-      <button class="btn" id="set-a11y-open" type="button">Open Accessibility settings</button>
+      <p class="dhint" id="set-a11y-say" style="margin:14px 0 6px;" data-win-hide>Turning on accessibility lets Kosmos agents work in your other applications on this computer.</p>
+      <button class="btn" id="set-a11y-open" type="button" data-win-hide>Open Accessibility settings</button>
       <!-- #734: the board's honesty line, at home. When the machine's window
            list has lines the board cannot read, the Agents count is a floor
            (the + on it) and THIS is where the fact is said in full, with the
@@ -12093,7 +12111,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <p class="dhint" style="margin:12px 0 0;">Kosmos runs in the background. Closing this window does not stop your agents.</p>
     </section>
 
-    <section class="dbox">
+    <section class="dbox" data-win-hide>
       <!-- The tmux permission box, explained where a worried person looks
            (#219). macOS attributes an agent's reach outside its folder to the
            responsible process, which is tmux, a word no Kosmos user has met.
@@ -12405,7 +12423,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <!-- win32-update-check: the Windows manual offer's link (a real <a>, so the browser
              downloads the zip). paintUpdateCard shows it only in the manual arm. -->
         <a class="btn-quiet" id="upd-download" href="#" target="_blank" rel="noopener" aria-describedby="upd-line" hidden>Download</a>
+        <!-- win32-board-copy (W-25): the manual offer's second button, shown only in that arm.
+             It is the same engine reveal as Settings' "Open the Kosmos folder". -->
+        <button class="btn-quiet" type="button" id="upd-open-folder" hidden data-win-copy="updateOpenFolder">Open my Kosmos folder</button>
       </div>
+      <ol class="dhint upd-manual-steps" id="upd-manual-steps" hidden></ol>
+      <p class="dhint" id="upd-open-folder-msg" role="status" hidden></p>
       <!-- 🛑 THIS ROW USED TO BE A SWITCH THAT COULD NOT MOVE. It read "Tell me
            when there is a new version", with a hint underneath admitting
            "Kosmos always tells you. Turning that off is not built yet" — a
@@ -12422,12 +12445,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <!-- #2623: the two "let the Kosmos team know..." telemetry opt-out rows
            (create-agent, and posts/answers) were deleted (Josh, 2026-09-09,
            "invasion of privacy"). Only auto-update remains below. -->
-      <div class="setrow" id="auto-row" style="margin-top:12px;">
+      <!-- win32-board-copy (parity P0-5): hidden on Windows, where self-update cannot run yet
+           (engine/update.js maybeAutoInstall returns without an installedRoot); the manual
+           offer above is the Windows update path. -->
+      <div class="setrow" id="auto-row" style="margin-top:12px;" data-win-hide>
         <div><b>Update Kosmos automatically</b>
           <p class="dhint" style="margin:2px 0 0;">On by default. New versions install themselves, which takes a few seconds and reloads this board. Agents keep running throughout.</p></div>
         <button class="toggle" id="auto-toggle" role="switch" aria-label="Update Kosmos automatically" hidden><i></i></button>
       </div>
-      <p class="dhint" id="auto-msg" role="status" style="margin:8px 0 0;"></p>
+      <p class="dhint" id="auto-msg" role="status" style="margin:8px 0 0;" data-win-hide></p>
     </section>
   </section>
   <!-- ============ PLUS ACCOUNT (#Josh 19:15, the relay service's home) ====
@@ -13095,6 +13121,137 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
 
 <script>
 'use strict';
+
+/* ================= win32-board-copy: the platform copy layer =================
+   ONE place decides whether this board speaks Windows, and ONE table holds every
+   Windows sentence the board shows. #12 (0.6.39) deleted the old platform copy
+   cluster (frIsMac and friends, see the note above firstRunBoot) when the Success
+   screen went static, and from then on every Mac screen, word and dead button reached
+   Windows users: the wizard's macOS dialogs, the Dock and tmux boxes, Finder and
+   Terminal buttons, and the recovery toasts (installer nativeness and parity audits,
+   2026-09-12).
+
+   🔑 THE MAC STRINGS STAY WHERE THEY WERE, byte for byte: inline at their call sites
+   and in the markup. A Windows arm asks onWindows() and reads windowsCopy(key); static
+   markup names its key in data-win-copy, and data-win-hide hides a Mac-only element
+   through one CSS rule that only matches once applyPlatformCopy() has stamped
+   <html data-kosmos-platform="win32">.
+
+   📌 THE FACT IS THE SERVER'S PLATFORM, because that is the machine every button acts
+   on. server.js stamps it into <meta name="kosmos-platform"> per request, from the same
+   describe() the first-run state and the connect card report; the connect card passes
+   its own served st.platform. An unstamped page (file://, a harness, a Node eval of
+   this script) is not Windows, so the Mac page is the default everywhere.
+
+   ⚠️ NO PAGE-SCOPE CONSTS IN THESE FUNCTIONS, on purpose: harnesses lift them by name
+   (test-support/page.js PLATFORM_COPY_FNS), and a const they close over would be a
+   ReferenceError in every one of them. Brace characters stay out of the strings for the
+   same reason: the lifter counts braces. */
+function servedPlatform() {
+  try {
+    if (typeof document === 'undefined' || !document || typeof document.querySelector !== 'function') return null;
+    const el = document.querySelector('meta[name="kosmos-platform"]');
+    const v = el && typeof el.getAttribute === 'function' ? el.getAttribute('content') : null;
+    if (typeof v !== 'string' || !v || v.indexOf('KOSMOS_PLATFORM') > -1) return null;
+    return v;
+  } catch {
+    return null;
+  }
+}
+/* The only comparison with 'win32' in this page. An explicit platform (a served
+   payload's own field) wins; otherwise the served meta answers. */
+function onWindows(platform) {
+  const known = typeof platform === 'string' && platform ? platform : servedPlatform();
+  return known === 'win32';
+}
+function windowsCopyTable() {
+  const restartKosmos = 'restart Kosmos by double-clicking Kosmos.exe in your Kosmos folder, or by signing out of Windows and signing back in.';
+  return {
+    /* First run, S3 "Kosmos never sleeps" (W-11). Values used as innerHTML may carry
+       markup; values used as textContent are plain. */
+    s3Lead: 'To get the most out of your agents, this PC needs to stay awake while they work.',
+    s3SleepCaption: 'Keep this PC awake while it&rsquo;s plugged in',
+    s3SleepHow: 'Your agents pause when your PC sleeps. Open <b>Settings &gt; System &gt; Power &amp; battery &gt; Screen, sleep, &amp; hibernate timeouts</b> and set <b>When plugged in, put my device to sleep after</b> to <b>Never</b>. On Windows 10 it is under <b>Power &amp; sleep</b>. <b>Turn On</b> below opens that page for you.',
+    s3BatteryNote: 'On battery your PC will still sleep to save power. For overnight work, leave it plugged in.',
+    firePermissionFailure: 'we could not open Settings',
+    /* First run, S7 Success (W-15): the interim copy until a Start menu shortcut exists. */
+    s7Body: 'To open Kosmos later, double-click <b>Kosmos.exe</b> in the folder you extracted it to.',
+    s7Tip: 'Tip: right-click <b>Kosmos.exe</b> and choose <b>Pin to Start</b>.',
+    /* The Claude Code card (W-13, W-14, the confirm sentence). */
+    claudeInstallNote: 'Kosmos can&rsquo;t install Claude Code for you on Windows yet, so this one step is yours. '
+      + 'Open the Start menu, type <b>PowerShell</b>, and press Enter. Copy the line below, right-click in the '
+      + 'PowerShell window to paste it, and press Enter:'
+      + '<div class="fr-cmd-row"><pre class="fr-cmd">irm https://claude.ai/install.ps1 | iex</pre>'
+      + '<button class="btn-quiet fr-copy" type="button" data-copy-command>Copy</button></div>'
+      + 'When it says it&rsquo;s finished, come back here and click <b>Try again</b>. The current instructions are at '
+      + '<a href="https://code.claude.com/docs/en/quickstart" target="_blank" rel="noopener">'
+      + 'code.claude.com/docs/en/quickstart</a>. You can also carry on and connect later from Settings.',
+    claudeTerminalHatch: '<details class="fr-hatch"><summary>Already use PowerShell?</summary>'
+      + 'You can sign in to Claude outside Kosmos. Open the Start menu, type <b>PowerShell</b>, and press Enter. '
+      + 'Type <b>claude</b>, press Enter, and follow its sign-in. Then come back here and click <b>Try again</b>.</details>',
+    claudeConfirmSentence: 'Connecting to Claude needs Claude Code on this computer. Kosmos cannot install it for you on Windows yet, so if it is not here already, the next screen shows you how to install it yourself.',
+    /* Settings > This computer (W-16, W-22). */
+    settingsRevealButton: 'Open the Kosmos folder',
+    settingsOpenKosmos: 'To open Kosmos later, double-click <b>Kosmos.exe</b> in your Kosmos folder. Tip: right-click Kosmos.exe and choose <b>Pin to Start</b>.',
+    adminDetailsSummary: 'For IT admins',
+    /* Settings > Updates, the manual offer (W-25). */
+    updateManualLead: 'To install it, follow these steps.',
+    updateManualSteps: '<li>Click <b>Download</b>.</li>'
+      + '<li>Click <b>Open my Kosmos folder</b>.</li>'
+      + '<li>Open the downloaded zip, select everything inside it (Ctrl+A), and drag it into your Kosmos folder.</li>'
+      + '<li>When Windows asks, choose <b>Replace the files in the destination</b>.</li>'
+      + '<li>Double-click <b>Kosmos.exe</b>. Your agents keep running.</li>',
+    /* Documents (W-19) and the agent page (W-18). */
+    docsOpenFolder: 'Open in File Explorer',
+    terminalTab: 'Live output',
+    terminalBoxTitle: 'Live output',
+    trustRestartHint: 'Approves this agent&rsquo;s folder so it can start without asking each time.',
+    /* Not signed in (W-24) and the recovery toasts (W-26). Windows says "sign in" (W-23). */
+    signinSentence: 'This board is not signed in, so it cannot read your agents or projects. To fix it, open Kosmos by double-clicking Kosmos.exe in your Kosmos folder.',
+    signinPanel: '<p><b>This board is not signed in.</b><br>It cannot read your agents or projects yet. To fix it, '
+      + 'open Kosmos by double-clicking <b>Kosmos.exe</b> in your Kosmos folder. It opens this page signed in.</p>',
+    restartKosmos,
+    /* NOT restartKosmos (review round 2): double-clicking Kosmos.exe while the same build is
+       running only says "already running" (the launcher's hand-off), so for a stuck update
+       the one remedy that is true is a fresh sign-in. */
+    updateAbortRemedy: 'Kosmos was busy each time. To clear it, sign out of Windows and sign back in. That usually clears whatever '
+      + 'was holding the update, so the next one can finish. Your agents keep working, they do not live in this window.',
+    engineStaleRemedy: 'Only a restart picks it up: ' + restartKosmos,
+    /* %NAME% is the Kosmos being switched to, filled in by the caller. */
+    worldSwitchRestart: 'Kosmos could not restart itself. To finish switching to %NAME%, ' + restartKosmos,
+    /* The Copy button beside a command a person must paste (W-14). */
+    copyLabel: 'Copy',
+    copyDone: 'Copied',
+    copyFallback: 'Select it and copy',
+    /* The manual update offer's folder button (W-25). */
+    updateOpenFolder: 'Open my Kosmos folder',
+    openKosmosFolderFailure: 'We could not open your Kosmos folder just now.',
+    offlineRemedy: 'Double-click Kosmos.exe in your Kosmos folder and it will start again if it needs to.',
+  };
+}
+function windowsCopy(key) {
+  const table = windowsCopyTable();
+  if (!Object.prototype.hasOwnProperty.call(table, key)) throw new Error('there is no Windows copy named ' + key);
+  return table[key];
+}
+function platformCopy(key, macCopy, platform) {
+  return onWindows(platform) ? windowsCopy(key) : macCopy;
+}
+/* Whether an element is one this platform hides, for code that reads the DOM rather
+   than looking at it (the first-run gate poll must not wait on a hidden Mac gate). */
+function platformHides(el) {
+  return onWindows() && Boolean(el && typeof el.closest === 'function' && el.closest('[data-win-hide]'));
+}
+function applyPlatformCopy(root) {
+  if (!onWindows() || !root || typeof root.querySelectorAll !== 'function') return;
+  document.documentElement.setAttribute('data-kosmos-platform', 'win32');
+  root.querySelectorAll('[data-win-copy]').forEach((el) => { el.innerHTML = windowsCopy(el.getAttribute('data-win-copy')); });
+  root.querySelectorAll('[data-win-only]').forEach((el) => { el.hidden = false; });
+  /* An accessible name has to say what the visible label says (the Terminal tab reads
+     "Live output" on Windows, and its section is named from the same key). */
+  root.querySelectorAll('[data-win-aria-label]').forEach((el) => { el.setAttribute('aria-label', windowsCopy(el.getAttribute('data-win-aria-label'))); });
+}
+applyPlatformCopy(typeof document === 'undefined' ? null : document);
 
 /* ================= #1615 Kosmos Plus blue-skin canvases =================
    Behaviour ported verbatim from kosmos-relay/.../design/first-step.html: two
@@ -14827,9 +14984,13 @@ function paintUpdateAbort(ab) {
     + '<span class="udot" aria-hidden="true"></span>'
     + '<div class="utxt"><b>A new version of Kosmos is ready.</b>'
     + '<small>This computer has tried to install it ' + times + ' and could not, because '
-    + 'Kosmos was busy each time. Quit and reopen Kosmos: reopening usually clears whatever '
-    + 'was holding the update, so the next one can finish. Your agents keep working, they do '
-    + 'not live in this window.</small>'
+    /* win32-board-copy (W-26): there is no Kosmos window to Quit on Windows. */
+    + (onWindows()
+      ? windowsCopy('updateAbortRemedy')
+      : 'Kosmos was busy each time. Quit and reopen Kosmos: reopening usually clears whatever '
+        + 'was holding the update, so the next one can finish. Your agents keep working, they do '
+        + 'not live in this window.')
+    + '</small>'
     + '</div></div>';
 }
 
@@ -14855,7 +15016,10 @@ function renderUpdateToast(u) {
       + '<span class="udot" aria-hidden="true"></span>'
       + '<div class="utxt"><b>Kosmos changed on disk</b><small>'
       + (since ? 'The board is running code from ' + esc(since) + '. ' : 'The board is running older code. ')
-      + 'Only a restart picks it up: <code>kosmos restart</code></small></div>'
+      + (onWindows()
+        ? windowsCopy('engineStaleRemedy')
+        : 'Only a restart picks it up: <code>kosmos restart</code>')
+      + '</small></div>'
       + '</div>';
     return;
   }
@@ -14945,6 +15109,12 @@ function paintUpdateCard(running, offer, look, manual, channel) {
   if (chan) chan.hidden = channel !== 'staging';
   const dl = document.getElementById('upd-download');
   if (dl) dl.hidden = true;
+  /* win32-board-copy (W-25): the manual arm's steps and folder button, hidden on every
+     paint like the link and shown only by that arm. */
+  const manualSteps = document.getElementById('upd-manual-steps');
+  const openFolder = document.getElementById('upd-open-folder');
+  if (manualSteps) manualSteps.hidden = true;
+  if (openFolder) openFolder.hidden = true;
   if (offer && offer.version) {
     put(v + 'Version ' + offer.version + ' is ready.');
     putBtn('Update');
@@ -14955,7 +15125,7 @@ function paintUpdateCard(running, offer, look, manual, channel) {
        build arrives as `manual`, and this arm is what stands where the false "Up to date." used
        to. It is news a person needs without asking, like the offer arm, so it is not gated on
        UPD_ASKED. The act is the link: the check button stands down so the card offers one thing. */
-    put(v + 'Version ' + manual.version + ' is ready. Download it, unpack it over your Kosmos folder, then double-click Kosmos.exe.');
+    put(v + 'Version ' + manual.version + ' is ready. ' + windowsCopy('updateManualLead'));
     btn.hidden = true;
     btn.dataset.act = 'check';
     if (dl) {
@@ -14963,6 +15133,15 @@ function paintUpdateCard(running, offer, look, manual, channel) {
       dl.hidden = false;
       if (checkHadFocus && typeof dl.focus === 'function') dl.focus();
     }
+    /* win32-board-copy (W-25): "unpack it over your Kosmos folder" is not what Extract All
+       does, so the offer is numbered steps that name Windows' own dialog, plus a button
+       that opens the folder the files go into. The list is written once, not per poll,
+       because rewriting identical markup is still a mutation. */
+    if (manualSteps) {
+      if (!manualSteps.innerHTML) manualSteps.innerHTML = windowsCopy('updateManualSteps');
+      manualSteps.hidden = false;
+    }
+    if (openFolder) openFolder.hidden = false;
   } else if (look && look.looked === false) {
     // The first look is still in flight: say Checking, never a failure
     // that has not happened (boot rendered "could not reach" for the
@@ -15531,7 +15710,7 @@ function paintOfflineNote(down) {
   /* The one thing to do, which helps whatever the cause: opening Kosmos
      from the Applications folder starts it if it is not going and simply
      opens it if it is. Names no cause (the test above holds that line). */
-  detail.push('Open Kosmos from your Applications folder and it will start again if it needs to.');
+  detail.push(platformCopy('offlineRemedy', 'Open Kosmos from your Applications folder and it will start again if it needs to.'));
   slot.innerHTML = '<div class="utoast stale" role="status">'
     + '<span class="udot" aria-hidden="true"></span>'
     + '<div class="utxt"><b>Kosmos is not answering on this computer</b>'
@@ -16423,10 +16602,16 @@ function chkRow(c, extraHtml) {
 }
 function machineRows(report) {
   return (report.checks || []).map((c) => chkRow(c,
-    c.settings
+    (c.settings
       ? '<button class="btn-quiet" type="button" data-sleep-settings'
         + ' style="margin-top:10px;font-size:.875rem;padding:calc(.45em - 1px) calc(1em - 1px);">Open sleep settings</button>'
-      : '')).join('');
+      : '')
+    /* win32-board-copy (W-22): a command line is for an administrator, so it sits behind
+       a disclosure. Only the Windows autostart row carries admin (engine/machine.js). */
+    + (c.admin
+      ? '<details class="fr-hatch"><summary>' + windowsCopy('adminDetailsSummary') + '</summary>'
+        + '<p class="dhint" style="margin:6px 0 0;"><code>' + esc(c.admin) + '</code></p></details>'
+      : ''))).join('');
 }
 /* The person's record, as last read, so a name-only save can carry the
    other two fields whole. Null until read; a save with no record is refused
@@ -18746,7 +18931,9 @@ async function worldswSwitch(id, name, agents) {
     /* #6: the board cannot self-restart safely (from-source / unmanaged), so the
        auto-restart button could not finish it. Josh scrapped the old "run kosmos
        restart" CLI instruction; give the gentle GUI action instead, no command. */
-    say('Kosmos could not restart itself. Quit and reopen Kosmos to finish switching to ' + switchedName + '.');
+    say(onWindows()
+      ? windowsCopy('worldSwitchRestart').replace('%NAME%', () => switchedName)
+      : 'Kosmos could not restart itself. Quit and reopen Kosmos to finish switching to ' + switchedName + '.');
     worldswFocusTrigger();
   } finally {
     WORLDSW_SWITCHING = false;
@@ -20239,6 +20426,21 @@ document.getElementById('set-a11y-open').addEventListener('click', async () => {
     failMsg.textContent = 'We could not open the accessibility settings just now.';
   }
 });
+/* win32-board-copy (W-25): the manual update offer's "Open my Kosmos folder". The same
+   engine reveal as Settings' "Open the Kosmos folder" (/api/reveal-app), so the two
+   buttons cannot open different places. The folder opening is the success feedback. */
+document.getElementById('upd-open-folder').addEventListener('click', async () => {
+  const msg = document.getElementById('upd-open-folder-msg');
+  try {
+    const r = await fetch('/api/reveal-app', { method: 'POST' });
+    const body = await r.json().catch(() => ({}));
+    msg.textContent = r.ok ? '' : (body.error || windowsCopy('openKosmosFolderFailure'));
+    msg.hidden = r.ok;
+  } catch {
+    msg.textContent = windowsCopy('openKosmosFolderFailure');
+    msg.hidden = false;
+  }
+});
 document.getElementById('set-reveal').addEventListener('click', async () => {
   const msg = document.getElementById('set-reveal-msg');
   try {
@@ -21275,8 +21477,15 @@ let BOARD_NEEDS_SIGNIN = false;
    PATH in a shell that has not loaded ~/.zprofile (it failed for Josh with
    command-not-found). The full-path CLI line is a disclosure footnote for someone
    who wants it sooner, never the primary instruction. */
-const SIGNIN_SENTENCE = 'This board is not signed in, so it cannot read your agents or projects. It fixes itself the next time Kosmos updates.';
+const SIGNIN_SENTENCE = platformCopy('signinSentence', 'This board is not signed in, so it cannot read your agents or projects. It fixes itself the next time Kosmos updates.');
 function boardSigninHtml() {
+  /* win32-board-copy (W-24): on Windows updates are by hand, so nothing fixes itself, and
+     there is no ~/.local path or kosmos command. Opening Kosmos.exe mints the token. */
+  if (onWindows()) {
+    return '<div class="pj-empty boardfail">' + windowsCopy('signinPanel')
+      + '<button class="btn" type="button" data-board-retry>Reload</button>'
+      + '</div>';
+  }
   return '<div class="pj-empty boardfail">'
     + '<p><b>This board is not signed in.</b><br>'
     + 'It cannot read your agents or projects yet. It will fix itself the next '
@@ -21328,8 +21537,9 @@ function boardEmpty() {
          and one click away for the person who was already going to type it. The
          same shape the connect step already uses for "Already use Terminal?",
          which is the pattern rather than an invention. */
-      + '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
-      + 'Run <code>kosmos agents</code> to look for yourself.</details>'
+      /* win32-board-copy (W-24): Windows has no person-facing kosmos command. */
+      + (onWindows() ? '' : '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
+      + 'Run <code>kosmos agents</code> to look for yourself.</details>')
       + '<button class="btn" type="button" data-board-retry>Try again</button>'
       + '</div>';
   }
@@ -37281,6 +37491,9 @@ document.getElementById('docs-list').addEventListener('click', async (e) => {
     const res = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/open-file',
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: row.dataset.doc }) });
     if (!res.ok) { const b = await res.json().catch(() => null); msg.textContent = pjSentence((b && (b.error || b.because)) || 'we could not open that file'); }
+    /* win32-board-copy: Windows shows a file that can run a program instead of opening it, and the engine says so. */
+    /* The sentence is cleared on every other open (review round 2), so it never sits under the next document. */
+    else { const b = await res.json().catch(() => null); msg.textContent = (b && b.revealedInstead && b.say) || ''; }
   } catch { msg.textContent = 'We could not reach Kosmos to open that file.'; }
 });
 
@@ -38017,7 +38230,12 @@ document.getElementById('pj-docs').addEventListener('click', async (e) => {
       { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name: row.dataset.doc }) });
     if (PJ_CURRENT !== forProject) return;
-    if (res.ok) { msg.textContent = ''; return; }
+    if (res.ok) {
+      /* win32-board-copy: a file shown rather than opened (Windows, a type that can run a program) is said. */
+      const b = await res.json().catch(() => null);
+      msg.textContent = (b && b.revealedInstead && b.say) || '';
+      return;
+    }
     /* The refusal is the ENGINE's sentence, shown verbatim. It already says
        what happened in words a person can act on ("that file lives outside
        this project"), and rewriting it here would be a second, weaker copy. */
@@ -38044,7 +38262,12 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
       { method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ name: go.dataset.ref }) });
     if (PJ_CURRENT !== forProject) return;
-    if (res.ok) { msg.textContent = ''; return; }
+    if (res.ok) {
+      /* win32-board-copy: a file shown rather than opened (Windows, a type that can run a program) is said. */
+      const b = await res.json().catch(() => null);
+      msg.textContent = (b && b.revealedInstead && b.say) || '';
+      return;
+    }
     let because = 'That file did not open.';
     try { because = asSentence((await res.json()).error) || because; } catch { /* keep the fallback */ }
     msg.textContent = because;
@@ -42273,6 +42496,26 @@ const FR_STEPS = 9;
 // step 7; About-you is step 8. The ordered frGo if/else-if ladder is literal
 // 1..9.
 const FR_STEP_YOU = 8;
+/* win32-board-copy (W-10, W-12): the steps THIS computer's wizard walks, in order. S2
+   (a macOS folder-permission dialog) and S4 (a macOS background-activity notice) show
+   Windows something Windows never asks, so a Windows wizard skips them. The pane ids
+   stay put, because browser checks find panes by identity (lib-firstrun-steps.js);
+   only the hops between them and the progress follow this list. On a Mac the list is
+   1..FR_STEPS, so every hop and the progress are the numbers they always were. */
+function frStepSequence() {
+  const steps = [];
+  for (let i = 1; i <= FR_STEPS; i += 1) steps.push(i);
+  return onWindows() ? steps.filter((s) => s !== 2 && s !== 4) : steps;
+}
+function frStepAfter(step) {
+  const next = frStepSequence().find((s) => s > step);
+  return next === undefined ? FR_STEPS : next;
+}
+function frStepProgress(step) {
+  const steps = frStepSequence();
+  const at = steps.indexOf(step);
+  return steps.length > 1 && at > -1 ? at / (steps.length - 1) : 0;
+}
 // ⚠️ The About-you step's generation: a continuation captured under one
 // generation must do NOTHING once the generation moves -- a bare step-number
 // check cannot tell "still here" from "left and came back", and the stale save
@@ -42363,7 +42606,8 @@ async function frReadGate(row) {
 }
 async function frPollGates(screenEl, gen) {
   if (gen !== FR_GATE_GEN) return;
-  const rows = Array.from(screenEl.querySelectorAll('[data-gate]'));
+  // win32-board-copy: a gate this platform hides (Accessibility on Windows) is not asked.
+  const rows = Array.from(screenEl.querySelectorAll('[data-gate]')).filter((row) => !platformHides(row));
   if (!rows.length) return;
   const reads = await Promise.all(rows.map(frReadGate));
   if (gen !== FR_GATE_GEN) return;
@@ -42606,6 +42850,8 @@ function frGo(step) {
   step = Math.trunc(Number(step));
   if (!Number.isFinite(step) || step < 1) step = 1;
   if (step > FR_STEPS) step = FR_STEPS;
+  // win32-board-copy: a deep link to a step this computer skips lands on the next real one.
+  if (!frStepSequence().includes(step)) step = frStepAfter(step);
 
   // ⚠️ Leaving the About-you step retires its async work: its save and prefill
   // both settle async, and a stale settlement must not repaint a pane the
@@ -42621,7 +42867,7 @@ function frGo(step) {
   if (step !== FR_STEP_YOU + 1) frRescanStop();
   FR_STEP = step;
   // The dot field warms from grey toward the golds as the steps advance.
-  frDots.progress((step - 1) / (FR_STEPS - 1));
+  frDots.progress(frStepProgress(step));
   // ⚠️ Cleared on every step change (and the FLAG with it): the completion-failed
   // sentence is written once and must not sit on screen for the rest of the
   // session, and a stale FR_FORGOT sends the next exit down the silent path.
@@ -42639,13 +42885,13 @@ function frGo(step) {
   const pane = document.getElementById('fr-pane-' + step);
   if (step === 1) {
     // S1 Welcome.
-    frActions({ label: 'Get Started', go: () => frGo(2) });
+    frActions({ label: 'Get Started', go: () => frGo(frStepAfter(1)) });
   } else if (step === 2) {
     // S2 Access: the file-access gate. Next is soft-open at entry and the poll
     // (async) only disables it on a positive not-granted reading -- FAIL-SAFE, so
     // a browser (uncheckable) and any read failure never block. The go() re-checks
     // disabled to close the ~fetch-latency window before the first poll lands.
-    frActions({ label: 'Next', go: () => { if (document.getElementById('fr-next').disabled) return; frGo(3); } });
+    frActions({ label: 'Next', go: () => { if (document.getElementById('fr-next').disabled) return; frGo(frStepAfter(2)); } });
     frGateStart(pane);
   } else if (step === 3) {
     // S3 Automation: sleep + tmux gates. Next unlocks only when BOTH are granted;
@@ -42654,13 +42900,13 @@ function frGo(step) {
        beside it. Josh could not see the old in-pane version before finishing the
        connection; this bar is always visible. */
     frActions(
-      { label: 'Next', go: () => { if (document.getElementById('fr-next').disabled) return; frGo(4); } },
+      { label: 'Next', go: () => { if (document.getElementById('fr-next').disabled) return; frGo(frStepAfter(3)); } },
       { label: 'Check again', go: (e) => frRecheckPress(e && e.currentTarget), hint: 'Turned it on? Tap to check.' },
     );
     frGateStart(pane);
   } else if (step === 4) {
     // S4 Notifications.
-    frActions({ label: 'Next', go: () => frGo(5) });
+    frActions({ label: 'Next', go: () => frGo(frStepAfter(4)) });
   } else if (step === 5) {
     // S5 Model: the existing model-connect UI (reused). Its painters set their
     // own primary (Next / Skip) and advance to step 6; a connect flow already
@@ -43003,10 +43249,10 @@ async function frFirePermission(triggerUrl, fallbackUrl, msg) {
     const res = await fetch(fallbackUrl, { method: 'POST', headers: { 'content-type': 'application/json' } });
     if (!res.ok) {
       const body = await res.json().catch(() => null);
-      frFail((body && body.error) || 'we could not open System Settings');
+      frFail((body && body.error) || platformCopy('firePermissionFailure', 'we could not open System Settings'));
     }
   } catch {
-    frFail('we could not open System Settings');
+    frFail(platformCopy('firePermissionFailure', 'we could not open System Settings'));
   }
 }
 
@@ -43801,20 +44047,16 @@ function frPaintConnect(st) {
      * retires itself, instead of going on naming a command nobody needs.
      */
     + '<div class="fr-note">'
-    + ((st && st.platform === 'win32' && st.canInstallClaude === false)
-      ? 'Nothing is broken by this. Kosmos cannot install Claude Code on Windows: '
-        + 'the copy it fetches is a macOS build. Claude Code has to be installed by you. '
-        + 'In Windows PowerShell, run:'
-        + '<pre class="fr-cmd">irm https://claude.ai/install.ps1 | iex</pre>'
-        + 'When it finishes, press Try again. The current instructions are at '
-        + '<a href="https://code.claude.com/docs/en/quickstart" target="_blank" rel="noopener">'
-        + 'code.claude.com/docs/en/quickstart</a>. You can also carry on and connect '
-        + 'later from Settings.'
+    /* win32-board-copy (W-13, W-14): the Windows words come from the copy table, keyed on
+       the platform THIS card was served with. The gate still reads BOTH fields, so the
+       note retires itself the day canInstallClaude goes true on Windows. */
+    + ((onWindows(st && st.platform) && st && st.canInstallClaude === false)
+      ? windowsCopy('claudeInstallNote')
       : 'Nothing is broken by this. You can try again, or carry on and connect later from Settings.')
     + ((st && st.canRunClaude)
-      ? '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
+      ? platformCopy('claudeTerminalHatch', '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
         + 'You can sign in to Claude outside Kosmos: open Terminal, type <b>claude</b>, '
-        + 'and follow its sign-in. Then come back and press Try again.</details>'
+        + 'and follow its sign-in. Then come back and press Try again.</details>', st && st.platform)
       : '')
     + '</div>';
     frActions({ label: 'Try again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(6) });
@@ -43850,6 +44092,42 @@ function frPaintConnect(st) {
 
   // `connected` and `idle` have no panel of their own: the standard verdict
   // painter owns those screens, and frConnWatch/frConnectStart route there.
+}
+
+/* win32-board-copy (W-14): the Copy button beside a command a person must paste. A
+   wrapped or half-selected command is a wrong command, so the button copies the pre's
+   exact text. The clipboard API needs a secure context, which 127.0.0.1 is; the
+   selection fallback covers a browser that refuses it anyway. */
+async function copyCommandFrom(button) {
+  const row = button && button.closest ? button.closest('.fr-cmd-row') : null;
+  const cmd = row ? row.querySelector('.fr-cmd') : null;
+  if (!cmd) return;
+  const text = cmd.textContent.trim();
+  let copied = false;
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    }
+  } catch { copied = false; }
+  if (!copied) {
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(cmd);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      copied = document.execCommand('copy');
+    } catch { copied = false; }
+  }
+  button.textContent = windowsCopy(copied ? 'copyDone' : 'copyFallback');
+  setTimeout(() => { button.textContent = windowsCopy('copyLabel'); }, 2000);
+}
+if (typeof document !== 'undefined' && document && typeof document.addEventListener === 'function') {
+  document.addEventListener('click', (e) => {
+    const b = e.target && e.target.closest ? e.target.closest('[data-copy-command]') : null;
+    if (b) copyCommandFrom(b);
+  });
 }
 
 function frConnBefore(phase) {
@@ -44024,6 +44302,9 @@ function frClaudeConfirmSentence(conn) {
      sentence that cannot contradict itself is better than one that relies on a
      distant caller to stay honest. */
   const known = st && st.willInstall === true;
+  /* win32-board-copy: Kosmos installs nothing on Windows, so neither sentence below is
+     true there. Keyed on the served platform and on canInstallClaude, like the note. */
+  if (onWindows(st && st.platform) && !(st && st.canInstallClaude === true)) return windowsCopy('claudeConfirmSentence');
   return known
     ? 'In order to connect to Claude, we need to install Claude Code first. It is ' + size + '.'
     : 'Connecting to Claude needs Claude Code on this computer. If it is not here already we will install it, ' + size + '.';
@@ -46482,7 +46763,9 @@ function revealBoot() {
    Success screen is fixed static markup carrying Josh's verbatim copy, so the
    whole cluster (and its firstRunBoot call) went with them. The server side
    (engine/machine.js findAppHint, which drives the app-location row detail on
-   the Settings screen) is unchanged. */
+   the Settings screen) is unchanged.
+   win32-board-copy: a platform copy layer is back, for Windows rather than for the
+   Success screen alone: onWindows() and windowsCopyTable() at the top of this script. */
 
 async function firstRunBoot(force, step) {
   try {

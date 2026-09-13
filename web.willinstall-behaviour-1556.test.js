@@ -87,7 +87,8 @@ test('#1556 an unknown answer still asks, in all three of its shapes', () => {
  * in source text, so it cannot tell which one a given value produces.
  */
 function confirmSentenceWith(FR) {
-  const fns = ['frRoughMB', 'frClaudeDownloadBytes', 'frClaudeConfirmSentence']
+  // win32-board-copy: the sentence now asks the platform copy layer (Mac here: no stamped meta).
+  const fns = [...page.PLATFORM_COPY_FNS, 'frRoughMB', 'frClaudeDownloadBytes', 'frClaudeConfirmSentence']
     .map((n) => page.lift(SCRIPT, n)).join('\n');
   // eslint-disable-next-line no-new-func
   return new Function('FR', fns + '\nreturn frClaudeConfirmSentence();')(FR);

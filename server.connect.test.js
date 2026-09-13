@@ -886,9 +886,13 @@ function connectHarness(st) {
     'const esc = ' + realEsc.toString() + ';\n'
     + 'const document = { getElementById: () => null };');
 
+  /* win32-board-copy: the painter's Windows arms ask the platform copy layer; lifted as
+     the page's own source, and "not Windows" here unless a state names win32. */
+  const platformCopyLayer = require('./test-support/page').PLATFORM_COPY_FNS.map((n) => pageFunction(n).toString()).join('\n');
   const prelude = `
     const esc = ${realEsc.toString()};
     ${tables}
+    ${platformCopyLayer}
     const frCheckRow = ${realRow.toString()};
     const frMB = ${realMB.toString()};
     const frConnBefore = ${realBefore.toString()};
@@ -1531,11 +1535,22 @@ test('#570: on Windows the stuck card says whose job the install is, and how to 
   const { els, actions } = connectHarness(win32Stuck());
   const html = els['fr-sub'].innerHTML;
 
-  assert.match(html, /Kosmos cannot install Claude Code on Windows/,
+  /* win32-board-copy (W-14): the audit's wording. It says whose step it is and how to open
+     PowerShell, and it no longer explains the internal "macOS build" reason. */
+  assert.match(html, /Kosmos can&rsquo;t install Claude Code for you on Windows yet, so this one step is yours/,
     'the Windows card still does not say that the install is the person\'s to do');
+  assert.match(html, /Open the Start menu, type <b>PowerShell<\/b>, and press Enter/,
+    'the card assumes the person can already open PowerShell');
+  /* Scoped to the NOTE: the engine's refusal (the detail line above it) still names the
+     macOS build, and rewording that refusal is a separate card (parity audit P2 #16). */
+  const noteHtml = html.slice(html.indexOf('<div class="fr-note">'));
+  assert.ok(noteHtml.length > 20, 'the note is not on the card');
+  assert.doesNotMatch(noteHtml, /macOS build/, 'the note explains Kosmos internals to a Windows user again');
   assert.match(html, /irm https:\/\/claude\.ai\/install\.ps1 \| iex/,
     'the card names no command, so "install it yourself" is a dead end one sentence further on');
-  assert.match(html, /press Try again/,
+  assert.match(html, /<button class="btn-quiet fr-copy" type="button" data-copy-command>Copy<\/button>/,
+    'the command a person must paste has no Copy button');
+  assert.match(html, /click <b>Try again<\/b>/,
     'nothing tells the person what to do once the install finishes');
   /* The durable half, BESIDE the command rather than instead of it: a command in
      shipped source ages, a vendor page does not. */

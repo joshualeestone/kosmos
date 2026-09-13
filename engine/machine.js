@@ -33,8 +33,18 @@ const runners = require('./runners');
    bundle" is. update.js does not require machine.js, so this pulls in no
    cycle (verified). */
 const update = require('./update');
+const win32explorer = require('./win32explorer');
 
 const STATE = { OK: 'ok', ATTENTION: 'attention', UNKNOWN: 'unknown' };
+
+/* win32-board-copy: which platform's arm the sleep, app-location and reveal reads
+   take when a caller does not say. Production reads process.platform; a suite states
+   the platform it asserts (the Mac contract in machine.test.js is pinned to darwin),
+   so the arms are assertable from either host. The same seam shape as
+   update.setPlatform. */
+let machinePlatform = null;
+function setPlatform(p) { machinePlatform = p || null; }
+function platformOf(opts) { return (opts && opts.platform) || machinePlatform || process.platform; }
 
 /* #2397: the board's own login-job label. Bare for every real install -- the
    #883 hash suffix is added ONLY for a non-default KOSMOS_HOME (a sandbox/walk
@@ -321,6 +331,7 @@ function sleepCheck(text) {
  * satisfiable, and letting a user past them lands them in broken agents.
  */
 function sleepGate(opts) {
+  if (platformOf(opts) === 'win32') return win32SleepGate(opts);
   const runner = (opts && opts.runner) || run;
   const pm = (opts && typeof opts.pmset === 'string')
     ? { ok: true, stdout: opts.pmset }
@@ -331,6 +342,139 @@ function sleepGate(opts) {
   const row = sleepCheck(pm.stdout);
   if (row.state === STATE.OK) return { checkable: true, prevented: true };
   if (row.state === STATE.ATTENTION) return { checkable: true, prevented: false, because: row.title, battOnly: row.battOnly === true };
+  return { checkable: false, because: row.title };
+}
+
+/* ===========================================================================
+   Sleep, on Windows (win32-board-copy)
+   =========================================================================== */
+
+/**
+ * The read-only query for the active power plan's "Sleep after" setting, which is what
+ * Settings shows as "When plugged in, put my device to sleep after". AC is plugged in,
+ * DC is on battery, both in seconds, and 0 means Never. `/qh` is `/query` including
+ * settings an OEM or a policy marked hidden, so a machine that hides this one still
+ * reads rather than leaving the first-run pill on "Checking..."; neither changes anything.
+ */
+const POWERCFG_SLEEP_QUERY = Object.freeze(['/qh', 'SCHEME_CURRENT', 'SUB_SLEEP', 'STANDBYIDLE']);
+
+/** STANDBYIDLE's GUID, which powercfg prints untranslated in every language. */
+const STANDBYIDLE_GUID = '29f6c1db-86da-48c5-9fdb-f2b67b1f44da';
+
+/**
+ * powercfg prints exactly five `0x` values for one setting, in a fixed order: minimum,
+ * maximum, increment, then the AC index and the DC index. The labels are translated on
+ * a non-English Windows; the values and their order are not.
+ */
+const POWERCFG_HEX_VALUE_COUNT = 5;
+const POWERCFG_AC_POSITION = 3;
+const POWERCFG_DC_POSITION = 4;
+
+/** Where a person changes it by hand, in Windows' own words. */
+const WINDOWS_POWER_SETTINGS = 'Settings > System > Power & battery';
+
+function powercfgPath() {
+  return path.win32.join(process.env.SystemRoot || process.env.windir || 'C:\\Windows', 'System32', 'powercfg.exe');
+}
+
+/**
+ * `{ acSeconds, dcSeconds }` from powercfg's answer, or null when the answer is not
+ * the Sleep-after setting or cannot be read. English labels are used when present;
+ * otherwise the five values are read by position, and any other count is unreadable.
+ */
+function parsePowercfgSleep(text) {
+  const raw = String(text || '');
+  if (!raw.toLowerCase().includes(STANDBYIDLE_GUID)) return null;
+  const lines = raw.split(/\r?\n/);
+  const valueOf = (line) => {
+    const m = line.match(/:\s*0x([0-9a-f]{1,8})\s*$/i);
+    return m ? parseInt(m[1], 16) : null;
+  };
+  const labelled = (label) => {
+    const line = lines.find((l) => l.includes(label));
+    return line ? valueOf(line) : null;
+  };
+  const acLabelled = labelled('Current AC Power Setting Index');
+  const dcLabelled = labelled('Current DC Power Setting Index');
+  if (acLabelled !== null) return { acSeconds: acLabelled, dcSeconds: dcLabelled };
+  const values = lines.map(valueOf).filter((v) => v !== null);
+  if (values.length !== POWERCFG_HEX_VALUE_COUNT) return null;
+  return { acSeconds: values[POWERCFG_AC_POSITION], dcSeconds: values[POWERCFG_DC_POSITION] };
+}
+
+/**
+ * How long one powercfg reading answers for. The first-run sleep gate polls every 750ms
+ * and the read is a synchronous child process (up to its 5s timeout), so reading on every
+ * poll would stall the board's event loop each time. 1.5s is two poll ticks (review
+ * round 2): short enough that "Check again" on S3 reflects a sleep time just changed in
+ * Settings within a poll or two, long enough that most ticks answer from the reading.
+ */
+const WIN32_SLEEP_READING_TTL_MS = 1500;
+let win32SleepReading = null;   // { runner, at, reading }
+let win32SleepClock = () => Date.now();
+/** Test seam: the clock the reading's age is measured on. */
+function setWin32SleepClockForTests(fn) { win32SleepClock = typeof fn === 'function' ? fn : () => Date.now(); }
+/** Test hook: forget the cached reading. */
+function resetWin32SleepReading() { win32SleepReading = null; }
+
+/**
+ * The powercfg answer: injected text (`opts.powercfg`), or the runner with its timeout,
+ * reused for WIN32_SLEEP_READING_TTL_MS. The cache is keyed on the runner, so a different
+ * runner (another test's world) never answers from this one's reading.
+ */
+function readWin32Sleep(opts) {
+  if (opts && typeof opts.powercfg === 'string') return { ok: true, stdout: opts.powercfg };
+  const runner = (opts && opts.runner) || run;
+  const now = win32SleepClock();
+  if (win32SleepReading && win32SleepReading.runner === runner && now - win32SleepReading.at < WIN32_SLEEP_READING_TTL_MS) {
+    return win32SleepReading.reading;
+  }
+  const reading = runner(powercfgPath(), [...POWERCFG_SLEEP_QUERY]);
+  win32SleepReading = { runner, at: now, reading };
+  return reading;
+}
+
+/**
+ * The Settings sleep row on Windows. Only the plugged-in value decides it: a desktop
+ * reports a battery value too, and nothing cheap here can tell a laptop from a desktop,
+ * so the battery case is said as a possibility, never as a finding.
+ */
+function win32SleepCheck(reading) {
+  const parsed = reading && reading.ok ? parsePowercfgSleep(reading.stdout) : null;
+  if (!parsed) {
+    return {
+      key: 'sleep',
+      state: STATE.UNKNOWN,
+      title: 'We could not read this computer\'s sleep settings',
+      detail: 'That setting decides whether your agents keep working when you walk away. '
+        + 'You can check it in ' + WINDOWS_POWER_SETTINGS + '.',
+    };
+  }
+  if (parsed.acSeconds === 0) {
+    return {
+      key: 'sleep',
+      state: STATE.OK,
+      title: 'This computer does not go to sleep while it is plugged in',
+      detail: 'So your agents keep working while you are away. On battery it may still sleep '
+        + 'to save power, so for overnight work leave it plugged in.',
+    };
+  }
+  const minutes = Math.max(1, Math.round(parsed.acSeconds / 60));
+  return {
+    key: 'sleep',
+    state: STATE.ATTENTION,
+    title: `This computer goes to sleep after ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} when it is plugged in`,
+    detail: 'Your agents stop when it sleeps and start again when you wake it. To keep them '
+      + 'working while you are away, open ' + WINDOWS_POWER_SETTINGS + ' and set the '
+      + 'plugged-in sleep time to Never.',
+  };
+}
+
+/** The first-run gate on Windows, the same three answers as the Mac's sleepGate. */
+function win32SleepGate(opts) {
+  const row = win32SleepCheck(readWin32Sleep(opts));
+  if (row.state === STATE.OK) return { checkable: true, prevented: true };
+  if (row.state === STATE.ATTENTION) return { checkable: true, prevented: false, because: row.title, battOnly: false };
   return { checkable: false, because: row.title };
 }
 
@@ -860,7 +1004,10 @@ function appLocationCheck(opts) {
   // Platform drives only the "how to find it" WORDING (kosmos#2086), not the
   // look below. Defaults to this machine; overridable so both branches are
   // testable from any OS.
-  const platform = (opts && opts.platform) || process.platform;
+  const platform = platformOf(opts);
+  /* win32-board-copy (W-16): Windows has no Applications folder to look in. The app
+     IS its folder, and the board knows where that is. */
+  if (platform === 'win32') return win32AppLocationCheck(opts);
   // ⚠️ A malformed override THROWS rather than silently probing the real
   // machine. The fallback used to require length exactly 2, so a test passing
   // one or three directories by mistake read the operator's real
@@ -941,7 +1088,42 @@ function appLocationCheck(opts) {
  */
 let appRevealRunner = null;
 function setAppRevealRunner(f) { appRevealRunner = f; }
+
+/* win32-board-copy (W-16): the Kosmos folder on Windows, looked up rather than
+   remembered. `opts.bundleRoot` is the seam; production asks win32board, the same
+   answer the updater's manual offer and the logon task use. Lazily required so a Mac
+   never loads the Windows module to draw a Mac row. */
+function windowsKosmosFolder(opts) {
+  if (opts && 'bundleRoot' in opts) return opts.bundleRoot;
+  return require('./win32board').bundleRoot({ platform: 'win32' });
+}
+
+function win32AppLocationCheck(opts) {
+  let root;
+  try {
+    root = windowsKosmosFolder(opts);
+  } catch {
+    return appLocationUnknown('win32');
+  }
+  if (!root) {
+    return {
+      key: 'app-location',
+      state: STATE.UNKNOWN,
+      title: 'This Kosmos is running from source',
+      detail: 'There is no Kosmos folder to show: a from-source checkout is started by hand.',
+    };
+  }
+  return { key: 'app-location', state: STATE.OK, title: 'Kosmos lives in its own folder', detail: root };
+}
+
 function revealApp(opts) {
+  if (platformOf(opts) === 'win32') {
+    const root = windowsKosmosFolder(opts);
+    if (!root) throw new Error('this Kosmos is running from source, so there is no Kosmos folder to show');
+    const opened = win32explorer.openFolder(root);
+    if (!opened.ok) throw new Error('we could not open your Kosmos folder: ' + opened.because);
+    return { ok: true };
+  }
   let dirs;
   if (opts && opts.appDirs !== undefined) {
     if (!Array.isArray(opts.appDirs) || opts.appDirs.length === 0
@@ -1069,6 +1251,14 @@ function sleepPaneUrl(runner, lister) {
     the route that fronts this must not become a way for a page to `open`
     arbitrary URLs on the machine. */
 function openSleepSettings(runner, lister) {
+  /* win32-board-copy (W-11): Windows' sleep page is a fixed ms-settings page, opened by
+     the one Explorer launcher from a closed list, so a page still cannot name a URI. */
+  if (platformOf() === 'win32') {
+    const opened = win32explorer.openSettingsPage('sleep');
+    return opened.ok
+      ? { ok: true }
+      : { ok: false, because: 'we could not open the sleep settings. Open ' + WINDOWS_POWER_SETTINGS + ' and set the plugged-in sleep time to Never' };
+  }
   const url = sleepPaneUrl(runner, lister);
   /* When we cannot pinpoint the pane, the honest answer is not a dead button:
      it is telling the person exactly where to do it themselves, so the step is
@@ -1409,9 +1599,13 @@ function win32BoardAutostartCheck(opts) {
   } catch (e) {
     d = null;
   }
+  /* win32-board-copy (W-22, W-23): Windows says "sign in", and the removal command is
+     for an administrator, not the sentence a person reads. It travels as the row's own
+     `admin` field, which Settings shows under "For IT admins", so the task stays
+     findable and removable from the screen that mentions it. */
   if (!d) {
     return { key: 'autostart', state: STATE.UNKNOWN,
-      title: 'We could not check whether Kosmos starts when you log in',
+      title: 'We could not check whether Kosmos starts when you sign in',
       detail: 'Not the same as it being wrong. We could not read this computer\'s scheduled tasks.' };
   }
   /* A from-source checkout legitimately has no logon task and must not alarm --
@@ -1419,45 +1613,54 @@ function win32BoardAutostartCheck(opts) {
   if (!d.bundle) {
     return { key: 'autostart', state: STATE.OK,
       title: 'Kosmos is running from source',
-      detail: 'There is no startup job to check: a from-source checkout is started by hand, not by Windows when you log in.' };
+      detail: 'There is no startup job to check: a from-source checkout is started by hand, not by Windows when you sign in.' };
   }
   if (!d.registered) {
     return { key: 'autostart', state: STATE.ATTENTION,
-      title: 'Kosmos will not start itself when you log in',
+      title: 'Kosmos will not start itself when you sign in',
       detail: `The scheduled task that brings Kosmos back after a restart (${d.task}) is not there, so your board will not `
         + 'come back on its own -- your agents will, and you will have nowhere to watch them. Starting Kosmos once puts it back.' };
   }
   if (!d.enabled) {
     return { key: 'autostart', state: STATE.ATTENTION,
-      title: 'Kosmos is set up to start when you log in, but it is turned off',
+      title: 'Kosmos is set up to start when you sign in, but it is turned off',
       detail: `Its startup job (${d.task}) is on this computer but switched off, so Kosmos will not start on its own after a `
         + 'restart. You can turn it back on in Task Scheduler, under Task Scheduler Library then Kosmos.' };
   }
   return { key: 'autostart', state: STATE.OK,
-    title: 'Kosmos starts itself when you log in',
-    detail: `Its startup job (${d.task}) is in place, so Kosmos and your agents come back on their own after this computer `
-      + `restarts. To remove it: ${d.removeHint}` };
+    title: 'Kosmos starts itself when you sign in',
+    detail: 'Kosmos starts when you sign in to Windows, and your agents come back on their own after a restart.',
+    admin: `To remove its startup job (${d.task}): ${d.removeHint}` };
 }
 
 function check(opts) {
   const runner = (opts && opts.runner) || run;
 
-  const pm = (opts && typeof opts.pmset === 'string')
-    ? { ok: true, stdout: opts.pmset }
-    : runner('/usr/bin/pmset', ['-g', 'custom']);
+  let sleepRow;
+  if (platformOf(opts) === 'win32') {
+    /* win32-board-copy (W-17): powercfg, not pmset. The button is always offered:
+       ms-settings:powersleep is a fixed page on every supported Windows, so there is
+       no pane to probe for. */
+    sleepRow = win32SleepCheck(readWin32Sleep(opts));
+    sleepRow.settings = true;
+  } else {
+    const pm = (opts && typeof opts.pmset === 'string')
+      ? { ok: true, stdout: opts.pmset }
+      : runner('/usr/bin/pmset', ['-g', 'custom']);
 
-  const sleepRow = pm.ok ? sleepCheck(pm.stdout) : {
-      key: 'sleep',
-      state: STATE.UNKNOWN,
-      title: 'We could not read this computer\'s sleep settings',
-      detail: 'That setting decides whether your agents keep working when you walk away. You '
-        + 'can see it in System Settings, under Lock Screen on a desktop or Battery on a laptop.',
-  };
-  // The button's gate travels ON the row (reliability-or-no-button): true
-  // only when the pane was found on disk by id, whatever the row's state.
-  // An injected runner probes fresh every time (no cache in either
-  // direction); only the real runner's answer is cached for the process.
-  sleepRow.settings = sleepPaneUrl((opts && opts.runner) ? runner : undefined, opts && opts.lister) !== null;
+    sleepRow = pm.ok ? sleepCheck(pm.stdout) : {
+        key: 'sleep',
+        state: STATE.UNKNOWN,
+        title: 'We could not read this computer\'s sleep settings',
+        detail: 'That setting decides whether your agents keep working when you walk away. You '
+          + 'can see it in System Settings, under Lock Screen on a desktop or Battery on a laptop.',
+    };
+    // The button's gate travels ON the row (reliability-or-no-button): true
+    // only when the pane was found on disk by id, whatever the row's state.
+    // An injected runner probes fresh every time (no cache in either
+    // direction); only the real runner's answer is cached for the process.
+    sleepRow.settings = sleepPaneUrl((opts && opts.runner) ? runner : undefined, opts && opts.lister) !== null;
+  }
 
   const checks = [
     installedCheck(opts),
@@ -1489,4 +1692,4 @@ function check(opts) {
   };
 }
 
-module.exports = { check, parsePmset, sleepCheck, sleepGate, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, sleepGate, parsePowercfgSleep, win32SleepCheck, setPlatform, setWin32SleepClockForTests, resetWin32SleepReading, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
