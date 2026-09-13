@@ -1,0 +1,283 @@
+# win32-installer-native: the zip behaves like a per-user Windows install
+
+Branch `win32-installer-native`, cut from `origin/main` @ `0caa1396`. That main carries #2979
+(win32-launcher-native), #2984 (win32-board-copy) and #2986 (win32-board-status-2973), so the
+Settings UI half of item 5 is in scope.
+
+Source: the Windows install nativeness audit (W-06, W-20, W-21, W-22, W-27, "Bigger native
+features" option 1) and the coordinator's brief `kosmos-scripts/brief-win32-installer-option1.md`.
+No admin prompt anywhere: everything is per-user (HKCU, the user's Start Menu, `%LOCALAPPDATA%`).
+
+## Decisions
+
+### C# versus node, and why
+
+The launcher stops being "does nothing more than the .cmd did". That reversal is deliberate and is
+recorded in `tools/windows/README.md`. The split follows one rule: **C# does only what needs a
+Windows shell API or a person; node does everything that is already a fact in the engine.**
+
+| Part | Where | Why |
+|---|---|---|
+| Start menu shortcut (IShellLink COM) | C# | A COM interface. Node would need a PowerShell or `WScript.Shell` process, which the brief rules out. |
+| Apps & features key (HKCU `...\Uninstall\Kosmos`) | C# | `Microsoft.Win32.Registry` is in-box. Node would need `reg.exe`. The launcher both writes it and removes it, so one file owns the key. |
+| Known Folder detection (Downloads, Desktop), dialogs, "Keep it here" memory, relaunch | C# | The Known Folder API and message boxes are Windows APIs. The person is talking to the launcher. |
+| `--uninstall` confirm questions and the final message | C# | A person at a desktop. Refused without one (see below). |
+| Stopping and deleting every `\Kosmos\*` task | node `engine/win32uninstall.js` | Convention 5: `win32job` and `win32board` already own the task names, the schtasks seam, the not-found rule and the test-process refusal. A C# copy would be a second derivation that would drift. |
+| Deleting `%LOCALAPPDATA%\Kosmos` and (on yes) `%APPDATA%\Kosmos` | node | The paths are `win32anchor.anchorDir` and `store.dataRootFor`, one derivation each. `projects.projectsRoot()` is the guard that keeps Projects out. |
+| Move: the "serving from this folder" check, the target check, the copy | node `engine/win32relocate.js` | The copy list is `win32update.ENTRIES` (the brief says reuse it). The identity probe is `win32handoff.probeBoard`. The engine pointer is `win32anchor.readPointer`. |
+
+The node helpers are CLIs the launcher runs with the bundle's own `runtime\node.exe`. Each is
+**dry-run unless `--yes`**, the S2 CLI's shape (`win32update.cliMain`). Only the launcher passes
+`--yes`, and only after the person confirmed. `--yes` stands in for `allowLiveExecution()`, which only
+server.js's real start may call: the functions take `liveExecutionAllowed` and refuse without it.
+Under them, `win32job.run` and `win32board.run` still refuse schtasks from any test process
+(`schtasksMayRunInThisProcess`). A helper writes its outcome as plain lines to a `--report` file:
+`LEFT <sentence>`, `NOTE <sentence>`, `MOVED <path>`, `SAME <path>`, `REFUSED <sentence>`. The
+launcher shows those sentences. The words about a step live with the code that did it, and the
+launcher parses no JSON and redirects no stdio (the server-start rule in
+tools.win-launcher-native.test.js stays true).
+
+### 1. Start menu shortcut (W-20)
+
+- Every launch of a real Kosmos build writes `<Programs>\Kosmos.lnk`. Programs is
+  `Environment.SpecialFolder.Programs`, which is `%APPDATA%\Microsoft\Windows\Start Menu\Programs`.
+  The shortcut goes through IShellLinkW and IPersistFile. The target is the running exe, the working
+  directory is the bundle root, and the icon is the exe, index 0.
+- "A real Kosmos build" means `manifest.json` names `"product": "kosmos"` and `"platform": "win32"` at
+  its top level. A scratch or partial folder is never advertised. This rule also keeps every existing
+  test that runs the exe (they have no manifest) from touching the real Start Menu.
+- The seam is `internal static startMenuProgramsFolder`, which only the scratch-compiled probe
+  replaces.
+- No desktop shortcut in this slice (follow-up).
+
+### 2. Apps & features entry (W-27b)
+
+- Every launch of a real build writes `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Kosmos`
+  with:
+  - `DisplayName=Kosmos`, `DisplayIcon="<exe>",0`, `DisplayVersion` (manifest.json's top-level
+    `version`), `InstallLocation=<root>`;
+  - `UninstallString="<exe>" --uninstall`, `QuietUninstallString` the same;
+  - `NoModify=1`, `NoRepair=1` (DWORD), `EstimatedSize` (DWORD, KB, the bundle's files).
+- **`Publisher` is omitted.** The named constant is `PublisherLegalName = ""` in `KosmosLauncher.cs`.
+  It is written only when non-empty, and a stale value is deleted while it is empty. It waits for
+  Josh to give the legal company name on the signing certificate. That is the same name
+  `AssemblyCompany` waits for.
+- The seam is `internal static uninstallKeyParent`. The probe points it at
+  `HKCU\Software\KosmosTest\<guid>`.
+
+### 3. `Kosmos.exe --uninstall` (W-27a)
+
+- It is handled before anything else in Main: before the runtime checks, the move offer and the
+  shortcut and key refresh.
+- **No person, no uninstall.** With `--console`, or with no interactive desktop, it prints a sentence
+  and exits 2 having done nothing. A destructive act never runs without its confirm. So
+  `QuietUninstallString` is accepted but still asks.
+- The first question is "Remove Kosmos from this PC? Your agents will stop." [Yes] [No], defaulting to
+  No. No stops here, having done nothing.
+- The second question is "Also delete your agents' chats and settings?" [Yes] [No], defaulting to No.
+- Then `node app\engine\win32uninstall.js --uninstall [--delete-data] --root <root> --report <tmp> --yes`
+  runs these steps, in order, each with its own result:
+  1. It reads the `\Kosmos\` task folder once (`win32job.kosmosFolderTasks`, the query and CSV reader
+     `list()` already uses).
+  2. Each `Kosmos\agent-<key>` task: `win32job.disable`, `end`, `remove`, with `<key>` parsed by
+     `launchidentity.parseKey`. That way another Kosmos's agent is reached by its own world, never
+     by guessing.
+  3. `Kosmos\board`: `win32board.end`, `remove`. Ended last.
+  4. Any other task in the folder is **left in place and named**. Kosmos does not recognise it, so it
+     does not guess.
+  5. If the folder could not be read, or any task is still there, both folder deletions below are
+     **skipped and named**. A task that is still registered still needs its runtime, and its agent
+     its data.
+  6. It deletes `%LOCALAPPDATA%\Kosmos` (the parent of `win32anchor.anchorDir`). The folder must be
+     named `Kosmos`, must not hold the projects root, and must not hold the bundle root. The delete
+     retries while the ended processes let go of `node.exe`.
+  7. It deletes `%APPDATA%\Kosmos` (`store.dataRootFor`) only with `--delete-data`, under the same
+     guards. Without the flag it says the chats were kept.
+  8. It never deletes Projects. Any folder that holds `projects.projectsRoot()` is refused.
+     The report says where the projects are.
+- The launcher then removes `Kosmos.lnk` and the Uninstall key, each with its own result.
+  - If anything was left behind, the Uninstall key is **kept**, and the message says so, so the person
+    can run the removal again from Settings > Apps.
+- The final message is "Kosmos is removed. You can now delete the folder <root>." followed by "Kosmos
+  can't delete the folder it is running from, so that last step is yours."
+  - It never schedules a self-delete.
+  - On a partial removal it lists every sentence left behind.
+
+### 4. Move out of Downloads, Desktop, OneDrive or Temp (W-06)
+
+- It runs on a launch of a real build, with message boxes, after the runtime and app checks and
+  before anything is started.
+- The bad places are:
+  - Downloads: `FOLDERID_Downloads` and `%USERPROFILE%\Downloads`;
+  - Desktop: `FOLDERID_Desktop`, the Known Folder API, so a OneDrive-redirected Desktop is caught
+    (this box's is `C:\Users\joshu\OneDrive\Desktop`);
+  - OneDrive: `%OneDrive%`, `%OneDriveConsumer%`, `%OneDriveCommercial%`;
+  - Temp: the launcher's existing `TempFolders()`.
+  - The phrase in the question names the most specific one.
+- The question is "Kosmos is running from your <place>. If that folder is cleaned up, Kosmos stops
+  working. Move Kosmos to its own folder now?", with [Move Kosmos] [Keep it here] on a small WinForms
+  dialog. MessageBox cannot label its buttons.
+- **Keep it here** is remembered in `%LOCALAPPDATA%\Kosmos\launcher\kept-here.txt`, one full path per
+  line, so there is one prompt per location. Closing the dialog is no answer: nothing is remembered,
+  and it asks again next time.
+- **Move Kosmos** runs `node app\engine\win32relocate.js --move --from <root> --to <target> --port <port> --report <tmp> --yes`:
+  - The target is `FOLDERID_UserProgramFiles\Kosmos`, which is `%LOCALAPPDATA%\Programs\Kosmos`.
+  - It refuses while a board from THIS folder is serving: a board answers on the port AND the engine
+    pointer is inside this folder, or cannot be read. The identity header says it is a board; the
+    pointer says whose.
+  - It refuses when the target holds a different Kosmos (manifest version or source_sha differ), holds
+    an incomplete one, or holds other files. Each refusal is its own sentence.
+  - Same build already there: `SAME`, no copy.
+  - Otherwise it copies exactly `win32update.ENTRIES` into a sibling staging folder, then renames it
+    into place. A failed copy removes only its own staging folder. `Projects`, and anything else in
+    the folder, is never copied.
+  - The launcher then starts `<target>\Kosmos.exe` and exits 0. The old copy stays where it is.
+  - On a refusal it shows the sentence and carries on launching from here.
+- The relaunched board's `win32board.ensureInstalled` re-anchors, so `engine-path` moves to the new
+  folder, as it does today for any new folder.
+- **The updater gets its canonical location.** `%LOCALAPPDATA%\Programs\Kosmos` is the per-user
+  install folder the updater design (roadmap section 3a, option C) lacked. The S3 swap can treat it
+  as ROOT. The Start menu shortcut and the Uninstall key follow whichever folder last launched, so a
+  swap in place keeps both valid.
+- **Known limit, stated.** A board from a bad folder is usually already serving on every later launch,
+  because its logon task started it. From then on the move is refused ("running from this folder right
+  now"). So in practice the offer works on the first launch of a fresh extract, which is the case W-06
+  is about. Moving a running install is the updater's End, swap, Run, not this slice's.
+
+### 5. Start at sign-in switch (W-21a, W-22)
+
+- The engine has `win32board.setStartAtSignIn(on)`:
+  - The live-execution gate applies unless a runner is injected.
+  - It reads `status()` first. Unknown refuses: never treated as on or running.
+  - Not registered refuses with a sentence. Already in the wanted state is ok.
+  - Otherwise `enable()` or `disable()`, then `status()` again. The answer is the state READ BACK from
+    `<Settings><Enabled>`, never the one asked for.
+- The route is `POST /api/machine/start-at-sign-in {on: boolean}`: 200 `{ok, on}` or 409
+  `{error}`. POST inherits the cross-site guard.
+- `machine.win32BoardAutostartCheck` puts `startAtSignIn: <enabled>` on the row only when
+  `describe()` is known and registered. An unknown row, a missing task, or a source checkout carries
+  no switch. The switched-off detail points at the switch instead of Task Scheduler.
+- In the page, `machineRows` renders a `.toggle` switch labelled "Start Kosmos when I sign in to
+  Windows" (`windowsCopy('startAtSignInLabel')`) when the row carries the field. A click posts,
+  then re-reads `/api/machine` and repaints: the position always comes from the engine. A failure
+  shows its sentence in `#set-machine-msg`.
+
+## Tests
+
+- **`tools.win-installer-native.test.js`**
+  - Static checks: IShellLinkW with its CLSID and IID, and no `WScript.Shell` or powershell. The key
+    path and every value name. `PublisherLegalName` is empty and written only when non-empty.
+    `--uninstall` is handled first, and both questions come before the helper runs. The helper runs
+    with `--yes` only after them. There is no self-delete.
+  - A WINDOWS_ONLY scratch-compiled probe (KosmosLauncher.cs plus a probe Main):
+    - writes the shortcut into a temp Programs folder, read back by an independent reader
+      (`WScript.Shell` in the TEST, never the product);
+    - writes the key under `HKCU\Software\KosmosTest\<guid>`, read back with `reg query`, then
+      removed;
+    - checks detection with fake known folders: Downloads, redirected Desktop, OneDrive, Temp, and a
+      control folder elsewhere;
+    - checks the real Known Folder Desktop against `[Environment]::GetFolderPath('Desktop')`;
+    - checks the kept-here memory in a temp file, and manifest version parsing (nested `node.version`
+      is not the app version).
+  - The real shortcut and key are checked absent before and after, as a control that the seams held.
+  - The real exe: `--uninstall --console` in a scratch folder refuses, exits 2 and runs nothing.
+- **`engine/win32uninstall.test.js`**, with stub runners for win32job and win32board, and scratch
+  APPDATA, LOCALAPPDATA and projects:
+  - every agent task (default and named world) and the board go through disable, end and remove, in
+    that order;
+  - an unknown task is named and left;
+  - an unreadable folder, or a failed remove, keeps both folders and names them;
+  - `%APPDATA%\Kosmos` is deleted only with deleteData;
+  - Projects is never deleted, even when placed inside a folder being removed (that step refuses);
+  - each failure is named;
+  - no `liveExecutionAllowed` means a refusal with no calls; the CLI without `--yes` exits 2 and
+    touches nothing.
+- **`engine/win32relocate.test.js`**:
+  - the ENTRIES-only copy, with Projects and a stray file not copied;
+  - different, incomplete and foreign targets refuse, and the same build is `SAME`;
+  - serving from here (pointer inside, or unreadable) refuses, and serving from elsewhere moves;
+  - the gate and the `--yes` CLI.
+- **`engine/win32board.start-at-sign-in.test.js`**: unknown and not-registered refuse; the state is
+  read back; the gate. It also covers the machine row field, and the route's source shape.
+- **`web.win32-start-at-sign-in.test.js`**: the lifted `machineRows` renders the switch only for a
+  boolean field; the Mac row is byte-identical.
+- **Browser check `docs/browser-checks/render-win32-start-at-sign-in.js`**, with a README row. Chromium
+  and WebKit, fetch stubbed as in render-win32-board-copy.js. It covers the switch's rendered state,
+  the click's POST body and the re-read repaint, a failure sentence, an unknown row with no switch,
+  and the Mac control.
+- **Updated**: `tools.win-launcher-native.test.js`. The process-start inventory now names the helper
+  runner and the relaunch; the zip-README "no Start menu" pin stays, because this slice does not
+  change the README.
+- **Controls**: revert each guard by hand edit on a scratch copy and watch the matching test go red.
+  - Projects guard.
+  - Folder-skip-when-tasks-remain.
+  - The `--yes` gate.
+  - The unknown-state switch.
+  - The manifest gate on registration.
+  - The different-Kosmos refusal.
+- **Suites** run with the bundle node, the schtasks preload, `KOSMOS_SCHTASKS_BLOCK_LOG`, and
+  APPDATA and LOCALAPPDATA in scratch. They are compared by name and first error line against a
+  `git archive` of origin/main. One heavy process at a time.
+- **Launcher**: rebuilt the documented way; `verify-launcher.ps1` must say OK.
+
+## Live-check runbook (NOT run: it uninstalls and reinstalls Kosmos on a box; needs Josh's go)
+
+Use a Windows account whose Kosmos can be removed. Not the live fleet box, unless Josh says so. Take
+a build zip from this branch (`tools/build-kosmos-windows.sh`), cut to staging first per the
+release rule.
+
+1. **Fresh extract to Downloads.** Right-click the zip, Extract All with the default folder,
+   double-click `Kosmos.exe`.
+   Expect: the dialog "Kosmos is running from your Downloads folder..." with [Move Kosmos] [Keep it
+   here].
+2. **Move.** Click Move Kosmos.
+   Expect: `%LOCALAPPDATA%\Programs\Kosmos` holds exactly app, bin, runtime, Kosmos.exe,
+   open-board.js, manifest.json, and the READ ME. The browser opens the board, and the Downloads copy
+   is still there. `%LOCALAPPDATA%\Kosmos\runtime\engine-path` points into Programs\Kosmos.
+   `schtasks /Query /TN Kosmos\board /XML` runs `board-boot.js`.
+3. **Start menu.** Open Start and type Kosmos. Expect the Kosmos icon; clicking it opens the board
+   (already running). Right-click it, Open file location: the shortcut's target is
+   `Programs\Kosmos\Kosmos.exe` and it starts in that folder.
+4. **Apps & features.** Settings > Apps > Installed apps: Kosmos, with the version from
+   manifest.json, no publisher, and the size. Modify is not offered.
+5. **Keep it here.** Extract a second copy to the Desktop and run it, choosing Keep it here. Run it
+   again: no dialog.
+   Expect: the Start menu shortcut and the Apps entry now point at the Desktop copy (last launch
+   wins). Run the Programs copy again to point them back.
+6. **Refusals.**
+   - Run the Downloads copy again while the board serves from Programs: `SAME` goes straight to
+     Programs.
+   - Extract an older or newer zip to Downloads and choose Move: the "different Kosmos" sentence, and
+     it carries on from Downloads.
+7. **Start at sign-in switch.** Settings > This computer:
+   - Switch off: Task Scheduler shows Kosmos\board Disabled, and the row re-reads as off.
+   - Sign out and in: no board.
+   - Switch on and sign out and in: the board is back.
+8. **Uninstall keeping chats.** Settings > Apps > Kosmos > Uninstall. Answer Yes, then No.
+   - Expect "Kosmos is removed. You can now delete the folder ...Programs\Kosmos."
+   - `schtasks /Query /TN Kosmos\` finds nothing. `%LOCALAPPDATA%\Kosmos` is gone, `%APPDATA%\Kosmos`
+     is still there, and `%USERPROFILE%\Kosmos\Projects` is untouched.
+   - The Start menu entry and the Apps entry are gone, and no `node.exe` from Kosmos is running.
+9. **Reinstall.** Extract the zip to `%LOCALAPPDATA%\Programs\Kosmos` (no dialog) and run it.
+   Expect: the board opens with the old agents' chats, the tasks are re-registered, and both entries
+   are back.
+10. **Uninstall deleting chats.** Uninstall and answer Yes, then Yes.
+    Expect: `%APPDATA%\Kosmos` is also gone, Projects is untouched, and the message names the folder
+    to delete.
+11. **Partial failure (optional).** Make a `\Kosmos\agent-x` task undeletable, for example by
+    changing its ACL, then uninstall.
+    Expect: the message names the task and the kept folders, and the Apps entry is kept.
+
+Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
+
+## Follow-ups (not this slice)
+
+- A desktop shortcut offer (W-20, the once-only question).
+- A Settings > This computer "Remove Kosmos from this PC..." button (W-27a).
+- A progress window while the uninstall and the move run (today: no window for a few seconds).
+- `Publisher` and `AssemblyCompany` once Josh names the certificate's legal entity.
+- Moving a running install, which is the updater's End, swap, Run.
+- The zip README and the board's interim copy (S7, Settings "Opening Kosmos", not signed in) can
+  now say "open Kosmos from the Start menu" and "remove it from Settings > Apps". That copy pass is
+  held until this ships to users.
+- Uninstall key: `InstallDate`, and an AppUserModelID if a tray icon lands.
