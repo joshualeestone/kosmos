@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: win32-installer-native
-diff_hash: ee85df38eadd92eebe01a23fb281132b4861d94c1712404cab9dd174953ae8dd
+diff_hash: DIFF_HASH_PENDING
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-13T17:17:48Z
@@ -16,8 +16,14 @@ converged: true
 (one CI-flake fix, two documented limits, the rebase, this proof).
 **Converged:** Yes. The round 8 review found no SAFETY and no BUG; its round-7 SAFETY fix was reproduced
 by reverting the guard, and the only round-8 item was a CI-flake fix plus two notes.
-**Base:** origin/main `b31b7610` (#2997 winmac-strings-2984). Rebased onto it in round 9; the only overlap
-was `web/index.html`, which merged cleanly with this branch's `machineRows` sign-in switch intact.
+**Base:** origin/main `372fde39`. Round 9 rebased forward three times as the fleet merged: onto `b31b7610`
+(#2997), then `5cdcea40` (the updater S3 PR: `engine/win32apply.js`, `engine/win32update.js`, and
+`win32board.js`'s BOOT_JS `bootFrom` + journal held-read), then `372fde39` (#3006 talk-fill, #2840
+metr-footnote — web/docs only). The one code conflict was `engine/win32board.js` on the S3 rebase, resolved
+by KEEPING BOTH the updater's `runningFromUpdateWork`/BOOT_JS-`bootFrom` (the logon shim's recovery path) and
+this branch's `isKosmosBuildRoot`/`anchorBundle` (boot-time re-anchoring from `ensureInstalled`) — independent
+features on different entry points; `module.exports` is the union. `web/index.html` merged cleanly with the
+`machineRows` sign-in switch intact throughout.
 
 The branch makes a Windows zip behave like a per-user install with no admin prompt: a Start-menu shortcut
 (IShellLinkW), an HKCU Apps-and-features Uninstall entry (Publisher omitted), `Kosmos.exe --uninstall`
@@ -34,7 +40,7 @@ Full design, decisions, per-round fixes, the live-check runbook (NOT run), and t
 git -C <worktree> diff origin/main HEAD -- . ':(exclude).claude/plans/win32-installer-native-pre-challenge.md' | sha256sum
 ```
 
-`origin/main` is `b31b7610`. The proof file itself is excluded, so the hash is stable across the commit that
+`origin/main` is `372fde39`. The proof file itself is excluded, so the hash is stable across the commit that
 writes it into this frontmatter. Verified equal to the `diff_hash` above after that commit.
 
 ## Round history (each fixed in the next round, then re-reviewed)
@@ -69,6 +75,10 @@ writes it into this frontmatter. Verified equal to the `diff_hash` above after t
 - **Round 8** — CONVERGED. No SAFETY/BUG. 1 CI-flake fix (two timing ceilings widened to hang-guards), 1
   plan note (case-C degradation under a remote bind), 1 follow-up (the no-connect-limit hang on the untouched
   hand-off path, left for #2983).
+- **Round 9** — finalisation. The CI-flake fix, then three forward rebases as the fleet merged
+  (`b31b7610` → `5cdcea40` → `372fde39`). One code conflict, `engine/win32board.js` on the S3 rebase, resolved
+  by keeping both features (see Base above); the seven win32board-interaction suites re-run green on the final
+  base.
 
 Every round: a revert control per fix (each edits ONE working file, runs the guarding test, restores by
 hash; C# controls edit the `.cs`; the shipped-exe control builds a scratch exe from an edited copy), the
@@ -83,23 +93,25 @@ hash), no schtasks call blocked. Each control ran as its own step inside the sha
 (`heavy-run-mutex.ps1`: it waits for free commit memory above 1.2 GB and for the other builder's step), so
 two heavy steps on this shared box can never grow into each other for memory.
 
-## Comparison (round 9, vs a `git archive` of `b31b7610`)
+## Comparison (round 9 final, vs a `git archive` of `372fde39`)
 
 101 selected suites plus this branch's new real-board suite, one test file per locked step, each in its own
 full sandbox:
 
 | | Tests | Pass | Fail |
 |---|---|---|---|
-| Base `b31b7610` | 1782 | 1627 | 154 |
-| Branch | 1918 | 1764 | 153 |
+| Base `372fde39` | 1901 | 1746 | 154 |
+| Branch | 2037 | 1883 | 153 |
 
 - 0 new failures.
 - The one base-only failure is `git ls-files` in an extracted archive (no `.git`), not a real regression.
 - 2 tests differ only by an ephemeral port in the message (`absolute-form naming this server is routed`, and
   `tools.win-open-board-2007`'s end-to-end, which fails `spawn EFTYPE` identically on both sides).
 - 151 shared failures (identical name and first error line on both sides).
-- `web.win32-board-copy.test.js` passes on both sides (base fixed by #2997).
+- `web.win32-board-copy.test.js` passes on both sides.
 - No schtasks call was blocked on either side.
+- The base counts rose from round 8's numbers because `372fde39` includes the updater's S3 suites
+  (`engine/win32apply.js` and friends).
 
 ## Accepted limits (recorded, fail-closed)
 

@@ -836,6 +836,33 @@ CI-flake fix, two notes, then the rebase and the proof.
   - The `/challenge-loop` converged over 8 review rounds (rounds 1-8); round 9 is the CI-flake fix, these
     notes, the rebase and the proof. The pre-challenge proof is `.claude/plans/win32-installer-native-pre-challenge.md`.
 
+- **Round 9 finalisation on the post-S3 base (this box).** After the CI-flake fix the branch was rebased
+  forward twice more as the fleet merged: onto `5cdcea40` (the updater S3 PR: `engine/win32apply.js`,
+  `engine/win32update.js`, and `engine/win32board.js`'s BOOT_JS `bootFrom` + journal held-read), then onto
+  `372fde39` (#3006 talk-fill and #2840 metr-footnote, web/docs only). Final base: `372fde39`.
+  - **The one code conflict, `engine/win32board.js` (S3 rebase), resolved by keeping both** (independent
+    features, different entry points): the updater's `runningFromUpdateWork` + BOOT_JS `bootFrom`/`readHeld`
+    (the logon shim's rollback-recovery path) alongside this branch's `isKosmosBuildRoot` + `anchorBundle`
+    (boot-time re-anchoring, called from `ensureInstalled`). The `module.exports` list is the union
+    (`runningFromUpdateWork, anchorBundle, ... setStartAtSignIn`). Read end to end afterwards: `ensureInstalled`
+    anchors this bundle then registers the task; the updater's `bootFrom` lives only in the BOOT_JS shim string
+    — they do not interfere. The `372fde39` rebase touched only `web/index.html` (auto-merged, switch intact)
+    and the `tools/browser-checks.sh` loop line (resolved, all check names kept, none glued).
+  - The seven win32board-interaction suites, one locked file each: win32board 47, win32board.reanchor 7,
+    win32anchor 18, win32uninstall 51, win32relocate 23, win32handoff 65, win32uninstall.realboard 3 — all
+    green, no schtasks call blocked.
+  - Revert controls on the final base: 123 of 123 red, every baseline green, tree clean, none invalid, no
+    schtasks call blocked (the rebase moved only `web/index.html`; the five `win32board.js` controls and the
+    two `web/index.html` controls were re-verified to still match once each).
+  - The comparison against an archive of `372fde39` (101 selected suites plus the branch's real-board suite;
+    one file per locked step): base 1901 tests / 154 fail; branch 2037 / 153 fail; 0 new failures; the one
+    base-only failure is `git ls-files` in an archive; 2 tests differ only by an ephemeral port; 151 shared;
+    no schtasks call blocked. (The base counts rose from round 8 because `372fde39` includes the updater's S3
+    suites.)
+  - `KosmosLauncher.cs` did not change, so no rebuild. The real system was untouched: no real `Kosmos.lnk`,
+    `Uninstall\Kosmos` key, `KosmosTest` key or `%LOCALAPPDATA%\Programs\Kosmos`, and `Kosmos\board` still
+    running. The proof `diff_hash` was regenerated against `372fde39`.
+
 ## Follow-ups (not this slice)
 
 - **The no-connect-limit `probeBoard` can hang on a headers-then-stall response (#2983's owner).** With no
