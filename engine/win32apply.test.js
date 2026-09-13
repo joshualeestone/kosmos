@@ -111,7 +111,9 @@ function freshInstall(o = {}) {
   fs.writeFileSync(path.join(work, win32update.DOWNLOAD_PART_NAME), 'the download');
   fs.mkdirSync(anchor, { recursive: true });
   fs.writeFileSync(path.join(anchor, win32anchor.NODE_NAME), `the anchored node.exe of ${OLD}`);
-  fs.writeFileSync(path.join(anchor, win32anchor.POINTER_NAME), path.join(root, 'app', 'engine'));
+  /* With the line ending a hand edit in Notepad leaves (the shims trim it), so H6's write really
+     changes the pointer's bytes and every rollback has to put these exact bytes back. */
+  fs.writeFileSync(path.join(anchor, win32anchor.POINTER_NAME), path.join(root, 'app', 'engine') + '\r\n');
   return {
     dir, root, env, anchor, work, staged, log: [],
     journal: path.join(anchor, win32anchor.UPDATE_JOURNAL_NAME),
