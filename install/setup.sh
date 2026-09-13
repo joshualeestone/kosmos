@@ -3619,13 +3619,20 @@ ok
 # LANG, and without LANG tmux sanitises its format output so every agent comes
 # back named `angel-discord_0.0_2.1.223_…` with the tab separators replaced.
 #
-# ⚠️ RunAtLoad AND NO KeepAlive, deliberately, and this is the one decision here
-# worth arguing with. `kosmos start` daemonises and exits, so it is a "run this
-# at login" job rather than a supervised process. KeepAlive would relaunch it
-# the moment it returned — a loop — and the alternative shape (launchd owns the
-# node process directly) breaks `kosmos stop`, which must keep meaning stopped,
-# and the updater's stop/start with it. Crash supervision is a real thing to
-# want and it needs `kosmos` to grow a foreground mode; it is not this change.
+# ⚠️ RunAtLoad AND a KeepAlive keyed on the deliberate-stop marker (#2956). This
+# used to be RunAtLoad with NO KeepAlive, deliberately, because the old
+# ProgramArguments ran `kosmos start`, which daemonised and exited: a plain
+# KeepAlive would have relaunched that the instant it returned (a loop), and
+# launchd owning the detached node directly broke `kosmos stop`. #2956 resolves
+# both: ProgramArguments now runs `kosmos board-run`, which grew a FOREGROUND mode
+# (it execs node in place), so launchd owns the actual board process and its
+# KeepAlive supervises a crash. `kosmos stop` still means stopped because the
+# KeepAlive is PathState-keyed on the board.stopped marker (present -> launchd
+# leaves it down; absent -> supervised), not on exit status -- so a SIGTERM stop
+# is honored, and the updater's stop/swap/start rides the same marker. The #2955
+# watchdog stays one release as belt-and-braces for boards not yet rebooted onto
+# this plist (an update rewrites the file but does not reload a loaded job until
+# the next login).
 step "Keeping Kosmos running after a restart."
 _launch_dir="${AGENT_WORKFORCE_LAUNCH:-$HOME/Library/LaunchAgents}"
 # ⚠️ THE LABEL IS UNIQUE ONLY WHEN KOSMOS_HOME IS NOT THE REAL DEFAULT (#883).
@@ -3742,7 +3749,7 @@ if mkdir -p "$_launch_dir" 2>/dev/null && cat > "$_board_plist.new" <<PLIST
   <array>
     <string>/bin/bash</string>
     <string>$(_xmlq "$KOSMOS_HOME/bin/kosmos")</string>
-    <string>start</string>
+    <string>board-run</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -3757,6 +3764,24 @@ $_extra_env_kv  </dict>
   <key>AssociatedBundleIdentifiers</key>
   <array><string>com.chaoskosmos.kosmos</string></array>
   <key>RunAtLoad</key><true/>
+  <!-- #2956: launchd SUPERVISES the board. ProgramArguments runs "board-run",
+       which execs node in the foreground, so this job IS the board process and a
+       crash is launchd's to relaunch. KeepAlive is keyed (PathState) on the
+       deliberate-stop marker (the same file "kosmos stop" writes and "kosmos
+       start" clears, de-referenced here as the intended _xmlq escape, not a bare
+       word -- see the heredoc warning above): the board is kept running WHILE the
+       marker path is absent (false), and a deliberate stop that creates it makes
+       launchd stop the job and not relaunch it. ThrottleInterval bounds a crash
+       loop. This is keyed on presence/absence, not exit status, so a SIGTERM stop
+       is honored where a plain KeepAlive would relaunch it. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>PathState</key>
+    <dict>
+      <key>$(_xmlq "$KOSMOS_HOME/board.stopped")</key><false/>
+    </dict>
+  </dict>
+  <key>ThrottleInterval</key><integer>10</integer>
   <!-- 🔑 THE SAME FILE THE BOARD ITSELF WRITES TO, and it was a second one.
        "kosmos start" (de-backticked on purpose, see the heredoc warning above)
        sends the server's own output to logs/board.log; this job
@@ -3828,6 +3853,19 @@ if [ "$_board_ok" = yes ]; then
       # machine, 2026-08-24): not fatal, but a different true sentence.
       if ! /bin/launchctl bootstrap "gui/$_uid" "$_board_plist" 2>/dev/null; then
         _board_ok=later
+      else
+        # #2956: the job now runs `board-run`, and bootstrap RunAtLoad-starts it
+        # immediately -- but the "Starting Kosmos" step above already brought up a
+        # board with `kosmos start` (nohup, since no job was loaded then), so
+        # board-run cannot bind the port and would be relaunched on a throttle
+        # (board-run's own guard keeps that harmless, but it churns until reboot).
+        # Reconcile to ONE launchd-supervised board now: `kosmos restart` retires the
+        # nohup board and starts the supervised one (start detects the loaded
+        # board-run job and kickstarts it). Best-effort: if anything here fails, the
+        # board-run guard still prevents a double-bind, so this only ever improves on
+        # the churn, never worsens it. (Bootstrap RunAtLoad is real launchd, skipped
+        # under the sandbox above, so this path is verified on a real box, not here.)
+        "$KOSMOS_HOME/bin/kosmos" restart >/dev/null 2>&1 || true
       fi
     fi
   else
@@ -3853,18 +3891,25 @@ else
   info "Opening the Kosmos icon starts it, as it always has."
 fi
 
-# #2955: THE BOARD WATCHDOG login job. The board plist above is RunAtLoad + NO
-# KeepAlive by design (`kosmos start` daemonises and exits, so launchd cannot
-# supervise the real detached board process). If that process fails to start on a
-# reboot -- a zombie holding port 16180 after an unclean power-down, a not-yet-
-# ready dependency -- or dies later, NOTHING relaunches it and the app is stuck on
-# "could not refresh". Josh hit exactly this on live 0.6.59. This second job runs
-# bin/board-watchdog.sh on an interval and brings the board back when it has died
-# and the user did not deliberately stop it (the watchdog reads the STOP_MARKER
-# `kosmos stop` writes / `kosmos start` clears). Additive supervision: it touches
-# neither the board job nor kosmos stop/start beyond that marker. The launchd-shape
-# fix (foreground mode, so launchd owns the board process) is the deferred
-# done-right follow-up; this is the interim that unblocks the live bug.
+# #2955: THE BOARD WATCHDOG login job.
+# ⚠️ #2956 UPDATE: the board plist above is NO LONGER RunAtLoad-with-no-KeepAlive.
+# It now runs `kosmos board-run` (a foreground mode) under a KeepAlive keyed on the
+# stop-marker, so launchd itself supervises and relaunches the board process -- the
+# done-right follow-up this comment used to defer. So on a machine rebooted onto
+# the new plist, launchd KeepAlive AND this watchdog both cover a crash (redundant,
+# but each guarded by the same STOP_MARKER, so they agree). The watchdog is kept
+# for ONE release as belt-and-braces: an update rewrites the plist file but does not
+# reload a loaded job until the next login, so a board that has updated-but-not-yet-
+# rebooted is still the old detached shape that only the watchdog supervises. Remove
+# the watchdog in a follow-up once installs have cycled through a reboot.
+# The original #2955 rationale (unchanged for the not-yet-rebooted case): if the
+# detached board fails to start on a reboot -- a zombie holding port 16180 after an
+# unclean power-down, a not-yet-ready dependency -- or dies later, NOTHING relaunches
+# it and the app is stuck on "could not refresh" (Josh hit exactly this on live
+# 0.6.59). This job runs bin/board-watchdog.sh on an interval and brings the board
+# back when it has died and the user did not deliberately stop it (it reads the
+# STOP_MARKER `kosmos stop` writes / `kosmos start` clears). Touches neither the
+# board job nor kosmos stop/start beyond that marker.
 #
 # Everything below MIRRORS the board plist block above: the same non-default-
 # KOSMOS_HOME hash suffix, the same _xmlq escaping, the same $_extra_env_kv (built

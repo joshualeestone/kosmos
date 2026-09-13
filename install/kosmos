@@ -450,15 +450,83 @@ running_pid() {
   printf '%s' "$pid"
 }
 
+# #2956: the launchctl this file drives, overridable so a test can stub it.
+LAUNCHCTL="${KOSMOS_LAUNCHCTL:-/bin/launchctl}"
+
+# #2956: the board's launchd label, mirroring install/setup.sh byte-for-byte -- a
+# default install is the literal `com.kosmos.board` (#883); a non-default
+# KOSMOS_HOME gets a hash suffix. Must match what setup.sh registered or the
+# supervised job cannot be found here (a mismatch mostly degrades safely: the
+# board is treated as unsupervised and cmd_start uses the nohup path, the pre-#2956
+# behaviour). ⚠️ One honest caveat: install/setup.sh hashes the install-time
+# KOSMOS_HOME normalized only by `tr -s /`, while this file's KOSMOS_HOME is
+# symlink-RESOLVED (readlink, at the top). For a NON-DEFAULT home reached through a
+# symlink the two hashes differ, so the supervised job is not detected and
+# cmd_start takes the nohup path -- and in the narrow window where the supervised
+# board is mid-crash-relaunch (marker absent), that nohup and launchd's board-run
+# could briefly both bind the port (one loses and dies). The DEFAULT home (~99% of
+# installs) is unaffected: both sides resolve to $HOME/.local/share/kosmos and the
+# label is the literal com.kosmos.board. Non-default homes are sandbox/dev/walk
+# installs, not real users; a perfect fix needs setup.sh and this file to agree on
+# normalization (tracked, low priority).
+_kosmos_board_label() {
+  local _def
+  _def="$(printf '%s' "$HOME/.local/share/kosmos" | /usr/bin/tr -s '/')"; _def="${_def%/}"
+  if [ "$KOSMOS_HOME" = "$_def" ]; then
+    printf 'com.kosmos.board'
+  else
+    printf 'com.kosmos.board.%s' "$(printf '%s' "$KOSMOS_HOME" | shasum -a 256 | cut -c1-8)"
+  fi
+}
+
+# #2956: is THIS install's board a launchd job we can drive as a supervisor? True
+# only when the loaded job's ProgramArguments actually name `board-run` -- NOT
+# merely that a job by this label is loaded. That distinction is load-bearing:
+# during a self-update the plist file is rewritten to board-run but the LOADED job
+# keeps its old `kosmos start` definition until the next login (setup.sh leaves a
+# loaded job alone so it does not kill the board running the update). If cmd_start
+# kickstarted a job still defined as `kosmos start`, that would re-run cmd_start
+# and recurse. So we read the LIVE definition (launchctl print), and only treat it
+# as supervised when it runs board-run; otherwise the transition-window board is
+# handled by the nohup path exactly as before. Never in a sandbox (the real gui
+# domain is not a test's to touch) and never without launchctl (non-macOS).
+_kosmos_board_supervised() {
+  [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] || return 1
+  # `command -v` (not a bare `[ -x ]`, which a DIRECTORY passes -- the installer
+  # runnable-guard convention) resolves both an absolute path (accepting only an
+  # executable file) and a bare command name on PATH; empty => no launchctl here.
+  command -v "$LAUNCHCTL" >/dev/null 2>&1 || return 1
+  local _label _uid _print
+  _label="$(_kosmos_board_label)"; _uid="$(/usr/bin/id -u)"
+  _print="$("$LAUNCHCTL" print "gui/$_uid/$_label" 2>/dev/null)" || return 1
+  # Match board-run as a STANDALONE argument LINE (launchctl print lists each
+  # ProgramArguments entry on its own tab-indented line), NOT anywhere in the
+  # blob: a kosmos path component literally named "board-run" (e.g.
+  # /Users/board-run/.../kosmos on a job still defined as `start`) would otherwise
+  # false-positive and let an old `start` job be treated as supervised -- the exact
+  # recursion this guard prevents. grep reads a here-doc (NOT a printf pipe), so
+  # there is no pipefail/SIGPIPE trap (the one healthy() documents). This grep is
+  # the function's result.
+  grep -qE '^[[:space:]]*board-run[[:space:]]*$' <<EOF
+$_print
+EOF
+}
+
 cmd_start() {
   # #2955: clear the deliberate-stop marker EARLY -- before the healthy check and
   # the bind below that can fail. Starting means "I want it running", which retires
   # the stop intent whatever happens next. This ORDER is load-bearing: a start that
   # FAILS to bind port 16180 (the exact reboot case this watchdog exists for) must
   # STILL clear the marker, or the watchdog stays suppressed and the board never
-  # recovers -- the bug would survive its own fix. A login-job start on the next
-  # reboot clears it too, so a deliberate stop is per-session, matching the board's
-  # existing RunAtLoad-relaunches-on-login behaviour.
+  # recovers -- the bug would survive its own fix.
+  # #2956 CHANGED the stop's lifetime, on purpose: the login job now runs
+  # `board-run`, which HONORS the marker and never clears it (only this command
+  # does). So a deliberate `kosmos stop` now PERSISTS across a reboot -- the board
+  # stays down until an explicit `kosmos start`. Under #2955 the login job ran
+  # `kosmos start`, which cleared the marker, so a stop was per-session and a reboot
+  # brought the board back. Persistent "stopped means stopped" is the intended
+  # semantic (the card's requirement); it does not affect crash recovery, which is
+  # marker-ABSENT and still relaunches.
   rm -f "$STOP_MARKER" 2>/dev/null || true
   if healthy; then
     say "Kosmos is already running at $URL"
@@ -479,6 +547,31 @@ cmd_start() {
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ] || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   mkdir -p "$LOG_DIR"
+  # #2956: under launchd supervision, let launchd OWN the board -- do NOT nohup a
+  # second node beside it (two would race the one port). The stop-marker was
+  # cleared at the top, so launchd's PathState KeepAlive would relaunch on its own;
+  # `kickstart -k` makes it prompt rather than waiting on launchd's own poll --
+  # closing the "does PathState relaunch promptly" gap. (This branch is only
+  # reached for a board that is NOT already running: the `running_pid` guard above
+  # dies first on an alive-but-wedged board, so recovering a wedged supervised
+  # board is `kosmos restart`, not a bare `kosmos start` -- the -k is for the
+  # not-running-but-loaded case and to clear any half-dead instance.)
+  # board-run (the job's ProgramArguments) execs node in the foreground and never
+  # re-enters cmd_start, so there is no recursion. Falls through to the nohup path
+  # below when the board is NOT supervised (a source checkout, a hand start with no
+  # login job, or the update transition window before the new plist is loaded).
+  if _kosmos_board_supervised; then
+    say "Bringing the board up (launchd supervised)."
+    local _sup_label _sup_uid
+    _sup_label="$(_kosmos_board_label)"; _sup_uid="$(/usr/bin/id -u)"
+    "$LAUNCHCTL" kickstart -k "gui/$_sup_uid/$_sup_label" >/dev/null 2>&1 || true
+    local _s
+    for _s in $(seq 1 30); do
+      healthy && { say "Kosmos is running at $URL"; return 0; }
+      sleep 0.5
+    done
+    die "Kosmos did not come up under launchd. What it said is in $BOARD_LOG"
+  fi
   say "Bringing the board up."
   # Detached from this terminal, with everything it prints kept in a log so a
   # problem produces a transcript rather than a vanished window.
@@ -503,6 +596,70 @@ cmd_start() {
   die "Kosmos did not come up. What it said is in $BOARD_LOG"
 }
 
+# #2956: the SUPERVISED foreground entry. A launchd (or Task Scheduler) job runs
+# `kosmos board-run` instead of `kosmos start`, so the supervisor OWNS the node
+# process directly and its own KeepAlive relaunches a crash -- replacing the
+# fire-and-forget `kosmos start` (nohup + exit), which made the board a
+# run-at-login job launchd could not supervise (see the RunAtLoad/no-KeepAlive
+# note in install/setup.sh).
+#
+# NOT in the public help on purpose: the supervisor and the installer invoke this,
+# not people. People use start/stop/restart, which drive the supervisor underneath.
+#
+# ⚠️ INERT UNTIL THE PLIST POINTS AT IT. Adding this command changes nothing on
+# its own: the installed plist still runs `kosmos start` until a paired change
+# repoints ProgramArguments here AND teaches cmd_start/cmd_stop to drive the
+# supervisor (a second starter under a KeepAlive supervisor would race two boards
+# onto one port). Landing it first, inert, lets the foreground mechanism be tested
+# before the byte-frozen default plist (#883) is touched.
+cmd_board_run() {
+  # Honor a deliberate stop even on the RunAtLoad race. The plist's KeepAlive is
+  # keyed (PathState) on this SAME #2955 marker, so the supervisor will not
+  # relaunch us while it exists; this guard only covers the one-shot RunAtLoad at
+  # load, which fires regardless of PathState. `kosmos start` clears the marker
+  # (cmd_start, at the very top) and kickstarts us.
+  if [ -f "$STOP_MARKER" ]; then
+    say "Kosmos was deliberately stopped; not starting. Resume with: kosmos start"
+    exit 0
+  fi
+  # #2956: NEVER start a second board. A supervised job's RunAtLoad fires on
+  # `launchctl bootstrap` too, not only at reboot (the open-once job relies on the
+  # same fact). On a FRESH install the "Starting Kosmos" step brings a board up with
+  # `kosmos start` (nohup, since no job is loaded yet) BEFORE this job is
+  # bootstrapped, so RunAtLoad would fire board-run against an already-served port:
+  # a doomed EADDRINUSE exec that also CLOBBERS the pidfile (breaking stop/status).
+  # Pre-#2956 the login job ran `kosmos start`, which is idempotent (healthy-check
+  # first); board-run must be too. Exit BEFORE the pidfile write and the exec, so a
+  # foreign healthy board is left untouched and its pidfile intact. Silent on
+  # purpose: launchd may relaunch us on its throttle until that foreign board goes
+  # away (a reboot), and a log line each time would be spam. setup.sh reconciles the
+  # fresh-install case to a single supervised board (via `kosmos restart` after
+  # bootstrap), so this is the defensive backstop, not the normal path.
+  if healthy; then exit 0; fi
+  # #2956: likewise do not crash-loop against a STRANGER on the port. If a
+  # non-Kosmos process holds it, healthy() is false (its body is not ours), so we
+  # would fall through and exec node -> EADDRINUSE -> the server exits 1 -> launchd
+  # relaunches every ThrottleInterval, forever, spamming board.log with node stack
+  # traces. Exit quietly instead: no doomed spawn, no spam. launchd still retries on
+  # its throttle (that is KeepAlive's job), but silently, and the actionable
+  # diagnostic ("another app is using port N, quit it") is available on demand from
+  # `kosmos status` / `kosmos start`, which is where a person looks.
+  if port_taken_by_stranger; then exit 0; fi
+  [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ] || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  mkdir -p "$LOG_DIR"
+  # The supervisor OWNS this process: record the pidfile as THIS shell's pid, then
+  # `exec` node IN PLACE so node keeps that exact pid. `kosmos stop`/`status`
+  # (running_pid, pidfile-based) therefore keep working unchanged under
+  # supervision, while the supervisor's own handle (launchctl) is separate. No
+  # `nohup`, no `&`: a supervised process must stay in the foreground so the
+  # supervisor sees it live and sees it die. stdout/stderr go where the job's
+  # plist sends them (the board log); run by hand they go to the terminal.
+  printf '%s' "$$" > "$PIDFILE"
+  PORT="$PORT" exec "$NODE" "$APP"
+}
+
 cmd_stop() {
   local pid
   if pid="$(running_pid)"; then
@@ -512,6 +669,15 @@ cmd_stop() {
     # clears it again. `:` truncates/creates the file with nothing in it -- its
     # presence is the whole signal.
     : > "$STOP_MARKER" 2>/dev/null || true
+    # #2956: under launchd supervision the marker is what makes a stop STICK -- a
+    # missing marker (unwritable home, full disk) means launchd relaunches the
+    # board within ThrottleInterval. Pre-#2956 a failed marker write was harmless,
+    # so it was swallowed; now say it loudly rather than let the board silently
+    # come back seconds after "Stopped." Only warns when actually supervised, so an
+    # unsupervised install (where the write is still harmless) is not false-alarmed.
+    if [ ! -f "$STOP_MARKER" ] && _kosmos_board_supervised; then
+      say "Warning: could not write $STOP_MARKER, so launchd may restart this board within seconds. Make sure $KOSMOS_HOME is writable, then run 'kosmos stop' again."
+    fi
     # ⚠️ The pidfile is pid-scoped and the health check is port-scoped, and
     # they can disagree: with KOSMOS_PORT pointed elsewhere, status says
     # "not running" while the recorded process is alive on its original
@@ -1700,6 +1866,7 @@ case "${1:-}" in
   start)   cmd_start ;;
   stop)    cmd_stop ;;
   restart) cmd_restart ;;
+  board-run) cmd_board_run ;;   # #2956: internal supervised foreground entry (launchd/Task Scheduler), not for people
   status)  cmd_status ;;
   open)    cmd_open ;;
   agents)  cmd_agents ;;

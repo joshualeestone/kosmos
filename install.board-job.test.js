@@ -131,8 +131,18 @@ test('the job carries what launchd does not set', () => {
      startup lines and no error, and reasonably read that as not logging. */
   assert.match(block, /StandardOutPath[^\n]*logs\/board\.log/);
   assert.ok(!/login\.log/.test(block), 'the login job writes to a second log file again');
-  /* ⚠️ RunAtLoad and deliberately no KeepAlive: `kosmos start` daemonises and
-     exits, so KeepAlive would relaunch it the moment it returned. */
+  /* #2956: RunAtLoad AND a KeepAlive keyed on the deliberate-stop marker. The old
+     job ran `kosmos start` (daemonise + exit), where a plain KeepAlive would have
+     relaunch-looped; now ProgramArguments runs `board-run`, a foreground mode that
+     execs node in place, so launchd owns the board process and KeepAlive relaunches
+     a crash. It is PathState-keyed on the board.stopped marker (kept up while the
+     marker is ABSENT, i.e. <false/>), so a deliberate `kosmos stop` still means
+     stopped, and ThrottleInterval bounds a crash loop. */
   assert.match(block, /<key>RunAtLoad<\/key><true\/>/);
-  assert.ok(!/KeepAlive/.test(block), 'KeepAlive on a job whose program exits is a relaunch loop');
+  assert.match(block, /<string>board-run<\/string>/, 'the login job must run the supervised foreground entry');
+  assert.match(block, /<key>KeepAlive<\/key>/, 'launchd must supervise the board');
+  assert.match(block, /<key>PathState<\/key>/, 'supervision must be keyed on the stop-marker path');
+  assert.match(block, /board\.stopped/, 'the PathState key must be the board.stopped marker');
+  assert.match(block, /<false\/>/, 'kept up while the marker is absent');
+  assert.match(block, /<key>ThrottleInterval<\/key>/, 'a crash loop must be throttled');
 });

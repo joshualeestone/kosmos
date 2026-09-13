@@ -498,8 +498,16 @@ chk "the transcript ends on the thing the person still has to do" "grep -q 'One 
 # source, so a printf added later at runtime is caught too.
 chk "no success line is printed after the closing action" "! awk '/One more thing: typing/{f=1} f && /Kosmos is running|Open the Kosmos app/{found=1} END{exit !found}' \"$SB/install.log\""
 chk "the board gets a login job" "[ -f \"$BOARD_PLIST\" ]"
-chk "the login job starts THIS install's command" "grep -qF \"$SB/home/bin/kosmos\" \"$BOARD_PLIST\" && grep -q '<string>start</string>' \"$BOARD_PLIST\""
+# #2956: the login job runs THIS install's kosmos in the supervised FOREGROUND
+# entry (board-run), not the old fire-and-forget `start`.
+chk "the login job runs THIS install's board-run" "grep -qF \"$SB/home/bin/kosmos\" \"$BOARD_PLIST\" && grep -q '<string>board-run</string>' \"$BOARD_PLIST\""
 chk "the login job runs at login" "grep -q '<key>RunAtLoad</key><true/>' \"$BOARD_PLIST\""
+# #2956: launchd SUPERVISES the board (KeepAlive), keyed on the deliberate-stop
+# marker so `kosmos stop` still means stopped, and throttled so a crash cannot
+# hot-loop. The PathState key is the board.stopped path under THIS install's home.
+chk "the login job is supervised (KeepAlive)" "grep -q '<key>KeepAlive</key>' \"$BOARD_PLIST\""
+chk "supervision is keyed on the stop-marker (PathState board.stopped=false)" "/usr/libexec/PlistBuddy -c 'Print :KeepAlive:PathState' \"$BOARD_PLIST\" 2>/dev/null | grep -q 'board.stopped = false'"
+chk "the supervisor is throttled" "grep -q '<key>ThrottleInterval</key>' \"$BOARD_PLIST\""
 # ⚠️ Both of these were learned by bisecting a hand-written copy of this file
 # on the fleet Mac, and neither is cosmetic. launchd sets no PATH and no LANG:
 # without LANG tmux sanitises its format output, replacing the tab separators,
