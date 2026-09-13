@@ -513,7 +513,11 @@ function remove(name) {
  * that ignores `known` errs toward doing nothing rather than acting.
  */
 /* `worldId` (#1704 PR4): ask about ANOTHER Kosmos's task, whose name carries that
-   world's key. Absent means this process's own world, which is every other caller. */
+   world's key. Absent means this process's own world, which is every other caller.
+   ⚠️ `enabled` HERE IS FOR DISPLAY, NEVER A DECISION (review round 2). It comes from
+   the localized LIST text, which also carries the task's and the machine's names,
+   so a task named `agent-disabled-bot` reads as off and a non-English Windows reads
+   every task as on. Anything that ACTS on the switch reads `taskEnabled`. */
 function presence(name, worldId) {
   const r = run(['/Query', '/TN', taskName(name, worldId), '/FO', 'LIST']);
   if (r.ok) {
@@ -644,7 +648,12 @@ function xmlUnescape(v) {
    `{known: false, because}` when it could not be read or is not a shape we
    understand; `{known: true, registered: true, spec}` otherwise. This is the RAW
    read, uncached; every production reader goes through `cachedTaskSpec` below. */
-function taskSpec(name, worldId) {
+/* ONE read of a task's own definition (`/Query /XML`), shared by the spec parse
+   below and the enabled-state read (`taskEnabled`, review round 2), so the two
+   cannot disagree about what the query answered or how it was decoded. Uncached.
+   `{known: true, registered: false}` for no such task; `{known: false, because}`
+   when schtasks would not answer; `{known: true, registered: true, xml}` otherwise. */
+function readTaskXml(name, worldId) {
   const r = run(['/Query', '/TN', taskName(name, worldId), '/XML']);
   if (!r.ok) {
     if (NO_SUCH_TASK.test(r.out || '')) return { known: true, registered: false };
@@ -664,7 +673,14 @@ function taskSpec(name, worldId) {
      The true encoding is confirmed on a live box in the QA loop; this keeps a wrong
      guess from disarming the guard rather than merely mis-reading it. */
   const out = String(r.out || '').replace(/^\uFEFF/, '').replace(/\u0000/g, '');
-  const m = /<Arguments>([\s\S]*?)<\/Arguments>/.exec(out);
+  return { known: true, registered: true, xml: out };
+}
+
+/* The spec parse, over the one shared definition read above. */
+function taskSpec(name, worldId) {
+  const read = readTaskXml(name, worldId);
+  if (!read.known || !read.registered) return read;
+  const m = /<Arguments>([\s\S]*?)<\/Arguments>/.exec(read.xml);
   /* A registered task whose definition carries no argument line we can read is not a
      shape we understand, so admit it (known:false) rather than asserting a confident
      "no configDir" the way an absent task legitimately can. */
@@ -702,6 +718,43 @@ function cachedTaskSpec(name, worldId) {
   return rememberTaskSpec(name, worldId, taskSpec(name, worldId));
 }
 
+/* What a task's definition means when it says nothing about whether it is switched
+   on. Microsoft's Task Scheduler schema declares `settingsType/Enabled` as
+   `type="boolean" default="true"` (learn.microsoft.com, "Enabled (settingsType)
+   Element"), so an absent element is an enabled task. */
+const TASK_ENABLED_DEFAULT = true;
+
+/**
+ * Is this task switched on? Read from its OWN DEFINITION (review round 2).
+ *
+ * 🛑 NOT FROM `presence`'s LIST TEXT, which is what a DECISION must never use.
+ * `presence` searches the whole `/FO LIST` output for "disabled", and that output
+ * also prints the task's name and the machine's: measured, an ENABLED
+ * `agent-disabled-bot` read as switched off. It is also localized, so on a
+ * non-English Windows a switched-off task reads as on. `<Settings><Enabled>` in
+ * `/Query /XML` is neither: the XML is locale-independent, and that element holds
+ * only the switch. Measured: `<Enabled>false</Enabled>` after `/Change /DISABLE`.
+ *
+ * UNCACHED, deliberately: the callers decide something (a setter's re-register,
+ * a Kosmos switch's pause), and a switch flipped since the definition was
+ * remembered has to be seen. `install` and `/Change` would not bust the cache.
+ *
+ * `{known: true, registered: false}` for no such task; `{known: false, because}`
+ * when schtasks would not answer or the definition is not a shape we can read;
+ * `{known: true, registered: true, enabled}` otherwise.
+ */
+function taskEnabled(name, worldId) {
+  const read = readTaskXml(name, worldId);
+  if (!read.known || !read.registered) return read;
+  const settings = /<Settings>([\s\S]*?)<\/Settings>/.exec(read.xml);
+  if (!settings) return { known: false, because: 'the task definition had no settings we could read' };
+  const flag = /<Enabled>\s*(true|false|1|0)\s*<\/Enabled>/.exec(settings[1]);
+  if (!flag && /<Enabled>/.test(settings[1])) {
+    return { known: false, because: 'the task setting that says whether it is switched on was not true or false' };
+  }
+  return { known: true, registered: true, enabled: flag ? (flag[1] === 'true' || flag[1] === '1') : TASK_ENABLED_DEFAULT };
+}
+
 function configDirFor(name) {
   /* A projection of the one remembered definition. Existence is not cached and
      is still checked by the caller on every ask. Each answer is a fresh frozen
@@ -715,6 +768,6 @@ function configDirFor(name) {
 module.exports = {
   TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape, xmlUnescape, headlessExec,
   install, disable, enable, end, start, remove, status, presence, list, configDirFor, taskSpec,
-  cachedTaskSpec, commandsAreReal, REFUSED_IN_TEST,
+  cachedTaskSpec, taskEnabled, commandsAreReal, REFUSED_IN_TEST,
   setRunner, setAnchorer,
 };

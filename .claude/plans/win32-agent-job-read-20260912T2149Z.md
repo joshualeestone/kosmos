@@ -127,8 +127,13 @@ next logon. On the Mac a plist rewrite leaves `launchctl disable` in force.
   (`win32job.presence`), and passes it as `enabled` through `win32AgentSpec` into
   `taskXml`, so the one definition keeps the switch. There is no follow-up
   `/DISABLE`.
-- A state that cannot be read refuses the change, and so does a task that vanished
-  between the read and the write.
+- A state that cannot be read refuses the change. So does a task that is already
+  gone when the state is queried, while its definition is still remembered. A task
+  deleted AFTER that query is recreated by `/Create /F`, which this does not detect.
+- Residual race, accepted: another process can change the same task in the
+  milliseconds between the state read and `/Create`. The board is the only writer of
+  its own world's tasks, so this needs a second board or a hand edit landing in that
+  window.
 - Creation passes nothing, so its task stays enabled.
 - A #1704 paused task is disabled the same way (`worldstarts.jobIsSwitchedOff` reads
   the same state), so it is covered.
@@ -151,6 +156,10 @@ named OpenAI home was told "runs on X now" and kept reading `~/.codex`.
   records a named codex home (argument four set). They now get `CODEX_HOME` = that
   home, which is the home they were meant to run on. Default-home codex agents and all
   Claude agents start with exactly the environment they had.
+  - One sharp edge: a codex agent whose recorded named home has since been DELETED
+    now gets `CODEX_HOME` pointing at a missing folder. Before, it silently used
+    `~/.codex`. The probable outcome is that codex refuses to start. That is
+    unverified, because there is no codex binary on this box.
 
 **NITs:** reworded the plist-only comments so they name the platform-following job
 read: the `setProvider` header item 2, server.js's runner comments (the ninth argument,
@@ -171,6 +180,77 @@ LOCALAPPDATA pointed at scratch.
 - Unit: the new file plus win32launch, win32job, worldimport and win32supervisor, 184 of 184.
 - Revert controls: C1-C3 and C5-C16 went red with byte-exact restores. C4's target line
   was rewritten by the spawned-board guard, which C11 now covers.
+
+### Round 2 (opus): not converged, with 1 BUG, 2 TEST-GAPs, a mild CONVENTION and 2 NITs. Coordinator decisions applied.
+
+Before this round the branch was rebased onto origin/main 04e23b70 (#2971 plus the
+v0661 bump), with no conflicts.
+
+**BUG: the switch was read from LIST text.** `presence` decides "disabled" with
+`/disabled/i` over the whole localized `/FO LIST` output, including the TaskName and
+HostName lines, and round 1 put that on a write path. Probed: an ENABLED
+`agent-disabled-bot` read as off, so a setter registered it switched off. On a
+non-English Windows a removed agent read as on.
+- Fix: a new `win32job.taskEnabled` reads `<Settings><Enabled>` from a fresh,
+  uncached `/Query /XML`. That read is shared with the spec parse through one
+  `readTaskXml`; there is no second query or decode.
+- An absent `<Enabled>` is `TASK_ENABLED_DEFAULT = true`. Microsoft's schema declares
+  `settingsType/Enabled` `type="boolean" default="true"`, and the comment cites it.
+- Not found gives the existing "no longer in Task Scheduler" refusal. Any error,
+  missing Settings, or a non-boolean Enabled refuses (fail closed).
+- Callers of the enabled flag, audited:
+  - `create.rewriteAgentJob` (the setters): a write decision. Moved to `taskEnabled`.
+  - `worldstarts.jobIsSwitchedOff` (a Kosmos switch's pause): a live decision. A
+    switched-off agent read as on is paused and recorded, and the resume switches it
+    back on. Moved to `taskEnabled`; a failed look is still "not off", as before.
+  - No other agent-task caller reads `presence`/`status`'s `enabled`. `presence` now
+    says at the code that its `enabled` is display-only.
+  - Same class, different module, not changed: `win32board.status()` runs its own
+    `/disabled/i` over the BOARD task's LIST output (a machine name containing
+    "disabled", or a non-English status). Its readers, `boardrestart.win32CanRestart`
+    and `win32board`'s ensure and stop, decide about the board's own task. Named here
+    as a follow-up for the board lane.
+- Tests: (a) an enabled `disabled-bot` stays enabled, with a control that the LIST
+  reader misreads it; (b) the per-setter disabled/enabled arms now run on XML; (c) no
+  `<Enabled>` counts as enabled; (d) German LIST text, where a switched-off task
+  stays off, with a control that the LIST reader calls it on; (e) an XML read error
+  refuses with no `/Create`. `taskEnabled` also refuses a definition with no Settings
+  or a non-boolean Enabled. worldstarts has a German-status pause arm.
+
+**TEST-GAPs.**
+- The "no longer in Task Scheduler" refusal now has an arm: the definition answers,
+  then the state read finds no task. It asserts REFUSED and zero `/Create`.
+- The detached `win32launch.launch()` is reached only by `win32supervisor.supervise()`,
+  which has no production caller; production runs `superviseStreaming` ->
+  `launchStreaming`. It now has an arm anyway: a codex home reaches its spawn env.
+
+**CONVENTION.** `accountEnvVar` moved to a neutral leaf, `engine/accountenv.js`, which
+`create.plistFor`, `win32launch.childEnv` and the test require. `win32argv.js` is back
+to argv only. No inventory enumerates engine modules by name; `engine.reachable` is
+green.
+
+**NITs.** The "vanished" bullet now says exactly what it catches. The live-agents
+note now covers a deleted named codex home. The residual race is recorded.
+
+**Verification, round 2.** All runs used the schtasks preload, with APPDATA and
+LOCALAPPDATA pointed at scratch.
+- Named suites (`run-r2.ps1`, explicit files), with the baseline a git archive of
+  04e23b70:
+  - Baseline: 52 files, 932 tests, 153 fail.
+  - Branch: 53 files, 969 tests, 167 fail.
+  - By name: 15 new, the same accepted Windows-host set as round 1, and nothing more.
+  - One name fixed: "no file is tracked under a path an unset variable produced". The
+    archive has no .git.
+  - schtasks attempts blocked: 268 on the baseline, 0 on the branch.
+- Unit (the new file, win32job, win32launch, worldstarts, worldimport, win32supervisor,
+  engine.reachable): 233 of 233.
+- Revert controls, byte-exact restores, all red:
+  - C17: the setter back on `presence` (a, d and the vanished arm red).
+  - C18: the absent-Enabled default flipped (c red).
+  - C19: the vanished refusal removed.
+  - C20: the world pause back on `status` (the German pause arm red).
+  - C1-C3 and C5-C16 still red. C4 skipped (its target line was rewritten in round 0;
+    C11 covers the guard).
 
 ## Out of scope, noted
 

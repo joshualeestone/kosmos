@@ -951,7 +951,14 @@ function rewriteAgentJob(clean, spoken, fields, platform) {
        (taskXml), rather than re-disabling afterwards, which would leave a window.
        ⚠️ FAIL CLOSED: a state we could not read refuses the change. Guessing
        "enabled" is exactly the failure this prevents. */
-    const state = win32job.presence(clean);
+    /* 🛑 READ FROM THE TASK'S OWN DEFINITION, NOT THE LIST TEXT (round 2). `presence`
+       decides "disabled" by searching the whole localized `/FO LIST` output, which
+       also prints the task's name and the machine's: an ENABLED `agent-disabled-bot`
+       read as switched off, and on a non-English Windows a removed agent read as on.
+       `taskEnabled` reads `<Settings><Enabled>` from `/Query /XML`, which is
+       locale-independent and carries no names in that element. Uncached, because a
+       switch flipped since the definition was remembered must be seen here. */
+    const state = win32job.taskEnabled(clean);
     if (!state.known) {
       return {
         outcome: OUTCOME.REFUSED,
@@ -2226,9 +2233,9 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
      so an absent key has to keep meaning what it already means -- and a
      rewrite that started stamping the default would make an unrelated edit
      look like an account change in every diff of these files. */
-  /* The key per runner is stated once, in win32argv.accountEnvVar, so the Windows
+  /* The key per runner is stated once, in accountenv.accountEnvVar, so the Windows
      launch (win32launch.childEnv) delivers the account under the same variable. */
-  const configKey = require('./win32argv').accountEnvVar(runner);
+  const configKey = require('./accountenv').accountEnvVar(runner);
   const configLine = configDir ? `\n    <key>${configKey}</key><string>${xml(configDir)}</string>` : '';
   /* 🔑 WHICH TMUX SERVER THE JOB'S SESSIONS LAND ON (#668). The board and the
      supervisor each resolve the session socket from their OWN environment, and

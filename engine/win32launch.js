@@ -53,7 +53,7 @@ const path = require('node:path');
 
 const win32create = require('./win32create');
 const trust = require('./trust');
-const { accountEnvVar } = require('./win32argv');
+const { accountEnvVar } = require('./accountenv');
 
 /* Every marker that makes a spawned session a CHILD of this one. Stripped, not
    overwritten: Claude Code reads presence, so an empty string is not the same as
@@ -128,7 +128,7 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
   if (configDir) env.CLAUDE_CONFIG_DIR = String(configDir);
   else delete env.CLAUDE_CONFIG_DIR;
   /* 🔑 A CODEX AGENT'S ACCOUNT IS ITS CODEX_HOME (round 1 BUG). A Mac job writes the
-     account directory under the runner's own variable (win32argv.accountEnvVar,
+     account directory under the runner's own variable (accountenv.accountEnvVar,
      the key create.plistFor uses). Here only CLAUDE_CONFIG_DIR was ever set, so a
      codex agent moved to a named OpenAI home was told "runs on X now" and kept
      reading ~/.codex.

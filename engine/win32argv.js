@@ -48,12 +48,4 @@ function specFromArgv(argv) {
   };
 }
 
-/* The environment variable an agent's account directory (argument four,
-   `configDir`) is delivered in, per runner: codex reads CODEX_HOME, Claude Code
-   reads CLAUDE_CONFIG_DIR. ONE rule for both platforms: create.plistFor writes
-   this key into a Mac job, and win32launch.childEnv sets it for a Windows agent.
-   Here because this leaf is what the argv's meaning is stated in, and both of those
-   modules can load it without pulling the other's tree. */
-function accountEnvVar(runner) { return runner === 'codex' ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR'; }
-
-module.exports = { specFromArgv, accountEnvVar };
+module.exports = { specFromArgv };

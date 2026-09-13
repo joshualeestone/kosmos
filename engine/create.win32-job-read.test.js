@@ -70,18 +70,32 @@ function scheduler(tasks, opts) {
     const rec = { args: args.slice() };
     calls.push(rec);
     const tn = args[args.indexOf('/TN') + 1];
-    /* The state read (`presence`): a task marked `disabled` reads Disabled, the
-       way `schtasks /Query /FO LIST` reports a removed or paused agent. */
+    /* The LIST read, printed the way schtasks prints it: TaskName and HostName lines
+       as well as the status, in English or (listLocale 'de') German. Nothing that
+       decides may read this text (round 2): it is localized and carries names. */
     if (args[0] === '/Query' && args.includes('LIST')) {
       if (o.listFails) return { ok: false, out: o.listFails };
       const spec = tasks[tn];
       if (!spec) return NO_SUCH;
-      return { ok: true, out: 'Folder: \\Kosmos\nScheduled Task State: ' + (spec.disabled ? 'Disabled' : 'Enabled') + '\n' };
+      const de = o.listLocale === 'de';
+      const state = de ? (spec.disabled ? 'Deaktiviert' : 'Bereit') : (spec.disabled ? 'Disabled' : 'Ready');
+      return { ok: true, out: (de ? 'Aufgabenname: \\' : 'TaskName: \\') + tn + '\n' + (de ? 'Hostname: ' : 'HostName: ') + 'BOX\nStatus: ' + state + '\n' };
     }
+    /* The definition read, which is also the enabled-state read: the XML the real
+       writer produces, switched off when the task is marked `disabled`. The counters
+       let an arm answer the FIRST read (the remembered definition) and not a later
+       one (the setter's fresh state read). */
     if (args[0] === '/Query' && args.includes('/XML')) {
       if (o.queryFails) return { ok: false, out: o.queryFails };
+      const seen = (o.seen = o.seen || {});
+      seen[tn] = (seen[tn] || 0) + 1;
+      if (o.xmlFailAfter && seen[tn] > o.xmlFailAfter) return { ok: false, out: 'ERROR: Access is denied.' };
+      if (o.xmlGoneAfter && seen[tn] > o.xmlGoneAfter) return NO_SUCH;
       const spec = tasks[tn];
-      return spec ? { ok: true, out: job.taskXml(spec, XML_ENV) } : NO_SUCH;
+      if (!spec) return NO_SUCH;
+      let xml = job.taskXml({ ...spec, enabled: spec.disabled ? false : spec.enabled }, XML_ENV);
+      if (o.xmlNoEnabled) xml = xml.replace(/(<Settings>[\s\S]*?)<Enabled>(?:true|false)<\/Enabled>/, '$1');
+      return { ok: true, out: xml };
     }
     if (args[0] === '/Create') {
       rec.xml = fs.readFileSync(args[args.indexOf('/XML') + 1]).toString('utf16le');
@@ -166,8 +180,10 @@ test('readJob on win32 is answered from the #2717 cache, and a re-register forge
   assert.equal(queries(calls).length, 1, 'every read spawned schtasks, which on the five-second poll is one spawn per agent');
   const r = create.setModel('ava', create.modelsFor('anthropic')[0].key, { platform: 'win32' });
   assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  /* The change itself asks the task's state fresh (round 2), so count from after it. */
+  const afterChange = queries(calls).length;
   create.readJob('ava', undefined, 'win32');
-  assert.equal(queries(calls).length, 2, 'the re-register did not forget the remembered definition');
+  assert.equal(queries(calls).length, afterChange + 1, 'the re-register did not forget the remembered definition');
 });
 
 /* ── the setters re-register the task ──────────────────────────────────────── */
@@ -378,8 +394,10 @@ for (const s of SETTERS) {
   }
 }
 
-test('SAFETY: when the task state cannot be read, the change is refused and nothing is registered', () => {
-  const calls = scheduler({ 'Kosmos\\agent-ava': taskFor('ava', { runner: 'claude' }) }, { listFails: 'ERROR: Access is denied.' });
+test('SAFETY (e): when the task state read (XML) errors, the change is refused and nothing is registered', () => {
+  /* The first XML read (the remembered definition) answers; the setter's fresh
+     state read does not. */
+  const calls = scheduler({ 'Kosmos\\agent-ava': taskFor('ava', { runner: 'claude' }) }, { xmlFailAfter: 1 });
   const r = create.setModel('ava', create.modelsFor('anthropic')[0].key, { platform: 'win32' });
   assert.equal(r.outcome, create.OUTCOME.REFUSED, 'a change went ahead on a task whose switch could not be read');
   assert.match(r.because, /could not tell whether .*startup task is switched on or off \(ERROR: Access is denied\.\)/);
@@ -393,6 +411,57 @@ test('SAFETY: taskXml writes the enabled state it is given, and enabled when tol
   assert.equal(settingsEnabled(job.taskXml(base, XML_ENV)), true, 'a spec that says nothing must stay enabled, or creation registers a switched-off agent');
   assert.ok(job.taskXml({ ...base, enabled: false }, XML_ENV).includes('<LogonTrigger><Enabled>true</Enabled>'),
     'the logon trigger is not the switch; only the task setting is');
+});
+
+/* ── round 2: the switch is read from the task's own definition ──────────────── */
+
+test('ROUND 2 (a): an ENABLED task whose name contains "disabled" stays enabled (the LIST text is not read)', () => {
+  const calls = scheduler({ 'Kosmos\\agent-disabled-bot': taskFor('disabled-bot', { runner: 'claude' }) });
+  const r = create.setModel('disabled-bot', create.modelsFor('anthropic')[0].key, { platform: 'win32' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  /* Control: the LIST text for this task really does contain the word. */
+  assert.match(job.presence('disabled-bot').enabled === false ? 'disabled' : '', /disabled/,
+    'control: the LIST reader must misread this task, or the arm proves nothing');
+  const made = creates(calls);
+  assert.equal(made.length, 1);
+  assert.equal(settingsEnabled(made[0].xml), true, 'an enabled agent named disabled-bot was registered switched off');
+});
+
+test('ROUND 2 (c): a definition with no <Enabled> counts as enabled (the schema default)', () => {
+  const calls = scheduler({ 'Kosmos\\agent-ava': taskFor('ava', { runner: 'claude' }) }, { xmlNoEnabled: true });
+  assert.deepEqual(job.taskEnabled('ava'), { known: true, registered: true, enabled: true });
+  const r = create.setModel('ava', create.modelsFor('anthropic')[0].key, { platform: 'win32' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  assert.equal(settingsEnabled(creates(calls)[0].xml), true);
+});
+
+test('ROUND 2 (d): on a German Windows a switched-off task stays off (the XML, not the translated status)', () => {
+  const calls = scheduler({ 'Kosmos\\agent-ava': taskFor('ava', { runner: 'claude', disabled: true }) }, { listLocale: 'de' });
+  /* Control: the LIST reader misses the German status and calls the task on. */
+  assert.equal(job.presence('ava').enabled, true, 'control: the LIST reader must misread the German status, or the arm proves nothing');
+  const r = create.setModel('ava', create.modelsFor('anthropic')[0].key, { platform: 'win32' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  assert.equal(settingsEnabled(creates(calls)[0].xml), false, 'a removed agent on a German Windows was switched back on');
+});
+
+test('ROUND 2: a task gone at the state read is refused with no /Create', () => {
+  /* The remembered definition answers; by the fresh state read the task is gone. */
+  const calls = scheduler({ 'Kosmos\\agent-ava': taskFor('ava', { runner: 'claude' }) }, { xmlGoneAfter: 1 });
+  const r = create.setModel('ava', create.modelsFor('anthropic')[0].key, { platform: 'win32' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED, 'a change went ahead on a task that was no longer there');
+  assert.match(r.because, /startup task is no longer in Task Scheduler/);
+  assert.equal(creates(calls).length, 0, 'a task that had gone was registered again');
+});
+
+test('ROUND 2: taskEnabled refuses to guess from a definition it cannot read', () => {
+  scheduler({});
+  assert.deepEqual(job.taskEnabled('ghost'), { known: true, registered: false });
+  job.setRunner(() => ({ ok: true, out: '<Task><Actions/></Task>' }));
+  assert.equal(job.taskEnabled('odd').known, false, 'a definition with no Settings was read as a switch');
+  job.setRunner(() => ({ ok: true, out: '<Task><Settings><Enabled>maybe</Enabled></Settings></Task>' }));
+  assert.equal(job.taskEnabled('odd').known, false, 'an Enabled that is not a boolean was read as a switch');
+  job.setRunner(() => ({ ok: false, out: 'ERROR: Access is denied.' }));
+  assert.equal(job.taskEnabled('locked').known, false);
 });
 
 /* ── round 1 BUG: a codex agent's named home reaches its process ───────────── */
@@ -409,7 +478,7 @@ test('BUG: childEnv gives a codex agent its named home as CODEX_HOME, a default 
 });
 
 test('BUG: the account variable per runner is the one the Mac plist writes', () => {
-  const { accountEnvVar } = require('./win32argv');
+  const { accountEnvVar } = require('./accountenv');
   assert.equal(accountEnvVar('codex'), 'CODEX_HOME');
   assert.equal(accountEnvVar('claude'), 'CLAUDE_CONFIG_DIR');
   assert.match(create.plistFor('mx', '/b/codex', '/b/tmux', null, '/h/codex-w', 'codex'), /<key>CODEX_HOME<\/key><string>\/h\/codex-w<\/string>/);
@@ -435,6 +504,18 @@ test('BUG: a codex account change on win32 reaches the relaunched agent as CODEX
   } finally { launcher.setSpawn(null); }
   assert.ok(seen, 'the launcher never spawned');
   assert.equal(seen.CODEX_HOME, path.resolve(CODEX_WORK), 'the relaunched codex agent does not read the home it was moved to');
+});
+
+test('BUG: the detached launch() hands its runner to childEnv too (only supervise() reaches it)', () => {
+  const folder = create.workerDir('cxd');
+  fs.mkdirSync(folder, { recursive: true });
+  let seen = null;
+  launcher.setSpawn((cmd, argv, opts) => { seen = opts && opts.env; return { pid: 4343, unref() {} }; });
+  try {
+    const r = launcher.launch({ name: 'cxd', runner: 'codex', cwd: folder, configDir: CODEX_WORK, platform: 'win32' });
+    assert.equal(r.ok, true, 'the detached launch did not start: ' + r.because);
+  } finally { launcher.setSpawn(null); }
+  assert.equal(seen && seen.CODEX_HOME, CODEX_WORK, 'the detached launch did not pass the runner, so a codex home never reached the agent');
 });
 
 /* ── the Mac arm is unchanged ──────────────────────────────────────────────── */
