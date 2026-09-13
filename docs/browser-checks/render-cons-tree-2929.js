@@ -278,6 +278,38 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     });
     ok(t + ' grid CONTROL: the fold caret is hidden in the asgrid grid sub-view too', gridCtl.caretHiddenInGrid, JSON.stringify(gridCtl));
 
+    // ---- Layer 9: folding does not vanish a RE-HOMED row (render vs data) ----
+    // pjTreeRows re-homes a child of an archived/dangling parent to the top level, but a
+    // raw pjDescendantIds parent-link walk would still count it under its original
+    // ancestor. Fixture P > D(active child, gives P a caret), P > M(archived) > C(active,
+    // re-homes to top). Folding P must hide D (its RENDERED child) but NOT C, which the
+    // tree drew as an unrelated top-level row. The hide is computed from rendered depths,
+    // so C stays; a pjDescendantIds-based hide would vanish C -- the dangerous answer.
+    const rehome = await page.evaluate(() => {
+      const mk = (id, name, parent, archived) => ({ id, name, parent: parent || null, parentName: parent || null, parentArchived: false, archived: !!archived, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('P', 'Parent'), mk('D', 'Direct', 'P'), mk('M', 'Mid', 'P', true), mk('C', 'ReHomed', 'M')];
+      PJ_SORT = 'az'; PJ_TREE_FOLDED.clear(); PJ_CURRENT = null;
+      document.documentElement.setAttribute('data-layout', 'consolidated');
+      document.body.classList.add('consolidated');
+      document.getElementById('pj-list').classList.remove('asgrid');
+      paintProjects();
+      const rowOf = (id) => document.querySelector('#pj-list .pj-row[data-project="' + id + '"]');
+      const hidden = (id) => { const r = rowOf(id); return !r || r.classList.contains('pj-fold-hidden') || getComputedStyle(r).display === 'none'; };
+      const out = {};
+      out.cDepth = Number(rowOf('C').style.getPropertyValue('--pj-depth')) || 0;   // re-homed to top
+      out.pHasCaret = !!rowOf('P').querySelector('.pjtreefold');
+      out.dVisibleBefore = !hidden('D');
+      out.cVisibleBefore = !hidden('C');
+      pjTreeToggleFold('P');
+      out.dHiddenAfter = hidden('D');       // P's rendered child hides
+      out.cVisibleAfter = !hidden('C');     // the re-homed top-level row must NOT vanish
+      return out;
+    });
+    ok(t + ' re-home: C (child of an archived parent) renders at top level', rehome.cDepth === 0, JSON.stringify(rehome));
+    ok(t + ' re-home CONTROL: P has a caret and D/C are visible before folding', rehome.pHasCaret && rehome.dVisibleBefore && rehome.cVisibleBefore, JSON.stringify(rehome));
+    ok(t + ' re-home: folding P hides its rendered child D', rehome.dHiddenAfter, JSON.stringify(rehome));
+    ok(t + ' re-home: folding P does NOT vanish the re-homed top-level row C', rehome.cVisibleAfter, JSON.stringify(rehome));
+
     await page.close();
   }
   await browser.close();

@@ -35161,6 +35161,12 @@ function paintProjects() {
   // disclosure sort alike, so a person who chose A to Z gets it everywhere.
   const active = sortProjects(PROJECTS.filter((p) => !p.archived), PJ_SORT);
   const archived = sortProjects(PROJECTS.filter((p) => p.archived), PJ_SORT);
+  /* #2929: prune the consolidated tree's fold set to live active ids on EVERY paint,
+     BEFORE the empty-state early returns below -- a folded parent later archived or
+     deleted (the all-archived case included) must not leave a stale id that a later
+     un-archive would resurrect as a fold. Mirrors the Map's PJ_MAP_FOLDED pruning. */
+  { const treeActiveIds = new Set(active.map((p) => p.id));
+    for (const id of PJ_TREE_FOLDED) { if (!treeActiveIds.has(id)) PJ_TREE_FOLDED.delete(id); } }
   paintArchived(archived);
   /* ⚠️ The tiles write BEFORE any return: the empty-state branches used to
      leave "3 Projects" (and a red Needs-you) sitting above "No projects
@@ -35214,13 +35220,9 @@ function paintProjects() {
     return;
   }
   setIfChanged(list, pjTreeRows(active));
-  /* #2929: prune the consolidated tree's fold set to live active projects (a
-     folded parent later archived or deleted must not leave a stale id lingering),
-     mirroring the Map view's PJ_MAP_FOLDED pruning, then re-apply the fold to the
-     freshly painted rows. A fresh paint carries no .pj-fold-hidden classes, so
-     this must run every paint, not just on toggle. */
-  const treeActiveIds = new Set(active.map((p) => p.id));
-  for (const id of PJ_TREE_FOLDED) { if (!treeActiveIds.has(id)) PJ_TREE_FOLDED.delete(id); }
+  /* #2929: re-apply the fold to the freshly painted rows -- a fresh paint carries no
+     .pj-fold-hidden classes, so this runs every paint, not just on toggle. The fold
+     set was already pruned to live active ids above (before the empty-state returns). */
   applyConsFold();
 }
 
@@ -35418,24 +35420,33 @@ function applyConsFold() {
   const list = document.getElementById('pj-list');
   if (!list) return;
   const cons = document.body.classList.contains('consolidated');
-  const hidden = new Set();
-  if (cons) {
-    for (const id of PJ_TREE_FOLDED) {
-      for (const d of pjDescendantIds(id)) hidden.add(d);
-    }
-  }
+  /* Hide a folded branch by walking the RENDERED rows in tree order and their
+     --pj-depth, NOT by walking PROJECTS. pjTreeRows re-homes a child of an
+     archived/dangling parent (and any cycle) to the TOP level, so a raw parent-link
+     walk (pjDescendantIds) would add to the hide-set a row the tree drew as an
+     unrelated top-level project -- folding its ancestor would vanish it with no
+     visible parent to reopen from. Reading the render is the single source of truth
+     and cannot diverge from it: a row is hidden exactly when it sits deeper than the
+     nearest folded ancestor still in effect. (#2929 iter3, was pjDescendantIds) */
+  let cutoff = Infinity;   // rows with --pj-depth > cutoff are inside a collapsed branch
   for (const row of list.querySelectorAll('.pj-row[data-project]')) {
+    const depth = Number(row.style.getPropertyValue('--pj-depth')) || 0;
+    const caret = row.querySelector('.pjtreefold');
+    const folded = PJ_TREE_FOLDED.has(row.dataset.project);
     /* Compare before every write. applyConsFold runs on EVERY ~5s data poll (via
        paintProjects), and a bare setAttribute/classList/textContent re-writes even
        when the value is unchanged. A re-written aria-expanded is re-announced by a
        screen reader ("expanded"/"collapsed") every poll, forever -- the exact churn
        setLive documents and dedups a few functions up. These DOM edits bypass
        setLive's string dedup, so each one must guard itself. (#2929 iter2) */
-    const shouldHide = hidden.has(row.dataset.project);
+    const shouldHide = cons && depth > cutoff;
     if (row.classList.contains('pj-fold-hidden') !== shouldHide) row.classList.toggle('pj-fold-hidden', shouldHide);
-    const caret = row.querySelector('.pjtreefold');
+    if (!shouldHide) {
+      // A VISIBLE folded parent collapses everything deeper than it until a row
+      // returns to its depth or shallower; anything else clears the collapse.
+      cutoff = (cons && folded && caret) ? depth : Infinity;
+    }
     if (!caret) continue;                          // a leaf: nothing to expand
-    const folded = PJ_TREE_FOLDED.has(row.dataset.project);
     if (cons) {
       const want = folded ? 'false' : 'true';
       if (row.getAttribute('aria-expanded') !== want) row.setAttribute('aria-expanded', want);
