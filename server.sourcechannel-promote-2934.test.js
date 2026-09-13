@@ -124,9 +124,14 @@ function statusWith({ content, latest, channel, look = true }) {
   delete env.KOSMOS_UPDATE_CHANNEL;
   if (channel) env.AGENT_WORKFORCE_UPDATE_CHANNEL = channel;
 
-  const out = execFileSync(process.execPath, ['-e', script], { encoding: 'utf8', env });
-  fs.rmSync(sb, { recursive: true, force: true });
-  return JSON.parse(out);
+  // finally, so a child that exits non-zero (or unparseable output) does not leave the
+  // sandbox behind under os.tmpdir() on every failing run.
+  try {
+    const out = execFileSync(process.execPath, ['-e', script], { encoding: 'utf8', env });
+    return JSON.parse(out);
+  } finally {
+    fs.rmSync(sb, { recursive: true, force: true });
+  }
 }
 
 // ---- THE REPORTED BOX -------------------------------------------------------------

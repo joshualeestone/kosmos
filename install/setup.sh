@@ -3512,9 +3512,15 @@ fi
 
 # #2066: record which channel pointer this install fetched from, so the board can paint a
 # STAGING badge for a staging tester (the read side shipped dormant in #2089: server.js
-# sourceChannelNow reads <store.ROOT>/source-channel, trims+lowercases, and folds anything
-# but "staging" to prod). Written BEFORE the board starts so its first read is correct; a
-# missing file reads prod, so an unrecorded staging install would masquerade as prod.
+# recordedSourceChannel reads <store.ROOT>/source-channel, trims+lowercases, and folds
+# anything but "staging" to prod). Written BEFORE the board starts so its first read is
+# correct; a missing file reads prod, so an unrecorded staging install would masquerade as
+# prod.
+# #2934: this file is what the board READS, but it is no longer the whole answer. A promote
+# moves no bytes, so nothing re-runs this write and the stamp goes stale; sourceChannelNow
+# now takes this value and, only when it says staging, may downgrade it to prod on positive
+# evidence that prod publishes the running version. This write is unchanged and still the
+# only thing that sets the stamp.
 #
 # 🔑 ONE WRITE COVERS BOTH the fresh-install and the update path. The join contract (#2066)
 # asked for a write in setup.sh AND engine/update.js, but update.js's auto-update does NOT

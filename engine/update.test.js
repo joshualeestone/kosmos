@@ -505,27 +505,43 @@ test('#2934 prodPublishesRunning: EQUALITY only, and every unknown is null rathe
   const AHEAD = bump(RUNNING, 1);
   assert.match(AHEAD, /^\d+\.\d+\.\d+$/, 'AHEAD must parse or the arm below tests the wrong rung');
 
+  /* 🛑 BOTH NAMES, EVERY TIME. darwin's updateChannel() reads AGENT_WORKFORCE_UPDATE_CHANNEL
+     and FALLS BACK to KOSMOS_UPDATE_CHANNEL, so clearing only the first leaves an operator's
+     ambient KOSMOS_UPDATE_CHANNEL=staging deciding the answer. Measured: under that env the
+     equality arm fails outright, and worse, the three arms expecting null then pass through
+     the WRONG rung (channel !== 'prod' rather than never-looked / unreachable / unreadable),
+     which is the silent rung-reroute this suite is built to prevent. */
+  const CHANNEL_ENV = ['AGENT_WORKFORCE_UPDATE_CHANNEL', 'KOSMOS_UPDATE_CHANNEL'];
+  const clearChannel = () => { for (const k of CHANNEL_ENV) delete process.env[k]; };
   const look = async (version, { throws = false, channel } = {}) => {
+    clearChannel();
     if (channel) process.env.AGENT_WORKFORCE_UPDATE_CHANNEL = channel;
-    else delete process.env.AGENT_WORKFORCE_UPDATE_CHANNEL;
     update.resetCache();
     update.setFetcher(async () => {
       if (throws) throw new Error('offline');
       return { ok: true, json: async () => ({ version }) };
     });
     await update.refresh().catch(() => { /* the miss stamp is written in refresh's finally */ });
-    delete process.env.AGENT_WORKFORCE_UPDATE_CHANNEL;
+    clearChannel();
   };
 
+  clearChannel();
   update.resetCache();
   assert.equal(update.prodPublishesRunning(), null, 'never looked -> null, not false');
 
   await look(RUNNING);
   assert.equal(update.prodPublishesRunning(), true, 'the prod pointer naming our exact version is the ONLY true');
 
+  /* false covers TWO different worlds and the predicate cannot tell them apart, which is
+     why it must not be read as "these bytes never shipped": (a) an ABANDONED pre-release
+     build while prod moved on, and (b) OUR bytes, promoted, since SUPERSEDED by a newer
+     prod release. (b) is the accepted window documented on prodPublishesRunning: a
+     correctly-promoted box reads staging again from the moment prod moves on until it takes
+     that update, which rewrites the stamp. If this arm ever returns true, equality has been
+     relaxed and the abandoned-build case is darkening wrongly again. */
   await look(AHEAD);
   assert.equal(update.prodPublishesRunning(), false,
-    'prod being NEWER is not evidence our bytes shipped: an abandoned pre-release build satisfies >= and never reached prod');
+    'prod being NEWER is not evidence our bytes shipped (abandoned build, or ours since superseded)');
 
   await look(null, { throws: true });
   assert.equal(update.prodPublishesRunning(), null, 'unreachable -> null, never false');
@@ -536,6 +552,16 @@ test('#2934 prodPublishesRunning: EQUALITY only, and every unknown is null rathe
   await look(RUNNING, { channel: 'staging' });
   assert.equal(update.prodPublishesRunning(), null,
     'the cache holds a STAGING pointer version, which says nothing about what prod publishes');
+
+  /* A pointer published with stray whitespace. parts() TRIMS, so " 0.6.60" is a valid
+     version and readManifest's mac arm stores it verbatim -- meaning a raw === would answer
+     false here while available()/newer() call the same box up to date. Two answers to one
+     fact, inside the one module that exists to prevent that. */
+  await look(' ' + RUNNING + ' ');
+  assert.equal(update.prodPublishesRunning(), true,
+    'an untrimmed pointer version names the SAME build; comparing raw would disagree with newer()');
+  assert.equal(update.available(), null,
+    'control: newer() already trims, so it reports no update -- the two must not disagree');
 
   update.resetCache();
 });

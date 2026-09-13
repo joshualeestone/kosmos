@@ -80,6 +80,20 @@ most-shipped defect; an earlier draft of this change had the caller reach in for
 `cache.latest` and got its shape wrong (see the trap section below), which is precisely the
 failure a single named predicate makes unavailable.
 
+## THE ACCEPTED WINDOW (the fix is true of a moment, not forever)
+
+`false` from the predicate covers TWO worlds it cannot tell apart: bytes that never reached
+prod, and OUR bytes, promoted, since SUPERSEDED by a newer prod release. The second means a
+correctly-promoted box reads 'staging' again from the moment prod moves on until it takes
+that update, which re-runs setup.sh and rewrites the stamp.
+
+So **#2934's symptom can reappear briefly after any release, and it self-heals.** That is
+accepted rather than overlooked: no weaker comparison closes the window without
+reintroducing the abandoned-build error, which darkens the badge on genuinely un-promoted
+bytes and is the worse failure. Anyone seeing this symptom right after a release should
+look here before reopening the card. Stated in the doc comment, at the board's call site,
+and in a test arm that names both worlds.
+
 ## 🔑 THIS FIX AND #2969 ARE COUPLED
 
 The reported mortals box only reaches the prod-pointer rung BECAUSE it had silently lost its

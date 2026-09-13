@@ -344,6 +344,12 @@ function recordedSourceChannel() {
    never-looked and staging-pointer all return null and keep the recorded stamp, so this
    can only ever turn a 'staging' into a 'prod' on positive evidence, never the reverse.
 
+   ⏳ The evidence expires, and that is accepted. Once prod publishes something NEWER, a
+   correctly-promoted box stops matching and reads 'staging' again until it takes that
+   update (which re-runs setup.sh and rewrites the stamp to prod). So #2934's symptom can
+   reappear briefly after any release, and it self-heals. No weaker comparison avoids that
+   without darkening the badge on genuinely un-promoted bytes, which is the worse error.
+
    🔑 THIS FIX AND #2969 ARE COUPLED, AND THE COUPLING IS EASY TO BREAK BY ACCIDENT.
    The reported mortals box only reaches the prod-pointer rung BECAUSE it had silently
    lost its staging subscription at login (#2969): with no channel in the environment the

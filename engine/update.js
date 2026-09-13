@@ -852,6 +852,19 @@ function resetCache() { cache = emptyCache(); inFlight = null; installStarted = 
  * precisely because of #2036's invariant: the same bytes are promoted with no rebuild, so
  * the prod pointer naming our exact version means our bytes ARE the prod bytes.
  *
+ * ⏳ IT IS TRUE OF A MOMENT, NOT FOREVER, AND THAT WINDOW IS ACCEPTED. Two states answer
+ * false: bytes that never reached prod, and OUR bytes, promoted, since SUPERSEDED by a
+ * newer prod release. The second means a correctly-promoted box reads 'staging' again from
+ * the moment prod moves on until this box takes that update, which rewrites the stamp to
+ * prod via setup.sh and ends it. It self-heals, and no weaker comparison avoids it without
+ * reintroducing the abandoned-build error above, so it is the accepted cost rather than an
+ * oversight. Anyone seeing #2934's symptom right after a release should look here first.
+ *
+ * 🔭 SCOPE: this asks nothing about `cache.base`. A board pointed at a mirror via
+ * AGENT_WORKFORCE_RELEASE_BASE answers relative to THAT host's prod pointer, which is the
+ * self-consistent answer: the base is where this box actually updates from, so it is the
+ * prod that means anything to it. Deliberate, not an omission.
+ *
  * Living here rather than in the caller is deliberate (one derivation of one fact): the
  * cache's shape is this module's business. `cache.latest` is the validated MANIFEST OBJECT
  * ({version} on mac, plus sha256/versioned on win32), and an earlier draft of this feature
@@ -864,7 +877,13 @@ function resetCache() { cache = emptyCache(); inFlight = null; installStarted = 
 function prodPublishesRunning() {
   if (cache.channel !== 'prod') return null;
   if (!cache.latest || typeof cache.latest.version !== 'string') return null;
-  return cache.latest.version === RUNNING;
+  /* TRIMMED, because parts() trims and this must not become a second answer to the same
+     fact. readManifest's mac arm stores body.version VERBATIM (only the win32 arm insists
+     it is already trimmed), so a pointer published as " 0.6.60" validates and is cached
+     with its space. Comparing raw, this would say false while available()/newer() -- which
+     trim inside parts() -- say the box is up to date. Same module, two answers, which is
+     the defect this module's own layout exists to avoid. */
+  return cache.latest.version.trim() === String(RUNNING).trim();
 }
 
 module.exports = {
