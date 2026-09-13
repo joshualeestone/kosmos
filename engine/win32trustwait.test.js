@@ -136,3 +136,24 @@ test('#2281 the default real-dir read is fail-soft: a missing dir is "not stuck"
   const missing = path.join(os.tmpdir(), 'win32trustwait-does-not-exist-' + process.pid + '-' + Date.now());
   assert.equal(tw.pidWaiting(4242, { configDir: missing, olderThanMs: 0 }), false);
 });
+
+test('#2281 (FIX 4) pidWaiting returns TRUE through the real fs chain on a lone .key', () => {
+  /* The production true-return path -- real readdirSync/statSync, real sessionsDir,
+     real KEY_RE -- with no injected list. Host-independent (os.tmpdir), so it runs
+     on any platform. */
+  const cfg = path.join(os.tmpdir(), 'win32trustwait-real-' + process.pid + '-' + Date.now());
+  const sdir = path.join(cfg, 'sessions');
+  require('node:fs').mkdirSync(sdir, { recursive: true });
+  const pid = 424242;
+  require('node:fs').writeFileSync(path.join(sdir, KEY(pid)), 'x');   // a lone .key, no .json
+  try {
+    assert.equal(tw.pidWaiting(pid, { configDir: cfg, olderThanMs: 0 }), true,
+      'a real <pid>.<hash>.key with no sibling <pid>.json reads as waiting');
+    // control: give it its .json and it is no longer waiting
+    require('node:fs').writeFileSync(path.join(sdir, JSON_(pid)), '{}');
+    assert.equal(tw.pidWaiting(pid, { configDir: cfg, olderThanMs: 0 }), false,
+      'once it registers (a real <pid>.json lands) it is not waiting');
+  } finally {
+    require('node:fs').rmSync(cfg, { recursive: true, force: true });
+  }
+});

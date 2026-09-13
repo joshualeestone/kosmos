@@ -28,16 +28,30 @@
  *     a `<pid>.<hash>.key` with NO sibling `<pid>.json`, older than a threshold,
  *     is a session that started and did not register.
  *
- * The threshold is what separates "stuck" from "healthy but still starting": a
- * freshly spawned agent has its `.key` for a few seconds before its `.json`
- * lands, so only a `.key` that has sat alone PAST the threshold is a stall.
+ * The `olderThanMs` threshold separates "stuck" from "healthy but still starting"
+ * for a caller that SCANS the dir on its own schedule: a freshly spawned agent has
+ * its `.key` for a few seconds before its `.json` lands, so only a `.key` that has
+ * sat alone past the threshold is a stall.
+ *
+ * 📌 IN PRODUCTION THE DELAY IS THE SUPERVISOR'S, NOT THIS AGE GATE. The one
+ * production caller (`win32supervisor.js`) only asks this AFTER its own 90s
+ * one-shot timer has elapsed, so the "has it had time to register" question is
+ * already answered by then; it passes `olderThanMs: 0`. This module keeps the age
+ * gate for any other caller that polls without such a timer -- it is not the
+ * load-bearing part of the production path.
+ *
+ * 📌 AND IT IS CORROBORATION, NOT THE DISCRIMINATOR (review r1). The supervisor
+ * decides "trust hang vs slow start" from a POSITIVE signal -- is the folder
+ * recorded trusted in the config the agent reads (`trust.folderTrusted`) -- which
+ * needs the cwd, not a pid. A lone `.key` here only enriches that wording, so the
+ * uncertainty in "is this pid the agent's" (win32launch's detached launch spawns
+ * via cmd) never decides the claim.
  *
  * 📌 THIS IS DETECTION ONLY. It reads Claude Code's session dir and answers a
  * question; it never writes trust, never spawns, never touches the fleet. The
  * board-card surfacing (a "waiting at a trust prompt" state on the card) needs
  * `server.js` and `web/index.html`, which are owned elsewhere this cycle and are
- * a filed follow-up. The one production caller today is `win32supervisor.js`,
- * which uses this to classify a started-but-unregistered agent for the task log.
+ * a filed follow-up (kosmos#3013).
  */
 const fs = require('node:fs');
 const os = require('node:os');

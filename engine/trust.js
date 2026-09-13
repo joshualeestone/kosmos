@@ -711,4 +711,51 @@ function preacceptBypass(configDir, agentDefaultAccount) {
    direction (see the rollback comment in create.js). An undo would need forgetFolder's
    "only if it still says what we wrote" window guard AND could still delete a shared key. */
 
-module.exports = { trustFolder, forgetFolder, preacceptBypass, KEY, BYPASS_KEY, recordWrite, recordedWrite, dropRecord, defaultAgentConfig, defaultAgentSettings, canonicalOnDisk };
+/**
+ * Read-only: is `dir` recorded as TRUSTED in the config the agent reads? The
+ * positive signal #2281's diagnostic needs -- a started-but-unregistered agent is
+ * only "waiting at a trust prompt" if its folder is genuinely NOT trusted; a
+ * trusted folder that has not registered yet is a slow start, not a dialog.
+ *
+ * 🔑 IT ASKS THE EXACT QUESTION THE RUNNER ANSWERS, by reusing trustFolder's own
+ * key derivation (realpathSync.native, then the forward-slash normalisation that
+ * makes the key the spelling Claude Code reads on Windows) and its config
+ * resolution (`configDir` -> that account's .claude.json; a default-account agent
+ * -> defaultAgentConfig, the ~/.claude.json a no-CLAUDE_CONFIG_DIR agent reads).
+ * A second, hand-rolled reader would be the two-derivations defect this file is
+ * built to avoid -- so the caller passes the SAME opts it passed to trustFolder.
+ *
+ * @param {string} dir the agent's working directory.
+ * @param {{configDir?: string|null, agentDefaultAccount?: boolean}} [opts] the
+ *   same shape trustFolder was called with, so the file read here is the file the
+ *   write went to.
+ * @returns {true|false|null} true = recorded trusted; false = the config is
+ *   readable and the folder is NOT recorded trusted; null = we could not tell
+ *   (config absent/unreadable/misshapen, or the folder is not on disk to resolve
+ *   a key for). ⚠️ The strong "its folder is untrusted" claim is well-founded
+ *   ONLY on an explicit `false`; `null` must fall back to the hedged wording.
+ */
+function folderTrusted(dir, opts) {
+  const target = (opts && opts.agentDefaultAccount && !opts.configDir)
+    ? defaultAgentConfig()
+    : CONFIG(opts && opts.configDir);
+  if (!dir || !path.isAbsolute(dir)) return null;
+  let key;
+  try { key = fs.realpathSync.native(dir); }
+  catch { return null; }   // the folder is not there -- we cannot derive the runner's key
+  key = key.split(path.sep).join('/');
+  let data;
+  try { data = JSON.parse(fs.readFileSync(target, 'utf8')); }
+  catch { return null; }   // config absent or unreadable -- we cannot tell, so do not claim untrusted
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  const projects = data.projects;
+  // Readable config with no (or a malformed) projects map is a definite "not
+  // recorded trusted" -- Claude Code has run here but this folder is not vouched for.
+  if (!projects || typeof projects !== 'object' || Array.isArray(projects)) return false;
+  if (!Object.prototype.hasOwnProperty.call(projects, key)) return false;
+  const entry = projects[key];
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return false;
+  return entry[KEY] === true;
+}
+
+module.exports = { trustFolder, forgetFolder, folderTrusted, preacceptBypass, KEY, BYPASS_KEY, recordWrite, recordedWrite, dropRecord, defaultAgentConfig, defaultAgentSettings, canonicalOnDisk };

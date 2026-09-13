@@ -58,13 +58,15 @@ const POLL_MS = 5 * 1000;
 
 /* How long after a start to check the agent actually REGISTERED before calling it
    stuck (#2281). win32launch measured a trust-pre-accepted streaming session
-   registering in `claude agents --json` in ~5s; 45s is far past any healthy
-   delay, so a session still absent at this point started and did not register --
-   the invisible-hang state, which on an untrusted folder means it is parked on
-   Claude Code's workspace-trust prompt in a console nobody can see. Checked ONCE
-   per start (a one-shot timer that self-cancels the moment the agent is its own
-   child no longer), never a poll: a healthy agent registers long before it fires. */
-const REGISTRATION_GRACE_MS = 45 * 1000;
+   registering in `claude agents --json` in ~5s; 90s is far past that AND past a
+   large-repo cold start (which a 45s bar could cross, crying wolf on a healthy
+   agent), so a session still absent at 90s genuinely started and did not register.
+   Checked ONCE per start (a one-shot timer that self-cancels the moment the agent
+   is its own child no longer), never a poll: a healthy agent registers long before
+   it fires. Whether that non-registration is a TRUST hang is decided by a positive
+   signal -- is the folder recorded trusted in the config the agent reads -- not by
+   the timer alone (a slow start and a trust hang look identical from the timer). */
+const REGISTRATION_GRACE_MS = 90 * 1000;
 
 /* The liveness seam. Tests replace it; production asks the runner. Returns the
    array `claude agents --json` produces, or null when we could not ask -- and
@@ -427,6 +429,19 @@ function superviseStreaming(spec, opts) {
      sessions dir for the agent's account, the same account its CLAUDE_CONFIG_DIR
      names -- lazily required so it never loads on the happy path. */
   const registrationGraceMs = o.registrationGraceMs === undefined ? REGISTRATION_GRACE_MS : o.registrationGraceMs;
+  /* THE POSITIVE SIGNAL (#2281 review r1): is the agent's folder recorded trusted
+     in the config it runs under? trust.folderTrusted answers true/false/null with
+     the SAME key derivation and config resolution trust.trustFolder wrote under,
+     so the question matches the runner's own lookup. The strong "waiting at a
+     trust prompt" wording is used ONLY on an explicit false; true or null (a slow
+     start, or a config we could not read) falls back to hedged wording. cwd-based,
+     so it does not depend on the child pid. Lazily required, injectable for tests. */
+  const trustCheck = typeof o.trustCheck === 'function' ? o.trustCheck
+    : (cwd, configDir) => require('./trust').folderTrusted(cwd, { configDir, agentDefaultAccount: !configDir });
+  /* Corroboration only (#2281 review r1): a lone sessions/<pid>.key with no
+     <pid>.json. It enriches the wording when trust is absent; it is NOT the
+     discriminator, because a pid may not be the agent's (win32launch launch()
+     spawns via cmd) and a lone .key cannot tell a slow start from a hang. */
   const trustWait = typeof o.trustWait === 'function' ? o.trustWait
     : (pid, configDir) => require('./win32trustwait').pidWaiting(pid, { configDir, olderThanMs: 0 });
   /* ⚠️ ITS OWN TIMER, NOT `timer`, ON PURPOSE. `timer` (o.setTimer) is driven by
@@ -434,10 +449,15 @@ function superviseStreaming(spec, opts) {
      this one-shot through it would make the registration check run synchronously
      inside every existing arm and inject an `unregistered` event none of them
      expects. A separate seam keeps the diagnostic isolated; its default is an
-     UNREF'd setTimeout so a real 45s timer never holds a test process open and
-     never fires inside a suite that finishes in well under the grace. */
+     UNREF'd setTimeout so a real 90s timer never holds a test process open and
+     never fires inside a suite that finishes in well under the grace. A matching
+     clear seam retires a prior start's pending timer on re-arm (a crash loop would
+     otherwise pile up one 90s timer per restart). */
   const registrationTimer = typeof o.registrationTimer === 'function' ? o.registrationTimer
     : (fn, ms) => { const t = setTimeout(fn, ms); if (t && typeof t.unref === 'function') t.unref(); return t; };
+  const registrationClear = typeof o.registrationClear === 'function' ? o.registrationClear
+    : (t) => { try { clearTimeout(t); } catch { /* an injected handle we cannot clear is harmless */ } };
+  let pendingRegTimer = null;
 
   /* Where the agent's working/idle goes (7c-5). The default does nothing, so no
      suite that drives this loop writes state files; `main()` passes the real
@@ -671,27 +691,41 @@ function superviseStreaming(spec, opts) {
      fires at most one `unregistered` event and only while THIS child is still the
      running one, so a restart's timer never speaks for the run that replaced it.
      A null live read (we could not ask) makes NO claim -- crying "stuck" on a
-     failed look is the false-zero this whole family refuses. A healthy agent is
-     listed in `claude agents --json` long before the grace, so a session still
-     absent then started and did not register; on an untrusted folder that means
-     it is parked on Claude Code's workspace-trust dialog in a hidden console,
-     which trustWait confirms from the pid's lone `.key` (see win32trustwait). */
-  function armRegistrationCheck(startedChild, startedId) {
-    if (!startedChild || typeof startedId !== 'string' || !startedId) return;
+     failed look is the false-zero this whole family refuses.
+
+     🔑 REGISTRATION IS CHECKED ON THE CURRENT IDENTITY, NOT THE STARTED ID
+     (review r1, #2669). A `/clear` rotates a live agent's session id under the
+     SAME child; `handle.sessionId` follows it (rekeyTo updates it), the captured
+     start id does not. Matching the captured id would miss the healthy rotated
+     agent and cry "unregistered" over a working session. So the match is against
+     handle.sessionId.
+
+     🔑 AND WHETHER NON-REGISTRATION IS A TRUST HANG IS DECIDED BY A POSITIVE
+     SIGNAL (review r1). A slow start and a trust-dialog hang look identical from
+     the timer, so the strong wording is used only when the folder is explicitly
+     NOT recorded trusted in the config the agent reads (trustCheck === false).
+     trustWait's lone `.key` only enriches that wording; it is never the
+     discriminator. A trusted (or unknowable) folder gets the hedged wording. */
+  function armRegistrationCheck(startedChild) {
+    if (!startedChild) return;
     const pid = startedChild.pid;
-    registrationTimer(() => {
-      if (!running || child !== startedChild) return;                 // replaced, stopped, or dead
+    if (pendingRegTimer !== null) { registrationClear(pendingRegTimer); pendingRegTimer = null; }
+    pendingRegTimer = registrationTimer(() => {
+      pendingRegTimer = null;
+      if (!running || child !== startedChild) return;                       // replaced, stopped, or dead
       const live = readLive();
-      if (live === null) return;                                      // could not ask -- no claim
-      if (live.some((a) => a && a.sessionId === startedId)) return;   // registered -- healthy
+      if (live === null) return;                                            // could not ask -- no claim
+      if (live.some((a) => a && a.sessionId === handle.sessionId)) return;  // registered under its CURRENT id -- healthy
+      let trusted = null;
+      try { trusted = trustCheck(s.cwd, s.configDir || null); } catch { trusted = null; }
       let waiting = false;
-      try { waiting = Number.isInteger(pid) && trustWait(pid, s.configDir || null); }
-      catch { waiting = false; }
+      try { waiting = Number.isInteger(pid) && trustWait(pid, s.configDir || null); } catch { waiting = false; }
       const secs = Math.round(registrationGraceMs / 1000);
-      onEvent({ action: 'unregistered', sessionId: startedId,
-        because: waiting
-          ? 'it started ' + secs + 's ago and never registered -- it is waiting at a workspace-trust prompt no one can see (its folder is untrusted: a pre-seed a live Claude Code save dropped, a folder the user chose, or a config flip)'
-          : 'it started ' + secs + 's ago and has not registered -- it may be starting slowly, or waiting at a prompt no one can see' });
+      const because = trusted === false
+        ? 'it started ' + secs + 's ago and has not registered -- its folder is not recorded as trusted in the config it runs under, so it is most likely waiting at a workspace-trust prompt no one can see'
+          + (waiting ? ' (it has written no registration record)' : '')
+        : 'it started ' + secs + 's ago and has not registered -- it may be starting slowly, or waiting at a prompt no one can see';
+      onEvent({ action: 'unregistered', sessionId: handle.sessionId, because });
     }, registrationGraceMs);
   }
 
@@ -737,7 +771,7 @@ function superviseStreaming(spec, opts) {
     /* #2281: a fresh start AND a resume can both land on an untrusted folder (the
        trust write can be dropped by a live Claude Code save, or revoked while the
        agent was down), so both are checked. */
-    armRegistrationCheck(r.child, r.sessionId);
+    armRegistrationCheck(r.child);
   }
 
   /* The Mac's ThrottleInterval, gating the RESTART. A crash-loop must limp, not
@@ -792,6 +826,9 @@ function superviseStreaming(spec, opts) {
 
   handle.stop = function stop() {
     running = false;
+    /* Retire any pending registration check so a stop never fires the diagnostic
+       (the child-identity guard also covers this, belt and braces). */
+    if (pendingRegTimer !== null) { registrationClear(pendingRegTimer); pendingRegTimer = null; }
     /* Close stdin rather than killing: measured, the agent exits ~800ms later of
        its own accord, which lets it finish writing anything in flight. A stop
        that must be immediate is win32stop's job, and that is a different verb. */
