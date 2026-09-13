@@ -2721,8 +2721,25 @@ body.consolidated .pj-anc { justify-content: flex-start; }
 /* #2487: the detail-page parent trail (above the name) and the sub-projects
    section (between the head and the members/files/tasks grid). The rows are the
    same open-on-click buttons the cards are, at a lighter weight. */
-.pj-one-parent { margin: 0 0 4px; font-size: .8125rem; color: var(--k-ink-2); }
-.pj-one-parent .pj-anc-sep { opacity: .55; }
+/* #2928: the back chevron + breadcrumb row that replaced #2487's parent trail. */
+.pj-crumbrow { display: flex; align-items: center; gap: 6px; margin: 0 0 4px; min-width: 0; }
+.pj-back { background: none; border: 0; padding: 2px; color: var(--k-ink-2); cursor: pointer;
+           display: inline-flex; flex: none; border-radius: 6px; }
+.pj-back:hover { background: var(--k-sunk); color: var(--k-ink); }
+/* #2928: the current project (the "you are here" end) is a protected crumb that
+   truncates only as a last resort; the ancestor lead absorbs the shrink first (a
+   high flex-shrink), so a deep chain or a long name never cuts off the current name
+   and leaves only the least-useful root. A plain single-ellipsis container did the
+   opposite -- end-truncation ate the current name and kept the root. A screen reader
+   still hears the whole chain via the vh names beside each separator. */
+.pj-crumb { display: flex; align-items: baseline; min-width: 0; font-size: .8125rem; color: var(--k-ink-2); }
+.pj-crumb-lead { min-width: 0; flex: 0 999 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-crumb-cur { min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The separator between the lead and the current crumb is a direct flex child; keep it
+   from shrinking so it stays visible even when the lead truncates. The inter-ancestor
+   separators live inside .pj-crumb-lead and are not matched by this child combinator. */
+.pj-crumb > .pj-crumb-sep { flex: none; }
+.pj-crumb .pj-crumb-sep { opacity: .55; }
 .pj-subs { margin: 4px 0 8px; }
 .pj-subs .dlab { margin: 0 0 8px; }
 .pj-subrows { display: flex; flex-direction: column; gap: 8px; }
@@ -10617,12 +10634,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              2026-08-20 empty-slot placeholder: with no arrow, there is no
              half-open state to place, and the cog is the one door to the
              description. -->
-        <!-- #2487: the parent trail. Where a project sits in the tree, shown
-             above its name on the detail page (Josh 2026-09-07). The ancestry
-             names are live text (the accessible signal); the › separators are
-             decorative. Hidden for a top-level project. Filled by
+        <!-- #2928 (Josh 6.59 QA): a simple back chevron (top-left) plus a
+             breadcrumb of the full location "Project / Subproject / ThisProject".
+             Replaces #2487's ancestor-only "In A > B" trail that sat here (Josh:
+             "we don't have to show it on the actual top area ... where we're
+             showing it now"). The chevron goes UP one nesting level (to the
+             parent project) or, for a top-level project, back to the projects
+             list. Both the chevron target and the crumb are set by
              paintOneProject via pjAncestry, the same chain the cards use. -->
-        <p class="pj-one-parent" id="pj-one-parent" hidden></p>
+        <div class="pj-crumbrow">
+          <button class="pj-back" id="pj-back" type="button" aria-label="Back"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <p class="pj-crumb" id="pj-crumb"></p>
+        </div>
         <div class="pjtitle-row">
           <h2 class="dname" id="pj-one-name"></h2>
         </div>
@@ -36690,6 +36713,16 @@ function paintSettingsFacts(p) {
   state.className = 'pj-folder-state' + (fl.bad ? ' bad' : '');
 }
 
+/* #2928: the top-left back chevron. Nesting-based rather than a history stack
+   (none exists): a subproject goes UP to its parent project, a top-level project
+   goes back to the projects list. The target is read at click time from the
+   then-current project, so a poll repaint between paint and click cannot stale it.
+   The list-return mirrors openProject's own missing-id return shape. */
+document.getElementById('pj-back').addEventListener('click', () => {
+  const p = pjById(PJ_CURRENT);
+  if (p && p.parent && pjById(p.parent)) { openProject(p.parent); return; }
+  PJ_CURRENT = null; pjMarkOpen(null); pjView('list');
+});
 document.getElementById('pj-settings-link').addEventListener('click', () => {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
@@ -36950,24 +36983,55 @@ function paintOneProject() {
   const p = pjById(PJ_CURRENT);
   if (!p) { pjView('list'); PJ_CURRENT = null; pjMarkOpen(null); return; }
   document.getElementById('pj-one-name').textContent = p.name;
-  /* #2487: the parent trail (where this project sits) above the name, and the
-     sub-projects section below the head. Both derive from the same tree the list
-     cards use -- pjAncestry for the trail, a direct-children filter for the
-     section -- so the detail page and the list can never disagree. The rows carry
+  /* #2487, now the #2928 breadcrumb: the location trail (where this project sits)
+     above the name, and the sub-projects section below the head. Both derive from
+     the same tree the list cards use -- pjAncestry for the breadcrumb, a
+     direct-children filter for the section -- so the detail page and the list can
+     never disagree. The rows carry
      `data-project` like the cards, but #pj-one-subprojects lives in #pj-one-view,
      a SIBLING of #pj-list, so the list's click delegate never sees it: a dedicated
      delegate on #pj-one-subprojects (search for it below) opens them. */
   /* Both blocks self-guard their element lookups so extracting paintOneProject
      for an unrelated concern (e.g. the desc-collapse harness) does not require
      every test to mock these new nodes, and a partial render never throws. */
-  const parentEl = document.getElementById('pj-one-parent');
-  if (parentEl) {
-    const anc = pjAncestry(p);
+  /* #2928: the breadcrumb is the FULL location, current project included
+     ("Project / Subproject / ThisProject"), where #2487 showed only the
+     ancestors. A top-level project shows its own name as the single crumb. The
+     back chevron beside it (#pj-back) goes up one nesting level or to the list;
+     its target is decided at click time from the then-current project. */
+  const crumbEl = document.getElementById('pj-crumb');
+  if (crumbEl) {
+    const chain = pjAncestry(p).concat([p.name]);
+    const cur = chain[chain.length - 1];
+    const anc = chain.slice(0, -1);
+    /* The visible " / " is aria-hidden, so a vh comma rides alongside it to give a
+       screen reader an announced separation ("Kosmos, App, Mobile") rather than one
+       unbroken run -- the same pairing the card ancestry chain uses (search
+       pj-anc-sep). */
+    const sep = '<span class="pj-crumb-sep" aria-hidden="true"> / </span><span class="vh">, </span>';
+    /* #2928: the current project is its own protected crumb (.pj-crumb-cur); the
+       ancestor lead (.pj-crumb-lead) carries the ellipsis and shrinks first, so the
+       "you are here" name is never the piece CSS truncates away. A top-level project
+       has no lead -- just the single current crumb. */
     if (anc.length) {
-      const sep = '<span class="pj-anc-sep" aria-hidden="true"> › </span><span class="vh">, </span>';
-      parentEl.innerHTML = '<span class="vh">In </span>' + anc.map((n) => esc(n)).join(sep);
-      parentEl.hidden = false;
-    } else { parentEl.textContent = ''; parentEl.hidden = true; }
+      /* The separator BEFORE the current crumb sits OUTSIDE the lead (a flex:none child
+         of .pj-crumb), so when the lead ellipsis-truncates hard it is not eaten with the
+         lead -- the row stays "Kosm… / Mobile", never an ambiguous "Kosm… Mobile". The
+         inter-ancestor separators stay inside the lead and truncate with it. */
+      crumbEl.innerHTML = '<span class="pj-crumb-lead">' + anc.map((n) => esc(n)).join(sep) + '</span>'
+        + sep
+        + '<span class="pj-crumb-cur">' + esc(cur) + '</span>';
+    } else {
+      crumbEl.innerHTML = '<span class="pj-crumb-cur">' + esc(cur) + '</span>';
+    }
+  }
+  /* #2928: name the back chevron's live target so a screen-reader user hears where it
+     goes ("Back to Kosmos" / "Back to all projects"), not a bare "Back". Set here from
+     the then-current project; the click handler recomputes the target independently. */
+  const backEl = document.getElementById('pj-back');
+  if (backEl) {
+    const backParent = p.parent && pjById(p.parent);
+    backEl.setAttribute('aria-label', backParent ? ('Back to ' + backParent.name) : 'Back to all projects');
   }
   const subsEl = document.getElementById('pj-one-subprojects');
   if (subsEl) {
