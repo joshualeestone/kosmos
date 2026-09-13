@@ -2172,6 +2172,67 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    interactive visual verification. */
 #panel-detail .dhead { max-width: none; margin: 0 0 30px; }
 @media (max-width: 60rem) { #panel-detail .dhead { max-width: none; margin: 0 0 30px; } }
+/* #2622 part 2 (Josh product-review): the Talk dialog box fills to the bottom of
+   the window, no empty gap below it ("the dialog box should fill the bottom of the
+   screen 100%... regardless of where the window's bottom edge is dragged"). This is
+   the Talk-box analog of what #2012 did for the Terminal window (#d-window). It is
+   NOT already done by #2012: that fixed WIDTH and the Terminal `#d-window`; the Talk
+   thread (`#d-talk-box` / `#d-dmthread`) was never sized.
+   MECHANISM: #panel-detail is a document-scroll panel, so the fill is a definite
+   viewport height on the panel plus a flex chain down to the thread. Two things are
+   load bearing, per the #980 project-room lesson (the #867 sub-note in the #980 section
+   below): a bare max-height does NOT grow a short box (the thread needs a REAL height on
+   its flex container to grow into), AND the thread's own `max-height: 15rem` cap (the
+   .dmthread rule) has to be lifted or it stays short regardless.
+   SCOPE: gated with :has() to the TALK section only. When Model / Memory / Terminal
+   is the shown section, none of this applies and they keep their content height. The
+   tall, variable .dhead sits INSIDE the fill, not in the offset.
+   OFFSET + KNOWN LIMITATION (#2622 follow-up): the offset covers the chrome ABOVE the
+   panel (sticky .apphead + body top padding) plus the body's bottom padding, as a FIXED
+   value. But .apphead grows when a persistent update/offline notice wraps (see the
+   scroll-padding-top note ~1004), most at narrow width. With a definite height a taller
+   .apphead pushes the box down without shrinking it, so in that state the box overshoots
+   the window bottom by the notice's extra height (~8px wide, up to ~59px narrow) and the
+   page scrolls a little -- bounded, and no worse than the pre-change always-scroll. A
+   robust fix would measure .apphead at runtime and set --talk-fill-top; deferred rather
+   than add a JS observer to this file here. Measured with
+   docs/browser-checks/render-talk-fill-2622.js at 1100/700/narrow window sizes. Uses
+   100vh to match the sibling #d-window rule (`calc(100vh - 220px)`); a 100dvh follow-up
+   for a mobile URL bar is noted on the card. */
+/* Every rule in this fill block (and the narrow-width one in the 56rem media query) is
+   :has(#d-sec-talk:not([hidden]))-gated, so the fill applies only when the Talk section is
+   the shown one. (No count named on purpose: a fixed count drifts the moment a rule is added.)
+   No :not([hidden]) guard on the panel is needed even
+   though this rule sets display:flex: the file's `[hidden] { display: none !important }`
+   (~470) keeps a hidden panel hidden regardless of this rule's specificity. */
+#panel-detail:has(#d-sec-talk:not([hidden])) {
+  display: flex; flex-direction: column;
+  /* A DEFINITE height, not min-height: the thread only scrolls INTERNALLY (flex:1
+     + min-height:0 + overflow) when its flex-container chain is bounded; a bare
+     min-height lets content grow the panel unbounded so the thread never scrolls.
+     157px = the panel's own top (measured ~93px: the sticky .apphead plus the 24px
+     body top padding) + the 64px body bottom padding, so the box bottom lands just
+     above the window's bottom edge with no page scroll in the common (no-notice) case.
+     Override via --talk-fill-top if the chrome above the panel changes. See the KNOWN
+     LIMITATION note above for the notice-state caveat. */
+  height: calc(100vh - var(--talk-fill-top, 157px)); }
+#panel-detail:has(#d-sec-talk:not([hidden])) .dbody { flex: 1 1 auto; min-height: 0; align-items: stretch; }
+#panel-detail:has(#d-sec-talk:not([hidden])) .dsecs { display: flex; flex-direction: column; min-height: 0; }
+#panel-detail:has(#d-sec-talk:not([hidden])) #d-sec-talk { flex: 1 1 auto; min-height: 0; }
+/* overflow-y:auto is a FALLBACK: normally #d-dmthread (flex:1) absorbs the height and the box
+   does not overflow, so no box scrollbar shows. But when #d-qask (a live question) is showing
+   in a SHORT window, the non-thread children (label, question + options, composer) can exceed
+   the box after the thread has shrunk to 0; without this they would be clipped below the
+   fixed-height box with no page scroll to reach them, hiding the answer buttons (#2622 iter-4).
+   The box then scrolls to keep the composer and options reachable. Mutually exclusive with the
+   thread's own scroll in practice: the box overflows only once the thread is already at 0. */
+#panel-detail:has(#d-sec-talk:not([hidden])) #d-talk-box { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+#panel-detail:has(#d-sec-talk:not([hidden])) #d-dmthread { flex: 1 1 auto; min-height: 0; max-height: none; }
+/* The panel is a flex column, so its direct children stretch by default. That is right for
+   .dhead/.dbody (full-width), but .back is a button whose content would then CENTER instead of
+   sitting top-left, and only on the Talk section (this is :has()-gated), so it would visibly
+   jump between sections. Pin it to its intrinsic left-aligned width (#2622 iter-4). */
+#panel-detail:has(#d-sec-talk:not([hidden])) > .back { align-self: flex-start; }
 .snav { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 16px; }
 .snav button { position: relative; display: block; width: 100%; text-align: center; padding: 8px 28px;
                border-radius: 100px; border: 1px solid var(--k-rule); background: var(--k-surface);
@@ -2218,6 +2279,12 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
      matching-width request) and needs the same restatement for the same
      reason. */
   #panel-settings .dbody, #panel-detail .dbody { grid-template-columns: minmax(0, 1fr); }
+  /* #2622 part 2, narrow width: when the grid collapses to one column the snav and
+     .dsecs stack as two rows. The talk fill gives .dbody a tall definite height, and a
+     single-column grid's default row sizing would stretch BOTH rows equally, ballooning
+     the snav row and re-opening the very gap this change closes. Pin the snav row to its
+     content (auto) and let only the .dsecs row grow. Talk-scoped, like the wide rule. */
+  #panel-detail:has(#d-sec-talk:not([hidden])) .dbody { grid-template-rows: auto minmax(0, 1fr); }
   .snav { position: static; flex-direction: row; flex-wrap: wrap; }
   .snav button { width: auto; }
   .snav .sep { display: none; }
