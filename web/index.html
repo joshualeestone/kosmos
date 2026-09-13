@@ -3655,6 +3655,11 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      consolidated view only (applyConsFold) AND hidden only here, so the shared
      markup the wide tab list reuses is never reshaped by a consolidated fold. */
   html[data-layout="consolidated"] body.consolidated #pj-list .pj-row.pj-fold-hidden { display: none; }
+  /* #2929 slice 2: the drag affordance for reordering top-level clusters. Only the
+     top-level rows are draggable (set in applyConsFold), so only they get the grab
+     cursor; the dragged row dims while it moves. Consolidated view only. */
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row[draggable="true"] { cursor: grab; }
+  html[data-layout="consolidated"] body.consolidated #pj-list .pj-row.pj-dragging { opacity: .5; cursor: grabbing; }
   /* The indent now carries the relationship, so drop the ancestry chip on rows the
      indent actually places (.child) -- the wide-list rule mirrored for the rail. A
      dangling child that fell back to depth 0 keeps its chip (no indent to carry
@@ -10795,6 +10800,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
             <option value="oldest">Oldest first</option>
             <option value="az">Name A to Z</option>
             <option value="za">Name Z to A</option>
+            <!-- #2929 slice 2: display-only reflection of a manual drag order (see paintProjects). -->
+            <option value="custom" disabled>Custom order</option>
           </select>
           <svg class="sortctl-i" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </label>
@@ -35167,10 +35174,17 @@ let PJ_SORT = (() => {
   if (!sel) return;
   sel.value = PJ_SORT;
   sel.addEventListener('change', () => {
+    /* #2929 slice 2: "Custom order" is a display-only reflection of a manual drag order,
+       not a sort to apply. It is disabled (not user-pickable), so this is belt-and-braces:
+       never treat it as a sort or clear the order the user is currently in. */
+    if (sel.value === 'custom') return;
     PJ_SORT = pjSortMode(sel.value);
     sel.value = PJ_SORT;
     // Display preference only, same standing as the layout toggle.
     try { localStorage.setItem('kosmos.sort.projects', PJ_SORT); } catch { /* display preference only */ }
+    /* #2929 slice 2: choosing a sort CLEARS any manual drag order -- the two are
+       mutually exclusive and the last action wins (here, the sort). */
+    pjClearOrder();
     // Repaint in place: no focus move, no scroll.
     paintProjects();
   });
@@ -35178,6 +35192,26 @@ let PJ_SORT = (() => {
 
 function paintProjects() {
   const list = document.getElementById('pj-list');
+  /* #2929 slice 2: self-heal a stranded drag flag. PJ_DRAGGING pauses the #pj-list repaint
+     during a drag, and the drag's own dragstart marks the live source row .pj-dragging. If
+     that row is no longer in #pj-list, the drag is over (or an un-guarded rewrite detached
+     the node mid-drag, so the delegated dragend can never fire to clear the flag): the flag
+     is stale, so clear it -- otherwise every future paint would skip the list repaint and
+     freeze the board. A live drag keeps its .pj-dragging row present, so this never clears
+     mid-drag. This is the backstop that makes the "no un-guarded #pj-list writer mid-drag"
+     invariant self-correcting rather than load-bearing. */
+  if (PJ_DRAGGING && list && !list.querySelector('.pj-dragging')) PJ_DRAGGING = false;
+  /* #2929 slice 2: keep the sort control honest. When a manual drag order is in effect in
+     the consolidated view, show the disabled "Custom order" option as selected rather than
+     a named sort that is not the one in force; otherwise show PJ_SORT. Written only on
+     change (this runs every ~5s poll). It is also what makes re-picking a named sort always
+     clear the manual order: the drag left the control on "custom", so any real pick is a
+     value change that fires the #pj-sort change handler -> pjClearOrder. */
+  { const sortSel = document.getElementById('pj-sort');
+    if (sortSel) {
+      const want = pjManualOrderActive() ? 'custom' : PJ_SORT;
+      if (sortSel.value !== want) sortSel.value = want;
+    } }
   /* #2458: the Map only earns its toggle once a project has sub-projects -- a flat
      board of top-level projects has no tree to draw, so the Map button sits out
      (spec: "when there is nothing to draw"). If the person had saved Map and the
@@ -35242,7 +35276,10 @@ function paintProjects() {
   document.getElementById('st-pjdm').textContent = String(pjDmTotal);
   document.getElementById('st-pjdm-tile').hidden = pjDmTotal <= 0;
   if (!PROJECTS.length) {
-    setIfChanged(list, '<div class="pj-empty">'
+    // #2929 slice 2: PJ_DRAGGING-gated like the other #pj-list writers -- another agent
+    // emptying the board mid-drag must not detach the drag-source node (the self-heal
+    // recovers on the next paint either way, so a race degrades to a lost drag, not a freeze).
+    if (!PJ_DRAGGING) setIfChanged(list, '<div class="pj-empty">'
       + '<p><b>No projects yet.</b><br>Point Kosmos at a folder you already have, '
       + 'and put an agent on it.</p>'
       /* Matched to the agents empty state (2026-08-22): the two are the same
@@ -35256,12 +35293,19 @@ function paintProjects() {
     // ⚠️ NOT the "No projects yet" card: there are projects, they are all
     // archived, and saying "none yet" beside a disclosure holding three of
     // them would be the screen contradicting itself.
-    setIfChanged(list, '<div class="pj-empty">'
+    // #2929 slice 2: PJ_DRAGGING-gated, same reason as the "No projects yet" writer above.
+    if (!PJ_DRAGGING) setIfChanged(list, '<div class="pj-empty">'
       + '<p><b>Nothing here right now.</b><br>Everything you have is archived.</p>'
       + '</div>');
     return;
   }
-  setIfChanged(list, pjTreeRows(active));
+  /* #2929 slice 2: do NOT replace the list's innerHTML while a cluster drag is in flight
+     -- it would destroy the drag-source node and silently abort the reorder (the poll
+     fires ~every 5s and repaints on any live-data change). The drop and a cancelled
+     dragend both clear PJ_DRAGGING and repaint, so the new order (or the caught-up poll
+     state) lands the moment the drag ends. applyConsFold below only edits classes on the
+     existing rows, so it is safe to run mid-drag. */
+  if (!PJ_DRAGGING) setIfChanged(list, pjTreeRows(active));
   /* #2929: re-apply the fold to the freshly painted rows -- a fresh paint carries no
      .pj-fold-hidden classes, so this runs every paint, not just on toggle. The fold
      set was already pruned to live active ids above (before the empty-state returns). */
@@ -35296,6 +35340,53 @@ let PJ_MAP_FOLDED = new Set();
    the data-poll repaint; FULLY EXPANDED is the default (empty set). Pruned to
    live active projects in paintProjects, exactly as PJ_MAP_FOLDED is. */
 let PJ_TREE_FOLDED = new Set();
+/* #2929 slice 2: a MANUAL top-level order the person sets by dragging a whole project
+   cluster to a new position, saved on this computer (a list of top-level project ids)
+   the same way the sort setting is (localStorage, a display preference). Mutually
+   exclusive with the sort dropdown: dragging sets this order, choosing a sort clears it,
+   last action wins. Only TOP-LEVEL clusters reorder; subprojects keep their sorted place
+   under their parent (pjTreeRows nests them by parent regardless). Consolidated view only
+   -- the drag affordance and the reorder are both gated on body.consolidated, so the tab
+   list and the grid are untouched. null = no manual order in effect (use the sort). */
+let PJ_ORDER = (() => {
+  let raw = null;
+  try { raw = localStorage.getItem('kosmos.order.projects'); } catch { raw = null; }
+  if (!raw) return null;
+  try { const a = JSON.parse(raw); return (Array.isArray(a) && a.every((x) => typeof x === 'string')) ? a : null; }
+  catch { return null; }
+})();
+function pjSaveOrder(ids) {
+  PJ_ORDER = Array.isArray(ids) ? ids.slice() : null;
+  try {
+    if (PJ_ORDER) localStorage.setItem('kosmos.order.projects', JSON.stringify(PJ_ORDER));
+    else localStorage.removeItem('kosmos.order.projects');
+  } catch { /* display preference only, same standing as the sort setting */ }
+}
+function pjClearOrder() { pjSaveOrder(null); }
+/* #2929 slice 2: the SINGLE source of truth for "a manual drag order is in force right
+   now" -- PJ_ORDER set AND the consolidated view showing. Both the sort-control reflection
+   (paintProjects, which shows the disabled "Custom order" option) and the actual row
+   reorder (pjTreeRows) read THIS one predicate, so they can never drift into the screen
+   contradicting itself, e.g. the control showing "Custom order" while the rows are sorted
+   (repo convention #5: two derivations of one fact). */
+function pjManualOrderActive() {
+  return !!PJ_ORDER && typeof document !== 'undefined' && !!document.body
+    && document.body.classList.contains('consolidated');
+}
+/* #2929 slice 2: true while a cluster drag is in flight. The ~5s data poll repaints
+   #pj-list whenever any card's live data changes (a needsYou count, an unread badge),
+   and replacing the list's innerHTML mid-drag destroys the drag-source node and silently
+   aborts the reorder. paintProjects skips ONLY the #pj-list repaint while this is set
+   (the tiles still update); the drop and a cancelled dragend both clear it and repaint,
+   so a skipped poll update is caught up the moment the drag ends. Module-level so
+   paintProjects can see it (dragId itself is private to the drag IIFE's closure).
+   ⚠️ The drop/dragend clear depends on the drag-source node staying in #pj-list (dragend
+   is delegated there): any UN-guarded #pj-list rewrite mid-drag would detach it and strand
+   this flag true. Every #pj-list writer is therefore PJ_DRAGGING-gated (paintProjects and
+   the loadProjects error path), and paintProjects self-heals a stranded flag as a backstop
+   (it clears the flag when no .pj-dragging row is present), so a future un-guarded writer
+   degrades to a lost drag, never a frozen board. */
+let PJ_DRAGGING = false;
 /* A project node in the Map. The node itself is a BUTTON that opens the project
    (`data-project`, the same handle the cards use). A parent additionally gets a fold
    disclosure -- a SEPARATE button (`data-pjfold`, checked first in the click delegate;
@@ -35421,6 +35512,23 @@ function pjTreeRows(active) {
     if (!kids.has(par)) kids.set(par, []);
     kids.get(par).push(p);
   }
+  /* #2929 slice 2: apply the manual top-level order (set by dragging a cluster) when
+     one is in effect AND the consolidated view is showing. Reorders ONLY the top-level
+     clusters (kids under ''); each cluster's subprojects keep their sorted order because
+     the child arrays are never touched. Ids in PJ_ORDER lead, in that order; any
+     top-level project not listed (e.g. created since the last drag) keeps its sorted
+     position after them, so a new project is never hidden. Non-mutating (a decorated
+     copy), gated on body.consolidated so the tab list and grid keep the sort order. */
+  if (pjManualOrderActive()) {
+    const top = kids.get('');
+    if (top && top.length > 1) {
+      const rank = new Map(PJ_ORDER.map((id, i) => [id, i]));
+      const BIG = PJ_ORDER.length;
+      const decorated = top.map((p, i) => ({ p, i, r: rank.has(p.id) ? rank.get(p.id) : BIG }));
+      decorated.sort((a, b) => (a.r - b.r) || (a.i - b.i));
+      kids.set('', decorated.map((d) => d.p));
+    }
+  }
   const rows = [];
   const seen = new Set();
   const emit = (parentId, depth) => {
@@ -35473,6 +35581,12 @@ function applyConsFold() {
   let cutoff = Infinity;   // rows with --pj-depth > cutoff are inside a collapsed branch
   for (const row of list.querySelectorAll('.pj-row[data-project]')) {
     const depth = Number(row.style.getPropertyValue('--pj-depth')) || 0;
+    /* #2929 slice 2: only TOP-LEVEL rows are draggable, and only in the consolidated
+       view (the flat tab list and the grid keep the sort order). A boolean property
+       write is idempotent and carries no screen-reader announcement, so it needs no
+       compare-guard. The row is itself the card button; drag vs click is distinguished
+       by the gesture, so click-to-open and the caret's fold click still work. */
+    row.draggable = cons && depth === 0;
     const caret = row.querySelector('.pjtreefold');
     const folded = PJ_TREE_FOLDED.has(row.dataset.project);
     /* Compare before every write. applyConsFold runs on EVERY ~5s data poll (via
@@ -35512,6 +35626,79 @@ function pjTreeToggleFold(id) {
   if (PJ_TREE_FOLDED.has(id)) PJ_TREE_FOLDED.delete(id); else PJ_TREE_FOLDED.add(id);
   applyConsFold();
 }
+
+/* #2929 slice 2: drag a whole top-level cluster to reorder it. Delegated on #pj-list
+   ONCE (so it survives the ~5s data-poll repaints that replace the rows) and gated on
+   the consolidated view. Only top-level rows are draggable (set in applyConsFold), so a
+   dragstart from a subproject or from the tab/grid never begins a reorder. On drop the
+   new top-level id order is read from the rendered top-level rows, the dragged id is
+   moved to the drop position (before or after the target by which half the pointer is
+   over), and that order is saved as PJ_ORDER and repainted. Dragging SETS the manual
+   order; choosing a sort clears it (the #pj-sort change handler) -- mutually exclusive,
+   last action wins. Keyboard ordering stays on the sort dropdown; drag is a pointer
+   affordance, so this adds no keyboard trap. */
+(function wirePjClusterDrag() {
+  const list = document.getElementById('pj-list');
+  if (!list) return;
+  let dragId = null;
+  const cons = () => document.body.classList.contains('consolidated');
+  const isTop = (r) => !!r && (Number(r.style.getPropertyValue('--pj-depth')) || 0) === 0;
+  const topRow = (el) => { const r = el && el.closest && el.closest('.pj-row[data-project]'); return isTop(r) ? r : null; };
+  const topIds = () => Array.from(list.querySelectorAll('.pj-row[data-project]')).filter(isTop).map((r) => r.dataset.project);
+  const endDrag = () => { dragId = null; PJ_DRAGGING = false; };   // reset both together, always paired
+  list.addEventListener('dragstart', (e) => {
+    if (!cons()) return;
+    const row = topRow(e.target);
+    if (!row) return;
+    dragId = row.dataset.project;
+    PJ_DRAGGING = true;                          // pause #pj-list repaints while the drag is in flight
+    row.classList.add('pj-dragging');
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', dragId); } catch { /* some engines disallow setData here */ }
+      /* Drag the whole ROW as the ghost even when the grab started on a nested avatar
+         <img> (natively draggable, and it would otherwise become the tiny drag preview). */
+      try { e.dataTransfer.setDragImage(row, 12, 12); } catch { /* not supported everywhere */ }
+    }
+  });
+  list.addEventListener('dragover', (e) => {
+    if (!cons() || dragId == null) return;
+    const row = topRow(e.target);
+    if (!row || row.dataset.project === dragId) return;
+    e.preventDefault();                          // a preventDefault'd dragover marks a valid drop target
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+  });
+  list.addEventListener('drop', (e) => {
+    if (!cons() || dragId == null) return;
+    const row = topRow(e.target);
+    if (!row || row.dataset.project === dragId) return;   // no reorder: dragend clears + catches up
+    e.preventDefault();
+    const targetId = row.dataset.project;
+    const ids = topIds();
+    const from = ids.indexOf(dragId);
+    if (from === -1 || ids.indexOf(targetId) === -1) return;   // no reorder: dragend clears + catches up
+    ids.splice(from, 1);                          // remove the dragged id, then re-find the target
+    let to = ids.indexOf(targetId);
+    const rect = row.getBoundingClientRect();
+    if (e.clientY > rect.top + rect.height / 2) to += 1;   // dropped on the lower half => after the target
+    ids.splice(to, 0, dragId);
+    endDrag();               // clear BEFORE the repaint, or paintProjects would skip the list (PJ_DRAGGING)
+    pjSaveOrder(ids);        // dragging SETS the manual order (a sort choice clears it)
+    paintProjects();         // repaint in the new order (replaces the rows, clearing .pj-dragging)
+  });
+  list.addEventListener('dragend', () => {
+    const d = list.querySelector('.pj-dragging');
+    if (d) d.classList.remove('pj-dragging');
+    const wasDragging = PJ_DRAGGING;             // false already if a SUCCESSFUL reorder cleared it first
+    endDrag();
+    /* Cleanup + catch-up for every path that did NOT reorder: a cancelled drag (Esc, or a
+       drop outside a valid target), AND the drop handler's no-reorder returns (self-drop and
+       target-not-found), which now leave PJ_DRAGGING set for exactly this. Any poll update
+       skipped while the flag was set is caught up here. A successful reorder cleared the flag
+       before its own repaint, so wasDragging is false there and this is a no-op (no double paint). */
+    if (wasDragging) paintProjects();
+  });
+})();
 
 /* The failure treatment for the tiles, called by loadProjects' catch:
    confident counts above "we cannot read your projects" are claims the
@@ -35926,7 +36113,12 @@ async function loadProjects() {
     // aria-live regions -- so an unguarded write read the same sentence aloud
     // every 5 seconds, forever. The error path was the one caller that skipped
     // the guard written for exactly this.
-    setIfChanged(document.getElementById('pj-list'), BOARD_NEEDS_SIGNIN ? boardSigninHtml()
+    /* #2929 slice 2: like the paintProjects writer, do NOT replace #pj-list mid cluster
+       drag -- a store error firing during a drag would detach the drag-source node, and
+       since dragend is delegated on #pj-list a detached node's dragend never fires to
+       clear PJ_DRAGGING. paintProjects self-heals a stranded flag as a backstop, but not
+       detaching in the first place keeps the drag itself alive through a transient blip. */
+    if (!PJ_DRAGGING) setIfChanged(document.getElementById('pj-list'), BOARD_NEEDS_SIGNIN ? boardSigninHtml()
       : '<div class="err"><b>We cannot read your projects right now.</b><br>'
       + 'This is not saying you have none, it is saying we cannot see them.</div>');
     // The tiles are claims too: confident counts one element above the

@@ -95,6 +95,13 @@ test('the control sits in the projects statsrow between the counts and the view 
   const options = [...html.matchAll(/<option value="([a-z]+)">([^<]+)<\/option>/g)].map((m) => [m[1], m[2]]);
   assert.deepEqual(options, [['newest', 'Newest first'], ['oldest', 'Oldest first'], ['az', 'Name A to Z'], ['za', 'Name Z to A']],
     'the option text or order moved; the card rules these exact words');
+  // #2929 slice 2: a 5th, display-only "Custom order" option, DISABLED so it is never a
+  // user choice (custom order is made by dragging, not picked). It is not a sortable value,
+  // so the [a-z]+"> regex above (which needs `">` right after the value) excludes it and the
+  // four-sortable-options assertion still holds. paintProjects selects it only while a manual
+  // drag order is in force in the consolidated view.
+  assert.match(html, /<option value="custom" disabled>Custom order<\/option>/,
+    'the display-only custom-order option is missing or no longer disabled (#2929 slice 2)');
   assert.match(html, /<select id="pj-sort" aria-label="Sort projects">/, 'the select lost its accessible name');
   // Josh, 2026-08-23: no visible "Sort" word; the control reads as what it is
   // sorted by, with a chevron. The accessible name above carries the verb.
