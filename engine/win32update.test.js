@@ -1119,7 +1119,12 @@ test('the lock: an owner launched through a file symlink keeps its lock against 
     assert.throws(() => win32update.takeLock(lock, (l) => log.push(l)), (e) => e.message === `another update is already being prepared (process ${owner.pid})`, log.join('\n'));
     assert.equal(fs.readFileSync(lock, 'utf8'), line.slice('HELD '.length), 'still the owner\'s');
   } finally {
+    /* Waited for, so the sandbox's removal cannot race the owner's image handle. */
+    const exited = owner.exitCode !== null || owner.signalCode !== null
+      ? Promise.resolve()
+      : new Promise((resolve) => owner.once('exit', resolve));
     owner.kill();
+    await exited;
   }
 });
 
@@ -1147,6 +1152,47 @@ test('the lock: a stale lock a scanner still holds refuses in words, and a later
   const r3 = await win32update.prepare(prepareOpts(c, site(bundleZip())));
   assert.equal(r3.ok, true, JSON.stringify(r3));
   assert.ok(c.log.some((l) => /^cleared a stale prepare lock \(process \d+, left behind by an earlier prepare in this board that could not remove it\)$/.test(l)), c.log.join('\n'));
+});
+
+test('the lock: a verified stale lock that vanishes before its claim removes it is cleared, and the prepare stages', T, async () => {
+  const c = freshCase();
+  seedLock(c, { pid: deadPid(), at: Date.now() });
+  let vanished = 0;
+  const r = await withStubAsync('unlinkSync', (real, p) => {
+    if (path.basename(String(p)) === 'prepare.lock' && vanished === 0) {
+      vanished += 1;
+      real(p); /* something else removed it first */
+      throw codeError('ENOENT', p);
+    }
+    return real(p);
+  }, () => win32update.prepare(prepareOpts(c, site(bundleZip()))));
+  assert.equal(vanished, 1, 'the control: the unlink found it gone');
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.ok(c.log.includes('the stale prepare lock was already gone when its claim came to remove it (code=ENOENT)'), c.log.join('\n'));
+  assert.ok(c.log.some((l) => /^cleared a stale prepare lock \(process \d+, no longer running\)$/.test(l)), c.log.join('\n'));
+  assert.equal(c.log.some((l) => /could not be removed yet|could not remove a stale prepare lock yet/.test(l)), false);
+  assert.deepEqual(workHolds(c), ['prepare-status.json', 'staged']);
+});
+
+test('the lock: a stale lock that vanishes and is replaced by another prepare\'s before the link leaves that lock its owner\'s', T, () => {
+  const { d, lock } = lockDir();
+  fs.writeFileSync(lock, JSON.stringify({ pid: deadPid(), at: Date.now() }));
+  const others = JSON.stringify({ pid: process.pid, at: Date.now(), token: 'another-prepare' });
+  let replaced = false;
+  withStub('unlinkSync', (real, p) => {
+    if (!replaced && path.resolve(String(p)) === path.resolve(lock)) {
+      replaced = true;
+      real(p);
+      fs.writeFileSync(lock, others); /* another prepare took the free name */
+      throw codeError('ENOENT', p);
+    }
+    return real(p);
+  }, () => {
+    assert.throws(() => win32update.takeLock(lock, () => {}), (e) => heldByThisProcess.test(e.message));
+  });
+  assert.ok(replaced, 'the control: the race ran');
+  assert.equal(fs.readFileSync(lock, 'utf8'), others, "the other prepare's lock is untouched");
+  assert.deepEqual(fs.readdirSync(d), ['prepare.lock'], 'no draft or claim left');
 });
 
 test('the lock: a lock the release could not remove is released on a retry, or cleared by the next prepare in this board', T, async () => {

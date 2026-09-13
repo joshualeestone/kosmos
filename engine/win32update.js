@@ -559,10 +559,18 @@ function clearStaleLock(lockPath, stale, draft, log, hooks, judge) {
       if (typeof hooks.beforeRemove === 'function') hooks.beforeRemove();
       /* A scanner can still hold the lock (the one a release could not remove, most often). The
          raw error names the lock's full path, so only its code is logged, and leftBehindLockText
-         stays set for a later prepare to try again. */
+         stays set for a later prepare to try again.
+         ENOENT is the goal already met: the verified stale lock vanished before the unlink (a
+         scanner's quarantine, a cleanup tool, a person). That is safe to go on from, because
+         clearing never makes this prepare the owner: takeLock still takes the lock only by the
+         exclusive link of its draft, so a prepare that linked its own lock in the meantime keeps
+         it and this one refuses as busy. */
       try { fs.unlinkSync(lockPath); } catch (e) {
-        log(`could not remove a stale prepare lock yet (code=${(e && e.code) || 'unknown'})`);
-        refuse('another update is already being prepared (an old lock could not be removed yet)');
+        if (!(e && e.code === 'ENOENT')) {
+          log(`could not remove a stale prepare lock yet (code=${(e && e.code) || 'unknown'})`);
+          refuse('another update is already being prepared (an old lock could not be removed yet)');
+        }
+        log('the stale prepare lock was already gone when its claim came to remove it (code=ENOENT)');
       }
       if (stale.text === leftBehindLockText) leftBehindLockText = null;
       log(`cleared a stale prepare lock (process ${stale.pid || 'unknown'}, ${stale.why})`);
