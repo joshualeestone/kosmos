@@ -21,6 +21,15 @@ const { spawnSync } = require('node:child_process');
 
 const board = require('./win32board');
 
+/* The two anchor-guard arms below drive anchorBundle down its REAL guard (no anchorer injected), which reads
+   win32job.schtasksMayRunInThisProcess(). That is HOST-dependent: on a non-win32 host schtasks does not exist,
+   so it returns false and the guard never engages, and the assertions ('a test must install an anchorer';
+   the child returns action 'refused') do not hold. anchorBundle only ever runs on win32 in production
+   (ensureInstalled is win32-only; the "a Mac never anchors" arm below proves the darwin refusal cross-platform),
+   so this is host-only test scope, not a bug. Everything else in this file injects both seams and is
+   host-independent. */
+const WIN32_HOST = { skip: process.platform === 'win32' ? false : 'win32-host-only: the anchor guard reads win32job.schtasksMayRunInThisProcess(), which only engages on a win32 host' };
+
 const ANCHOR = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-reanchor-'));
 test.after(() => fs.rmSync(ANCHOR, { recursive: true, force: true }));
 
@@ -98,7 +107,7 @@ function realBundle() {
   return { base, root, env, pointer: path.join(env.LOCALAPPDATA, 'Kosmos', 'runtime', 'engine-path') };
 }
 
-test('🛑 round 2 finding 1: with no anchorer, a test process never reaches the real anchor, and writes nothing', () => {
+test('🛑 round 2 finding 1: with no anchorer, a test process never reaches the real anchor, and writes nothing', WIN32_HOST, () => {
   const b = realBundle();
   try {
     board.setAnchorer(null);
@@ -108,7 +117,7 @@ test('🛑 round 2 finding 1: with no anchorer, a test process never reaches the
   } finally { fs.rmSync(b.base, { recursive: true, force: true }); }
 });
 
-test('🛑 round 2 finding 1: outside a test, the real anchor needs live execution armed', () => {
+test('🛑 round 2 finding 1: outside a test, the real anchor needs live execution armed', WIN32_HOST, () => {
   const b = realBundle();
   try {
     const script = [
