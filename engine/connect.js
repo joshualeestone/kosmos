@@ -903,11 +903,11 @@ function classifyPane(text) {
   if (/\? for shortcuts/.test(t)) return { kind: 'repl' };
   if (/Login successful|Logged in as/i.test(t)) return { kind: 'login-done' };
   if (/Paste code here/i.test(t)) {
-    const url = extractOauthUrl(t);
+    const url = usableOauthUrl(t);
     return { kind: 'awaiting-code', url };
   }
   if (/Opening browser to sign in|Use the url below to sign in/i.test(t)) {
-    return { kind: 'browser-open', url: extractOauthUrl(t) };
+    return { kind: 'browser-open', url: usableOauthUrl(t) };
   }
   // press-enter outranks the choosing screens: it is the later state when
   // both share an accumulated pane, and its arm runs the subscription check
@@ -941,6 +941,18 @@ function extractOauthUrl(text) {
   return null;
 }
 
+/**
+ * The OAuth URL on screen, unless redaction has been through it. The Windows sign-in
+ * host redacts anything matching a code it sent, and a person who pastes a wrong
+ * thing that happens to equal part of the URL (its `state`) gets that part of the URL
+ * redacted on the next screen. A redacted URL is not a link anybody can open, so it
+ * counts as no URL, and every writer keeps the good one it already stored (`mem.url`).
+ */
+function usableOauthUrl(text) {
+  const url = extractOauthUrl(text);
+  return url && !url.includes(require('./win32signin').REDACTION_MARKER) ? url : null;
+}
+
 function tailOf(text) {
   const lines = String(text || '').split('\n').map((l) => l.trimEnd()).filter((l) => l.trim());
   return lines.slice(-12).join('\n');
@@ -951,8 +963,105 @@ async function tmux(args, opts) {
   return run(tmuxBinPath(), args, opts);
 }
 
-async function killSession() {
-  await tmux(['kill-session', '-t', TARGET]);
+/* ── the sign-in host seam ───────────────────────────────────────────────── */
+
+/**
+ * WHERE THE SIGN-IN PROGRAM RUNS, as the five things the driver asks of it:
+ *
+ *   open({ claudeBin, launchDir, needsLogin }) -> { ok, stdout, stderr, because? }
+ *   capture()                                  -> { ok, stdout, stderr }
+ *   sendCode(code)                             -> { ok, stderr }
+ *   sendEnter()                                -> { ok, stderr }
+ *   kill()                                     -> nothing
+ *
+ * Everything else (phases, classifyPane, the success rules, the capture-failure
+ * rescue) stays in the driver and is the same on every platform.
+ *
+ * 🔑 THE MAC HOST IS THE TMUX CALLS THIS DRIVER ALWAYS MADE, MOVED AND NOT CHANGED:
+ * the same argv, through the same `run()` seam, in the same order. `because` is
+ * optional and the tmux host never sets it, so the Mac's failure sentence is the
+ * one it always was.
+ */
+const tmuxSigninHost = {
+  async open(launch) {
+    return tmux(['new-session', '-d', '-s', SESSION, '-x', '220', '-y', '50', ...tmuxLaunchCommand(launch)]);
+  },
+  async capture() {
+    return tmux(['capture-pane', '-p', '-J', '-t', PANE_TARGET]);
+  },
+  async sendCode(code) {
+    // ⚠️ `--` ends option parsing: the allowed charset includes `-`, and a
+    // code starting with one would otherwise be read by tmux as flags.
+    const typed = await tmux(['send-keys', '-t', PANE_TARGET, '-l', '--', code]);
+    const entered = typed.ok ? await tmux(['send-keys', '-t', PANE_TARGET, 'Enter']) : typed;
+    return { ok: Boolean(typed.ok && entered.ok), stderr: `${typed.stderr || ''}\n${entered.stderr || ''}` };
+  },
+  async sendEnter() {
+    return tmux(['send-keys', '-t', PANE_TARGET, 'Enter']);
+  },
+  async kill() {
+    await tmux(['kill-session', '-t', TARGET]);
+  },
+};
+
+/**
+ * 🛑 THE WINDOWS SIGN-IN HOST SHIPS SWITCHED OFF, AND ONLY A COMMIT SWITCHES IT ON.
+ *
+ * `engine/win32signin.js` runs `claude auth login --claudeai` over pipes. Its
+ * contract was read out of the `claude.exe` 2.1.270 binary, not watched live: a real
+ * sign-in creates a real OAuth login, so it waits for the live check L-1 (slice 3 of
+ * `kosmos-scripts/win32-claude-signin-design.md`) and Josh's go. Until then a Windows
+ * sign-in goes stuck with WINDOWS_SIGNIN_UNAVAILABLE_BECAUSE, which is true, instead
+ * of running a flow nobody has seen work.
+ *
+ * ⚠️ A CODE CONSTANT, NOT AN ENVIRONMENT VARIABLE. Anything running as this user,
+ * an agent session included, can set an environment variable; switching this on takes
+ * a reviewed commit. Slice 3 flips it to `true` in the same commit that swaps the
+ * synthesised fixtures for L-1's captures and inverts the ship-off test arm.
+ */
+const WINDOWS_SIGNIN_HOST_ENABLED = false;
+
+/** What a Windows sign-in says while the host above is switched off. */
+const WINDOWS_SIGNIN_UNAVAILABLE_BECAUSE = 'Kosmos cannot run the Claude sign-in on Windows yet';
+
+/* Test seams, the setRunner shape. A suite runs in its own process, so it pins these
+   once for the whole file; resetForTests leaves them alone and forgets only the host
+   instance (and the program it started). */
+let signinPlatformForTests = null;
+let windowsSigninHostForcedForTests = false;
+let windowsSigninHost = null;
+
+/** Tests only: choose the host as if on `platform` (null means process.platform). */
+function setSigninPlatformForTests(platform) {
+  signinPlatformForTests = platform || null;
+}
+
+/**
+ * Tests only: run the Windows host although WINDOWS_SIGNIN_HOST_ENABLED is off.
+ * ⚠️ REFUSED OUTSIDE A `node --test` PROCESS, so the constant stays the only way a
+ * running board gets this host.
+ */
+function setWindowsSigninHostForTests(on) {
+  if (on && !require('./live-execution').inTestProcess()) {
+    throw new Error('refusing to switch the Windows sign-in host on outside a test: WINDOWS_SIGNIN_HOST_ENABLED is the only production switch');
+  }
+  windowsSigninHostForcedForTests = Boolean(on);
+}
+
+/** The host for this platform, or null when there is none to run the sign-in with. */
+function signinHost() {
+  const platform = signinPlatformForTests || process.platform;
+  if (platform !== 'win32') return tmuxSigninHost;
+  if (!WINDOWS_SIGNIN_HOST_ENABLED && !windowsSigninHostForcedForTests) return null;
+  if (!windowsSigninHost) windowsSigninHost = require('./win32signin').createSigninHost();
+  return windowsSigninHost;
+}
+
+/* A flow tears down the host it launched with; with no flow, the platform's host.
+   No host means nothing was ever started, so there is nothing to kill. */
+async function killSession(owner) {
+  const host = (owner && owner.signinHost) || signinHost();
+  if (host) await host.kill();
 }
 
 /**
@@ -2001,14 +2110,11 @@ async function runFlow(owner, haveBinary) {
   await launchSignin(owner);
 }
 
-async function launchSignin(owner) {
-  if (driver !== owner) return; // cancelled before the sign-in ever launched
-  writeState({ phase: PHASE.SIGNIN_LAUNCHING, startedOnce: true });
-
-  // A leftover session from an interrupted attempt would be showing a stale
-  // screen; start clean instead of guessing where it was.
-  await killSession();
-
+/**
+ * The command the tmux host runs in its new session, for one launch
+ * (`{ claudeBin, launchDir, needsLogin }`, built by `launchSignin`).
+ */
+function tmuxLaunchCommand(launch) {
   /**
    * ⚠️ DELIBERATELY UNQUOTED, and that is a measurement, not an oversight.
    * A review pass argued these needed shell-quoting ("tmux joins with spaces
@@ -2020,14 +2126,6 @@ async function launchSignin(owner) {
    * quoted form died instantly). Single-argument commands are the form that
    * goes through a shell; keep this multi-arg and keep it bare.
    */
-  // ⚠️ The two sandbox seams travel together or not at all: a run with the
-  // CONFIG override set but the DIR unset drives the CLI at the REAL config
-  // while subscription reads the override, so a successful login would end
-  // in "we cannot see the connection yet". Loud, because it is silent.
-  if (!owner.configDir && process.env.AGENT_WORKFORCE_CLAUDE_CONFIG && !process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR) {
-    console.warn('connect: AGENT_WORKFORCE_CLAUDE_CONFIG is set without AGENT_WORKFORCE_CLAUDE_CONFIG_DIR; '
-      + 'the sign-in will write a config the checker is not reading');
-  }
   /**
    * ⚠️ ALWAYS MULTI-ARG: tmux runs a SINGLE argument through a shell but
    * executes MULTIPLE arguments as argv (both halves measured on 3.6a) --
@@ -2038,11 +2136,7 @@ async function launchSignin(owner) {
    * claude path containing a space survives on both.
    */
   const cmd = ['env'];
-  /* The flow's own dir outranks the env seam (#248/#324): the env pair is
-     the whole-process sandbox, the flow dir is THIS sign-in's account, and
-     the CLI must write where the flow's checker reads or a successful
-     login ends in "we cannot see the connection yet". */
-  const launchDir = owner.configDir || process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
+  const launchDir = launch.launchDir;
   if (launchDir) {
     cmd.push(`CLAUDE_CONFIG_DIR=${launchDir}`);
   } else {
@@ -2084,7 +2178,7 @@ async function launchSignin(owner) {
        its own evidence about what each variable does. */
     cmd.push('-u', 'CLAUDE_CONFIG_DIR');
   }
-  cmd.push(claudeBinPath());
+  cmd.push(launch.claudeBin);
 
   /* #1937: an EXPLICIT re-auth must run a REAL login, not a bare `claude`. A cold
      bare `claude` against a dead-but-present credential drops into the REPL
@@ -2115,7 +2209,7 @@ async function launchSignin(owner) {
      Connect against a dead credential now runs the real login instead of wedging in the
      "Not logged in" REPL. The launch scopes CLAUDE_CONFIG_DIR to configDir (below), so the
      refreshed token lands in the account's own dir, which is where the check reads it. */
-  if (owner.needsLogin) {
+  if (launch.needsLogin) {
     cmd.push('auth', 'login', '--claudeai');
   }
 
@@ -2147,13 +2241,54 @@ async function launchSignin(owner) {
      because a reader cannot otherwise tell a guarded property from an unguarded
      one. */
 
-  const made = await tmux(['new-session', '-d', '-s', SESSION, '-x', '220', '-y', '50', ...cmd]);
+  return cmd;
+}
+
+async function launchSignin(owner) {
+  if (driver !== owner) return; // cancelled before the sign-in ever launched
+
+  /* 🛑 NO HOST, NO LAUNCH, AND NOTHING TOUCHED (slice 1). On Windows with the Windows
+     sign-in host switched off there is nothing to run the sign-in in. tmux does not
+     exist there, and asking it anyway failed with ENOENT and a sentence about a window
+     that never existed. Say the true thing before any program is asked to do anything.
+     becomeStuck still records canRunClaude, so a person who has Claude Code installed
+     is still offered their own way in. */
+  const host = signinHost();
+  if (!host) {
+    becomeStuck(owner, WINDOWS_SIGNIN_UNAVAILABLE_BECAUSE, null);
+    return;
+  }
+  /* The flow keeps the host it launched with, so every tick and the teardown reach
+     the same program. */
+  owner.signinHost = host;
+  writeState({ phase: PHASE.SIGNIN_LAUNCHING, startedOnce: true });
+
+  // A leftover session from an interrupted attempt would be showing a stale
+  // screen; start clean instead of guessing where it was.
+  await killSession(owner);
+
+  // ⚠️ The two sandbox seams travel together or not at all: a run with the
+  // CONFIG override set but the DIR unset drives the CLI at the REAL config
+  // while subscription reads the override, so a successful login would end
+  // in "we cannot see the connection yet". Loud, because it is silent.
+  if (!owner.configDir && process.env.AGENT_WORKFORCE_CLAUDE_CONFIG && !process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR) {
+    console.warn('connect: AGENT_WORKFORCE_CLAUDE_CONFIG is set without AGENT_WORKFORCE_CLAUDE_CONFIG_DIR; '
+      + 'the sign-in will write a config the checker is not reading');
+  }
+  /* The flow's own dir outranks the env seam (#248/#324): the env pair is
+     the whole-process sandbox, the flow dir is THIS sign-in's account, and
+     the CLI must write where the flow's checker reads or a successful
+     login ends in "we cannot see the connection yet". */
+  const launchDir = owner.configDir || process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
+  const made = await host.open({ claudeBin: claudeBinPath(), launchDir: launchDir || null, needsLogin: owner.needsLogin });
   if (!made.ok) {
-    becomeStuck(owner, 'we could not open the window Claude signs in through',
+    /* `because` is the Windows host's sentence for a program that did not start; the
+       tmux host never sets it, so the Mac keeps its own. */
+    becomeStuck(owner, made.because || 'we could not open the window Claude signs in through',
       tailOf(`${made.stdout || ''}\n${made.stderr || ''}`) || 'nothing came back to explain why');
     return;
   }
-  if (driver !== owner) { await killSession(); return; }
+  if (driver !== owner) { await killSession(owner); return; }
   owner.timer = setInterval(() => {
     tick(owner).catch(() => {
       /**
@@ -2207,7 +2342,7 @@ async function tickBody(owner) {
     const age = mem.updatedAt ? Date.now() - Date.parse(mem.updatedAt) : Infinity;
     if (!Number.isFinite(age) || age > HEARTBEAT_MS) writeState({ ...mem });
   }
-  const cap = await tmux(['capture-pane', '-p', '-J', '-t', PANE_TARGET]);
+  const cap = await owner.signinHost.capture();
   if (driver !== owner) return; // cancelled or replaced while we were looking
   if (!cap.ok) {
     /**
@@ -2466,7 +2601,7 @@ async function tickBody(owner) {
         }
         owner.kindActions = (owner.kindActions || 0) + 1;
         owner.acted = sig;
-        await tmux(['send-keys', '-t', PANE_TARGET, 'Enter']);
+        await owner.signinHost.sendEnter();
       }
       return;
     case 'login-method':
@@ -2478,7 +2613,7 @@ async function tickBody(owner) {
         owner.kindActions = (owner.kindActions || 0) + 1;
         owner.acted = sig;
         // Option 1, "Claude account with subscription", is already selected.
-        await tmux(['send-keys', '-t', PANE_TARGET, 'Enter']);
+        await owner.signinHost.sendEnter();
       }
       return;
     case 'browser-open':
@@ -2567,18 +2702,15 @@ async function tickBody(owner) {
         owner.codeTyped = true;
         const code = owner.pendingCode;
         owner.pendingCode = null;
-        // ⚠️ `--` ends option parsing: the allowed charset includes `-`, and a
-        // code starting with one would otherwise be read by tmux as flags.
-        const typed = await tmux(['send-keys', '-t', PANE_TARGET, '-l', '--', code]);
-        const entered = typed.ok ? await tmux(['send-keys', '-t', PANE_TARGET, 'Enter']) : typed;
+        const sent = await owner.signinHost.sendCode(code);
         // ⚠️ The one post-await write in this module that shipped WITHOUT the
         // owner re-check: a cancel landing between the sends and this line
         // overwrote the person's IDLE with a driverless "completing" record
         // that nothing would ever advance.
         if (driver !== owner) return;
-        if (!typed.ok || !entered.ok) {
+        if (!sent.ok) {
           becomeStuck(owner, 'we could not type the code into the sign-in',
-            tailOf(`${typed.stderr || ''}\n${entered.stderr || ''}`) || 'the sign-in window did not take it');
+            tailOf(sent.stderr || '') || 'the sign-in window did not take it');
           return;
         }
         writeState({ phase: PHASE.SIGNIN_COMPLETING, url: mem.url || null, startedOnce: true });
@@ -2616,7 +2748,7 @@ async function tickBody(owner) {
           }
           owner.kindActions = (owner.kindActions || 0) + 1;
           owner.acted = sig;
-          await tmux(['send-keys', '-t', PANE_TARGET, 'Enter']);
+          await owner.signinHost.sendEnter();
           return;
         }
         // ⚠️ Its OWN counter: sharing it with the config-catch-up wait meant
@@ -2661,7 +2793,7 @@ async function tickBody(owner) {
         }
         owner.kindActions = (owner.kindActions || 0) + 1;
         owner.acted = sig;
-        await tmux(['send-keys', '-t', PANE_TARGET, 'Enter']);
+        await owner.signinHost.sendEnter();
         return;
       }
       /**
@@ -2743,7 +2875,7 @@ async function finishConnected(owner, sub) {
   flowDir = owner.configDir || null;
   if (d && d.timer) clearInterval(d.timer);
   const memBefore = mem;
-  await killSession();
+  await killSession(owner);
   // ⚠️ The one write that crossed an await unguarded: a fresh START owns the
   // record now (driver set), and a CANCEL that landed inside the kill above
   // wrote its own record (mem replaced -- writeState swaps the object, so
@@ -2824,7 +2956,7 @@ function becomeStuck(owner, because, tail) {
   if (d && d.timer) clearInterval(d.timer);
   if (activeRequest) { try { activeRequest.destroy(); } catch { /* already ended */ } activeRequest = null; }
   if (activeChild) { try { activeChild.kill(); } catch { /* already exited */ } activeChild = null; }
-  killSession(); // fire-and-forget: run() resolves {ok:false} and never rejects
+  killSession(owner); // fire-and-forget: neither host's kill ever rejects
   /**
    * 🛑 WHETHER THERE IS ANYTHING TO RUN, ASKED OF THE DISK, RECORDED HERE.
    *
@@ -2917,7 +3049,7 @@ async function cancel() {
   if (d && d.timer) clearInterval(d.timer);
   if (activeRequest) { try { activeRequest.destroy(); } catch { /* already ended */ } activeRequest = null; }
   if (activeChild) { try { activeChild.kill(); } catch { /* already exited */ } activeChild = null; }
-  await killSession();
+  await killSession(d);
   /**
    * ⚠️ A FRESH FLOW MAY HAVE STARTED DURING THE AWAIT ABOVE. Everything past
    * this line belongs to whoever owns `driver` NOW: sweeping the downloads
@@ -2950,6 +3082,9 @@ function resetForTests() {
   driver = null;
   activeRequest = null;
   activeChild = null; // a stale handle must not be killable by the next test's flow
+  /* The Windows host's program belongs to the flow just forgotten. The platform and
+     force pins are left alone: a suite sets them once for its whole file. */
+  if (windowsSigninHost) { windowsSigninHost.kill(); windowsSigninHost = null; }
   mem = { phase: PHASE.IDLE };
   /* ⚠️ The probe cache belongs to the ONE documented reset seam, not to a second
      one beside it. A partial reset is worse than none: the stale verdict it would
@@ -2968,4 +3103,5 @@ module.exports = {
   setRunner, setDryRun, setTickInterval, setUnknownGrace, setAbandonedSigninMs, setFreshnessForTests, resetForTests,
   STATE_FILE,
   willInstall, setProbeTtlForTests, claudeHatchAvailable,
+  setSigninPlatformForTests, setWindowsSigninHostForTests, WINDOWS_SIGNIN_HOST_ENABLED, WINDOWS_SIGNIN_UNAVAILABLE_BECAUSE,
 };
