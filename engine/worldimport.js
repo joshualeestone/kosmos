@@ -42,7 +42,6 @@ const worlds = require('./worlds');
 const create = require('./create');
 const remove = require('./remove');
 const worldstarts = require('./worldstarts');
-const win32job = require('./win32job');
 const projects = require('./projects');   // the managed projects section's own remover
 const reports = require('./reports');     // the "Who you report to" section's own body
 
@@ -161,13 +160,14 @@ function picksFromBody(base, body) {
  * installJob then says out loud (its `guessed`) rather than inventing.
  */
 function launchSpecOf(name, sourceWorldId, profile, platform) {
-  const fromJob = (runner, model, configDir) => ({ runner: runner === 'codex' ? 'codex' : 'claude', model: model || null, configDir: configDir || null });
-  if (platform === 'win32') {
-    const t = win32job.taskSpec(name, sourceWorldId);
-    if (t.known && t.registered && t.spec) return fromJob(t.spec.runner, t.spec.model, t.spec.configDir);
-  } else {
-    const job = create.readJob(name, sourceWorldId);
-    if (job) return fromJob(job.runner, job.model, job.configDir);
+  /* ONE read for both platforms (win32-agent-job-read): create.readJob follows the
+     injected platform, a plist on the Mac and the Scheduled Task on Windows, keyed
+     by the source world either way. This used to carry its own taskSpec arm, and
+     its Mac arm dropped `platform`, so a Mac import driven from a Windows host read
+     that host's Task Scheduler. */
+  const job = create.readJob(name, sourceWorldId, platform);
+  if (job) {
+    return { runner: job.runner === 'codex' ? 'codex' : 'claude', model: job.model || null, configDir: job.configDir || null };
   }
   return { runner: profile && profile.provider === 'openai' ? 'codex' : 'claude', model: null, configDir: null };
 }
