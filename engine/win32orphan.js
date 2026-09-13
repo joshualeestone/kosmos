@@ -29,10 +29,23 @@ const PARENT_POLL_MS = 1000;
  */
 function aliveFromError(e) { return !(e && e.code === 'ESRCH'); }
 
-function pidAlive(pid, kill) {
+/**
+ * The same question with the doubt kept: 'alive', 'gone' (ESRCH), or 'unknown' when the check
+ * itself fails some other way. EPERM is 'alive': the process exists and belongs to someone else.
+ * engine/win32update.js needs the third answer, because its lock treats a verifiably running
+ * owner and an unverifiable one differently.
+ */
+function pidState(pid, kill) {
   const signal = typeof kill === 'function' ? kill : (p, s) => process.kill(p, s);
-  try { signal(pid, 0); return true; } catch (e) { return aliveFromError(e); }
+  try { signal(pid, 0); return 'alive'; } catch (e) {
+    if (e && e.code === 'ESRCH') return 'gone';
+    if (e && e.code === 'EPERM') return 'alive';
+    return 'unknown';
+  }
 }
+
+/** pidState, with a doubt failing toward alive (aliveFromError's rule). */
+function pidAlive(pid, kill) { return pidState(pid, kill) !== 'gone'; }
 
 /**
  * Call `onGone` once, as soon as the parent process is gone.
@@ -66,4 +79,4 @@ function exitWhenParentGone(opts) {
   return { armed: true, timer, stop() { done = true; stopTimer(timer); } };
 }
 
-module.exports = { exitWhenParentGone, pidAlive, aliveFromError };
+module.exports = { exitWhenParentGone, pidAlive, pidState, aliveFromError };

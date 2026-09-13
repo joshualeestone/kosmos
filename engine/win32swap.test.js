@@ -72,7 +72,9 @@ test('win32swap exports exactly the primitives the anchor and the updater share'
 test('win32anchor keeps the surface it had, and its swap constants come from win32swap', () => {
   assert.deepEqual(Object.keys(anchor).sort(), [
     'APP', 'BOOT_JS', 'BOOT_NAME', 'NODE_NAME', 'POINTER_NAME', 'RETIRED_INFIX',
-    'RETIRED_SWEEP_MIN_AGE_MS', 'STAGED_INFIX', 'anchorDir', 'ensureAnchored', 'readPointer',
+    /* interpreterSizeDiffers: the anchor's own size rule, which the Windows updater
+       (win32update.js runtimeChanged) starts from, so the two share one derivation. */
+    'RETIRED_SWEEP_MIN_AGE_MS', 'STAGED_INFIX', 'anchorDir', 'ensureAnchored', 'interpreterSizeDiffers', 'readPointer',
   ]);
   assert.equal(anchor.STAGED_INFIX, swap.STAGED_INFIX);
   assert.equal(anchor.RETIRED_INFIX, swap.RETIRED_INFIX);
