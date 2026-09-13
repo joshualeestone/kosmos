@@ -133,6 +133,14 @@ const PROCESS_IMAGE_LOOKUP_TIMEOUT_MS = 5 * 1000;
     the next prepare in this board (releaseLock). */
 const LOCK_RELEASE_TRIES = 3;
 const LOCK_RELEASE_WAIT_MS = 50;
+/** Tries at READING a file another process has open without read sharing, this far apart
+    (readFileRetryingHolds): a writer replacing the file, a scanner or a backup tool. These were the
+    update journal's read tries; the lock's release and the updater's ownership check use the same. */
+const HELD_FILE_READ_TRIES = 3;
+const HELD_FILE_READ_WAIT_MS = 20;
+/** The codes Windows answers while another process holds a file: a sharing violation (EBUSY), a
+    delete pending or a writer's replace (EPERM), and a lock or scanner (EACCES). */
+const HELD_FILE_CODES = Object.freeze(['EBUSY', 'EPERM', 'EACCES']);
 /** A lock that exists but cannot be read is read again this many times, this far apart, before it
     is called broken: a lock that is being deleted cannot be opened for a moment (Windows answers
     EPERM for a file whose delete is pending), and a broken one stays unreadable. */
@@ -757,26 +765,46 @@ function sweepLockLeftovers(work, inWork, log) {
 }
 
 /**
+ * Read a file, reading again while another process holds it. Returns `{ text }`, `{ missing: true }`
+ * (ENOENT, and nothing else), or `{ code, tries }` when it still cannot be read: a held code
+ * (HELD_FILE_CODES) after HELD_FILE_READ_TRIES, or any other code at once. Never throws.
+ * `waitSync(ms)` stands in for the wait between tries.
+ */
+function readFileRetryingHolds(file, waitSync) {
+  const wait = typeof waitSync === 'function' ? waitSync : sleepSync;
+  for (let tries = 1; ; tries += 1) {
+    try { return { text: fs.readFileSync(file, 'utf8') }; } catch (e) {
+      const code = (e && e.code) || 'unknown';
+      if (code === 'ENOENT') return { missing: true };
+      if (!HELD_FILE_CODES.includes(code) || tries >= HELD_FILE_READ_TRIES) return { code, tries };
+      wait(HELD_FILE_READ_WAIT_MS);
+    }
+  }
+}
+
+/**
  * Release the lock only if it is still the one this prepare took.
  *
- * A scanner or backup tool can hold the file without delete sharing, so the read and the removal
- * are tried LOCK_RELEASE_TRIES times. If the lock still cannot be removed it would name this
- * board's own live process and refuse every later prepare here until a restart, so its exact text
- * is remembered (leftBehindLockText) for the next takeLock in this process to clear through the
- * claim. Failures are logged by code, since the raw errors name internal paths.
+ * A scanner or backup tool can hold the file: the read is retried as every held read is
+ * (readFileRetryingHolds), and the removal LOCK_RELEASE_TRIES times. If the lock still cannot be read
+ * or removed it would name this board's own live process and refuse every later prepare here until
+ * a restart, so its exact text is remembered (leftBehindLockText) for the next takeLock in this
+ * process to clear through the claim. Failures are logged by code, since the raw errors name
+ * internal paths.
  */
 function releaseLock(lockPath, text, log) {
+  const read = readFileRetryingHolds(lockPath);
+  if (read.missing) return;
+  if (read.code) {
+    log(`could not read the prepare lock to release it (code=${read.code}, after ${read.tries} ${read.tries === 1 ? 'try' : 'tries'})`);
+    leftBehindLockText = text;
+    log('left the prepare lock behind; the next prepare in this board clears it');
+    return;
+  }
+  if (read.text !== text) { log('the prepare lock was taken over while this prepare ran; leaving it'); return; }
   for (let tries = 1; ; tries += 1) {
-    let now = null;
-    try { now = fs.readFileSync(lockPath, 'utf8'); } catch (e) {
-      if (e && e.code === 'ENOENT') return;
-      log(`could not read the prepare lock to release it (code=${(e && e.code) || 'unknown'}, try ${tries} of ${LOCK_RELEASE_TRIES})`);
-    }
-    if (now !== null && now !== text) { log('the prepare lock was taken over while this prepare ran; leaving it'); return; }
-    if (now === text) {
-      try { fs.rmSync(lockPath, { force: true }); return; } catch (e) {
-        log(`could not remove the prepare lock (code=${(e && e.code) || 'unknown'}, try ${tries} of ${LOCK_RELEASE_TRIES})`);
-      }
+    try { fs.rmSync(lockPath, { force: true }); return; } catch (e) {
+      log(`could not remove the prepare lock (code=${(e && e.code) || 'unknown'}, try ${tries} of ${LOCK_RELEASE_TRIES})`);
     }
     if (tries >= LOCK_RELEASE_TRIES) {
       leftBehindLockText = text;
@@ -1359,6 +1387,7 @@ async function cliMain(argv, write, seams) {
 
 module.exports = {
   prepare, begin, cliMain, runStagedNode, stagedNodeLaunch, workGuard, takeLock, releaseLock, sweepLockLeftovers, resolveWorld,
+  readFileRetryingHolds, HELD_FILE_READ_TRIES,
   processImageFromTasklist, processImageStamp, sha256OfFile, unusualLocationRefusal, helperLaunch, waitForOutcome,
   REQUIRED_ENTRIES, ENTRIES, WORK_DIRNAME, STAGED_DIRNAME, DOWNLOAD_PART_NAME, LOCK_NAME, DEFAULT_LIMITS, STAGED_NODE_ENV_KEYS,
   UNUSUAL_LOCATION_POLICY, APPLY_FLAG, RECOVER_FLAG, DEFAULT_BOARD_PORT,

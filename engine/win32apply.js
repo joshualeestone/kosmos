@@ -111,14 +111,28 @@ class StepFailure extends Error {
   constructor(because) { super(because); this.name = 'StepFailure'; }
 }
 
-/** This context no longer owns the update (see assertStillOwner). Never caught as a step failure:
-    every catch rethrows it, and each entry point turns it into a `taken-over` result. */
+/** This context no longer owns the update, proved (see assertStillOwner). Never caught as a step
+    failure: the step and rollback catches rethrow it, the cleanup after a finished journal stops at
+    it and keeps the outcome already recorded, and each entry point turns it into `taken-over`. */
 class LostOwnership extends Error {
   constructor(because) { super(because); this.name = 'LostOwnership'; }
 }
 
+/** This context cannot tell whether it still owns the update: its lock or journal is there but cannot
+    be read (see assertStillOwner). Thrown only outside the forward steps, where it travels like
+    LostOwnership, and each entry point turns it into `held`: the journal stays unfinished for the next
+    resumer. Inside the forward steps the same finding is a StepFailure, and the rollback runs. */
+class OwnershipUnknown extends Error {
+  constructor(because) { super(because); this.name = 'OwnershipUnknown'; }
+}
+
+/** Does this error mean the context must write nothing more? */
+function stopsWriting(e) { return e instanceof LostOwnership || e instanceof OwnershipUnknown; }
+
 function firstLine(e) { return String((e && e.message) || e).split('\n')[0]; }
 function codeOf(e) { return (e && e.code) || 'unknown'; }
+/** An error for a log line: its code, or its name when it has none, and its first line. */
+function describeError(e) { return `${(e && (e.code || e.name)) || 'error'}: ${firstLine(e)}`; }
 function readJson(file) {
   try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
 }
@@ -128,6 +142,18 @@ function readText(file) {
 /** Is there anything at this name? A link counts, whatever it points at. */
 function exists(target) {
   try { fs.lstatSync(target); return true; } catch { return false; }
+}
+/**
+ * What one lstat of `target` proves: `{ state: 'there' }`, `{ state: 'gone' }` (ENOENT or ENOTDIR,
+ * and nothing else), or `{ state: 'unknown', code }`. A folder held busy, an access denied or a share
+ * in the middle of reconnecting is `unknown`, never gone: only this reading may decide that a folder
+ * an update depends on no longer exists.
+ */
+function presenceOf(target) {
+  try { fs.lstatSync(target); return { state: 'there' }; } catch (e) {
+    const code = codeOf(e);
+    return code === 'ENOENT' || code === 'ENOTDIR' ? { state: 'gone', code } : { state: 'unknown', code };
+  }
 }
 function samePath(a, b) {
   const x = path.resolve(a);
@@ -199,23 +225,17 @@ function recoverFromFor(root, previous) {
   ];
 }
 
-/** Tries at reading a journal a writer is replacing: Windows answers EPERM for a moment. */
-const JOURNAL_READ_TRIES = 3;
-const JOURNAL_READ_WAIT_MS = 20;
-
 /**
- * `{ state: 'none' }`, `{ state: 'unreadable', why }`, or `{ state: 'finished' | 'unfinished',
- * journal }`. Never throws.
+ * `{ state: 'none' }`, `{ state: 'unreadable', why, code? }` (`code` only when the file could not be
+ * read at all), or `{ state: 'finished' | 'unfinished', journal }`. A writer replacing the journal
+ * holds it for a moment, so the read goes through win32update.readFileRetryingHolds; `waitSync` stands
+ * in for its wait. Never throws.
  */
-function readJournal(journalAt) {
-  let text = null;
-  for (let tries = 1; ; tries += 1) {
-    try { text = fs.readFileSync(journalAt, 'utf8'); break; } catch (e) {
-      if (e && e.code === 'ENOENT') return { state: 'none' };
-      if (tries >= JOURNAL_READ_TRIES) return { state: 'unreadable', why: `cannot be read (code=${codeOf(e)})` };
-      sleepSync(JOURNAL_READ_WAIT_MS);
-    }
-  }
+function readJournal(journalAt, waitSync) {
+  const read = win32update.readFileRetryingHolds(journalAt, waitSync);
+  if (read.missing) return { state: 'none' };
+  if (read.code) return { state: 'unreadable', why: `cannot be read (code=${read.code})`, code: read.code };
+  const text = read.text;
   let j = null;
   try { j = JSON.parse(text); } catch { return { state: 'unreadable', why: 'is not valid JSON' }; }
   const problem = journalProblem(j, journalAt);
@@ -235,7 +255,7 @@ function unfinishedUpdateRefusal(anchorDir) {
   if (read.state !== 'unfinished') return null;
   const j = read.journal;
   const found = unrecoverableCase(j);
-  if (found && found.kind === 'unreachable') return `an earlier update to ${j.to.version} cannot be finished right now, because ${found.because}. Connect it and restart your computer, then try again`;
+  if (found && found.kind === 'unreachable') return `an earlier update to ${j.to.version} cannot be finished right now, because ${found.because}. Reconnect that drive, or close any program using the Kosmos folder, then restart your computer and try again`;
   if (found) return `an earlier update to ${j.to.version} can never finish, because ${found.because}. Asking Kosmos to update again clears that record`;
   return `an earlier update to ${j.to.version} has not finished yet. Kosmos finishes it, or puts ${j.from.version} back, the next time its board starts; try again after that`;
 }
@@ -348,17 +368,25 @@ function refuseInTestWithoutSeams(over, what, journalAt) {
   if (!over && liveExec.inTestProcess()) liveExec.refuseOrWarn('engine/win32apply.js', what, [journalAt]);
 }
 
+/**
+ * One apply's or one resumer's state. `forward` is true only during the helper's forward steps (H2 to
+ * H7); `writesStopped` becomes true once assertStillOwner has found the update lost or unknowable, and
+ * from then on the log goes to stderr only: the log file is in WORK, which may be a resumer's by now.
+ */
 function contextFor(journalAt, journal, deps, mode) {
   const j = journal;
   const inWork = win32update.workGuard(j.work);
   const logFile = path.join(j.work, APPLY_LOG_NAME);
-  const log = (line) => {
-    const stamped = `${new Date(deps.now()).toISOString()} [${mode} ${process.pid}] ${line}`;
+  const ctx = { journalAt, j, deps, mode, inWork, guard: writeGuard(j, journalAt), forward: false, writesStopped: false };
+  ctx.log = (line) => {
     if (deps.log) { deps.log(line); return; }
-    try { fs.appendFileSync(inWork(logFile), stamped + '\n'); } catch { /* the update matters more than its log */ }
+    if (!ctx.writesStopped) {
+      const stamped = `${new Date(deps.now()).toISOString()} [${mode} ${process.pid}] ${line}`;
+      try { fs.appendFileSync(inWork(logFile), stamped + '\n'); } catch { /* the update matters more than its log */ }
+    }
     try { process.stderr.write('[win32apply] ' + line + '\n'); } catch { /* stderr gone */ }
   };
-  return { journalAt, j, deps, mode, log, inWork, guard: writeGuard(j, journalAt) };
+  return ctx;
 }
 
 /**
@@ -370,18 +398,39 @@ function contextFor(journalAt, journal, deps, mode) {
  *     (skipped only for a ROOT-gone settlement, which takes no lock);
  *   - the journal on disk is still this update's (same token), and unfinished unless this context
  *     finished it itself.
- * Either failing throws LostOwnership: the owner of this context stops at once. Without it, a helper
- * whose WORK vanished would resurrect a journal a resumer had already settled, and move the only
- * surviving build into a WORK the resumer made again. The gap between this check and the write is
- * the residual.
+ * 🛑 LOSS IS ONLY EVER PROVED, never inferred from a read that failed. Proof is: the lock file is gone
+ * (ENOENT), or it reads, and its bytes are not this context's; the journal file is gone, or it reads
+ * and is another update's, or it is finished by someone else (or it reads as no journal at all).
+ * Proof throws LostOwnership: the owner of this context stops at once. Without it, a helper whose WORK
+ * vanished would resurrect a journal a resumer had already settled, and move the only surviving build
+ * into a WORK the resumer made again.
+ *
+ * A read that fails for any other reason (a scanner or backup tool holding the file: EBUSY, EPERM,
+ * EACCES) is read again (win32update.readFileRetryingHolds) and, if it still fails, proves nothing
+ * either way. In the forward steps that is a StepFailure, and the rollback puts the old build back
+ * (checking again as it goes). Anywhere else, a rollback included, it is OwnershipUnknown: stop, write
+ * nothing further, and leave the unfinished journal to the next resumer. The gap between this check
+ * and the write is the residual.
  */
 function assertStillOwner(ctx) {
-  if (ctx.lock && ctx.lock.text && readText(path.join(ctx.j.work, win32update.LOCK_NAME)) !== ctx.lock.text) {
-    throw new LostOwnership('its update lock is gone or belongs to someone else now');
+  const lost = (because) => {
+    ctx.writesStopped = true;
+    throw new LostOwnership(because);
+  };
+  const cannotTell = (because) => {
+    if (ctx.forward) throw new StepFailure(`the updater could not check that this update is still its own, because ${because}`);
+    ctx.writesStopped = true;
+    throw new OwnershipUnknown(because);
+  };
+  if (ctx.lock && ctx.lock.text) {
+    const lock = win32update.readFileRetryingHolds(path.join(ctx.j.work, win32update.LOCK_NAME), ctx.deps.sleepSync);
+    if (lock.missing || (!lock.code && lock.text !== ctx.lock.text)) lost('its update lock is gone or belongs to someone else now');
+    if (lock.code) cannotTell(`its update lock cannot be read (code=${lock.code})`);
   }
-  const read = readJournal(ctx.journalAt);
+  const read = readJournal(ctx.journalAt, ctx.deps.sleepSync);
+  if (read.code) cannotTell(`its journal cannot be read (code=${read.code})`);
   if (!read.journal || read.journal.token !== ctx.j.token || (read.state === 'finished' && !ctx.wroteFinish)) {
-    throw new LostOwnership('its journal was finished, replaced or removed by someone else');
+    lost('its journal was finished, replaced or removed by someone else');
   }
 }
 
@@ -389,6 +438,20 @@ function assertStillOwner(ctx) {
 function takenOver(ctx, e) {
   ctx.log(`stopped without writing: ${e.message}`);
   return { ok: false, outcome: 'taken-over', action: 'taken-over', because: `the update stopped here: ${e.message}, so nothing more was written` };
+}
+
+/** A result for an update this context could not tell it still owned: nothing more was written, and
+    the unfinished journal waits for the next resumer. */
+function heldUnknown(ctx, e) {
+  ctx.log(`stopped without writing, and left the update for the next resumer: ${e.message}`);
+  return { ok: false, outcome: 'held', action: 'held', because: `the update stopped here: ${e.message}, so nothing more was written, and the next start of the board finishes it` };
+}
+
+/** The entry points' one reading of an error that stopped the writing, or null for any other error. */
+function stoppedWriting(ctx, e) {
+  if (e instanceof LostOwnership) return takenOver(ctx, e);
+  if (e instanceof OwnershipUnknown) return heldUnknown(ctx, e);
+  return null;
 }
 
 function save(ctx) {
@@ -727,7 +790,7 @@ function rollBackTree(ctx, because) {
   for (let pass = 1; pass <= deps.limits.rollbackPasses; pass += 1) {
     let failure = null;
     try { reversePass(ctx); } catch (e) {
-      if (e instanceof LostOwnership) throw e;
+      if (stopsWriting(e)) throw e;
       failure = e instanceof StepFailure ? e.message : `${firstLine(e)} (code=${codeOf(e)})`;
       log(`rollback pass ${pass}: ${failure}`);
     }
@@ -741,13 +804,35 @@ function rollBackTree(ctx, because) {
   return { whole: false, problem };
 }
 
+/**
+ * The best-effort removals once a journal is finished, each checked first (assertStillOwner). A
+ * removal that fails is logged by its code (or name) and message, and the next one goes on. One that
+ * finds the update lost or unknowable rethrows, which stops every removal after it; this catches that
+ * here, because the outcome is already recorded and stands. `removals`: [what, remove] pairs.
+ */
+function cleanUpAfterFinish(ctx, removals) {
+  const tidy = (what, remove) => {
+    try { assertStillOwner(ctx); remove(); } catch (e) {
+      if (stopsWriting(e)) throw e;
+      ctx.log(`left ${what} for later (${describeError(e)})`);
+    }
+  };
+  try {
+    for (const [what, remove] of removals) tidy(what, remove);
+  } catch (e) {
+    if (!stopsWriting(e)) throw e;
+    ctx.log(`stopped cleaning up, and the finished record stands: ${e.message}`);
+  }
+}
+
 /** What a rollback that left the tree whole leaves behind: nothing of the new build. Best effort. */
 function cleanupAfterRollback(ctx) {
-  const { j, log } = ctx;
-  const tidy = (what, fn) => { try { assertStillOwner(ctx); fn(); } catch (e) { log(`left ${what} for later (code=${codeOf(e)})`); } };
-  tidy('the safety copy of node.exe', () => fs.rmSync(ctx.guard(path.join(j.previous, ANCHORED_NODE_COPY_NAME)), { force: true }));
-  tidy('the empty previous folder', () => { if (exists(j.previous)) fs.rmdirSync(ctx.guard(j.previous)); });
-  tidy('the staged update', () => fs.rmSync(ctx.guard(j.staged), { recursive: true, force: true }));
+  const { j } = ctx;
+  cleanUpAfterFinish(ctx, [
+    ['the safety copy of node.exe', () => fs.rmSync(ctx.guard(path.join(j.previous, ANCHORED_NODE_COPY_NAME)), { force: true })],
+    ['the empty previous folder', () => { if (exists(j.previous)) fs.rmdirSync(ctx.guard(j.previous)); }],
+    ['the staged update', () => fs.rmSync(ctx.guard(j.staged), { recursive: true, force: true })],
+  ]);
 }
 
 function concludeRollback(ctx, boardBecause) {
@@ -800,25 +885,27 @@ async function rollBack(ctx, because) {
 function finishUpdated(ctx) {
   const { j, log } = ctx;
   try { writeStatus(ctx, 'updated', null); } catch (e) {
-    if (e instanceof LostOwnership) throw e;
-    log(`could not record the outcome (code=${codeOf(e)})`);
+    if (stopsWriting(e)) throw e;
+    log(`could not record the outcome (${describeError(e)})`);
   }
   ctx.deps.hooks.before('H9-finish', {});
   j.finished = true;
   j.outcome = 'updated';
   save(ctx);
   ctx.deps.hooks.before('H9-cleanup', {});
-  const tidy = (what, fn) => { try { assertStillOwner(ctx); fn(); } catch (e) { log(`left ${what} for later (code=${codeOf(e)})`); } };
-  tidy('the staged folder', () => fs.rmSync(ctx.guard(j.staged), { recursive: true, force: true }));
-  tidy('the download', () => fs.rmSync(ctx.guard(path.join(j.work, win32update.DOWNLOAD_PART_NAME)), { force: true }));
-  tidy('the safety copy of node.exe', () => fs.rmSync(ctx.guard(path.join(j.previous, ANCHORED_NODE_COPY_NAME)), { force: true }));
+  const removals = [
+    ['the staged folder', () => fs.rmSync(ctx.guard(j.staged), { recursive: true, force: true })],
+    ['the download', () => fs.rmSync(ctx.guard(path.join(j.work, win32update.DOWNLOAD_PART_NAME)), { force: true })],
+    ['the safety copy of node.exe', () => fs.rmSync(ctx.guard(path.join(j.previous, ANCHORED_NODE_COPY_NAME)), { force: true })],
+  ];
   let names = [];
   try { names = fs.readdirSync(j.work); } catch { names = []; }
   for (const name of names) {
     const dir = path.join(j.work, name);
     if (!name.startsWith(PREVIOUS_PREFIX) || samePath(dir, j.previous)) continue;
-    tidy(`an older build (${name})`, () => fs.rmSync(ctx.guard(dir), { recursive: true, force: true }));
+    removals.push([`an older build (${name})`, () => fs.rmSync(ctx.guard(dir), { recursive: true, force: true })]);
   }
+  cleanUpAfterFinish(ctx, removals);
   return { ok: true, outcome: 'updated', version: j.to.version };
 }
 
@@ -857,6 +944,8 @@ function applyRefusal(ctx) {
 async function runSteps(ctx) {
   const { j, deps, log } = ctx;
   try {
+    /* The forward steps: a lock or journal that cannot be read here is a step failure (assertStillOwner). */
+    ctx.forward = true;
     setPhase(ctx, 'stopping');
     deps.hooks.before('H2', {});
     const stopped = await stopBoard(ctx);
@@ -891,18 +980,21 @@ async function runSteps(ctx) {
     const up = await startAndConfirm(ctx, j.to.identity, 'H7');
     if (!up.ok) throw new StepFailure(`the new board did not answer as ${j.to.identity} (${up.because})`);
     setPhase(ctx, 'confirmed');
+    ctx.forward = false;
   } catch (e) {
-    if (e instanceof LostOwnership) throw e;
+    ctx.forward = false;
+    if (stopsWriting(e)) throw e;
     const because = e instanceof StepFailure ? e.message : `${firstLine(e)} (code=${codeOf(e)})`;
     log(`the update failed during ${j.phase}: ${because}`);
     return rollBack(ctx, because);
   }
   /* Outside the try: nothing that goes wrong once the new board is confirmed may undo it. A journal
-     left at `confirmed` is finished forward by the next resumer. */
+     left at `confirmed` is finished forward by the next resumer, which is also where an update whose
+     record this helper could not tell was still its own (OwnershipUnknown) is left. */
   deps.hooks.before('H9', {});
   try { return finishUpdated(ctx); } catch (e) {
     if (e instanceof LostOwnership) throw e;
-    log(`the update is in, but its record could not be finished (code=${codeOf(e)})`);
+    log(`the update is in, but its record could not be finished (${describeError(e)})`);
     return { ok: true, outcome: 'updated', version: j.to.version };
   }
 }
@@ -970,9 +1062,15 @@ function unrecoverableCase(j) {
      a USB drive, a late BitLocker unlock or an offline share: `unreachable`, held, never settled. */
   const volume = path.parse(path.resolve(j.root)).root;
   if (volume && !exists(volume)) return { kind: 'unreachable', because: `the drive Kosmos is on (${volume}) is not connected` };
-  if (!exists(j.root)) return { kind: 'root-gone', because: `the Kosmos folder that update was changing (${j.root}) no longer exists` };
+  /* 🛑 ONLY ENOENT OR ENOTDIR PROVES A FOLDER GONE (presenceOf). ROOT or WORK answering anything else
+     (busy, access denied) is `unreachable` as well: held, never settled in words. */
+  const root = presenceOf(j.root);
+  if (root.state === 'unknown') return { kind: 'unreachable', because: `the Kosmos folder (${j.root}) cannot be reached right now (code=${root.code})` };
+  if (root.state === 'gone') return { kind: 'root-gone', because: `the Kosmos folder that update was changing (${j.root}) no longer exists` };
+  const work = presenceOf(j.work);
+  if (work.state === 'unknown') return { kind: 'unreachable', because: `its working folder ${j.work} cannot be reached right now (code=${work.code})` };
   let missing = null;
-  if (!exists(j.work)) missing = `its working folder ${j.work} is gone`;
+  if (work.state === 'gone') missing = `its working folder ${j.work} is gone`;
   else if (!j.recoverFrom.some((f) => exists(f))) missing = 'no copy of the updater that could put it back is left';
   if (!missing) return null;
   if (UNCHANGED_PHASES.includes(j.phase)) return { kind: 'nothing-moved', because: missing };
@@ -981,28 +1079,52 @@ function unrecoverableCase(j) {
 }
 
 /**
- * The lock a resumer needs, given what unrecoverableCase found.
- *   - ROOT gone: no lock. There is nothing left a lock protects (no tree, no WORK to hold one in),
- *     and every writer of this settlement writes the same finished record, atomically.
- *   - ROOT there, WORK gone: WORK is created again (empty, as prepare() creates it), and the one
- *     update lock is taken in it as always. Without this, taking the lock fails with ENOENT on every
- *     try, the resumer reads that as held, and the journal blocks updates forever. A helper whose
- *     WORK vanished under it has lost its lock file too, so nothing is excluded that was not already.
- * Returns `{ text }`, `{ none: true }` or `{ because }`.
+ * The lock a resumer needs, given what unrecoverableCase's look before the lock found.
+ *   - WORK there: the one update lock is taken, WHATEVER THE LOOK SAID. A live helper holds that
+ *     lock, and a look is not proof: ROOT can answer one lstat with ENOENT or EBUSY while the tree
+ *     and its helper are fine.
+ *   - WORK unknown (presenceOf): held, with the code.
+ *   - WORK and ROOT gone: no lock. There is nothing left a lock protects (no tree, no WORK to hold one
+ *     in), and every writer of this settlement writes the same finished record, atomically.
+ *   - ROOT there, WORK gone: WORK is created again (empty, as prepare() creates it), and the lock is
+ *     taken in it as always. Without this, taking the lock fails with ENOENT on every try, the
+ *     resumer reads that as held, and the journal blocks updates forever. A helper whose WORK vanished
+ *     under it has lost its lock file too, so nothing is excluded that was not already.
+ * Returns `{ text, madeWork? }`, `{ none: true }` or `{ because }`.
  */
 function lockForResume(ctx, found) {
+  const work = presenceOf(ctx.j.work);
+  if (work.state === 'there') return takeUpdateLock(ctx);
+  if (work.state === 'unknown') return { because: `the working folder cannot be reached right now (code=${work.code})` };
   if (found && found.kind === 'root-gone') return { none: true };
-  if (!exists(ctx.j.work)) {
-    try {
-      /* WORK itself, directly under an existing ROOT: the one write outside writeGuard, which admits
-         only paths strictly inside WORK. */
-      if (!samePath(path.dirname(ctx.j.work), ctx.j.root)) throw new Error('the working folder is not inside the Kosmos folder');
-      fs.mkdirSync(ctx.j.work);
-    } catch (e) {
-      return { because: `the working folder could not be made again (code=${codeOf(e)})` };
-    }
+  try {
+    /* WORK itself, directly under an existing ROOT: the one write outside writeGuard, which admits
+       only paths strictly inside WORK. */
+    if (!samePath(path.dirname(ctx.j.work), ctx.j.root)) throw new Error('the working folder is not inside the Kosmos folder');
+    fs.mkdirSync(ctx.j.work);
+  } catch (e) {
+    return { because: `the working folder could not be made again (code=${codeOf(e)})` };
   }
-  return takeUpdateLock(ctx);
+  const lock = takeUpdateLock(ctx);
+  return lock.text ? { ...lock, madeWork: true } : lock;
+}
+
+/**
+ * unrecoverableCase for the journal read again under the lock. The look before the lock can be stale,
+ * or wrong (ROOT answered once as gone while WORK was there), so it is asked again, except when the
+ * resumer made WORK again itself (its look saw WORK gone, which is exactly what it must settle) or
+ * took no lock (ROOT and WORK both gone: there is nothing more to look at).
+ */
+function judgedUnderLock(j, look, lock) {
+  if (lock.none || lock.madeWork) return look;
+  return unrecoverableCase(j);
+}
+
+/** Does a look that found the update unreachable end a resumer before the lock? Only when WORK cannot
+    be read either (a drive that is not connected). With WORK readable the lock is taken as always and
+    the case judged again under it, so one bad lstat of ROOT never walks past a live helper's lock. */
+function unreachableBeforeLock(j, found) {
+  return Boolean(found && found.kind === 'unreachable' && presenceOf(j.work).state !== 'there');
 }
 
 /** Settle an unfinished journal unrecoverableCase found. Returns `{ action, because? }`. */
@@ -1030,7 +1152,7 @@ function settleUnrecoverableJournal(journalAt, overrides) {
   if (read.state !== 'unfinished') return { action: 'nothing' };
   const found = unrecoverableCase(read.journal);
   if (!found) return { action: 'recoverable' };
-  if (found.kind === 'unreachable') return { action: 'unreachable', because: found.because };
+  if (unreachableBeforeLock(read.journal, found)) return { action: 'unreachable', because: found.because };
   refuseInTestWithoutSeams(overrides, 'settle', journalAt);
   const deps = depsFrom(overrides);
   const ctx = contextFor(journalAt, read.journal, deps, 'settle');
@@ -1041,9 +1163,13 @@ function settleUnrecoverableJournal(journalAt, overrides) {
     const again = lock.none ? read.journal : sameUnfinishedJournal(journalAt, read.journal.token);
     if (!again) return { action: 'nothing' };
     ctx.j = again;
-    return settleUnrecoverable(ctx, found);
+    const judged = judgedUnderLock(again, found, lock);
+    if (!judged) return { action: 'recoverable' };
+    if (judged.kind === 'unreachable') return { action: 'unreachable', because: judged.because };
+    return settleUnrecoverable(ctx, judged);
   } catch (e) {
-    if (e instanceof LostOwnership) return takenOver(ctx, e);
+    const stopped = stoppedWriting(ctx, e);
+    if (stopped) return stopped;
     throw e;
   } finally {
     releaseUpdateLock(ctx, lock);
@@ -1102,7 +1228,8 @@ async function applyJournal(journalAt, overrides) {
     if (refusal) return finishWithoutChange(ctx, refusal);
     return await runSteps(ctx);
   } catch (e) {
-    if (e instanceof LostOwnership) return takenOver(ctx, e);
+    const stopped = stoppedWriting(ctx, e);
+    if (stopped) return stopped;
     throw e;
   } finally {
     releaseUpdateLock(ctx, lock);
@@ -1132,7 +1259,7 @@ async function resumeJournal(journalAt, overrides) {
   if (stagedIsYoung(read.journal, deps.now())) return { ok: true, action: 'starting' };
   const ctx = contextFor(journalAt, read.journal, deps, 'resume');
   const found = unrecoverableCase(read.journal);
-  if (found && found.kind === 'unreachable') return { ok: true, action: 'unreachable', because: found.because };
+  if (unreachableBeforeLock(read.journal, found)) return { ok: true, action: 'unreachable', because: found.because };
   const lock = lockForResume(ctx, found);
   if (lock.because) return { ok: true, action: 'held', because: lock.because };
   ctx.lock = lock;
@@ -1142,7 +1269,9 @@ async function resumeJournal(journalAt, overrides) {
     if (!again) return { ok: true, action: 'nothing' };
     ctx.j = again;
     if (stagedIsYoung(ctx.j, deps.now())) return { ok: true, action: 'starting' };
-    if (found) return { ok: false, ...settleUnrecoverable(ctx, found) };
+    const judged = judgedUnderLock(again, found, lock);
+    if (judged && judged.kind === 'unreachable') return { ok: true, action: 'unreachable', because: judged.because };
+    if (judged) return { ok: false, ...settleUnrecoverable(ctx, judged) };
     ctx.j.helper = { pid: process.pid, mode: 'resume' };
     if (UNCHANGED_PHASES.includes(ctx.j.phase)) {
       if (ctx.j.phase === 'stopping') {
@@ -1158,7 +1287,8 @@ async function resumeJournal(journalAt, overrides) {
     if (ctx.j.phase === 'confirmed') return finishUpdated(ctx);
     return await rollBack(ctx, stoppedBecause(ctx.j));
   } catch (e) {
-    if (e instanceof LostOwnership) return takenOver(ctx, e);
+    const stopped = stoppedWriting(ctx, e);
+    if (stopped) return stopped;
     throw e;
   } finally {
     releaseUpdateLock(ctx, lock);
@@ -1184,7 +1314,7 @@ function recoverAtBoot(journalAt, overrides) {
   if (read.state !== 'unfinished') return { action: 'nothing' };
   const ctx = contextFor(journalAt, read.journal, deps, 'boot');
   const found = unrecoverableCase(read.journal);
-  if (found && found.kind === 'unreachable') return { action: 'unreachable', because: found.because };
+  if (unreachableBeforeLock(read.journal, found)) return { action: 'unreachable', because: found.because };
   const lock = lockForResume(ctx, found);
   if (lock.because) return { action: 'held', because: lock.because };
   ctx.lock = lock;
@@ -1192,7 +1322,9 @@ function recoverAtBoot(journalAt, overrides) {
     const again = lock.none ? read.journal : sameUnfinishedJournal(journalAt, read.journal.token);
     if (!again) return { action: 'nothing' };
     ctx.j = again;
-    if (found) return settleUnrecoverable(ctx, found);
+    const judged = judgedUnderLock(again, found, lock);
+    if (judged && judged.kind === 'unreachable') return { action: 'unreachable', because: judged.because };
+    if (judged) return settleUnrecoverable(ctx, judged);
     if (UNCHANGED_PHASES.includes(ctx.j.phase)) { finishWithoutChange(ctx, stoppedBecause(ctx.j)); return { action: 'not-started' }; }
     if (ctx.j.phase === 'confirmed') { finishUpdated(ctx); return { action: 'updated' }; }
     const tree = rollBackTree(ctx, stoppedBecause(ctx.j));
@@ -1205,7 +1337,8 @@ function recoverAtBoot(journalAt, overrides) {
     const r = concludeRollback(ctx, null);
     return { action: r.outcome };
   } catch (e) {
-    if (e instanceof LostOwnership) return takenOver(ctx, e);
+    const stopped = stoppedWriting(ctx, e);
+    if (stopped) return stopped;
     throw e;
   } finally {
     releaseUpdateLock(ctx, lock);
@@ -1232,7 +1365,8 @@ function abandonStagedJournal(journalAt, because, overrides) {
     finishWithoutChange(ctx, because);
     return { action: 'not-started' };
   } catch (e) {
-    if (e instanceof LostOwnership) return takenOver(ctx, e);
+    const stopped = stoppedWriting(ctx, e);
+    if (stopped) return stopped;
     throw e;
   } finally {
     releaseUpdateLock(ctx, lock);
