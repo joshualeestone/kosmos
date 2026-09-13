@@ -737,6 +737,46 @@ Checks 1 to 11 all need Josh's go (steps 8 to 11 destroy data on the box).
   - The real system was untouched afterwards: no real `Kosmos.lnk`, no real `Uninstall\Kosmos` key, no
     `KosmosTest` key, no `%LOCALAPPDATA%\Programs\Kosmos`, and `Kosmos\board` still running.
 
+## Round 7 review (fixed in round 8)
+
+- **Finding 1 [SAFETY, present since round 5]: the real board read as "not Kosmos" on a bind host address.**
+  - The real board sends its identity header only on its routed `GET /` 200 (`server.js`). A look through this
+    PC's own non-loopback address is answered BEFORE routing: a 400 from `pathOf` (a Host it does not route, or a
+    zoned Host `new URL` cannot parse) or a 403 from `remoteWriteGuard`, neither with the header. The
+    every-address look took that for "not Kosmos", and the uninstall deleted the runtime folder and the chats
+    under a live board.
+  - Fixed in the engine, not `server.js` (its early 400 and 403 are the security path). In
+    `probeBoardOnEveryAddress`, an HTTP answer without a Kosmos identity from any bind host address (anything
+    but the two fixed loopback probes, `127.0.0.1` and `::1`) is a new outcome, `unidentified`: `answering`
+    false, a board that may be open, ranked with `timed-out`. On the two loopback probes a board always routes
+    the look and names itself, so a web page there is still not Kosmos.
+  - It reads like a failed look: at the uninstall's first look, a board task that reads running goes on to be
+    switched off, ended and waited for; otherwise `cannotTellIfOpenSentence` ("Kosmos could not tell whether it
+    is still open", or "Another program" when no board task is registered). The move refuses with the same
+    sentence.
+  - **Known limit, fail closed:** a web service that is not Kosmos on the same port of a bind host address
+    stops the removal and the move.
+- **Finding 2 [NIT]: the wait for an ended board.** It stops once `BOARD_GONE_WAIT_MS` (10 s) has passed by
+  the clock AND at least `BOARD_GONE_MIN_LOOKS` (2) looks were made, or on the count bound, and never later than
+  `BOARD_GONE_CLOCK_MS` (25 s). Quick looks end it near 10 s again (0 s looks: 10 s; 2 s looks: 12 s), and the
+  slowest looks (12 s) still get two whole looks within 25 s.
+- **Finding 3 [NIT]: the look's worst case is enforced.** The answer limit is an idle timeout, so a listener
+  that sent a byte every 1.5 s kept one look alive for 16.6 s. A look with a connect limit now also ends, as
+  `timed-out`, by connect + answer in all, and an answer cut off before its end is not an answer.
+  `EVERY_ADDRESS_LOOK_WORST_MS` is true. The launcher's hand-off look is untouched.
+- **Finding 4 [NIT]: port 16180 in the tests.** The helpers default to port 9 (discard). Each of the four
+  suites that probe (`win32handoff`, `win32uninstall`, `win32relocate`, `win32uninstall.realboard`) wraps
+  `net.Socket.prototype.connect` so a connection to 16180 throws, and a self-test checks the refusal function
+  directly and that the wrapper is installed, without ever opening a socket.
+- **Finding 5 [NIT]: link-local edges.** Link-local is all of `fe80::/10` (a first group of `fe80` to `febf`);
+  an unzoned link-local address is looked on through EVERY interface that has it, all at once with the same
+  ranking; a scope id of 0 is no zone. `probeBoardOnEveryAddress` takes an `interfaces` seam for the tests.
+- **The tests.** `engine/win32uninstall.realboard.test.js` requires the REAL `server.js` (its roots sandboxed
+  first) and listens on this PC's own non-loopback address: a hand-started board stops the removal with
+  nothing changed and refuses the move; with the board task running the removal switches it off, ends it and
+  runs once the board goes. It skips in words when the PC has no usable address.
+- ROUND-8-RESULTS-PENDING
+
 ## Follow-ups (not this slice)
 
 - **A progress window while the uninstall runs (round 3, finding 5).** The uninstall helper has no time

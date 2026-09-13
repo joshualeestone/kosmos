@@ -24,6 +24,24 @@ const { ENTRIES } = require('./win32update');
 /* A refused connection: the only answer that proves no board is there (round 3, finding 1). */
 const NOBODY_ANSWERING = async () => ({ answering: false, outcome: 'refused', identity: null, startedByTask: null });
 
+/* Round 7, finding 4: the helpers use port 9 (discard), never a Kosmos board's. And nothing in this suite may
+   connect to 16180, the live board's port: a test that tries goes red instead of reaching it. */
+const PORT = 9;
+const LIVE_BOARD_PORT = 16180;
+function refuseTheLiveBoardPort(connectArgs) {
+  let options = connectArgs[0];
+  if (Array.isArray(options)) options = options[0];
+  const port = options && typeof options === 'object' ? options.port : options;
+  if (Number(port) === LIVE_BOARD_PORT) throw new Error('this suite tried to connect to port 16180, the live board');
+}
+{
+  const connect = net.Socket.prototype.connect;
+  net.Socket.prototype.connect = function connectAnywhereButTheLiveBoard(...args) {
+    refuseTheLiveBoardPort(args);
+    return connect.apply(this, args);
+  };
+}
+
 function scratch() {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-relocate-'));
   return { base, from: path.join(base, 'Downloads', 'kosmos-win-x64'), to: path.join(base, 'Local', 'Programs', 'Kosmos') };
@@ -54,7 +72,7 @@ function withPersonsThings(root) {
 function move(s, extra) {
   const anchored = [];
   const p = relocator.relocate({
-    from: s.from, to: s.to, port: 16180, probe: NOBODY_ANSWERING, readPointer: () => null,
+    from: s.from, to: s.to, port: PORT, probe: NOBODY_ANSWERING, readPointer: () => null,
     anchor: (spec) => { anchored.push(spec); return { ok: true }; }, pidState: () => 'alive',
     liveExecutionAllowed: () => true, ...extra,
   });
@@ -95,7 +113,7 @@ test('🛑 in a test process the real anchor is never reached: a move without an
   const s = scratch();
   try {
     build(s.from);
-    await assert.rejects(relocator.relocate({ from: s.from, to: s.to, port: 16180, probe: NOBODY_ANSWERING, readPointer: () => null, pidState: () => 'alive', liveExecutionAllowed: () => true }),
+    await assert.rejects(relocator.relocate({ from: s.from, to: s.to, port: PORT, probe: NOBODY_ANSWERING, readPointer: () => null, pidState: () => 'alive', liveExecutionAllowed: () => true }),
       /a test must pass an anchor seam/);
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
 });
@@ -304,7 +322,7 @@ test('🛑 without the confirm nothing is copied; the move CLI is a dry run unti
   const s = scratch();
   try {
     build(s.from);
-    const r = await relocator.relocate({ from: s.from, to: s.to, port: 16180, probe: NOBODY_ANSWERING, readPointer: () => null, anchor: () => ({ ok: true }) });
+    const r = await relocator.relocate({ from: s.from, to: s.to, port: PORT, probe: NOBODY_ANSWERING, readPointer: () => null, anchor: () => ({ ok: true }) });
     assert.equal(r.ok, false);
     assert.match(r.because, /moving it was not confirmed/);
     assert.ok(!fs.existsSync(s.to));
@@ -557,4 +575,13 @@ test('🛑 round 6 finding 1, real listener: with KOSMOS_BIND_HOST set to this P
     const r = await move(s, { port: chosen.port, probe: undefined, env: { ...process.env, KOSMOS_BIND_HOST: chosen.address } });
     assert.equal(r.action, 'moved', 'C: nothing listening on ' + chosen.address + ' refused the move: ' + JSON.stringify(shape(r)));
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+test('🛑 round 7 finding 4: no test in this suite can connect to 16180, the live board\'s port', () => {
+  /* The check itself, never a socket: even with the check removed, this test cannot send anything to 16180. */
+  assert.throws(() => refuseTheLiveBoardPort([{ host: '127.0.0.1', port: LIVE_BOARD_PORT }]), /16180/);
+  assert.throws(() => refuseTheLiveBoardPort([[{ host: '127.0.0.1', port: LIVE_BOARD_PORT }, null]]), /16180/);
+  assert.throws(() => refuseTheLiveBoardPort([LIVE_BOARD_PORT, '127.0.0.1']), /16180/);
+  assert.doesNotThrow(() => refuseTheLiveBoardPort([{ host: '127.0.0.1', port: 9 }]));
+  assert.equal(net.Socket.prototype.connect.name, 'connectAnywhereButTheLiveBoard', 'the check is not on every connection');
 });

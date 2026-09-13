@@ -217,15 +217,22 @@ function thisBootsWorldAttempt(deps) {
  *                      so this is also a connect that did not finish, or a refusal slower than 2 s, which
  *                      Windows gives on this PC's own non-loopback addresses
  *   connect-timed-out  with a connect limit only: the connection was not made within CONNECT_TIMEOUT_MS
+ *   unidentified       the every-address look only (round 7, finding 1): an HTTP answer without a Kosmos
+ *                      identity from a bind host address. The real board answers a look there before routing
+ *                      it (a 400 for a Host it does not route, a 403 from its remote guard), without the
+ *                      identity header, so any HTTP answer there may be a board. `answering` is false for it.
  *   error              any other failure to look: a reset, an unreachable address, a reply that is not HTTP
+ * With a connect limit a look also ends, as `timed-out`, by CONNECT_TIMEOUT_MS + PROBE_TIMEOUT_MS in all.
  * `answering` is false for every outcome but answered, as it always was, so the hand-off and the board
  * restart read a slow board as they always did. See boardMayBeOpen.
  */
-const PROBE_OUTCOMES = Object.freeze({ ANSWERED: 'answered', REFUSED: 'refused', TIMED_OUT: 'timed-out', CONNECT_TIMED_OUT: 'connect-timed-out', ERROR: 'error' });
+const PROBE_OUTCOMES = Object.freeze({ ANSWERED: 'answered', REFUSED: 'refused', TIMED_OUT: 'timed-out', CONNECT_TIMED_OUT: 'connect-timed-out', UNIDENTIFIED: 'unidentified', ERROR: 'error' });
 
 /* Where the launcher's hand-off looks, and one of the two loopbacks the uninstall and the move look on. */
 const BOARD_LOOPBACK_V4 = '127.0.0.1';
 const BOARD_LOOPBACK_V6 = '::1';
+/* The two looks every every-address look makes, whose Host a board always routes. */
+const LOOPBACK_PROBES = new Set([BOARD_LOOPBACK_V4, BOARD_LOOPBACK_V6]);
 /* Bind hosts the two loopback probes already cover: loopback itself, and the wildcards, which accept
    loopback connections. */
 const BIND_HOSTS_COVERED_BY_LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost', '0.0.0.0', '::']);
@@ -268,8 +275,9 @@ function probeBoard(port, host, options) {
     let timedOut = false;
     let connectTimedOut = false;
     let connectTimer = null;
+    let deadlineTimer = null;
     let settled = false;
-    const settle = (answer) => { if (!settled) { settled = true; clearTimeout(connectTimer); resolve(answer); } };
+    const settle = (answer) => { if (!settled) { settled = true; clearTimeout(connectTimer); clearTimeout(deadlineTimer); resolve(answer); } };
     const request = { host: host || BOARD_LOOPBACK_V4, port, path: '/' };
     if (!connectLimit) {
       request.timeout = PROBE_TIMEOUT_MS;
@@ -288,8 +296,15 @@ function probeBoard(port, host, options) {
       const named = res.headers[BOARD_IDENTITY_HEADER];
       const startedByTask = startedByTaskFromHeader(res.headers[BOARD_STARTED_BY_TASK_HEADER]);
       res.on('end', () => settle({ answering: true, outcome: PROBE_OUTCOMES.ANSWERED, identity: typeof named === 'string' && named ? named : null, startedByTask }));
+      /* With a connect limit, an answer cut off before its end (by the deadline below, or the board going) is not
+         an answer. */
+      if (connectLimit) res.on('close', () => settle({ answering: false, outcome: outcomeOfFailedLook(null, timedOut, connectTimedOut), identity: null, startedByTask: null }));
     });
     if (connectLimit) {
+      /* Round 7, finding 3, measured: the answer limit is an idle timeout, so a listener that sends a byte every
+         1.5 s kept one look alive for 16.6 s. So a look with a connect limit also ends, as `timed-out`, by
+         CONNECT + ANSWER in all, which is what EVERY_ADDRESS_LOOK_WORST_MS counts. */
+      deadlineTimer = setTimeout(() => { timedOut = true; req.destroy(new Error('look deadline')); }, connectLimit + PROBE_TIMEOUT_MS);
       req.on('socket', (socket) => {
         const limitTheAnswer = () => { clearTimeout(connectTimer); req.setTimeout(PROBE_TIMEOUT_MS); };
         if (!socket.connecting) { limitTheAnswer(); return; }
@@ -344,29 +359,38 @@ function canonicalAddress(bare) {
  * same link-local address on another adapter is another address.
  *
  * Round 6, finding 1: a link-local address WITHOUT a zone (as a host name's lookup gives this PC's own) is
- * reached only through its interface, so it is probed with that interface's zone. `interfaces` replaces
- * os.networkInterfaces() in a test.
+ * reached only through its interface, so it is probed with that interface's zone. Round 7, finding 5: every
+ * interface that has it, since the same link-local address can be on two adapters and the board on either;
+ * link-local is all of fe80::/10; and a scope id of 0 is no zone. Returns every spelling to probe it by, or
+ * none when it is not this machine's. `interfaces` replaces os.networkInterfaces() in a test.
  */
-function thisMachinesSpelling(address, interfaces) {
+function thisMachinesSpellings(address, interfaces) {
   const text = String(address);
   const at = text.indexOf('%');
   const bare = canonicalAddress(at < 0 ? text : text.slice(0, at));
   const zone = at < 0 ? null : text.slice(at + 1).toLowerCase();
   const kind = require('node:net').isIP(bare);
-  if (kind === 0) return null;
-  if ((kind === 4 && bare.startsWith('127.')) || bare === '::1') return text;
+  if (kind === 0) return [];
+  if ((kind === 4 && bare.startsWith('127.')) || bare === '::1') return [text];
   const all = interfaces || require('node:os').networkInterfaces();
+  const spellings = [];
   for (const [name, list] of Object.entries(all)) {
     for (const i of list || []) {
       if (canonicalAddress(String(i.address)) !== bare) continue;
       if (zone !== null) {
-        if (String(i.scopeid) === zone || name.toLowerCase() === zone) return text;
+        if (String(i.scopeid) === zone || name.toLowerCase() === zone) return [text];
         continue;
       }
-      return /^fe80:/i.test(bare) && i.scopeid ? bare + '%' + i.scopeid : text;
+      const spelling = isLinkLocalAddress(bare) && i.scopeid ? bare + '%' + i.scopeid : text;
+      if (!spellings.includes(spelling)) spellings.push(spelling);
     }
   }
-  return null;
+  return spellings;
+}
+
+/* fe80::/10, the link-local range: its first ten bits are 1111111010, so its first group is fe80 to febf. */
+function isLinkLocalAddress(bare) {
+  return /^fe[89ab][0-9a-f]:/i.test(bare);
 }
 
 /**
@@ -380,7 +404,7 @@ function thisMachinesSpelling(address, interfaces) {
  * resolve, or does not resolve within BIND_HOST_LOOKUP_TIMEOUT_MS, adds nothing: a board could not have
  * bound it either. `lookup` replaces dns.lookup in a test.
  */
-async function bindHostProbeAddresses(env, lookup) {
+async function bindHostProbeAddresses(env, lookup, interfaces) {
   const bound = require('./bindhost').bindHost(env).replace(/^\[(.*)\]$/, '$1');
   if (!bound || BIND_HOSTS_COVERED_BY_LOOPBACK.has(bound.toLowerCase())) return [];
   let found = [bound];
@@ -399,7 +423,7 @@ async function bindHostProbeAddresses(env, lookup) {
       clearTimeout(timer);
     }
   }
-  return found.map((address) => thisMachinesSpelling(address)).filter(Boolean);
+  return found.flatMap((address) => thisMachinesSpellings(address, interfaces));
 }
 
 /**
@@ -408,9 +432,9 @@ async function bindHostProbeAddresses(env, lookup) {
  * connections, so the loopbacks cover it. A board bound to an address set only in ANOTHER process's
  * environment cannot be seen from here; the board task's state is the backstop (the plan's known limits).
  */
-async function boardProbeAddresses(env, lookup) {
+async function boardProbeAddresses(env, lookup, interfaces) {
   const addresses = [BOARD_LOOPBACK_V4, BOARD_LOOPBACK_V6];
-  for (const address of await bindHostProbeAddresses(env, lookup)) {
+  for (const address of await bindHostProbeAddresses(env, lookup, interfaces)) {
     if (!addresses.some((known) => known.toLowerCase() === address.toLowerCase())) addresses.push(address);
   }
   return addresses;
@@ -422,7 +446,7 @@ async function boardProbeAddresses(env, lookup) {
    address never hides a timeout or a failed look on another. */
 function opennessRank(answer) {
   if (isKosmosBoardAnswer(answer)) return answer.startedByTask === true ? 1 : 0;
-  if (answer.outcome === PROBE_OUTCOMES.TIMED_OUT || answer.outcome === PROBE_OUTCOMES.CONNECT_TIMED_OUT) return 2;
+  if ([PROBE_OUTCOMES.TIMED_OUT, PROBE_OUTCOMES.CONNECT_TIMED_OUT, PROBE_OUTCOMES.UNIDENTIFIED].includes(answer.outcome)) return 2;
   if (answer.answering) return 4;
   if (answer.outcome === PROBE_OUTCOMES.REFUSED) return 5;
   return 3;
@@ -433,16 +457,26 @@ function opennessRank(answer) {
  * slowest probe rather than their sum (plus resolving a bind host name, when there is one). The most open
  * answer wins, with the address it came from (`host`). The uninstall and the move read it with
  * boardMayBeOpen; the launcher's hand-off does not use it and still asks 127.0.0.1 alone (#2983).
- * `probeOne` replaces probeBoard and `lookup` replaces dns.lookup in a test.
+ * `probeOne` replaces probeBoard, `lookup` replaces dns.lookup, and `interfaces` replaces os.networkInterfaces()
+ * in a test.
  */
-async function probeBoardOnEveryAddress(port, env, probeOne, lookup) {
+async function probeBoardOnEveryAddress(port, env, probeOne, lookup, interfaces) {
   const look = typeof probeOne === 'function' ? probeOne : probeBoard;
-  const answers = await Promise.all((await boardProbeAddresses(env, lookup)).map(async (host) => {
+  const answers = await Promise.all((await boardProbeAddresses(env, lookup, interfaces)).map(async (host) => {
+    let answer;
     try {
-      return { ...(await look(port, host, { connectTimeoutMs: CONNECT_TIMEOUT_MS })), host };
+      answer = { ...(await look(port, host, { connectTimeoutMs: CONNECT_TIMEOUT_MS })), host };
     } catch {
       return { answering: false, outcome: PROBE_OUTCOMES.ERROR, identity: null, startedByTask: null, host };
     }
+    /* Round 7, finding 1: on a bind host address the real board answers a look BEFORE routing it (a 400 for a
+       Host it does not route, a 403 from its remote guard), and those answers carry no identity header. So
+       there any HTTP answer without a Kosmos identity may be a board. On the two loopback probes a board
+       always routes the look and names itself, so an answer without an identity there is not Kosmos. */
+    if (!LOOPBACK_PROBES.has(host) && answer.answering && !isKosmosBoardAnswer(answer)) {
+      return { answering: false, outcome: PROBE_OUTCOMES.UNIDENTIFIED, identity: null, startedByTask: null, host };
+    }
+    return answer;
   }));
   return answers.reduce((most, answer) => (opennessRank(answer) < opennessRank(most) ? answer : most));
 }

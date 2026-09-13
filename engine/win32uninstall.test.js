@@ -31,7 +31,23 @@ const uninstaller = require('./win32uninstall');
 
 const WINDOWS_FOLDERS = { skip: process.platform !== 'win32' && 'the folder arms delete Windows-joined paths, which are only real folders on Windows' };
 const NOT_FOUND = { ok: false, out: 'ERROR: The system cannot find the file specified.' };
-const PORT = 16180;
+/* Round 7, finding 4: port 9 (discard), never a Kosmos board's. And nothing in this suite may connect to 16180,
+   the live board's port: a test that tries goes red instead of reaching it. */
+const PORT = 9;
+const LIVE_BOARD_PORT = 16180;
+function refuseTheLiveBoardPort(connectArgs) {
+  let options = connectArgs[0];
+  if (Array.isArray(options)) options = options[0];
+  const port = options && typeof options === 'object' ? options.port : options;
+  if (Number(port) === LIVE_BOARD_PORT) throw new Error('this suite tried to connect to port 16180, the live board');
+}
+{
+  const connect = net.Socket.prototype.connect;
+  net.Socket.prototype.connect = function connectAnywhereButTheLiveBoard(...args) {
+    refuseTheLiveBoardPort(args);
+    return connect.apply(this, args);
+  };
+}
 /* A refused connection: the only answer that proves no board is there (round 3, finding 1). */
 const NOBODY = { answering: false, outcome: 'refused', identity: null, startedByTask: null };
 const NOBODY_ANSWERING = async () => NOBODY;
@@ -1183,4 +1199,41 @@ test('🛑 round 6 finding 1: the wait for an ended board allows at least two wh
     assert.ok(answers.count() >= 1 + 2, 'the wait gave up after ' + (answers.count() - 1) + ' look(s) of ' + handoff.EVERY_ADDRESS_LOOK_WORST_MS + ' ms each');
     assert.equal(uninstaller.BOARD_GONE_CLOCK_MS, Math.max(uninstaller.BOARD_GONE_WAIT_MS, 2 * (handoff.EVERY_ADDRESS_LOOK_WORST_MS + uninstaller.FOLDER_DELETE_WAIT_MS)));
   } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+});
+
+/* ---- the round 7 review, fixed in round 8 ------------------------------------ */
+
+test('🛑 round 7 finding 2: the wait for an ended board ends near 10 s when looks are quick, and still gives the slowest looks two whole looks within 25 s', WINDOWS_FOLDERS, async () => {
+  for (const spends of [0, 2000, handoff.EVERY_ADDRESS_LOOK_WORST_MS]) {
+    const s = sandbox();
+    try {
+      stubSchedulers({ lists: [listing(['Kosmos\\board']), listing([])], boardXml: boardDefinition(true) });
+      let clock = 0;
+      const answers = probeSequence(TASK_BOARD, TIMED_OUT);
+      const r = await run(s, {
+        probe: async (port) => { clock += spends; return answers(port); },
+        sleep: async (ms) => { clock += ms; },
+        now: () => clock,
+      });
+      assert.equal(r.stillOpen, true, spends + ' ms looks: ' + JSON.stringify(r));
+      const waitLooks = answers.count() - 1;
+      const waitMs = clock - spends;
+      if (spends < 5000) {
+        assert.ok(waitMs <= uninstaller.BOARD_GONE_WAIT_MS + spends + uninstaller.FOLDER_DELETE_WAIT_MS,
+          spends + ' ms looks: the wait ran ' + waitMs + ' ms, not about ' + uninstaller.BOARD_GONE_WAIT_MS + ' ms');
+      } else {
+        assert.ok(waitLooks >= 2, spends + ' ms looks: the wait gave up after ' + waitLooks + ' look(s)');
+      }
+      assert.ok(waitMs <= uninstaller.BOARD_GONE_CLOCK_MS, spends + ' ms looks: the wait ran ' + waitMs + ' ms, past its hard bound');
+    } finally { fs.rmSync(s.base, { recursive: true, force: true }); }
+  }
+});
+
+test('🛑 round 7 finding 4: no test in this suite can connect to 16180, the live board\'s port', () => {
+  /* The check itself, never a socket: even with the check removed, this test cannot send anything to 16180. */
+  assert.throws(() => refuseTheLiveBoardPort([{ host: '127.0.0.1', port: LIVE_BOARD_PORT }]), /16180/);
+  assert.throws(() => refuseTheLiveBoardPort([[{ host: '127.0.0.1', port: LIVE_BOARD_PORT }, null]]), /16180/);
+  assert.throws(() => refuseTheLiveBoardPort([LIVE_BOARD_PORT, '127.0.0.1']), /16180/);
+  assert.doesNotThrow(() => refuseTheLiveBoardPort([{ host: '127.0.0.1', port: 9 }]));
+  assert.equal(net.Socket.prototype.connect.name, 'connectAnywhereButTheLiveBoard', 'the check is not on every connection');
 });

@@ -352,15 +352,20 @@ function sleeperFor(o) {
 }
 
 /* Waits through answers AND timeouts: a board that stops answering in time is not a board that went.
-   Bounded by the count, and by the clock (BOARD_GONE_CLOCK_MS), because a slow look spends its own time
-   on top of each wait. */
+   Round 7, finding 2: it stops once BOARD_GONE_WAIT_MS has passed by the clock and at least
+   BOARD_GONE_MIN_LOOKS looks were made, or on the count bound, and never later than BOARD_GONE_CLOCK_MS. So
+   quick looks end it near BOARD_GONE_WAIT_MS, as before round 6, and the slowest looks still get two whole
+   looks. */
 async function waitForBoardToGo(port, o) {
   const sleep = sleeperFor(o);
   const now = typeof o.now === 'function' ? o.now : Date.now;
   const started = now();
-  for (let waited = 0; ; waited += FOLDER_DELETE_WAIT_MS) {
+  for (let waited = 0, looks = 1; ; waited += FOLDER_DELETE_WAIT_MS, looks += 1) {
     if (!(await boardOnPort(port, o)).answering) return true;
-    if (waited >= BOARD_GONE_WAIT_MS || now() - started >= BOARD_GONE_CLOCK_MS) return false;
+    const elapsed = now() - started;
+    if (waited >= BOARD_GONE_WAIT_MS) return false;
+    if (elapsed >= BOARD_GONE_WAIT_MS && looks >= BOARD_GONE_MIN_LOOKS) return false;
+    if (elapsed >= BOARD_GONE_CLOCK_MS) return false;
     await sleep(FOLDER_DELETE_WAIT_MS);
   }
 }
@@ -388,7 +393,8 @@ function putBoardSwitchBack(boardSwitch, notes) {
  *   - the task cannot be read: round 3's stop, "Kosmos is still open";
  *   - the task is not proven running, and the look timed out, or its connection was not made in time
  *     (round 6, finding 1): something that may be a hand-started board, "Kosmos is still open";
- *   - the task is not proven running, and the look failed: win32handoff.cannotTellIfOpenSentence, which
+ *   - the task is not proven running, and the look failed, or a bind host address gave an HTTP answer without a
+ *     Kosmos identity (`unidentified`, round 7, finding 1): win32handoff.cannotTellIfOpenSentence, which
  *     names another program only when the task is known not to be registered (round 5, finding 5). A
  *     connection that was reset is NOT taken as "not Kosmos", because a board mid-restart resets
  *     connections too.
