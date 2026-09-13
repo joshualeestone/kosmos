@@ -125,6 +125,13 @@ async function measure(page) {
     chk(tall.boxBottom > tall.innerHeight - TOL,
       'A1 tall window: the Talk box fills to near the viewport bottom (control: pre-change it sat far above)',
       'boxBottom=' + tall.boxBottom + ' innerHeight=' + tall.innerHeight + ' gap=' + tall.gapBelowBox);
+    // A1b tightens A1: the box bottom should sit ~64px above the window bottom (the body's
+    // bottom padding), directly validating the 157px offset. A1's TOL=130 is deliberately
+    // loose so it discriminates the pre-change hundreds-of-px gap; this arm catches a chrome
+    // or offset drift of tens of px that would slip under that slack.
+    chk(tall.gapBelowBox >= 45 && tall.gapBelowBox <= 85,
+      'A1b the box bottom sits ~64px above the window bottom (validates the 157px offset directly)',
+      'gap=' + tall.gapBelowBox);
     chk(tall.boxBottom < tall.innerHeight + 40,
       'A3 tall window: the box does not massively overshoot the viewport',
       'boxBottom=' + tall.boxBottom + ' innerHeight=' + tall.innerHeight);
@@ -182,9 +189,13 @@ async function measure(page) {
       'snavHeight=' + narrowNav.snavHeight + ' boxHeight=' + narrowNav.boxHeight);
 
     // --- Live-question (#d-qask) in a SHORT window: the answer options + composer must stay
-    // reachable. With the thread shrunk to 0 they can exceed the fixed-height box; the box's
-    // overflow-y:auto fallback must let them be scrolled to. Control: pre-fix (overflow-y
-    // visible) the box cannot scroll, so an overflowing composer is unreachable. ---
+    // reachable. This guards a failure mode the FILL ITSELF introduces, NOT a pre-change
+    // control (pre-change #d-talk-box had no constrained height, so it never overflowed and
+    // the page scrolled): the fixed panel height can clip the non-thread children once the
+    // thread has shrunk to 0, so the box's overflow-y:auto fallback must let them be scrolled
+    // to. A9a first asserts the overflow was genuinely created (so A9b is not vacuous), then
+    // A9b asserts the box scrolls and the composer is reachable; toggling overflow-y off would
+    // red A9b, which is the within-fix control. ---
     await page.setViewportSize({ width: 1400, height: 440 });
     await page.evaluate(() => {
       const q = document.getElementById('d-qask');
@@ -210,9 +221,12 @@ async function measure(page) {
       return { overflows, overflowY: getComputedStyle(box).overflowY, composerWithinBox: cr.bottom <= br.bottom + 4 };
     });
     console.log('MEASURE qask-short(1400x440): ' + JSON.stringify(qask));
-    chk(!qask.overflows || (qask.overflowY === 'auto' && qask.composerWithinBox),
-      'A9 with a live question in a short window, the composer stays reachable (the box scrolls when content overflows)',
-      'overflows=' + qask.overflows + ' overflowY=' + qask.overflowY + ' composerWithinBox=' + qask.composerWithinBox);
+    chk(qask.overflows === true,
+      'A9a the injected live question genuinely overflows the fixed-height box (so A9b is not vacuous)',
+      'overflows=' + qask.overflows + ' (box scrollHeight > clientHeight)');
+    chk(qask.overflowY === 'auto' && qask.composerWithinBox,
+      'A9b the box scrolls so the composer stays reachable when a live question overflows',
+      'overflowY=' + qask.overflowY + ' composerWithinBox=' + qask.composerWithinBox);
 
     // Clear the injected question so the scoping guard below sees a normal talk section.
     await page.evaluate(() => { const q = document.getElementById('d-qask'); if (q) q.hidden = true; });
