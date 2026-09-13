@@ -902,3 +902,16 @@ CI-flake fix, two notes, then the rebase and the proof.
   now say "open Kosmos from the Start menu" and "remove it from Settings > Apps". That copy pass is
   held until this ships to users.
 - Uninstall key: `InstallDate`, and an AppUserModelID if a tray icon lands.
+- **A browser check for the start-at-sign-in switch that does not time out over `file://` (Addresses #3010).**
+  `docs/browser-checks/render-win32-start-at-sign-in.js` was written (rendered + clicked, chromium +
+  webkit) but the `browser-checks` CI job failed with `page.click: Timeout 30000ms` on
+  `#set-machine [data-start-at-sign-in]`. Two informed attempts (un-hiding the container; then opening
+  the Settings view the app's way via `showTab('settings')`/`settingsOpen('mac')` and waiting for the
+  visible switch) did not clear the hit-test timeout over `file://`, and the check cannot run locally on
+  the Windows box (no Playwright/WebKit). Per the bounded plan it was removed (commit removing the file
+  plus its README row, the `.github/workflows/browser-checks.yml` allowlist entry, and the
+  `tools/browser-checks.sh` loop token), and the surface was covered with a `Browser-check:` trailer plus
+  a per-check `Browser-check-surface:` trailer. The switch stays covered at the DOM level by
+  `web.win32-start-at-sign-in.test.js`. The follow-up adds a browser check that does not time out (serve
+  over http in the check, or find why the Settings-view switch is not hit-testable under `file://` while
+  the board-copy check on the same page is).
