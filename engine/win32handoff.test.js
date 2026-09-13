@@ -145,6 +145,39 @@ test('update by hand: an older task board is given the grace period, ended, and 
     'the old board stays up long enough for the browser to redeem its boot nonce there');
 });
 
+test('#2973 a task whose running state could not be read is never ended: serve here, and say so', async () => {
+  for (const status of [
+    { known: true, registered: true, enabled: true, running: null },
+    { known: false, registered: false, because: 'ERROR: Access is denied.' },
+  ]) {
+    const w = world({ occupant: OLDER, taskRunning: true });
+    w.board.status = () => status;
+    const r = await handOffToTask(w.opts());
+    assert.equal(r.serve, true);
+    assert.match(r.because, /could not tell whether the logon task started what is already using port 16180/);
+    assert.deepEqual(w.taskOps(), [], 'nothing ended, nothing run');
+  }
+});
+
+test('#2973 German Windows: the REAL status read sees the task running, so the older board is replaced', async () => {
+  const realBoard = require('./win32board');
+  realBoard.setRunner((args) => {
+    if (args.includes('/XML')) return { ok: true, out: '<?xml version="1.0" encoding="UTF-16"?>\r\n<Task><Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy></Settings></Task>' };
+    if (args.includes('/V')) return { ok: true, out: '"BUERO-PC","\\Kosmos\\board","N/A","Wird ausgeführt","Nur interaktiv","12.09.2026 22:41:43","267009","N/A"\r\n' };
+    if (args.includes('LIST')) return { ok: true, out: 'Hostname: BUERO-PC\r\nAufgabenname: \\Kosmos\\board\r\nStatus: Wird ausgeführt\r\n' };
+    return { ok: false, out: 'FEHLER: Zugriff verweigert' };
+  });
+  try {
+    const w = world({ occupant: OLDER, taskRunning: true });
+    const board = { ...w.board, status: () => realBoard.status() };
+    const r = await handOffToTask(w.opts({ board }));
+    assert.equal(r.serve, false, r.because);
+    assert.deepEqual(w.taskOps(), ['end', 'run']);
+  } finally {
+    realBoard.setRunner(null);
+  }
+});
+
 test('🛑 the SAME version from a different commit is an update, not "already running"', async () => {
   /* Windows zips are cut from main between version bumps, so two 0.6.55 zips can
      carry different code. The build identity includes the commit. */
