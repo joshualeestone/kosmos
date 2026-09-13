@@ -1572,7 +1572,7 @@ function restoreInner(name, platform) {
      more existsSync/read edges, enumerated rather than guarded because both are
      unreachable under the account lifecycle and the sibling checks in this file do
      not guard them either:
-      - `create.readJob(clean)` reads `plistPath(clean)` with a plain readFileSync,
+      - on a Mac, `create.readJob(clean, undefined, platform)` reads `plistPath(clean)` with a plain readFileSync,
         which is case-insensitive too -- so a HAND-DELETED plist for `clean` plus a
         live case-variant same-stem agent (`CASEY` vs `casey`, the exact shape this
         file's `existsExactly` history records) could read the OTHER agent's job and

@@ -111,6 +111,67 @@ Mac-assumption failures).
   Windows host: `accountForAgent`, `status.readCodexSession`, `recordedRunner`. Mac CI
   is unaffected.
 
+## Review log
+
+### Round 1 (opus): not converged, with 1 SAFETY, 1 BUG and NITs. Coordinator decisions applied.
+
+Before this round the coordinator rebased the branch onto origin/main 9ceed247
+(66079834). All 8 patches were byte-identical.
+
+**SAFETY: a setter re-enabled a REMOVED agent's Scheduled Task.** Remove (and a
+#1704 pause) disables the task. The setters re-register with `/Create /F`, and
+`taskXml` always wrote `<Enabled>true</Enabled>`. The model, provider and account
+routes do not check `isRemoved`, so the task came back enabled and started at the
+next logon. On the Mac a plist rewrite leaves `launchctl disable` in force.
+- Fix: `rewriteAgentJob`'s win32 arm reads the task's state first
+  (`win32job.presence`), and passes it as `enabled` through `win32AgentSpec` into
+  `taskXml`, so the one definition keeps the switch. There is no follow-up
+  `/DISABLE`.
+- A state that cannot be read refuses the change, and so does a task that vanished
+  between the read and the write.
+- Creation passes nothing, so its task stays enabled.
+- A #1704 paused task is disabled the same way (`worldstarts.jobIsSwitchedOff` reads
+  the same state), so it is covered.
+- Tests: every setter keeps a disabled task disabled and an enabled one enabled; an
+  unreadable state refuses with no `/Create`; `taskXml` honours `enabled: false`, and
+  writes true when told nothing. Controls C12, C13, C15 and C16 went red.
+
+**BUG: a Windows codex account change did not reach the codex process.**
+`win32launch.childEnv` only ever set `CLAUDE_CONFIG_DIR`, so a codex agent moved to a
+named OpenAI home was told "runs on X now" and kept reading `~/.codex`.
+- Fix: the key per runner is stated once in the leaf `win32argv.accountEnvVar`, which
+  `create.plistFor` now uses (Mac output unchanged). `childEnv` sets `CODEX_HOME` for a
+  codex agent with a recorded named home. Both launch call sites pass `s.runner`.
+- A default-home codex agent gets no CODEX_HOME written and keeps inheriting as
+  before. `CLAUDE_CONFIG_DIR` handling is unchanged for every runner.
+- Tests: `childEnv` per runner and home; the key matches the plist's; a codex account
+  change round-trips through the registered task into `launchStreaming`'s spawn env.
+  Control C14 went red.
+- **Live agents affected at their next restart:** ONLY Windows codex agents whose task
+  records a named codex home (argument four set). They now get `CODEX_HOME` = that
+  home, which is the home they were meant to run on. Default-home codex agents and all
+  Claude agents start with exactly the environment they had.
+
+**NITs:** reworded the plist-only comments so they name the platform-following job
+read: the `setProvider` header item 2, server.js's runner comments (the ninth argument,
+two places), and remove.js's `create.readJob(clean)` bullet.
+
+**Verification, round 1.** All runs used the schtasks preload, with APPDATA and
+LOCALAPPDATA pointed at scratch.
+- Named suites: the reviewer's pattern plus win32launch and win32supervisor, as
+  explicit files. Baseline is a git archive of 9ceed247.
+  - Baseline: 51 files, 891 tests, 153 fail.
+  - Branch: 52 files, 921 tests, 167 fail.
+  - By name: 15 new, all of them the known Windows-host set (#2250 recordedRunner;
+    the status codex readers #2257, #2413, #2803 and #2906; codex observed recording).
+    None is new since round 0.
+  - One name fixed: "no file is tracked under a path an unset variable produced".
+    The archive baseline has no .git.
+  - schtasks attempts blocked: 268 on the baseline, 0 on the branch.
+- Unit: the new file plus win32launch, win32job, worldimport and win32supervisor, 184 of 184.
+- Revert controls: C1-C3 and C5-C16 went red with byte-exact restores. C4's target line
+  was rewritten by the spawned-board guard, which C11 now covers.
+
 ## Out of scope, noted
 
 - `remove.restart`'s "was not started by Kosmos" on win32 when schtasks cannot

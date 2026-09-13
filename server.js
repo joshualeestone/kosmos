@@ -6814,7 +6814,8 @@ const server = http.createServer((req, res) => {
    * working-agent-behaves-like-a-blank-one hazard). Pinned by
    * server.disconnect-stop-2570.test.js's null-configDir default-agent arm.
    * 📌 `readJob` normalises a MISSING runner to 'claude', because every plist
-   * written before runners existed carries no ninth argument -- so the filter
+   * written before runners existed carries no ninth argument (a Windows task with
+   * no runner argument reads the same way, through win32argv) -- so the filter
    * below cannot silently skip an old Claude agent. That one IS load-bearing.
    */
   if (pathname === '/api/accounts/claude' && req.method === 'DELETE') {
@@ -8847,8 +8848,8 @@ const server = http.createServer((req, res) => {
                - the `@kosmos_runner` session marker, which SURVIVES A CRASH back
                  to a shell (`engine/status.js` documents exactly this, in the `@kosmos_runner` survives-a-crash comment), so it
                  reports a provider for an agent that is no longer running;
-               - `create.readJob(name).runner`, off the plist's ninth argument
-                 (`create.readJob`'s ninth-argument runner read), which says what the agent was LAUNCHED
+               - `create.readJob(name).runner`, off the agent's launch job
+                 (the plist's ninth argument on a Mac, the task line on Windows), which says what the agent was LAUNCHED
                  as. `accountForAgent` already calls `readJob` on every request, so
                  this one is free and still wrong here: it describes the
                  configuration, not the process, and the two disagree for exactly

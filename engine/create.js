@@ -941,8 +941,32 @@ function rewriteAgentJob(clean, spoken, fields, platform) {
         because: `this Kosmos is not allowed to change startup tasks, so ${spoken}'s startup task was not changed.`,
       };
     }
+    /* 🛑 THE TASK KEEPS ITS SWITCH (round 1 SAFETY). `/Create /F` writes a whole new
+       definition, and a definition says whether the task is enabled. Removing an
+       agent or pausing its Kosmos (#1704) DISABLES its task, and these setters do
+       not check either, so re-registering with the default would switch a removed
+       agent's task back on and start it at the next logon. On the Mac a plist
+       rewrite leaves `launchctl disable` in force, so the Mac has never had this.
+       ⇒ The state is read first and written back through the one definition
+       (taskXml), rather than re-disabling afterwards, which would leave a window.
+       ⚠️ FAIL CLOSED: a state we could not read refuses the change. Guessing
+       "enabled" is exactly the failure this prevents. */
+    const state = win32job.presence(clean);
+    if (!state.known) {
+      return {
+        outcome: OUTCOME.REFUSED,
+        because: `we could not tell whether ${spoken}'s startup task is switched on or off (${state.because || 'Task Scheduler did not answer'}), so we have not changed it.`,
+      };
+    }
+    if (!state.registered) {
+      return {
+        outcome: OUTCOME.REFUSED,
+        because: `${spoken}'s startup task is no longer in Task Scheduler, so there is nothing to change and we have not changed it.`,
+      };
+    }
     const registered = win32RegisterJob(clean, {
       runner: f.runner, runnerBin: f.runnerBin || undefined, model: f.model, configDir: f.configDir,
+      enabled: state.enabled !== false,
     });
     if (!registered || !registered.ok) {
       return {
@@ -1256,7 +1280,8 @@ function setCodexAccount(clean, spoken, dir, job, platform) {
  * a real EACCES, the swallows by the same, asserting the switch COMPLETES around
  * the failure):
  *   1. `trustCodexFolder` appends to `<codexHome>/config.toml`   GATE (REFUSED)
- *   2. the plist rewrite through `plistFor`                      GATE (REFUSED)
+ *   2. the job rewrite through `rewriteAgentJob` (the plist via `plistFor` on a
+ *      Mac, the Scheduled Task re-register on Windows)            GATE (REFUSED)
  *   3. the brief RENAME, CLAUDE.md <-> AGENTS.md                 best-effort
  *   4. `store.writeProfile(clean, { provider })`                 best-effort
  * ⚠️ Gating is a property of the CALL SITE, not of `trustCodexFolder`. This is
@@ -2201,7 +2226,9 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
      so an absent key has to keep meaning what it already means -- and a
      rewrite that started stamping the default would make an unrelated edit
      look like an account change in every diff of these files. */
-  const configKey = isCodex ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR';
+  /* The key per runner is stated once, in win32argv.accountEnvVar, so the Windows
+     launch (win32launch.childEnv) delivers the account under the same variable. */
+  const configKey = require('./win32argv').accountEnvVar(runner);
   const configLine = configDir ? `\n    <key>${configKey}</key><string>${xml(configDir)}</string>` : '';
   /* 🔑 WHICH TMUX SERVER THE JOB'S SESSIONS LAND ON (#668). The board and the
      supervisor each resolve the session socket from their OWN environment, and
@@ -2494,6 +2521,10 @@ function win32AgentSpec(name, o) {
     claudeBin: s.runnerBin,
     configDir: s.configDir || null,
     model: s.model || null,
+    /* Whether the task is switched on. Creation passes nothing and gets an enabled
+       task; a setter's re-register passes the state the task already had, so a
+       removed or paused agent stays off (see rewriteAgentJob). */
+    enabled: s.enabled !== false,
     platform: 'win32',
   };
 }

@@ -335,7 +335,13 @@ function taskXml(spec, env) {
     + '<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>'
     + '<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>'
     + '<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>'
-    + '<Enabled>true</Enabled>'
+    /* The task's own switch, as the spec says (round 1 SAFETY). Creation passes
+       nothing and registers an enabled task; a setter re-registering an agent
+       passes the state the task had, so a removed or paused agent stays off.
+       Only an explicit `false` disables: a spec that says nothing means enabled,
+       which is every caller that existed before this field. The LogonTrigger's
+       own Enabled above stays true; the task setting is what /DISABLE flips. */
+    + '<Enabled>' + (spec && spec.enabled === false ? 'false' : 'true') + '</Enabled>'
     + '</Settings>\n'
     + '  <Actions Context="Author"><Exec>'
     + '<Command>' + xmlEscape(exec.command) + '</Command>'

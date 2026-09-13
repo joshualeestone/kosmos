@@ -51,6 +51,7 @@ const create = require('./create');
 const job = require('./win32job');
 const { specFromArgv } = require('./win32argv');
 const { KEY } = require('./trust');
+const launcher = require('./win32launch');
 
 const XML_ENV = { USERNAME: 'kitty', USERDOMAIN: 'BOX', SystemRoot: 'C:\\Windows' };
 const NO_SUCH = { ok: false, out: 'ERROR: The system cannot find the file specified.' };
@@ -69,6 +70,14 @@ function scheduler(tasks, opts) {
     const rec = { args: args.slice() };
     calls.push(rec);
     const tn = args[args.indexOf('/TN') + 1];
+    /* The state read (`presence`): a task marked `disabled` reads Disabled, the
+       way `schtasks /Query /FO LIST` reports a removed or paused agent. */
+    if (args[0] === '/Query' && args.includes('LIST')) {
+      if (o.listFails) return { ok: false, out: o.listFails };
+      const spec = tasks[tn];
+      if (!spec) return NO_SUCH;
+      return { ok: true, out: 'Folder: \\Kosmos\nScheduled Task State: ' + (spec.disabled ? 'Disabled' : 'Enabled') + '\n' };
+    }
     if (args[0] === '/Query' && args.includes('/XML')) {
       if (o.queryFails) return { ok: false, out: o.queryFails };
       const spec = tasks[tn];
@@ -96,7 +105,8 @@ function registeredSpec(rec) {
   return specFromArgv(toks.slice(2));
 }
 const creates = (calls) => calls.filter((c) => c.args[0] === '/Create');
-const queries = (calls) => calls.filter((c) => c.args[0] === '/Query');
+/* The definition reads only: the setters also ask the task's state (/FO LIST). */
+const queries = (calls) => calls.filter((c) => c.args[0] === '/Query' && c.args.includes('/XML'));
 
 function taskFor(name, fields) {
   return { name, cwd: 'C:\\work\\' + name, node: 'C:\\n.exe', supervisor: 'C:\\s.js', ...fields };
@@ -105,6 +115,7 @@ function taskFor(name, fields) {
 test.after(() => {
   job.setRunner(null);
   job.setAnchorer(null);
+  launcher.setSpawn(null);
   delete process.env.KOSMOS_WORLD;
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
@@ -328,6 +339,102 @@ test('the Trust & Restart route takes its trust step from create.trustAgentFolde
   assert.ok(at > -1, 'the route is gone');
   assert.match(src.slice(at, at + 1500), /create\.trustAgentFolder\(clean\)/,
     'the route does its own plist-only job read again');
+});
+
+/* ── round 1 SAFETY: a re-register keeps the task's enabled state ──────────── */
+
+function settingsEnabled(xml) {
+  const block = /<Settings>([\s\S]*?)<\/Settings>/.exec(xml);
+  assert.ok(block, 'the definition has no Settings block: ' + xml);
+  const e = /<Enabled>(true|false)<\/Enabled>/.exec(block[1]);
+  assert.ok(e, 'the Settings block has no Enabled element: ' + block[1]);
+  return e[1] === 'true';
+}
+
+const SETTERS = [
+  { label: 'setModel', task: 'sfa', fields: { runner: 'claude' },
+    run: () => create.setModel('sfa', create.modelsFor('anthropic')[0].key, { platform: 'win32' }) },
+  { label: 'setAccount (Claude)', task: 'sfb', fields: { runner: 'claude', configDir: 'C:\\acct' },
+    run: () => create.setAccount('sfb', '', { platform: 'win32' }) },
+  { label: 'setAccount (codex)', task: 'sfc', fields: { runner: 'codex' },
+    run: () => create.setAccount('sfc', CODEX_WORK, { platform: 'win32' }) },
+  { label: 'setProvider', task: 'sfd', fields: { runner: 'codex' },
+    run: () => create.setProvider('sfd', 'anthropic', { platform: 'win32', claudeBin: process.execPath }) },
+];
+
+for (const s of SETTERS) {
+  for (const disabled of [true, false]) {
+    test('SAFETY: ' + s.label + ' on win32 keeps ' + (disabled ? 'a DISABLED task disabled (a removed or paused agent stays off)' : 'an ENABLED task enabled'), () => {
+      fs.mkdirSync(create.workerDir(s.task), { recursive: true });
+      const calls = scheduler({ ['Kosmos\\agent-' + s.task]: taskFor(s.task, { ...s.fields, disabled }) });
+      const r = s.run();
+      assert.equal(r.outcome, create.OUTCOME.CREATED, 'the change was refused: ' + r.because);
+      const made = creates(calls);
+      assert.equal(made.length, 1, 'the task was not re-registered');
+      assert.equal(settingsEnabled(made[0].xml), !disabled, disabled
+        ? 'the re-register switched a disabled task back on, so a removed agent would start at the next logon'
+        : 'the re-register switched an enabled task off');
+    });
+  }
+}
+
+test('SAFETY: when the task state cannot be read, the change is refused and nothing is registered', () => {
+  const calls = scheduler({ 'Kosmos\\agent-ava': taskFor('ava', { runner: 'claude' }) }, { listFails: 'ERROR: Access is denied.' });
+  const r = create.setModel('ava', create.modelsFor('anthropic')[0].key, { platform: 'win32' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED, 'a change went ahead on a task whose switch could not be read');
+  assert.match(r.because, /could not tell whether .*startup task is switched on or off \(ERROR: Access is denied\.\)/);
+  assert.equal(creates(calls).length, 0, 'a task was registered while its state was unknown');
+});
+
+test('SAFETY: taskXml writes the enabled state it is given, and enabled when told nothing (creation)', () => {
+  const base = { name: 'x', cwd: 'C:\\w', node: 'C:\\n.exe', supervisor: 'C:\\s.js' };
+  assert.equal(settingsEnabled(job.taskXml({ ...base, enabled: false }, XML_ENV)), false);
+  assert.equal(settingsEnabled(job.taskXml({ ...base, enabled: true }, XML_ENV)), true);
+  assert.equal(settingsEnabled(job.taskXml(base, XML_ENV)), true, 'a spec that says nothing must stay enabled, or creation registers a switched-off agent');
+  assert.ok(job.taskXml({ ...base, enabled: false }, XML_ENV).includes('<LogonTrigger><Enabled>true</Enabled>'),
+    'the logon trigger is not the switch; only the task setting is');
+});
+
+/* ── round 1 BUG: a codex agent's named home reaches its process ───────────── */
+
+test('BUG: childEnv gives a codex agent its named home as CODEX_HOME, a default one none, and Claude only CLAUDE_CONFIG_DIR', () => {
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  assert.equal(launcher.childEnv({}, 't', 'C:\\h\\.codex-work', null, 'codex').CODEX_HOME, 'C:\\h\\.codex-work');
+  assert.equal(has(launcher.childEnv({}, 't', null, null, 'codex'), 'CODEX_HOME'), false, 'a default-home codex agent was given a CODEX_HOME');
+  assert.equal(launcher.childEnv({ CODEX_HOME: 'C:\\inherited' }, 't', null, null, 'codex').CODEX_HOME, 'C:\\inherited',
+    'a default-home codex agent must keep inheriting what it did');
+  const claude = launcher.childEnv({}, 't', 'C:\\Users\\k\\.claude-work', null, 'claude');
+  assert.equal(claude.CLAUDE_CONFIG_DIR, 'C:\\Users\\k\\.claude-work');
+  assert.equal(has(claude, 'CODEX_HOME'), false, 'a Claude agent was given a CODEX_HOME');
+});
+
+test('BUG: the account variable per runner is the one the Mac plist writes', () => {
+  const { accountEnvVar } = require('./win32argv');
+  assert.equal(accountEnvVar('codex'), 'CODEX_HOME');
+  assert.equal(accountEnvVar('claude'), 'CLAUDE_CONFIG_DIR');
+  assert.match(create.plistFor('mx', '/b/codex', '/b/tmux', null, '/h/codex-w', 'codex'), /<key>CODEX_HOME<\/key><string>\/h\/codex-w<\/string>/);
+  assert.match(create.plistFor('my', '/b/claude', '/b/tmux', null, '/h/claude-w', 'claude'), /<key>CLAUDE_CONFIG_DIR<\/key><string>\/h\/claude-w<\/string>/);
+});
+
+test('BUG: a codex account change on win32 reaches the relaunched agent as CODEX_HOME', () => {
+  const calls = scheduler({ 'Kosmos\\agent-cxr': taskFor('cxr', { runner: 'codex', claudeBin: process.execPath }) });
+  const folder = create.workerDir('cxr');
+  fs.mkdirSync(folder, { recursive: true });
+  const r = create.setAccount('cxr', CODEX_WORK, { platform: 'win32' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, 'the codex account change was refused: ' + r.because);
+  /* What the task now carries is what the supervisor hands the launcher. */
+  const spec = registeredSpec(creates(calls)[0]);
+  let seen = null;
+  launcher.setSpawn((bin, argv, opts) => {
+    seen = opts && opts.env;
+    return { pid: 4242, stdin: null, stdout: null, stderr: null, on() {}, unref() {} };
+  });
+  try {
+    const launched = launcher.launchStreaming({ ...spec, cwd: folder, platform: 'win32' });
+    assert.equal(launched.ok, true, 'the relaunch did not start: ' + launched.because);
+  } finally { launcher.setSpawn(null); }
+  assert.ok(seen, 'the launcher never spawned');
+  assert.equal(seen.CODEX_HOME, path.resolve(CODEX_WORK), 'the relaunched codex agent does not read the home it was moved to');
 });
 
 /* ── the Mac arm is unchanged ──────────────────────────────────────────────── */
