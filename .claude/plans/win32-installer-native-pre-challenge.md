@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: win32-installer-native
-diff_hash: b11e3d735835e7d8675f8433ed6f9b75354ad62ed5a14985564a826e26efe35e
+diff_hash: 5bab23982c654675ff72a9b67f7f91aea69e344edfadcba9602307add5e20d48
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-13T21:14:00Z
+timestamp: 2026-09-13T21:33:00Z
 iterations: 8
 converged: true
 ---
@@ -40,11 +40,12 @@ Full design, decisions, per-round fixes, the live-check runbook (NOT run), and t
 git -C <worktree> diff origin/main HEAD -- . ':(exclude).claude/plans/win32-installer-native-pre-challenge.md' | sha256sum
 ```
 
-The hash is computed against the branch's base `372fde39` (its merge-base with main), NOT the live
-`origin/main` ref: after the review, main advanced with commits that touch none of this branch's files
-(#2924 dailylog/forget, plans/web), so `git diff origin/main HEAD` would fold in those unrelated reverse
-deltas — `git diff 372fde39 HEAD` is the true branch diff, and `git merge-tree` confirms a clean merge onto
-current main. The proof file itself is excluded, so the hash is stable across the commit that writes it.
+The hash is computed against the branch's current base `948783c2` (its merge-base with main). The branch
+was rebased forward again to resolve a `tools/browser-checks.sh` loop-line conflict (#2929 cluster-reorder
+added a check name to the same `for n in …` line the installer's `render-win32-start-at-sign-in` sits on) —
+resolved by KEEPING BOTH names, space-separated, none glued; `web/index.html`, the README and everything
+else auto-merged. Computed against the base rather than the live `origin/main` ref because the fleet keeps
+advancing with unrelated commits, so `git diff origin/main HEAD` would fold in unrelated reverse deltas. The proof file itself is excluded, so the hash is stable across the commit that writes it.
 Verified equal to the `diff_hash` above after that commit.
 
 **Post-review CI fix (test-only, `8701b495`, not a new review round):** the first macOS CI run reddened on
