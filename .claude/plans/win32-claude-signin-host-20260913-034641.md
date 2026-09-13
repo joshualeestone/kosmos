@@ -45,12 +45,15 @@ host.kill()                                    -> Promise<void>
   `new-session -d -s kosmos-connect -x 220 -y 50 ...`. `sendCode` is the two `send-keys` calls
   (`-l -- <code>`, then `Enter`) and folds both stderrs exactly as the driver did.
 - `win32SigninHost`: `engine/win32signin.js`'s `createSigninHost()`.
-- Selection: `signinHostFor(platform)`; darwin/linux get tmux, win32 gets the Windows host only
-  when `WINDOWS_SIGNIN_HOST_ENABLED` (or the test override) is on, otherwise null (slice 1).
+- Selection: `signinHost()` (no argument; it reads the platform pin or `process.platform`);
+  darwin/linux get tmux, win32 gets the Windows host only when `WINDOWS_SIGNIN_HOST_ENABLED` (or the
+  test override) is on, otherwise null (slice 1). A flow keeps its host on `owner.signinHost`;
+  `killSession(owner)` uses it, or `signinHost()` when there is no flow.
 - Test setters, `setRunner` style: `setSigninPlatformForTests(p)` (null = `process.platform`) and
   `setWindowsSigninHostForTests(on)`. The second REFUSES outside a `node --test` process
   (`live-execution.inTestProcess()`), so nothing but a code edit turns the host on in production.
-  `resetForTests` puts both back and forgets the Windows host instance.
+  `resetForTests` LEAVES BOTH PINS ALONE (a suite sets them once for its file) and only kills and
+  forgets the Windows host instance.
 - The only driver change beyond routing: `becomeStuck(owner, made.because || <the tmux sentence>, ...)`
   at the open failure, so the Windows host can say something true about a program that did not
   start. The tmux host never sets `because`, so the Mac sentence is unchanged.
@@ -94,10 +97,13 @@ the host is on), only after L-1 passes and Josh approves.
 
 Fake child = EventEmitter + PassThrough stdin/stdout/stderr, runs on any OS.
 
-1. `engine/connect.test.js` as is, with `driverTest` (and the few hand-rolled flows) pinned to
-   `darwin` through `setSigninPlatformForTests`, so on this Windows box the Mac arms still exercise
-   the tmux host and its byte-identical argv via `fakeTerminal`. Any other suite that reaches
-   `launchSignin` through a runner is pinned the same way if the comparison run shows it moved.
+1. `engine/connect.test.js` as is, pinned to `darwin` ONCE AT THE TOP OF THE FILE (right after its
+   requires) through `setSigninPlatformForTests`, not inside `driverTest`, so on this Windows box
+   every Mac arm still exercises the tmux host via `fakeTerminal`. The tmux commands are
+   ARGV-identical to main. Their ORDER differs in one harmless place: `host.open` adds one async
+   hop, so a reauth test's final teardown `kill-session` can land one position later (review
+   round 1). Any other suite that reaches `launchSignin` through a runner is pinned the same way
+   if the comparison run shows it moved.
 2. `engine/win32signin.test.js`: env (no `KOSMOS_AGENT_TOKEN`, markers stripped,
    `CLAUDE_CONFIG_DIR` set / deleted), argv (no code, no shell, no `cmd`), escape stripping, CRLF,
    the 64 KB cap, drain once then `ok:false` with the exit code, idempotent kill, redaction
@@ -138,6 +144,57 @@ and first error line against a `git archive` of origin/main.
 ## Slice 3 (needs Josh's go): L-1
 
 Runbook is in the branch report; it signs a real account in, into a SANDBOX `CLAUDE_CONFIG_DIR`.
+Added by review round 1, to measure alongside (i)-(vii):
+- (viii) token-exchange latency: time from the pasted code reaching stdin to "Login successful."
+  (the host hides the screen after a send; the driver's blank grace is 45 s, so a slower exchange
+  would read "the sign-in window went blank").
+- (ix) whether `auth login` re-prints "Paste code here" after an `Invalid code`, and the exact
+  `Invalid code` wording (the host keys on /Invalid code/ to bring the prompt back).
+- (x) which Claude Code file the box has at `~\.local\bin` (`claude.exe`, or a `.cmd` script,
+  which the host refuses with the script sentence).
+- (xi) the stuck card's tail and every capture never contain the pasted code or either `#` half.
+
+## Review log
+
+### Round 1 (opus) on 000b911d: not converged, 1 BUG, 3 TEST-GAPs, 3 NITs
+
+Rebased onto origin/main `c05c662d` first (clean).
+
+- BUG 1, a slow valid code read as rejected: the kept screen never lost the prompt, so the
+  driver's 6 s rejection rule fired during any token exchange longer than that. FIX: `sendCode`
+  hides the kept text (the screen shows only output since the send) until an `Invalid code` line
+  arrives on stderr after the send, which brings the whole screen back. Arms: a 9 s exchange never
+  shows "did not work" and ends CONNECTED with one stdin line; the unit arm shows the prompt hidden
+  after a send and back after `Invalid code`; the existing Invalid-code driver arm still rejects.
+- TEST-GAP 2: Windows arm for a dead credential (file CONNECTED, live NONE at start), exit 0
+  without the success text, live CONNECTED after, finishing through `deadCredential`.
+- TEST-GAP 3: Windows arm through `start()`'s #1560 leftover-session kill (file and live both
+  connected, no flow, host off): CONNECTED with zero tmux commands, the live check proven reached.
+- TEST-GAP 4: unit arm for `EXIT_PIPE_GRACE_MS`: `exit` with no `close` keeps capturing until the
+  grace, then drains once and fails.
+- NIT 5: an extensionless resolved path starts as `<path>.exe` when that file exists; ENOENT beside
+  a `.cmd`/`.bat`/`.ps1`, and EINVAL on one, both give "Kosmos can only start the Claude Code program
+  file (claude.exe), and this computer has a script version it cannot start directly".
+- NIT 6: every code sent is remembered as its whole string and each `#` half of at least
+  `SENT_FRAGMENT_MIN_CHARS` (8), and replaced with `[redacted code]` in the capture and the stderr
+  tail. Arm: a program echoing the code, whole and by halves; a two-character half is not hunted.
+- NIT 7: plan drift fixed (`signinHost()`, `resetForTests` leaves the pins, the darwin pin at the
+  top of the file) and "byte-identical" restated as argv-identical with the one teardown hop.
+
+Round 2 results (c86d84db on c05c662d; same guard, runtime node 24.19, scratch APPDATA/LOCALAPPDATA/USERPROFILE):
+- `engine/win32signin.test.js` 16/16, `engine/connect.win32signin.test.js` 14/14.
+- Suite set vs a `git archive` of `c05c662d`, by name and first error line: base 253 pass / 80
+  fail, branch 284 / 79. No new failure; the same main-only `git ls-files` archive failure; two
+  `claudeaccounts` arms differ only by the scratch temp path in the message.
+- Revert controls on scratch copies of HEAD, all red: BUG 1 no-hide (the 9 s arm and the unit
+  hide arm); TEST-GAP 2 without `|| owner.deadCredential`; TEST-GAP 3 with a tmux fallback in
+  `killSession` (both slice 1 arms); TEST-GAP 4 without the grace timer; NIT 5 without the script
+  mapping; NIT 6 without sent-code redaction; and round 1's five re-run (switch on, code on a
+  command line, token redaction removed, #1937 rule, tmux on Windows).
+- The first run of the 9 s arm went stuck on the suite's 1.35 s blank grace (4.5x its 300 ms
+  unknown grace) and its late timer signed the NEXT arm in; the arm now sets a 3 s unknown grace
+  and clears its timer on teardown.
+- No schtasks block log was created by any run.
 
 ## Results (Windows box, runtime node 24.19, no-schtasks preload, scratch APPDATA/LOCALAPPDATA/USERPROFILE)
 
