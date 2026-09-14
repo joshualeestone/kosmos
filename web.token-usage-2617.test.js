@@ -51,6 +51,7 @@ function bundle() {
     + lift('usageRowValue') + '\n'
     + lift('usageTotals') + '\n'
     + lift('usageGrandTotal') + '\n'
+    + lift('usageRowTokenTotal') + '\n'
     + lift('usageDailySeries') + '\n'
     + lift('usageHeroDigits') + '\n'
     + lift('usageHeroHtml') + '\n'
@@ -61,7 +62,7 @@ function bundle() {
     + lift('usageModelPrice') + '\n'
     + lift('usageApiCost') + '\n'
     + lift('usageHistoryHtml') + '\n'
-    + 'return { usageTotals, usageGrandTotal, usageDailySeries, usageNum, usageAbbr, usageUsd, usageRowValue, '
+    + 'return { usageTotals, usageGrandTotal, usageRowTokenTotal, usageDailySeries, usageNum, usageAbbr, usageUsd, usageRowValue, '
     + 'usageHeroHtml, usageByModel, usageModelTableHtml, usageDonutSvg, usageCharts4Html, '
     + 'usageModelPrice, usageApiCost, usageHistoryHtml, USAGE_CLASS_COLORS, USAGE_MODEL_COLORS, USAGE_MODEL_PRICES };'
   )();
@@ -82,7 +83,6 @@ const FIXTURE = {
 //   blended total = 4,151,004+1,461,889+18,103,778+1,964,004,102 = 1,987,720,773
 const EXPECT = { input: 4151004, output: 1461889, cacheWritten: 18103778, cacheRead: 1964004102, total: 1987720773 };
 const fmt = (n) => Number(n).toLocaleString();
-const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 test('#2617: usageTotals sums each class separately (the four are never fused in the data)', () => {
   const t = U.usageTotals(FIXTURE);

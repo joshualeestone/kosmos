@@ -24,8 +24,8 @@ Mona (design owner + #2617 author) was coordinated and given Josh's merits ratio
   `usageDonutSvg` (top-6 + Other token share, blended-total center). One shared palette
   (`USAGE_MODEL_COLORS`) so table and donut cannot drift.
 - **charts4**: `usageCharts4Html` - four per-class daily mini-charts (cache reads / writes / output /
-  input) with name / tag / abbreviated total / % of blended total. (Defined; wiring/placement gated
-  on the A/B scope decision below.)
+  input) with name / tag / abbreviated total / % of blended total. Wired and placed (the A/B scope
+  decision below resolved to REPLACE, so charts4 stands in for the old cards + combined chart).
 - **Equivalent Token API Cost**: `USAGE_MODEL_PRICES` ($/Mtok input/output/cache-write/cache-read
   per model id) + `usageModelPrice` (exact, then strip a `-YYYYMMDD` stamp) + `usageApiCost` (sum
   tokens x published price; `{cost, unpriced}`). Sources cited + dated in code (claude.com/pricing,
@@ -49,11 +49,29 @@ tests + browser-check now assert those elements are GONE. Documented on card #28
 - Focused pure-function tests (scratch): hero figures match the design (150.0B / $135.0M / 1.5M /
   720); per-model aggregation + donut bucketing; charts4 (4 charts, empty-safe, no NaN); API cost
   (per-class pricing, codex excluded+flagged, haiku date-strip, null-dash). All pass.
-- `web.token-usage-2617.test.js` rewritten to the value-view, 17/17 green (includes a single-model
-  donut-ring regression and a usageGrandTotal single-source pin).
+- `web.token-usage-2617.test.js` rewritten to the value-view, 19/19 green: hero figures, per-model
+  aggregation, donut (single-model circle + two-model-with-zero + multi-slice arc flags), charts4,
+  API cost, history rows/escaping, the usageGrandTotal single-source pin, and usageRowTokenTotal.
 - Browser-check `render-token-usage-2617.js` runs the live page against a served board and asserts
-  the value-view structure + numbers, that the removed elements are gone, and that the donut ring
-  actually paints (visual gate, per Splinter) -- passes.
+  the value-view structure + numbers, that the removed elements are gone, that the donut ring
+  actually paints, that nothing overflows the ~544px settings column, and that the hero figures fit
+  at production scale (150.0B / $135.0M) -- passes (visual gate, per Splinter).
+
+## Challenge-loop hardening (post-restructure, before PR)
+Four blind review iterations (opus/sonnet rotation) found and fixed, all with tests/guards:
+- **BLOCKER**: a single-model donut drew an invisible ring (a 100% slice as one 360-degree arc has
+  coincident endpoints, which SVG drops). Fixed: a lone full slice draws as a `<circle>`; regression
+  test + a browser-check that the ring is actually stroked.
+- **Convention #5** (two-derivations-of-one-fact): added `usageGrandTotal` (blended total, one source
+  for hero/charts4/table/donut) and `usageRowTokenTotal` (one day+model row's 4-class total, shared
+  by usageByModel + the history rows); test pins `sum(usageByModel) === usageGrandTotal(usageTotals)`.
+- **Layout**: hero/table used viewport units in the fixed ~544px settings column, so table+donut
+  cramped and a production-scale hero figure would clip under `overflow:hidden`. Fixed: `#s-sec-usage`
+  is a size container, `.tv-wtr` stacks via `@container`, hero figures use `cqi`, model name truncates;
+  browser-check measures real overflow + production-scale hero fit.
+- **Price accuracy**: re-verified `USAGE_MODEL_PRICES` against claude.com/pricing (2026-09-14) after a
+  reviewer flagged Fable 5.1's cache-read ($0.25) as an outlier. It is correct as published (Fable 5.1
+  cr=$0.25, legacy Fable 5 cr=$1.00); noted the intentional break in code so it is not "corrected".
 
 ## Weakest premise
 That "port to the Kosmos token system" is implementation, not interpretation. The numbers, calc, and

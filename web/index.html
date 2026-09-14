@@ -24980,6 +24980,15 @@ function usageGrandTotal(totals) {
   return (Number(t.input) || 0) + (Number(t.output) || 0)
     + (Number(t.cacheWritten) || 0) + (Number(t.cacheRead) || 0);
 }
+/* #2840: one day+model row's blended token total (all four raw class fields). Shared by
+   the per-model aggregate (usageByModel) and the usage-history rows so the row math lives
+   in one place, not two copies that can drift -- the same "one derivation" rule
+   usageGrandTotal applies to the class totals. Pure + node-tested. */
+function usageRowTokenTotal(b) {
+  const r = b || {};
+  return (Number(r.input_tokens) || 0) + (Number(r.output_tokens) || 0)
+    + (Number(r.cache_creation_input_tokens) || 0) + (Number(r.cache_read_input_tokens) || 0);
+}
 /* One point per day (models summed within the day), ascending by date, so the
    chart draws left-to-right oldest-to-newest. */
 function usageDailySeries(byDay) {
@@ -25114,9 +25123,7 @@ function usageByModel(byDay) {
     const models = byDay[day] || {};
     for (const model of Object.keys(models)) {
       const b = models[model] || {};
-      const tok = (Number(b.input_tokens) || 0) + (Number(b.output_tokens) || 0)
-        + (Number(b.cache_creation_input_tokens) || 0) + (Number(b.cache_read_input_tokens) || 0);
-      acc[model] = (acc[model] || 0) + tok;
+      acc[model] = (acc[model] || 0) + usageRowTokenTotal(b);
     }
   }
   return Object.keys(acc).map((name) => ({ name: name, tok: acc[name] }))
@@ -25251,6 +25258,9 @@ const USAGE_MODEL_PRICES = {
   'claude-sonnet-5': { in: 2, out: 10, cw: 2.50, cr: 0.20 },
   'claude-sonnet-4-6': { in: 3, out: 15, cw: 3.75, cr: 0.30 },
   'claude-haiku-4-5': { in: 1, out: 5, cw: 1.25, cr: 0.10 },
+  // fable-5-1 cache read is $0.25 (0.025x input), NOT the 0.1x input the other tiers use.
+  // Verified against claude.com/pricing 2026-09-14: Fable 5.1 cr=$0.25, legacy Fable 5 cr=$1.00.
+  // The break from the pattern is Anthropic's, not a transcription error -- do not "correct" it.
   'claude-fable-5-1': { in: 10, out: 50, cw: 12.50, cr: 0.25 },
   'claude-fable-5': { in: 10, out: 50, cw: 12.50, cr: 1.00 },
   'gpt-5.1': { in: 1.25, out: 10, cw: 1.25, cr: 0.125 },
@@ -25301,8 +25311,7 @@ function usageHistoryHtml(byDay) {
     const models = byDay[day] || {};
     for (const model of Object.keys(models).sort()) {
       const b = models[model] || {};
-      const total = (Number(b.input_tokens) || 0) + (Number(b.output_tokens) || 0)
-        + (Number(b.cache_creation_input_tokens) || 0) + (Number(b.cache_read_input_tokens) || 0);
+      const total = usageRowTokenTotal(b);
       rows.push('<div class="uhrow"><div class="uh-d">' + esc(day) + '</div>'
         + '<div class="uh-m">' + esc(model) + '</div>'
         + '<div class="uh-n" title="' + usageNum(total) + '">' + esc(usageAbbr(total)) + '</div>'
