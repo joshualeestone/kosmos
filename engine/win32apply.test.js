@@ -193,7 +193,10 @@ function playBoard(c, o = {}) {
       /* `onRun`: what Task Scheduler would do at the moment of /Run (start the real logon shim). */
       if (o.onRun) o.onRun(sim);
       const id = treeIdentity();
-      if (!sim.running && id && !(o.newNeverStarts && id !== OLD_ID)) {
+      /* `blockIdentity`: a build whose identity is this one never boots (the rollback analogue of
+         newNeverStarts, which is written around OLD_ID for the forward path). */
+      const blocked = o.blockIdentity && id === o.blockIdentity;
+      if (!sim.running && id && !(o.newNeverStarts && id !== OLD_ID) && !blocked) {
         sim.running = true;
         sim.identity = o.answerAs ? o.answerAs(id) : id;
       }
@@ -3252,4 +3255,110 @@ test('ROUND 9 decision 3 (P5b): a rollback stuck on a held engine-path rename st
   const next = bootShim(c);
   assert.equal(next.booted, `booted ${OLD} by Kosmos\\board`, next.stderr);
   assertRolledBack(c, before, null, null, 'the next start');
+});
+
+/* ─── S5 (#3017): a user-initiated rollback rides the same helper ─────────────────────────── */
+
+/**
+ * The rollback fixture is a forward install's mirror: ROOT holds the CURRENT (newer) build, and the
+ * kept OLDER build sits in `staged` -- exactly where rollbackToPrevious renames previous-<old> to
+ * before it starts this helper. from=NEW, to=OLD, rollback:true. The anchor runs the NEW interpreter,
+ * so runtimeChanged is true and H5 restores the old one.
+ */
+function rollbackInstall(o = {}) {
+  cases += 1;
+  const dir = path.join(SANDBOX, 'cases', String(cases));
+  const root = path.join(dir, 'Kosmos');
+  const env = { AGENT_WORKFORCE_DATA: path.join(dir, 'machine') };
+  const anchor = win32anchor.anchorDir(process.platform, os.homedir(), env);
+  writeBuild(root, o.from || NEW, 'new', { nodeBytes: 'the new node.exe' });
+  fs.mkdirSync(path.join(root, 'Projects', 'garden'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'Projects', 'garden', 'notes.txt'), "a person's own work");
+  const work = path.join(root, win32update.WORK_DIRNAME);
+  const staged = path.join(work, win32update.STAGED_DIRNAME);
+  writeBuild(staged, o.to || OLD, 'old', { nodeBytes: o.sameRuntime ? 'the new node.exe' : 'the old node.exe' });
+  fs.writeFileSync(path.join(work, win32update.DOWNLOAD_PART_NAME), 'a leftover download');
+  fs.mkdirSync(anchor, { recursive: true });
+  fs.writeFileSync(path.join(anchor, win32anchor.NODE_NAME), 'the new node.exe');
+  fs.writeFileSync(path.join(anchor, win32anchor.POINTER_NAME), path.join(root, 'app', 'engine') + '\r\n');
+  return {
+    dir, root, env, anchor, work, staged, log: [],
+    journal: path.join(anchor, win32anchor.UPDATE_JOURNAL_NAME),
+    statusAt: path.join(anchor, win32anchor.UPDATE_STATUS_NAME),
+    previous: path.join(work, `previous-${o.from || NEW}`),
+  };
+}
+function stageRollback(c, o = {}) {
+  return win32apply.writeRollbackJournal(c.journal, {
+    root: c.root, anchor: c.anchor, fromVersion: o.from || NEW, fromIdentity: o.fromIdentity || NEW_ID,
+    to: { version: o.to || OLD, identity: o.toIdentity || OLD_ID }, runtimeChanged: o.runtimeChanged !== false,
+    board: { pid: o.boardPid === undefined ? null : o.boardPid, port: PORT }, now: clock,
+  });
+}
+
+test('S5 rollback: the current build is swapped out for the kept previous one, confirmed as the OLD identity', T, async () => {
+  const c = rollbackInstall();
+  const newRoot = hashTree(c.root, [c.work, path.join(c.root, 'Projects')]);
+  const oldTree = hashTree(c.staged);
+  const projects = hashTree(path.join(c.root, 'Projects'));
+  const j0 = stageRollback(c);
+  assert.equal(j0.rollback, true, 'the journal is marked rollback');
+  const sim = playBoard(c);
+  const r = await win32apply.applyJournal(c.journal, sim.deps());
+  assert.deepEqual(r, { ok: true, outcome: 'updated', version: OLD }, c.log.join('\n'));
+  assert.deepEqual(hashTree(c.root, [c.work, path.join(c.root, 'Projects')]), oldTree, 'ROOT now holds exactly the kept old build');
+  assert.deepEqual(hashTree(c.previous), newRoot, `previous-${NEW} now holds exactly the build we rolled back from`);
+  assert.deepEqual(hashTree(path.join(c.root, 'Projects')), projects, "the person's projects are untouched");
+  assert.equal(fs.readFileSync(path.join(c.anchor, 'node.exe'), 'utf8'), 'the old node.exe', 'H5 restored the old anchored interpreter');
+  assert.equal(sim.identity, OLD_ID, 'the board answers as the OLD build');
+  const j = readJson(c.journal);
+  assert.equal(j.finished, true);
+  assert.equal(j.outcome, 'updated');
+  assert.equal(readJson(c.statusAt).sentence, `Kosmos has rolled back to ${OLD}.`);
+  assert.deepEqual(sim.calls.filter((call) => /agent-/.test(call)), [], 'no agent task is touched');
+});
+
+test('S5 rollback: if the kept build does not come up, H8 puts the current build back and confirms it', T, async () => {
+  const c = rollbackInstall();
+  const before = installState(c);
+  stageRollback(c);
+  /* The OLD build (the rollback target) never boots; the NEW build (what H8 restores) does. */
+  const sim = playBoard(c, { blockIdentity: OLD_ID });
+  const r = await win32apply.applyJournal(c.journal, sim.deps());
+  assert.equal(r.outcome, 'rolled-back', JSON.stringify(r) + '\n' + c.log.join('\n'));
+  assert.deepEqual(installState(c), before, 'the current build, node.exe and pointer are byte-identical again');
+  assert.equal(sim.identity, NEW_ID, 'the board is back on the current build');
+  const status = readJson(c.statusAt);
+  assert.equal(status.sentence, `The roll back did not take. Kosmos is still on ${NEW}. If Kosmos does not come back by itself, double-click Kosmos.exe in ${c.root}.`);
+  assert.equal(status.version, NEW);
+});
+
+test('S5 rollback: never-downgrade is skipped, but only for a strictly-older target', T, async () => {
+  /* A rollback whose `to` is NOT older than the running build is refused as nothing to roll back to;
+     nothing moves (this is the guard that keeps the flag from being a covert forward install). */
+  const c = rollbackInstall({ from: OLD, to: NEW });   // ROOT=OLD, staged=NEW: "rolling back" to a NEWER build
+  stageRollback(c, { from: OLD, fromIdentity: OLD_ID, to: NEW, toIdentity: NEW_ID });
+  const sim = playBoard(c);
+  const r = await win32apply.applyJournal(c.journal, sim.deps());
+  assert.equal(r.outcome, 'not-started', JSON.stringify(r));
+  assert.match(r.because, new RegExp(`${NEW.replace(/\./g, '\.')} is not older than ${OLD.replace(/\./g, '\.')}`));
+  assert.equal(fs.existsSync(path.join(c.root, 'bin')), true, 'nothing moved (bin still in ROOT)');
+  assert.equal(fs.existsSync(c.previous), false, 'no previous folder was made');
+});
+
+test('S5 rollback: a journal with a non-boolean rollback marker is unreadable', T, () => {
+  const c = rollbackInstall();
+  stageRollback(c);
+  const j = readJson(c.journal);
+  j.rollback = 'yes';
+  fs.writeFileSync(c.journal, JSON.stringify(j, null, 2) + '\n');
+  const read = win32apply.readJournal(c.journal);
+  assert.equal(read.state, 'unreadable');
+  assert.match(read.why, /unknown rollback marker/);
+});
+
+test('S5 rollback: a forward journal is byte-compatible -- it carries no rollback field', T, () => {
+  const c = freshInstall();
+  const j = stage(c);
+  assert.equal('rollback' in j, false, 'a forward update journal has no rollback marker');
 });

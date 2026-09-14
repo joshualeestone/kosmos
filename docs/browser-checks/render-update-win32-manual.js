@@ -1,9 +1,11 @@
 'use strict';
+// Browser-check-surface: upd-line upd-btn upd-download upd-rollback
 
 /**
  * Settings > Updates on a Windows bundle: the in-app [Update] offer once the updater is armed
- * (win32-update-arm, slice S4), and the manual download for a bundle the updater refuses up front
- * (win32-update-check, slice S1).
+ * (win32-update-arm, slice S4), the manual download for a bundle the updater refuses up front
+ * (win32-update-check, slice S1), and the "Roll back to X" button when a kept previous build is on
+ * hand (win32-update-rollback, slice S5, #3017).
  *
  * The false sentence this replaces: a Windows board read the MAC pointer and, having no
  * installedRoot(), sent `update: null`, so the card said "Up to date." with a newer Windows build
@@ -50,6 +52,7 @@ const path = require('node:path');
 const URL = process.env.KOSMOS_URL || 'http://127.0.0.1:17374';
 const OUT = process.argv[2] || '/tmp/uwshots';
 const NEWER = '99.0.0';
+const PREV = '0.6.50';   // win32-update-rollback (S5): the kept previous build the Roll back button restores
 const PROD_ZIP = 'https://installkosmos.com/dist/kosmos-' + NEWER + '-win-x64.zip';
 const STAGED = 'http://127.0.0.1:9/dist/kosmos-' + NEWER + '-win-x64.zip';
 /* win32-board-copy (W-25): the offer is a lead sentence plus numbered steps and an "Open my
@@ -70,6 +73,12 @@ function stateAnswers(state, served) {
   if (state === 'armed') {
     return { status: { update: { version: NEWER }, updateLook: readLook, updateManual: null, updateChannel: 'prod' },
       check: { running: served, latest: NEWER, reached: true, readable: true, offer: { version: NEWER }, manual: null, channel: 'prod' } };
+  }
+  if (state === 'rollback') {
+    /* win32-update-rollback (S5, #3017): a kept previous build is on hand. The card shows the "Roll
+       back to X" button alongside whatever the offer arm paints (here up to date). */
+    return { status: { update: null, updateLook: readLook, updateManual: null, updateChannel: 'prod', updateRollback: { version: PREV } },
+      check: { running: served, latest: served, reached: true, readable: true, offer: null, manual: null, rollback: { version: PREV }, channel: 'prod' } };
   }
   if (state === 'manual') {
     return { status: { update: null, updateLook: readLook, updateManual: { version: NEWER, download: PROD_ZIP }, updateChannel: 'prod' },
@@ -118,6 +127,9 @@ async function readCard(pg) {
       steps: [...document.querySelectorAll('#upd-manual-steps li')].map((li) => li.textContent.trim()),
       openFolderShown: shown(document.getElementById('upd-open-folder')),
       openFolderText: (document.getElementById('upd-open-folder') || {}).textContent || null,
+      /* win32-update-rollback (S5, #3017): the Roll back button and the version it names. */
+      rollbackShown: shown(document.getElementById('upd-rollback')),
+      rollbackText: (document.getElementById('upd-rollback') || {}).textContent ? document.getElementById('upd-rollback').textContent.trim() : null,
     };
   });
 }
@@ -134,7 +146,7 @@ async function readCard(pg) {
     process.exit(1);
   }
 
-  for (const state of ['armed', 'manual', 'staging', 'unread', 'current']) {
+  for (const state of ['armed', 'manual', 'staging', 'unread', 'current', 'rollback']) {
     const answers = stateAnswers(state, served);
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
     const errs = [];
@@ -199,12 +211,24 @@ async function readCard(pg) {
       chk(!/Up to date/.test(after.line), 'unread: never "Up to date."', JSON.stringify(after.line));
       const box = await pg.$('#s-sec-updates');
       if (box) await box.screenshot({ path: path.join(OUT, 'update-win32-unread.png') });
+    } else if (state === 'rollback') {
+      /* win32-update-rollback (S5, #3017): a kept previous build is on hand, so the "Roll back to X"
+         button shows -- here beside an up-to-date line, since rollback is orthogonal to the offer. */
+      await pg.waitForFunction(() => { const b = document.getElementById('upd-rollback'); return b && !b.hidden; }, null, { timeout: 12000 }).catch(() => {});
+      const card = await readCard(pg);
+      chk(card.rollbackShown, 'rollback: the Roll back button is shown when a kept build is on hand', JSON.stringify(card));
+      chk(card.rollbackText === 'Roll back to ' + PREV, 'rollback: the button names the version it restores', JSON.stringify(card.rollbackText));
+      chk(!card.downloadShown, 'rollback: no manual Download link', JSON.stringify(card));
+      chk(!/Up to date/.test(card.line) || card.line === 'Up to date.', 'rollback: the offer line is unaffected', JSON.stringify(card.line));
+      const box = await pg.$('#s-sec-updates');
+      if (box) await box.screenshot({ path: path.join(OUT, 'update-win32-rollback.png') });
     } else {
       await pg.click('#upd-btn');
       await pg.waitForFunction(() => !/Checking\.$/.test(document.getElementById('upd-line').textContent), null, { timeout: 12000 });
       const card = await readCard(pg);
       chk(card.line === 'Up to date.', 'CONTROL current: the press says "Up to date."', JSON.stringify(card.line));
       chk(!card.downloadShown && card.buttonShown, 'CONTROL current: no link, and the check button is there', JSON.stringify(card));
+      chk(!card.rollbackShown, 'CONTROL current: no Roll back button with nothing kept to roll back to', JSON.stringify(card));
     }
     chk(errs.length === 0, state + ': no console errors', errs.join(' | '));
     await pg.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});

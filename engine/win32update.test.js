@@ -1874,3 +1874,145 @@ test('the world: inside a board, the world that board booted into wins over the 
   const r = await win32update.prepare(prepareOpts(freshCase(), site(bundleZip()), { world: undefined }));
   assert.equal(r.expectedIdentity, `${NEXT}+${SOURCE_SHA.slice(0, 12)}@${named}`);
 });
+
+/* ─── S5 (#3017): rollbackToPrevious ─────────────────────────────────────────────────────── */
+
+const PREV = '0.6.50';   // the kept previous build, older than the installed 0.6.55
+
+/** Lay a whole build (every required entry) into a directory, the shape a kept previous-* folder has. */
+function writeDirBuild(dir, version) {
+  for (const [rel, data] of Object.entries(bundleFiles({ version }))) {
+    const file = path.join(dir, ...rel.split('/'));
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, data);
+  }
+  /* The kept build's own copy of the updater, which a resumer would load; freshCase's ROOT has stubs,
+     a real previous-* has the real files. Content is irrelevant to rollbackToPrevious's checks. */
+  fs.writeFileSync(path.join(dir, 'app', 'engine', 'win32apply.js'), '// the kept updater');
+  fs.writeFileSync(path.join(dir, 'app', 'engine', 'win32update.js'), '// the kept updater entry');
+}
+
+/** A current install (ROOT at 0.6.55) with a kept previous build (0.6.50) in WORK, ready to roll back. */
+function rollbackCase(o = {}) {
+  const c = freshCase();
+  const prevVersion = o.prev || PREV;
+  c.previousDir = path.join(c.work, `previous-${prevVersion}`);
+  writeDirBuild(c.previousDir, prevVersion);
+  for (const name of o.omitFromPrevious || []) fs.rmSync(path.join(c.previousDir, ...name.split('/')), { force: true });
+  c.prevVersion = prevVersion;
+  c.journalAt = path.join(c.anchor, JOURNAL_NAME);
+  c.staged = path.join(c.work, win32update.STAGED_DIRNAME);
+  return c;
+}
+function rollbackOpts(c, over) {
+  return {
+    root: c.root, platform: 'win32', env: c.env, home: os.homedir(), world: 'default', base: BASE,
+    liveExecutionAllowed: () => true,
+    boardTask: TASK_BOARD,
+    runStagedNode: (exe) => { c.nodeRuns.push(exe); return NODE_VERSION + '\n'; },
+    log: (line) => c.log.push(line),
+    ...(over || {}),
+  };
+}
+
+test('S5: rollbackToPrevious stages the kept build and starts the helper with a rollback journal', T, async () => {
+  const c = rollbackCase();
+  const spawned = [];
+  const r = await win32update.rollbackToPrevious(rollbackOpts(c, {
+    port: 16555, boardPid: 777,
+    spawn: (file, args, options) => { spawned.push({ file, args, options }); return fakeChild(); },
+  }));
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.version, PREV);
+  assert.equal(r.from, INSTALLED);
+  assert.equal(r.helperPid, 4242);
+  const apply = require('./win32apply');
+  const read = apply.readJournal(c.journalAt);
+  assert.equal(read.state, 'unfinished');
+  const j = read.journal;
+  assert.equal(j.rollback, true, 'the journal is marked rollback');
+  assert.equal(j.phase, 'staged');
+  assert.deepEqual(j.from, { version: INSTALLED, identity: `${INSTALLED}@default` });
+  assert.equal(j.to.version, PREV);
+  assert.equal(j.previous, path.join(c.work, `previous-${INSTALLED}`), 'H3 will move the current build here');
+  assert.equal(fs.existsSync(c.staged), true, 'the kept build is renamed into staged');
+  assert.equal(fs.existsSync(c.previousDir), false, 'and its old previous-<old> name is gone');
+  assert.equal(spawned.length, 1);
+  assert.deepEqual(spawned[0].args, [path.join(c.root, 'app', 'engine', 'win32update.js'), '--kosmos-update-apply', c.journalAt]);
+  assert.equal(spawned[0].options.detached, true);
+});
+
+test('S5: no kept previous build refuses cleanly, and nothing is staged', T, async () => {
+  const c = freshCase();   // no previous-* in WORK
+  const r = await win32update.rollbackToPrevious(rollbackOpts(c, { spawn: () => assert.fail('nothing may be started') }));
+  assert.equal(r.ok, false);
+  assert.match(r.because, /no earlier Kosmos kept to roll back to/);
+  assert.equal(fs.existsSync(path.join(c.work, win32update.STAGED_DIRNAME)), false);
+});
+
+test('S5: an incomplete kept build is refused, and the kept folder is left where it is', T, async () => {
+  const c = rollbackCase({ omitFromPrevious: ['bin/kosmos'] });
+  const r = await win32update.rollbackToPrevious(rollbackOpts(c, { spawn: () => assert.fail('nothing may be started') }));
+  assert.equal(r.ok, false);
+  assert.ok(r.because.includes('incomplete (bin\\kosmos is missing)'), r.because);
+  assert.equal(fs.existsSync(c.previousDir), true, 'the kept build is untouched');
+  assert.equal(fs.existsSync(c.staged), false);
+});
+
+test('S5: a kept build whose node.exe does not run is refused', T, async () => {
+  const c = rollbackCase();
+  const r = await win32update.rollbackToPrevious(rollbackOpts(c, {
+    runStagedNode: () => { throw new Error('spawn UNKNOWN'); }, spawn: () => assert.fail('nothing may be started'),
+  }));
+  assert.equal(r.ok, false);
+  assert.match(r.because, /Node runtime inside the kept previous build did not run/);
+  assert.equal(fs.existsSync(c.previousDir), true);
+});
+
+test('S5: a helper that cannot be started restores the kept build and abandons the journal', T, async () => {
+  const c = rollbackCase();
+  const r = await win32update.rollbackToPrevious(rollbackOpts(c, {
+    spawn: () => { throw Object.assign(new Error('spawn EACCES'), { code: 'EACCES' }); },
+    applySeams: { log: (line) => c.log.push(line) },
+  }));
+  assert.equal(r.ok, false);
+  assert.match(r.because, /rollback helper could not be started/);
+  assert.equal(fs.existsSync(c.previousDir), true, 'the kept build is renamed back to previous-<old> so a retry can find it');
+  assert.equal(fs.existsSync(c.staged), false, 'staged is emptied back');
+  const apply = require('./win32apply');
+  const read = apply.readJournal(c.journalAt);
+  assert.equal(read.state, 'finished');
+  assert.equal(read.journal.outcome, 'not-started');
+});
+
+test('S5: a test process that never armed live execution throws rather than staging (convention 3)', T, async () => {
+  /* Same shape as begin()'s live-gate test: in a node --test process refuseOrWarn THROWS (a suite that
+     reached here would have spawned a real board swap); a production process WARNS and refuses with the
+     LIVE_REFUSAL sentence. Here we assert the throw and that nothing was staged. */
+  const c = rollbackCase();
+  const off = await win32update.rollbackToPrevious(rollbackOpts(c, {
+    liveExecutionAllowed: () => false, spawn: () => assert.fail('nothing may be started'),
+  })).catch((e) => ({ threw: e.message }));
+  assert.match(off.threw, /tried to execute "rollbackToPrevious --root/);
+  assert.equal(fs.existsSync(c.previousDir), true, 'the kept build is untouched');
+  assert.equal(fs.existsSync(c.staged), false);
+});
+
+test('S5: keptPreviousBuild picks the newest build strictly older than the running one', T, () => {
+  const c = freshCase();   // ROOT at 0.6.55
+  writeDirBuild(path.join(c.work, 'previous-0.6.40'), '0.6.40');
+  writeDirBuild(path.join(c.work, 'previous-0.6.52'), '0.6.52');
+  writeDirBuild(path.join(c.work, 'previous-0.6.99'), '0.6.99');   // newer than ROOT: never a rollback target
+  const kept = win32update.keptPreviousBuild(c.root);
+  assert.equal(kept.version, '0.6.52', 'the newest previous strictly older than 0.6.55');
+});
+
+test('S5: keptPreviousBuild is host-independent -- a realpath that throws does not change the answer', T, () => {
+  const c = rollbackCase();
+  const realNative = fs.realpathSync.native;
+  fs.realpathSync.native = () => { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); };
+  try {
+    const kept = win32update.keptPreviousBuild(c.root);
+    assert.equal(kept && kept.version, PREV, 'the kept build is still found when realpath cannot resolve');
+  } finally { fs.realpathSync.native = realNative; }
+});
