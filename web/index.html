@@ -39850,10 +39850,11 @@ function openProject(id) {
     PJ_ROOM_QUERY = '';
     PJ_SEARCH_WAS_EMPTY = false;
     document.getElementById('pj-room-search').value = '';
-    /* The scroll key too: left standing, a quick A-to-B-to-A (B's fetch
-       failed or still in flight) re-enters A with the key already equal,
-       skips the scroll branch, and lands the reader on the OLDEST post. */
-    roomBox.__lastRoomKey = undefined;
+    /* The scroll query too: left standing, a quick A-to-B-to-A (B's fetch
+       failed or still in flight) re-enters A with the query already equal, reads
+       as no view change, and lands the reader on the OLDEST post. Undefined makes
+       a re-entry read as a query change so it lands on the newest post (#3066). */
+    roomBox.__lastRoomQuery = undefined;
     setLive(roomBox, '');
     /**
      * ⚠️ THE PAINT IS CLEARED WITH THE STATE. The heading repaints
@@ -40513,7 +40514,7 @@ function pjMarkSeen(id) {
  * reason, and it is why the guard is `__roomHadRows` rather than a plain
  * capture-before-every-write.
  */
-function paintThreadInto(box, html, hasRows, keyChanged, filtering) {
+function paintThreadInto(box, html, hasRows, queryChanged, filtering) {
   /* 🛑 MEASURED BEFORE THE WRITE, NOT READ OFF A FLAG. Whether the person is on
      the floor is a fact about the DOM as it stands right now, and the markup is
      about to be replaced. holdFloorOnResize keeps a flag for the resize case,
@@ -40553,12 +40554,17 @@ function paintThreadInto(box, html, hasRows, keyChanged, filtering) {
   // A note is not what the person came to read, and moving them inside one
   // would only move them again when the rows come back.
   if (!hasRows) return;
-  /* Scrolled to the newest post only when the POSTS changed, not on a relabel:
-     pjWhen re-words every minute, and yanking a person who scrolled up to read
-     history to the bottom on a poll tick is the poll fighting the reader. A
-     FILTERED paint never scrolls at all: the person is reading, not following
-     the live tail (clearing the filter restores the newest-post scroll through
-     the key change).
+  /* #3066: reset to the newest post ONLY when the reader themselves changed the
+     view (opened the room, cleared or switched the search) OR was already
+     following the tail (on the floor). A poll that merely DELIVERS NEW POSTS must
+     NOT yank a reader who has scrolled up to read history to the bottom -- that is
+     Josh's report ("it immediately jumps me all the way down ... I can never read
+     what they're saying"), and it is the same defect #1926 fixed for the agent
+     thread, which the room drifted away from. So `queryChanged` (a query-only
+     change, from paintRoom) is the discriminator, NOT "the post list changed":
+     new posts change the list but must leave a scrolled-up reader put. A FILTERED
+     paint never scrolls at all: the person is reading, not following the live tail
+     (clearing the filter lands on the newest post through queryChanged).
      ⚠️ THE FLAG IS SET HERE, NOT LEFT TO THE SCROLL EVENT. holdFloorOnResize
      learns the reader's posture from `scroll`, which is asynchronous, so a
      PROGRAMMATIC pin leaves a window where the box is on the floor and the flag
@@ -40571,7 +40577,7 @@ function paintThreadInto(box, html, hasRows, keyChanged, filtering) {
      nothing. */
   /* `!== false` rather than `=== true` so a first-ever paint, which has no
      remembered posture, still lands on the newest post. */
-  if (!filtering && (keyChanged || box.__roomHeldAtBottom !== false)) {
+  if (!filtering && (queryChanged || box.__roomHeldAtBottom !== false)) {
     /* 🛑 pinToBottom, NOT a bare assignment, AND THAT WAS THE BUG JOSH KEPT
        REPORTING. My 08-27 fix unified the write and the scroll decision but
        reimplemented the PIN as `scrollTop = scrollHeight`. setThread has used
@@ -40764,16 +40770,22 @@ function paintRoom(body) {
      #1037: setThread's own comment warns "the room and the thread are painted by
      different functions, which is exactly how the room missed the last fix", and
      it was still true of this function. */
-  const key = PJ_ROOM_QUERY + '\u0000' + (body.rows || []).map((m) => m.id || m.at).join('\u0000');
-  const keyChanged = box.__lastRoomKey !== key;
+  /* #3066: the reset-to-newest decision keys on a change the READER made -- the
+     search query (cleared or switched) -- not on new posts arriving. A poll that
+     only adds posts leaves `queryChanged` false, so a scrolled-up reader stays
+     where they are (paintThreadInto still follows the tail for a reader on the
+     floor, via __roomHeldAtBottom). Opening the room or clearing the filter flips
+     it true and lands on the newest post. The old key mixed the message ids in,
+     so every new post read as a reset and jumped the reader down. */
+  const queryChanged = box.__lastRoomQuery !== PJ_ROOM_QUERY;
   if (box.__lastRoom !== html) {
     /* New rows while the room is on screen are read as they land; a tab in
        the background is not looking, so its cursor waits for the person. */
     if (box.__lastRoom !== undefined && document.visibilityState === 'visible'
       && !document.getElementById('pj-one-view').hidden) pjMarkSeen(PJ_CURRENT);
     box.__lastRoom = html;
-    box.__lastRoomKey = key;
-    paintThreadInto(box, html, rows !== '', keyChanged, filtering);
+    box.__lastRoomQuery = PJ_ROOM_QUERY;
+    paintThreadInto(box, html, rows !== '', queryChanged, filtering);
   }
 }
 /* The search input repaints from the cached body (loadRoom keeps it on

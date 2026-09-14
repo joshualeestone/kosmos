@@ -89,8 +89,11 @@ const rows = (n) => 'ROW'.repeat(n);
 const bottomOf = (n) => n * ROW - VIEW;
 const NOTE = '<p class="fhint">Nothing here yet.</p>';
 
-/* keyChanged=true means the POSTS changed; filtering=false means no search. */
-const paintRows = (paint, box, n, keyChanged) => paint(box, rows(n), true, keyChanged, false);
+/* The 4th arg is queryChanged (#3066): true means the READER changed the view
+   (opened the room, cleared or switched the search) and should land on the newest
+   post; a new post arriving from a poll is queryChanged=false and must not move a
+   scrolled-up reader. filtering=false means no search. */
+const paintRows = (paint, box, n, queryChanged) => paint(box, rows(n), true, queryChanged, false);
 
 test('CONTROL: the fixture actually clamps, so an absence below means something', () => {
   /* 🔑 Without this the whole file could pass against a box that never moved
@@ -112,7 +115,7 @@ test('opening a room lands on the newest post', () => {
 });
 
 test("JOSH'S BOUNCE: a relabel repaint must not throw a reader to the top", () => {
-  /* 🛑 THE REPORTED DEFECT. The list is unchanged (keyChanged=false) but the
+  /* 🛑 THE REPORTED DEFECT. The list is unchanged (queryChanged=false) but the
      markup grew: an unanswered marker, a delivery verdict, pjWhen re-wording.
      Before the fix the write clamped him to 0 and nothing put him back. */
   const paint = loadPaint();
@@ -150,13 +153,46 @@ test('CONTROL: a reader ON the floor still follows the tail', () => {
   assert.equal(box.scrollTop, bottomOf(51), 'someone at the bottom stopped being shown new lines');
 });
 
-test('CONTROL: a new post still lands on the newest row', () => {
+test('#3066: a NEW POST does not jump a reader who has scrolled up', () => {
+  /* 🛑 THE REGRESSION. A poll delivers a new post: the list changed, but the
+     reader's query did NOT (queryChanged=false). Before this fix the room pinned
+     to the bottom on any list change and yanked a reader mid-read to the newest
+     message -- Josh, 2026-09-14: "it immediately jumps me all the way down ... I
+     can never read what they're saying because it keeps jumping down." Only the
+     reader changing the view resets to newest; a new post must leave them put. */
   const paint = loadPaint();
   const box = makeBox();
   paintRows(paint, box, 50, true);
   box.scrollTop = 900;
-  paintRows(paint, box, 51, true);
-  assert.equal(box.scrollTop, bottomOf(51));
+  paintRows(paint, box, 51, false);
+  assert.equal(box.scrollTop, 900,
+    'a new message yanked a reader who had scrolled up to read history (#3066)');
+});
+
+test('CONTROL: a reader AT the bottom still follows a new post', () => {
+  /* Without this the fix above is also true of a room that never follows the
+     tail, which is a worse product than the bug. A follower is kept on the newest
+     post by the on-the-floor check, independent of the view flag: the new post
+     arrives with queryChanged=false and they still move to it. */
+  const paint = loadPaint();
+  const box = makeBox();
+  paintRows(paint, box, 50, true);       // opens on the newest post, on the floor
+  paintRows(paint, box, 51, false);      // a poll adds a post; the query is unchanged
+  assert.equal(box.scrollTop, bottomOf(51),
+    'someone at the bottom stopped being shown new posts');
+});
+
+test('clearing the search lands the reader back on the newest post', () => {
+  /* A query change the reader MADE is a reset-to-newest: they are done reading
+     history and want the live tail back (queryChanged=true, unfiltered). This is
+     the intended behaviour the old key provided for a filter clear, kept. */
+  const paint = loadPaint();
+  const box = makeBox();
+  paintRows(paint, box, 50, true);
+  box.scrollTop = 900;                       // reading history / a filtered spot
+  paint(box, rows(50), true, true, false);   // the search is cleared: query changed
+  assert.equal(box.scrollTop, bottomOf(50),
+    'clearing the search left the reader stranded up-thread instead of on the newest post');
 });
 
 test('a FILTERED paint never scrolls, it restores', () => {
