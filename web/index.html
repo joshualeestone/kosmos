@@ -31192,7 +31192,7 @@ async function paintAccountPicker(a) {
      codex analogue of the Claude signed-out recovery this same picker surfaces. With no
      resolvable current account the "here" option reads "Move to..." and every movable
      account is offered as a destination. A Claude agent is unchanged (`!!acct`). */
-  const ours = world.isCodex ? world.movable.length > 0 : !!acct;
+  const ours = world.isCodex ? movable.length > 0 : !!acct;
   /* The dropdown stays live whenever we know the account: opening it and
      seeing only where you are IS the answer to "can I move this", so the
      one-account sentence that used to say so is gone (Josh, 19:56). Move
@@ -31217,7 +31217,7 @@ async function paintAccountPicker(a) {
        file was unreadable), the pre-existing cannot-tell case; `world.isCodex` is
        false for it, so the guard never suppresses its message. */
     msg.textContent = world.isCodex
-      ? 'We could not read this agent’s OpenAI accounts just now, so it cannot be moved from here.'
+      ? 'We could not read the OpenAI accounts for this agent just now, so it cannot be moved from here.'
       : 'We cannot tell which account this one uses, so it cannot be moved from here.';
   } else if (msg && !msg.textContent && signedOut) {
     /* #1492: surface the fix at the point of pain. A signed-out account is why a
@@ -31247,6 +31247,15 @@ async function paintAccountPicker(a) {
        what is true and point at the move -- the codex analogue of the signed-out
        recovery the Claude path surfaces above. */
     msg.textContent = 'We could not read the account this agent runs on. Pick an account above and press Move.';
+  } else if (msg && !msg.textContent && world.isCodex && !ours) {
+    /* #2338 EXHAUSTIVENESS: the remaining codex `!ours` case. `movable` is empty and
+       the current account IS resolved (`acctLive`) and NOT signed out (else branch 1 or
+       the signed-out branch fired), so there is simply nowhere to move to -- e.g. an
+       `AGENT_WORKFORCE_CODEX_HOME` override marks every other home un-offerable, or this
+       is the only OpenAI account and it is the current one. Without this branch the
+       control would sit disabled with a blank/stale message -- the dead silent control
+       #1492/#2811/#2338 exist to prevent. Say what is true rather than nothing. */
+    msg.textContent = 'There is no other OpenAI account to move this agent to right now.';
   }
   /* #1373: ACCOUNTS is the switch picker's source too, and it is filled here.
      Without this call the picker stays hidden until the provider dropdown is

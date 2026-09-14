@@ -135,12 +135,7 @@ test('#2095: the Move-to account picker leads with the chosen name (source-pinne
   const at = PAGE.indexOf('async function paintAccountPicker(');
   assert.notEqual(at, -1, 'paintAccountPicker is gone from the page');
   const body = PAGE.slice(at, PAGE.indexOf('\n}', at) + 2);
-  // #2338: the "here" option gained a `|| { dir: currentDir }` fallback (a codex
-  // agent whose live row is not in the list still labels from its resolved dir),
-  // so match the acctPrimaryName(acctLive || acct ...) lead rather than the exact
-  // old two-operand form -- the intent (renders through acctPrimaryName, not the
-  // email||label||dir chain) is unchanged.
-  assert.match(body, /esc\(acctPrimaryName\(acctLive \|\| acct\b/,
+  assert.match(body, /esc\(acctPrimaryName\(acctLive \|\| acct\)\)/,
     'the current-account "here" option no longer leads with the chosen name');
   assert.match(body, /esc\(acctPrimaryName\(x\)\)/,
     'the move-to options no longer lead with the chosen name');

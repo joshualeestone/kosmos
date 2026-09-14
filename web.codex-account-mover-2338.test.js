@@ -121,6 +121,18 @@ test('#1492: a named codex agent whose only OpenAI home is signed out has empty 
   assert.equal(w.currentRow, soloDead, 'the current row (needed for the signed-out message) was not resolved');
 });
 
+test('#2338: a codex agent whose only account is connected but offerable:false has empty movable + a resolved current account', () => {
+  const world = worldFn();
+  // Under a CODEX_HOME override, a listed+connected home can still be offerable:false.
+  // It is excluded from movable (nowhere to move) but stays resolvable, so the picker
+  // shows the accurate "no other account to move to" rather than a blank dead control.
+  const pinnedAway = { provider: 'openai', dir: '/Users/x/.codex-pinnedaway', isDefault: false, name: 'pinned', offerable: false, connection: { state: 'connected' } };
+  const w = world({ runner: 'codex', account: { dir: pinnedAway.dir } }, [pinnedAway]);
+  assert.deepEqual(w.movable, [], 'an offerable:false home was offered as a destination');
+  assert.equal(w.currentDir, pinnedAway.dir, 'the connected current home did not resolve');
+  assert.equal(w.currentRow, pinnedAway, 'the current row (needed for the no-destination message) did not resolve');
+});
+
 test('a CLAUDE agent is unchanged: it moves among shared-memory Claude accounts, never the OpenAI ones', () => {
   const world = worldFn();
   const w = world({ runner: 'claude', account: { dir: CLAUDE_A.dir } }, ALL);

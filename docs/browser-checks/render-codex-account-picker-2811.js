@@ -122,6 +122,12 @@ const OPENAI_ROWS = [
   const codexOnlyHomeSignedOut = await drive(
     { sessionName: 'gpt4', isNamedOurs: true, runner: 'codex', account: { dir: '/Users/x/.codex-solo' } },
     [{ provider: 'openai', dir: '/Users/x/.codex-solo', isDefault: false, name: 'Josh solo', email: 'solo@openai', connection: { state: 'none' } }]);
+  // #2338 EXHAUSTIVENESS SUBJECT: a codex agent whose current home is CONNECTED but
+  // offerable:false (a CODEX_HOME override) has an empty movable, so the picker is
+  // disabled -- but the message must NOT be blank: it says there is nowhere to move to.
+  const codexNoDestination = await drive(
+    { sessionName: 'gpt5', isNamedOurs: true, runner: 'codex', account: { dir: '/Users/x/.codex-pinnedaway' } },
+    [{ provider: 'openai', dir: '/Users/x/.codex-pinnedaway', isDefault: false, name: 'Josh pinned', email: 'p@openai', offerable: false, connection: { state: 'connected' } }]);
   // CONTROL: identical card, claude runner, claude accounts. If this does NOT produce
   // the old "we cannot tell" sentence, the !ours branch was not reached and the codex
   // assertions prove nothing.
@@ -133,7 +139,7 @@ const OPENAI_ROWS = [
 
   const problems = [];
   const err = codexMovable.error || codexNoOpenai.error || codexSignedOutDefault.error
-    || codexOnlyHomeSignedOut.error || claudeR.error;
+    || codexOnlyHomeSignedOut.error || codexNoDestination.error || claudeR.error;
   if (err) problems.push(err);
   else {
     // POPULATION FLOOR / CONTROL first: the claude arm must reach the !ours branch.
@@ -188,6 +194,13 @@ const OPENAI_ROWS = [
     if (!/signed out/.test(codexOnlyHomeSignedOut.text) || !/Sign it in again from Settings/.test(codexOnlyHomeSignedOut.text)) {
       problems.push('a codex agent whose only OpenAI home is signed out is not given the accurate '
         + '"signed out, sign it in again from Settings" remedy. got: ' + JSON.stringify(codexOnlyHomeSignedOut.text));
+    }
+
+    // #2338 exhaustiveness arm: a connected-but-unmovable current account is not a blank
+    // dead control -- it gets the "no other OpenAI account to move to" message.
+    if (!/no other OpenAI account to move/.test(codexNoDestination.text)) {
+      problems.push('a codex agent whose only home is connected-but-offerable:false shows a blank/dead control '
+        + 'instead of an explanatory "nowhere to move" message. got: ' + JSON.stringify(codexNoDestination.text));
     }
   }
 
