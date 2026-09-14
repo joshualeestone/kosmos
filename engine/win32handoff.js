@@ -638,6 +638,52 @@ async function attemptHandOff(o, deps) {
 }
 
 /**
+ * 🛑 #3016: THE OLDER-BUILD HAND-OFF. A double-clicked older Kosmos.exe reaches
+ * here with `ensured.downgrade` set: its boot found a NEWER build already anchored
+ * and win32anchor refused to re-point the fleet to this older one (Josh's rule:
+ * "never downgrade; hand off to, or update to, the newest copy instead"). So this
+ * NEVER ends or replaces the running board -- doing so would let the older build
+ * take the fleet, the exact defect this guards. It hands the person to the newer
+ * copy: if a board already answers (the newer fleet board the un-downgraded pointer
+ * still names), leave it be; if none is up, `/Run` the task (which starts the newer
+ * engine the pointer names) and leave once it answers. Only if the newer board will
+ * not come up at all does it fall back to serving here.
+ */
+async function handOffToNewer(o, deps) {
+  const { board, probe, sleep, now } = deps;
+  const port = o.port;
+  const startedAt = o.startedAt !== undefined ? o.startedAt : now() - Math.round(process.uptime() * 1000);
+  const deadline = startedAt + HANDOFF_BUDGET_MS;
+  const left = () => Math.max(0, deadline - now());
+  const leave = { serve: false, exitCode: 0, say: 'You opened an older copy of Kosmos. The newer one already installed keeps running -- your browser is opening it.' };
+  const serveHere = (because) => ({ serve: true, attempted: true, because });
+
+  /* The newer fleet board is already serving in the normal case: leave it be. A
+     non-Kosmos service on the port is not ours to open a browser to, and serving
+     here would only meet the same port -- but we still must not take the fleet. */
+  let p = await probe(port);
+  if (p.answering) return isKosmosBoardAnswer(p) ? leave : serveHere('port ' + port + ' is in use by something that is not Kosmos');
+
+  /* Nothing is up (a first boot, or the board is between restarts). Start the task,
+     which runs the newer engine the kept pointer names, then leave once it answers.
+     `/Run` reports success even when it starts nothing, so only an answering board
+     is proof (win32board.taskXml). */
+  const st = board.status();
+  if (!(st && st.running === true)) {
+    const r = board.runNow();
+    if (!r.ok) return serveHere(r.because);
+  }
+  const until = now() + Math.max(left(), MIN_PORT_RELEASE_WAIT_MS);
+  for (;;) {
+    p = await probe(port);
+    if (p.answering) return isKosmosBoardAnswer(p) ? leave : serveHere('port ' + port + ' is in use by something that is not Kosmos');
+    if (now() >= until) break;
+    await sleep(Math.min(POLL_INTERVAL_MS, until - now()));
+  }
+  return serveHere('a newer Kosmos is installed but did not answer in time');
+}
+
+/**
  * Hand this hand-started board to its logon task, or say why not.
  *
  * Resolves (never rejects) to one of:
@@ -667,21 +713,33 @@ async function decideHandOff(o) {
     const probe = o.probe || probeBoard;
     const sleep = o.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
     const now = o.now || Date.now;
-    const skip = skipReason({
-      platform: o.platform || process.platform,
-      env: o.env || process.env,
-      byTask: o.byTask !== undefined ? o.byTask : board.startedByTask(),
-      bundle: o.bundle !== undefined ? o.bundle : Boolean(board.bundleRoot()),
-      live: o.live !== undefined ? o.live : require('./live-execution').liveExecutionAllowed(),
-      ensured: o.ensured,
-    });
-    if (skip) return { serve: true, attempted: false, because: skip };
+    /* 🛑 #3016: an older Kosmos.exe (ensured.downgrade) hands off to the NEWER copy
+       instead of to a task of its own, and must not run skipReason's "is my task
+       ready" gate -- there is no task for this older build to be ready. It still
+       keeps to the launcher when this launch chose its own port or data folder, for
+       overriddenBy's reason: the newer fleet board serves neither. */
+    const downgrade = Boolean(o.ensured && o.ensured.downgrade);
+    if (!downgrade) {
+      const skip = skipReason({
+        platform: o.platform || process.platform,
+        env: o.env || process.env,
+        byTask: o.byTask !== undefined ? o.byTask : board.startedByTask(),
+        bundle: o.bundle !== undefined ? o.bundle : Boolean(board.bundleRoot()),
+        live: o.live !== undefined ? o.live : require('./live-execution').liveExecutionAllowed(),
+        ensured: o.ensured,
+      });
+      if (skip) return { serve: true, attempted: false, because: skip };
+    } else {
+      const override = overriddenBy(o.env || process.env);
+      if (override) return { serve: true, attempted: false, because: 'this launch sets ' + override + ', so it keeps to the launcher; the newer Kosmos keeps running' };
+    }
 
     /* This boot's world attempt comes off BEFORE the task can run (see
        thisBootsWorldAttempt), and goes back on if this board serves after all. */
     const attempt = thisBootsWorldAttempt(o.worlds);
     attempt.retract();
-    const result = await attemptHandOff(o, { board, probe, sleep, now })
+    const runHandOff = downgrade ? handOffToNewer : attemptHandOff;
+    const result = await runHandOff(o, { board, probe, sleep, now })
       .catch((err) => ({ serve: true, attempted: true, because: 'the hand-off failed (' + String((err && err.message) || err) + ')' }));
     if (result.serve) attempt.restore();
     return result;
