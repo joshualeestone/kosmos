@@ -35,24 +35,28 @@ Mona (design owner + #2617 author) was coordinated and given Josh's merits ratio
 - **CSS**: the design's hero/stats/donut/charts4/model-table styles ported to the app's `--k-*`
   tokens (light + dark).
 
-## Open scope decision (flagged to Splinter, awaiting A/B ruling)
-The approved design's layout does not contain three elements the live screen has, which Josh
+## Scope decision (RESOLVED: ruling A, exact-to-spec REPLACE)
+The approved design's layout does not contain three elements the live screen had, which Josh
 explicitly ruled IN earlier: (1) the four class cards with FULL unabbreviated numbers (#2617); (2)
-the ONE combined shared-axis daily chart (#2617); (3) the output-only money box (#853). Building the
-design exact-to-spec REPLACES 1/2/3 with charts4 + the hero value box. Flagged to Splinter to
-confirm REPLACE (pure exact-to-spec) vs KEEP-alongside before deleting Josh-ruled elements. The
-additions above are safe either way; the removals/charts4-placement wait on the ruling.
+the ONE combined shared-axis daily chart (#2617); (3) the output-only money box (#853). Two paths
+were possible: REPLACE 1/2/3 with charts4 + the hero value box (pure exact-to-spec), or KEEP them
+alongside the design. Splinter relayed Josh's ruling to build it EXACTLY as approved with no agent
+interpretation, which is (A): REPLACE. So 1/2/3 and their CSS + render fns were removed, and the
+tests + browser-check now assert those elements are GONE. Documented on card #2840 (comment
+5667225536); an add-back is a fast, isolated change if Josh later wants any of them.
 
 ## Verification
 - Focused pure-function tests (scratch): hero figures match the design (150.0B / $135.0M / 1.5M /
   720); per-model aggregation + donut bucketing; charts4 (4 charts, empty-safe, no NaN); API cost
   (per-class pricing, codex excluded+flagged, haiku date-strip, null-dash). All pass.
-- Existing `web.token-usage-2617.test.js` still 16/16 after every step.
-- Committed coverage for the new pure fns to be added to that test; browser-test (visual gate, per
-  Splinter) before PR.
+- `web.token-usage-2617.test.js` rewritten to the value-view, 17/17 green (includes a single-model
+  donut-ring regression and a usageGrandTotal single-source pin).
+- Browser-check `render-token-usage-2617.js` runs the live page against a served board and asserts
+  the value-view structure + numbers, that the removed elements are gone, and that the donut ring
+  actually paints (visual gate, per Splinter) -- passes.
 
 ## Weakest premise
 That "port to the Kosmos token system" is implementation, not interpretation. The numbers, calc, and
 structure match the design exactly; only the CSS variables map to existing `--k-*` tokens (the design
-is already Mona's Kosmos-restyle). The one place judgment enters is the A/B removal scope, which is
-flagged, not decided unilaterally.
+is already Mona's Kosmos-restyle). The one place judgment entered was the A/B removal scope, now
+resolved by Josh's exact-to-spec ruling (A, REPLACE) above.

@@ -65,7 +65,14 @@ function readUsage(page) {
       heroValue: heroText.includes('$1.8M'),
       heroValueLabel: heroText.includes('Approximate Human Cost'),
       heroHours: heroText.includes('20K') && heroText.includes('Human Work Hours'),
-      heroYears: /(^|\D)10(\D|$)/.test(heroText) && heroText.includes('Years of Human Work'),
+      heroYears: (() => {
+        // Read the digit next to its OWN label, not a bare "10" scanned from the
+        // whole hero (which could false-match a 10 inside another figure).
+        const box = [...document.querySelectorAll('#usage-hero .tv-sbox')]
+          .find((b) => /Years of Human Work/.test(b.textContent || ''));
+        const fig = box && box.querySelector('.tv-fig');
+        return !!fig && (fig.textContent || '').trim() === '10';
+      })(),
       heroApi: heroText.includes('$1,152') && heroText.includes('Equivalent Token API Cost'),
       heroDays: heroText.includes('Active Days on Kosmos'),
       // #2840 charts4: four per-class daily mini-charts, each with an svg.
@@ -77,6 +84,15 @@ function readUsage(page) {
       modelNamed: /claude-opus-4-8/.test(txt('#usage-mtable') || ''),
       modelPct: /100\.0%/.test(txt('#usage-mtable') || ''),
       donutSvg: !!document.querySelector('#usage-donut svg'),
+      // The ring must actually PAINT: a lone 100% slice drawn as one 360-degree arc
+      // has coincident endpoints and SVG drops it (the invisible-donut bug). Assert a
+      // stroked circle/arc element exists, not merely that the <svg> is present.
+      donutRing: (() => {
+        const el = document.querySelector('#usage-donut svg circle, #usage-donut svg path');
+        if (!el) return false;
+        const st = el.getAttribute('stroke'), sw = el.getAttribute('stroke-width');
+        return !!st && st !== 'none' && Number(sw) > 0;
+      })(),
       donutCenter: /total tokens/i.test(txt('#usage-donut') || ''),
       donutLegend: document.querySelectorAll('#usage-donut .tv-pileg').length,
       // the removed elements must be GONE (Josh's exact-to-spec replacement).
@@ -143,6 +159,7 @@ function readUsage(page) {
     ok(v.modelRows === 1 && v.modelNamed, `the per-model table lists the model (got ${v.modelRows} rows)`);
     ok(v.modelPct, 'the sole model is 100.0% of the total');
     ok(v.donutSvg, 'the per-model donut svg renders');
+    ok(v.donutRing, 'the donut ring is actually painted (stroked circle/arc, not an invisible 360-degree arc)');
     ok(v.donutCenter, 'the donut center names the total tokens');
     ok(v.donutLegend >= 1, `the donut legend lists the model(s) (got ${v.donutLegend})`);
     // the replaced elements are gone

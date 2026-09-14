@@ -50,6 +50,7 @@ function bundle() {
     + lift('usageUsd') + '\n'
     + lift('usageRowValue') + '\n'
     + lift('usageTotals') + '\n'
+    + lift('usageGrandTotal') + '\n'
     + lift('usageDailySeries') + '\n'
     + lift('usageHeroDigits') + '\n'
     + lift('usageHeroHtml') + '\n'
@@ -60,7 +61,7 @@ function bundle() {
     + lift('usageModelPrice') + '\n'
     + lift('usageApiCost') + '\n'
     + lift('usageHistoryHtml') + '\n'
-    + 'return { usageTotals, usageDailySeries, usageNum, usageAbbr, usageUsd, usageRowValue, '
+    + 'return { usageTotals, usageGrandTotal, usageDailySeries, usageNum, usageAbbr, usageUsd, usageRowValue, '
     + 'usageHeroHtml, usageByModel, usageModelTableHtml, usageDonutSvg, usageCharts4Html, '
     + 'usageModelPrice, usageApiCost, usageHistoryHtml, USAGE_CLASS_COLORS, USAGE_MODEL_COLORS, USAGE_MODEL_PRICES };'
   )();
@@ -149,6 +150,25 @@ test('#2840: the donut renders a slice per model (top 6 + Other) with a blended-
   assert.ok(svg.includes('>Other<'), 'the tail is bucketed into Other');
   assert.ok(svg.includes('total tokens'), 'the center names the total');
   assert.equal(U.usageDonutSvg([], 0), '', 'no models -> empty');
+});
+
+test('#2840: a single-model donut draws a full-circle ring, not a degenerate arc (invisible-donut regression)', () => {
+  const one = [{ name: 'claude-opus-4-8', tok: 1987720773 }];
+  const svg = U.usageDonutSvg(one, 1987720773);
+  // A 100% slice drawn as one 360-degree <path> arc has its endpoint equal to its
+  // start, which SVG drops -- the ring would render invisibly. The fix draws a <circle>.
+  assert.match(svg, /<circle /, 'the lone full slice is drawn as a circle ring');
+  assert.equal((svg.match(/<path /g) || []).length, 0, 'no degenerate 360-degree path arc for a lone slice');
+  assert.ok(svg.includes('total tokens'), 'the center still names the total');
+});
+
+test('#2840: usageGrandTotal is the single blended-total source (hero, charts4, table, donut agree)', () => {
+  const totals = U.usageTotals(FIXTURE);
+  assert.equal(U.usageGrandTotal(totals), EXPECT.total, 'grand total = sum of the four classes');
+  // The per-model sum derives the same blended total from the same byDay data, so the
+  // hero headline and the per-model table/donut cannot silently disagree (Convention #5).
+  const byModelSum = U.usageByModel(FIXTURE).reduce((a, m) => a + m.tok, 0);
+  assert.equal(byModelSum, U.usageGrandTotal(totals), 'sum(usageByModel) === usageGrandTotal(usageTotals)');
 });
 
 test('#2840: charts4 renders four per-class daily mini-charts', () => {

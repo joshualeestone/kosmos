@@ -24955,6 +24955,16 @@ function usageTotals(byDay) {
   }
   return t;
 }
+/* #2840: the blended grand total, every class summed. ONE helper so the hero headline,
+   the charts4/table/donut grandTotal, and the donut center all derive the figure from a
+   single place. A change to which classes count is then one edit rather than three that
+   have to stay in lockstep -- the "two derivations of one fact" defect this codebase keeps
+   paying for. Pure + node-tested (sum of usageByModel equals this). */
+function usageGrandTotal(totals) {
+  const t = totals || {};
+  return (Number(t.input) || 0) + (Number(t.output) || 0)
+    + (Number(t.cacheWritten) || 0) + (Number(t.cacheRead) || 0);
+}
 /* One point per day (models summed within the day), ascending by date, so the
    chart draws left-to-right oldest-to-newest. */
 function usageDailySeries(byDay) {
@@ -25045,8 +25055,7 @@ function usageHeroDigits(n) {
 }
 function usageHeroHtml(totals, activeDays, apiCostUsd) {
   const t = totals || {};
-  const total = (Number(t.input) || 0) + (Number(t.output) || 0)
-    + (Number(t.cacheWritten) || 0) + (Number(t.cacheRead) || 0);
+  const total = usageGrandTotal(t);
   const hours = total / USAGE_VALUE_TOKENS_PER_HOUR;
   const value = hours * USAGE_VALUE_BLENDED_RATE;
   const years = hours / USAGE_VALUE_HOURS_PER_YEAR;
@@ -25133,12 +25142,21 @@ function usageDonutSvg(models, grandTotal) {
   let a0 = -Math.PI / 2;
   const segs = slices.map((s) => {
     const frac = s.tok / tot, a1 = a0 + frac * 2 * Math.PI, big = frac > 0.5 ? 1 : 0;
-    const x0 = cx + R * Math.cos(a0), y0 = cy + R * Math.sin(a0);
-    const ea = Math.max(a1, a0 + 0.01);
-    const x1 = cx + R * Math.cos(ea), y1 = cy + R * Math.sin(ea);
-    const p = '<path d="M ' + x0.toFixed(2) + ' ' + y0.toFixed(2) + ' A ' + R + ' ' + R + ' 0 ' + big + ' 1 ' + x1.toFixed(2) + ' ' + y1.toFixed(2) + '" fill="none" stroke="' + s.c + '" stroke-width="' + sw + '"/>';
+    let el;
+    if (frac >= 1) {
+      // A lone slice filling the whole ring cannot be drawn as one 360-degree arc:
+      // its endpoint would coincide with its start point and SVG drops such a
+      // segment, leaving the ring invisible. This is the common single-model case,
+      // so draw a full circle stroke instead (browser-check asserts the ring paints).
+      el = '<circle cx="' + cx + '" cy="' + cy + '" r="' + R + '" fill="none" stroke="' + s.c + '" stroke-width="' + sw + '"/>';
+    } else {
+      const x0 = cx + R * Math.cos(a0), y0 = cy + R * Math.sin(a0);
+      const ea = Math.max(a1, a0 + 0.01);
+      const x1 = cx + R * Math.cos(ea), y1 = cy + R * Math.sin(ea);
+      el = '<path d="M ' + x0.toFixed(2) + ' ' + y0.toFixed(2) + ' A ' + R + ' ' + R + ' 0 ' + big + ' 1 ' + x1.toFixed(2) + ' ' + y1.toFixed(2) + '" fill="none" stroke="' + s.c + '" stroke-width="' + sw + '"/>';
+    }
     a0 = a1;
-    return p;
+    return el;
   }).join('');
   const centerTok = esc(usageAbbr(Number(grandTotal) || tot));
   const svg = '<svg viewBox="0 0 200 200" role="img" aria-label="Token share by model">' + segs
@@ -25312,8 +25330,7 @@ async function paintUsage() {
       return;
     }
     const totals = usageTotals(byDay);
-    const grandTotal = (Number(totals.input) || 0) + (Number(totals.output) || 0)
-      + (Number(totals.cacheWritten) || 0) + (Number(totals.cacheRead) || 0);
+    const grandTotal = usageGrandTotal(totals);
     /* #2840: equivalent API cost from published per-model list prices. cost is
        null if nothing was priceable (hero shows "-"); unpriced names any model
        with no published price, excluded from the figure and named in msg below. */
