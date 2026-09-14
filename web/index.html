@@ -19197,17 +19197,27 @@ function openAcctReauthOpenai(dir, email) {
    route (pre-2a), so it degrades to today's header cleanly. */
 /* #3055: the switcher MUST NOT FAIL CLOSED. It is `hidden` by default and `worldsFetch`
    is the only thing that reveals it, called once on load with no retry -- so a single
-   non-ok `/api/worlds` (a not-signed-in board 500s after a broken switch) permanently hid
+   non-ok list read (a not-signed-in board 500s/403s after a broken switch) permanently hid
    it, and there was no other code path that ever showed it again: the user was locked out
-   of their Kosmoses with no way back. So persist the last-known world list and, when the
-   live read fails, render from it (degraded) so the user can always switch back to a
-   working Kosmos; retry so a recovered board replaces the stale list on its own. */
+   of their Kosmoses with no way back.
+
+   #3055 FAST-FOLLOW: the PRIMARY list read is now GET /api/worlds/names -- the UNGATED
+   (PUBLIC_WORLD_ROUTES, server.js) names-only route that returns exactly what the switcher
+   renders: {worlds:[{id,name}], activeWorldId, bootedWorldId}. Because it is ungated it
+   answers 200 even on the unsigned board that a broken switch leaves behind -- the one
+   state that used to lock the user out -- so the switcher renders LIVE there, no stale
+   note needed. The token-gated GET /api/worlds is no longer read here at all (it carried
+   nothing the switcher uses beyond id/name/markers). The last-known localStorage list stays
+   as the DEEPER fallback for the remaining failure -- the board being genuinely unreachable
+   (a fetch throw, or /api/worlds/names itself down) -- rendered degraded with an honest note;
+   an 8s retry replaces the stale list once the board recovers. With NO cache and an
+   unreachable board the switcher stays hidden (today's clean single-world degrade). */
 const WORLDS_CACHE_KEY = 'kosmos-worlds-last-known';
 /* 8s: this is a recovery poll for a broken/not-signed-in board, not the fast
    post-switch reconnect (that is WORLDSW_RECONNECT_INTERVAL_MS, 2s). A broken board
    recovers on a human timescale (a re-sign-in, a board restart), so a slow, cheap poll
    is right -- fast enough that the switcher self-heals to live within a few seconds of
-   recovery, slow enough not to hammer /api/worlds while it stays down. */
+   recovery, slow enough not to hammer /api/worlds/names while it stays down. */
 const WORLDS_RETRY_MS = 8000;
 let WORLDS_RETRY_T = null;
 let WORLDSW_STALE = false;
@@ -19231,7 +19241,9 @@ function worldsCacheLoad() {
 async function worldsFetch() {
   let data = null;
   try {
-    const res = await fetch('/api/worlds', { cache: 'no-store' });
+    // #3055 FAST-FOLLOW: the UNGATED names route, so an unsigned post-switch board (where
+    // the token-gated /api/worlds 403s) still serves the list and the switcher renders LIVE.
+    const res = await fetch('/api/worlds/names', { cache: 'no-store' });
     if (res.ok) data = await res.json();
   } catch { /* board unreachable -- fall through to the last-known list below */ }
   if (data && Array.isArray(data.worlds) && data.worlds.length > 0) {
