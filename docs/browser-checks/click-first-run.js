@@ -48,9 +48,11 @@ const ok = (cond, what) => { if (!cond) fails.push(what); console.log(`${cond ? 
    still fails the assertion, it just is not raced. The flag has one writer
    (engine/firstrun.js writes a temp then renames it into place), so a present
    flag is only ever complete-and-valid: ENOENT (not renamed in yet) is the retry
-   case. A real error -- EACCES, an I/O fault -- is NOT a timing race, so it is
-   rethrown rather than silently polled into a timeout that would read like
-   "never written". */
+   case. The heavy cut load this targets can itself induce TRANSIENT I/O errors
+   (fd exhaustion / contention across ~16 boards + Playwright + node); those are
+   retried too, because rethrowing one would exit the check and hand run_one a
+   dirty-sandbox retry -- the deferred bug-2 cascade. Only a genuine, NON-transient
+   fault (EACCES, EISDIR) is rethrown, surfaced rather than masked into a timeout. */
 // 5s covers the observed write-vs-read lag under a full release cut's load with
 // margin; 100ms between reads keeps a genuine failure's added wait small (one
 // FAIL costs at most one timeout) without busy-spinning the filesystem.
@@ -61,13 +63,21 @@ async function waitForFlag(flagPath, { requireCompletedAt = false, timeoutMs = F
   for (;;) {
     try {
       const parsed = JSON.parse(fs.readFileSync(flagPath, 'utf8'));
-      if (!requireCompletedAt || parsed.completedAt) return parsed;
+      // `parsed &&` guards a degenerate flag whose body is JSON `null`: it stays
+      // absent-shaped (poll on, fail at the cap) rather than throwing a TypeError
+      // on `.completedAt`. Unreachable given the sole writer, defensive only.
+      if (parsed && (!requireCompletedAt || parsed.completedAt)) return parsed;
     } catch (err) {
-      // ENOENT is the race (the flag is not renamed into place yet); a JSON parse
-      // error is defensive only (the atomic rename cannot expose a half-written
-      // file). Anything else -- EACCES, a real I/O fault -- is not a timing race,
-      // so surface it instead of retrying it into a misleading timeout.
-      if (err.code !== 'ENOENT' && !(err instanceof SyntaxError)) throw err;
+      // Retry (poll again) on: ENOENT (the flag is not renamed into place yet);
+      // the transient I/O errors heavy cut load can induce (fd exhaustion /
+      // contention) -- rethrowing one would exit the check into a dirty-sandbox
+      // run_one retry, the deferred bug-2 cascade; and a JSON parse error
+      // (defensive -- the atomic rename cannot expose a half-written file). A
+      // genuine, non-transient fault (EACCES, EISDIR, ...) is rethrown so it
+      // surfaces instead of being masked into a "never written" timeout.
+      const retryable = ['ENOENT', 'EMFILE', 'ENFILE', 'EAGAIN', 'EBUSY'].includes(err.code)
+        || err instanceof SyntaxError;
+      if (!retryable) throw err;
     }
     if (Date.now() >= deadline) return null;
     await new Promise((r) => setTimeout(r, FLAG_POLL_INTERVAL_MS));
