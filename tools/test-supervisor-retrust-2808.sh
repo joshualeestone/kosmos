@@ -65,17 +65,20 @@ ARGS="$SB/new-session.args"
 if [ -s "$ARGS" ]; then ok "the supervisor reached new-session (the launch)"; else bad "new-session never happened: $(tail -5 "$SB/out.log")"; fi
 
 # The whole fix: the folder-trust key for the agent's workdir landed in the sandbox
-# config, written by the supervisor BEFORE the launch above.
-WORK_REAL="$(cd "$SB/work" && pwd -P)"
+# config, written by the supervisor BEFORE the launch above. The project key is derived
+# by trust.js's own canonicalOnDisk (fs.realpathSync.native, separator-normalised) rather
+# than a bash `pwd -P` hand-derivation, so this cannot diverge from what the writer keys on.
 if [ -f "$CFG" ] && node -e '
-  const fs=require("fs"), p=process.argv[1], k=process.argv[2];
-  const d=JSON.parse(fs.readFileSync(p,"utf8"));
-  const e=d.projects && d.projects[k];
+  const fs=require("fs"), path=require("path");
+  const { canonicalOnDisk } = require(process.argv[3] + "/trust");
+  const key = canonicalOnDisk(process.argv[2]).split(path.sep).join("/");
+  const d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
+  const e=d.projects && d.projects[key];
   process.exit(e && e.hasTrustDialogAccepted===true ? 0 : 1);
-' "$CFG" "$WORK_REAL" 2>/dev/null; then
+' "$CFG" "$SB/work" "$PWD/engine" 2>/dev/null; then
   ok "#2129: the supervisor re-applied the folder-trust key for the workdir before launch"
 else
-  bad "no folder-trust key for $WORK_REAL in $CFG: $(cat "$CFG" 2>/dev/null | tr -d '\n' | head -c 300)"
+  bad "no folder-trust key for $SB/work in $CFG: $(cat "$CFG" 2>/dev/null | tr -d '\n' | head -c 300)"
 fi
 
 # And the one-time Bypass-Permissions acceptance, so --dangerously-skip-permissions does

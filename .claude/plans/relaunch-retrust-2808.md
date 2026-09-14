@@ -9,7 +9,8 @@ the actual #2129/#3055 restart-hits-trust ROOT.
 
 Two of three class-1 pieces already exist: PREVENTION (engine/create.js calls trustFolder +
 preacceptBypass; the launch carries --dangerously-skip-permissions) and DETECTION (status.js
-classifies the prompts). But create.js writes trust/bypass ONCE, at CREATE. A restart re-runs
+classifies the prompts). But create.js writes trust/bypass only on the CREATE path and the
+account-flip path (setAccount, #1629) - never on a plain relaunch. A restart re-runs
 bin/agent-supervisor.sh, NOT create.js, and the supervisor did NOT re-apply them. Agents restart
 constantly (launchd KeepAlive, `kosmos restart`), and --dangerously-skip-permissions does NOT answer
 the folder-trust dialog (a separate startup gate, #2129). So a restart into a state where the

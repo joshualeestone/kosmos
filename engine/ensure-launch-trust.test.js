@@ -21,11 +21,14 @@ process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 const { ensureLaunchTrust } = require('./ensure-launch-trust');
-const { KEY, BYPASS_KEY } = require('./trust');
+const { KEY, BYPASS_KEY, canonicalOnDisk } = require('./trust');
 
-// The key trust.js writes is the folder's on-disk realpath, separator-normalised
-// (forward slashes; identical on macOS, the #2281 shape on Windows).
-const K = (p) => String(fs.realpathSync(p)).split(nodePath.sep).join('/');
+// The key trust.js writes is the folder's ON-DISK-CASE realpath (fs.realpathSync.native,
+// NOT the plain fs.realpathSync, which returns the INPUT case on a case-insensitive fs -
+// trust.js:51-63), separator-normalised to forward slashes (#2281; a no-op on macOS).
+// Re-use trust.js's own canonicalOnDisk rather than re-deriving it here, so this cannot
+// silently diverge from what the writer keys on (the two-derivations-of-one-fact defect).
+const K = (p) => canonicalOnDisk(p).split(nodePath.sep).join('/');
 
 let n = 0;
 const folder = () => {
