@@ -145,6 +145,15 @@ test('#2911: S3 asks for tmux\'s OWN Accessibility grant (data-gate="tmux-a11y")
   // carry the rest. Guard the fold itself: the separate step-3 "switch tmux to On" caption must
   // NOT come back (distinct from the #2451 uppercase-"TMUX" guard, which is about a mislabel).
   assert.doesNotMatch(S3, /switch tmux to On/, 'the retired separate "3 - switch tmux to On" caption stays folded into the combined one (#3075)');
+  // #3075 ONE-BOX invariant, pinned STRUCTURALLY (the other asserts here are independent and
+  // would all stay green if the panel were split back into two adjacent .s3-mock windows).
+  // The tempered [\s\S] refuses to cross a second `<div class="s3-mock`, so BOTH switches must
+  // sit inside a SINGLE mock for this to match; a two-mock regression breaks it.
+  assert.match(
+    S3,
+    /<div class="s3-mock" data-win-hide>(?:(?!<div class="s3-mock")[\s\S])*?data-sw-gate="tmux"(?:(?!<div class="s3-mock")[\s\S])*?data-sw-gate="tmux-a11y"/,
+    'both the Kosmos and tmux switches sit inside ONE .s3-mock (the #3075 one-box Accessibility panel)',
+  );
 
   // FR_GATES routes it to the tmux-a11y status endpoint, granting only on trusted:true.
   assert.match(PAGE, /'tmux-a11y':\s*\{[\s\S]*?url:\s*'\/api\/tmux-a11y-status',[\s\S]*?granted:\s*\(r\)\s*=>[\s\S]*?r\.trusted === true/,
