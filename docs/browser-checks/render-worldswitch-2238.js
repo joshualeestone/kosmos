@@ -171,6 +171,11 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
         statusObserved.push(reported);
         return Promise.resolve({ ok: true, status: 200, json: async () => ({ activeWorldId: reported }) });
       }
+      // The switcher's world-list read. This broad GET match is deliberately route-agnostic:
+      // it must keep catching worldsFetch's read, which is GET /api/worlds/names since the
+      // #3055 fast-follow (was plain /api/worlds). If this is ever tightened to an anchored
+      // path, anchor it to /api/worlds/names, or the list stub goes unserved and the switcher
+      // assertions vacuous-pass (the way render-worldhide-2935 broke on that swap).
       if (url.indexOf('/api/worlds') !== -1 && method === 'GET') {
         const body = { worlds: [{ id: 'w1', name: 'Home' }, { id: 'w2', name: 'Side Project' }], activeWorldId: registryActive };
         if (sendBooted) body.bootedWorldId = bootedActive;   // #2454b: the real server always sends this
