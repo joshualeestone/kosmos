@@ -12,6 +12,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const createdroster = require('./createdroster');
+const realCreate = require('./create'); // #1704: delegate the label parse to the real one, no second derivation
 
 /* A deterministic stand-in for each dependency. Defaults describe a clean machine
    with two never-run agents (alpha, beta), a consistent sandbox and a readable
@@ -37,6 +38,11 @@ function harness(over) {
     create: {
       AGENTS_DIR: '/AGENTS',
       serviceLabel: (n) => `com.kosmos.agent.${n}`,
+      // #1704: the REAL label parse, so the mock cannot drift from production
+      // (parseServiceLabel is pure, so using it does not undermine the fs/readJob
+      // isolation this harness exists for).
+      SERVICE_LABEL_PREFIX: realCreate.SERVICE_LABEL_PREFIX,
+      parseServiceLabel: realCreate.parseServiceLabel,
       readJob: (n) => { calls.readJob.push(n); return Object.prototype.hasOwnProperty.call(jobs, n) ? jobs[n] : null; },
       workerDir: (n) => `/workers/${n}`,
       cleanName: (n) => String(n == null ? '' : n).trim(),
@@ -147,4 +153,23 @@ test('a name that safeKey REJECTS (strips to empty) is SKIPPED, not thrown', () 
   let out;
   assert.doesNotThrow(() => { out = src(); });
   assert.deepEqual(out, ['alpha']);   // the punctuation name safeKeys to '' -> skipped
+});
+
+test('#1704 a board rosters ONLY its own Kosmos: a named-world plist is not a default-board stray', () => {
+  // The LaunchAgents folder holds every Kosmos's agents. A default board that
+  // counted `beta+test` would list another world's agent as created-never-run.
+  const opts = {
+    plists: ['com.kosmos.agent.alpha.plist', 'com.kosmos.agent.beta+test.plist'],
+    jobs: { alpha: { runner: 'claude' }, beta: { runner: 'claude' } },
+    dirs: { alpha: true, beta: true },
+  };
+  const saved = process.env.KOSMOS_WORLD;
+  try {
+    delete process.env.KOSMOS_WORLD;                       // default board
+    assert.deepEqual(harness(opts).src().sort(), ['alpha'], 'default board drops beta+test');
+    process.env.KOSMOS_WORLD = 'test';                     // named board
+    assert.deepEqual(harness(opts).src().sort(), ['beta'], 'test board keeps only its own, drops alpha');
+  } finally {
+    if (saved === undefined) delete process.env.KOSMOS_WORLD; else process.env.KOSMOS_WORLD = saved;
+  }
 });

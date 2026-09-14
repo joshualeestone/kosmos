@@ -40,14 +40,19 @@ test('#2264: removeAccount DELETES a non-default OpenAI account (dir gone, not r
   assert.deepEqual(leftovers, [], 'a delete must not leave a renamed-aside copy');
 });
 
-test('#2264: the DEFAULT .codex is REFUSED for delete (unlike forget), and survives', () => {
+test('#2684: the DEFAULT .codex IS deletable (whole-dir), reporting wasDefault', () => {
+  // #2684: unlike Claude (whose primary identity is a key in a SHARED external
+  // <HOME>/.claude.json and whose dir may hold symlinked history), an OpenAI
+  // account's identity + config live inside its own .codex dir and disconnect
+  // already moves the whole default dir aside -- so delete is the same whole-dir
+  // rmSync for the default as for a secondary, and the default is deletable now.
   const dir = acct('default');
   assert.ok(openai.list().some((a) => a.dir === dir && a.isDefault), 'the default must be listed first');
   const got = openai.removeAccount(dir, []);
-  assert.equal(got.ok, false);
-  assert.equal(got.removed, false);
-  assert.match(got.because, /default account cannot be deleted/);
-  assert.ok(fs.existsSync(dir), 'the default codex home must survive the refusal');
+  assert.equal(got.ok, true, got.because);
+  assert.equal(got.removed, true);
+  assert.equal(got.wasDefault, true, 'the default reports wasDefault for the caller history messaging');
+  assert.ok(!fs.existsSync(dir), 'the default codex home is deleted (whole-dir)');
 });
 
 test('#2264: a running agent refuses the delete, NAMED, and the account survives', () => {
@@ -80,11 +85,11 @@ test('#2264: a path outside home is refused, and an already-gone account is a qu
   assert.match(got.because, /already gone/);
 });
 
-test('#2264: the ENV-MOVED default is refused too, not just the literal .codex', () => {
-  /* The real default follows AGENT_WORKFORCE_CODEX_HOME. A basename check
-     (base === '.codex') would MISS a moved `.codex-<label>` default and
-     irreversibly delete the home other codex agents resolve to. Red-capable:
-     with the old basename guard this deleted `.codex-work`. */
+test('#2684: the ENV-MOVED default is deletable too and reports wasDefault (env-aware, not a basename check)', () => {
+  /* The default follows AGENT_WORKFORCE_CODEX_HOME, and `wasDefault` must use the
+     env-aware defaultDir(), not base === '.codex': a moved `.codex-<label>` IS the
+     real default and must report wasDefault:true. Red-capable: a basename check
+     would report wasDefault:false for the moved default. */
   const moved = nodePath.join(SANDBOX, '.codex-work');
   fs.mkdirSync(moved, { recursive: true });
   fs.writeFileSync(nodePath.join(moved, 'auth.json'),
@@ -95,10 +100,10 @@ test('#2264: the ENV-MOVED default is refused too, not just the literal .codex',
     assert.ok(openai.list().some((a) => a.dir === moved && a.isDefault),
       'with the env moved, .codex-work must be the default (or the arm is vacuous)');
     const got = openai.removeAccount(moved, []);
-    assert.equal(got.ok, false, 'the env-moved default must be refused');
-    assert.equal(got.removed, false);
-    assert.match(got.because, /default account cannot be deleted/);
-    assert.ok(fs.existsSync(moved), 'the env-moved default must survive the refusal');
+    assert.equal(got.ok, true, got.because);
+    assert.equal(got.removed, true);
+    assert.equal(got.wasDefault, true, 'the env-moved default must report wasDefault via the env-aware defaultDir()');
+    assert.ok(!fs.existsSync(moved), 'the env-moved default is deleted');
   } finally {
     if (prev === undefined) delete process.env.AGENT_WORKFORCE_CODEX_HOME;
     else process.env.AGENT_WORKFORCE_CODEX_HOME = prev;

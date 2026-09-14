@@ -42,16 +42,24 @@ test('no task registered -> ATTENTION, and it says the agents come back while th
 
 test('task present but switched OFF -> ATTENTION, and it is not re-enabled behind the person', () => {
   const r = row({ enabled: false });
-  assert.equal(r.state, machine.STATE.ATTENTION);
-  assert.match(r.title, /turned off/);
-  assert.match(r.detail, /Task Scheduler/);
+  /* win32-installer-native (W-21a, W-22, round 1 finding 12): switched off is a choice the
+     Settings switch makes, so the row is plain, not a warning, and the way back on is that switch,
+     in the position the task was read in, not a trip to Task Scheduler. */
+  assert.equal(r.state, machine.STATE.OK);
+  assert.match(r.title, /does not start when you sign in/);
+  assert.match(r.detail, /turn it back on with the switch below/);
+  assert.equal(r.startAtSignIn, false);
 });
 
 test('task present and enabled -> OK, and it prints how to remove it', () => {
   const r = row();
   assert.equal(r.state, machine.STATE.OK);
-  assert.match(r.detail, /schtasks \/Delete \/F \/TN "Kosmos\\board"/,
+  /* win32-board-copy (W-22): the command moved out of the sentence a person reads and
+     into the row's `admin` field, which Settings shows under "For IT admins". It is
+     still on the screen that mentions the task, so the rule this pins still holds. */
+  assert.match(r.admin, /schtasks \/Delete \/F \/TN "Kosmos\\board"/,
     'anything durable Kosmos registers must be findable and removable from the screen that mentions it');
+  assert.doesNotMatch(r.detail, /schtasks/, 'the raw command is back in the sentence a person reads');
 });
 
 test('a from-source checkout is OK, not a fault -- the same exemption the Mac arm gives', () => {

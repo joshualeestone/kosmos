@@ -138,6 +138,10 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       side.click();
       const go = document.getElementById('world-switch-go');
       if (!go) return { error: 'the row click did not open the #6 confirm modal (#world-switch-go absent)' };
+      // #1704 PR3: Restart is disabled until the pause/keep question is answered.
+      const keep = document.getElementById('world-switch-keep');
+      if (!keep) return { error: 'the confirm modal has no keep-running choice (#world-switch-keep absent)' };
+      keep.click();
       go.click();
       return {};
     };

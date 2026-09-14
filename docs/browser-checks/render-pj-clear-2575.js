@@ -112,6 +112,12 @@ function initStub() {
     if (/\/api\/projects(\?|$)/.test(u) && (!opts || !opts.method || String(opts.method).toUpperCase() === 'GET')) {
       return enc({ ok: true, projects: [window.__project] });
     }
+    // #2691 (Josh 2026-09-10): the "Not waiting? Clear it" control now lives in the
+    // Engineering-mode-only #pj-thread box (pjApplyEngMode hides it while ENG_ON is
+    // false). This harness must report Engineering mode ON so the button is on screen;
+    // the sibling render-engmode-gate-2131 asserts the same box is hidden in Off and
+    // shown in On, so this is the intended, not-a-regression behaviour.
+    if (u.includes('/api/engmode')) return enc({ on: true });
     // Everything else (first-run, docs, you, avatar) gets a benign ok so a
     // startup poll cannot fill the console and mask a real error. The agents poll
     // assigns `LAST = data.agents`, so it must carry an array or LAST becomes
@@ -169,6 +175,21 @@ function initStub() {
   await page.waitForFunction(() => {
     const q = document.getElementById('pj-question');
     return q && q.hidden === false;
+  }, { timeout: 5000 }).catch(() => {});
+
+  // #2691 (Josh 2026-09-10): the clear control moved into the Engineering-mode-only
+  // #pj-thread box, so turn Engineering mode ON through the app's own refresh (reading
+  // the stub's on:true above). Without this the box stays display:none and the button
+  // has a 0x0 box -- reachable=false and page.click times out -- which is the CORRECT
+  // Off-mode behaviour, not a regression. Done after the paint wait so the startup
+  // engmode poll cannot race it back off.
+  await page.evaluate(async () => {
+    if (typeof refreshEngMode === 'function') await refreshEngMode();
+    if (typeof pjApplyEngMode === 'function') pjApplyEngMode();
+  });
+  await page.waitForFunction(() => {
+    const t = document.getElementById('pj-thread');
+    return t && t.hidden === false;
   }, { timeout: 5000 }).catch(() => {});
 
   // ---- Scenario 1: paint + reachability ----

@@ -29,10 +29,11 @@
  * succeed), which made the refusal a Mac answer wearing a Windows coat.
  *
  * 🔑 THE WINDOWS ANSWER TO "WILL A STOP BRING THIS BOARD BACK" IS A DIFFERENT
- * FACT, not a translated one. There is no supervisor and no `bin\kosmos` wrapper
- * to drive (`engine/clipath.js`'s installed layout is `$KOSMOS_HOME/bin/kosmos`,
- * and the Windows bundle ships no such file -- so `installedKosmosCli()` is null
- * there by construction, and the `kosmos` arm below is correctly unreachable).
+ * FACT, not a translated one. There is no `kosmos restart` to drive: the
+ * Windows zip's `bin\kosmos` (#570, win32-kosmos-cli-570) is the AGENT's command
+ * and has no board verbs. `installedKosmosCli()` is therefore NOT null on a
+ * Windows bundle, and the `kosmos` arm below must not be reached there -- it is
+ * not, because canSelfRestart returns at the win32 check before asking.
  * What exists is the board's own at-logon Scheduled Task (engine/win32board.js),
  * and the question becomes: was THIS board started by that task? If it was,
  * ending the task ends this process and running it starts a fresh one. If it was
@@ -44,6 +45,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync, spawn } = require('node:child_process');
 const { installedKosmosCli } = require('./clipath');
+const worlds = require('./worlds');
+const launchidentity = require('./launchidentity');
 
 const BOARD_LABEL = 'com.kosmos.board';
 
@@ -230,11 +233,17 @@ function win32CanRestart() {
     return { canRestart: false, via: null, because: `we could not check how this board is started on Windows (${String((e && e.message) || e)}); restart it by hand` };
   }
   const st = ops.status();
+  /* #2973: a logon job we could not read might be one that cannot bring the board
+     back, so could-not-tell is a refusal, and so is anything but a job known to be on. */
+  if (st.known === false) {
+    return { canRestart: false, via: null,
+      because: `we could not read the job that starts the board at logon (${ops.TASK_NAME}${st.because ? ': ' + st.because : ''}), so stopping the board might not bring it back; restart it by hand` };
+  }
   if (!st.registered) {
     return { canRestart: false, via: null,
       because: 'nothing on this computer starts the board at logon yet, so stopping it would not bring it back; restart it by hand' };
   }
-  if (st.enabled === false) {
+  if (st.enabled !== true) {
     return { canRestart: false, via: null,
       because: `the job that starts the board at logon (${ops.TASK_NAME}) is switched off, so stopping it would not bring it back; restart it by hand` };
   }
@@ -264,9 +273,12 @@ function win32CanRestart() {
  */
 function kosmosRestart(cli) {
   const env = { ...process.env };
-  delete env.AGENT_WORKFORCE_DATA;
-  delete env.AGENT_WORKFORCE_PROJECTS;
-  delete env.AGENT_WORKFORCE_WORKERS;
+  for (const k of worlds.WORLD_ROOT_ENV_VARS) delete env[k];
+  /* #1704: and the world itself. A fresh board that inherited KOSMOS_WORLD or the
+     pre-world marker would hand the OLD world to every agent it launches, the same
+     bleed the three deletes above prevent for the data roots. */
+  delete env[worlds.PRE_WORLD_ROOTS_ENV_VAR];
+  delete env[launchidentity.WORLD_ENV_VAR];
   let child;
   try {
     child = spawner(cli, ['restart'], { detached: true, stdio: 'ignore', env });
@@ -299,13 +311,14 @@ function kosmosRestart(cli) {
  * launchctl stop (gui-domain target, falling back to the bare label).
  * @returns {{ok:boolean, because?:string}}
  */
-function selfRestart(platform = process.platform) {
+function selfRestart(platform = process.platform, opts = {}) {
   const can = canSelfRestart(platform);
   if (!can.canRestart) return { ok: false, because: can.because };
   /* #570: end the logon task, wait for the board to actually be gone, run it
      again -- driven from a detached helper, because step one kills this process.
-     engine/win32board.restart() owns the sequence and the measurement behind it. */
-  if (can.via === 'schtasks') return boardOpsFn().restart();
+     engine/win32board.restart() owns the sequence and the measurement behind it.
+     #2973: `port` is this board's, which the helper asks to confirm one came back. */
+  if (can.via === 'schtasks') return boardOpsFn().restart({ port: opts && opts.port });
   if (can.via === 'kosmos') return kosmosRestart(can.cli);
   const u = uid();
   let r = runner('launchctl', ['stop', `gui/${u}/${BOARD_LABEL}`]);

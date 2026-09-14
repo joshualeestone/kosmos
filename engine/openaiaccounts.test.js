@@ -354,19 +354,36 @@ test('#960: an unexpected status from OpenAI is UNKNOWN, not guessed either way'
   } finally { openai.setFetcher(null); }
 });
 
-test('#960: a ChatGPT-mode account is honestly UNKNOWN, and never even asks the network', () => {
+test('#960/#2790: a ChatGPT sign-in is now LIVE-CHECKED via codex doctor, not the /v1/models fetcher', async () => {
+  /* #2790 replaced the old invariant this test guarded ("a sign-in is never checked, always
+     UNKNOWN"). A sign-in CANNOT be checked with a raw GET /v1/models (its id_token is not a
+     bearer key), which is why this branch used to give up -- but codex's own `codex doctor`
+     runs a live handshake to the ChatGPT backend, so a dead sign-in is now a definite NONE that
+     reddens instead of sitting silently Idle. What still holds from the old test: the apikey
+     /v1/models fetcher is NOT used for a sign-in (the check goes through codex doctor). */
   const payload = Buffer.from(JSON.stringify({ email: 'chat@example.com' })).toString('base64url');
   writeAuth('.codex-livechatgpt', { auth_mode: 'chatgpt', tokens: { id_token: `x.${payload}.y` } });
   const dir = nodePath.join(SANDBOX, '.codex-livechatgpt');
-  let called = false;
-  openai.setFetcher(async () => { called = true; return { status: 200, body: {} }; });
+  let calledModels = false;
+  openai.setFetcher(async () => { calledModels = true; return { status: 200, body: {} }; });
+  const live = require('./codexsigninlive');
+  live.resetForTest();
+  // A dead-handshake doctor report (endpoint reachable, ws refused), injected so nothing spawns.
+  live.setRunner(async () => ({ ok: true, stdout: JSON.stringify({ checks: {
+    'network.websocket_reachability': { status: 'warning' },
+    'network.provider_reachability': { status: 'ok' },
+  } }) }));
+  /* AWAIT, not `return checkLive().then()` with the reset in `finally`: `liveness` reads its
+     injectable `runner` in a deferred microtask, and a `finally` on a RETURNED promise runs
+     synchronously BEFORE the promise resolves -- so a reset there would restore the real runner
+     and spawn a real `codex doctor` (measured: the test passed in 17s off a live handshake, i.e.
+     for the wrong reason). `await` holds the fake through the resolution. */
   try {
-    return openai.checkLive(dir).then((r) => {
-      assert.equal(r.state, sub.STATE.UNKNOWN);
-      assert.match(r.because, /not yet checked live/);
-      assert.equal(called, false, 'a mode with no verifiable bearer credential must not attempt a network call at all');
-    });
-  } finally { openai.setFetcher(null); }
+    const r = await openai.checkLive(dir);
+    assert.equal(r.state, sub.STATE.NONE, 'a dead sign-in must now be a definite NONE that reddens, not the old blanket UNKNOWN');
+    assert.equal(r.reauthRequired, true, 'a dead sign-in must be distinguishable from never-signed-in so the driver offers "sign in again"');
+    assert.equal(calledModels, false, 'a sign-in must not be checked via the api-key /v1/models path');
+  } finally { openai.setFetcher(null); live.resetForTest(); }
 });
 
 test('#960: nobody signed in at all reads as a positive NONE, not unknown', () => {

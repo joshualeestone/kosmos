@@ -17,6 +17,7 @@
  * manifest cannot pop a toast asking somebody to install it.
  */
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const liveExec = require('./live-execution');
@@ -32,34 +33,91 @@ const DEFAULT_BASE = 'https://installkosmos.com/dist';
 const TTL = 15 * 60 * 1000;
 const FETCH_TIMEOUT = 3000;
 
-let base = process.env.AGENT_WORKFORCE_RELEASE_BASE || DEFAULT_BASE;
+/* The release host. AGENT_WORKFORCE_RELEASE_BASE is the old name and still wins, on every OS:
+   server.test.js, the browser-check sandboxes and engine/selfcheck.js aim a board at a dead
+   host through it, so dropping it anywhere would let those runs fetch the real site. It is a
+   test seam nobody is told to set, not an opt-in. KOSMOS_RELEASE_BASE is the name
+   install/setup.sh reads, so an operator who points the installer at a mirror points this
+   check at the same mirror. Read on each look rather than frozen at require. */
+let baseOverride = null;       // tests inject via setBase; null means the environment decides
+function releaseBase() {
+  return baseOverride || process.env.AGENT_WORKFORCE_RELEASE_BASE || process.env.KOSMOS_RELEASE_BASE || DEFAULT_BASE;
+}
+let platformOverride = null;   // tests inject; null means this process's platform
+function updatePlatform() { return platformOverride || process.platform; }
 let fetcher = null;            // tests inject; null means global fetch
-// #2036: which pointer this machine's channel fetches. DEFAULT prod (latest.json) -- every
-// existing install stays byte-for-byte on today's path; ONLY an explicit staging channel
-// changes it. A staging-channel machine (AGENT_WORKFORCE_UPDATE_CHANNEL=staging) fetches
-// latest-staging.json, so it updates to staging builds BEFORE they are promoted to prod. The
-// pointer names a versioned artifact (setup.sh prefers kosmos-<V>-arm64 over the shared alias),
-// so staging and prod machines pull DIFFERENT bytes. Any value other than 'staging' is prod.
+// #2036: which channel this machine follows. DEFAULT prod -- every existing install stays
+// byte-for-byte on today's path; ONLY an explicit staging channel changes it. A staging-channel
+// machine fetches the staging pointer, so it sees staging builds BEFORE they are promoted to
+// prod. The pointer names a versioned artifact, so staging and prod machines pull DIFFERENT
+// bytes. Any value other than 'staging' -- including unset -- is prod.
 // 🛑 This is the consume half of the #2036 loop and is the client update path -- a bug here is
 // the 0.6.25 class itself. It is opt-in and default-prod until the loop is proven end-to-end on
 // a real fresh machine (see tools/release.sh + docs); the default channel does not move here.
-function updateChannel() {
-  // Honor either env name so an operator who sets KOSMOS_UPDATE_CHANNEL on an existing box (the
-  // name setup.sh reads, and the one this poller forwards to the spawned installer) is not
-  // silently ignored by the auto-updater. AGENT_WORKFORCE_ prefix wins, matching this module's
-  // AGENT_WORKFORCE_RELEASE_BASE convention. Any value other than 'staging' -- including unset --
-  // resolves to prod.
-  const c = process.env.AGENT_WORKFORCE_UPDATE_CHANNEL || process.env.KOSMOS_UPDATE_CHANNEL;
-  return c === 'staging' ? 'staging' : 'prod';
+function updateChannel(platform = updatePlatform(), env = process.env) {
+  /* The Mac honours either name so an operator who sets KOSMOS_UPDATE_CHANNEL (the name setup.sh
+     reads, and the one this poller forwards to the spawned installer) is not silently ignored;
+     the AGENT_WORKFORCE_ prefix wins there, as it always has.
+     🛑 WINDOWS READS ONLY KOSMOS_UPDATE_CHANNEL. On Windows every AGENT_WORKFORCE_* variable is a
+     LAUNCH override (server.js LAUNCH_ENV_OVERRIDES, win32handoff.overriddenBy): a launch that
+     carries one keeps its own window instead of handing off to the logon task. An updater
+     opt-in under that prefix would quietly turn every launch into an override. */
+  const chosen = platform === 'win32'
+    ? env.KOSMOS_UPDATE_CHANNEL
+    : (env.AGENT_WORKFORCE_UPDATE_CHANNEL || env.KOSMOS_UPDATE_CHANNEL);
+  return chosen === 'staging' ? 'staging' : 'prod';
 }
-function updatePointer() {
-  return updateChannel() === 'staging' ? 'latest-staging.json' : 'latest.json';
+/* The published pointer files, per platform family and channel. The Mac pair is the #2036 pair
+   release.sh writes; the Windows pair is what publish-kosmos-windows.sh writes (latest-win.json)
+   and what its staging cut will write (latest-win-staging.json). Before this table a Windows
+   board read the MAC pointer, which names a Mac build and version. */
+const UPDATE_POINTERS = Object.freeze({
+  win32: Object.freeze({ prod: 'latest-win.json', staging: 'latest-win-staging.json' }),
+  darwin: Object.freeze({ prod: 'latest.json', staging: 'latest-staging.json' }),
+});
+/** THE one rule for which pointer a platform on a channel reads. Anything that is not win32
+    reads the Mac pair, which is exactly what every platform read before. */
+function pointerFor(platform, channel) {
+  const family = platform === 'win32' ? UPDATE_POINTERS.win32 : UPDATE_POINTERS.darwin;
+  return channel === 'staging' ? family.staging : family.prod;
+}
+/** The full pointer URL this board's looks fetch, for the look itself and for the boot log. */
+function pointerUrl() {
+  return `${releaseBase()}/${pointerFor(updatePlatform(), updateChannel())}`;
+}
+/* sha256 as publish-kosmos-windows.sh writes it (shasum -a 256): 64 hex digits. */
+const SHA256_HEX = /^[0-9a-fA-F]{64}$/;
+/** The immutable name publish-kosmos-windows.sh gives a Windows build (`VERSIONED`). */
+function windowsBuildName(version, arch) { return `kosmos-${version}-win-${arch}.zip`; }
+/**
+ * What a fetched pointer body says, or null when it cannot be trusted.
+ *
+ * Mac: today's rule, unchanged -- a string numeric x.y.z `version`; the result is `{version}`.
+ * Windows: the version rule, PLUS a 64-hex `sha256`, PLUS `versioned` naming exactly the build
+ * for that version on THIS machine's arch. A build for another arch fails that name check, so it
+ * is never offered here. `artifact` (the alias) is never read.
+ * A null is `readable: false` on the look: no offer, and never "Up to date".
+ */
+function readManifest(platform, body, arch = process.arch) {
+  if (!body || typeof body !== 'object') return null;
+  const version = typeof body.version === 'string' && parts(body.version) ? body.version : null;
+  if (!version) return null;
+  if (platform !== 'win32') return { version };
+  /* parts() trims, so " 1.2.3" passes the version rule; the Windows version also names a file
+     (the versioned zip), so it must be exactly the digits. */
+  if (version !== version.trim()) return null;
+  if (typeof body.sha256 !== 'string' || !SHA256_HEX.test(body.sha256)) return null;
+  if (body.versioned !== windowsBuildName(version, arch)) return null;
+  return { version, sha256: body.sha256.toLowerCase(), versioned: body.versioned };
 }
 // reached: did the LAST look actually get an answer from the host?
 // "could not reach the update server" must never render as "up to date",
 // so the cache carries the distinction rather than flattening both into
-// latest: null. at 0 means we have never looked.
-let cache = { at: 0, latest: null, reached: false, readable: false };
+// latest: null. at 0 means we have never looked. latest is the validated
+// manifest (readManifest), and base/channel record where that look went, so an
+// offer built from it (manualOffer) points at the same host the look read.
+function emptyCache() { return { at: 0, latest: null, reached: false, readable: false, base: null, channel: null }; }
+let cache = emptyCache();
 let inFlight = null;
 let installRunner = null;   // tests inject; production spawns the real installer
 // Read lazily through a function rather than required at the top, so a test can
@@ -67,6 +125,14 @@ let installRunner = null;   // tests inject; production spawns the real installe
 // keeps working if the preference file is not readable at load time.
 let autoPrefFn = null;      // tests inject; production reads the real setting
 let installedRootFn = null; // tests inject; production checks the real layout
+let windowsInstallerFn = null; // tests inject; production calls win32update.begin() (the S3 board-side entrypoint)
+let windowsRollbackFn = null; // tests inject; production calls win32update.rollbackToPrevious() (S5)
+let keptPreviousBuildFn = null; // tests inject; production asks win32update for the kept previous build
+/* #S4: the board tells update.js its own port and pid at listen time (server.js real-start), so the
+   win32 in-app updater can hand the detached helper the real board to stop and the real port to
+   confirm on. Null until then; begin() then defaults them (port -> its own DEFAULT_BOARD_PORT). */
+let boardContext = { port: null, pid: null };
+let windowsHelperWitnessMsOverride = null; // tests inject a short witness window
 
 function parts(v) {
   const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(v || '').trim());
@@ -89,7 +155,104 @@ function newer(a, b) {
  * published, else null. Never touches the network.
  */
 function available() {
-  return (cache.latest && newer(cache.latest, RUNNING)) ? { version: cache.latest } : null;
+  return (cache.latest && newer(cache.latest.version, RUNNING)) ? { version: cache.latest.version } : null;
+}
+
+let windowsBundleRootFn = null; // tests inject; production asks win32board for the real layout
+function windowsBundleRoot() {
+  if (windowsBundleRootFn) return windowsBundleRootFn();
+  /* Required here, not at the top: win32board pulls in the anchor chain, and this module is
+     required early by server.js, machine.js and selfcheck.js. By the time a look can make an
+     offer the board is up and the require is cheap and cached. */
+  return require('./win32board').bundleRoot({ platform: updatePlatform() });
+}
+
+/**
+ * The Windows manual offer, before the in-app updater is armed: `{version, download}` when this
+ * is a Windows bundle and the Windows pointer names a build newer than this one, else null.
+ *
+ * 🛑 THIS IS WHAT REPLACES THE FALSE "UP TO DATE." A Windows bundle has no installedRoot() (it
+ * ships runtime\node.exe, not runtime/bin/node), so the install offer (`update` on the status
+ * payload) is null there by design -- the Install route refuses on Windows. Without this the card
+ * had only "Up to date." to say while a newer Windows build sat on the site.
+ * The version gate is available(), the same newer() comparison the Mac offer rides.
+ * `download` is the exact versioned zip the manifest names, under the base the LOOK used, on
+ * both channels: the link downloads precisely the build the sentence names, never the moving
+ * alias (which can already name a different build by the time the person clicks).
+ */
+/**
+ * 🛑 DECISION 5, ONE NAMED RULE, ONE CLIENT SURFACE. A win32 bundle under OneDrive or Program
+ * Files must NOT try the in-app swap (OneDrive holds files as online-only placeholders and syncs
+ * them mid-rename; Program Files needs admin to rename anything). The in-app updater refuses it
+ * through the SAME B0 rule the swap itself uses -- win32update.unusualLocationRefusal, gated by the
+ * single switch UNUSUAL_LOCATION_POLICY='refuse' -- so there is one place to adjust and no second
+ * derivation. This surfaces THAT rule to the status/offer path, so the card shows the honest manual
+ * download for such an install instead of an [Update] button that would only refuse. Returns the
+ * refusal sentence, or null (not win32, no bundle root, or a location the updater will take).
+ *
+ * 📌 Lazy require: win32update requires this module, so requiring it at the top would cycle. By the
+ * time a look can make an offer the board is up and the require is cheap and cached, exactly as
+ * windowsBundleRoot()'s require of win32board is.
+ */
+function windowsLocationRefusal() {
+  if (updatePlatform() !== 'win32') return null;
+  const root = windowsBundleRoot();
+  if (!root) return null;
+  try {
+    return require('./win32update').unusualLocationRefusal(root, process.env, cache.base || releaseBase()) || null;
+  } catch { return null; }
+}
+
+/**
+ * The in-app install offer the card draws an [Update] button for: something newer is published AND
+ * this board can take it in place. Null on a source checkout (installedRoot null), and null on a
+ * win32 bundle in a location the updater refuses (OneDrive / Program Files) -- that install gets
+ * manualOffer() instead. ONE derivation, read by both status call sites (the poll and Check now)
+ * and the install route, so the button, the route and the auto path cannot disagree about whether
+ * an in-app update is possible.
+ */
+function installOffer() {
+  if (!installedRoot()) return null;
+  if (windowsLocationRefusal()) return null;
+  return available();
+}
+
+/**
+ * 🪟 S5: the "Roll back" offer -- the kept previous build a person can restore, `{ version }`, or null.
+ * S4's armed success path keeps one `previous-<from>` folder under WORK exactly so a rollback button
+ * can restore it (design decision 4, #3017). This surfaces its version to the card so people know
+ * rollback exists (Josh: "people don't know rollback exists otherwise"). Null off win32, on a source
+ * checkout, or for a bundle the updater refuses up front (OneDrive / Program Files) -- a location that
+ * never took an in-app update has no kept previous build anyway, and its destructive rename is refused
+ * the same way the forward swap is. The full validation (required entries, the node.exe runs) happens
+ * at press time in win32update.rollbackToPrevious; this is the light, poll-cheap version read.
+ *
+ * 📌 Lazy require of win32update, exactly as windowsLocationRefusal's, to avoid the require cycle.
+ */
+function rollbackOffer() {
+  if (updatePlatform() !== 'win32') return null;
+  const root = installedRoot();
+  if (!root) return null;
+  if (windowsLocationRefusal()) return null;
+  try {
+    const kept = keptPreviousBuildFn ? keptPreviousBuildFn(root) : require('./win32update').keptPreviousBuild(root);
+    return kept && kept.version ? { version: kept.version } : null;
+  } catch { return null; }
+}
+
+function manualOffer() {
+  if (updatePlatform() !== 'win32') return null;
+  const avail = available();
+  if (!avail) return null;
+  if (!windowsBundleRoot()) return null;
+  /* 🔑 S4 FLIP. Before the in-app updater was armed this fired for EVERY win32 bundle, because the
+     in-app path did not exist. Now a normal bundle shows [Update] (installOffer), and the manual
+     download remains for exactly the one case the in-app path refuses UP FRONT: a bundle under
+     OneDrive or Program Files (windowsLocationRefusal, the one named rule). A B0 failure discovered
+     only at press time (a task switched off, a torn pointer) is a different thing: it surfaces as
+     the attempt's refusal sentence, not as a manual offer, because it is not knowable here. */
+  if (!windowsLocationRefusal()) return null;
+  return { version: avail.version, download: `${cache.base || releaseBase()}/${cache.latest.versioned}` };
 }
 
 /** Refresh the cache if stale. Returns immediately; errors stay internal. */
@@ -169,8 +332,14 @@ async function refresh() {
   const timer = setTimeout(() => ctl.abort(), FETCH_TIMEOUT);
   const started = Date.now();
   let landed = false;
+  /* ONE URL per look. A staging pointer that cannot be reached, or cannot be read, is that
+     look's answer (no offer); it is never retried against prod, which would put a
+     staging-channel machine back on the prod build without saying so. */
+  const platform = updatePlatform();
+  const channel = updateChannel(platform);
+  const lookBase = releaseBase();
   try {
-    const res = await doFetch(`${base}/${updatePointer()}`, { signal: ctl.signal, cache: 'no-store' });
+    const res = await doFetch(`${lookBase}/${pointerFor(platform, channel)}`, { signal: ctl.signal, cache: 'no-store' });
     if (res) {
       // ANY response object means the host was reached; reached false is
       // reserved for silence (throws, timeouts, DNS). readable means the
@@ -180,8 +349,8 @@ async function refresh() {
       // never "up to date" (the false sentence this module exists to
       // prevent).
       const body = res.ok ? await res.json().catch(() => null) : null;
-      const v = body && typeof body.version === 'string' && parts(body.version) ? body.version : null;
-      cache = { at: Date.now(), latest: v, reached: true, readable: v !== null };
+      const latest = readManifest(platform, body);
+      cache = { at: Date.now(), latest, reached: true, readable: latest !== null, base: lookBase, channel };
       landed = true;
     }
   } finally {
@@ -198,7 +367,7 @@ async function refresh() {
     // TTL window; the next successful look restores it. Deliberate, and
     // 24x more visible now that the TTL is 15 minutes and checkNow can
     // hit this stamp from a button press while offline.
-    if (!landed) cache = { at: started, latest: null, reached: false, readable: false };
+    if (!landed) cache = { at: started, latest: null, reached: false, readable: false, base: lookBase, channel };
   }
   maybeAutoInstall();
 }
@@ -279,7 +448,7 @@ async function checkNow() {
       .finally(() => { inFlight = null; });
   }
   await inFlight;
-  return { running: RUNNING, latest: cache.latest, reached: cache.reached === true, readable: cache.readable === true };
+  return { running: RUNNING, latest: cache.latest ? cache.latest.version : null, reached: cache.reached === true, readable: cache.readable === true };
 }
 
 /**
@@ -296,6 +465,15 @@ function autoPref() {
 
 function installedRoot() {
   if (installedRootFn) return installedRootFn();
+  /* 🪟 win32 (S4): the shipped bundle is a portable zip -- `runtime\node.exe` and `app\server.js`,
+     a DIFFERENT layout from the Mac's `runtime/bin/node`, which is why this used to read null on
+     every Windows bundle and the card said "Up to date." with a newer build on the site. The
+     running board's bundle root is win32board's own answer, and it is null for a source checkout
+     and for a bundle running from inside the updater's work folder. So a from-source Windows board
+     -- THIS dev box, whose board runs from `src\kosmos\engine` -- still returns null and can NEVER
+     self-install, exactly as the Mac from-source board cannot. That is the guard beginInstall's
+     win32 arm and maybeAutoInstall both ride. */
+  if (updatePlatform() === 'win32') return windowsBundleRoot();
   const home = path.resolve(__dirname, '..', '..');
   return (fs.existsSync(path.join(home, 'runtime', 'bin', 'node'))
        && fs.existsSync(path.join(home, 'app', 'server.js'))) ? home : null;
@@ -314,8 +492,11 @@ function setupUrl() {
      the update is FOR, so the same update retried hits the same cache
      entry rather than minting one per attempt. Harmless to any origin:
      a query on a static file is ignored where there is no cache. */
+  /* Design finding 8: this read `cache.latest.version` while `cache.latest` was a bare string,
+     so `v` was always '' and the cache-buster never applied. The cache now holds the manifest
+     object, so it does. */
   const v = cache && cache.latest && cache.latest.version ? String(cache.latest.version) : '';
-  return base.replace(/\/dist\/?$/, '') + '/setup' + (v ? '?v=' + encodeURIComponent(v) : '');
+  return releaseBase().replace(/\/dist\/?$/, '') + '/setup' + (v ? '?v=' + encodeURIComponent(v) : '');
 }
 
 /**
@@ -332,12 +513,16 @@ function setupUrl() {
  * Returns null where self-update works, so a caller reads it as "is there a
  * refusal", never as a boolean it has to remember the polarity of.
  *
- * 🛑 WHY A SENTENCE AND NOT A BOOLEAN. `beginInstall` ends in a DETACHED,
- * unref'd `spawn` of `/bin/sh` (see the gate above it). On Windows there is
- * no `/bin/sh`, so that spawn can only ENOENT -- and the one thing this
- * codebase refuses is a button that does nothing and says nothing. The person
- * pressing Update needs the next act, not the errno, so the refusal carries the
- * act: download the build, extract it over the install.
+ * 🛑 WHY A SENTENCE AND NOT A BOOLEAN. On the Mac `beginInstall` ends in a
+ * DETACHED, unref'd `spawn` of `/bin/sh`; on a platform that has neither that
+ * installer nor the in-app updater, the person pressing Update needs the next
+ * act, not an errno. So the refusal carries the act.
+ *
+ * 🪟 S4: WIN32 IS NO LONGER REFUSED. It self-installs through the in-app updater
+ * (platform.canSelfInstall('win32') is now true, so this returns null for it
+ * before reaching the generic arm), and beginInstall routes it to
+ * win32update.begin() rather than to `/bin/sh`. The generic sentence remains for
+ * every OTHER platform off SELF_INSTALL.
  *
  * ⚠️ THE POLISHED WORDING IS THE OPERATOR'S TO REFINE, same as runners.js's and
  * connect.js's refusals (see engine/platform.js). What is load-bearing here is
@@ -348,13 +533,16 @@ function setupUrl() {
  */
 function selfInstallRefusal(platform = process.platform) {
   if (platformGate.canSelfInstall(platform)) return null;
-  if (platform === 'win32') {
-    return 'Kosmos cannot update itself on Windows yet: download the latest build and extract it over your install';
-  }
   return 'Kosmos cannot update itself on this platform (' + String(platform) + '): its installer is a POSIX shell script';
 }
 
 let installStarted = false;
+/* 🪟 S5 (#3017): which operation holds the single-flight -- 'update' or 'rollback' -- so the routes'
+   idempotent `already` answer can tell the truth about what is actually running (an Update press while
+   a rollback is in flight must not claim an update is under way, and vice versa). Read only while
+   installStarted is true, so a stale value after release is harmless and the next begin sets it fresh. */
+let inFlightKindVar = null;
+function inFlightKind() { return installStarted ? inFlightKindVar : null; }
 /* #553: the last install ATTEMPT this server saw end, so the page can say
    a true sentence instead of spinning. A failed install never kills this
    server, so the child's non-zero exit (or a spawn error) is observable
@@ -477,8 +665,68 @@ function seedFromDisk() {
              : (String(fromMarker.startedAt) > String(fromStatus.startedAt) ? fromMarker : fromStatus);
   if (pick) lastAttempt = pick;
 }
+/* 🪟 S4: where the win32 updater keeps its journal and status record. anchorDir reads LOCALAPPDATA;
+   the tests point APPDATA/LOCALAPPDATA at scratch dirs, so this never reads the real anchor there. */
+function windowsAnchorDir() {
+  try { return require('./win32anchor').anchorDir(updatePlatform(), os.homedir(), process.env); }
+  catch { return null; }
+}
+/**
+ * win32 only: the current update journal, as `{ state, phase }`. `state` is win32apply.readJournal's:
+ * 'none' (no journal file), 'unreadable' (a file EXISTS but could not be read/parsed -- torn mid-swap,
+ * a scanner holding it), or 'unfinished'/'finished' (a valid journal, `phase` set). A require/anchor
+ * failure reads as 'unreadable' -- "a file may exist and we cannot tell" -- so a caller that must fail
+ * closed can. Read-only; never throws. The distinction between 'none' and 'unreadable' is why the
+ * helper witness reads THIS rather than updatePhase(), which collapses both to null.
+ */
+function windowsJournalRead() {
+  if (updatePlatform() !== 'win32') return { state: 'none' };
+  const anchor = windowsAnchorDir();
+  if (!anchor) return { state: 'none' };
+  try {
+    const apply = require('./win32apply');
+    const read = apply.readJournal(apply.journalPathFor(anchor));
+    return { state: read.state, phase: read.journal ? read.journal.phase : null };
+  } catch { return { state: 'unreadable' }; }
+}
+/**
+ * win32 only: the phase the current update journal is at (staged / stopping / starting / confirmed /
+ * rolling-back / stuck), or null when there is no readable journal. The status carries it as
+ * `updatePhase` so the overlay can tell downloading/staging apart from the swap.
+ */
+function updatePhase() {
+  const r = windowsJournalRead();
+  return (r.state === 'unfinished' || r.state === 'finished') ? r.phase : null;
+}
+/**
+ * win32 only: the last win32 update OUTCOME, mapped to the lastAttempt shape the overlay reads, or
+ * null. The helper (win32apply) runs detached and this board is killed mid-update, so the failure it
+ * records survives only on disk (update-status.json), read here by the OLD board that comes back
+ * after a rollback -- the win32 analogue of the Mac install.status the Mac path reads.
+ *
+ * 🛑 A SUCCESS SEEDS NOTHING, exactly as the Mac install.status does: 'updated' means the board came
+ * back on the new version, which the overlay reads from the version change itself. Only a failure
+ * outcome is surfaced, with a non-zero `code` so a reader that keys on code reads it as a failure.
+ * The record's own timestamp never equals a live press's startedAt, so it can never falsely satisfy
+ * updateVerdict's same-press ('failed') test; the overlay names a win32 rollback through its
+ * boot-changed 'did-not-take' path, and this record is the detail beside it.
+ */
+function windowsStatusRecord() {
+  if (updatePlatform() !== 'win32') return null;
+  const anchor = windowsAnchorDir();
+  if (!anchor) return null;
+  let status = null;
+  try {
+    const apply = require('./win32apply');
+    status = JSON.parse(fs.readFileSync(apply.statusPathFor(anchor), 'utf8'));
+  } catch { return null; }
+  if (!status || typeof status !== 'object' || typeof status.at !== 'string') return null;
+  if (status.outcome === 'updated') return null;
+  return { startedAt: status.at, endedAt: status.at, code: 1, because: status.sentence || status.because || 'the update did not take', log: null };
+}
 function lastAttemptView() {
   if (!lastAttempt) seedFromDisk();
+  if (!lastAttempt && updatePlatform() === 'win32') { const w = windowsStatusRecord(); if (w) return w; }
   return lastAttempt ? { ...lastAttempt } : null;
 }
 /* #2055: the durable board-would-not-pause abort marker. setup.sh writes it (with a
@@ -620,6 +868,145 @@ function wireChild(child, opts) {
 }
 
 function alreadyInstalling() { return installStarted; }
+
+/**
+ * 🪟 S4: the win32 in-app install. Unlike the Mac path this NEVER spawns `/bin/sh` -- it calls the
+ * S3 board-side entrypoint win32update.begin(), which runs B0 (the full precondition set, the
+ * OneDrive/Program Files refusal, and the live-execution gate), downloads + verifies + stages the
+ * newer build, writes the update journal, and spawns the detached helper (win32apply) that stops
+ * THIS board, swaps the bundle's own top-level entries in place, re-anchors the runtime and starts
+ * the board again. Agents keep running the whole time (win32apply never touches Kosmos\agent-*).
+ *
+ * begin() is async and can run for minutes (the download); this returns at once, like the Mac
+ * detached spawn. Single-flight is already held by beginInstall. On a refusal or a failure this
+ * releases it and records the sentence on the attempt, so both a screen and the person's retry see
+ * it, and the unattended path arms the SAME hourly backoff the Mac uses (Josh decision 1: one
+ * policy). On success the helper is on its way to stop this process, so single-flight stays held --
+ * the board is about to go and come back changed.
+ *
+ * 🛑 root is installedRoot(), which is null on a from-source Windows board (this dev box), and
+ * begin() then refuses honestly rather than pointing the swap at a working tree. The armed callers
+ * (the route, maybeAutoInstall) already gate on installedRoot() too, so this is defence in depth.
+ */
+function beginWindowsInstall(opts) {
+  const owner = lastAttempt;
+  const runBegin = windowsInstallerFn || ((o) => require('./win32update').begin(o));
+  const root = installedRoot();
+  Promise.resolve()
+    .then(() => runBegin({
+      root,
+      port: Number.isInteger(boardContext.port) ? boardContext.port : undefined,
+      boardPid: Number.isInteger(boardContext.pid) ? boardContext.pid : undefined,
+    }))
+    .then((r) => {
+      if (r && r.ok) { armWindowsHelperWitness(owner, opts); return; }   // the helper is starting; it stops and restarts this board
+      installStarted = false;
+      noteAttemptEnd(owner, null, (r && r.because) || 'the update could not be started');
+      if (opts && opts.auto) autoFailedAt = Date.now();
+    })
+    .catch((e) => {
+      installStarted = false;
+      noteAttemptEnd(owner, null, 'the update could not be started: ' + String((e && e.message) || e));
+      if (opts && opts.auto) autoFailedAt = Date.now();
+    });
+}
+
+/**
+ * 🪟 S5: the win32 in-app ROLLBACK. The person pressed "Roll back", so this restores the kept previous
+ * build through win32update.rollbackToPrevious(), which reuses the SAME detached helper the forward
+ * update spawns (it stages the kept build as a rollback journal and applies it). It shares the forward
+ * path's single-flight (installStarted) and its detached-helper witness, so a rollback and an update can
+ * never race, and a helper that dies before it stops the board still releases the flag. On {ok:true} the
+ * helper is on its way to stop this board, so single-flight stays held; on a refusal or failure this
+ * releases it and records the sentence for the overlay and the person's retry. Never auto -- only a
+ * person presses Roll back -- but the opts.auto symmetry is kept harmless.
+ *
+ * 🛑 SETS THE SINGLE-FLIGHT FLAG AND THE FRESH RECORD ITSELF (like beginInstall, unlike
+ * beginWindowsInstall which beginInstall calls with those already set), because the route calls this
+ * directly rather than through beginInstall's Mac/win32 fork.
+ */
+function beginRollback(opts) {
+  if (installStarted) return;
+  installStarted = true;
+  inFlightKindVar = 'rollback';
+  lastAttempt = { startedAt: new Date().toISOString(), endedAt: null, code: null, because: null, log: null };
+  const owner = lastAttempt;
+  const runRollback = windowsRollbackFn || ((o) => require('./win32update').rollbackToPrevious(o));
+  const root = installedRoot();
+  Promise.resolve()
+    .then(() => runRollback({
+      root,
+      port: Number.isInteger(boardContext.port) ? boardContext.port : undefined,
+      boardPid: Number.isInteger(boardContext.pid) ? boardContext.pid : undefined,
+    }))
+    .then((r) => {
+      if (r && r.ok) { armWindowsHelperWitness(owner, opts); return; }   // the helper is starting; it stops and restarts this board
+      installStarted = false;
+      noteAttemptEnd(owner, null, (r && r.because) || 'the rollback could not be started');
+      if (opts && opts.auto) autoFailedAt = Date.now();
+    })
+    .catch((e) => {
+      installStarted = false;
+      noteAttemptEnd(owner, null, 'the rollback could not be started: ' + String((e && e.message) || e));
+      if (opts && opts.auto) autoFailedAt = Date.now();
+    });
+}
+
+/* 🪟 S4: how long armWindowsHelperWitness waits for the helper to stop THIS board before it treats
+   the helper as spawned-then-died and releases single-flight. Tied to
+   win32apply.STAGED_HELPER_STARTUP_GRACE_MS -- the very window begin() itself treats a just-started
+   helper as "young" (stagedIsYoung) and refuses a second start within -- so the two never drift and
+   the witness never fires while begin() would still consider the helper to be starting. It is far
+   above win32apply's board-stop budget (stopWaitMs 30s + settleMs 1s), and the download is already
+   done before the helper is spawned, so a normal (even slow) swap ends this process long before it. */
+function windowsHelperWitnessMs() {
+  if (Number.isFinite(windowsHelperWitnessMsOverride)) return windowsHelperWitnessMsOverride;
+  try { return require('./win32apply').STAGED_HELPER_STARTUP_GRACE_MS; } catch { return 2 * 60 * 1000; }
+}
+
+/**
+ * 🛑 S4: THE DETACHED HELPER'S SINGLE-FLIGHT WITNESS -- the win32 analogue of the Mac wireChild
+ * exit/error listeners (#2503/#988), as symmetric as the detached-helper model allows. On success
+ * begin() has spawned a DETACHED helper and this keeps installStarted=true because the helper is
+ * about to stop and restart this board. But if that helper spawns and then dies BEFORE it stops the
+ * board (an early throw, a missing dependency after a clean spawn), nothing would ever release the
+ * flag: the route would answer every retry idempotently and maybeAutoInstall would be blocked until
+ * the board restarts. This bounded timer closes that gap.
+ *
+ * 🔑 THE BOARD GOING DOWN IS THE NORMAL PATH AND MUST NOT TRIP THIS. The helper's first forward act
+ * (win32apply runSteps) is setPhase('stopping'), and it then ends the board -- which, in a real
+ * board, kills THIS process, so this timer never fires on the normal path. When it DOES fire (this
+ * process still alive well past a normal board-stop), it releases ONLY if the journal never left
+ * 'staged' -- i.e. the helper never began the swap. A journal past 'staged' means the swap is/was
+ * progressing, so the flag is left as it is.
+ *
+ * ⚠️ WHERE IT CANNOT BE SYMMETRIC WITH THE MAC: begin() hands back only the helper's pid, not its
+ * child handle (the helper is detached and spawned inside win32update), so there is no exit/error
+ * event to bind as wireChild does; a bounded timer plus the journal-phase check is the observable
+ * substitute. unref'd, so it never holds the process open and dies with it when the helper wins.
+ */
+function armWindowsHelperWitness(owner, opts) {
+  const t = setTimeout(() => {
+    if (!installStarted || owner !== lastAttempt) return;   // already released, or a newer attempt superseded it
+    const j = windowsJournalRead();
+    /* 🛑 FAIL CLOSED WHEN WE CANNOT TELL. A journal file that EXISTS but reads as torn/unreadable
+       (a writer replacing it mid-swap, a scanner holding it) must HOLD the flag, never release it:
+       releasing during a live swap is the one thing this must not do. Only a definitively ABSENT
+       journal ('none') or one still at 'staged' (the helper wrote it and then died before its first
+       forward step setPhase('stopping')) means the swap never began -- release then. A phase past
+       'staged' likewise means the swap is progressing: leave it. The on-disk WORK lock is the true
+       single-flight authority behind all of this; this keeps the in-memory flag independently correct
+       rather than leaning on that backstop. */
+    if (j.state === 'unreadable') return;                          // a journal exists but we cannot read it: hold
+    if (j.state !== 'none' && j.phase !== 'staged') return;        // the swap began: leave the flag to the helper
+    installStarted = false;
+    noteAttemptEnd(owner, null, 'the update helper stopped before it could stop the board');
+    if (opts && opts.auto) autoFailedAt = Date.now();
+  }, windowsHelperWitnessMs());
+  if (t && typeof t.unref === 'function') t.unref();
+  return t;
+}
+
 function beginInstall(opts) {
   // ⚠️ Single-flight. available() stays truthy until the new server is up,
   // so a double click or a second tab would spawn a SECOND detached
@@ -627,6 +1014,7 @@ function beginInstall(opts) {
   // lifetime; the flag dies with the process the installer restarts.
   if (installStarted) return;
   installStarted = true;
+  inFlightKindVar = 'update';
   /* A fresh press starts a fresh record: the previous attempt's failure
      is history, not a verdict on this one. */
   lastAttempt = { startedAt: new Date().toISOString(), endedAt: null, code: null, because: null, log: null };
@@ -645,6 +1033,12 @@ function beginInstall(opts) {
     if (fake && typeof fake.on === 'function') { wireChild(fake, opts); return fake; }
     return fake;
   }
+  /* 🪟 S4: win32 replaces its own copy through win32update.begin(), never through `/bin/sh`. The
+     branch is here, AFTER the single-flight flag, the fresh record, and the installRunner seam (so a
+     Mac-style test double still runs on either OS) and BEFORE the `/bin/sh` spawn wiring, none of
+     which applies on Windows. In production installRunner is null, so a real win32 board reaches this
+     and a real Mac board falls through to the spawn below. */
+  if (updatePlatform() === 'win32') return beginWindowsInstall(opts);
   // The URL travels as a positional parameter, never interpolated into the
   // one command in this product that ends in `| sh`; and KOSMOS_RELEASE_BASE
   // rides along so the installer stages its tarballs from the SAME host the
@@ -723,25 +1117,91 @@ function beginInstall(opts) {
     // #2036: pass the channel so the spawned setup.sh re-reads the SAME pointer this refresh
     // decided on. Without it, a staging update would fetch latest-staging.json here but setup.sh
     // would re-fetch latest.json and install the PROD artifact -- a split-brain update.
-    env: { ...process.env, KOSMOS_RELEASE_BASE: base, KOSMOS_UPDATE_CHANNEL: updateChannel() },
+    env: { ...process.env, KOSMOS_RELEASE_BASE: releaseBase(), KOSMOS_UPDATE_CHANNEL: updateChannel() },
   });
   wireChild(child, opts);
   child.unref();
 }
 
 /* Test hooks. Production code never calls these. */
-function setBase(b) { base = b || (process.env.AGENT_WORKFORCE_RELEASE_BASE || DEFAULT_BASE); }
+function setBase(b) { baseOverride = b || null; }
+function setPlatform(p) { platformOverride = p || null; }
+function setWindowsBundleRoot(f) { windowsBundleRootFn = f; }
+function setWindowsInstaller(f) { windowsInstallerFn = typeof f === 'function' ? f : null; }
+function setWindowsRollback(f) { windowsRollbackFn = typeof f === 'function' ? f : null; }
+function setKeptPreviousBuild(f) { keptPreviousBuildFn = typeof f === 'function' ? f : null; }
+function setWindowsHelperWitnessMs(ms) { windowsHelperWitnessMsOverride = Number.isFinite(ms) ? ms : null; }
+function setBoardContext(ctx) { boardContext = { port: ctx && ctx.port, pid: ctx && ctx.pid }; }
 function setInstallRunner(f) { installRunner = f; }
 function setAutoPref(f) { autoPrefFn = f; }
 function setInstalledRoot(f) { installedRootFn = f; }
 function setFetcher(f) { fetcher = f; }
-function resetCache() { cache = { at: 0, latest: null, reached: false, readable: false }; inFlight = null; installStarted = false; autoFailedAt = 0; lastAttempt = null; }
+function resetCache() { cache = emptyCache(); inFlight = null; installStarted = false; inFlightKindVar = null; autoFailedAt = 0; lastAttempt = null; }
+
+/**
+ * #2934: has the build this box is RUNNING been published on prod?
+ *
+ * Returns true / false / null, where **null means "cannot tell"** and is the answer
+ * whenever this cache cannot speak to the question: we have never looked, the host was
+ * unreachable, the pointer was unreadable, or the look went to the STAGING pointer (whose
+ * version says nothing about what prod publishes). The caller treats null as "keep what
+ * you already believed", so an unknown can never darken a badge.
+ *
+ * 🛑 EQUALITY, NOT ">=", AND THE DIFFERENCE IS THE WHOLE POINT. "prod publishes something
+ * at least as new as us" is NOT "our bytes reached prod": a staging build that was
+ * ABANDONED rather than promoted, while prod later published a different, newer build,
+ * satisfies the >= test while this box runs bytes that never went to prod at all. That is
+ * exactly the box the STAGING badge exists for. Only equality is sound, and it is sound
+ * precisely because of #2036's invariant: the same bytes are promoted with no rebuild, so
+ * the prod pointer naming our exact version means our bytes ARE the prod bytes.
+ *
+ * ⏳ IT IS TRUE OF A MOMENT, NOT FOREVER, AND THAT WINDOW IS ACCEPTED. Two states answer
+ * false: bytes that never reached prod, and OUR bytes, promoted, since SUPERSEDED by a
+ * newer prod release. The second means a correctly-promoted box reads 'staging' again from
+ * the moment prod moves on until this box takes that update, which rewrites the stamp to
+ * prod via setup.sh and ends it. It self-heals, and no weaker comparison avoids it without
+ * reintroducing the abandoned-build error above, so it is the accepted cost rather than an
+ * oversight. Anyone seeing #2934's symptom right after a release should look here first.
+ *
+ * 🔭 SCOPE: this asks nothing about `cache.base`. A board pointed at a mirror via
+ * AGENT_WORKFORCE_RELEASE_BASE answers relative to THAT host's prod pointer, which is the
+ * self-consistent answer: the base is where this box actually updates from, so it is the
+ * prod that means anything to it. Deliberate, not an omission.
+ *
+ * Living here rather than in the caller is deliberate (one derivation of one fact): the
+ * cache's shape is this module's business. `cache.latest` is the validated MANIFEST OBJECT
+ * ({version} on mac, plus sha256/versioned on win32), and an earlier draft of this feature
+ * handed that object straight to `newer()`, where `parts()` returns null and `newer()` then
+ * returns false for EVERY input -- a comparison that cannot fire, reading as "prod caught
+ * up", darkening the badge on exactly the pre-release box it exists for. Keeping the
+ * comparison inside the module that owns the shape is what makes that unrepeatable, rather
+ * than a warning comment at a boundary.
+ */
+function prodPublishesRunning() {
+  if (cache.channel !== 'prod') return null;
+  if (!cache.latest || typeof cache.latest.version !== 'string') return null;
+  /* TRIMMED, because parts() trims and this must not become a second answer to the same
+     fact. readManifest's mac arm stores body.version VERBATIM (only the win32 arm insists
+     it is already trimmed), so a pointer published as " 0.6.60" validates and is cached
+     with its space. Comparing raw, this would say false while available()/newer() -- which
+     trim inside parts() -- say the box is up to date. Same module, two answers, which is
+     the defect this module's own layout exists to avoid. */
+  return cache.latest.version.trim() === String(RUNNING).trim();
+}
 
 module.exports = {
   available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
+  pointerFor, pointerUrl, readManifest, updateChannel, releaseBase, manualOffer, // the per-platform check (win32-update-check)
+  installOffer, // S4: the [Update] offer (installedRoot AND not a refused win32 location); one derivation
+  rollbackOffer, beginRollback, inFlightKind, // S5 (#3017): the kept-previous-build offer, the user-initiated rollback, and which op holds single-flight
+  windowsLocationRefusal, // S4: decision 5 -- the OneDrive/Program Files refusal sentence, or null
+  updatePhase, // S4: the win32 update journal phase for the client, or null
+  setBoardContext, // S4: server tells update.js its own {port, pid} at listen time
+  setPlatform, setWindowsBundleRoot, setWindowsInstaller, setWindowsRollback, setKeptPreviousBuild, setWindowsHelperWitnessMs,
   updateAbort, // #2055: the durable board-would-not-pause abort marker ({count,reason,port,ts} or null)
   installStartedFile, // #1728: the durable in-flight marker path (tests + direct readers)
   selfInstallRefusal, // #570: null where self-update works, else the sentence to show
   alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,
   resetCache, RUNNING, TTL, lastLook, checkNow,
+  prodPublishesRunning, // #2934: has prod published the build we are running? true/false/null(unknown)
 };

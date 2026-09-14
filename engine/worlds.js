@@ -18,18 +18,25 @@
  * A malformed or unreadable registry FAILS SAFE to the default world, so a broken
  * file can never lock an install out of its own data.
  *
- * SCOPE (v1, this module): the DATA layer -- the registry and the store/projects/
- * workers roots. The agent-process layer (launchd services, AGENT_WORKFORCE_LAUNCH)
- * is a shared system resource that a switch must stop-and-relaunch; that lifecycle
- * rides the board restart on switch (a later slice), so this module does NOT
- * override AGENT_WORKFORCE_LAUNCH -- named-world agents are out of v1 scope and
- * the default world (the only one that runs agents in v1) keeps the legacy path.
+ * SCOPE: the DATA layer -- the registry and the store/projects/workers roots -- AND
+ * (#1704 / #2827) the way an AGENT process learns which world it belongs to. The
+ * board applies its world's roots at boot. An agent gets the same world through
+ * `KOSMOS_WORLD` (launchidentity.js) and applies its roots with
+ * `applyAgentWorldEnv` before its first store-using require: on Windows the
+ * anchored boot shim does it from field 7 of the task's argument line (#2845),
+ * and on the Mac `agent-supervisor.sh` does it before its sender-token mint and
+ * hands the pane the roots (#2874). Its hooks and `kosmos` command inherit them,
+ * so its sender token, session records and board token are its own world's.
+ * AGENT_WORKFORCE_LAUNCH is still NOT overridden: the
+ * LaunchAgents folder and the task folder are per user, so a named world's agents
+ * are told apart by their launch KEY (launchidentity.launchKey), not by a folder.
  */
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const store = require('./store'); // dataRootFor, safeKey
+const launchidentity = require('./launchidentity'); // WORLD_ENV_VAR, currentWorldId
 
 const DEFAULT_ID = 'default';
 // #1704 item 14.2 (Josh, 2026-09-05): the first/default world is called "Kosmos 1"
@@ -120,7 +127,10 @@ function writeRegistry(base, reg) {
   fs.renameSync(tmp, registryPath(base));
 }
 
-function listWorlds(base) { return readRegistry(base).worlds; }
+/* #2935: the user-facing switcher list drops hidden worlds. `readRegistry` deliberately keeps them
+   (internal callers -- worldBaseDir, the activeWorldId guard -- still need a hidden world's row so
+   its store resolves and stays accessible). */
+function listWorlds(base) { return readRegistry(base).worlds.filter((w) => !w.hiddenAt); }
 
 function activeWorld(base) {
   const reg = readRegistry(base);
@@ -163,6 +173,108 @@ function envOverridesFor(base, world) {
     AGENT_WORKFORCE_PROJECTS: path.join(dir, 'projects'),
     AGENT_WORKFORCE_WORKERS: path.join(dir, 'workers'),
   };
+}
+
+/* The three root variables a world overrides. envOverridesFor sets exactly these
+   (worlds.agentenv-1704.test.js pins the two equal). */
+const WORLD_ROOT_ENV_VARS = Object.freeze(['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_PROJECTS', 'AGENT_WORKFORCE_WORKERS']);
+
+/* 🔑 WHICH WORLD THE ROOTS WERE MOVED FOR, AND WHAT THEY WERE BEFORE, recorded in
+   the environment itself as JSON: `{world, roots}`, with `null` for a root that
+   was unset. Two readers need it:
+   - applyAgentWorldEnv: a marker for THIS world means "already applied", so a
+     child that inherits an applied environment is left alone instead of being
+     moved twice; a marker for ANOTHER world (an environment inherited across a
+     switch) is re-applied from the recorded originals, never from the old
+     world's roots (review round 1);
+   - preWorldEnv: it is how a machine-level path (the Windows anchor, a board
+     restart) tells a WORLD override apart from a test sandbox's own
+     AGENT_WORKFORCE_DATA, which has no marker and must still be honoured. */
+const PRE_WORLD_ROOTS_ENV_VAR = 'KOSMOS_PRE_WORLD_ROOTS';
+
+/* The recorded {world, roots}, or null when there is none or it is unreadable. */
+function readWorldMarker(env) {
+  const raw = env && env[PRE_WORLD_ROOTS_ENV_VAR];
+  if (raw === undefined) return null;
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === 'object' && v.roots && typeof v.roots === 'object' ? v : null;
+  } catch { return null; }
+}
+
+/* Put the recorded original roots back in place and drop the world variables. */
+function restorePreWorldRoots(env, marker) {
+  for (const k of WORLD_ROOT_ENV_VARS) {
+    const v = marker && Object.prototype.hasOwnProperty.call(marker.roots, k) ? marker.roots[k] : null;
+    if (typeof v === 'string') env[k] = v; else delete env[k];
+  }
+  delete env[PRE_WORLD_ROOTS_ENV_VAR];
+  delete env[launchidentity.WORLD_ENV_VAR];
+}
+
+/* Apply one world's roots to `env` in place, recording the originals and the
+   world id. The default world sets nothing and records nothing. */
+function applyWorldEnv(env, base, world) {
+  const overrides = envOverridesFor(base, world);
+  if (!Object.keys(overrides).length) return overrides;
+  const recorded = readWorldMarker(env);
+  let roots = recorded && recorded.roots;
+  if (!roots) {
+    roots = {};
+    for (const k of WORLD_ROOT_ENV_VARS) roots[k] = env[k] === undefined ? null : env[k];
+  }
+  env[PRE_WORLD_ROOTS_ENV_VAR] = JSON.stringify({ world: world.id, roots });
+  for (const k of Object.keys(overrides)) env[k] = overrides[k];
+  env[launchidentity.WORLD_ENV_VAR] = world.id;
+  return overrides;
+}
+
+/*
+ * The ONE agent-side bootstrap (#1704 / #2827). An agent process knows its world
+ * only as `KOSMOS_WORLD`; this turns that into the world's roots, so every module
+ * required AFTER it resolves that world's store. It must run before the first
+ * store-using require, because ~26 modules freeze store.ROOT at require time
+ * (worldenv.js lists them), which is why the Windows boot shim calls it before it
+ * loads the supervisor (#2845), and the Mac's `agent-supervisor.sh` calls it (in
+ * a child node) and exports the roots before its token mint requires
+ * sendertoken.js (#2874). The agent's hooks and `kosmos` command inherit the
+ * roots it applied rather than calling it.
+ *
+ * Reads NO registry, so an agent never contends for its lock: a world's location
+ * is derived from its id alone (worldBaseDir), which also refuses an unsafe id by
+ * throwing -- an agent that cannot enter its world must fail loudly rather than
+ * run quietly against the default world's store.
+ */
+function applyAgentWorldEnv(env) {
+  const e = env || process.env;
+  const id = launchidentity.currentWorldId(e);
+  const recorded = readWorldMarker(e);
+  if (recorded && recorded.world === id) return {};   // inherited, already applied for this world
+  /* A marker for another world, or a default-world process carrying one: go back
+     to the recorded originals first, so the new roots are derived from the real
+     base and never nested inside the old world's. */
+  if (recorded) restorePreWorldRoots(e, recorded);
+  if (id === DEFAULT_ID) return {};
+  return applyWorldEnv(e, baseRoot(e), { id });
+}
+
+/*
+ * A copy of `env` as it was before any world was applied: the recorded roots put
+ * back (unset where they were unset) and the world variables removed. An
+ * environment with no marker keeps its roots, because those were never a world's
+ * (a sandbox, a developer's own AGENT_WORKFORCE_DATA). Used where a path must be
+ * the SAME for every world: the Windows anchor, and a board restart that has to
+ * re-derive its world from the registry.
+ */
+function preWorldEnv(env) {
+  const out = Object.assign({}, env || {});
+  if (out[PRE_WORLD_ROOTS_ENV_VAR] !== undefined) {
+    /* An unreadable marker restores nothing: all three roots go, which is the
+       legacy-root answer, never another world's. */
+    restorePreWorldRoots(out, readWorldMarker(out) || { roots: {} });
+  }
+  delete out[launchidentity.WORLD_ENV_VAR];
+  return out;
 }
 
 /*
@@ -236,7 +348,15 @@ function createWorld(base, name) {
   if (id === DEFAULT_ID) throw new Error(`world id "${DEFAULT_ID}" is reserved`);
   return withRegistryLock(base, () => {
     const reg = readRegistry(base);
-    if (reg.worlds.some((w) => w.id === id)) throw new Error(`a world "${id}" already exists`);
+    const clash = reg.worlds.find((w) => w.id === id);
+    if (clash) {
+      // #2935: a hidden Kosmos keeps its registry row (its store must survive), so its id stays
+      // taken even though it is off the list. Say that plainly rather than "a world X already
+      // exists", which reads as an internal error about a Kosmos the person can no longer see.
+      // There is no restore, so the resolution is a different name, not un-hiding the old one.
+      if (clash.hiddenAt) throw new Error(`you hid a Kosmos named "${clash.name}", and its files are still on this computer, so pick a different name for the new one`);
+      throw new Error(`a world "${id}" already exists`);
+    }
     const dir = path.join(base, WORLDS_SUBDIR, id);
     // Make the world's subtrees up front so a switch never lands on a missing dir.
     // #2439: the store leaf MUST match what dataRootFor appends for this world
@@ -264,7 +384,15 @@ function createWorld(base, name) {
 function setActiveWorld(base, id) {
   return withRegistryLock(base, () => {
     const reg = readRegistry(base);
-    if (!reg.worlds.some((w) => w.id === id)) {
+    // #2935: readRegistry KEEPS hidden rows (so the store pointer survives), but a hidden
+    // Kosmos is off the user's list and there is no restore, so it must not be switchable
+    // either -- otherwise POST /api/worlds/active {hiddenId} would boot into an "active but
+    // invisible" world. To every caller a hidden world is gone, so it is the SAME not-found
+    // as a missing one (ENOWORLD -> the route's 404), which also matches the pause branch's
+    // listWorlds `known` check. Guarded here, the one chokepoint, so the invariant holds for
+    // every caller rather than each route re-deriving it (Repo Convention: one derivation).
+    const world = reg.worlds.find((w) => w.id === id);
+    if (!world || world.hiddenAt) {
       // Typed so a caller (e.g. the /api/worlds/active route) can classify this
       // as not-found WITHOUT matching on the message text -- the message is for a
       // person and is free to change; the code is the contract.
@@ -328,6 +456,45 @@ function renameWorld(base, id, newName) {
 }
 
 /*
+ * #2935 (Josh's soft-delete ruling, 2026-09-12): HIDE a world from the Kosmoses list. This is NOT
+ * destructive -- the on-disk store (<base>/worlds/<id>/) stays in place and accessible; only the
+ * registry ROW is flagged with `hiddenAt`, so the pointer to those files survives (dropping the row
+ * would lose the pointer we promise the user their files still live behind). `listWorlds` filters
+ * hidden rows out of the switcher, while `readRegistry` keeps them so `worldBaseDir` still resolves
+ * a hidden world's store. The default world is never hideable; the active world must be switched
+ * away from first (its conversations/watchers/agent processes belong to it). There is no unhide:
+ * re-adding a world is the import path (#2892), not a restore feature (Josh: "no restore a kosmos").
+ */
+function hideWorld(base, id) {
+  if (id === DEFAULT_ID) {
+    const err = new Error('the default Kosmos cannot be hidden');
+    err.code = 'ERESERVED';
+    throw err;
+  }
+  return withRegistryLock(base, () => {
+    const reg = readRegistry(base);
+    const world = reg.worlds.find((w) => w.id === id);
+    if (!world) {
+      const err = new Error(`no such world "${id}"`);
+      err.code = 'ENOWORLD';
+      throw err;
+    }
+    if (reg.activeWorldId === id) {
+      const err = new Error('switch to another Kosmos before hiding this one');
+      err.code = 'EACTIVE';
+      throw err;
+    }
+    // Already hidden: a second hide is a harmless no-op, not a re-stamp -- keep the original
+    // hiddenAt and write nothing. Not reachable from the UI (a hidden world is off the switcher, so
+    // its cog cannot be re-clicked), but stated so it is a deliberate no-op rather than implicit.
+    if (world.hiddenAt) return world;
+    world.hiddenAt = new Date().toISOString();
+    writeRegistry(base, reg);
+    return world;
+  });
+}
+
+/*
  * At board startup: mutate `env` in place so the active world's roots resolve for
  * the rest of the process. A no-op for the default world (no overrides). Returns
  * the applied overrides (empty for default) so a caller can log what it did.
@@ -337,9 +504,9 @@ function renameWorld(base, id, newName) {
  */
 function applyActiveWorldEnv(env, base) {
   const e = env || process.env;
-  const overrides = envOverridesFor(base, activeWorld(base));
-  for (const k of Object.keys(overrides)) e[k] = overrides[k];
-  return overrides;
+  /* Through applyWorldEnv, so the board records KOSMOS_WORLD and the pre-world
+     roots exactly as an agent does: one mechanism for both sides (#1704). */
+  return applyWorldEnv(e, base, activeWorld(base));
 }
 
 /*
@@ -357,96 +524,46 @@ function worldStoreRoot(base, world) {
 }
 
 function worldProfilesDir(base, world) {
-  return path.join(worldStoreRoot(base, world), 'profiles');
+  return path.join(worldStoreRoot(base, world), store.PROFILES_DIRNAME);
+}
+
+function worldAvatarsDir(base, world) {
+  return path.join(worldStoreRoot(base, world), store.AVATARS_DIRNAME);
+}
+
+/*
+ * #1704 PR4: the folder a world's agents' working folders live under, by the ONE
+ * formula (store.workersRootFor) the running process uses for its own world. The
+ * environment is the one BEFORE any world was applied (preWorldEnv), with this
+ * world's overrides laid over it -- exactly what a board booted into that world
+ * would see -- so a named world lands under its base and the default world under
+ * the person's own workers root, whichever world this process is serving.
+ */
+function worldWorkersDir(base, world, env) {
+  const e = Object.assign(preWorldEnv(env || process.env), envOverridesFor(base, world));
+  return store.workersRootFor(e, e.AGENT_WORKFORCE_HOME || os.homedir());
 }
 
 /* What counts as a profile file, named ONCE so agentCount (which reports the number)
-   and importAgents (which copies them) can never disagree about it. A profile is
+   and engine/worldimport.js (which lists and copies them) can never disagree about it. A profile is
    `<safeKey(name)>.json`; the store writes a `<name>.json.tmp` mid-write, which
    `.endsWith('.json')` correctly excludes (it ends with .tmp). */
 function isProfileFile(f) { return f.endsWith('.json'); }
 
 /*
- * How many agents a world holds: the count of profile JSONs under its store.
- * Read-only and total: a missing or unreadable profiles dir is 0 agents, never a
+ * The agent names a world holds: one per profile JSON under its store, sorted.
+ * Read-only and total: a missing or unreadable profiles dir is no agents, never a
  * throw -- a world that has never held an agent has no profiles dir, and that is
- * zero, not an error.
+ * none, not an error. A profile is `<safeKey(name)>.json`, so the name is the file
+ * name less `.json`. (#1704 PR4: this replaced agentCount and the whole-world,
+ * first-wins importAgents. engine/worldimport.js now lists and copies agents one at
+ * a time from these names, so there is one import path, not two.)
  */
-function agentCount(base, world) {
+function worldProfileNames(base, world) {
   let entries;
   try { entries = fs.readdirSync(worldProfilesDir(base, world)); }
-  catch { return 0; }
-  return entries.filter(isProfileFile).length;
-}
-
-/*
- * Copy the agents (profiles) of one or more SOURCE worlds into a TARGET world's
- * profiles dir. COPY, never move: a source file is read and never modified, renamed
- * or deleted (Angel's ruled copy-not-move default, kosmos#2563). Semantics:
- *   - A source id is honored only if it names a real registered world; an unknown
- *     or malformed id is counted in `unknownSources` and skipped, never joined into
- *     a path (worldBaseDir re-guards CLEAN_ID regardless).
- *   - FIRST-WINS on collision: a profile whose filename already exists in the target
- *     (because the target already holds it, or an earlier source in the list supplied
- *     it) is left untouched and counted in `skipped`. Source order is the tiebreak.
- *   - A profile that could not be copied (unparseable JSON, a read/write/rename error)
- *     is counted in `failed`, kept DISTINCT from `skipped` so a caller can tell an
- *     intentional collision-skip ("already there, by design") from a real failure and
- *     surface them differently.
- *   - Each copy is temp-file + rename, so a concurrent reader of the target never
- *     sees a half-written profile.
- * Returns { copied, skipped, failed, unknownSources }. Does NOT make the imported
- * agents run (named-world agents are out of v1 launch scope, worlds.js SCOPE note) --
- * it brings the roster/config across; running follows the world-scoped-launch slice.
- */
-function importAgents(base, targetWorld, sourceWorldIds) {
-  const result = { copied: 0, skipped: 0, failed: 0, unknownSources: 0 };
-  if (!targetWorld || !Array.isArray(sourceWorldIds) || sourceWorldIds.length === 0) return result;
-  const reg = readRegistry(base);
-  const targetDir = worldProfilesDir(base, targetWorld);
-  fs.mkdirSync(targetDir, { recursive: true });
-  // Dedupe the source ids: a repeated id would otherwise re-scan the same world and
-  // count its already-copied files as `skipped` on the second pass, overcounting.
-  for (const rawId of new Set(sourceWorldIds)) {
-    const src = reg.worlds.find((w) => w.id === rawId);
-    if (!src || src.id === targetWorld.id) {
-      // Unknown/malformed id -> count it; importing a world from itself is a no-op we
-      // do not count as unknown (the id is real), just skip it.
-      if (!src) result.unknownSources += 1;
-      continue;
-    }
-    const srcDir = worldProfilesDir(base, src);
-    let files;
-    try { files = fs.readdirSync(srcDir).filter(isProfileFile); }
-    catch { files = []; } // a source with no profiles dir contributes nothing, not an error
-    for (const file of files) {
-      const dst = path.join(targetDir, file);
-      if (fs.existsSync(dst)) { result.skipped += 1; continue; } // first-wins
-      const tmp = dst + `.${process.pid}.tmp`;
-      try {
-        // A profile copied into a NEW Kosmos is a SEPARATE agent, so strip its identity
-        // via store.stripIdentity (store OWNS the identity-field set, so this cannot
-        // drift from what writeProfile mints/restores if that set ever grows). The
-        // imported agent then mints a FRESH id on its first store.writeProfile -- the
-        // decided restore convention. A byte copy would carry the source id over, and
-        // because the import is same-install, store's remint-on-different-install rule
-        // would NOT fire, silently conflating the two agents to any future id-based
-        // feature. Reading + re-serializing also means a corrupt (unparseable) source
-        // profile is skipped rather than copied verbatim.
-        const prof = store.stripIdentity(JSON.parse(fs.readFileSync(path.join(srcDir, file), 'utf8')));
-        fs.writeFileSync(tmp, JSON.stringify(prof, null, 2));
-        fs.renameSync(tmp, dst);
-        result.copied += 1;
-      } catch (_e) {
-        try { fs.unlinkSync(tmp); } catch (_u) { /* best effort */ }
-        // A single unreadable/corrupt/unwritable profile must not abort the whole
-        // import or orphan the created world; count it as FAILED (distinct from an
-        // intentional collision `skipped`) and keep going.
-        result.failed += 1;
-      }
-    }
-  }
-  return result;
+  catch { return []; }
+  return entries.filter(isProfileFile).map((f) => f.slice(0, -'.json'.length)).sort();
 }
 
 module.exports = {
@@ -460,12 +577,18 @@ module.exports = {
   activeWorld,
   worldBaseDir,
   envOverridesFor,
+  WORLD_ROOT_ENV_VARS,
+  PRE_WORLD_ROOTS_ENV_VAR,
+  applyAgentWorldEnv,
+  preWorldEnv,
   createWorld,
   renameWorld,
+  hideWorld,
   setActiveWorld,
   applyActiveWorldEnv,
   worldStoreRoot,
   worldProfilesDir,
-  agentCount,
-  importAgents,
+  worldAvatarsDir,
+  worldWorkersDir,
+  worldProfileNames,
 };

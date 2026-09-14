@@ -86,6 +86,12 @@ const FOUND = {
   });
 
   await page.goto(BASE + '/?tab=agents', { waitUntil: 'networkidle' });
+  /* #2651: discovery is now gated behind an explicit press, so the found panel (and its
+     #found-toggle, which lives INSIDE the now-hidden #found-wrap) does not render until the
+     "Look for agents" trigger is pressed. The tab-gated poll paints that trigger on arrival;
+     open discovery the way a person does before the existing shut-fold assertions below. */
+  await page.waitForSelector('#found-scan-look', { timeout: 10000 });
+  await page.click('#found-scan-look');
   /* 🔑 THE FOLD IS SHUT ON ARRIVAL (Josh, 2026-08-23), so this opens it the way
      a person does -- through the control, not by setting `hidden` from script.
      A check that reached past the toggle would pass with the toggle broken. */

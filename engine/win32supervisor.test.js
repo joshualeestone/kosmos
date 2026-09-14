@@ -306,8 +306,442 @@ function streamSink() {
     event: (e) => calls.push(['event', e && e.type]),
     wrote: () => calls.push(['wrote']),
     stopped: () => calls.push(['stopped']),
+    rekey: (sid) => calls.push(['rekey', sid]),
   };
 }
+
+/* #2669: a /clear rotates the session id; the supervisor must follow it. */
+function clearingSupervisor(name, opts) {
+  const kids = [];
+  const events = [];
+  const sink = streamSink();
+  const oldId = require('node:crypto').randomUUID();
+  win32sessions.record(oldId, { name, runner: 'claude' });
+  const h = sup.superviseStreaming({ name, cwd: 'C:\w', runner: 'claude' }, Object.assign({
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    stream: sink,
+    onEvent: (e) => events.push(e),
+    launch: () => { const c = streamingChild(7000 + kids.length); kids.push(c); return { ok: true, sessionId: oldId, child: c }; },
+  }, opts));
+  const say = (i, obj) => kids[i].stdout.emit('data', Buffer.from(JSON.stringify(obj) + '\n'));
+  return { h, kids, events, sink, oldId, say };
+}
+
+/* #2720: a fresh start prunes the agent's rows for sessions that have ended. */
+function freshStartSupervisor(name, opts) {
+  const kids = [];
+  const events = [];
+  const newId = require('node:crypto').randomUUID();
+  win32sessions.record(newId, { name, runner: 'claude' });   // what prepareSession writes for the birth
+  const h = sup.superviseStreaming({ name, cwd: 'C:\w', runner: 'claude' }, Object.assign({
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    onEvent: (e) => events.push(e),
+    launch: () => { const c = streamingChild(7200 + kids.length); kids.push(c); return { ok: true, sessionId: newId, resumed: false, child: c }; },
+  }, opts));
+  return { h, kids, events, newId };
+}
+
+test('#2720 a FRESH start forgets the agent\'s ended sessions, keeps the new one, and never touches another agent', () => {
+  const ended = [require('node:crypto').randomUUID(), require('node:crypto').randomUUID()];
+  for (const id of ended) win32sessions.record(id, { name: 'prune-1', runner: 'claude' });
+  const someoneElse = require('node:crypto').randomUUID();
+  win32sessions.record(someoneElse, { name: 'prune-other', runner: 'claude' });
+  const t = freshStartSupervisor('prune-1');
+  const rec = win32sessions.read();
+  assert.ok(ended.every((id) => !rec[id]), 'the ended sessions are forgotten');
+  assert.ok(rec[t.newId], 'the session just started stays');
+  assert.ok(rec[someoneElse], 'another agent\'s row is untouched');
+  const said = t.events.find((e) => e.action === 'pruned');
+  assert.ok(said && /forgot 2 ended sessions/.test(said.because), 'and the task log says how many');
+  t.h.stop();
+  win32sessions.forget(someoneElse);
+});
+
+test('#2720 a RESUME prunes nothing: it adds no row', () => {
+  const t = resumingSupervisor('prune-2');           // its first start is fresh, and prunes then
+  const lateRow = require('node:crypto').randomUUID();
+  win32sessions.record(lateRow, { name: 'prune-2', runner: 'claude' });
+  t.kids[0].die(1);                                    // the crash comes back as a resume
+  assert.deepEqual(t.asked, [null, t.firstId]);
+  assert.equal(win32sessions.isOurs(lateRow), true, 'a resume leaves every row alone');
+  t.h.stop();
+});
+
+test('#2720 a prune that fails or throws is SAID, and the start still stands', () => {
+  for (const pruneName of [
+    () => ({ ok: false, because: 'the record is busy' }),
+    () => { throw Object.assign(new Error('x'), { code: 'EIO' }); },
+  ]) {
+    const t = freshStartSupervisor('prune-3', {
+      sessions: { record: () => ({ ok: true }), forget: () => ({ ok: true }), read: () => ({}), pruneName },
+    });
+    assert.ok(t.events.some((e) => e.action === 'started'), 'the agent started');
+    const said = t.events.find((e) => e.action === 'prune-failed');
+    assert.ok(said && /record is busy|EIO/.test(said.because), 'and the failed prune is on the task log');
+    assert.equal(t.kids.length, 1, 'nothing was undone or retried because of it');
+    t.h.stop();
+  }
+});
+
+/* #2726: a resume of a session that has no saved conversation. The shape is the
+   one measured on the box (Claude Code 2.1.268). */
+const NO_CONVERSATION = (id) => ({
+  type: 'result', subtype: 'error_during_execution', is_error: true, num_turns: 0, session_id: id,
+  errors: ['No conversation found with session ID: ' + id],
+});
+
+function resumingSupervisor(name, opts) {
+  const kids = [];
+  const events = [];
+  const asked = [];
+  const firstId = require('node:crypto').randomUUID();
+  win32sessions.record(firstId, { name, runner: 'claude' });
+  const h = sup.superviseStreaming({ name, cwd: 'C:\w', runner: 'claude' }, Object.assign({
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    onEvent: (e) => events.push(e),
+    launch: (spec) => {
+      asked.push(spec.resumeSessionId || null);
+      const c = streamingChild(7100 + kids.length); kids.push(c);
+      const sessionId = spec.resumeSessionId || (kids.length === 1 ? firstId : require('node:crypto').randomUUID());
+      return { ok: true, sessionId, resumed: Boolean(spec.resumeSessionId), child: c };
+    },
+  }, opts));
+  const say = (i, obj) => kids[i].stdout.emit('data', Buffer.from(JSON.stringify(obj) + '\n'));
+  return { h, kids, events, asked, firstId, say };
+}
+
+test('#2726 a resume with NO saved conversation starts fresh instead of resuming forever', () => {
+  const t = resumingSupervisor('nores-1');
+  t.kids[0].die(1);                                   // a crash before any turn: back as a resume
+  assert.deepEqual(t.asked, [null, t.firstId], 'the first return is a resume of the same id');
+  t.say(1, NO_CONVERSATION(t.firstId));               // claude: there is nothing to resume
+  t.kids[1].die(1);
+  assert.deepEqual(t.asked, [null, t.firstId, null], 'the next start is a birth, not the same resume again');
+  assert.equal(win32sessions.isOurs(t.firstId), false, 'the row that nothing can resume is forgotten');
+  const said = t.events.find((e) => e.action === 'resume-impossible');
+  assert.ok(said && said.sessionId === t.firstId && /no saved conversation/.test(said.because), 'and the task log says why');
+  const i = t.events.indexOf(said);
+  assert.equal(t.events[i - 1].action, 'died', 'the death is logged first');
+  assert.equal(t.events[i - 1].sessionId, t.firstId, 'and still names the session that died');
+  t.h.stop();
+});
+
+test('#2726 only claude\'s structured error counts: a non-error result, or errors that are not a list, change nothing and never throw', () => {
+  /* A future claude could word the same fact differently. Neither shape may
+     abandon a conversation, and a non-list `errors` must not throw inside the
+     stdout handler (review round 2). */
+  const t = resumingSupervisor('nores-6');
+  t.kids[0].die(1);
+  t.say(1, { type: 'result', is_error: false, errors: ['No conversation found with session ID: ' + t.firstId] });
+  t.say(1, { type: 'result', is_error: true, errors: 'No conversation found with session ID: ' + t.firstId });
+  t.kids[1].die(1);
+  assert.deepEqual(t.asked, [null, t.firstId, t.firstId], 'neither shape abandons the conversation');
+  assert.ok(!t.events.some((e) => e.action === 'resume-impossible'));
+  t.h.stop();
+});
+
+test('#2726 a stop during a failed resume decides no next start, and keeps the row', () => {
+  /* Only a stop makes a dying resumed child not the current one: `stop()` clears
+     `child` first. A stopped supervisor is not restarting anything, so it must not
+     forget the row or say it is starting fresh (review round 1). */
+  const t = resumingSupervisor('nores-5');
+  t.kids[0].die(1);
+  t.say(1, NO_CONVERSATION(t.firstId));
+  t.h.stop();
+  t.kids[1].die(1);
+  assert.ok(!t.events.some((e) => e.action === 'resume-impossible'), 'nothing is started, fresh or otherwise');
+  assert.equal(win32sessions.isOurs(t.firstId), true, 'and the row stays');
+});
+
+test('#2726 a resume that dies for ANY other reason still resumes the same conversation', () => {
+  const t = resumingSupervisor('nores-2');
+  t.kids[0].die(1);
+  t.say(1, { type: 'result', subtype: 'error_during_execution', is_error: true, errors: ['API Error: 529 overloaded'] });
+  t.kids[1].die(1);
+  assert.deepEqual(t.asked, [null, t.firstId, t.firstId], 'a real conversation is never abandoned over another error');
+  assert.equal(win32sessions.isOurs(t.firstId), true, 'and its row stays');
+  assert.ok(!t.events.some((e) => e.action === 'resume-impossible'));
+  t.h.stop();
+});
+
+test('#2726 only a RESUMED run can say there is nothing to resume', () => {
+  const t = resumingSupervisor('nores-3');
+  t.say(0, NO_CONVERSATION(t.firstId));               // a fresh start never keys on it
+  t.kids[0].die(1);
+  assert.deepEqual(t.asked, [null, t.firstId], 'the crash still comes back as a resume');
+  assert.ok(!t.events.some((e) => e.action === 'resume-impossible'));
+  t.h.stop();
+});
+
+test('#2726 a dead id whose row cannot be forgotten is SAID, and the agent still starts fresh', () => {
+  const t = resumingSupervisor('nores-4', {
+    sessions: { record: () => ({ ok: true }), forget: () => ({ ok: false, because: 'the record is busy' }), read: () => ({}) },
+  });
+  t.kids[0].die(1);
+  t.say(1, NO_CONVERSATION(t.firstId));
+  t.kids[1].die(1);
+  assert.deepEqual(t.asked, [null, t.firstId, null]);
+  assert.ok(t.events.some((e) => e.action === 'forget-failed' && /record is busy/.test(e.because)));
+  t.h.stop();
+});
+
+test('#2669 an init with a NEW session id moves ownership, the resume id, and the state file', () => {
+  const t = clearingSupervisor('clr-1');
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });
+  const rec = win32sessions.read();
+  assert.equal(rec[newId] && rec[newId].name, 'clr-1', 'the new id is recorded under the same name');
+  assert.equal(rec[t.oldId], undefined, 'and the old one is forgotten');
+  assert.equal(t.h.sessionId, newId, 'a crash relaunch now resumes the conversation AFTER the clear');
+  assert.ok(t.sink.calls.some((c) => c[0] === 'rekey' && c[1] === newId), 'the state file follows');
+  assert.ok(t.events.some((e) => e.action === 'rekeyed' && e.from === t.oldId && e.sessionId === newId
+    && e.because.includes(t.oldId) && e.because.includes(newId)), 'the task log line names both ids');
+  const iRekey = t.sink.calls.findIndex((c) => c[0] === 'rekey');
+  const iInit = t.sink.calls.findIndex((c) => c[0] === 'event' && c[1] === 'system');
+  assert.ok(iRekey >= 0 && iRekey < iInit, 'the state file follows BEFORE the turn\'s events are published');
+  t.h.stop();
+});
+
+test('#2669 a failed record is RETRIED until it lands -- it cannot heal on its own', () => {
+  let attempts = 0;
+  const timers = [];
+  const forgotten = [];
+  const t = clearingSupervisor('clr-4', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: {
+      record: () => { attempts += 1; return attempts === 1 ? { ok: false, because: 'the record is busy' } : { ok: true }; },
+      forget: (id) => { forgotten.push(id); return { ok: true }; },
+      read: () => ({}),
+    },
+  });
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });
+  assert.equal(t.h.sessionId, t.oldId, 'nothing moves on the failure');
+  const failed = t.events.find((e) => e.action === 'rekey-failed');
+  assert.ok(failed && failed.because.includes(newId) && /keep trying/.test(failed.because));
+  assert.equal(timers.length, 1, 'a retry is armed');
+  timers[0]();
+  assert.equal(t.h.sessionId, newId, 'the retry lands the new id');
+  assert.deepEqual(forgotten, [t.oldId], 'and only then is the old one forgotten');
+  assert.ok(t.events.some((e) => e.action === 'rekeyed'));
+  t.h.stop();
+});
+
+test('#2669 the retry stops when the child is replaced, and gives up after its attempts', () => {
+  let attempts = 0;
+  const timers = [];
+  const failing = { record: () => { attempts += 1; return { ok: false, because: 'broken' }; }, forget: () => ({ ok: true }), read: () => ({}) };
+  const t = clearingSupervisor('clr-5', { setTimer: (fn) => timers.push(fn), sessions: failing });
+  t.say(0, { type: 'system', subtype: 'init', session_id: require('node:crypto').randomUUID() });
+  t.kids[0].die(1);                         // replaced: the relaunch timer is armed after the retry
+  const before = attempts;
+  timers[0]();                              // the rekey retry, for a child that is gone
+  assert.equal(attempts, before, 'a replaced child\'s rekey is not retried');
+  t.h.stop();
+
+  let n = 0;
+  const q = [];
+  const u = clearingSupervisor('clr-6', { setTimer: (fn) => q.push(fn), sessions: { record: () => { n += 1; return { ok: false, because: 'broken' }; }, forget: () => ({ ok: true }), read: () => ({}) } });
+  u.say(0, { type: 'system', subtype: 'init', session_id: require('node:crypto').randomUUID() });
+  while (q.length) q.shift()();
+  assert.equal(n, 30, 'bounded: REKEY_ATTEMPTS tries, then it stops');
+  const said = u.events.filter((e) => e.action === 'rekey-failed');
+  assert.equal(said.length, 2, 'the log says it once when it starts trying and once when it stops, not thirty times');
+  assert.match(said[1].because, /stopped trying/);
+  u.h.stop();
+});
+
+test('#2669 a NEWER id supersedes a pending retry: the older one is never recorded after it', () => {
+  /* Two /clears in a row: B's record fails, then C arrives before B's retry fires.
+     Retrying B would record it after C and move the resume id back to the wrong
+     conversation (review round 3: the `pendingRekey === id` guard was unpinned). */
+  const recorded = [];
+  const timers = [];
+  const t = clearingSupervisor('clr-8', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: { record: (id) => { recorded.push(id); return { ok: false, because: 'the record is busy' }; }, forget: () => ({ ok: true }), read: () => ({}) },
+  });
+  const B = require('node:crypto').randomUUID();
+  const C = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });
+  t.say(0, { type: 'system', subtype: 'init', session_id: C });
+  const before = recorded.length;
+  timers[0]();                              // B's retry fires after C took over
+  assert.ok(!recorded.slice(before).includes(B), 'the superseded id is not retried');
+  timers[1]();                              // C's own retry still runs
+  assert.ok(recorded.slice(before).includes(C), 'the newest id keeps trying');
+  t.h.stop();
+});
+
+test('#2669 a second init for an id already being retried starts no second chain, and never forgets the live row', () => {
+  /* A message queued behind the /clear produces a second init for the same new id
+     while its record is still failing (review round 5). */
+  let attempts = 0;
+  const timers = [];
+  const forgotten = [];
+  const t = clearingSupervisor('clr-10', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: {
+      record: () => { attempts += 1; return attempts <= 2 ? { ok: false, because: 'the record is busy' } : { ok: true }; },
+      forget: (id) => { forgotten.push(id); return { ok: true }; },
+      read: () => ({}),
+    },
+  });
+  const B = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });
+  assert.equal(attempts, 1, 'the second init did not start an attempt of its own');
+  assert.equal(t.events.filter((e) => e.action === 'rekey-failed').length, 1, 'and the log says it once');
+  while (timers.length) timers.shift()();
+  assert.equal(t.h.sessionId, B, 'the one chain lands the new id');
+  assert.deepEqual(forgotten, [t.oldId], 'only the OLD id is forgotten, never the live one');
+  t.h.stop();
+});
+
+test('#2669 after a retry chain gives up, a later init for the same id tries again', () => {
+  let n = 0;
+  const q = [];
+  const t = clearingSupervisor('clr-11', {
+    setTimer: (fn) => q.push(fn),
+    sessions: { record: () => { n += 1; return { ok: false, because: 'broken' }; }, forget: () => ({ ok: true }), read: () => ({}) },
+  });
+  const B = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });
+  while (q.length) q.shift()();
+  assert.equal(n, 30, 'the chain used its attempts');
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });
+  assert.equal(n, 31, 'a chain that gave up does not block a fresh try');
+  t.h.stop();
+});
+
+test('#2669 once a NEWER id lands, the older pending retry never runs again', () => {
+  /* B's record fails and a retry is armed; C then records at once. If the success
+     did not clear the pending id, B's late retry would pass every guard, record B,
+     move the resume id back, and forget C's live row (review round 7). */
+  const B = require('node:crypto').randomUUID();
+  const C = require('node:crypto').randomUUID();
+  let bMayLand = false;
+  const timers = [];
+  const forgotten = [];
+  const t = clearingSupervisor('clr-13', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: {
+      record: (id) => (id === B && !bMayLand ? { ok: false, because: 'the record is busy' } : { ok: true }),
+      forget: (id) => { forgotten.push(id); return { ok: true }; },
+      read: () => ({}),
+    },
+  });
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });   // fails: a retry is armed for B
+  t.say(0, { type: 'system', subtype: 'init', session_id: C });   // lands at once
+  bMayLand = true;                                                  // B would succeed now, if retried
+  while (timers.length) timers.shift()();
+  assert.equal(t.h.sessionId, C, 'the resume id stays on the newest session');
+  assert.ok(!forgotten.includes(C), 'and the live row is never forgotten');
+  t.h.stop();
+});
+
+test('#2669 a relaunched child is never blocked by a retry its dead predecessor left pending', () => {
+  let attempts = 0;
+  const timers = [];
+  const t = clearingSupervisor('clr-12', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: { record: () => { attempts += 1; return { ok: false, because: 'the record is busy' }; }, forget: () => ({ ok: true }), read: () => ({}) },
+  });
+  const B = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: B });   // fails: a chain for B, owned by child 0
+  t.kids[0].die(1);                                                 // crash: a relaunch is scheduled
+  while (t.kids.length < 2 && timers.length) timers.shift()();      // the dead child's retry no-ops; the relaunch runs
+  assert.equal(t.kids.length, 2, 'the agent was relaunched');
+  const before = attempts;
+  t.say(1, { type: 'system', subtype: 'init', session_id: B });    // the new child announces B
+  assert.equal(attempts, before + 1, 'the new child tries to record it; a stale pending flag does not swallow it');
+  t.h.stop();
+});
+
+test('#2669 a pending rekey retry writes nothing once the loop is stopped', () => {
+  let attempts = 0;
+  const timers = [];
+  const t = clearingSupervisor('clr-9', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: { record: () => { attempts += 1; return { ok: false, because: 'the record is busy' }; }, forget: () => ({ ok: true }), read: () => ({}) },
+  });
+  t.say(0, { type: 'system', subtype: 'init', session_id: require('node:crypto').randomUUID() });
+  const before = attempts;
+  t.h.stop();
+  timers[0]();                              // the retry armed before the stop fires late
+  assert.equal(attempts, before, 'no ownership write after the supervisor was told to stop');
+});
+
+test('#2669 a record that THROWS is a failed record, not a dead supervisor', () => {
+  /* The call runs inside the stdout handler, so a throw that escaped would take the
+     agent's supervisor down with it (review round 10). */
+  const timers = [];
+  const t = clearingSupervisor('clr-14', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: { record: () => { throw Object.assign(new Error('disk said no'), { code: 'EIO' }); }, forget: () => ({ ok: true }), read: () => ({}) },
+  });
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });
+  assert.equal(t.h.sessionId, t.oldId, 'nothing moves');
+  const failed = t.events.find((e) => e.action === 'rekey-failed');
+  assert.ok(failed && /EIO/.test(failed.because), 'the failure is said, with its code');
+  assert.equal(timers.length, 1, 'and it is retried like any failed record');
+  t.h.stop();
+});
+
+test('#2669 a forget that THROWS is said with its code, and the rekey still stands', () => {
+  const t = clearingSupervisor('clr-15', {
+    sessions: { record: () => ({ ok: true }), forget: () => { throw Object.assign(new Error('busy'), { code: 'EBUSY' }); }, read: () => ({}) },
+  });
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });
+  assert.equal(t.h.sessionId, newId, 'the rekey stands');
+  const said = t.events.find((e) => e.action === 'forget-failed');
+  assert.ok(said && said.sessionId === t.oldId && /EBUSY/.test(said.because));
+  t.h.stop();
+});
+
+test('#2669 a forget that fails is SAID: the old id still answers to this name', () => {
+  const t = clearingSupervisor('clr-7', {
+    sessions: { record: () => ({ ok: true }), forget: () => ({ ok: false, because: 'the record is busy' }), read: () => ({}) },
+  });
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });
+  assert.equal(t.h.sessionId, newId, 'the rekey itself stands');
+  const said = t.events.find((e) => e.action === 'forget-failed');
+  assert.ok(said && said.sessionId === t.oldId && /record is busy/.test(said.because));
+  t.h.stop();
+});
+
+test('#2669 the same id, a hook event carrying a new id, or a replaced child\'s line changes nothing', () => {
+  const t = clearingSupervisor('clr-2', { setTimer: (fn) => fn() });
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: t.oldId });           // the normal first turn
+  t.say(0, { type: 'system', subtype: 'hook_started', session_id: newId });     // config-dependent: not the gate
+  assert.equal(t.h.sessionId, t.oldId);
+  assert.ok(!t.sink.calls.some((c) => c[0] === 'rekey'));
+  t.kids[0].die(1);                                                              // relaunch: kids[1] is current
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });             // a late line from the dead one
+  assert.equal(t.h.sessionId, t.oldId, 'a replaced child cannot move the id');
+  t.h.stop();
+});
+
+test('#2669 a record that FAILS leaves everything on the old id, and says so', () => {
+  const forgotten = [];
+  const t = clearingSupervisor('clr-3', {
+    sessions: { record: () => ({ ok: false, because: 'the store is busy' }), forget: (id) => forgotten.push(id), read: () => ({}) },
+  });
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });
+  assert.equal(t.h.sessionId, t.oldId, 'the resume id is not stranded on an unrecorded session');
+  assert.deepEqual(forgotten, [], 'the old row is kept, so the agent stays visible');
+  assert.ok(!t.sink.calls.some((c) => c[0] === 'rekey'));
+  assert.ok(t.events.some((e) => e.action === 'rekey-failed' && /store is busy/.test(e.because)));
+  t.h.stop();
+});
 
 test('#570 7c-5 the supervisor publishes its agent: the start, every stream event, a flushed write, the death', () => {
   const kids = [];
@@ -416,6 +850,118 @@ test('#570 headless: a supervisor whose task was ended never starts the agent ag
   kids[0].die(1);                    // then the remove killed the agent
   assert.equal(kids.length, 1, 'no relaunch for a task that was ended');
   assert.ok(events.includes('not-starting'), 'and it says so on the task log');
+  h.stop();
+});
+
+test('#570 every finished run retires ITS OWN token: a crash, a relaunch, then a stop', () => {
+  /* Each launch mints a credential for that run (a resume included). Without
+     retiring the dead run's, every crash-restart left one more live token behind
+     for the agent. The death handler retires by the run's own instance, and a
+     clean stop ends the child through that same path. */
+  const kids = [];
+  const retired = [];
+  let n = 0;
+  const h = sup.superviseStreaming({ name: 'tok', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    retireRun: (name, instance) => retired.push(name + '/' + instance),
+    launch: () => { n += 1; const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c, instance: 'inst-' + n }; },
+  });
+  assert.deepEqual(retired, [], 'a live run keeps its token');
+  kids[0].die(1);                                 // crash: relaunches as inst-2
+  assert.deepEqual(retired, ['tok/inst-1'], 'the crashed run\'s token is retired');
+  h.stop();
+  kids[1].die(0);                                 // the stop's exit arrives
+  assert.deepEqual(retired, ['tok/inst-1', 'tok/inst-2'], 'and the stopped run\'s too, exactly once each');
+});
+
+test('#570 a token that cannot be retired is SAID on the task log, not swallowed', () => {
+  for (const retireRun of [
+    () => ({ ok: false, because: 'the token store is busy' }),
+    () => { throw Object.assign(new Error('busy'), { code: 'EBUSY' }); },
+  ]) {
+    const kids = [];
+    const events = [];
+    const h = sup.superviseStreaming({ name: 'stuck', cwd: 'C:\w' }, {
+      liveReader: NOBODY_LIVE,
+      throttleMs: 0, now: () => 0, setTimer: () => {},
+      onEvent: (e) => events.push(e),
+      retireRun,
+      launch: () => { const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c, instance: 'inst-1' }; },
+    });
+    kids[0].die(1);
+    const said = events.find((e) => e.action === 'token-not-retired');
+    assert.ok(said, 'the failure reaches the task log');
+    assert.match(said.because, /store is busy|EBUSY/);
+    h.stop();
+  }
+});
+
+test('#570 a run that got NO token says so when it starts, since the board will refuse its reports', () => {
+  const events = [];
+  const h = sup.superviseStreaming({ name: 'tokenless', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 's', child: fakeChild(), tokenBecause: 'the token store is busy' }),
+  });
+  const started = events.find((e) => e.action === 'started');
+  assert.match(started.because, /no reporting token: the token store is busy/);
+  h.stop();
+});
+
+test('#570 a RESUMED run that got no token says so too -- the crash-restart is the case this branch fixes', () => {
+  const events = [];
+  const kids = [];
+  let n = 0;
+  const h = sup.superviseStreaming({ name: 'tokenless-2', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    onEvent: (e) => events.push(e),
+    launch: (spec) => {
+      n += 1; const c = fakeChild(); kids.push(c);
+      return { ok: true, sessionId: 's', child: c, resumed: Boolean(spec.resumeSessionId),
+        tokenBecause: n === 1 ? null : 'the token store is busy' };
+    },
+  });
+  assert.ok(!('because' in events.find((e) => e.action === 'started')), 'a run WITH a token says nothing extra');
+  kids[0].die(1);                                   // crash: comes back as a resume, with no token
+  const resumed = events.find((e) => e.action === 'resumed');
+  assert.ok(resumed, 'the crash came back as a resume');
+  assert.match(resumed.because, /no reporting token: the token store is busy/);
+  h.stop();
+});
+
+test('#570 the supervisor\'s REAL retire (nothing injected) takes the dead run\'s token out of the store', () => {
+  /* Every other test injects `retireRun`; `main()` injects nothing, so production
+     runs the default. This pins that default against the real (sandboxed) token
+     store (review round 5: replacing it with a no-op stayed green). */
+  const sendertoken = require('./sendertoken');
+  const minted = sendertoken.mint('realretire');
+  assert.equal(minted.ok, true, minted.because);
+  const kids = [];
+  const h = sup.superviseStreaming({ name: 'realretire', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    launch: () => { const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c, instance: minted.instance }; },
+  });
+  assert.ok(sendertoken.live('realretire').includes(minted.instance), 'the token is live while its run is');
+  h.stop();
+  kids[0].die(0);
+  assert.ok(!sendertoken.live('realretire').includes(minted.instance), 'and gone from the store once the run ends');
+});
+
+test('#570 a run that was launched with no token retires nothing', () => {
+  const kids = [];
+  const retired = [];
+  const h = sup.superviseStreaming({ name: 'bare', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    retireRun: (name, instance) => retired.push(instance),
+    launch: () => { const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  kids[0].die(1);
+  assert.deepEqual(retired, []);
   h.stop();
 });
 
@@ -664,5 +1210,189 @@ test('#570 7c-2 waiting does not burn the throttle a crash never earned', () => 
   live = [];
   timers.shift()();
   assert.equal(kids.length, 1, 'and starts at once rather than serving a penalty');
+  h.stop();
+});
+
+/* ── #2281: the started-but-never-registered diagnostic ─────────────────────── */
+
+/* A fake ownership record that lets a /clear rekey succeed, so the id can rotate
+   under a live child the way #2669 measured. */
+function fakeSessions() {
+  return {
+    read: () => ({}),
+    record: () => ({ ok: true }),
+    forget: () => ({ ok: true }),
+    pruneName: () => ({ ok: true, removed: 0 }),
+    rowIsUnder: () => false,
+  };
+}
+
+test('#2281 an untrusted folder that never registers is called out as a probable trust prompt', () => {
+  /* The strong wording rests on a POSITIVE signal: trustCheck says the folder is
+     NOT recorded trusted in the config the agent reads. The lone .key only enriches. */
+  const events = [];
+  const regTimers = [];
+  let checkedCwd = null;
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w', configDir: 'C:\\cfg' }, {
+    liveReader: () => [],                          // nobody registered
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    registrationTimer: (fn) => { regTimers.push(fn); return regTimers.length; },
+    trustCheck: (cwd) => { checkedCwd = cwd; return false; },   // folder NOT trusted
+    trustWait: () => true,                         // lone .key corroborates
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: streamingChild(4242) }),
+  });
+
+  assert.equal(regTimers.length, 1, 'the start armed exactly one registration check');
+  regTimers[0]();
+  const unreg = events.filter((e) => e.action === 'unregistered');
+  assert.equal(unreg.length, 1, 'one diagnostic, not a flood');
+  assert.equal(unreg[0].sessionId, 'sess-1');
+  assert.match(unreg[0].because, /not recorded as trusted/);
+  assert.match(unreg[0].because, /workspace-trust prompt no one can see/);
+  assert.match(unreg[0].because, /written no registration record/);
+  assert.equal(checkedCwd, 'C:\\w', 'it asked about the agent working directory');
+  h.stop();
+});
+
+test('#2281 a TRUSTED folder that has not registered gets the hedged wording, never a trust claim', () => {
+  /* Findings 1+3: a slow-but-healthy start looks identical to a trust hang from
+     the timer alone. When the folder IS trusted, the strong claim would be false,
+     so only the hedged wording is allowed. */
+  const events = [];
+  const regTimers = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: () => [],
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    registrationTimer: (fn) => { regTimers.push(fn); return regTimers.length; },
+    trustCheck: () => true,                        // folder IS trusted
+    trustWait: () => true,                         // even with a lone .key, no trust claim
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: streamingChild(4242) }),
+  });
+  regTimers[0]();
+  const unreg = events.filter((e) => e.action === 'unregistered');
+  assert.equal(unreg.length, 1, 'it still says the agent has not registered');
+  assert.doesNotMatch(unreg[0].because, /not recorded as trusted/);
+  assert.doesNotMatch(unreg[0].because, /workspace-trust prompt/);
+  assert.match(unreg[0].because, /may be starting slowly/);
+  h.stop();
+});
+
+test('#2281 an UNKNOWABLE trust state also gets the hedged wording, not a trust claim', () => {
+  /* trustCheck returns null when the config could not be read; the strong claim is
+     well-founded only on an explicit false, so null hedges. */
+  const events = [];
+  const regTimers = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: () => [],
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    registrationTimer: (fn) => { regTimers.push(fn); return regTimers.length; },
+    trustCheck: () => null,                         // we could not tell
+    trustWait: () => true,
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: streamingChild(4242) }),
+  });
+  regTimers[0]();
+  const unreg = events.filter((e) => e.action === 'unregistered');
+  assert.equal(unreg.length, 1);
+  assert.doesNotMatch(unreg[0].because, /not recorded as trusted/);
+  assert.match(unreg[0].because, /may be starting slowly/);
+  h.stop();
+});
+
+test('#2281 a /clear that rotated the session id does NOT trigger the diagnostic (Finding 2)', () => {
+  /* #2669: a /clear rotates the live agent session id under the same child.
+     handle.sessionId follows it; the captured start id does not. The check must be
+     against the CURRENT id, or a healthy working agent reads as unregistered. */
+  const events = [];
+  const regTimers = [];
+  const kid = streamingChild(4242);
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: () => [{ sessionId: 'sess-2', pid: 4242 }],   // the runner lists the ROTATED id
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    registrationTimer: (fn) => { regTimers.push(fn); return regTimers.length; },
+    trustCheck: () => false,                       // even if the folder looked untrusted...
+    trustWait: () => true,
+    sessions: fakeSessions(),
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: kid }),
+  });
+  // the agent processes a message and /clears: system/init carries the new id
+  kid.stdout.emit('data', JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-2' }) + '\n');
+  regTimers[0]();                                    // ...the grace elapses
+  assert.equal(events.filter((e) => e.action === 'unregistered').length, 0,
+    'the rotated id IS listed, so the working agent is not called stuck');
+  assert.ok(events.some((e) => e.action === 'rekeyed'), 'and the rotation was actually applied');
+  h.stop();
+});
+
+test('#2281 a stopped agent fires no diagnostic -- the check is guarded on the live child', () => {
+  const events = [];
+  const regTimers = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: () => [],
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    registrationTimer: (fn) => { regTimers.push(fn); return regTimers.length; },
+    trustCheck: () => false, trustWait: () => true,
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: streamingChild(4242) }),
+  });
+  h.stop();                                          // the agent is gone before the grace fires
+  regTimers[0]();
+  assert.equal(events.filter((e) => e.action === 'unregistered').length, 0, 'a run that ended does not get diagnosed');
+});
+
+test('#2281 an unreadable runner at check time makes NO claim (false-zero rule)', () => {
+  const events = [];
+  const regTimers = [];
+  let calls = 0;
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: () => (calls++ === 0 ? [] : null),   // live at start, unreadable at the check
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    registrationTimer: (fn) => { regTimers.push(fn); return regTimers.length; },
+    trustCheck: () => false, trustWait: () => true,
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: streamingChild(4242) }),
+  });
+  regTimers[0]();
+  assert.equal(events.filter((e) => e.action === 'unregistered').length, 0, 'no runner read, no claim');
+  h.stop();
+});
+
+test('#2281 a registered agent (current id listed) fires no diagnostic', () => {
+  const events = [];
+  const regTimers = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: () => [{ sessionId: 'sess-1', pid: 4242 }],
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    registrationTimer: (fn) => { regTimers.push(fn); return regTimers.length; },
+    trustCheck: () => false, trustWait: () => true,
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: streamingChild(4242) }),
+  });
+  regTimers[0]();
+  assert.equal(events.filter((e) => e.action === 'unregistered').length, 0, 'a healthy agent is not called stuck');
+  h.stop();
+});
+
+test('#2281 a re-arm retires the prior pending registration timer (crash loop)', () => {
+  /* Without clearing, a crash loop would pile up one 90s timer per restart. */
+  const cleared = [];
+  let seq = 0;
+  const kids = [];
+  const timers = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: () => [],
+    throttleMs: 0, now: () => 0, setTimer: (fn) => timers.push(fn),   // hold restarts
+    registrationTimer: (fn) => { seq += 1; return seq; },             // hand back a distinct handle
+    registrationClear: (t) => cleared.push(t),
+    trustCheck: () => true, trustWait: () => false,
+    onEvent: () => {},
+    launch: () => { const c = streamingChild(7000 + kids.length); kids.push(c); return { ok: true, sessionId: 's' + kids.length, child: c }; },
+  });
+  kids[0].die(1);            // crash -> schedule() -> a restart timer is queued
+  timers.shift()();          // run the restart: startOnce arms a SECOND registration timer
+  assert.deepEqual(cleared, [1], 'arming the restart cleared the first start pending timer');
   h.stop();
 });

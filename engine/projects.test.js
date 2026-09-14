@@ -37,6 +37,10 @@ const test = require('node:test');
 // file were individually hardened against in round 37. The file-level
 // default now matches the 13 sibling suites.
 const assert = require('node:assert/strict');
+/* win32-board-copy: the reveal and open arms asserted here are the Mac's (/usr/bin/open),
+   so the file states that platform instead of inheriting the host's. The Windows arm is
+   engine/projects.win32-reveal.test.js. */
+require('./projects').setRevealPlatform('darwin');
 
 const projects = require('./projects');
 const store = require('./store');
@@ -490,6 +494,83 @@ test('the row summary counts what it can see AND says what it could not', () => 
   assert.equal(fourth.summary.needsYouUnattributed, 1);
 });
 
+test('#2837: a working agent lights only the project it is working in, not every project it belongs to', () => {
+  reset();
+  /* Josh, live review of 0.6.57: an agent in multiple projects showed "working"
+     in ALL of them, because a member's `working` is a global per-process fact
+     counted on every membership. The working analog of #763's needsYou fix:
+     scope the count to the project the work is attributable to -- the report
+     named it, or the agent belongs to only one active project. */
+  const selfreport = require('./selfreport');
+  const mixed = projects.create({ name: 'Mixed', folder: folder('mixed'), agents: ['zeta'] });
+  const other = projects.create({ name: 'Other', folder: folder('other'), agents: ['zeta'] });
+  const solo = projects.create({ name: 'Solo', folder: folder('solo'), agents: ['mara'] });
+
+  // mara works and belongs to ONE active project -> unambiguously working in it.
+  // zeta works and belongs to TWO, and has named none -> attributable to neither.
+  const roster = cards([fleet.agent('mara', { state: 'working' }), fleet.agent('zeta', { state: 'working' })]);
+  const list1 = projects.list(roster);
+  const soloRow = list1.find((p) => p.id === solo.id);
+  const mixedRow = list1.find((p) => p.id === mixed.id);
+  const otherRow = list1.find((p) => p.id === other.id);
+
+  assert.equal(soloRow.summary.working, 1, 'the control: a working agent in exactly one project lights it');
+  assert.equal(mixedRow.summary.working, 0, '#2837: a working agent in several projects that named none lights none of them, not all (the bug)');
+  assert.equal(otherRow.summary.working, 0, 'and the other project it belongs to also stays dark');
+  assert.equal(mixedRow.agents.find((a) => a.sessionName === 'zeta').state, 'working',
+    'the member is still globally working on the Agents page; only the per-project claim is scoped');
+
+  // Attributed: zeta's report names Mixed -> Mixed lights, Other stays dark.
+  assert.equal(selfreport.record('zeta', { state: 'working', project: mixed.id }).recorded, true);
+  const roster2 = cards([fleet.agent('mara', { state: 'working' }), fleet.agent('zeta', { state: 'working' })]);
+  const list2 = projects.list(roster2);
+  assert.equal(list2.find((p) => p.id === mixed.id).summary.working, 1, '#2837: a working agent whose report names a project lights that one');
+  assert.equal(list2.find((p) => p.id === other.id).summary.working, 0, 'the control: the project it did NOT name stays dark even though it is a member');
+  assert.equal(list2.find((p) => p.id === mixed.id).agents.find((a) => a.sessionName === 'zeta').stateProject, mixed.id,
+    'the working state carries the named project (the #2837 status.js reconcile change)');
+  assert.equal(list2.find((p) => p.id === solo.id).summary.working, 1, 'the sole-membership control is unaffected by the attribution');
+});
+
+test('#2837: a screen-led working carry (started report naming a project + working screen) lights that project only', () => {
+  reset();
+  /* The #1995 shape: the report says started/idle while the SCREEN shows working. The
+     scraped-working carry (workingProject) must attribute the work to the project
+     the report named, so a two-project agent lights only the one it started on -- exercised
+     end-to-end here rather than only at the status-reconcile level. */
+  const selfreport = require('./selfreport');
+  const alpha = projects.create({ name: 'Alpha', folder: folder('alpha'), agents: ['zeta'] });
+  const beta = projects.create({ name: 'Beta', folder: folder('beta'), agents: ['zeta'] });
+  // zeta is in TWO projects, so sole-membership does not apply; its report is a `started`
+  // naming Alpha while its screen shows working.
+  assert.equal(selfreport.record('zeta', { state: 'started', project: alpha.id }).recorded, true);
+  const roster = cards([fleet.agent('zeta', { state: 'working' })]);
+  const list = projects.list(roster);
+  const alphaRow = list.find((p) => p.id === alpha.id);
+  const betaRow = list.find((p) => p.id === beta.id);
+  assert.equal(alphaRow.agents.find((a) => a.sessionName === 'zeta').state, 'working', 'the screen shows working');
+  assert.equal(alphaRow.agents.find((a) => a.sessionName === 'zeta').stateProject, alpha.id,
+    'the started report carried its project onto the working-screen state (workingProject)');
+  assert.equal(alphaRow.summary.working, 1, 'Alpha lights: the screen-led carry attributes the work to the named project');
+  assert.equal(betaRow.summary.working, 0, 'the control: Beta stays dark though zeta is a member, because the carry named Alpha');
+});
+
+test('#2837: an archived project a working agent belongs to does not light "working" via the sole-membership fallback', () => {
+  reset();
+  /* The sole-membership fallback counts only NON-archived memberships, so an agent whose
+     one ACTIVE project is X computes count 1 even when it also belongs to an archived
+     project Y. Without gating the DESCRIBED project's own archived state, describing Y would
+     light it too -- the same global working fact on two tiles, the #2837 bug. */
+  const active = projects.create({ name: 'ActiveP', folder: folder('activep'), agents: ['zeta'] });
+  const arch = projects.create({ name: 'ArchivedP', folder: folder('archivedp'), agents: ['zeta'] });
+  projects.edit(arch.id, { archived: true });
+  const roster = cards([fleet.agent('zeta', { state: 'working' })]);
+  const list = projects.list(roster);
+  const activeRow = list.find((p) => p.id === active.id);
+  const archRow = list.find((p) => p.id === arch.id);
+  assert.equal(activeRow.summary.working, 1, 'the active project lights (zeta’s sole active membership)');
+  assert.equal(archRow.summary.working, 0, '#2837: the archived project does NOT light, though zeta belongs to it and is globally working');
+});
+
 test('a member we can see but cannot READ is counted as unseen, not as fine', () => {
   reset();
   // ⚠️ THE SUMMARY'S OWN BLIND SPOT. `unseen` counted only members with no card
@@ -691,18 +772,40 @@ test('the block names each project and its folder', () => {
 });
 
 test('the block teaches the room command per project, with the id it actually takes', () => {
+  // A project with NO tasks (no `tasks` field): the block states the honest fact
+  // rather than promising a list "to see" that is empty (#2708). It still teaches
+  // `task add`, so an agent knows how to start one.
   const body = projects.blockBody([{ id: 'hendersonlease', name: 'Henderson lease', folder: '/tmp/h' }]);
   assert.match(body, /kosmos post hendersonlease "your message"/,
     'an existing agent is never taught the room exists (this block is the surface that re-splices)');
-  // #2662: the block also teaches the per-project tasks feature, with the id it takes,
-  // so agents catalog work with the real board instead of a hand-rolled task-board file.
-  assert.match(body, /kosmos task list hendersonlease/, 'the block does not teach how to list this project\'s tasks');
-  assert.match(body, /kosmos task add hendersonlease "what needs doing"/, 'the block does not teach how to add a task to this project');
+  assert.match(body, /No tasks set for this project yet/,
+    'a taskless project does not state the honest "no tasks" fact (#2708)');
+  assert.ok(!/task list hendersonlease/.test(body),
+    'a taskless project still promises a list "to see" that is empty (#2708)');
+  assert.match(body, /kosmos task add hendersonlease "what needs doing"/,
+    'the block does not teach how to add a task even when there are none');
+  // #2708: a project WITH tasks teaches the list command "to see them". `blockBody`
+  // is called without a sessionName here, so the per-agent `mine` list does not run
+  // and a minimal task object is enough to exercise the count branch.
+  const withTasks = projects.blockBody([{ id: 'hendersonlease', name: 'Henderson lease', folder: '/tmp/h', tasks: [{ sentence: 'do the thing' }] }]);
+  assert.match(withTasks, /kosmos task list hendersonlease/,
+    'a project WITH tasks no longer teaches how to list them');
+  assert.match(withTasks, /to see them/, 'a project WITH tasks no longer says "to see them"');
+  assert.ok(!/No tasks set for this project yet/.test(withTasks),
+    'a project WITH tasks wrongly said "No tasks set yet"');
+  // #2708: a project whose tasks are all CLOSED still has tasks "to see" -- kosmos task
+  // list renders closed tasks too ([done] prefix) -- so raw length is correct here, not
+  // an open-only count that would wrongly say "No tasks set yet".
+  const closedOnly = projects.blockBody([{ id: 'hendersonlease', name: 'Henderson lease', folder: '/tmp/h', tasks: [{ sentence: 'done', closedAt: 1 }] }]);
+  assert.match(closedOnly, /kosmos task list hendersonlease/, 'a closed-only project wrongly hid the list command');
+  assert.ok(!/No tasks set for this project yet/.test(closedOnly), 'a closed-only project wrongly said "No tasks set yet"');
   // An id-less row (a caller predating ids, or a fixture) must not teach a
-  // broken command -- neither the room command nor the tasks command.
+  // broken command -- neither the room command nor the tasks command (nor a
+  // dangling "no tasks" line, which also needs the id).
   const noId = projects.blockBody([{ name: 'Old row', folder: '/tmp/o' }]);
   assert.ok(!/kosmos post/.test(noId), 'a row without an id taught a command with a hole in it');
   assert.ok(!/kosmos task/.test(noId), 'a row without an id taught a tasks command with a hole in it');
+  assert.ok(!/No tasks set for this project yet/.test(noId), 'a row without an id emitted a dangling tasks line');
 });
 
 test('the block for an agent on nothing says so rather than being empty', () => {
@@ -826,14 +929,24 @@ test('the staleness sentence names two or more projects with a real "and", not a
   assert.notEqual(two.id, three.id);
 });
 
-test('nothing is ever written into the user’s project folder', () => {
+test('Kosmos writes ONLY its brief stub into the folder, and nothing of the person’s', () => {
+  // #2706 overturned the old "nothing is ever written" invariant: creating a project now
+  // drops a BRIEF.md stub so agents land with something to read instead of defaulting to
+  // talking. The invariant that survives is narrower and is what this test now pins: Kosmos
+  // adds EXACTLY its own brief and touches nothing the person already had. A UNIQUE folder,
+  // not the shared 'untouched' one, so the assertion does not depend on another test having
+  // seeded a brief here first (which is precisely how the old assertion passed by accident).
   reset();
   agent('mara', '# Mara\n\nYou are the executive assistant.\n');
-  const dir = folder('untouched');
-  const before = fs.readdirSync(dir);
-  projects.create({ name: 'Untouched', folder: dir, agents: ['mara'] });
+  const dir = folder('brief-only');
+  fs.writeFileSync(path.join(dir, 'work.txt'), 'the person’s real work');
+  const before = fs.readdirSync(dir).sort();
+  projects.create({ name: 'Brief only', folder: dir, agents: ['mara'] });
   projects.syncAgent('mara', ROSTER);
-  assert.deepEqual(fs.readdirSync(dir), before, 'the project folder holds their work and nothing of ours');
+  assert.deepEqual(fs.readdirSync(dir).sort(), [projects.BRIEF_STUB_FILENAME, ...before].sort(),
+    'Kosmos added something other than its brief stub, or removed one of the person’s files');
+  assert.equal(fs.readFileSync(path.join(dir, 'work.txt'), 'utf8'), 'the person’s real work',
+    'the person’s own file was modified');
 });
 
 test('the store lives under the sandboxed data root, so nothing here reached the real one', () => {
@@ -985,16 +1098,16 @@ test('a refused description does not leave an orphan folder behind', () => {
 
 test('an over-length description is REFUSED with a sentence, like the name, never silently cut', () => {
   reset();
-  // Counted in code points: 200 emoji are 400 UTF-16 units and legal.
-  const twoHundredEmoji = '\u{1F600}'.repeat(200);
-  const made = projects.create({ name: 'Emoji cap', folder: folder('emoji-cap'), description: twoHundredEmoji });
-  assert.equal(Array.from(made.description).length, 200);
+  // Counted in code points: 1000 emoji are 2000 UTF-16 units and legal.
+  const thousandEmoji = '\u{1F600}'.repeat(1000);
+  const made = projects.create({ name: 'Emoji cap', folder: folder('emoji-cap'), description: thousandEmoji });
+  assert.equal(Array.from(made.description).length, 1000);
   // One over is refused -- a silent truncation answered success while
   // cutting the person's words with nothing saying so.
-  assert.throws(() => projects.create({ name: 'Over', folder: folder('over-cap'), description: 'x'.repeat(201) }),
-    /longer than 200/);
-  assert.throws(() => projects.edit(made.id, { description: '\u{1F600}'.repeat(201) }), /longer than 200/);
-  assert.equal(Array.from(projects.get(made.id, []).description).length, 200, 'a refused write changes nothing');
+  assert.throws(() => projects.create({ name: 'Over', folder: folder('over-cap'), description: 'x'.repeat(1001) }),
+    /longer than 1000/);
+  assert.throws(() => projects.edit(made.id, { description: '\u{1F600}'.repeat(1001) }), /longer than 1000/);
+  assert.equal(Array.from(projects.get(made.id, []).description).length, 1000, 'a refused write changes nothing');
 });
 
 test('null means absence for a description, as it does for name and folder', () => {
@@ -1043,7 +1156,7 @@ test('a description is stored trimmed, one-line, capped, and optional', () => {
   const plain = projects.create({ name: 'Undescribed', folder: folder('undescribed') });
   assert.strictEqual(plain.description, '', 'absent must store as the explicit empty string');
   assert.throws(() => projects.create({ name: 'Longform', folder: folder('longform'),
-    description: 'x'.repeat(500) }), /longer than 200/,
+    description: 'x'.repeat(1001) }), /longer than 1000/,
   'over-length is refused with the sentence, never silently cut');
 });
 
@@ -1062,7 +1175,7 @@ test('setDescription updates, clears on explicit empty, and heals legacy records
   delete all.find((p) => p.id === made.id).description;
   fs.writeFileSync(storeFile, JSON.stringify(all));
   assert.equal(projects.setDescription(made.id, 'added later').description, 'added later');
-  assert.throws(() => projects.setDescription(made.id, 'x'.repeat(500)), /longer than 200/,
+  assert.throws(() => projects.setDescription(made.id, 'x'.repeat(1001)), /longer than 1000/,
     'the refusal holds on update too');
 });
 
@@ -2390,4 +2503,14 @@ test('#2279 homeForFirstAgent does not adopt a coincidentally-named project the 
   assert.notEqual(mine.made && mine.made.via, 'kosmos', 'a user-made project must not claim made.via kosmos');
   assert.equal(projects.homeForFirstAgent({ roster: [] }), null,
     'a same-named project the user made was adopted as the welcome home');
+});
+
+test('#2708: the membership message points at the section, without the generic "any tasks" promise', () => {
+  // 'joined' is the real put-on kind (production vocabulary; the sibling tests use it);
+  // it hits the "Kosmos put you on" branch.
+  const line = projects.membershipLine({ id: 'p1', name: 'Henderson lease', folder: '/tmp/h' }, 'joined');
+  assert.ok(!/including any tasks/.test(line),
+    'the membership message still makes the generic "including any tasks" promise (#2708)');
+  assert.match(line, /"Your projects" section of your instructions has the details\./,
+    'the membership message no longer points at the section, where the honest task state now lives');
 });

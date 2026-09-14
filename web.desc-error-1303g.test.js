@@ -60,13 +60,13 @@ test('the cap is counted in CODE POINTS, the way the engine counts', () => {
   // the engine accepts. The engine's own comment forbids exactly this mistake.
   const fn = lift('pjDescTooLong');
   assert.match(fn, /Array\.from\(/, 'the page counts UTF-16 units, so it disagrees with the engine on emoji');
-  const tooLong = new Function('PJ_DESC_MAX', fn + '; return pjDescTooLong;')(200);
-  assert.equal(tooLong('a'.repeat(200)), false, '200 plain characters is allowed');
-  assert.equal(tooLong('a'.repeat(201)), true, '201 is refused');
-  // 150 astral emoji are 150 code points and 300 UTF-16 units. A length-based
+  const tooLong = new Function('PJ_DESC_MAX', fn + '; return pjDescTooLong;')(1000);
+  assert.equal(tooLong('a'.repeat(1000)), false, '1000 plain characters is allowed');
+  assert.equal(tooLong('a'.repeat(1001)), true, '1001 is refused');
+  // 600 astral emoji are 600 code points and 1200 UTF-16 units. A length-based
   // check would call this too long; the engine would not.
-  assert.equal(tooLong('\u{1F600}'.repeat(150)), false,
-    'a 150-emoji description is refused by the page but accepted by the engine');
+  assert.equal(tooLong('\u{1F600}'.repeat(600)), false,
+    'a 600-emoji description is refused by the page but accepted by the engine');
 });
 
 test('every description field has a refusal slot BEFORE the button, not after', () => {
@@ -112,7 +112,12 @@ test('the create box no longer accepts text the engine will refuse', () => {
 test('both handlers check before sending, and route the engine refusal to the field', () => {
   const save = PAGE.slice(PAGE.indexOf("getElementById('pjs-save').addEventListener"));
   assert.match(save.slice(0, 2000), /pjDescTooLong\(/, 'the settings save no longer pre-checks');
-  assert.match(save.slice(0, 4000), /\/description\/i\.test\(got\.error\)/,
+  // #2923 grew this handler (the Sweep-spinner injection + its comment before
+  // the fetch), pushing the engine description-refusal branch to ~4387 chars in.
+  // Widen the window past that addition but still within the one handler (it
+  // runs ~6870 chars to the next listener), so it cannot spill into and
+  // false-match pjs-chats-reveal.
+  assert.match(save.slice(0, 5000), /\/description\/i\.test\(got\.error\)/,
     'a description refusal from the engine still lands under the button');
   const create = PAGE.slice(PAGE.indexOf("getElementById('pj-create').addEventListener"));
   assert.match(create.slice(0, 2000), /pjDescTooLong\(/, 'the create no longer pre-checks');

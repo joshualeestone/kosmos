@@ -55,10 +55,17 @@ const IDS = ['acct-add-modal', 'acct-provider-field', 'acct-provider-pick', 'acc
  *
  * `acctPick` and `frConnActive` are stubbed because they belong to other cards;
  * every function this card added is the REAL one.
+ *
+ * #1760: `esc` is lifted in too, not stubbed. acctReauthChrome now escapes the
+ * account email before it reaches warn.innerHTML, and esc is a shared board
+ * utility that is in scope on the real page. Lifting the REAL esc keeps this
+ * harness faithful to the page and lets the escaping assertion below exercise
+ * the actual code rather than a stub that could hide a regression.
  */
 function doors() {
   const dom = fakeDom(IDS);
   const src = [
+    lift(SCRIPT, 'esc'),
     lift(SCRIPT, 'acctReauthChrome'),
     lift(SCRIPT, 'openAcctReauth'),
     lift(SCRIPT, 'openAcctAdd'),
@@ -67,7 +74,10 @@ function doors() {
   const picked = [];
   const fn = new Function('document', 'acctPick', 'frConnActive', 'ACCT_FLOW_LAST',
     'ACCT_ADD_TITLE', 'ACCT_ADD_INTRO', 'picked',
-    'let ACCT_REAUTH_DIR = null;\n' + src);
+    // #2802: openAcctAdd now also assigns ACCT_ADD_RETURN_FOCUS (the control that
+    // opened the modal). Declare it here like ACCT_REAUTH_DIR so the lifted function
+    // does not rely on sloppy-mode implicit-global creation (would throw under strict).
+    'let ACCT_REAUTH_DIR = null;\nlet ACCT_ADD_RETURN_FOCUS = null;\n' + src);
   const api = fn(dom.document, (w, o) => picked.push([w, o]), () => false, null,
     'Add a provider', 'Pick which AI provider you want to connect.', picked);
   return { dom, api, picked };
@@ -90,6 +100,22 @@ test('pressing sign-in-again on a row aims the ONE flow at that account', () => 
   assert.match(dom.els.get('acct-add-in').textContent, /does not make a second one/, 'the dialog does not promise the thing the card is about');
   assert.match(dom.els.get('acct-claude-warn').innerHTML, /sign in as her@example\.com/,
     'the warning still tells her to sign in to the OTHER account, which is the wrong instruction here');
+});
+
+test('#1760: the account email is escaped before it reaches the warning innerHTML', () => {
+  /* The warning is the one reauth surface that writes the email into innerHTML
+     rather than textContent, so it is the one that must escape. A real email
+     cannot carry markup, but the sink must not depend on that: an email with
+     angle brackets has to arrive as text, never as live HTML. If esc were
+     dropped, `<b>` here would open a real bold element and the assertion below
+     would see the literal `<b>` gone. */
+  const { dom, api } = doors();
+  api.openAcctReauth('/Users/x/.claude-account-b', 'a<b>x</b>@example.com');
+  const html = dom.els.get('acct-claude-warn').innerHTML;
+  assert.match(html, /a&lt;b&gt;x&lt;\/b&gt;@example\.com/,
+    'the account email was not HTML-escaped in the reauth warning');
+  assert.doesNotMatch(html, /a<b>x<\/b>@example\.com/,
+    'the raw email markup reached innerHTML unescaped');
 });
 
 test('🛑 the stock door CLEARS the aim, so + Add a provider can never quietly reauth', () => {

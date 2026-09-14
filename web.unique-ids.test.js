@@ -63,16 +63,16 @@ test('the scan is not silently matching nothing', () => {
 });
 
 test('an id written inside a comment is not counted', () => {
-  const planted = PAGE.replace('</head>', '<!-- <div id="pj-back"> a comment naming an existing id --></head>');
+  const planted = PAGE.replace('</head>', '<!-- <div id="pj-say"> a comment naming an existing id --></head>');
   assert.notEqual(planted, PAGE, 'the planting anchor moved; this control plants nothing');
   assert.deepEqual(duplicateIds(planted), [],
     'an id mentioned in a COMMENT was counted as markup. That is the mistake that reported three duplicates when there was one');
 });
 
 test('the scan can actually see a duplicate', () => {
-  const planted = PAGE.replace('<blockquote class="detail-said" id="d-said"', '<blockquote id="pj-back"');
+  const planted = PAGE.replace('<blockquote class="detail-said" id="d-said"', '<blockquote id="pj-say"');
   assert.notEqual(planted, PAGE, 'the planting anchor moved; this control is no longer planting anything');
-  assert.deepEqual(duplicateIds(planted), ['pj-back x2'],
+  assert.deepEqual(duplicateIds(planted), ['pj-say x2'],
     'a deliberately planted duplicate was not detected, so a clean run below proves nothing');
 });
 

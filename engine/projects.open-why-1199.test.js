@@ -35,6 +35,8 @@ process.on('exit', () => {
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const projects = require('./projects');
+/* win32-board-copy: `open`'s stderr is the Mac contract this file is about. */
+projects.setRevealPlatform('darwin');
 
 function projectWithFile(dirName, fileName) {
   const dir = path.join(SANDBOX, dirName);

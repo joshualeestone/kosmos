@@ -149,6 +149,7 @@ js="$(bash "$TOOL" --dist "$D" --keep 2 --json 2>/dev/null)"
 if command -v node >/dev/null 2>&1; then
   echo "$js" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const o=JSON.parse(s);if(o.served_version==="0.6.22"&&Array.isArray(o.prune_versions)&&o.prune_versions.includes("0.6.20"))process.exit(0);process.exit(1)})' \
     && ok "--json: valid JSON, names served + prune list" || no "--json: bad JSON or wrong fields -- $js"
+  echo "$js" | grep -q '"staged_version"' && no "--json: emits staged_version with no staging pointer (output must be unchanged)" || ok "--json: no staged_version without a staging pointer (output unchanged)"
 else
   echo "$js" | grep -q '"served_version":"0.6.22"' && ok "--json: names served version" || no "--json: missing served -- $js"
 fi
@@ -329,6 +330,61 @@ bash "$TOOL" --dist "$D" --keep 1 --prune --yes >/dev/null 2>&1
 D="$TMP/w7"; make_fixture "$D" 0.6.20 0.6.18 0.6.19 0.6.20    # no add_win: only the empty latest-win.json + alias
 out="$(bash "$TOOL" --dist "$D" --keep 12 2>&1)"
 echo "$out" | grep -q "win-x64" && no "zero-win dist: emitted a win block for a dist with no win releases" || ok "zero-win dist: no win block (arm64-only output unchanged)"
+echo "$out" | grep -q "staged version" && no "no staging pointer: printed a staged line" || ok "no staging pointer: no staged line (output unchanged)"
+
+# ===========================================================================
+# The staging channel: a STAGED build (named by latest-staging.json for arm64,
+# latest-win-staging.json for win-x64) is waiting for its promote, so it is
+# protected like the served one. Each arm uses --keep 0, which keeps ONLY what
+# is protected: without the staged protection the staged (newest) version is
+# pruned, so each arm goes red when that protection is removed.
+# ===========================================================================
+
+# --- Staged Arm 1: arm64 staged version survives --keep 0 -------------------
+D="$TMP/s1"; make_fixture "$D" 0.6.20 0.6.18 0.6.19 0.6.20 0.6.21
+printf '{"version":"0.6.21","sha256":"x","artifact":"kosmos-0.6.21-arm64.tar.gz","manifest":"kosmos-0.6.21-arm64.manifest.json"}\n' > "$D/latest-staging.json"
+out="$(bash "$TOOL" --dist "$D" --keep 0 --prune --yes 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && ok "arm64 staged: prune exit 0" || no "arm64 staged: exit $rc -- $out"
+{ present "$D" kosmos-0.6.21-arm64.tar.gz && present "$D" kosmos-0.6.21-arm64.tar.gz.sha256 && present "$D" kosmos-0.6.21-arm64.manifest.json; } \
+  && ok "arm64 staged: the version latest-staging.json names is protected" || no "arm64 staged: the STAGED release was PRUNED"
+{ present "$D" kosmos-0.6.20-arm64.tar.gz && absent "$D" kosmos-0.6.18-arm64.tar.gz && absent "$D" kosmos-0.6.19-arm64.tar.gz; } \
+  && ok "arm64 staged: served kept, the unprotected versions still pruned" || no "arm64 staged: wrong survivors"
+echo "$out" | grep -q "staged version (protected): 0.6.21" && ok "arm64 staged: the report names the staged version" || no "arm64 staged: no staged line -- $out"
+present "$D" latest-staging.json && ok "arm64 staged: the staging pointer itself is never touched" || no "arm64 staged: latest-staging.json deleted!"
+
+# --- Staged Arm 2: win-x64 staged version survives --keep 0 -----------------
+# The real Windows pointer shape: "artifact" is the ALIAS, "versioned" names the zip.
+D="$TMP/s2"; make_fixture "$D" 0.6.15 0.6.15
+add_win "$D" 0.6.24 0.6.22 0.6.23 0.6.24 0.6.25
+printf '{"version":"0.6.25","sha256":"x","artifact":"kosmos-win-x64.zip","versioned":"kosmos-0.6.25-win-x64.zip","arch":"x64"}\n' > "$D/latest-win-staging.json"
+out="$(bash "$TOOL" --dist "$D" --keep 0 --prune --yes 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && ok "win staged: prune exit 0" || no "win staged: exit $rc -- $out"
+{ present "$D" kosmos-0.6.25-win-x64.zip && present "$D" kosmos-0.6.25-win-x64.zip.sha256; } \
+  && ok "win staged: the version latest-win-staging.json names is protected" || no "win staged: the STAGED Windows release was PRUNED"
+{ present "$D" kosmos-0.6.24-win-x64.zip && absent "$D" kosmos-0.6.22-win-x64.zip && absent "$D" kosmos-0.6.23-win-x64.zip; } \
+  && ok "win staged: served kept, the unprotected win versions still pruned" || no "win staged: wrong survivors"
+{ present "$D" latest-win-staging.json && present "$D" kosmos-win-x64.zip; } && ok "win staged: the staging pointer and the alias are never touched" || no "win staged: pointer or alias deleted!"
+js="$(bash "$TOOL" --dist "$D" --keep 0 --json 2>/dev/null)"
+echo "$js" | grep -q '"win_x64":{[^}]*"staged_version":"0.6.25"' && ok "win staged: --json names the staged version" || no "win staged: --json has no staged_version -- $js"
+
+# --- Staged Arm 3: the win staged build is protected by its VERSIONED name ---
+# Version-format skew (pointer "0.6.5", file kosmos-0.6.05-...): only the
+# "versioned" filename can protect it, since a Windows pointer's "artifact" is
+# the alias. Mirrors Win Arm 6b for the staged pointer.
+D="$TMP/s3"; make_fixture "$D" 0.6.15 0.6.15
+add_win "$D" 0.6.04 0.6.04 0.6.05
+printf '{"version":"0.6.5","sha256":"x","artifact":"kosmos-win-x64.zip","versioned":"kosmos-0.6.05-win-x64.zip","arch":"x64"}\n' > "$D/latest-win-staging.json"
+bash "$TOOL" --dist "$D" --keep 0 --prune --yes >/dev/null 2>&1
+present "$D" kosmos-0.6.05-win-x64.zip && ok "win staged skew: protected by its versioned filename despite version=\"0.6.5\"" || no "win staged skew: the staged file was PRUNED"
+
+# --- Staged Arm 4: the SERVED Windows pointer protects by "versioned" too ----
+# latest-win.json's real shape names the alias in "artifact", so the skew
+# fallback must read "versioned" to protect the served zip.
+D="$TMP/s4"; make_fixture "$D" 0.6.15 0.6.15
+add_win "$D" 0.6.05 0.6.05 0.6.06 0.6.07
+printf '{"version":"0.6.5","sha256":"x","artifact":"kosmos-win-x64.zip","versioned":"kosmos-0.6.05-win-x64.zip","arch":"x64"}\n' > "$D/latest-win.json"
+bash "$TOOL" --dist "$D" --keep 1 --prune --yes >/dev/null 2>&1
+present "$D" kosmos-0.6.05-win-x64.zip && ok "win served skew (real pointer shape): protected by its versioned filename" || no "win served skew: the served zip was PRUNED"
 
 echo "----"
 echo "test-dist-retention: $PASS passed, $FAIL failed"

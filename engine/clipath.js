@@ -73,17 +73,15 @@ function kosmosCliShown(probeRoot) {
  * would never bring back) is NEVER restarted -- it resolves to null here and
  * falls through to the manual-restart banner.
  *
- * 📌 #570: ON WINDOWS THIS IS ALWAYS null, AND THAT IS THE CORRECT ANSWER RATHER
- * THAN A MISSING BRANCH. The shipped Windows bundle
- * (`tools/build-kosmos-windows.sh`) is `Kosmos.exe` + `runtime\node.exe` +
- * `app\` -- there is NO `bin\kosmos` wrapper of any spelling, so a win32 arm here
- * could only invent a path that does not exist. What it must not do is leave a
- * caller believing a restart is available: `engine/boardrestart.js` no longer
- * reaches this arm on win32 at all (it asks engine/win32board.js whether the
- * board's logon task started this board), so the null is a true negative that
- * routes to a mechanism, not a dead end. The separate defect that agents are
- * TAUGHT a bare `kosmos msg` on Windows lives in `kosmosCliShown` above and is
- * BLOCKER 1's, not this one's -- see .claude/plans/WINDOWS-ROADMAP.md §3c.
+ * 📌 #570: ON A WINDOWS BUNDLE THIS IS NOT null, and nothing there may read it as
+ * "a restart is available". The zip now ships `bin\kosmos` (the AGENT's command,
+ * tools/windows/kosmos.sh, beside kosmos.ps1 and kosmos-cli.js) next to
+ * `app\server.js`, so the installed layout matches -- but that command has no
+ * board verbs. `engine/boardrestart.js` never reaches this on win32 (it asks
+ * engine/win32board.js whether the board's logon task started this board). And
+ * the TAUGHT form stays the bare `kosmos` via `kosmosCliShown`, because the path
+ * carries backslashes; the agent's supervisor puts `bin\` on its PATH instead
+ * (engine/win32launch.js agentCliDir), see WINDOWS-ROADMAP.md BLOCKER 5.
  */
 function installedKosmosCli(probeRoot) {
   const installedHome = probeRoot || path.resolve(__dirname, '..', '..');

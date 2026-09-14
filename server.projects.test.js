@@ -31,6 +31,17 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-projects-'));
 const HOME = path.join(SANDBOX, 'home');
 fs.mkdirSync(HOME, { recursive: true });
 process.env.HOME = HOME;
+// #2724: SEAL THE ENGINE'S HOME SEAM TOO, not only the OS home. `accounts.js`
+// resolves `AGENT_WORKFORCE_HOME || os.homedir()`, so sealing `$HOME` alone
+// leaves the account lookup steerable by an ambient `AGENT_WORKFORCE_HOME` --
+// and then this file's own seeded `.claude.json` below is NOT the file that is
+// read, the create route reports "no Claude account signed in on this computer",
+// and the #166/#732/#2279 arms below 400 instead of 200. That is the suite rule
+// engine/create.no-account-2145.test.js already states in so many words: "an
+// unsealed home reads the operator's real accounts". Sealed here so these arms
+// depend on the fixture rather than on what the machine running them happens to
+// have signed in.
+process.env.AGENT_WORKFORCE_HOME = HOME;
 // #2145: a signed-in DEFAULT Claude account beside the sandbox HOME. The create
 // route now refuses a Claude create on a machine with NO Claude account at all
 // (accountConnectable, the sibling of #1903's dead-account gate). The #166/#732
@@ -83,6 +94,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const projects = require('./engine/projects');
+/* win32-board-copy: the reveal routes below assert the Mac opener (/usr/bin/open), so
+   the file states that platform; the Windows arm is engine/projects.win32-reveal.test.js. */
+projects.setRevealPlatform('darwin');
 const fleet = require('./test-support/fleet');
 
 const WORK = path.join(SANDBOX, 'work');
@@ -578,10 +592,10 @@ test('one rule for what a description IS, on both routes: words or refused', asy
   // Over-length is refused at the route with the sentence, not cut.
   const long = await req(`/api/project/${made.id}`, {
     method: 'PUT', headers: { 'content-type': 'application/json', origin: base },
-    body: JSON.stringify({ description: 'x'.repeat(201) }),
+    body: JSON.stringify({ description: 'x'.repeat(1001) }),
   });
   assert.equal(long.status, 400, long.body);
-  assert.match(json(long).error, /longer than 200/);
+  assert.match(json(long).error, /longer than 1000/);
   // And null clears, as absence: the one field where null meant malformed.
   const nulled = await req(`/api/project/${made.id}`, {
     method: 'PUT', headers: { 'content-type': 'application/json', origin: base },
@@ -1005,6 +1019,11 @@ async function withThread(spec, answers, fn) {
        body's own sends, the thing every zero-send assertion here counts. */
     const made = json(await post('/api/projects', {
       name: 'Thread ' + spec.name, folder: folder('thread-' + spec.name), agents: [spec.name],
+      // #2707: a description makes this generic fixture a normal BRIEFED project, so the
+      // brief-pending room note does not fire and pollute the many tests that use withThread
+      // to assert on an otherwise-empty room. The note's own behavior is covered directly by
+      // the dedicated #2707 tests, which create brief-LESS projects on purpose.
+      description: 'A briefed test project.',
     })).project;
     calls = armChat(answers);
     return await fn({ board, calls, project: made });
@@ -1679,7 +1698,7 @@ test('a send that never reached tmux IS a failure, because re-sending is the rig
 
 test('the verdict says what the agent was doing, and keeps saying it on every later read', async () => {
   reset();
-  // ⚠️ "Placed into zeta's session" is exactly true and invites the wrong
+  // ⚠️ "Placed with zeta" is exactly true and invites the wrong
   // inference — that zeta is reading it. A Claude that is mid-task does not
   // consume its composer until it finishes.
   await withThread(fleet.agent('zeta', { state: 'working' }), [said(), said(), said('screen')],
@@ -3502,4 +3521,34 @@ test('#2458: POST with a blank parent is top-level, unchanged from before', asyn
   const res = await post('/api/projects', { name: 'Top Level', folder: folder('sp-top'), parent: '' });
   assert.equal(res.status, 200);
   assert.equal(json(res).project.parent, null, 'a blank parent means ungrouped, exactly as omitting it does');
+});
+
+// #2707: a brief-less project staffed with agents posts ONE shared "brief pending" room
+// note so the agents coordinate (one asks, the rest hold) instead of each buzzing the
+// operator with the same "what is the goal?" question.
+test('#2707: a brief-less project staffed with agents gets the shared brief-pending room note', async () => {
+  reset();
+  const dir = folder('pending-staffed');   // no BRIEF.md and no description -> pending
+  const made = json(await post('/api/projects', { name: 'Pending staffed', folder: dir, agents: ['agent-a', 'agent-b'] })).project;
+  const room = await req(`/api/project/${made.id}/room?as=text`);
+  assert.equal(room.status, 200, room.body);
+  assert.match(room.body, /One question to the operator, not seven\./, 'the shared brief-pending note is not in the room');
+  assert.match(room.body, /BRIEF\.md/, 'the note does not point agents at the shared brief');
+});
+
+test('#2707 CONTROL: a project created WITH a description (goal already set) gets NO brief-pending note', async () => {
+  reset();
+  const dir = folder('described-staffed');
+  const made = json(await post('/api/projects', { name: 'Described', folder: dir, agents: ['agent-c'], description: 'Ship the thing by Friday.' })).project;
+  const room = await req(`/api/project/${made.id}/room?as=text`);
+  // Its stub Goal was seeded from the description, so it is not pending: no note is needed.
+  assert.doesNotMatch(room.body, /not seven/i, 'a described project should need no brief-pending note');
+});
+
+test('#2707 CONTROL: a brief-less project with NO agents gets NO note (nobody to coordinate)', async () => {
+  reset();
+  const dir = folder('pending-empty');
+  const made = json(await post('/api/projects', { name: 'Pending empty', folder: dir })).project;
+  const room = await req(`/api/project/${made.id}/room?as=text`);
+  assert.doesNotMatch(room.body, /not seven/i, 'a project with no agents needs no coordination note');
 });

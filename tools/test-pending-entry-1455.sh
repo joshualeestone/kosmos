@@ -340,5 +340,11 @@ grep -q '_step_before_7a="\$_STEP"' tools/release.sh \
 awk '/_step_before_7a="\$_STEP"/{save=NR} /^ *_STEP="\$_step_before_7a"/{restore=NR} /^kosmos_versions_entry_gate "\$V"/{gate=NR} END{exit !(save>0 && restore>save && gate>restore)}' tools/release.sh \
   && ok "WIRING: and restores it BEFORE the step 7 gate can refuse" \
   || bad "WIRING: the label is not restored before the gate, so a refusal files under 7a"
+# The per-step wall-time anchor (_STEP_START) rides alongside _STEP across 7a: SAVED, CLEARED
+# before the 7a banner (so 7a emits no spurious partial "step 7" duration), then RESTORED after,
+# so step 7 reports a single full wall-time line rather than a partial-then-full double-line.
+awk '/_step_start_before_7a="\$_STEP_START"/{save=NR} /^ *_STEP_START=""/{clear=NR} /^ *_STEP_START="\$_step_start_before_7a"/{restore=NR} END{exit !(save>0 && clear>save && restore>clear)}' tools/release.sh \
+  && ok "WIRING: the timing anchor _STEP_START is saved, cleared before 7a, and restored after" \
+  || bad "WIRING: _STEP_START is not saved/cleared/restored around 7a, so step 7's wall-time double-counts"
 
 [ "$FAILS" -eq 0 ] && echo "pending entry (#1455): all arms passed" || { echo "pending entry (#1455): $FAILS failed"; exit 1; }

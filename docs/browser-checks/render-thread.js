@@ -438,53 +438,41 @@ async function main() {
     check(await page.evaluate(() => !document.getElementById('panel-detail').hidden),
       'the answer button lands on the agent’s own page, which is where its question is');
 
-    /* And the room's own question panel, reached the way a person reaches it,
-       because the facts below are about the ROOM in Engineering-mode Off. */
+    /* The room in Engineering-mode Off. #2691 (Josh 2026-09-10) walked back the
+       #2575/#2146 asking-override: the one-to-one box no longer reopens in Off
+       when an agent is waiting. So in Off the room keeps ONE composer (the
+       room's), the raw screen stays hidden, and #pj-thread stays folded even
+       while an agent is asking. A waiting agent is answered in Off through the
+       DETAIL view (#d-qask, driven above), not through this room box. */
     await page.goto(BASE + '?tab=projects', { waitUntil: 'networkidle' });
     await page.waitForSelector('[data-project]', { timeout: 10000 });
     await page.click('[data-project]');
     await page.waitForSelector('#pj-one-view:not([hidden])', { timeout: 10000 });
-    await page.selectOption('#pj-thread-who', 'mara');
-    await page.waitForFunction(() => {
-      const q = document.getElementById('pj-question');
-      const t = document.getElementById('pj-question-text');
-      return q && !q.hidden && t.getBoundingClientRect().height > 0 && (t.innerText || '').length > 0;
-    }, null, { timeout: 10000 });
-    const offQuestion = await page.evaluate(() => ({
+    // The picker is inside #pj-thread and hidden in Off, so it cannot be clicked.
+    // Paint mara's question through the picker's own change path (value + event),
+    // which runs whatever the element's visibility -- this puts a genuine asking
+    // state on the room thread so the fold assertion below is a real can-fail: if
+    // the override came back, an asking agent would reopen the box.
+    await page.evaluate(() => {
+      const sel = document.getElementById('pj-thread-who');
+      sel.value = 'mara';
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await page.waitForFunction(
+      () => typeof PJ_QUESTION_AGENT !== 'undefined' && PJ_QUESTION_AGENT === 'mara',
+      null, { timeout: 10000 });
+    const offRoom = await page.evaluate(() => ({
       vpHidden: document.querySelector('.pj-viewport').hidden,
-      teachShown: !document.getElementById('pj-answer-how').hidden
-        && document.getElementById('pj-answer-how').getBoundingClientRect().height > 0,
-      teachText: document.getElementById('pj-answer-how').innerText,
-    }));
-    check(offQuestion.vpHidden === true, 'the raw screen stays hidden while a question is open in Off');
-    check(offQuestion.teachShown === true, 'the number-answer teaching line renders in Off, where it is needed most');
-    check(/Answer by sending the number/.test(offQuestion.teachText),
-      'and it carries the ruled wording', offQuestion.teachText);
-    /* ⚠️ RE-EXPRESSED, NOT LOOSENED (2026-08-24, #39). This arm used to
-       drive an ambiguous send to casey through #pj-say in Off and pin the
-       unconfirmed verdict's pointer. That PATH no longer exists: #370
-       (Josh, 08-23 19:30) folds the one-to-one box whole in Off -- one
-       composer, the room's -- EXCEPT while a question is open. Selecting
-       casey (no question) hides #pj-say by design, so the old fill read as
-       a flake and was actually a ruled supersession. The replacement pins
-       the fold itself, which nothing else pinned: mara's open question
-       holds the box on screen (asserted above), and switching to a
-       questionless agent folds it, leaving the room composer as the one
-       way to speak. The verdict-pointer property this arm held is not
-       lost: both arms read ONE derivation (pjScreenOnScreen) whose On side
-       is driven below, and the Off sentence is held by the source pins in
-       server.test.js until a fixture can reach it through the room's
-       directed send. */
-    const foldBefore = await page.evaluate(() => !document.getElementById('pj-thread').hidden);
-    check(foldBefore === true, 'the one-to-one box stays on screen while a question is open in Off (the #370 override)');
-    await page.selectOption('#pj-thread-who', 'casey');
-    await page.waitForFunction(() => document.getElementById('pj-thread').hidden, null, { timeout: 10000 });
-    const offFold = await page.evaluate(() => ({
-      folded: document.getElementById('pj-thread').hidden,
+      boxHidden: document.getElementById('pj-thread').hidden,
+      asking: (typeof PJ_QUESTION_AGENT !== 'undefined') && PJ_QUESTION_AGENT !== null,
       roomComposer: (() => { const el = document.getElementById('pj-post'); const r = el && el.getBoundingClientRect(); return Boolean(r && r.height > 0); })(),
     }));
-    check(offFold.folded === true, 'with no question open, Off folds the one-to-one box whole (#370: one composer, the room\u2019s)');
-    check(offFold.roomComposer === true, 'and the room composer is the one left standing');
+    check(offRoom.asking === true,
+      'CONTROL: an asking agent is painted on the room thread in Off, so "box folded" means the override is gone rather than that nobody is asking', JSON.stringify(offRoom));
+    check(offRoom.vpHidden === true, 'the raw screen is hidden in Off');
+    check(offRoom.boxHidden === true,
+      'the one-to-one box stays folded in Off even while an agent is asking (#2691 removed the #370 asking-override)');
+    check(offRoom.roomComposer === true, 'and the room composer is the one left standing (#370: one composer, the room’s)');
     const flipped = await page.evaluate(async () => {
       const r = await fetch('/api/engmode', { method: 'PUT',
         headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: true }) });

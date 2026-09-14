@@ -36,6 +36,13 @@
  * assertions (modal-appears, Josh-verbatim title, focus-on-Cancel-on-open) are structurally
  * falsifiable -- each pins an exact id/text/element -- rather than perturbation-demonstrated.
  *
+ * #1704 PR3 EXTENSION (Josh: the dialog asks each time): Scenario J asserts the two
+ * choices ("Pause this Kosmos's agents" / "Keep them running") are rendered as labelled
+ * radios, neither preselected; "Restart Kosmos" is disabled (a click posts nothing) until
+ * one is chosen; the chosen value rides in the POST body as `agents`; a reopened dialog
+ * asks again; and notPaused names lead the status line. The other scenarios answer
+ * "keep" before confirming (confirmSwitchGo), which is the switch they always made.
+ *
  * The CONTROL that proves the probe can see a real switch: the pre-fix page has no click
  * handler on .worldsw-row, so the POST-called + marker-moved + reload assertions red on it.
  *
@@ -108,10 +115,18 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       const url = String(u);
       const method = (opts && opts.method) || 'GET';
       if (url.indexOf('/api/worlds/active') !== -1 && method === 'POST') {
-        const id = JSON.parse((opts && opts.body) || '{}').id;
-        calls.push({ url: '/api/worlds/active', id });
+        const sent = JSON.parse((opts && opts.body) || '{}');
+        const id = sent.id;
+        calls.push({ url: '/api/worlds/active', id, agents: sent.agents });
         registryActive = id;
         const world = { id, name: id === 'w2' ? 'Side Project' : 'Home' };
+        if (postMode === 'manual-notpaused') {
+          // #1704 PR3: a pause-switch where one agent could not be stopped.
+          return Promise.resolve({ ok: true, status: 200, json: async () => ({
+            ok: true, world, restartRequired: true, restarting: false,
+            agents: sent.agents, paused: [], notPaused: [{ name: 'ava', because: 'we could not stop ava, so it keeps running' }],
+          }) });
+        }
         if (postMode === 'err409') {
           // A non-ok response (another world op in progress): worldswSwitch shows the
           // guidance and must restore focus to the trigger (#6: the confirm button was
@@ -183,7 +198,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       side.click();  // proves the row (not a direct call) opens the confirm modal
       return { rows };
     };
-    const confirmSwitchGo = () => document.getElementById('world-switch-go').click();
+    // #1704 PR3: Restart is disabled until the pause/keep question is answered, so the
+    // confirm answers it first ("keep", the switch these scenarios always made).
+    const confirmSwitchGo = () => {
+      document.getElementById('world-switch-keep').click();
+      document.getElementById('world-switch-go').click();
+    };
     const clickSide = async () => {
       const r = await clickRowOnly();
       if (r.error) return r;
@@ -394,6 +414,55 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       activeId: document.activeElement ? document.activeElement.id : null,
     };
 
+    // ---- Scenario J: #1704 PR3 the pause/keep choice ----
+    registryActive = 'w1'; bootedActive = 'w1'; postMode = 'manual-notpaused';
+    pendingReboot = false; rebootPollsSeen = 0; reloadCount = 0; statusObserved.length = 0;
+    WORLDSW_RECONNECT_SLOW_MS = 20000; WORLDSW_RECONNECT_TIMEOUT_MS = 150000;
+    await worldsFetch(); await sleep(10);
+    if (typeof worldswOpen === 'function') worldswOpen();
+    const cJ = await clickRowOnly();
+    if (cJ.error) return { error: cJ.error };
+    const pauseEl = document.getElementById('world-switch-pause');
+    const keepEl = document.getElementById('world-switch-keep');
+    const goEl = document.getElementById('world-switch-go');
+    if (!pauseEl || !keepEl) return { error: 'the switch modal has no pause/keep radios' };
+    const labelOf = (el) => (el.closest('label') ? el.closest('label').textContent.trim() : '');
+    const onOpen = {
+      pauseLabel: labelOf(pauseEl), keepLabel: labelOf(keepEl),
+      bothRadios: pauseEl.type === 'radio' && keepEl.type === 'radio' && pauseEl.name === keepEl.name,
+      noneChecked: !pauseEl.checked && !keepEl.checked,
+      goDisabled: goEl.disabled === true,
+      focusOnCancel: !!document.activeElement && document.activeElement.id === 'world-switch-cancel',
+    };
+    const postsBeforeJ = calls.length;
+    goEl.click();                                      // disabled: must do nothing
+    const postedWhileDisabled = calls.length - postsBeforeJ;
+    const modalOpenAfterDisabledClick = !document.getElementById('world-switch-modal').hidden;
+    pauseEl.click();                                   // a real click fires the change handler
+    const goEnabledAfterChoice = goEl.disabled === false;
+    goEl.click();
+    await waitFor(() => /quit and reopen kosmos/i.test(bannerMsg()), 500);
+    const lastPost = calls[calls.length - 1] || {};
+    const closedAfterGo = { noneChecked: !pauseEl.checked && !keepEl.checked, goDisabled: goEl.disabled === true };
+    // Reopen: the last answer must not be carried into a new question. The stub moved
+    // the registry to w2, so Side Project is now the CURRENT row (a div, no click);
+    // put the registry back first, as the scenarios above do, so the row click really
+    // reopens the dialog -- and record that it did, or this reads a hidden dialog.
+    registryActive = 'w1'; bootedActive = 'w1';
+    await worldsFetch(); await sleep(10);
+    const cJ2 = await clickRowOnly();
+    if (cJ2.error) return { error: cJ2.error };
+    const reopened = {
+      modalVisible: !document.getElementById('world-switch-modal').hidden,
+      noneChecked: !pauseEl.checked && !keepEl.checked,
+      goDisabled: goEl.disabled === true,
+    };
+    document.getElementById('world-switch-cancel').click();
+    const afterChoice = {
+      ...onOpen, postedWhileDisabled, modalOpenAfterDisabledClick, goEnabledAfterChoice,
+      postedId: lastPost.id, postedAgents: lastPost.agents, banner: bannerMsg(), closedAfterGo, reopened,
+    };
+
     // ---- Scenario I: #2454b the CURRENT marker follows the BOOTED world, not the pointer ----
     // The divergence state: a switch flipped the registry pointer to Side Project (w2),
     // but the board has NOT rebooted, so it is still SERVING Home (w1). The UI must mark
@@ -418,7 +487,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       bootedNotActionable: !!homeRowI && homeRowI.tagName !== 'BUTTON',
     };
 
-    return { before, afterRestarting, afterManual, afterNoop, afterInvalid, afterStuck, afterMenuClose, afterConfirmModal, afterErrFocus, afterDivergence };
+    return { before, afterRestarting, afterManual, afterNoop, afterInvalid, afterStuck, afterMenuClose, afterConfirmModal, afterErrFocus, afterChoice, afterDivergence };
   });
 
   await browser.close();
@@ -497,6 +566,23 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!h.focusOnCancelOnOpen) problems.push('#6: opening the confirm modal must focus Cancel (deliberate confirm; a reflexive Enter must not restart the app), but activeElement was "' + h.activeId + '"');
     if (!h.said409) problems.push('#6: a 409 switch should show the "in progress" guidance, got a different banner');
     if (!h.focusRestored) problems.push('#6 REGRESSION: after an error switch, keyboard focus must return to the switcher trigger (worldsw-btn), but it was on "' + h.activeId + '" -- worldswSwitchGo destroyed the confirm button and the error path did not restore focus');
+
+    // Scenario J: #1704 PR3 the pause/keep choice
+    const j = r.afterChoice;
+    if (j.pauseLabel !== "Pause this Kosmos's agents") problems.push('#1704 PR3: the pause choice should be labelled "Pause this Kosmos\'s agents" (its label wrapping the radio), got "' + j.pauseLabel + '"');
+    if (j.keepLabel !== 'Keep them running') problems.push('#1704 PR3: the keep choice should be labelled "Keep them running" (its label wrapping the radio), got "' + j.keepLabel + '"');
+    if (!j.bothRadios) problems.push('#1704 PR3: pause/keep must be two radios in one group');
+    if (!j.noneChecked) problems.push('#1704 PR3: neither choice may be preselected (Josh: the dialog ASKS each time)');
+    if (!j.goDisabled) problems.push('#1704 PR3: "Restart Kosmos" must be disabled until a choice is made');
+    if (!j.focusOnCancel) problems.push('#1704 PR3: Cancel must keep the initial focus with the radios added');
+    if (j.postedWhileDisabled !== 0) problems.push('#1704 PR3: clicking the disabled "Restart Kosmos" switched anyway (' + j.postedWhileDisabled + ' POST(s))');
+    if (!j.modalOpenAfterDisabledClick) problems.push('#1704 PR3: clicking the disabled "Restart Kosmos" closed the dialog');
+    if (!j.goEnabledAfterChoice) problems.push('#1704 PR3: choosing an answer must enable "Restart Kosmos"');
+    if (j.postedId !== 'w2' || j.postedAgents !== 'pause') problems.push('#1704 PR3: the POST must carry {id:"w2", agents:"pause"}, got id=' + j.postedId + ' agents=' + j.postedAgents);
+    if (!/^Still running, could not be paused: ava\./.test(j.banner)) problems.push('#1704 PR3: agents that could not be paused must lead the status line ("Still running, could not be paused: ava."), got "' + j.banner + '"');
+    if (!j.closedAfterGo.noneChecked || !j.closedAfterGo.goDisabled) problems.push('#1704 PR3: the dialog closed by "Restart Kosmos" must not keep the answer (both radios unchecked, Restart disabled)');
+    if (!j.reopened.modalVisible) problems.push('#1704 PR3 scenario setup: the row click did not reopen the switch dialog, so the reopen assertions would read a hidden dialog');
+    else if (!j.reopened.noneChecked || !j.reopened.goDisabled) problems.push('#1704 PR3: a reopened dialog must ask again (no carried answer, Restart disabled)');
 
     // Scenario I: #2454b the current marker follows the BOOTED world, not the registry pointer
     const i = r.afterDivergence;

@@ -116,16 +116,25 @@ const CASES = [
     check(`${c.name}: the sentence matches what happened`, ok, `"${said}"`);
     if (c.name === 'the file changed') {
       /* #406: both names and the restart control beside them, while it runs.
-         The button is the page's own restart control, so it opens the same
-         dialog as Fresh start rather than acting. */
+         #2829: a rename that changed the file while the agent runs now AUTO-POPS
+         the restart modal on save, so the person can make the new name live right
+         there; the button in the sentence is the fallback for a dismissed modal,
+         and it opens the same dialog (rather than acting) like Fresh start. */
       const running = await page.evaluate(() => (typeof CURRENT !== 'undefined' && !!CURRENT && CURRENT.running !== false));
       const hasBtn = await page.$('#d-role-msg [data-restart-agent]');
       check('a running agent gets a Restart now button in the sentence', running ? !!hasBtn : !hasBtn, `running=${running} button=${!!hasBtn}`);
-      if (hasBtn) {
-        await page.click('#d-role-msg [data-restart-agent]'); await page.waitForTimeout(300);
-        const open = await page.$eval('#rst-modal', (m) => !m.hidden);
-        check('Restart now opens the restart dialog rather than restarting', open);
+      if (running) {
+        // #2829: the save itself popped the restart modal (no click needed).
+        const autoOpen = await page.$eval('#rst-modal', (m) => !m.hidden);
+        check('#2829: the save auto-pops the restart modal for a running rename', autoOpen);
         await page.click('#rst-keep'); await page.waitForTimeout(200);
+        // The sentence's fallback button reopens the same dialog rather than restarting.
+        if (hasBtn) {
+          await page.click('#d-role-msg [data-restart-agent]'); await page.waitForTimeout(300);
+          const reopen = await page.$eval('#rst-modal', (m) => !m.hidden);
+          check('the fallback Restart now button reopens the restart dialog rather than restarting', reopen);
+          await page.click('#rst-keep'); await page.waitForTimeout(200);
+        }
       }
     }
   }

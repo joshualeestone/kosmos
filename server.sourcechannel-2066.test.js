@@ -14,6 +14,17 @@
  * Real server against a sandboxed store (AGENT_WORKFORCE_DATA), same fixture
  * discipline + launchd/tmux seams as server.offline-nextmove.test.js.
  *
+ * 🛑 #2934 CHANGED THE CONTRACT THESE ARMS PIN, AND THE FILE READS AS IF IT DID NOT.
+ * `sourceChannel` is no longer the file value alone: a recorded 'staging' is now
+ * downgraded to 'prod' when the updater's cache positively shows prod publishing the
+ * running version. These arms still pass, but for a reason they do not state -- this
+ * harness never warms that cache (nothing injects a fetcher, and the board's own poke()
+ * is async and cannot land before the synchronous read), so every 'staging' arm here is
+ * exercising the UNKNOWN rung, which keeps the stamp. What this file pins is therefore
+ * "the file value, with a cold cache", not "the file value" outright.
+ * ⇒ The cache-warm behaviour is covered in server.sourcechannel-promote-2934.test.js.
+ * Do not add an arm here that assumes the file alone decides the answer.
+ *
  *   node --test server.sourcechannel-2066.test.js
  */
 

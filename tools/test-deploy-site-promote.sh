@@ -71,6 +71,8 @@ cat > "$BIN/vercel" <<'VERCEL'
 mkdir -p "$LIVE_DIR/dist"
 [ -d ./dist ] && cp -R ./dist/. "$LIVE_DIR/dist/" 2>/dev/null
 for f in setup index.html vercel.json; do [ -f "./$f" ] && cp "./$f" "$LIVE_DIR/$f"; done
+# A deploy that silently drops one file (the #1669 shape): the post-deploy served-verify must catch it.
+[ -n "${DROP_FROM_DEPLOY:-}" ] && rm -f "$LIVE_DIR/dist/$DROP_FROM_DEPLOY"
 exit 0
 VERCEL
 chmod +x "$BIN/vercel"
@@ -245,6 +247,42 @@ if has "$out" "is not newer than" && has "$out" "skipping the notes hook" && ! h
 else
   bad "#2159: rollback promote did not skip the announce hook (out=$out)"
 fi
+
+# =============================================================================================
+# The Windows staging channel: a committed latest-win-staging.json names a staged zip that must ship
+# WHOLE (zip, checksum, pointer) and be served-verified after the deploy -- the Windows box verifies
+# the build from those served copies before any promote.
+STAGEDZ="kosmos-0.6.99-win-x64.zip"
+add_staged_win() {  # <site> [omit-sidecar] ; commits a staged Windows build into the site checkout
+  local s="$1" sha
+  printf 'STAGED-WINZIP\n' > "$s/dist/$STAGEDZ"
+  ( cd "$s/dist" && shasum -a 256 "$STAGEDZ" > "$STAGEDZ.sha256" )
+  sha="$(awk '{print $1}' "$s/dist/$STAGEDZ.sha256")"
+  printf '{"version":"0.6.99","sha256":"%s","artifact":"kosmos-win-x64.zip","versioned":"%s","arch":"x64"}\n' "$sha" "$STAGEDZ" > "$s/dist/latest-win-staging.json"
+  [ "${2:-}" = omit-sidecar ] && rm -f "$s/dist/$STAGEDZ.sha256"
+  git -C "$s" add -A && git -C "$s" commit -q -m "stage windows 0.6.99"
+}
+
+# 9) the staged build is carried and served: exit 0, and LIVE serves the zip, its sidecar and the pointer.
+read -r S9 L9 <<<"$(make_scenario)"; add_staged_win "$S9"
+run_deploy "$S9" "$L9" --promote
+[ "$RC" = 0 ] && has "$out" "derived the staged Windows zip $STAGEDZ" && pass "win staged: a deploy carries and served-verifies the staged Windows build" || bad "win staged deploy (rc=$RC) out=$out"
+{ [ -f "$L9/dist/$STAGEDZ" ] && [ -f "$L9/dist/$STAGEDZ.sha256" ] && cmp -s "$L9/dist/latest-win-staging.json" "$S9/dist/latest-win-staging.json"; } \
+  && pass "win staged: LIVE serves the staged zip, its sidecar and the committed staging pointer" || bad "win staged: LIVE is missing part of the staged build"
+
+# 10) a staged sidecar missing from the checkout refuses BEFORE the deploy (LIVE untouched).
+read -r S10 L10 <<<"$(make_scenario)"; add_staged_win "$S10" omit-sidecar
+run_deploy "$S10" "$L10" --promote
+{ [ "$RC" = 1 ] && has "$out" "the export has no $STAGEDZ.sha256" && [ ! -f "$L10/dist/latest-win-staging.json" ]; } \
+  && pass "win staged: an export without the staged sidecar refuses before any deploy" || bad "win staged missing sidecar (rc=$RC) out=$out"
+[ "$(sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p' "$L10/dist/latest.json")" = "$OLD" ] && pass "win staged: that refusal left LIVE on OLD" || bad "win staged: the pre-deploy refusal still changed LIVE"
+
+# 11) a deploy that silently drops the staging pointer fails the post-deploy served-verify.
+read -r S11 L11 <<<"$(make_scenario)"; add_staged_win "$S11"
+export DROP_FROM_DEPLOY=latest-win-staging.json
+run_deploy "$S11" "$L11" --promote
+unset DROP_FROM_DEPLOY
+[ "$RC" = 1 ] && has "$out" "latest-win-staging.json failed served-verify" && pass "win staged: a deploy that drops the staging pointer fails the served-verify" || bad "win staged dropped pointer (rc=$RC) out=$out"
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

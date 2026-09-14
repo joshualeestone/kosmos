@@ -17,7 +17,11 @@
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-alltasks.js
  */
-// Browser-check-surface: pj-alltasks pj-alltasks-view alltasks-count
+// Browser-check-surface: pj-alltasks pj-alltasks-view alltasks-count tkFace
+// ⚠️ `tkFace` here fires only when a line CONTAINING that literal changes (a
+// signature or a call site). The gate keeps `+`/`-` diff-body lines and not context,
+// so an edit to the function BODY -- which is where #2762 lived -- does not trip it.
+// Measured. Keep the token, do not read it as covering the body.
 // (#2518) the distinctive web/index.html tokens this check asserts, so a change to the
 // all-tasks door/view/count is required to update this check at PR time, not stale it to a cut.
 const { spawn } = require('node:child_process');
@@ -48,6 +52,17 @@ const say = (n, cond, note) => {
   fs.writeFileSync(roots.DATA + '/fake-panes',
     require('../../test-support/fleet').line({ session: 'tasker-discord', claim: 'tasker', title: '✳ idle' }));
   fs.writeFileSync(roots.DATA + '/fake-sessions', 'tasker-discord\n');
+
+  /* #2762: give the fixture member a PICTURE, so this check exercises the avatar
+     path of `tkFace` rather than the initials path. Without it every browser
+     check renders initials and the member-face URL is never looked at in a real
+     browser at all -- which is exactly how #2762 shipped.
+     The env var is set before requiring the store because store.js resolves its
+     root per call (#1443), and this is the same root the server below is given. */
+  process.env.AGENT_WORKFORCE_DATA = roots.DATA;
+  // The 8-byte PNG signature is a real PNG to store.imageTypeOf.
+  require('../../engine/store').saveAvatar('tasker', 'image/png',
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
 
   const srv = spawn('node', ['server.js'], {
     cwd: REPO,
@@ -107,6 +122,9 @@ const say = (n, cond, note) => {
     say('the door is offered even though this project hides nothing', doorVisible);
     const doorText = (await p.textContent('#pj-alltasks')) || '';
     say('the door carries no count', !/\(\d+\)/.test(doorText), JSON.stringify(doorText));
+    // Josh, 2026-09-10 (#2711 item 12): the door reads exactly "View All"
+    // (capital V and A), no "tasks", no arrow.
+    say('the door reads "View All"', doorText.trim() === 'View All', JSON.stringify(doorText));
 
     await p.click('#pj-alltasks');
     await p.waitForSelector('#pj-alltasks-view', { state: 'visible' });
@@ -141,6 +159,45 @@ const say = (n, cond, note) => {
     say('the heading states a number', Number.isFinite(stated), JSON.stringify(seen.heading));
     say('the heading matches the rows on the screen', stated === seen.rows,
       'heading says ' + stated + ', rows on screen ' + seen.rows);
+
+    /* #2762: the member face must carry the avatar VERSION, not a bare URL.
+       A bare `/api/agent/<name>/avatar` is byte-identical before and after a
+       picture change, so the list's identical-HTML repaint skip (TK_LIST_HTML)
+       never recreates the <img> and the face stays stale. This is the same class
+       #2698 fixed on the org chart, asserted here in a real browser against the
+       real rendered src. */
+    /* ⚠️ SCOPED, WITH NO FALLBACK. This file's own header records that the project
+       page BEHIND this screen also renders `.tkcard`, and that an unscoped query is
+       what produced #1346's second number. A fallback to `.tkcard .lav img` would
+       silently measure a card on that other page and still report PASS. If the
+       scoped selector misses, that is a finding, not something to route around. */
+    /* 🛑 SCOPED TO THE PROJECT'S OWN TASK LIST, NOT THE ALL-TASKS VIEW, and that
+       distinction was measured rather than assumed. #2762 is about `tkFace` in
+       `paintProjectTasks`, which paints `#pj-tasklist` on the project page. The
+       all-tasks screen holds `.tkcard` rows too, but NONE of them carry a `.lav img`:
+       probed live, `#pj-alltasks-view .tkcard .lav img` is 0 while the document has
+       2, and both of those are on the project page behind.
+
+       ⚠️ AN EARLIER VERSION OF THIS ARM QUERIED `#pj-alltasks-view …` WITH AN
+       UNSCOPED FALLBACK, and passed. The scoped half matched nothing; the FALLBACK
+       was doing all the work, so the arm reported a result from a screen it did not
+       name. Removing the fallback (correctly, on review) is what exposed it. A
+       fallback that rescues a wrong selector does not make an arm robust, it makes
+       it untruthful about what it measured. */
+    const face = await p.evaluate(() => {
+      const list = document.getElementById('pj-tasklist');
+      const img = list && list.querySelector('.lav img');
+      return img ? img.getAttribute('src') : null;
+    });
+
+    say('the member face renders a picture at all (else the arm below is vacuous)',
+      typeof face === 'string' && /\/api\/agent\/[^/]+\/avatar/.test(face), JSON.stringify(face));
+    /* 🛑 NON-ZERO, not `\d+`. `?v=0` is what `(m.avatarVer || 0)` yields when the
+       version never reaches the page, which is exactly the "producer drops
+       avatarVer" failure this arm should catch. `\d+` matches `0`, so the arm would
+       have greened on the broken case it was added for. */
+    say('#2762: the member face URL carries a NON-ZERO avatar version, not a bare URL and not v=0',
+      typeof face === 'string' && /\/avatar\?v=[1-9]\d*/.test(face), JSON.stringify(face));
 
     /* A CONTROL ON THE SCOPING ITSELF: if the document holds more .tkcard than
        this screen does, then an unscoped count would have been wrong, and the

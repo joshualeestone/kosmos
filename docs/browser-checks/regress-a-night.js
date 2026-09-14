@@ -191,7 +191,7 @@ function seed() {
     chk(/the only thing that survives a restart/.test(instrLede),
       theme + ': the instructions lede states the consequence, on screen', instrLede.slice(0, 40));
     chk(!/^What this agent is for/.test(instrLede), theme + ': the lede names the agent');
-    await pg.click('#d-nav button[data-go="memory"]');
+    await pg.click('#d-nav button[data-go="model"]');   // #2916: Memory now folded under the Model and Memory pill
     await pg.waitForTimeout(300);
     /* ⚠️ RE-EXPRESSED, NOT LOOSENED (2026-08-24). The original pins read an
        .fhint INSIDE the restart box and its on-page consequence sentence --

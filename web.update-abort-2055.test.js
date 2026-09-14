@@ -19,7 +19,7 @@ function paint(ab) {
   const slot = { dataset: {}, innerHTML: '' };
   const doc = { getElementById: (id) => (id === 'uabort-slot' ? slot : null) };
   // eslint-disable-next-line no-new-func
-  new Function('document', 'ab', page.lift(SCRIPT, 'paintUpdateAbort') + '\npaintUpdateAbort(ab);')(doc, ab);
+  new Function('document', 'ab', page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'paintUpdateAbort']) + '\npaintUpdateAbort(ab);')(doc, ab);
   return slot;
 }
 
@@ -52,7 +52,7 @@ test('null / absent / count 0 / a garbage count all clear the slot (no false not
 test('a recovered machine (count -> null on the SAME slot) clears the notice it was showing', () => {
   const slot = { dataset: {}, innerHTML: '' };
   const doc = { getElementById: () => slot };
-  const run = (ab) => new Function('document', 'ab', page.lift(SCRIPT, 'paintUpdateAbort') + '\npaintUpdateAbort(ab);')(doc, ab);
+  const run = (ab) => new Function('document', 'ab', page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'paintUpdateAbort']) + '\npaintUpdateAbort(ab);')(doc, ab);
   run({ count: 2 });
   assert.match(slot.innerHTML, /2 times/, 'the notice did not show first');
   run(null);

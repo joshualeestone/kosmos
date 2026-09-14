@@ -62,15 +62,70 @@ _CUT_DONE_WRITTEN=0
 # `step` replaces the bare `echo` on each phase header: same line on screen,
 # and the last one reached is what the completion line reports.
 _STEP="before step 1"
+# Per-step wall-time, so a cut SELF-REPORTS where its minutes go (the serial
+# suite/render/build were tuned by guessing before this). step() runs at each phase
+# header, so the moment a new step begins is also the moment the previous one ended;
+# emit that duration here and let cut_record_done emit the last step's plus the total.
+# 🛑 MEASUREMENT ONLY, AND FAIL-SAFE BY CONSTRUCTION. A clock that cannot be read
+# leaves _STEP_START empty, and every consumer below returns before it can fault, so a
+# broken `date` NEVER breaks a step, the machine claim, or the cut. The emitted lines
+# are prefixed "   (step wall-time" so no existing log parser (which keys on "== ",
+# CUT_EXIT, duration_ms, PASS/FAIL/✖) can match them.
+_STEP_START=""
+_step_now() { date +%s 2>/dev/null; }
+# Every capture AND emit in the timing code is errexit-guarded, LOAD-BEARING not tidiness:
+# release.sh runs under `set -euo pipefail` (line 17), so under errexit ANY component that
+# exits non-zero aborts the whole script. Two failure modes are covered: (1) a clock that
+# fails NON-ZERO (a missing/erroring `date`) would abort a `$(_step_now)` capture -- so each
+# capture is `|| true`, succeeding with an empty value the guards then handle; (2) a broken
+# STDOUT (a dropped terminal / dead pipe reader on a long cut) would make an `echo` exit
+# non-zero -- so every emitting `echo`, and every bare `_step_emit_duration` call, is `|| true`
+# too. Without this, a step would skip its machine-claim renewal and cut_record_done would
+# abort before the #1388 completion line. This is the errexit-safe pattern
+# tools/lib/cut-rerun-guard.sh already mandates.
+_CUT_START=$(_step_now) || true
+_step_emit_duration() {
+  # Prints "<label>: <n>s" for the step that just ended. Silent unless both the start
+  # stamp and a fresh stamp are readable AND both are pure integers (so the $(( ))
+  # below can never fault on garbage). Self-fail-safe: every path returns 0 (the echo is
+  # `|| true`'d), so a bare call cannot abort its caller even on a broken stdout.
+  local _end _d
+  [ -n "$_STEP_START" ] || return 0
+  _end=$(_step_now) || true; [ -n "$_end" ] || return 0
+  case "$_STEP_START" in *[!0-9]*|'') return 0 ;; esac
+  case "$_end" in *[!0-9]*|'') return 0 ;; esac
+  _d=$((10#$_end - 10#$_STEP_START)); [ "$_d" -ge 0 ] || _d=0   # 10# forces base-10 so a leading-zero stamp cannot read as octal and fault; clamp a backward clock (NTP/manual)
+  echo "   (step wall-time -- ${1:-unknown}: ${_d}s)" || true
+}
 # #1962: each phase also RENEWS the machine claim, so a healthy cut of any length
 # keeps the box reserved (no single step approaches the window) while a genuinely
 # stuck step lets the claim lapse and frees the fleet. Guarded so an exit before
 # cut-guard.sh is sourced (there are no `step` calls that early today, but the
 # guard costs nothing) cannot fault.
-step() { _STEP="$1"; echo "$1"; command -v kosmos_claim_machine >/dev/null 2>&1 && kosmos_claim_machine >/dev/null 2>&1 || true; }
+step() {
+  _step_emit_duration "$_STEP" || true  # the step that was running has just ended (|| true: a broken stdout must not abort the renewal below)
+  _STEP="$1"; _STEP_START=$(_step_now) || true
+  echo "$1" || true                     # || true so a broken stdout cannot abort before the machine-claim renewal (the same gap the timing echoes guard)
+  command -v kosmos_claim_machine >/dev/null 2>&1 && kosmos_claim_machine >/dev/null 2>&1 || true
+}
 cut_record_done() {
   [ "$_CUT_DONE_WRITTEN" = 1 ] && return 0
   _CUT_DONE_WRITTEN=1
+  # The final step just ended (this runs on exit), so emit its wall-time and the
+  # whole-cut total. Same fail-safe contract as step(): unreadable clocks OR a broken
+  # stdout stay silent and never affect the completion line written below (`|| true` on
+  # the bare call and the echo; if/then rather than `&& echo` so a failed echo cannot
+  # abort the trap before the completion printf).
+  _step_emit_duration "$_STEP" || true
+  if [ -n "$_CUT_START" ]; then
+    local _crd_end _crd_d; _crd_end=$(_step_now) || true
+    case "$_CUT_START" in *[!0-9]*|'') _crd_end="" ;; esac
+    case "$_crd_end" in *[!0-9]*|'') _crd_end="" ;; esac
+    if [ -n "$_crd_end" ]; then
+      _crd_d=$((10#$_crd_end - 10#$_CUT_START)); [ "$_crd_d" -ge 0 ] || _crd_d=0   # 10#: base-10, never octal
+      echo "   (cut wall-time total: ${_crd_d}s)" || true
+    fi
+  fi
   # #1388: decode the exit so a KILLED step is a different row from a FAILED one.
   # A browser gate SIGTERM'd by another cut killed release.sh with exit 143, the
   # trap logged a bare `exit=143`, and it read as a red, sending readers to hunt
@@ -235,6 +290,11 @@ SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 # #2017: the load guard for the gated steps (3, 3b). Sourced UNguarded under
 # set -e like the libs above: a lib the cut cannot load should abort, not skip.
 . "$REPO/tools/lib/cut-load-guard.sh"
+# #2860: the ONE board deploy-shape classifier, shared with tools/restart-local-board.sh
+# so the cut's step-10a refresh decision and the restart's decision cannot drift. Sourced
+# HERE (before the freeze), so the functions are in memory and unaffected if the shared
+# checkout is fast-forwarded past this cut's sha mid-run.
+. "$REPO/tools/lib/board-shape.sh"
 # #1796: declare THIS run a cut before the checks below, so the cut-check excludes
 # our own marker by cookie (not a live-tree walk) and a harness/second-cut starting
 # later can see us. A crash leaves a dead-pid marker the next reader cleans.
@@ -260,6 +320,114 @@ fi
 # inherited by this cut's OWN gate subprocesses (step 3's `yarn test`, 3b's page
 # layer, 4b's harness), so they self-exclude and are never refused by their own cut.
 kosmos_claim_machine >/dev/null 2>&1 || true
+
+# #2724: GIVE THE CUT AN EMPTY HOME, so its gates stop reading the operator's STORE
+# and ACCOUNTS.
+#
+# ⚠️ NOT "stop reading the live fleet", which is what this comment said first and is an
+# OVERCLAIM. What moves is the data store, the workers root, the Claude accounts and the
+# LaunchAgents WRITES (all of which resolve through AGENT_WORKFORCE_HOME). What does NOT
+# move: the projects root (projects.js:1384, os.homedir), the LaunchAgents READS
+# (machine.js:52 and boardrestart.js:69 use $HOME), the config-root scan (status.js:46
+# has its OWN homeDir() that never consults the variable), and the agent roster, which
+# comes from tmux and is redirected only by AGENT_WORKFORCE_TMUX_BIN. So a cut-time gate
+# can STILL enumerate the live fleet by name. The class is narrowed, not closed.
+#
+# 🛑 AND THAT LIST IS NOT EXHAUSTIVE. Treating it as a closed set is how the next gap
+# gets missed. Two more that ARE measured and are easy to overlook because they are not
+# data roots at all:
+#   openaiaccounts.list()               1 -> 0   (the same shape as the Claude accounts,
+#                                                 and the step-3b argument below rested
+#                                                 only on the Claude half)
+#   runners.resolveBin('claude').present true -> FALSE
+#                                                (BINARY DISCOVERY: under the cut home the
+#                                                 product believes the Claude CLI is not
+#                                                 installed on this machine)
+# Others that resolve through the same seam and were not individually measured:
+# trust.js, subscription.js, codexupdate.js + create.js (.codex), geminisession.js,
+# boardauth.js, runningas.js, worlds.js, delete-leftover.js, connect.js, discover.js.
+# ⇒ ANYTHING resolving a path through AGENT_WORKFORCE_HOME changes during a cut. Ask
+# that question of a gate rather than consulting the table above.
+#
+# 🔑 THE CLASS, not one flaky test. `tools/release.sh` runs on a box that is also
+# running real agents and carrying a live board, roster and data root. Several
+# cut-time gates read that live state instead of the tree they froze, so a cut
+# reds on what the machine happens to be doing. Each instance was fixed as a
+# one-off (the block-delivery harness reading the real you.json #2259; the
+# install-gate running-app dedup #2124; the fleet.install created-agents leak
+# near #2696; the paneless-beat leak #2718) and they keep arriving, because the
+# list is open-ended: ANY new gate that reads the store is a new instance, and it
+# only shows up on the box that carries live state, never on a quiet dev box.
+#
+# 🛑 WHY `AGENT_WORKFORCE_HOME` AND NOT `AGENT_WORKFORCE_DATA`, WHICH IS THE
+# OBVIOUS ONE AND IS WRONG. Measured, whole suite, empty root:
+#   AGENT_WORKFORCE_DATA=<empty>   -> RED, and two of the failures are
+#                                     engine/sandbox.js refusing BY NAME:
+#                                     "Kosmos will not start half-sandboxed".
+#   AGENT_WORKFORCE_HOME=<empty>   -> far fewer, and none of them that refusal.
+# `DATA` is one of the four dirs in sandbox.js's #634 all-or-nothing rule (DATA,
+# PROJECTS, WORKERS, LAUNCH, plus an inert tmux): setting ONE of them is the exact
+# half-sandboxed shape that card was filed about, after a fixture board with two
+# of five knobs set typed into two real agents' terminals. `HOME` is not one of
+# the four, so it cannot trip that rule.
+# ⚠️ AND `DATA` BREAKS TESTS THAT WERE ALREADY ISOLATING CORRECTLY: a large group
+# of discovery tests (#1159, #2243) sandbox themselves THROUGH `AGENT_WORKFORCE_HOME`
+# and derive their data root from it, and an ambient `DATA` overrides that
+# derivation (DATA beats HOME by design in store.dataRootFor), handing them a root
+# inconsistent with their own fixture.
+#
+# ✅ `HOME` is the seam the repo already built for this (store.js #1780): "one var
+# (HOME) isolates BOTH this store and the workers root (create.homeDir)". It sits
+# BELOW `DATA` in precedence, so a test that sets its own `DATA` still wins -- this
+# changes the ambient default without overriding anybody's deliberate sandbox.
+#
+# ⚠️ WHAT THIS DOES NOT ISOLATE, stated so nobody reads it as whole-box isolation:
+# `projectsRoot` has its own var (AGENT_WORKFORCE_PROJECTS) and launchd has
+# AGENT_WORKFORCE_LAUNCH, and BOTH are in the #634 four. Setting either without the
+# other two would be refused, so closing that gap means the full four-plus-tmux
+# sandbox, which is a larger change and needs its own measurement. Named here
+# rather than implied away.
+#
+# The dir is recreated EMPTY at the start of every cut rather than cleaned on exit,
+# so "empty when the gates run" holds without depending on a trap, and a failed
+# cut leaves it behind to inspect. Every gate subprocess inherits it, INCLUDING
+# kosmos_isolation_rerun_verdict -- which matters: the contention rerun must
+# adjudicate the same world the gate ran in, or it is comparing two machines.
+if [ "${KOSMOS_CUT_LIVE_HOME:-0}" != 1 ]; then
+  # 🛑 GUARD THE INPUT, NOT THE DERIVED PATH. An earlier version of this checked
+  # whether "$_cut_home" was `/`, `/tmp` or `$HOME`, which it can NEVER be: the leaf
+  # is always appended, so the case could not fire on any value of TMPDIR and read as
+  # protection while providing none. The shape that actually hurts is a TMPDIR that is
+  # a real directory (TMPDIR=$HOME makes this `rm -rf ~/kosmos-cut-home`), so that is
+  # what is asked about here.
+  _cut_tmp="${TMPDIR:-/tmp}"
+  # Strip EVERY trailing slash, not one: `${x%/}` removes a single one, so `$HOME//`
+  # survived the literal comparison below and reached the `rm -rf`.
+  while [ "$_cut_tmp" != "/" ] && [ "${_cut_tmp%/}" != "$_cut_tmp" ]; do _cut_tmp="${_cut_tmp%/}"; done
+  case "$_cut_tmp" in
+    ''|/) echo "refusing to derive the cut-only home from TMPDIR=$_cut_tmp: this step removes and recreates a leaf inside it. Point TMPDIR at a scratch directory."; exit 1 ;;
+    # A RELATIVE TMPDIR would make AGENT_WORKFORCE_HOME relative, which each gate
+    # subprocess then resolves against its OWN cwd; engine/accounts.js:99 already names
+    # that as a hazard, and store.dataRootFor throws on a non-absolute root part-way
+    # through the cut. Refuse it here, where the message can say why.
+    [!/]*) echo "refusing to derive the cut-only home from a RELATIVE TMPDIR=$_cut_tmp: the exported AGENT_WORKFORCE_HOME would resolve against each gate's own working directory. Point TMPDIR at an absolute scratch directory."; exit 1 ;;
+  esac
+  # 🔑 `-ef` (same file), NOT a string compare. `$HOME` has more than one spelling on
+  # macOS: the firmlink path /System/Volumes/Data/Users/<u> names the same directory as
+  # /Users/<u>, and a literal `case "$HOME"` pattern misses it. tools/lib/board-origin.sh
+  # hit exactly this and uses -ef for the same reason.
+  if [ -e "$_cut_tmp" ] && [ "$_cut_tmp" -ef "$HOME" ]; then
+    echo "refusing to derive the cut-only home from TMPDIR=$_cut_tmp: it is the operator's home directory, and this step removes and recreates a leaf inside it. Point TMPDIR at a scratch directory."; exit 1
+  fi
+  _cut_home="$_cut_tmp/kosmos-cut-home"
+  rm -rf "$_cut_home" && mkdir -p "$_cut_home" || { echo "could not create the cut-only home at $_cut_home"; exit 1; }
+  export AGENT_WORKFORCE_HOME="$_cut_home"
+  # ⚠️ THE EMITTED LINE IS THE ONE A PERSON READS, AND IT IS THE ONE THE FIRST ROUND OF
+  # CORRECTIONS MISSED. The comment fifty lines above was fixed to stop saying "the live
+  # fleet"; this string, which is what actually reaches the operator at cut time, still
+  # said it. Say what moves, and do not imply the roster is isolated: it is not.
+  echo "cut-only home: $AGENT_WORKFORCE_HOME (empty: the store, the accounts and the runner-binary lookup below read no operator state. The agent roster and the config-root scan are NOT isolated by this. KOSMOS_CUT_LIVE_HOME=1 opts out)"
+fi
 
 step "== 1. main, clean, and carrying what you mean to ship =="
 git -C "$REPO" fetch origin -q
@@ -491,6 +659,50 @@ release_freeze_notice "$SHA" "$BUILD"
 # load there is still inflated by this suite's own just-finished processes, so a
 # second wait would stall on the cut's own residual rather than external load.
 kosmos_gate_or_abort "the gated steps (the suite and the headless page layer)" || exit 1
+# #2760 P1: overlap the node suite (step 3) with the headless render checks (step
+# 3b) when the box has spare cycles, running the suite at LOW priority so the
+# render checks keep scheduling priority and their flake-rate stays near-serial.
+# The two steps are logically independent (the suite needs no browser; the render
+# checks need no suite) and both run on the already-frozen tree, so overlapping
+# them hides the ~277s suite inside the ~949s render window (the measured
+# bottleneck, #2760). DEFAULT SERIAL, OPT-IN via KOSMOS_CUT_PARALLEL=1: with the
+# flag unset -- the default, always, until the render flake-rate has been measured
+# under the overlap -- the cut takes the current serial path and this feature
+# changes NO real cut. The decision lives in tools/lib/cut-load-guard.sh
+# (kosmos_cut_parallel_ok) so it is unit-tested, and is read HERE, right after the
+# entry gate above waited for a quiet box, so the load it reads is of a known-quiet
+# box.
+# 🛑 BOTH GATES STILL RUN AND STILL ABORT ON RED IN BOTH MODES. Only the two RUN
+# commands move; the suite analysis (#2006) and the page analysis below are
+# unchanged and run in the same order (suite first, then page). In parallel mode
+# the #2006 isolation-rerun -- if the concurrently-run suite reds -- runs AFTER
+# both the foreground render and the backgrounded suite finish (a quiet box), so
+# its guarantee (contention makes false reds, never false greens) holds exactly as
+# in serial mode.
+# >>> #2760-P1 gated-steps region START (extracted verbatim by tools/test-cut-parallel-region.sh, which drives it under stubs to prove a red suite or red page still aborts in BOTH modes) >>>
+_cut_parallel=0
+if kosmos_cut_parallel_ok; then _cut_parallel=1; fi
+if [ "$_cut_parallel" = 1 ]; then
+  step "== 3+3b. the suite (nice, overlapped) and the page layer, headless (#2760 P1) =="
+  echo "   #2760 P1: KOSMOS_CUT_PARALLEL=1 and the box has spare cycles -- running the node suite at low priority (nice) CONCURRENTLY with the render checks, which keep scheduling priority. Both gates still run and still abort on red below."
+  _suite_log="$(mktemp)"
+  _suite_exit=0
+  _page_log="$(mktemp)"
+  _page_exit=0
+  # The node suite, backgrounded at the lowest user priority. A `( ... ) &` job
+  # never trips errexit; its exit is reaped by `wait` below. nice -n 19 means the
+  # foreground render checks always win the scheduler, so their timing -- and thus
+  # their flake-rate -- stays near-serial.
+  ( cd "$REPO" && nice -n 19 yarn test >"$_suite_log" 2>&1 ) &
+  _suite_bg_pid=$!
+  # The render checks, foreground at NORMAL priority: the SAME command, env
+  # exclusion (#2724) and strict version pin (#1708) as the serial step 3b below.
+  ( cd "$REPO" && env -u AGENT_WORKFORCE_HOME KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
+  # Reap the backgrounded suite; `|| _suite_exit=$?` captures its exit without
+  # tripping errexit, exactly as the serial `( ... ) || _suite_exit=$?` does.
+  wait "$_suite_bg_pid" || _suite_exit=$?
+fi
+if [ "$_cut_parallel" != 1 ]; then
 step "== 3. the whole suite, on the tree that ships =="
 # 🔑 WHY THE CUT RUNS THE WHOLE SUITE ON MAIN ITSELF, and does not trust the green
 # PR checks of what it bundles (kosmos#1934). A green PR check is a statement about
@@ -512,6 +724,7 @@ step "== 3. the whole suite, on the tree that ships =="
 _suite_log="$(mktemp)"
 _suite_exit=0
 ( cd "$REPO" && yarn test >"$_suite_log" 2>&1 ) || _suite_exit=$?
+fi
 grep -E '^ℹ (tests|pass|fail)' "$_suite_log" || true
 # 📌 AN AUDIT TRAIL, NOT A GUARD (Splinter, 2026-08-25 05:30; the guard reading
 # was withdrawn: this step cannot be skipped, it refuses a red on its own).
@@ -566,6 +779,7 @@ if [ "$_suite_exit" -ne 0 ]; then
 fi
 rm -f "$_suite_log"
 
+if [ "$_cut_parallel" != 1 ]; then
 step "== 3b. the page layer, headless (#39) =="
 # ⚠️ THE PAGE IS PART OF WHAT SHIPS, and `node --test` cannot see it: round
 # 16 of the project-chat review put 18 page mutations through the whole
@@ -585,11 +799,35 @@ _page_exit=0
 # drift -- and an unverifiable version, which is not verified-pinned -- into a
 # hard stop: the gate exits 2 and the red-gate check below fails the cut.
 # Recover by re-provisioning: bash tools/provision-pw.sh.
-( cd "$REPO" && KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
+# 🛑 STEP 3b DELIBERATELY DOES NOT INHERIT THE CUT HOME (#2724), and this line is the
+# exclusion. `env -u` drops it for this gate only, so the page layer runs exactly as it
+# did before that change.
+#
+# WHY, measured rather than assumed: `AGENT_WORKFORCE_HOME=` appears at exactly two
+# places in tools/browser-checks.sh (the sb4 board, and the #1573 site that runs twice),
+# so THREE boards set it and SIX do not. (An earlier version of this comment said "seven
+# of nine", which was a bad count off a sloppy parse; the direction of the argument is
+# unchanged, the number was simply wrong.) Those six resolve the operator's home, and on
+# this box an empty home takes `accounts.list()` from 5 to 0, `openaiaccounts.list()`
+# from 1 to 0, and `runners.resolveBin('claude').present` from true to FALSE, so the
+# product also stops believing the Claude CLI is installed. engine/create.js refuses a
+# Claude create outright when there is no default account.
+# That would change the behaviour of roughly 25 checks, and the page gate aborts the cut
+# on any red.
+#
+# ⚠️ SO THE CLASS THIS CARD IS ABOUT IS STILL OPEN HERE. It is excluded because it is
+# UNMEASURED, not because it is clean: the gate needs a real browser, which this change's
+# author could not run. Closing it means giving those boards their own sandbox home with
+# a seeded account, the same shape server.projects.test.js already uses, and then RUNNING
+# the page gate. Carded rather than done, and named here so the exclusion cannot be
+# mistaken for coverage.
+( cd "$REPO" && env -u AGENT_WORKFORCE_HOME KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh >"$_page_log" 2>&1 ) || _page_exit=$?
+fi
 grep -E '^PASS |^FAIL |^COULD NOT RUN|^‼️|retried:|all page' "$_page_log" || true
 if [ "$_page_exit" -eq 126 ] || [ "$_page_exit" -eq 127 ]; then echo "the page gate COULD NOT RUN (exit $_page_exit: bash, node or a program it needs is missing or not executable); this is not a red check. Full output: $_page_log"; exit 1; fi
 [ "$_page_exit" -eq 0 ] || { echo "the page checks are red (exit $_page_exit); full output: $_page_log"; exit 1; }
 rm -f "$_page_log"
+# <<< #2760-P1 gated-steps region END <<<
 
 step "== 3c. the installer .pkg, rebuilt and published only when its inputs changed (#555, #638 B) =="
 # 🛑 THE DOWNLOAD BUTTON SERVES THIS FILE AND NO RELEASE STEP EVER TOUCHED IT.
@@ -920,6 +1158,12 @@ if kosmos_versions_entry_pending_ok "$V" "$KOSMOS_ENTRY_FILE"; then
   # that justified #1463, and the same bucket #1455's effect would be read from. A fix
   # that corrupts the measurement of the thing it fixes is worse than no fix.
   _step_before_7a="$_STEP"
+  _step_start_before_7a="$_STEP_START"   # save the timing anchor (restored below)
+  # 7a is a SUB-step of step 7, so its time folds into step 7's single wall-time line. Clear
+  # the anchor here so the 7a `step` call below emits NO partial "step 7" duration; restoring
+  # it below then makes the post-7a `step` emit step 7's ONE full duration (start..next step),
+  # rather than the confusing partial-then-full double-line an un-cleared anchor would produce.
+  _STEP_START=""
   step "== 7a. stamp the pending release entry with the minute it goes out (#1455) =="
   # 🛑 THE TOOL COMES FROM THE FROZEN TREE, THE ENTRY FILE FROM THE MAIN CHECKOUT, AND
   # THAT SPLIT IS DELIBERATE. $REPO is $BUILD by now, so this runs the tool as it exists
@@ -954,8 +1198,10 @@ if kosmos_versions_entry_pending_ok "$V" "$KOSMOS_ENTRY_FILE"; then
     exit 1
   fi
   node "$REPO/tools/insert-release-entry.js" "$KOSMOS_ENTRY_FILE" --site "$SITE" || exit 1
-  # Back to step 7's label, so the gate below reports under the step it belongs to.
+  # Back to step 7's label AND its timing anchor, so the gate below reports under the step
+  # it belongs to and the next step's duration is step 7's, not 7a's.
   _STEP="$_step_before_7a"
+  _STEP_START="$_step_start_before_7a"
 fi
 
 kosmos_versions_entry_gate "$V" "$SITE/versions.html" "The build is done; only the deploy is unspent." \
@@ -1261,7 +1507,7 @@ if ! bash "$REPO/tools/kosmos-artifact-check.sh" --repo "$MAIN_REPO"; then
   exit 1
 fi
 
-step "== 10. the board on THIS Mac, if it runs from this repo =="
+step "== 10. the board on THIS Mac, if it runs from this repo or the libexec deploy (#1164) =="
 # 🛑 Installs update themselves from what step 9 verified; the developer's own
 # board runs the repo under launchd and never did, so every release left it
 # serving the previous code until somebody noticed (#360). Gated on the job
@@ -1275,6 +1521,42 @@ step "== 10. the board on THIS Mac, if it runs from this repo =="
 # (a genuinely stale board still reds, just later) while a slow-but-fine board no longer
 # false-reds. Costs nothing on a healthy cut (the check exits the instant the board flips),
 # and an operator env override still wins.
+#
+# 🔑 #1164: BEFORE the restart, if THIS Mac's board runs from the LIBEXEC DEPLOY
+# (shape (b) -- WD == install-board.sh's DEST), refresh that deployed copy from THIS
+# cut's tree, so the restart below brings the board back on the code this cut just
+# published rather than the previously deployed version. Three board shapes exist
+# across the fleet and this step must act on ONLY one of them:
+#   (a) repo working tree -- WD == the shared checkout. No deploy: the board already
+#       runs the tree; restart-local-board.sh restarts it (the #360 path). Untouched here.
+#   (b) libexec deploy    -- WD == the DEST below. THIS is the only case that deploys.
+#   (c) end-user bundle    -- runs `/bin/bash .../.local/share/kosmos/bin/kosmos start`;
+#       its launchd job has NO working-directory line, so WD parses EMPTY. Untouched.
+# 🛑 FAIL SAFE: we deploy ONLY when the live job's working directory is EXACTLY the
+# DEST -- any empty/foreign/unrecognised WD (which is what shape (c) and a bundle box
+# like a normal user's Mac present) is left completely alone. We NEVER repoint a
+# repo-tree or bundle board to libexec as a side effect of a cut; an (a)->(b) cutover
+# is a deliberate human step. The shape signal is read the SAME way
+# restart-local-board.sh reads it (launchctl print -> `working directory = `).
+# ⚠️ IF THE DEPLOY FAILS THE CUT REDS (set -e), on purpose: a failed deploy leaves DEST
+# stale, and the restart below verifies the board against DEST's OWN version -- so it
+# would pass a stale board green. Reding here is the only place a failed libexec deploy
+# is caught, exactly as step 11 reds a stale CLI it cannot refresh.
+# 🔑 SOURCE IS THE FROZEN TREE ($REPO == $BUILD here), not $MAIN_REPO: the shared
+# checkout can be fast-forwarded past this cut's sha mid-run (the freeze notice warns of
+# it), which would deploy a version OTHER than the one steps 8-9 just verified -- the
+# same reasoning step 11 uses to source the CLI from the frozen tree.
+_board_libexec="$(board_shape_libexec_default)"
+_board_info="$(launchctl print "gui/$(id -u)/com.kosmos.board" 2>/dev/null || true)"
+_board_wd="$(board_shape_working_dir "$_board_info")"
+# #2860: this cut acts on shape (b) ONLY. Pass an empty repo-tree arg so board_shape_of
+# can only return `libexec` (WD == the DEST) or `other` -- an (a) repo-tree board is left
+# for restart-local-board.sh, exactly as before. Same classifier restart uses.
+if [ "$(board_shape_of "$_board_wd" "" "$_board_libexec")" = libexec ]; then
+  step "== 10a. refresh the libexec-deployed board from this cut (#1164) =="
+  echo "   com.kosmos.board runs from the libexec deploy ($_board_libexec); refreshing it from the frozen tree before the restart"
+  bash "$REPO/deploy/install-board.sh" --refresh-only
+fi
 KOSMOS_BOARD_WAIT_SECS="${KOSMOS_BOARD_WAIT_SECS:-120}" bash "$MAIN_REPO/tools/restart-local-board.sh"
 
 step "== 11. the installed kosmos CLI on THIS Mac =="

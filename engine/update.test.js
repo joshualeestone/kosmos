@@ -17,6 +17,12 @@ const INSTALL_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-553-'));
 
 test.beforeEach(() => {
   update.resetCache(); update.setFetcher(null); update.setBase(null);
+  /* THIS FILE IS THE MAC CONTRACT, pinned to darwin so it asserts the same thing on every host.
+     Its stubs publish a bare `{version}` (the Mac pointer's shape); on a Windows host the board now
+     reads the Windows pointer and requires sha256 + versioned, so unpinned the file would be
+     measuring the Windows arm with Mac fixtures. The Windows arm has its own suite
+     (update.win32-check.test.js). */
+  update.setPlatform('darwin');
   // #1728: markInstallStarted now writes a durable marker to <root>/logs, and the
   // #553 tests share INSTALL_ROOT, so a marker or status file left by one test
   // would seed lastAttempt() in the next (defeating "nothing attempted yet").
@@ -27,7 +33,7 @@ test.beforeEach(() => {
 
 // #2036: the consume half. The update channel decides WHICH pointer is fetched, and the
 // default MUST stay prod (latest.json) so every existing install is byte-for-byte unchanged.
-// Red-capable both ways: if updatePointer() were pinned to latest.json the staging arm reds;
+// Red-capable both ways: if pointerFor() were pinned to latest.json the staging arm reds;
 // if pinned to latest-staging.json the default arm reds.
 test('#2036: update channel selects the pointer (default prod, staging opt-in, non-staging = prod)', async () => {
   let url = '';
@@ -482,4 +488,80 @@ test('#553: a failure the OLD server never lived to see is read back from logs/i
   assert.ok(got.endedAt);
   update.setInstalledRoot(null); update.resetCache();
   fs.rmSync(root, { recursive: true, force: true });
+});
+
+/* #2934: prodPublishesRunning() -- has prod published the build this box is RUNNING?
+   Colocated here, beside the module that owns the cache: the board's /api/status
+   integration arms live in server.sourcechannel-promote-2934.test.js, but the predicate's
+   own contract belongs with update.js.
+
+   The three-valued answer is the point. null is not "no", it is "this cache cannot speak
+   to the question", and the board treats it as "keep what you already believed". A false
+   would darken a STAGING badge; a null must never do that. */
+test('#2934 prodPublishesRunning: EQUALITY only, and every unknown is null rather than false', async () => {
+  const bump = (v, d) => { const p = String(v).split('.').map(Number); p[2] += d; return p.join('.'); };
+  // Guard the arithmetic rather than assume it: a version whose patch went negative is
+  // rejected by parts(), which would silently route these arms through the unknown rung.
+  const AHEAD = bump(RUNNING, 1);
+  assert.match(AHEAD, /^\d+\.\d+\.\d+$/, 'AHEAD must parse or the arm below tests the wrong rung');
+
+  /* 🛑 BOTH NAMES, EVERY TIME. darwin's updateChannel() reads AGENT_WORKFORCE_UPDATE_CHANNEL
+     and FALLS BACK to KOSMOS_UPDATE_CHANNEL, so clearing only the first leaves an operator's
+     ambient KOSMOS_UPDATE_CHANNEL=staging deciding the answer. Measured: under that env the
+     equality arm fails outright, and worse, the three arms expecting null then pass through
+     the WRONG rung (channel !== 'prod' rather than never-looked / unreachable / unreadable),
+     which is the silent rung-reroute this suite is built to prevent. */
+  const CHANNEL_ENV = ['AGENT_WORKFORCE_UPDATE_CHANNEL', 'KOSMOS_UPDATE_CHANNEL'];
+  const clearChannel = () => { for (const k of CHANNEL_ENV) delete process.env[k]; };
+  const look = async (version, { throws = false, channel } = {}) => {
+    clearChannel();
+    if (channel) process.env.AGENT_WORKFORCE_UPDATE_CHANNEL = channel;
+    update.resetCache();
+    update.setFetcher(async () => {
+      if (throws) throw new Error('offline');
+      return { ok: true, json: async () => ({ version }) };
+    });
+    await update.refresh().catch(() => { /* the miss stamp is written in refresh's finally */ });
+    clearChannel();
+  };
+
+  clearChannel();
+  update.resetCache();
+  assert.equal(update.prodPublishesRunning(), null, 'never looked -> null, not false');
+
+  await look(RUNNING);
+  assert.equal(update.prodPublishesRunning(), true, 'the prod pointer naming our exact version is the ONLY true');
+
+  /* false covers TWO different worlds and the predicate cannot tell them apart, which is
+     why it must not be read as "these bytes never shipped": (a) an ABANDONED pre-release
+     build while prod moved on, and (b) OUR bytes, promoted, since SUPERSEDED by a newer
+     prod release. (b) is the accepted window documented on prodPublishesRunning: a
+     correctly-promoted box reads staging again from the moment prod moves on until it takes
+     that update, which rewrites the stamp. If this arm ever returns true, equality has been
+     relaxed and the abandoned-build case is darkening wrongly again. */
+  await look(AHEAD);
+  assert.equal(update.prodPublishesRunning(), false,
+    'prod being NEWER is not evidence our bytes shipped (abandoned build, or ours since superseded)');
+
+  await look(null, { throws: true });
+  assert.equal(update.prodPublishesRunning(), null, 'unreachable -> null, never false');
+
+  await look('not-a-version');
+  assert.equal(update.prodPublishesRunning(), null, 'a pointer we could not read -> null');
+
+  await look(RUNNING, { channel: 'staging' });
+  assert.equal(update.prodPublishesRunning(), null,
+    'the cache holds a STAGING pointer version, which says nothing about what prod publishes');
+
+  /* A pointer published with stray whitespace. parts() TRIMS, so " 0.6.60" is a valid
+     version and readManifest's mac arm stores it verbatim -- meaning a raw === would answer
+     false here while available()/newer() call the same box up to date. Two answers to one
+     fact, inside the one module that exists to prevent that. */
+  await look(' ' + RUNNING + ' ');
+  assert.equal(update.prodPublishesRunning(), true,
+    'an untrimmed pointer version names the SAME build; comparing raw would disagree with newer()');
+  assert.equal(update.available(), null,
+    'control: newer() already trims, so it reports no update -- the two must not disagree');
+
+  update.resetCache();
 });

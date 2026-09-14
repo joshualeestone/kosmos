@@ -88,7 +88,7 @@ test('the projects rail forces list-row layout regardless of the panel\'s stored
      ⚠️ Limit, stated: an APPENDED declaration to the single copy still matches this
      prefix and leaves the count at 1, so it is invisible here; the effective()
      checks above are what catch a value change. Control for the count itself:
-     `#pj-composerhint { display: none; }` counts 1, so the number means something. */
+     a declaration written exactly once counts 1, so the number means something. */
   const RAIL_RULE = /html\[data-layout="consolidated"\] body\.consolidated #pj-list\.asgrid \{ display: flex; flex-direction: column;/g;
   assert.equal((PAGE.match(RAIL_RULE) || []).length, 1,
     'the #pj-list.asgrid rail rule (#1459) changed count: a 2 means the redundant copy was re-introduced (the defect returning); a 0 means the rule was deleted outright, and the behaviour assertions above would also red');

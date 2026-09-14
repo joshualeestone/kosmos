@@ -2,14 +2,16 @@
 // ===========================================================================
 // #1469 - a mechanical guard for the #1430 CSS brace-anchor loosening.
 //
-// #1430 unpinned 28 CSS assertions from their rule's CLOSING BRACE. An
+// #1430 unpinned 28 CSS assertions from their rule's CLOSING BRACE (one was
+// later removed with its rule by #2838, so 27 are tracked here now). An
 // assertion anchored on `; \}` fails the moment a legitimate declaration is
 // appended to that rule - which took main red at step 3 under #1310. The fix
 // was enforced only by prose; a comment cannot stop anyone re-adding a brace.
 // This test is the mechanical enforcement.
 //
 // WHAT A GREEN HERE MEANS (the narrow claim, per Angel on #1469):
-//   Each of the 28 specific assertions #1430 loosened still has its OPEN TAIL.
+//   Each of the 27 tracked assertions (one of #1430's original 28 was removed
+//   with its rule by #2838) still has its OPEN TAIL.
 //   None has been re-anchored to its closing brace, in ANY spelling:
 //     escaped  `padding-top: 0; \}`      unescaped `padding-top: 0; }`
 //     `; \s*\}`                            a wrap onto a second source line
@@ -17,7 +19,7 @@
 //   file and this guard goes RED, naming the file and the loosened form.
 //
 // WHAT THIS DOES NOT COVER (loud about the rest - a green is NOT "the class is
-// clean", only "these 28 are untouched"):
+// clean", only "these 27 are untouched"):
 //   - It does NOT detect a NEWLY-ADDED brittle assertion anywhere else.
 //   - It does NOT cover #1430's deferred surfaces (web.room-761,
 //     web.layout-picker, web.project-page, +10 by count) - never loosened.
@@ -78,10 +80,6 @@ const EXPECTED = {
     },
     {
       "pin": "assert.match(PAGE, new RegExp(cons + ' \\\\.pj-member \\\\.lav\\\\.pj-face \\\\{ width: 28px; height: 28px; flex: 0 0 28px; aspect-ratio: 1;'),",
-      "count": 1
-    },
-    {
-      "pin": "assert.match(PAGE, new RegExp(cons + ' \\\\.pjmidhead \\\\.pjhead \\\\.pj-desc \\\\{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;'),",
       "count": 1
     },
     {
@@ -190,10 +188,10 @@ const EXPECTED = {
 // A HARDCODED constant, deliberately NOT `Object.values(EXPECTED).reduce(...)`.
 // Its whole job is to catch a table that was emptied or gutted: with an empty
 // table the file loop never runs, sweptTotal is 0, and only a constant that
-// still says 28 turns that into a red. A derived sum would be 0 too and pass -
+// still says 27 turns that into a red. A derived sum would be 0 too and pass -
 // so deriving it (however tidy) would delete the "sweep read nothing" guard the
 // card requires. If you legitimately change the pin set, update this by hand.
-const EXPECTED_TOTAL = 28; // occurrences across all files (dups counted)
+const EXPECTED_TOTAL = 27; // occurrences across all files (dups counted)
 
 // Pure checker so a planting harness can run it against perturbed copies.
 // `expected`/`total` default to the module constants; the self-test overrides

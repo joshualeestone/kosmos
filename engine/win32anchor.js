@@ -29,6 +29,9 @@
  *         node.exe            a copy, so the task's interpreter is durable
  *         engine-path         a pointer to the CURRENT app engine directory
  *         supervisor-boot.js  a durable shim: read the pointer, run the supervisor
+ *         node.exe.staged-* / node.exe.retired-*
+ *                             transient, only while a new Node version replaces
+ *                             a running one (see win32swap.js replaceInterpreter)
  *
  * 🔑 ONE POINTER FILE, EVERY TASK, and that is the property that makes this scale.
  * The pointer is shared, so refreshing it ONCE moves every registered agent onto
@@ -52,6 +55,13 @@ const os = require('node:os');
 const path = require('node:path');
 
 const store = require('./store');
+const worlds = require('./worlds');
+const launchidentity = require('./launchidentity');
+/* The rename-swap primitives live in ONE place, shared with the Windows updater,
+   so the two cannot drift apart. The side-file infixes and the sweep margin are
+   re-exported below, so this module's surface is unchanged. */
+const win32swap = require('./win32swap');
+const { STAGED_INFIX, RETIRED_INFIX, RETIRED_SWEEP_MIN_AGE_MS } = win32swap;
 
 /**
  * 🛑 ONE SOURCE FOR THE APP DIRECTORY NAME, NEVER A SECOND COPY -- the lesson
@@ -78,6 +88,32 @@ const APP = store.APP || 'AgentWorkforce';
 const NODE_NAME = 'node.exe';
 const POINTER_NAME = 'engine-path';
 const BOOT_NAME = 'supervisor-boot.js';
+/* The Windows updater's two records (engine/win32apply.js), kept beside the pointer they
+   change. Here, with the other anchor names, so the updater that writes them and the board's
+   logon shim that reads the journal (win32board.BOOT_JS) spell them one way. */
+const UPDATE_JOURNAL_NAME = 'update-journal.json';
+const UPDATE_STATUS_NAME = 'update-status.json';
+/* The updater's working folder inside the Kosmos folder (engine/win32update.js WORK), named here so
+   the updater and the two places that must never treat a build inside it as the install
+   (win32board.bundleRoot, ensureAnchored below) spell it one way. */
+const UPDATE_WORK_DIRNAME = '.kosmos-update';
+
+/**
+ * Is this bundle root inside the updater's working folder (`<ROOT>\.kosmos-update\previous-<from>`,
+ * or `staged`)? A board started from there (the logon shim's fallback while a rollback is stuck) is a
+ * build the updater is holding, never the install: re-registering the logon task or pointing
+ * `engine-path` at it would move the whole fleet into WORK, where the next rollback or cleanup moves
+ * or deletes it. `p` is the path module for the platform asked about.
+ */
+function bundleIsInUpdateWork(root, p) {
+  const paths = p || path;
+  /* The real spelling first: an 8.3 short name (`KOSMOS~1\PREVIO~1.60`) or a junction hides the
+     folder's name, and realpathSync.native expands both (plain realpathSync keeps the short form,
+     measured). A path that does not exist on this host falls back to its spelling. */
+  let full;
+  try { full = fs.realpathSync.native(String(root)); } catch { full = paths.resolve(String(root)); }
+  return paths.basename(paths.dirname(full)).toLowerCase() === UPDATE_WORK_DIRNAME;
+}
 
 /**
  * Where the anchor lives.
@@ -91,7 +127,13 @@ const BOOT_NAME = 'supervisor-boot.js';
  * branch would otherwise go unexercised.
  */
 function anchorDir(platform, home, env) {
-  const e = env || {};
+  /* 🛑 #1704: ONE ANCHOR FOR EVERY WORLD. A board serving a named Kosmos has that
+     world's AGENT_WORKFORCE_DATA in its environment, and honouring it here would
+     put a second 92 MB interpreter and a second engine pointer under the world,
+     which the next update would not refresh. preWorldEnv takes a WORLD override
+     back out (it carries the marker) and leaves a sandbox's own root alone (it
+     does not), so tests still isolate this exactly as before. */
+  const e = worlds.preWorldEnv(env || {});
   const p = platform === 'win32' ? path.win32 : path.posix;
   let base;
   if (e.AGENT_WORKFORCE_DATA) {
@@ -146,9 +188,42 @@ const BOOT_JS = [
   "  process.stderr.write('kosmos: the app this agent was registered against is gone (' + entry + ')\\n');",
   '  process.exit(3);',
   '}',
-  'require(entry).main(process.argv.slice(2));',
+  '/* #1704: the agent\'s Kosmos rides on the task line (win32argv, field 7). Its',
+  '   roots must be in the environment BEFORE the supervisor loads anything that',
+  '   freezes the store root, or it would read the default world\'s store. A',
+  '   default-world task on an engine too old to know about worlds is left alone;',
+  '   a NAMED-world one refuses, because that engine would run it silently in the',
+  '   default world. (Field 7 is checked by hand only for that case: without',
+  '   win32argv.js there is no parser to ask.) */',
+  'const args = process.argv.slice(2);',
+  "const argvAt = path.join(engine, 'win32argv.js');",
+  "const worldsAt = path.join(engine, 'worlds.js');",
+  "const namedWorld = typeof args[6] === 'string' && args[6] !== '' && args[6] !== '-';",
+  'if (namedWorld && !(fs.existsSync(argvAt) && fs.existsSync(worldsAt))) {',
+  "  process.stderr.write('kosmos: this agent belongs to Kosmos ' + JSON.stringify(args[6]) + ', and the app it points at is too old to run it there (' + engine + ')\\n');",
+  '  process.exit(3);',
+  '}',
+  'if (namedWorld) {',
+  '  const world = require(argvAt).specFromArgv(args).world;',
+  '  process.env[' + JSON.stringify(launchidentity.WORLD_ENV_VAR) + '] = world;',
+  '  try { require(worldsAt).applyAgentWorldEnv(process.env); }',
+  "  catch (e) { process.stderr.write('kosmos: this agent could not enter its Kosmos ' + JSON.stringify(world) + ' (' + ((e && e.message) || e) + ')\\n'); process.exit(3); }",
+  '}',
+  'require(entry).main(args);',
   '',
 ].join('\n');
+
+/**
+ * The anchor's rule for "would copying `srcNode` over `nodeAt` change the interpreter": the sizes
+ * differ, or either file cannot be read. Size alone, for the reason ensureAnchored gives (a
+ * released node.exe changes size between versions, and hashing 92 MB on every agent create is not
+ * worth it). engine/win32update.js's runtimeChanged starts from this same rule and adds a sha-256
+ * only for the equal-size case, so the two can disagree only in the direction of the updater
+ * swapping in an interpreter the anchor would have kept.
+ */
+function interpreterSizeDiffers(srcNode, nodeAt) {
+  try { return fs.statSync(nodeAt).size !== fs.statSync(srcNode).size; } catch { return true; }
+}
 
 /**
  * Put the anchor in place, and answer with the paths a task should be built from.
@@ -163,6 +238,11 @@ function ensureAnchored(opts) {
   const env = o.env || process.env;
   const srcNode = o.node || process.execPath;
   const engineDir = o.engineDir || __dirname;
+  /* The clock side files are stamped and aged by. `o.now` is injectable so a
+     test can age them without sleeping: it sets where the clock starts, and it
+     still advances in real time from there. */
+  const startedAt = Date.now();
+  const clock = () => (typeof o.now === 'number' ? o.now : startedAt) + (Date.now() - startedAt);
 
   let dir;
   try {
@@ -175,6 +255,21 @@ function ensureAnchored(opts) {
   const pointerAt = path.join(dir, POINTER_NAME);
   const bootAt = path.join(dir, BOOT_NAME);
 
+  /* 🛑 NEVER ANCHOR THE FLEET INTO THE UPDATER'S FOLDER (bundleIsInUpdateWork). A board or agent
+     install running from `.kosmos-update\previous-<from>` leaves the interpreter, the pointer and the
+     shim exactly as they are: the task it registers still runs the anchored node and shim, and the
+     pointer stays where the update's recovery put it. */
+  if (bundleIsInUpdateWork(path.resolve(String(engineDir), '..', '..'))) {
+    /* Left untouched only while the pointer still names an app a registered task can start. */
+    let current = '';
+    try { current = String(fs.readFileSync(pointerAt, 'utf8')).trim(); } catch { current = ''; }
+    if (!current || !fs.existsSync(path.join(current, '..', 'server.js'))) {
+      return { ok: false, because: `this app runs from inside the updater's folder (${engineDir}), and the engine pointer names no app (${current || 'none'}), so a job registered now could not start. Try again once Kosmos has put its update back` };
+    }
+    return { ok: true, node: nodeAt, boot: bootAt, dir, pointer: pointerAt,
+      untouched: `this app runs from inside the updater's folder (${engineDir}), so the startup files were left as they are` };
+  }
+
   try {
     fs.mkdirSync(dir, { recursive: true });
 
@@ -183,8 +278,9 @@ function ensureAnchored(opts) {
        broken. Size is the cheap discriminator and it is sufficient here: the
        source is a released node.exe, so a version change moves the size. An equal
        size over a corrupt copy is a case this does not detect, and the remedy is
-       deleting the anchor -- noted rather than defended against by hashing 92 MB
-       on every create.
+       deleting the anchored node.exe once the fleet is stopped (Windows refuses
+       while it runs) -- noted rather than defended against by hashing 92 MB on
+       every create.
 
        ⚠️ AND NEVER WHEN THE SOURCE IS ALREADY THE ANCHOR. A supervisor started by
        the task runs the anchored node, so `process.execPath` IS `nodeAt` --
@@ -192,15 +288,20 @@ function ensureAnchored(opts) {
        interpreter from inside the process running on it. Compared
        case-insensitively because Windows paths are. */
     if (path.resolve(srcNode).toLowerCase() !== path.resolve(nodeAt).toLowerCase()) {
-      let need = true;
-      try { need = fs.statSync(nodeAt).size !== fs.statSync(srcNode).size; } catch { need = true; }
-      if (need) fs.copyFileSync(srcNode, nodeAt);
+      if (interpreterSizeDiffers(srcNode, nodeAt)) win32swap.replaceInterpreter(srcNode, nodeAt, clock);
     }
+    win32swap.retireLeftoverInterpreters(nodeAt, clock);
 
     /* The pointer and the shim are small and rewritten unconditionally: this is
-       how an app that moved takes effect, and it is the cheap half. */
-    fs.writeFileSync(pointerAt, String(engineDir), 'utf8');
-    fs.writeFileSync(bootAt, BOOT_JS, 'utf8');
+       how an app that moved takes effect, and it is the cheap half.
+       🛑 THE POINTER IS REPLACED ATOMICALLY. Every boot shim reads it at logon,
+       and a plain write truncates it first: a crash in between left it empty,
+       and the board and every agent then exited 3 at the next logon. A reader
+       now sees the old engine or the new one, complete. */
+    win32swap.writeFileAtomic(pointerAt, String(engineDir));
+    /* The shim too: every agent's task runs it at logon, and a torn one is a
+       syntax error there, which stops every agent exactly as a torn pointer does. */
+    win32swap.writeFileAtomic(bootAt, BOOT_JS);
   } catch (e) {
     return { ok: false, because: 'we could not set up the files an agent needs to start at login (' + (e && e.message) + ')' };
   }
@@ -218,6 +319,7 @@ function readPointer(platform, home, env) {
 }
 
 module.exports = {
-  APP, NODE_NAME, POINTER_NAME, BOOT_NAME, BOOT_JS,
-  anchorDir, ensureAnchored, readPointer,
+  APP, NODE_NAME, POINTER_NAME, BOOT_NAME, BOOT_JS, STAGED_INFIX, RETIRED_INFIX,
+  RETIRED_SWEEP_MIN_AGE_MS, UPDATE_JOURNAL_NAME, UPDATE_STATUS_NAME, UPDATE_WORK_DIRNAME, bundleIsInUpdateWork,
+  anchorDir, ensureAnchored, readPointer, interpreterSizeDiffers,
 };

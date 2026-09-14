@@ -24,9 +24,10 @@
  * ⚠️ THREE TRAPS, ALL OF WHICH PRODUCED CLEAN, PLAUSIBLE, UNIFORM WRONG ANSWERS
  * while this was being investigated, two of them by the people investigating it:
  *
- *   1. The pane's direct child is the `bun` discord plugin, NOT `claude`. Reading
- *      it gives `<no --model flag>` for every agent, which looks like a finding.
- *      The claude process is a descendant, so the pid tree has to be walked.
+ *   1. The pane's direct child is the `bun` discord plugin, NOT the agent.
+ *      Reading it gives `<no --model flag>` for every agent, which looks like a
+ *      finding. The agent process (claude, or codex since #2811) is a
+ *      descendant, so the pid tree has to be walked.
  *   2. There are TWO `.claude.json` files. The default account's record sits
  *      BESIDE the config dir at `~/.claude.json` (132KB, written continuously);
  *      `~/.claude/.claude.json` is 624 bytes, carries no `oauthAccount`, and had
@@ -60,12 +61,13 @@
  *
  * 🔑 AND IT SKIPS TRAP 1 ENTIRELY. There is no pid tree to walk here: the pid in
  * `claude agents --json` IS the Claude process, not a shell whose grandchild is
- * Claude. `claudeUnder` is darwin's answer to a tmux pane's first child being the
+ * Claude. `agentUnder` is darwin's answer to a tmux pane's first child being the
  * bun plugin, and it has no win32 counterpart because the problem does not exist.
  *
  * 🛑 THE ACCOUNT IS NOT KNOWABLE LIVE ON WINDOWS, AND THIS ARM SAYS SO RATHER
- * THAN GUESSING. On a Mac the account is `CLAUDE_CONFIG_DIR` in the process
- * ENVIRONMENT (trap 3), read with `ps -Eww`. Windows has no supported way for an
+ * THAN GUESSING. On a Mac the account is an environment variable on the process
+ * (trap 3), read with `ps -Eww`: `CLAUDE_CONFIG_DIR` for a claude agent and
+ * `CODEX_HOME` for a codex one since #2811. Windows has no supported way for an
  * ordinary process to read another process's environment -- Win32_Process
  * exposes CommandLine and not the environment block -- so the variable is
  * invisible here. ⚠️ AND ITS ABSENCE IS NOT EVIDENCE. Darwin may fall back to
@@ -158,27 +160,94 @@ function defaultEnvOf(pid, deadline) {
  * process whose parent has already exited and been recycled, and a naive walk on
  * that loops forever.
  */
-function claudeUnder(panePid, procs) {
+/* The two runner executables, and the one place their names are written.
+
+   🛑 NOT `status.isCodexCommand`, AND THE REASON MATTERS. That helper is
+   `c === 'codex' || c === 'codex.exe'`, which is right for a tmux PANE command
+   (a bare name) and returns FALSE for a process PATH like
+   `/opt/homebrew/bin/codex`, which is what `ps` gives this function. Reusing it
+   here would have compiled, read as correct, and never matched: an inert fix.
+   Measured both shapes before deciding.
+
+   📌 NO `.exe` ARM, deliberately, though an earlier draft of this carried one
+   "so the posix and win32 arms recognise the same two names". They do not share
+   this function: `agentUnder` is called only from `runningAsDarwin`, and the
+   header above says why it has no win32 counterpart. The clause could not
+   execute and no test could see it. */
+function runnerNamed(token) {
+  const t = String(token == null ? '' : token);
+  for (const name of ['claude', 'codex']) {
+    if (t === name || t.endsWith('/' + name)) return name;
+  }
+  return null;
+}
+
+function agentUnder(panePid, procs) {
   const kids = new Map();
   for (const [pid, { ppid }] of procs) {
     if (!kids.has(ppid)) kids.set(ppid, []);
     kids.get(ppid).push(pid);
   }
-  const queue = [panePid];
+  /* 🛑 A LEVEL AT A TIME, AND CLAUDE WINS A TIE. Widening this matcher created a
+     risk that could not exist while only `claude` matched: two agent-shaped
+     processes in one pane's tree, where whichever the walk happened to reach
+     first decided the answer. Getting that wrong is the CARD'S OWN DEFECT
+     INVERTED and strictly worse than the bug being fixed: a Claude agent would
+     be told it is a Codex agent, its account read from `CODEX_HOME`, and its
+     recorded model suppressed as foreign.
+     ⇒ Depth still decides first, which is what makes the launcher case work. The
+     tie is the only ambiguous case, and it resolves to `claude` because that is
+     exactly the answer this function gave before codex was added.
+     🛑 THAT LAST PROPERTY HOLDS FOR THE TIE ONLY, and an earlier version of this
+     comment claimed it for the whole widening: "cannot turn one answer into
+     another". Measurably false, and contradicted by a test in this repo. A
+     shallower codex above a deeper claude used to resolve to the claude (it was
+     the only thing that matched) and now resolves to the codex, which is the
+     intended answer and is asserted by `DEPTH still decides before the runner
+     preference`. So the widening CAN change one answer into another, by depth;
+     what it cannot do is change the answer at a same-depth tie. */
+  let level = [panePid];
   const seen = new Set();
-  while (queue.length) {
-    const pid = queue.shift();
-    if (seen.has(pid)) continue;
-    seen.add(pid);
-    const rec = procs.get(pid);
-    if (rec) {
-      const first = String(rec.command).trim().split(/\s+/)[0] || '';
-      /* Matched on the executable PATH ending in /claude, not on the string
-         "claude" appearing anywhere: a pane running `grep claude` is not an
-         agent, and neither is this module's own command line. */
-      if (first.endsWith('/claude') || first === 'claude') return pid;
+  while (level.length) {
+    const next = [];
+    let fallback = null;
+    for (const pid of level) {
+      if (seen.has(pid)) continue;
+      seen.add(pid);
+      const rec = procs.get(pid);
+      if (rec) {
+        const first = String(rec.command).trim().split(/\s+/)[0] || '';
+        /* Matched on the executable PATH ending in /claude or /codex, not on the
+           string appearing anywhere: a pane running `grep claude` is not an agent,
+           and neither is this module's own command line.
+
+           📌 A NODE-FRONTING INSTALL NEEDS NOTHING EXTRA HERE, and this is worth
+           recording because the opposite is very easy to believe. `claude` on a
+           native install is a Mach-O binary, but `/opt/homebrew/bin/codex` (the
+           npm/homebrew launcher this repo's `runners.js` still supports) is a
+           `#!/usr/bin/env node` script, so `ps` shows it as
+           `node /opt/homebrew/bin/codex` and the first token is the INTERPRETER.
+           An earlier draft therefore taught this function to hop from an
+           interpreter to its script argument.
+
+           🛑 THAT WAS UNNECESSARY, MEASURED. The launcher does not become the
+           agent: it `spawn`s the native binary as a CHILD, and this is a BREADTH
+           walk over the whole subtree, so the child is reached by the plain rule.
+           Sampled during a real run:
+               node /opt/homebrew/bin/codex --help                  <- launcher
+               .../vendor/aarch64-apple-darwin/bin/codex --help     <- the agent
+           ⇒ Widening the matcher to accept `node` would have bought nothing and
+           cost the thing this rule exists for, since a pane can hold an unrelated
+           node process. The refusal during the launcher's first few milliseconds,
+           before its child exists, is honest. */
+        const runner = runnerNamed(first);
+        if (runner === 'claude') return { pid, runner };
+        if (runner != null && fallback == null) fallback = { pid, runner };
+      }
+      for (const k of kids.get(pid) || []) next.push(k);
     }
-    for (const k of kids.get(pid) || []) queue.push(k);
+    if (fallback != null) return fallback;
+    level = next;
   }
   return null;
 }
@@ -250,8 +319,30 @@ function parseCmdlines(out) {
 }
 
 /** `--model` off a command line, the one field win32 CAN read live. */
+/* 🛑 BOTH SPELLINGS, BECAUSE THE PRODUCT WRITES BOTH AND THEY SPLIT BY RUNNER.
+   `bin/agent-supervisor.sh` launches codex with `-m "$MODEL"` and claude with
+   `--model "$MODEL"`, while `engine/win32launch.js` pushes `--model` for BOTH.
+   A `--model`-only match is therefore correct on win32 and blind on darwin for
+   the one runner darwin can now report, so this read could never see a Codex
+   agent's model on the only arm that resolves one.
+   ⚠️ It is latent rather than live today: `setModel` refuses a codex agent, so
+   `$MODEL` is empty and the supervisor takes its no-flag branch. It goes live the
+   moment OpenAI model rows exist, which is exactly when nobody will be looking
+   here. Caught by a reviewer who read the supervisor instead of my fixture: every
+   codex arm I had written used `--model`, a shape the darwin product never
+   produces, so the assertion "the model came from the codex command line" was
+   testing an impossible input.
+   The token must stand alone (anchored on start-or-space, and a value must
+   follow), so this does not match an `-m` buried in a path or another word.
+   📌 RESIDUAL, STATED: a standalone `-m` INSIDE a quoted argument value would
+   still match, because this reads a flat command string and has no quoting
+   model. Sampled against this machine's live process table: 21 command lines
+   carried a standalone `-m` and NONE had a claude or codex first token (they
+   are mdworker_shared and python). A live sample, so the count moves; the
+   zero is the part that matters, and no product launch path produces the
+   shape. It is the price of the widened token, not an oversight. */
 function modelIn(cmd) {
-  const m = String(cmd == null ? '' : cmd).match(/--model[= ](\S+)/);
+  const m = String(cmd == null ? '' : cmd).match(/(?:^|\s)(?:--model|-m)[= ](\S+)/);
   return m ? m[1] : null;
 }
 
@@ -282,12 +373,22 @@ function win32Answer(entry, cmds) {
     organization: null,
     model: modelIn(cmd),
     configDir: null,
-    /* ⚠️ `because` ON A SUCCESSFUL READ, which the darwin arm never does. `ok`
-       means the look happened; the sentence names the HALF of the question this
-       platform cannot answer, so a caller rendering it says something true
-       instead of inventing a reason. Nothing renders `because` when `ok` is true
-       today (server.js reads only ok/account/configDir/model), so this is
-       additive rather than a contract change for the existing reader. */
+    /* ⚠️ `because` ON A SUCCESSFUL READ. `ok` means the look happened; the
+       sentence names the HALF of the question this platform cannot answer, so a
+       caller rendering it says something true instead of inventing a reason.
+       📌 TWO CLAUSES OF THIS COMMENT WERE KILLED BY #2811 and are corrected here
+       rather than left: it used to say this shape is one "which the darwin arm
+       never does", and that `server.js` "reads only ok/account/configDir/model".
+       The darwin arm now returns a `because` ON A SUCCESSFUL READ for a codex
+       agent too (see the end of `runningAsDarwin`, which cites this block as its
+       precedent), and `server.js` also reads `runner` off the live answer.
+       ⚠️ THE SAME PATTERN, NOT THE SAME SHAPE. The two answers differ: darwin
+       carries `runner` and a real `configDir`, this arm carries neither. Said
+       exactly, because an earlier version of this sentence claimed "exactly this
+       shape" while the docstring above denied shape equality, so one file
+       asserted both.
+       Nothing renders `because` when `ok` is true today, so it remains additive
+       rather than a contract change for the existing reader. */
     because: WIN32_NO_ACCOUNT,
   };
 }
@@ -310,6 +411,77 @@ function runningAsWin32(session, deps = {}) {
   /* Not "there is no such agent": an unrecorded session (the operator's own) is
      deliberately invisible to the join, so "not one of ours that we can see" is
      the honest scope of this refusal. */
+  /* 🛑 KNOWN GAP, NAMED RATHER THAN LEFT TO BE REDISCOVERED: on win32 a live
+     Codex agent lands HERE, and this sentence is false about it. The ownership
+     join behind `entry` is `win32live.byName()`, whose only source is
+     `claude agents --json` -- it has no codex arm at all. Windows does run codex
+     agents (`win32launch.js` picks the bare command per runner, `win32create.js`
+     records which), so Kosmos owns a session it then says it does not own.
+     ⇒ NOT fixed on this branch, and the reason is that it is a different defect
+     with a different fix: the darwin arm reads a PROCESS TREE and needed a wider
+     match, while this arm needs a SECOND ENUMERATION SOURCE for codex sessions.
+     That source is a real piece of work (something must enumerate codex sessions
+     the way `claude agents --json` enumerates claude ones); it is not blocked on
+     being unable to test win32, which this repo does routinely through injected
+     deps.
+     📌 WINDOWS DOES NAME THE PROVIDER, THROUGH THE PROFILE, and this note has
+     been wrong FIVE TIMES about which rung does it. Recorded in full because the
+     wrong versions were each plausible and a reader who sees only this one cannot
+     tell which stones were already turned over. (Rungs are named, not numbered:
+     the numbering below moved once, and a history written in stale numbers is a
+     sixth wrong version waiting to happen.)
+       v1 "whoami reports null for it on Windows"   - true of the JSON field,
+          read as true of the answer.
+       v2 "the sentence names it off the @kosmos_runner marker" - measured on a
+          card shape Windows cannot produce (no tmux).
+       v3 "every rung floors at claude"             - retired the MARKER and
+          ASSUMED the rest followed.
+       v4 "the profile fires, the marker does not"  - verified the profile,
+          ASSUMED the marker still did not, having only checked that tmux is
+          absent.
+       v5 "the MARKER fires too, via the roster"    - measured the roster's runner
+          COLUMN and claimed what happens to a Windows codex AGENT, on a fixture
+          that lists a codex session in `claude agents --json`.
+     ⭐ FIVE TIMES, ONE PATTERN: each version verified the rung it had just been
+     shown and inferred the rest. The fix is not a sixth sentence. Both halves are
+     now ASSERTIONS: the profile rung by a test in `server.test.js`, and the
+     roster's non-firing by `#2811` in `engine/win32roster.test.js`, whose control
+     emits the row once the LIVE LIST names the session.
+     Traced rung by rung, in `resolvedRunner`'s own order. EXACTLY ONE fires for a
+     Codex agent on Windows:
+       rung 1  `seen.runner` (the live read) -> no. `win32Answer` carries no
+               `runner` key at all.
+       rung 2  `card.runner` (the marker) -> NO, and this is where v5 was wrong.
+               The win32 pane source IS installed (`server.js` does
+               `status.setPaneSource(win32roster.make())` under
+               `process.platform === 'win32'`) and its row DOES carry a `runner`
+               column, but `make()` iterates ONLY over `claude agents --json`
+               (`const agents = run(); for (const a of agents)`), and that command
+               has no codex arm, as this file says forty lines above. A recorded
+               codex session it does not list produces NO ROW, so no pane and no
+               `card.runner`.
+       rung 3  `create.recordedRunner`, which is itself two reads:
+                 a) `readJob` -> `~/Library/LaunchAgents` -> null; launchd is macOS
+                 b) `store.readProfile(name).provider` -> FIRES. Measured with no
+                    plist, which IS the Windows state:
+                      profile.provider = openai   ->  recordedRunner "codex"
+                      control, none written       ->  "claude"
+     ⇒ The PROFILE is the sole rung on Windows. The conclusion is unchanged (a
+     Windows OpenAI agent IS told it is a Codex agent) which is exactly why v5 was
+     invisible: a wrong sentence that SUPPORTS the right conclusion reads as
+     confirmation. v5's evidence was `win32roster.test.js`, whose fixture puts a
+     codex session INSIDE the claude agents list, a state the platform cannot
+     produce.
+     ⇒ Rung 3 is a plain JSON read with NO platform dependency, and the provider
+     reaching it is written by SHARED code: `create.js`'s `createAgentInner` (the
+     win32 create path calls it) and `engine/discover.js` on connect, which
+     contains zero occurrences of win32/darwin/process.platform. So a Windows
+     OpenAI agent whose profile was written IS told it is a Codex agent; only the
+     live-process `runner` field is null there.
+     ⚠️ "win32create.js writes no provider" is true and IRRELEVANT: that file is
+     session-id pinning CALLED FROM `create.js`, not the win32 substitute for it.
+     Checking it and concluding about the platform is exactly the error a reviewer
+     had NAMED as their own weakest premise two rounds earlier. */
   if (!entry) return { ok: false, because: `no session called ${session} that Kosmos owns on this computer` };
   return win32Answer(entry, cmdlines([entry.pid]));
 }
@@ -347,14 +519,59 @@ function armFor(deps) {
 /**
  * What one agent is running on.
  *
- * Returns `{ ok, account, organization, model, configDir, because }`. On any
+ * Returns `{ ok, account, organization, model, configDir, because }`, plus
+ * `runner` ON A SUCCESSFUL DARWIN READ ONLY (#2811: which agent runtime the live
+ * process actually is, so a caller never has to infer the provider from a
+ * directory name). Everywhere else the key is ABSENT, not null: a refusal has no
+ * process to name, and the win32 arm DOES NOT DERIVE A RUNNER AT ALL.
+ *
+ * 🛑 THAT IS A GAP, NOT AN ABSENCE OF EVIDENCE, and an earlier version of this
+ * paragraph said the arm "has no codex source, so it has nothing to report".
+ * False: `win32Answer` holds the agent's full command line and already parses it,
+ * so it will read a model straight out of a CODEX command line and still report
+ * no runner. Measured:
+ *     cmdline `C:\Users\x\codex.exe --model gpt-5.6`
+ *       -> model "gpt-5.6", and no `runner` key
+ *     ⚠️ THAT MEASUREMENT INJECTS A CODEX COMMAND LINE PAST THE OWNERSHIP JOIN,
+ *     which the note below explains a real codex agent never gets past. It is
+ *     cited only to show the command line is in hand, and is not a reachable
+ *     product state.
+ * ⇒ The material is present and the derivation was never built. `runnerNamed` is
+ * darwin-only on purpose (it matches a POSIX executable path and carries no
+ * `.exe` arm), so win32 would need its own first-token match.
+ *
+ * 📌 AND BUILDING IT HERE WOULD BE DEAD CODE TODAY, which is the real reason it
+ * is absent and not the one first written here ("nobody can run it" is wrong:
+ * this repo builds and tests the whole win32 arm through injected deps on Macs).
+ * A codex agent never REACHES `win32Answer`. The ownership join upstream,
+ * `win32live.byName()`, enumerates `claude agents --json` and contains no codex
+ * source at all, so a codex agent fails the `!entry` check above and is refused
+ * with "no session called ... that Kosmos owns on this computer". The measurement
+ * above reaches this arm only by injecting a codex command line past that join.
+ * ⇒ The win32 gap is ONE gap and it is upstream: teach the ownership join about
+ * codex, and a runner derivation here becomes both reachable and worth writing.
+ * Named so the next reader sees the order of the work rather than a platform
+ * limit: a Codex agent on win32 is still invisible to this reader, which is this
+ * card's own bug on the other platform.
+ *
+ * 📌 EVERY PATH DRIVEN, NOT GENERALISED. An earlier version of this paragraph was
+ * right about the arms and wrong about refusals, and the one before it was wrong
+ * about win32 entirely. `engine/runningas.test.js` ("the ANSWER SHAPE is pinned
+ * per path") ASSERTS this matrix, so it is a checked contract and not a claim:
+ *     darwin ok:true    -> account,because,configDir,model,ok,organization,runner
+ *     darwin ok:false   -> no `runner` key
+ *     win32  every path -> no `runner` key
+ * `server.js` reads it as `live.ok === true && live.runner`, so an absent key on
+ * a refusal is exactly what the one consumer expects.
+ * On any
  * failure `ok` is false and `because` is a sentence, because "we could not tell"
  * and "it is running on nothing" are different answers and only one of them is
  * ever true.
  *
- * 🪟 On win32 this dispatches to a different reader (see the header): the same
- * answer shape, read through `win32live`'s ownership join instead of tmux, with
- * `account`/`configDir` honestly null and `because` saying why.
+ * 🪟 On win32 this dispatches to a different reader (see the header), read
+ * through `win32live`'s ownership join instead of tmux, with `account` and
+ * `configDir` honestly null and `because` saying why. NOT the same answer shape:
+ * it carries no `runner` key at all, per the list above.
  */
 function runningAs(session, deps = {}) {
   if (armFor(deps) === 'win32') return runningAsWin32(session, deps);
@@ -376,20 +593,53 @@ function runningAsDarwin(session, deps = {}) {
   if (panePid == null) {
     return { ok: false, because: `no pane called ${session} on this computer` };
   }
-  const pid = claudeUnder(panePid, procs);
-  if (pid == null) {
+  const found = agentUnder(panePid, procs);
+  if (found == null) {
     /* ⚠️ NOT "it has no account". The pane exists and nothing is running in it we
-       recognise, which is a different fact from an unreadable account. */
-    return { ok: false, because: `nothing that looks like Claude Code is running under ${session}` };
+       recognise, which is a different fact from an unreadable account.
+       #2811: says "Claude Code or Codex" now, because saying only Claude about a
+       running codex agent was the lie this card was filed for. */
+    return { ok: false, because: `nothing that looks like Claude Code or Codex is running under ${session}` };
   }
+  const { pid, runner } = found;
 
   const cmd = String((procs.get(pid) || {}).command || '');
-  const modelMatch = cmd.match(/--model[= ](\S+)/);
+  /* 🛑 `modelIn`, NOT A SECOND COPY OF ITS REGEX, and this arm carried one. The
+     duplicate here read `--model` only, so widening the helper for the codex `-m`
+     spelling fixed the win32 arm and left THIS one, the only arm that can report
+     a codex agent at all, still blind. One fact derived in two places, the two
+     drifting, and the wrong one deciding the path that matters: the shape this
+     codebase names more often than any other. */
+  const modelFound = modelIn(cmd);
   const env = String(envOf(pid) || '');
-  const dirMatch = env.match(/CLAUDE_CONFIG_DIR=(\S+)/);
-  const configDir = dirMatch ? dirMatch[1] : path.join(HOME(), '.claude');
+  /* #2811: read the env var this RUNNER actually uses. A codex agent is
+     configured by CODEX_HOME and has no CLAUDE_CONFIG_DIR, so the Claude-only
+     read below used to fall through to the synthesised `~/.claude` and report a
+     codex agent as living in a Claude directory: the "cannot identify
+     .codex-work2" half of this card. */
+  const codex = runner === 'codex';
+  /* 🛑 ANCHORED ON START-OR-SPACE, BECAUSE BOTH NAMES HAVE A REAL LONGER TWIN.
+     `AGENT_WORKFORCE_CODEX_HOME` and `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR` both
+     exist in this repo and are set by its own test sandboxes, and an unanchored
+     match takes whichever appears FIRST in the environment block -- which is
+     insertion order, not alphabetical, so it is not even reliably wrong.
+     Measured on a real `ps -Eww` shape:
+       unanchored -> /tmp/sandbox-home          <- the AGENT_WORKFORCE_ one
+       anchored   -> /Users/a/.codex-work2      <- the variable actually asked for
+     The codex arm is new here; the claude arm had the same hole and is fixed in
+     the same expression, because leaving one half of one fact broken is how the
+     two drift and the looser one decides. */
+  const dirMatch = env.match(codex ? /(?:^|\s)CODEX_HOME=(\S+)/ : /(?:^|\s)CLAUDE_CONFIG_DIR=(\S+)/);
+  const configDir = dirMatch ? dirMatch[1] : path.join(HOME(), codex ? '.codex' : '.claude');
 
-  const id = identityOf(configDir);
+  /* 🛑 `identityOf` RESOLVES A CLAUDE ACCOUNT, so it is not asked about a codex
+     one. Answering `account: null` with a reason is the honest shape here, and it
+     is deliberately NOT a second codex-account derivation: kosmos#2790 is
+     reshaping codex account resolution in engine/openaiaccounts.js right now, and
+     two readers of "which account is this agent on" would disagree the first time
+     either moved. The provider and the config dir are what this card needs, and
+     they are what this now answers. */
+  const id = codex ? null : identityOf(configDir);
   return {
     ok: true,
     /* null rather than a guess. An agent that says "I do not know" is behaving
@@ -397,9 +647,25 @@ function runningAsDarwin(session, deps = {}) {
        behind this card. */
     account: (id && id.email) || null,
     organization: (id && id.organization) || null,
-    model: modelMatch ? modelMatch[1] : null,
+    model: modelFound,
     configDir,
-    because: null,
+    runner,
+    because: codex
+      /* ⚠️ `because` ON A SUCCESSFUL READ, the same PATTERN `win32Answer` uses
+         (not the same shape: see the docstring's per-path key lists) and for the
+         same reason: `ok` means the look happened, and the sentence
+         names the HALF of the question this answer does not carry, so a caller
+         rendering it says something true instead of inventing a reason.
+         📌 AND THE SAME HONEST LIMIT, stated rather than implied: nothing renders
+         it when `ok` is true today (`whoamiFor` returns account, model, source and
+         resolvedRunner, and the route composes its own sentence from those). It is additive, not a contract
+         change for the existing reader. Asserted in `runningas.test.js` so it is
+         a checked value rather than decoration.
+         No card number in the sentence itself: it is user-facing text, and #147's
+         gate is right that a number there reads as assigning work. The
+         cross-reference lives in the block comment above, as a record. */
+      ? 'this is a Codex agent; which OpenAI account it is signed in as is not read here'
+      : null,
   };
 }
 
@@ -433,4 +699,4 @@ function everyone(deps = {}) {
    sentinel rule (an unmade look is not an empty answer) would be asserted
    nowhere. Without these the guards cannot go red, and a test that cannot go red
    is decoration. */
-module.exports = { runningAs, everyone, claudeUnder, _sh: sh, _parseCmdlines: parseCmdlines };
+module.exports = { runningAs, everyone, agentUnder, _sh: sh, _parseCmdlines: parseCmdlines };

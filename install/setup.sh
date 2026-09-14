@@ -1312,6 +1312,25 @@ uninstall() {
     fi
     rm -f "$_board_plist"
   fi
+  # #2955: remove the board WATCHDOG login job too, the same way and for the same
+  # reason as the board job just above. Without this, --uninstall leaves a watchdog
+  # LaunchAgent behind that wakes on its interval and keeps trying to `kosmos start`
+  # a board whose files this uninstall just deleted -- the exact orphan --uninstall
+  # exists to prevent. Done BEFORE the orphan sweep below so this install's own
+  # watchdog plist is already gone and cannot be double-handled by the glob.
+  _wd_label=com.kosmos.board.watchdog
+  if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
+    _wd_label="com.kosmos.board.watchdog.$(printf '%s' "$KOSMOS_HOME" | shasum -a 256 | cut -c1-8)"
+  fi
+  _wd_plist="${AGENT_WORKFORCE_LAUNCH:-$HOME/Library/LaunchAgents}/$_wd_label.plist"
+  if [ -f "$_wd_plist" ]; then
+    info "removing the board watchdog login job"
+    if [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ]; then
+      /bin/launchctl enable "gui/$(/usr/bin/id -u)/$_wd_label" 2>/dev/null || true
+      /bin/launchctl bootout "gui/$(/usr/bin/id -u)/$_wd_label" 2>/dev/null || true
+    fi
+    rm -f "$_wd_plist"
+  fi
   # ⚠️ #918: EVERY DISTINCT KOSMOS_HOME GETS ITS OWN PERMANENT LABEL, per
   # #883's own fix above (a hash suffix whenever KOSMOS_HOME is non-default),
   # and nothing ever swept one whose KOSMOS_HOME later vanished -- a walk
@@ -1335,6 +1354,16 @@ uninstall() {
       # loop only ever considers a SUFFIXED label -- a genuine sweep candidate,
       # never the one real board every normal install has.
       _orphan_label="$(basename "$_orphan_plist" .plist)"
+      # #2955: the BARE-DEFAULT watchdog label (com.kosmos.board.watchdog, no #883
+      # hash) DOES match this glob, unlike the bare-default board label -- so the
+      # one real watchdog every normal install has would otherwise be a sweep
+      # candidate, protected only by the runtime liveness check below rather than by
+      # the lexical exclusion the default board plist enjoys. Skip it explicitly to
+      # restore that two-layer protection: it is either this install's own (already
+      # removed above, before the sweep) or the live default install's (which must
+      # never be swept from under it). A SUFFIXED walk watchdog still flows through
+      # the liveness check like any other orphan.
+      [ "$_orphan_label" = com.kosmos.board.watchdog ] && continue
       # KOSMOS_HOME survives in exactly one place in this plist: the second
       # ProgramArguments string (the install path's own heredoc, above, never
       # writes it into EnvironmentVariables). PlistBuddy is the standard,
@@ -1376,6 +1405,12 @@ uninstall() {
         # like this file's own writer produced" and refused the same way
         # the shape-mismatch arm below already refuses one.
         /*/bin/kosmos) _orphan_home="${_orphan_home_bin%/bin/kosmos}" ;;
+        # #2955: the same glob (com.kosmos.board.*.plist) also catches a deleted
+        # walk's WATCHDOG plist, whose ProgramArguments[1] is the watchdog script
+        # rather than the kosmos bin. Derive its home the same way (strip the
+        # script's own suffix) so a vanished walk's watchdog is swept too, rather
+        # than left as the same #918 orphan this loop exists to prevent.
+        /*/app/bin/board-watchdog.sh) _orphan_home="${_orphan_home_bin%/app/bin/board-watchdog.sh}" ;;
         # Not shaped like this file's own writer produced (a hand-edited or
         # future-format plist) -- leave it alone rather than guess.
         *) continue ;;
@@ -2996,6 +3031,17 @@ build_app_bundle() {
   <key>LSRequiresNativeExecution</key><true/>
   <key>LSMinimumSystemVersion</key><string>$MACOS_FLOOR_MAJOR.$MACOS_FLOOR_MINOR</string>
   <key>LSUIElement</key><false/>
+  <!-- #2810: "Open Terminal" runs osascript to tell Terminal.app to attach the
+       agent's tmux session. The board LaunchAgent below carries
+       AssociatedBundleIdentifiers=com.chaoskosmos.kosmos, so macOS attributes
+       that Apple-event request to THIS bundle for its Automation (TCC) decision.
+       Without a usage-description string on the bundle, macOS does not prompt and
+       silently denies with -1743 ("Not authorized to send Apple events to
+       Terminal"), which is exactly what every agent hit after 0.6.56. This string
+       is the text the one-time "Kosmos wants to control Terminal" prompt shows;
+       once the person allows it, the grant persists for this Developer ID
+       signature across updates. -->
+  <key>NSAppleEventsUsageDescription</key><string>Kosmos opens a Terminal window and attaches your agent's session when you choose Open Terminal.</string>
 </dict></plist>
 PLIST
 
@@ -3501,9 +3547,15 @@ fi
 
 # #2066: record which channel pointer this install fetched from, so the board can paint a
 # STAGING badge for a staging tester (the read side shipped dormant in #2089: server.js
-# sourceChannelNow reads <store.ROOT>/source-channel, trims+lowercases, and folds anything
-# but "staging" to prod). Written BEFORE the board starts so its first read is correct; a
-# missing file reads prod, so an unrecorded staging install would masquerade as prod.
+# recordedSourceChannel reads <store.ROOT>/source-channel, trims+lowercases, and folds
+# anything but "staging" to prod). Written BEFORE the board starts so its first read is
+# correct; a missing file reads prod, so an unrecorded staging install would masquerade as
+# prod.
+# #2934: this file is what the board READS, but it is no longer the whole answer. A promote
+# moves no bytes, so nothing re-runs this write and the stamp goes stale; sourceChannelNow
+# now takes this value and, only when it says staging, may downgrade it to prod on positive
+# evidence that prod publishes the running version. This write is unchanged and still the
+# only thing that sets the stamp.
 #
 # 🔑 ONE WRITE COVERS BOTH the fresh-install and the update path. The join contract (#2066)
 # asked for a write in setup.sh AND engine/update.js, but update.js's auto-update does NOT
@@ -3567,13 +3619,20 @@ ok
 # LANG, and without LANG tmux sanitises its format output so every agent comes
 # back named `angel-discord_0.0_2.1.223_…` with the tab separators replaced.
 #
-# ⚠️ RunAtLoad AND NO KeepAlive, deliberately, and this is the one decision here
-# worth arguing with. `kosmos start` daemonises and exits, so it is a "run this
-# at login" job rather than a supervised process. KeepAlive would relaunch it
-# the moment it returned — a loop — and the alternative shape (launchd owns the
-# node process directly) breaks `kosmos stop`, which must keep meaning stopped,
-# and the updater's stop/start with it. Crash supervision is a real thing to
-# want and it needs `kosmos` to grow a foreground mode; it is not this change.
+# ⚠️ RunAtLoad AND a KeepAlive keyed on the deliberate-stop marker (#2956). This
+# used to be RunAtLoad with NO KeepAlive, deliberately, because the old
+# ProgramArguments ran `kosmos start`, which daemonised and exited: a plain
+# KeepAlive would have relaunched that the instant it returned (a loop), and
+# launchd owning the detached node directly broke `kosmos stop`. #2956 resolves
+# both: ProgramArguments now runs `kosmos board-run`, which grew a FOREGROUND mode
+# (it execs node in place), so launchd owns the actual board process and its
+# KeepAlive supervises a crash. `kosmos stop` still means stopped because the
+# KeepAlive is PathState-keyed on the board.stopped marker (present -> launchd
+# leaves it down; absent -> supervised), not on exit status -- so a SIGTERM stop
+# is honored, and the updater's stop/swap/start rides the same marker. The #2955
+# watchdog stays one release as belt-and-braces for boards not yet rebooted onto
+# this plist (an update rewrites the file but does not reload a loaded job until
+# the next login).
 step "Keeping Kosmos running after a restart."
 _launch_dir="${AGENT_WORKFORCE_LAUNCH:-$HOME/Library/LaunchAgents}"
 # ⚠️ THE LABEL IS UNIQUE ONLY WHEN KOSMOS_HOME IS NOT THE REAL DEFAULT (#883).
@@ -3690,7 +3749,7 @@ if mkdir -p "$_launch_dir" 2>/dev/null && cat > "$_board_plist.new" <<PLIST
   <array>
     <string>/bin/bash</string>
     <string>$(_xmlq "$KOSMOS_HOME/bin/kosmos")</string>
-    <string>start</string>
+    <string>board-run</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
@@ -3705,6 +3764,24 @@ $_extra_env_kv  </dict>
   <key>AssociatedBundleIdentifiers</key>
   <array><string>com.chaoskosmos.kosmos</string></array>
   <key>RunAtLoad</key><true/>
+  <!-- #2956: launchd SUPERVISES the board. ProgramArguments runs "board-run",
+       which execs node in the foreground, so this job IS the board process and a
+       crash is launchd's to relaunch. KeepAlive is keyed (PathState) on the
+       deliberate-stop marker (the same file "kosmos stop" writes and "kosmos
+       start" clears, de-referenced here as the intended _xmlq escape, not a bare
+       word -- see the heredoc warning above): the board is kept running WHILE the
+       marker path is absent (false), and a deliberate stop that creates it makes
+       launchd stop the job and not relaunch it. ThrottleInterval bounds a crash
+       loop. This is keyed on presence/absence, not exit status, so a SIGTERM stop
+       is honored where a plain KeepAlive would relaunch it. -->
+  <key>KeepAlive</key>
+  <dict>
+    <key>PathState</key>
+    <dict>
+      <key>$(_xmlq "$KOSMOS_HOME/board.stopped")</key><false/>
+    </dict>
+  </dict>
+  <key>ThrottleInterval</key><integer>10</integer>
   <!-- 🔑 THE SAME FILE THE BOARD ITSELF WRITES TO, and it was a second one.
        "kosmos start" (de-backticked on purpose, see the heredoc warning above)
        sends the server's own output to logs/board.log; this job
@@ -3776,6 +3853,19 @@ if [ "$_board_ok" = yes ]; then
       # machine, 2026-08-24): not fatal, but a different true sentence.
       if ! /bin/launchctl bootstrap "gui/$_uid" "$_board_plist" 2>/dev/null; then
         _board_ok=later
+      else
+        # #2956: the job now runs `board-run`, and bootstrap RunAtLoad-starts it
+        # immediately -- but the "Starting Kosmos" step above already brought up a
+        # board with `kosmos start` (nohup, since no job was loaded then), so
+        # board-run cannot bind the port and would be relaunched on a throttle
+        # (board-run's own guard keeps that harmless, but it churns until reboot).
+        # Reconcile to ONE launchd-supervised board now: `kosmos restart` retires the
+        # nohup board and starts the supervised one (start detects the loaded
+        # board-run job and kickstarts it). Best-effort: if anything here fails, the
+        # board-run guard still prevents a double-bind, so this only ever improves on
+        # the churn, never worsens it. (Bootstrap RunAtLoad is real launchd, skipped
+        # under the sandbox above, so this path is verified on a real box, not here.)
+        "$KOSMOS_HOME/bin/kosmos" restart >/dev/null 2>&1 || true
       fi
     fi
   else
@@ -3799,6 +3889,111 @@ else
   # thing, and the thing they would do instead is the thing they already do.
   info "note: could not write $_board_plist, so Kosmos will not start itself after a restart."
   info "Opening the Kosmos icon starts it, as it always has."
+fi
+
+# #2955: THE BOARD WATCHDOG login job.
+# ⚠️ #2956 UPDATE: the board plist above is NO LONGER RunAtLoad-with-no-KeepAlive.
+# It now runs `kosmos board-run` (a foreground mode) under a KeepAlive keyed on the
+# stop-marker, so launchd itself supervises and relaunches the board process -- the
+# done-right follow-up this comment used to defer. So on a machine rebooted onto
+# the new plist, launchd KeepAlive AND this watchdog both cover a crash (redundant,
+# but each guarded by the same STOP_MARKER, so they agree). The watchdog is kept
+# for ONE release as belt-and-braces: an update rewrites the plist file but does not
+# reload a loaded job until the next login, so a board that has updated-but-not-yet-
+# rebooted is still the old detached shape that only the watchdog supervises. Remove
+# the watchdog in a follow-up once installs have cycled through a reboot.
+# The original #2955 rationale (unchanged for the not-yet-rebooted case): if the
+# detached board fails to start on a reboot -- a zombie holding port 16180 after an
+# unclean power-down, a not-yet-ready dependency -- or dies later, NOTHING relaunches
+# it and the app is stuck on "could not refresh" (Josh hit exactly this on live
+# 0.6.59). This job runs bin/board-watchdog.sh on an interval and brings the board
+# back when it has died and the user did not deliberately stop it (it reads the
+# STOP_MARKER `kosmos stop` writes / `kosmos start` clears). Touches neither the
+# board job nor kosmos stop/start beyond that marker.
+#
+# Everything below MIRRORS the board plist block above: the same non-default-
+# KOSMOS_HOME hash suffix, the same _xmlq escaping, the same $_extra_env_kv (built
+# once above), the same unquoted-heredoc rule (no backtick, no bare $word in the
+# body -- guarded by tools/test-plist-heredoc-clean.sh), the same sandbox guard
+# (no launchctl under AGENT_WORKFORCE_LAUNCH), enable-before-bootstrap, and
+# leave-an-already-loaded-job-alone idempotency.
+step "Watching the board so it comes back after a restart."
+_wd_label=com.kosmos.board.watchdog
+if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
+  _wd_label="com.kosmos.board.watchdog.$(printf '%s' "$KOSMOS_HOME" | shasum -a 256 | cut -c1-8)"
+fi
+_wd_plist="$_launch_dir/$_wd_label.plist"
+_wd_ok=no
+# 🛑 SAME UNQUOTED-HEREDOC RULE as the board plist: nothing in this body may use a
+# backtick or a bare $word; the only expansions allowed are $(_xmlq ...),
+# $_wd_label, and the pre-built, already-XML-escaped $_extra_env_kv.
+if mkdir -p "$_launch_dir" 2>/dev/null && cat > "$_wd_plist.new" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$_wd_label</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>$(_xmlq "$KOSMOS_HOME/app/bin/board-watchdog.sh")</string>
+    <string>$(_xmlq "$KOSMOS_HOME")</string>
+    <string>$(_xmlq "$_board_plist")</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key><string>$(_xmlq "$HOME")</string>
+    <key>PATH</key><string>$(_xmlq "$KOSMOS_HOME/tmux/bin"):/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>LANG</key><string>en_US.UTF-8</string>
+    <key>KOSMOS_PORT</key><string>$(_xmlq "$PORT")</string>
+$_extra_env_kv  </dict>
+  <key>AssociatedBundleIdentifiers</key>
+  <array><string>com.chaoskosmos.kosmos</string></array>
+  <key>RunAtLoad</key><true/>
+  <!-- 30s pairs with the watchdog's 45s grace: the board must be unanswering
+       across at least two of these wakeups before the first restart, which covers
+       a legitimate login-time start binding the port (cmd_start waits ~15s). -->
+  <key>StartInterval</key><integer>30</integer>
+  <key>StandardOutPath</key><string>$(_xmlq "$KOSMOS_HOME/logs/board-watchdog.log")</string>
+  <key>StandardErrorPath</key><string>$(_xmlq "$KOSMOS_HOME/logs/board-watchdog.log")</string>
+</dict>
+</plist>
+PLIST
+then
+  mv -f "$_wd_plist.new" "$_wd_plist" 2>/dev/null && _wd_ok=yes
+fi
+rm -f "$_wd_plist.new" 2>/dev/null || true
+if [ "$_wd_ok" = yes ]; then
+  if [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ]; then
+    _wd_uid="$(/usr/bin/id -u)"
+    if [ -n "${AGENT_WORKFORCE_LAUNCH:-}" ]; then
+      _wd_ok=sandbox # unreachable inside the -z arm above; the belt the gate scan reads (its window is 12 lines above each launchctl call: keep this arm close)
+    elif /bin/launchctl print "gui/$_wd_uid/$_wd_label" >/dev/null 2>&1; then
+      : # already registered; the rewritten file is picked up at the next login
+    else
+      # enable BEFORE bootstrap, the same order the board job uses: a stale
+      # `launchctl disable` override outlives the plist and a bootstrap into a
+      # standing disable succeeds and starts nothing.
+      /bin/launchctl enable "gui/$_wd_uid/$_wd_label" 2>/dev/null || true
+      if ! /bin/launchctl bootstrap "gui/$_wd_uid" "$_wd_plist" 2>/dev/null; then
+        _wd_ok=later
+      fi
+    fi
+  else
+    _wd_ok=sandbox
+  fi
+  if [ "$_wd_ok" = sandbox ]; then
+    info "sandboxed run: the watchdog job file was written; registering it with launchd was skipped on purpose (the real machine's domain is not this run's to touch)"
+  elif [ "$_wd_ok" = later ]; then
+    info "note: macOS did not accept the watchdog item just now; it is written and loads at your next login"
+  else
+    info "Kosmos will bring the board back if it stops after a restart"
+  fi
+  ok
+else
+  # Not fatal: the board still starts at login and reopening the icon still starts
+  # it; the person only loses the automatic recovery this job would have added.
+  info "note: could not write $_wd_plist, so Kosmos will not auto-recover the board after a restart."
 fi
 
 # ⚠️ PROVE THE BOARD ON THE PORT IS THIS INSTALL'S OWN. cmd_start's

@@ -32,6 +32,12 @@ const connect = require('./connect');
 const subscription = require('./subscription');
 const store = require('./store');
 
+/* The driver arms below drive the MAC sign-in host: tmux, observed through
+   fakeTerminal. Pinned so they still do on a Windows box, where the platform would
+   otherwise choose the Windows host (switched off, so slice 1's refusal). The Windows
+   host has its own arms in engine/connect.win32signin.test.js. */
+connect.setSigninPlatformForTests('darwin');
+
 /* ── fixture pane text ─────────────────────────────────────────────────────
    ⚠️ FIXTURE-DISCIPLINE: every screen below is CAPTURED text from a real
    `tmux capture-pane` of claude v2.1.229 driven in a sandboxed

@@ -70,8 +70,9 @@ const LIVE = `(el) => {
         count: ins.length,
         values: ins.map((i) => i.value),
         /* The document order of the things that have to be in this order:
-           the three original + the menu + the #1652 import option, last. */
-        order: Array.from(document.querySelectorAll('#pick-pm, #pick-list, #rolepick, #pick-own, #pick-import'))
+           the three original + the menu + the #1652 import option + the #1280
+           org-chart option, last. */
+        order: Array.from(document.querySelectorAll('#pick-pm, #pick-list, #rolepick, #pick-own, #pick-import, #pick-orgchart'))
           .map((n) => n.id),
         /* Every radio is inside the fieldset, and so is the menu. */
         allInFieldset: ins.every((i) => i.closest('fieldset.pickradios')),
@@ -83,9 +84,9 @@ const LIVE = `(el) => {
       };
     });
 
-    check(`[${engine}] four radios share one name`, shape.count === 4, shape.values.join(', '));
-    check(`[${engine}] Josh's order, with the menu between the second and third and import last`,
-      shape.order.join(' > ') === 'pick-pm > pick-list > rolepick > pick-own > pick-import',
+    check(`[${engine}] five radios share one name`, shape.count === 5, shape.values.join(', '));
+    check(`[${engine}] Josh's order, with the menu between the second and third, import fourth and org-chart last`,
+      shape.order.join(' > ') === 'pick-pm > pick-list > rolepick > pick-own > pick-import > pick-orgchart',
       shape.order.join(' > '));
     check(`[${engine}] the menu is INSIDE the group, which is the whole point`,
       shape.allInFieldset && shape.menuInFieldset);

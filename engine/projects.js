@@ -69,6 +69,7 @@ const { execFileSync } = require('node:child_process');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const win32explorer = require('./win32explorer');
 const store = require('./store');
 const instructions = require('./instructions');
 // ⚠️ ONE rule for who answers, and it lives with the thread rather than being
@@ -500,12 +501,24 @@ function tmpFolderRefused(folder, storeRoot) {
   return isUnderTmpDir(folder) && !isUnderTmpDir(storeRoot);
 }
 
+/* win32-board-copy (review round 2): the filesystem a project folder and its files are
+   read through, as one seam. A mapped network drive (Z:\) resolves to a UNC path the
+   test machine cannot reach, so a suite that must assert "a Z:\ record whose realpath is
+   \\server\share opens" replaces realpath, stat and access TOGETHER; replacing only one
+   would let the others read the real disk and fail for a reason that is not the rule.
+   Production uses the real filesystem. */
+let fsWorldForTests = null;
+function setFsWorldForTests(world) { fsWorldForTests = world || null; }
+function realpathOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.realpath ? fsWorldForTests.realpath(p) : resolveReal(p); }
+function statOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.stat ? fsWorldForTests.stat(p) : fs.statSync(p); }
+function accessOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.access ? fsWorldForTests.access(p) : fs.accessSync(p, fs.constants.R_OK); }
+
 function folderState(folder) {
   const given = String(folder || '');
   if (!given) return { state: FOLDER.MISSING, because: 'no folder was recorded for this project', real: null };
   let real = given;
   try {
-    real = resolveReal(given);
+    real = realpathOfFolderPath(given);
   } catch (err) {
     if (err && err.code === 'ENOENT') {
       return { state: FOLDER.MISSING, because: 'this folder is not there any more, or it was moved', real: null };
@@ -514,7 +527,7 @@ function folderState(folder) {
   }
   let st;
   try {
-    st = fs.statSync(real);
+    st = statOfFolderPath(real);
   } catch {
     return { state: FOLDER.UNREADABLE, because: 'we cannot read this folder', real };
   }
@@ -522,7 +535,7 @@ function folderState(folder) {
     return { state: FOLDER.NOT_A_FOLDER, because: 'this is a file, not a folder', real };
   }
   try {
-    fs.accessSync(real, fs.constants.R_OK);
+    accessOfFolderPath(real);
   } catch {
     return { state: FOLDER.UNREADABLE, because: 'this folder is there, but we are not allowed to read it', real };
   }
@@ -864,7 +877,8 @@ function describe(project, roster, all) {
       // to read its model or its transcript: whatever that pane is doing, we
       // have not established it is this agent doing it.
       state: (card && card.isNamedOurs) ? card.state : 'unknown',
-      /* #763: the project the member's question is about, when it said. */
+      /* #763/#2837: the project the member's state is about, when it said -- a
+         needs_you question (#763) or a working state (#2837). */
       stateProject: (card && card.isNamedOurs && typeof card.stateProject === 'string' && card.stateProject && (knownIds === null || knownIds.has(card.stateProject))) ? card.stateProject : null,
       stateProjectInferred: Boolean(card && card.isNamedOurs && card.stateProjectInferred === true),
       // The face, gated on tied like every other card-read here: a
@@ -872,6 +886,27 @@ function describe(project, roster, all) {
       // photograph of somebody it is not (the project cards draw member
       // faces, and a face is the strongest identity claim on the screen).
       hasAvatar: Boolean(card && card.isNamedOurs && card.hasAvatar),
+      /* #2762: the avatar VERSION travels with `hasAvatar`, for the same reason
+         #2698 added it to the org chart. The member-faces list (`tkFace`) sits
+         behind its own identical-HTML repaint skip (`TK_LIST_HTML`), and a bare
+         `/api/agent/<name>/avatar` URL is byte-identical before and after a
+         picture change, so the row's <img> was never recreated and kept showing
+         the OLD picture. Carrying the version makes the markup differ, which is
+         all the skip needs to stop skipping; the route is already `no-store`, so
+         a recreated <img> refetches.
+
+         Gated on `isNamedOurs` exactly like `hasAvatar` one line above, and for
+         the same reason: a stranger's pane borrowing the name must not lend this
+         row a photograph of somebody it is not. The two producers reach that safely
+         by different routes, and it is worth being exact: `snapshot()` gates on
+         `tied` (status.js), while `panelessCard` does NOT gate at all because
+         `isNamedOurs: true` is STRUCTURAL there (the token tie). An earlier version
+         of this comment said both applied a `tied` gate, which was wrong about half
+         its subject. So
+         this is a pass-through rather than a second read of the store, and `|| 0`
+         keeps a card that predates #2698 harmless
+         (`?v=0` is the stable no-picture value). */
+      avatarVer: (card && card.isNamedOurs) ? (card.avatarVer || 0) : 0,
       /**
        * ⚠️ WHETHER THIS AGENT HAS ACTUALLY BEEN TOLD, which is a different
        * question from whether we wrote the file. An agent reads its
@@ -943,6 +978,35 @@ function describe(project, roster, all) {
   // #1994: the parent id (or null), derived once and used both as the `parent`
   // field and to resolve parentName/parentArchived below.
   const parentId = (typeof project.parent === 'string' && project.parent) ? project.parent : null;
+
+  /* #2837: how many NON-ARCHIVED projects a working member belongs to, read from
+     the full list `all` (the same list `list()`/`get()` already pass, so this
+     adds no disk read). A working agent that belongs to exactly one active
+     project is unambiguously working IN it, so the overview lights that project
+     even when the report named none; a working agent in several projects that
+     named none cannot be attributed to any, so it lights none rather than every
+     one -- Josh's bug. */
+  const activeMembershipCount = (sessionName) => (Array.isArray(all)
+    ? all.filter((pp) => pp && pp.archived !== true && (pp.agents || []).includes(sessionName)).length
+    : 0);
+  /* Two guards, both load-bearing:
+     - `project.archived !== true`: `activeMembershipCount` counts only NON-archived
+       projects, so for an agent whose sole active membership is project A, describing an
+       ARCHIVED project B the same agent also belongs to computes count 1 (it counted A) and
+       would light B too -- the same global working fact lighting two tiles, the exact bug
+       this card fixes. Gating on the described project's own archived state confines the
+       fallback to active projects, where "sole active membership" actually means "this one".
+     - `Array.isArray(all)`: FAIL CLOSED, not open. Every in-repo caller passes an array
+       (list()/get() pass readAll()), so this changes nothing observable on the real path.
+       But `describe` is exported, so a future or test caller could pass a non-array `all`;
+       firing the sole-membership fallback anyway would silently re-light EVERY project a
+       working agent belongs to -- reintroducing precisely the over-claim #2837 removes.
+       When membership cannot be computed we do NOT claim sole membership; the attributed
+       arm (a report that named THIS project) still lights the right one. Not-claiming is
+       the honest failure for a card about not over-claiming. */
+  const soleActiveMembership = (m) => project.archived !== true
+    && Array.isArray(all)
+    && activeMembershipCount(m.sessionName) <= 1;
 
   return {
     ...project,
@@ -1045,7 +1109,17 @@ function describe(project, roster, all) {
       /* Of needsYou, how many rest on a carried-forward project rather than a
          stated one: a screen may render them alike, but the data can say. */
       needsYouInferred: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject === project.id && m.stateProjectInferred).length,
-      working: members.filter((m) => m.present && m.tied && m.state === 'working').length,
+      /* #2837: a member's `working` is a GLOBAL fact (one state per process/pane),
+         so counting it on every project the agent belongs to lit every project at
+         once when it was really working in one -- the working analog of #763's
+         needsYou fix one bucket up. Scope it the same way: light this project for
+         a working member only when the work is attributable to it -- the report
+         named THIS project (`stateProject === project.id`, carried through by the
+         #2837 status.js change), or the agent belongs to only this one active
+         project so there is no other project it could be working in. A working
+         agent in several projects that named none lights none of them. */
+      working: members.filter((m) => m.present && m.tied && m.state === 'working'
+        && (m.stateProject === project.id || (m.stateProject === null && soleActiveMembership(m)))).length,
       unseen: members.filter((m) => !m.present || !m.tied || m.state === 'unknown').length,
     },
   };
@@ -1125,7 +1199,7 @@ function cleanName(name) {
  * deliberate act the settings screen offers -- so '' is stored, never refused
  * and never quietly kept. `oneLine` folds newlines like the name's does: this
  * renders on a card and in a heading, and a stray newline would break both.
- * Capped at 200 characters: the design renders one line under the title, and
+ * Capped at 1000 characters: the design renders one line under the title, and
  * Josh's own twelve fixture descriptions top out under half that.
  */
 function cleanDescription(text) {
@@ -1145,17 +1219,17 @@ function cleanDescription(text) {
   // REFUSED over the cap, like cleanName at 120: a silent truncation
   // answered success while cutting the person's words with nothing saying
   // so -- two answers to over-length on two adjacent fields of one form.
-  // Counted in code points (the "200 characters" people count is the
-  // approximation; an all-emoji description is up to 400 UTF-16 units).
+  // Counted in code points (the "1000 characters" people count is the
+  // approximation; an all-emoji description is up to 2000 UTF-16 units).
   // ⚠️ Counted in code POINTS, and deliberately NOT the name's rule: the
   // name caps at 120 UTF-16 units because its input carries maxlength=120,
   // which counts units, and the cap must agree with the box a person types
   // into. The description has no input yet -- and when the settings screen
-  // adds one, it must NOT use a raw maxlength=200 (that would cut a pasted
-  // 200-emoji description at 100 while this rule accepts it). The split is
+  // adds one, it must NOT use a raw maxlength=1000 (that would cut a pasted
+  // 1000-emoji description at 500 while this rule accepts it). The split is
   // a recorded decision, not drift.
-  if (Array.from(flat).length > 200) {
-    throw new Error('that description is longer than 200 characters');
+  if (Array.from(flat).length > 1000) {
+    throw new Error('that description is longer than 1000 characters');
   }
   return flat;
 }
@@ -1195,7 +1269,17 @@ function cleanDescription(text) {
  */
 let revealRunner = null;
 function setRevealRunner(f) { revealRunner = f; }
+/* win32-board-copy: which platform's opener runs. Production reads process.platform;
+   a suite states the arm it asserts, so the Mac contract below stays pinned to
+   `/usr/bin/open` on a Windows box and the Windows arm is assertable from a Mac. */
+let revealPlatform = null;
+function setRevealPlatform(p) { revealPlatform = p || null; }
+function revealOnWindows() { return (revealPlatform || process.platform) === 'win32'; }
 function revealFolder(folder) {
+  /* On Windows the folder opens in File Explorer, through the one module that
+     validates the path, holds the live-execution gate and never waits on Explorer's
+     exit code (it exits 1 on success). */
+  if (revealOnWindows()) return win32explorer.openFolder(folder);
   try {
     if (revealRunner) return revealRunner('/usr/bin/open', [folder]);
     execFileSync('/usr/bin/open', [folder], { timeout: 5000, stdio: 'ignore' });
@@ -1305,7 +1389,7 @@ function openFile(folder, name) {
   }
   let target;
   try {
-    target = resolveReal(path.join(state.real, given));
+    target = realpathOfFolderPath(path.join(state.real, given));
   } catch {
     return { ok: false, because: 'that file is not there any more, or it was moved' };
   }
@@ -1314,8 +1398,14 @@ function openFile(folder, name) {
     return { ok: false, because: 'that file lives outside this project, so we will not open it' };
   }
   let st;
-  try { st = fs.statSync(target); } catch { return { ok: false, because: 'that file is not there any more, or it was moved' }; }
+  try { st = statOfFolderPath(target); } catch { return { ok: false, because: 'that file is not there any more, or it was moved' }; }
   if (!st.isFile()) return { ok: false, because: 'that is not a file we can open' };
+  /* The three gates above are platform-free; only the hand-off differs. Explorer
+     opens a file with whatever Windows opens that kind of file with. It judges the
+     file's TYPE on the resolved target and applies the drive-letter rule to the path
+     the project record names (review round 2), so a mapped Z:\ project opens its
+     documents the same way "Open in File Explorer" opens its folder. */
+  if (revealOnWindows()) return win32explorer.openFile(target, { namedAs: path.join(String(folder), given) });
   try {
     if (revealRunner) return revealRunner('/usr/bin/open', [target]);
     /* ⚠️ STDERR IS CAPTURED, NOT IGNORED (#1199), and that is the whole fix.
@@ -1675,8 +1765,111 @@ function create({ name, folder, agents, roster, description, made, parent } = {}
     updatedAt: now,
   };
   writeAll([...all, project]);
+  // #2706: staffing a project used to scaffold NOTHING for the agents put on it -
+  // no brief, no goal, no definition of done - so they landed in an empty folder
+  // with nothing to read and defaulted to talking (the "wall of questions" episode
+  // Josh saw). Drop a short brief stub in the folder so the operator and every agent
+  // share one source of truth instead of a chat message that scrolls away. AFTER the
+  // record is written and best-effort (never clobbering an existing brief, never
+  // failing creation), for the same reason markWelcomeSeeded is best-effort: the
+  // project EXISTS from writeAll above, and a folder we could not write a stub into
+  // (read-only, or one that already holds the person's own brief) is not a reason to
+  // report "we could not create that project".
+  seedBriefStub(given, { name: title, description: desc });
   return project;
 }
+
+/* #2706: the brief stub written into a project's folder on creation. Two fields,
+   Goal and Done-looks-like, because that is the smallest shape that turns "an empty
+   folder" into "a thing to read". The Goal is seeded from the description the person
+   typed on the create form when there is one (so what they already said persists into
+   the folder rather than scrolling away in chat); both fields otherwise carry a prompt
+   the person edits. Markdown, because the rooms and dialogs already render it and a
+   person editing it by hand reads it the same way.
+   ⚠️ CALLERS PASS ALREADY-CLEANED name/description; this does NOT neutralise them. The one
+   caller, `create`, hands `title` (cleanName) and `desc` (cleanDescription), both of which
+   have been through `oneLine`/`neutralise`, so a stray newline or marker cannot break the
+   headings. The function is exported for tests; a future direct caller must clean its inputs
+   the same way rather than pass raw user text. */
+const BRIEF_STUB_FILENAME = 'BRIEF.md';
+/* #2707: the Goal placeholder is a NAMED constant, not a loose literal, because two
+   places now depend on the exact string: briefStubContent WRITES it when no description
+   was given, and briefIsPending DETECTS it to tell an unfilled stub from a real brief.
+   A second copy would drift the first time the wording changed and silently break the
+   pending detection. */
+const BRIEF_GOAL_PLACEHOLDER = '_What is this project for? Replace this line._';
+function briefStubContent({ name, description } = {}) {
+  const goal = (typeof description === 'string' && description.trim())
+    ? description.trim()
+    : BRIEF_GOAL_PLACEHOLDER;
+  return `# ${String(name || 'This project')}\n\n`
+    + `## Goal\n\n${goal}\n\n`
+    + '## Done looks like\n\n'
+    + '_How will everyone know this is finished? Replace this line._\n\n'
+    + '---\n\n'
+    + 'Kosmos added this brief when the project was created, so everyone on it shares '
+    + 'one source of truth instead of a chat message that scrolls away. Edit it freely.\n';
+}
+
+/* Write the brief stub IF the folder does not already hold one. NO-CLOBBER is the
+   load-bearing rule: Kosmos ADOPTS existing folders (`makeFolder` adopts, and a person
+   can point a project at a folder that already has their real BRIEF.md), so overwriting
+   would destroy the person's own words - the opposite of the shared-source-of-truth this
+   card exists to give them. Best-effort: any failure (read-only folder, a race that
+   created the file between the check and the write) is swallowed, exactly like
+   markWelcomeSeeded, because the project already exists and a missing stub is a smaller
+   harm than a failed creation. Returns true only when it actually wrote one (for tests
+   and callers that want to know), false otherwise. */
+function seedBriefStub(folder, { name, description } = {}) {
+  try {
+    if (!folder || !path.isAbsolute(folder)) return false;
+    const dest = path.join(folder, BRIEF_STUB_FILENAME);
+    // `wx` writes only when the file does not exist and fails (EEXIST) otherwise, so the
+    // existence check and the write are one atomic step - a separate existsSync + write
+    // has a window where a concurrent creator lands between them, and this closes it.
+    fs.writeFileSync(dest, briefStubContent({ name, description }), { encoding: 'utf8', flag: 'wx' });
+    return true;
+  } catch { return false; }
+}
+
+/* #2707: is this project still waiting on its brief? A project is "brief pending" when
+   its folder has NO brief at all, OR it has the #2706 stub but the Goal was never filled
+   in (the Goal still reads the placeholder). A project the person gave a description to at
+   creation is NOT pending - its Goal was seeded from that description - which is exactly
+   right: if the operator already said what it is for, the agents have a goal and there is
+   nothing to ask about.
+   ⚠️ FAIL-SAFE toward NOT pending. "Pending" means one specific thing: there is genuinely NO
+   brief (ENOENT). Every OTHER read error - EACCES (a brief we are not allowed to read), EISDIR
+   (something other than a file at that path) - means a brief may well be there and simply
+   cannot be read, so we return NOT pending. The only thing this gates is a one-time "brief
+   pending" room note (#2707); a false negative just skips that note, whereas a false positive
+   would post "your brief is not filled in" over a brief that is actually fine. Skipping a
+   helpful note is a smaller harm than contradicting a real brief. */
+function briefIsPending(folder) {
+  try {
+    if (!folder || !path.isAbsolute(folder)) return false;
+    const brief = path.join(folder, BRIEF_STUB_FILENAME);
+    let text;
+    try { text = fs.readFileSync(brief, 'utf8'); }
+    // ONLY a genuinely absent brief (ENOENT) is pending. Any other read error means a brief
+    // might be there but unreadable, so fail toward NOT pending and never contradict it.
+    catch (err) { return !!(err && err.code === 'ENOENT'); }
+    return text.includes(BRIEF_GOAL_PLACEHOLDER);   // stub present but Goal never filled in
+  } catch { return false; }
+}
+
+/* #2707: the single shared "brief pending" note posted into a brief-less project's room,
+   so seven agents staffed at once do not each ask the same "what is the goal?" question and
+   buzz the operator seven times (the Mortals dogfood finding). It names the coordination the
+   card asks for - read the room first, one asks, the rest hold - and points at BRIEF.md so
+   the answer lands in the shared brief (#2706) rather than scrolling away in chat. Kosmos's
+   own voice, posted via messages.roomNote, which the shape validator restricts to the
+   product; agents cannot forge it. */
+const BRIEF_PENDING_NOTE = 'This project has no brief yet, so its goal is not written down. '
+  + 'So you do not all ask the same thing at once: read this room first. If nobody has asked yet, '
+  + 'ONE of you ask here what the goal is; once you hear it, write it into BRIEF.md in the project '
+  + 'folder so everyone shares it. Everyone else: hold, and start once the brief is set. One '
+  + 'question to the operator, not seven.';
 
 /* #2279: the "Getting started" welcome home, seeded once EVER per store.
  *
@@ -2213,9 +2406,23 @@ function blockBody(projects, sessionName) {
     // work with the real per-project tasks board instead of improvising a shared
     // task-board.md file and colliding on it. Re-spliced like the post line, so
     // existing agents learn it too, not only newborns.
+    // #2708: state the honest task fact the board already has, rather than promise a
+    // list "to see" that is empty. With tasks, teach list+add; with none, say so and
+    // teach only add. An empty result must not read as a broken "including any tasks"
+    // promise (the Mortals dogfood finding).
+    // ⚠️ RAW length (open + closed), NOT an open-only count, and that is deliberate:
+    // `kosmos task list` renders closed tasks too (install/kosmos prints them with a
+    // "[done]" prefix), so a project whose tasks are all closed still has tasks "to
+    // see". Counting open-only here would say "No tasks set yet" while `task list`
+    // shows the done ones -- the opposite mismatch. Raw length matches the card's
+    // count-0 semantics exactly: "No tasks set" only when there are none at all.
+    const hasTasks = Array.isArray(p.tasks) && p.tasks.length > 0;
+    const taskLine = hasTasks
+      ? `\n  - Its tasks: \`${cliShown} task list ${oneLine(String(p.id))}\` to see them, \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` to add one (use this, not a hand-rolled task-board file)`
+      : `\n  - No tasks set for this project yet. Add one with \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` (use this, not a hand-rolled task-board file)`;
     const head = `- **${oneLine(p.name)}**: \`${oneLine(p.folder)}\`` + (p.id
       ? `\n  - Post to everyone on it: \`${cliShown} post ${oneLine(String(p.id))} "your message"\``
-        + `\n  - Its tasks: \`${cliShown} task list ${oneLine(String(p.id))}\` to see them, \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` to add one (use this, not a hand-rolled task-board file)`
+        + taskLine
       : '');
     const mine = (sessionName && Array.isArray(p.tasks))
       /* 🛑 THE ONE THAT WOULD HAVE BROKEN QUIETLY AND WORST. This is the list
@@ -2437,7 +2644,11 @@ function membershipLine(project, kind) {
     ? ' Post to everyone on it with: ' + kosmosCliShown() + ' post ' + oneLine(String(project.id)) + ' "your message".'
     : '';
   return 'Kosmos put you on the project "' + name + '".' + folder + room
-    + ' The "Your projects" section of your instructions has the details, including any tasks.';
+    // #2708: no generic "including any tasks" promise here -- the "Your projects"
+    // section now states the honest task fact (the tasks, or "No tasks set yet"), so
+    // this one-time message just points at it instead of promising a feature the
+    // project may have none of.
+    + ' The "Your projects" section of your instructions has the details.';
 }
 function speakOfMembership(sessionName, project, kind, roster) {
   try {
@@ -2502,8 +2713,9 @@ module.exports = { memberValve, processMemberChanges, ageMemberChangesForTests, 
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
+  BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE,
   findBlock, spliceBlock, removeBlock, blockBody, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
-  folderPathPreview, makeFolder, revealFolder, setRevealRunner, listFiles, openFile,
+  folderPathPreview, makeFolder, revealFolder, setRevealRunner, setRevealPlatform, setFsWorldForTests, listFiles, openFile,
   isUnderTmpDir, tmpFolderRefused,
 };

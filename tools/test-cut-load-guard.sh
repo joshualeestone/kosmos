@@ -55,16 +55,25 @@ out="$(KOSMOS_FAKE_LOAD=20 KOSMOS_CUT_MAX_LOAD=10 kosmos_gate_or_abort "step G" 
 printf '%s\n' "$out" | grep -q "aborting the cut" && ok "gate_or_abort narrates the LOAD-attributed abort (not a test-red)" \
   || bad "gate_or_abort narration missing 'aborting the cut'"
 
-# --- LIVE parse (no fake seam), so a wrong-field regression is caught, not only the fake path.
-# kosmos_box_load_1min must extract sysctl's 1-min field (2), never the `{` or the 5-min load. ---
+# --- LIVE parse (no seam), so the live sysctl path is exercised: it must return a
+# numeric value. A single read, so nothing moves under it. ---
 live_load="$(kosmos_box_load_1min)"
 printf '%s' "$live_load" | grep -qE '^[0-9]+(\.[0-9]+)?$' \
   && ok "kosmos_box_load_1min returns a numeric 1-min load from live sysctl ($live_load)" \
   || bad "kosmos_box_load_1min live parse is non-numeric: [$live_load]"
-sys1="$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')"
-[ -n "$sys1" ] && [ "$live_load" = "$sys1" ] \
-  && ok "the live 1-min load matches sysctl's field 2 directly (guards the field index)" \
-  || bad "live load [$live_load] != sysctl field 2 [$sys1]"
+
+# --- FIELD INDEX, deterministic (#2749). The old arm read the live load a SECOND
+# time (a fresh sysctl) and asserted string-equality with the first read; the
+# 1-min load moves between reads, so a busy box red it for contention, not for a
+# wrong field. Instead hand the function a FIXED raw with three DISTINCT figures
+# via KOSMOS_LOADAVG_RAW and assert it returns field 2 (the 1-min). Distinct
+# fields mean a swap to the `{`, the 5-min or the 15-min is always caught; the
+# fixed input means no moving read; and because the live and seam paths share one
+# extraction, this guards the live field index too. ---
+got="$(KOSMOS_LOADAVG_RAW='{ 1.11 5.55 9.99 }' kosmos_box_load_1min)"
+[ "$got" = "1.11" ] \
+  && ok "kosmos_box_load_1min extracts field 2 (1-min) from the raw vm.loadavg, not field 1/3/4 (got $got)" \
+  || bad "field-index guard: expected 1.11 (field 2 of '{ 1.11 5.55 9.99 }'), got [$got]"
 # kosmos_top_cpu_consumers must skip the ps header row (never emit the PID/COMMAND line).
 top="$(kosmos_top_cpu_consumers 2)"
 printf '%s\n' "$top" | grep -qE '^[[:space:]]*PID' \
@@ -93,6 +102,96 @@ export REPO
 if out="$(bash -c 'set -euo pipefail; . "$REPO/tools/lib/cut-load-guard.sh"; KOSMOS_FAKE_LOAD=5 KOSMOS_CUT_MAX_LOAD=10 kosmos_wait_for_quiet_box "step E" 2 1; echo "returned:$?"' 2>&1)"; then erc=0; else erc=$?; fi
 printf '%s\n' "$out" | grep -q "returned:0" && ok "under set -euo pipefail as a direct caller, the guard returns cleanly (errexit-safe)" \
   || bad "errexit-safety: [$out] (erc=$erc)"
+
+# --- INTEGRATION (#2750). run-tests.sh's seen_before() banner reads the 1-min
+# load through kosmos_box_load_1min, not a second inline `sysctl | awk '{print $2}'`.
+# That call is `command -v`-guarded and fails OPEN (a missing/renamed function just
+# omits the banner line), so deleting the source or the call produces NO runtime
+# signal -- the banner silently stops showing load, or a second inline field-2 copy
+# creeps back. These grep arms ARE the signal, mirroring the integration arms in
+# tools/test-board-origin.sh. Distinctive fragments, not bare names, so the comment
+# in run-tests.sh (which mentions the function by name) does not satisfy them. ---
+RT="$REPO/tools/run-tests.sh"
+grep -qF '. "$REPO/tools/lib/cut-load-guard.sh"' "$RT" \
+  && ok "INTEGRATION: run-tests.sh SOURCES cut-load-guard.sh" \
+  || bad "INTEGRATION: run-tests.sh no longer sources cut-load-guard.sh -- its load banner falls back to omitting the line, silently"
+grep -qF 'load="$(kosmos_box_load_1min)"' "$RT" \
+  && ok "INTEGRATION: run-tests.sh reads the 1-min load via kosmos_box_load_1min" \
+  || bad "INTEGRATION: run-tests.sh no longer calls kosmos_box_load_1min -- a second inline field-2 copy has likely returned (#2750)"
+
+# --- #2760 P1: the overlap DECISION (kosmos_cut_parallel_ok). The load-bearing
+# half, so it is unit-tested here rather than only bash -n'd in release.sh -- the
+# same reason kosmos_gate_or_abort is tested above. Every assertion below pins the
+# DANGEROUS direction too: the default (flag off) MUST stay serial, and every
+# unreadable input MUST fall back to serial, because serial is the safe path. ---
+
+# defaults
+got="$(kosmos_cut_parallel_min_cores)"
+[ "$got" = "8" ] && ok "parallel min-cores default is 8 ($got)" || bad "min-cores default: got [$got], expected [8]"
+got="$(KOSMOS_CUT_PARALLEL_MIN_CORES=12 kosmos_cut_parallel_min_cores)"
+[ "$got" = "12" ] && ok "KOSMOS_CUT_PARALLEL_MIN_CORES overrides min-cores" || bad "min-cores override: got [$got], expected [12]"
+got="$(KOSMOS_CUT_PARALLEL_MIN_CORES=garbage kosmos_cut_parallel_min_cores)"
+[ "$got" = "8" ] && ok "a garbage min-cores override is ignored (falls back to 8, so the decision cannot fault)" || bad "min-cores garbage-override: got [$got], expected [8]"
+got="$(KOSMOS_CUT_PARALLEL_MIN_CORES=9999 kosmos_cut_parallel_min_cores)"
+[ "$got" = "9999" ] && ok "a 4-digit (in-range) min-cores override is honoured" || bad "min-cores 4-digit: got [$got], expected [9999]"
+got="$(KOSMOS_CUT_PARALLEL_MIN_CORES=99999999999999999999 kosmos_cut_parallel_min_cores)"
+[ "$got" = "8" ] && ok "an OVERLONG (5+ digit) min-cores override folds to the default 8, so it cannot wrap the 10# arithmetic and mis-decide (fail-safe gap flagged in review)" || bad "min-cores overlong: got [$got], expected [8] (fold, no wrap)"
+ncpu="$(sysctl -n hw.ncpu 2>/dev/null || echo 4)"
+expect="$(LC_ALL=C awk -v n="$ncpu" 'BEGIN { printf "%.1f", n * 0.5 }')"
+got="$(kosmos_cut_parallel_max_load)"
+[ "$got" = "$expect" ] && ok "parallel max-load default is 0.5x cores ($got)" || bad "max-load default: got [$got], expected [$expect]"
+got="$(KOSMOS_CUT_PARALLEL_MAX_LOAD=3 kosmos_cut_parallel_max_load)"
+[ "$got" = "3" ] && ok "KOSMOS_CUT_PARALLEL_MAX_LOAD overrides max-load" || bad "max-load override: got [$got], expected [3]"
+
+# the decision: 0 = parallelize, 1 = serial. Force cores+load via overrides so the
+# cases are deterministic on any box (a 2-core CI runner included).
+parok() { if eval "$1 kosmos_cut_parallel_ok"; then echo 0; else echo $?; fi; }
+
+# 1. the opt-in default: flag UNSET -> serial (the feature changes NO real cut)
+[ "$(parok 'KOSMOS_FAKE_LOAD=0.1 KOSMOS_CUT_PARALLEL_MIN_CORES=1')" = 1 ] \
+  && ok "DEFAULT (KOSMOS_CUT_PARALLEL unset) -> serial, even on a quiet many-core box" \
+  || bad "default should be serial: a cut with the flag unset must not parallelize"
+[ "$(parok 'KOSMOS_CUT_PARALLEL=0 KOSMOS_FAKE_LOAD=0.1 KOSMOS_CUT_PARALLEL_MIN_CORES=1')" = 1 ] \
+  && ok "KOSMOS_CUT_PARALLEL=0 -> serial" || bad "flag=0 should be serial"
+[ "$(parok 'KOSMOS_CUT_PARALLEL=yes KOSMOS_FAKE_LOAD=0.1 KOSMOS_CUT_PARALLEL_MIN_CORES=1')" = 1 ] \
+  && ok "KOSMOS_CUT_PARALLEL=yes (not exactly 1) -> serial" || bad "flag must be exactly 1"
+
+# 2. opt-in + enough cores + low load -> parallel
+[ "$(parok 'KOSMOS_CUT_PARALLEL=1 KOSMOS_FAKE_LOAD=0.1 KOSMOS_CUT_PARALLEL_MIN_CORES=1')" = 0 ] \
+  && ok "opt-in + enough cores + low load -> parallel" || bad "opt-in + quiet should parallelize"
+
+# 3. opt-in but too few cores -> serial (a 2-/4-core box has no spare cycles). Use 9999 (a
+#    4-digit, in-range threshold above any real core count); NOT 5+ digits, which the
+#    min-cores validator rejects as overlong and folds back to the default 8.
+[ "$(parok 'KOSMOS_CUT_PARALLEL=1 KOSMOS_FAKE_LOAD=0.1 KOSMOS_CUT_PARALLEL_MIN_CORES=9999')" = 1 ] \
+  && ok "opt-in but cores below the minimum -> serial" || bad "too few cores should be serial"
+
+# 4. opt-in but load too high -> serial
+[ "$(parok 'KOSMOS_CUT_PARALLEL=1 KOSMOS_FAKE_LOAD=999 KOSMOS_CUT_PARALLEL_MIN_CORES=1')" = 1 ] \
+  && ok "opt-in but load over max -> serial" || bad "high load should be serial"
+
+# 5. STRICTLY below: load == max -> serial (a box exactly at the threshold has no headroom)
+[ "$(parok 'KOSMOS_CUT_PARALLEL=1 KOSMOS_FAKE_LOAD=5 KOSMOS_CUT_PARALLEL_MAX_LOAD=5 KOSMOS_CUT_PARALLEL_MIN_CORES=1')" = 1 ] \
+  && ok "load == max-load -> serial (strictly-below required)" || bad "load==max should be serial"
+[ "$(parok 'KOSMOS_CUT_PARALLEL=1 KOSMOS_FAKE_LOAD=4.9 KOSMOS_CUT_PARALLEL_MAX_LOAD=5 KOSMOS_CUT_PARALLEL_MIN_CORES=1')" = 0 ] \
+  && ok "load just below max-load -> parallel" || bad "load<max should parallelize"
+
+# 6. fail-safe: an unreadable load -> serial (the OPPOSITE fail-direction from
+#    kosmos_load_over_threshold, which fails open; here serial is the safe path)
+[ "$(parok 'KOSMOS_CUT_PARALLEL=1 KOSMOS_LOADAVG_RAW=single_field_no_load KOSMOS_CUT_PARALLEL_MIN_CORES=1')" = 1 ] \
+  && ok "opt-in but unreadable load -> serial (fail-safe)" || bad "unreadable load should fall back to serial"
+
+# --- #2760 P1 INTEGRATION: release.sh must WIRE the decision into the gated-steps
+# region and keep both the START and END markers the behavioural test extracts
+# between (tools/test-cut-parallel-region.sh). Distinctive fragments so a prose
+# mention cannot satisfy them. ---
+RELSH="$REPO/tools/release.sh"
+grep -qF 'if kosmos_cut_parallel_ok; then _cut_parallel=1; fi' "$RELSH" \
+  && ok "INTEGRATION: release.sh gates the overlap on kosmos_cut_parallel_ok" \
+  || bad "INTEGRATION: release.sh no longer calls kosmos_cut_parallel_ok -- the overlap is unwired"
+grep -qF '#2760-P1 gated-steps region START' "$RELSH" && grep -qF '#2760-P1 gated-steps region END' "$RELSH" \
+  && ok "INTEGRATION: release.sh keeps both #2760-P1 region markers (the behavioural test extracts between them)" \
+  || bad "INTEGRATION: a #2760-P1 region marker is missing -- tools/test-cut-parallel-region.sh can no longer extract the region"
 
 echo ""
 if [ "$fails" -eq 0 ]; then

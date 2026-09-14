@@ -459,6 +459,11 @@ chk "PATH wiring wrote the sandbox profile" "grep -qxF '# kosmos: PATH for the k
 chk "PATH wiring wrote the export line (the functional half)" "grep -qF \"$SB/bin\" \"$SB/zprofile\""
 chk "the gold-K icon landed inside the app, intact" "[ \"\$(shasum -a 256 \"$SB/apps/Kosmos.app/Contents/Resources/Kosmos.icns\" 2>/dev/null | cut -d' ' -f1)\" = \"\$(shasum -a 256 \"$KOS_SRC/app/assets/Kosmos.icns\" | cut -d' ' -f1)\" ]"
 chk "the bundle declares its architecture (no Rosetta prompt)" "grep -q 'LSArchitecturePriority' \"$SB/apps/Kosmos.app/Contents/Info.plist\" && grep -q 'arm64' \"$SB/apps/Kosmos.app/Contents/Info.plist\""
+# #2810: the bundle must carry a NON-EMPTY NSAppleEventsUsageDescription, or macOS
+# silently denies "Open Terminal" osascript with -1743 (Automation/TCC) instead of
+# prompting (an empty usage string suppresses the prompt on some macOS versions).
+chk "the bundle can be prompted for Terminal Automation (#2810)" "[ -n \"\$(plutil -extract NSAppleEventsUsageDescription raw \"$SB/apps/Kosmos.app/Contents/Info.plist\" 2>/dev/null)\" ]"
+chk "the app Info.plist is well-formed plist XML" "plutil -lint \"$SB/apps/Kosmos.app/Contents/Info.plist\" >/dev/null 2>&1"
 chk "VERSION record installed" "[ -f \"$SB/home/VERSION\" ]"
 # 🛑 THE BOARD'S LOGIN JOB. Its absence is what made a reboot look like total
 # failure on 2026-08-22: the board died with the machine, nothing started it,
@@ -493,8 +498,16 @@ chk "the transcript ends on the thing the person still has to do" "grep -q 'One 
 # source, so a printf added later at runtime is caught too.
 chk "no success line is printed after the closing action" "! awk '/One more thing: typing/{f=1} f && /Kosmos is running|Open the Kosmos app/{found=1} END{exit !found}' \"$SB/install.log\""
 chk "the board gets a login job" "[ -f \"$BOARD_PLIST\" ]"
-chk "the login job starts THIS install's command" "grep -qF \"$SB/home/bin/kosmos\" \"$BOARD_PLIST\" && grep -q '<string>start</string>' \"$BOARD_PLIST\""
+# #2956: the login job runs THIS install's kosmos in the supervised FOREGROUND
+# entry (board-run), not the old fire-and-forget `start`.
+chk "the login job runs THIS install's board-run" "grep -qF \"$SB/home/bin/kosmos\" \"$BOARD_PLIST\" && grep -q '<string>board-run</string>' \"$BOARD_PLIST\""
 chk "the login job runs at login" "grep -q '<key>RunAtLoad</key><true/>' \"$BOARD_PLIST\""
+# #2956: launchd SUPERVISES the board (KeepAlive), keyed on the deliberate-stop
+# marker so `kosmos stop` still means stopped, and throttled so a crash cannot
+# hot-loop. The PathState key is the board.stopped path under THIS install's home.
+chk "the login job is supervised (KeepAlive)" "grep -q '<key>KeepAlive</key>' \"$BOARD_PLIST\""
+chk "supervision is keyed on the stop-marker (PathState board.stopped=false)" "/usr/libexec/PlistBuddy -c 'Print :KeepAlive:PathState' \"$BOARD_PLIST\" 2>/dev/null | grep -q 'board.stopped = false'"
+chk "the supervisor is throttled" "grep -q '<key>ThrottleInterval</key>' \"$BOARD_PLIST\""
 # ⚠️ Both of these were learned by bisecting a hand-written copy of this file
 # on the fleet Mac, and neither is cosmetic. launchd sets no PATH and no LANG:
 # without LANG tmux sanitises its format output, replacing the tab separators,
@@ -2107,8 +2120,15 @@ chk "#918 scenario-D (default KOSMOS_HOME) install exits 0" "rc_ok $RC"
 HOME="$D918_HOME_D" "$D918_HOME_D/.local/share/kosmos/bin/kosmos" stop > /dev/null 2>&1 || true
 chk "the port is genuinely free before #918's uninstall runs" "wait_port_free"
 
+# #2955: each install now writes a SECOND plist too -- the board watchdog
+# (com.kosmos.board.watchdog[.<hash>].plist) -- which the bare `com.kosmos.board*`
+# glob also matches. Count the BOARD labels by excluding the watchdog ones, so this
+# assertion keeps meaning "four distinct board labels" rather than silently counting
+# eight. The watchdog count is asserted on its own line just below.
 chk "four distinct board labels (three suffixed, one bare default) are registered in the shared launch dir before anything is torn down" \
-  "[ \"\$(ls \"$D918_LAUNCH\"/com.kosmos.board*.plist 2>/dev/null | wc -l | tr -d ' ')\" = 4 ]"
+  "[ \"\$(ls \"$D918_LAUNCH\"/com.kosmos.board*.plist 2>/dev/null | grep -v watchdog | wc -l | tr -d ' ')\" = 4 ]"
+chk "#2955: each of those installs also registered its board watchdog job (four watchdog plists)" \
+  "[ \"\$(ls \"$D918_LAUNCH\"/com.kosmos.board.watchdog*.plist 2>/dev/null | wc -l | tr -d ' ')\" = 4 ]"
 
 # 🔑 CHALLENGE-LOOP ITERATION 2: a plist shaped nothing like this file's own
 # writer produces -- ProgramArguments[1] is exactly "/bin/kosmos", no home

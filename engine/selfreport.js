@@ -152,7 +152,11 @@ function record(sessionName, entry) {
     };
   }
   /* 🛑 #900/#1949: AN AUTOMATIC `idle` OR `working` MAY NOT ERASE A DELIBERATE
-     `blocked` OR `needs_you`. The Stop hook fires at the end of EVERY turn and
+     `blocked` OR `needs_you`. (#2456 extends this rule below: an auto `needs_you`
+     may not erase a deliberate wait either, and an AUTO wait that is itself a
+     `needs_you` -- a permission prompt -- is NOT protected. Read to the #2456
+     paragraph for the current, full gate before relying on this heading.)
+     The Stop hook fires at the end of EVERY turn and
      writes idle, and the report hook fires working on EVERY PreToolUse, so a
      waiting state an agent filed mid-turn survived only until its own next
      command, seconds later. Latest-report-wins then rendered an agent waiting
@@ -177,10 +181,51 @@ function record(sessionName, entry) {
      continuous -- and CRUCIALLY an AGENT-WRITTEN report of ANY state still lands,
      because the guard tests `entry.auto`, not the word. A rule that refused
      every automatic write would strand the agent blocked forever; instead the
-     agent that genuinely resumes clears its own block by reporting it itself. */
-  if (entry.auto === true && (state === 'idle' || state === 'working')) {
+     agent that genuinely resumes clears its own block by reporting it itself.
+
+     🔑 #2456: THE WAIT THIS PROTECTS IS A *DELIBERATE* ONE, which is what the
+     heading above always said and the code did not check. A standing wait can
+     itself be AUTOMATIC: the PermissionRequest hook writes a `needs_you`
+     ("asking permission to use <tool>: ...", by:'auto'), and two things went
+     wrong because this guard treated it like a deliberate summons.
+       (1) NO-CLEAR: the auto working/idle that follows once the prompt resolves
+           (the next PreToolUse, or the turn-end Stop -> idle) was refused over
+           it, so the permission `needs_you` stuck on the board indefinitely
+           though nobody had anything to act on (measured: it stayed red across a
+           dozen further commands).
+       (2) CLOBBER: an auto `needs_you` overwrote an agent's DELIBERATE
+           `needs_you`, replacing the real question in `because` with the text of
+           a shell command -- the board's one red state then named something no
+           person needed to act on, and the real ask was gone.
+     The fix is NARROW, keyed on WHO wrote the standing wait and on its STATE
+     (`standing.by` + `standing.state`, both already stored). The ONE wait made
+     clearable/overwritable is a standing AUTO `needs_you` -- the permission
+     prompt, and the only thing #2456 measured. EVERYTHING ELSE stays protected
+     exactly as #900/#1949 left it:
+       - a DELIBERATE `needs_you`/`blocked` (by agent/operator): the agent's own
+         summons, protected from auto idle/working AND now from an auto
+         `needs_you` clobber;
+       - a legacy line with no mark (by:null), whose provenance is unknown and so
+         stays protected as before;
+       - an AUTO `blocked` (a StopFailure provider outage): machine-written but it
+         does NOT auto-resolve, so an auto idle/working must not clear it. Keying
+         only on `by` would have dropped this protection silently -- the outage
+         would vanish on the next PreToolUse heartbeat while still unresolved
+         (caught in review; #2456 measured needs_you, never blocked).
+     An AGENT re-reporting its own `needs_you` is by:'agent' (entry.auto is
+     falsey), so it still lands and can always update its own question; a
+     permission prompt fired when nothing is waiting still shows, because there is
+     no standing wait to protect. An INCOMING auto `blocked` is left unguarded, as
+     today -- a provider outage should surface even over a standing wait. */
+  if (entry.auto === true && (state === 'idle' || state === 'working' || state === 'needs_you')) {
     const standing = read(sessionName);
-    if (standing.found === true && WAITING_ON_A_PERSON.includes(standing.state)) {
+    const standingIsAutoPermissionWait = standing.found === true
+      && standing.state === 'needs_you'
+      && standing.by === 'auto';
+    const standingIsProtectedWait = standing.found === true
+      && WAITING_ON_A_PERSON.includes(standing.state)
+      && !standingIsAutoPermissionWait;
+    if (standingIsProtectedWait) {
       return {
         recorded: false,
         skipped: 'waiting',

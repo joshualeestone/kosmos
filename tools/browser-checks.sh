@@ -1082,6 +1082,10 @@ if boot_board "$sb7" "$P8"; then
   # #1938: the disk-scan board panel. Same board as render-found-undo (first-run
   # complete, agents tab); it mocks its own /api/scan-agents + connect + decline routes.
   run_one "render-scan-board"   node docs/browser-checks/render-scan-board.js "$B8"
+  # #1280: the org-chart import (fifth create option). Same first-run board as the
+  # create-flow checks above; it navigates to /?tab=create and mocks its own
+  # /api/team route, so it creates nothing real on this shared board.
+  run_one "render-orgchart-import-1280" node docs/browser-checks/render-orgchart-import-1280.js "$B8"
   # #1531: the adopt prompt. Same first-run board as render-found-undo; it mocks its
   # own /api/found-agents (adoptable folder), /api/connect-agent and decline routes,
   # so it registers and declines without touching the machine. Proven green + reds on
@@ -1093,6 +1097,9 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-role-order"   node docs/browser-checks/render-role-order.js "$B8"
   run_one "render-reload-toast"  env KOSMOS_URL="$B8" node docs/browser-checks/render-reload-toast.js "$sb7/shots-reload"
   run_one "render-updates-stale" env KOSMOS_URL="$B8" node docs/browser-checks/render-updates-stale.js "$sb7/shots-updates"
+  # win32-update-check: the Windows manual offer, the staging tag and the could-not-check states on
+  # the same Settings card. It stubs every update answer at the network edge, so any board serves.
+  run_one "render-update-win32-manual" env KOSMOS_URL="$B8" node docs/browser-checks/render-update-win32-manual.js "$sb7/shots-updates"
   run_one "render-switch-states" env KOSMOS_URL="$B8" node docs/browser-checks/render-switch-states.js
   # #2020/#2047: the two restored telemetry opt-out switches are 403-safe (a gated
   # read draws could-not-read, never a false Off). The 403 arm is simulated with
@@ -1134,7 +1141,7 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-full-width"   env KOSMOS_URL="$B8" node docs/browser-checks/render-full-width.js "$sb7/shots-fullwidth"
   run_one "render-offline-note"  env KOSMOS_URL="$B8" node docs/browser-checks/render-offline-note.js "$sb7/shots-offline" "$B8_PID"
 else
-  for n in contrast named-controls render-create-form render-found-undo render-scan-board render-adopt-1531 render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-switch-states render-optout-403-2020 render-settings-403-2047 render-first-run render-gated-next render-permission-slider-2620 render-token-usage-2617 render-boot-no-flash render-theme-toggle render-full-width render-offline-note; do FAILED+=("$n (server did not boot)"); done
+  for n in contrast named-controls render-create-form render-found-undo render-scan-board render-orgchart-import-1280 render-adopt-1531 render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-switch-states render-optout-403-2020 render-settings-403-2047 render-first-run render-gated-next render-permission-slider-2620 render-token-usage-2617 render-boot-no-flash render-theme-toggle render-full-width render-offline-note; do FAILED+=("$n (server did not boot)"); done
 fi
 # #812 batch 2 (retried after the first attempt found four checks that
 # assumed compatibility with B8's fixture instead of verifying it -- those
@@ -1195,6 +1202,18 @@ fi
 # pre-#2012 page (content column 544px not full-width, header max-width calc(...34rem)
 # not none, #d-window 560px not viewport-relative, no message-body measure), which is
 # the arm that makes the 5 mean anything.
+# render-talk-fill-2622 joins the same way (#2622 part 2, the Talk dialog box fills to
+# the bottom of the window): own mktemp roots, OS-chosen port via srv.start(0),
+# server.js in-process, fleet.install, runs bare. It measures the Talk box bottom
+# against the viewport bottom at THREE window sizes -- 1100 and 700 tall (two-column),
+# and 500x900 narrow (single-column, below the 56rem breakpoint) -- and the fill arms
+# are written to RED on the pre-change page (where #d-talk-box was content-height and
+# sat hundreds of px above the window bottom -- the "big empty gap"). It also asserts
+# the thread scrolls INTERNALLY on a long conversation AND grows past the old 15rem cap
+# (A5a/A5b), the composer pins near the bottom, the wrapped nav row does not balloon at
+# narrow width (A2c, guarding the grid-template-rows fix), and -- the scoping arm -- that
+# a non-Talk section (Model) stays content-height, which is what makes the :has()-gated
+# fill safe.
 # render-firstrun-namestep-1994wiz joins the same way (#1994, Josh's live name-step
 # fixes): own mktemp roots, OS-chosen port via srv.start(0), server.js in-process,
 # fleet.install, runs bare. Proven standalone 12/12 green, and proven RED against the
@@ -1225,6 +1244,14 @@ fi
 # node ONLY, and NO ::after state arc on any node. Proven RED by reverting the node
 # render to the old `class="onode' + ring` + `.onode.attn::after` (the badge-only and
 # no-::after arms fail); a fixed non-reading arc reds the arc-tracks-reading arm.
+# render-dm-badges-2863 joins the same way (#2863, the unread-DM bubble on the LIST
+# row and the ORG node -- the follow-up to the grid-card badge #2885): own mktemp
+# roots, OS-chosen port via srv.start(0), server.js in-process, fleet.install (one
+# needs_you agent + two others), runs bare across both themes. It seeds a.dmUnread on
+# LAST, re-drives the real list (alist = LAST.map(lrow)) and paintOrg, and asserts the
+# badge renders + is laid out (not clipped by the overflow:hidden list avatar), sits at
+# the avatar corner on the list and TOP-LEFT on the org node (opposite the top-right
+# needs-you badge so they never collide), with a no-unread negative control on each.
 # render-worlds-switcher-1704 joins the same way (#1704 slice-3, the multiple-Kosmos
 # switcher): own mktemp roots, OS-chosen port via srv.start(0), server.js in-process,
 # fleet.install, runs bare. It drives GET /api/worlds (the switcher lists worlds, one
@@ -1253,7 +1280,7 @@ fi
 # rejected account is excluded as a run target, an unchecked one stays offered+labelled). Proven RED
 # on the pre-fix page by observed behavior ("3 accounts connected", no move prompt for a rejected
 # account, rejected offered at create); no server, so it sits in this no-URL loop.
-for n in live-connect render-agent-nav render-busy-line render-reauth-reach-1918 render-account-badge-1921 render-disconnect-stop-2570 render-account-name-2095 render-account-dup-reauth-2584 render-observed-consumers-1959 render-workchip-zero-2157 render-createnav-2190 render-head-row render-room-scroll render-talk-anchor-1926 render-made-before render-detail-header-1841 render-detail-ring-1915 render-org-rings-2576 render-agentpage-fullwidth-2012 render-engmode-gate-2131 render-firstrun-namestep-1994wiz render-firstrun-enter-2186 render-firstrun-connect-box-2187 render-firstrun-connect-fires render-firstrun-access-onebox render-firstrun-stepcap-gear-0640 render-firstrun-openai-connectbox-2241 render-firstrun-openai-sub-2621 render-settings-openai-goldbox render-claude-connect-choice-2433 render-connect-win32-install-570 render-sound-master-2436 render-build-marker-2066 render-openai-only-2096 render-picker-provider-2097 render-create-openai-model-2140 render-detail-openai-model-2140 render-firstrun-model-continue-2134 render-firstrun-s6-2037 render-tophead-consolidated-2282 render-memory-words render-org-drag render-pjsettings render-settings-nav render-plus-gate-1615 render-prompter-label-1843 render-restarting-2019 render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-model-restart-interstitial render-alltasks emoji-picker-2254 render-composer-reset render-agent-lines render-long-title render-project-rows render-richtext-2067 render-richtext-room-2239 render-reactions-2255 render-firstrun-import-1652 render-firstrun-scan-on-grant-1652 render-firstrun-wizard-flow render-import-add-inplace-2419 render-addmem-flash-2429 render-bubblepop-2407 render-subprojects-1994 render-projects-map render-pj-clear-2575 render-autohello-2686 render-autohello-switch-2716 render-worlds-switcher-1704 render-worldswitch-2238 render-worldsw-abandon-2628 render-worldrename-1704 render-world-import-2563 render-worldsw-height-2350 render-emoji-mute-2357 render-pjmsg-prewrap-2294 render-model-spinners-2365 render-workindicator-2146 render-plus-blue-1615 render-trust-restart-0644 render-open-terminal-0644 render-provider-combobox-1040 render-inline-field-errors-2606 render-restore-dircheck-2615 render-frnav-2647 render-remove-force-2651; do
+for n in live-connect render-agent-nav render-busy-line render-room-busy-scope-2882 render-reauth-reach-1918 render-account-badge-1921 render-disconnect-stop-2570 render-account-name-2095 render-account-dup-reauth-2584 render-observed-consumers-1959 render-workchip-zero-2157 render-createnav-2190 render-head-row render-room-scroll render-talk-anchor-1926 render-made-before render-detail-header-1841 render-detail-ring-1915 render-org-rings-2576 render-dm-badges-2863 render-agentpage-fullwidth-2012 render-engmode-gate-2131 render-firstrun-namestep-1994wiz render-firstrun-enter-2186 render-firstrun-connect-box-2187 render-firstrun-connect-fires render-firstrun-access-onebox render-firstrun-stepcap-gear-0640 render-firstrun-openai-connectbox-2241 render-firstrun-openai-sub-2621 render-chatgpt-signin-no-name-2913 render-settings-openai-goldbox render-claude-connect-choice-2433 render-connect-win32-install-570 render-win32-board-copy render-sound-master-2436 render-build-marker-2066 render-openai-only-2096 render-picker-provider-2097 render-create-openai-model-2140 render-detail-openai-model-2140 render-firstrun-model-continue-2134 render-firstrun-s6-2037 render-tophead-consolidated-2282 render-memory-words render-org-drag render-pjsettings render-settings-nav render-plus-gate-1615 render-prompter-label-1843 render-restarting-2019 render-talk-search render-talk render-talk-fill-2622 render-agent-msg-gray-2805 render-room-msgbox-2806 render-tasks render-url-state render-memory-controls render-model-change render-model-restart-interstitial render-restart-kloader-2831 render-pjadd-back-2850 render-reassign-restart-2829 render-alltasks emoji-picker-2254 render-composer-reset render-agent-lines render-long-title render-project-rows render-richtext-2067 render-richtext-room-2239 render-reactions-2255 render-firstrun-import-1652 render-firstrun-scan-on-grant-1652 render-firstrun-wizard-flow render-import-add-inplace-2419 render-addmem-flash-2429 render-bubblepop-2407 render-subprojects-1994 render-cons-tree-2929 render-cluster-reorder-2929 render-consolidated-settings-2842 render-projects-map render-pj-clear-2575 render-qask-clear-2808 render-autohello-2686 render-autohello-switch-2716 render-worlds-switcher-1704 render-worldswitch-2238 render-worldsw-abandon-2628 render-worldrename-1704 render-world-import-2563 render-worldsw-height-2350 render-emoji-mute-2357 render-pjmsg-prewrap-2294 render-model-spinners-2365 render-workindicator-2146 render-plus-blue-1615 render-trust-restart-0644 render-open-terminal-0644 render-provider-combobox-1040 render-inline-field-errors-2606 render-restore-dircheck-2615 render-frnav-2647 render-remove-force-2651 render-discovery-gate-2651 render-profile-field-widths-2697 render-project-needsyou-2699 render-codex-account-picker-2811 render-mention-blue-2922 render-worldhide-2935; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
 # --- the rich board: four checks that could not be wired for want of a fixture

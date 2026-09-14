@@ -84,6 +84,7 @@ function make(opts) {
   const remove = o.remove || require('./remove');
   const status = o.status || require('./status');
   const store = o.store || require('./store');
+  const launchidentity = o.launchidentity || require('./launchidentity'); // #1704: this board's Kosmos
   return function createdRoster(excludeKeys) {
     // A failed look must refuse honestly, exactly like the discover sources. Every
     // external read here is wrapped so the "never throws -> []" contract in the
@@ -108,13 +109,21 @@ function make(opts) {
     const exclude = excludeKeys instanceof Set ? excludeKeys : new Set();
     let files;
     try { files = fsMod.readdirSync(create.AGENTS_DIR); } catch { return []; }
-    const PREFIX = create.serviceLabel('');   // "com.kosmos.agent."
     const SUFFIX = '.plist';
+    const myWorld = launchidentity.currentWorldId();
     const seen = new Set();
     const out = [];
     for (const f of files) {
-      if (!f.startsWith(PREFIX) || !f.endsWith(SUFFIX)) continue;
-      const name = f.slice(PREFIX.length, f.length - SUFFIX.length);
+      if (!f.endsWith(SUFFIX)) continue;
+      /* #1704: attribute each plist to a Kosmos by its label. This board rosters
+         ONLY its own world (a default board drops `*+*`, a named board keeps only
+         its own), and `name` is the BARE agent name -- never the `<name>+<world>`
+         key -- so readJob/workerDir/safeKey below re-key it correctly to this
+         world instead of double-keying it. The prefix match is world-independent
+         (create.SERVICE_LABEL_PREFIX), because serviceLabel('') is not any more. */
+      const parsed = create.parseServiceLabel(f.slice(0, f.length - SUFFIX.length));
+      if (!parsed || parsed.worldId !== myWorld) continue;
+      const name = parsed.name;
       // readJob validates the plist is a real Kosmos job; a foreign/malformed
       // plist under the prefix returns null and is not one of ours.
       let job = null;

@@ -1,0 +1,107 @@
+#!/bin/bash
+# The node-runtime cache (get-cuts-out-faster #2760, lever 1, in
+# tools/build-kosmos-bundle.sh) must stay a SPEED optimisation, never a trust
+# shortcut. A cut re-downloads node's ~35 MB runtime every time though nodejs.org
+# publishes each version's bytes immutably; caching the verified tarball across cuts
+# skips the download. The invariant this guards: the bytes ACTUALLY USED -- cached OR
+# freshly downloaded -- are checksum-verified against nodejs.org's SHASUMS256 BEFORE
+# extraction, and the cache is populated only with verified bytes. If a future edit let
+# a cached (possibly poisoned) tarball reach `tar -xzf` without that verify, this test
+# reds. Behavioural hit/miss/poison correctness was proven by hand against real bytes;
+# this file guards the STRUCTURE that keeps the guarantee, without a network download in
+# the suite.
+set -u
+HERE="$(cd "$(dirname "$0")" && pwd)"
+SRC="$HERE/build-kosmos-bundle.sh"
+fails=0
+ok() { echo "PASS  $1"; }
+no() { echo "FAIL  $1"; fails=$((fails+1)); }
+
+line_of() { grep -nF "$1" "$SRC" 2>/dev/null | head -1 | cut -d: -f1; }
+
+# The cache dir is operator-overridable, so a cut box (or a test) picks its own.
+grep -qF 'NODE_CACHE="${KOSMOS_NODE_CACHE:-' "$SRC" \
+  && ok "cache dir honours KOSMOS_NODE_CACHE" \
+  || no "cache dir is not overridable via KOSMOS_NODE_CACHE"
+
+# THE LOAD-BEARING SOURCE PIN: the whole checksum defense rests on the download SOURCE being
+# hardcoded to nodejs.org. An overridable base URL would let a caller serve BOTH a poisoned
+# tarball AND a matching SHASUMS256, so the verify would pass on poisoned bytes. Only the cache
+# DIR is overridable (checked above); BASE must not be. We assert BASE is assigned EXACTLY ONCE
+# and that one assignment is the hardcoded nodejs.org literal, so the realistic override shapes
+# all red it: a second `BASE="$VAR"` line or an inline `then BASE="$X"` reassignment raise the
+# count above 1, and an env-default `BASE="${...}"` leaves the single line no longer matching the
+# literal. This is a structural proxy, not a proof of the absence of every conceivable injection.
+base_defs="$(grep -oE '(^|[^A-Za-z0-9_])BASE="' "$SRC" | wc -l | tr -d ' ')"   # -o counts OCCURRENCES, so two BASE=" on one line also count as 2
+{ [ "$base_defs" -eq 1 ] && grep -qE '^[[:space:]]*BASE="https://nodejs\.org/dist/' "$SRC"; } \
+  && ok "the node download source is a single hardcoded nodejs.org assignment (no overridable base URL)" \
+  || no "the node download BASE is not exactly one hardcoded nodejs.org assignment (base_defs=$base_defs; source may have become overridable)"
+
+S="$(line_of 'curl -fsSL "$BASE/SHASUMS256.txt"')"          # the authoritative checksums are actually FETCHED (not a comment)
+W="$(line_of 'WANT="$(grep')"                               # WANT extracted from them
+C="$(line_of 'cp "$NODE_CACHE/$TARBALL" "$TMP/$TARBALL"')"  # the cache-hit copies INTO the same "$TMP/$TARBALL" the verify+extract use
+V="$(line_of 'checksum mismatch on $TARBALL')"              # the final verify's abort message
+T="$(line_of 'tar -xzf "$TMP/$TARBALL"')"                   # extraction of the (by now verified) bytes
+G="$(line_of 'if [ "$(shasum -a 256 "$TMP/$TARBALL"')"      # the populate CHECKSUM gate: keeps the write coupled to the checksum-match (not merely to a mkdir), and is content-anchored so a reformat of the trailing line-continuation does not red it. Unique: the cache-hit gate hashes "$NODE_CACHE/$TARBALL" and the final verify is `GOT="$(...`, so head -1 lands on this populate gate.
+P="$(line_of 'cp "$TMP/$TARBALL" "$NODE_CACHE')"            # the cache write
+
+# WANT must be resolved from the freshly-fetched SHASUMS before any cache decision.
+{ [ -n "$S" ] && [ -n "$W" ] && [ -n "$C" ] && [ "$W" -gt "$S" ] && [ "$C" -gt "$W" ]; } \
+  && ok "SHASUMS + WANT are resolved before the cache-hit copy" \
+  || no "the checksum is not resolved before the cache decision (S=$S W=$W C=$C)"
+
+# THE INVARIANT, part 1: the cache-hit copies into "$TMP/$TARBALL" -- the SAME path the final
+# verify and tar operate on -- and the verify sits AFTER that copy, so a cached tarball is
+# verified exactly like a downloaded one and cannot slip in via an unverified destination.
+{ [ -n "$C" ] && [ -n "$V" ] && [ "$V" -gt "$C" ]; } \
+  && ok "the cache-hit copies to the verified path and is verified after it (V>C)" \
+  || no "the cache-hit copy is not covered by the final verify: a cached tarball could bypass it (C=$C V=$V)"
+
+# THE INVARIANT, part 2: extraction happens ONLY after the final verify. This guards the
+# "verified BEFORE extraction" half -- an edit that moved tar -xzf ahead of the verify (or the
+# verify after extraction) would let unverified bytes reach tar, and this assertion reds.
+{ [ -n "$V" ] && [ -n "$T" ] && [ "$T" -gt "$V" ]; } \
+  && ok "the bytes are extracted only after the checksum verify (tar after verify, T>V)" \
+  || no "extraction is not gated behind the final verify: unverified bytes could reach tar (V=$V T=$T)"
+
+# THE INVARIANT, part 3: the final verify must be UNCONDITIONAL. Line-order alone (V>C, T>V) cannot
+# see the verify being made conditional, and there are TWO shapes; each is caught by one check below.
+# Shape A -- a SECOND NODE_CACHED conditional wrapping the verify: the runtime block has exactly one
+# NODE_CACHED conditional (the download-fallback gate), so a second raises this count and reds.
+# `if .*NODE_CACHED` matches `[ ` and `[[ ` and any operator.
+nc_conds="$(grep -cE 'if .*NODE_CACHED' "$SRC")"
+[ "$nc_conds" -eq 1 ] \
+  && ok "no second NODE_CACHED conditional (verify not wrapped in a new one)" \
+  || no "there is more than one NODE_CACHED conditional (nc_conds=$nc_conds): the verify may have been wrapped and a cached tarball could reach tar unverified"
+# Shape B -- EXTENDING the existing download gate's `fi` down past the verify (so a cache hit skips
+# it): both the populate `fi` and the download-gate `fi` currently close BEFORE the GOT verify, i.e.
+# exactly two `fi` lines sit between the gate and the verify. Extending the gate past the verify
+# leaves only one, and this reds. (This shape also self-destructs at runtime: GOT would be unset on
+# the cache-hit path and `set -u` aborts -- but the test guards it directly rather than relying on that.)
+nc_if_ln="$(line_of 'if [ "$NODE_CACHED" -eq 0 ]')"
+got_ln="$(line_of 'GOT="$(shasum -a 256 "$TMP/$TARBALL"')"   # unique: the populate gate is `if [ "$(shasum...`, only the verify is `GOT="$(shasum...`
+fis_between="$(awk -v a="$nc_if_ln" -v b="$got_ln" 'NR>a && NR<b && /^[[:space:]]*fi$/' "$SRC" | wc -l | tr -d ' ')"
+{ [ -n "$nc_if_ln" ] && [ -n "$got_ln" ] && [ "$got_ln" -gt "$nc_if_ln" ] && [ "$fis_between" -eq 2 ]; } \
+  && ok "the download gate closes before the verify (verify not swallowed by extending its fi)" \
+  || no "the fi count between the NODE_CACHED gate and the verify is not 2 (fis_between=$fis_between nc_if=$nc_if_ln got=$got_ln): the verify may now sit inside the gate"
+
+# The cache is POPULATED only after a checksum match, so a bad download never poisons it.
+{ [ -n "$G" ] && [ -n "$P" ] && [ "$P" -gt "$G" ]; } \
+  && ok "the cache is written only with checksum-verified bytes" \
+  || no "the cache-populate is not gated on a checksum match (G=$G P=$P)"
+
+# AVAILABILITY INVARIANT (a cache must never fail a real cut). Two halves, both errexit-load-bearing:
+# (1) the cache READ copy sits INSIDE the if-condition (`&& cp ... 2>/dev/null`), so a failed read is
+#     a false branch that falls back to a download, not an errexit abort. If a future edit moved the
+#     cp into the then-body (dropping the `&&`/`2>/dev/null` guard form), this anchor empties and reds.
+grep -qF '&& cp "$NODE_CACHE/$TARBALL" "$TMP/$TARBALL" 2>/dev/null' "$SRC" \
+  && ok "the cache-read copy is guarded inside the if-condition (a failed read falls back, never aborts the cut)" \
+  || no "the cache-read cp is not in the if-condition: a copy failure could abort a real cut under errexit"
+# (2) the cache WRITE cleanup ends in `|| :`, which swallows the non-zero exit an EXISTING but
+#     unwritable cache dir produces (mkdir passes, cp/rm fail) before errexit turns it into a cut abort.
+grep -qF 'rm -f "$NODE_CACHE/.$TARBALL.$$" 2>/dev/null || :' "$SRC" \
+  && ok "the cache-write cleanup ends in || : (an unwritable cache dir never aborts the cut)" \
+  || no "the cache-write cleanup lost its trailing || : ; an unwritable cache dir could abort a real cut"
+
+echo "node-runtime cache: $fails failures"
+exit $((fails > 0))

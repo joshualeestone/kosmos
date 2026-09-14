@@ -1,0 +1,6 @@
+// Root build script. The Android Gradle Plugin is declared here and applied in
+// app/build.gradle. Pinned to AGP 8.6.1, which is the minimum that supports
+// compileSdk 35 (the only Android platform installed on this box).
+plugins {
+    id 'com.android.application' version '8.6.1' apply false
+}

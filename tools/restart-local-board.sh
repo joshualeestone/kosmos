@@ -61,6 +61,10 @@
 set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 LABEL="com.kosmos.board"
+# #2860: the ONE board deploy-shape classifier, shared with tools/release.sh so the two
+# cannot drift. Sourced unguarded under set -e: a lib this script cannot load should
+# abort, not silently fall back to a private copy of the derivation.
+. "$REPO/tools/lib/board-shape.sh"
 CHECK=0
 [ "${1:-}" = "--check" ] && CHECK=1
 
@@ -82,13 +86,21 @@ WAIT_SECS=$(( 10#$WAIT_SECS ))
 # disk (this repo's package.json). Overridable so the test can name a version its
 # stub controls.
 want_version() {
+  # $1 is the directory the board ACTUALLY runs from -- its package.json holds the
+  # version a restart must bring the board back on. It defaults to this repo (shape
+  # (a), the historical case); the libexec deploy (shape (b), #1164) passes its DEST
+  # so the wanted version is the code DEPLOYED there, not this checkout's. Reading
+  # the wrong source would either mis-report a healthy libexec board as stale (repo
+  # ahead of DEST) or paper over a genuinely stale one, so it is read from the same
+  # place the board loads from.
+  local _srcdir="${1:-$REPO}"
   # Honoured when SET even to empty (the test's empty case), so the empty-target
   # guard in wait_for_want can be exercised; a `:-` default would treat an explicit
   # empty as unset and fall through to package.json. Same idiom as refresh-local-cli.
   if [ "${KOSMOS_BOARD_WANT+set}" = set ]; then
     printf '%s' "$KOSMOS_BOARD_WANT"
   else
-    node -e "console.log(JSON.parse(require('fs').readFileSync('${REPO}/package.json','utf8')).version)"
+    node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).version)' "$_srcdir/package.json"
   fi
 }
 
@@ -212,24 +224,48 @@ if [ -z "$INFO" ]; then
   echo "   no ${LABEL} job on this Mac, so nothing to restart (an installed Kosmos updates itself)"
   exit 0
 fi
-WD="$(printf '%s\n' "$INFO" | sed -n 's/^[[:space:]]*working directory = //p' | head -1)"
-if [ "$WD" != "$REPO" ]; then
-  echo "   ${LABEL} runs from ${WD:-<unknown>}, not from this repo (${REPO}); leaving it alone"
-  exit 0
-fi
+WD="$(board_shape_working_dir "$INFO")"
+# 🔑 SHAPE DETECTION (#1164). com.kosmos.board runs in one of three shapes across
+# the fleet, told apart by the launchd job's WORKING DIRECTORY:
+#   (a) repo working tree -- WD == this checkout. The #360 hazard; a restart brings
+#       the board back on the code ON DISK here.
+#   (b) libexec deploy    -- WD == install-board.sh's DEST (same KOSMOS_BOARD_LIBEXEC
+#       override, so the two agree by construction). A restart brings the board back
+#       on the code DEPLOYED into DEST.
+#   (c) end-user bundle   -- WD is neither (an installed Kosmos's login job runs
+#       `/bin/bash .../.local/share/kosmos/bin/kosmos board-run` -- post-#2956 that
+#       is `board-run`, not the pre-#2956 `kosmos start`; either way its job has NO
+#       working directory line at all, so WD parses EMPTY, which is the load-bearing
+#       fact this detection keys on). That install updates itself; the release
+#       must not touch it.
+# We act ONLY on (a) and (b): for both, a restart returns the board to a version we
+# can NAME (from the dir it runs from) and VERIFY. 🛑 FAIL SAFE: any WD we cannot
+# POSITIVELY match to (a) or (b) -- shape (c), an empty WD, or anything unrecognised
+# -- is left completely alone (exit 0). Bouncing a bundle board would disrupt a Mac
+# that is using Kosmos normally, so an unknown shape is a silent no-op, never a guess.
+LIBEXEC="$(board_shape_libexec_default)"
+case "$(board_shape_of "$WD" "$REPO" "$LIBEXEC")" in
+  repo)    BOARD_SRC="$REPO";    SHAPE_DESC="this repo (${REPO})" ;;
+  libexec) BOARD_SRC="$LIBEXEC"; SHAPE_DESC="the libexec deploy (${LIBEXEC})" ;;
+  *)
+    echo "   ${LABEL} runs from ${WD:-<unknown>}, which is neither this repo (${REPO}) nor the libexec deploy (${LIBEXEC}); leaving it alone"
+    exit 0 ;;
+esac
 PORT="$(printf '%s\n' "$INFO" | sed -n 's/.*PORT => \([0-9]*\).*/\1/p' | head -1)"
 [ -n "$PORT" ] || PORT=16180
 STATUS_URL="${KOSMOS_BOARD_STATUS_URL:-http://127.0.0.1:${PORT}/api/status}"
 BEFORE="$(curl -s -m 3 "$STATUS_URL" 2>/dev/null | node -e "let s='';process.stdin.on('data',(c)=>s+=c).on('end',()=>{try{const d=JSON.parse(s);console.log((d.version||'?')+' started '+((d.engine&&d.engine.startedAt)||'?'))}catch{console.log('not answering')}})" 2>/dev/null || echo "not answering")"
 if [ "$CHECK" = 1 ]; then
-  echo "   ${LABEL} runs from this repo on port ${PORT}: ${BEFORE}"
+  echo "   ${LABEL} runs from ${SHAPE_DESC} on port ${PORT}: ${BEFORE}"
   exit 0
 fi
-echo "   ${LABEL} runs from this repo (was ${BEFORE}); restarting it"
+echo "   ${LABEL} runs from ${SHAPE_DESC} (was ${BEFORE}); restarting it"
 launchctl stop "gui/${UID_NOW}/${LABEL}" 2>/dev/null || launchctl stop "${LABEL}"
 # KeepAlive brings it back; wait a generous deadline for it to answer with the code
 # on disk. See the #2044 note above: a fixed 10s cap raced launchd's 10s respawn
 # throttle and false-failed healthy cuts. #2109: a board still SILENT after the
 # deadline is a warning (it comes back on the code on disk), only a board SERVING
-# STALE code fails the cut.
-board_outcome_exit "$STATUS_URL" "$(want_version)"
+# STALE code fails the cut. The wanted version is read from the dir the board runs
+# from (BOARD_SRC), so a libexec board (shape (b)) is verified against its DEPLOYED
+# code, not this checkout's (#1164).
+board_outcome_exit "$STATUS_URL" "$(want_version "$BOARD_SRC")"

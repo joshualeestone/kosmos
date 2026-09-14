@@ -23,12 +23,37 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 
+# #2858: strip the ambient Codex-home vars ONCE here, at the single runner every
+# `yarn test` (and the canonical validation / pre-challenge gate) routes through,
+# so the whole suite -- node AND `yarn test:shell`, every test including ones not
+# yet written -- is isolated from whoever invoked it. Invoking the suite from a
+# Codex (gpt) agent's session inherits that agent's live CODEX_HOME (e.g.
+# /Users/<u>/.codex-work2), and the tests that read it (server.create-live-1903,
+# server.openai-badge-2413, openaiaccounts.delete-primary-2684) then read real
+# agent state and RED with 17 false failures. BOTH names are stripped on purpose:
+# the current leak is through the bare CODEX_HOME, while #1412's outward-
+# contamination fix routes through the sandboxed AGENT_WORKFORCE_CODEX_HOME --
+# stripping only one leaves the other path open. This guards the BOUNDARY once,
+# rather than patching each test (#1412 was the same boundary fixed per-test, and
+# the class re-opened two weeks later through different tests). A test that needs a
+# Codex home sets its OWN (a sandbox path) inside the test, so removing the
+# inherited ambient value cannot break it. `unset` of an already-unset var is a
+# no-op under `set -u`, and nothing in this runner reads either var.
+unset CODEX_HOME AGENT_WORKFORCE_CODEX_HOME
+
 # #708: label a live board's cwd as the main checkout / a worktree / neither.
 # Sourced HERE rather than beside the cut-guard source below, because
 # seen_before() runs before that point. Fail-open exactly like that one: if the
 # lib is missing the function is undefined and the caller falls back to the bare
 # path, which is what this file printed before #708.
 . "$REPO/tools/lib/board-origin.sh" 2>/dev/null || true
+# #2750: the 1-minute load in seen_before()'s banner is read through
+# kosmos_box_load_1min (the one owner of "field 2 of vm.loadavg is the 1-min
+# load"), rather than a second inline copy of that fact. Sourced HERE beside
+# board-origin, and for the same reason: seen_before() runs before the cut-guard
+# source below. Same fail-open contract -- if the lib is missing the function is
+# undefined and seen_before falls back to omitting the load line.
+. "$REPO/tools/lib/cut-load-guard.sh" 2>/dev/null || true
 
 # #2439 fleet-safety: disable the one-time AgentWorkforce -> Kosmos migration for the
 # WHOLE suite. That migration is triggered by store.root(), so ANY test that reaches
@@ -90,8 +115,12 @@ seen_before() {
   gates="$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'kosmos-bc.*' -mmin -15 2>/dev/null | wc -l | tr -d ' ')"
   [ "${gates:-0}" -gt 0 ] && lines+=("$gates browser-check sandbox(es) touched in the last 15 minutes, so a page gate was probably running")
   # Load against cores: a stalled spawn (#704) is what a high number looks like.
-  local load cores
-  load="$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')"
+  # #2750: read the 1-min load through the shared kosmos_box_load_1min rather than
+  # a second inline `sysctl | awk '{print $2}'`. `command -v` guarded (matching
+  # board_cwd_note above) so a missing lib just omits the line, and load is
+  # pre-initialised for `set -u` since the guard may leave it unassigned.
+  local load="" cores=""
+  command -v kosmos_box_load_1min >/dev/null 2>&1 && load="$(kosmos_box_load_1min)"
   cores="$(sysctl -n hw.ncpu 2>/dev/null)"
   [ -n "$load" ] && lines+=("1-minute load $load on ${cores:-?} cores")
   printf '%s
@@ -202,6 +231,16 @@ if [ "$_considered" -ne "$_exist" ]; then
   exit 1
 fi
 
+# --- #3011: snapshot the real ~/Library/LaunchAgents before the suite runs ----
+# A test that creates agents without sandboxing AGENT_WORKFORCE_LAUNCH leaks a real
+# com.kosmos.agent.* plist into launchd (phantom agents on the board). Snapshot the
+# real set now; the leak check after the suite refuses any created or modified during
+# it. Fail-soft: a snapshot failure leaves an empty baseline, never a false red here.
+. "$(dirname "$0")/lib/launchagent-leak-guard.sh"
+_la_guard_dir="${HOME}/Library/LaunchAgents"
+_la_guard_before="$(mktemp "${TMPDIR:-/tmp}/la-leak-before.XXXXXXXXXX")" || _la_guard_before=""
+[ -n "$_la_guard_before" ] && launchagent_snapshot "$_la_guard_dir" > "$_la_guard_before"
+
 # --- the suite ----------------------------------------------------------------
 # Run the SAME set the coverage assertion counted, so the count and the run cannot drift.
 node --test "${KOSMOS_TEST_FILES[@]}" "$@"
@@ -209,6 +248,16 @@ NODE_STATUS=$?
 if [ "$NODE_STATUS" -eq 0 ]; then
   yarn -s test:shell
   NODE_STATUS=$?
+fi
+# --- #3011: refuse if the suite created or modified a real com.kosmos.agent.* plist -
+# The whole-suite guard for the leak class (a test missing its AGENT_WORKFORCE_LAUNCH
+# sandbox). Runs regardless of the test verdict, so a leak is reported even beside a red.
+if [ -n "$_la_guard_before" ]; then
+  if ! launchagent_leak_check "$_la_guard_dir" "$_la_guard_before"; then
+    echo "run-tests: #3011 LEAK -- the suite created or modified real LaunchAgents (a create/discover test is missing 'process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, \"LaunchAgents\")'). Leaked plists listed above; move them out of ~/Library/LaunchAgents and sandbox that test." >&2
+    [ "$NODE_STATUS" -eq 0 ] && NODE_STATUS=1
+  fi
+  rm -f "$_la_guard_before"
 fi
 # --- #1720: the repo-local browser-check gate ---------------------------------
 # A committed web/ change must carry a docs/browser-checks/ assertion update, or an

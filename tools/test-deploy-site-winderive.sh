@@ -8,6 +8,11 @@
 # latest-win.json is written only by publish-kosmos-windows.sh, so deriving blindly would MOVE the
 # staleness; verifying the pointer against the committed sidecar REMOVES it.
 #
+# The Windows staging channel (2026-09-12) adds a SECOND committed pointer, latest-win-staging.json
+# (publish-kosmos-windows.sh's default channel). deploy-site.sh derives its versioned zip through the
+# SAME function and the same agreement check, so the staged build ships (and is served-verified)
+# with its sidecar and pointer. Arms 7-10 cover it.
+#
 # The real deploy-site.sh fetches over HTTP; curl is stubbed to serve latest.json from a fake LIVE
 # dir and to FAIL every other path (exit 22), so a bare dry run stops right after the win-derive
 # block -- which is all this test exercises. Every assertion has a control that can return the
@@ -32,6 +37,9 @@ HOSTURL="https://fake.test"
 V=0.6.99
 WINV="kosmos-$V-win-x64.zip"
 ART="kosmos-$V-arm64.tar.gz"
+# The staged build: newer than prod, as a staging cut always is.
+VS=0.6.100
+WINVS="kosmos-$VS-win-x64.zip"
 
 # ---- stubs on PATH: curl serves latest.json from LIVE, fails everything else -------------------
 BIN="$T/bin"; mkdir -p "$BIN"
@@ -72,8 +80,12 @@ printf '#!/bin/sh\nexit 0\n' > "$BIN/vercel"; chmod +x "$BIN/vercel"
 #   nofields - latest-win.json present but missing BOTH "versioned" and "sha256" (malformed manifest)
 #   nosha    - latest-win.json has "versioned" but no "sha256" (exercises the sha half of the guard)
 #   nozip    - latest-win.json names a versioned zip that is NOT committed in the checkout
+# $2 staged mode (optional; empty = no latest-win-staging.json committed):
+#   agree    - latest-win-staging.json names a committed $WINVS whose bytes match its sha256
+#   drift    - latest-win-staging.json's sha256 != the committed staged zip's bytes-hash
+#   nozip    - latest-win-staging.json names a staged zip that is NOT committed
 make_site() {
-  local s live mode="$1"
+  local s live mode="$1" staged="${2:-}"
   s="$(mktemp -d "$T/site.XXXXXX")"; live="$(mktemp -d "$T/live.XXXXXX")"
   mkdir -p "$s/dist" "$live/dist"
   git init -q "$s"
@@ -101,6 +113,17 @@ make_site() {
     nozip) printf '{"version":"%s","sha256":"aaaa","artifact":"kosmos-win-x64.zip","versioned":"%s","arch":"x64"}\n' "$V" "$WINV" > "$s/dist/latest-win.json" ;;
     absent) : ;;
   esac
+  # the staged build (the staging channel): its zip, sidecar and pointer, as a staging publish writes them
+  local stagedsha="aaaa"
+  if [ -n "$staged" ] && [ "$staged" != nozip ]; then
+    printf 'WINZIP-BYTES-%s\n' "$VS" > "$s/dist/$WINVS"
+    ( cd "$s/dist" && shasum -a 256 "$WINVS" > "$WINVS.sha256" )
+    stagedsha="$(awk '{print $1}' "$s/dist/$WINVS.sha256")"
+  fi
+  [ "$staged" = drift ] && stagedsha="deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+  if [ -n "$staged" ]; then
+    printf '{"version":"%s","sha256":"%s","artifact":"kosmos-win-x64.zip","versioned":"%s","arch":"x64"}\n' "$VS" "$stagedsha" "$WINVS" > "$s/dist/latest-win-staging.json"
+  fi
   git -C "$s" add -A && git -C "$s" commit -q -m "site"
   mkdir -p "$s/.vercel"; printf '{"projectId":"p"}\n' > "$s/.vercel/project.json"
   printf '%s %s' "$s" "$live"
@@ -108,7 +131,10 @@ make_site() {
 
 run() {  # <site> <live> [extra env assignments...] ; bare (dry-run). KOSMOS_WIN_ZIP intentionally unset.
   local s="$1" live="$2"; shift 2
-  out="$(PATH="$BIN:$PATH" LIVE_DIR="$live" HOST_URL="$HOSTURL" \
+  # Through `env`, so the extra NAME=value words are assignments. Expanded from "$@" after inline
+  # assignments they would be run as a COMMAND ("KOSMOS_WIN_ZIP=...: command not found"), which
+  # made the override arm pass vacuously.
+  out="$(env PATH="$BIN:$PATH" LIVE_DIR="$live" HOST_URL="$HOSTURL" \
     KOSMOS_SITE="$s" KOSMOS_REPO="$REPO" KOSMOS_SITE_URL="$HOSTURL" "$@" \
     bash "$DEPLOY" 2>&1)"
   RC=$?
@@ -123,6 +149,9 @@ has "$out" "derived the Windows zip $WINV from dist/latest-win.json" \
 has "$out" "0.6.24" \
   && bad "still references the stale 0.6.24 fallback despite a good latest-win.json" \
   || pass "derive: does NOT fall back to the stale 0.6.24 hardcode when latest-win.json is present"
+has "$out" "staged Windows zip" \
+  && bad "a checkout with no latest-win-staging.json still derived a staged zip" \
+  || pass "staged: no committed staging pointer -> nothing staged to carry (and no refusal)"
 
 # 2) DRIFT (red, load-bearing): pointer sha != committed sidecar -> REFUSE (#2571) and derive nothing.
 read -r S L <<<"$(make_site drift)"
@@ -152,6 +181,10 @@ run "$S" "$L" KOSMOS_WIN_ZIP="kosmos-1.2.3-win-x64.zip"
 has "$out" "derived the Windows zip" \
   && bad "override still ran the derivation" \
   || pass "override: an explicit KOSMOS_WIN_ZIP skips the derivation"
+# ...and the override was really in force (not an early crash that also derives nothing).
+has "$out" "KOSMOS_WIN_ZIP=kosmos-1.2.3-win-x64.zip overrides the derivation" \
+  && pass "override: the run names the overriding zip kosmos-1.2.3-win-x64.zip" \
+  || bad "override: the output never names kosmos-1.2.3-win-x64.zip (an early crash?); out=$out"
 
 # 5) MALFORMED MANIFEST (red): latest-win.json present but with no "versioned"/"sha256" -> REFUSE.
 read -r S L <<<"$(make_site nofields)"
@@ -179,5 +212,43 @@ if [ "$RC" != 0 ] && has "$out" "not committed in the site checkout" && has "$ou
 else
   bad "did not refuse a pointer whose versioned zip is uncommitted (rc=$RC); out=$out"
 fi
+
+# 7) STAGED AGREEMENT (green): a committed latest-win-staging.json derives the staged zip, beside prod.
+read -r S L <<<"$(make_site agree agree)"
+run "$S" "$L"
+has "$out" "derived the staged Windows zip $WINVS from dist/latest-win-staging.json" \
+  && pass "staged: derives the staged versioned zip from latest-win-staging.json (sha-verified)" \
+  || bad "did not derive the staged $WINVS; out=$out"
+has "$out" "derived the Windows zip $WINV from dist/latest-win.json" \
+  && pass "staged: the prod derivation is unchanged beside it (prod stays $WINV)" \
+  || bad "the prod derivation changed when a staging pointer is present; out=$out"
+
+# 8) STAGED DRIFT (red): the staging pointer's sha != the committed staged zip's bytes -> REFUSE.
+read -r S L <<<"$(make_site agree drift)"
+run "$S" "$L"
+if [ "$RC" != 0 ] && has "$out" "latest-win-staging.json (sha" && has "$out" "DISAGREES"; then
+  pass "staged agreement: refuses when latest-win-staging.json's sha != the committed staged zip's bytes"
+else
+  bad "did not refuse a drifted staging pointer (rc=$RC); out=$out"
+fi
+has "$out" "derived the staged Windows zip" \
+  && bad "staged drift still emitted a staged derive line" \
+  || pass "staged agreement: the drift refusal happens before the staged name is trusted"
+
+# 9) STAGED POINTER NAMES AN UNCOMMITTED ZIP (red): refuse rather than deploy a pointer to nothing.
+read -r S L <<<"$(make_site agree nozip)"
+run "$S" "$L"
+if [ "$RC" != 0 ] && has "$out" "latest-win-staging.json names $WINVS, which is not committed"; then
+  pass "staged missing-zip: a staging pointer naming an uncommitted zip refuses"
+else
+  bad "did not refuse a staging pointer whose zip is uncommitted (rc=$RC); out=$out"
+fi
+
+# 10) KOSMOS_WIN_ZIP overrides only the PROD name: the staged derivation still runs.
+read -r S L <<<"$(make_site agree agree)"
+run "$S" "$L" KOSMOS_WIN_ZIP="kosmos-1.2.3-win-x64.zip"
+has "$out" "derived the staged Windows zip $WINVS" \
+  && pass "staged: an explicit KOSMOS_WIN_ZIP (the prod override) does not skip the staged derivation" \
+  || bad "KOSMOS_WIN_ZIP suppressed the staged derivation; out=$out"
 
 [ "$fail" = 0 ] && echo "test-deploy-site-winderive: ALL PASS" || { echo "test-deploy-site-winderive: FAIL"; exit 1; }

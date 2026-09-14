@@ -154,7 +154,7 @@ test('every message row draws the attachment card, and the + and drop targets ar
   const words = codeOnly(PAGE);
   assert.match(words, /<button class="attachbtn" id="pj-attach"[^>]*aria-label="Add a file to this conversation"/, 'the room + is missing or unnamed');
   assert.match(words, /<button class="attachbtn" id="d-attach"[^>]*aria-label="Add a file to this conversation"/, 'the agent page + is missing or unnamed');
-  assert.match(words, /Drop a file anywhere in the conversation to add it\./, 'the drop sentence is missing');
+  // The "drop a file / @ a name" composer hint was removed in #2711 item 9.
   // The + posts to the upload routes Angel specified, one per surface.
   /* The route's shape (#389): PUT the bytes to /attachment, then the
      surface's own sender posts the message with the id. */
@@ -189,9 +189,9 @@ test('a message that is only its attachment\'s name draws the card once, not the
   const att = { id: 'a1', name: 'lease notes.txt', type: 'text/plain', size: 12, url: '/api/attachment/a1', preview: null, kind: 'text' };
   const only = fn({ from: 'dana', text: 'lease notes.txt', at: new Date().toISOString(), attachment: att }, 'Dana');
   assert.equal((only.match(/lease notes\.txt/g) || []).length, 2, 'expected the name in the card (text and download attribute) only');
-  assert.doesNotMatch(only, /dm-b">lease notes\.txt/, 'the file name is drawn as the message words above its own card');
+  assert.doesNotMatch(only, /dm-b"[^>]*>lease notes\.txt/, 'the file name is drawn as the message words above its own card');
   const words = fn({ from: 'dana', text: 'here is the lease', at: new Date().toISOString(), attachment: att }, 'Dana');
-  assert.match(words, /dm-b">here is the lease/, 'real words were dropped because a file came with them');
+  assert.match(words, /dm-b"[^>]*>here is the lease/, 'real words were dropped because a file came with them');
 });
 
 test('a message with several files draws every card, and hides the joined names the same way (#420)', () => {
@@ -203,12 +203,12 @@ test('a message with several files draws every card, and hides the joined names 
   const both = fn({ from: 'dana', text: 'one.txt, two.pdf', at, attachment: a, attachments: [a, b] }, 'Dana');
   assert.equal((both.match(/class="att att-/g) || []).length, 2, 'two files, one card');
   assert.ok(both.indexOf('one.txt') < both.indexOf('two.pdf'), 'the cards are out of order');
-  assert.doesNotMatch(both, /dm-b">one\.txt, two\.pdf/, 'the joined names are drawn as words above their own cards');
+  assert.doesNotMatch(both, /dm-b"[^>]*>one\.txt, two\.pdf/, 'the joined names are drawn as words above their own cards');
   const captioned = fn({ from: 'dana', text: 'both of these', at, attachment: a, attachments: [a, b] }, 'Dana');
-  assert.match(captioned, /dm-b">both of these/, 'the caption was dropped');
+  assert.match(captioned, /dm-b"[^>]*>both of these/, 'the caption was dropped');
   assert.equal((captioned.match(/class="att att-/g) || []).length, 2);
   /* An older row with only `attachment` still draws its one card. */
   const old = fn({ from: 'dana', text: 'one.txt', at, attachment: a }, 'Dana');
   assert.equal((old.match(/class="att att-/g) || []).length, 1);
-  assert.doesNotMatch(old, /dm-b">one\.txt/);
+  assert.doesNotMatch(old, /dm-b"[^>]*>one\.txt/);
 });

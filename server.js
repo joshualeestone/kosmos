@@ -28,6 +28,14 @@ const path = require('node:path');
    a no-op for the default world (every install today). MUST stay ahead of the first
    `require('./engine/...')` -- server.worldenv-order.test.js guards that. Returns the
    pre-override registry base the /api/worlds routes use (null on a broken env). */
+/* #570: the LAUNCH's own port and data-root choices, copied BEFORE the bootstrap
+   below writes the active world's roots into process.env. The Windows hand-off
+   (engine/win32handoff.js) keeps a launch that chose its own port or data folder
+   in its window, because the logon task would not use them -- and it must not
+   mistake a named world for such a choice: the task boots the same world from the
+   same registry. */
+const LAUNCH_ENV_OVERRIDES = Object.fromEntries(Object.entries(process.env)
+  .filter(([key]) => key === 'PORT' || key.startsWith('AGENT_WORKFORCE_')));
 const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process.env);
 // `STATE` travels with them: the thread route compares a member's state, and a
 // literal there is a comparison that silently stops matching the day the engine
@@ -61,6 +69,8 @@ const {
   ASKING_GENERIC,
 } = require('./engine/status');
 const removal = require('./engine/remove');
+const worldstarts = require('./engine/worldstarts'); // #1704 PR3: pause/resume a Kosmos's agents across a switch
+const worldimport = require('./engine/worldimport'); // #1704 PR4: copy agents from one Kosmos into another
 
 /* #2128: does this MACHINE currently depend on a Claude subscription? The
    "cannot reach a Claude subscription" banner (renderConnection) must fire only
@@ -113,6 +123,19 @@ function trustDialogHold(card, seen, capture) {
 const leftover = require('./engine/delete-leftover');
 const firstrun = require('./engine/firstrun');
 const platformGate = require('./engine/platform');
+/* win32-board-copy: the page's platform fact. The page needs it before any signed-in
+   API answers (the not-signed-in panel is painted exactly when /api/* refuses), so the
+   open static shell carries it in `<meta name="kosmos-platform">`, stamped per request
+   from the same describe() firstrun.state() and connect's publicView report. An
+   unstamped page (file://, a harness) reads as "not Windows", so the Mac page is the
+   default everywhere nothing says otherwise. */
+const PAGE_PLATFORM_MARKER = '__KOSMOS_PLATFORM__';
+function stampServedPlatform(pageBuffer) {
+  const text = pageBuffer.toString('utf8');
+  return text.includes(PAGE_PLATFORM_MARKER)
+    ? text.replace(PAGE_PLATFORM_MARKER, platformGate.describe().platform)
+    : pageBuffer;
+}
 const discover = require('./engine/discover');
 const subscription = require('./engine/subscription');
 /* 🛑 #1938: THE DISK SCAN IS HEAVIER THAN found() AND THE BOARD POLLS IT EVERY 5s.
@@ -165,6 +188,14 @@ const usage = require('./engine/usage');
 // on screen has to be the number in the release rather than a hand-typed label
 // that drifts.
 const { version } = require('./package.json');
+/* #570: which board THIS PROCESS is -- its build (version, plus the zip's commit
+   when it runs from the Windows bundle) and the world it booted into -- fixed at
+   start. GET / names it in a header so the Windows hand-off can tell the board
+   that is running from the files on disk, and from a board serving another world.
+   The module loads on every platform for these; it has no side effects at load
+   and requires win32board only when a hand-off runs. */
+const { buildIdentity, boardIdentity, BOARD_IDENTITY_HEADER, BOARD_STARTED_BY_TASK_HEADER, boardStartedByTaskHeaderValue } = require('./engine/win32handoff');
+const BOARD_IDENTITY = boardIdentity(buildIdentity(__dirname) || version, require('./engine/worldenv').bootedWorld());
 
 /**
  * Whether this process is behind the code on disk (#338).
@@ -244,6 +275,19 @@ const worlds = require('./engine/worlds'); // #1704: the multiple-Kosmos registr
    /api/worlds routes fall back to the live baseRoot -- correct then because no
    override was set. `worldRegistryBase` is declared at the top of the file. */
 function worldBase() { return worldRegistryBase || worlds.baseRoot(process.env); }
+/* #2935: hiding a Kosmos STOPS (never deletes) its agents, so they do not keep running for a
+   Kosmos that is no longer on the list. This enumerates the world's agents and hands the actual
+   stop to worldstarts.stopWorldAgents, which owns the reversible, live-execution-gated,
+   platform-injectable stop (the same machinery pauseForSwitch uses, minus the paused-record).
+   Deliberately SEPARATE from the hide: the hide is already complete and reversible without it
+   (files + jobs stay on disk), so a failure here never fails the hide. Returns
+   { stopped: [names], kept: [names] } for the response and the log. */
+function stopHiddenWorldAgents(base, world) {
+  let names = [];
+  try { names = worlds.worldProfileNames(base, world) || []; }
+  catch { return { stopped: [], kept: [] }; }
+  return worldstarts.stopWorldAgents(names, world.id);
+}
 /* #1704: translate engine.worlds errors into something a person creating a Kosmos
    can read. store.safeKey (reused for the world id) throws "invalid agent name",
    which is wrong wording for a world; the others are already clear. */
@@ -251,6 +295,47 @@ function worldCreateReason(e) {
   const m = String((e && e.message) || '');
   if (/invalid agent name/i.test(m)) return 'that is not a name we can use for a Kosmos (use letters, numbers, - or _)';
   return m || 'we could not create that Kosmos';
+}
+/* #1704 PR4: copy the picked agents into Kosmos `targetId`, then start them the ONE
+   way agents start when their Kosmos opens (engine/worldstarts). Shared by the create
+   route and the settings route, so the two cannot answer differently. Returns null
+   for a Kosmos that does not exist.
+   `imported`: copied [{from,name,displayName}], refused [{from,name,because}],
+   started [names] (now: the target is the Kosmos this board is serving, named or
+   not), waiting [{name,because}] (recorded; its start was tried and held, with the
+   reason), later [names] (recorded; it starts when that Kosmos next opens).
+   world-guard-lift-1704 lifted #2849's named-world rule, so no import waits on it:
+   a Kosmos's agents are started by its own board, through its world-keyed launch
+   identity, whichever Kosmos it is.
+   `opts.legacy` (a page from before, importAgentsFrom) adds the counts that page
+   reads -- `failed` and `unknownSources` -- so it reports a refusal rather than
+   closing as a clean import (review round 1, C). */
+const IMPORT_CLEARED_BECAUSE = 'it is on this Kosmos\'s list of removed agents, so it was not started; restore it to run it';
+function importIntoWorld(base, targetId, picks, opts = {}) {
+  const r = worldimport.importAgents(base, targetId, picks);
+  if (!r.ok) return null;
+  const names = r.copied.map((c) => c.name);
+  const imported = { copied: r.copied, refused: r.refused, started: [], waiting: [], later: [] };
+  if (opts.legacy) {
+    imported.unknownSources = r.unknownSources;
+    imported.failed = r.refused.length - r.unknownSources;
+  }
+  if (names.length) {
+    /* The board is serving the Kosmos it booted into; an unbootstrapped board (a
+       unit test) serves the default one, whose store is the one it reads. */
+    const serving = require('./engine/worldenv').bootedWorld() || worlds.DEFAULT_ID;
+    if (serving === r.world.id) {
+      const s = worldstarts.startImported(names);
+      imported.started = s.resumed;
+      /* A cleared import is copied and NOT started (review round 1, A): said, never
+         silent. The importer refuses such a name up front; this covers a removal
+         that lands between the copy and the start. */
+      imported.waiting = s.held.concat((s.cleared || []).map((name) => ({ name, because: IMPORT_CLEARED_BECAUSE })));
+    } else {
+      imported.later = names;
+    }
+  }
+  return { world: r.world, imported };
 }
 /* #2066: which channel this build was FETCHED from (staging vs prod), for the
    board's build marker. It is NOT baked into the artifact -- #2036's invariant is
@@ -263,12 +348,53 @@ function worldCreateReason(e) {
    it already resolves AGENT_WORKFORCE_DATA, so a sandboxed test seeds this file in the
    same place the read looks. Only the two known values are honoured; any other content
    folds to 'prod' so a corrupt file can never paint a loud STAGING badge on a prod board. */
-function sourceChannelNow() {
+function recordedSourceChannel() {
   try {
     const raw = fs.readFileSync(path.join(store.ROOT, 'source-channel'), 'utf8').trim().toLowerCase();
     return raw === 'staging' ? 'staging' : 'prod';
   } catch { return 'prod'; }
 }
+/* #2934: A PROMOTE MOVES NO BYTES, SO THE INSTALL STAMP GOES STALE AND NOTHING CAN
+   REWRITE IT. The file above records which pointer this box last FETCHED from, written
+   once per install/update by setup.sh. #2036's invariant is that the same bytes are
+   promoted to prod with no rebuild, so when a staging build is promoted this box gets no
+   update, setup.sh never re-runs, and the stamp says 'staging' forever. Measured on the
+   mortals box at 0.6.59: installed and served both prod, both pointers on the same sha, a
+   loud STAGING badge. The badge's own question ("which channel am I served from") has no
+   single answer after a promote, because the build is then on BOTH pointers by design.
+
+   So re-derive it: staging means THESE BYTES ARE NOT (YET) PUBLISHED ON PROD, which the
+   updater can answer offline from the pointer it already polls every TTL. The predicate
+   lives in engine/update.js because the cache's shape is that module's business; it
+   answers true/false/null, and only a positive TRUE darkens the badge. Unknown, offline,
+   never-looked and staging-pointer all return null and keep the recorded stamp, so this
+   can only ever turn a 'staging' into a 'prod' on positive evidence, never the reverse.
+
+   ⏳ The evidence expires, and that is accepted. Once prod publishes something NEWER, a
+   correctly-promoted box stops matching and reads 'staging' again until it takes that
+   update (which re-runs setup.sh and rewrites the stamp to prod). So #2934's symptom can
+   reappear briefly after any release, and it self-heals. No weaker comparison avoids that
+   without darkening the badge on genuinely un-promoted bytes, which is the worse error.
+
+   🔑 THIS FIX AND #2969 ARE COUPLED, AND THE COUPLING IS EASY TO BREAK BY ACCIDENT.
+   The reported mortals box only reaches the prod-pointer rung BECAUSE it had silently
+   lost its staging subscription at login (#2969): with no channel in the environment the
+   poller fetches latest.json, so the cache can speak about prod. Fix #2969 so the
+   subscription survives, and that same box resumes polling the STAGING pointer, this
+   predicate returns null, and the box shows STAGING again. That is not a regression of
+   this card so much as the honest answer for a real staging subscriber, but anyone
+   closing #2969 must decide deliberately what a subscriber sitting on a promoted build
+   should display, rather than discovering it from a reopened #2934. Said on both cards. */
+function sourceChannelNow() {
+  const recorded = recordedSourceChannel();
+  if (recorded !== 'staging') return 'prod';
+  /* Any throw here (a future rename of the accessor, a module-load failure) keeps the
+     recorded stamp, which is this function's behavior before #2934 existed. */
+  try {
+    return updates.prodPublishesRunning() === true ? 'prod' : 'staging';
+  } catch { return 'staging'; }
+}
+
 const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on context fill
 const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the consume half (the sweep)
 const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopback bind so another macOS account cannot reach it
@@ -279,10 +405,20 @@ const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopba
 const boardAuthState = { on: false, token: null };
 /* Sandboxed whole or not at all (#634): refused before anything listens or
    writes. In-process (a test requiring this file) it throws; as the program it
-   says the sentence and exits 2. */
+   says the sentence and exits 2.
+   🛑 #2628: AUDIT THE LAUNCH'S ENVIRONMENT, NOT process.env. By this point the
+   world bootstrap at the top of this file has written a NAMED world's data,
+   projects and workers roots into process.env, and those three -- with the launch
+   dir and tmux left live, as they are for every world -- are exactly the shape
+   this guard refuses. Auditing process.env made every named world refuse to boot
+   on every platform ("will not start half-sandboxed"), after which worldbootguard
+   fell back to Kosmos 1: #2528's "the restart errored and I am back in Kosmos 1".
+   LAUNCH_ENV_OVERRIDES is the launch's own AGENT_WORKFORCE_* variables, captured
+   before the bootstrap for the same reason the Windows hand-off reads it, so a
+   real half-sandbox (which sets them at launch) is still refused. */
 {
   const sandbox = require('./engine/sandbox');
-  const a = sandbox.audit(process.env);
+  const a = sandbox.audit(LAUNCH_ENV_OVERRIDES);
   if (a.partial) {
     const msg = sandbox.sentence(a);
     if (require.main === module) { process.stderr.write(msg + '\n'); process.exit(2); }
@@ -294,7 +430,6 @@ const create = require('./engine/create');
    key through the same writer the create path uses (native-realpath-keyed since
    #2382), so the one-click escape and the automatic create-time write can never
    disagree about the spelling. The codex-side writer lives in create. */
-const trust = require('./engine/trust');
 /* #2129 companion: the launch-terminal route opens a real Terminal.app window
    attached to a live agent's tmux session (read-only -- adds a viewer, does not
    touch the session). Its osascript call goes through terminal.js's own runner
@@ -338,7 +473,7 @@ const tokendoors = require('./engine/tokendoors');
 const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
 const feedback = require('./engine/feedback');
-const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: the opt-in-gated send layer
+const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
 const heartbeat = require('./engine/heartbeat');
 const heartbeatSetting = require('./engine/heartbeat-setting');
 const selfreport = require('./engine/selfreport');
@@ -502,7 +637,7 @@ const os = require('node:os');
  * if it ever matters; it does not yet.
  */
 function resolveAgentSender(req, body, roster, opts) {
-  const presented = (req && req.headers && req.headers['x-kosmos-agent-token']) || (body && body.token);
+  const presented = presentedAgentToken(req, body);
   if (!presented) {
     /* #1968: the bare-pane fallback is a NO-CREDENTIAL path. On an enforcing
        board it is exactly how a second macOS account spoofs a report/reply --
@@ -533,6 +668,37 @@ function resolveAgentSender(req, body, roster, opts) {
      cannot confirm a token was ever real. Substituting a message here would
      undo that. */
   return carded;
+}
+
+/**
+ * The agent token a request PRESENTS (the header, or `token` in the body), or
+ * undefined. ONE reading of "did this caller present an agent token", shared by the
+ * sender resolution below and by the screen-or-process split (`isViaScreen` in the
+ * handler), so the two cannot disagree about who is an agent (win32-cli-verbs).
+ */
+function presentedAgentToken(req, body) {
+  return (req && req.headers && req.headers['x-kosmos-agent-token']) || (body && body.token) || undefined;
+}
+
+/**
+ * #570: the sender of an agent-to-agent send (/api/msg, /api/post, /api/react)
+ * when the caller PRESENTED an agent token, or null when it did not.
+ *
+ * 🛑 THOSE THREE ROUTES WERE PANE-ONLY, and a Windows agent has no pane. So
+ * `kosmos msg` and `kosmos post` could never name their sender there, even with
+ * the per-run token the supervisor puts in every Windows agent's environment
+ * (`KOSMOS_AGENT_TOKEN`). /api/reply and /api/report already resolve token
+ * first; this gives the other three the same chain, through the same resolver.
+ *
+ * 🔑 null WITHOUT A TOKEN, so the pane path is byte-for-byte what it was: every
+ * Mac caller keeps exactly the behaviour it had. A token that is presented and
+ * does not resolve is a refusal (`{ ok:false }`), never a silent fall back to the
+ * pane -- a bad credential must not be quietly swapped for a weaker one.
+ */
+function senderFromAgentToken(req, body, roster) {
+  const presented = presentedAgentToken(req, body);
+  if (!presented) return null;
+  return resolveAgentSender(req, body, roster);
 }
 
 /**
@@ -602,15 +768,104 @@ function whoamiFor(card, known, live) {
      route answered "we cannot tell which model" about an agent whose transcript
      plainly says `claude-opus-5`. Each field now takes the best source that has
      it, and each carries where it came from. */
+  /* 🛑 AND THE RECORD-ONLY PATH NEEDS THE SAME GUARD, WHICH THE LIVE RUNNER
+     CANNOT GIVE IT. When the live read does not succeed (a paneless agent, a
+     crashed pane, the 15s budget running out) `seen` is null, so a live-only
+     guard is off exactly when the record is the ONLY source and its stale
+     Claude model goes out unopposed. The defect one reader over.
+     ⇒ The card's `runner` is the `@kosmos_runner` session marker, and its
+     SURVIVING A CRASH -- the property that disqualifies it from the wire field
+     above -- is the right property here. Those are two different questions:
+     "what is running right now" must not be answered from a marker that
+     outlives the process, while "is this agent's Claude transcript stale" is
+     about what the agent IS, and a crashed Codex agent is still a Codex agent.
+     Empty means claude, the same default the supervisor records. */
+  const resolvedRunner = (() => {
+    /* Live first: a running process is the strongest evidence of what this
+       agent is, and it is the only source that cannot be stale.
+
+       ⚠️ AND THIS COMPOSES WITH A SAFEGUARD IN THE OTHER DIRECTION, which is
+       worth naming because the two were designed independently. `agentUnder`
+       breaks a same-depth tie toward `claude` ON PURPOSE, so an ambiguous pane
+       yields a live `claude` that was chosen rather than observed, and this line
+       then prefers it over a plist that says `codex` definitively.
+
+       ⇒ KEPT AS IS, and the reasoning is which case is REACHABLE. Live-claude
+       over plist-codex is a real product path: `setProvider` rewrites the plist
+       while the RUNNING process stays claude until the agent restarts, and during
+       that window live is right and the transcript it is writing is valid.
+       🛑 "AND THE MARKER" IS WHAT THIS SENTENCE USED TO SAY, AND IT IS FALSE.
+       `setProvider` never invokes tmux (measured over its whole body); the
+       `@kosmos_runner` marker is written by `bin/agent-supervisor.sh` at agent
+       START, which is AFTER the restart this window waits for. So during the
+       window the marker still holds its OLD value, not the new one.
+       ⚠️ NAMED RATHER THAN QUIETLY DROPPED: that correction settles how the
+       marker behaves in THIS window and does NOT settle whether a live-claude +
+       codex-marker state is reachable by some other route (an agent restarted
+       outside the supervisor, say). The arm below constructs that state directly
+       and so tests the behaviour either way; I have not measured its
+       reachability, and I am not claiming it. The opposite case needs two agent-shaped processes in one
+       pane's tree at the same or shallower depth, which a reviewer tried and
+       could not construct from any launch path this product has.
+       📌 Weakest premise, named: "could not construct" is not "cannot exist". If
+       a real topology ever produces two agent processes under one pane, the
+       tie-break's invented answer would outrank a definitive record, and the fix
+       then is for `agentUnder` to report that a tie was broken rather than for
+       this line to distrust every live read. */
+    if (seen && seen.runner) return seen.runner;
+    /* 🛑 POSITIVE EVIDENCE ONLY FROM THE MARKER, because `'claude'` from a card is
+       not a claim, it is a DEFAULT. `status.js` normalises the pane's
+       `@kosmos_runner` as `pane.runner === 'codex' ? 'codex' : 'claude'`, so an
+       agent whose marker was never recorded is indistinguishable from one
+       recorded as claude, and `bin/agent-supervisor.sh` says that failure is real
+       in as many words: "could not record $SESSION's runner -- the board will
+       read it as claude".
+       ⇒ An earlier version took `card.runner` whenever it was truthy, so a CODEX
+       agent with an unrecorded marker and a failed live read resolved to claude,
+       took the stale Claude transcript model, and was never told it is a Codex
+       agent: this card's own defect, with the definitive plist in hand and never
+       opened. `codex` is the only value the marker asserts, so it is the only one
+       trusted here; everything else falls through to the launch job, which does
+       answer definitively and floors at claude anyway. */
+    if (card && card.runner === 'codex') return card.runner;
+    /* 🛑 A PANELESS CARD CARRIES `runner: null` BY CONSTRUCTION
+       (`engine/status.js`, its only `runner: null` site), so the marker above
+       cannot answer for exactly one of the cases this guard exists for. The
+       plist does not depend on a pane, and `accountForAgent` already reads it
+       on every request, so this costs nothing and closes the gap.
+       ⚠️ Its absent-runner default is `'claude'`, deliberately matching the
+       supervisor, so a plist written before runners existed reads as claude
+       and takes the old path rather than suppressing a model. */
+    /* 🛑 `recordedRunner`, NOT A SECOND READER OF THE PLIST. My first version
+       called `readJob(who).runner` directly, which is a duplicate of a
+       derivation this module already owns AND a weaker one: `recordedRunner`
+       falls back to the profile's provider when the plist cannot answer, so it
+       still knows an agent is codex when the job is MISSING. One fact, one
+       place, and the existing place is better.
+       📌 Only when MISSING, precisely: `readJob` FLOORS `runner` at `'claude'`
+       (`args[8] ? args[8] : 'claude'`), so a job that merely predates runners
+       answers `'claude'` and the profile is never consulted. An earlier version
+       of this comment claimed both cases and was half wrong.
+       📌 It floors at `'claude'` rather than null, which is the safe direction
+       here: an agent nothing knows about takes the old path instead of having
+       its model suppressed. */
+    try { return create.recordedRunner(who); } catch { return null; }
+  })();
+
   const account = (() => {
     /* Live first: the account is what the process is authenticated as, and a
        startup file can be stale after a migration (Baron was moved off
        other@example.com while his file still said so). */
-    /* 🔑 ONE RULE FOR `isDefault`, AND IT LIVES IN `accounts`. `runningAs` sets
-       `configDir` UNCONDITIONALLY on a successful read - the env var when it
+    /* 🔑 ONE RULE FOR `isDefault`, AND IT LIVES IN `accounts`. `runningAs`'s
+       DARWIN arm sets `configDir` on every successful read - the env var when it
        finds one, the default synthesised when it does not - so hardcoding
        `false` here asserted "not the default account" about a directory that is
        very often exactly the default.
+       📌 "UNCONDITIONALLY" is what this said, and it is not true of the win32
+       arm, where a successful read carries `configDir: null` (that arm cannot
+       read another process's environment and says so rather than guessing).
+       Not reachable here, because this branch needs `seen.account` and win32
+       never supplies one, so the CODE was right and only the sentence was wide.
 
        🛑 MY FIRST FIX WROTE THE COMPARISON OUT HERE AGAINST BARE `os.homedir()`
        AND CLAIMED IN THIS COMMENT THAT IT REUSED `accounts`. It did not, and the
@@ -641,6 +896,17 @@ function whoamiFor(card, known, live) {
           label: null,
           organization: seen.organization || null,
           dir: seen.configDir || null,
+          /* #2811: same key as the other two constructions. `#1304` asserts the two
+             readers return the SAME FIELD SET, and it caught this when the name was
+             added to only one of them -- which is the parity that test exists for.
+             🛑 GUARDED ON A FALSY DIR, AND THE LINE ABOVE IS WHY: it writes
+             `seen.configDir || null`, so this branch can see one. `readName` does
+             `path.resolve(String(dir || ''))`, which for a falsy dir is THE PROCESS
+             CWD -- measured returning a `.kosmos-name` from the working directory.
+             Since `name` now LEADS the sentence's chain, that value would outrank a
+             real email. Latent today (no production arm produces `account` truthy
+             with `configDir` falsy), and cheaper to close than to keep true. */
+          name: seen.configDir ? openaiAccounts.readName(seen.configDir) : null,
           isDefault: isDefaultDir(seen.configDir),
         },
         from: 'process',
@@ -650,8 +916,33 @@ function whoamiFor(card, known, live) {
        rule `accountForAgent` states for the record path: returning null there
        would say "the default account" about an agent pointed somewhere else. */
     if (seen && seen.configDir) {
+      /* 🛑 `isDefaultDir` IS A CLAUDE QUESTION, AND A CODEX DIRECTORY MUST NOT BE
+         GIVEN ITS ANSWER. `accounts.isDefaultDir` compares against
+         `$HOME/.claude` and nothing else, so a live codex read (`~/.codex`)
+         scores `false` -- literally true, and read in an ACCOUNT block as "this
+         agent is on a NON-default account", implying a named alternate that does
+         not exist. That is the same wrong-confidence this endpoint's header
+         exists to remove: an absence of evidence rendered as a finding.
+         `null` is already this field's unknown value (`isDefaultDir` returns it
+         for a falsy dir), so this introduces no third state.
+         ⚠️ Shaped to change NOTHING that exists: a `runner` we did not get stays
+         on the old path, which matters because `liveReaderFn` is injectable and
+         answers reach here carrying no runner at all. Only a KNOWN non-claude
+         runner takes the new branch. */
+      const claudeDir = !seen.runner || seen.runner === 'claude';
       return {
-        value: { email: null, label: null, organization: null, dir: seen.configDir, isDefault: isDefaultDir(seen.configDir) },
+        value: {
+          email: null, label: null, organization: null, dir: seen.configDir,
+          /* 🛑 #2811: THE LIVE READER MUST ANSWER THIS THE SAME WAY THE RECORD
+             READER DOES. `accountForAgent` computes `readName(dir)`; without it
+             here, the SAME named codex account read "Work" when the record
+             answered and "an account we cannot identify (…)" when the live read
+             did -- the answer flipping on which reader happened to win, which is
+             the defect class this whole endpoint exists to remove. Null for every
+             Claude dir, so this is a no-op there. */
+          name: openaiAccounts.readName(seen.configDir),
+          isDefault: claudeDir ? isDefaultDir(seen.configDir) : null,
+        },
         from: 'process',
       };
     }
@@ -663,7 +954,10 @@ function whoamiFor(card, known, live) {
          differs by reader is a second, accidental channel saying the same
          thing differently. */
       value: rec
-        ? { email: rec.email, label: rec.label, organization: rec.organization || null, dir: rec.dir, isDefault: rec.isDefault }
+        /* 🛑 #2811: `rec.name` IS CARRIED. `accountForAgent` computes it on both its
+           branches and this projection used to DROP it one function later, which is
+           why a NAMED codex account was told "an account we cannot identify". */
+        ? { email: rec.email, label: rec.label, organization: rec.organization || null, dir: rec.dir, name: rec.name || null, isDefault: rec.isDefault }
         : null,
       from: 'record',
     };
@@ -722,7 +1016,55 @@ function whoamiFor(card, known, live) {
     const rec = (() => {
       try { return readModel(who, (card && card.session) || undefined); } catch { return null; }
     })();
-    if (rec && rec.model) {
+    /* 🛑 THE RECORD MODEL IS A CLAUDE TRANSCRIPT, SO IT IS NOT ASKED ABOUT A
+       CODEX AGENT. `readModel` resolves through `transcriptFor`/`byWorkdir` into
+       `projects/*.jsonl` rows that Claude Code writes. `create.setProvider`
+       switches an agent claude -> codex without moving anything the transcript
+       lookup keys on. 🛑 DO NOT TAKE THE LIST OF WHAT IT WRITES FROM HERE: this
+       sentence has been an enumeration twice ("one", then "three") and was wrong
+       both times. `engine/create.setprovider-writes-2811.test.js` enumerates the
+       written path-set BY MEASUREMENT and reds when it changes; that is the
+       reference.
+       What matters HERE is only the property the model guard rests on, and it is
+       not "nothing leaves `workerDir(clean)`" (three of the written paths are
+       outside it, and the plist and profile always were). It is that
+       `workerDir(clean)` is not itself MOVED and the agent's NAME does not
+       change, so `byWorkdir` resolves the same directory afterwards and the OLD
+       Claude transcript stays findable.
+       ⚠️ `setProvider`'s own header SAID the mechanism is "a plist rewrite ...
+       and nothing else", and an earlier version of this comment repeated that.
+       It is measurably false: it performs FOUR writes, enumerated by measurement
+       in `engine/create.setprovider-writes-2811.test.js` rather than by anyone's
+       reading, because the count has now been wrong three times. The header is
+       corrected and points there.
+       🛑 AND "a dozen lines below the sentence" IS WHAT THIS COMMENT USED TO SAY,
+       which was itself never measured: the statements sit 322 and 325 lines below
+       `function setProvider`, at the merge-base as well as today. That wrong
+       distance made the error sound glanceable and so made its 22-round survival
+       look like carelessness; 322 lines explains it far better.
+       The CONCLUSION survives, which is exactly why the wrong premise was worth
+       correcting rather than leaning on. This branch is the PREFERRED source, so without
+       this guard a Codex agent answers `runner: "codex"` and "its model is Claude
+       Opus 5" in one payload, off a transcript from before the switch.
+       ⚠️ THAT IS NEW, AND IT IS THIS CHANGE THAT MADE IT REACHABLE. While the
+       live reader refused for codex there was no contradiction to have; making it
+       answer is what put a true runner next to a stale model.
+       ⇒ Exactly the decision already made one module over for the sibling field:
+       `identityOf` resolves a Claude ACCOUNT, so it is not asked about a codex
+       one (`engine/runningas.js`). A Claude transcript is the same kind of
+       reader, so it gets the same rule, and a codex agent falls through to the
+       live `--model` below.
+       📌 AND IN PRACTICE THAT FALL-THROUGH IS USUALLY NULL, which is the point
+       rather than a shortfall: `setModel` refuses a codex agent outright, so
+       Kosmos passes no `--model` to one and there is no live value waiting. So a
+       switched agent goes from "its model is Claude Opus 5" to "we cannot tell
+       which model it is running". Losing a confident wrong answer and gaining an
+       honest absence IS the fix; an agent that says it does not know is behaving
+       better than one reciting a stale sentence.
+       📌 Keyed on a KNOWN non-claude runner, so an answer carrying no runner at
+       all (every injected reader that predates this field) takes the old path. */
+    const foreignRunner = !!(resolvedRunner && resolvedRunner !== 'claude');
+    if (!foreignRunner && rec && rec.model) {
       /* `modelDisplayName`, NOT the raw id, and this is the branch that normally
          answers. The LIVE path's display name was pinned; this one - the
          PREFERRED source for the model - was asserted nowhere, so swapping it
@@ -751,6 +1093,13 @@ function whoamiFor(card, known, live) {
     model: model.value,
     /* Per field, because they can now come from different places. */
     source: { account: account.from, model: model.from },
+    /* 🔑 WHAT THIS AGENT IS, which is a DIFFERENT QUESTION from the wire
+       `runner` the route sets. That one is live-only on purpose and answers
+       "what is running right now"; this one answers "what is this agent",
+       survives a crash, and is defined for a paneless agent. The sentence asks
+       the second question, so it gets the second answer, and it is exported
+       rather than re-derived at the route: one fact, one place. */
+    resolvedRunner,
   };
 }
 
@@ -761,19 +1110,58 @@ function whoamiFor(card, known, live) {
  * agents give three answers, which is the defect this card is about wearing a
  * different coat. An unknown is said plainly rather than smoothed over.
  */
-function sentenceForWhoami(account, model) {
-  const acct = account && account.email ? account.email
-    : account && account.label ? account.label
-      : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
-        : null;
+/* The provider's own word for itself, which is what an agent reading this
+   sentence is looking for. `codex` is the executable; OpenAI's product name on
+   screen is Codex, so the two agree here and the map exists so a third runner
+   cannot be spelled two ways in two places. */
+function runnerDisplayName(runner) {
+  /* 📌 THE FALLBACK RENDERS A THIRD RUNNER LOWERCASE ("this is a gemini
+     agent"), and that is left as-is deliberately rather than "fixed" with a
+     capitalise. `agentUnder` returns only `claude` or `codex`, and this is
+     reached only for a non-claude one.
+     ⚠️ THAT BOUND IS WEAKER THAN AN EARLIER VERSION OF THIS COMMENT CLAIMED, and
+     the change that weakened it is on this branch: `resolvedRunner` also takes
+     the plist's ninth argument VERBATIM, so an unexpected value can reach here
+     from a HAND-EDITED job. Not from the tmux marker, which `status.js` clamps
+     to codex-or-claude before a card ever carries it. Still not a product path, and a raw name is the honest
+     rendering of one. Whoever adds a third
+     runner adds its real product name here, which is the point of the map; a
+     speculative transform would quietly produce a WRONG name instead of an
+     obviously unfinished one, and this file has already deleted one branch for
+     describing behaviour the code could not produce. */
+  return runner === 'codex' ? 'Codex' : String(runner);
+}
+
+function sentenceForWhoami(account, model, runner) {
+  /* 🛑 #2811: THE NAME LEADS, AND ITS ABSENCE HERE WAS THE CARD'S OWN COMPLAINT
+     STRING. `accountForAgent` already computes `name: openaiAccounts.readName(dir)`
+     on BOTH its branches, and every other surface leads with it (`acctParenthetical`
+     is `acct.name || acct.email || acct.label`). This chain skipped it, so a person
+     who had NAMED their OpenAI account read "Work" on the detail panel and "an
+     account we cannot identify (/Users/x/.codex-work2)" from `kosmos whoami`, in the
+     same minute, about the same account.
+     ⚠️ NEWLY REACHABLE BY THIS BRANCH, not pre-existing noise: `readName` is null
+     for every Claude dir (the comment at `accountForAgent` says so), so the rung
+     could never have fired while the live reader refused for codex and synthesised
+     `~/.claude`. Putting a CODEX dir here -- the only kind that carries a
+     `.kosmos-name` sidecar -- is what made the gap visible. */
+  const acct = account && account.name ? account.name
+    : account && account.email ? account.email
+      : account && account.label ? account.label
+        : account && account.dir ? 'an account we cannot identify (' + account.dir + ')'
+          : null;
   const parts = [];
   /* 🛑 ONE FORM, NOT TWO, AND THE SECOND ONE WAS DEAD. This used to branch on
      the source so the reason would match the reader that failed. A reviewer
-     measured that the process form is UNREACHABLE: `runningAs` always sets
-     `configDir` on a successful read, so a `process` account always carries at
-     least a directory, `acct` below is always truthy, and the branch could
+     measured that the process form is UNREACHABLE: `runningAs`'s DARWIN arm sets
+     `configDir` on every successful read, so a `process` account always carries
+     at least a directory, `acct` below is always truthy, and the branch could
      never be pushed. Mutation, with a control: making the process form throw
      left 249/249 green; making the record form throw failed 1.
+     📌 "always sets" is what this used to say unscoped, and the win32 arm does
+     not: a successful read there carries `configDir: null`. The conclusion above
+     survives, because that arm never supplies an account either, so it cannot
+     reach this branch at all.
 
      ⇒ A comment describing behaviour the code cannot produce is worse than no
      comment, so the branch is gone rather than left as decoration. If a future
@@ -793,7 +1181,31 @@ function sentenceForWhoami(account, model) {
      account so `acct` is truthy.
      ⭐ Third time on this branch that a gap was "no arm had both populated",
      one field over each time. */
-  parts.push(acct ? 'This agent runs on ' + acct : why);
+  /* #2811: THE RUNNER IS NAMED WHEN IT IS NOT CLAUDE, because this sentence is
+     the ENTIRE user-visible surface of the verb: `install/kosmos` prints only
+     `because` and nothing under `web/` reads whoami. A Codex agent asking who it
+     is could read the whole answer without the word Codex appearing in it, and
+     "an account we cannot identify (~/.codex)" leaves the reader to infer the
+     provider from a directory name.
+
+     🛑 BOTH BRANCHES, AND AN EARLIER VERSION GUARDED ONLY THE FIRST. I wrote
+     that a codex-shaped `why` was unreachable because "runningAs always sets
+     configDir on a successful read, so `acct` is always truthy". That is true of
+     the DARWIN live path and false of both the record one and the win32 live one
+     (a successful win32 read carries `configDir: null`): an agent with no launch job has
+     no account at all while its runner is perfectly well known, so the fallback
+     is reached with a known codex runner. A test demonstrated it rather than a
+     re-read catching it. ⇒ Reasoning that holds for the live reader does not
+     transfer to the record reader, which is the third time on this branch. */
+  const isForeign = !!(runner && runner !== 'claude');
+  const named = isForeign ? 'This is a ' + runnerDisplayName(runner) + ' agent, and ' : null;
+  parts.push(acct
+    ? (named ? named + 'it runs on ' + acct : 'This agent runs on ' + acct)
+    /* 📌 NO REASON GIVEN ON THE FOREIGN ARM, deliberately. The shared `why` blames
+       a missing startup file, and this arm is reachable WITH one present (a job
+       exists, carries no account dir, and no row of the right provider matched),
+       so borrowing that reason would state a cause that is sometimes false. */
+    : (named ? named + 'we cannot tell which account it runs on' : why));
   parts.push(model && model.name ? 'and its model is ' + model.name : 'and we cannot tell which model it is running');
   return parts.join(', ') + '.';
 }
@@ -876,7 +1288,35 @@ function accountForAgent(name, known) {
   if (!job) return null;
   const dir = job.configDir;
   const list = Array.isArray(known) ? known : [];
-  const found = dir ? list.find((x) => x.dir === dir) : list.find((x) => x.isDefault);
+  /* 🛑 THE PROVIDER GATES THE DIR-LESS MATCH, AND WITHOUT IT THIS IS THE CARD'S
+     OWN DEFECT. A DEFAULT-account OpenAI agent launches with NO `CODEX_HOME`
+     (`engine/create.js`: "THE DEFAULT ROW WRITES NO HOME"), so its job carries
+     `configDir: null` and this falls to the dir-less arm, which matched purely on
+     `isDefault`. Handed the CLAUDE list, that is the operator's Claude account:
+     a Codex agent told it runs on josh@... with `isDefault: true`.
+     ⭐ The codebase already knew, and said so in the #2413 overlay further down
+     this file: "a codex agent on the default home maps to the default Claude
+     account". That sentence was TRUE WHEN WRITTEN and this change is what makes
+     it false, so it is quoted here as the prior diagnosis rather than as current
+     behaviour, and the overlay's own copy is corrected. The overlay guarded its
+     join by filtering observations per provider; the raw mapping here was never
+     gated, so every OTHER caller still got the wrong row.
+     🛑 AND I WAVED THIS OFF BY NAME. My round-4 comment said only the fallback
+     needed guarding because "there `isDefault` comes from whichever list matched,
+     which is that list's own notion and correct for both providers". That is true
+     of the DIR match and false of the DEFAULTNESS match: matching on `isDefault`
+     alone keeps no provider straight. The sentence change then made the case
+     worse rather than better, because "This is a Codex agent, and it runs on
+     <a Claude email>" contradicts itself inside one line.
+     ⇒ OpenAI rows carry `provider: 'openai'` and Claude rows carry no provider
+     at all, so the two lists are separable, and the dir-matched arm needs no gate
+     because a codex dir cannot equal a claude row's dir. A caller handed the
+     wrong list for the agent now gets NO row rather than a confident wrong one. */
+  const isOpenaiRow = (x) => !!(x && x.provider === 'openai');
+  const foreign = !!(job.runner && job.runner !== 'claude');
+  const found = dir
+    ? list.find((x) => x.dir === dir)
+    : list.find((x) => x.isDefault && (foreign ? isOpenaiRow(x) : !isOpenaiRow(x)));
   if (found) {
     return {
       dir: found.dir, email: found.email, label: found.label,
@@ -901,8 +1341,22 @@ function accountForAgent(name, known) {
      on whether its pane happened to be readable.
      ⭐ Two derivations of one fact, in the field I unified one round earlier:
      the live path was fixed and its sibling was not. Same miss, third time. */
+  /* 🛑 AND `isDefaultDir` IS A CLAUDE QUESTION, SO IT IS NOT ASKED ABOUT A CODEX
+     DIRECTORY. `readJob` returns `CODEX_HOME` as `configDir` for a codex agent
+     (`engine/create.js`), and `accounts.isDefaultDir` compares against
+     `$HOME/.claude` and nothing else, so that directory scores `false`: read in
+     an account block as "on a NON-default account", implying a named alternate
+     that does not exist.
+     ⭐ THE COMMENT ABOVE SAYS "the live path was fixed and its sibling was not.
+     Same miss, third time." This was the fourth: I guarded exactly this field on
+     the live reader, wrote that the record path needed the same guard, and then
+     carried that to the model and not to the account. The job is already read at
+     the top of this function, so the runner was in hand the whole time.
+     📌 Only this fallback, not the `found` branch above: there `isDefault` comes
+     from whichever list matched, which is that list's own notion and correct for
+     both providers. */
   return dir
-    ? { dir, email: null, label: null, name: openaiAccounts.readName(dir), organization: null, isDefault: accounts.isDefaultDir(dir) }
+    ? { dir, email: null, label: null, name: openaiAccounts.readName(dir), organization: null, isDefault: foreign ? null : accounts.isDefaultDir(dir) }
     : null;
 }
 
@@ -913,6 +1367,31 @@ function policySummaries(r) {
     chars: p.text.length, opening: p.text.slice(0, 240),
   }));
 }
+/* #768: the task-message valve. A message typed on the board (the operator) is
+   never limited, but a PROCESS (an agent running `kosmos task message`) is, so a
+   looping agent cannot spam a task's people. This is a rate limit, so an in-memory
+   rolling window is sufficient (a restart resets it, which only ever frees a caller,
+   never wrongly blocks one) -- unlike the task-CREATION valve, which counts persisted
+   tasks because those must survive a restart. CAP process task-messages per hour,
+   fleet-wide, matching the task-creation valve's spirit. */
+/* `>= 0`, not `|| 30`: an operator who sets the cap to 0 to silence agent
+   task-messages entirely means 0, and `Number("0") || 30` would give 30 -- the
+   same env-0 footgun this file already guards against elsewhere with a range check. */
+const TASK_MSG_CAP_PER_HOUR = (() => {
+  const n = Number(process.env.AGENT_WORKFORCE_TASK_MSG_CAP);
+  return Number.isFinite(n) && n >= 0 ? n : 30;
+})();
+const TASK_MSG_WINDOW_MS = 3600000;
+let taskMessageSends = [];
+function taskMessageValveTripped() {
+  const cutoff = Date.now() - TASK_MSG_WINDOW_MS;
+  taskMessageSends = taskMessageSends.filter((t) => t >= cutoff);
+  return taskMessageSends.length >= TASK_MSG_CAP_PER_HOUR;
+}
+function taskMessageValveRecord() {
+  taskMessageSends.push(Date.now());
+}
+
 function safeRoster() {
   try {
     const board = snapshot();
@@ -1269,6 +1748,225 @@ function sendJson(res, code, obj) {
   res.end(JSON.stringify(obj));
 }
 
+/* ---- #1704 PR2 (plan §5): a kept-running agent's sends are never lost ------
+   On a world switch the person may keep a Kosmos's agents running. Board tokens
+   are per world, so a kept-running agent's reply reached the board serving
+   ANOTHER Kosmos, was refused as a stranger's, and was gone. Now every agent-side
+   request names its Kosmos (launchidentity.WORLD_HEADER); this board answers a
+   mismatch with 421 before any token check; the client keeps the send in its own
+   Kosmos (engine/outbox.js); and whichever board serves that Kosmos drains it. */
+const launchidentity = require('./engine/launchidentity');
+const outbox = require('./engine/outbox');
+
+/* The agent routes a world mismatch is refused on. Only these: install/kosmos
+   sends the header on EVERY call, including person-side ones such as `kosmos
+   open`'s board-nonce run from a terminal with no KOSMOS_WORLD, and those must
+   never be refused for it. */
+const WORLD_CHECKED_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply', 'POST /api/msg', 'POST /api/post', 'POST /api/react']);
+
+/* 421 Misdirected Request: the request is well formed and was sent to a server
+   that cannot answer for it, which is exactly "this board is serving another
+   Kosmos". No other route answers it, so a client can key on it without
+   mistaking a refusal of another kind. */
+const WRONG_WORLD_STATUS = 421;
+
+/**
+ * The 421 answer when a loopback agent route names a Kosmos this board is not
+ * serving, or null to carry on. An ABSENT header (the web page, an older client)
+ * is always null, so every caller that predates the header behaves as it did.
+ * Loopback only: a network peer never learns the booted world this way. Nothing
+ * new leaks to a local one either, since `x-kosmos-board: build@world` already
+ * publishes the booted world on `GET /`. The booted world is read per request
+ * (worldenv.bootedWorld), and worldenv's own rule decides a null one: "unknown",
+ * not the default. That is only a board that was never bootstrapped (a unit
+ * test); a real boot always records a world, the default one on any failure.
+ * Unknown cannot be a mismatch, so it refuses nothing (review round 1). The
+ * header is read through the one rule every client applies
+ * (launchidentity.worldIdForHeader).
+ */
+function wrongWorldRefusal(req, pathname) {
+  if (!WORLD_CHECKED_AGENT_ROUTES.has(`${req.method} ${pathname}`)) return null;
+  if (!isLoopbackPeer(req)) return null;
+  const named = req.headers && req.headers[launchidentity.WORLD_HEADER];
+  if (named === undefined) return null;
+  const booted = require('./engine/worldenv').bootedWorld();
+  if (booted === null || booted === undefined) return null;
+  const serving = launchidentity.worldIdOrDefault(booted);
+  if (launchidentity.worldIdForHeader(named) === serving) return null;
+  return {
+    wrongWorld: true,
+    serving,
+    because: 'That came from an agent in a different Kosmos from the one open right now, so this board did not take it.',
+  };
+}
+
+/* The checks a reply's text must pass before it is kept: chat's message rules,
+   then the delivery-marker impersonation refusal. One function, so /api/reply and
+   the outbox drain refuse exactly the same replies. */
+function agentReplyProblem(text) {
+  return chat.messageProblem(text) || messages.markerProblem(text) || null;
+}
+
+/* Record an agent's reply in its thread with the person: the one write both
+   /api/reply and the outbox drain make, so a drained reply is exactly a reply.
+   `at` is the original send time for a drained reply, now for the route. */
+function keepAgentReply(who, text, at) {
+  return chat.appendMessage(chat.DIRECT, who, {
+    text,
+    at: at || new Date().toISOString(),
+    from: who,
+  });
+}
+
+/**
+ * An agent's post into a project room: the project lookup, its member list and
+ * the send, shared by /api/post and the outbox drain so the two cannot disagree
+ * about which rooms exist or who is in them. `sender` is a resolved sender, a
+ * token refusal (`{ok:false}`, reported after the project check, which is the
+ * order the route has always answered in), or null for the pane path. Returns the
+ * delivery verdict.
+ */
+function sendRoomPostAsAgent({ fromPane, sender, project, text, replyExpected }, roster) {
+  let found = null;
+  try { found = projects.get(String(project == null ? '' : project).trim(), roster); } catch { found = null; }
+  if (!found) return { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' };
+  // An archived project still accepts posts, a RECORDED trade: the
+  // archive hides a project from the list and stops it counting,
+  // and nothing else in the app gates behavior on it (an archived
+  // project's detail is still reachable and its members are still
+  // its members). If archive ever comes to mean "closed", this is
+  // the line that changes.
+  const members = (found.agents || []).map((a) => a.sessionName);
+  if (sender && !sender.ok) return { state: 'could_not', because: sender.because };
+  return messages.sendPost({
+    fromPane,
+    sender,
+    project: found.id,
+    // The NAME for the envelope the agent reads, the id for everything a
+    // machine keys on. Both, from the same record, so they cannot drift.
+    projectName: found.name,
+    text,
+    replyExpected,
+  }, roster, members);
+}
+
+/* Is this name an agent in the Kosmos this board serves? A profile in this
+   world's store (so a stopped agent still counts), or a tied card on the roster
+   (so an adopted agent with no profile still counts). The drain's gate for a kept
+   send's sender and for a kept message's recipient. */
+function agentBelongsToThisKosmos(name) {
+  const n = String(name == null ? '' : name).trim();
+  if (!n) return false;
+  if (Object.keys(store.readProfile(n)).length > 0) return true;
+  return knownAgent(n);
+}
+
+/* A delivery verdict as the drain's outcome. `unconfirmed` counts as delivered:
+   the text may already be in the recipient's composer, and re-sending it is the
+   duplicate every client's "do not re-send" sentence exists to stop. */
+function outboxOutcomeOf(delivery) {
+  const state = delivery && delivery.state;
+  if (state === chat.DELIVERY.PLACED || state === chat.DELIVERY.UNCONFIRMED) return { outcome: 'delivered' };
+  return { outcome: 'retry', because: (delivery && delivery.because) || 'it could not be placed' };
+}
+
+/**
+ * Deliver the sends this Kosmos's agents kept while another Kosmos was open,
+ * through the same functions the routes use. A kept sender is trusted as the
+ * name it was kept under once the drain has checked it is an agent here; its
+ * card is the token path's paneless shape.
+ *
+ * One pass: `pass` ({after, maxDeliveries}, both optional) is handed to
+ * outbox.drain, which delivers at most outbox.MAX_DELIVERIES_PER_PASS entries and
+ * returns `next` when it stopped at that cap (startOutboxDrain carries on from
+ * there). Returns outbox.drain's summary.
+ */
+function drainOutboxNow(pass) {
+  let roster;   // read once per drain, and only when a msg or a post needs it
+  const rosterNow = () => (roster === undefined ? (roster = safeRoster()) : roster);
+  const senderFor = (name) => ({ ok: true, card: { sessionName: name, isNamedOurs: true } });
+  /* A kept msg's recipient, read one way for the check and for the note. */
+  const recipientOf = (entry) => String(entry.body.to == null ? '' : entry.body.to).trim();
+  const notDelivered = (entry, clauseText) => messages.logRefusedSend(entry.from,
+    recipientOf(entry) || '(nobody named)',
+    'your message to ' + (recipientOf(entry) || 'nobody') + ' was not delivered: ' + clauseText);
+  return outbox.drain({
+    knownAgent: agentBelongsToThisKosmos,
+    deliverReply: (entry) => {
+      const problem = agentReplyProblem(entry.body.text);
+      if (problem) return { outcome: 'dropped', because: problem };
+      const kept = keepAgentReply(entry.from, entry.body.text, entry.at);
+      return kept.recorded === true ? { outcome: 'delivered' } : { outcome: 'retry', because: kept.because };
+    },
+    deliverMsg: (entry) => {
+      const to = recipientOf(entry);
+      if (!agentBelongsToThisKosmos(to)) {
+        notDelivered(entry, (to || 'that name') + ' is not in this Kosmos');
+        return { outcome: 'dropped', because: (to || 'the recipient') + ' is not in this Kosmos' };
+      }
+      const now = rosterNow();
+      if (now === null) return { outcome: 'retry', because: 'we could not check which agents are running' };
+      return outboxOutcomeOf(messages.send({
+        sender: senderFor(entry.from), to, text: entry.body.text, inReplyTo: entry.body.in_reply_to,
+      }, now));
+    },
+    deliverPost: (entry) => {
+      const now = rosterNow();
+      if (now === null) return { outcome: 'retry', because: 'we could not check which agents are running' };
+      return outboxOutcomeOf(sendRoomPostAsAgent({
+        sender: senderFor(entry.from), project: entry.body.project, text: entry.body.text,
+        // #2908: the kept entry is the exact /api/post body, so a `kosmos post --no-reply` queued
+        // during a wrongWorld/421 carries reply_expected:false. Forward it on drain, or the
+        // replayed post would be reply-required again and reopen the loop for the kept-agent case.
+        replyExpected: entry.body.reply_expected,
+      }, now));
+    },
+    onExpired: (entry, because) => {
+      if (entry.verb === 'msg') notDelivered(entry, 'it could not be placed for a week (' + because + ')');
+    },
+    after: pass && pass.after,
+    maxDeliveries: pass && pass.maxDeliveries,
+  });
+}
+
+/* How often a serving board looks for kept sends. A minute: the nudge sweep's
+   cadence, and a kept reply waits at most this long after its Kosmos is opened
+   again (the first sweep runs as soon as the board is up). */
+const OUTBOX_DRAIN_INTERVAL_MS = 60 * 1000;
+
+/* Start draining: a sweep now, then one every OUTBOX_DRAIN_INTERVAL_MS. A sweep is
+   a chain of passes of at most outbox.MAX_DELIVERIES_PER_PASS deliveries each,
+   every pass continuing where the last stopped, on the next turn of the event loop
+   (setImmediate), so the board serves requests between passes instead of holding
+   them for a whole outbox (review round 1). A tick that finds a sweep still
+   running skips it, so two sweeps never interleave. Called from the real-start
+   path only, once the board is listening; never at require, so a route test that
+   requires this file drains nothing unless it asks to. */
+function startOutboxDrain() {
+  let sweeping = false;
+  const runPass = (after) => {
+    let summary = null;
+    try { summary = drainOutboxNow({ after }); } catch (err) {
+      process.stderr.write(`Kosmos outbox: the drain failed and will run again in a minute: ${String(err && err.message)}\n`);
+    }
+    if (summary && summary.next) {
+      const more = setImmediate(() => runPass(summary.next));
+      if (more && typeof more.unref === 'function') more.unref();
+      return;
+    }
+    sweeping = false;
+  };
+  const sweep = () => {
+    if (sweeping) return;
+    sweeping = true;
+    runPass(undefined);
+  };
+  const first = setTimeout(sweep, 0);
+  if (first && typeof first.unref === 'function') first.unref();
+  const every = setInterval(sweep, OUTBOX_DRAIN_INTERVAL_MS);
+  if (every && typeof every.unref === 'function') every.unref();
+}
+
 /* ⚠️ ONE OF FIVE COPIES OF THE PINNED 16180 LITERAL (#910: here,
    `install/kosmos`, `install/setup.sh`, `install/pkg-scripts/postinstall`,
    and native-app/main.swift's `kosmosDefaultPort()`) -- but this is the
@@ -1452,6 +2150,25 @@ function withUnread(list) {
   let counts = null;
   try { counts = messages.unreadAll(); } catch { counts = null; }
   return (list || []).map((p) => ({ ...p, unread: counts === null ? null : (counts[p.id] || 0) }));
+}
+
+/* #2863: every agent on the wire carries its unread-DM count, derived HERE from
+   the DIRECT threads and the per-agent read cursor, the exact analog of
+   withUnread for projects. Keyed by `sessionName` because that is what the DM
+   thread is filed under (POST /api/reply records via chat.appendMessage(DIRECT,
+   sender.card.sessionName)). null when the count is unknown (unreadable cursor /
+   chats dir, or that one thread) -- unknown is not zero -- and never a 500: an
+   agents list that failed because a badge could not be computed would be the
+   wrong thing to lose. A per-agent null in the map passes through as null. */
+function withDmUnread(list) {
+  let counts = null;
+  try { counts = chat.dmUnreadAll(); } catch { counts = null; }
+  return (list || []).map((a) => {
+    if (counts === null) return { ...a, dmUnread: null };
+    const key = a && (a.sessionName || a.name);
+    const v = key != null && Object.prototype.hasOwnProperty.call(counts, key) ? counts[key] : 0;
+    return { ...a, dmUnread: v };
+  });
 }
 
 function decodeSegment(segment) {
@@ -1715,7 +2432,7 @@ const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
    The /api/team handler re-enforces auth itself (a valid agent token OR the board
    token; no-credential refused on an enforcing board), exactly as report/reply do
    one layer down -- see that handler. */
-const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team']);
+const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
 
 /**
  * What makes opening the bind safe (#1112 phase 2).
@@ -1759,7 +2476,7 @@ function remoteWriteGuard(req, pathname) {
   if (isLoopbackPeer(req)) return null;
   const NOPE = 'this board only accepts agent reports from the network';
   if (!REMOTE_AGENT_ROUTES.has(`${req.method} ${pathname}`)) return NOPE;
-  const presented = req.headers && req.headers['x-kosmos-agent-token'];
+  const presented = presentedAgentToken(req);   // the header only: no body has been read here
   // Validate existence constant-time via the store, WITHOUT the roster: the
   // route's own resolveAgentSender then enforces liveness + tie. This is an
   // early reject of network noise, not the identity decision.
@@ -1767,35 +2484,10 @@ function remoteWriteGuard(req, pathname) {
   return null;
 }
 
-/**
- * Where the server binds. Loopback by default; a network host ONLY when the
- * operator explicitly opts in with KOSMOS_BIND_HOST (#1112 phase 2). An
- * un-opted-in board binds byte-identically to before this change.
- *
- * 🔑 SAFE ONLY BECAUSE `remoteWriteGuard` EXISTS. Opening this bind exposes the
- * board's port to the network; the guard is what keeps every write except the
- * token-gated agent surface unreachable from it. The two are one change -- do
- * not read KOSMOS_BIND_HOST anywhere the guard is not also in force.
- *
- * Read at listen time (boot). A Settings toggle would need a restart to take
- * effect, so the env is the honest mechanism.
- *
- * ⚠️ OPENING THE BIND IS A TWO-PART OPT-IN, AND THIS IS THE SECOND PART. A
- * remote agent connects with `Host: <mac-ip>` (or a hostname), and `pathOf`'s
- * DNS-rebind check 400s any request whose Host is neither loopback nor in
- * `AGENT_WORKFORCE_ALLOWED_HOSTS` -- BEFORE `remoteWriteGuard` ever runs. So the
- * operator must ALSO declare the reachable host in `AGENT_WORKFORCE_ALLOWED_HOSTS`,
- * or a token-holding remote agent is refused at the door. This is deliberate,
- * not an oversight: the Host check is DNS-rebind protection, a different layer
- * from reachability, and it matters MOST when the board is network-reachable, so
- * it is not relaxed just because the bind opened. Two explicit opt-ins to expose
- * the board is the safer posture. (Fails closed: with only KOSMOS_BIND_HOST set,
- * a remote agent gets a 400, never an unguarded surface.)
- */
-function bindHost() {
-  const v = String(process.env.KOSMOS_BIND_HOST || '').trim();
-  return v || '127.0.0.1';
-}
+/* Where the server binds: engine/bindhost.js's bindHost(), the ONE reading of the bind host, shared with
+   the uninstall's and the move's board probes (win32-installer-native round 4, finding 1). Its docblock
+   carries the #1112 two-part opt-in, and why the bind is safe only with remoteWriteGuard below. */
+const { bindHost } = require('./engine/bindhost');
 
 /* 🔑 THE INSTALL GATE'S REQUEST LOG (#908). On 2026-08-25 and again on
    2026-08-26 the gate went red because something loaded a sandboxed board's
@@ -1865,6 +2557,17 @@ const server = http.createServer((req, res) => {
   const remoteRefusal = remoteWriteGuard(req, pathname);
   if (remoteRefusal) {
     sendJson(res, 403, { error: remoteRefusal });
+    return;
+  }
+
+  /* #1704 PR2: BEFORE the board-token gate below, on purpose. A kept-running
+     agent presents ITS Kosmos's board token, which this board would refuse as
+     another account's (403) and the send would be lost; answering "wrong world"
+     first is what lets the agent keep it for later instead. Only the five agent
+     routes, only loopback, only when the header is present (wrongWorldRefusal). */
+  const worldRefusal = wrongWorldRefusal(req, pathname);
+  if (worldRefusal) {
+    sendJson(res, WRONG_WORLD_STATUS, worldRefusal);
     return;
   }
 
@@ -2070,8 +2773,78 @@ const server = http.createServer((req, res) => {
          for validity, again: `isNamedOurs` answers "is this our agent", never
          "did we write its job". */
       const accountOf = (name) => accountForAgent(name, known);
+      /* 🛑 #2811: A PANELESS CARD CARRIES `runner: null`, AND THIS CHANGE IS WHAT
+         MAKES THAT MATTER. `engine/status.js`'s `panelessCard` hardcodes
+         `runner: null` (its only such site) because a card with no pane has no
+         `@kosmos_runner` to read. Before this branch that was harmless here: the
+         dir-less match handed a default-account codex agent the operator's CLAUDE
+         row, so `account` was truthy and the detail panel wrote no message. The
+         provider gate now returns null for that agent, and null routes it into
+         `paintAccountPicker`'s `!ours` sentence -- which the panel only qualifies
+         for a codex agent when it can SEE that it is one.
+         ⇒ So the runner has to travel for a paneless row too, and the derivation
+         is not new: the offline list below already does exactly this, from the
+         profile, with the reason stated there -- "a stopped agent has no pane to
+         have recorded it, so the record is the answer". A paneless row is the
+         same case, and both now call `create.recordedRunner` so there is ONE
+         definition. ⚠️ That was NOT true when this comment was first written: the
+         offline row restated a weaker, profile-only rule, so the two disagreed
+         whenever plist and profile diverged. The sentence described the intention
+         and the code did something else; both were changed to match it.
+         ⚠️ ONLY WHEN ABSENT. A live pane's own runner is the better evidence and
+         must not be overwritten by a record that a switch could have made stale
+         in the other direction. */
+      const runnerOfCard = (a) => {
+        if (a.runner) return a.runner;
+        /* 🛑 ONLY WHEN THIS MAC ACTUALLY HOLDS A RECORD. `create.recordedRunner`
+           FLOORS at 'claude' and cannot say "unknown": `readJob` floors its
+           `runner` and the profile arm ends `provider === 'openai' ? 'codex' :
+           'claude'`. So calling it unconditionally answered 'claude' for an agent
+           this Mac has no job and no profile for -- and `panelessCard`'s own
+           contract legislates against exactly that: "runner is null because the
+           token store does not record one -- the screen's fallback will read that
+           as Anthropic, which is A DISPLAY DEFAULT WE INHERIT AND NOT A CLAIM THIS
+           CARD MAKES."
+           ⚠️ THE POPULATION IS REAL, not a hypothetical: paneless rows come from
+           TWO sources, and only one is local. `createdSource` is a plist this Mac
+           wrote; `panelessKeys` enumerates the SENDER-TOKEN store, which is the
+           beat-known remote/win32 case the contract paragraph is written about.
+           🛑 AND THIS GATE CHANGES NO RENDERED BEHAVIOUR TODAY. An earlier version
+           of this comment claimed an unconditional fill "hands a remote codex agent
+           the Claude model list, the #2167 shape restored one population over".
+           MEASURED FALSE: all four web readers of `a.runner` are `=== 'codex'`
+           equality tests, so `null` and `'claude'` are indistinguishable at every
+           one, and `someAgentNeedsClaude` counts an unknown runner ('' / 'claude')
+           the same as null. That agent rendered identically before the fill existed.
+           ⇒ The gate is a WIRE-CONTRACT fix, not a behaviour fix, and it is kept on
+           that ground alone: `panelessCard` legislates that null is a default we
+           inherit and not a claim, and a payload should not assert what this Mac
+           cannot know even where no reader currently reads the difference. A fix
+           justified by a harm that does not exist is the thing this card keeps
+           catching, so the real reason is written here instead.
+           ⇒ The gate asks whether a record EXISTS before asking what it says, so
+           `recordedRunner` stays the ONE derivation and null stays available.
+           🛑 AND THE OFFLINE ROW USES THIS SAME HELPER, after a false start worth
+           recording. I first left that row ungated and justified it: "an offline row
+           EXISTS BECAUSE a profile file does, so the record is present by
+           construction". MEASURABLY FALSE. `register.survey()` builds from `known()`
+           (profile-backed) AND THEN PUSHES `strays()`, stamped `profile: false`; the
+           offline filter is `(k.folder || k.job)` and never mentions a profile. So a
+           folder-only stray reaches that list with no job and no profile, and floored
+           to a positive 'claude' under a comment asserting the case cannot arise.
+           ⇒ I traced ONE source (`known()`) and pronounced on the population, which
+           is this card's signature error and the reason both rows now share one
+           helper: there is no asymmetry left to justify wrongly. */
+        try {
+          const job = create.readJob(a.sessionName);
+          const recorded = job || ((store.readProfile(a.sessionName) || {}).provider);
+          if (!recorded) return null;
+          return create.recordedRunner(a.sessionName);
+        } catch { return null; }
+      };
       const agents = snap.agents.filter((a) => !gone.has(a.sessionName)).map((a) => ({
         ...a,
+        runner: runnerOfCard(a),
         /* 🔑 STATED ON EVERY ROW, and it was stated on only half. The board
            branches on `running === false`, and the not-running rows below set
            it while these did not: so for every live agent the page was reading
@@ -2202,6 +2975,20 @@ const server = http.createServer((req, res) => {
              this roster already refuses elsewhere. Empty on any failure:
              could-not-look must never dress a stopped agent in running. */
           const runningNow = create.runningJobs();
+          /* #3013: the workspace-trust diagnosis for a Windows agent that spawned,
+             wrote its early session .key, and never registered because its folder is
+             not trusted in the config it reads. It reuses the #2281 detector
+             (win32trustwait) and the supervisor's own positive signal
+             (trust.folderTrusted). win32-only, and it adds NO process spawn to this
+             5s poll: liveness is already decided here (this list is the NOT-live
+             agents), and every per-agent fact diagnose needs -- config AND the
+             enabled flag -- comes from win32job's PROCESS-LIFETIME #2717 cache (poll
+             N hits what an earlier poll warmed; busted only by install/remove/
+             disable/enable). Applied per row below, replacing the misleading "Not
+             running" / "Can't tell" copy with the diagnosis the supervisor already
+             writes to the task log. See engine/win32trustcard.js (incl. its
+             account-level-attribution limit). */
+          const trustCard = process.platform === 'win32' ? require('./engine/win32trustcard') : null;
           /* 🛑 #127: A LEFTOVER JOB WITH NO FOLDER IS STILL A LEFTOVER, and it
              was the one this list discarded. The gate used to be `k.folder`
              alone, so an agent whose worker folder was deleted while its
@@ -2218,6 +3005,15 @@ const server = http.createServer((req, res) => {
             .map((k) => {
               try {
               const profile = store.readProfile(k.name) || {};
+              /* #3013: the trust-wait diagnosis for THIS agent, if any. This row is
+                 already NOT live (it has no pane); diagnose makes the rest of the
+                 per-agent decision itself -- registered, ENABLED (from the task's own
+                 XML, win32-correct and fresh; NOT the darwin-only create.disabledJobs
+                 that is inert on Windows), folder untrusted, a started-but-
+                 unregistered .key. It reads only win32job's process-lifetime #2717
+                 cache, so no schtasks spawn is added to the poll. win32-only
+                 (trustCard is null elsewhere). */
+              const stuckBecause = trustCard ? ((trustCard.diagnose(k.name) || {}).because) : undefined;
               /* #668: launchd holds a live process for this job, and this
                  board can see no session for it. Two true facts that
                  disagree, and the disagreement is the story -- so the row
@@ -2254,7 +3050,14 @@ const server = http.createServer((req, res) => {
                    it is a false one -- launchd says otherwise. Unknown at
                    confidence none is the honest pair: we tried to read it and
                    could not, which is exactly what those two values mean. */
-                state: unseen ? 'unknown' : 'stopped',
+                /* #3013: a trust-wait agent gets its own state; otherwise the
+                   existing #668 unseen-vs-stopped split stands. */
+                state: stuckBecause ? 'needs_trust' : (unseen ? 'unknown' : 'stopped'),
+                /* #3013: the marker the card and list row branch on to draw the
+                   workspace-trust treatment instead of the generic offline shape.
+                   Off-win32 and on any refused look it is false for every row, so
+                   the offline path is byte-identical there. */
+                needsTrust: Boolean(stuckBecause),
                 /* ⚠️ THE FLAG THE SCREEN BRANCHES ON, and it is not derivable
                    from the state: a pane running something that is not Claude
                    is also stopped, and that agent IS up. Stays false on the
@@ -2267,7 +3070,10 @@ const server = http.createServer((req, res) => {
                    the one cause a person produced themselves with no screen
                    connecting the two. Said here, once, so every surface that
                    reads `because` says it. */
-                because: k.profile === false
+                /* #3013: the supervisor's own workspace-trust reason wins when
+                   this agent is stuck at the prompt; otherwise the existing
+                   offline-cause ladder stands unchanged. */
+                because: stuckBecause ? stuckBecause : (k.profile === false
                   /* #500: the profile-less stray this row now surfaces. The
                      survey found it on disk with no record behind it, so the
                      one true sentence is that Kosmos does not know it. The
@@ -2332,8 +3138,12 @@ const server = http.createServer((req, res) => {
                     ? 'this agent is not running: nothing on this computer has a session for it. '
                       + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1)
                       + '; if it stays off, its Terminal tab is where to look'
-                    : 'this agent is not running: nothing on this computer has a session for it',
+                    : 'this agent is not running: nothing on this computer has a session for it'),
                 hasAvatar: Boolean(safeAvatarFor(k.name)),
+                /* #2698: a version that moves when the picture changes, so a view
+                   that skips an identical repaint (the org chart) still refreshes
+                   the avatar. Carried in the URL as `?v=`; see store.avatarVersion. */
+                avatarVer: store.avatarVersion(k.name),
                 profile,
                 plannedModelName: plannedFor({ sessionName: k.name, isNamedOurs: true }),
                 /* #149/#150: same field the roster rows carry, same meaning.
@@ -2366,10 +3176,25 @@ const server = http.createServer((req, res) => {
                 id: store.agentId(k.name),
                 /* #246: which runner this agent runs on, for the switch
                    screen. A stopped agent has no pane to have recorded it,
-                   so the profile's provider (written at creation and at
-                   every switch) is the record; absent means claude, as
-                   everywhere. */
-                runner: (profile.provider === 'openai') ? 'codex' : 'claude',
+                   so the RECORD is the answer; absent means claude, as
+                   everywhere.
+                   🛑 #2811: THIS READ USED TO BE `profile.provider === 'openai'`,
+                   AND ITS PANELESS SIBLING IN THE SAME PAYLOAD NOW USES
+                   `create.recordedRunner`. Two derivations of one fact, and they
+                   DISAGREE: `recordedRunner` is PLIST-FIRST (`readJob().runner`,
+                   which floors at 'claude'), consulting the profile only when no
+                   job parses. So for an agent whose plist says codex and whose
+                   profile still says anthropic -- a state this branch's own
+                   `setprovider-writes` EACCES arm constructs and asserts, since
+                   the profile write is best-effort -- the paneless row said codex
+                   and this one said claude, for the SAME AGENT at different
+                   moments (the two populations are mutually exclusive per poll
+                   but an agent moves between them as its beat lapses).
+                   ⇒ Unified on `recordedRunner`, which is also the MORE correct
+                   of the two: the plist is the launch truth, as this file says
+                   everywhere else, and the profile is the fallback when there is
+                   no job to read. */
+                runner: runnerOfCard({ sessionName: k.name, runner: null }),
                 account: accountOf(k.name),
                 commitments: commitments.read(k.name),
                 instructions: projects.toldOverride(instructions.staleness(k.name), k.name),
@@ -2448,10 +3273,12 @@ const server = http.createServer((req, res) => {
          false and the banner stays down. */
       const dependsOnClaude = someAgentNeedsClaude(agents.concat(offline));
       body = JSON.stringify({
-        ...snap, agents: agents.concat(offline), counts, connection, version, dependsOnClaude,
+        ...snap, agents: withDmUnread(agents.concat(offline)), counts, connection, version, dependsOnClaude,
         /* #2066: the build marker reads (version, sourceChannel). Channel rides
-           the 5s status tick the board already polls -- one file read, defaulting
-           to 'prod', so a prod board is unchanged and a staging board is loud. */
+           the 5s status tick the board already polls. #2934: no longer just a file
+           read -- it is the recorded install stamp, then (only when that says staging)
+           a cached-pointer check that can downgrade it to prod. Never a network call
+           on this path, and every unknown keeps the stamp. */
         sourceChannel: sourceChannelNow(),
         /* 🛑 NO OFFER FROM A BOARD THAT CANNOT TAKE ONE. A Kosmos running from
            its source (this Mac's, under the hand plist) cannot install: the
@@ -2463,7 +3290,23 @@ const server = http.createServer((req, res) => {
            Update nothing happens"). An offer is a promise the route must be
            able to keep; a source-run board says what it is instead (the
            engine-stale line from #338 covers "newer code is on disk"). */
-        update: updates.installedRoot() ? updates.available() : null, updateLook: updates.lastLook(),
+        /* installOffer() is the [Update] offer: something newer is published AND this board can take
+           it in place. Null on a source run (both platforms) and, on win32, null for a bundle in a
+           location the updater refuses (OneDrive / Program Files) -- that install gets the manual
+           offer below instead. One derivation, so the button, the route and the auto path agree. */
+        update: updates.installOffer(), updateLook: updates.lastLook(),
+        /* win32 (S4): a bundle the in-app updater refuses UP FRONT -- one under OneDrive or Program
+           Files (the one named location rule) -- rides here as the MANUAL offer ({version, download})
+           so the card shows the honest download instead of an [Update] that would fail; a normal
+           armed bundle gets the [Update] offer above, and the two are mutually exclusive. updatePhase
+           is the win32 update journal's phase, so the overlay can tell downloading from swapping. The
+           channel rides beside them so a staging board is never silent about being one. */
+        updateManual: updates.manualOffer(), updateChannel: updates.updateChannel(), updatePhase: updates.updatePhase(),
+        /* win32 (S5, #3017): the kept previous build a person can roll back to ({version}) or null. S4's
+           armed success path keeps one previous-<from> folder exactly so this button can restore it;
+           surfaced here so people know rollback exists. Null off win32 / on a source run / for a
+           OneDrive-Program Files bundle the updater refuses up front. */
+        updateRollback: updates.rollbackOffer(),
         /* #553: the last install attempt this server saw END (a failure;
            a success kills the server first). The overlay reads it to say
            a true sentence instead of spinning. */
@@ -2743,18 +3586,17 @@ const server = http.createServer((req, res) => {
     }
     return;
   }
-  /* #2563: the create-a-new-Kosmos "add my agents from" selector needs the user's
-     Kosmoses WITH a per-world agent count. The sibling GET /api/worlds returns the
-     registry pointers (active/booted) the switcher needs; this returns the counted
-     list Angel's web slice populates the selector from. Read-only. */
+  /* #2563 / #1704 PR4: the "add agents from another Kosmos" picker (the New Kosmos
+     step and every Kosmos's settings cog) draws from this: each Kosmos with the
+     agents a person can pick from it, one by one, and the agents waiting to start
+     in it. The sibling GET /api/worlds returns the registry pointers (active/booted)
+     the switcher needs. Read-only. Each waiting agent carries its own reason, the
+     one its last start attempt recorded, or none when that Kosmos simply has not
+     been opened since it was copied in. */
   if (pathname === '/api/worlds/list' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const base = worldBase();
-      sendJson(res, 200, {
-        worlds: worlds.listWorlds(base).map((w) => ({
-          id: w.id, name: w.name, agentCount: worlds.agentCount(base, w),
-        })),
-      });
+      sendJson(res, 200, { worlds: worldimport.listForPicker(base) });
     } catch (_e) {
       sendJson(res, 500, { because: 'the world registry is not readable on this machine' });
     }
@@ -2769,36 +3611,48 @@ const server = http.createServer((req, res) => {
         // A base error is a SERVER condition (broken login env), not a bad request:
         // 500, and never leak the internal dataRootFor message through worldCreateReason.
         try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+        /* #1704 PR4: which agents to bring in, validated BEFORE the Kosmos is made,
+           so a malformed request creates nothing. `importAgents:[{from,name}]` picks
+           them one by one; `importAgentsFrom:[ids]` (a page from before) means every
+           agent of each. Neither is a plain create, byte-for-byte as before. */
+        const asked = worldimport.picksFromBody(base, body);
+        if (!asked.ok) { sendJson(res, 400, { ok: false, because: asked.because }); return; }
         let world;
         try { world = worlds.createWorld(base, body.name); }
         catch (e) { sendJson(res, 400, { ok: false, because: worldCreateReason(e) }); return; }
-        // #2563: optionally import agents from existing Kosmos(es) into the new one
-        // (copy-not-move; sources untouched). An import failure must NOT fail the
-        // create -- the world already exists, so a thrown copy would orphan it; report
-        // what imported instead. Absent/empty importAgentsFrom is a plain create, so
-        // this is byte-for-byte the old behaviour for every existing caller.
+        /* An import failure must NOT fail the create: the Kosmos already exists, so
+           a thrown copy would orphan it. Each agent is copied or refused with its
+           own sentence; a throw past that is reported as `error` and logged. */
         let imported = null;
-        if (Array.isArray(body.importAgentsFrom) && body.importAgentsFrom.length > 0) {
-          try { imported = worlds.importAgents(base, world, body.importAgentsFrom); }
-          catch (_e) { imported = { copied: 0, skipped: 0, failed: 0, unknownSources: 0, error: true }; }
+        if (asked.picks.length) {
+          try { imported = importIntoWorld(base, world.id, asked.picks, { legacy: asked.legacy }).imported; }
+          catch (err) {
+            /* Review round 3 (9): the throw can land AFTER some agents were copied in,
+               so neither this line nor the page may say none were added. */
+            process.stderr.write(`Kosmos created ${world.id} but could not finish adding its agents (some may have been added): ${String((err && err.message) || err)}\n`);
+            imported = { copied: [], refused: [], started: [], waiting: [], later: [], error: true };
+          }
         }
         sendJson(res, 200, imported ? { ok: true, world, imported } : { ok: true, world });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
   }
-  /* #1704 slice 2b-ii: switch the active world. This records activeWorldId in the
-     registry (worlds.setActiveWorld) and reports restartRequired. It deliberately
-     does NOT stop-and-relaunch the board: a world's env overrides (the data /
-     projects / workers roots) are applied ONCE at board startup by
-     worlds.applyActiveWorldEnv, so a running board keeps serving the PREVIOUS
-     world's roots until it restarts. That stop-and-relaunch lifecycle -- and the
-     per-world launchd agents that ride it -- is the next slice; this route is the
-     registry switch plus the honest restartRequired signal the switcher UI needs,
-     with no board self-restart merged (which would be a fleet-affecting action on
-     a shared box). worldBase() is the pre-override registry base captured at
-     start(), so the switch operates on the registry regardless of which world is
-     active. */
+  /* #1704: switch the active world. Body {id, agents: 'pause'|'keep'}.
+     A world's env overrides (the data / projects / workers roots) are applied ONCE
+     at board startup, so a running board keeps serving the world it BOOTED into
+     until it restarts; this route records the new activeWorldId, answers, and then
+     self-restarts the board when it safely can (#2238 below).
+     PR3 (Josh: the dialog asks each time): `agents` says what happens to the
+     agents of the Kosmos being LEFT. 'keep' leaves them running, exactly as every
+     switch did before (an absent value means 'keep', for a page loaded before this
+     existed). 'pause' stops them BEFORE the switch is recorded
+     (engine/worldstarts.pauseForSwitch: remembered in the left world's store,
+     disabled so a login cannot revive them), and the board brings them back when
+     it next boots into that world (drainAtBoot, in the real-start block). If
+     recording the switch then fails, the agents just paused are started again.
+     worldBase() is the pre-override registry base captured at start(), so the
+     switch operates on the registry regardless of which world is active. */
   if (pathname === '/api/worlds/active' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
@@ -2809,13 +3663,60 @@ const server = http.createServer((req, res) => {
         // world is NOT-FOUND (404). They are different failures and the switcher UI
         // acts on them differently (fix the request vs refresh the world list).
         if (!id) { sendJson(res, 400, { ok: false, because: 'say which Kosmos to switch to (an id)' }); return; }
+        const agentsChoice = body.agents === undefined ? worldstarts.DEFAULT_AGENT_CHOICE : body.agents;
+        if (!Object.values(worldstarts.AGENT_CHOICES).includes(agentsChoice)) {
+          sendJson(res, 400, { ok: false, because: 'say whether to pause this Kosmos\'s agents or keep them running (agents: "pause" or "keep")' });
+          return;
+        }
         let base;
         // A base error is a SERVER condition (broken login env), not a bad request:
         // 500, and never leak the internal dataRootFor message.
         try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+        /* Judged BEFORE the switch, because a pause has to happen before it.
+           setActiveWorld matches ids exactly (worlds.js: w.id === id) and returns
+           that world, so the requested id is the canonical one it would return. */
+        const bootedId = require('./engine/worldenv').bootedWorld();
+        const isNoop = bootedId != null && bootedId === id;
+        let pause = { paused: [], notPaused: [], stoppedNow: [] };
+        if (!isNoop && agentsChoice === worldstarts.AGENT_CHOICES.PAUSE) {
+          /* Refuse a pause for a world that does not exist rather than stop agents
+             for a switch that is about to 404. setActiveWorld still classifies the
+             race where it disappears in between (the rollback below). */
+          let known;
+          try { known = worlds.listWorlds(base).some((w) => w.id === id); }
+          catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+          if (!known) { sendJson(res, 404, { ok: false, because: 'there is no Kosmos with that id on this machine' }); return; }
+          /* safeRoster(): removed agents are already off it, so a pause never
+             touches an agent Kosmos has told the person is gone. */
+          const roster = safeRoster();
+          /* A pause from a NAMED Kosmos pauses that Kosmos's own agents, the same
+             as from Kosmos 1. Everything it touches is this world's: the roster
+             holds only this world's sessions (status.parsePanes on a Mac, this
+             world's session record on Windows), and pauseForSwitch reaches each
+             agent through its world-keyed launch identity
+             (launchidentity.launchKey) and records it in this world's store. */
+          /* An unreadable roster is a 503: a pause the person asked for must not
+             come back as a silent empty list. */
+          if (roster === null) {
+            sendJson(res, 503, { ok: false, because: 'we could not see which agents are running in this Kosmos, so nothing was paused or switched. Try again, or keep them running' });
+            return;
+          }
+          pause = worldstarts.pauseForSwitch(roster.map((a) => ({ name: a.sessionName, session: a.session, tied: a.isNamedOurs })));
+        }
         let world;
         try { world = worlds.setActiveWorld(base, id); }
         catch (e) {
+          /* The switch did not happen, so the agents THIS request stopped go back
+             to running in the Kosmos the board is still serving. stoppedNow, not
+             paused: `paused` also names agents an EARLIER pause-switch of this
+             Kosmos stopped (a board that could not restart itself), and the person
+             asked for those paused too (review round 3). Not gated by the
+             named-world spawn rule: this undoes our own stop of agents that were
+             running here a moment ago. */
+          if (pause.stoppedNow.length) {
+            const undone = worldstarts.resumeNames(pause.stoppedNow);
+            if (undone.held.length) process.stderr.write(`Kosmos could not start ${undone.held.length} agent(s) again after a failed switch. First: ${undone.held[0].name} - ${undone.held[0].because}\n`);
+          }
           // Classify by the engine's typed error CODE, never its message text --
           // the message is person-facing and free to change; the code is the
           // contract (see worlds.js). ENOWORLD: the id names no world (not-found).
@@ -2844,13 +3745,22 @@ const server = http.createServer((req, res) => {
                reports restarting:false and the switcher UI asks for a MANUAL restart
                -- never a bare exit that would brick it (engine/boardrestart is the
                conservative, fail-safe guard; see its header). */
-        const bootedId = require('./engine/worldenv').bootedWorld();
-        // Compare against the CANONICAL id setActiveWorld returned (world.id), not the
-        // raw request `id`, so a no-op is judged on the id the board actually booted vs
-        // the one now active -- robust to any id normalization setActiveWorld may do.
-        const isNoop = bootedId != null && bootedId === world.id;
+        /* A switch to the world this board is serving. The page never sends one in
+           its normal flow (the current world's row is not a button, #2454b); it
+           is reached by a direct API call, or by a page whose list still marks the
+           registry pointer after a switch on a board that could not restart
+           itself. If an earlier pause-switch on such a board stopped this world's
+           agents, they are "opened again" here, and no boot is coming to bring
+           them back. Costs nothing when nothing is paused. */
+        if (isNoop) {
+          const back = worldstarts.resumePaused();
+          if (back.held.length) process.stderr.write(`Kosmos left ${back.held.length} paused agent(s) off. First: ${back.held[0].name} - ${back.held[0].because}\n`);
+        }
         const restarting = !isNoop && require('./engine/boardrestart').canSelfRestart().canRestart;
-        sendJson(res, 200, { ok: true, world, restartRequired: !isNoop, restarting });
+        sendJson(res, 200, {
+          ok: true, world, restartRequired: !isNoop, restarting,
+          agents: agentsChoice, paused: pause.paused, notPaused: pause.notPaused,
+        });
         /* AFTER the response has been sent, restart the board so it comes back on the
            new world. The delay lets the 200 flush to the client first, because the
            restart kills the very connection that asked for the switch. selfRestart
@@ -2861,10 +3771,58 @@ const server = http.createServer((req, res) => {
            no-ops, and the client reconnect degrades to the manual path). */
         if (restarting) {
           setTimeout(() => {
-            try { require('./engine/boardrestart').selfRestart(); }
+            try { require('./engine/boardrestart').selfRestart(process.platform, { port: PORT }); }
             catch { /* best effort: a failed stop leaves the board serving the old world, still honest via restartRequired */ }
           }, 500);
         }
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  /* #1704 PR4: "add agents from another Kosmos", from a Kosmos's settings cog.
+     Body {id, importAgents:[{from, name}]}. Refused, with a sentence, when the
+     request names no Kosmos (400), no agents (400) or a Kosmos that does not exist
+     (404). Each agent is then copied or refused on its own (a name already taken,
+     an unknown or same Kosmos, one that cannot be read); when not one could be
+     added the answer is a 409 carrying why, with the per-agent detail. */
+  if (pathname === '/api/worlds/import' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { ok: false, because: 'we could not read that request' }); return; }
+        const id = typeof body.id === 'string' ? body.id.trim() : '';
+        if (!id) { sendJson(res, 400, { ok: false, because: 'say which Kosmos to add agents to (an id)' }); return; }
+        let base;
+        try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+        const asked = worldimport.picksFromBody(base, body);
+        if (!asked.ok) { sendJson(res, 400, { ok: false, because: asked.because }); return; }
+        /* Review round 2: ONE shape per route. The whole-Kosmos `importAgentsFrom`
+           form exists only for a New Kosmos page loaded before this change (POST
+           /api/worlds, which answers it in the counts that page reads). This route
+           is new, and the page's only call to it sends `importAgents`, so no old page
+           can be relying on the legacy body here: it is refused, rather than accepted
+           and answered in a shape its sender cannot read. */
+        if (asked.legacy) { sendJson(res, 400, { ok: false, because: 'add agents to a Kosmos one at a time, each by the Kosmos it is in and its name' }); return; }
+        if (!asked.picks.length) { sendJson(res, 400, { ok: false, because: 'choose at least one agent to add' }); return; }
+        let done;
+        try { done = importIntoWorld(base, id, asked.picks); }
+        catch (err) {
+          process.stderr.write(`Kosmos could not add agents to ${id}: ${String((err && err.message) || err)}\n`);
+          sendJson(res, 500, { ok: false, because: 'we could not add those agents' });
+          return;
+        }
+        if (!done) { sendJson(res, 404, { ok: false, because: 'there is no Kosmos with that id on this machine' }); return; }
+        if (!done.imported.copied.length) {
+          const only = done.imported.refused.length === 1 ? done.imported.refused[0] : null;
+          sendJson(res, 409, {
+            ok: false,
+            because: only ? `${only.name || 'that agent'} was not added: ${only.because}` : 'none of those agents could be added',
+            world: done.world,
+            imported: done.imported,
+          });
+          return;
+        }
+        sendJson(res, 200, { ok: true, world: done.world, imported: done.imported });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
@@ -2898,6 +3856,41 @@ const server = http.createServer((req, res) => {
           sendJson(res, 500, { ok: false, because: 'we could not rename that Kosmos' }); return;
         }
         sendJson(res, 200, { ok: true, world });
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  /* #2935 (Josh's soft-delete ruling): HIDE a Kosmos from the list. Soft only -- the on-disk store
+     is untouched (files stay accessible); the registry row is flagged hidden and this world's agents
+     are STOPPED (not deleted) so they do not keep running for a Kosmos removed from your list.
+     Mirrors /api/worlds/rename, classifying the engine's TYPED error codes. No id/name body beyond
+     the id. There is no unhide route (Josh: "no restore a kosmos"). */
+  if (pathname === '/api/worlds/hide' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { ok: false, because: 'we could not read that request' }); return; }
+        const id = typeof body.id === 'string' ? body.id.trim() : '';
+        if (!id) { sendJson(res, 400, { ok: false, because: 'say which Kosmos to hide (an id)' }); return; }
+        let base;
+        try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+        let world;
+        try { world = worlds.hideWorld(base, id); }
+        catch (e) {
+          const code = e && e.code;
+          if (code === 'ERESERVED') { sendJson(res, 400, { ok: false, because: 'the first Kosmos cannot be hidden' }); return; }
+          if (code === 'EACTIVE') { sendJson(res, 409, { ok: false, because: 'switch to another Kosmos before hiding this one' }); return; }
+          if (code === 'ENOWORLD') { sendJson(res, 404, { ok: false, because: 'there is no Kosmos with that id on this machine' }); return; }
+          if (code === 'EWORLDLOCK') { sendJson(res, 409, { ok: false, because: 'another Kosmos operation is in progress, try again in a moment' }); return; }
+          sendJson(res, 500, { ok: false, because: 'we could not hide that Kosmos' }); return;
+        }
+        /* STOP (not delete) this world's agents so they do not keep running for a hidden Kosmos.
+           Best-effort and reversible; it can never fail the hide (the hide already succeeded above,
+           and stopHiddenWorldAgents swallows its own errors). See its definition for the model. */
+        let agents = { stopped: [], kept: [] };
+        try { agents = stopHiddenWorldAgents(base, world); }
+        catch (err) { process.stderr.write(`Kosmos hid ${world.id} but could not stop its agents: ${String((err && err.message) || err)}\n`); }
+        sendJson(res, 200, { ok: true, world, agents });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
@@ -2984,6 +3977,20 @@ const server = http.createServer((req, res) => {
     const name = decodeSegment(agentAccountStatus[1]);
     if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
     const known = (() => { try { return accounts.list(); } catch { return []; } })();
+    /* 🛑 `null` ON A THROW, NOT `'claude'`, AND THE DIRECTION IS THE WHOLE POINT.
+       `null !== 'claude'` so the guard below FIRES and the route answers an honest
+       unknown; `'claude'` would fall through to the Claude probe and silently
+       restore the exact defect this guard exists to stop. An earlier version
+       returned `'claude'` and justified the wrapper by saying a bad store read
+       would otherwise take the route down.
+       ⚠️ BOTH HALVES OF THAT WERE WRONG. `create.recordedRunner` says in its own
+       header that it NEVER THROWS (`readJob` swallows fs errors and `readProfile`
+       returns `{}` for a missing or unreadable profile), so the catch is
+       unreachable rather than load-bearing; and the sibling it claimed parity
+       with (`whoamiFor`, same file) returns `null`, not `'claude'`. Kept rather
+       than deleted so the two reads stay one shape, with the unreachability
+       stated instead of a reason that is not true. */
+    const runnerOf = (n) => { try { return create.recordedRunner(n); } catch { return null; } };
     const account = accountForAgent(name, known);
     /* 200 with ok:false, DELIBERATELY, and not the 404 the sibling /skills route
        gives an unknown name. This route answers a "could we determine it" question
@@ -2991,6 +3998,47 @@ const server = http.createServer((req, res) => {
        resource exist" one: accountForAgent returns null when the agent has no
        launch record, which is "we cannot tell", not "no such agent". Same
        never-a-guessed-negative posture as checkLive below. */
+    /* 🛑 `subscription.checkLive` RUNS `claude auth status`, so it is not asked
+       about a non-claude agent, and this sits ABOVE the no-account return on
+       purpose. Two shapes reach here and BOTH are codex:
+         - a NAMED OpenAI account has a `configDir`, so `account` is a real row and
+           the guard below would not have caught it. Probing a codex home with a
+           Claude command returns NONE, which this route renders as a confident
+           `connected: false` plus a remedy telling the person to re-authenticate,
+           about an agent that was never signed out of anything.
+         - a DEFAULT-account OpenAI agent has NO `CODEX_HOME`, so `accountForAgent`
+           correctly declines to hand it a Claude row and `account` is null. Below
+           the no-account return this answered "we could not tell which account
+           this agent runs on", which is false: we CAN tell. The job says codex and
+           the absent home IS the default OpenAI home.
+       ⚠️ An earlier version of this guard sat BELOW that return and so never fired
+       for the second shape, which is the card's own headline case. Checking the
+       branch I had just changed and reporting the route is the same miss this
+       branch has now made three times. */
+    if (runnerOf(name) !== 'claude') {
+      sendJson(res, 200, {
+        ok: true,
+        /* 🛑 `account.isDefault` PASSED THROUGH, NOT COERCED. `accountForAgent`
+           returns `null` here on purpose for a foreign dir, because scoring a
+           codex home against `$HOME/.claude` and reporting `false` reads as "on a
+           NON-default account" and implies a named alternate that does not exist.
+           The sibling arms below coerce with `=== true`, which is a genuine no-op
+           for them because a Claude row's `isDefault` is always a real boolean.
+           Copying that coercion here threw the null away, which is the THIRD
+           site of this one fact on this branch (the live path, the record
+           fallback, and here). */
+        account: account ? { email: account.email, label: account.label, isDefault: account.isDefault } : null,
+        state: subscription.STATE.UNKNOWN,
+        connected: null,
+        /* Null, the same value the two sibling `ok: true` returns give whenever
+           `connected` is not positively false, and asserted by
+           `server.agent-account-status-1885.test.js`. There is nothing to remedy:
+           this agent is not signed out of Claude, it does not run on Claude. */
+        remedy: null,
+        because: 'this agent does not run on Claude, so whether it is signed in there is not a question about it',
+      });
+      return;
+    }
     if (!account) { sendJson(res, 200, { ok: false, because: 'we could not tell which account this agent runs on' }); return; }
     const shape = { email: account.email, label: account.label, isDefault: account.isDefault === true };
     subscription.checkLive(account.isDefault ? undefined : { configDir: account.dir })
@@ -3494,10 +4542,10 @@ const server = http.createServer((req, res) => {
            its pane-fallback (the thing report/reply's denyPaneFallback guards) is
            structurally unreachable on this path -- which is why this call does not
            pass denyPaneFallback (it would be inert). */
-        const presentedAgentToken = (req.headers && req.headers['x-kosmos-agent-token']) || body.token;
+        const presented = presentedAgentToken(req, body);
         let effectiveCreator;
         let callerKind;
-        if (presentedAgentToken) {
+        if (presented) {
           const authRoster = safeRoster();
           if (authRoster === null) {
             // A transient server condition (the roster read failed), so 503
@@ -3542,14 +4590,27 @@ const server = http.createServer((req, res) => {
            the true original count and creates nothing (its refuseAll fires before
            the member loop), rather than the count being silently reduced by
            liveness first. The effective cap is read from createTeam's own
-           resolveCap so the two never drift.
-           📌 The override in THIS slice is the operator env AGENT_WORKFORCE_TEAM_CAP
-           only: the route passes no `deps` to createTeam, so resolveCap's
-           `deps.cap` operator-config channel is unreachable over HTTP. Consistent
-           (route and engine both read the same env, no drift); wiring `deps.cap`
-           from a real operator-config source belongs with the agent-token slice,
-           where the cap story is finished. */
-        const cap = team.resolveCap(undefined, process.env);
+           resolveCap so the two never drift. */
+        /* #2972: the OPERATOR (board-token) path may raise the team cap in-flow
+           via a `cap` in the request body, up to MAX_TEAM_CAP -- the trusted
+           deps.cap channel engine/team.js blesses (the board token IS the
+           operator, the exact "Pass a higher cap deliberately means the OPERATOR"
+           seam). The AGENT path never gets this: a model cannot raise its own
+           bound, so capDeps stays undefined there and "Kosmos owns the bound, not
+           the prompt" still holds against a model. An absent/invalid body.cap is
+           ignored (resolveCap then falls back to env/default), and any value is
+           clamped to MAX_TEAM_CAP by resolveCap. Passed to BOTH this pre-check
+           resolveCap and createTeam below so the effective cap never drifts. */
+        let capDeps;
+        // Accept only a number or a numeric string, so a nonsense JSON shape is
+        // rejected rather than silently coerced (Number(true)===1, Number([30])===30
+        // both pass Number.isInteger). Operator-path-only and clamped to
+        // MAX_TEAM_CAP regardless, so this is robustness, not a security boundary.
+        if (callerKind === 'operator' && (typeof body.cap === 'number' || typeof body.cap === 'string')) {
+          const requested = Number(body.cap);
+          if (Number.isInteger(requested) && requested > 0) capDeps = { cap: requested };
+        }
+        const cap = team.resolveCap(capDeps, process.env);
         const overCap = !!(members && members.length > cap);
 
         /* Per-member #1903 liveness pre-flight, run in parallel, mirroring the
@@ -3681,7 +4742,7 @@ const server = http.createServer((req, res) => {
                 return { gcap, already, add: liveMembers.length };
               }
             }
-            result = team.createTeam(teamOpts);
+            result = team.createTeam(teamOpts, capDeps);
             return null;
           });
           if (capRefusal) {
@@ -3697,7 +4758,7 @@ const server = http.createServer((req, res) => {
             return;
           }
         } else {
-          result = team.createTeam(teamOpts);
+          result = team.createTeam(teamOpts, capDeps);
         }
 
         /* Merge the liveness refusals into the engine's own refused[] and
@@ -3970,8 +5031,9 @@ const server = http.createServer((req, res) => {
    * ⚠️ PER RUNNER, keyed off the agent's OWN launch job, never the request: a
    * codex agent's trust lives in its CODEX_HOME's config.toml
    * (trustCodexFolder), a claude agent's in its account's .claude.json
-   * (trustFolder). `readJob` carries the runner and the account dir. With no
-   * job there is no folder to key a trust write on, so it is skipped and
+   * (trustFolder). The job (a plist on the Mac, a Scheduled Task on Windows)
+   * carries the runner and the account dir; create.trustAgentFolder reads it and
+   * writes. With no job there is no folder to key a trust write on, so it is skipped and
    * `restart` gives its own friendly "not started by Kosmos" refusal -- the
    * same shape the plain /restart route above returns.
    *
@@ -3988,32 +5050,12 @@ const server = http.createServer((req, res) => {
        -- cleanName is only a trim, but keeping the three name forms identical
        removes the one place they could drift. */
     const clean = create.cleanName(name);
+    /* The trust step lives in the engine (create.trustAgentFolder) so its job
+       read follows the platform: on Windows the job is a Scheduled Task, and the
+       plist-only read this route used to make skipped the trust write there. */
     let trusted;
-    let job = null;
-    try { job = create.readJob(clean); } catch { job = null; }
-    if (!job) {
-      trusted = { wrote: false, because: 'this agent has no Kosmos launch job, so there was no folder to trust' };
-    } else {
-      /* A truthy job means the name passed readJob's NAME_RE, so workerDir
-         returns a real path under WORKERS -- never falsy -- and the trust
-         writers below always have a folder to key on. */
-      const folder = create.workerDir(clean);
-      if (job.runner === 'codex') {
-        try { create.trustCodexFolder(folder, job.configDir, !job.configDir); trusted = { wrote: true, runner: 'codex' }; }
-        catch (err) { trusted = { wrote: false, runner: 'codex', because: String(err && err.message || err) }; }
-      } else {
-        /* trustFolder soft-fails (returns {ok:false, because}) rather than
-           throwing, so read ok -- do not rely on a catch. createIfAbsent
-           matches the create path: on a truly fresh user the file may not
-           exist yet. */
-        let t = null;
-        try { t = trust.trustFolder(folder, { configDir: job.configDir, createIfAbsent: true, agentDefaultAccount: !job.configDir }); }
-        catch (err) { t = { ok: false, because: String(err && err.message || err) }; }
-        trusted = t && t.ok
-          ? { wrote: true, runner: 'claude', already: !!t.already }
-          : { wrote: false, runner: 'claude', because: (t && t.because) || 'the trust write did not complete' };
-      }
-    }
+    try { trusted = create.trustAgentFolder(clean); }
+    catch (err) { trusted = { wrote: false, because: String((err && err.message) || err) }; }
     /* The restart is genuine, so it carries the honest generic 'restart'
        cause: the board renders "Restarting agent" from it. A dedicated 'trust'
        cause would need a matching sentence on the frontend (disruption.CAUSES
@@ -4126,6 +5168,35 @@ const server = http.createServer((req, res) => {
             : ` ${tense} your OpenAI sign-in${whichAcct}.`)
           : '');
         const landedOn = runsOn('It runs on');
+        /* #2790: an OpenAI account Kosmos cannot live-check is the one that can
+           land an agent in the silent failure this card came from: a sign-in whose
+           OAuth is dead sits idle with no red, indistinguishable from a healthy-
+           but-quiet agent (the prod-user report: 5 codex agents on a grey "not
+           checked live" sign-in, all idle forever). Say so in the same sentence
+           that names the account, so the person learns WHY the badge is grey and
+           what the checkable path is.
+           🔑 THE GATE MIRRORS checkLive'S OWN PREDICATE, not a second derivation of
+           it (Repo-Specific Convention #5, two-copies-of-one-fact). `checkLive`
+           (engine/openaiaccounts.js:1117) returns UNKNOWN for `authMode !== 'apikey'`
+           -- a sign-in hands an id_token, not a bearer key it can test -- so THAT is
+           exactly the "Kosmos cannot verify this" condition, and this note keys on
+           the same `!== 'apikey'`. Keying on `=== 'chatgpt'` instead would fail
+           SILENT for any future non-apikey authMode (checkLive would call it
+           unverifiable, the note would stay quiet) -- the very silent-failure
+           direction this card exists to close. `!== 'apikey'` fails SAFE: a new
+           unverifiable mode gets the warning, with wording that is accurate today
+           (the only non-apikey mode is a ChatGPT sign-in) and still points at the
+           checkable API-key path if a new one is ever added.
+           🛑 NO BEHAVIOUR CHANGE, ON PURPOSE. This does NOT steer the agent to an
+           API key: a sign-in is often the CHEAPER intended path (a ChatGPT
+           subscription, not per-token billing), so silently moving it would trade a
+           silent failure for a silent bill. It only makes the unverifiability
+           visible. An API-key account IS live-checkable, so it gets no note. */
+        const signInNote = (acct && acct.authMode !== 'apikey')
+          ? ' Kosmos cannot live-check an OpenAI sign-in, so its status stays'
+            + ' unverified; if it does not respond, switch it to an OpenAI API-key'
+            + ' account, which Kosmos can verify.'
+          : '';
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',
           provider: wrote.provider,
@@ -4134,6 +5205,7 @@ const server = http.createServer((req, res) => {
               + (droppedWords ? `${droppedWords.charAt(0).toUpperCase()}${droppedWords.slice(1)}. ` : '')
               + 'It is starting again now, and it will look idle until you say something to it.'
               + landedOn
+              + signInNote
             : `We saved the switch to ${label}, but could not start it again: ${back.because} `
               + 'It is still running as before until it restarts.'
               /* ⚠️ FUTURE TENSE HERE, NOT `landedOn`'S PRESENT. The plist already
@@ -4142,7 +5214,8 @@ const server = http.createServer((req, res) => {
                  as before. Reusing "It runs on X" would contradict that in the same
                  paragraph, and this is the branch where something already went wrong,
                  which is where a confident-sounding sentence costs most. */
-              + runsOn('When it restarts it will run on'),
+              + runsOn('When it restarts it will run on')
+              + signInNote,
           steps: back.steps || [],
         });
       })
@@ -4262,7 +5335,8 @@ const server = http.createServer((req, res) => {
   /* The daily product-feedback report (engine/feedback.js, kosmos#2037). The
      LOCAL half: read the reports the user's agent has written, and write one.
      Josh's "store locally regardless of the switch": this route never touches
-     a send/opt-in flag; it only reads and writes the local files. The send
+     the send flag (default-on / opt-out, #2013); it only reads and writes the
+     local files. The send
      layer (scrub + gated transmission) is a separate slice and a separate
      route. GET with no ?date returns today's report + the list of dates;
      ?date=YYYY-MM-DD returns that day's. */
@@ -4624,10 +5698,22 @@ const server = http.createServer((req, res) => {
         const nowMs = Date.now();
         const freshWindow = observed.freshMs();
         // Freshest observation per account dir. accountForAgent maps a default
-        // agent (no configDir) to the default row, whose own `.dir` the claude rows
-        // carry too, so keying by dir joins both sides without a special case.
+        // CLAUDE agent (no configDir) to the default row, whose own `.dir` the
+        // claude rows carry too, so keying by dir joins both sides without a
+        // special case. A default CODEX agent maps to nothing since #2811 (the
+        // dir-less match is provider-gated), which the `!acct.dir` continue below
+        // already skips: the same outcome this join wanted, now for an honest
+        // reason rather than because the wrong row happened to carry a dir.
         const obsByDir = new Map();
         for (const o of observed.all()) {
+          // #2413: the Claude overlay reads ONLY anthropic observations. An OpenAI
+          // observation resolved against the CLAUDE account list would green a Claude
+          // account it has nothing to do with (a codex agent on the default home maps to
+          // the default Claude account -- status.js's own note, true when written).
+          // #2811 gated that dir-less match, so it now maps to NOTHING; this filter
+          // is kept as defence in depth rather than removed. The provider is in the
+          // observation key precisely so this join stays on one provider's rows.
+          if (o.provider !== observed.PROVIDER.ANTHROPIC) continue;
           const acct = accountForAgent(o.agent, knownAccts);
           if (!acct || !acct.dir) continue;
           const prev = obsByDir.get(acct.dir);
@@ -4661,10 +5747,49 @@ const server = http.createServer((req, res) => {
            📌 Claude rows are untouched: this override collapses codex homes only. */
         const named = codexupdate.homeIsNamed();
         const onlyDir = named ? path.resolve(openaiAccounts.defaultDir()) : null;
-        const openai = openaiRows.map((a) => ({
-          ...a,
-          offerable: !named || path.resolve(String(a.dir || '')) === onlyDir,
-        }));
+        /* #2413: the OpenAI analog of the Claude overlay above -- green an OpenAI row
+           from the LAST OBSERVED real Codex call, joined to the account via the SAME
+           accountForAgent (fed the OpenAI rows as `known`, so it matches a codex agent's
+           CODEX_HOME configDir against the OpenAI account dirs, or the default account
+           when configDir is null -- create.js:827). Provider-qualified: only `openai`
+           observations reach this join.
+           🛑 THIS IS ADDITIVE / POSITIVE-ONLY, NOT A FULL MIRROR OF THE CLAUDE VERDICT,
+           and the difference is load-bearing. The Claude overlay maps checkLive
+           'connected' -> signed_in_unverified because a Claude 'connected' is only "a
+           credential exists" (#874). An OpenAI 'connected' is NOT that: for an API-key
+           account it is a REAL /v1/models liveness proof (openaiaccounts.js:1140), which
+           renders green today. Applying the Claude verdict wholesale would DOWNGRADE a
+           genuinely-live API key to muted, and would also bypass the tailored #2568
+           chatgpt "not checked live" pill for a signed-in chatgpt row with no traffic.
+           So we ONLY upgrade to green on a FRESH observed `ok`; every other verdict
+           leaves the OpenAI row exactly as it renders today (grey fallback preserved on
+           board restart / stale observation / no observed call -- #2413 acceptance).
+           Phase-1 records `ok` only (status.js codex arm is positive-only), so a fresh
+           `ok` is the sole upgrade this can ever produce. */
+        const obsByOpenaiDir = new Map();
+        for (const o of observed.all()) {
+          if (o.provider !== observed.PROVIDER.OPENAI) continue;
+          const acct = accountForAgent(o.agent, openaiRows);
+          if (!acct || !acct.dir) continue;
+          const prev = obsByOpenaiDir.get(acct.dir);
+          if (!prev || o.at > prev.at) obsByOpenaiDir.set(acct.dir, { outcome: o.outcome, at: o.at });
+        }
+        const openai = openaiRows.map((a) => {
+          const base = { ...a, offerable: !named || path.resolve(String(a.dir || '')) === onlyDir };
+          const obs = a.dir ? obsByOpenaiDir.get(a.dir) : null;
+          if (!obs) return base;
+          const v = observed.verdict({
+            checkLiveState: a.connection && a.connection.state,
+            observedOutcome: obs.outcome,
+            observedAt: obs.at,
+            now: nowMs,
+            freshMs: freshWindow,
+          });
+          // Only a FRESH observed ok greens the row; a stale ok (or any checkLive-derived
+          // fallback) must not overwrite the untouched legacy render (see the note above).
+          if (v.badge !== 'working') return base;
+          return { ...base, connection: { ...(a.connection || {}), badge: v.badge, observedAt: v.observedAt, observedAgeMs: v.ageMs } };
+        });
         sendJson(res, 200, { accounts: [...claude, ...openai] });
       })
       .catch(() => sendJson(res, 500, { error: 'we could not read the accounts on this computer' }));
@@ -4904,10 +6029,17 @@ const server = http.createServer((req, res) => {
     let dir = '';
     try { dir = new URL(req.url, ROUTING_BASE).searchParams.get('dir') || ''; } catch { dir = ''; }
     /* #2140 Surface 2: an empty dir means the DEFAULT OpenAI account. A
-       default-codex agent's card resolves its account to the default CLAUDE
-       account (accountForAgent falls back to it when configDir is null), which is
-       not an OpenAI account -- so the detail picker deliberately sends an EMPTY dir
-       for that isDefault case rather than the Claude dir (which would 404 here).
+       default-codex agent's card resolves its account to NOTHING: it has no
+       CODEX_HOME, and `accountForAgent` refuses to hand a codex agent a Claude
+       row, so the detail picker sends an EMPTY dir for it (a Claude dir would 404
+       here).
+       ⚠️ THIS SENTENCE USED TO SAY the card "resolves its account to the default
+       CLAUDE account (accountForAgent falls back to it when configDir is null)".
+       That was true when it was written and #2811 removed it: the dir-less match
+       is now provider-gated, so the answer is null rather than the operator's own
+       Claude account. The empty dir this route relies on is unchanged, because
+       both `!null` and `!false` reach it, but the REASON is different and the old
+       one described behaviour the product no longer has.
        Resolve it to the default OpenAI account's dir, then validate + fetch as
        normal. The create flow always passes the selected account's dir, so this
        only affects the detail page's default-codex case. Still fail-closed: no
@@ -5225,7 +6357,13 @@ const server = http.createServer((req, res) => {
    * what the Restore control reads. If that ever stops being true this sentence
    * becomes the lie, and `engine/remove.js` is where it would be told.
    */
-  function withStopNote(payload, stopReport, restorable) {
+  function withStopNote(payload, stopReport, restorable, recoveryClause) {
+    /* #2684: `recoveryClause` (optional) overrides the way-back sentence for the
+       one case neither `restorable` arm fits: the CLAUDE default, whose dir
+       PERSISTS in place (only the oauth identity is cleared), so recovery is a
+       fresh sign-in to ~/.claude rather than a removed-list re-add ("under the
+       same name") or "needs a different account". Only the Claude default paths
+       pass it; every other caller passes undefined and is unchanged. */
     if (!stopReport || !stopReport.stopped.length) return payload;
     /* 🛑 NOT ON THE ALREADY-GONE BRANCH. Both engines answer
        `{ok: true, forgotten: false}` for an account that is not there, and
@@ -5288,7 +6426,9 @@ const server = http.createServer((req, res) => {
        run-on it prevents was found in the sibling and the fix was not carried
        across. A latent defect with a known instance next door is worth closing. */
     const lead = /[.!?]$/.test(String(payload.because)) ? payload.because : `${payload.because}.`;
-    const way = restorable
+    const way = recoveryClause !== undefined
+      ? recoveryClause(one)
+      : restorable
       ? ` You can put ${one ? 'it' : 'them'} back from the removed list once you add this account again under the same name.`
       : ` ${one ? 'It was' : 'They were'} set up to run on that account, so ${one ? 'it needs' : 'they need'} a different one before ${one ? 'it' : 'they'} can start again.`;
     return {
@@ -5298,6 +6438,15 @@ const server = http.createServer((req, res) => {
         + `${one ? '' : ' (' + names.join(', ') + ')'}.${way}`,
     };
   }
+
+  /* #2684: the recovery clause for a CLAUDE DEFAULT removal (disconnect or delete).
+     The `.claude` folder is KEPT and the stopped agents' launch files already point
+     at it, so they ARE on the removed list (restorable) AND their folder still
+     exists -- recovery is a fresh sign-in in place, not a re-add "under the same
+     name" (there is no rename) and not "needs a different account" (the folder is
+     there). Passed to withStopNote only when the row is the default. */
+  const claudeDefaultRecovery = (one) =>
+    ` You can put ${one ? 'it' : 'them'} back from the removed list; ${one ? 'it runs' : 'they run'} on the main folder, which is kept, so signing in again reconnects ${one ? 'it' : 'them'}.`;
 
   /**
    * Forget an OpenAI account (#1372).
@@ -5470,17 +6619,16 @@ const server = http.createServer((req, res) => {
              THE AGENTS. Which refusals those are differs by DOOR on this
              provider, and the earlier version of this comment named only the
              delete one while sitting above a call that is `forgetAccount`
-             whenever `remove` is false: `openaiAccounts.removeAccount` refuses
-             the default `.codex` outright, `forgetAccount` does NOT (it can
-             rename the default aside, unlike the Claude side where forget
-             refuses `.claude` too). What both share is the path guard and the
-             sign-in-in-progress guard, and all of those checks run BEFORE the
-             agents check. So without this, a request
+             whenever `remove` is false: #2684: NEITHER door refuses the default outright any more --
+             `removeAccount` deletes the default `.codex` (whole-dir) and
+             `forgetAccount` renames it aside, both AFTER the agents check. What
+             both share as PRE-agents refusals is the path guard and the
+             sign-in-in-progress guard. So without this, a request
              naming the default account stopped every agent on it, for real, wrote
              each to the removed list, and then answered 400 with a refusal that
-             never mentioned the stop. Deterministic, not a race. Not reachable
-             from the page (the default row renders no control) and fully
-             reachable from the board API.
+             never mentioned the stop. Deterministic, not a race. The default row renders live
+             controls now (#2684), and this pre-flight is reachable from both the
+             page and the board API.
 
              📌 NOT the CLI, which an earlier version of this comment claimed.
              Measured: `stopAgents` appears only in this file, web/index.html,
@@ -5496,10 +6644,10 @@ const server = http.createServer((req, res) => {
              🛑 WHAT IT CATCHES, AND WHAT IT PROVABLY CANNOT, because an earlier
              version of this comment claimed an invariant it does not have and
              claimed it in the UNSAFE direction ("every refusal that does not
-             depend on the agents comes BEFORE the agents guard"). Three refusals
+             depend on the agents comes BEFORE the agents guard"). Two refusals
              precede the agents guard and are therefore visible here: the path
-             guard, the default-account guard, and the OpenAI
-             sign-in-in-progress guard. The IDENTITY refusal ("that is not a
+             guard and the OpenAI sign-in-in-progress guard (#2684 removed the
+             default-account guard; the default is agents-gated like any row now). The IDENTITY refusal ("that is not a
              Claude/OpenAI account on this computer") does NOT, in any of the
              four, and it cannot be hoisted: `engine/accounts.js` states why at
              the guard itself, that `identityOf` answers null for a missing
@@ -5669,8 +6817,15 @@ const server = http.createServer((req, res) => {
           }
           sendJson(res, 200, withStopNote({
             removed: gone.removed === true,
+            /* #2684 / #2941: deleting an account rmSyncs its whole .codex home -- sign-in
+               AND sessions/rollouts. Since #2906, status.readCodexSession reads EVERY account's
+               own home (job.configDir), not the default's alone, so a labelled account's codex
+               history is now visible in the Memory panel and a labelled delete loses it just as a
+               default delete does. So the history clause is unconditional here (dropped the
+               wasDefault gate, #2941): both doors lose the same visible history. The more
+               destructive door must not disclose LESS than the reversible disconnect door. */
             because: gone.removed
-              ? 'That account is deleted from this computer. Its sign-in file is gone.'
+              ? 'That account is deleted from this computer. Its sign-in file is gone, and any history kept only under it (its codex sessions) goes with it.'
               : 'That account was already gone from this computer.',
             accounts: openaiAccounts.list(),
           }, stopReport, false));
@@ -5704,17 +6859,15 @@ const server = http.createServer((req, res) => {
           because: out.forgotten
             ? 'That account is off the list. Its sign-in file is still on this computer, '
               + 'so nothing was deleted.'
-              /* 🛑 THE HISTORY CLAUSE, AND ONLY FOR THE DEFAULT, because that is the
-                 only OpenAI account it is true of. `codexsession` reads sessions out
-                 of the DEFAULT home alone, so removing `~/.codex` costs the
-                 transcripts (measured: rollouts 1 before the rename, 0 after) while
-                 removing a labelled `.codex-<label>` costs none.
-                 ⇒ The Claude route says this unconditionally and is right to: its
-                 transcripts live under every account directory. Saying it here
-                 unconditionally would be the same false-for-most disclosure this
-                 branch removed from the uninstall transcript. */
-              + (out.wasDefault ? ' Kosmos stops looking inside it, so any history kept '
-                + 'only there will not appear any more.' : '')
+              /* 🛑 THE HISTORY CLAUSE, now UNCONDITIONAL (#2941). It used to be default-only,
+                 on the premise that `codexsession` read the DEFAULT home alone. Since #2906,
+                 status.readCodexSession reads EVERY account's own home (job.configDir), so a
+                 labelled `.codex-<label>` account's sessions are now visible in the Memory panel
+                 too -- disconnecting one stops Kosmos looking inside it and its history stops
+                 appearing, exactly as for the default. So the clause matches the Claude route,
+                 which always said this and was always right for the same reason (its transcripts
+                 live under every account directory). Dropping the wasDefault gate here is #2941. */
+              + ' Kosmos stops looking inside it, so any history kept only there will not appear any more.'
               + (out.movedTo ? ' It is in a hidden folder called ' + path.basename(out.movedTo)
                 + ' in your home folder.' : '')
             : 'That account was already gone from this computer.',
@@ -5750,17 +6903,21 @@ const server = http.createServer((req, res) => {
    * sentence for it was AMBIGUITY WAS SILENTLY NONE. A Claude route written
    * from the card alone would have had that bug, so it is copied deliberately.
    *
-   * 📌 THE `isDefault` FALLBACK IS CARRIED FOR SYMMETRY WITH THE OPENAI ROUTE
-   * AND IS INERT HERE. A Claude job on the default account carries
-   * `configDir: null` (`create.js:734` writes `acct.isDefault ? null :
-   * acct.dir`), so absence falls back to the isDefault comparison rather than
-   * reading as "no account" -- but that branch can only ADD names to `usedBy`
-   * when `dir` IS the default, and `accounts.forgetAccount` refuses the default
-   * before it ever reads `usedBy`. So no test can exercise it and it cannot
-   * change this route's outcome. It is kept so the two routes stay diffable;
-   * it is not load-bearing, and this comment says so rather than implying it is.
+   * 🛑 THE `isDefault` FALLBACK IS LOAD-BEARING (#2684). A Claude job on the
+   * default account carries `configDir: null` (`create.js` writes
+   * `acct.isDefault ? null : acct.dir`), so absence falls back to the isDefault
+   * comparison and ADDS that agent to `usedBy` when `dir` IS the default. Before
+   * #2684 this was inert because `accounts.forgetAccount` refused the default
+   * outright before reading `usedBy`; NOW the default is removable and
+   * `forgetAccount`/`removeAccount` read `usedBy` (the inlined running-agents
+   * guard), so this fallback is exactly what makes the default's running-agents
+   * guard fire for a real default agent. Do NOT delete it: without it, the default
+   * identity could be cleared while an agent still runs on it (the
+   * working-agent-behaves-like-a-blank-one hazard). Pinned by
+   * server.disconnect-stop-2570.test.js's null-configDir default-agent arm.
    * 📌 `readJob` normalises a MISSING runner to 'claude', because every plist
-   * written before runners existed carries no ninth argument -- so the filter
+   * written before runners existed carries no ninth argument (a Windows task with
+   * no runner argument reads the same way, through win32argv) -- so the filter
    * below cannot silently skip an old Claude agent. That one IS load-bearing.
    */
   if (pathname === '/api/accounts/claude' && req.method === 'DELETE') {
@@ -5951,14 +7108,15 @@ const server = http.createServer((req, res) => {
         const stoppable = usedBy.filter((n) => typeof n === 'string' && n);
         if (stoppable.length && !!(body && body.stopAgents === true)) {
           /* 🛑 ASK THE ENGINE FIRST, BECAUSE ITS OTHER REFUSALS DO NOT CARE ABOUT
-             THE AGENTS. `accounts.forgetAccount` refuses the DEFAULT account outright, and
-             refuses a path that is not one of its accounts, and BOTH of those
-             checks run BEFORE its agents check. So without this, a request
-             naming the default account stopped every agent on it, for real, wrote
-             each to the removed list, and then answered 400 with a refusal that
-             never mentioned the stop. Deterministic, not a race. Not reachable
-             from the page (the default row renders no control) and fully
-             reachable from the board API.
+             THE AGENTS. `accounts.forgetAccount` refuses a path that is not one of
+             its accounts BEFORE its agents check. So without this, a request that
+             would be refused for a non-agent reason stopped every agent on it, for
+             real, wrote each to the removed list, and then answered 400 with a
+             refusal that never mentioned the stop. Deterministic, not a race.
+             (#2684: the DEFAULT is no longer a pre-agents refusal -- for the
+             default the running-agents guard IS the guard, inlined first in the
+             primary branch, so a default-with-agents returns a usedBy-carrying
+             refusal that flows into the stop path rather than a bare 400.)
 
              📌 NOT the CLI, which an earlier version of this comment claimed.
              Measured: `stopAgents` appears only in this file, web/index.html,
@@ -5974,12 +7132,12 @@ const server = http.createServer((req, res) => {
              🛑 WHAT IT CATCHES, AND WHAT IT PROVABLY CANNOT, because an earlier
              version of this comment claimed an invariant it does not have and
              claimed it in the UNSAFE direction ("every refusal that does not
-             depend on the agents comes BEFORE the agents guard"). TWO refusals
-             precede the agents guard here and are therefore visible: the path
-             guard and the default-folder guard. (The OpenAI engine has a third,
-             its sign-in-in-progress guard. This one has none, and an earlier
-             version of this paragraph was a verbatim copy of the OpenAI route's
-             that claimed it did.) The IDENTITY refusal ("that is not a
+             depend on the agents comes BEFORE the agents guard"). ONE refusal
+             precedes the agents guard here and is therefore visible: the path
+             guard. (#2684 removed the default-folder guard that used to precede it
+             too; the default is now agents-gated like any other row. The OpenAI
+             engine has a sign-in-in-progress guard before its agents check.) The
+             IDENTITY refusal ("that is not a
              Claude/OpenAI account on this computer") does NOT, in any of the
              four, and it cannot be hoisted: `engine/accounts.js` states why at
              the guard itself, that `identityOf` answers null for a missing
@@ -6025,11 +7183,13 @@ const server = http.createServer((req, res) => {
              neither an oauth account nor an api-key one. So a `~/.claude` whose
              only credential is a stored api key is absent from the list while
              the engine still treats it as a real directory. `dirIsAnAccount`
-             goes false, we decline to stop, and the engine then refuses it
-             anyway under its default-folder guard, so the outcome is right and
-             nothing was stopped for an operation that was never going to run.
-             It fails in the safe direction, and it is API-reachable only, since
-             the page renders no control on the default row.
+             goes false, we decline to stop, and the engine would clear NOTHING
+             anyway (#2684: clearDefaultIdentity finds no oauthAccount and returns
+             a quiet already-cleared success), so the outcome is right and nothing
+             was stopped for an operation that would do nothing. It fails in the
+             safe direction, and it is API-reachable only: this api-key-only
+             default is unlisted, so no control renders for THIS row (a normal
+             oauth default does render a live Disconnect now, #2684).
 
              ⚠️ GUARDED ON EXISTENCE, because a MISSING directory is not in the
              list either and its answer is a quiet SUCCESS rather than a refusal.
@@ -6151,11 +7311,21 @@ const server = http.createServer((req, res) => {
           }
           sendJson(res, 200, withStopNote({
             removed: gone.removed === true,
+            /* #2684: the DEFAULT is removed by clearing ONLY its oauth identity
+               from <HOME>/.claude.json -- the `.claude` folder and any history in
+               it are KEPT (it is Claude Code's home and may hold other accounts'
+               symlinked history), so the "history goes with it" clause the
+               secondary path carries would be false here. */
             because: gone.removed
-              ? 'That account is deleted from this computer. Its sign-in file is gone, and any history kept only under it goes with it.'
+              ? (gone.wasDefault
+                  ? 'The main Claude connection is removed. Only its sign-in was cleared '
+                    + '-- the Claude folder and any history in it are kept -- so sign in again to reconnect it.'
+                  : 'That account is deleted from this computer. Its sign-in file is gone, and any history kept only under it goes with it.')
               : 'That account was already gone from this computer.',
             accounts: accounts.list(),
-          }, stopReport, false));
+            /* #2684: the default delete also keeps the folder (Claude clears only the
+               identity), so its stopped agents recover by a fresh sign-in in place. */
+          }, stopReport, false, gone.wasDefault ? claudeDefaultRecovery : undefined));
           return;
         }
 
@@ -6197,9 +7367,17 @@ const server = http.createServer((req, res) => {
         sendJson(res, 200, withStopNote({
           forgotten: out.forgotten === true,
           because: out.forgotten
-            ? 'That account is off the list. Its sign-in file is still on this computer, '
+            ? (out.wasDefault
+              /* #2684: the DEFAULT disconnect clears ONLY the oauth identity from
+                 <HOME>/.claude.json; the `.claude` folder and its history are KEPT
+                 (unlike a secondary, which is renamed aside). So the secondary's
+                 "sign-in file still here / history stops appearing" wording is
+                 false here and gets its own accurate sentence. */
+              ? 'The main Claude connection is off the list. Only its sign-in was cleared '
+                + '-- the Claude folder and any history in it are kept -- so sign in again to reconnect it.'
+              : 'That account is off the list. Its sign-in file is still on this computer, '
               + 'so nothing was deleted. Kosmos stops looking inside it, so any history '
-              + 'kept only there will not appear any more.'
+              + 'kept only there will not appear any more.')
               /* 🔑 NAME WHERE IT WENT. "Still on this computer" is true and
                  unactionable on its own: the engine computes `movedTo` and the
                  route was dropping it, so the one fact that makes a removal
@@ -6218,7 +7396,9 @@ const server = http.createServer((req, res) => {
              through GET /api/accounts, which uses listLive(), so no caller
              reads this: it is a second, non-live derivation of the same list. */
           accounts: accounts.list(),
-        }, stopReport, true));
+          /* #2684: the default disconnect keeps the folder in place, so its stopped
+             agents recover by a fresh sign-in, not a re-add under the same name. */
+        }, stopReport, true, out.wasDefault ? claudeDefaultRecovery : undefined));
       })
       /* #2570: the stop report rides on this too. Anything thrown below the stop
          loop lands here, and answering "we could not read that request" after N
@@ -6333,9 +7513,12 @@ const server = http.createServer((req, res) => {
       return;
     }
     /* Whether the person sent the board's block away for good (Josh,
-       2026-08-24 17:06). Carried on the same answer so the painter cannot
-       show the list on one fetch and hide it on another. */
-    sendJson(res, 200, { ...out, dismissed: discover.dismissed() });
+       2026-08-24 17:06). #2704: "for good" is measured against what was on offer
+       when they pressed it, so a genuinely NEW agent (Josh's Liu Kang) flips this
+       back to false and the block returns; `candidateDirs(out)` is exactly the
+       offer this response would draw. Carried on the same answer so the painter
+       cannot show the list on one fetch and hide it on another. */
+    sendJson(res, 200, { ...out, dismissed: discover.dismissed(discover.candidateDirs(out)) });
     return;
   }
 
@@ -6378,17 +7561,67 @@ const server = http.createServer((req, res) => {
       scanCache = { at: now, result: out };
     }
     /* Whether the person sent the found-agents block away for good is carried here
-       too, so the scan screen honours the same "forever" the board does. Read fresh
-       (never cached) so Dismiss takes effect on the very next poll. */
-    sendJson(res, 200, { ...out, dismissed: discover.dismissed() });
+       too, so the scan screen honours the same "forever" the board does (#2704:
+       measured against this scan's current offer, `candidateDirs(out)`, so a new
+       candidate re-shows). Read fresh (never cached) so Dismiss takes effect on the
+       very next poll. */
+    sendJson(res, 200, { ...out, dismissed: discover.dismissed(discover.candidateDirs(out)) });
     return;
   }
 
   /* "Dismiss this forever": remembered on disk, behind the same cross-site
-     guard as every other write. There is no route back on purpose; the word
-     Josh chose was forever, and the confirmation on the board says so. */
+     guard as every other write. #2704: what is remembered is the SNAPSHOT of
+     everything on offer right now, not a global flag -- so "forever" hides
+     everything currently offered but a genuinely new agent later re-shows the
+     block. The route still takes no body (the web POSTs body-less); the snapshot
+     is computed here.
+
+     🛑 THE SNAPSHOT MUST COVER WHAT EVERY dismissed-GATED ROUTE SERVES, AND ONE
+     OF THEM IS TCC-INCLUSIVE. `/api/scan-import` serves `scan({importScan:true})`,
+     which reaches ~/Documents, ~/Downloads and ~/Desktop; its `dismissed` is a
+     subset check against this snapshot, so if a TCC-root item it serves is NOT
+     here, that check is permanently false and a legitimate dismiss silently
+     re-shows the whole scan block for anyone who granted file access. So the
+     snapshot reuses the WARM `importScanCache` (populated by the board's own
+     scan-import polls) when present.
+
+     Each population is drawn from ITS OWN source, so the snapshot never depends on
+     one scan being a superset of another (an implicit root-ordering assumption a
+     future change could quietly break): the auto board population comes from the
+     auto scan (a warm `scanCache` when present, else one bounded TCC-free walk),
+     and the TCC-inclusive import population from the warm `importScanCache`.
+
+     ⚠️ THE IMPORT CACHE IS READ WARM-ONLY -- a dismiss is a button click and must
+     NEVER trigger a fresh `scan({importScan:true})`, which would pop the macOS
+     permission prompt out of context. `found()` is the one always-fresh look, and
+     it costs no more than a single board poll, which runs every few seconds anyway;
+     the auto scan is a fresh walk only when its cache is cold (the granted case,
+     where the board polls scan-import rather than scan-agents). Residual: TCC-root
+     items live ONLY in `importScanCache` (the auto scan is TCC-free by design), so
+     such an item is snapshotted only when the IMPORT cache is warm; if it is cold
+     at the instant of the click (the board has not polled scan-import within
+     SCAN_CACHE_MS), the item can miss the snapshot and re-show once, and the next
+     dismiss with a warm import cache captures it. This is the safe direction
+     (re-show, not hide-forever). */
   if (pathname === '/api/found-agents/dismiss' && req.method === 'POST') {
-    try { discover.dismiss(); }
+    const now = Date.now();
+    const snap = [];
+    try { snap.push(...discover.candidateDirs(discover.found())); } catch { /* a failed look adds nothing */ }
+    /* The auto (TCC-free) board population, from its own source: reuse the warm
+       cache, else one bounded walk -- never inferred from the import scan. A fresh
+       walk warms `scanCache` so the very next /api/scan-agents poll does not re-walk
+       and, more importantly, serves the SAME population this snapshot recorded. */
+    let autoScan = (scanCache.result && (now - scanCache.at) < SCAN_CACHE_MS) ? scanCache.result : null;
+    if (!autoScan) {
+      try { autoScan = discover.scan(); scanCache = { at: now, result: autoScan }; } catch { autoScan = null; }
+    }
+    if (autoScan) { try { snap.push(...discover.candidateDirs(autoScan)); } catch { /* ignore */ } }
+    /* The TCC-inclusive import population, warm cache ONLY (see above). */
+    if (importScanCache.result && (now - importScanCache.at) < SCAN_CACHE_MS) {
+      try { snap.push(...discover.candidateDirs(importScanCache.result)); } catch { /* ignore */ }
+    }
+    /* `dismiss()` de-dupes what it is handed, so no Set wrapper is needed here. */
+    try { discover.dismiss(snap); }
     catch { sendJson(res, 500, { ok: false, because: 'we could not remember that' }); return; }
     sendJson(res, 200, { ok: true, dismissed: true });
     return;
@@ -6680,6 +7913,24 @@ const server = http.createServer((req, res) => {
     const opened = machine.openSleepSettings();
     if (opened.ok) { sendJson(res, 200, { ok: true }); return; }
     sendJson(res, 409, { error: opened.because });
+    return;
+  }
+
+  /* win32-installer-native (W-21a): Settings' "Start Kosmos when I sign in to Windows" switch.
+     POST, so it inherits the cross-site guard: it changes a durable task on the machine. It takes
+     one boolean and nothing else, and answers with the state engine/win32board.js READ BACK from
+     the task, never the one asked for, so the switch the page repaints is what Windows will do. */
+  if (pathname === '/api/machine/start-at-sign-in' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (typeof body.on !== 'boolean') { sendJson(res, 400, { error: 'say whether Kosmos should start when you sign in (on: true or false)' }); return; }
+        const r = require('./engine/win32board').setStartAtSignIn(body.on);
+        if (r.ok) { sendJson(res, 200, { ok: true, on: r.on }); return; }
+        sendJson(res, 409, { error: r.because });
+      })
+      .catch((err) => sendJson(res, 400, { error: String((err && err.message) || 'we could not read that request') }));
     return;
   }
 
@@ -7034,8 +8285,9 @@ const server = http.createServer((req, res) => {
     updates.checkNow()
       // offer is the newer()-gated verdict (same gate the toast rides), so
       // the card never has to re-derive version ordering client-side.
-      .then((out) => sendJson(res, 200, { ...out, offer: updates.installedRoot() ? updates.available() : null, source: !updates.installedRoot() }))
-      .catch(() => sendJson(res, 200, { running: updates.RUNNING, latest: null, reached: false, readable: false, offer: null }));
+      // manual/channel: the same two facts /api/status carries, so a press paints what the poll paints.
+      .then((out) => sendJson(res, 200, { ...out, offer: updates.installOffer(), source: !updates.installedRoot(), manual: updates.manualOffer(), rollback: updates.rollbackOffer(), channel: updates.updateChannel() }))
+      .catch(() => sendJson(res, 200, { running: updates.RUNNING, latest: null, reached: false, readable: false, offer: null, manual: null, rollback: null, channel: updates.updateChannel() }));
     return;
   }
 
@@ -7074,14 +8326,28 @@ const server = http.createServer((req, res) => {
       sendJson(res, 409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
       return;
     }
+    /* 🪟 S4 decision 5: a win32 bundle under OneDrive or Program Files never attempts the in-app swap
+       -- the in-app updater refuses it through the one named location rule (windowsLocationRefusal),
+       and the status already shows the manual download instead of an [Update] button, so this is the
+       belt-and-braces refusal for a stray POST, rendered verbatim in the confirm dialog. Null (and so
+       skipped) on the Mac and for a normal win32 bundle. */
+    const locationRefusal = updates.windowsLocationRefusal();
+    if (locationRefusal) { sendJson(res, 409, { error: locationRefusal }); return; }
     if (updates.alreadyInstalling()) {
       // Idempotent: the first POST started it; a retry, a double click, or a
       // second tab gets the same true answer without a second installer
       // racing the first through the stage-and-swap.
       /* The in-flight attempt is the one this second press joins; its
-         stamp rides back so a reattached overlay can see its verdict. */
+         stamp rides back so a reattached overlay can see its verdict.
+         🪟 S5 (#3017): tell the truth about WHAT is running. If a rollback holds the single-flight, an
+         Update press must not claim an update is under way -- report the actual operation instead. */
       const inflight = updates.lastAttempt();
-      sendJson(res, 200, { ok: true, updating: avail.version, already: true, startedAt: inflight ? inflight.startedAt : null });
+      const startedAt = inflight ? inflight.startedAt : null;
+      if (updates.inFlightKind() === 'rollback') {
+        sendJson(res, 200, { ok: true, already: true, operation: 'rollback', startedAt });
+        return;
+      }
+      sendJson(res, 200, { ok: true, updating: avail.version, already: true, operation: 'update', startedAt });
       return;
     }
     try { updates.beginInstall(); }
@@ -7094,6 +8360,48 @@ const server = http.createServer((req, res) => {
        by comparing clocks. */
     const att = updates.lastAttempt();
     sendJson(res, 200, { ok: true, updating: avail.version, startedAt: att ? att.startedAt : null });
+    return;
+  }
+
+  /**
+   * 🪟 S5 (#3017): roll back to the kept previous build. POST, so it inherits the cross-site guard --
+   * this one stops and restarts the board and swaps the bundle, the same destructive class as
+   * /api/update. The refusals mirror that route (a state conflict is 409): no kept build to roll back
+   * to, a source run, or a OneDrive/Program Files bundle whose destructive rename the updater refuses.
+   * Past those the answer is 200 BEFORE the detached helper stops this board; agents keep working
+   * throughout. beginRollback is idempotent through the shared single-flight, so a double press does not
+   * start a second helper.
+   */
+  if (pathname === '/api/update/rollback' && req.method === 'POST') {
+    const rollback = updates.rollbackOffer();
+    if (!rollback) { sendJson(res, 409, { error: 'there is no earlier Kosmos kept to roll back to right now' }); return; }
+    if (!updates.installedRoot()) {
+      sendJson(res, 409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
+      return;
+    }
+    /* Belt-and-braces for a stray POST: a OneDrive/Program Files bundle never does the destructive swap
+       (the status already withholds the rollback offer there). Null and skipped on the Mac. */
+    const locationRefusal = updates.windowsLocationRefusal();
+    if (locationRefusal) { sendJson(res, 409, { error: locationRefusal }); return; }
+    if (updates.alreadyInstalling()) {
+      /* 🪟 S5 (#3017): honest `already` -- if a forward UPDATE holds the single-flight, do not claim a
+         rollback is under way (the board will come back on the newer build, not the previous one). */
+      const inflight = updates.lastAttempt();
+      const startedAt = inflight ? inflight.startedAt : null;
+      if (updates.inFlightKind() === 'update') {
+        sendJson(res, 200, { ok: true, already: true, operation: 'update', startedAt });
+        return;
+      }
+      sendJson(res, 200, { ok: true, rollingBackTo: rollback.version, already: true, operation: 'rollback', startedAt });
+      return;
+    }
+    try { updates.beginRollback(); }
+    catch (err) {
+      sendJson(res, 500, { error: 'we could not start the roll back', detail: String((err && err.message) || err) });
+      return;
+    }
+    const att = updates.lastAttempt();
+    sendJson(res, 200, { ok: true, rollingBackTo: rollback.version, startedAt: att ? att.startedAt : null });
     return;
   }
 
@@ -7688,7 +8996,7 @@ const server = http.createServer((req, res) => {
            mismatch visible. Re-derived from the same inputs resolveAgentSender
            read rather than threaded back through it, because report/reply share
            that resolver and do not want this label. */
-        const identitySource = ((req.headers && req.headers['x-kosmos-agent-token']) || (body && body.token))
+        const identitySource = presentedAgentToken(req, body)
           ? 'its launch token'
           : 'the tmux pane it is running in';
         /* #1899: the NAMES of the agent's projects, via the PURE membership
@@ -7705,6 +9013,31 @@ const server = http.createServer((req, res) => {
           agent: who,
           account,
           model,
+          /* #2811: WHICH RUNNER this agent is actually running, read from the live
+             process and never guessed. `kosmos whoami` reported a Codex agent as
+             Claude because the live reader matched only a `claude` executable and
+             refused for every codex one; with that fixed the fact is available, so
+             the answer carries it.
+
+             🛑 `null` WHEN THE LIVE READ DID NOT SUCCEED, deliberately, and there
+             are TWO record-side runners it would have been easy to reach for:
+               - the `@kosmos_runner` session marker, which SURVIVES A CRASH back
+                 to a shell (`engine/status.js` documents exactly this, in the `@kosmos_runner` survives-a-crash comment), so it
+                 reports a provider for an agent that is no longer running;
+               - `create.readJob(name).runner`, off the agent's launch job
+                 (the plist's ninth argument on a Mac, the task line on Windows), which says what the agent was LAUNCHED
+                 as. `accountForAgent` already calls `readJob` on every request, so
+                 this one is free and still wrong here: it describes the
+                 configuration, not the process, and the two disagree for exactly
+                 the window this endpoint is asked about.
+             ⇒ A live-process question gets a live-process answer or none. Both
+             record values are the right answer to a different question.
+
+             📌 This is JSON-only surface today: both shipped CLIs print only
+             `because` (`install/kosmos`, `tools/windows/kosmos-cli.js`) and
+             nothing under `web/` reads whoami. Pinned in `server.test.js` so the
+             field is a checked contract rather than an unread extra. */
+          runner: (live && live.ok === true && live.runner) || null,
           /* WHICH reader answered. An operator comparing two agents should be
              able to see that one was read from its running process and the
              other from a file. */
@@ -7720,11 +9053,99 @@ const server = http.createServer((req, res) => {
              the CLI (which prints only this sentence) tells an agent who the
              board thinks it is. */
           because: whoamiIdentityClause(who, identitySource) + '. '
-            + sentenceForWhoami(account, model) + ' '
+            /* 🔑 THE CONFIGURED RUNNER, NOT THE LIVE ONE, and the two are
+               deliberately different readers. The wire `runner` above is
+               live-only because it answers "what is running"; this sentence
+               says what the agent IS, so a paneless, crashed or win32 Codex
+               agent is still told it is a Codex agent instead of reading a
+               bare "an account we cannot identify". Taken from `whoamiFor`
+               rather than re-derived here. */
+            + sentenceForWhoami(account, model, seenLive.resolvedRunner) + ' '
             + whoamiProjectsClause(projectNames) + '.',
         });
       })
       .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read that request' }));
+    return;
+  }
+  if (pathname === '/api/report' && req.method === 'GET') {
+    /* #2709: the READ-BACK. `kosmos report` was write-only, so an agent could set
+       its board state but never check its own -- and it is TOLD to clear a stale
+       needs_you it cannot see, across a compaction that erased its memory of it.
+       This returns ONLY the caller's OWN report: identity is resolved the exact
+       same way POST /api/report resolves it (resolveAgentSender, token-first then
+       pane), so the same credential that authorizes a write authorizes reading
+       that one agent's state. It is NOT the account-gated /api/agents -- an agent
+       reads itself, never the roster. */
+    /* asText computed ONCE at the top (the #2702 lesson) so every arm -- the
+       refusals AND the render -- agree on which format the caller asked for; a
+       bail that ignored ?as=text would hand the bash CLI a raw JSON blob. */
+    let asText = false;
+    let fromPane = null;
+    try {
+      const q = new URL(req.url, ROUTING_BASE).searchParams;
+      asText = q.get('as') === 'text';
+      fromPane = q.get('from_pane');   // the pane arm for a token-less agent (GET has no body)
+    } catch { asText = false; fromPane = null; }
+    /* One responder for the NON-success paths, carrying a REAL HTTP status so
+       `kosmos report show` can exit non-zero on a refusal the way post/react/room
+       do (its sibling cmd_room keys the CLI exit off the status; POST /api/report
+       returns 200 because ITS cli parses the body instead -- a different reader,
+       so a different convention). needs a matching text line for the bash arm. */
+    const fail = (status, msg) => {
+      if (asText) { res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(msg + '\n'); }
+      else sendJson(res, status, { ok: false, because: msg });
+    };
+    /* Wrapped, like the POST sibling's readBody().then().catch(): a synchronous
+       throw from any callee must fault THIS request (500), not crash the board. */
+    try {
+      const roster = safeRoster();
+      if (roster === null) { fail(503, 'we could not check which agents are running, so we could not tell who this is from'); return; }
+      /* #1968, same as POST: on an enforcing board a bare pane with no credential
+         is refused; a valid board token or agent token passes. */
+      const denyPaneFallback = boardAuthState.on
+        && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
+      const sender = resolveAgentSender(req, { from_pane: fromPane }, roster, {
+        denyPaneFallback,
+        denyBecause: 'this board only shows a report to the account that started it; run `kosmos report show` from that account, or present an agent token',
+      });
+      if (!sender.ok) { fail(403, sender.because); return; }
+      const rep = selfreport.read(sender.card.sessionName);
+      /* A no-report agent is a SUCCESSFUL read of "you have no state yet" -- 200,
+         found:false -- never a refusal, so the CLI exits 0 on it. Only auth /
+         server-fault paths above are non-2xx. */
+      if (asText) {
+        /* Bash 3.2 has no JSON parser, so the server shapes the human line (the
+           same as=text contract the room route keeps). needs_you/blocked are the
+           WAITING_ON_A_PERSON states -- the motivating "is my needs_you still set". */
+        let line;
+        if (!rep || rep.found !== true) {
+          /* selfreport.read ALWAYS sets `because` on found:false, and those are
+             third-person engine fragments ("it has never reported" /
+             "could not read its self-report") -- wrong for a first-person CLI
+             reader. Shape a first-person line here; the JSON arm keeps the raw
+             `because` for programmatic callers. */
+          line = (rep && rep.because === selfreport.NO_READING.UNREADABLE)
+            ? 'We could not read your self-report right now. Try again in a moment.'
+            : 'You have not reported a state to the board yet.';
+        } else {
+          const detail = [];
+          if (rep.on) detail.push('on ' + rep.on);
+          if (rep.owner) detail.push('owner ' + rep.owner);
+          if (rep.until) detail.push('until ' + rep.until);
+          line = 'You are currently: ' + rep.state + (detail.length ? ' (' + detail.join(', ') + ')' : '') + '.';
+          if (rep.at) line += ' Set ' + rep.at + '.';
+          if (selfreport.WAITING_ON_A_PERSON.includes(rep.state)) {
+            line += ' This is a waiting-on-a-person state; clear it with a fresh report (e.g. `kosmos report working ...`) once you have been answered.';
+          }
+        }
+        res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+        res.end(line + '\n');
+        return;
+      }
+      sendJson(res, 200, { ok: true, report: rep });
+    } catch (err) {
+      fail(500, String((err && err.message) || 'we could not read your report right now'));
+    }
     return;
   }
   if (pathname === '/api/report' && req.method === 'POST') {
@@ -7901,18 +9322,17 @@ const server = http.createServer((req, res) => {
         }
         // Refused before anything is looked up, exactly as the operator's own
         // send is: a message we would never keep should not cost a roster read.
-        const problem = chat.messageProblem(body.text);
+        /* agentReplyProblem also runs the same impersonation refusal msg and post
+           run. This route kept a reply carrying a delivery marker until #145's
+           review caught it: the colleagues block promises the refusal on every
+           send path, and this was the path that broke the promise.
+           Bare 400, no logged refusal row, deliberately: the messageProblem
+           refusal is equally bare (attribution would cost a roster read before
+           refusing), and the block's warning is the compensating control that
+           reaches the agent BEFORE the guard. The outbox drain (#1704 PR2) runs
+           the same function, so a kept reply is refused exactly as a live one. */
+        const problem = agentReplyProblem(body.text);
         if (problem) { const bad = new Error(problem); bad.status = 400; throw bad; }
-        /* The same impersonation refusal msg and post run. This route kept a
-           reply carrying a delivery marker until #145's review caught it: the
-           colleagues block promises the refusal on every send path, and this
-           was the path that broke the promise.
-           Bare 400, no logged refusal row, deliberately: this route's
-           messageProblem refusal is equally bare (attribution would cost a
-           roster read before refusing), and the block's warning is the
-           compensating control that reaches the agent BEFORE the guard. */
-        const marker = messages.markerProblem(body.text);
-        if (marker) { const bad = new Error(marker); bad.status = 400; throw bad; }
 
         const roster = safeRoster();
         if (roster === null) {
@@ -7939,12 +9359,7 @@ const server = http.createServer((req, res) => {
         if (!sender.ok) { sendJson(res, 200, { kept: false, because: sender.because }); return; }
 
         const who = sender.card.sessionName;
-        const at = new Date().toISOString();
-        const kept = chat.appendMessage(chat.DIRECT, who, {
-          text: body.text,
-          at,
-          from: who,
-        });
+        const kept = keepAgentReply(who, body.text);
         /* #2623: the phone seam (engine/notify.js) was deleted. The reply is
            recorded for the person's own thread as before; nothing leaves the Mac. */
         sendJson(res, 200, {
@@ -8046,7 +9461,7 @@ const server = http.createServer((req, res) => {
         because: 'we could not scan this computer for agent files' });
       return;
     }
-    sendJson(res, 200, { ...out, dismissed: discover.dismissed() });
+    sendJson(res, 200, { ...out, dismissed: discover.dismissed(discover.candidateDirs(out)) });
     return;
   }
 
@@ -8154,6 +9569,99 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #2682: add an agent from an arbitrary FOLDER, the sibling of the loose-FILE
+     import above. An agent set up outside discovery's deliberately-bounded scan
+     roots (an orchestrator run from a shared dir, an agent in a non-standard
+     location) is otherwise invisible with no way to bring it in. The operator
+     points at the agent's directory; we read ONLY its CLAUDE.md and return its
+     TEXT, exactly as the client-side "Choose a file" reader hands the import
+     flow a file's text. The UI loads that into the import textarea and the
+     operator reviews and presses "Bring it in", so parse / validate / create all
+     stay in the existing importLoad path. This route NEVER parses or creates; it
+     is purely a safe server-side read of a file the client cannot reach with a
+     FileReader (which only works on a file the user picked, not a server path).
+
+     ⚠️ NO SCAN-MEMBERSHIP GATE, and that is the deliberate difference from
+     /api/agent-import-file. That route only reads a path the on-demand scan
+     already found, precisely to avoid an arbitrary-path read. This card's whole
+     point is a folder OUTSIDE any scan, so that gate cannot apply. What bounds
+     the read instead: the board is loopback-only and board-token authed (the
+     caller is the operator on their own machine), the path must be absolute, and
+     we read ONLY a file literally named CLAUDE.md inside the named directory --
+     never an arbitrary filename -- with the SAME hardened, symlink-safe,
+     TOCTOU-closing read the file import uses. Whether the CLAUDE.md is actually
+     an agent (introduces somebody) is decided downstream by importAgent when the
+     operator brings it in, the same as for pasted or chosen text. */
+  if (pathname === '/api/agent-import-folder' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read');
+          bad.status = 400; throw bad;
+        }
+        const dir = body && typeof body.dir === 'string' ? body.dir.trim() : '';
+        if (!dir) { sendJson(res, 200, { ok: false, because: 'no folder was named to import' }); return; }
+        /* An absolute path is required: a relative one would resolve against the
+           board's own working directory rather than the operator's intent, which
+           is never what "point at the agent's folder" means. */
+        if (!path.isAbsolute(dir)) { sendJson(res, 200, { ok: false, because: 'name the agent folder with a full path' }); return; }
+        /* statSync (not lstat) so a legitimately symlinked folder -- a common
+           setup, e.g. a work tree reached through a symlinked parent -- resolves.
+           The read below is hardened at the FILE, which is where a symlink could
+           escape; the directory only names where to look for CLAUDE.md.
+           ⚠️ A TOCTOU race on the DIRECTORY component (dir swapped to point
+           elsewhere between this statSync and the CLAUDE.md open) is NOT closed
+           the way the file-level race is, and that is the same residual
+           /api/agent-import-file accepts: it is outside the threat model here
+           (loopback bind + board-token auth + single local operator), and the
+           worst it yields is reading a different <dir>/CLAUDE.md the operator
+           themselves can already read. */
+        let dstat;
+        try { dstat = fs.statSync(dir); } catch { sendJson(res, 200, { ok: false, because: 'there is no folder at that path' }); return; }
+        if (!dstat.isDirectory()) { sendJson(res, 200, { ok: false, because: 'that path is not a folder' }); return; }
+
+        /* The identical hardened read as /api/agent-import-file, scoped to
+           <dir>/CLAUDE.md: a platform-independent lstat symlink/non-file refusal,
+           then O_RDONLY | O_NOFOLLOW | O_NONBLOCK (each `|| 0` for win32, where
+           O_NOFOLLOW is undefined and `X | undefined` would silently drop it),
+           fstat isFile + size cap on the fd, read by fd. This closes the
+           lstat->open TOCTOU window and refuses a CLAUDE.md that is a symlink to
+           somewhere it should not read. */
+        const file = path.join(dir, 'CLAUDE.md');
+        const NOFOLLOW = fs.constants.O_NOFOLLOW || 0;
+        const NONBLOCK = fs.constants.O_NONBLOCK || 0;
+        const MAX_IMPORT_FILE = 512 * 1024;
+        let text;
+        let fd = null;
+        try {
+          const lst = fs.lstatSync(file);
+          if (lst.isSymbolicLink() || !lst.isFile()) { sendJson(res, 200, { ok: false, because: 'that folder has no readable CLAUDE.md' }); return; }
+          fd = fs.openSync(file, fs.constants.O_RDONLY | NOFOLLOW | NONBLOCK);
+          const st = fs.fstatSync(fd);
+          if (!st.isFile()) { sendJson(res, 200, { ok: false, because: 'that folder has no readable CLAUDE.md' }); return; }
+          if (st.size > MAX_IMPORT_FILE) { sendJson(res, 200, { ok: false, because: 'that CLAUDE.md is too large to be an agent file' }); return; }
+          const b = Buffer.alloc(st.size);
+          const n = fs.readSync(fd, b, 0, st.size, 0);
+          text = b.slice(0, n).toString('utf8');
+        } catch {
+          // ELOOP (a symlinked CLAUDE.md), a vanished file, or any read error.
+          sendJson(res, 200, { ok: false, because: 'that folder has no readable CLAUDE.md' });
+          return;
+        } finally {
+          if (fd !== null) { try { fs.closeSync(fd); } catch { /* already gone */ } }
+        }
+
+        /* Return the raw text; the import textarea + importLoad do the parse,
+           validation and create, unchanged. A CLAUDE.md that is empty after the
+           read is refused here rather than loading a blank textarea. */
+        if (!text.trim()) { sendJson(res, 200, { ok: false, because: 'that folder’s CLAUDE.md is empty' }); return; }
+        sendJson(res, 200, { ok: true, dir, text });
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
+    return;
+  }
+
   if (pathname === '/api/msg' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
@@ -8175,8 +9683,14 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, { delivery: { state: 'could_not', because: 'we could not check which agents are running, so nothing was sent' } });
           return;
         }
+        const tokenSender = senderFromAgentToken(req, body, roster);
+        if (tokenSender && !tokenSender.ok) {
+          sendJson(res, 200, { delivery: { state: 'could_not', because: tokenSender.because } });
+          return;
+        }
         const delivery = messages.send({
           fromPane: body.from_pane,
+          sender: tokenSender,
           to: body.to,
           text: body.text,
           inReplyTo: body.in_reply_to,
@@ -8206,36 +9720,99 @@ const server = http.createServer((req, res) => {
           bad.status = 400;
           throw bad;
         }
+        /* #2908: reply_expected is an OPTIONAL strict boolean, validated as a request-shape check
+           BEFORE the roster/project side-effects. Omitted keeps the current reply-required
+           behavior; false marks the post an acknowledgement (no answer clause, persisted). A
+           non-boolean is refused rather than coerced -- a truthy string like "false" must not
+           silently read as reply-required, and inferring intent from a loose value is the
+           ambiguity this field exists to remove. */
+        if ('reply_expected' in body && typeof body.reply_expected !== 'boolean') {
+          const bad = new Error('reply_expected must be true or false');
+          bad.status = 400;
+          throw bad;
+        }
         const roster = safeRoster();
         if (roster === null) {
           sendJson(res, 200, { delivery: { state: 'could_not', because: 'we could not check which agents are running, so nothing was posted' } });
           return;
         }
-        let found = null;
-        try { found = projects.get(String(body.project == null ? '' : body.project).trim(), roster); } catch { found = null; }
-        if (!found) {
-          sendJson(res, 200, { delivery: { state: 'could_not', because: 'there is no project by that name, so there is no room to post into' } });
-          return;
-        }
-        // An archived project still accepts posts, a RECORDED trade: the
-        // archive hides a project from the list and stops it counting,
-        // and nothing else in the app gates behavior on it (an archived
-        // project's detail is still reachable and its members are still
-        // its members). If archive ever comes to mean "closed", this is
-        // the line that changes.
-        const members = (found.agents || []).map((a) => a.sessionName);
-        const delivery = messages.sendPost({
+        /* #1704 PR2: the project lookup, its members and the send are ONE
+           function the outbox drain shares (sendRoomPostAsAgent), so a kept post
+           reaches exactly the room a live one would. The token sender is resolved
+           here and refused inside it, after the project check: the order this
+           route has always answered in. */
+        const delivery = sendRoomPostAsAgent({
           fromPane: body.from_pane,
-          project: found.id,
-          // The NAME for the envelope the agent reads, the id for everything a
-          // machine keys on. Both, from the same record, so they cannot drift.
-          projectName: found.name,
+          sender: senderFromAgentToken(req, body, roster),
+          project: body.project,
           text: body.text,
-        }, roster, members);
+          replyExpected: body.reply_expected,
+        }, roster);
         /* #2623: the phone seam (engine/notify.js) was deleted. A post that
            reached the room is delivered on the board as before; it no longer
            POSTs anything off the Mac. */
         sendJson(res, 200, { delivery });
+        /* #2837 (producer half): a post that reached the room is a TRUTHFUL signal
+           that this agent is working in THIS project -- "the activity carries which
+           project it belongs to". Carry that project onto the poster's state so the
+           automatic `working` heartbeats inherit it (selfreport's #763 carry-forward)
+           and the project overview lights the RIGHT tile for a multi-project agent
+           instead of none (the #2837 consumer only lights an unambiguous single
+           project otherwise). Keyed on the RESOLVED project id, not the raw input,
+           so it matches what the overview keys on (stateProject === project.id).
+           DONE HERE, not in sendRoomPostAsAgent, so a delayed outbox-drain REPLAY
+           does not re-attribute a project the agent may have moved on from.
+           ⚠️ AFTER sendJson, deliberately: this re-resolves the poster
+           (resolveAgentSender can spawn a tmux probe for a pane poster) and re-reads
+           the projects store, and the client is already holding the post's verdict,
+           so this best-effort attribution must not sit on the response's latency.
+           The response is sent; a throw here is caught and changes nothing. */
+        try {
+          if (delivery && (delivery.state === chat.DELIVERY.PLACED || delivery.state === chat.DELIVERY.UNCONFIRMED)) {
+            const denyPaneFallback = boardAuthState.on
+              && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
+            const poster = resolveAgentSender(req, body, roster, {
+              denyPaneFallback,
+              denyBecause: 'only the account that started this board carries its own project',
+            });
+            if (poster && poster.ok && poster.card && poster.card.sessionName) {
+              const who = poster.card.sessionName;
+              /* Attribute the project ONLY when the poster is ALREADY working. The
+                 overview lights 'working' tiles, so the project matters only then;
+                 we carry it onto the SAME 'working' state (never forcing a state).
+                 An idle poster stays idle (no tile lit for an idle agent), and a
+                 waiting poster (needs_you/blocked) is left untouched -- posting a
+                 question does not claim the agent is working. This keeps the common
+                 single-project heartbeat exactly as it was.
+                 The fresh `at` this writes can REVIVE a working tile that had aged
+                 out (the #763 consumer freshness-gates 'working' on `at`) -- for a
+                 paneless agent with no intervening heartbeat, especially. That
+                 revival is intended: the agent just acted, so it IS a live working
+                 signal right now, and it re-ages-out on the same decay if no further
+                 activity follows. */
+              const current = selfreport.read(who);
+              if (current && current.found === true && current.state === 'working') {
+                let projectId = null;
+                try {
+                  const pj = projects.get(String(body.project == null ? '' : body.project).trim(), roster);
+                  projectId = pj && pj.id;
+                } catch { projectId = null; }
+                if (projectId) {
+                  /* Carry the poster's existing working CONTENT through unchanged
+                     (because/on/owner/until) -- only the project is being added, and
+                     selfreport.read reads those from the single latest line, so
+                     omitting them here would silently drop a `working --on/--owner`
+                     note the agent had set. */
+                  selfreport.record(who, {
+                    state: 'working', project: projectId,
+                    because: current.because, on: current.on, owner: current.owner, until: current.until,
+                    instance: poster.instance, auto: true,
+                  });
+                }
+              }
+            }
+          }
+        } catch { /* best-effort: the post stands regardless of attribution */ }
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
         { error: String((err && err.message) || 'we could not read that request') }));
@@ -8263,7 +9840,7 @@ const server = http.createServer((req, res) => {
         let found = null;
         try { found = projects.get(String(body.project == null ? '' : body.project).trim(), roster); } catch { found = null; }
         if (!found) { sendJson(res, 200, { ok: false, because: 'there is no project by that name' }); return; }
-        const sender = messages.resolveSender(body.from_pane, roster);
+        const sender = senderFromAgentToken(req, body, roster) || messages.resolveSender(body.from_pane, roster);
         if (!sender.ok) { sendJson(res, 200, { ok: false, because: sender.because }); return; }
         // #2255: the project's members, same derivation as /api/post -- react()
         // refuses an agent that is not on the project (room isolation).
@@ -9626,13 +11203,13 @@ const server = http.createServer((req, res) => {
         // `everSeen`, the write permission, and what the response reports.
         const roster = safeRoster();
         /* Who is asking (#327): a browser sends sec-fetch-site, a curl does
-           not, and the header is the BROWSER'S, not the request body's -- so
-           the screen/process split cannot be minted by a local process lying
-           about itself in JSON. A process that offered its pane gets named
-           through the same roster the write already trusts. Advisory: an
-           agent runs as the operator; this is for telling things apart. */
-        const viaScreen = typeof req.headers['sec-fetch-site'] === 'string'
-          || (() => { try { const h = new URL(String(req.headers.origin || '')).hostname.replace(/\.$/, '').toLowerCase(); return LOOPBACK_HOSTS.has(h) || ALLOWED_HOSTS.has(h); } catch { return false; } })();
+           not. A request that presents an agent token, in the header or the
+           body, is always a process (isViaScreen). For a tokenless caller the
+           split is ADVISORY: a local process can send the same header. A
+           process that offered its pane gets named through the same roster the
+           write already trusts. An agent runs as the operator; this is for
+           telling things apart. */
+        const viaScreen = isViaScreen(req, body);
         const paneCard = !viaScreen && typeof body.from_pane === 'string'
           ? (Array.isArray(roster) ? roster.find((c) => c && c.target === body.from_pane) : null)
           : null;
@@ -9682,6 +11259,20 @@ const server = http.createServer((req, res) => {
         } catch (err) {
           told = [{ agent: null, state: projects.TOLD.COULD_NOT, because: String((err && err.message) || 'we could not reach the agents you put on it') }];
         }
+        // #2707: if a project is staffed with agents but has no filled-in brief yet, post
+        // ONE shared "brief pending" note into its room, so the agents coordinate (one asks,
+        // the rest hold) instead of each asking "what is the goal?" and buzzing the operator
+        // once per agent (the Mortals dogfood: 7 agents, 7 identical questions). Gated on
+        // agents because a brief-less project with nobody on it has no one to coordinate; on
+        // briefIsPending because a project the person gave a description to already has a goal
+        // (its #2706 stub Goal was seeded from that description) and needs no such note. Posted
+        // AFTER `told`, best-effort (roomNote swallows its own errors): furniture, exactly like
+        // WELCOME_ROOM_NOTE, and a note we could not post is never a reason to fail the create.
+        try {
+          if (made.agents.length > 0 && projects.briefIsPending(made.folder)) {
+            messages.roomNote(made.id, projects.BRIEF_PENDING_NOTE);
+          }
+        } catch { /* the note is furniture; the project exists regardless */ }
         let project = null;
         try { project = projects.get(made.id, roster); } catch { project = null; }
         sendJson(res, 200, { project, told, id: made.id, agentsUnreadable: roster === null });
@@ -9901,6 +11492,28 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #2863: the person opened this agent's 1:1 DM thread; move its read cursor so
+     the agent's replies before now stop counting. The exact analog of the room
+     /seen above, keyed by agent instead of project. POST, behind the same
+     cross-site write guard. The count itself is server-derived (see
+     withDmUnread); this only moves the cursor. A malformed agent name is a 400
+     (markDmSeen throws BAD_THREAD), any other write failure a 500 -- the sibling
+     shape. */
+  const dmSeen = pathname.match(/^\/api\/agent\/([^/]+)\/seen$/);
+  if (dmSeen && req.method === 'POST') {
+    const name = decodeSegment(dmSeen[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let at;
+    try { at = chat.markDmSeen(name); }
+    catch (err) {
+      const code = (err && err.code === 'BAD_THREAD') ? 400 : 500;
+      sendJson(res, code, { error: String((err && err.message) || 'we could not record that') });
+      return;
+    }
+    sendJson(res, 200, { seen: at, dmUnread: 0 });
+    return;
+  }
+
   const roomThread = pathname.match(/^\/api\/project\/([^/]+)\/room$/);
   if (roomThread && (req.method === 'GET' || req.method === 'HEAD')) {
     const id = decodeSegment(roomThread[1]);
@@ -10077,6 +11690,27 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #2710: the operator REOPENS a held room. The valve holds a room that went
+     back and forth without landing; this clears that hold so the next post
+     lands, without the operator having to type a content post to do it. Its own
+     POST route: like the operator room post and react above, it WRITES and so is
+     an operator surface, board-token gated by the sensitive-route check (every
+     /api/ POST is). The engine writes a reopen marker the valve honors; nothing
+     is delivered and nothing renders in the room. No body is required -- the
+     project rides the path -- so a missing/garbage body is not read. */
+  const roomReopen = pathname.match(/^\/api\/project\/([^/]+)\/room\/reopen$/);
+  if (roomReopen && req.method === 'POST') {
+    const id = decodeSegment(roomReopen[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    const roster = safeRoster();
+    let found = null;
+    try { found = projects.get(id, roster || []); } catch { found = null; }
+    if (!found) { sendJson(res, 404, { ok: false, because: 'there is no project by that name' }); return; }
+    const out = messages.reopenRoom(found.id);
+    sendJson(res, out.ok ? 200 : 400, out);
+    return;
+  }
+
   /* #2255: the operator TOGGLES an emoji reaction on a room post. Its own POST
      route (a react LAUNCHES nothing, but it writes, so it inherits the same
      operator-surface + cross-site posture as the room post above; agents react
@@ -10184,7 +11818,9 @@ const server = http.createServer((req, res) => {
          * planted inside the folder). A second, weaker copy of the rules at
          * this layer is how two validators drift and the looser one wins. */
         const opened = projects.openFile(record.folder, named);
-        if (opened.ok) { sendJson(res, 200, { ok: true }); return; }
+        /* win32-board-copy (review round 1, SAFETY 1): on Windows a file whose type can run
+           a program is shown in File Explorer rather than opened, and the page says so. */
+        if (opened.ok) { sendJson(res, 200, opened.revealedInstead ? { ok: true, revealedInstead: true, say: opened.say } : { ok: true }); return; }
         sendJson(res, 409, { error: opened.because });
       })
       .catch((err) => sendJson(res, 400,
@@ -10296,12 +11932,13 @@ const server = http.createServer((req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}'); }
         catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const roster = safeRoster();
-        /* Who is asking (#485, extending #327's shape verbatim): the header
-           is the browser's, not the body's, so the screen/process split
-           cannot be minted by a process lying in JSON; a process that
-           offered its pane gets named through the same roster the write
-           already trusts. */
-        const viaScreen = isViaScreen(req);
+        /* Who is asking (#485, extending #327's shape): a request that presents
+           an agent token, in the header or the body, is always a process
+           (isViaScreen). For a tokenless caller the screen/process split is
+           ADVISORY: a local process can send Sec-Fetch-Site too. A process that
+           offered its pane gets named through the same roster the write already
+           trusts. */
+        const viaScreen = isViaScreen(req, body);
         const paneCard = !viaScreen && typeof body.from_pane === 'string'
           ? (Array.isArray(roster) ? roster.find((c) => c && c.target === body.from_pane) : null)
           : null;
@@ -10381,7 +12018,14 @@ const server = http.createServer((req, res) => {
      closing or reopening a task types nothing. */
   // #327's shape, factored out rather than copied a third time (taskMake
   // already had its own inline copy; #761 needs the same split for parts).
-  function isViaScreen(req) {
+  /* win32-cli-verbs (review round 1): a request that PRESENTS an agent token is an
+     agent, whatever browser headers it also carries. Sec-Fetch-Site and Origin are
+     advisory and a local process can send either; the operator's page never sends an
+     agent token. Without this an agent's valid token plus `Sec-Fetch-Site:
+     same-origin` read as "The person said" and skipped the valve. `body` is optional:
+     a route that has read its body passes it, so a token in the body counts too. */
+  function isViaScreen(req, body) {
+    if (presentedAgentToken(req, body)) return false;
     return typeof req.headers['sec-fetch-site'] === 'string'
       || (() => { try { const h = new URL(String(req.headers.origin || '')).hostname.replace(/\.$/, '').toLowerCase(); return LOOPBACK_HOSTS.has(h) || ALLOWED_HOSTS.has(h); } catch { return false; } })();
   }
@@ -10488,6 +12132,116 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #768: record a free-text message on a task's conversation, then DELIVER it to the
+     agents assigned to the task. Body { text, from_pane? }. tasks.say validates
+     (empty -> 400, missing project/task -> 404) and records it via engine/taskchat.js
+     (the read side is the /activity route above). Delivery goes to the assignees only
+     (Josh, 2026-09-12), through chat.deliver, and the sender (when it is a known agent,
+     resolved from from_pane) is excluded so it is not notified about its own message --
+     the same exclusion the room does (engine/messages.js sendPost filters `from`). */
+  const taskSay = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/message$/);
+  if (taskSay && req.method === 'POST') {
+    const id = decodeSegment(taskSay[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      /* Who is sending: the screen (the operator's board) or a process (an agent
+         running `kosmos task message`). A request that presents an agent token, in
+         the header or the body, is always an agent (isViaScreen), so it is named and
+         valved. For a tokenless caller the screen posture is ADVISORY: a local
+         process can send Sec-Fetch-Site too. Read after the body, so a body token
+         counts. Only a process is rate-valved. */
+      const viaScreen = isViaScreen(req, body);
+      /* The valve, before the record+deliver: a looping agent must not be able to
+         spam a task's people. Counted for PROCESS senders only; the operator is
+         never valved (the person driving is the remedy, not the hazard -- the same
+         posture as the task-creation and room valves). */
+      if (!viaScreen && taskMessageValveTripped()) {
+        sendJson(res, 429, { error: 'agents have sent many task messages in the last hour, so Kosmos is pausing agent task messages; the person can still send from the screen' });
+        return;
+      }
+      try {
+        /* win32-cli-verbs: a Windows agent has no pane, so its `kosmos task message`
+           names itself with its per-run agent token, resolved through the chain
+           /api/msg, /api/post and /api/react use. BEFORE the message is recorded: a
+           presented token that does not resolve is refused, never recorded as "An
+           agent" (a bad credential is not swapped for a weaker one). No token leaves
+           the pane path below exactly as it was. */
+        const roster = safeRoster();
+        /* A token cannot be checked against a roster nobody could read: say that,
+           as /api/msg does, rather than a refusal that blames the token. */
+        if (roster === null && presentedAgentToken(req, body)) {
+          sendJson(res, 503, { error: 'we could not check which agents are running, so that message was not recorded' });
+          return;
+        }
+        const tokenSender = senderFromAgentToken(req, body, roster);
+        if (tokenSender && !tokenSender.ok) { sendJson(res, 403, { error: tokenSender.because }); return; }
+        const t = tasks.say(id, taskSay[2], body.text);
+        /* Deliver to the agents ASSIGNED to the task (Josh, 2026-09-12: "only to
+           the agents assigned to the task"), never the whole project. The full
+           message lives in the task record (say, above); what an assignee receives
+           is a short NOTIFICATION -- a preview plus how to reply INTO the task --
+           so the task transcript stays the single source of truth and the delivered
+           line never bumps chat's length cap. chat.deliver carries the rails
+           (addressable, the trust-dialog guard, body validation); every task route
+           that notifies people goes through the same roster. */
+        const named = tasks.whoOf(t);
+        const chat = require('./engine/chat');
+        const proj = projects.get(id);
+        /* Strip the framing double-quote (and newlines defensively) from anything
+           that rides inside the delivered line's own quotes, the same guard the
+           sibling delivery path heardBy uses: chat.cleanMessage collapses newlines
+           but does NOT remove a `"`, so a message or project name containing one
+           would break the "<preview>" framing and the reply instruction that an
+           assignee parses. */
+        const clean = (s) => String(s == null ? '' : s).replace(/[\r\n"]/g, ' ');
+        const projName = clean((proj && proj.name) || id);
+        const rawPreview = clean(body.text);
+        const preview = rawPreview.length > 140 ? rawPreview.slice(0, 140) + '...' : rawPreview;
+        /* Resolve the sender from its pane, the same header-trusted way taskMake
+           resolves a paneCard. Two uses: exclude the sender from the recipients (an
+           agent that runs `kosmos task message` should not be notified about its own
+           message), and NAME it in the notification so a co-assignee can see which
+           colleague spoke -- the room does the same (its pane envelope names `from`).
+           The operator has no pane here and is not on `named` anyway. */
+        const fromPane = typeof body.from_pane === 'string' ? body.from_pane : '';
+        const senderCard = tokenSender ? tokenSender.card : (fromPane ? roster.find((c) => c && c.target === fromPane) : null);
+        const senderName = clean(senderCard && senderCard.sessionName);
+        const recipients = senderName ? named.filter((m) => m !== senderName) : named;
+        const who = viaScreen ? 'The person' : (senderName || 'An agent');
+        /* Built once: nothing in the line depends on the recipient. `id` is cleaned
+           for consistency with the other interpolated values, though a stored project
+           id is a slug that cannot contain a quote or newline in the first place. */
+        const line = '[Kosmos task ' + t.number + ' - ' + projName + '] ' + who + ' said: "' + preview
+          + '" - reply in the task: kosmos task message ' + clean(id) + ' ' + t.number + ' "..."';
+        /* `delivered`, not `told`: the sibling task routes (close/reopen/parts) return
+           `told` as a SINGLE instruction-sync verdict; this is a per-assignee list of
+           chat.deliver outcomes, a different shape, so it takes a different name rather
+           than overloading `told` with two meanings (convention #5). */
+        const delivered = [];
+        for (const one of recipients) {
+          let outcome;
+          try { outcome = chat.deliver(one, line, roster); }
+          catch (e) { outcome = { state: (chat.DELIVERY && chat.DELIVERY.COULD_NOT) || 'could_not', because: String((e && e.message) || 'we could not reach that agent') }; }
+          delivered.push({ agent: one, state: outcome && outcome.state, because: outcome && outcome.because });
+        }
+        if (!viaScreen) taskMessageValveRecord();
+        sendJson(res, 200, { ok: true, delivered });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        // A failed append is a server-side (disk/IO) condition, not a bad request,
+        // so it is a 500; a missing project/task is a 404; everything else (empty
+        // or over-length text) is a 400 malformed request.
+        const code = /we could not record that message/.test(msg) ? 500
+          : (/no project by that name|no task by that number/.test(msg) ? 404 : 400);
+        sendJson(res, code, { error: msg || 'we could not record that message' });
+      }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
   /* The parts of a task (#206 step 2). One route per verb, the same shape as
      close/reopen above, and every one of them re-tells the people named on the
      task afterwards. */
@@ -10498,7 +12252,7 @@ const server = http.createServer((req, res) => {
     readBody(req).then((raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
-      const screen = isViaScreen(req);
+      const screen = isViaScreen(req, body);
       /* The parts valve (#803): the WRITE is refused for a process past
          twelve part changes an hour, counted across projects from the
          records themselves; the screen is never valved. The sentence says
@@ -10537,7 +12291,7 @@ const server = http.createServer((req, res) => {
     readBody(req).then((raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
-      const screen = isViaScreen(req);
+      const screen = isViaScreen(req, body);
       const verb = partAct[4];
       /* The parts valve (#803), the move half: a process reassigning parts in
          a loop is the same runaway as adding them. Close and reopen are not
@@ -11193,8 +12947,15 @@ const server = http.createServer((req, res) => {
        exactly that: 0.2.75 on the line and the previous page on screen.
        📌 It costs a re-read of one local file per load, which is the price of
        an update actually arriving. (#271, Mona Lisa.) */
-    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-    res.end(buf);
+    /* #570: the build this PROCESS loaded, which the page cannot say. The page
+       is read per request, so a new zip unpacked over the running install makes
+       an old board serve the new page and name the new version. The Windows
+       hand-off (engine/win32handoff.js) must tell the running code from the files
+       on disk, and this header is that answer.
+       #2973: and whether this board's logon task started it, which the hand-off needs
+       before it may end the board, and which Task Scheduler cannot say reliably. */
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', [BOARD_IDENTITY_HEADER]: BOARD_IDENTITY, [BOARD_STARTED_BY_TASK_HEADER]: boardStartedByTaskHeaderValue() });
+    res.end(stampServedPlatform(buf));
   });
 });
 
@@ -11320,7 +13081,10 @@ function start(port = PORT) {
          fixture board (every test + browser-check) does not enforce and writes
          nothing. Fail CLOSED: if provisioning throws (disk/permission), the board
          stays enforcing with a null token, refusing rather than serving unguarded. */
-      boardAuthState.on = boardauth.enforced(process.env);
+      /* #2628: the SAME launch env the #634 boot guard audits. A named world's roots
+         in process.env must never make a real board read as a sandboxed fixture
+         (and so run token-off); both guards judge "sandboxed" from one input. */
+      boardAuthState.on = boardauth.enforced(LAUNCH_ENV_OVERRIDES);
       if (boardAuthState.on) {
         try {
           boardAuthState.token = boardauth.ensureToken();
@@ -11428,6 +13192,15 @@ function start(port = PORT) {
          (startPolling: unref'd, best-effort, and it owns the default cadence
          and clamps a bad interval); the env is a test seam only. Captured like
          the sibling sweeps so a future shutdown path has a handle to clear. */
+      /* The channel is never silent: the boot log names it and the exact pointer every look
+         will fetch, so a staging board, or a board aimed at a mirror, reads as one from its log
+         line alone. */
+      process.stdout.write(`Kosmos update check: channel=${updates.updateChannel()} pointer=${updates.pointerUrl()}\n`);
+      /* 🪟 S4: tell the updater the board it must stop and the port it must confirm on, so the win32
+         in-app helper (win32update.begin -> win32apply) hands the swap this exact process and port
+         rather than its own default. Read from the bound socket, so it is the real listening port even
+         when PORT was derived per-OS-user. Inert on the Mac (its updater is the /bin/sh installer). */
+      try { updates.setBoardContext({ port: server.address() && server.address().port, pid: process.pid }); } catch { /* best-effort; begin() defaults when unset */ }
       const updatePoke = updates.startPolling(Number(process.env.AGENT_WORKFORCE_UPDATE_POKE_MS));
       if (updatePoke && typeof updatePoke.unref === 'function') updatePoke.unref();
       /* #1722: the product heartbeat. Its OWN self-rescheduling timer, because
@@ -11643,11 +13416,24 @@ if (require.main === module) {
    * block. A board that refused to start because it could not register a logon
    * task would be strictly worse than the board that is starting right now.
    */
+  /* ensureInstalled's answer, kept for the hand-off right before start(): only a
+     task this boot just registered or refreshed is one a hand-started board may
+     hand itself to. */
+  let win32BoardEnsured = null;
   if (process.platform === 'win32') {
     try {
       const r = require('./engine/win32board').ensureInstalled({});
+      win32BoardEnsured = r;
+      /* win32-installer-native: the pointer follows this folder on every boot, and a board whose
+         agents would still start the old folder has to say so. */
+      if (r.anchor && !r.anchor.ok) {
+        process.stderr.write(`Kosmos could not point its startup files at this folder, so your agents may start an older copy: ${r.anchor.because}\n`);
+      }
       if (r.action === 'registered') {
         process.stdout.write(`Kosmos will now start when you log in. Task Scheduler > Kosmos > board; remove it with: ${r.removeHint}\n`);
+      } else if (r.action === 'unknown') {
+        /* #2973: could not read the job, so nothing was changed. Not "will not start". */
+        process.stderr.write(`Kosmos could not check whether it starts when you log in: ${r.because}\n`);
       } else if (!r.ok) {
         /* The whole point of this slice: when the board will NOT come back, say
            so, rather than let a person find out after a reboot. */
@@ -11753,20 +13539,56 @@ if (require.main === module) {
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh what agents know about connections: ${String(err && err.message)}\n`);
   }
-  start().then(() => {
-    // Report the port actually bound, not the one requested, or a `PORT=0` run
-    // would announce itself on port 0.
-    process.stdout.write(`Kosmos on http://127.0.0.1:${server.address().port}\n`);
-    process.stdout.write('Local only. It writes, and it has no login yet.\n');
-  }).catch((err) => {
-    // Say what to do rather than name an exception. A raw EADDRINUSE stack is
-    // exactly what start()'s promise exists to replace, and leaving this
-    // uncaught made the comment above it a lie.
-    const detail = err && err.code === 'EADDRINUSE'
-      ? `port ${PORT} is already in use. Is a board already running?`
-      : String(err && err.message);
-    process.stderr.write(`Kosmos could not start: ${detail}\n`);
-    process.exit(1);
+  /* #570: on Windows, a board started by hand from the unpacked zip (Kosmos.exe)
+     hands itself to its headless logon task and leaves, so the launcher is never
+     the board and a relaunch never reports "port in use" over a working
+     board. Every case it cannot confirm resolves to serving here, as before. See
+     engine/win32handoff.js. */
+  const beforeServing = process.platform === 'win32'
+    ? require('./engine/win32handoff').handOffToTask({ ensured: win32BoardEnsured, port: PORT, identity: BOARD_IDENTITY, env: LAUNCH_ENV_OVERRIDES })
+    : Promise.resolve({ serve: true, attempted: false });
+  beforeServing.catch((err) => ({ serve: true, attempted: true, because: `the hand-off failed (${String(err && err.message)})` })).then((handOff) => {
+    if (!handOff.serve) {
+      /* A Windows console write is asynchronous, so exit from its callback. The
+         launcher exits with this board (closing its --console window, if any), so
+         this line is read only by whoever ran Kosmos.exe --console from a terminal
+         they keep; the launcher's default console is hidden. */
+      process.stdout.write(`${handOff.say}\n`, () => process.exit(handOff.exitCode || 0));
+      return;
+    }
+    if (handOff.attempted) {
+      /* Readable only in Kosmos.exe --console's window (or a terminal that ran the
+         board by hand). A double-clicked Kosmos.exe has a hidden console and shows
+         its own box with the same advice once this board is listening. */
+      process.stderr.write(`Kosmos could not move to the background (${handOff.because}), so it is running from this window instead. Keep this window open while you use Kosmos.\n`);
+    }
+    start().then(() => {
+      // Report the port actually bound, not the one requested, or a `PORT=0` run
+      // would announce itself on port 0.
+      process.stdout.write(`Kosmos on http://127.0.0.1:${server.address().port}\n`);
+      process.stdout.write('Local only. It writes, and it has no login yet.\n');
+      /* #1704 PR3: start again the agents a pause-switch stopped when this Kosmos
+         was left. Here, not in start(): live execution is armed above and the board
+         is listening, and routing tests that call start() never reach this. Not
+         fatal: a board that could not resume an agent still serves, and the entry
+         is retried next boot. */
+      try { worldstarts.drainAtBoot(); }
+      catch (err) { process.stderr.write(`Kosmos could not bring back this Kosmos's paused agents: ${String(err && err.message)}\n`); }
+      /* #1704 PR2: deliver what this Kosmos's agents kept while another Kosmos
+         was open. Here, on the real-start path only: after allowLiveExecution()
+         above, once the board is listening, and never in a test that merely
+         requires this file. */
+      startOutboxDrain();
+    }).catch((err) => {
+      // Say what to do rather than name an exception. A raw EADDRINUSE stack is
+      // exactly what start()'s promise exists to replace, and leaving this
+      // uncaught made the comment above it a lie.
+      const detail = err && err.code === 'EADDRINUSE'
+        ? `port ${PORT} is already in use. Is a board already running?`
+        : String(err && err.message);
+      process.stderr.write(`Kosmos could not start: ${detail}\n`);
+      process.exit(1);
+    });
   });
 }
 
@@ -11776,6 +13598,9 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  /* #1704 PR2: exported so a test can run one outbox drain against a sandboxed
+     board; production starts it from the real-start path (startOutboxDrain). */
+  drainOutboxNow,
   /* #2128: exported so the four dependsOnClaude cases (some non-codex agent,
      every agent codex, no agents, a configured account that no longer forces it)
      are pinned DIRECTLY, without an HTTP harness that cannot inject agents. */

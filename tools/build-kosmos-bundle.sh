@@ -83,6 +83,13 @@ grep -q "content=\"$_ver\"" "$STAGE/app/web/index.html" || {
 echo "==> baked version $_ver into the page"
 cp "$REPO/bin/agent-supervisor.sh" "$STAGE/app/bin/"
 chmod +x "$STAGE/app/bin/agent-supervisor.sh"
+# #2955: the board watchdog. The macOS installer (install/setup.sh) registers a
+# com.kosmos.board.watchdog LaunchAgent that runs this on an interval to bring the
+# board back after a reboot when it failed to come up (the board's own login job
+# is RunAtLoad + no KeepAlive, so nothing else does). Ships in app/bin beside the
+# supervisor; the plist points at $KOSMOS_HOME/app/bin/board-watchdog.sh.
+cp "$REPO/bin/board-watchdog.sh" "$STAGE/app/bin/"
+chmod +x "$STAGE/app/bin/board-watchdog.sh"
 # 🛑 EVERY runtime file engine/create.js resolves under bin/ ships, by name
 # (this file's explicit-list rule). The codex notify bridge was resolved by
 # create.js since #245 and never copied here: served 0.5.23 could not create a
@@ -390,7 +397,7 @@ if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
   # that printed none of them never got going and is the only case where the
   # product is genuinely not implicated.
   _fp_missing=""
-  for _fp_want in "uiDelegate:set" "press:hidden-input	asked-for-panel:yes" "press:visible-input	asked-for-panel:yes" "press:real-presenter	panel-on-screen:yes" "press:after-a-cancel	reaches-the-app-again:yes"; do
+  for _fp_want in "uiDelegate:set" "press:hidden-input	asked-for-panel:yes" "press:visible-input	asked-for-panel:yes" "press:real-presenter	panel-on-screen:yes" "press:after-a-cancel	reaches-the-app-again:yes" "press:with-a-sheet-up	no-abort-and-panel-presented:yes"; do
     case "$_fp_out" in
       *"$_fp_want"*) ;;
       *) [ -n "$_fp_missing" ] || _fp_missing="$_fp_want" ;;
@@ -418,6 +425,16 @@ if [ "$(stat -f%Su /dev/console 2>/dev/null)" = "$(id -un)" ]; then
         # uses runModal in three places) would hang here too and land in this
         # arm. "Could not be judged" is what the evidence supports.
         echo "the #1032 file-picker gate did not finish (exit $_fp_rc). It could not judge the + button either way, so this is NOT a verdict on the product. Look at the output above before assuming either." >&2 ;;
+      *"filepanel selftest SETUP INCONCLUSIVE"*)
+        # ⚠️ TESTED BEFORE THE PRODUCT ARM, for the same reason TIMED OUT is: the
+        # output still carries the uiDelegate:/press: lines from the arms that DID
+        # run, so this must win over the `*"press:"*` arm below. The #2807
+        # with-a-sheet-up arm prints this when its precondition (a sheet actually
+        # attached to the host) never held within the poll window -- a slow/busy
+        # build box, NOT the product. Like TIMED OUT this is the gate failing to
+        # RUN its check, so the cut stops (re-cut on a quieter box) but the + button
+        # is not implicated.
+        echo "the #1032 file-picker gate's #2807 with-a-sheet-up arm could not set up (exit $_fp_rc): the host sheet never attached in time (a slow build box), so that arm could not run. This is NOT a verdict on the product; re-cut on a quieter box. Output above." >&2 ;;
       *"press:"*|*"uiDelegate:"*)
         printf '%s\n' "the native app's file picker is broken (#1032). The gate got as far as it could and then this did not hold:" "    $_fp_missing" "A + button will do nothing, or Cancel will take the app down with it. Output above; exit $_fp_rc." >&2 ;;
       *)
@@ -501,12 +518,53 @@ else
   TARBALL="node-v$NODE_VERSION-darwin-$NARCH.tar.gz"
   BASE="https://nodejs.org/dist/v$NODE_VERSION"
   TMP="$(mktemp -d)"
-  echo "==> downloading node v$NODE_VERSION ($NARCH) from nodejs.org"
-  curl -fL --progress-bar "$BASE/$TARBALL" -o "$TMP/$TARBALL"
+  # A cut re-downloads this ~35 MB runtime every time, though nodejs.org publishes
+  # each version's bytes IMMUTABLY. Cache the VERIFIED tarball across cuts, keyed by
+  # its version+arch name, so a repeat cut skips the download. This is the first
+  # caching lever of the get-cuts-out-faster work (#2760); the per-step wall-time
+  # instrumentation (#2755) gives the before/after.
+  # 🛑 THE CACHE IS A SPEED OPTIMISATION, NEVER A TRUST SHORTCUT. The SHASUMS256 is
+  # always fetched fresh (a few KB) and the bytes ACTUALLY USED -- cached or freshly
+  # downloaded -- are verified against it below before extraction, so a stale, corrupt,
+  # or poisoned cache cannot inject a node: it fails the same checksum and the build
+  # aborts. The cache write is best-effort (a cache dir we cannot write must never fail
+  # a real cut).
+  NODE_CACHE="${KOSMOS_NODE_CACHE:-$HOME/.cache/kosmos-node-runtime}"
+  echo "==> fetching node v$NODE_VERSION ($NARCH) checksums from nodejs.org"
   curl -fsSL "$BASE/SHASUMS256.txt" -o "$TMP/SHASUMS256.txt"
-  echo "==> verifying checksum"
   WANT="$(grep " $TARBALL\$" "$TMP/SHASUMS256.txt" | awk '{print $1}')"
   [ -n "$WANT" ] || { echo "error: $TARBALL not in SHASUMS256.txt" >&2; exit 1; }
+  # The cache READ is best-effort, exactly like the write below: a cache hit that cannot
+  # be copied (the file vanished in the TOCTOU window, TMP full) must fall back to a fresh
+  # download rather than abort the cut -- the same "a cache must never fail a cut" promise.
+  # The cp sits INSIDE the `if` condition, where a non-zero exit is a false branch, not an
+  # errexit abort under `set -euo pipefail`; a partial "$TMP/$TARBALL" left by a failed cp
+  # is overwritten by the `curl -o` on the download fallback, so it cannot leak into the verify.
+  NODE_CACHED=0
+  if [ -f "$NODE_CACHE/$TARBALL" ] \
+     && [ "$(shasum -a 256 "$NODE_CACHE/$TARBALL" 2>/dev/null | awk '{print $1}')" = "$WANT" ] \
+     && cp "$NODE_CACHE/$TARBALL" "$TMP/$TARBALL" 2>/dev/null; then
+    echo "==> using cached node v$NODE_VERSION ($NARCH) from $NODE_CACHE"
+    NODE_CACHED=1
+  fi
+  if [ "$NODE_CACHED" -eq 0 ]; then
+    echo "==> downloading node v$NODE_VERSION ($NARCH) from nodejs.org"
+    curl -fL --progress-bar "$BASE/$TARBALL" -o "$TMP/$TARBALL"
+    # Populate the cache only with bytes that pass the checksum, and only if the cache
+    # is writable -- an atomic rename so a killed cut never leaves a torn cache file.
+    if [ "$(shasum -a 256 "$TMP/$TARBALL" | awk '{print $1}')" = "$WANT" ] \
+       && mkdir -p "$NODE_CACHE" 2>/dev/null; then
+      # The trailing `|| :` is LOAD-BEARING under `set -euo pipefail`: an EXISTING but
+      # unwritable cache dir passes the mkdir (already there), then the cp fails and the
+      # cleanup `rm -f` itself returns non-zero (permission denied traversing the dir),
+      # which errexit would turn into a cut abort -- the exact "a cache we cannot write
+      # must never fail a real cut" promise this block makes. `|| :` swallows it.
+      { cp "$TMP/$TARBALL" "$NODE_CACHE/.$TARBALL.$$" 2>/dev/null \
+          && mv "$NODE_CACHE/.$TARBALL.$$" "$NODE_CACHE/$TARBALL" 2>/dev/null; } \
+        || rm -f "$NODE_CACHE/.$TARBALL.$$" 2>/dev/null || :
+    fi
+  fi
+  echo "==> verifying checksum"
   GOT="$(shasum -a 256 "$TMP/$TARBALL" | awk '{print $1}')"
   if [ "$WANT" != "$GOT" ]; then
     echo "FAIL: checksum mismatch on $TARBALL" >&2
@@ -515,7 +573,7 @@ else
     exit 1
   fi
   echo "    checksum ok"
-  NODE_SHA="$GOT"   # the bytes that were actually downloaded, for the manifest (#776)
+  NODE_SHA="$GOT"   # the bytes actually used (cached or downloaded), verified, for the manifest (#776)
   tar -xzf "$TMP/$TARBALL" -C "$TMP"
   cp "$TMP/node-v$NODE_VERSION-darwin-$NARCH/bin/node" "$STAGE/runtime/bin/node"
   # ⚠️ Node's LICENSE travels with the binary. It is the single file that

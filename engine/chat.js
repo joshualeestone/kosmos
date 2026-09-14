@@ -2167,12 +2167,125 @@ function looksLikeManager(role) {
   return /manager|\bpm\b|project lead|\blead\b/.test(said);
 }
 
+/* #2863: the per-AGENT read cursor for the operator's 1:1 DM channel, the exact
+   analog of messages.js `room-seen.json` but keyed by agent rather than project,
+   because a DM thread is one person and one agent, not a room. "Unread" is every
+   REPLY the agent posted to its DIRECT thread after the moment the person last
+   opened it; the person's own messages never count (they carry no `from`, see
+   readThread). Held on disk beside room-seen.json so it survives a reload and a
+   restart. A cursor file we cannot read is UNKNOWN, never "never opened": the
+   count answers null and the badge draws nothing, the same rule readThread and
+   the room precedent both follow. */
+const DM_SEEN = path.join(store.ROOT, 'dm-seen.json');
+
+function dmSeenRead() {
+  let raw;
+  try { raw = fs.readFileSync(DM_SEEN, 'utf8'); } catch (err) {
+    if (err && err.code === 'ENOENT') return {};
+    return null;
+  }
+  try {
+    const v = JSON.parse(raw);
+    return (v && typeof v === 'object' && !Array.isArray(v)) ? v : null;
+  } catch { return null; }
+}
+
+/** The person opened this agent's DM thread now (or at `now`). Returns the ISO
+ *  moment kept. Same validation + atomic write as messages.markSeen. */
+function markDmSeen(agent, now) {
+  const name = String(agent == null ? '' : agent);
+  if (!name) throw badRequest('say which agent was opened');
+  // The cursor is keyed by the same name the thread file is keyed by; a name we
+  // could not keep a thread under is a name we will not record a cursor for.
+  let key;
+  try { key = store.safeKey(name); } catch { key = null; }
+  if (!key || key !== name) throw badRequest('that is not an agent name we can keep a DM cursor under');
+  const cur = dmSeenRead() || {};
+  cur[name] = new Date(Number.isFinite(now) ? now : Date.now()).toISOString();
+  fs.mkdirSync(path.dirname(DM_SEEN), { recursive: true });
+  const tmp = DM_SEEN + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(cur, null, 2) + '\n');
+  fs.renameSync(tmp, DM_SEEN);
+  return cur[name];
+}
+
+/* Matches only the DIRECT thread files, `chats/direct..<key>.json` (see
+   threadFile). The two dots are the same guard the filename uses: a project
+   thread is `<id>.<key>.json` with one dot and a project id can never be
+   `direct`, so this pattern can never pick up a project thread. `(.+)` is the
+   agent key, which for any thread that exists equals the agent name (threadFile
+   refuses to write one where safeKey(name) !== name). */
+const DIRECT_THREAD_FILE = /^direct\.\.(.+)\.json$/;
+
+/**
+ * Unread DM replies per agent, `{ [agent]: n }`, one pass per DIRECT thread.
+ *
+ * Divergence from the room precedent (messages.unreadAll), and why: the room
+ * count reads ONE shared log, so one read failure is total and it returns null
+ * for everything. DIRECT threads are INDEPENDENT files, so a single unreadable
+ * or unparseable thread is made that ONE agent's `null` (unknown, not zero)
+ * while every other agent keeps its real count. The whole map is null only when
+ * the shared inputs are unreadable: the seen cursor, or the chats directory
+ * itself. Unknown is never reported as zero, at either scope.
+ *
+ * Uncached by design, matching unreadAll: this reads the chats dir plus one file
+ * per DIRECT thread on each call, and the caller (server.js withDmUnread) runs
+ * it on the 5s status poll. That mirrors unreadAll, which re-reads the whole
+ * message log every poll with no memo; the reads here are small per-file and
+ * bounded by the fleet size. A cache would need invalidation on every reply
+ * append, which is the complexity the room precedent deliberately does without.
+ */
+function dmUnreadAll() {
+  const seen = dmSeenRead();
+  if (seen === null) return null;
+  let files;
+  try { files = fs.readdirSync(DIR()); } catch (err) {
+    if (err && err.code === 'ENOENT') return {};
+    return null;
+  }
+  const out = {};
+  for (const f of files) {
+    const m = DIRECT_THREAD_FILE.exec(f);
+    if (!m) continue;
+    const agent = m[1];
+    let thread;
+    try {
+      thread = readThread(DIRECT, agent);
+    } catch {
+      // UNREADABLE / UNPARSEABLE / a bad name: unknown for THIS agent only.
+      out[agent] = null;
+      continue;
+    }
+    const since = seen[agent] ? Date.parse(seen[agent]) : -Infinity;
+    let n = 0;
+    for (const msg of thread.messages) {
+      // A present string `from` is the agent's reply; an absent one is the
+      // operator's own message and never counts (readThread's own contract).
+      if (!msg || typeof msg.from !== 'string' || !msg.from) continue;
+      const at = Date.parse(msg.at);
+      if (!Number.isFinite(at) || at <= since) continue;
+      n += 1;
+    }
+    out[agent] = n;
+  }
+  return out;
+}
+
+/** Unread DM replies for one agent. null when unknown (see dmUnreadAll). */
+function dmUnread(agent) {
+  const all = dmUnreadAll();
+  if (all === null) return null;
+  const v = all[String(agent)];
+  return v === undefined ? 0 : v;
+}
+
 module.exports = {
   DELIVERY, DIRECT, MAX_TEXT, MAX_MESSAGES, VIEWPORT_LINES,
   cleanMessage, storeText, messageProblem, addressable, resolveCard, paneTarget, wireText,
   deliver, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
   defaultAgentFor, looksLikeManager,
+  dmSeenRead, markDmSeen, dmUnreadAll, dmUnread, DM_SEEN,
   setRunner, setDryRun, setPauser, setChannel, resetForTests, CODEX_ENTER_GAP_MS,
   chatsDir: DIR,
 };

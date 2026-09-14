@@ -109,6 +109,13 @@ test('#2264: DELETE openai with remove:true deletes the account directory (route
   const parsed = JSON.parse(res.body);
   assert.equal(parsed.removed, true, 'the openai route reports removed:true');
   assert.match(parsed.because, /deleted from this computer/);
+  // #2941: .codex-gone is a LABELLED account, and deleting it rmSyncs its whole home including
+  // sessions/. Since #2906 status.readCodexSession reads every account's own home, so those
+  // sessions were visible in the Memory panel and the delete loses them -- the disclosure must
+  // say so now (it used to warn about codex-session loss for the default account only). This arm
+  // reds under the old default-only copy where a labelled delete said just "Its sign-in file is gone."
+  assert.match(parsed.because, /its codex sessions\) goes with it/,
+    'a labelled openai delete no longer discloses the codex-session loss it now causes. body: ' + res.body);
   assert.ok(!fs.existsSync(nodePath.join(home, '.codex-gone')), 'the openai account directory is deleted');
   assert.deepEqual(fs.readdirSync(home).filter((n) => n.startsWith('.removed-codex-')), [],
     'delete must not leave a .removed-codex-* copy');

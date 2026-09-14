@@ -81,6 +81,12 @@ let bootedBase = null;
    world at `at`. The `at` timestamp lets a consumer ignore a stale abandon from an
    earlier boot (see the reconnect's at > switchStart guard). */
 let abandonedWorld = null;
+/* #2628: the environment exactly as this board was LAUNCHED, before the bootstrap
+   below wrote any world's roots into it. Paths that must be the same whichever world
+   is served -- the Windows logon task's anchor, its claim file, its restart log --
+   are derived from this, never from the post-world process.env. null until a boot
+   (a unit test, a detached helper), where process.env is the launch env anyway. */
+let launchEnvAtBoot = null;
 
 /*
  * Capture the pre-override registry base from the ORIGINAL env, then apply the
@@ -90,6 +96,7 @@ let abandonedWorld = null;
  * a broken/absent registry can never stop the board booting.
  */
 function bootstrapWorldEnv(env = process.env) {
+  launchEnvAtBoot = Object.freeze({ ...env });   // before ANY override (#2628)
   try {
     const base = worlds.baseRoot(env); // MUST be captured before the override moves it
     bootedBase = base;
@@ -167,4 +174,7 @@ function bootedBaseDir() { return bootedBase; }
    stale one recorded on an earlier boot. */
 function lastAbandonedWorld() { return abandonedWorld ? { ...abandonedWorld } : null; }
 
-module.exports = { bootstrapWorldEnv, bootedWorld, bootedBaseDir, lastAbandonedWorld };
+/* #2628: the launch environment captured at boot (frozen), or null before a boot. */
+function launchEnv() { return launchEnvAtBoot; }
+
+module.exports = { bootstrapWorldEnv, bootedWorld, bootedBaseDir, lastAbandonedWorld, launchEnv };

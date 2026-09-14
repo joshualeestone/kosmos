@@ -18,6 +18,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const store = require('./store');
+const launchidentity = require('./launchidentity'); // #1704: this board's Kosmos, and the roster key
 const selfreport = require('./selfreport');
 const wouldping = require('./wouldping');
 const observed = require('./observed');
@@ -844,17 +845,23 @@ function isParseable(line) {
 function readPanes(out) {
   if (!out) return { panes: [], rejected: 0, rejectedLines: [] };
   const lines = out.trim().split('\n').filter(Boolean);
-  // ⚠️ Counted from what actually PARSED, not from a second application of the
-  // filter. Two derivations of "how many did we lose" can drift the moment
-  // `parsePanes` drops a line for any other reason.
   const panes = parsePanes(out);
-  /* #734: the lines themselves ride along (bounded: three, one line each,
-     160 chars), so the board can SHOW what it could not read rather than
-     only count it. A count says the fleet is short; the line says which
-     pane, which is the only way anyone finds it. A pane title is text an
-     agent wrote and this reaches a screen, hence the bound. */
-  const rejectedLines = lines.filter((l) => !isParseable(l)).slice(0, 3).map((l) => oneLine(l, 160));
-  return { panes, rejected: lines.length - panes.length, rejectedLines };
+  /* 🛑 #1704: "rejected" is the count of lines we genuinely COULD NOT READ (they
+     fail isParseable), NOT `lines.length - panes.length`. parsePanes now drops a
+     line for THREE reasons -- unparseable, the board's own sign-in session, and
+     (new) every OTHER Kosmos's panes, since `list-panes -a` enumerates the whole
+     shared tmux server. The last two are deliberate EXCLUSIONS, not read
+     failures, so lines-minus-panes would raise a false "N lines could not be
+     read" alarm the moment two worlds run on one Mac. Deriving `rejected` and
+     `rejectedLines` from the SAME isParseable pass also means the count and its
+     shown sample can never drift (they did, once this filter grew a third
+     reason -- the exact drift the old lines-minus-panes comment feared).
+     #734: the lines ride along (bounded: three, one line each, 160 chars) so the
+     board can SHOW what it could not read, not only count it -- a title is text
+     an agent wrote and reaches a screen, hence the bound. */
+  const unparseable = lines.filter((l) => !isParseable(l));
+  const rejectedLines = unparseable.slice(0, 3).map((l) => oneLine(l, 160));
+  return { panes, rejected: unparseable.length, rejectedLines };
 }
 
 /**
@@ -874,8 +881,24 @@ function parsePanes(out) {
       raw[col.key] = col.rest ? parts.slice(i).join('\t') : parts[i];
     });
     const session = raw.session || '';
+    /* #1704: a board's roster is its OWN Kosmos. agentNameFromSession maps the
+       session's launch key to the bare agent name IN THIS WORLD, then strips a
+       Discord bridge's -discord (on the NAME, never the raw session; see there),
+       or answers null for another Kosmos's session (dropped in the filter below).
+       One function, shared with the outbox's keep-time sender (#1704 PR2), so the
+       name a kept send is filed under is the name this roster shows.
+       ⚠️ EXCEPT A WINDOWS ROW, which is already this Kosmos's: win32roster emits
+       only sessions recorded in THIS world's store (store.ROOT/win32-sessions),
+       under the agent's plain name. Keying it again dropped every Windows row on a
+       named-world board, which then could not see, pause, restart or message any
+       of its agents. So a Windows row is named in the world its plain name reads
+       as (the default one): the same function, -discord strip and all, without the
+       second world filter. */
+    const rowWorld = require('./win32roster').isWin32Pane(raw)
+      ? launchidentity.DEFAULT_WORLD_ID
+      : launchidentity.currentWorldId();
     return {
-      name: session.replace(/-discord$/, ''),
+      name: launchidentity.agentNameFromSession(session, rowWorld),
       session,
       // Kept, not just folded into `target`: choosing one pane per session
       // needs to compare indexes, and re-parsing them back out of the target
@@ -934,7 +957,7 @@ function parsePanes(out) {
      The guard stays even though parse-fed flows can no longer reach it:
      it is the defence for any caller handing a pane-shaped object that
      did not come through this parse. */
-  }).filter((p) => p.session !== connect.SESSION);
+  }).filter((p) => p.session !== connect.SESSION && p.name !== null);
 }
 
 /**
@@ -1062,9 +1085,18 @@ function isNamedOurs(pane) {
   // it, and there is no stale record to reconcile — the two failure modes a
   // claims file on disk would have had.
   //
-  // ⚠️ It must match the pane's own NAME, not merely be present. A claim naming
-  // a different agent is somebody else's claim, and reading "has a claim" as
-  // "is ours" would be the borrowed-name hole rebuilt out of new parts.
+  // ⚠️ It must match the pane's own SESSION, not merely be present. A claim
+  // naming a different session is somebody else's claim, and reading "has a
+  // claim" as "is ours" would be the borrowed-name hole rebuilt out of new parts.
+  //
+  // 🔑 #1704: THE SESSION, NOT THE ROSTER NAME. The supervisor stamps
+  // @kosmos_agent with its own $SESSION (agent-supervisor.sh sets and re-checks
+  // it against `-t "$SESSION"`), which for a named world is the launch KEY
+  // `<name>+<world>`. parsePanes now reports `pane.name` as the BARE in-world
+  // name (`ava`), so `claim === pane.name` would be `ava+qa === ava` and every
+  // named-world agent would come back anonymous. `pane.session` is the raw tmux
+  // session, i.e. the same key the claim carries, and it equals the bare name in
+  // the default world, so this holds on both.
   //
   // ⚠️ KOSMOS writes this, never the agent, and that is a CONVENTION rather
   // than an enforcement — worth stating precisely, because the sentence used to
@@ -1079,12 +1111,14 @@ function isNamedOurs(pane) {
   // What the claim actually buys is that it DIES WITH THE SESSION: there is no
   // stale record for a stranger to inherit later, which is the failure a claims
   // file on disk would have had.
-  const claim = String(pane.claim || '').trim();
-  if (claim && claim === String(pane.name || '')) return true;
-
-  // The legacy arm: the existing fleet carries the suffix and no claim, and
-  // must keep working untouched.
-  return /-discord$/.test(String(pane.session || ''));
+  //
+  // The legacy arm: the existing fleet carries the `-discord` suffix and no
+  // claim, and must keep working untouched.
+  //
+  // Both arms are ONE function, launchidentity.paneSessionIsOurs, which the
+  // outbox keep also uses to accept a profile-less agent window (#1704 PR2), so
+  // the keep and this roster tie cannot drift apart.
+  return launchidentity.paneSessionIsOurs(pane.session, pane.claim);
 }
 
 /**
@@ -4561,12 +4595,38 @@ function readContext(agentName, model, exactSession) {
  * case-divergent launch folder matches its rollout. That door -- the #2406 class --
  * was closed by the #2417 canonicalOnDisk sweep.
  */
-function readCodexContext(agentName) {
+/* #2413: resolve a codex agent's launch folder to its rollout session, ONCE. Both the
+   OpenAI liveness overlay (codexCompletionAt) and the context ring (readCodexContext)
+   need it, and codexsession.read WALKS THE SESSIONS TREE (rollouts() + a metaOf on each
+   file) to match by workdir -- so deriving it twice per codex pane per sweep is real
+   avoidable work. snapshot() reads it once and threads it into both. Mirrors the read
+   readCodexContext used to do inline, including the {found:false} fallbacks for an
+   unresolvable folder or a read that throws. */
+function readCodexSession(agentName) {
+  const create = require('./create');
   let dir;
-  try { dir = require('./create').workerDir(agentName); } catch { dir = null; }
-  let sess;
-  try { sess = dir ? require('./codexsession').read(dir) : { found: false }; }
-  catch { sess = { found: false }; }
+  try { dir = create.workerDir(agentName); } catch { dir = null; }
+  /* #2906: read the TARGET agent's OWN Codex account home, not the board process's.
+     The status reader runs under the board's CODEX_HOME; a multi-account agent records
+     its rollout under its own account home (the launch job's CODEX_HOME, surfaced as
+     job.configDir), so reading the board's home returned found:false ("Not yet read")
+     for a live agent on another account. Resolve the agent's launch job and read its
+     home. FAIL CLOSED -- never fall back to the board's account -- when the job is
+     missing, malformed, or not a codex runner; a null configDir is a DEFAULT-account
+     codex agent, which resolves through defaultAgentCodexHome() (never the board's). */
+  let job;
+  try { job = create.readJob(agentName); } catch { job = null; }
+  if (!dir || !job || job.runner !== 'codex') return { found: false };
+  const home = job.configDir || create.defaultAgentCodexHome();
+  try { return require('./codexsession').read(dir, home); }
+  catch { return { found: false }; }
+}
+
+function readCodexContext(agentName, sess) {
+  // `sess` is the pre-read session snapshot() already holds for this pane; read it here
+  // only when a direct caller (or a test) did not supply one, so the tick never reads the
+  // rollout twice. `undefined` means "not supplied" -- a supplied {found:false} is honoured.
+  if (sess === undefined) sess = readCodexSession(agentName);
 
   // A rollout that EXISTS but could not be read is a genuine read failure, not a
   // fresh agent -- keep that admission rather than collapsing it into "not yet".
@@ -4574,9 +4634,10 @@ function readCodexContext(agentName) {
     return { ...NONE_BASE, notYet: false, because: NO_READING.UNREADABLE };
   }
 
-  // No rollout matched this folder, or a session that has reported no usage yet:
-  // the same not-started / never-recorded / admission split `readContext` makes
-  // for a missing Claude transcript, via the shared result builders.
+  // No rollout matched this folder (`!sess.found`): the same not-started /
+  // never-recorded / admission split `readContext` makes for a missing Claude
+  // transcript, via the shared result builders. (A rollout that WAS matched but
+  // has reported no usage yet is the #2803 guard below, not this ladder.)
   //
   // 🛑 RESIDUAL, STATED RATHER THAN HIDDEN (#2257 scope): `notYetStarted` reads
   // `byWorkdirDetailed`, which looks for a Claude `.jsonl` -- a Codex agent never
@@ -4588,7 +4649,19 @@ function readCodexContext(agentName) {
   // used to be the dominant cause here is now CLOSED -- #2417 switched
   // `forWorkdir` to `trust.canonicalOnDisk`, which folds case; a match-miss now
   // needs some OTHER divergence, which this still soft-handles.
-  if (!sess.found || sess.contextUsed == null) {
+  //
+  // #2803: a rollout that WAS matched and read (`sess.found`) but has reported no
+  // usage yet (`contextUsed == null`) is a working agent early in its first turn,
+  // NOT a missing transcript -- Josh saw a running ChatGPT-subscription agent's
+  // Memory tab say "we cannot find a transcript for it". Holding the read session
+  // is positive proof the transcript exists, so the notYetStarted / neverRecorded
+  // / NO_TRANSCRIPT ladder below -- which can answer "we cannot find a transcript
+  // for it" or "made before Kosmos recorded this" -- would be provably false here.
+  // Answer `notYet` directly. This guard fires ONLY when the rollout was found, so
+  // it leaves the `!sess.found` match-miss path (the #2257 residual above) and its
+  // gates completely unchanged.
+  if (sess.found && sess.contextUsed == null) return notYetResult();
+  if (!sess.found) {
     if (notYetStarted(agentName)) return notYetResult();
     if (neverRecorded(agentName)) return neverRecordedResult();
     return { ...NONE_BASE, notYet: false, because: NO_READING.NO_TRANSCRIPT };
@@ -4602,6 +4675,33 @@ function readCodexContext(agentName) {
   // The Codex window is MEASURED (task_started), not assumed like Claude's -- so
   // `assumed` is false and the ring rests on a firmer footing.
   return measuredResult(tokens, sess.contextWindow, false);
+}
+
+/**
+ * #2413: WHEN this Codex agent last completed a real turn, as epoch ms, or null.
+ *
+ * The OpenAI liveness overlay greens an account row from a WITNESSED completion -- a
+ * `token_count` carrying a real `last_token_usage`, which a dead-credential 401
+ * reconnect loop never emits (#2790 fixture). This returns that completion's timestamp
+ * so the sweep can record an observed `ok` stamped at the moment auth was proven,
+ * NEVER off a pane merely scraping WORKING (which a 401 loop also does).
+ *
+ * 🔑 PURE: derives the timestamp from an ALREADY-READ session, so the caller controls
+ * when the rollout is read. snapshot() reads the session once (readCodexSession) and
+ * hands the same object to this AND readCodexContext, so the rollout is not walked twice
+ * per pane per tick. Best-effort: null on a missing/unread session or an absent
+ * completion, which keeps the badge grey (the safe direction) rather than asserting a
+ * green it cannot support.
+ */
+function codexCompletionAt(sess) {
+  return sess && sess.found && typeof sess.contextUsedAt === 'number' ? sess.contextUsedAt : null;
+}
+
+/* Convenience for a direct caller/test: read the session and derive the completion time
+   in one call. snapshot() does NOT use this -- it reads the session once and passes it to
+   codexCompletionAt and readCodexContext, so the rollout is read a single time per tick. */
+function codexLastCompletionAt(agentName) {
+  return codexCompletionAt(readCodexSession(agentName));
 }
 
 /**
@@ -5597,6 +5697,27 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     return { ...scraped, reported: false, conflict: 'its screen shows a question its reports do not mention', project: p, projectInferred: p !== null };
   }
 
+  /* #2837: a WORKING state carries the project the report attributes it to, the
+     same way #763 (above) does for needs_you, so the project overview can light
+     only the project a working agent is working in rather than every project it
+     belongs to. Freshness-gated exactly like #763 -- a stale naming (a report
+     older than the working-decay window) must not attribute today's work, so a
+     stale report yields a null project and the overview falls back to
+     sole-membership. Null when the report named none.
+     ONE derivation, not two (two derivations of one fact is this codebase's
+     most-shipped defect): `screenLed` selects the ONLY difference, which is in
+     `projectInferred`. When the WORKING state comes from the report itself, the
+     report's own flag decides whether the naming was inherited. When it comes
+     from the SCREEN beside an idle/started report (the scraped-WORKING fallback),
+     the project is carried from a separate report, so attributing it to this
+     state is always an inference -- matching rule 3's scraped-needs_you shape. */
+  const workingProject = (screenLed) => {
+    const atP = Date.parse(reported.at || '');
+    const freshP = Number.isFinite(atP) && (nowMs - atP) <= REPORT_WORKING_DECAY_MS;
+    const p = (freshP && typeof reported.project === 'string' && reported.project) ? reported.project : null;
+    return { project: p, projectInferred: p !== null && (screenLed || reported.projectInferred === true) };
+  };
+
   if (reported.state === 'working') {
     const at = Date.parse(reported.at || '');
     const stale = !Number.isFinite(at) || (nowMs - at) > REPORT_WORKING_DECAY_MS;
@@ -5617,7 +5738,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          prompt -- the exact sentence this branch's chat half exists to remove,
          reappearing in the one arm the feature is for. Measured across all five
          report arms; this was the only one that lost it. */
-      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null, backgroundWait: scraped.backgroundWait === true };
+      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null, backgroundWait: scraped.backgroundWait === true, ...workingProject(false) };
     }
     // Rule 5: the comparison happens BEFORE the decay.
     if (scraped.state === STATE.WORKING) {
@@ -5675,10 +5796,16 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          background agent is still running" -- the board conflates the two. That
          is a fleet-wide precedence change affecting every agent, so it is NOT
          made unilaterally from this card. Raised rather than taken. */
+      /* #2837: `workingProject(true)` here resolves to a NULL project by
+         construction -- this branch is reached only when the working report is
+         already `stale`, and the helper's freshness gate is that same staleness,
+         so a stale naming never attributes (which is the correct behaviour: a
+         stale report must not attribute today's work). Kept as `workingProject`
+         rather than a bare literal so all working returns share one shape. */
       if (scraped.backgroundWait === true) {
-        return { ...scraped, reported: false, conflict: null };
+        return { ...scraped, reported: false, conflict: null, ...workingProject(true) };
       }
-      return { ...scraped, reported: false, conflict: 'its reports stopped arriving while its screen still shows work, so the reporter may be broken' };
+      return { ...scraped, reported: false, conflict: 'its reports stopped arriving while its screen still shows work, so the reporter may be broken', ...workingProject(true) };
     }
     return {
       state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE,
@@ -5755,9 +5882,9 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
        📌 Identical reasoning to rule 5's exemption above, one branch over, and the
        same structural flag rather than a sentence match so the two cannot drift. */
     if (scraped.backgroundWait === true) {
-      return { ...scraped, reported: false, conflict: null };
+      return { ...scraped, reported: false, conflict: null, ...workingProject(true) };
     }
-    return { ...scraped, reported: false, conflict: 'its screen shows it is working while its last report said it was at rest' };
+    return { ...scraped, reported: false, conflict: 'its screen shows it is working while its last report said it was at rest', ...workingProject(true) };
   }
   // `idle`, and `started` with nothing after it: at rest either way.
   return { state: STATE.IDLE, confidence: CONFIDENCE.STRUCTURED, because: said('it is at rest and nothing is needed'), reported: true, conflict: null };
@@ -5915,6 +6042,9 @@ function panelessCard(key, nowMs, defaultStatus) {
     modelName: null,
     neverRecorded: false,
     hasAvatar: Boolean(safeAvatar(key)),
+    // #2698: the avatar version travels with hasAvatar so a changed picture
+    // changes the org node's URL and defeats its identical-repaint skip.
+    avatarVer: store.avatarVersion(key),
     profile: store.readProfile(key),
   };
 }
@@ -6206,14 +6336,22 @@ function snapshot() {
        🛑 CLAUDE PANES ONLY, and this gate is load-bearing: a codex agent also
        classifies WORKING / AUTH_FAILED, but the badge this feeds is the CLAUDE
        account badge. A codex agent on the DEFAULT codex home records configDir=null,
-       which accountForAgent (server.js) maps to the DEFAULT CLAUDE account -- so a
+       which accountForAgent (server.js) USED to map to the DEFAULT CLAUDE account
+       (#2811 provider-gated that dir-less match, so against the CLAUDE list it now
+       maps to nothing) -- so a
        working codex agent would green (or a codex 401 would redden) a Claude account
        it has nothing to do with, the exact cross-provider false-green this feature
        exists to remove. The store is Claude-only; the same codex test classify() uses
        (status.js:2326) keeps it that way.
        Best-effort: a badge signal must never break the tick. */
+    // #2413: read this codex pane's rollout ONCE per tick and share it between the OpenAI
+    // observation arm below and the context ring (readCodexContext, further down).
+    // codexsession.read WALKS THE SESSIONS TREE to match by workdir, so a second
+    // derivation per pane per sweep is avoidable duplicate work. null for a non-codex or
+    // untied pane (neither consumer reads a rollout for it).
+    const isCodexPane = pane.runner === 'codex' || isCodexCommand(pane.command);
+    const codexSess = (isNamedOurs(pane) && isCodexPane) ? readCodexSession(pane.name) : null;
     try {
-      const isCodexPane = pane.runner === 'codex' || isCodexCommand(pane.command);
       if (isNamedOurs(pane) && !isCodexPane) {
         /* 🛑 #1889 EXCLUSION, AND IT IS NOT A TWEAK TO THE RULE ABOVE, IT IS THE
            RULE ABOVE HOLDING. The OK arm's whole justification is that a scraped
@@ -6235,7 +6373,29 @@ function snapshot() {
           && scrapedStatus.backgroundWait !== true) ? observed.OUTCOME.OK
           : status.state === STATE.AUTH_FAILED ? observed.OUTCOME.REJECTED
           : null;
-        if (outcome) observed.saw(pane.name, outcome, now);
+        if (outcome) observed.saw(observed.PROVIDER.ANTHROPIC, pane.name, outcome, now);
+      } else if (isNamedOurs(pane) && isCodexPane) {
+        /* 🛑 #2413 -- the OpenAI/Codex observation arm, and it is DELIBERATELY NOT the
+           Claude arm above. A codex pane classifies WORKING the same way, but WORKING is
+           NOT a reliable auth-success signal here: a dead-credential 401 reconnect loop
+           scrapes as WORKING too (status.test.js CODEX_WORKING, #249) and a scraper
+           cannot tell that 401 from a transient reconnect 401 (codexauthprobe.js:16).
+           Recording WORKING as an `ok` would false-green exactly a dead sign-in -- the
+           #874 harm, and the #2790 case this feature exists to catch. Confirmed by the
+           #2790 weakest-premise fixture (answered from in-tree evidence).
+           ✅ THE SIGNAL THAT GUARANTEES A TURN AUTHENTICATED is a WITNESSED ROLLOUT
+           COMPLETION: a `token_count` carrying a real `last_token_usage.input_tokens`.
+           A 401 loop never completes a turn, so it never writes one. `codexLastCompletionAt`
+           returns WHEN that last completion happened; recording `ok` stamped at that time,
+           gated on freshness, means a live sign-in greens from real traffic and a sign-in
+           whose last real turn is old greys again on its own (verdict's freshness window,
+           one place). POSITIVE-ONLY in Phase 1: no rejected/red for codex until an OBSERVED
+           on-pane auth-failure signal exists (#2790 Phase 2) -- a positive-only overlay can
+           never produce a false "not connected". */
+        const at = codexCompletionAt(codexSess);
+        if (typeof at === 'number' && now - at >= 0 && now - at <= observed.freshMs()) {
+          observed.saw(observed.PROVIDER.OPENAI, pane.name, observed.OUTCOME.OK, at);
+        }
       }
     } catch { /* observation is best-effort; never sink the snapshot */ }
     // ⚠️ Identity, model and context are all filed under the NAME, and only a
@@ -6260,10 +6420,12 @@ function snapshot() {
        `readContext` returned NO_TRANSCRIPT for every OpenAI agent and the ring
        read "Not yet read" forever. Its context lives in the Codex rollout, which
        `readCodexContext` reads instead. Same `isCodexPane` discriminator the
-       account-badge gate above (~5053) uses. */
-    const isCodexPane = pane.runner === 'codex' || isCodexCommand(pane.command);
+       account-badge gate above uses -- now literally the SAME variable, hoisted above the
+       observation arm along with `codexSess` (the pane's rollout, read once per tick). */
     const context = tied
-      ? (isCodexPane ? readCodexContext(pane.name) : readContext(pane.name, model, pane.session))
+      // #2413: pass the PRE-READ `codexSess` so the rollout is not walked a second time
+      // this tick (the observation arm above already read it).
+      ? (isCodexPane ? readCodexContext(pane.name, codexSess) : readContext(pane.name, model, pane.session))
       // ⚠️ Unknown, and not because it is ambiguous: this one is a REFUSAL. We
       // can see there is something to read and are declining to read it, so
       // 'not yet' would be false about us as well as about the agent.
@@ -6348,8 +6510,10 @@ function snapshot() {
       task: taskLine(pane.title),
       state: status.state,
       stateConfidence: status.confidence,
-      /* #763: which project a reported needs_you is about; null for a scraped
-         question and for a report that named no project. */
+      /* #763/#2837: which project the state is about -- a reported needs_you
+         question (#763), or, since #2837, a working state (so the project
+         overview lights only the project a working agent is working in). Null
+         for a scraped question and for a state that named no project. */
       stateProject: (typeof status.project === 'string' && status.project) ? status.project : null,
       /* true when no report attributed THIS question to that project: the
          project came from an earlier report (the hook's question, or a
@@ -6409,6 +6573,10 @@ function snapshot() {
       // Fixing four of six is not a partial fix, it is the same defect with a
       // smaller surface.
       hasAvatar: tied ? Boolean(safeAvatar(pane.name)) : false,
+      // #2698: keyed on pane.name and gated on `tied`, exactly like hasAvatar
+      // above -- the same "every read keyed on the name needs the same gate"
+      // rule this block already states. Untied -> 0, the no-picture value.
+      avatarVer: tied ? store.avatarVersion(pane.name) : 0,
       profile: tied ? store.readProfile(pane.name) : null,
     };
   });
@@ -6617,6 +6785,7 @@ module.exports = {
   identityFromText, configRoots, transcriptCwd,
   countAgents, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
   rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext,
+  codexLastCompletionAt,
   /* ⚠️ Exported so the ROUTE can say what tmux said. The alternative is a
      second caller of `list-panes` asking the same question a second time,
      which would report a different moment from the one that failed. */

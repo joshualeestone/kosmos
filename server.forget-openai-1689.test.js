@@ -245,10 +245,14 @@ test('#1659: disconnecting the DEFAULT openai account says the history stops app
     + 'NOT told their history stops appearing. body: ' + JSON.stringify(r.json));
 });
 
-test('#1659 CONTROL: a LABELLED openai account does NOT claim a history loss', () => {
+test('#2941: a LABELLED openai account NOW claims the history loss too (codexsession reads every home since #2906)', () => {
   const r = board((ctx) => codexAccount(ctx.home, 'sidecar'));
   assert.equal(r.code, 200, 'the labelled account did not disconnect. body: ' + JSON.stringify(r.json));
-  assert.doesNotMatch(r.json.because, /stops looking inside it/,
-    'a labelled account claimed the history consequence, so the person is told transcripts '
-    + 'stopped appearing when codex never read that folder. body: ' + JSON.stringify(r.json));
+  // #2941: since #2906 status.readCodexSession reads each account's OWN home (job.configDir), a
+  // labelled account's codex sessions are visible in the Memory panel, so disconnecting one DOES
+  // stop them appearing. The disclosure must now say so (was default-only on the stale premise
+  // that codexsession read the default home alone).
+  assert.match(r.json.because, /stops looking inside it/,
+    'a labelled account no longer discloses the history consequence, but its codex sessions are '
+    + 'now read and disconnecting hides them. body: ' + JSON.stringify(r.json));
 });

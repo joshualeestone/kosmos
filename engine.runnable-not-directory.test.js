@@ -591,7 +591,7 @@ test('every site under the resolution rule resolves the claude binary its docume
   const SITES = [
     { fn: 'async function start(', resolutions: 2, note: 'the pair, plus the documented binaryOnDisk exclusion' },
     { fn: 'async function willInstall(', resolutions: 1, note: 'one resolution, both reads off it' },
-    { fn: 'function claudeHatchAvailable(', resolutions: 1, note: 'one resolution, both reads off it' },
+    { fn: 'function claudeRunnableFile(', resolutions: 1, note: 'one resolution: claudeHatchAvailable and the Windows sign-in line both read the file it answers' },
     { fn: 'async function installClaudeCode(', resolutions: 1, note: 'the post-install gate resolves once' },
   ];
 
@@ -708,6 +708,21 @@ test('every site under the resolution rule resolves the claude binary its docume
         + 'reformatted the line, restore the single binding or update this pin and say why.');
     }
   }
+
+  /* win32-signin-web-copy: becomeStuck records canRunClaude AND the Windows sign-in line, and both
+     must come off ONE resolution, or the flag and the line can describe different files. So its
+     body resolves through claudeRunnableFile exactly once and asks for the file no other way. */
+  const stuckAt = src.indexOf('function becomeStuck(');
+  assert.ok(stuckAt > 0, 'becomeStuck not found in connect.js; this arm is unanchored');
+  const stuckClose = src.indexOf('\n}', stuckAt);
+  assert.ok(stuckClose > stuckAt, 'becomeStuck has no column-0 closing brace; this bound is unanchored');
+  const stuckCode = stripComments(src.slice(stuckAt, stuckClose + 2));
+  assert.strictEqual((stuckCode.match(/claudeRunnableFile\s*\(/g) || []).length, 1,
+    'becomeStuck does not resolve the claude file exactly once through claudeRunnableFile');
+  assert.deepStrictEqual(
+    stuckCode.match(/\b(?:resolveBin|isRunnable|runnableCandidate|claudeBinPath)\s*\(|\bclaudeHatchAvailable\s*\(\s*\)|\bwindowsClaudeSigninCommand\s*\(\s*\)/g) || [],
+    [],
+    'becomeStuck asks for the claude file a second way, so canRunClaude and the Windows sign-in line can describe different files');
 });
 
 test('isRunnable ignores the extra arguments .find and .some pass it', () => {
@@ -1339,7 +1354,7 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
     .filter((l) => /\bcanRunClaude\b/.test(l) && /\bwriteState\b/.test(l));
   assert.deepStrictEqual(
     writers,
-    ['writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable() });'],
+    ['writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable(claudeFile), claudeSigninCommand: windowsClaudeSigninCommand(claudeFile) });'],
     'the lines that both mention canRunClaude and call writeState changed. There must be exactly ' +
       'one, passing claudeHatchAvailable() straight through. A SECOND is a writer no arm drives, ' +
       'and it need not use a colon: `writeState({ ..., canRunClaude })` is shorthand and was this ' +
@@ -1572,7 +1587,7 @@ test('becomeStuck writes canRunClaude from claudeHatchAvailable() and nothing el
     .filter((l) => /\bcanRunClaude\b/.test(l) && !l.startsWith('*') && !l.startsWith('//') && !l.startsWith('/*'));
   assert.deepStrictEqual(
     lines,
-    ['writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable() });'],
+    ['writeState({ phase: PHASE.STUCK, because, tail: tail || null, startedOnce: true, canRunClaude: claudeHatchAvailable(claudeFile), claudeSigninCommand: windowsClaudeSigninCommand(claudeFile) });'],
     'the code lines mentioning canRunClaude inside becomeStuck changed. It must pass ' +
       'claudeHatchAvailable() straight through: anything appended widens the answer AFTER the ' +
       'check, and a `|| fs.existsSync(p)` turns a DIRECTORY back into true.'

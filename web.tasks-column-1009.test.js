@@ -66,8 +66,8 @@ test('a task with no progress object yet is open, not invisible', () => {
    rather than concluding the guard was dropped. The cross-project REASONING
    lives in that file with the rest of #1382's controls. */
 test('the door carries no count, so it cannot disagree with the column at all', () => {
-  assert.match(PAGE, /door\.textContent = 'View all tasks/, 'the door lost its label');
-  assert.doesNotMatch(PAGE, /door\.textContent = 'View all tasks \(/,
+  assert.match(PAGE, /door\.textContent = 'View All'/, 'the door lost its label');
+  assert.doesNotMatch(PAGE, /door\.textContent = 'View All \(/,
     'a count is back on the door: it can disagree with this column again, and with the all-projects screen it opens');
 });
 
@@ -75,7 +75,7 @@ test('the door carries no count, so it cannot disagree with the column at all', 
    never match is green forever and asserts nothing, so the pattern is run
    against the exact string it is meant to forbid, and must match it. */
 test('control: the forbidden counted-door pattern can actually match', () => {
-  const COUNTED_DOOR = "door.textContent = 'View all tasks (' + all.length + ') ';";
-  assert.match(COUNTED_DOOR, /door\.textContent = 'View all tasks \(/,
+  const COUNTED_DOOR = "door.textContent = 'View All (' + all.length + ') ';";
+  assert.match(COUNTED_DOOR, /door\.textContent = 'View All \(/,
     'the guard above cannot recognise a counted door, so its doesNotMatch proves nothing');
 });

@@ -824,9 +824,21 @@ if [ -f "$DS" ]; then
     # drop breaks new-install verification while the artifact still serves, so "check the pair" --
     # and the Windows zip was checked ALONE for as long as that sentence had been there. A rationale
     # in a comment is not a check, which is this branch's recurring lesson.
+    # 🛑 SOME ARTIFACTS HAVE NO SIDECAR AND NEVER WILL, so a bare "every artifact must be paired"
+    # rule FALSE-REDS on a legitimate hardening with advice about a file that does not exist.
+    # MEASURED: adding an honest-marker check for latest.json (tracked, served, sidecar-less) red
+    # the export arm below with "no .sha256 counterpart", sending the next engineer at a nonexistent
+    # problem. An exemption list is the mechanism, and it is stated rather than implicit: pointer JSON
+    # and the pkg input manifest are content the installer reads, not bytes it verifies by checksum.
+    # ONE list, read by BOTH pair arms (the served one here and the export one below), so the two
+    # cannot disagree about what a pointer is. It is LIVE: deploy-site.sh checks the Windows STAGING
+    # pointer latest-win-staging.json both in the export and served, and it has no sidecar, so
+    # emptying this list reds both arms.
+    _sidecarless="latest.json latest-win.json latest-win-staging.json Kosmos.pkg.inputs"
     _pairs_missing=""
     for _a in $(printf '%s\n' "$_ds_code" | /usr/bin/grep -oE 'served_verify_asset_ok "\$HOST/dist/[^"]+"' | sed 's/.*dist\///; s/"$//'); do
       case "$_a" in *.sha256) continue ;; esac
+      case " $_sidecarless " in *" $_a "*) continue ;; esac
       printf '%s\n' "$_ds_code" | /usr/bin/grep -qF "served_verify_asset_ok \"\$HOST/dist/$_a.sha256\"" || _pairs_missing="$_pairs_missing $_a"
     done
     # deploy-site.sh checks its GITIGNORED artifacts by a different mechanism (served_matches, by
@@ -913,17 +925,7 @@ if [ -f "$DS" ]; then
     # only if its sidecar is itself one of the pre-deploy checked names -- so no line outside the
     # region can answer for it.
     _pre_all=$(printf '%s\n%s\n' "$_pre_names" "$_pre_loop" | tr ' ' '\n' | /usr/bin/grep -v '^$' | /usr/bin/grep -vx '\$s' | sort -u)
-    # 🛑 SOME ARTIFACTS HAVE NO SIDECAR AND NEVER WILL, so a bare "every artifact must be paired"
-    # rule FALSE-REDS on a legitimate hardening with advice about a file that does not exist.
-    # MEASURED: adding an honest-marker check for latest.json (tracked, served, sidecar-less) red
-    # this arm with "no .sha256 counterpart", sending the next engineer at a nonexistent problem.
-    # An exemption list is the mechanism, and it is stated rather than implicit: pointer JSON and
-    # the pkg input manifest are content the installer reads, not bytes it verifies by checksum.
-    # 📌 AND IT IS INERT TODAY, WHICH IS WORTH SAYING RATHER THAN IMPLYING: deploy-site.sh does not
-    # currently honest-marker-check any of these three, so emptying the list changes nothing and a
-    # mutation that empties it stays GREEN. It is an escape hatch for the next hardening, not a
-    # guard, and it should not be counted as one.
-    _sidecarless="latest.json latest-win.json Kosmos.pkg.inputs"
+    # The exemption list is _sidecarless, defined once above for both pair arms.
     _export_missing=""
     for _e in $_pre_all; do
       case "$_e" in *.sha256) continue ;; esac

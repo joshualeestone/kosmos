@@ -1,0 +1,75 @@
+# #2750: read the 1-min load in run-tests.sh's banner through the shared function
+
+**Branch:** `runtests-loadfn-2750` · **Card:** kosmos#2750 (follow-up to #2749; in my lane)
+
+## The duplication
+
+`tools/run-tests.sh:94` (inside `seen_before()`, the machine-state banner printed before the suite)
+read the 1-minute load with an inline copy of the field-2 fact:
+
+```sh
+load="$(sysctl -n vm.loadavg 2>/dev/null | awk '{print $2}')"
+```
+
+`tools/lib/cut-load-guard.sh` already owns that fact in `kosmos_box_load_1min` (and #2749 just
+unified its extraction into one shared awk). So this was a second, independent derivation of
+"field 2 of vm.loadavg is the 1-minute load" - the "two copies of one fact drift silently"
+convention this repo names as its most-shipped defect class. Both #2749 challenge reviewers flagged
+it.
+
+## The fix
+
+1. **Source the lib beside board-origin.sh** (line 31 region), for the same stated reason
+   board-origin is sourced there: `seen_before()` runs before the `cut-guard.sh` source lower down.
+   Same fail-open contract (`… 2>/dev/null || true`): a missing lib leaves the function undefined
+   and the caller degrades.
+2. **Call `kosmos_box_load_1min` instead of the inline read**, guarded by `command -v` exactly like
+   the neighbouring `board_cwd_note` call (line ~88), and with `load` pre-initialised (`local load=""`)
+   because the guard may leave it unassigned and the file runs under `set -uo pipefail`.
+
+The inline duplicate is removed entirely (not kept as a fallback), so there is now ONE owner of the
+field-2 fact for both the cut gate and this banner.
+
+## The call, what I rejected
+
+- **Chosen: `command -v` guard + omit-the-line fallback.** Matches the file's own proven pattern
+  (line ~88) and its fail-open convention. If the lib is somehow missing, the banner omits the load
+  line - the same graceful degradation it already shows when `sysctl` returns nothing.
+- **Rejected: keeping the inline read as a fallback.** That would leave the duplicate standing, which
+  is the whole thing this card removes.
+- **Rejected: sourcing unguarded / without `command -v`.** Under `set -u` a missing function would
+  make `$load` an unbound-variable abort of the CI entrypoint; the guard + init is the safe form.
+
+## Verification
+
+- `bash -n tools/run-tests.sh` clean.
+- Functional (the exact guarded snippet, under `set -uo pipefail`, sourcing the lib as run-tests
+  does): prints "1-minute load 8.64 on 10 cores" - identical banner, now via the shared function.
+- Negative path (lib absent): `load` stays empty, the line is omitted, no `set -u` abort - fail-open
+  confirmed.
+- Wiring test added (`tools/test-cut-load-guard.sh`, INTEGRATION arms). This is the important
+  correction to my first draft: because the call is `command -v`-guarded and fails OPEN, a
+  broken/renamed/deleted call does NOT abort run-tests.sh or red CI - it silently omits the banner
+  line (the silent-drift class). So "CI would catch it" was WRONG. Following the precedent in
+  `tools/test-board-origin.sh`, two `grep -qF` arms now assert run-tests.sh both SOURCES
+  cut-load-guard.sh and CALLS `kosmos_box_load_1min` - so a silent-drift deletion (or a second inline
+  field-2 copy creeping back) reds the test. Perturbation-checked: reverting the call to the inline
+  read reds the call arm. `kosmos_box_load_1min` itself remains covered by the same file's #2749
+  field-index arm.
+
+## One deliberate semantic difference (benign)
+
+`kosmos_box_load_1min` honours the `KOSMOS_FAKE_LOAD` / `KOSMOS_LOADAVG_RAW` seams; the old inline
+read always hit live sysctl. So "identical banner" holds only when neither seam is exported into
+run-tests.sh's OWN shell. This is benign: `seen_before()` runs before any test child process, so a
+test cannot inject those vars back into the runner's env; the banner is diagnostic-only (printed on a
+red suite); and the only way to see a difference is an operator explicitly running
+`KOSMOS_FAKE_LOAD=… yarn test`, where the displayed value is exactly what they asked for. Noted
+rather than guarded against, since guarding would re-introduce a second load-reading path.
+
+## Weakest premise
+
+That sourcing `cut-load-guard.sh` into `run-tests.sh` introduces no name collision or side effect.
+The lib defines only `kosmos_*` functions with no top-level execution (read in full), and run-tests
+already sources two sibling libs the same way, so the risk is minimal; and if the source somehow
+failed, the `command -v` guard degrades rather than breaking the runner.

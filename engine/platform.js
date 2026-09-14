@@ -70,26 +70,32 @@ const SUPPORTED = Object.freeze(['darwin', 'win32']);
 const RUNNER_DOWNLOADS = Object.freeze(['darwin']);
 
 /* 🛑 AND THE THIRD QUESTION, WHICH NOTHING ASKED UNTIL #570 WENT LOOKING FOR IT.
- * `engine/update.js` is the SELF-updater, and it answers "install the new Kosmos"
- * with `spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; ...'])`. There is no
- * `/bin/sh` on Windows, so that call cannot succeed there -- and NEITHER of the
- * two names above covers it: `isSupported` is TRUE on win32 (agents run there
- * now), and `canDownloadRunner` is about RUNNER binaries, a different artifact
- * on a different path. The self-update path was gated by nothing at all.
+ * `engine/update.js` is the SELF-updater. On the Mac it answers "install the new
+ * Kosmos" with `spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; ...'])`. There is
+ * no `/bin/sh` on Windows, and NEITHER of the two names above covers self-update:
+ * `isSupported` is TRUE on win32 (agents run there now), and `canDownloadRunner`
+ * is about RUNNER binaries, a different artifact on a different path. So this
+ * third name exists to answer, on its own, "can Kosmos replace ITSELF here".
  *
- * ⇒ One name per question, the rule this module already states. This one asks
- * "can Kosmos replace ITSELF here", and the honest answer on Windows is no: the
- * shipped bundle is a portable zip (`runtime/node.exe`, no `bin/kosmos`
- * wrapper), the installer is a POSIX shell script, and a running `.exe` cannot
- * be overwritten in place. Windows updates by hand until a real Windows updater
- * exists -- see .claude/plans/WINDOWS-ROADMAP.md §3a.
+ * 🔑 WIN32 IS NOW HERE BECAUSE THE WINDOWS UPDATER HAPPENED, not because an entry
+ * was added -- the same discipline SUPPORTED states. This used to say win32 could
+ * NOT self-install: the bundle is a portable zip (`runtime/node.exe`, no
+ * `bin/kosmos` wrapper), the installer is a POSIX shell script, and a running
+ * `.exe` cannot be overwritten in place. That was true until the in-app updater
+ * was built to work WITHIN those facts: `engine/win32update.js` (download, verify,
+ * stage) and `engine/win32apply.js` (a journaled, detached helper that stops the
+ * board, swaps the bundle's own top-level entries in place, re-anchors the runtime
+ * and restarts the board) are that updater. So on win32 the self-update path is
+ * NOT `/bin/sh` at all -- `engine/update.js`'s beginInstall routes win32 to
+ * `win32update.begin()`; this list is what turns that branch on, exactly as
+ * WINDOWS-ROADMAP.md §3a said the arming slice would.
  *
  * 📌 NOT REPORTED BY `describe()`, deliberately. describe() is the wire shape two
  * suites pin to exactly three keys, because a fourth has to be LOOKED AT rather
  * than waved through, and no screen renders this fact yet. The refusal SENTENCE
- * lives with its caller (engine/update.js), exactly as runners.js's and
- * connect.js's do; this module stays machine facts only. */
-const SELF_INSTALL = Object.freeze(['darwin']);
+ * for a platform still off this list lives with its caller (engine/update.js),
+ * exactly as runners.js's and connect.js's do; this module stays machine facts. */
+const SELF_INSTALL = Object.freeze(['darwin', 'win32']);
 
 /** True only on a platform whose agent substrate runs. Defaults to this process.
  *  ⚠️ Only the DEFAULT (called with no argument, or explicit `undefined`) reads the
@@ -106,9 +112,10 @@ function canDownloadRunner(platform = process.platform) {
   return RUNNER_DOWNLOADS.includes(platform);
 }
 
-/** True only where Kosmos's own installer can run, so the board can replace
- *  itself. Same fail-closed shape as its two siblings: anything not on the list
- *  is false -- including win32, which RUNS agents and still cannot self-update. */
+/** True only where Kosmos can replace its own running copy. Same fail-closed
+ *  shape as its two siblings: anything not on the list is false. Both darwin (the
+ *  `/bin/sh` installer) and win32 (the in-app updater, engine/win32update.js +
+ *  engine/win32apply.js) can; every other OS refuses through this gate. */
 function canSelfInstall(platform = process.platform) {
   return SELF_INSTALL.includes(platform);
 }

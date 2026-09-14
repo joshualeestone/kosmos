@@ -1,7 +1,9 @@
 'use strict';
 
 /**
- * This install's random id, and the under-test guard. Nothing here leaves the Mac.
+ * This install's random id, and the under-test guard. This file SENDS nothing itself
+ * (#2623); the random id it makes can still leave the Mac via the default-on feedback
+ * report, which reads it -- see the installId note below.
  *
  * 🛑 #2623: THE CREATE-AGENT TELEMETRY WAS DELETED. Josh, 2026-09-09, called the
  * two "let the Kosmos team know..." phone-home toggles an invasion of privacy and
@@ -19,11 +21,14 @@
  * ⚠️ `installId` IS RANDOM, never derived from anything about the machine. A hash
  * of a hostname or a MAC address would be a fingerprint that identifies the
  * computer across reinstalls and across products. Random means it identifies an
- * INSTALL and nothing else. It is stored locally and read only by features the
- * person opted into or that stay on the Mac:
- *   engine/feedback.js, engine/feedbacksend.js   the opt-in SendFeedback path
- *   engine/store.js                              local pointer de-duplication
- * None of those send it anywhere the person did not ask for.
+ * INSTALL and nothing else. It is stored locally. It stays on the Mac EXCEPT for
+ * the daily product-feedback report, which is DEFAULT-ON (opt-out, #2013/#2957) and
+ * sends installId to installkosmos.com until the person opts out:
+ *   engine/feedback.js, engine/feedbacksend.js   the SendFeedback path -- DEFAULT-ON / opt-out
+ *   engine/store.js                              local pointer de-duplication -- never leaves the Mac
+ * So installId leaves the Mac BY DEFAULT via the feedback report; opting out in
+ * Settings > Automation stops it. The store use never leaves the Mac. (This block
+ * used to call the feedback path "opt-in", which was wrong: it is default-on. #2957.)
  */
 
 const fs = require('node:fs');

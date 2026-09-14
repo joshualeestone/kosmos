@@ -5,12 +5,12 @@
     "pjcard-members",
     "pjcard-files",
     "--gold-bright:",
-    "class=\"pjdisc\"",
     "data-pmark=\"openai\"",
     "acct-openai-install",
     "If Claude gives you a code"
   ],
   "absent": [
+    "class=\"pjdisc\"",
     "<option value=\"\">Change to&hellip;</option>",
     "id=\"style-custom\"",
     "id=\"set-doctrine-go\"",

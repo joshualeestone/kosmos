@@ -1,0 +1,40 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'io.kosmos.app'
+    compileSdk 35
+
+    defaultConfig {
+        // NOTE: applicationId is the permanent Play-store identity. `io.kosmos.app`
+        // is a placeholder that mirrors the intended front-door origin (app.kosmos.io);
+        // confirm before the first Play upload, because it cannot change afterwards.
+        applicationId "io.kosmos.app"
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName "0.1.0"
+    }
+
+    buildTypes {
+        release {
+            // No shrinking for the skeleton: a TWA has almost no app code, and
+            // R8 on the browser-helper library adds build friction with no payoff
+            // until there is real native code to shrink.
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // Trusted Web Activity support. Provides the LauncherActivity referenced in
+    // AndroidManifest.xml, so this module ships zero hand-written Java/Kotlin.
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+}

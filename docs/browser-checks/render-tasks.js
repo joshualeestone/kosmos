@@ -222,6 +222,27 @@ const MEMBER = 'taskmate';
     // The view PAGE (#206): meta, the blessed close-note naming the agent.
     await p.locator('.tkcard').first().click();
     await p.waitForSelector('#pj-task-view', { state: 'visible' });
+    /* #768 THREE-COLUMN REFLOW: the task page takes the project page's room shape --
+       three columns (who is on it / conversation / this task), not the old two-column
+       form. These pin the spec's falsifiable lines (monalisa-task-page-spec.md). */
+    if (!(await p.locator('#pj-task-view .tk3').isVisible())) die('the #768 three-column task layout (.tk3) is missing');
+    const cols = await p.locator('#pj-task-view .tk3 > .pjcol').count();
+    if (cols !== 3) die('the task page should have three columns; it has ' + cols);
+    // The recorded activity (the conversation so far) lives IN the middle column now,
+    // not in a full-width section below the two columns.
+    if ((await p.locator('.tkconvcol #tk-activity').count()) !== 1) die('the activity list is not inside the middle Conversation column');
+    // #768: the composer is a real input + Send in the middle column (it was an
+    // inert placeholder before the write path existed).
+    if (!(await p.locator('.tkconvcol .tkcompose #tk-say').isVisible())) die('the middle-column composer input (#tk-say) is missing');
+    if (!(await p.locator('.tkconvcol .tkcompose #tk-say-go').isVisible())) die('the middle-column composer Send button (#tk-say-go) is missing');
+    /* #768 two-way: the composer note states the message reaches the assigned agents
+       (it was "not sent to an agent yet" while the composer was record-only). Pin the
+       rendered copy so the promise the page makes stays true to what the route does. */
+    const composeNote = (await shown(p.locator('.tkconvcol .tkcompose-note'))).replace(/\s+/g, ' ').trim();
+    if (!/sent to the agents assigned to the task/.test(composeNote)) die('the composer note no longer says the message is sent to the assigned agents: ' + composeNote);
+    // Spec line 5: nothing on the task page says "member". The noun is parts.
+    const viewText = (await shown(p.locator('#pj-task-view'))).toLowerCase();
+    if (/\bmembers?\b/.test(viewText)) die('the task page says "member"; #768 is parts, not a membership feature: ' + viewText.slice(0, 200));
     // #992: the task-conversation reveal button lives in this view. Assert it
     // renders and is visible here -- render-fields.js only visits the initial
     // screen, so this is the assertion that covers the button's presence at
@@ -253,6 +274,20 @@ const MEMBER = 'taskmate';
     const note = (await shown(p.locator('#tk-note'))).replace(/\s+/g, ' ').trim();
     if (!note.startsWith(MEMBER + ' says it is on this. Marking it done closes it here. It does not stop ')
         || !note.includes(MEMBER)) die('the joined close-note drifted: ' + note);
+    /* #768: the composer records a message that shows in the activity. Type,
+       Send, and wait for the exact text to appear -- this proves the whole round
+       trip (POST /message -> tasks.say -> taskchat -> the /activity read -> render).
+       A distinctive string so the match cannot be a pre-existing phrase. */
+    const SAID = 'checked the changelog draft ' + Date.now();
+    await p.fill('#tk-say', SAID);
+    await p.click('#tk-say-go');
+    await p.waitForFunction((t) => ((document.getElementById('tk-activity') || {}).innerText || '').includes(t), SAID, { timeout: 10000 })
+      .catch(() => {});
+    const acts3 = (await shown(p.locator('#tk-activity'))).replace(/\s+/g, ' ').trim();
+    if (!acts3.includes(SAID)) die('the composer message did not show in the activity: ' + acts3);
+    // The input clears on a successful send.
+    const sayVal = await p.$eval('#tk-say', (el) => el.value);
+    if (sayVal !== '') die('the composer did not clear after sending: ' + sayVal);
     await p.screenshot({ path: path.join(OUT, 'tasks-view-page.png') });
 
     /* Mark as done, come back, and the done task is BEHIND THE DOOR.
@@ -297,10 +332,10 @@ const MEMBER = 'taskmate';
     // And with the reveal OFF, the done card is behind the door. The reveal
     // survives same-project Back-and-return by design, so the reset needs a
     // real project SWITCH: bounce through Elsewhere and come back.
-    await p.click('#pj-back');
+    await p.click('.tab[data-tab="projects"]');
     await p.locator('#pj-list').getByText('Elsewhere').first().click();
     await p.waitForSelector('#pj-tasks-field', { state: 'visible', timeout: 10000 });
-    await p.click('#pj-back');
+    await p.click('.tab[data-tab="projects"]');
     await p.locator('#pj-list').getByText('Task Drive').first().click();
     await p.waitForSelector('#pj-tasks-field', { state: 'visible', timeout: 10000 });
     /* kosmos#1009: the UNASSIGNED open task now belongs in the fresh column;

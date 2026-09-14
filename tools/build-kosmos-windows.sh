@@ -13,16 +13,25 @@
 # certificate is a separate purchase with its own lead time.
 #
 # 🛑 WHAT THIS PACKAGE DOES AND DOES NOT DO, so nobody ships it believing more.
-# It carries the BOARD and a Node runtime. The board comes up and serves the real
-# UI. AGENTS DO NOT WORK: an agent is a tmux pane and there is no tmux, so most
-# agent-facing features are dark. That is the honest first look and it is better
-# than a mock, because it makes the remaining work visible instead of abstract.
+# It carries the BOARD, a Node runtime, and everything Windows AGENTS need (#570,
+# slice 7c). An agent is a headless Scheduled Task whose supervisor holds the
+# agent's pipes, so the board can make one, show its state, TALK to it, stop,
+# restart, remove and restore it, and the fleet comes back after a reboot. An
+# agent answers through the `kosmos` command the zip carries in `bin\` (#570,
+# win32-kosmos-cli-570), which is how its reply reaches the board. The
+# first double-click of Kosmos.exe registers the board's own logon task and hands
+# the board to it (engine/win32handoff.js), so the board runs with no window.
+# The agent lifecycle was measured by the R1-R8 rehearsal on a Windows 11 box
+# (from a source checkout, .claude/plans/WINDOWS-ROADMAP.md §2). A zip built by
+# this script was then checked end to end on the same box on 2026-09-11: create,
+# talk (the agent's answer reaching the board), restart, remove, restore, the
+# hand-off, and an update unpacked over the install.
 #
-# 🛑 AND IT HAS NO UPDATE PATH. The Mac bundle ships `install/setup.sh`, which is
-# how a Mac install updates itself. There is no Windows equivalent, so a person
-# updates this by downloading the zip again. That is acceptable for an unsigned
-# preview somebody is trying once, and it is NOT acceptable for the thing behind
-# a Download for Windows button on installkosmos.com.
+# 🛑 AND IT UPDATES BY HAND. The Mac bundle ships `install/setup.sh`, which is how
+# a Mac install updates itself. There is no Windows equivalent: a person updates
+# by downloading the new zip and running its Kosmos.exe, which replaces the
+# running board. Josh approved that for the first Windows release (2026-09-10),
+# with an in-app updater as a fast-follow (WINDOWS-ROADMAP.md, BLOCKER 2).
 #
 # 📌 THIS HAS NOW BEEN RUN ON WINDOWS (2026-09-04), and the note that used to
 # stand here -- "every claim here is about what the script stages, not about what
@@ -101,6 +110,29 @@ cp "$REPO/bin/codex-report-bridge.js" "$STAGE/app/bin/"
 # module -- which also keeps it out of the two-builder app-parity scan
 # (tools.build-windows-570.test.js reads only `cp ... "$STAGE/app` lines).
 cp "$REPO/tools/kosmos-open-board.js" "$STAGE/open-board.js"
+
+# #570: the AGENT's `kosmos` command. Every message the board delivers ends "to
+# answer, run: kosmos reply", and every agent's instructions teach `kosmos msg` and
+# `kosmos post` -- and this zip shipped no `kosmos` at all, so a Windows agent's
+# answer never reached the board (measured: "The term 'kosmos' is not recognized").
+# tools/windows/kosmos-cli.js is that command in Node, run by this zip's own
+# node.exe, and engine/win32launch.js puts `<zip>\bin` first on every agent's PATH
+# (it looks for the kosmos-cli.js copied here). At the zip ROOT like open-board.js,
+# not under app/, for the same reason: a launcher-side artifact, outside the
+# two-builder app-parity scan.
+# 🛑 ONE SHIM PER SHELL CLAUDE CODE USES, BOTH MEASURED ON THE BOX, AND NO .cmd.
+# PowerShell resolves a bare `kosmos` to kosmos.ps1 (and Claude Code runs its
+# PowerShell with a Bypass execution policy); Git Bash resolves the extensionless
+# sh script. A .cmd was tried first and REMOVED: cmd's %* kept only the first line
+# of a multi-line message and ran the tail of one holding `"...&...` as a command
+# (review round 1). The .ps1 hands the arguments over as JSON in a private temp
+# file, so no Windows command line ever carries the message, whatever its length.
+# ⚠️ The sh shim is copied with any CR stripped: a builder whose git checks out
+# CRLF would otherwise ship `#!/bin/sh\r`, which bash cannot run.
+mkdir -p "$STAGE/bin"
+cp "$REPO/tools/windows/kosmos-cli.js" "$STAGE/bin/kosmos-cli.js"
+cp "$REPO/tools/windows/kosmos.ps1" "$STAGE/bin/kosmos.ps1"
+tr -d '\r' < "$REPO/tools/windows/kosmos.sh" > "$STAGE/bin/kosmos"
 
 # 🔑 THE VERSION IS BAKED INTO THE PAGE, same as the Mac builder and for the same
 # reason (#269): a fact about the bundle must not require the bundle's API. The
@@ -243,36 +275,69 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
 # "More info", which does not look like a button. Somebody who has not been told
 # stops there, and we learn nothing about the installer because it never ran.
 # 🔑 A README A PERSON ACTUALLY READS, because the FIRST thing they see is a
-# security warning and the second is a board with no agents. Both are expected
-# and neither is obvious.
+# security warning, which is expected and not obvious. (The launcher window that
+# used to close by itself is gone: Kosmos.exe is a GUI exe, win32-launcher-native.)
+# 🔑 IN WINDOWS' OWN WORDS: "Extract All...", "sign in", the Task Scheduler path
+# spelled out. A Windows person has never been told to "unpack" anything.
+# ⚠️ THE FOLDER IS THE INSTALL. There is no installer: the board's and every
+# agent's logon task run the app from wherever the zip was extracted (the engine
+# pointer, engine/win32anchor.js), so a folder extracted into Downloads and
+# tidied away later leaves Kosmos unable to start at the next sign-in. That is
+# why the README's first instruction is where to extract it. The example is
+# %LOCALAPPDATA%\Programs\Kosmos, the per-user program folder, and NOT
+# C:\Users\<name>\Kosmos, which is where Kosmos keeps the person's Projects.
 {
   printf 'Kosmos for Windows (unsigned preview)\r\n'
   printf '\r\n'
-  printf 'Double-click Kosmos.exe.\r\n'
+  printf 'Extract the whole zip into its own folder that you will keep: a\r\n'
+  printf 'folder named Kosmos inside %%LOCALAPPDATA%%\\Programs. Not Downloads,\r\n'
+  printf 'not your Desktop, and not a folder OneDrive syncs. Kosmos runs from\r\n'
+  printf 'that folder, so do not delete or move it.\r\n'
   printf '\r\n'
-  printf 'FIRST: Windows will try to stop you, and that is expected.\r\n'
+  printf 'To make that folder: in File Explorer, click the address bar, type\r\n'
+  printf '%%LOCALAPPDATA%%\\Programs and press Enter. If Windows says it does not\r\n'
+  printf 'exist, type %%LOCALAPPDATA%% instead, press Enter, make a new folder\r\n'
+  printf 'named Programs, and open it. Make a new folder named Kosmos there,\r\n'
+  printf 'open it, click the address bar, and copy the path it shows.\r\n'
+  printf '\r\n'
+  printf 'To extract: right-click the zip in your Downloads folder, choose\r\n'
+  printf 'Extract All..., paste that path into the box, and click Extract.\r\n'
+  printf 'Then open that folder and double-click Kosmos.exe.\r\n'
+  printf '\r\n'
+  printf 'Tip: before you extract, right-click the zip, choose Properties, tick\r\n'
+  printf 'Unblock at the bottom, then click OK. Windows then warns you less\r\n'
+  printf 'about the files inside it.\r\n'
+  printf '\r\n'
+  printf 'The first time, Windows will try to stop you, and that is expected.\r\n'
   printf '\r\n'
   printf 'A blue box says "Windows protected your PC". The only button you can\r\n'
   printf 'see says "Don\047t run". DO NOT PRESS IT. Click the small "More info"\r\n'
   printf 'text above it, and then "Run anyway".\r\n'
   printf '\r\n'
-  printf 'That happens because this build is not signed yet. Signing is a\r\n'
-  printf 'certificate we have not bought, not a problem with the software.\r\n'
+  printf 'If a box says "The publisher could not be verified", click Run.\r\n'
   printf '\r\n'
-  printf 'You may also see "This file came from another computer and might be\r\n'
-  printf 'blocked". If you do: right-click Kosmos.exe, choose Properties, tick\r\n'
-  printf 'Unblock at the bottom, then OK. Windows adds that to anything that\r\n'
-  printf 'arrives inside a downloaded zip.\r\n'
+  printf 'This preview is not signed yet; signed builds are coming.\r\n'
   printf '\r\n'
-  printf 'A browser opens on the Kosmos board. Settings and projects work.\r\n'
-  printf 'AGENTS DO NOT WORK IN THIS BUILD. An agent is currently a terminal\r\n'
-  printf 'window managed by tmux, which does not exist on Windows, so the parts\r\n'
-  printf 'of the board that talk about agents will be empty or say they could\r\n'
-  printf 'not check. That is the honest state, not a fault in your install.\r\n'
+  printf 'A browser opens on the Kosmos board. Kosmos keeps running in the\r\n'
+  printf 'background, with no window, and starts by itself when you sign in to\r\n'
+  printf 'Windows. Your agents do too. To open the board again later,\r\n'
+  printf 'double-click Kosmos.exe again.\r\n'
   printf '\r\n'
-  printf 'To stop it, close the black window.\r\n'
+  printf 'Agents need Claude Code on this computer, signed in. If it is\r\n'
+  printf 'missing, the board shows you the command that installs it. If it is\r\n'
+  printf 'not signed in, the board shows you how to sign in.\r\n'
   printf '\r\n'
-  printf 'If no browser opens, go to http://127.0.0.1:%s yourself.\r\n' "$PORT_DEFAULT"
+  printf 'To update: download the new zip, extract it into this same folder,\r\n'
+  printf 'replacing the files, and double-click Kosmos.exe again. Your agents\r\n'
+  printf 'keep running.\r\n'
+  printf '\r\n'
+  printf 'Everything Kosmos starts when you sign in is listed in Task\r\n'
+  printf 'Scheduler: open Start, type Task Scheduler, press Enter, and open\r\n'
+  printf 'Task Scheduler Library, then the Kosmos folder.\r\n'
+  printf '\r\n'
+  printf 'If no browser opens, or the board says it is not signed in,\r\n'
+  printf 'double-click Kosmos.exe again. Bookmarks to Kosmos don\047t stay\r\n'
+  printf 'signed in. Always open Kosmos from Kosmos.exe.\r\n'
 } > "$STAGE/! READ ME FIRST - Windows will warn you.txt"
 
 # ---- the manifest ----------------------------------------------------------
@@ -286,7 +351,7 @@ cat > "$STAGE/manifest.json" <<JSON
   "source_dirty": $SOURCE_DIRTY,
   "signed": false,
   "node": { "version": "v$NODE_VERSION", "download_sha256": "$NODE_SHA" },
-  "agents_supported": false
+  "agents_supported": true
 }
 JSON
 
@@ -335,12 +400,18 @@ shasum -a 256 "$ZIPOUT" | awk '{print $1}' > "$ZIPOUT.sha256"
 refuse() { echo "$1" >&2; rm -f "$ZIPOUT" "$ZIPOUT.sha256"; exit 1; }
 
 LISTING="$(unzip -l "$ZIPOUT")"
-for want in "Kosmos.exe" "open-board.js" "! READ ME FIRST - Windows will warn you.txt" "manifest.json" "runtime/node.exe" "app/server.js" "app/web/index.html" "app/engine/kosmos-report-hook.js"; do
+for want in "Kosmos.exe" "open-board.js" "! READ ME FIRST - Windows will warn you.txt" "manifest.json" "runtime/node.exe" "app/server.js" "app/web/index.html" "app/engine/kosmos-report-hook.js" "bin/kosmos-cli.js" "bin/kosmos.ps1"; do
   case "$LISTING" in
     *" $want"*) ;;
     *) refuse "the zip is missing $want" ;;
   esac
 done
+# The Git Bash shim has no extension, so " bin/kosmos" alone would also match
+# " bin/kosmos-cli.js" above: it is checked as a whole listing line.
+case "$LISTING" in
+  *" bin/kosmos"$'\n'*) ;;
+  *) refuse "the zip is missing bin/kosmos (the Git Bash shim)" ;;
+esac
 # 🛑 NO TEST FILES, AND THE ENGINE COUNT MUST MATCH THE REPO (Renet's finding).
 # His parallel builder's engine glob had no filter: it staged 137 .js of which
 # only 59 were real modules, so 78 TEST FILES SHIPPED TO USERS.

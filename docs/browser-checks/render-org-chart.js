@@ -51,6 +51,8 @@ const { chromium } = require('playwright');
       hubBorder: getComputedStyle(hub).borderTopWidth,
       hubBg: getComputedStyle(hub).backgroundColor,
       calloutEvents: nodes[0] ? getComputedStyle(nodes[0].querySelector('.callout')).pointerEvents : null,
+      // #2683: the chevron-right is removed; the callout is a plain label.
+      chevrons: nodes.filter((x) => x.querySelector('.co-go')).length,
       offsetX: Math.round(((bb.l + bb.r) / 2) - ((cv.left + cv.right) / 2)),
       offsetY: Math.round(((bb.t + bb.b) / 2) - ((cv.top + cv.bottom) / 2)),
       fill: Math.round(((bb.r - bb.l) / (cv.right - cv.left)) * 100),
@@ -61,16 +63,53 @@ const { chromium } = require('playwright');
   say(m.contentOpacity === '0.5', 'what is inside it is still quiet', String(m.contentOpacity));
   say(m.hubBorder === '0px', 'the hub has no stroke', m.hubBorder);
   say(m.hubBg !== 'rgba(0, 0, 0, 0)', 'and still reads as an object', m.hubBg);
-  say(m.calloutEvents === 'auto', 'the callout can be clicked', m.calloutEvents);
+  // #2683: the callout is a LABEL now, not a click target. It was pointer-events:
+  // auto so it read as a button; but an opacity:0 callout with pointer-events:auto,
+  // positioned above its node, captured hover over a NEIGHBOUR's avatar and lit the
+  // wrong label. pointer-events:none is the fix; the avatar is the hover+click target.
+  say(m.calloutEvents === 'none', 'the callout is inert AT REST (invisible), so it cannot steal hover over a neighbour avatar (it becomes clickable only when hovered, checked below)', m.calloutEvents);
+  say(m.chevrons === 0, 'the chevron-right is removed from every node callout (#2683)', 'chevrons=' + m.chevrons);
   say(Math.abs(m.offsetX) <= 2 && Math.abs(m.offsetY) <= 2,
     'the drawing is centred on itself, not on the hub', m.offsetX + ',' + m.offsetY);
   say(m.fill >= 55, 'and it fills the canvas rather than a third of it', m.fill + '%');
 
   await pg.screenshot({ path: '/tmp/orgshots/org.png', clip: { x: 0, y: 110, width: 1400, height: 780 } });
+
+  // #2683: hover an avatar -> ITS OWN callout shows, and only its own (no neighbour
+  // mis-fire). Playwright hovers the node's centre (over its face).
   const n = await pg.$('.onode');
+  const firstAgent = await n.getAttribute('data-agent');
   await n.hover();
   await pg.waitForTimeout(400);
+  const hov = await pg.evaluate((agent) => {
+    const map = document.getElementById('orgmap');
+    const nodes = [...map.querySelectorAll('.onode')];
+    const mine = map.querySelector('.onode[data-agent="' + agent + '"]');
+    const vis = (el) => el && Number(getComputedStyle(el.querySelector('.callout')).opacity) > 0.5;
+    const shown = nodes.filter(vis);
+    return {
+      mineVisible: vis(mine),
+      shownCount: shown.length,
+      shownAgents: shown.map((x) => x.dataset.agent),
+      // #284/#2683: while VISIBLE the gold-pill callout must be pressable (pointer-events auto).
+      mineEvents: mine ? getComputedStyle(mine.querySelector('.callout')).pointerEvents : null,
+    };
+  }, firstAgent);
+  say(hov.mineVisible, 'hovering an avatar shows ITS OWN callout', firstAgent);
+  say(hov.shownCount === 1 && hov.shownAgents[0] === firstAgent,
+    'exactly one callout shows on hover and it is the hovered avatar (no neighbour mis-fire)', JSON.stringify(hov));
+  say(hov.mineEvents === 'auto', 'the VISIBLE callout is clickable (#284: it looks pressable, so it must be)', hov.mineEvents);
   await pg.screenshot({ path: '/tmp/orgshots/org-hover.png', clip: { x: 0, y: 110, width: 1400, height: 780 } });
+
+  // #2683 ask 3: clicking the avatar (the face) opens that agent's detail.
+  await pg.click('.onode[data-agent="' + firstAgent + '"] .face');
+  await pg.waitForTimeout(500);
+  const opened = await pg.evaluate(() => {
+    const pd = document.getElementById('panel-detail');
+    return pd ? !pd.hidden : false;
+  });
+  say(opened, 'clicking the avatar opens the agent detail (the avatar is the click target)', 'detailOpen=' + opened);
+
   await pg.close();
   await b.close();
   console.log(fails.length ? 'FAILED: ' + fails.join(', ') : 'all good');

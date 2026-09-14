@@ -147,6 +147,15 @@ process.env.HOME = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-srv-home-'));
 // a real such machine would have. The liveness probe runs the fake claude bin
 // (AGENT_WORKFORCE_CLAUDE_BIN=/bin/echo below) -> not a dead sign-in -> the create
 // proceeds. accounts.js reads the default account's record at <HOME>/.claude.json.
+// #2724: seal the ENGINE's home seam as well as the OS home. `accounts.js` reads
+// `AGENT_WORKFORCE_HOME || os.homedir()`, so with only `$HOME` sealed an ambient
+// `AGENT_WORKFORCE_HOME` sends the account lookup somewhere other than the
+// `.claude.json` seeded on the next line, and the create arms refuse with "no
+// Claude account signed in on this computer". Same suite rule as
+// engine/create.no-account-2145.test.js: an unsealed home reads the operator's
+// real accounts. (The child-process seam probe far below sets its OWN
+// AGENT_WORKFORCE_HOME in the env it spawns with, so it is unaffected by this.)
+process.env.AGENT_WORKFORCE_HOME = process.env.HOME;
 fs.writeFileSync(nodePath.join(process.env.HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'route-test@example.com' } }));
 fs.mkdirSync(nodePath.join(process.env.HOME, '.claude', 'projects'), { recursive: true });
 // ⚠️ AND THE RELEASE HOST. Every /api/status request pokes the update check;
@@ -253,6 +262,22 @@ async function req(path, options) {
 }
 
 const postJson = (path, obj) => req(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj) });
+
+// #2908: /api/post validates reply_expected as an OPTIONAL strict boolean, as a request-shape
+// check before any roster/project work. A non-boolean is refused with 400 rather than coerced --
+// a truthy "false" string must never read as reply-required. A boolean or an omitted field passes
+// validation (delivery may still be a 200 could_not for a missing project; the point is: not a 400).
+test('#2908: POST /api/post refuses a non-boolean reply_expected with 400; boolean/omitted passes validation', async () => {
+  const badString = await postJson('/api/post', { project: 'no-such-project', text: 'y', reply_expected: 'false' });
+  assert.equal(badString.status, 400, 'a STRING reply_expected must be refused, not coerced');
+  assert.match(badString.body, /reply_expected must be true or false/, 'the refusal must name the field');
+  const badNumber = await postJson('/api/post', { project: 'no-such-project', text: 'y', reply_expected: 1 });
+  assert.equal(badNumber.status, 400, 'a NUMERIC reply_expected must be refused too (no truthiness coercion)');
+  const okBool = await postJson('/api/post', { project: 'no-such-project', text: 'y', reply_expected: false });
+  assert.notEqual(okBool.status, 400, 'a boolean reply_expected must pass validation');
+  const omitted = await postJson('/api/post', { project: 'no-such-project', text: 'y' });
+  assert.notEqual(omitted.status, 400, 'omitting reply_expected must be accepted (current behavior)');
+});
 
 // #1704 slice 2: the /api/worlds registry routes (sandboxed via AGENT_WORKFORCE_DATA above).
 test('#1704: GET /api/worlds lists the default world; POST creates one without switching', async () => {
@@ -451,6 +476,12 @@ const UNREAD_ON_PURPOSE = {
   unknownFullness: 'a count the summary line covers in words rather than by '
     + 'number',
   unreadableTokens: 'as above',
+  updatePhase: 'win32-update-arm (S4): the Windows update journal phase (staged/stopping/'
+    + 'starting/confirmed/rolling-back/stuck), published for diagnostics and the forthcoming S5 '
+    + 'Roll back UI (#3017). It pairs with updateChannel. The update overlay does NOT read it: it '
+    + 'derives its Downloading -> Updating transition from board reachability, because the board is '
+    + 'down during the swap and cannot answer /api/status then. Null on the Mac and whenever there '
+    + 'is no journal.',
   /* `overCeiling` was parked here for one hour on 2026-08-22 and is now drawn
      as the word `Full` (#260). The line came off because the allowlist's own
      control failed the moment the page started reading it, which is the whole
@@ -1386,6 +1417,22 @@ test('a null PUT body is refused with a readable message, not an exception name'
   const { error } = JSON.parse(res.body);
   assert.match(error, /commitments list/, `unhelpful message: ${error}`);
   assert.ok(!/Cannot read properties/.test(error), 'surfaced a raw exception message');
+});
+
+test('#2830: the Instructions-tab stale-note has a top gap so it does not touch the Save button', () => {
+  // Josh, 0.6.57 review: the "This file has changed since you opened it" warning
+  // (#d-instr-outdated) sat right against the Save button above it. #1841 fixed the
+  // header instance (#d-instr-stale) with margin-top and deliberately left this one, so it
+  // hugged the button (base .stale-note has margin-bottom but no margin-top). Assert this
+  // instance now sets a non-zero top gap. Control: the base .stale-note rule still carries
+  // no margin-top of its own (so this fix is the id-scoped one, matching #1841's pattern).
+  const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  assert.match(page, /#d-instr-outdated\s*\{[^}]*margin-top:\s*var\(--space-\d\)/,
+    'the Instructions-tab stale-note (#d-instr-outdated) lost its top gap and will touch the Save button (#2830)');
+  const baseRule = page.match(/\.stale-note\s*\{[^}]*\}/);
+  assert.ok(baseRule, 'base .stale-note rule not found');
+  assert.ok(!/margin-top/.test(baseRule[0]),
+    'base .stale-note now sets margin-top; the #2830 fix should stay id-scoped like #1841, so this control is stale');
 });
 
 // ---------------------------------------------------------------------------
@@ -2456,6 +2503,18 @@ function updateCardDeps() {
     + 'let ENGINE_STALE = null;\n';
 }
 
+/**
+ * S5 (#3017): the shared-confirm helpers that closeUpdConfirm and updCheckNowClick's Update arm now
+ * call -- the confirm mode state, the update wording captured at load, and setUpdConfirmMode /
+ * openUpdConfirm -- so an eval'd function subset resolves them instead of ReferenceError-ing. The
+ * UC_UPDATE_* values stand in for what the page caches from the confirm markup at load; the Update
+ * arm only ever sets 'update' mode, which does not read windowsCopy, so none is needed here.
+ */
+function confirmModeDeps() {
+  return "let UPD_CONFIRM_MODE = 'update'; let UC_UPDATE_TITLE = 'Update Kosmos?'; let UC_UPDATE_BODY = '';\n"
+    + pageFnSource('setUpdConfirmMode') + '\n' + pageFnSource('openUpdConfirm') + '\n';
+}
+
 test('the creation screen only calls an agent made when the board can see it running', async () => {
   const boardCanSeeIt = pageFunction('boardCanSeeIt');
 
@@ -3185,7 +3244,9 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
   }
   // eslint-disable-next-line no-new-func
   new Function('document', 'checked', 'esc', 'err', 'BOARD_SEEN', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN',
-    script.slice(beAt, beEnd) + '\n' + script.slice(from, end))(
+    /* win32-board-copy: boardEmpty asks the platform copy layer ("not Windows" here). */
+    require('./test-support/page').PLATFORM_COPY_FNS.map(pageFnSource).join('\n') + '\n'
+    + script.slice(beAt, beEnd) + '\n' + script.slice(from, end))(
     { getElementById: (id) => els[id] }, checked, (s) => String(s), { message: 'boom' },
     true, 'boom', false);
 
@@ -3220,21 +3281,21 @@ test('the detail panel carries the explanation the card gave up', () => {
      appears nowhere in the UI at all while the server still ships it. */
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
-  const drive = (because, stateReported) => {
+  const drive = (because, stateReported, state) => {
     // Seeded shown-and-full (presence before absence): the empty case must
     // demonstrably CLEAR and HIDE a line that was carrying a sentence.
     const el = { textContent: 'seeded', hidden: false };
     const from = script.indexOf("const why = document.getElementById('d-why');");
-    /* #1841 anchored WITHOUT the trailing semicolon: the write now also hides on
-       a reported state (`|| a.stateReported === true`), so pinning the exact old
-       line would break on a change this file exists to allow. */
+    /* #1841/#2833 anchored WITHOUT the trailing semicolon: the write hides on a reported
+       single-line state and on needs_you, so pinning the exact line would break on a change
+       this file exists to allow. */
     const write = script.indexOf('why.hidden = !why.textContent');
     const end = script.indexOf('\n', write) + 1;
     assert.ok(from > -1 && write > from && write < end,
       'the why write fell outside the extracted slice');
     // eslint-disable-next-line no-new-func
     new Function('document', 'a', script.slice(from, end))(
-      { getElementById: () => el }, { because, stateReported });
+      { getElementById: () => el }, { because, stateReported, state });
     return el;
   };
   const told = drive('we could not read the pane');
@@ -3253,14 +3314,23 @@ test('the detail panel carries the explanation the card gave up', () => {
      is unaffected, which is the whole point of the guard. */
   const reported = drive('finished responding', true);
   assert.equal(reported.hidden, true, 'a reported state must hide the duplicate lower status');
-  /* #1996: a reported MULTI-LINE because cannot fit d-task's one nowrap line, so
-     the #1841 suppression lifts and this surface shows it in full. The single-line
-     reported case just above still hides -- d-task shows that one whole. */
+  /* #1996: a reported MULTI-LINE because cannot fit d-task's one nowrap line, so #1841's
+     suppression lifts and this surface shows it in full -- for reported states OTHER than
+     needs_you (see #2833 below). */
   const reportedMulti = drive('blocked on the deploy\n\nwaiting for the cert to be signed', true);
   assert.equal(reportedMulti.hidden, false,
-    'a reported MULTI-LINE because must stay visible: d-task truncates it to one line, so this is its only full surface');
+    'a reported non-needs_you MULTI-LINE because must stay visible (d-task truncates it): #1996');
   assert.ok(reportedMulti.textContent.includes('\n'),
-    'the full multi-line because must reach the surface with its breaks, not flattened to one line');
+    'the full multi-line because must reach the surface with its breaks, not flattened');
+  /* #2833 (Josh, 2026-09-11): needs_you is the exception. Its self-reported message is shown by
+     the Talk "waiting on an answer" box and removed from #d-task, so this line hides for
+     needs_you whether the because is single- or multi-line -- otherwise a multi-line needs_you
+     because would reappear here. Keyed to the STATE, not stateReported: the reportedMulti case
+     above (non-needs_you) stays visible, so the clause is not vacuous. */
+  const needsSingle = drive('waiting on your answer', true, 'needs_you');
+  assert.equal(needsSingle.hidden, true, 'needs_you must hide the lower because (single-line)');
+  const needsMulti = drive('waiting on your answer\n\non the second question too', true, 'needs_you');
+  assert.equal(needsMulti.hidden, true, 'needs_you must hide the lower because (multi-line too), #2833');
 });
 
 test('the settings screen renders the engine\'s three answers', () => {
@@ -3423,6 +3493,18 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
      textContent to escaped innerHTML -- the drive reads innerHTML and supplies
      the real `esc` the line now calls. */
   const esc = pageFunction('esc');
+  /* #2833: the meta line calls acctParenthetical(a) and providerOf(a). acctParenthetical is a
+     function declaration, so it lifts from the page like roleLine/esc. providerOf is a
+     `const NAME = (a) => ...` arrow, which pageFnSource (matches `function NAME(`) cannot lift,
+     so it is supplied here as a minimal stub of its one-line body; the PRODUCTION meta line
+     uses the real shared providerOf (see the diff), so there is no production duplication.
+     ⚠️ DELIBERATE, not an oversight: this is the one derivation in this test not lifted from the
+     page, because the extractor brace-matches function DECLARATIONS and cannot lift a one-line
+     const-arrow expression. Accepted because providerOf is a stable one-line ternary and the
+     drift risk (it gaining a third arm) is far smaller than the risk of teaching the extractor to
+     slice arbitrary expressions. Provider-label consolidation is separately tracked as kosmos#2634. */
+  const acctParenthetical = pageFunction('acctParenthetical');
+  const providerOf = (x) => ((x && x.runner === 'codex') ? 'openai' : 'anthropic');
   const drive = (card) => {
     const el = { innerHTML: 'seeded' };
     // `runs` is hoisted above the meta line so the meta line and the Runs on box
@@ -3438,8 +3520,8 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
        meta line now calls `roleLine(a, ROLE_TITLES)`, and null is the state the
        page holds until the roles route answers -- so this drives the fallback
        path, which is the one whose capitals the assertion below is about. */
-    new Function('document', 'a', 'modelLine', 'roleLine', 'runsOnLine', 'ROLE_TITLES', 'esc', script.slice(from, end))(
-      { getElementById: () => el }, card, modelLine, roleLine, runsOnLine, null, esc);
+    new Function('document', 'a', 'modelLine', 'roleLine', 'runsOnLine', 'ROLE_TITLES', 'esc', 'providerOf', 'acctParenthetical', script.slice(from, end))(
+      { getElementById: () => el }, card, modelLine, roleLine, runsOnLine, null, esc, providerOf, acctParenthetical);
     return el.innerHTML;
   };
   const surfaced = drive({ role: 'archive worker', modelName: 'Claude Opus 5', nameDerived: false, state: 'working' });
@@ -3449,8 +3531,8 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
     'a display name that IS the machine name carries no disclosure on the panel');
   assert.doesNotMatch(surfaced, /machine name/,
     'the panel still says "machine name", which is a code word a stranger has never met (#684)');
-  assert.match(surfaced, /<b>Archive worker<\/b> · Claude Opus 5 · /,
-    'CONTROL: the meta line lost its role and model, so the disclosure assertion floats free');
+  assert.match(surfaced, /<b>Archive worker<\/b> · Anthropic · Claude Opus 5 · /,
+    'CONTROL: the meta line lost its role, provider, or model, so the disclosure assertion floats free (#2833)');
   /* #1841: the role is bold and the model is NOT. Exactly one <b>, wrapping the
      first segment; the model sits outside it. */
   assert.equal((surfaced.match(/<b>/g) || []).length, 1, 'the meta line bolds more than the role');
@@ -3473,10 +3555,37 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
   // `R`, not `r`: a one-character parsed role is sentence-cased like any other,
   // which is the boundary case for a `charAt(0).toUpperCase()` on a length-1
   // string and is worth having land here rather than nowhere.
-  assert.match(drive({ role: 'r', modelName: 'Fable 5', nameDerived: true, state: 'working' }), /<b>R<\/b> · Claude Fable 5/,
+  assert.match(drive({ role: 'r', modelName: 'Fable 5', nameDerived: true, state: 'working' }), /<b>R<\/b> · Anthropic · Claude Fable 5/,
     'the panel model line diverged from the card on a provider-less name');
-  assert.match(drive({ role: 'r', modelName: null, nameDerived: true, state: 'unknown' }), /<b>R<\/b> · Unknown Model/,
+  assert.match(drive({ role: 'r', modelName: null, nameDerived: true, state: 'unknown' }), /<b>R<\/b> · Anthropic · Unknown Model/,
     'a missing model is silently omitted on the panel while the card says Unknown Model');
+  /* #2833 (Josh, 2026-09-11): Title · Provider · Account · Model. These fixtures are CARD-shaped
+     (the real openDetail `a`): provider comes from `a.runner` and the account from the nested
+     `a.account`, NOT from top-level account fields (`a.name` on a card is the agent's OWN display
+     name). Provider and Model are always present; the Account segment appears only when
+     acctParenthetical finds a name/email/label and DEGRADES OUT otherwise, with no dangling
+     separator. */
+  // Codex/OpenAI agent (a.runner === 'codex') with a named account (a.account.name). modelLine
+  // returns the fixed 'OpenAI Codex' for a codex runner (it ignores modelName), so the full
+  // subtitle is Title . OpenAI . <account name> . OpenAI Codex.
+  assert.match(drive({ role: 'coder', runner: 'codex', account: { name: 'work-openai' }, nameDerived: true }),
+    /<b>Coder<\/b> · OpenAI · work-openai · OpenAI Codex/,
+    'a Codex agent with a named account must read Title . OpenAI . <name> . OpenAI Codex');
+  // A Claude account identified only by email shows the email as the Account segment.
+  assert.match(drive({ role: 'coder', account: { email: 'agent@example.com' }, modelName: 'Claude Opus 5', nameDerived: true }),
+    /<b>Coder<\/b> · Anthropic · agent@example\.com · Claude Opus 5/,
+    'a Claude agent whose account has only an email must show it as the Account segment');
+  // Graceful degradation: no account object (or an empty one) -> the Account segment is omitted,
+  // with no doubled or dangling separator. This is the default-Claude / broken-Codex (#2811) case.
+  const noAcct = drive({ role: 'coder', modelName: 'Claude Opus 5', nameDerived: true });
+  assert.match(noAcct, /<b>Coder<\/b> · Anthropic · Claude Opus 5/,
+    'with no resolvable account the line is Title · Provider · Model, Account omitted');
+  assert.doesNotMatch(noAcct, / ·  · /, 'a missing Account left a dangling doubled separator');
+  /* CONTROL: a card's top-level `a.name` (the agent's display name) must NOT leak into the
+     Account slot -- the bug an earlier version shipped by calling acctChosenName(a) on a card. */
+  assert.doesNotMatch(drive({ role: 'coder', name: 'Leo Hart', modelName: 'Claude Opus 5', nameDerived: true }),
+    /· Leo Hart ·/,
+    'the agent display name leaked into the Account segment (must read a.account, not a.name)');
   /* 🛑 #1841 THE ROLE-LESS ARM, and it is the one the bold could regress on.
      roleLine returns '' for an agent with no role, and a bold keyed to
      post-filter position 0 would then wrap the MODEL -- exactly "bold the title
@@ -3484,7 +3593,7 @@ test('the detail meta line keeps the machine-name disclosure the card gave up', 
      appears at all. The control beside it proves the model still renders. */
   const roleless = drive({ role: '', modelName: 'Claude Opus 5', nameDerived: true, state: 'working' });
   assert.doesNotMatch(roleless, /<b>/, 'a role-less agent bolded the model, which "bold the title only" forbids');
-  assert.equal(roleless, 'Claude Opus 5', 'CONTROL: the model still renders for a role-less agent');
+  assert.equal(roleless, 'Anthropic · Claude Opus 5', 'CONTROL: the provider and model still render for a role-less agent (#2833)');
 });
 
 test('the narrow-screen menu keeps the keyboard: forward in on open, back to the burger on choose and Escape', () => {
@@ -3658,7 +3767,11 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
     const end = script.indexOf('\n}', script.indexOf('</div>`;', lrowAt)) + 2;
     assert.ok(from > -1 && lrowAt > from && end > lrowAt, 'renderer block not found');
     // eslint-disable-next-line no-new-func
-    const api = new Function(script.slice(from, end) + '\n; return { card, lrow };')();
+    /* #2863: the slice now includes dmBadge (declared just above card), which
+       reads the CURRENT global -- declared far below this slice and so not
+       captured. Inject CURRENT (null: no agent open in this isolated render) so
+       a future card fixture with dmUnread > 0 does not throw ReferenceError. */
+    const api = new Function('CURRENT', script.slice(from, end) + '\n; return { card, lrow };')(null);
     /**
      * A copy of a row with something changed, still strict.
      *
@@ -3931,6 +4044,9 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
 
 test('update awareness: the status tick carries the verdict, and the install route refuses honestly', async () => {
   const updates = require('./engine/update');
+  /* The Mac contract, pinned to darwin like engine/update.test.js: these stubs publish a bare
+     {version}, which the Windows pointer rule (win32-update-check) rightly refuses. */
+  updates.setPlatform('darwin');
   try {
     // A newer published version reaches the screen through the payload it
     // already polls.
@@ -3978,7 +4094,9 @@ test('update awareness: the status tick carries the verdict, and the install rou
     assert.equal(go.status, 200, JSON.parse(go.body).error || '');
     assert.equal(JSON.parse(go.body).updating, '99.0.0');
     assert.equal(ran, 1, 'the installer did not run');
-    assert.match(String(url), /\/setup$/, 'the runner was not handed the setup URL');
+    /* Design finding 8 (win32-update-check): the version rides as the ?v= cache-buster. It used
+       to read `.version` off a bare-string cache, so it never applied and this said /setup$. */
+    assert.match(String(url), /\/setup\?v=99\.0\.0$/, 'the runner was not handed the setup URL with the version cache-buster');
     /* #553: the press answers with its attempt's start stamp, and the
        status payload carries the same record, so the overlay can tell
        THIS attempt's verdict from any older one by exact equality. */
@@ -4001,6 +4119,7 @@ test('update awareness: the status tick carries the verdict, and the install rou
     updates.setFetcher(null);
     updates.setInstallRunner(null);
     updates.setInstalledRoot(null);
+    updates.setPlatform(null);
   }
 });
 
@@ -4749,24 +4868,18 @@ test('the browser-layer fixes on this branch cannot be undone silently', () => {
      'the box clear must key on the takeoff PROJECT (not the full flight gate) plus the sent text: too narrow deletes another project\u2019s words, too wide leaves delivered words armed for a duplicate send (rounds 29/37/38)'],
     [/if \(\(PJ_DRAFTS\[sentProject\] \|\| ''\)\.trim\(\) === text\) delete PJ_DRAFTS\[sentProject\];/,
      'the parked-draft clear must key on the TAKEOFF project and the exact sent text (rounds 34/37: a programmatic clear fires no input event, so the map kept the sent text)'],
-    // The description renders escaped in BOTH places or not at all: a
-    // project named by the person carries their words onto a card and a
-    // heading, and either an unescaped render or a dropped arm would be
-    // invisible to node tests (project-description branch).
+    // The card row's description renders escaped: a project named by the
+    // person carries their words onto a card, and an unescaped render or a
+    // dropped arm would be invisible to node tests (project-description branch).
     // (class renamed pj-desc -> pjdesc -> pc-t with the pack-card restyle;
     // the pin follows the arm it protects, not the spelling. pc-t is the
-    // pack's own card-sentence class, and the pack spends .pjdesc on the
-    // detail page.)
+    // pack's own card-sentence class.)
+    // #2838: the detail-page inline description was removed with its disclosure
+    // arrow (it lives in Project settings now), so its two former pins here (the
+    // textContent write and the empty-dress toggle) retired with it. The card
+    // arm below is the description's only remaining escaped render on this page.
     [/p\.description \? '<span class="pc-t">' \+ esc\(p\.description\)/,
      'the card row lost its escaped description arm'],
-    [/desc\.textContent = p\.description \|\| 'This project has no description yet/,
-     'the detail description must be written through textContent -- innerHTML here is the injection the card arm escapes against, and no node test can see the swap'],
-    /* The hidden-when-absent toggle retired on Josh's 08-20 ruling (#132):
-       the empty slot now SHOWS, muted, saying where to fill it. What must
-       survive instead is that the placeholder can never be mistaken for
-       content: the empty class rides exactly the absence. */
-    [/desc\.classList\.toggle\('pj-desc-empty', !p\.description\);/,
-     'the empty description lost its distinct dress, so the placeholder reads as the project\u2019s own words'],
     // The pick toggle must keep setLive's memory in step with its in-place
     // aria-checked flip, or the next poll rebuilds the list under the
     // focused button (round 39).
@@ -6258,6 +6371,8 @@ test('the reveal-app route opens Finder through the engine and honours nothing f
   fs.mkdirSync(nodePath.join(appsDir, 'Kosmos.app'), { recursive: true });
   let ran = null;
   machine.setAppRevealRunner((cmd, a) => { ran = [cmd, a]; });
+  // win32-board-copy: this is the Mac reveal (open -R); the Windows arm is engine/machine.win32-sleep.test.js.
+  machine.setPlatform('darwin');
   try {
     const res = await req('/api/reveal-app', { method: 'POST', headers: { 'content-type': 'application/json' } });
     assert.equal(res.status, 200);
@@ -6265,6 +6380,7 @@ test('the reveal-app route opens Finder through the engine and honours nothing f
     assert.ok(ran && ran[0] === '/usr/bin/open' && ran[1][0] === '-R', 'the engine did not drive the reveal');
     assert.match(ran[1][1], /Kosmos\.app$/, 'the revealed path is not the engine-derived bundle');
   } finally {
+    machine.setPlatform(null);
     machine.setAppRevealRunner(null);
     fs.rmSync(nodePath.join(appsDir, 'Kosmos.app'), { recursive: true, force: true });
   }
@@ -6499,7 +6615,10 @@ test('the room routes: the operator flag is minted only here, and the thread fil
     await req('/api/projects', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: 'Ops room', folder: dir, agents: ['leo', 'mara'] }),
+      // #2707: a description makes this a BRIEFED project, so the brief-pending room note
+      // does not fire and add a 'note' row to the thread this test asserts by kind. The note
+      // itself is covered by the dedicated #2707 tests.
+      body: JSON.stringify({ name: 'Ops room', folder: dir, agents: ['leo', 'mara'], description: 'Run the ops room.' }),
     });
     sends.length = 0;
 
@@ -7176,7 +7295,12 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
        both join the prelude, and STATE_COPY above gains the 'restarting' key the
        fallback path reads. A stub would let this pass while the shipped helper differed. */
     + pageFnSource('restartingLabel') + '\n'
-    + pageFnSource('stateCopyOf') + '\n';
+    + pageFnSource('stateCopyOf') + '\n'
+    /* #2699: pjMember now also reads cardStOf(m).st === 'attn' to light up ONLY needs_you
+       (the red triangle + red status), so the real cardStOf and its CARD_ST table join the
+       prelude. A stub would let this pass while the shipped needs-you condition differed. */
+    + pageConstSource('CARD_ST') + '\n'
+    + pageFnSource('cardStOf') + '\n';
   const member = pageFunction('pjMember', prelude);
   const toldLine = pageFunction('pjToldLine', TOLD_PRELUDE);
 
@@ -7290,6 +7414,162 @@ test('pjMember suppressTold removes the per-member verdict span, and only with i
   }
 });
 
+test('#2711 item 16: pjMember takes a state wash class, for working/needs-you/idle only, and never on an unseen member', () => {
+  // Same lift shape as the pjMember test above, plus LROW_WARN (a needs-you
+  // member draws the triangle) and a STATE_COPY stub carrying a label for every
+  // state this test constructs -- pjMember reads stateCopyOf(m).label on the
+  // present branch, so an absent key would fall through to STATE_COPY.unknown
+  // rather than fail; the stub names each one so the test does not lean on that.
+  const prelude = TOLD_PRELUDE
+    + 'const STATE_COPY = { working: { label: "Working" }, needs_you: { label: "Needs you" }, idle: { label: "Idle" }, rate_limited: { label: "Paused" }, stopped: { label: "Not running" }, restarting: { label: "Restarting agent" }, unknown: { label: "Can\'t tell" } };\n'
+    + pageConstSource('DISC_TINTS') + '\n'
+    + pageConstSource('DISC_INKS') + '\n'
+    // LROW_WARN is a string const (pageConstSource lifts only object/array consts),
+    // and this test reads the wash CLASS, not the triangle markup, so a stub is enough.
+    + 'const LROW_WARN = "<svg class=\\"lwarn\\"></svg>";\n'
+    + pageFnSource('discIndex') + '\n'
+    + pageFnSource('discTint') + '\n'
+    + pageFnSource('discInk') + '\n'
+    + pageFnSource('initials') + '\n'
+    + pageFnSource('pjToldLine') + '\n'
+    + pageFnSource('pjMemberHasIt') + '\n'
+    + pageFnSource('restartingLabel') + '\n'
+    + pageFnSource('stateCopyOf') + '\n'
+    + pageConstSource('CARD_ST') + '\n'
+    + pageFnSource('cardStOf') + '\n';
+  const member = pageFunction('pjMember', prelude);
+
+  // Real produced roster rows, not hand-built stand-ins (fixture-discipline):
+  // fleet.install verifies each agent actually classifies to the asked state,
+  // and projectsEngine.list gives the exact member rows pjMember receives.
+  const projectsEngine = require('./engine/projects');
+  const board = fleet.install([
+    fleet.agent('wrk', { state: 'working' }),
+    fleet.agent('ndy', { state: 'needs_you' }),
+    fleet.agent('idl', { state: 'idle' }),
+    fleet.agent('rlm', { state: 'rate_limited' }),
+  ]);
+  const pdir = nodePath.join(SANDBOX, 'wash-proj');
+  fs.mkdirSync(pdir, { recursive: true });
+  let roster; let ghost;
+  try {
+    projectsEngine.create({ name: 'Wash', folder: pdir, agents: ['wrk', 'ndy', 'idl', 'rlm'], roster: board.agents });
+    roster = projectsEngine.list(board.agents).find((x) => x.name === 'Wash').agents;
+    // An UNSEEN member: on the project, absent from the board (the producer's
+    // own never-seen path, the same shape paintSettingsMembers' ghost test uses).
+    const gdir = nodePath.join(SANDBOX, 'wash-ghost');
+    fs.mkdirSync(gdir, { recursive: true });
+    projectsEngine.create({ name: 'Wash Ghost', folder: gdir, agents: ['nobody-here'], roster: [] });
+    ghost = projectsEngine.list([]).find((x) => x.name === 'Wash Ghost').agents[0];
+  } finally {
+    board.restore();
+  }
+  const row = (n) => roster.find((r) => r.name === n);
+
+  // The three washed states each get their own class, so the CSS can give them
+  // the green / red / gray ground the agent homepage cards use.
+  assert.ok(member(row('wrk')).includes('pjm-working'),
+    'a working member lost its green wash class');
+  assert.ok(member(row('ndy')).includes('pjm-attn'),
+    'a needs-you member lost its red wash class');
+  assert.ok(member(row('idl')).includes('pjm-idle'),
+    'an idle member lost its gray wash class');
+
+  // CONTROL: a present but neutral state (rate_limited -> the "paused" card
+  // shape) takes NO wash -- the homepage rule is that the grounds cover exactly
+  // working/needs-you/idle and every other state stays neutral. Without this the
+  // three asserts above would pass even if pjMember stamped a class on everything.
+  const neutral = member(row('rlm'));
+  assert.ok(!/pjm-(working|attn|idle)/.test(neutral),
+    'a rate-limited (neutral) member wrongly took a wash class: ' + neutral);
+
+  // CONTROL: an UNSEEN member takes no wash -- an unseen row says why (its dashed
+  // border + reason), not a state colour, so the wash class is gated on presence.
+  assert.ok(!/pjm-/.test(member(ghost)),
+    'an unseen member took a wash class');
+});
+
+test('#2711 item 16: the three member wash grounds are defined in the CSS, scoped to the project view', () => {
+  // A class with no rule behind it is invisible; and an absence-assertion guards
+  // the ground against a later edit silently dropping it (a removal ships with
+  // nothing failing otherwise). Each rule is scoped to #pj-one-agents so it does
+  // not bleed onto the settings or add-agents member surfaces.
+  const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  for (const cls of ['pjm-working', 'pjm-attn', 'pjm-idle']) {
+    assert.match(page, new RegExp('#pj-one-agents \\.pj-member\\.' + cls + ' \\{[^}]*background:[^}]*var\\(--k-surface\\)'),
+      'the ' + cls + ' member ground rule is missing or no longer washes over var(--k-surface)');
+  }
+});
+
+test('#2711 item 16: the working/needs-you member washes stay pinned to the agent-card colours', () => {
+  // Convention #5: the green and red washes are DELIBERATELY the same colours as
+  // the agent homepage cards (.acard.working / .acard.attn), so the two surfaces
+  // read as one system. That is a duplicated fact, and the convention's remedy for
+  // a duplicated fact is a test that pins the copies equal -- otherwise a future
+  // contrast fix to the .acard colours (see #976/#977) would drift the member wash
+  // silently, which no presence test above could catch. Idle is deliberately NOT
+  // pinned: item 16 gives members a gray idle ground where the homepage leaves idle
+  // white, so there is no card colour to track.
+  // Scope: this pins the base/light rules, which is where both colours live today
+  // (neither .acard nor pjm-* carries a dark-theme background override). If a future
+  // dark override is added to one, it must be added to the other; this pin sees only
+  // the base rule and would not catch a dark-only drift.
+  const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  // The rgba of the rule's `background:` wash. Anchored on `background:` so it
+  // selects the ground rule, not a sibling that only sets border-color -- e.g.
+  // `.acard.attn` has two blocks (one border-color, one background), and the wash
+  // colour lives only in the background one.
+  const washRgba = (sel) => {
+    const rule = page.match(new RegExp(sel.replace(/[.[\]]/g, '\\$&') + ' \\{[^}]*background:[^}]*\\}'));
+    assert.ok(rule, 'wash rule not found: ' + sel);
+    const bg = rule[0].match(/background:[^;}]*/)[0];
+    const rgba = bg.match(/rgba\([^)]*\)/);
+    assert.ok(rgba, 'no rgba in the background of: ' + sel);
+    return rgba[0];
+  };
+  assert.equal(washRgba('#pj-one-agents .pj-member.pjm-working'), washRgba('.acard.working'),
+    'the working member wash drifted from .acard.working; re-pin them or the two greens disagree');
+  assert.equal(washRgba('#pj-one-agents .pj-member.pjm-attn'), washRgba('.acard.attn'),
+    'the needs-you member wash drifted from .acard.attn; re-pin them or the two reds disagree');
+});
+
+test('#2804: the three washed member states drop the box stroke (colour only), keeping the base stroke and the unseen dashed border', () => {
+  // Josh, testing 0.6.56: "I do not want to have the 1px stroke around these agents,
+  // whether they're active, inactive, or need help. It should only be the color".
+  // The stroke is removed ONLY where a wash colour stands in for it -- scoped to the
+  // three #pj-one-agents .pj-member.pjm-* states. This asserts both halves so a later
+  // edit cannot silently undo either: the stroke is gone on the washed states, AND the
+  // signals that must survive are still there (a deletion ships with an absence check).
+  const page = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  for (const cls of ['pjm-working', 'pjm-attn', 'pjm-idle']) {
+    assert.match(page, new RegExp('#pj-one-agents \\.pj-member\\.' + cls + ' \\{\\s*border-color:\\s*transparent;?\\s*\\}'),
+      'the ' + cls + ' member state no longer drops its box stroke (#2804)');
+  }
+  // CONTROL: the base .pj-member stroke is untouched, so the settings (#pjs-members)
+  // and add-agents (#pj-add-agents) member surfaces -- which carry no wash colour --
+  // keep their outline. Removing the base border would over-apply Josh's ask.
+  assert.match(page, /\.pj-member \{[^}]*border:\s*0\.5px solid var\(--separator\)/,
+    'the base .pj-member stroke was removed too, stripping the stroke off surfaces with no wash to replace it');
+  // CONTROL: an unseen member keeps its dashed presence border -- that is the
+  // "we cannot see this agent" signal (the .pj-member.unseen rule), a different dimension
+  // from the three states, and is NOT what Josh asked to drop.
+  assert.match(page, /\.pj-member\.unseen \{[^}]*border-style:\s*dashed/,
+    'the unseen member lost its dashed presence border');
+  // CONTROL: a present-but-neutral member inside the MEMBERS panel (restarting/unknown/off ->
+  // no pjm-* class, per stClass in the pjMember builder) carries no wash colour and relies on
+  // the base stroke to stay visible. The over-application #2804 warns against is a
+  // state-UNQUALIFIED rule that strips it. The base-stroke check above cannot catch that (it
+  // asserts the base rule text, which such a rule would leave intact). So assert NO rule touches
+  // `border` at all on `#pj-one-agents .pj-member` WITHOUT a state class -- this catches every
+  // stroke-removal form (border-color: transparent, border: 0, border: none, border-width: 0),
+  // not just the transparent one. The three fix rules qualify with `.pjm-*`, so they never match
+  // `.pj-member` immediately followed by `{`; the `[data-agent]` variants have a `[` before `{`.
+  // Border styling for these members must go through the shared base `.pj-member` rule or the
+  // state-qualified `.pjm-*` rules, never an unqualified `#pj-one-agents .pj-member` rule.
+  assert.doesNotMatch(page, /#pj-one-agents \.pj-member\s*\{[^}]*border/,
+    'a state-unqualified #pj-one-agents .pj-member border rule would strip the stroke from present-but-neutral members (the over-application #2804 warns against)');
+});
+
 test('the free-agent picker names the not-signed-in state distinctly on a 403 (#2023)', () => {
   /* The signin branch of `emptyBecause` had no assertion: the harness above only
      BINDS BOARD_NEEDS_SIGNIN to stop a ReferenceError, it never sets it true and
@@ -7385,8 +7665,20 @@ test('the settings members wiring is real, not just extractable', () => {
   const flat = raw.replace(/\s+/g, ' ');
   // Presence control first: the section this absence speaks about must
   // exist, or a typo in the needle passes vacuously forever.
-  assert.ok(flat.includes('Project members'),
+  assert.ok(flat.includes('>Members</h3>'),
     'CONTROL: the members section is gone; the absence below proves nothing');
+  // #2711 items 13/14 renamed the two card headings. Assert the new heading
+  // TAGS exactly and that the old heading tags are gone, so a regression to the
+  // old copy fails. This is keyed on the >...</h3> tag, not the bare phrase: a
+  // comment elsewhere in the page contains "Files in this project", and a
+  // browser-check `expect: 'Files'` is a substring of the old heading too, so
+  // neither can discriminate old from new the way this pair does.
+  assert.ok(flat.includes('>Files</h3>'),
+    'the files card heading is not the renamed "Files" (#2711 item 13)');
+  assert.ok(!flat.includes('>Files in this project</h3>'),
+    'the old "Files in this project" card heading came back (#2711 item 13)');
+  assert.ok(!flat.includes('>Project members</h3>'),
+    'the old "Project members" card heading came back (#2711 item 14)');
   assert.ok(!flat.includes('Who is on this project. Removing an agent takes it off'),
     'the cut members hint came back');
   // The painter must repaint through setIfChanged: the unit test stubs
@@ -7459,6 +7751,8 @@ test('the group line is wired into paintOneProject, not just extractable', () =>
 
 test('the check route asks fresh, carries reachability, and rides the cross-site guard', async () => {
   const updates = require('./engine/update');
+  // The Mac contract, pinned to darwin like engine/update.test.js (bare {version} stubs).
+  updates.setPlatform('darwin');
   try {
     updates.resetCache();
     // Prime a fresh look so the TTL would normally sit on it...
@@ -7499,6 +7793,7 @@ test('the check route asks fresh, carries reachability, and rides the cross-site
   } finally {
     updates.resetCache();
     updates.setFetcher(null);
+    updates.setPlatform(null);
   }
 });
 
@@ -7668,13 +7963,16 @@ test('the card standoff, the confirm focus fallback, and the identical-write gua
   // (b) closeUpdConfirm falls back to a live control when the opener is gone.
   const focused = [];
   const els = {
-    updconfirm: { hidden: false },
+    updconfirm: { hidden: false, dataset: {} },
     'ut-install': null,
     'upd-btn': { focus: () => focused.push('upd-btn') },
   };
   global.document = { getElementById: (id) => els[id], contains: () => false };
   const close = new Function('document',
     "let UPD_CONFIRM_OPENER = { focus: () => { throw new Error('focused a removed node'); } };\n"
+    /* closeUpdConfirm now resets the shared confirm to update mode (setUpdConfirmMode), so its subset
+       must resolve that helper and the mode/wording bindings it reads. */
+    + confirmModeDeps()
     + pageFnSource('closeUpdConfirm') + '\ncloseUpdConfirm();\nreturn UPD_CONFIRM_OPENER;');
   const cleared = close(global.document);
   assert.deepEqual(focused, ['upd-btn'], 'focus did not fall back to a live control');
@@ -7708,14 +8006,15 @@ test("the card's Update arm opens the one shared confirm and records itself as o
     'upd-btn': { textContent: 'Update', hidden: false, disabled: false, dataset: { act: 'update' }, focus: () => calls.push('btn-focus') },
     'upd-line': { textContent: '' },
     'uc-err': { hidden: false },
-    updconfirm: { hidden: true },
+    updconfirm: { hidden: true, dataset: {} },
     'uc-no': { focus: () => calls.push('uc-no-focus') },
   };
   const doc = { getElementById: (id) => els[id] };
   // eslint-disable-next-line no-new-func
   const opener = await new Function('document', 'localStorage', 'fetch', 'renderUpdateToast', 'LAST_VERSION',
     'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null; let UPD_ASKED = false;\n'
-    + updateCardDeps() + pageFnSource('paintUpdateCard') + '\n' + pageFnSource('updCheckNowClick')
+    /* The Update arm now opens the shared confirm via openUpdConfirm (which calls setUpdConfirmMode). */
+    + updateCardDeps() + confirmModeDeps() + pageFnSource('paintUpdateCard') + '\n' + pageFnSource('updCheckNowClick')
     + '\nreturn updCheckNowClick().then(() => UPD_CONFIRM_OPENER);')(
     doc,
     { removeItem: () => calls.push('clear') },
@@ -7822,9 +8121,19 @@ test('the conversation filter matches what a row shows, and only that', () => {
 
 test('the search is wired: pack markup verbatim, instant repaint, reset on switch, no scroll while filtering', () => {
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  // The pack's control (18e), placeholder and aria pair verbatim.
-  assert.ok(raw.includes('placeholder="Search this conversation" aria-label="Search this conversation"'),
-    "the search input lost the pack's words");
+  // #2711 item 4 (Josh, 2026-09-10): the room search placeholder is just
+  // "Search" now (narrower box), while its accessible name stays the fuller
+  // "Search this conversation". Keyed on #pj-room-search specifically, because
+  // the agent-DM search (#d-talk-search) still carries the pack's fuller
+  // placeholder and a bare includes() would pass off that one.
+  assert.ok(raw.includes('id="pj-room-search" placeholder="Search" aria-label="Search this conversation"'),
+    "the room search lost its #2711-item-4 'Search' placeholder or its accessible name");
+  // The agent-DM search (#d-talk-search) keeps the fuller placeholder; item 4
+  // was the room search only. Pinned explicitly, since re-keying the room
+  // assertion above onto #pj-room-search removed the incidental coverage the
+  // old bare includes() gave the DM search's identical string.
+  assert.ok(raw.includes('id="d-talk-search" placeholder="Search this conversation" aria-label="Search this conversation"'),
+    "the agent-DM search lost its placeholder or accessible name");
   assert.ok(raw.includes('.tsearch { display: flex; align-items: center; gap: 6px; flex: 0 1 15rem; min-width: 0;'),
     "the tsearch rule drifted from the pack's values");
   // The wiring: input handler repaints from the cached body; the query
@@ -8150,6 +8459,33 @@ test('--usermsg-tint is DEFINED in every theme, tied to its --k-sunk sibling', (
     `light and dark --usermsg-tint are the same value (${tintLight[0]}); light should be 10%, dark 15%`);
 });
 
+test('--agent-msg is DEFINED in every theme --k-sunk is (#2947)', () => {
+  // #2947: the agent message bubble's cream. Same invisible-fallback failure
+  // mode as --k-sunk / --usermsg-tint above: a `var(--agent-msg)` with no
+  // per-theme definition silently wears the light cream on a dark ground. Tie
+  // completeness to --k-sunk (its own test guarantees it is per-theme): drop
+  // --agent-msg from any dark block --k-sunk defines and the counts diverge.
+  // Unlike --usermsg-tint this does NOT assert the dark values agree, because
+  // the plus-active (navy) block intentionally sets --agent-msg: var(--k-sunk)
+  // while the other dark blocks use the opaque cream -- presence parity is the
+  // guarantee, not value-agreement.
+  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  const declsIn = (token, text) => text.match(new RegExp('--' + token + ':\\s*[^;]+;', 'g')) || [];
+  const darkAt = raw.indexOf('@media (prefers-color-scheme: dark)');
+  assert.ok(darkAt > 0, 'CONTROL: no dark media block in the page at all, so this test cannot mean anything');
+  const agentLight = declsIn('agent-msg', raw.slice(0, darkAt));
+  const agentDark = declsIn('agent-msg', raw.slice(darkAt));
+  const sunkDark = declsIn('k-sunk', raw.slice(darkAt));
+  assert.equal(agentLight.length, 1,
+    `--agent-msg is defined ${agentLight.length} time(s) before the first dark block; the light theme needs exactly one`);
+  assert.ok(sunkDark.length >= 2,
+    `CONTROL: --k-sunk has only ${sunkDark.length} dark-side def(s); this test's per-block guarantee is meaningless if the sibling is not itself multi-theme`);
+  assert.equal(agentDark.length, sunkDark.length,
+    `--agent-msg has ${agentDark.length} dark-side definition(s) but its sibling --k-sunk has ${sunkDark.length}; `
+    + 'it must be defined in every dark theme block --k-sunk is (system-dark, forced-dark, navy/plus-active), '
+    + 'or the missing ground wears the light cream');
+});
+
 test('a composer that cannot send looks like it cannot send', () => {
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   const at = raw.indexOf('.dmbar .btn[disabled]');
@@ -8464,11 +8800,23 @@ test('the agent detail page is eight sections behind a nav, in the ruled order',
                           raw.indexOf('<section class="panel" id="panel-settings"'));
   const nav = panel.slice(panel.indexOf('<nav class="snav" id="d-nav"'), panel.indexOf('</nav>'));
   const gos = [...nav.matchAll(/<button type="button" data-go="([a-z]+)"/g)].map((m) => m[1]);
-  // Skills joined after Instructions (#477): what it reads at boot, then what it can do, then who it is.
-  assert.deepEqual(gos, ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'],
-    'the nav order moved; the mock reads Talk, Model, Memory, Instructions, Profile, Terminal, then Remove after a rule');
+  // #2916 (Josh 6.59): Memory folds under the "Model and Memory" pill and Skills under
+  // "Instructions", so neither has a pill of its own; the "Terminal" pill is renamed "Advanced".
+  // The pill order a person sees:
+  assert.deepEqual(gos, ['talk', 'model', 'instr', 'profile', 'term', 'remove'],
+    'the nav pill order moved; the pills read Talk, Model and Memory, Instructions, Profile, Advanced, Remove');
+  // The pill LABELS Josh asked for, and the two folded pills absent by name.
+  assert.match(nav, /data-go="model"[^>]*>Model and Memory</, 'the model pill is not labelled "Model and Memory"');
+  assert.match(nav, /data-go="term"[^>]*>Advanced</, 'the Terminal pill was not renamed "Advanced"');
+  assert.doesNotMatch(nav, /data-go="memory"/, 'a standalone Memory pill is back');
+  assert.doesNotMatch(nav, /data-go="skills"/, 'a standalone Skills pill is back');
   const secs = [...panel.matchAll(/<section class="dsec" id="d-sec-[a-z]+" data-sec="([a-z]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(secs, gos, 'the sections are not in the order the nav lists them');
+  // The eight sections are unchanged and still in reading order; the folded pair sits right after
+  // the section it folds under (memory after model, skills after instr).
+  assert.deepEqual(secs, ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'],
+    'the section order moved');
+  // Pills are the sections minus the folded pair, in the same relative order.
+  assert.deepEqual(secs.filter((s) => gos.includes(s)), gos, 'the pills are not in section order');
   // ⚠️ The control: the old grid no longer exists in this panel, so a revival
   // of it here would be a second layout under the nav.
   assert.ok(!panel.includes('class="dgrid"'), 'the detail panel grew a grid back under the nav');
@@ -8530,7 +8878,7 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   // own earlier in the file, and a forward search finds that one.
   const from = script.lastIndexOf('  const copy = stateCopyOf(a)', dmAt);
   assert.ok(from > -1 && from < dmAt, 'the state copy lookup moved away from the badge');
-  const TAIL = 'dtask.hidden = !dtask.textContent;';
+  const TAIL = "dtask.hidden = !dtask.textContent || (a.state === 'needs_you');";
   const end = script.indexOf(TAIL, from);
   assert.ok(end > from, 'the detail task line vanished');
   const body = script.slice(from, end + TAIL.length);
@@ -8561,6 +8909,25 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   // stuck ON. So the header shows the badge and nothing beside it.
   assert.equal(needs.task.textContent, '', 'needs_you still showed the frozen title as its task');
   assert.equal(needs.task.hidden, true, 'the empty task line was not hidden');
+
+  /* #2833 (Josh, 2026-09-11): a REPORTED state's self-reported message is now HIDDEN on the
+     header even though taskLine still returns it (the Talk section's waiting box carries it).
+     A NON-reported reason (rate_limited, below) stays visible -- that is the distinction. */
+  const reportedNeeds = drive({ state: 'needs_you', because: 'Research Kerry Pickrell: two location details', stateReported: true });
+  assert.notEqual(reportedNeeds.task.textContent, '',
+    'CONTROL: taskLine must still return the reported because, or the hide assertion below is vacuous');
+  assert.equal(reportedNeeds.task.hidden, true,
+    'a reported state must hide its self-reported quote on the header (#2833): it duplicates the waiting box');
+
+  /* #2833 CONTROL: the hide is scoped to needs_you, NOT to every reported state. A reported
+     BLOCKED agent's substantive reason has no compensating waiting box (that box is gated on
+     needs_you), so it must STAY visible. This guards against a future edit widening the guard
+     back toward a.stateReported. */
+  const reportedBlocked = drive({ state: 'blocked', because: 'waiting on the cert to be signed', stateReported: true });
+  assert.notEqual(reportedBlocked.task.textContent, '',
+    'CONTROL: taskLine must return the blocked reason, or the visible assertion below is vacuous');
+  assert.equal(reportedBlocked.task.hidden, false,
+    'a reported non-needs_you state (blocked) must keep its reason on the header (#2833 is needs_you-scoped)');
 
   /**
    * 🛑 AND THE HEADER SAYS WHAT THE CARD SAYS. Both derive the task line from
@@ -9022,6 +9389,8 @@ test('the documents list reads, and opening one is a POST behind the cross-site 
 
   const calls = [];
   projects.setRevealRunner((file, args) => { calls.push([file, args]); return { ok: true }; });
+  // win32-board-copy: the opener asserted here is the Mac's; the Windows arm is engine/projects.win32-reveal.test.js.
+  projects.setRevealPlatform('darwin');
   try {
     // --- 🛑 THE GUARD, and it is the reason this route is a POST at all. A
     //     page on another site must not be able to make this machine open a
@@ -9059,6 +9428,7 @@ test('the documents list reads, and opening one is a POST behind the cross-site 
     assert.equal(calls.length, 1, 'the legitimate open never reached the opener');
     assert.equal(calls[0][1].length, 1, 'reveal-style -R leaked into the open path');
   } finally {
+    projects.setRevealPlatform(null);
     projects.setRevealRunner(null);
   }
 });
@@ -11331,8 +11701,11 @@ test('#1304: each field takes the best source that has it, and neither hard-null
     /* 🛑 AND THE SANDBOX-SEAM DIVERGENCE, WHICH CANNOT BE TESTED IN THIS PROCESS
        AND WHOSE FIRST VERSION WAS VACUOUS. `accounts` resolves HOME once, AT
        MODULE LOAD, as `AGENT_WORKFORCE_HOME || os.homedir()`. My first attempt
-       guarded on `process.env.AGENT_WORKFORCE_HOME` - which this suite never
-       sets - so the whole arm was skipped and reverting the fix left 249/249
+       guarded on `process.env.AGENT_WORKFORCE_HOME` - which this suite did not
+       set AT THE TIME (#2724 now sets it near the top, so the reasoning recorded
+       here no longer reproduces as written; the arm would no longer skip, and the
+       child-process form below is what keeps it honest either way)
+       - so the whole arm was skipped and reverting the fix left 249/249
        green. An arm that cannot run is an assertion a broken implementation
        satisfies, which is the exact defect the rest of this test exists to close.
        ⇒ Driven in a CHILD PROCESS with the variable set before any require, so
@@ -11683,6 +12056,780 @@ test('#1304: the ROUTE asks the live reader by tmux session, and says which read
       'a live reading with a truthy non-`true` ok was accepted; `live.ok === true` has been loosened');
     assert.notEqual(loose.account && loose.account.email, 'live@example.com',
       'an unverified live reading reached the payload');
+  } finally {
+    server.setLiveReader(null);
+    messagesEngine.setRunner(null);
+    fleet.restore();
+  }
+});
+
+test('#2811: whoami carries the RUNNER the live read found, and a codex dir is not scored as a claude account', async () => {
+  /**
+   * Two server-side halves of #2811, both previously unasserted.
+   *
+   * 1. `runner` on the wire. The board has to be able to say WHICH agent runtime
+   *    a pane is running, read from the live process. Without an arm here the
+   *    field can be replaced by a constant and the whole suite stays green.
+   * 2. `isDefault` must be NULL for a codex directory. `accounts.isDefaultDir`
+   *    compares against `$HOME/.claude` and nothing else, so `~/.codex` scores
+   *    `false` -- literally true, and read inside an ACCOUNT block as "this agent
+   *    is on a NON-default account", implying a named alternate that does not
+   *    exist. An absence of evidence rendered as a finding is the exact failure
+   *    this endpoint exists to remove.
+   */
+  const messagesEngine = require('./engine/messages');
+  const server = require('./server.js');
+  const board = fleet.install([fleet.agent('acctworker', { state: 'idle' })]);
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'acctworker-discord' }));
+    server.setLiveReader(() => ({
+      ok: true, account: null, organization: null, model: null,
+      configDir: '/Users/x/.codex', runner: 'codex',
+      because: 'this is a Codex agent; which OpenAI account it is signed in as is not read here',
+    }));
+    const r = await req('/api/whoami', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from_pane: '%7' }),
+    });
+    assert.equal(r.status, 200);
+    const out = JSON.parse(r.body);
+    assert.equal(out.ok, true, 'the route refused a resolvable sender: ' + r.body);
+
+    assert.equal(out.runner, 'codex', 'the live runner did not reach the payload');
+    assert.equal(out.account.dir, '/Users/x/.codex', 'the codex config dir was dropped');
+    assert.strictEqual(out.account.isDefault, null,
+      'a ~/.codex directory was scored against $HOME/.claude and reported as a non-default ACCOUNT');
+
+    /* 🛑 THE WIRING, NOT JUST THE UNIT. `sentenceForWhoami` is pinned on its own
+       elsewhere, and that arm stays green while the ROUTE stops passing the
+       runner: the word Codex then disappears from the only surface the filer
+       sees, silently. Measured as a surviving mutant before this line existed
+       (route hardcodes the third argument to null: 272/272 green). */
+    assert.match(out.because, /This is a Codex agent/,
+      'the route composed its sentence without the runner, so a Codex agent is not told it is one');
+  } finally {
+    server.setLiveReader(null);
+    messagesEngine.setRunner(null);
+    fleet.restore();
+  }
+});
+
+test('#2811: a DEAD Codex agent is not handed its old Claude model by the record', () => {
+  /**
+   * 🛑 THE SAME DEFECT ONE READER OVER, and a live-only guard cannot see it.
+   * When the live read fails (paneless, crashed, or the 15s budget spent) the
+   * record is the ONLY source, which is precisely when its stale Claude model
+   * goes out unopposed. So the guard also consults what the agent IS, from the
+   * card's runner marker, not only what is running.
+   */
+  const { whoamiFor } = require('./server.js');
+  let board;
+  try {
+    board = fleet.install([
+      /* `unknown`, not `idle`: fleet's screens are Claude-shaped and the state
+         classifier dispatches per runner, so asking for an idle CODEX agent asks
+         the fixture for a world it cannot build (it says so, loudly, which is
+         the point of that helper). State is irrelevant here anyway; this test is
+         about which reader supplies the model. */
+      fleet.agent('deadcodex', { state: 'unknown', runner: 'codex' }),
+      fleet.agent('deadclaude', { state: 'idle' }),
+    ]);
+    const codexCard = board.agents.find((a) => a && a.name === 'deadcodex');
+    const claudeCard = board.agents.find((a) => a && a.name === 'deadclaude');
+    assert.equal(codexCard && codexCard.runner, 'codex',
+      'the fixture did not produce a codex-marked card, so nothing below is about one');
+    seedTranscript('deadcodex', 'claude-opus-5');
+    seedTranscript('deadclaude', 'claude-opus-5');
+
+    /* CONTROL FIRST: the record CAN answer for a dead agent. Without this the
+       arm below cannot tell "guarded" from "there was never a model". */
+    const claudeDead = whoamiFor(claudeCard, [], { ok: false, because: 'no pane on this computer' });
+    assert.equal(claudeDead.model.id, 'claude-opus-5',
+      'the record answered nothing even for a Claude agent, so the arm below is vacuous');
+
+    /* THE ARM: same shape, same seeded transcript, only the runner differs. */
+    const codexDead = whoamiFor(codexCard, [], { ok: false, because: 'no pane on this computer' });
+    assert.equal(codexDead.model, null,
+      'a dead Codex agent was handed the Claude model from the transcript it had before the switch');
+  } finally {
+    fleet.restore();
+  }
+});
+
+test('#2811: the profile provider names the runner with NO launch job, which is the Windows state', () => {
+  /**
+   * 🛑 THIS PINS THE RUNG THAT THREE WRONG COMMENTS TURNED ON. `recordedRunner`
+   * tries the launch job, then `store.readProfile(name).provider`. On Windows
+   * there is no `~/Library/LaunchAgents`, so the job read returns null and the
+   * PROFILE is the only rung left. It is a plain JSON read with no platform
+   * dependency, and the provider reaching it is written by shared code
+   * (`createAgentInner`, which the win32 create path calls, and `discover.js`,
+   * which contains zero platform branches).
+   *
+   * ⇒ A Windows OpenAI agent IS told it is a Codex agent. A comment on this
+   * branch claimed the opposite three times, each version plausible, each
+   * generalised from the one rung I had just been shown. A sentence could not
+   * hold that fact still; this can.
+   */
+  const { whoamiFor } = require('./server.js');
+  const create = require('./engine/create');
+  const storeEngine2 = require('./engine/store');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('profileonly', { state: 'idle' })]);
+    const realCard = board.agents.find((a) => a && a.name === 'profileonly');
+    /* No marker and no job: exactly what a Windows card carries. */
+    const card = { ...realCard, runner: null };
+    assert.equal(create.readJob('profileonly'), null,
+      'a launch job exists, so this is not the no-plist state the arm is about');
+
+    /* CONTROL FIRST: with no provider written, the fallback floors at claude. */
+    storeEngine2.writeProfile('profileonly', {});
+    assert.equal(create.recordedRunner('profileonly'), 'claude',
+      'the floor is not claude, so the arm below cannot show the provider doing the work');
+
+    storeEngine2.writeProfile('profileonly', { provider: 'openai' });
+    assert.equal(create.recordedRunner('profileonly'), 'codex',
+      'the profile provider no longer names the runner with no launch job present');
+
+    const out = whoamiFor(card, [], { ok: false, because: 'no pane on this computer' });
+    assert.equal(out.resolvedRunner, 'codex',
+      'an agent known only by its profile provider resolved to claude');
+  } finally {
+    try { fs.rmSync(nodePath.join(require('./engine/store').PROFILES, 'profileonly.json')); } catch { /* may not exist */ }
+    fleet.restore();
+  }
+});
+
+test('#2811: a card with NO runner marker falls back to the launch job, not to the transcript', () => {
+  /**
+   * 🛑 THE CASE THE MARKER CANNOT ANSWER. A paneless card carries `runner: null`
+   * by construction (`engine/status.js`, its only such site), so the
+   * `@kosmos_runner` marker is absent for exactly one of the cases this guard
+   * names. The launch job does not depend on a pane, so it answers there.
+   *
+   * 🔑 THE PLIST IS WRITTEN BY THE PRODUCT'S OWN WRITER (`create.plistFor`),
+   * not hand-rolled XML. A hand-rolled fixture answering a different question is
+   * the trap this branch already fell into once, with `--model` on a codex
+   * command line the supervisor never writes.
+   */
+  const { whoamiFor } = require('./server.js');
+  const create = require('./engine/create');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('jobcodex', { state: 'idle' })]);
+    const realCard = board.agents.find((a) => a && a.name === 'jobcodex');
+    assert.equal(realCard && realCard.runner, 'claude',
+      'a real pane card no longer carries a runner marker, so this fixture is not the paneless shape');
+    /* 🔑 DERIVED FROM A REAL CARD, not hand-built. Building one from scratch is
+       what `fixture-discipline.test.js` exists to refuse, and it would let this
+       test drift from what a card really carries.
+       Measured equivalence rather than asserted: a paneless card differs from a
+       pane card on `paneless`, `reachedByChannel`, `runner`, `task` and `state`
+       (the paneless card builder), and `whoamiFor` reads exactly three card fields:
+       `runner`, `session`, `sessionName`. `runner` is the only member of both
+       sets, so nulling it IS the paneless shape as far as this function can
+       observe, and the other four would be decoration here. */
+    const card = { ...realCard, runner: null };
+    seedTranscript('jobcodex', 'claude-opus-5');
+
+    /* CONTROL FIRST: with no job on disk the record answers, so the arm below
+       cannot pass merely because the transcript was unreadable. */
+    assert.equal(create.readJob('jobcodex'), null, 'a job already exists, so the control is not clean');
+    const beforeJob = whoamiFor(card, [], { ok: false, because: 'no pane on this computer' });
+    assert.equal(beforeJob.model.id, 'claude-opus-5',
+      'the record answered nothing, so the arm below is vacuous');
+
+    /* Now give it a REAL codex launch job, written by the product. */
+    fs.writeFileSync(
+      create.plistPath('jobcodex'),
+      create.plistFor('jobcodex', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, '/Users/x/.codex', 'codex'),
+      'utf8',
+    );
+    assert.equal(create.readJob('jobcodex').runner, 'codex',
+      'the plist this test just wrote does not read back as codex');
+
+    const afterJob = whoamiFor(card, [], { ok: false, because: 'no pane on this computer' });
+    assert.equal(afterJob.model, null,
+      'an agent whose LAUNCH JOB says codex was handed the Claude model from its old transcript');
+
+    /* 🔑 AND THE ARM THAT DISCRIMINATES `recordedRunner` FROM A BARE `readJob`.
+       With the plist deleted, a plain job read knows nothing and the stale model
+       returns; the canonical reader still answers from the profile's provider,
+       which is exactly why it is the right reader and not merely the tidier one. */
+    fs.unlinkSync(create.plistPath('jobcodex'));
+    assert.equal(create.readJob('jobcodex'), null, 'the plist survived the unlink, so the arm is not about the profile');
+    require('./engine/store').writeProfile('jobcodex', { provider: 'openai' });
+    const viaProfile = whoamiFor(card, [], { ok: false, because: 'no pane on this computer' });
+    assert.equal(viaProfile.model, null,
+      'with no launch job, the profile provider was ignored and the stale Claude model came back');
+  } finally {
+    try { fs.unlinkSync(create.plistPath('jobcodex')); } catch { /* the test may have failed before writing it */ }
+    /* The profile record too. `store.PROFILES` is a GETTER that answers the
+       CURRENT environment (#1443), and this file sets `AGENT_WORKFORCE_DATA`
+       before requiring store, so it resolves inside the sandbox. */
+    try {
+      /* Required HERE: the file's other `storeEngine` is scoped to a later test,
+         so referencing it from this one throws a ReferenceError that this very
+         catch would swallow, leaving a cleanup that silently does nothing and a
+         test that still passes. */
+      fs.rmSync(nodePath.join(require('./engine/store').PROFILES, 'jobcodex.json'));
+    } catch { /* may not exist */ }
+    fleet.restore();
+  }
+});
+
+test('#2811: account-status does not run a CLAUDE auth probe against a codex agent, named OR default', async () => {
+  /**
+   * 🛑 THE ASSERTIONS ARE ARMED BY A STUB, AND AN EARLIER VERSION WAS NOT. With
+   * the real `checkLive` this route answers UNKNOWN in a sandbox whether or not
+   * the guard exists, so `connected === null` and `state !== 'none'` could not
+   * return the dangerous answer: the arm pinned only the `because` wording, and
+   * renaming that sentence would have deleted the test silently.
+   * `checkLive` is stubbed to the shape the defect actually produces (NONE, which
+   * the route renders as a confident `connected: false`), so the assertions now
+   * fail when the guard is removed.
+   *
+   * BOTH codex shapes are covered, because the first version of the guard sat
+   * below the no-account return and so never fired for the default-account agent,
+   * which is this card's headline case.
+   */
+  const create = require('./engine/create');
+  const subscription = require('./engine/subscription');
+  const realCheckLive = subscription.checkLive;
+  let board;
+  try {
+    board = fleet.install([
+      fleet.agent('namedcodex', { state: 'idle' }),
+      fleet.agent('defcodex2', { state: 'idle' }),
+      fleet.agent('plainclaude', { state: 'idle' }),
+    ]);
+    /* The dangerous answer: a Claude probe against a codex home reports NONE. */
+    subscription.checkLive = async () => ({ state: subscription.STATE.NONE, plan: null });
+
+    /* NAMED codex account: a real row, so the no-account return never catches it. */
+    fs.writeFileSync(create.plistPath('namedcodex'),
+      create.plistFor('namedcodex', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, '/Users/x/.codex-work2', 'codex'), 'utf8');
+    assert.equal(create.readJob('namedcodex').configDir, '/Users/x/.codex-work2',
+      'the named fixture lost its account dir, so it is not the shape this arm is about');
+
+    /* DEFAULT codex account: NO CODEX_HOME, so accountForAgent returns null. */
+    fs.writeFileSync(create.plistPath('defcodex2'),
+      create.plistFor('defcodex2', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, null, 'codex'), 'utf8');
+    assert.equal(create.readJob('defcodex2').configDir, null,
+      'the default fixture carries a dir, so it is not the default-row shape');
+
+    for (const who of ['namedcodex', 'defcodex2']) {
+      const r = await req('/api/agent/' + who + '/account-status');
+      assert.equal(r.status, 200, who);
+      const out = JSON.parse(r.body);
+      assert.equal(out.connected, null,
+        who + ': reported as NOT CONNECTED off a Claude auth probe against a codex agent');
+      assert.notEqual(out.state, subscription.STATE.NONE,
+        who + ': the Claude probe ran and its NONE reached the payload');
+      assert.match(out.because, /does not run on Claude/, who);
+      assert.strictEqual(out.remedy, null,
+        who + ': the codex answer carries no remedy key, so it is shaped unlike every other ok:true return here');
+    }
+
+    /* 🛑 THE PAYLOAD HALF, WHICH A SURVIVING MUTANT SHOWED WAS UNARMED. The arms
+       above read only connected/state/because, so replacing the whole account
+       expression with a bare `null` changed nothing they could see. The two
+       shapes differ here and that difference is the point: a NAMED codex account
+       still reports its row, a DEFAULT one has none to report. */
+    const named = JSON.parse((await req('/api/agent/namedcodex/account-status')).body);
+    /* Existence FIRST: the dir check below is `undefined`-valued, and `null ==
+       undefined`, so on a missing row it would pass for the wrong reason. */
+    assert.ok(named.account, 'a named codex account lost its row, so the answer names no account at all');
+    assert.strictEqual(named.account.dir, undefined, 'the route leaked a dir it does not send');
+    /* 🛑 NULL, NOT FALSE. `accountForAgent` returns null for a foreign dir on
+       purpose: `false` would read as "on a NON-default account" and imply a named
+       alternate that does not exist. An earlier version of this arm asserted
+       `false` and so locked in the very value the branch removed. */
+    assert.strictEqual(named.account.isDefault, null,
+      'a codex home was scored against $HOME/.claude and flattened to a non-default boolean');
+    const dflt = JSON.parse((await req('/api/agent/defcodex2/account-status')).body);
+    assert.strictEqual(dflt.account, null,
+      'a default codex agent was given an account row it does not have');
+
+    /* CONTROL: a CLAUDE agent still gets the real probe, so the guard is scoped
+       and has not simply disabled this route. The stub makes it answer NONE. */
+    fs.writeFileSync(create.plistPath('plainclaude'),
+      create.plistFor('plainclaude', '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, '/Users/x/.claude-b', ''), 'utf8');
+    const c = await req('/api/agent/plainclaude/account-status');
+    const cout = JSON.parse(c.body);
+    assert.equal(cout.state, subscription.STATE.NONE,
+      'a Claude agent stopped being probed, so the guard is too wide');
+    assert.equal(cout.connected, false);
+  } finally {
+    subscription.checkLive = realCheckLive;
+    for (const n of ['namedcodex', 'defcodex2', 'plainclaude']) {
+      try { fs.unlinkSync(create.plistPath(n)); } catch { /* may not have been written */ }
+    }
+    fleet.restore();
+  }
+});
+
+test('#2811: a DEFAULT-account Codex agent is not handed the operator Claude account', () => {
+  /**
+   * 🛑 THE CARD'S OWN DEFECT, IN THE BRANCH I EXEMPTED BY NAME. A default-account
+   * OpenAI agent launches with NO CODEX_HOME, so its job carries
+   * `configDir: null` and `accountForAgent` falls to the dir-less arm, which
+   * matched on `isDefault` ALONE. Handed the Claude list that is the operator's
+   * own account, so a Codex agent was told it runs on a Claude email with
+   * `isDefault: true`.
+   *
+   * My round-4 comment waved exactly this off ("correct for both providers"),
+   * which is true of the DIR match and false of the DEFAULTNESS match. The
+   * sentence change then made it worse rather than better: "This is a Codex
+   * agent, and it runs on <a Claude email>" contradicts itself in one line.
+   */
+  const { accountForAgent, sentenceForWhoami } = require('./server.js');
+  const create = require('./engine/create');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('defcodex', { state: 'idle' })]);
+    /* A real DEFAULT-row codex job: runner codex, and NO account dir, which is
+       exactly what create.js writes for the default OpenAI row. */
+    fs.writeFileSync(
+      create.plistPath('defcodex'),
+      create.plistFor('defcodex', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, null, 'codex'),
+      'utf8',
+    );
+    const job = create.readJob('defcodex');
+    assert.equal(job.runner, 'codex');
+    assert.equal(job.configDir, null, 'the fixture job carries a dir, so it is not the default-row shape');
+
+    const claudeRows = [{ dir: '/Users/x/.claude', email: 'josh@example.com', label: null, isDefault: true }];
+    const acct = accountForAgent('defcodex', claudeRows);
+    assert.equal(acct, null,
+      'a Codex agent was handed the operator CLAUDE account because the default match ignored the provider');
+
+    /* CONTROL 1: the same job against OPENAI rows still resolves. The gate must
+       select the right provider, not refuse everything. */
+    const openaiRows = [{ dir: '/Users/x/.codex', email: 'dave@example.com', label: null, isDefault: true, provider: 'openai' }];
+    const oacct = accountForAgent('defcodex', openaiRows);
+    assert.equal(oacct && oacct.email, 'dave@example.com',
+      'the codex agent lost its own default OpenAI account, so the gate is too wide');
+
+    /* CONTROL 2: a CLAUDE agent on the default row still gets the Claude account,
+       which is the behaviour every existing caller depends on. */
+    fs.writeFileSync(
+      create.plistPath('defclaude'),
+      create.plistFor('defclaude', '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, null, ''),
+      'utf8',
+    );
+    const cacct = accountForAgent('defclaude', claudeRows);
+    assert.equal(cacct && cacct.email, 'josh@example.com',
+      'a Claude agent on the default row lost its account');
+
+    /* AND THE SENTENCE THAT MADE IT WORSE: no self-contradiction now.
+       🔑 WHAT THIS LINE ACTUALLY GUARDS, because its old message overstated it.
+       `acct` is asserted null 20 lines above, so "a Codex agent is not handed the
+       Claude account" is already guarded THERE, and a mutant of the provider gate
+       reds that assertion and never reaches this one. What is left for this line
+       is narrower and still worth having: `sentenceForWhoami` must source the
+       account ONLY from its argument. MEASURED, both ways:
+         mutant: a fallback when `account` is null  -> THIS line reds
+         mutant: re-derive via `accounts.list()`    -> this line stays green (the
+                 fixture's row is a local array, not on disk), 4 other arms red
+       so it is killable but narrow, and the message now says which. */
+    const said = sentenceForWhoami(acct, null, 'codex');
+    assert.doesNotMatch(said, /josh@example\.com/,
+      'sentenceForWhoami produced a Claude account from somewhere other than its account argument, which was null');
+    assert.match(said, /^This is a Codex agent/);
+
+    /* CONTROL 3, and it is what makes the line above discriminating: the SAME
+       regex against the SAME rows for a CLAUDE agent DOES match. Without it,
+       `doesNotMatch` passing proves nothing about whether the pattern can fire. */
+    const saidClaude = sentenceForWhoami(cacct, null, 'claude');
+    assert.match(saidClaude, /josh@example\.com/,
+      'CONTROL: the email pattern cannot fire at all, so the doesNotMatch above is vacuous');
+  } finally {
+    for (const n of ['defcodex', 'defclaude']) {
+      try { fs.unlinkSync(create.plistPath(n)); } catch { /* may not have been written */ }
+    }
+    fleet.restore();
+  }
+});
+
+test('#2811: the RECORD account path does not score a codex dir as a non-default Claude account', () => {
+  /**
+   * 🛑 THE SIBLING OF THE LIVE GUARD, MISSED ONCE ALREADY. I guarded `isDefault`
+   * on the live reader, wrote in that very comment that the record-only path
+   * needed the same guard, and then carried the reasoning to the MODEL and not to
+   * the ACCOUNT. `readJob` returns CODEX_HOME as `configDir`, so a codex home
+   * scored `false` against `$HOME/.claude`: one payload saying the model is
+   * unknown (correct) and the account is a non-default CLAUDE one (not).
+   *
+   * Driven through `accountForAgent`, which is where the defect lives, so all
+   * five of its callers are covered rather than the whoami one.
+   */
+  const { accountForAgent } = require('./server.js');
+  const create = require('./engine/create');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('acctcodex', { state: 'idle' })]);
+
+    /* A REAL codex launch job, written by the product's own writer. */
+    fs.writeFileSync(
+      create.plistPath('acctcodex'),
+      create.plistFor('acctcodex', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, '/Users/x/.codex-work2', 'codex'),
+      'utf8',
+    );
+    const job = create.readJob('acctcodex');
+    assert.equal(job && job.runner, 'codex', 'the fixture job does not read back as codex');
+    assert.equal(job.configDir, '/Users/x/.codex-work2', 'CODEX_HOME did not land as the job configDir');
+
+    const acct = accountForAgent('acctcodex', []);
+    assert.equal(acct.dir, '/Users/x/.codex-work2');
+    assert.strictEqual(acct.isDefault, null,
+      'a codex home was scored against $HOME/.claude and reported as a non-default account');
+
+    /* CONTROL: a CLAUDE record still gets a real boolean, so the guard is not a
+       blanket null that would silently remove the answer for every agent. */
+    fs.writeFileSync(
+      create.plistPath('acctclaude'),
+      create.plistFor('acctclaude', '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, '/Users/x/.claude-b', ''),
+      'utf8',
+    );
+    const claudeAcct = accountForAgent('acctclaude', []);
+    assert.strictEqual(claudeAcct.isDefault, false,
+      'the claude record path lost its real isDefault answer');
+  } finally {
+    for (const n of ['acctcodex', 'acctclaude']) {
+      try { fs.unlinkSync(create.plistPath(n)); } catch { /* may not have been written */ }
+    }
+    fleet.restore();
+  }
+});
+
+test('#2811: the sentence a Codex agent reads back actually says Codex', () => {
+  /* 🔑 THE ONLY USER-VISIBLE SURFACE OF THE VERB. `install/kosmos` prints the
+     `because` sentence and nothing else (it seds the field out of the body), and
+     `grep -c whoami web/index.html` is 0. So a fix that lands only in JSON is
+     invisible to the agent that asked. */
+  const { sentenceForWhoami } = require('./server.js');
+  const codexAcct = { email: null, label: null, dir: '/Users/x/.codex', isDefault: null };
+  const said = sentenceForWhoami(codexAcct, { id: 'gpt-5.6', name: 'GPT-5.6' }, 'codex');
+  assert.match(said, /^This is a Codex agent, and it runs on an account we cannot identify \(/,
+    'a Codex agent is told nothing about being a Codex agent');
+  assert.match(said, /and its model is GPT-5\.6/);
+
+  /* CONTROL: the claude sentence is byte-identical to what it was. The clause is
+     additive, and a change here would rewrite what every existing agent reads. */
+  const claudeAcct = { email: 'a@b.c', label: null, dir: '/d', isDefault: true };
+  assert.equal(sentenceForWhoami(claudeAcct, { id: 'm', name: 'M' }, 'claude'),
+    'This agent runs on a@b.c, and its model is M.');
+  assert.equal(sentenceForWhoami(claudeAcct, { id: 'm', name: 'M' }, null),
+    'This agent runs on a@b.c, and its model is M.',
+    'an answer with no runner changed shape, so every pre-existing caller moved');
+});
+
+test('#2811: a LIVE claude process beats a stale codex marker, and keeps its model', () => {
+  /**
+   * 🛑 THE PRECEDENCE DECISION, WHICH NOTHING PINNED. Round 4 collapsed two
+   * runner readers into one and made LIVE win. That changed a real case: before,
+   * the model guard fired when EITHER reader said non-claude, so a live CLAUDE
+   * process with a stale codex marker had its model suppressed.
+   *
+   * The window is real: `setProvider` rewrites the plist, but the RUNNING process
+   * does not change until the agent restarts.
+   * 🛑 "AND THE MARKER" IS WHAT THIS SAID AND IT IS FALSE. `setProvider` never
+   * invokes tmux; `bin/agent-supervisor.sh` writes `@kosmos_runner` at agent
+   * START, after the restart this window waits for, so the marker still holds its
+   * OLD value during the window. This arm CONSTRUCTS the state it tests, so the
+   * behaviour is pinned regardless; only the account of how the state arises was
+   * wrong, and whether it is reachable by another route is NOT something I have
+   * measured. During it the
+   * agent genuinely is claude, and it is writing the very transcript the record
+   * reads. Suppressing that model would answer "we cannot tell which model" about
+   * an agent whose live process was right there saying so.
+   *
+   * ⇒ Live wins because it is the only source that cannot be stale, and this arm
+   * is what makes that a decision rather than an accident.
+   */
+  const { whoamiFor } = require('./server.js');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('midswitch', { state: 'unknown', runner: 'codex' })]);
+    const card = board.agents.find((a) => a && a.name === 'midswitch');
+    assert.equal(card.runner, 'codex', 'the fixture card is not codex-marked, so there is no staleness to resolve');
+    seedTranscript('midswitch', 'claude-opus-5');
+
+    const out = whoamiFor(card, [], {
+      ok: true, account: null, model: null, configDir: '/Users/x/.claude', runner: 'claude',
+    });
+    assert.equal(out.resolvedRunner, 'claude',
+      'the stale codex marker beat the live claude process');
+    assert.equal(out.model.id, 'claude-opus-5',
+      'a live CLAUDE agent lost its transcript model to a stale codex marker');
+
+    /* CONTROL, the other direction: live codex over a claude-marked card still
+       suppresses, so live-first is not simply "always trust claude". */
+    const cb = fleet.install([fleet.agent('midswitch2', { state: 'idle' })]);
+    const c2 = cb.agents.find((a) => a && a.name === 'midswitch2');
+    assert.equal(c2.runner, 'claude');
+    seedTranscript('midswitch2', 'claude-opus-5');
+    const out2 = whoamiFor(c2, [], {
+      ok: true, account: null, model: null, configDir: '/Users/x/.codex', runner: 'codex',
+    });
+    assert.equal(out2.resolvedRunner, 'codex');
+    assert.equal(out2.model, null,
+      'a live CODEX agent was handed the Claude transcript model because its card said claude');
+  } finally {
+    fleet.restore();
+  }
+});
+
+test('#2811: an UNRECORDED runner marker does not read as claude when the job says codex', () => {
+  /**
+   * 🛑 THE MARKER'S `'claude'` IS A DEFAULT, NOT A CLAIM. `status.js`
+   * normalises the pane marker as `pane.runner === 'codex' ? 'codex' : 'claude'`,
+   * so an agent whose `@kosmos_runner` was never recorded is indistinguishable
+   * from one recorded as claude. `bin/agent-supervisor.sh` says that failure is
+   * real: "could not record $SESSION's runner -- the board will read it as
+   * claude".
+   *
+   * With a failed live read that agent resolved to claude, took the stale Claude
+   * transcript model and was never told it is a Codex agent: this card's own
+   * defect, with the definitive plist in hand and never opened.
+   */
+  const { whoamiFor } = require('./server.js');
+  const create = require('./engine/create');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('lostmarker', { state: 'idle' })]);
+    const card = board.agents.find((a) => a && a.name === 'lostmarker');
+    assert.equal(card.runner, 'claude',
+      'the fixture card does not carry the DEFAULTED marker, so there is nothing to distinguish');
+    seedTranscript('lostmarker', 'claude-opus-5');
+
+    /* CONTROL FIRST: with no launch job, the marker's claude stands and the
+       record answers, so the arm below cannot pass for lack of a transcript. */
+    const before = whoamiFor(card, [], { ok: false, because: 'no pane' });
+    assert.equal(before.resolvedRunner, 'claude');
+    assert.equal(before.model.id, 'claude-opus-5',
+      'the record answered nothing, so the arm below is vacuous');
+
+    /* Now a REAL codex launch job. The plist is definitive; the marker is not. */
+    fs.writeFileSync(
+      create.plistPath('lostmarker'),
+      create.plistFor('lostmarker', '/opt/homebrew/bin/codex', '/opt/homebrew/bin/tmux', null, '/Users/x/.codex', 'codex'),
+      'utf8',
+    );
+    const after = whoamiFor(card, [], { ok: false, because: 'no pane' });
+    assert.equal(after.resolvedRunner, 'codex',
+      'a defaulted claude marker outranked a launch job that says codex');
+    assert.equal(after.model, null,
+      'the Codex agent was handed its old Claude transcript model');
+  } finally {
+    try { fs.unlinkSync(create.plistPath('lostmarker')); } catch { /* may not have been written */ }
+    fleet.restore();
+  }
+});
+
+test('#2811: a Codex agent with NO live read is still told it is a Codex agent', () => {
+  /* 🛑 THE SENTENCE USED TO ASK THE LIVE READER ONLY, so a paneless, crashed or
+     win32 Codex agent read "an account we cannot identify (...)" with the word
+     Codex nowhere in it. That is the same miss as the model guard one field
+     over: "what is running" is a live question, but "what IS this agent" is not,
+     and the sentence asks the second one. */
+  const { whoamiFor, sentenceForWhoami } = require('./server.js');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('crashedcodex', { state: 'unknown', runner: 'codex' })]);
+    const card = board.agents.find((a) => a && a.name === 'crashedcodex');
+    assert.equal(card && card.runner, 'codex', 'the fixture is not a codex-marked card');
+
+    const out = whoamiFor(card, [], { ok: false, because: 'no pane on this computer' });
+    assert.equal(out.resolvedRunner, 'codex',
+      'with no live read, the agent no longer resolves as codex at all');
+    assert.match(sentenceForWhoami(out.account, out.model, out.resolvedRunner), /^This is a Codex agent/,
+      'a crashed Codex agent is told nothing about being one');
+
+    /* CONTROL: the same shape on a CLAUDE card keeps the original lead, so the
+       clause is still gated and has not become unconditional. */
+    const cb = fleet.install([fleet.agent('crashedclaude', { state: 'idle' })]);
+    const claudeCard = cb.agents.find((a) => a && a.name === 'crashedclaude');
+    const cOut = whoamiFor(claudeCard, [], { ok: false, because: 'no pane on this computer' });
+    assert.equal(cOut.resolvedRunner, 'claude');
+    assert.doesNotMatch(sentenceForWhoami(cOut.account, cOut.model, cOut.resolvedRunner), /This is a .* agent, and/,
+      'a Claude agent picked up the runner lead');
+  } finally {
+    fleet.restore();
+  }
+});
+
+test('#2811: a stale CLAUDE transcript does not supply the model for a CODEX agent', () => {
+  /**
+   * 🛑 THE CONTRADICTION THIS CHANGE MADE REACHABLE. `readModel` is a Claude
+   * transcript reader and it is the PREFERRED source. `create.setProvider`
+   * switches an agent claude -> codex without moving anything the transcript
+   * lookup keys on. 🛑 DO NOT TAKE THE LIST OF WHAT IT WRITES FROM HERE: this
+   * sentence has been an enumeration twice ("one", then "three") and was wrong
+   * both times, and the create.js LINE NUMBERS it used to cite had already moved
+   * 18 minutes later, in the same round, from an edit by the same author above
+   * them. The plan ruled at round 9 that citations like that are gone rather than
+   * corrected: "a claim I have to re-verify forever, and this card has already
+   * shown I do not."
+   * `engine/create.setprovider-writes-2811.test.js` enumerates the written
+   * path-set BY MEASUREMENT and reds when it changes; that is the reference.
+   * What matters HERE is only the property this guard rests on, and it is not
+   * "nothing leaves `workerDir(clean)`" (three of the written paths are outside
+   * it, and the plist and profile always were). It is that `workerDir(clean)` is
+   * not itself MOVED and the agent's NAME does not change, so the workdir is the
+   * same afterwards and the OLD Claude transcript stays findable.
+   * ⚠️ THIS SENTENCE SAID "a plist rewrite and nothing else" FOR 22 ROUNDS, and
+   * it is `setProvider`'s own header repeated. It is measurably false: the brief
+   * rename and the profile write sit 322 and 325 lines below `function
+   * setProvider`, and the trust write 245 lines below it (measured, and the first
+   * two are the same at the merge-base). `server.js` and the plan corrected the
+   * sentence at ROUND 2 and this third copy stood until round 23.
+   * 📌 Those distances are from a NAMED anchor on purpose: an edit above
+   * `function setProvider` moves the anchor and its targets together, so they stay
+   * exact. A distance from a LINE NUMBER does not, and one in the plan rotted
+   * inside the commit that wrote it.
+   * ⚠️ AND THE COUNT IS FOUR, NOT THREE: round 24 measured a fourth write
+   * (`trustCodexFolder`). Do not take a count from
+   * any prose here; `engine/create.setprovider-writes-2811.test.js` enumerates the
+   * set by measurement and reds when it changes.
+   * ⭐ The CONCLUSION survives either way (the transcript stays findable), which
+   * is exactly why the false premise read as confirmation and nobody re-opened
+   * `setProvider`. A sentence is not checked by the truth of what it concludes.
+   * 📌 And the profile write is not a detail here: it is the SOLE rung that names
+   * the provider on Windows (see `engine/runningas.js`), so "nothing else" denied
+   * the existence of the mechanism this card depends on. While the live reader refused for codex there was
+   * no contradiction to have; making it answer is what put a true runner beside a
+   * stale model, inside one payload.
+   *
+   * 🔑 BOTH SOURCES ANSWER, WITH DIFFERENT VALUES. That is the only fixture that
+   * can tell "the live value surfaced" apart from "live wins", and this file
+   * already paid for learning it: a reviewer swapped the two model branches and
+   * the ENTIRE SUITE STAYED GREEN because no arm had ever populated both.
+   */
+  const { whoamiFor } = require('./server.js');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('codexworker', { state: 'idle' })]);
+    const card = board.agents.find((a) => a && a.name === 'codexworker');
+    assert.ok(card && card.sessionName, 'the fixture produced no card, so nothing below is about an agent');
+    seedTranscript('codexworker', 'claude-opus-5');
+
+    /* CONTROL FIRST, so a seeding failure cannot be mistaken for the guard
+       working. If the record cannot answer here, the arm below proves nothing. */
+    const asClaude = whoamiFor(card, [], {
+      ok: true, account: null, model: 'claude-fable-5', configDir: '/d', runner: 'claude',
+    });
+    assert.equal(asClaude.model.id, 'claude-opus-5',
+      'the transcript did not answer at all, so the codex arm below is vacuous');
+    assert.equal(asClaude.source.model, 'record');
+
+    /* THE ARM. Same card, same transcript, same shape: only the runner differs. */
+    const asCodex = whoamiFor(card, [], {
+      ok: true, account: null, model: 'gpt-5.6', configDir: '/Users/x/.codex', runner: 'codex',
+    });
+    assert.equal(asCodex.model.id, 'gpt-5.6',
+      'a Codex agent was told it runs a Claude model, off a transcript written before the switch');
+    assert.equal(asCodex.source.model, 'process',
+      'the model was attributed to the record for a codex agent');
+  } finally {
+    fleet.restore();
+  }
+});
+
+test('#2811 CONTROL: a CLAUDE live read still gets a real isDefault boolean, and names its runner', async () => {
+  /* 🛑 THE ARM THAT KEEPS THE GUARD ABOVE FROM BEING A BLANKET NULL. Without
+     this, `isDefault: null` unconditionally passes the codex arm while silently
+     removing the answer for every Claude agent, which is the whole field. The
+     two arms differ ONLY in the runner and the directory. */
+  const messagesEngine = require('./engine/messages');
+  const server = require('./server.js');
+  const accountsEngine = require('./engine/accounts');
+  const board = fleet.install([fleet.agent('acctworker', { state: 'idle' })]);
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'acctworker-discord' }));
+    const notDefault = '/Users/x/.claude-account-b';
+    server.setLiveReader(() => ({
+      ok: true, account: null, organization: null, model: null,
+      configDir: notDefault, runner: 'claude',
+    }));
+    const r = await req('/api/whoami', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from_pane: '%7' }),
+    });
+    const out = JSON.parse(r.body);
+    assert.equal(out.runner, 'claude');
+    assert.strictEqual(out.account.isDefault, accountsEngine.isDefaultDir(notDefault),
+      'the claude path no longer gets the accounts engine answer');
+    assert.strictEqual(out.account.isDefault, false,
+      'and that answer is a real boolean, not null');
+  } finally {
+    server.setLiveReader(null);
+    messagesEngine.setRunner(null);
+    fleet.restore();
+  }
+});
+
+test('#2811: the wire runner is armed by ok === TRUE, not by a truthy ok', async () => {
+  /* 🔑 THE SAME ARM THIS FILE ALREADY CARRIES FOR THE ACCOUNT FIELD (#1409), for
+     the same stated reason: `setLiveReader` accepts any function without
+     shape-checking its return, so the day a fourth producer hands back a truthy
+     non-`true` ok, `=== true` becomes load-bearing SILENTLY. A reviewer mutated
+     it to `(live && live.runner)` and nothing failed, which makes it an unarmed
+     guard rather than a defect. This arms it.
+     ⚠️ Bounded honestly: not a live defect today. `engine/runningas.js` returns
+     `ok:` as a strict boolean at every site, so nothing in the product can
+     currently hand this a truthy non-`true`. */
+  const messagesEngine = require('./engine/messages');
+  const server = require('./server.js');
+  const board = fleet.install([fleet.agent('okworker', { state: 'idle' })]);
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'okworker-discord' }));
+    server.setLiveReader(() => ({
+      ok: 'yes', account: null, organization: null, model: null,
+      configDir: '/Users/x/.codex', runner: 'codex',
+    }));
+    const r = await req('/api/whoami', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from_pane: '%7' }),
+    });
+    const out = JSON.parse(r.body);
+    assert.strictEqual(out.runner, null,
+      'a truthy non-true ok armed the runner field, so an unverified live shape reaches the wire');
+  } finally {
+    server.setLiveReader(null);
+    messagesEngine.setRunner(null);
+    fleet.restore();
+  }
+});
+
+test('#2811 CONTROL: a live answer carrying NO runner is unchanged', async () => {
+  /* 🔑 `liveReaderFn` is injectable and `whoamiFor` is exported, so answers reach
+     this code carrying no runner at all -- every test above this line does it.
+     The guard is written to move only for a KNOWN non-claude runner, and this
+     pins that: absent runner takes the old path and still gets a boolean. */
+  const messagesEngine = require('./engine/messages');
+  const server = require('./server.js');
+  const board = fleet.install([fleet.agent('acctworker', { state: 'idle' })]);
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'acctworker-discord' }));
+    server.setLiveReader(() => ({
+      ok: true, account: null, organization: null, model: null,
+      configDir: '/Users/x/.claude-account-b',
+    }));
+    const r = await req('/api/whoami', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from_pane: '%7' }),
+    });
+    const out = JSON.parse(r.body);
+    assert.strictEqual(out.runner, null, 'a missing runner must be null, never invented');
+    assert.strictEqual(out.account.isDefault, false,
+      'an answer with no runner lost its isDefault: the guard is too wide');
   } finally {
     server.setLiveReader(null);
     messagesEngine.setRunner(null);
@@ -12628,5 +13775,582 @@ test('#1724: the settings route captures the auto-handoff setting and refuses a 
     assert.equal(both.autohandoff.enabled, false, 'and the auto-handoff write applied');
   } finally {
     store.writeSettings({ autohandoff: null, timezone: null });
+  }
+});
+
+// #2863: a.dmUnread on the fleet payload + its /seen clear. This is the WIRING
+// test the chat.js unit suite cannot give: that withDmUnread actually reaches
+// the /api/status payload and that POST /api/agent/<name>/seen is a live route.
+// The counting/edge logic itself is pinned in engine/chat.dm-unread-2863.test.js.
+test('#2863: an agent\'s DM replies surface as a.dmUnread, cleared by POST /api/agent/<name>/seen', async (t) => {
+  const chat = require('./engine/chat');
+  const made = fleet.install([fleet.agent('april', { state: 'idle', displayName: 'April', role: 'a tester' })]);
+  t.after(() => made.restore());
+
+  // Two replies FROM the agent land in the operator's DIRECT thread; the
+  // operator's own message (no `from`) must never count.
+  const t1 = '2026-09-11T00:00:00.000Z';
+  const t2 = '2026-09-11T02:00:00.000Z';
+  assert.equal(chat.appendMessage(chat.DIRECT, 'april', { text: 'one', at: t1, from: 'april' }).recorded, true);
+  assert.equal(chat.appendMessage(chat.DIRECT, 'april', { text: 'two', at: t2, from: 'april' }).recorded, true);
+  assert.equal(chat.appendMessage(chat.DIRECT, 'april', { text: 'from the person', at: t2 }).recorded, true);
+
+  const board = await req('/api/status');
+  assert.match(board.type, /application\/json/, 'the status engine returned a board');
+  const boardAgents = JSON.parse(board.body).agents || [];
+  const april = boardAgents.find((a) => a.sessionName === 'april');
+  assert.ok(april, 'the fixture reached the board: ' + board.body.slice(0, 200));
+  assert.equal(april.dmUnread, 2, 'two agent replies count; the operator message does not');
+  // Blanket shape assertion (mirrors #670's unread loop): EVERY agent on the wire
+  // must carry a well-typed dmUnread, not just the seeded row, so a payload that
+  // drops the field for some agents cannot pass on the one row this test seeds.
+  for (const a of boardAgents) {
+    assert.ok('dmUnread' in a, 'every agent carries dmUnread: ' + a.sessionName);
+    assert.ok(a.dmUnread === null || typeof a.dmUnread === 'number',
+      'dmUnread is a number or null for ' + a.sessionName + ' (got ' + JSON.stringify(a.dmUnread) + ')');
+  }
+
+  const seen = await postJson('/api/agent/april/seen', {});
+  assert.equal(seen.status, 200, 'the clear route answered 200');
+  assert.equal(JSON.parse(seen.body).dmUnread, 0, 'the clear route reports the reset count');
+
+  const after = await req('/api/status');
+  const april2 = (JSON.parse(after.body).agents || []).find((a) => a.sessionName === 'april');
+  assert.equal(april2.dmUnread, 0, 'the payload now carries the cleared count');
+});
+
+// #2863: the /seen route's error mapping, exercised through HTTP (the engine-layer
+// BAD_THREAD refusal is unit-tested in engine/chat.dm-unread-2863.test.js; this
+// pins that the ROUTE maps it to 400). `bad.name` is a single path segment (no
+// slash, so no URL-normalization ambiguity) that safeKey rejects (dot stripped ->
+// `badname` != `bad.name`), so markDmSeen throws BAD_THREAD.
+test('#2863: a name the thread store cannot key is a 400 from POST /api/agent/<name>/seen', async () => {
+  const bad = await postJson('/api/agent/bad.name/seen', {});
+  assert.equal(bad.status, 400, 'a name safeKey rejects maps BAD_THREAD -> 400');
+});
+
+test('#2811: a PANELESS codex agent carries runner "codex" on the board, so the panel can qualify its sentence', async () => {
+  /**
+   * 🛑 THE CASE ROUND 30's FIX DID NOT REACH. `paintAccountPicker` qualifies its
+   * "we cannot tell which account" sentence only when it can SEE the agent is
+   * codex, and the page's only provider signal is `a.runner`. `panelessCard`
+   * hardcodes `runner: null` (`engine/status.js`, its only such site) because a
+   * card with no pane has no `@kosmos_runner` to read. So a default-account codex
+   * agent created and not yet started reached the panel with BOTH null, and was
+   * told the sentence this card exists to remove.
+   *
+   * ⚠️ BRANCH-CAUSED: before this change the dir-less match handed that agent the
+   * operator's CLAUDE row, so `account` was truthy and the panel wrote nothing.
+   *
+   * 🔑 THE PANELESS ROW IS FORCED THROUGH THE PRODUCT'S OWN SEAM, `setCreatedSource`,
+   * which is how production gets these rows (`server.js` wires
+   * `createdroster.make()` on non-win32). An earlier version of this arm seeded a
+   * plist and hit the route instead: the row came back `running: false`, i.e. the
+   * OFFLINE population, which already derived the runner from the profile before
+   * this change. That test PASSED AND SO DID THE MUTANT -- it measured code this
+   * change did not touch. This seam is what makes the row land in `snap.agents`,
+   * the population the fix is in.
+   */
+  const create = require('./engine/create');
+  const store = require('./engine/store');
+  const status = require('./engine/status');
+  const fsX = require('node:fs');
+  const made = [];
+  const seed = (name, runner) => {
+    fsX.mkdirSync(create.AGENTS_DIR, { recursive: true });
+    fsX.writeFileSync(create.plistPath(name),
+      create.plistFor(name, '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, null, runner), 'utf8');
+    store.writeProfile(name, { provider: runner === 'codex' ? 'openai' : 'anthropic' });
+    made.push(name);
+    return name;
+  };
+  try {
+    seed('pnlgpt', 'codex');
+    seed('pnlcl', 'claude');            // CONTROL, seeded identically
+    status.setCreatedSource(() => ['pnlgpt', 'pnlcl']);
+
+    const body = JSON.parse((await req('/api/status')).body);
+    const row = (n) => ((body && body.agents) || []).find((r) => r && (r.sessionName === n || r.name === n));
+
+    /* POPULATION FLOOR, and it is the assertion the previous version of this arm
+       lacked: the row must be the PANELESS one (no session), not the offline row,
+       or this measures a population the change does not touch. */
+    assert.ok(row('pnlgpt'), 'the created source produced no board row, so this arm measures nothing');
+    assert.equal(row('pnlgpt').session, null,
+      'the row carries a session, so it is not the paneless card and this arm is measuring the wrong population');
+
+    assert.equal(row('pnlgpt').runner, 'codex',
+      'a PANELESS codex agent reaches the board with no runner, so the detail panel cannot tell it is codex and tells it we cannot identify its account');
+    /* CONTROL: the same seam for a claude agent must NOT come back codex, else the
+       fallback answers codex for everyone and discriminates nothing. */
+    assert.equal(row('pnlcl').runner, 'claude',
+      'the runner fallback answered codex for a CLAUDE agent, so it is not reading the record');
+  } finally {
+    status.setCreatedSource(null);
+    for (const n of made) { try { fsX.unlinkSync(create.plistPath(n)); } catch { /* may not exist */ } }
+  }
+});
+
+test('#2811: the OFFLINE row and the PANELESS row answer the runner the SAME way when plist and profile disagree', async () => {
+  /**
+   * 🛑 TWO DERIVATIONS OF ONE FACT IN ONE PAYLOAD. The paneless row fills an absent
+   * runner from `create.recordedRunner` (PLIST-first, profile only when no job
+   * parses). The offline row used to restate a weaker rule, `profile.provider ===
+   * 'openai'` (PROFILE-only). They disagree whenever the two records diverge.
+   *
+   * ⚠️ AND THAT STATE IS NOT HYPOTHETICAL: this branch's own
+   * `create.setprovider-writes-2811.test.js` EACCES arm asserts it directly -- a
+   * completed claude->codex switch whose best-effort profile write failed leaves
+   * the plist saying codex and the profile saying anthropic.
+   *
+   * 🔑 THE TWO POPULATIONS ARE MUTUALLY EXCLUSIVE PER POLL BUT DESCRIBE THE SAME
+   * AGENT AT DIFFERENT MOMENTS: a paneless row is pushed while the agent is
+   * beat-known or created-never-run, and the same agent falls into the offline
+   * list once its beat lapses. So a divergence flips the answer between polls.
+   */
+  const create = require('./engine/create');
+  const store = require('./engine/store');
+  const fsX = require('node:fs');
+  const name = 'splitrec';
+  try {
+    fsX.mkdirSync(create.AGENTS_DIR, { recursive: true });
+    // The DISAGREEING state, written with the product's own writer: plist codex...
+    fsX.writeFileSync(create.plistPath(name),
+      create.plistFor(name, '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, null, 'codex'), 'utf8');
+    // ...profile still anthropic, which is what a best-effort profile write leaves.
+    store.writeProfile(name, { provider: 'anthropic' });
+
+    /* THE FIXTURE'S OWN CONTROL: if the two records agreed, this arm would pass
+       under either derivation and prove nothing. */
+    assert.equal(create.readJob(name).runner, 'codex', 'the fixture plist does not say codex, so the records do not disagree');
+    assert.equal(store.readProfile(name).provider, 'anthropic', 'the fixture profile does not say anthropic, so the records do not disagree');
+
+    const body = JSON.parse((await req('/api/status')).body);
+    const row = ((body && body.agents) || []).find((r) => r && (r.sessionName === name || r.name === name));
+
+    /* POPULATION FLOOR: this must be the OFFLINE row (no pane, not running), or the
+       arm is measuring the population that was already correct. */
+    assert.ok(row, 'the seeded agent produced no board row, so this arm measures nothing');
+    assert.equal(row.running, false, 'the row is running, so it is not the offline row and this arm measures the wrong population');
+
+    assert.equal(row.runner, 'codex',
+      'the OFFLINE row read the profile instead of the record, so it disagrees with the paneless row about the same agent');
+  } finally {
+    try { fsX.unlinkSync(create.plistPath(name)); } catch { /* may not exist */ }
+  }
+});
+
+test('#2811: a paneless row for an agent this Mac has NO record of keeps runner null, rather than claiming claude', async () => {
+  /**
+   * 🛑 NULL IS NOT A DEFAULT, AND `recordedRunner` CANNOT SAY "UNKNOWN".
+   * `panelessCard`'s contract (`engine/status.js`) legislates this directly:
+   * "runner is null because the token store does not record one -- the screen's
+   * fallback will read that as Anthropic, which is A DISPLAY DEFAULT WE INHERIT
+   * AND NOT A CLAIM THIS CARD MAKES."
+   *
+   * `create.recordedRunner` floors at 'claude' in BOTH arms (readJob floors its
+   * runner; the profile arm ends `provider === 'openai' ? 'codex' : 'claude'`), so
+   * filling unconditionally turns that inherited default into a positive claim for
+   * any agent this Mac holds no job and no profile for -- the beat-known remote /
+   * win32 population `panelessKeys` enumerates, which is precisely what that
+   * paragraph is about.
+   *
+   * ⚠️ AND FOR A REMOTE CODEX AGENT IT IS THE CARD'S OWN DEFECT ONE POPULATION
+   * OVER: 'claude' hands it the Claude model list (#2167), which this card exists
+   * to close.
+   */
+  const status = require('./engine/status');
+  const create = require('./engine/create');
+  const fsX = require('node:fs');
+  const unknown = 'nobodyhere2811';
+  try {
+    /* THE FIXTURE'S OWN CONTROL: the arm is only meaningful if this Mac really
+       holds nothing under that name. Assert the absence rather than assume it. */
+    assert.equal(create.readJob(unknown), null, 'this Mac holds a launch job for the "unknown" name, so the arm measures nothing');
+    assert.equal(fsX.existsSync(create.plistPath(unknown)), false, 'a plist exists for the "unknown" name, so the arm measures nothing');
+
+    status.setCreatedSource(() => [unknown]);
+    const body = JSON.parse((await req('/api/status')).body);
+    const row = ((body && body.agents) || []).find((r) => r && (r.sessionName === unknown || r.name === unknown));
+
+    assert.ok(row, 'the created source produced no board row, so this arm measures nothing');
+    assert.equal(row.session, null, 'the row carries a session, so it is not the paneless card');
+    assert.equal(row.runner, null,
+      'a paneless row for an agent this Mac has no record of claims a runner, turning a display default we inherit into a claim the card makes');
+  } finally {
+    status.setCreatedSource(null);
+  }
+});
+
+test('#2811: a STRAY offline row (a folder with no job and no profile) keeps runner null, not a claimed claude', async () => {
+  /**
+   * 🛑 THE POPULATION A FALSE PREMISE SAID COULD NOT EXIST. I first left the
+   * offline row ungated and justified it: "an offline row EXISTS BECAUSE a profile
+   * file does, so the record is present by construction." Measurably false.
+   * `register.survey()` builds from `known()` (profile-backed) AND THEN PUSHES
+   * `strays()`, stamped `profile: false`, and the offline filter is
+   * `(k.folder || k.job)` -- it never mentions a profile. So a folder-only stray
+   * reaches that list with NO job and NO profile and floored to a positive 'claude'.
+   *
+   * ⭐ I traced ONE source (`known()`) and pronounced on the population. Both rows
+   * now share one gated helper, so there is no asymmetry left to justify wrongly,
+   * and this arm is what keeps that true.
+   *
+   * 📌 THE VALUE IS UNCHANGED FROM origin/main (the old profile-only expression
+   * also floored at claude), so this is a wire-contract fix, not a regression fix.
+   */
+  const create = require('./engine/create');
+  const store = require('./engine/store');
+  const fsX = require('node:fs');
+  const nodePathX = require('node:path');
+  const name = 'straygpt2811';
+  const dir = create.workerDir(name);
+  try {
+    /* A stray needs BOTH halves: the folder, and a birth line tying it to a real
+       creation. The folder alone is not a stray (a checkout dropped under a once-used
+       name must not become one), which is the tie `strays()` documents. */
+    fsX.mkdirSync(dir, { recursive: true });
+    fsX.mkdirSync(nodePathX.dirname(create.createdLogFile()), { recursive: true });
+    fsX.appendFileSync(create.createdLogFile(),
+      JSON.stringify({ name, outcome: create.OUTCOME.CREATED, at: new Date().toISOString() }) + '\n', 'utf8');
+
+    /* CONTROLS, asserted before the claim so a silently-empty fixture cannot pass:
+       this Mac must hold NO job and NO profile provider for the name, and the floor
+       must be what would otherwise answer. */
+    assert.equal(create.readJob(name), null, 'this Mac holds a launch job for the stray, so the arm measures nothing');
+    assert.equal((store.readProfile(name) || {}).provider, undefined, 'a profile provider exists, so the arm measures nothing');
+    assert.equal(create.recordedRunner(name), 'claude', 'recordedRunner no longer floors at claude, so there is nothing to decline');
+
+    const body = JSON.parse((await req('/api/status')).body);
+    const row = ((body && body.agents) || []).find((r) => r && (r.sessionName === name || r.name === name));
+
+    /* POPULATION FLOOR: it must be the OFFLINE row, not the paneless one, or this
+       measures the population that already had the gate. */
+    assert.ok(row, 'the stray produced no board row, so the sweep was not reached and this arm measures nothing');
+    assert.equal(row.running, false, 'the row is running, so it is not the offline row');
+
+    assert.equal(row.runner, null,
+      'a stray offline row claims a runner this Mac has no record of, which is the positive claim the paneless gate refuses one field over');
+  } finally {
+    try { fsX.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+});
+
+test('#2811: a NAMED Codex account is called by its name, not "an account we cannot identify"', () => {
+  /**
+   * 🛑 THE CARD'S LITERAL COMPLAINT STRING. #2811 is titled "... and can't identify
+   * the .codex account", and `sentenceForWhoami`'s fallback chain went
+   * email -> label -> "an account we cannot identify (<dir>)" with NO `name` rung --
+   * while `accountForAgent` computes `name: openaiAccounts.readName(dir)` on BOTH
+   * its branches and every other surface leads with it (`acctParenthetical` is
+   * `acct.name || acct.email || acct.label`).
+   *
+   * So a person who had NAMED their OpenAI account read "Work" on the detail panel
+   * and "an account we cannot identify (/Users/x/.codex-work2)" from `kosmos whoami`,
+   * in the same minute, about the same account.
+   *
+   * ⚠️ NEWLY REACHABLE BY THIS BRANCH: `readName` is null for every Claude dir, so
+   * the rung could never fire while the live reader refused for codex and
+   * synthesised `~/.claude`. A CODEX dir is the only kind carrying a `.kosmos-name`
+   * sidecar.
+   */
+  const { sentenceForWhoami } = require('./server.js');
+  const DIR = '/Users/x/.codex-work2';
+
+  const named = sentenceForWhoami({ dir: DIR, name: 'Work', email: null, label: null, isDefault: null }, null, 'codex');
+  assert.match(named, /runs on Work/, 'a NAMED codex account is not called by its name');
+  assert.doesNotMatch(named, /cannot identify/,
+    'a named codex account is still told we cannot identify it, which is this card\'s own complaint string');
+
+  /* CONTROL 1: the SAME object with no name must still produce the old sentence,
+     else the rung is not what changed the answer and this arm proves nothing. */
+  const unnamed = sentenceForWhoami({ dir: DIR, name: null, email: null, label: null, isDefault: null }, null, 'codex');
+  assert.match(unnamed, /an account we cannot identify \(\/Users\/x\/\.codex-work2\)/,
+    'CONTROL: without a name the sentence no longer says "cannot identify", so the name rung is not the discriminator');
+
+  /* CONTROL 2: the name must LEAD, matching `acctParenthetical`'s order. With both
+     present, a chain that put email first would silently disagree with every other
+     surface in the product. */
+  const both = sentenceForWhoami({ dir: DIR, name: 'Work', email: 'dave@example.com', label: null, isDefault: null }, null, 'codex');
+  assert.match(both, /runs on Work/, 'the name does not LEAD over the email, so whoami disagrees with every other surface');
+});
+
+test('#2811: the account NAME survives the route, not just the sentence function', () => {
+  /**
+   * 🛑 THE GAP IN MY OWN FIRST ARM FOR THIS. The arm above calls
+   * `sentenceForWhoami` DIRECTLY with a named account, so it proves the sentence
+   * CAN name one -- not that the route DELIVERS the name to it. The actual defect
+   * was one function later: `whoamiFor`'s record projection rebuilt the account as
+   * `{ email, label, organization, dir, isDefault }` and dropped `rec.name`, so the
+   * name `accountForAgent` had just computed never reached the sentence.
+   *
+   * ⚠️ A function-level arm cannot see a wiring defect, and this card's own history
+   * says so: the same "computed, then dropped one layer on" shape is what rounds 30
+   * to 33 kept finding at the NEXT READER. This arm is the wiring assertion.
+   */
+  const { whoamiFor } = require('./server.js');
+  const openaiAccounts = require('./engine/openaiaccounts');
+  const fsX = require('node:fs');
+  const nodePathX = require('node:path');
+  const create = require('./engine/create');
+  const store = require('./engine/store');
+
+  const name = 'namedgpt2811';
+  const dir = nodePathX.join(process.env.AGENT_WORKFORCE_HOME || require('node:os').homedir(), '.codex-work2-2811');
+  let board;
+  try {
+    fsX.mkdirSync(dir, { recursive: true });
+    fsX.writeFileSync(nodePathX.join(dir, 'auth.json'),
+      JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtesttesttest2811' }), 'utf8');
+    /* The NAME is a sidecar the person typed. Written through the product's own
+       writer if it has one, else the file the reader reads. */
+    fsX.writeFileSync(nodePathX.join(dir, '.kosmos-name'), 'Work', 'utf8');
+
+    /* CONTROL ON THE FIXTURE: the reader must actually see the name, or every
+       assertion below is about a sidecar nothing reads. */
+    assert.equal(openaiAccounts.readName(dir), 'Work',
+      'the fixture sidecar is not readable by readName, so this arm measures nothing');
+
+    fsX.mkdirSync(create.AGENTS_DIR, { recursive: true });
+    fsX.writeFileSync(create.plistPath(name),
+      create.plistFor(name, '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, dir, 'codex'), 'utf8');
+    store.writeProfile(name, { provider: 'openai' });
+
+    board = fleet.install([fleet.agent(name, { state: 'unknown', runner: 'codex' })]);
+    const card = board.agents.find((a) => a && a.name === name);
+    assert.ok(card, 'the fixture produced no card');
+
+    /* No live read, so the RECORD path answers -- which is the path that dropped
+       the name. */
+    const out = whoamiFor(card, [], { ok: false, because: 'no pane on this computer' });
+    assert.ok(out.account, 'the record path returned no account, so the arm measures nothing');
+    assert.equal(out.account.name, 'Work',
+      'the route dropped the account name between accountForAgent and its answer, so the sentence can never say it');
+  } finally {
+    if (board) board.restore();
+    try { fsX.unlinkSync(create.plistPath(name)); } catch { /* may not exist */ }
+    try { fsX.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+});
+
+test('#2811 PARITY: the live branch that HAS an account carries `name` too, or the three constructions diverge', () => {
+  /**
+   * 🛑 THE CONSTRUCTION NOTHING GUARDED. `whoamiFor` builds an account object in
+   * THREE places -- live-with-account (`seen.account`), live-with-only-a-dir
+   * (`seen.configDir`), and the record projection -- and #2811 added `name` to all
+   * three. Two are pinned: `#1304`'s field-set parity drives the SECOND live branch
+   * (its fixture is `{ok:true, account:null, …}`), and `#2225`'s control drives the
+   * record path. Deleting `name` from the FIRST live branch left 294/294 GREEN.
+   *
+   * ⚠️ That is the "a map of what is guarded is not a map of what changed" failure
+   * one layer down: I added the key three times and believed the two existing parity
+   * tests covered it, without checking WHICH branch each one drives.
+   *
+   * 🔑 THE VALUE HERE IS EXPECTED TO BE NULL, and that is the point. This branch
+   * fires for a CLAUDE agent (the live reader supplies an email), and `readName` is
+   * null for every Claude dir -- so the assertion is about the KEY's PRESENCE, which
+   * is what parity means. A shape a consumer can use to tell which reader answered
+   * is the defect `#1304` exists to prevent.
+   */
+  const { whoamiFor } = require('./server.js');
+  const nodePathX = require('node:path');
+  const defDir = nodePathX.join(require('node:os').homedir(), '.claude');
+  let board;
+  try {
+    board = fleet.install([fleet.agent('parityclaude', { state: 'idle' })]);
+    const card = board.agents.find((a) => a && a.name === 'parityclaude');
+    assert.ok(card, 'the fixture produced no card');
+
+    /* Live branch 1: the reader SUPPLIES an account, which is what selects it. */
+    const out = whoamiFor(card, [], { ok: true, account: 'dave@example.com', model: null, configDir: defDir });
+    assert.ok(out.account, 'the live-with-account branch returned no account, so this arm measures nothing');
+    assert.equal(out.account.email, 'dave@example.com',
+      'the fixture did not take the live-with-account branch, so this arm is measuring the wrong construction');
+
+    assert.ok('name' in out.account,
+      'the live-with-account branch dropped `name`, so the three account constructions return different field sets');
+    assert.equal(out.account.name, null,
+      'a Claude dir carries no sidecar, so `name` must be present and NULL here -- a non-null means it is reading the wrong dir');
+
+    /* CONTROL: the email still leads for a Claude account. The `name` rung was put
+       FIRST in the sentence chain, so this is where that would show up as a
+       regression if `name` were ever non-null on this path. */
+    const { sentenceForWhoami } = require('./server.js');
+    assert.match(sentenceForWhoami(out.account, null, 'claude'), /dave@example\.com/,
+      'the leading name rung displaced the email on the Claude path');
+  } finally {
+    if (board) board.restore();
+  }
+});
+
+test('#2811: a falsy configDir must NOT let the process CWD name the account, because `name` leads the sentence', () => {
+  /**
+   * 🛑 THE GUARD THIS PINS WAS ADDED IN ROUND 35 AND EXPLAINED ONLY IN PROSE.
+   * Reverting `seen.configDir ? readName(seen.configDir) : null` to the bare call
+   * left the suite 295/295 GREEN -- so the guard was one "this ternary is dead,
+   * configDir is always set here" tidy-up away from removal, and the consequence is
+   * a rendered sentence, not a field.
+   *
+   * `nameFile` is `path.join(path.resolve(String(dir || '')), '.kosmos-name')`, so a
+   * falsy dir resolves to THE PROCESS CWD. Round 34 put `name` at the HEAD of the
+   * sentence's fallback chain, so a `.kosmos-name` in the server's working directory
+   * would DISPLACE A REAL, KNOWN EMAIL:
+   *
+   *   unguarded -> "This agent runs on LEAKED-FROM-CWD, and we cannot tell which model…"
+   *
+   * ⭐ That is strictly worse than the "an account we cannot identify (…)" string
+   * this card was filed about: a confident wrong answer rather than an admitted
+   * unknown.
+   *
+   * 📌 The line above the guard writes `dir: seen.configDir || null`, which is the
+   * code's own statement that this branch can see a falsy dir. An untested defensive
+   * guard reads to the next person exactly like a redundant one -- which is this
+   * card's whole subject, one file over.
+   */
+  const { whoamiFor, sentenceForWhoami } = require('./server.js');
+  const openaiAccounts = require('./engine/openaiaccounts');
+  const fsX = require('node:fs');
+  const osX = require('node:os');
+  const nodePathX = require('node:path');
+
+  const cwdBefore = process.cwd();
+  const probe = fsX.realpathSync(fsX.mkdtempSync(nodePathX.join(osX.tmpdir(), 'cwdname-2811-')));
+  let board;
+  try {
+    fsX.writeFileSync(nodePathX.join(probe, '.kosmos-name'), 'LEAKED-FROM-CWD', 'utf8');
+    process.chdir(probe);
+
+    /* THE FIXTURE'S OWN CONTROL, and without it `name === null` below could pass
+       simply because no sidecar sits in the CWD. This asserts the dangerous answer
+       is AVAILABLE, so the assertion that follows is a measurement. */
+    assert.equal(openaiAccounts.readName(''), 'LEAKED-FROM-CWD',
+      'the probe CWD does not yield a name, so the guarded assertion below cannot discriminate');
+
+    board = fleet.install([fleet.agent('cwdprobe2811', { state: 'idle' })]);
+    const card = board.agents.find((a) => a && a.name === 'cwdprobe2811');
+    assert.ok(card, 'the fixture produced no card');
+
+    /* Live branch 1 with a KNOWN email and NO configDir: the exact shape the guard
+       is for. */
+    const out = whoamiFor(card, [], { ok: true, account: 'dave@example.com', model: null, configDir: null });
+    assert.ok(out.account, 'the live-with-account branch returned no account');
+    assert.equal(out.account.name, null,
+      'a falsy configDir let readName resolve the PROCESS CWD, so the working directory names the account');
+    assert.match(sentenceForWhoami(out.account, null, 'claude'), /dave@example\.com/,
+      'the CWD-derived name displaced a real, known email in the sentence a person reads');
+  } finally {
+    process.chdir(cwdBefore);
+    if (board) board.restore();
+    try { fsX.rmSync(probe, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+});
+
+test('#2811: live branch 1 READS the sidecar, it does not just return null', () => {
+  /**
+   * 🛑 THE GUARD WAS PINNED; THE READ WAS NOT. Rounds 35 and 36 were both about this
+   * one field. Round 35 added `seen.configDir ? readName(seen.configDir) : null` and
+   * round 36 pinned the GUARD half (falsy dir => null). Replacing the WHOLE
+   * expression with the literal `null` still left the suite 291/291 GREEN, because
+   * the only two arms driving this branch both assert `name === null`:
+   *   - `#2811 PARITY…` drives it with `configDir = ~/.claude` (no sidecar)
+   *   - `#2811: a falsy configDir…` drives it with `configDir = null`
+   * One of them even says "THE VALUE HERE IS EXPECTED TO BE NULL" -- which DOCUMENTS
+   * the blind spot rather than covering it, and makes `name: null` the ATTRACTIVE
+   * tidy-up rather than an unlikely one.
+   *
+   * ⚠️ LATENT TODAY, AND THE REASON IS MEASURED, NOT ASSUMED: `engine/runningas.js`
+   * has `const id = codex ? null : identityOf(configDir)`, so a CODEX read never
+   * supplies `seen.account`, and branch 1 is reachable only for Claude agents, where
+   * `readName` returns null for every dir. It diverges the moment #2790 lands a
+   * codex account lookup -- which is precisely when nobody will be looking at this
+   * line.
+   */
+  const { whoamiFor, sentenceForWhoami } = require('./server.js');
+  const openaiAccounts = require('./engine/openaiaccounts');
+  const fsX = require('node:fs');
+  const osX = require('node:os');
+  const nodePathX = require('node:path');
+
+  const dir = fsX.realpathSync(fsX.mkdtempSync(nodePathX.join(osX.tmpdir(), 'b1read-2811-')));
+  let board;
+  try {
+    fsX.writeFileSync(nodePathX.join(dir, '.kosmos-name'), 'Work', 'utf8');
+    /* FIXTURE CONTROL: the sidecar must be readable, or `name === 'Work'` below
+       could never hold and the arm would red for the wrong reason. */
+    assert.equal(openaiAccounts.readName(dir), 'Work',
+      'the fixture sidecar is not readable, so this arm cannot discriminate');
+
+    board = fleet.install([fleet.agent('b1read2811', { state: 'idle' })]);
+    const card = board.agents.find((a) => a && a.name === 'b1read2811');
+    assert.ok(card, 'the fixture produced no card');
+
+    /* Branch 1: the live reader supplies an account AND a dir that HAS a name. */
+    const out = whoamiFor(card, [], { ok: true, account: 'dave@example.com', model: null, configDir: dir });
+    assert.ok(out.account, 'the live-with-account branch returned no account');
+    assert.equal(out.account.name, 'Work',
+      'live branch 1 does not READ the sidecar, so its `name` could be the constant null and nothing would notice');
+
+    /* AND THE CONSEQUENCE A PERSON SEES: `name` leads the chain, so reading it
+       changes the sentence. Without this the arm pins a field nobody renders. */
+    assert.match(sentenceForWhoami(out.account, null, 'codex'), /runs on Work/,
+      'the sidecar name does not reach the sentence, so reading it changes nothing a person sees');
+  } finally {
+    if (board) board.restore();
+    try { fsX.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+});
+
+test('#2811: a LIVE pane marker beats the record on the board row, so a mid-switch agent is not renamed early', async () => {
+  /**
+   * 🛑 THE PRECEDENCE, WHICH THE COMMENT CLAIMED AND NOTHING ASSERTED. `runnerOfCard`
+   * is `if (a.runner) return a.runner;` before consulting `create.recordedRunner`,
+   * and its comment says "a live pane's own runner is the better evidence and must
+   * not be overwritten by a record that a switch could have made stale in the other
+   * direction". Replacing that guard with `if (false)` -- i.e. ALWAYS consult the
+   * record, which is exactly what "one fact, one place, use recordedRunner" reads as
+   * -- left the suite fully green.
+   *
+   * ⚠️ REACHABLE ON EVERY PANED CARD, not a corner: `engine/status.js` normalises a
+   * pane to `pane.runner === 'codex' ? 'codex' : 'claude'`, never null, so the guard
+   * fires for all of them and the mutant reroutes all of them through the record.
+   *
+   * 🔑 AND THE DISAGREEMENT WINDOW IS REAL. `setProvider` rewrites the plist and the
+   * profile but does NOT write the tmux marker -- `bin/agent-supervisor.sh` writes
+   * `@kosmos_runner` at agent START. So between a claude->codex switch and the next
+   * restart, the record says codex while the pane marker still says claude. The
+   * board must report what is RUNNING, not what is scheduled to run.
+   */
+  const create = require('./engine/create');
+  const store = require('./engine/store');
+  const fsX = require('node:fs');
+  const name = 'midswitch2811';
+  let board;
+  try {
+    /* The RECORD says codex... */
+    fsX.mkdirSync(create.AGENTS_DIR, { recursive: true });
+    fsX.writeFileSync(create.plistPath(name),
+      create.plistFor(name, '/usr/bin/claude', '/opt/homebrew/bin/tmux', null, null, 'codex'), 'utf8');
+    store.writeProfile(name, { provider: 'openai' });
+
+    /* ...while the LIVE pane marker still says claude, which is the state a
+       mid-switch agent is in until it restarts. */
+    board = fleet.install([fleet.agent(name, { state: 'idle' })]);
+    const card = board.agents.find((a) => a && a.name === name);
+    assert.ok(card, 'the fixture produced no card');
+
+    /* THE FIXTURE'S OWN CONTROLS, asserted before the claim: the two sources must
+       actually disagree, or this arm passes under either precedence. */
+    assert.equal(card.runner, 'claude', 'the pane marker is not claude, so the sources do not disagree');
+    assert.equal(create.recordedRunner(name), 'codex', 'the record is not codex, so the sources do not disagree');
+
+    const body = JSON.parse((await req('/api/status')).body);
+    const row = ((body && body.agents) || []).find((r) => r && (r.sessionName === name || r.name === name));
+    assert.ok(row, 'the seeded agent produced no board row');
+
+    assert.equal(row.runner, 'claude',
+      'the board took the RECORD over the live pane marker, so an agent mid-switch is renamed before it restarts');
+  } finally {
+    if (board) board.restore();
+    try { fsX.unlinkSync(create.plistPath(name)); } catch { /* may not exist */ }
   }
 });

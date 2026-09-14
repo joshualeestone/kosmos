@@ -63,6 +63,15 @@ async function paint(agents, opts = {}) {
        caught that: an undeclared read throws, an undeclared write does not. */
     let FOUND_SIG = ${JSON.stringify(opts.sig === undefined ? null : opts.sig)};
     let FOUND_OPEN = ${opts.open === undefined ? 'true' : JSON.stringify(opts.open)};
+    /* #2651: the panel is gated behind DISCOVERY_OPENED (an explicit "Look for agents"
+       press). Default it OPEN here so the rendering tests below exercise the panel's
+       behaviour as before; a test passes opened:false to assert the gate itself. */
+    let DISCOVERY_OPENED = ${opts.opened === undefined ? 'true' : JSON.stringify(opts.opened)};
+    /* #2651: paintFoundBoard WRITES this on the body.dismissed branch. Declared (not
+       assigned as a global) for the same reason as the others above: an undeclared write
+       would silently leak a global, per this file's own doctrine. No test here exercises
+       the dismissed branch yet; the declaration keeps a future one honest. */
+    let DISCOVERY_DISMISSED = false;
     return paintFoundBoard();
   `);
   await run(
@@ -114,6 +123,17 @@ test('nothing to add means no panel at all', async () => {
   const { wrap, list } = await paint([KEPT]);
   assert.equal(wrap.hidden, true);
   assert.equal(list.innerHTML, '', 'the panel is hidden but still holds a list');
+});
+
+test('#2651: it stays hidden and fetches nothing until discovery is opened', async () => {
+  /* Landing on the Agents page must not auto-scan-and-show the found panel. With a
+     real candidate present, an UNOPENED panel is still hidden and no /api/found-agents
+     fetch fires; the user reveals it with the explicit "Look for agents" press
+     (DISCOVERY_OPENED). Before #2651 a candidate showed the panel on every poll. */
+  const { wrap, list, calls } = await paint([LOOSE], { opened: false });
+  assert.equal(wrap.hidden, true, 'the found panel auto-showed on load (the #2651 gate did not hold)');
+  assert.equal(list.innerHTML, '', 'the found panel rendered rows before discovery was opened');
+  assert.equal(calls.length, 0, 'the found panel fetched /api/found-agents before the user asked to look');
 });
 
 test('a look that failed leaves the panel alone rather than emptying it', async () => {
@@ -170,4 +190,56 @@ test('leaving the Agents tab hides the found-agents block (it followed a person 
   const off = st.slice(st.indexOf('if (!agents) {'), st.indexOf('} else {', st.indexOf('if (!agents) {')));
   assert.match(off, /getElementById\('found-wrap'\)\.hidden = true;/, 'the found block is not hidden when the tab changes; it was on every screen but Agents on 0.5.21');
   assert.match(off, /getElementById\('removed-wrap'\)\.hidden = true;/, 'CONTROL: the removed block, hidden the same way, is not in this slice');
+  assert.match(off, /getElementById\('found-scan-trigger'\)[\s\S]{0,40}\.hidden = true;/, '#2651: the discovery trigger is not hidden when the tab changes; like its two panels it would otherwise follow the person off the Agents tab');
+});
+
+/* #2651: the SCAN panel's DISCOVERY_OPENED gate, the symmetric partner to the found-panel
+   gate ("it stays hidden and fetches nothing until discovery is opened") above.
+   paintScanBoard is a SEPARATE renderer (its own element ids, its own callees, /api/scan-agents),
+   so the found gate test does not touch it; before this the scan half of the gate had only the
+   browser check, which prints "SKIPPED" and exits 0 when Playwright is not on NODE_PATH. */
+async function paintScan(candidates, opts = {}) {
+  const wrap = opts.wrap || el();
+  const list = opts.list || el();
+  const toggle = opts.toggle || el();
+  const desc = opts.desc || el();
+  const calls = [];
+  const src = liftAll(SCRIPT, ['esc', 'cssId', 'scanRowsHtml', 'paintScanBoard']);
+  const run = new Function('document', 'fetch', 'onAgentsTab', 'calls', `
+    ${src}
+    let SCAN_SIG = ${JSON.stringify(opts.sig === undefined ? null : opts.sig)};
+    let SCAN_OPEN = ${opts.open === undefined ? 'true' : JSON.stringify(opts.open)};
+    let DISCOVERY_OPENED = ${opts.opened === undefined ? 'true' : JSON.stringify(opts.opened)};
+    let DISCOVERY_DISMISSED = false;
+    return paintScanBoard();
+  `);
+  await run(
+    {
+      getElementById: (id) => (
+        id === 'scan-wrap' ? wrap : id === 'scan-list' ? list : id === 'scan-toggle' ? toggle
+          : id === 'scan-desc' ? desc : null),
+    },
+    async (url) => { calls.push(url); return opts.res || { ok: true, json: async () => ({ ok: true, candidates }) }; },
+    () => opts.onTab !== false,
+    calls,
+  );
+  return { wrap, list, toggle, desc, calls };
+}
+
+const SCAN_CAND = { dir: '/w/unseen', name: 'Unseen', role: 'Unknown', already: false };
+
+test('#2651: the scan panel stays hidden and fetches nothing until discovery is opened', async () => {
+  const { wrap, list, calls } = await paintScan([SCAN_CAND], { opened: false });
+  assert.equal(wrap.hidden, true, 'the scan panel auto-showed on load (the #2651 gate did not hold)');
+  assert.equal(list.innerHTML, '', 'the scan panel rendered rows before discovery was opened');
+  assert.equal(calls.length, 0, 'the scan panel fetched /api/scan-agents before the user asked to look');
+});
+
+test('#2651 CONTROL: the scan panel DOES open and fetch once discovery is opened', async () => {
+  /* Without this the gate test above passes on a panel that never shows at all, exactly the
+     failure it is meant to catch. */
+  const { wrap, list, calls } = await paintScan([SCAN_CAND], { opened: true });
+  assert.equal(wrap.hidden, false, 'the scan panel did not open after discovery was opened');
+  assert.match(list.innerHTML, /CLAUDE\.md/, 'the scan panel opened but rendered no candidate note');
+  assert.equal(calls.length, 1, 'the scan panel did not fetch /api/scan-agents when opened');
 });

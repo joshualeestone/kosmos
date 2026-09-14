@@ -1,21 +1,22 @@
 'use strict';
 
 /*
- * #1659: `wasDefault` decides whether the person is told their history stops
- * appearing. It must track WHERE THE DEFAULT HOME POINTS, not what a folder is
- * called.
+ * #1659: `forgetAccount().wasDefault` must track WHERE THE DEFAULT HOME POINTS,
+ * not what a folder is called. This file guards that the flag is computed
+ * correctly (not a basename check): it appeared in zero test files when the
+ * clause that used it shipped, and `AGENT_WORKFORCE_CODEX_HOME` / `CODEX_HOME`
+ * both move the default home (`codexupdate.js:46`), with the supervisor putting
+ * `CODEX_HOME` in a codex agent's environment, so a basename check and the real
+ * default disagree in a reachable configuration. Arm 3 pins that.
  *
- * 🛑 WHY THIS FILE EXISTS. The clause it guards was added with no coverage at
- * all: `wasDefault` appeared in zero test files, so a basename check shipped and
- * nothing said so. `codexsession` reads transcripts out of `defaultHome()`
- * alone, and `AGENT_WORKFORCE_CODEX_HOME` / `CODEX_HOME` both move it
- * (`codexupdate.js:46`), with the supervisor putting `CODEX_HOME` in a codex
- * agent's environment. So the two disagree in a reachable configuration.
- *
- * The wrong version is wrong in BOTH directions, which is why arm 3 matters as
- * much as arm 1: under an override the real default reports false and the
- * person is NOT told about a loss that happened, while a leftover `.codex`
- * reports true and they are told about one that did not.
+ * ⚠️ #2941: `wasDefault` NO LONGER gates the OpenAI removal history sentence. It
+ * used to (the sentence was default-only, on the premise that `codexsession`
+ * read `defaultHome()` alone); since #2906 the status reader reads EVERY
+ * account's own home, so a labelled account's codex sessions are visible and the
+ * removal disclosures now say "history stops appearing" unconditionally. The
+ * flag is retained as a correct engine return (the Claude default-recovery path
+ * still keys on its own account's wasDefault), which is what these arms guard --
+ * the flag's correctness, not the OpenAI history-sentence gate that is now gone.
  */
 
 const test = require('node:test');
@@ -40,20 +41,21 @@ function seed(name) {
   return dir;
 }
 
-test('#1659: the default account reports wasDefault, so the history sentence is shown', () => {
+test('#1659: the default account reports wasDefault:true (it points at the default home)', () => {
   const out = accounts.forgetAccount(seed('.codex'));
   assert.equal(out.ok, true, 'the fixture did not disconnect, so the flag below means nothing');
   assert.equal(out.wasDefault, true,
-    'the default account did not report wasDefault, so the person is never told their '
-    + 'transcripts stop appearing');
+    'the default account did not report wasDefault, so the flag does not track the default home');
 });
 
-test('#1659 CONTROL: a labelled account reports FALSE, so the flag is not constant-true', () => {
+test('#1659 CONTROL: a labelled account reports wasDefault:false, so the flag is not constant-true', () => {
   const out = accounts.forgetAccount(seed('.codex-labelled'));
   assert.equal(out.ok, true, 'the fixture did not disconnect');
+  // The flag value is unchanged by #2941 (a labelled account is genuinely not the default). What
+  // changed is only that the OpenAI history sentence no longer gates on it -- it is shown for
+  // labelled accounts too now, because their codex sessions are read since #2906.
   assert.equal(out.wasDefault, false,
-    'a labelled account claimed to be the default, so the sentence would be shown to '
-    + 'someone who lost no history at all');
+    'a labelled account reported wasDefault:true, so the flag is constant-true rather than tracking the default home');
 });
 
 test('#1659: an operator-NAMED codex home is the default, whatever the folder is called', () => {

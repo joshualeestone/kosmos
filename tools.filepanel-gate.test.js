@@ -73,6 +73,7 @@ const GOOD = [
   'press:visible-input\tasked-for-panel:yes',
   'press:real-presenter\tpanel-on-screen:yes',
   'press:after-a-cancel\treaches-the-app-again:yes',
+  'press:with-a-sheet-up\tno-abort-and-panel-presented:yes',
 ].join('\n');
 
 test('the gate passes the output a working file picker produces', () => {
@@ -125,6 +126,20 @@ test('the gate GIVING UP is not a verdict on the product', () => {
   assert.match(v.text, /did not finish/);
   assert.doesNotMatch(v.text, /file picker is broken/,
     'the gate giving up was reported as a broken + button');
+});
+
+test('#2807: a with-a-sheet-up SETUP INCONCLUSIVE is the harness, NOT the product', () => {
+  /* The #2807 arm prints this when its precondition (a sheet attached to the
+     host) never held within the poll window -- a slow build box, not the + button.
+     The output still carries the earlier uiDelegate:/press: arms that DID run, so
+     the gate must match the INCONCLUSIVE arm BEFORE the product arm and NOT blame
+     the product. */
+  const ranArms = GOOD.split('\n').slice(0, 6).join('\n'); // through after-a-cancel; with-a-sheet-up absent
+  const v = verdict(ranArms + '\nfilepanel selftest SETUP INCONCLUSIVE: the host sheet never attached (harness, not the product)', 1);
+  assert.ok(!v.ok, 'an inconclusive setup must still stop the cut');
+  assert.match(v.text, /could not set up/);
+  assert.doesNotMatch(v.text, /file picker is broken/,
+    'a slow-box setup failure was blamed on the + button');
 });
 
 test('the timeout arm cannot be spoofed by the words appearing in other output', () => {

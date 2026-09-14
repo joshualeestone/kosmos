@@ -50,11 +50,16 @@ after(async () => {
 });
 
 const j = (r) => r.json();
+/* #1704 PR4: an agent is its profile AND its brief now -- a copy is complete, and an
+   agent whose instructions cannot be read is refused rather than half copied. */
 function seedProfile(world, name, body) {
   const base = worlds.baseRoot(process.env);
   const dir = worlds.worldProfilesDir(base, world);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, name + '.json'), JSON.stringify(body || { name }));
+  const folder = path.join(worlds.worldWorkersDir(base, world), name);
+  fs.mkdirSync(folder, { recursive: true });
+  fs.writeFileSync(path.join(folder, 'CLAUDE.md'), `# ${name}\n`);
 }
 
 test('#2563 POST /api/worlds importAgentsFrom copies agents into the new Kosmos, source unchanged', async () => {
@@ -69,12 +74,12 @@ test('#2563 POST /api/worlds importAgentsFrom copies agents into the new Kosmos,
   }).then(j);
   assert.equal(made.ok, true, made.because || '');
   assert.ok(made.imported, 'the response reports what it imported');
-  assert.equal(made.imported.copied, 2, 'both source agents were copied');
-  assert.equal(made.imported.skipped, 0);
+  assert.deepEqual(made.imported.copied.map((c) => c.name), ['alice', 'bob'], 'both source agents were copied');
+  assert.deepEqual(made.imported.refused, []);
 
   const b = worlds.baseRoot(process.env);
-  assert.equal(worlds.agentCount(b, made.world), 2, 'target holds both imported agents');
-  assert.equal(worlds.agentCount(b, src.world), 2, 'source is unchanged');
+  assert.deepEqual(worlds.worldProfileNames(b, made.world), ['alice', 'bob'], 'target holds both imported agents');
+  assert.deepEqual(worlds.worldProfileNames(b, src.world), ['alice', 'bob'], 'source is unchanged');
 });
 
 test('#2563 GET /api/worlds/list returns each Kosmos with an agentCount', async () => {

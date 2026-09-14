@@ -1,0 +1,16 @@
+# Xcode build output
+build/
+DerivedData/
+
+# App-icon asset catalog is deferred: compiling it triggers per-device asset
+# thinning, which needs the iOS platform runtimes that are not installed yet
+# (xcodebuild -downloadPlatform iOS, a Josh operator action; see README). Kept as
+# local scratch and ignored until then, so the committed skeleton builds green.
+Kosmos/Assets.xcassets/
+
+# Xcode per-user state (schemes are auto-created; none are shared here)
+xcuserdata/
+*.xcuserstate
+
+# macOS
+.DS_Store

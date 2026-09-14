@@ -130,6 +130,21 @@ function clear(base, id) {
   }
 }
 
+/* Take back ONE recordAttempt for `id`, and only one. #570: a Windows board started
+   by hand records an attempt at bootstrap and then hands the world to its logon
+   task without ever trying to serve it (engine/win32handoff.js). Left on disk, that
+   attempt is a failure the world never had -- and for a never-served world one is
+   enough for the task's board to abandon it. Not `clear`: the attempts earlier
+   boots really made must still count. Returns true when there was one to take. */
+function retractAttempt(base, id) {
+  if (!base || typeof id !== 'string' || !CLEAN_ID.test(id)) return false;
+  const map = readMap(base);
+  const had = Number.isInteger(map[id]) && map[id] > 0 ? map[id] : 0;
+  if (!had) return false;
+  if (had > 1) { map[id] = had - 1; writeMap(base, map); } else { clear(base, id); }
+  return true;
+}
+
 /* True when `id` has already failed THRESHOLD times in a row -- read WITHOUT
    incrementing, so callers can decide before recording. Default world ids never
    count (falling the default world back to itself is meaningless). */
@@ -192,7 +207,7 @@ function shouldAbandon(base, id) {
 }
 
 module.exports = {
-  recordAttempt, clear, isAbandoned, shouldAbandon,
+  recordAttempt, retractAttempt, clear, isAbandoned, shouldAbandon,
   markConfirmed, isConfirmed,
   THRESHOLD, FILE, CONFIRMED_FILE,
 };

@@ -239,10 +239,19 @@ function pathextCandidates(p, platform = process.platform, env = process.env) {
  * counts as one, which this does not do.
  */
 function isRunnable(p) {
+  return runnableCandidate(p) !== null;
+}
+
+/**
+ * The file the platform would actually launch for `p` (the first of pathextCandidates that
+ * clears runnableExactly), or null. isRunnable is this answer as a yes/no, so a caller that
+ * needs the FILE (the Windows sign-in line names it) asks the same question in the same spelling.
+ */
+function runnableCandidate(p) {
   for (const candidate of pathextCandidates(p)) {
-    if (runnableExactly(candidate)) return true;
+    if (runnableExactly(candidate)) return candidate;
   }
-  return false;
+  return null;
 }
 
 /**
@@ -1136,4 +1145,4 @@ function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 /* pathextCandidates is exported for the SAME reason create.unusablePath is: its
    win32 branch cannot be asserted from the Mac the suite runs on unless the
    platform is injectable from a test. */
-module.exports = { MANIFEST, managedRoot, resolveBin, homeDir, status, install, download, isRunnable, pathextCandidates, runnableExactly, resetForTests };
+module.exports = { MANIFEST, managedRoot, resolveBin, homeDir, status, install, download, isRunnable, runnableCandidate, pathextCandidates, runnableExactly, resetForTests };

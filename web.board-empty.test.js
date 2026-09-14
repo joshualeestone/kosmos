@@ -44,7 +44,10 @@ function boardEmpty(state) {
      that renders a value this code did not write. */
   // eslint-disable-next-line no-new-func
   return new Function('BOARD_SEEN', 'BOARD_LOOK_FAILED', 'BOARD_NEEDS_SIGNIN',
-    lift('esc') + '\n' + lift('boardSigninHtml') + '\n' + lift('boardEmpty') + '\nreturn boardEmpty();')(state.seen, state.failed, state.signin || false);
+    /* win32-board-copy: both painters now ask the platform copy layer, which answers
+       "not Windows" here (no stamped meta), so this file keeps asserting the Mac board. */
+    page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS) + '\n'
+    + lift('esc') + '\n' + lift('boardSigninHtml') + '\n' + lift('boardEmpty') + '\nreturn boardEmpty();')(state.seen, state.failed, state.signin || false);
 }
 
 const LOOKING = { seen: false, failed: null };

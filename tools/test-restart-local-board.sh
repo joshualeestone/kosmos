@@ -176,5 +176,83 @@ out="$(KOSMOS_BOARD_POLL_ONLY=1 KOSMOS_BOARD_STATUS_URL="$URL" KOSMOS_BOARD_WANT
 if [ "$rc" -eq 0 ] && ! has "$out" "value too great for base"; then pass "zero-padded knob arm: '08' is decimal 8, not an octal abort"; else fail "zero-padded knob arm (rc=$rc, out=$out)"; fi
 stop_stub
 
+# 8. Shape-detection gate (#1164). The arms above all use KOSMOS_BOARD_POLL_ONLY, which
+#    SKIPS launchd discovery and the shape gate entirely. These arms exercise the gate
+#    itself: they stub `launchctl` on PATH so the script reads a working directory WE
+#    choose, and run with --check so the script REPORTS which shape it found and exits 0
+#    WITHOUT ever stopping a real board (no launchd job is touched). The status URL is
+#    pinned at a dead port so the "before" read is deterministic and hits nothing live.
+#    Three shapes must be told apart:
+#      (a) WD == this repo               -> "runs from this repo",        exit 0
+#      (b) WD == the libexec DEST        -> "runs from the libexec deploy", exit 0 (the #1164 add)
+#      (c) WD is foreign OR ABSENT       -> "leaving it alone",           exit 0 (FAIL SAFE)
+#    The absent-WD case is the real end-user bundle shape (its launchd job has no
+#    `working directory =` line at all), so it is covered explicitly.
+mkdir -p "$T/bin"
+REPO_DIR="$(cd "$(dirname "$SCRIPT")/.." && pwd)"
+LIBEXEC_DIR="$T/libexec"
+DEAD_URL="http://127.0.0.1:1/api/status"
+
+# Write a stub `launchctl` that answers `print` with a com.kosmos.board block whose
+# working directory is $1 (omit the line entirely when $1 is empty, exactly as the
+# end-user bundle job does), and treats every other subcommand (stop/load/...) as a
+# no-op success. Single-quoted echoes keep the stub's runtime "$1" literal; the
+# double-quoted lines bake THIS call's WD/port in at write time.
+make_launchctl_stub() {  # $1 = WD to report (empty => no working-directory line); $2 = port
+  {
+    echo '#!/bin/sh'
+    echo 'if [ "$1" = "print" ]; then'
+    echo "cat <<'INFO'"
+    echo "com.kosmos.board = {"
+    [ -n "$1" ] && echo "working directory = $1"
+    echo "environment = {"
+    echo "KOSMOS_PORT => $2"
+    echo "}"
+    echo "}"
+    echo "INFO"
+    echo "  exit 0"
+    echo "fi"
+    echo "exit 0"
+  } > "$T/bin/launchctl"
+  chmod +x "$T/bin/launchctl"
+}
+
+# Run restart-local-board.sh --check with the launchctl stub reporting WD=$1. --check
+# reports the shape and exits BEFORE any launchctl stop / restart, so no live board is
+# touched. KOSMOS_BOARD_LIBEXEC pins shape (b)'s DEST to a path we control.
+run_gate() {  # $1 = WD the stubbed launchctl should report
+  make_launchctl_stub "$1" 16180
+  PATH="$T/bin:$PATH" \
+    KOSMOS_BOARD_LIBEXEC="$LIBEXEC_DIR" \
+    KOSMOS_BOARD_STATUS_URL="$DEAD_URL" \
+    bash "$SCRIPT" --check 2>&1
+}
+
+# 8a. libexec shape (b): the new path -- WD == DEST is recognised and would be restarted.
+out="$(run_gate "$LIBEXEC_DIR")"; rc=$?
+if [ "$rc" -eq 0 ] && has "$out" "runs from the libexec deploy"; then pass "libexec shape (b): WD == DEST is recognised (#1164)"; else fail "libexec shape (b) (rc=$rc, out=$out)"; fi
+
+# 8b. repo shape (a): WD == this repo is still recognised (unchanged behavior).
+out="$(run_gate "$REPO_DIR")"; rc=$?
+if [ "$rc" -eq 0 ] && has "$out" "runs from this repo"; then pass "repo shape (a): WD == repo still recognised"; else fail "repo shape (a) (rc=$rc, out=$out)"; fi
+
+# 8c. bundle shape (c), foreign WD: neither repo nor DEST -> left alone, exit 0.
+out="$(run_gate "$T/share/kosmos")"; rc=$?
+if [ "$rc" -eq 0 ] && has "$out" "leaving it alone"; then pass "bundle shape (c), foreign WD: left alone (fail-safe no-op)"; else fail "bundle shape (c) foreign (rc=$rc, out=$out)"; fi
+if has "$out" "neither this repo"; then pass "bundle shape (c): says it matched neither shape"; else fail "bundle shape (c) message: $out"; fi
+
+# 8d. bundle shape (c), ABSENT WD (the REAL end-user bundle: no working-directory line
+#     at all -> WD parses empty): must be left alone, NEVER matched to a shape by an
+#     empty-string coincidence. This is the exact shape this box (mortals) presents.
+out="$(run_gate "")"; rc=$?
+if [ "$rc" -eq 0 ] && has "$out" "leaving it alone"; then pass "bundle shape (c), absent WD: left alone (the real bundle shape)"; else fail "bundle shape (c) absent WD (rc=$rc, out=$out)"; fi
+
+# 8e. libexec-empty perturbation: if KOSMOS_BOARD_LIBEXEC were somehow empty, an absent
+#     WD must NOT collapse into a false shape-(b) match ("" == ""). The [ -n "$WD" ]
+#     guard in the gate is what prevents that; this arm is red-capable against dropping it.
+make_launchctl_stub "" 16180
+out="$(PATH="$T/bin:$PATH" KOSMOS_BOARD_LIBEXEC="" KOSMOS_BOARD_STATUS_URL="$DEAD_URL" bash "$SCRIPT" --check 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && has "$out" "leaving it alone"; then pass "empty-LIBEXEC + absent-WD: not a false shape-(b) match"; else fail "empty-LIBEXEC perturbation (rc=$rc, out=$out)"; fi
+
 echo ""
 if [ "$fails" -eq 0 ]; then echo "ALL PASS"; else echo "$fails FAILED"; exit 1; fi

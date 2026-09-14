@@ -197,5 +197,20 @@ Sap="$(make_site)"; bash "$PUBLISH" "$Sap" >/dev/null 2>&1
 out="$(KOSMOS_PROMOTE_GATE_CMD="$GATE" GATE_RC_WANT=0 AGENT_RC_WANT=0 bash "$PROMOTE" "$Sap" 17777 2>&1)"; rc=$?
 [ "$rc" = 0 ] && has "$out" "agent-gate-arg1:17777" && pass "promote: forwards [port] to the agent gate too" || bad "promote agent-gate port-forward (rc=$rc, out=$out)"
 
+# THE RACE: the staging pointer changes while a gate runs (a new staging publish lands mid-promote).
+# promote-channel.sh reads every field from ONE snapshot and refuses when the live pointer no longer
+# matches it, so what reaches prod is only ever what the gates checked. The stub gate rewrites
+# latest-staging.json and then passes.
+Sr="$(make_site)"; bash "$PUBLISH" "$Sr" >/dev/null 2>&1
+SWAP_GATE="$T/swap-gate.sh"
+cat > "$SWAP_GATE" <<'SWAP'
+#!/usr/bin/env bash
+printf '{"version":"9.9.9","sha256":"deadbeef","artifact":"kosmos-9.9.9-arm64.tar.gz","manifest":"kosmos-9.9.9-arm64.manifest.json","swapped":"mid-gate"}\n' > "$SWAP_POINTER"
+exit 0
+SWAP
+out="$(SWAP_POINTER="$Sr/dist/latest-staging.json" KOSMOS_PROMOTE_GATE_CMD="bash $SWAP_GATE" bash "$PROMOTE" "$Sr" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "changed while the promote ran" && [ ! -f "$Sr/dist/latest.json" ] \
+  && pass "promote: a staging pointer swapped mid-gate is refused, and latest.json is never written" || bad "promote mid-gate swap (rc=$rc, out=$out)"
+
 echo ""
 if [ "$fail" = 0 ]; then echo "test-staging-channel-2036: ALL PASS"; else echo "test-staging-channel-2036: FAILURES above"; exit 1; fi

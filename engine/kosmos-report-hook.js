@@ -32,9 +32,12 @@
  *   SessionEnd        -> stopped
  *
  * EVERY event sends auto:true -- the machine wrote this, not the agent. The
- * board's reconcileReport refuses ONLY an automatic idle/working over a standing
- * waiting state (#900/#1949), server-side; the client just sends auto, exactly
- * as the bash hook passes --auto.
+ * board's reconcileReport (#900/#1949/#2456) refuses an automatic idle/working
+ * -- and an automatic needs_you -- over a standing DELIBERATE wait (and over an
+ * auto `blocked`, a provider outage that does not auto-resolve), server-side;
+ * but it lets an auto idle/working CLEAR a standing auto `needs_you` (this
+ * PermissionRequest prompt), so the prompt stops sticking once the turn moves
+ * on. The client just sends auto, exactly as the bash hook passes --auto.
  *
  * 🛑 FAIL-SAFE: a reporting bug must never break an agent. Every path resolves
  * to exit 0. Only SessionStart -- the once-per-session event whose stdout is a
@@ -144,14 +147,15 @@ function buildBody(report, fromPane) {
   };
 }
 
-/** The board port. The installer bakes KOSMOS_PORT into the win32 launcher, so
- *  it is normally set and returned directly. The uid fallback replicates
+/** The board port: KOSMOS_PORT when the environment carries one (the Mac's plist
+ *  and pane do), returned directly. The uid fallback replicates
  *  install/kosmos EXACTLY (measured against its `id -u` branch), so a reuse
  *  off-win32 stays in step with the CLI: uid 501 (the primary account) -> the
  *  primary port, every other real uid -> a per-uid offset. A platform with no
  *  uid (win32 is -1) has no account to derive from and takes the primary port.
- *  In the actual win32 deployment this fallback is never taken -- uid is -1 and
- *  KOSMOS_PORT is baked -- so it is a documented default, not the hot path.
+ *  On win32 nothing sets KOSMOS_PORT today (the launcher reads only PORT), so
+ *  this primary-port fallback IS the path every Windows agent takes, and the
+ *  board serves that port.
  *  NOTE a deliberate divergence: the CLI uses ${KOSMOS_PORT:-...} verbatim with
  *  NO format check, whereas this requires a bare integer and otherwise falls to
  *  the derivation -- a malformed port would build an unusable URL, and on win32
@@ -208,6 +212,11 @@ async function deliver(report, io) {
   const headers = { 'content-type': 'application/json' };
   if (o.boardToken) headers['x-kosmos-board-token'] = o.boardToken;
   if (o.agentToken) headers['x-kosmos-agent-token'] = o.agentToken;
+  /* #1704 PR2: name this agent's Kosmos, so a board serving ANOTHER one answers
+     421 (wrongWorld) rather than refusing the report as a stranger's. `main`
+     passes the process's own world; a caller that passes none is the default. */
+  const { WORLD_HEADER, worldIdForHeader } = require('./launchidentity');
+  headers[WORLD_HEADER] = worldIdForHeader(o.world);
   const doFetch = o.fetchImpl || ((typeof fetch === 'function') ? fetch : null);
   if (!doFetch) return { ok: false, error: 'no fetch available' };
   const ctl = new AbortController();
@@ -226,7 +235,12 @@ async function deliver(report, io) {
     // surfaces this too): a refusal carries "error", a not-recorded carries
     // "because". Either is the actionable sentence; a bare status is not.
     const m = body.match(/"error"\s*:\s*"([^"]*)"/) || body.match(/"because"\s*:\s*"([^"]*)"/);
-    return { ok: !!(res && res.ok) && recorded, status: res && res.status, recorded, body, because: m ? m[1] : '' };
+    /* #1704 PR2: the board is serving ANOTHER Kosmos (421 wrongWorld). Nothing is
+       kept for later -- a state this agent was in while its Kosmos was closed is
+       stale by the time it opens -- and it is not a failure to tell the person
+       about, so `main` stays silent on it. */
+    const wrongWorld = Boolean(res) && res.status === 421 && /"wrongWorld"\s*:\s*true/.test(body);
+    return { ok: !!(res && res.ok) && recorded, status: res && res.status, recorded, body, because: m ? m[1] : '', wrongWorld };
   } catch (err) {
     return { ok: false, error: (err && err.message) ? err.message : String(err) };
   } finally {
@@ -321,9 +335,13 @@ async function main(io) {
     fetchImpl: o.fetchImpl,
     timeoutMs: o.timeoutMs || timeoutFor(report),
     fromPane: env.TMUX_PANE || '',
+    world: require('./launchidentity').worldHeaderValue(env),
   });
 
-  if (report.loud && !verdict.ok) {
+  /* #1704 PR2: a board serving another Kosmos (421) is not reporting being off:
+     this agent's own Kosmos is simply not the one open, and a report is not kept
+     for later. Silent, like every non-loud event. */
+  if (report.loud && !verdict.ok && !verdict.wrongWorld) {
     // SessionStart: say it once, out loud, the way the bash hook does -- and
     // surface the SERVER'S reason when it gave one. A 200-with-recorded:false
     // (e.g. the board is enforcing and the agent token was missing) must NOT

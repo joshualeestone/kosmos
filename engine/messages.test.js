@@ -884,6 +884,90 @@ test('a post fans out to every member, mentioned as a request and the rest MARKE
   });
 });
 
+/* ── #2908: reply_expected / --no-reply (break the ack-of-an-ack loop) ──────────
+ * An addressed @mention is delivered with a "to answer, run: kosmos post <p>" clause, so an
+ * acknowledgement addressed by name forces the recipient to acknowledge the acknowledgement,
+ * forever. reply_expected:false makes an addressed arrival an acknowledgement: the envelope and
+ * words are unchanged (still foreground), but the answer clause becomes "FYI, no reply requested"
+ * and the intent is persisted. It is set only by the caller (--no-reply), never inferred from prose. */
+const addressedTo = (tmux, marker) => tmux.sends().map((a) => a[5])
+  .filter((t) => typeof t === 'string' && t.startsWith('['))
+  .find((t) => t.startsWith(marker));
+
+test('#2908: reply_expected:false swaps the addressed answer clause to a no-reply note, keeping the envelope', () => {
+  withFleet(room3(), (board) => {
+    armSender('leo-discord');
+    const tmux = arm([]);
+    const sent = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks @mara, got it', replyExpected: false }, board.agents, MEMBERS);
+    assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+    const toMara = addressedTo(tmux, '[message from your colleague');
+    assert.match(toMara, /^\[message from your colleague leo · m\d+ · project henderson-lease · FYI, no reply requested\] /,
+      'the mentioned recipient did not get the no-reply note');
+    assert.ok(!/to answer, run: kosmos post/.test(toMara), 'the answer command must not ride a no-reply post');
+    assert.ok(/thanks @mara, got it/.test(toMara), 'the words and the foreground envelope must be kept');
+  });
+});
+
+test('#2908: omitted reply_expected keeps the answer clause (default is reply-required, unchanged)', () => {
+  withFleet(room3(), (board) => {
+    armSender('leo-discord');
+    const tmux = arm([]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'have a look @mara' }, board.agents, MEMBERS);
+    const toMara = addressedTo(tmux, '[message from your colleague');
+    assert.match(toMara, / · to answer, run: kosmos post henderson-lease\] /, 'an ordinary mention must still carry the answer clause');
+    assert.ok(!/no reply requested/.test(toMara), 'no no-reply note should appear when the flag is absent');
+  });
+});
+
+test('#2908: reply_expected:true keeps the answer clause (explicit true == default)', () => {
+  withFleet(room3(), (board) => {
+    armSender('leo-discord');
+    const tmux = arm([]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'have a look @mara', replyExpected: true }, board.agents, MEMBERS);
+    const toMara = addressedTo(tmux, '[message from your colleague');
+    assert.match(toMara, / · to answer, run: kosmos post henderson-lease\] /, 'explicit reply_expected:true must behave like the default');
+  });
+});
+
+test('#2908: reply_expected:false is persisted on the room record; an ordinary post carries no such field', () => {
+  withFleet(room3(), (board) => {
+    armSender('leo-discord');
+    arm([]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'ack @mara', replyExpected: false }, board.agents, MEMBERS);
+    armSender('leo-discord');
+    arm([]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'question @mara?' }, board.agents, MEMBERS);
+    const rows = messages.record().rows.filter((m) => m.kind === 'post');
+    assert.equal(rows[0].replyExpected, false, 'the no-reply intent was not persisted');
+    assert.equal(Object.prototype.hasOwnProperty.call(rows[1], 'replyExpected'), false,
+      'an ordinary post must not gain a replyExpected field (default is byte-unchanged)');
+  });
+});
+
+test('#2908: a background (unmentioned) recipient is unaffected by reply_expected:false', () => {
+  withFleet(room3(), (board) => {
+    armSender('leo-discord');
+    const tmux = arm([]);
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'thanks @mara', replyExpected: false }, board.agents, MEMBERS);
+    const toApril = addressedTo(tmux, '[background from your colleague');
+    assert.match(toApril, / · not addressed to you\] /, 'the background marker must be unchanged');
+    assert.ok(!/no reply requested|to answer, run/.test(toApril), 'a background arrival carries neither an answer clause nor a no-reply note');
+  });
+});
+
+test('#2908: no-reply is NEVER inferred from prose - "no reply needed" in the text still gets the answer clause', () => {
+  withFleet(room3(), (board) => {
+    armSender('leo-discord');
+    const tmux = arm([]);
+    // The exact failure the card names: adding "no reply needed" to the body does NOT stop the loop.
+    messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'no reply needed @mara, just an ack' }, board.agents, MEMBERS);
+    const toMara = addressedTo(tmux, '[message from your colleague');
+    assert.match(toMara, / · to answer, run: kosmos post henderson-lease\] /,
+      'prose must not be read as reply-intent - only the explicit flag suppresses the answer clause');
+    assert.ok(!/no reply requested/.test(toMara), 'the no-reply note must come from the flag, never from matching prose');
+  });
+});
+
 // #2442: a removed agent is not a room participant. Josh, 2026-09-07: "if you
 // delete an agent, he still has access to a project room." remove() keeps the
 // name in the project record (so restore re-admits it), so sendPost/react filter
@@ -1071,6 +1155,143 @@ test('the room valve closes across the whole thread regardless of sender, once, 
     arm([]);
     const other = messages.sendPost({ fromPane: '%7', project: 'quarter-close', text: 'unrelated room' }, board.agents, MEMBERS);
     assert.equal(other.state, chat.DELIVERY.PLACED, 'one room’s valve closed a different room');
+  });
+});
+
+test('#2710: reopening a held room clears the loop-guard budget so the next post lands', () => {
+  withFleet(room3(), (board) => {
+    const now = Date.now();
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    // Fill the room to its budget within the window -- the exact loop the valve
+    // holds for. Alternating senders so no PAIR cap fires (same as the valve
+    // test), so the ONLY thing refusing the next post is the room valve.
+    for (let i = 0; i < ROOM_BUDGET / 2; i += 1) {
+      fs.appendFileSync(messages.LOG, JSON.stringify({
+        kind: 'post', id: 'm' + (i + 1), project: 'henderson-lease',
+        from: MEMBERS[i % 3], to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]),
+        text: 'round ' + i, at: new Date(now - 60000).toISOString(), outcomes: {},
+      }) + '\n');
+    }
+    armSender('leo-discord');
+    arm([]);
+    // BEFORE: the valve is holding the room (this is the control -- if this were
+    // already PLACED, the test below would prove nothing about reopen).
+    const held = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'a substantive finding' }, board.agents, MEMBERS);
+    assert.equal(held.state, chat.DELIVERY.COULD_NOT, 'the room was not actually held, so reopen has nothing to clear');
+
+    // REOPEN: an explicit release, writing a marker rather than a content post.
+    const out = messages.reopenRoom('henderson-lease');
+    assert.equal(out.ok, true, 'reopen refused a valid room');
+    const reopens = messages.record().rows.filter((m) => m.kind === 'reopen' && m.project === 'henderson-lease');
+    assert.equal(reopens.length, 1, 'the reopen marker was not written (or written more than once)');
+    assert.equal(reopens[0].operator, true, 'the reopen marker must be an operator row');
+
+    // AFTER: the same post now lands -- the budget is counted from the reopen.
+    chat.resetForTests();
+    armSender('leo-discord');
+    arm([]);
+    const after = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'a substantive finding' }, board.agents, MEMBERS);
+    assert.equal(after.state, chat.DELIVERY.PLACED, 'reopen did not clear the loop-guard hold');
+
+    // A reopen touches ONE room: a different room over budget is still held.
+    wipeLog();
+    for (let i = 0; i < ROOM_BUDGET / 2; i += 1) {
+      fs.appendFileSync(messages.LOG, JSON.stringify({
+        kind: 'post', id: 'm' + (i + 1), project: 'quarter-close',
+        from: MEMBERS[i % 3], to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]),
+        text: 'round ' + i, at: new Date(now - 60000).toISOString(), outcomes: {},
+      }) + '\n');
+    }
+    messages.reopenRoom('henderson-lease');
+    chat.resetForTests();
+    armSender('leo-discord');
+    arm([]);
+    const elsewhere = messages.sendPost({ fromPane: '%7', project: 'quarter-close', text: 'still looping' }, board.agents, MEMBERS);
+    assert.equal(elsewhere.state, chat.DELIVERY.COULD_NOT, 'reopening one room cleared a different room');
+  });
+});
+
+test('#2710: reopenRoom refuses an empty or unreadable project id, and writes nothing', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const empty = messages.reopenRoom('');
+  assert.equal(empty.ok, false, 'an empty project id was accepted');
+  assert.match(String(empty.because || ''), /which project/, 'the refusal does not say what is missing');
+  const bad = messages.reopenRoom('a]b');
+  assert.equal(bad.ok, false, 'a bracket in the id (which would break the envelope grammar) was accepted');
+  const rows = fs.existsSync(messages.LOG) ? messages.record().rows.filter((m) => m.kind === 'reopen') : [];
+  assert.equal(rows.length, 0, 'a refused reopen still wrote a marker');
+});
+
+test('#2710: a reopen row survives the read, a malformed one is dropped, and neither renders in the room', () => {
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const at = new Date().toISOString();
+  fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'reopen', from: 'you', to: 'p1', project: 'p1', operator: true, at }) + '\n');
+  // Malformed: an AGENT-minted reopen (no operator flag) must be dropped on read,
+  // the read-side half of "only the operator can reopen".
+  fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'reopen', from: 'leo', to: 'p1', project: 'p1', at }) + '\n');
+  const kept = messages.record().rows.filter((m) => m.kind === 'reopen');
+  assert.equal(kept.length, 1, 'the operator reopen was dropped, or the agent-minted one was kept');
+  assert.equal(kept[0].operator, true, 'the surviving reopen is not the operator row');
+});
+
+test('#2738: after a reopen, a re-loop within the same window logs a FRESH valve notice and refused row, not suppressed by the pre-reopen ones', () => {
+  /* The gap #2710 left: the arrival budget resets at a reopen (countFrom), but
+     the two dedup baselines keyed off the RAW window, so a pre-reopen valve /
+     refused row still in-window would swallow the re-loop's fresh signals. Both
+     dedups now key off countFrom too. The two arms below share the exact seed
+     EXCEPT the reopen row, which is the whole discriminator. */
+  const seedReloop = (withReopen) => {
+    wipeLog();
+    fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+    const now = Date.now();
+    const w = (ms) => new Date(now - ms).toISOString();
+    // A pre-reopen valve notice + a pre-reopen refused row for the sender, both
+    // recent enough to sit inside the raw window (so the OLD code would dedup
+    // against them).
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'valve', from: 'leo', to: 'henderson-lease', project: 'henderson-lease', at: w(30000), because: 'x', stopped: true }) + '\n');
+    fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'refused', from: 'leo', to: 'henderson-lease', project: 'henderson-lease', at: w(30000), because: 'y' }) + '\n');
+    if (withReopen) {
+      fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'reopen', from: 'you', to: 'henderson-lease', project: 'henderson-lease', operator: true, at: w(10000) }) + '\n');
+    }
+    // A full budget of AGENT traffic AFTER the reopen mark, so the room is
+    // genuinely re-looped (arrivals recount from the reopen and still exceed).
+    for (let i = 0; i < ROOM_BUDGET / 2; i += 1) {
+      fs.appendFileSync(messages.LOG, JSON.stringify({
+        kind: 'post', id: 'r' + (i + 1), project: 'henderson-lease',
+        from: MEMBERS[i % 3], to: MEMBERS.filter((m) => m !== MEMBERS[i % 3]),
+        text: 'reloop ' + i, at: w(5000), outcomes: {},
+      }) + '\n');
+    }
+  };
+
+  withFleet(room3(), (board) => {
+    // ARM A (the fix): with the reopen, the re-loop is refused AND a fresh
+    // notice + fresh refused row are logged, because the dedup baseline moved
+    // to the reopen mark past the pre-reopen rows.
+    seedReloop(true);
+    chat.resetForTests(); armSender('leo-discord'); arm([]);
+    const refusedA = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'still looping after the reopen' }, board.agents, MEMBERS);
+    assert.equal(refusedA.state, chat.DELIVERY.COULD_NOT, 'the re-loop was not refused, so the dedup arms below prove nothing');
+    const rowsA = messages.record().rows;
+    assert.equal(rowsA.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease').length, 2,
+      'no FRESH valve notice fired after the reopen: the pre-reopen notice still suppressed it');
+    assert.equal(rowsA.filter((m) => m.kind === 'refused' && m.project === 'henderson-lease' && m.from === 'leo').length, 2,
+      'no fresh refused row for the re-offending agent after the reopen');
+
+    // ARM B (control): identical seed WITHOUT the reopen. The room is still
+    // over budget (raw window) so it is refused, but the pre-reopen rows
+    // correctly suppress the notice + refused row -- proving the change is a
+    // no-op on the common (no-reopen) path and the arm above is the reopen's
+    // doing, not a valve that always re-notifies.
+    seedReloop(false);
+    chat.resetForTests(); armSender('leo-discord'); arm([]);
+    const refusedB = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'still looping, no reopen' }, board.agents, MEMBERS);
+    assert.equal(refusedB.state, chat.DELIVERY.COULD_NOT, 'CONTROL: the room was not over budget, so suppression proves nothing');
+    const rowsB = messages.record().rows;
+    assert.equal(rowsB.filter((m) => m.kind === 'valve' && m.project === 'henderson-lease').length, 1,
+      'without a reopen the notice must stay deduped (the change is not a no-op on the common path)');
+    assert.equal(rowsB.filter((m) => m.kind === 'refused' && m.project === 'henderson-lease' && m.from === 'leo').length, 1,
+      'without a reopen the per-agent refused row must stay deduped');
   });
 });
 

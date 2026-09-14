@@ -26,7 +26,13 @@ const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.
 
 /* The painter reads a handful of module-level values and one element. Both are
    supplied here so the test drives the real branch rather than a stub of it. */
-function run({ agents, lastAt, spoke }) {
+function run({ agents, lastAt, spoke, projectId = null }) {
+  /* #2882: paintRoomBusy now scopes its working signal to a project id
+     (state === 'working' AND stateProject === projectId). These are STALENESS
+     arms, not scoping arms, so we pass a projectId that matches the fixture's
+     stateProject (fleet cards default to null) to neutralize the scope filter
+     and keep driving the staleness branch. The scoping itself is covered by
+     docs/browser-checks/render-room-busy-scope-2882.js. */
   const el = { hidden: null, innerHTML: '' };
   // eslint-disable-next-line no-new-func
   const paint = new Function(
@@ -39,7 +45,7 @@ function run({ agents, lastAt, spoke }) {
     + page.lift(SCRIPT, 'paintRoomBusy')
     + '; return paintRoomBusy;',
   )(agents, lastAt, spoke, el);
-  paint(agents.map((a) => a.sessionName));
+  paint(agents.map((a) => a.sessionName), projectId);
   return el;
 }
 

@@ -34,6 +34,14 @@ const taskchat = require('./taskchat');
 
 const SENTENCE_MAX = 200;
 const DETAIL_MAX = 2000;
+// #768: the cap on a task-conversation message. 2000 matches the project room's
+// composer (#d-say maxlength) and DETAIL_MAX, and sits under taskchat's generic
+// FIELD_MAX (4000) so a valid message is never silently truncated on the way to
+// disk. say() REFUSES over-length input rather than leaning on that truncation --
+// the same lesson as the older maxlength-vs-engine mismatch: the client limit and
+// the engine limit must agree, or a caller past the client one saves less than it
+// thinks it did.
+const MESSAGE_MAX = 2000;
 
 const WHO_MAX = 80;
 
@@ -428,6 +436,35 @@ function setDue(projectId, n, dueDate) {
   return changed;
 }
 
+/* #768: record a free-text message on a task's conversation -- the WRITE half of
+   #992's transcript (the read half is the activity list, engine/taskchat.js read()).
+   THIS FUNCTION only RECORDS; DELIVERY to the task's agents happens at the server
+   route (POST .../message), which has the roster and calls chat.deliver to the
+   assignees (Josh, 2026-09-12: "only to the agents assigned to the task"). Keeping
+   delivery in the route mirrors the room, whose delivery also lives at its route
+   with the roster, and keeps this engine function pure. A message is validated
+   non-empty here and the task must exist -- a message to a missing project/task is a
+   404, never a stray transcript file. taskchat.record bounds and single-lines the
+   text itself, and returns false (never throws) on a write failure, which for a
+   user-initiated message is surfaced rather than swallowed (the message IS the
+   operation, unlike a lifecycle side-record). */
+function say(projectId, n, text) {
+  const t = (typeof text === 'string' ? text : '').trim();
+  if (!t) throw new Error('a message cannot be empty');
+  if (t.length > MESSAGE_MAX) throw new Error(`keep the message to ${MESSAGE_MAX} characters or fewer`);
+  // Resolve READ-ONLY (projects.get), not via projects.mutate as setDue does: a
+  // message records to the transcript (taskchat) and changes nothing on the
+  // project, so writing the project file back would be a needless write. Existence
+  // is all we need from the lookup, so the cheaper read is the right shape here.
+  const p = projects.get(projectId);
+  if (!p) throw new Error('there is no project by that name');
+  const task = byNumber(p, n);
+  if (!task) throw new Error('there is no task by that number on this project');
+  const ok = taskchat.record(projectId, task.number, { kind: 'said', text: t });
+  if (!ok) throw new Error('we could not record that message');
+  return task;
+}
+
 /**
  * A task's PARTS: the assignable things it is made of.
  *
@@ -671,6 +708,6 @@ function claimFor(task, reading, opts) {
 }
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
-  partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem,
+  partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem, say,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR,
-  SENTENCE_MAX, DETAIL_MAX, WHO_MAX };
+  SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX };

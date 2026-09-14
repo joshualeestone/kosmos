@@ -1071,7 +1071,9 @@ function acctAgent(name) {
   const acctDir = fs.mkdtempSync(nodePath.join(SANDBOX, 'kosmos-acct-2609-'));
   fs.writeFileSync(create.plistPath(name),
     create.plistFor(name, BINS.claudeBin, BINS.tmuxBin, null, acctDir, 'claude'), 'utf8');
-  assert.equal(create.readJob(name).configDir, acctDir,
+  /* MAC, like every act in this file: readJob follows the platform, so on a Windows
+     host an uninjected read asks Task Scheduler instead of this plist. */
+  assert.equal(create.readJob(name, undefined, MAC).configDir, acctDir,
     'the fixture plist must name the account dir, or this tests the wrong thing');
   return acctDir;
 }

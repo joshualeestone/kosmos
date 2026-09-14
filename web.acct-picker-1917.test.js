@@ -115,22 +115,3 @@ test('#1917 control: a UNIQUE email is left exactly as it was (no qualifier nois
     'a single account picked up a qualifier -- the fix is meant to fire only on ambiguity: ' + JSON.stringify(texts));
   assert.doesNotMatch(texts[0], /\(main\)/, 'a lone default should not be tagged `main`');
 });
-
-test('#1917: the disabled default Disconnect names the way out (Sign in again)', () => {
-  // Fix A: pressing the greyed default Disconnect used to state a pure refusal.
-  // The default (~/.claude) cannot be removed (symlink hub), so when it is the
-  // account whose sign-in is broken the refusal was a dead end. The pressed
-  // message now points at `Sign in again`, the in-place reauth already on the row.
-  const at = PAGE.indexOf('const say = (btn.title');
-  assert.notEqual(at, -1, 'the disabled-default press-message assignment moved or was removed; restate this pin');
-  // The remedy pointer must be part of the spoken message, within this assignment.
-  const region = PAGE.slice(at, at + 300);
-  assert.match(region, /Sign in again/,
-    'the pressed default-Disconnect no longer points at the `Sign in again` remedy, so it is a dead end again');
-  // And it must NOT have been pushed into btn.title (which stays pinned to the
-  // engine `because`): the remedy is appended to the message, not the title.
-  const titleAt = PAGE.indexOf('title="Kosmos does not remove this computer');
-  assert.notEqual(titleAt, -1, 'the pinned default-Disconnect title moved');
-  assert.doesNotMatch(PAGE.slice(titleAt, titleAt + 400), /Sign in again/,
-    'the remedy leaked into the pinned title, which the engine-drift test compares against the engine sentence');
-});

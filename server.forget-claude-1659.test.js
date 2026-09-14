@@ -182,12 +182,19 @@ test('#1659 route CONTROL: a path that is not a Claude account is refused, and n
     'and the real account beside it is untouched');
 });
 
-/* 🛑 THE ASYMMETRY WITH THE OPENAI ROUTE, AT THE ROUTE LEVEL. */
-test('#1659 route: the DEFAULT account is refused, and it is still there', () => {
+/* #2684: THE DEFAULT IS REMOVABLE NOW, by clearing ONLY its oauth identity from
+   <HOME>/.claude.json -- the `.claude` folder is KEPT (it is Claude Code's home
+   and may hold other accounts' symlinked history). This replaces the old
+   "the default is always refused" asymmetry with the OpenAI route. */
+test('#2684 route: the DEFAULT is removed by clearing its sign-in, and the folder is kept', () => {
   const r = board(({ home }) => account(home, 'default'));
-  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
-  assert.match(String(r.json.error), /main Claude folder/);
-  assert.ok(fs.existsSync(r.target), 'THE DEFAULT MUST STILL BE THERE');
+  assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
+  assert.equal(r.json.forgotten, true);
+  assert.match(String(r.json.because), /main Claude connection is off the list/);
+  assert.match(String(r.json.because), /the Claude folder and any history in it are kept/);
+  assert.ok(fs.existsSync(r.target), 'the .claude folder is KEPT (only the sign-in is cleared)');
+  assert.ok(!JSON.parse(fs.readFileSync(nodePath.join(r.home, '.claude.json'), 'utf8')).oauthAccount,
+    'the oauth identity was cleared from <home>/.claude.json');
 });
 
 test('#1659 route: a missing account is a quiet success, not an error', () => {

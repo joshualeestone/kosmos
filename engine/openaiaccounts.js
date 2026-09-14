@@ -26,6 +26,9 @@ const crypto = require('node:crypto');
 const subscription = require('./subscription');
 const inflight = require('./inflight');
 const runners = require('./runners');
+// #2790: the codex-doctor-backed sign-in liveness. Top-level (no cycle: codexsigninlive
+// requires only ./runners, never this module).
+const codexsigninlive = require('./codexsigninlive');
 
 /* 🛑 A FUNCTION, NOT A CONST (#1337, found by Angel reviewing this branch).
    Frozen at require time, this made `list()` DISAGREE WITH ITSELF: the default
@@ -137,15 +140,55 @@ function identityFromData(parsed) {
   if (mode === 'chatgpt') {
     /* codex keeps an id_token for a ChatGPT sign-in; its payload names the
        email. Decoded, never verified: this is a label, not an authentication. */
-    let email = null;
-    try {
-      const tok = parsed.tokens && parsed.tokens.id_token;
-      const payload = JSON.parse(Buffer.from(String(tok).split('.')[1], 'base64url').toString('utf8'));
-      if (typeof payload.email === 'string') email = payload.email;
-    } catch { email = null; }
+    const payload = decodeIdTokenPayload(parsed.tokens && parsed.tokens.id_token);
+    const email = payload && typeof payload.email === 'string' ? payload.email : null;
     return { authMode: 'chatgpt', email, keyTail: null };
   }
   return null;
+}
+
+/** Pure, offline: the base64url-decoded JSON payload (middle segment) of a codex id_token JWT,
+    or null on any doubt (missing/empty token, wrong segment count, non-JSON, non-object).
+    Decoded, NEVER verified -- the signature is not checked; callers read labels, not an
+    authenticated claim. Shared by identityFromData (email) and chatgptSubscriptionWindow (the
+    sub window) so the two reads of the same token cannot drift. */
+function decodeIdTokenPayload(tok) {
+  try {
+    if (typeof tok !== 'string' || tok === '') return null;
+    const seg = tok.split('.')[1];
+    if (!seg) return null;
+    const payload = JSON.parse(Buffer.from(seg, 'base64url').toString('utf8'));
+    return payload && typeof payload === 'object' ? payload : null;
+  } catch { return null; }
+}
+
+/** Pure, offline: the ChatGPT-subscription window from a parsed auth.json as
+    `{ activeUntil, exp }` in epoch ms (each null when absent/unparseable), or `null` when this
+    is not a decodable chatgpt sign-in. `activeUntil` is OpenAI's own subscription validity-end
+    (`chatgpt_subscription_active_until`, an ISO string -- confirmed the real claim's type); `exp`
+    is the JWT token expiry (standard, in SECONDS, converted to ms here). If OpenAI ever emitted
+    `activeUntil` as a NUMBER instead, this returns null for it and the red goes silently inert
+    (grey-forever, the pre-change behaviour) -- a coverage loss, never a false red; the release
+    gate's real-lapsed-sub check is the backstop for that.
+    🛑 THE CALLER MUST RED ONLY A PAST `activeUntil` ON A STILL-VALID TOKEN (`exp` in the future).
+    A stale/unrefreshed token cannot be trusted to report a working sub's window: a working but
+    IDLE sub whose short token has simply expired would otherwise carry a past `activeUntil` and
+    be false-reddened -- the inverted #874 harm. Gating on a fresh `exp` removes that: a working
+    sub's freshly-refreshed token carries a FUTURE `activeUntil` (written from the same refresh),
+    so a valid token showing a PAST window is a genuinely lapsed sub. NOT `exp` alone as the red
+    signal (it is short and refreshed, and would red a live sign-in between refreshes). */
+function chatgptSubscriptionWindow(parsed) {
+  if (!parsed || parsed.auth_mode !== 'chatgpt') return null;
+  const payload = decodeIdTokenPayload(parsed.tokens && parsed.tokens.id_token);
+  if (!payload) return null;
+  const auth = payload['https://api.openai.com/auth'];
+  const untilRaw = auth && typeof auth === 'object' ? auth.chatgpt_subscription_active_until : null;
+  const untilMs = typeof untilRaw === 'string' && untilRaw !== '' ? Date.parse(untilRaw) : NaN;
+  const expMs = typeof payload.exp === 'number' && Number.isFinite(payload.exp) ? payload.exp * 1000 : NaN;
+  return {
+    activeUntil: Number.isFinite(untilMs) ? untilMs : null,
+    exp: Number.isFinite(expMs) ? expMs : null,
+  };
 }
 
 /** What codex wrote about who this is; null when nobody is signed in here,
@@ -357,7 +400,15 @@ function forgetAccount(dir, usedBy) {
        returns `that is not an OpenAI account on this computer`, while the control
        inside home returns `ok:true`. That is a live control that can never act,
        which is the shape this file refuses elsewhere. It PREDATES this change and
-       is not fixed here; it is carded rather than widened silently. */
+       is not fixed here; it is carded rather than widened silently.
+       ⚠️ #2941: the "caller OMITS / states the history sentence" framing above is
+       PRE-#2941 and describes the OLD OpenAI removal copy. The OpenAI caller no
+       longer gates its codex-history sentence on this flag (it discloses
+       unconditionally now, because status.readCodexSession reads every account's
+       own home since #2906). So this flag must still be COMPUTED correctly, but
+       its live consumer is the Claude default-recovery path, not the OpenAI
+       history sentence -- the wrong-in-both-directions argument is about the flag,
+       which is unchanged; only its OpenAI consequence is historical. */
     wasDefault: clean === path.resolve(defaultDir()),
     because: null,
   };
@@ -372,12 +423,13 @@ function forgetAccount(dir, usedBy) {
  *
  * 🛑 EVERY GUARD forgetAccount HAS (same-home + name shape, the running-agents
  * gate, the identity guard -- NEVER rm a name-shaped folder that is not an
- * account), plus one forgetAccount does NOT: the DEFAULT `.codex` is REFUSED.
- * forgetAccount can rename the default aside because a rename is recoverable and
- * a fresh sign-in recreates it; DELETING the default codex home is not that -- it
- * is the home other codex agents resolve to when nothing overrides CODEX_HOME.
- * The default's action is Disconnect (reversible); delete is for the named
- * accounts a person actually wants gone. Only the final step differs from
+ * account), and #2684 makes the DEFAULT `.codex` DELETABLE too: unlike Claude (whose primary
+ * identity is a key in a shared external file and whose dir may hold symlinked
+ * history), an OpenAI account's identity + config live inside its own `.codex` dir
+ * with no cross-account sharing, and disconnect already renames the whole default
+ * dir aside -- so delete is the same whole-dir rmSync for the default as for a
+ * secondary, gated by the same running-agents / sign-in-in-flight / arbitrary-path
+ * guards. Only the final step differs from
  * forget: rmSync instead of renameSync. Irreversible on purpose; the UI asks
  * with a destructive confirm.
  */
@@ -398,9 +450,18 @@ function removeAccount(dir, usedBy) {
      comparison. This is defence in depth on an unauthenticated local endpoint
      that DELETES a directory, so it must hold regardless of the UI's own
      (env-aware) hiding of the button on the default row. */
-  if (clean === path.resolve(defaultDir())) {
-    return { ok: false, removed: false, because: 'the default account cannot be deleted; disconnect it instead' };
-  }
+  /* #2684: the default IS deletable now. Unlike Claude -- whose primary identity
+     is a key in the SHARED <HOME>/.claude.json and whose dir may hold other
+     accounts' symlinked history -- an OpenAI account's identity (auth.json) and
+     config live INSIDE its own `.codex` dir, there is no cross-account symlink
+     sharing, and disconnect (forgetAccount) already moves the whole default dir
+     aside. So deleting the default is the same act as deleting a secondary: the
+     rmSync below takes the whole dir. Every real guard still stands -- the
+     arbitrary-path defence above, the sign-in-in-flight refusal, and the
+     running-agents refusal below -- so a default the user has moved every agent
+     off (Josh's #2684 use case) is deletable, while one still in use is refused.
+     The env-aware `defaultDir()` comparison survives only to set `wasDefault` on
+     the success return, for the caller's history messaging. */
   /* #2584: refuse while a reauth of this account is in flight (its dir is reserved), so
      a delete cannot pull the live dir out from under the pending promote.
 
@@ -432,7 +493,9 @@ function removeAccount(dir, usedBy) {
   }
   try { fs.rmSync(clean, { recursive: true, force: true }); }
   catch { return { ok: false, removed: false, because: 'we could not delete that account from this computer' }; }
-  return { ok: true, removed: true, because: null };
+  /* #2684: wasDefault so the caller's history messaging matches forgetAccount's.
+     Env-aware, matching the `defaultDir()` comparison the refusal used to make. */
+  return { ok: true, removed: true, wasDefault: clean === path.resolve(defaultDir()), because: null };
 }
 
 function cleanLabel(label) {
@@ -1084,9 +1147,14 @@ async function askModels(key) {
 /**
  * `identityOf()`'s file-read answer, but confirmed live with OpenAI.
  *
- * @returns {Promise<{state: string, plan: null, because: string, checkedLive: true}>}
+ * @param {string} dir  the codex/openai home to check.
+ * @param {{cached?: boolean}} [opts]  #1921: `cached:true` makes the chatgpt live check a
+ *   NON-BLOCKING cache read (codexsigninlive.livenessCached, grey on a cold miss) for the HTTP
+ *   render path; omitted/false awaits a fresh handshake (codexauthprobe + create.accountConnectable).
+ * @returns {Promise<{state: string, plan: null, because: string, checkedLive: true, reauthRequired?: boolean}>}
  */
-async function checkLive(dir) {
+async function checkLive(dir, opts) {
+  opts = opts || {};
   const STATE = subscription.STATE;
   const got = readAuthFile(dir);
   /* ⚠️ ABSENT AND UNREADABLE ARE TWO DIFFERENT FACTS. No file at all is a
@@ -1096,7 +1164,9 @@ async function checkLive(dir) {
      genuinely cannot tell, and asserting NONE for it would be exactly the
      false negative this whole feature exists to prevent. */
   if (got.kind === 'absent') {
-    return { state: STATE.NONE, plan: null, checkedLive: true, because: 'nobody has signed in to this account yet' };
+    // #2790 outcome (c): never signed in. NONE + reauthRequired:false is what ICK's driver
+    // reads to offer a FRESH "sign in" rather than the "sign in again" a dead sign-in (b) gets.
+    return { state: STATE.NONE, plan: null, checkedLive: true, reauthRequired: false, because: 'nobody has signed in to this account yet' };
   }
   if (got.kind === 'unreadable') {
     return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because: 'we could not read this account\'s settings' };
@@ -1115,15 +1185,81 @@ async function checkLive(dir) {
     return { state: STATE.UNKNOWN, plan: null, checkedLive: true, because: 'we could not find a usable sign-in in this account\'s settings' };
   }
   if (who.authMode !== 'apikey') {
-    /* ⚠️ UNKNOWN, NOT NONE, AND NOT A GUESSED CONNECTED EITHER. codex's
-       ChatGPT-mode auth hands us an id_token (an identity claim), not a
-       bearer credential usable against OpenAI's API the way apikey mode's
-       raw key is -- there is no real live check to run here yet. Saying so
-       honestly is the whole point of this fix: a badge this codebase cannot
-       actually verify must never claim it did. */
+    /* A ChatGPT sign-in has TWO independent liveness signals for THIS branch, and we use the
+       CHEAP, unambiguous one FIRST, then fall through to the live handshake for the rest.
+
+       (1) #2790 Phase 2 -- the OFFLINE, provable-lapse signal (merged to main from the
+       subscription-expiry lane). codex's ChatGPT-mode auth hands us an id_token (an identity
+       claim), not a bearer credential testable against /v1/models. But the id_token carries
+       `chatgpt_subscription_active_until`, the subscription's own validity end OpenAI writes and
+       refreshes; a value in the PAST is a lapsed subscription with no ambiguity, so we red the
+       badge on it WITHOUT any network call -- but ONLY when the token is itself still VALID
+       (`exp` in the future), so an idle-but-working sub whose short token merely expired is not
+       false-reddened (see chatgptSubscriptionWindow). It runs first because when it fires it is
+       both free and certain, sparing the ~20s handshake below. */
+    const win = chatgptSubscriptionWindow(got.data);
+    const nowMs = Date.now();
+    if (win && win.activeUntil !== null && win.exp !== null
+        && win.exp > nowMs && win.activeUntil < nowMs) {
+      return {
+        state: STATE.NONE, plan: null, checkedLive: true,
+        because: 'this ChatGPT subscription has lapsed (its active-until date has passed)',
+      };
+    }
+
+    /* (2) #2790 -- the LIVE signal, for everything the offline check leaves open (an absent or
+       still-open window, or a lapsed-but-expired-token sub the offline check conservatively
+       skips). Not a raw GET /v1/models (the id_token is not a bearer key), but codex's OWN
+       `codex doctor --json`, which runs a live WS handshake to chatgpt.com/backend-api with the
+       sign-in's credentials -- closing the silent-failure this card is about: a dead sign-in that
+       left agents Idle with no red. engine/codexsigninlive maps the doctor's
+       websocket_reachability check to live/dead/unknown (cached per codex-home, off-tick), and it
+       NEVER reports dead on a network fault (the #1930 never-false-red rule): 'dead' needs the
+       endpoint reachable, so a refused handshake can only be the credential.
+       🔑 THREE DISTINGUISHABLE OUTCOMES (kosmos#2338, Ice Cream Kitty's driver + green-badge +
+       tier consumers read these verbatim). subscription.STATE has no reauth value, so the
+       signed-in-but-dead (b) vs never-signed-in (c) split rides on `reauthRequired`:
+         live    -> CONNECTED                     (green badge; codexauthprobe -> HEALTHY)
+         dead    -> NONE + reauthRequired:true     ("sign in again"; codexauthprobe -> EXPIRED, reddens)
+         unknown -> UNKNOWN                        (network/uncheckable; no driver action, no red)
+       The never-signed-in (c) case is the `got.kind === 'absent'` return above (NONE,
+       reauthRequired:false); it does not reach here because there is no auth file to parse.
+       📌 `reauthRequired` is CHATGPT-SCOPED: it is meaningful only for a sign-in (this branch
+       and the absent case). An apikey account has no "sign in again", so its returns leave the
+       field unset (falsy), and ICK's driver keys on `authMode === 'chatgpt'` before reading it.
+       ⏱ LATENCY, STATED HONESTLY (the #1885/#1921 off-tick rule). `liveness` runs `codex doctor`,
+       a live handshake, so on a COLD cache checkLive here blocks up to codexsigninlive.TIMEOUT_MS
+       (~20s) where it used to return UNKNOWN instantly. Bounded: a HEALTHY sign-in handshakes in
+       under a second (only a DEAD/slow one waits out the timeout, and there the caller is about to
+       learn it is broken), it is cached per home for one TTL, and codexauthprobe already warms the
+       cache off the request path for any account with a running agent. One aligned
+       consequence to know: create.accountConnectable (#1903) now gets a REAL verdict for a sign-in
+       instead of a fail-open UNKNOWN, so creating an agent on a confirmed-dead sign-in can now be
+       refused rather than silently bound -- which is exactly the silent-binding this card is about.
+       🔑 #1921 RENDER SPLIT: the HTTP/badge render path (listLive) passes { cached:true } and reads
+       the NON-BLOCKING cached verdict (codexsigninlive.livenessCached -- grey on a cold miss),
+       so an /api/accounts render NEVER waits on codex doctor. The awaited fresh handshake is kept
+       only for the callers that must have a real verdict now: codexauthprobe (which WARMS the cache
+       off the request path) and create.accountConnectable. So the board's 5s tick and every HTTP
+       render stay off the handshake; only the warmer and the connectable pre-flight reach it. */
+    const live = opts.cached
+      ? codexsigninlive.livenessCached(dir).verdict
+      : await codexsigninlive.liveness(dir);
+    if (live === 'live') {
+      return { state: STATE.CONNECTED, plan: null, checkedLive: true, reauthRequired: false, because: 'the OpenAI sign-in reached ChatGPT, so it is working' };
+    }
+    if (live === 'dead') {
+      // Says what was OBSERVED (codex could not reach OpenAI with this sign-in), not a claim we
+      // cannot prove offline (the credential is revoked) -- a persistent WSS block reads dead too.
+      return { state: STATE.NONE, plan: null, checkedLive: true, reauthRequired: true, because: 'signed in, but Codex could not reach OpenAI with this sign-in; try signing in again' };
+    }
+    /* ⚠️ UNKNOWN, NOT NONE, AND NOT A GUESSED CONNECTED EITHER, for everything else: liveness
+       could not reach ChatGPT (network/uncheckable) and the offline window did not fire. A badge
+       this codebase cannot actually verify must never claim it did -- a false red (telling a
+       working sub it is broken) is the inverted #874 harm. Fail-open to grey on all doubt. */
     return {
-      state: STATE.UNKNOWN, plan: null, checkedLive: true,
-      because: 'this sign-in method is not yet checked live; it may or may not still work',
+      state: STATE.UNKNOWN, plan: null, checkedLive: true, reauthRequired: false,
+      because: 'we could not reach ChatGPT to check this sign-in, so we cannot say whether it works',
     };
   }
   // The key, from the SAME parsed read readAuthFile() already did above --
@@ -1540,7 +1676,9 @@ async function listLiveNow() {
       // never rejects by contract) -- the same self-reference #881's
       // accounts.js/subscription.js pair relies on, applied within one file
       // since this module has no separate consumer to require it through.
-      return { ...row, connection: await module.exports.checkLive(row.dir) };
+      // #1921: the render sweep reads the NON-BLOCKING cached liveness (grey on a cold miss);
+      // codexauthprobe warms the cache off the request path. An HTTP render never awaits a handshake.
+      return { ...row, connection: await module.exports.checkLive(row.dir, { cached: true }) };
     } catch {
       return {
         ...row,
@@ -1564,6 +1702,7 @@ module.exports = {
   list, identityOf, addWithKey, addWithKeyLive, finishChatgptLogin, startChatgptLogin, chatgptLoginStatus, cancelChatgptLogin, nextWorkDir, defaultDir, forgetAccount, removeAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, setChatgptTimers, MISSING_RUNNER_SENTENCE,
+  chatgptSubscriptionWindow, decodeIdTokenPayload,   // #2790 Phase 2: pure offline sub-window read, exported for unit tests
   accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds, runnableAllowlist, openaiModelClass,
   readName, writeName,   // #2095: the human-chosen display name (sidecar file)
 };

@@ -181,6 +181,30 @@ const chk = (ok, label, extra) => {
       chk(gotMikey, 'the member was actually added (Mikey now shows in Project Members)');
     }
 
+    // #2920 (Josh 6.59 QA: "the gray behind agents when they're idle is ... a
+    // little too dark ... a little bit lighter"). The idle-member background
+    // overlay lives in background-image (the `background` gradient shorthand
+    // leaves background-color as the surface), so it is read from
+    // backgroundImage, not backgroundColor. Inject a clean probe member into
+    // #pj-one-agents (this check declares the pj-one-agents surface) and assert
+    // the lightened 7% overlay, with a negative arm against the old 10%.
+    const idleGray = await page.evaluate(() => {
+      const host = document.getElementById('pj-one-agents');
+      if (!host) return { missing: true };
+      const probe = document.createElement('div');
+      probe.className = 'pj-member pjm-idle';
+      probe.setAttribute('data-agent', '__idle_probe_2920__');
+      host.appendChild(probe);
+      const rest = getComputedStyle(probe).backgroundImage;
+      probe.remove();
+      return { rest: String(rest) };
+    });
+    chk(!idleGray.missing, '#2920 probe: #pj-one-agents is present to read the idle gray from', JSON.stringify(idleGray));
+    chk(!idleGray.missing && idleGray.rest.includes('rgba(120, 120, 128, 0.07)'),
+      '#2920 the idle-agent background is the lightened 7% gray', idleGray.rest);
+    chk(!idleGray.missing && !/rgba\(120, 120, 128, 0\.1\)/.test(idleGray.rest),
+      '#2920 the idle-agent background dropped the old 10% gray', idleGray.rest);
+
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
     await page.close();
   } finally {

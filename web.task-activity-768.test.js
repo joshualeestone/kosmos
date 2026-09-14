@@ -135,6 +135,29 @@ test('stored text is escaped -- an injection payload in a part sentence stays in
   assert.match(acts.innerHTML, /&lt;img/, 'the payload should render as escaped, visible text');
 });
 
+test('#768: a composer message (said) renders its text in the activity', async () => {
+  const acts = await render([
+    { at: minsAgo(2), kind: 'said', text: 'checked the draft with the client' },
+  ]);
+  assert.match(acts.innerHTML, /checked the draft with the client/, 'the said message text is missing');
+});
+
+test('#768: a said message with an author renders "Name: text"; without one, bare text', async () => {
+  const withWho = await render([{ at: minsAgo(2), kind: 'said', who: 'mona', text: 'on it' }]);
+  assert.match(withWho.innerHTML, /Mona: on it/, 'an authored said message should read "Name: text"');
+  const authorless = await render([{ at: minsAgo(2), kind: 'said', text: 'a note' }]);
+  assert.match(authorless.innerHTML, />\s*a note\s*</, 'an authorless said message should render bare text');
+  assert.doesNotMatch(authorless.innerHTML, /: a note/, 'an authorless message must not render a stray colon prefix');
+});
+
+test('#768: said text is escaped -- it is user input stored raw, escaped once at render', async () => {
+  const acts = await render([
+    { at: minsAgo(1), kind: 'said', text: '<img src=x onerror=alert(1)>' },
+  ]);
+  assert.doesNotMatch(acts.innerHTML, /<img/, 'a raw <img survived: the said text was not escaped');
+  assert.match(acts.innerHTML, /&lt;img/, 'the payload should render as escaped, visible text');
+});
+
 test('a fetch that lands after the person left the task does not paint the wrong page', async () => {
   // paintTaskActivity(7) resolves, but TK_OPEN has moved to 9 -> it must return
   // without writing, so a slow read cannot stamp task 7 onto task 9. This

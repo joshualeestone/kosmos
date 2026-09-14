@@ -329,6 +329,20 @@ function paneSession(paneId) {
   }
 }
 
+/* #1704 PR2 (review round 3): the `@kosmos_agent` claim on the session a pane is
+   in -- the claim arm of status.isNamedOurs -- for the outbox keep, which has no
+   roster to read it from. '' when the session carries none or tmux cannot say:
+   the name rule then falls to its `-discord` arm, and a window that is neither
+   is refused with a sentence, so an unreadable claim is never read as "ours". */
+function paneClaim(paneId) {
+  try {
+    return execFileSync(tmuxBin(), ['display-message', '-p', '-t', paneId, '#{@kosmos_agent}'],
+      { encoding: 'utf8', timeout: 5000 }).trim();
+  } catch {
+    return '';
+  }
+}
+
 /**
  * Who is sending, derived from the pane. Returns { ok, card } or
  * { ok:false, because }. The roster row must be TIED (isNamedOurs): an
@@ -541,6 +555,16 @@ function rowShaped(m) {
   if (m.kind === 'valve' || m.kind === 'refused') {
     return str(m.from) && str(m.to) && str(m.because);
   }
+  /* #2710: a REOPEN marker. The operator clears a held room's back-and-forth
+     budget so the next post lands. It carries no text and is never rendered in
+     the room (the thread render filters it out); its only job is to move the
+     valve's window mark, exactly as an operator post does, without adding a
+     content row. Given its own read-side rule so a malformed reopen is dropped
+     like every other first-class kind. Always operator: an agent cannot mint
+     one (the route is board-token gated, the operator surface). */
+  if (m.kind === 'reopen') {
+    return str(m.project) && m.operator === true;
+  }
   /* A NOTE is Kosmos itself speaking in a room (#167): the product may say
      something in its own voice; it may never fabricate a message attributed
      to an agent. Same shape as the valve band it renders in. */
@@ -625,6 +649,35 @@ function pairCount(log, a, b, now, windowMs = limits.WINDOW_MS) {
 }
 
 /**
+ * Record that an agent's send was refused, attributed to it, once per
+ * sender-recipient-because per window: every refusal an agent meets is an event
+ * (the clean-chat rule), invisible in the raw pane unless someone was watching.
+ * `send()` logs each of its refusals through this, and the outbox drain (#1704
+ * PR2) logs a kept message it cannot deliver through it too, so that note lands
+ * in the same record the screens already read.
+ *
+ * The logged `to` is capped: it is unvalidated caller input (a 1MB recipient
+ * string is not a recipient), and each distinct value is a fresh dedup key. The
+ * caller's VERDICT never depends on this write -- chat.appendMessage's own
+ * never-throws-on-a-full-store contract is the house standard, and the sharpest
+ * case is the spill exit, whose refusal fires BECAUSE the store could not be
+ * written and must not then throw writing to the same store. The dedup read fails
+ * open like the rest of the read side (recorded trade): a transient read error
+ * can cost one duplicate row, never a lost verdict.
+ */
+function logRefusedSend(from, toWho, because, at) {
+  const toLogged = String(toWho).slice(0, 120);
+  const when = at || new Date().toISOString();
+  try {
+    const now2 = Date.parse(when);
+    const already = readLog().some((m) => m && m.kind === 'refused'
+      && m.from === from && m.to === toLogged && m.because === because
+      && Date.parse(m.at) >= now2 - limits.WINDOW_MS);
+    if (!already) appendLog({ kind: 'refused', from, to: toLogged, because, at: when });
+  } catch { /* the record is best-effort; the verdict is not */ }
+}
+
+/**
  * Send one addressed message from the agent owning `fromPane` to `to`.
  *
  * Returns { state: 'placed'|'unconfirmed'|'could_not', because, id, at } --
@@ -632,9 +685,12 @@ function pairCount(log, a, b, now, windowMs = limits.WINDOW_MS) {
  * chat.deliver and inventing a second vocabulary for the same outcomes is
  * how two surfaces drift.
  */
-function send({ fromPane, to, text, inReplyTo }, roster) {
+function send({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster) {
   const at = new Date().toISOString();
-  const sender = resolveSender(fromPane, roster);
+  /* #570: a route that already resolved the sender from an AGENT TOKEN passes it
+     here (a Windows agent has no pane to derive one from). Without one, the pane
+     path is unchanged. */
+  const sender = resolvedSender || resolveSender(fromPane, roster);
   if (!sender.ok) return { state: chat.DELIVERY.COULD_NOT, because: sender.because, id: null, at };
 
   const from = sender.card.sessionName;
@@ -649,24 +705,7 @@ function send({ fromPane, to, text, inReplyTo }, roster) {
      an unresolved sender has no conversation to appear in, and logging
      anonymous knocks would let any local process grow the record. */
   const refuse = (toWho, because) => {
-    /* The logged `to` is capped: it is unvalidated caller input (a 1MB
-       recipient string is not a recipient), and each distinct value is a
-       fresh dedup key. The VERDICT always returns whatever happens to the
-       record -- chat.appendMessage's own never-throws-on-a-full-store
-       contract is the house standard, and the sharpest case is the spill
-       exit, whose refusal fires BECAUSE the store could not be written
-       and must not then throw writing to the same store. The dedup read
-       fails open like the rest of the read side (recorded trade): a
-       transient read error can cost one duplicate row, never a lost
-       verdict. */
-    const toLogged = String(toWho).slice(0, 120);
-    try {
-      const now2 = Date.parse(at);
-      const already = readLog().some((m) => m && m.kind === 'refused'
-        && m.from === from && m.to === toLogged && m.because === because
-        && Date.parse(m.at) >= now2 - limits.WINDOW_MS);
-      if (!already) appendLog({ kind: 'refused', from, to: toLogged, because, at });
-    } catch { /* the record is best-effort; the verdict is not */ }
+    logRefusedSend(from, toWho, because, at);
     return { state: chat.DELIVERY.COULD_NOT, because, id: null, at };
   };
   /* ⚠️ The sender's NAME rides inside the envelope's bracket grammar, and
@@ -1006,7 +1045,7 @@ function _roomMembers(members) {
   return { members: members.filter((m) => !gone.has(clean(m))), ok: true };
 }
 
-function sendPost({ fromPane, project, projectName, text, operator, attachment, attachments, trailer }, roster, members) {
+function sendPost({ fromPane, sender: resolvedSender, project, projectName, text, operator, attachment, attachments, trailer, replyExpected }, roster, members) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
      composer through the server, which is the operator's own surface),
@@ -1018,7 +1057,8 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
   if (operator === true) {
     from = 'you';
   } else {
-    const sender = resolveSender(fromPane, roster);
+    /* #570: the token-resolved sender, as in send(). */
+    const sender = resolvedSender || resolveSender(fromPane, roster);
     if (!sender.ok) return { state: chat.DELIVERY.COULD_NOT, because: sender.because, id: null, at, outcomes: null };
     from = sender.card.sessionName;
   }
@@ -1193,8 +1233,18 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
      the person is told everyone was asked to bring them in and then cannot get
      an answer out of anybody. */
   const windowFrom = now - lim.windowMs;
+  /* #2710: a REOPEN marker moves this mark exactly as an operator post does.
+     The operator post arm is the remedy ARRIVING (a person in and driving);
+     an explicit reopen is the person saying "I have seen the loop, clear it"
+     without having to type a content post into the room to do it. Both reset
+     the arrival budget to the moment they happened; neither can be minted by
+     an agent (operator posts ride the operator route, reopen rows the
+     board-token-gated reopen route). */
   const lastOperatorAt = log.reduce((mark, m) => {
-    if (!m || m.kind !== 'post' || m.operator !== true || m.project !== projectId) return mark;
+    if (!m || m.project !== projectId) return mark;
+    const isOperatorPost = m.kind === 'post' && m.operator === true;
+    const isReopen = m.kind === 'reopen';
+    if (!isOperatorPost && !isReopen) return mark;
     const at2 = Date.parse(m.at);
     return Number.isFinite(at2) && at2 > mark ? at2 : mark;
   }, 0);
@@ -1216,8 +1266,14 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
         + 'Kosmos did not step in, because you have the limit turned off.';
     // Same latest-row rule as the pair dedup: the record's last word for
     // this room must match current behavior; within one state, once.
+    // #2738: dedup from countFrom, not the raw window, so a reopen (or an
+    // operator post) resets the notice baseline exactly as it reset the
+    // arrival budget above. On the common path countFrom === windowFrom, so
+    // this is unchanged; only after a reopen/operator post does a re-loop get
+    // a fresh "stopped again" notice instead of being suppressed by a
+    // pre-reopen valve row.
     const prior = log.filter((m) => m && m.kind === 'valve'
-      && m.project === projectId && Date.parse(m.at) >= now - lim.windowMs);
+      && m.project === projectId && Date.parse(m.at) >= countFrom);
     const latest = prior[prior.length - 1];
     if (!latest || (latest.stopped !== false) !== lim.on) {
       appendLog({ kind: 'valve', from, to: projectId, project: projectId, at, because, stopped: lim.on });
@@ -1230,9 +1286,13 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
          own summons left its only trace inside her terminal). One refused row
          per agent per window, project-stamped so the room can serve it. */
       try {
+        // #2738: from countFrom too, so a reopen/operator post clears the
+        // per-agent refused dedup as well -- a re-offending agent after a
+        // reopen leaves a fresh refused row instead of being swallowed by its
+        // pre-reopen one. Unchanged on the common path (countFrom===windowFrom).
         const already = log.some((m) => m && m.kind === 'refused'
           && m.from === from && m.project === projectId
-          && Date.parse(m.at) >= now - lim.windowMs);
+          && Date.parse(m.at) >= countFrom);
         if (!already) {
           appendLog({ kind: 'refused', from, to: projectId, project: projectId,
             because: 'the room was going back and forth without landing, so Kosmos was holding it for the person', at });
@@ -1322,9 +1382,20 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
      * because "nothing anywhere says the two strings are one project". This
      * envelope now does, adjacently, which is the only place they meet.
      */
+    /* #2908: reply_expected:false makes an ADDRESSED arrival an acknowledgement rather than a
+       request, so the answer clause becomes a no-reply note instead of the "run: kosmos post"
+       command. This breaks the ack-of-an-ack loop: an @mention still arrives in the foreground
+       (the envelope and the words are unchanged) but the recipient is not instructed to answer.
+       Only the ADDRESSED clause changes -- background arrivals already carry no answer line, so a
+       false reply-intent leaves them exactly as before. Default (undefined) and true are the
+       existing behavior; the flag never INFERS from prose, it is set only by the caller (#2908's
+       kosmos post --no-reply / reply_expected:false). */
+    const answerClause = replyExpected === false
+      ? ' \u00b7 FYI, no reply requested'
+      : ' \u00b7 to answer, run: kosmos post ' + projectId;
     const answer = operator === true
-      ? ' \u00b7 to answer, run: kosmos post ' + projectId
-      : (mentioned.has(name) ? ' \u00b7 to answer, run: kosmos post ' + projectId : '');
+      ? answerClause
+      : (mentioned.has(name) ? answerClause : '');
     const envelope = (operator === true
       ? (mentioned.has(name)
         ? '[message from your operator \u00b7 ' + id + ' \u00b7 project ' + shownProject + answer + ']'
@@ -1395,6 +1466,10 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
        one. */
     ...(mentioned.size ? { mentioned: [...mentioned] } : {}),
     ...(operator === true ? { operator: true } : {}),
+    /* #2908: persist the reply-intent when it was explicitly false, so the room record carries
+       "this was an acknowledgement, no reply was requested". Omitted for the default/true case so
+       an ordinary post's record is byte-unchanged (a strict boolean === false, never a truthy). */
+    ...(replyExpected === false ? { replyExpected: false } : {}),
     ...(attachment && typeof attachment === 'object' && typeof attachment.id === 'string' ? { attachment } : {}),
     ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}) });
   /* The aggregate state is a SUMMARY, not the receipt: the receipt
@@ -1839,6 +1914,30 @@ function react({ project, of, emoji, from, operator, members }) {
   return { ok: true, op, emoji: e, of: postId };
 }
 
+/* #2710: reopen a held room. The valve stops a room going back and forth
+   without landing and holds it for the person; before this, the only way to
+   clear that hold was an operator POST (which resets the window) -- there was
+   no way to say "release it" without typing a message into the room, and
+   nothing told the person that a post is what clears it. This is the explicit
+   release: it appends a reopen marker (see rowShaped and the valve's
+   lastOperatorAt reduce) that moves the window mark to now, so the next post
+   lands. It writes NO content and renders nothing in the room.
+
+   OPERATOR SURFACE. The row is always operator: true, and the only route that
+   reaches this is board-token gated -- the same posture as an operator post.
+   An agent cannot reopen a room it is looping in, and even if it could, the
+   valve simply re-fires once the budget is spent again. */
+function reopenRoom(project, at) {
+  const projectId = String(project == null ? '' : project).trim();
+  if (!projectId) return { ok: false, because: 'say which project room to reopen' };
+  if (!/^[A-Za-z0-9._ -]+$/.test(projectId) || projectId.includes(']')) {
+    return { ok: false, because: 'that project id contains characters we cannot read' };
+  }
+  const when = typeof at === 'string' && Number.isFinite(Date.parse(at)) ? at : new Date().toISOString();
+  appendLog({ kind: 'reopen', from: 'you', to: projectId, project: projectId, operator: true, at: when });
+  return { ok: true, at: when };
+}
+
 module.exports = {
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
   react, reactionsFor, normalizeReactionEmoji,
@@ -1846,7 +1945,7 @@ module.exports = {
   START, END, blockBody,
   LOG,
   unanswered, sweepUnanswered, setUnansweredAfterForTests,
-  resolveSender, send, sendPost, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
+  resolveSender, paneSession, paneClaim, send, logRefusedSend, sendPost, reopenRoom, list, owesReply, pairCount, readLog, record, roomNote, markerProblem,
   unreadAll, unread, markSeen, seenRead, SEEN,
   setRunner, resetForTests,
 };

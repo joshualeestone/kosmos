@@ -36,10 +36,23 @@ process.env.AGENT_WORKFORCE_DATA = STORE;
 const store = require('./store');
 const codexsession = require('./codexsession');
 const status = require('./status');
+const create = require('./create');
 
 const NAME = 'ben-the-cat';
 const WORKDIR = path.join(SB, 'work', 'ben');
 fs.mkdirSync(WORKDIR, { recursive: true });
+
+/* #2906: the ring reader now resolves the agent's OWN Codex account home from its
+   launch job before reading. Give this agent a DEFAULT-account codex job so readJob
+   resolves with runner 'codex' and a null configDir; the reader then uses
+   defaultAgentCodexHome() (= AGENT_WORKFORCE_CODEX_HOME = CODEX_HOME here), which is
+   exactly where these rollouts are written -- so the ring reads as before. */
+fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+fs.writeFileSync(
+  create.plistPath(NAME),
+  create.plistFor(NAME, path.join(SB, 'claude'), path.join(SB, 'tmux'), null, null, 'codex'),
+  'utf8',
+);
 
 // A faithful rollout: session_meta (launch cwd), task_started (window), then TWO
 // token_count events. total_token_usage is CUMULATIVE (climbs); last_token_usage
@@ -114,6 +127,27 @@ test('#2257: a rollout with a window but no token_count yet is not a wrong numbe
   const ctx = status.readCodexContext(NAME);
   assert.equal(ctx.tokens, null, 'a window with no usage is not a fill');
   assert.equal(ctx.percent, null, 'no usage -> no %');
+});
+
+test('#2803: a FOUND rollout with no usage yet reads notYet, never "cannot find a transcript" / "never recorded"', () => {
+  reset();
+  // A working ChatGPT-subscription agent: its rollout IS matched by workdir
+  // (session_meta cwd == WORKDIR), it just has not completed a turn that emitted a
+  // token_count yet (usedSeq []). Josh saw exactly this read "we cannot find a
+  // transcript for it" on a running agent. Because the rollout WAS found, that
+  // admission -- and "made before Kosmos recorded this" (neverRecorded), which is
+  // what the pre-#2803 gates yield for this un-jobbed test agent -- are both
+  // provably false: we are holding the very transcript they say does not exist.
+  writeRollout(WORKDIR, 258400, []);
+  store.writeProfile(NAME, { dir: WORKDIR, provider: 'openai' });
+  const r = codexsession.read(WORKDIR);
+  assert.equal(r.found, true, 'the rollout IS found -- positive proof the transcript exists');
+  assert.equal(r.contextUsed, null, 'no completed turn -> contextUsed stays null');
+  const ctx = status.readCodexContext(NAME);
+  assert.equal(ctx.notYet, true, 'a found-but-idle rollout reads notYet, not a missing-transcript admission');
+  assert.equal(ctx.because, 'it has not done anything yet', 'the honest message for a found session with no usage yet');
+  assert.notEqual(ctx.because, 'we cannot find a transcript for it', 'must NOT claim a missing transcript for a rollout we just read (#2803)');
+  assert.notEqual(ctx.neverRecorded, true, 'must NOT claim "never recorded" for a rollout we just read (#2803)');
 });
 
 test('#2257: usage past the window caps the ring at 100% and flags overCeiling', () => {

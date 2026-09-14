@@ -181,7 +181,17 @@ test('the open project stays lit: a persistent .open state, written on click and
      the opposite. A floor is the right shape only when the number is allowed
      to grow freely; here every call site is a named close path, so the number
      IS the claim. Adding a legitimate one should make somebody update this
-     line and say which path it is. */
+     line and say which path it is.
+     📌 #2711 dropped this from 6 to 5: item 17 removed the in-project back
+     arrow (#pj-back), whose click handler was one of the close paths. No path
+     was LOST -- the door out of a project is now the Projects tab, whose click
+     handler (`if (btn.dataset.tab === 'projects') pjMarkOpen(null)`) is one of
+     the five that remained.
+     📌 #2928 brings it back to 6: the top-left back chevron (#pj-back) is a
+     project navigation control again, and its handler's list-return branch (a
+     top-level project's back goes to the projects list) calls pjMarkOpen(null)
+     so a lit row cannot outlive the project you just left. A subproject's back
+     opens the parent instead (openProject), which lights the parent itself. */
   const nulls = (codeOnly.match(/pjMarkOpen\(null\)/g) || []).length;
   assert.equal(nulls, 6,
     `pjMarkOpen(null) is called from ${nulls} places, expected 6. Fewer means a close path lost it and a lit row can outlive its project; more means a new close path arrived and this pin should name it.`);
@@ -280,7 +290,11 @@ test('the consolidated .apphead override resets margin, or the update notice is 
 });
 
 test('the search placeholder follows the EFFECTIVE view, in showTab, not the saved layout', () => {
-  const st = PAGE.slice(PAGE.indexOf("document.body.classList.toggle('consolidated', cons)"), PAGE.indexOf("document.body.classList.toggle('consolidated', cons)") + 1400);
+  // #2842 widened 1400 -> 1900: placeSubProjects(cons) + placeAppSettings(cons) and their
+  // comments now sit between the consolidated toggle and the placeholder swap, pushing the swap
+  // to ~1516 chars past the toggle. The window still starts at the toggle so the guard's intent
+  // (the placeholder swap lives in showTab, right after the effective-view toggle) is unchanged.
+  const st = PAGE.slice(PAGE.indexOf("document.body.classList.toggle('consolidated', cons)"), PAGE.indexOf("document.body.classList.toggle('consolidated', cons)") + 1900);
   assert.match(st, /roomSearch\.placeholder = cons \? 'Search' : roomSearch\.dataset\.longPlaceholder/,
     'the placeholder swap left showTab (or the tab-view restore stopped reading the markup-captured wording, so a markup edit could be silently reverted)');
   assert.match(st, /if \(!\('longPlaceholder' in roomSearch\.dataset\)\) roomSearch\.dataset\.longPlaceholder = roomSearch\.placeholder/,
@@ -426,15 +440,16 @@ test('the pre-rail grid rows are auto, never 0: the notice surfaces must be able
 });
 
 test('the remaining #980 rulings each keep their pin', () => {
-  // One pin per ruling is this file's contract; these four had none.
+  // One pin per ruling is this file's contract; these rulings had none.
   assert.match(PAGE, new RegExp(cons + '\\.fold-a #alist \\.pj-empty \\{ display: none; \\}'),
     'the folded 48px strip shows the letter-wrapped empty-state card again');
   assert.match(PAGE, new RegExp(cons + ' \\.pj-member \\.lav\\.pj-face \\{ width: 28px; height: 28px; flex: 0 0 28px; aspect-ratio: 1;'),
     'the member avatar lost its shrink-proof 1:1 pin; a long name can squish it out of round again');
-  assert.match(PAGE, new RegExp(cons + ' \\.pjmidhead \\.pjhead \\.pj-desc \\{ white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;'),
-    'the header description no longer truncates to one line');
-  assert.match(PAGE, /desc\.title = p\.description \|\| ''/,
-    'the truncated description lost its full-text hover (the title the truncation comment promises)');
+  /* #2838: the two #980 description pins (the consolidated header description
+     truncated to one line, and its full-text hover title) were removed with the
+     project-header description itself. The disclosure arrow that popped it down
+     is gone and the description now lives only in Project settings, so there is
+     no header description left to clamp. The remaining #980 pins below hold. */
   /* kosmos#1006 moved this from the consolidated-scoped selector to the base
      `.cinput` rule, which is where the max-height that CREATES the scrollbar
      lives. Pinning the base rule is the stronger claim: the old pin passed

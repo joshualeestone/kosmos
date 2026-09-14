@@ -94,6 +94,21 @@ function seedAccount(label, tail) {
 const ALPHA = seedAccount('alpha', 'ALFA');
 const BETA = seedAccount('beta', 'BETA');
 
+/* #2790: a ChatGPT SIGN-IN account (authMode 'chatgpt'), the one shape
+   openaiaccounts.checkLive can never verify. Its identity comes from the email
+   in an id_token payload (identityFromData), never from a testable key, which is
+   the whole reason the route now warns the person its status stays unverified. */
+function seedChatgpt(label, email) {
+  const dir = nodePath.join(HOME, '.codex-' + label);
+  fs.mkdirSync(dir, { recursive: true });
+  const payload = Buffer.from(JSON.stringify({ email })).toString('base64url');
+  const idToken = 'h.' + payload + '.s';
+  fs.writeFileSync(nodePath.join(dir, 'auth.json'),
+    JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: idToken } }));
+  return nodePath.resolve(dir);
+}
+const GAMMA_SIGNIN = seedChatgpt('gamma', 'david.pickrell@example.com');
+
 function born(name) {
   fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
   fs.mkdirSync(create.workerDir(name), { recursive: true });
@@ -273,4 +288,99 @@ test('#1373 route: an account that is not on this computer is REFUSED, not silen
     'the refusal still rewrote the launch job, so "nothing was changed" is false');
   assert.equal(store.readProfile(name).provider, 'anthropic',
     'the refusal still moved the profile off anthropic');
+});
+
+/* #2790: the reason this card exists. A codex agent can land on a ChatGPT
+   sign-in Kosmos can never live-check, then sit idle with no red. The route now
+   says so in the sentence that names the account, so the person is not left
+   staring at a grey "not checked live" badge with no idea why or what to do. */
+test('#2790 route (OK branch): a ChatGPT sign-in landing warns it cannot be verified', async () => {
+  const name = born('route-2790-signin');
+  const r = await switchTo(name, { provider: 'openai', account: GAMMA_SIGNIN, picked: true });
+  assert.equal(r.status, 200, 'the route refused a switch it should have made: ' + JSON.stringify(r.body));
+  assert.equal(r.body.outcome, 'changed', JSON.stringify(r.body));
+  /* The account really is the sign-in, so the note below is about the shape it
+     is meant for and not passing by accident. */
+  assert.match(r.body.because, /It runs on the OpenAI sign-in you picked/,
+    'the sign-in was not named, so this arm is not exercising a sign-in landing: ' + r.body.because);
+  /* THE FIX: the person is told the sign-in cannot be verified AND what to do. A
+     mutation deleting `+ signInNote` from the OK branch fails exactly here. */
+  assert.match(r.body.because, /cannot live-check an OpenAI sign-in/,
+    'the sign-in landing does not warn it is unverifiable, so an agent can die silently as in the report: ' + r.body.because);
+  assert.match(r.body.because, /API-key account, which Kosmos can verify/,
+    'the warning names no checkable path, so it is alarming without being actionable (card Q3): ' + r.body.because);
+});
+
+/* The control that gives the assertion above its meaning: an API-KEY account IS
+   live-checkable, so it must get NO warning. Without this, a note that fired for
+   every OpenAI account would pass the arm above for the wrong reason. */
+test('#2790 route (OK branch, control): an API-key landing does NOT warn', async () => {
+  const name = born('route-2790-apikey-control');
+  const r = await switchTo(name, { provider: 'openai', account: BETA, picked: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.outcome, 'changed', JSON.stringify(r.body));
+  assert.match(r.body.because, /API key ending BETA/,
+    'the api-key account was not named, so this control is not exercising the contrast: ' + r.body.because);
+  assert.doesNotMatch(r.body.because, /cannot live-check an OpenAI sign-in/,
+    'a verifiable API-key account was warned about as if it were an unverifiable sign-in: ' + r.body.because);
+});
+
+/* The PARTIAL branch appends the note too (it names the account in the future
+   tense), so it needs its own executed arm: a mutation deleting `+ signInNote`
+   from ONLY the partial branch would leave the OK-branch arm green. Reached the
+   same way the #1373 partial arm is: a `has-session` answering ALIVE means the
+   restart cannot prove the window closed, so the route answers `partial`. */
+test('#2790 route (PARTIAL branch): a ChatGPT sign-in still carries the warning', async () => {
+  const alive = () => ({ ok: true, stdout: '' });
+  const name = born('route-2790-signin-partial');
+  create.setRunner(alive);
+  require('./engine/remove').setRunner(alive);
+  let r;
+  try {
+    r = await switchTo(name, { provider: 'openai', account: GAMMA_SIGNIN, picked: true });
+  } finally {
+    create.setRunner(fakeRun);
+    require('./engine/remove').setRunner(fakeRun);
+  }
+  assert.equal(r.status, 200, 'the route errored instead of answering partially: ' + JSON.stringify(r.body));
+  assert.equal(r.body.outcome, 'partial',
+    'the fixture did not reach the partial branch, so this proves nothing about it: ' + JSON.stringify(r.body));
+  assert.match(r.body.because, /When it restarts it will run on/,
+    'the partial branch dropped its account sentence, so the note has nothing to ride: ' + r.body.because);
+  assert.match(r.body.because, /cannot live-check an OpenAI sign-in/,
+    'the partial branch names a sign-in but omits the unverifiability warning: ' + r.body.because);
+});
+
+/* #2790 coupling: the note gate keys on `authMode !== 'apikey'`, which is EXACTLY
+   the predicate checkLive uses to return "cannot verify" (openaiaccounts.js:1117),
+   not a second derivation of it (Repo-Specific Convention #5). Pin that they agree
+   on the sign-in: if checkLive ever gains a real sign-in liveness check and starts
+   returning CONNECTED here, this reds, and the note that claims Kosmos "cannot
+   live-check an OpenAI sign-in" must be revisited rather than silently going stale. */
+test('#2790 coupling: the note predicate matches checkLive treating a sign-in as unverifiable', async () => {
+  const live = await openai.checkLive(GAMMA_SIGNIN);
+  assert.notEqual(live.state, 'connected',
+    'checkLive now verifies a sign-in as connected, so the note claiming it cannot be live-checked is stale: ' + JSON.stringify(live));
+  const row = openai.list().find((a) => a.dir === GAMMA_SIGNIN);
+  assert.ok(row && row.authMode !== 'apikey',
+    'the sign-in fixture is classified apikey, so the note gate would not fire for the account checkLive cannot verify: ' + JSON.stringify(row));
+});
+
+/* #2790: the reported failure was an UNPICKED default landing (5 agents on the
+   default sign-in nobody explicitly chose), so pin that the note fires there too.
+   `signInNote` is computed independently of `acct.chosen`, but the note rides on
+   the `runsOn` sentence whose wording DOES branch on `chosen` -- so an unpicked
+   arm proves the note attaches to the "your OpenAI sign-in" (default) wording as
+   well as the "you picked" wording, not just by reading the code. */
+test('#2790 route (OK branch, UNPICKED default): a sign-in still warns', async () => {
+  const name = born('route-2790-signin-unpicked');
+  const r = await switchTo(name, { provider: 'openai', account: GAMMA_SIGNIN, picked: false });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.outcome, 'changed', JSON.stringify(r.body));
+  assert.match(r.body.because, /It runs on your OpenAI sign-in/,
+    'the unpicked sentence is missing, so this arm is not exercising the default wording: ' + r.body.because);
+  assert.doesNotMatch(r.body.because, /you picked/,
+    'an unpicked default is reported as a choice: ' + r.body.because);
+  assert.match(r.body.because, /cannot live-check an OpenAI sign-in/,
+    'the note did not fire on an unpicked default sign-in, which is exactly the reported case: ' + r.body.because);
 });

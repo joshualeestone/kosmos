@@ -99,6 +99,12 @@ fi
 PORT="${KOSMOS_PORT:-$_kosmos_default_port}"
 URL="http://127.0.0.1:$PORT"
 PIDFILE="$KOSMOS_HOME/board.pid"
+# #2955: the deliberate-stop marker the board watchdog reads. `kosmos stop` writes
+# it (before it kills), `kosmos start` clears it (at the very top, before any bind
+# that can fail). While it is present the watchdog leaves the board alone, so a
+# stop stays stopped; once any start clears it the watchdog resumes recovering a
+# board that has died. See bin/board-watchdog.sh.
+STOP_MARKER="$KOSMOS_HOME/board.stopped"
 LOG_DIR="$KOSMOS_HOME/logs"
 BOARD_LOG="$LOG_DIR/board.log"
 
@@ -273,6 +279,49 @@ healthy() {
 port_taken_by_stranger() {
   /usr/bin/curl -s -o /dev/null -m 2 "$URL/" 2>/dev/null && ! healthy
 }
+# #2988: is a listener holding our port in a way that would COLLIDE with the
+# board's bind? This catches a SILENT holder -- one that binds the port but answers
+# NO HTTP (the #2955 half-dead/zombie node) -- which neither healthy() nor
+# port_taken_by_stranger() can see, because both need an HTTP response.
+#
+# The board binds 127.0.0.1 (IPv4 loopback; server.js bindHost defaults there), so
+# the ONLY listeners that make its bind fail with EADDRINUSE are ones on 127.0.0.1
+# or on * (0.0.0.0, all interfaces, which includes loopback). A listener on a
+# specific NON-loopback IPv4 address (a LAN IP) cannot collide, and matching it
+# would make board-run defer forever, silently, on a port it could actually bind --
+# so we filter the lsof NAME to the colliding set rather than matching the bare port
+# number. (Measured: a 0.0.0.0 bind shows as `*:PORT`, so `lsof -iTCP@127.0.0.1`
+# alone would MISS it and re-open the crash-loop.)
+#
+# IPv6 note (measured): macOS `lsof -nP` renders an IPv6 wildcard `::` listener as
+# `*:PORT` too, so the `*` arm defers on it. For a dual-stack `::` (the default) that
+# is correct -- it also holds the IPv4 port. For an IPv6-only `::` (IPV6_V6ONLY=1) it
+# is a conservative OVER-defer: fail-safe (decline to start, never crash-loop), rare,
+# and not worth parsing lsof's TYPE column to split out.
+#
+# Absolute path like curl above, for the same PATH-independence reason. Fail OPEN
+# (return 1) when lsof is unavailable, so a missing tool never blocks a legitimate
+# start -- it only forgoes this extra guard. -f BEFORE -x, per the installer
+# runnable-guard: a directory carries the executable (traversable) bit, so a bare
+# -x test accepts one.
+#
+# Match on CAPTURED output with a case, NOT `lsof | grep -q`: under `set -o
+# pipefail` (line 24) grep -q closes the pipe on its first match and lsof takes
+# SIGPIPE, so the pipeline reports 141 (failure) on input that MATCHED -- here a
+# false negative that would SKIP the defer and re-open the crash-loop. healthy()
+# and running_pid follow the same rule (the pattern is banned, not the size). lsof
+# prints a LISTEN socket as `ADDR:PORT (LISTEN)`, so the address is space-bounded on
+# both sides; match only the set that collides with the board's 127.0.0.1 IPv4 bind
+# -- 127.0.0.1:PORT or *:PORT (0.0.0.0/all-interfaces, which includes loopback), not
+# a specific non-loopback address. The trailing space also rules out a longer port
+# (` :18729 ` cannot match inside `:187290`).
+port_has_listener() {
+  { [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; } || return 1
+  case "$(/usr/sbin/lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null)" in
+    *" 127.0.0.1:$PORT "*|*" *:$PORT "*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 # #1946: the board token, read from the file the board wrote at boot. ONE source
 # of truth for the path -- `store.ROOT` (the same function the server uses), asked
@@ -323,18 +372,34 @@ board_token() {
   # Guard with -f before -x: a directory carries the executable (traversable) bit, so an
   # unguarded -x test on a path accepts a directory and we would then try to exec one. The
   # installer runnable-guard test enforces the -f-then-x form repo-wide.
-  _node="$NODE"; { [ -f "$_node" ] && [ -x "$_node" ]; } || _node="$(command -v node 2>/dev/null || true)"
-  [ -n "$_node" ] || return 1
-  # Only the installed candidate is existence-checked; the source fallback is assigned
-  # unconditionally because the `require()` below fails closed either way (2>/dev/null
-  # || return 1), so a third layout would just need its own branch here.
-  _storemod="$KOSMOS_HOME/app/engine/store"
-  [ -f "$_storemod.js" ] || _storemod="$KOSMOS_HOME/engine/store"
+  _node="$(kosmos_engine_node)" || return 1
+  _storemod="$(kosmos_engine_module store)"
   _root="$("$_node" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$_storemod" 2>/dev/null)" || return 1
   [ -n "$_root" ] || return 1
   _tok="$(cat "$_root/board.token" 2>/dev/null)" || return 1
   [ -n "$_tok" ] || return 1
   printf '%s' "$_tok"
+}
+
+# The node that runs an engine module from this shell, and where that module is.
+# Extracted from board_token (kosmos#2644, whose reasoning is above) when the
+# outbox keep (#1704 PR2) became a second caller, so the two layouts are decided
+# in one place. The installed bundle's node first; a system node when it is absent
+# or not runnable (a source checkout, a partial install).
+kosmos_engine_node() {
+  local _node="$NODE"
+  { [ -f "$_node" ] && [ -x "$_node" ]; } || _node="$(command -v node 2>/dev/null || true)"
+  [ -n "$_node" ] || return 1
+  printf '%s' "$_node"
+}
+# $1 = the module name without `.js`. Only the installed candidate is
+# existence-checked; the source fallback is returned unconditionally because every
+# caller's `require()` / run fails closed on a missing module, so a third layout
+# would just need its own branch here.
+kosmos_engine_module() {
+  local _mod="$KOSMOS_HOME/app/engine/$1"
+  [ -f "$_mod.js" ] || _mod="$KOSMOS_HOME/engine/$1"
+  printf '%s' "$_mod"
 }
 
 # #1970: run curl with the board/agent auth tokens delivered OFF the command
@@ -355,22 +420,59 @@ board_token() {
 # removed before returning (the curl runs in an `if` so its failure does not
 # skip the cleanup under `set -e`). Returns 99 if the temp file cannot be made,
 # which fails closed: an enforcing request is not sent without its token.
+#
+# #1704 PR2: every call ALSO names this agent's Kosmos (`x-kosmos-world`, the
+# name engine/launchidentity.js WORLD_HEADER holds; a test pins the two equal),
+# so a board serving ANOTHER Kosmos answers 421 instead of refusing the agent as
+# a stranger. So the header file is written on every call now, token or not, and
+# a temp file that cannot be made fails every call closed (99), not only the
+# token-bearing ones. The world is KOSMOS_WORLD stripped to launchidentity.js
+# WORLD_HEADER_CHARSET (a newline must never start a second header), `default`
+# when nothing is left: the same rule as its worldIdForHeader, and a test pins
+# the character set here equal to that one.
 kosmos_curl() {
   local _bt="$1" _tok="$2"; shift 2
-  if [ -z "$_bt" ] && [ -z "$_tok" ]; then
-    curl "$@" || return $?
-    return 0
-  fi
-  local _hf _rc
+  local _hf _rc _world
+  _world="$(printf '%s' "${KOSMOS_WORLD:-}" | tr -cd 'A-Za-z0-9_-')"
+  [ -n "$_world" ] || _world=default
   _hf="$(mktemp "${TMPDIR:-/tmp}/kosmos-auth.XXXXXX")" || return 99
   chmod 600 "$_hf" || { rm -f "$_hf"; return 99; }
   {
+    printf 'x-kosmos-world: %s\n' "$_world"
     if [ -n "$_bt" ];  then printf 'x-kosmos-board-token: %s\n' "$_bt"; fi
     if [ -n "$_tok" ]; then printf 'x-kosmos-agent-token: %s\n' "$_tok"; fi
   } >> "$_hf" || { rm -f "$_hf"; return 99; }
   if curl -H @"$_hf" "$@"; then _rc=0; else _rc=$?; fi
   rm -f "$_hf"
   return "$_rc"
+}
+
+# #1704 PR2: the board answered `{"wrongWorld":true,...}` (421): it is serving
+# another Kosmos than this agent's. Keep the send in this agent's OWN Kosmos
+# (engine/outbox.js), for the board that serves it to deliver once it is open. The
+# JSON body this command already built reaches node through a mode-600 temp file,
+# never argv: it is the agent's words (#1970). Says the outbox's own sentence and
+# exits with its code: 0 kept, 1 not kept.
+#   $1 = reply | msg | post     $2 = the JSON body the board was sent
+keep_in_outbox() {
+  local _node _bf _said _rc=0
+  _node="$(kosmos_engine_node)" || {
+    say "Your Kosmos is not the one open right now, and we could not find node to keep this for later, so it was not kept. Send it again once your Kosmos is open."
+    exit 1
+  }
+  _bf="$(mktemp "${TMPDIR:-/tmp}/kosmos-outbox.XXXXXX")" || {
+    say "Your Kosmos is not the one open right now, and we could not make a file to keep this in, so it was not kept. Send it again once your Kosmos is open."
+    exit 1
+  }
+  if ! { chmod 600 "$_bf" && printf '%s' "$2" > "$_bf"; }; then
+    rm -f "$_bf"
+    say "Your Kosmos is not the one open right now, and we could not write this down to keep it, so it was not kept. Send it again once your Kosmos is open."
+    exit 1
+  fi
+  _said="$("$_node" "$(kosmos_engine_module outbox).js" keep "$1" "$_bf" 2>&1)" || _rc=$?
+  rm -f "$_bf"
+  say "${_said:-Your Kosmos is not the one open right now, and keeping this for later said nothing, so it may not have been kept.}"
+  exit "$_rc"
 }
 
 running_pid() {
@@ -391,7 +493,84 @@ running_pid() {
   printf '%s' "$pid"
 }
 
+# #2956: the launchctl this file drives, overridable so a test can stub it.
+LAUNCHCTL="${KOSMOS_LAUNCHCTL:-/bin/launchctl}"
+
+# #2956: the board's launchd label, mirroring install/setup.sh byte-for-byte -- a
+# default install is the literal `com.kosmos.board` (#883); a non-default
+# KOSMOS_HOME gets a hash suffix. Must match what setup.sh registered or the
+# supervised job cannot be found here (a mismatch mostly degrades safely: the
+# board is treated as unsupervised and cmd_start uses the nohup path, the pre-#2956
+# behaviour). ⚠️ One honest caveat: install/setup.sh hashes the install-time
+# KOSMOS_HOME normalized only by `tr -s /`, while this file's KOSMOS_HOME is
+# symlink-RESOLVED (readlink, at the top). For a NON-DEFAULT home reached through a
+# symlink the two hashes differ, so the supervised job is not detected and
+# cmd_start takes the nohup path -- and in the narrow window where the supervised
+# board is mid-crash-relaunch (marker absent), that nohup and launchd's board-run
+# could briefly both bind the port (one loses and dies). The DEFAULT home (~99% of
+# installs) is unaffected: both sides resolve to $HOME/.local/share/kosmos and the
+# label is the literal com.kosmos.board. Non-default homes are sandbox/dev/walk
+# installs, not real users; a perfect fix needs setup.sh and this file to agree on
+# normalization (tracked, low priority).
+_kosmos_board_label() {
+  local _def
+  _def="$(printf '%s' "$HOME/.local/share/kosmos" | /usr/bin/tr -s '/')"; _def="${_def%/}"
+  if [ "$KOSMOS_HOME" = "$_def" ]; then
+    printf 'com.kosmos.board'
+  else
+    printf 'com.kosmos.board.%s' "$(printf '%s' "$KOSMOS_HOME" | shasum -a 256 | cut -c1-8)"
+  fi
+}
+
+# #2956: is THIS install's board a launchd job we can drive as a supervisor? True
+# only when the loaded job's ProgramArguments actually name `board-run` -- NOT
+# merely that a job by this label is loaded. That distinction is load-bearing:
+# during a self-update the plist file is rewritten to board-run but the LOADED job
+# keeps its old `kosmos start` definition until the next login (setup.sh leaves a
+# loaded job alone so it does not kill the board running the update). If cmd_start
+# kickstarted a job still defined as `kosmos start`, that would re-run cmd_start
+# and recurse. So we read the LIVE definition (launchctl print), and only treat it
+# as supervised when it runs board-run; otherwise the transition-window board is
+# handled by the nohup path exactly as before. Never in a sandbox (the real gui
+# domain is not a test's to touch) and never without launchctl (non-macOS).
+_kosmos_board_supervised() {
+  [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ] || return 1
+  # `command -v` (not a bare `[ -x ]`, which a DIRECTORY passes -- the installer
+  # runnable-guard convention) resolves both an absolute path (accepting only an
+  # executable file) and a bare command name on PATH; empty => no launchctl here.
+  command -v "$LAUNCHCTL" >/dev/null 2>&1 || return 1
+  local _label _uid _print
+  _label="$(_kosmos_board_label)"; _uid="$(/usr/bin/id -u)"
+  _print="$("$LAUNCHCTL" print "gui/$_uid/$_label" 2>/dev/null)" || return 1
+  # Match board-run as a STANDALONE argument LINE (launchctl print lists each
+  # ProgramArguments entry on its own tab-indented line), NOT anywhere in the
+  # blob: a kosmos path component literally named "board-run" (e.g.
+  # /Users/board-run/.../kosmos on a job still defined as `start`) would otherwise
+  # false-positive and let an old `start` job be treated as supervised -- the exact
+  # recursion this guard prevents. grep reads a here-doc (NOT a printf pipe), so
+  # there is no pipefail/SIGPIPE trap (the one healthy() documents). This grep is
+  # the function's result.
+  grep -qE '^[[:space:]]*board-run[[:space:]]*$' <<EOF
+$_print
+EOF
+}
+
 cmd_start() {
+  # #2955: clear the deliberate-stop marker EARLY -- before the healthy check and
+  # the bind below that can fail. Starting means "I want it running", which retires
+  # the stop intent whatever happens next. This ORDER is load-bearing: a start that
+  # FAILS to bind port 16180 (the exact reboot case this watchdog exists for) must
+  # STILL clear the marker, or the watchdog stays suppressed and the board never
+  # recovers -- the bug would survive its own fix.
+  # #2956 CHANGED the stop's lifetime, on purpose: the login job now runs
+  # `board-run`, which HONORS the marker and never clears it (only this command
+  # does). So a deliberate `kosmos stop` now PERSISTS across a reboot -- the board
+  # stays down until an explicit `kosmos start`. Under #2955 the login job ran
+  # `kosmos start`, which cleared the marker, so a stop was per-session and a reboot
+  # brought the board back. Persistent "stopped means stopped" is the intended
+  # semantic (the card's requirement); it does not affect crash recovery, which is
+  # marker-ABSENT and still relaunches.
+  rm -f "$STOP_MARKER" 2>/dev/null || true
   if healthy; then
     say "Kosmos is already running at $URL"
     return 0
@@ -411,6 +590,31 @@ cmd_start() {
   [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ] || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
   mkdir -p "$LOG_DIR"
+  # #2956: under launchd supervision, let launchd OWN the board -- do NOT nohup a
+  # second node beside it (two would race the one port). The stop-marker was
+  # cleared at the top, so launchd's PathState KeepAlive would relaunch on its own;
+  # `kickstart -k` makes it prompt rather than waiting on launchd's own poll --
+  # closing the "does PathState relaunch promptly" gap. (This branch is only
+  # reached for a board that is NOT already running: the `running_pid` guard above
+  # dies first on an alive-but-wedged board, so recovering a wedged supervised
+  # board is `kosmos restart`, not a bare `kosmos start` -- the -k is for the
+  # not-running-but-loaded case and to clear any half-dead instance.)
+  # board-run (the job's ProgramArguments) execs node in the foreground and never
+  # re-enters cmd_start, so there is no recursion. Falls through to the nohup path
+  # below when the board is NOT supervised (a source checkout, a hand start with no
+  # login job, or the update transition window before the new plist is loaded).
+  if _kosmos_board_supervised; then
+    say "Bringing the board up (launchd supervised)."
+    local _sup_label _sup_uid
+    _sup_label="$(_kosmos_board_label)"; _sup_uid="$(/usr/bin/id -u)"
+    "$LAUNCHCTL" kickstart -k "gui/$_sup_uid/$_sup_label" >/dev/null 2>&1 || true
+    local _s
+    for _s in $(seq 1 30); do
+      healthy && { say "Kosmos is running at $URL"; return 0; }
+      sleep 0.5
+    done
+    die "Kosmos did not come up under launchd. What it said is in $BOARD_LOG"
+  fi
   say "Bringing the board up."
   # Detached from this terminal, with everything it prints kept in a log so a
   # problem produces a transcript rather than a vanished window.
@@ -435,9 +639,101 @@ cmd_start() {
   die "Kosmos did not come up. What it said is in $BOARD_LOG"
 }
 
+# #2956: the SUPERVISED foreground entry. A launchd (or Task Scheduler) job runs
+# `kosmos board-run` instead of `kosmos start`, so the supervisor OWNS the node
+# process directly and its own KeepAlive relaunches a crash -- replacing the
+# fire-and-forget `kosmos start` (nohup + exit), which made the board a
+# run-at-login job launchd could not supervise (see the RunAtLoad/no-KeepAlive
+# note in install/setup.sh).
+#
+# NOT in the public help on purpose: the supervisor and the installer invoke this,
+# not people. People use start/stop/restart, which drive the supervisor underneath.
+#
+# ⚠️ INERT UNTIL THE PLIST POINTS AT IT. Adding this command changes nothing on
+# its own: the installed plist still runs `kosmos start` until a paired change
+# repoints ProgramArguments here AND teaches cmd_start/cmd_stop to drive the
+# supervisor (a second starter under a KeepAlive supervisor would race two boards
+# onto one port). Landing it first, inert, lets the foreground mechanism be tested
+# before the byte-frozen default plist (#883) is touched.
+cmd_board_run() {
+  # Honor a deliberate stop even on the RunAtLoad race. The plist's KeepAlive is
+  # keyed (PathState) on this SAME #2955 marker, so the supervisor will not
+  # relaunch us while it exists; this guard only covers the one-shot RunAtLoad at
+  # load, which fires regardless of PathState. `kosmos start` clears the marker
+  # (cmd_start, at the very top) and kickstarts us.
+  if [ -f "$STOP_MARKER" ]; then
+    say "Kosmos was deliberately stopped; not starting. Resume with: kosmos start"
+    exit 0
+  fi
+  # #2956: NEVER start a second board. A supervised job's RunAtLoad fires on
+  # `launchctl bootstrap` too, not only at reboot (the open-once job relies on the
+  # same fact). On a FRESH install the "Starting Kosmos" step brings a board up with
+  # `kosmos start` (nohup, since no job is loaded yet) BEFORE this job is
+  # bootstrapped, so RunAtLoad would fire board-run against an already-served port:
+  # a doomed EADDRINUSE exec that also CLOBBERS the pidfile (breaking stop/status).
+  # Pre-#2956 the login job ran `kosmos start`, which is idempotent (healthy-check
+  # first); board-run must be too. Exit BEFORE the pidfile write and the exec, so a
+  # foreign healthy board is left untouched and its pidfile intact. Silent on
+  # purpose: launchd may relaunch us on its throttle until that foreign board goes
+  # away (a reboot), and a log line each time would be spam. setup.sh reconciles the
+  # fresh-install case to a single supervised board (via `kosmos restart` after
+  # bootstrap), so this is the defensive backstop, not the normal path.
+  if healthy; then exit 0; fi
+  # #2956: likewise do not crash-loop against a STRANGER on the port. If a
+  # non-Kosmos process holds it, healthy() is false (its body is not ours), so we
+  # would fall through and exec node -> EADDRINUSE -> the server exits 1 -> launchd
+  # relaunches every ThrottleInterval, forever, spamming board.log with node stack
+  # traces. Exit quietly instead: no doomed spawn, no spam. launchd still retries on
+  # its throttle (that is KeepAlive's job), but silently, and the actionable
+  # diagnostic ("another app is using port N, quit it") is available on demand from
+  # `kosmos status` / `kosmos start`, which is where a person looks.
+  if port_taken_by_stranger; then exit 0; fi
+  # #2988: a SILENT holder -- one that binds the port but answers no HTTP (the
+  # #2955 half-dead/zombie node) -- is caught by NEITHER healthy() NOR
+  # port_taken_by_stranger(): both need an HTTP answer, and a holder serving
+  # nothing gives none. Without this, board-run falls through to `exec node` ->
+  # EADDRINUSE -> the server exits 1 -> launchd relaunches every ThrottleInterval,
+  # forever, spamming board.log with node stack traces until the port frees. Defer
+  # quietly instead, exactly as the stranger branch does: launchd still retries on
+  # its throttle (KeepAlive's job), silently, and the actionable diagnostic is on
+  # demand from `kosmos status` / `kosmos start`. By here healthy() and the
+  # HTTP-stranger check have both exited, so any remaining listener is the silent
+  # case; port_has_listener fails OPEN, so a box without lsof keeps the old
+  # fall-through behaviour rather than being blocked from starting.
+  if port_has_listener; then exit 0; fi
+  [ -f "$NODE" ] && [ -x "$NODE" ] || die "Kosmos looks incomplete: the runtime is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  [ -f "$APP" ]  || die "Kosmos looks incomplete: the app is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  [ -f "$KOSMOS_HOME/tmux/bin/tmux" ] && [ -x "$KOSMOS_HOME/tmux/bin/tmux" ] || die "Kosmos looks incomplete: its terminal manager is missing. Reinstalling fixes this: curl -fsSL https://installkosmos.com/setup | sh"
+  mkdir -p "$LOG_DIR"
+  # The supervisor OWNS this process: record the pidfile as THIS shell's pid, then
+  # `exec` node IN PLACE so node keeps that exact pid. `kosmos stop`/`status`
+  # (running_pid, pidfile-based) therefore keep working unchanged under
+  # supervision, while the supervisor's own handle (launchctl) is separate. No
+  # `nohup`, no `&`: a supervised process must stay in the foreground so the
+  # supervisor sees it live and sees it die. stdout/stderr go where the job's
+  # plist sends them (the board log); run by hand they go to the terminal.
+  printf '%s' "$$" > "$PIDFILE"
+  PORT="$PORT" exec "$NODE" "$APP"
+}
+
 cmd_stop() {
   local pid
   if pid="$(running_pid)"; then
+    # #2955: write the deliberate-stop marker BEFORE the kill, so the board's own
+    # port-going-dead moment does not trip the watchdog into treating this stop as
+    # a crash and restarting what the user just asked to stop. `kosmos start`
+    # clears it again. `:` truncates/creates the file with nothing in it -- its
+    # presence is the whole signal.
+    : > "$STOP_MARKER" 2>/dev/null || true
+    # #2956: under launchd supervision the marker is what makes a stop STICK -- a
+    # missing marker (unwritable home, full disk) means launchd relaunches the
+    # board within ThrottleInterval. Pre-#2956 a failed marker write was harmless,
+    # so it was swallowed; now say it loudly rather than let the board silently
+    # come back seconds after "Stopped." Only warns when actually supervised, so an
+    # unsupervised install (where the write is still harmless) is not false-alarmed.
+    if [ ! -f "$STOP_MARKER" ] && _kosmos_board_supervised; then
+      say "Warning: could not write $STOP_MARKER, so launchd may restart this board within seconds. Make sure $KOSMOS_HOME is writable, then run 'kosmos stop' again."
+    fi
     # ⚠️ The pidfile is pid-scoped and the health check is port-scoped, and
     # they can disagree: with KOSMOS_PORT pointed elsewhere, status says
     # "not running" while the recorded process is alive on its original
@@ -461,6 +757,13 @@ cmd_stop() {
     # "something is answering that this command did not start". The pidfile is
     # the only handle we have on it, so a failed stop KEEPS it and says so.
     if kill -0 "$pid" 2>/dev/null; then
+      # #2955: the stop did NOT succeed -- the board is still alive. We wrote the
+      # deliberate-stop marker before the kill (so the port dropping mid-kill would
+      # not look like a crash); undo that now, because the board was not actually
+      # stopped. Leaving the marker set here would suppress the watchdog forever, so
+      # if this still-running board later died for an unrelated reason nothing would
+      # recover it -- reintroducing the exact #2955 failure by another door.
+      rm -f "$STOP_MARKER" 2>/dev/null || true
       say "Could not stop it. Something is still running as $pid."
       exit 1
     fi
@@ -471,6 +774,12 @@ cmd_stop() {
     # by hand, or the pidfile is gone. Say what is true instead of guessing.
     die "Something is answering at $URL but it was not started by this command, so it was left alone."
   else
+    # #2955: already down, but the user explicitly asked to stop it, so record
+    # that intent too -- otherwise the watchdog would "recover" a board the user
+    # just told us they want off. The foreign-board branch above deliberately does
+    # NOT write it: that board is not ours to mark, and our watchdog would refuse
+    # to start over a stranger's port anyway.
+    : > "$STOP_MARKER" 2>/dev/null || true
     say "Kosmos is not running."
   fi
 }
@@ -642,12 +951,15 @@ cmd_msg() {
   # "could not reach" is a wrong diagnosis for a reachable server that
   # refused. Only a transport failure gets the unreachable sentence.
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
+  local _data="{\"to\":\"$esc_to\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}"
   body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/msg" \
     -H 'content-type: application/json' \
-    --data "{\"to\":\"$esc_to\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
+    --data "$_data" 2>/dev/null) || {
     say "We could not reach Kosmos to send that. Is it running at $URL?"
     exit 1
   }
+  # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
+  case "$body" in '{"wrongWorld":true'*) keep_in_outbox msg "$_data" ;; esac
   case "$body" in
     *'"error"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
@@ -659,7 +971,7 @@ cmd_msg() {
   # delivery, unconfirmed means the text may already be in their composer
   # (do NOT re-send), could_not names why.
   case "$body" in
-    *'"state":"placed"'*)      say "Placed into $to's session." ;;
+    *'"state":"placed"'*)      say "Placed with $to." ;;
     *'"state":"unconfirmed"'*)
       # The server's own sentence: unconfirmed has two flavors (typed with
       # Enter unconfirmed, or a send that timed out mid-flight) and only
@@ -708,12 +1020,15 @@ cmd_reply() {
   # refuses on an enforcing board (a bare pane is the cross-account spoof path).
   # Inert (omitted) when empty -- a non-enforcing board writes no token file.
   local _bt; _bt="$(board_token || true)"
+  local _data="{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}"
   body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/reply" \
     -H 'content-type: application/json' \
-    --data "{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
+    --data "$_data" 2>/dev/null) || {
     say "We could not reach Kosmos to keep that. Is it running at $URL?"
     exit 1
   }
+  # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
+  case "$body" in '{"wrongWorld":true'*) keep_in_outbox reply "$_data" ;; esac
   case "$body" in
     *'"error"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
@@ -770,11 +1085,17 @@ cmd_post() {
         ;;
     esac
   done
+  # #2908: --no-reply marks the post an acknowledgement (reply_expected:false), so a mentioned
+  # recipient reads it in the foreground but is NOT told to answer -- this is what breaks the
+  # ack-of-an-ack loop. Leading flag only (kosmos post --no-reply <project> <text>); anywhere else
+  # it is treated as message text, the same recoverable tradeoff the --file scan above takes.
+  local no_reply=0
+  if [ "${1:-}" = "--no-reply" ]; then no_reply=1; shift; fi
   project="${1:-}"
   shift 2>/dev/null || true
   text="$*"
   if [ -z "$project" ] || [ -z "$text" ]; then
-    say "Usage: kosmos post <project-id> <what you want to tell the room>  (text only; file attachments are not supported yet, kosmos#1955)"
+    say "Usage: kosmos post [--no-reply] <project-id> <what you want to tell the room>  (text only; file attachments are not supported yet, kosmos#1955)"
     exit 2
   fi
   if ! healthy; then
@@ -801,9 +1122,14 @@ cmd_post() {
   # below never ran, the very branch that exists to stop a duplicate post, and the
   # unreachable message regressed to a silent abort. (#2321; same fix cmd_react took.)
   local rc=0
+  # #2908: send reply_expected:false only when --no-reply was given; omitted otherwise, so the
+  # route sees the field only in the no-reply case (omitted = current reply-required behavior).
+  local _reply_field=""
+  [ "$no_reply" -eq 1 ] && _reply_field=',"reply_expected":false'
+  local _data="{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"$_reply_field}"
   body=$(kosmos_curl "$_bt" "" -sS -m 120 -X POST "$URL/api/post" \
     -H 'content-type: application/json' \
-    --data "{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
+    --data "$_data" 2>/dev/null) || rc=$?
   if [ "$rc" -eq 28 ]; then
     say "Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it."
     exit 3
@@ -811,6 +1137,8 @@ cmd_post() {
     say "We could not reach Kosmos to post that. Is it running at $URL?"
     exit 1
   fi
+  # #1704 PR2: the board is serving another Kosmos; keep this for later (exits).
+  case "$body" in '{"wrongWorld":true'*) keep_in_outbox post "$_data" ;; esac
   # ⚠️ Globs are ANCHORED on the top-level keys. The post response embeds
   # `outcomes`, an object keyed by AGENT NAMES -- an agent named "state"
   # or "error" would otherwise put the matching substring into the body
@@ -834,7 +1162,19 @@ cmd_post() {
       ;;
     *)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
+      # #2710: the room valve's sentence ends in a period ("...bring you in."),
+      # and this line adds its own -- a doubled ".." on the one refusal an agent
+      # meets most. Strip a trailing period so exactly one terminates the line;
+      # a refusal with no period of its own is unchanged.
+      because="${because%.}"
       say "Not posted: ${because:-we could not tell why}."
+      # #2710: HAND THE TEXT BACK. A post refused by the loop-guard was silently
+      # lost -- the agent composed it, and the only copy left was its own
+      # scrollback, so a substantive post vanished the moment the agent moved on.
+      # Echo it here so it is kept. (An operator clears a loop-guard hold with
+      # `kosmos room reopen <project-id>`, after which this text can be re-posted.)
+      say "Your message was not sent, so here it is to keep and re-post when the room is ready:"
+      printf '%s\n' "$text"
       exit 1
       ;;
   esac
@@ -909,6 +1249,12 @@ cmd_whoami() {
 # hook), not one the agent chose to send. An automatic `idle` will not erase a
 # standing `blocked` or `needs_you` (#900).
 cmd_report() {
+  # #2709: `report show` (alias `status`) is the READ-BACK -- an agent checking
+  # its own current board state (esp. a stale needs_you it was told to clear).
+  # Handled before the state parse so the write path below is unchanged.
+  case "${1:-}" in
+    show|status) shift 2>/dev/null || true; cmd_report_show "$@"; return ;;
+  esac
   local state text body because on="" owner="" until="" project="" auto=0
   state="${1:-}"
   shift 2>/dev/null || true
@@ -993,6 +1339,11 @@ cmd_report() {
     say "We could not reach Kosmos to record that. Is it running at $URL?"
     exit 1
   }
+  # #1704 PR2: the board is serving another Kosmos. A report is not kept: the
+  # state this agent was in while its Kosmos was closed is stale by the time it
+  # opens. The sentence equals engine/outbox.js WRONG_WORLD_SENTENCES.staleReport
+  # (cli.world-outbox-1704.test.js pins the two).
+  case "$body" in '{"wrongWorld":true'*) say "Not recorded: your Kosmos is not the one open right now, and this report would be out of date by the time it is."; exit 0 ;; esac
   case "$body" in
     *'"error"'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
@@ -1008,6 +1359,42 @@ cmd_report() {
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
       say "That was not recorded: ${because:-we could not tell why}."
       exit 1 ;;
+  esac
+}
+
+# #2709: read back THIS agent's own current board state. Identity is resolved
+# the same way cmd_report's write resolves it -- the hex agent token via header
+# (KOSMOS_AGENT_TOKEN), the board token for an enforcing board, and the pane as
+# the fallback arm. On a GET the pane rides the query (there is no body), so its
+# leading `%` (a tmux pane id is `%<n>`) is url-encoded. The server shapes the
+# human line for ?as=text (bash 3.2 has no JSON parser).
+cmd_report_show() {
+  if ! healthy; then
+    say "Kosmos is not running, so your report cannot be read. Start it with: kosmos start"
+    exit 1
+  fi
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
+  local _bt; _bt="$(board_token || true)"
+  local _pane_q; _pane_q=$(printf '%s' "${TMUX_PANE:-}" | sed 's/%/%25/g')
+  # bash-3.2 under set -euo pipefail: local-then-substitute, `|| _rc=$?` (a bare
+  # `_body=$(...)` aborts the process on a curl failure), status via -w.
+  local _body _rc=0 _code
+  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/report?as=text&from_pane=$_pane_q" 2>/dev/null) || _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    say "We could not reach Kosmos to read your report. Is it running at $URL?"
+    exit 1
+  fi
+  _code="${_body##*$'\n'}"
+  _body="${_body%$'\n'*}"
+  # printf '%s' (no added newline): the server body already carries its own
+  # trailing newline, which survived the split -- a '%s\n' would double it.
+  printf '%s' "$_body"
+  case "$_code" in
+    4??|5??) exit 1 ;;
   esac
 }
 
@@ -1068,6 +1455,11 @@ cmd_react() {
     say "We could not reach Kosmos to keep that reaction. Is it running at $URL?"
     exit 1
   fi
+  # #1704 PR2: the board is serving another Kosmos. A reaction is not kept: it
+  # toggles room state this agent cannot see from here. The sentence equals
+  # engine/outbox.js WRONG_WORLD_SENTENCES.notOpen (cli.world-outbox-1704.test.js
+  # pins the two).
+  case "$body" in '{"wrongWorld":true'*) say "Your Kosmos is not the one open right now, so that could not be done. Try again once it is open."; exit 1 ;; esac
   # The route answers 200 even for a refusal (a room-state answer read off `ok`),
   # and 400 {"error":...} only for an unreadable request. The verdict globs are
   # anchored on the leading keys -- success is `{"ok":true,"op":add|remove...}`
@@ -1102,8 +1494,47 @@ cmd_react() {
 cmd_room() {
   local project
   project="${1:-}"
+  # #2710: `kosmos room reopen <project-id>` clears a room the loop-guard is
+  # holding, so the next post lands, without having to type a content post to
+  # do it. A subverb rather than a flag matches `feedback`'s shape. Edge, on
+  # record: a project whose id is literally "reopen" cannot be READ with
+  # `kosmos room reopen` (it is taken as the subverb); read it from the board.
+  if [ "$project" = "reopen" ]; then
+    local rproj because
+    rproj="${2:-}"
+    if [ -z "$rproj" ]; then
+      say "Usage: kosmos room reopen <project-id>   (clears a room the loop-guard is holding, so the next post lands)"
+      exit 2
+    fi
+    if ! healthy; then
+      say "Kosmos is not running, so the room cannot be reopened. Start it with: kosmos start"
+      exit 1
+    fi
+    local esc_rproj _rbody _rrc=0 _rcode _rbt
+    esc_rproj=$(printf '%s' "$rproj" | sed "s/[^A-Za-z0-9._-]//g")
+    _rbt="$(board_token || true)"   # #1946: board token for an enforcing board; the reopen route is board-token gated
+    # Same rc/http-code capture as the room read below: never a bare
+    # `local _rbody=$(...)` (local's own exit status would mask the curl
+    # failure and the `|| _rrc=$?` would not fire).
+    _rbody=$(kosmos_curl "$_rbt" "" -sS -m 15 -w $'\n%{http_code}' -X POST "$URL/api/project/$esc_rproj/room/reopen" 2>/dev/null) || _rrc=$?
+    if [ "$_rrc" -ne 0 ]; then
+      say "We could not reach Kosmos to reopen that room. Is it running at $URL?"
+      exit 1
+    fi
+    _rcode="${_rbody##*$'\n'}"
+    _rbody="${_rbody%$'\n'*}"
+    case "$_rcode" in
+      2??) say "Reopened $rproj. The loop-guard hold is cleared; the next post to that room will land." ;;
+      404) say "There is no project called \"$rproj\", so there is no room to reopen."; exit 1 ;;
+      *)
+        because=$(printf '%s' "$_rbody" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
+        say "We could not reopen that room${because:+: $because}"
+        exit 1 ;;
+    esac
+    exit 0
+  fi
   if [ -z "$project" ]; then
-    say "Usage: kosmos room <project-id>   (project ids are in your instructions' Your projects section)"
+    say "Usage: kosmos room <project-id>   (read a room; or: kosmos room reopen <project-id> to clear a loop-guard hold)"
     exit 2
   fi
   if ! healthy; then
@@ -1231,8 +1662,8 @@ fi
 # store is local, so this works with no board running and no token round-trip.
 # The body/date ride ENV VARS into node, never the -e script, so a report with
 # quotes/newlines/backslashes cannot break out of a shell-quoted argument.
-# LOCAL ONLY: this writes to disk and sends nothing. Transmission is a separate,
-# opt-in-gated slice.
+# LOCAL ONLY: this writes to disk and sends nothing. Transmission is a separate
+# slice (engine/feedbacksend.js), DEFAULT-ON / opt-out per #2013, not opt-in.
 cmd_feedback() {
   local sub="${1:-}"; shift 2>/dev/null || true
   # write/show/list all shell out to node against the local engine. On a broken
@@ -1302,50 +1733,18 @@ cmd_feedback() {
       if [ -n "$t_cards" ]; then
         if [ "$t_cards" = "-" ]; then t_cardlist="$(cat)"; else t_cardlist="$(cat "$t_cards" 2>/dev/null)" || { say "could not read cards file: $t_cards"; exit 2; }; fi
       fi
+      # Which reports are read (store or --dir, --since, the guarded per-file read)
+      # and the digest itself are engine functions, feedback.reportsForTriage and
+      # feedback-triage.digestFor. The Windows agent CLI (tools/windows/kosmos-cli.js)
+      # calls the same two, so the two commands cannot drift (win32-cli-verbs).
       KOSMOS_TRIAGE_SINCE="$t_since" KOSMOS_TRIAGE_DIR="$t_dir" KOSMOS_TRIAGE_CARDS="$t_cardlist" "$NODE" -e '
         const app = process.argv[1];
         const fb = require(app + "/engine/feedback");
         const tri = require(app + "/engine/feedback-triage");
-        const nfs = require("node:fs");
-        const npath = require("node:path");
-        const since = process.env.KOSMOS_TRIAGE_SINCE || "";
-        if (since && !fb.isDateKey(since)) { console.error("--since must be YYYY-MM-DD"); process.exit(2); }
-        const dir = process.env.KOSMOS_TRIAGE_DIR || "";
-        const reports = [];
-        if (dir) {
-          let names = [];
-          try { names = nfs.readdirSync(dir); } catch (e) { console.error("cannot read --dir: " + dir); process.exit(2); }
-          for (const n of names.filter((x) => /\.md$/.test(x)).sort()) {
-            // Guard the per-file read: a subdirectory named x.md or a
-            // permission-denied file would otherwise throw a raw node trace and
-            // bypass the CLI refusing in its own voice. Skip it with a note.
-            let raw;
-            try { raw = nfs.readFileSync(npath.join(dir, n), "utf8"); }
-            catch (e) { console.error("skipping unreadable report: " + n); continue; }
-            const body = fb.stripFrontmatter(raw);
-            // A non-date filename has no day, so it gets a null date rather than
-            // a bogus label; under --since it is skipped, since a since-filter
-            // can only include reports it can confirm are on or after the day.
-            const date = /^\d{4}-\d{2}-\d{2}\.md$/.test(n) ? n.slice(0, -3) : fb.frontmatterDate(raw);
-            if (since && (date === null || date < since)) continue;
-            reports.push({ date, body });
-          }
-        } else {
-          for (const d of fb.list()) {
-            if (since && d < since) continue;
-            reports.push({ date: d, body: fb.readBody(d) });
-          }
-        }
-        const openCards = (process.env.KOSMOS_TRIAGE_CARDS || "").split("\n").map((s) => s.trim()).filter(Boolean);
-        const result = tri.triage(reports, { openCards });
-        const dates = reports.map((r) => r.date).filter(Boolean).sort();
-        // "no reports found" only when there really are none. With reports that
-        // have no dated filename (a --dir of undated notes) say so, rather than
-        // heading a digest of real items with "no reports found".
-        const range = reports.length === 0 ? "no reports found"
-          : dates.length ? (dates[0] + " .. " + dates[dates.length - 1])
-          : reports.length + " report(s), no dated filenames";
-        process.stdout.write(tri.renderDigest(result, { range }) + "\n");
+        const got = fb.reportsForTriage({ since: process.env.KOSMOS_TRIAGE_SINCE || "", dir: process.env.KOSMOS_TRIAGE_DIR || "" });
+        for (const note of got.notes) console.error(note);
+        if (!got.ok) { console.error(got.because); process.exit(2); }
+        process.stdout.write(tri.digestFor(got.reports, process.env.KOSMOS_TRIAGE_CARDS || "") + "\n");
       ' "$KOSMOS_HOME/app"
       exit $?
       ;;
@@ -1401,10 +1800,11 @@ cmd_task() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos task <list|add|close>"
+      say "Usage: kosmos task <list|add|close|message>"
       say "  kosmos task list <project-id>                                 list this project's tasks"
       say "  kosmos task add  <project-id> \"<what the task is>\" [\"more detail\"]  add one (quote each part)"
       say "  kosmos task close <project-id> <task-number>                  close one (number is from list)"
+      say "  kosmos task message <project-id> <task-number> \"<what to say>\"  say something in a task's conversation"
       say "  (project ids are in your instructions' Your projects section.)"
       exit 2 ;;
     # Validate the subcommand AND its required args BEFORE the health check, the same order
@@ -1417,8 +1817,11 @@ cmd_task() {
     close)
       { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task close <project-id> <task-number>   (the number is shown by kosmos task list)"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
+    message)
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ -n "${3:-}" ]; } || { say "Usage: kosmos task message <project-id> <task-number> \"<what to say>\""; exit 2; }
+      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
     *)
-      say "Unknown: kosmos task $sub. Try: list | add | close"
+      say "Unknown: kosmos task $sub. Try: list | add | close | message"
       exit 2 ;;
   esac
   if ! healthy; then
@@ -1486,6 +1889,32 @@ cmd_task() {
         *) say "Kosmos gave an answer we could not read when closing that task."; exit 1 ;;
       esac
       ;;
+    message)
+      # Say something in a task's conversation. Records it on the task and delivers a
+      # notification to the agents assigned to that task. Fold every arg after the
+      # number into the text, so an unquoted multi-word message is not word-split away
+      # (the same treatment `add` gives its detail).
+      local project num text; project="${1:-}"; num="${2:-}"
+      shift 2 2>/dev/null || true; text="$*"
+      local esc_text esc_pane
+      esc_text=$(printf '%s' "$text" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
+      # from_pane lets the board resolve WHO is sending, so the sender is not notified
+      # about its own message (the same field `add` sends).
+      esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      local rc=0 body
+      body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/message" \
+        -H 'content-type: application/json' \
+        --data "{\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
+      [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to send that message. Is it running at $URL?"; exit 1; }
+      # Success is the board's own {"ok":true,...} shape, not merely the absence of an error.
+      case "$body" in
+        '{"ok":'*) say "Message recorded on task $num of ${project:-the project}; any agents assigned to it were notified." ;;
+        '{"error":'*)
+          local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+          say "Kosmos refused that message: ${because:-it did not say why}."; exit 1 ;;
+        *) say "Kosmos gave an answer we could not read when sending that message."; exit 1 ;;
+      esac
+      ;;
   esac
 }
 
@@ -1493,6 +1922,7 @@ case "${1:-}" in
   start)   cmd_start ;;
   stop)    cmd_stop ;;
   restart) cmd_restart ;;
+  board-run) cmd_board_run ;;   # #2956: internal supervised foreground entry (launchd/Task Scheduler), not for people
   status)  cmd_status ;;
   open)    cmd_open ;;
   agents)  cmd_agents ;;

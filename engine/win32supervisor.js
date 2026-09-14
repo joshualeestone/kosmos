@@ -23,7 +23,8 @@
  * all. Rather than encode the respawn in a task setting whose semantics differ
  * from KeepAlive's, the loop lives HERE -- respawn and throttle in code, where
  * both are testable from any platform. The task keeps only the half Windows does
- * well: start at logon, and restart the supervisor itself if IT dies.
+ * well: start at logon. Nothing restarts a supervisor that dies -- the task has
+ * no restart-on-failure (`win32job.taskXml`) -- until the next logon.
  *
  *      launchd                          this module
  *      RunAtLoad ......................  Scheduled Task, at-logon trigger
@@ -43,6 +44,7 @@ const cp = require('node:child_process');
 const win32channel = require('./win32channel');
 const win32launch = require('./win32launch');
 const win32sessions = require('./win32sessions');
+const { specFromArgv } = require('./win32argv');
 
 /* The Mac's ThrottleInterval, in the same units the Mac states it. A crash-loop
    must limp, not spin: without this a agent that dies instantly would be
@@ -53,6 +55,18 @@ const THROTTLE_MS = 30 * 1000;
    `tmux has-session` poll is the same idea; this is cheap (one `claude agents
    --json`) and 5s is far below any human-visible restart delay. */
 const POLL_MS = 5 * 1000;
+
+/* How long after a start to check the agent actually REGISTERED before calling it
+   stuck (#2281). win32launch measured a trust-pre-accepted streaming session
+   registering in `claude agents --json` in ~5s; 90s is far past that AND past a
+   large-repo cold start (which a 45s bar could cross, crying wolf on a healthy
+   agent), so a session still absent at 90s genuinely started and did not register.
+   Checked ONCE per start (a one-shot timer that self-cancels the moment the agent
+   is its own child no longer), never a poll: a healthy agent registers long before
+   it fires. Whether that non-registration is a TRUST hang is decided by a positive
+   signal -- is the folder recorded trusted in the config the agent reads -- not by
+   the timer alone (a slow start and a trust hang look identical from the timer). */
+const REGISTRATION_GRACE_MS = 90 * 1000;
 
 /* The liveness seam. Tests replace it; production asks the runner. Returns the
    array `claude agents --json` produces, or null when we could not ask -- and
@@ -110,7 +124,7 @@ function ourLiveSession(name, live) {
   for (const a of list) {
     if (!a || !a.sessionId) continue;
     const rec = recorded[a.sessionId];
-    if (rec && rec.name === name) return a.sessionId;
+    if (win32sessions.rowIsUnder(rec, name)) return a.sessionId;
   }
   return null;
 }
@@ -193,41 +207,11 @@ function supervise(spec, opts) {
   return handle;
 }
 
-/**
- * The argument vector the Scheduled Task runs.
- *
- * 🔑 POSITIONAL, APPEND-ONLY, EVERY NEW ONE OPTIONAL AND DEFAULTED -- the Mac's
- * contract for `agent-supervisor.sh`, adopted deliberately. There is ONE
- * supervisor for every agent (the per-agent-copy version "shipped every bug N
- * times"), so the per-agent facts have to arrive as arguments, and a task
- * registered last week must keep working when a new argument is added. NEVER
- * REORDER THESE; add to the end.
- *
- *   argv:  <name> <cwd> [model] [configDir] [runner] [claudeBin]
- *
- * 🛑 `claudeBin` IS ARGUMENT SIX, AND IT WAS ADDED BECAUSE THE TASK PATH LOST IT
- * (7c-2). `create.js` resolves the runner's absolute path (`runners.resolveBin`,
- * with the PATHEXT candidates #570 added) and used to hand it straight to
- * `win32launch.launch`. Once the TASK became the launcher, the only facts that
- * survive into the agent are the ones on this line -- and the resolved path was
- * not one of them, so every task-started agent fell back to a bare `claude` and
- * depended on the logon PATH carrying `%USERPROFILE%\.local\bin`. That is exactly
- * the class of assumption this lane keeps being punished for, so the path is
- * carried rather than assumed. A task registered before this argument existed
- * passes five arguments, gets `undefined`, and falls back as it always did.
- */
-function specFromArgv(argv) {
-  const a = Array.isArray(argv) ? argv : [];
-  const at = (i) => (typeof a[i] === 'string' && a[i] !== '' && a[i] !== '-' ? a[i] : undefined);
-  return {
-    name: at(0),
-    cwd: at(1),
-    model: at(2),
-    configDir: at(3),
-    runner: at(4) || 'claude',
-    claudeBin: at(5),
-  };
-}
+/* The argument vector the Scheduled Task runs is parsed by `win32argv.specFromArgv`
+   (required above), which states the positional, append-only contract. It moved
+   into that leaf module (#1704) because the anchored boot shim has to read the
+   agent's world from the same line BEFORE this module's store-using requires
+   load; it is re-exported below so existing callers keep working. */
 
 /**
  * The process entry point.
@@ -352,6 +336,40 @@ if (require.main === module) main(process.argv.slice(2));
 
 /* ── the streaming supervisor (7c-1) ───────────────────────────────────────── */
 
+/* A stream sink that records nothing: the default, so only `main()` publishes. */
+const NO_STREAM = { started() {}, event() {}, wrote() {}, stopped() {}, rekey() {} };
+
+/* How long between attempts to record an agent's new session id after a `/clear`
+   (#2669), and how many attempts. The failures worth retrying are short: a rename
+   refused while the board reads the file, or the record's lock held by another
+   writer. Thirty tries two seconds apart give those a full minute. */
+const REKEY_RETRY_MS = 2 * 1000;
+const REKEY_ATTEMPTS = 30;
+
+/* What `claude` answers when asked to `--resume` a session that has no saved
+   conversation -- an agent that never had a turn (#2726). Measured on the box,
+   Claude Code 2.1.268: the resumed child emits ONE `result` event with
+   `is_error: true` and this at the start of an `errors` entry, then exits 1 about
+   a second after it started. */
+const NO_CONVERSATION_PREFIX = 'No conversation found with session ID';
+
+/** Did this stream event say the resumed session has nothing to resume? The
+    structured field, not the stderr text, so a reworded banner cannot fake it. */
+function saysNothingToResume(e) {
+  return Boolean(e) && e.type === 'result' && e.is_error === true && Array.isArray(e.errors)
+    && e.errors.some((m) => typeof m === 'string' && m.startsWith(NO_CONVERSATION_PREFIX));
+}
+
+/** How much of a dying agent's stderr rides on its `died` line. Enough for the
+    one sentence that explains a crash; small enough that a chatty agent cannot
+    flood the task log through it. */
+const STDERR_TAIL_CHARS = 500;
+
+/** How long the supervisor gives its agent to leave, once its host is gone, before
+    exiting anyway. Closing stdin was measured ending the agent in ~800ms, so this
+    is room enough without leaving a stopped agent up for long. */
+const HOST_GONE_GRACE_MS = 2000;
+
 /**
  * Supervise an agent whose PIPES WE HOLD.
  *
@@ -365,10 +383,15 @@ if (require.main === module) main(process.argv.slice(2));
  *      holder KILLED, pipes broken  -> agent gone in ~800ms, out of agents --json
  *
  * 🔑 NO ORPHANS, IN EITHER DIRECTION, and that is what makes this design safe.
- * A dead supervisor leaves nothing live to collide with, so the task restarts the
- * supervisor, it finds nothing, and it comes back with `--resume` -- the SAME
- * session id, the same conversation (measured). Adopt-not-replace becomes
- * resume-not-replace without ever risking two agents under one name.
+ * A dead supervisor leaves nothing live to collide with. Two different returns
+ * follow from that, and an earlier version of this comment ran them together:
+ *   - an AGENT that dies under a living supervisor is relaunched by it with
+ *     `--resume` -- the SAME session id, the same conversation (measured);
+ *   - a SUPERVISOR that dies is not restarted by anything (the task has no
+ *     restart-on-failure). The next start of its task -- a logon, a restore, a
+ *     restart from the board -- runs `main()`, which mints a NEW session: a fresh
+ *     conversation, as a Mac restart gives.
+ * Neither can put two agents under one name.
  *
  * ⚠️ SO THE EXIT EVENT IS THE SIGNAL, NOT THE POLL. `supervise()` asks
  * `claude agents --json` every POLL_MS because a detached agent's death is
@@ -376,19 +399,6 @@ if (require.main === module) main(process.argv.slice(2));
  * cannot be missed, so death is known in milliseconds rather than up to a poll
  * late, and the runner is not asked anything on the happy path.
  */
-/* A stream sink that records nothing: the default, so only `main()` publishes. */
-const NO_STREAM = { started() {}, event() {}, wrote() {}, stopped() {} };
-
-/** How much of a dying agent's stderr rides on its `died` line. Enough for the
-    one sentence that explains a crash; small enough that a chatty agent cannot
-    flood the task log through it. */
-const STDERR_TAIL_CHARS = 500;
-
-/** How long the supervisor gives its agent to leave, once its host is gone, before
-    exiting anyway. Closing stdin was measured ending the agent in ~800ms, so this
-    is room enough without leaving a stopped agent up for long. */
-const HOST_GONE_GRACE_MS = 2000;
-
 function superviseStreaming(spec, opts) {
   const s = spec || {};
   const o = opts || {};
@@ -404,6 +414,50 @@ function superviseStreaming(spec, opts) {
   const readLive = o.liveReader || (() => liveSessions(s.claudeBin));
   /* Asked right before every launch; `main()` answers "is my host still alive". */
   const mayStart = typeof o.mayStart === 'function' ? o.mayStart : () => true;
+  /* How a finished run's credential is retired. Each launch mints one token
+     (win32create.mintForRun); without this every crash-restart would leave one
+     more live credential behind for the agent. Injectable so a test never touches
+     a real token store. */
+  const retireRun = typeof o.retireRun === 'function' ? o.retireRun
+    : (name, instance) => require('./win32create').retireRun(name, instance);
+  /* The ownership record, injectable so a test can make a record fail. */
+  const sessions = o.sessions || win32sessions;
+  /* How long a start is given to register before the unregistered diagnostic
+     fires (#2281), and how "is this pid waiting at a trust prompt" is answered.
+     Both injectable so a test drives the diagnostic without a real clock or a
+     real Claude session dir. The trustWait default reads Claude Code's own
+     sessions dir for the agent's account, the same account its CLAUDE_CONFIG_DIR
+     names -- lazily required so it never loads on the happy path. */
+  const registrationGraceMs = o.registrationGraceMs === undefined ? REGISTRATION_GRACE_MS : o.registrationGraceMs;
+  /* THE POSITIVE SIGNAL (#2281 review r1): is the agent's folder recorded trusted
+     in the config it runs under? trust.folderTrusted answers true/false/null with
+     the SAME key derivation and config resolution trust.trustFolder wrote under,
+     so the question matches the runner's own lookup. The strong "waiting at a
+     trust prompt" wording is used ONLY on an explicit false; true or null (a slow
+     start, or a config we could not read) falls back to hedged wording. cwd-based,
+     so it does not depend on the child pid. Lazily required, injectable for tests. */
+  const trustCheck = typeof o.trustCheck === 'function' ? o.trustCheck
+    : (cwd, configDir) => require('./trust').folderTrusted(cwd, { configDir, agentDefaultAccount: !configDir });
+  /* Corroboration only (#2281 review r1): a lone sessions/<pid>.key with no
+     <pid>.json. It enriches the wording when trust is absent; it is NOT the
+     discriminator, because a pid may not be the agent's (win32launch launch()
+     spawns via cmd) and a lone .key cannot tell a slow start from a hang. */
+  const trustWait = typeof o.trustWait === 'function' ? o.trustWait
+    : (pid, configDir) => require('./win32trustwait').pidWaiting(pid, { configDir, olderThanMs: 0 });
+  /* ⚠️ ITS OWN TIMER, NOT `timer`, ON PURPOSE. `timer` (o.setTimer) is driven by
+     the restart/throttle arms as `(fn) => fn()` -- fire immediately -- so routing
+     this one-shot through it would make the registration check run synchronously
+     inside every existing arm and inject an `unregistered` event none of them
+     expects. A separate seam keeps the diagnostic isolated; its default is an
+     UNREF'd setTimeout so a real 90s timer never holds a test process open and
+     never fires inside a suite that finishes in well under the grace. A matching
+     clear seam retires a prior start's pending timer on re-arm (a crash loop would
+     otherwise pile up one 90s timer per restart). */
+  const registrationTimer = typeof o.registrationTimer === 'function' ? o.registrationTimer
+    : (fn, ms) => { const t = setTimeout(fn, ms); if (t && typeof t.unref === 'function') t.unref(); return t; };
+  const registrationClear = typeof o.registrationClear === 'function' ? o.registrationClear
+    : (t) => { try { clearTimeout(t); } catch { /* an injected handle we cannot clear is harmless */ } };
+  let pendingRegTimer = null;
 
   /* Where the agent's working/idle goes (7c-5). The default does nothing, so no
      suite that drives this loop writes state files; `main()` passes the real
@@ -415,8 +469,109 @@ function superviseStreaming(spec, opts) {
   let lastStart = 0;
   const handle = { sessionId: s.resumeSessionId || null };
 
-  function attach(c) {
+  /**
+   * Follow the session id when it changes under a running agent (#2669).
+   *
+   * 🛑 A `/clear` ROTATES A STREAMING SESSION'S ID: same pid, new `session_id`.
+   * Measured on the box, fresh and `--resume`d alike: `conversation_reset` still
+   * carries the old id, then a `system`/`init` carries the new one, then a
+   * `result`, all within a tenth of a second. Three
+   * holders of the old id must follow it, or the agent drops off the board:
+   * ownership (`win32sessions`, which `win32live` joins the live list through),
+   * the resume id (`handle.sessionId`, which a crash relaunch `--resume`s), and
+   * the 7c-5 state file (`stream.rekey`).
+   *
+   * Gated on `system`/`init` ONLY: it is the one event that opens every turn and
+   * carries the id. Hook events carry it too but depend on configuration, and a
+   * looser gate would fire this once per event.
+   *
+   * 🔑 RECORD THE NEW ID BEFORE FORGETTING THE OLD, so an interruption leaves the
+   * agent visible under two ids, never under none. The resume id moves only after
+   * the record succeeds, so a failed record never strands it on an unrecorded
+   * session.
+   */
+  function followSessionId(e) {
+    if (!e || e.type !== 'system' || e.subtype !== 'init') return;
+    const id = e.session_id;
+    if (typeof id !== 'string' || !id || id === handle.sessionId) return;
+    /* A chain is already retrying this id. A second `init` for it (the turn of a
+       message queued behind the /clear) must not start a second chain: that doubled
+       the lock traffic and the log, and a late chain could re-run the rekey with the
+       new id as the "old" one and forget the agent's live row (review round 5). */
+    if (id === pendingRekey) return;
+    rekeyTo(id, child, 1);
+  }
+
+  /* 🛑 A FAILED RECORD IS RETRIED, because it does not heal on its own: with the
+     new id unrecorded the agent has no card, so no message reaches it, so no later
+     `init` comes along to try again. Retries stop when this child is replaced or
+     the loop stops, when a newer id supersedes this one, or after REKEY_ATTEMPTS.
+     `stop()` also clears `child`, so a stopped loop fails both `running` and
+     `child === owner`; a test pins that a retry after a stop writes nothing. */
+  let pendingRekey = null;
+  function rekeyTo(id, owner, attempt) {
+    const oldId = handle.sessionId;
+    let rec;
+    try { rec = sessions.record(id, { name: s.name, runner: s.runner }); }
+    catch (err) { rec = { ok: false, because: 'we could not record its new session (' + ((err && err.code) || 'unknown') + ')' }; }
+    if (!rec || !rec.ok) {
+      const why = (rec && rec.because) || 'we could not record its new session';
+      const last = attempt >= REKEY_ATTEMPTS;
+      /* Pending while a retry is armed; cleared on giving up, so a later `init` for
+         the same id can start trying again. */
+      pendingRekey = last ? null : id;
+      if (attempt === 1 || last) {
+        onEvent({ action: 'rekey-failed', sessionId: id,
+          because: 'its session changed from ' + oldId + ' to ' + id + ', but ' + why + (last ? '; we stopped trying' : '; we will keep trying') });
+      }
+      if (!last) timer(() => { if (running && child === owner && pendingRekey === id) rekeyTo(id, owner, attempt + 1); }, REKEY_RETRY_MS);
+      return;
+    }
+    pendingRekey = null;
+    handle.sessionId = id;
+    stream.rekey(id);
+    forgetAndReport(oldId);
+    onEvent({ action: 'rekeyed', sessionId: id, from: oldId, because: 'its session changed from ' + oldId + ' to ' + id });
+  }
+
+  /* Forget one session's ownership row, and say so on the task log if that fails:
+     a stale row is harmless only while nothing runs under that id, and
+     `claude --resume <id>` would join the live list under this agent's name -- the
+     duplicate-name case win32live's header warns of. ONE helper for the rekey's old
+     id and a fresh start's dead id, so the two cannot drift (review round 2). */
+  function forgetAndReport(id) {
+    if (!id) return;
+    let forgot;
+    try { forgot = sessions.forget(id); }
+    catch (err) { forgot = { ok: false, because: 'we could not update the ownership record (' + ((err && err.code) || 'unknown') + ')' }; }
+    if (!forgot || !forgot.ok) {
+      onEvent({ action: 'forget-failed', sessionId: id,
+        because: 'its old session ' + id + ' is still recorded under its name: ' + ((forgot && forgot.because) || 'unknown') });
+    }
+  }
+
+  /* An agent that never had a turn has no saved conversation, so `--resume` can
+     never bring it back: measured, it died about a second after every resume, every
+     30s, for good (#2726). Its next start is a birth instead -- a new session, a new
+     ownership row, a new token -- and the dead id's row goes, since nothing can
+     resume it. Only claude's own "no conversation" answer does this; any other
+     death still resumes, so a real conversation is never abandoned over some other
+     error. */
+  function startFreshAfter(deadId) {
+    handle.sessionId = null;
+    forgetAndReport(deadId);
+    onEvent({ action: 'resume-impossible', sessionId: deadId,
+      because: 'its session ' + deadId + ' has no saved conversation (it never had a turn), so it starts fresh' });
+  }
+
+  function attach(c, runInstance, resumed) {
     child = c;
+    let nothingToResume = false;   // this RESUMED child said its session has no conversation
+    /* A new child owns no retry its dead predecessor left pending. The old chain
+       already stops on `child === owner`, but the flag would stay set and make
+       `followSessionId` swallow this child's genuine `init` for the same id
+       (review round 6). */
+    pendingRekey = null;
     /* 🔑 THE EVENT STREAM IS READ, and that is what gives a Windows card its
        working/idle (7c-5): `claude agents --json` lists no status for a
        streaming session. Reading stdout also retires the old question of what
@@ -424,7 +579,13 @@ function superviseStreaming(spec, opts) {
        a late line from a child already replaced says nothing about the new one. */
     const { lineReader, parseEvent } = require('./win32streamstate');
     if (c.stdout && typeof c.stdout.on === 'function') {
-      const feed = lineReader((line) => { if (child === c) stream.event(parseEvent(line)); });
+      const feed = lineReader((line) => {
+        if (child !== c) return;
+        const e = parseEvent(line);
+        if (resumed && saysNothingToResume(e)) nothingToResume = true;
+        followSessionId(e);   // before the state sink, so a rekey lands before the turn's events
+        stream.event(e);
+      });
       c.stdout.on('data', feed);
     }
     /* stderr is drained so it can never fill, and its tail is kept so a death can
@@ -441,9 +602,24 @@ function superviseStreaming(spec, opts) {
     const gone = (code) => {
       if (handled) return;
       handled = true;
-      if (child === c) { child = null; stream.stopped(); }
+      /* This run is over whether or not it was already replaced, so its token is
+         retired unconditionally -- retire, never revoke, so the agent's other runs
+         keep theirs. A clean stop ends the child through this same path. */
+      if (runInstance) {
+        let retired;
+        try { retired = retireRun(s.name, runInstance); }
+        catch (e) { retired = { ok: false, because: 'we could not retire its token (' + ((e && e.code) || 'unknown') + ')' }; }
+        /* Said, not swallowed: a token left live only waits out the store's cap,
+           but the task log should show why it is still there. */
+        if (retired && retired.ok === false) onEvent({ action: 'token-not-retired', because: retired.because });
+      }
+      const wasCurrent = child === c;
+      if (wasCurrent) { child = null; stream.stopped(); }
       const said = stderrTail.replace(/\s+/g, ' ').trim();
       onEvent({ action: 'died', code: code === undefined ? null : code, sessionId: handle.sessionId, because: said ? 'it said: ' + said : undefined });
+      /* A stopped loop decides no next start: `stop()` clears `child` before the
+         child exits, so a stop during a failed resume leaves its row alone. */
+      if (nothingToResume && wasCurrent) startFreshAfter(handle.sessionId);
       if (running) schedule();
     };
     c.on('exit', gone);
@@ -491,6 +667,68 @@ function superviseStreaming(spec, opts) {
     return 'a session we do not hold is already running under this name, so we left it alone';
   }
 
+  /* A fresh start records a new ownership row, and nothing removed the row of the
+     session that ended, so every restart left one more behind (#2720). A fresh
+     start happens only once `blockedBy` has just found no session recorded under
+     this name LISTED as running -- otherwise it waits -- so keep only the one just
+     started. "Not listed" is not quite "ended": a new session takes a few seconds
+     to appear in the list. What makes that safe is that this agent has one
+     supervisor (its task is IgnoreNew), and a previous supervisor's child is on
+     its way out (#2714). Said on the task log either way, and never a reason to
+     undo the start. */
+  function pruneEndedRows(startedId) {
+    let r;
+    try { r = sessions.pruneName(s.name, [startedId]); }
+    catch (err) { r = { ok: false, because: 'we could not prune the ownership record (' + ((err && err.code) || 'unknown') + ')' }; }
+    if (!r || !r.ok) {
+      onEvent({ action: 'prune-failed', because: 'its ended sessions are still recorded under its name: ' + ((r && r.because) || 'unknown') });
+    } else if (r.removed) {
+      onEvent({ action: 'pruned', because: 'it forgot ' + r.removed + ' ended session' + (r.removed === 1 ? '' : 's') + ' recorded under its name' });
+    }
+  }
+
+  /* #2281: the started-but-never-registered diagnostic. Armed once per start, it
+     fires at most one `unregistered` event and only while THIS child is still the
+     running one, so a restart's timer never speaks for the run that replaced it.
+     A null live read (we could not ask) makes NO claim -- crying "stuck" on a
+     failed look is the false-zero this whole family refuses.
+
+     🔑 REGISTRATION IS CHECKED ON THE CURRENT IDENTITY, NOT THE STARTED ID
+     (review r1, #2669). A `/clear` rotates a live agent's session id under the
+     SAME child; `handle.sessionId` follows it (rekeyTo updates it), the captured
+     start id does not. Matching the captured id would miss the healthy rotated
+     agent and cry "unregistered" over a working session. So the match is against
+     handle.sessionId.
+
+     🔑 AND WHETHER NON-REGISTRATION IS A TRUST HANG IS DECIDED BY A POSITIVE
+     SIGNAL (review r1). A slow start and a trust-dialog hang look identical from
+     the timer, so the strong wording is used only when the folder is explicitly
+     NOT recorded trusted in the config the agent reads (trustCheck === false).
+     trustWait's lone `.key` only enriches that wording; it is never the
+     discriminator. A trusted (or unknowable) folder gets the hedged wording. */
+  function armRegistrationCheck(startedChild) {
+    if (!startedChild) return;
+    const pid = startedChild.pid;
+    if (pendingRegTimer !== null) { registrationClear(pendingRegTimer); pendingRegTimer = null; }
+    pendingRegTimer = registrationTimer(() => {
+      pendingRegTimer = null;
+      if (!running || child !== startedChild) return;                       // replaced, stopped, or dead
+      const live = readLive();
+      if (live === null) return;                                            // could not ask -- no claim
+      if (live.some((a) => a && a.sessionId === handle.sessionId)) return;  // registered under its CURRENT id -- healthy
+      let trusted = null;
+      try { trusted = trustCheck(s.cwd, s.configDir || null); } catch { trusted = null; }
+      let waiting = false;
+      try { waiting = Number.isInteger(pid) && trustWait(pid, s.configDir || null); } catch { waiting = false; }
+      const secs = Math.round(registrationGraceMs / 1000);
+      const because = trusted === false
+        ? 'it started ' + secs + 's ago and has not registered -- its folder is not recorded as trusted in the config it runs under, so it is most likely waiting at a workspace-trust prompt no one can see'
+          + (waiting ? ' (it has written no registration record)' : '')
+        : 'it started ' + secs + 's ago and has not registered -- it may be starting slowly, or waiting at a prompt no one can see';
+      onEvent({ action: 'unregistered', sessionId: handle.sessionId, because });
+    }, registrationGraceMs);
+  }
+
   function startOnce() {
     if (!running) return;
     let may = true;
@@ -524,8 +762,16 @@ function superviseStreaming(spec, opts) {
        already has a process to belong to. Idle: measured, a streaming agent says
        nothing until it is told something, fresh or resumed. */
     stream.started(r.child && r.child.pid, r.sessionId);
-    attach(r.child);
-    onEvent({ action: r.resumed ? 'resumed' : 'started', sessionId: r.sessionId });
+    attach(r.child, r.instance || null, Boolean(r.resumed));
+    /* A run that could not mint a token still runs, but the board refuses every
+       report it sends -- so the task log says why, rather than nothing. */
+    onEvent(Object.assign({ action: r.resumed ? 'resumed' : 'started', sessionId: r.sessionId },
+      r.tokenBecause ? { because: 'it has no reporting token: ' + r.tokenBecause } : {}));
+    if (!r.resumed) pruneEndedRows(r.sessionId);   // a resume adds no row, so it has nothing to prune
+    /* #2281: a fresh start AND a resume can both land on an untrusted folder (the
+       trust write can be dropped by a live Claude Code save, or revoked while the
+       agent was down), so both are checked. */
+    armRegistrationCheck(r.child);
   }
 
   /* The Mac's ThrottleInterval, gating the RESTART. A crash-loop must limp, not
@@ -580,6 +826,9 @@ function superviseStreaming(spec, opts) {
 
   handle.stop = function stop() {
     running = false;
+    /* Retire any pending registration check so a stop never fires the diagnostic
+       (the child-identity guard also covers this, belt and braces). */
+    if (pendingRegTimer !== null) { registrationClear(pendingRegTimer); pendingRegTimer = null; }
     /* Close stdin rather than killing: measured, the agent exits ~800ms later of
        its own accord, which lets it finish writing anything in flight. A stop
        that must be immediate is win32stop's job, and that is a different verb. */
@@ -597,7 +846,7 @@ function superviseStreaming(spec, opts) {
 }
 
 module.exports = {
-  THROTTLE_MS, POLL_MS,
+  THROTTLE_MS, POLL_MS, REGISTRATION_GRACE_MS,
   isAlive, ourLiveSession, ensureRunning, supervise, superviseStreaming, specFromArgv,
   setLiveReader, liveSessions, main,
 };

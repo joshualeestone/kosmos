@@ -13,12 +13,26 @@ has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 
 # The real pair, lifted from release.sh rather than retyped, so this cannot
 # drift from what ships.
+# 🛑 ANCHOR THE END TO cut_record_done, NOT THE FIRST `}`. The step/record region now holds
+# HELPER functions too (step-timing: _step_now, _step_emit_duration), each closing with its
+# own `}` on its own line, so a `,/^}$/` range would stop at the first helper's brace and
+# lift a block WITHOUT cut_record_done -- the function this test actually runs. It ran
+# undefined, wrote no completion row, and every field arm failed on empty output. Capture
+# from `_STEP="before step 1"` through the `}` that closes cut_record_done specifically.
 SRC="$HERE/release.sh"
-blk="$(awk '/^_STEP="before step 1"$/,/^}$/' "$SRC")"
+blk="$(awk '/^_STEP="before step 1"$/{g=1} g{print} /^cut_record_done\(\)/{r=1} r&&/^}$/{exit}' "$SRC")"
 case "$blk" in
   *"step()"*) : ;;
   *) echo "FAIL  the step/record block is gone from release.sh; this test now checks nothing"; exit 1 ;;
 esac
+# The block MUST carry cut_record_done, since that is the function every arm below runs; a
+# lift that dropped it would otherwise fail every arm on empty output with a misleading
+# message rather than naming the real cause. Anchor on the DEFINITION line (`^cut_record_done() {`),
+# not a bare substring: a comment that merely mentions `cut_record_done()` would satisfy a
+# substring match while the awk range had regressed to under-capture, silently reproducing
+# the bug this guard exists to catch.
+printf '%s\n' "$blk" | grep -q '^cut_record_done() {' \
+  || { echo "FAIL  the lift did not reach cut_record_done's definition; the awk range no longer spans it"; exit 1; }
 
 run() {   # $1 = script body appended after the block, $2 = exit code to record
   # ⚠️ REMOVED AT THE END OF EACH CALL (#1151). This is a helper the file calls
@@ -168,6 +182,45 @@ has "$out" 'basis=exit-status' \
 
 out="$(run 'step "== 3b. the page layer =="' 0)"
 has "$out" 'outcome=ok' && pass "a clean cut records ok" || fail "a clean cut is not ok: $out"
+
+# ---------------------------------------------------------------------------
+# The wall-time instrumentation (step()/cut_record_done timing) must be FAIL-SAFE under the
+# same `set -euo pipefail` the cut runs under: neither a broken clock nor a broken stdout may
+# abort a step or suppress this completion row. Both are real on a long cut (a missing/erroring
+# `date`; a dropped SSH terminal / dead pipe reader). These arms assert the completion row
+# still lands in each case -- the exact regression the errexit-safe `|| true`s guard, and
+# which nothing else in the suite exercised.
+# ---------------------------------------------------------------------------
+
+# A broken CLOCK: _step_now fails non-zero on every call (a missing/erroring `date`). The
+# completion row must still land -- an unguarded `_x=$(_step_now)` would abort under errexit.
+out="$(run '_step_now() { return 127; }; step "== 4. build =="' 1)"
+has "$out" 'outcome=failed' && has "$out" 'step=' \
+  && pass "a broken clock does not abort the cut: the completion row still lands" \
+  || fail "a broken clock aborted before the completion row: $out"
+
+# A broken STDOUT while the timing echoes fire (working clock): the emit `echo`s exit non-zero,
+# and an UNGUARDED emit (a bare `echo`, or a bare `_step_emit_duration` call whose echo fails)
+# would then abort cut_record_done under errexit BEFORE the completion `printf`, so no row lands.
+# The `|| true`s must keep the row landing. This arm asserts exactly THAT -- the completion row is
+# present (cut_record_done was not aborted) -- and NOT byte-intactness: a real dropped terminal
+# (fd open, EPIPE) leaves the row clean because the `printf`'s own `>>` opens a separate log fd,
+# but no PORTABLE in-process simulation reproduces that cleanly -- both a closed fd (`1>&-`) and a
+# read-only dup let bash reuse the freed number for the `>>` and interleave the failed echo's bytes,
+# an artifact of the simulation, not of a real cut. So we simulate the failure (closed fd) and
+# assert only the load-bearing property the BLOCKER was about: the row still lands.
+brT="$(mktemp -d)"; mkdir -p "$brT/.claude/logs"
+HOME="$brT" V=9.9.9 _CUT_DONE_WRITTEN=0 bash -c "
+  set -euo pipefail
+  _CUT_DONE_WRITTEN=0; V=9.9.9
+  $blk
+  step '== 4. build =='
+  cut_record_done 1 1>&-       # fd 1 closed: the timing echoes fail; the row must still land
+" >/dev/null 2>&1
+brout="$(cat "$brT/.claude/logs/cut-suite-runs.log" 2>/dev/null)"; rm -rf "$brT"
+has "$brout" 'completed exit=' \
+  && pass "a broken stdout does not abort the cut: the completion row still lands" \
+  || fail "a broken stdout aborted before the completion row: $brout"
 
 # 🛑 THE SUMMARY STAYS ADJACENT TO THE EXIT IT REPORTS. Append new arms ABOVE
 # this line, never below it: a run that prints "cut step record: 0 failures" and
