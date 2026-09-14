@@ -30099,6 +30099,20 @@ function placeAppSettings(consolidated) {
     APP_SETTINGS_HOME.parent.insertBefore(panel, APP_SETTINGS_HOME.next);
   }
 }
+/* #3053: the consolidated display column holds AT MOST ONE takeover overlay at a time. Both
+   openConsolidatedSettings and openConsolidatedCreate call this before showing themselves, so
+   switching directly between Settings and New Agent (both persistent rail buttons, with no project
+   navigation between them) hides the other rather than stacking both in the same grid cell (they
+   share grid-column 2 / grid-row 1). pjView already hides both relocated panels on project
+   navigation; this covers the open-to-open switch, and protects the next occupant added the same way. */
+function closeConsolidatedOverlays() {
+  const projects = document.getElementById('panel-projects');
+  if (!projects) return;
+  for (const id of ['panel-settings', 'panel-create']) {
+    const p = document.getElementById(id);
+    if (p && p.parentElement === projects) p.hidden = true;
+  }
+}
 /* Open the app settings inside the consolidated display column, staying in the
    consolidated view. Swaps the display column to the settings panel (hiding the
    project views), keeps the projects list beside it, and paints the settings the
@@ -30113,6 +30127,7 @@ function openConsolidatedSettings() {
   // future caller cannot render settings into #panel-projects without the consolidated CSS.
   if (!document.body.classList.contains('consolidated')) return;
   placeAppSettings(true);
+  closeConsolidatedOverlays();   // #3053: hide the create overlay if it was the one open
   document.getElementById('panel-projects').hidden = false;
   for (const v of ['one', 'add', 'settings', 'task', 'docs', 'alltasks']) {
     const el = document.getElementById('pj-' + v + '-view');
@@ -30164,6 +30179,7 @@ function placeCreatePanel(consolidated) {
 function openConsolidatedCreate() {
   if (!document.body.classList.contains('consolidated')) return;
   placeCreatePanel(true);
+  closeConsolidatedOverlays();   // #3053: hide the settings overlay if it was the one open
   document.getElementById('panel-projects').hidden = false;
   for (const v of ['one', 'add', 'settings', 'task', 'docs', 'alltasks']) {
     const el = document.getElementById('pj-' + v + '-view');

@@ -32,12 +32,26 @@ tabs, so 'create' drops body.consolidated and renders the tab-view create panel 
 - CSS: `#panel-projects > #panel-create` in the consolidated layout gets `grid-column:2; margin:0;
   width:100%` (capped by its 34rem max-width) so it sits at the top-LEFT of the display column at its
   form width, overriding the tab-view `margin:0 auto` that collapsed it to a ~193px centered island.
+- `closeConsolidatedOverlays()` (added iteration 2): the display column holds AT MOST ONE takeover
+  overlay. Both openConsolidatedSettings and openConsolidatedCreate call it before showing themselves,
+  so switching directly between Settings and New Agent (both persistent rail buttons, no project nav
+  between) hides the other rather than stacking both in the same grid cell. Also subsumes iteration 1's
+  duplication NIT for the mutual-exclusion step.
 
 ## Rejected
 - Full-width fill (like settings): a create FORM at ~900px stretches its fields awkwardly. Kept the 34rem
   form width, left-aligned. (The browser-check asserts the form-width range, not a full fill.)
 - Duplicating openCreate's form-reset into openConsolidatedCreate: instead openCreate does the reset once
   and only the SHOW step branches, so the two entry paths cannot diverge on reset.
+
+## Iteration 2 (sonnet) BLOCKER, caught + fixed
+The OPEN-side gap the iteration-1 review and my own weakest-premise both missed: opening one overlay
+over the other (Settings then New Agent, or the reverse) via the persistent rail buttons left BOTH
+stacked in the same grid cell, a regression to the shipped #2842 settings feature. pjView only hides
+them on project navigation, not the open-to-open switch. Fixed with closeConsolidatedOverlays (above),
+called by both open-functions; a new mutual-exclusion assertion (both orders) pins it, and a negative
+control confirmed it fails on the pre-fix behavior. This is exactly the kosmos#2032 multi-model value:
+opus (iter 1) missed it, sonnet (iter 2) caught it.
 
 ## Weakest premise
 That routing create-back / done through pjView (which now hides the relocated panel) is sufficient for

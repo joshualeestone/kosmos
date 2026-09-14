@@ -150,6 +150,39 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     });
     ok(t + ' #3053 New Agent opens from the Agents tab too, staying consolidated', agentsTab.err === null && agentsTab.consolidatedOnAgents === true && agentsTab.stillConsolidated === true && agentsTab.createOpen === true, JSON.stringify(agentsTab));
 
+    // ---- Mutual exclusion: the display column holds ONE takeover overlay at a time. Settings
+    // (#2842) and Create (#3053) both relocate into #panel-projects at the same grid cell, so
+    // opening one over the other via the persistent rail buttons -- with NO project nav between --
+    // must hide the other rather than stack both. closeConsolidatedOverlays enforces this; pjView
+    // only covers project-nav exits, not the open-to-open switch. Both orders. ----
+    const mutex = await page.evaluate(() => {
+      const res = {};
+      const settings = document.getElementById('panel-settings');
+      const create = document.getElementById('panel-create');
+      const pp = document.getElementById('panel-projects');
+      const shownInCol = (el) => el.parentElement === pp && el.hidden === false;
+      try {
+        PROJECTS = [{ id: 'k', name: 'Kosmos', parent: null, parentName: null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 }];
+        PJ_SORT = 'az'; PJ_CURRENT = null;
+        document.documentElement.setAttribute('data-layout', 'consolidated');
+        showTab('projects');
+        // Settings first, then New Agent over it: create shows, settings hides.
+        document.getElementById('rail-me-go').click();
+        res.settingsUpFirst = shownInCol(settings);
+        document.getElementById('rail-agents-new').click();
+        res.createShownOverSettings = shownInCol(create);
+        res.settingsHiddenUnderCreate = settings.hidden === true;
+        // New Agent open, then Settings over it: settings shows, create hides.
+        document.getElementById('rail-me-go').click();
+        res.settingsShownOverCreate = shownInCol(settings);
+        res.createHiddenUnderSettings = create.hidden === true;
+        res.err = null;
+      } catch (e) { res.err = String(e && e.message || e); }
+      return res;
+    });
+    ok(t + ' #3053 opening New Agent over open Settings hides settings (one overlay at a time)', mutex.err === null && mutex.settingsUpFirst === true && mutex.createShownOverSettings === true && mutex.settingsHiddenUnderCreate === true, JSON.stringify(mutex));
+    ok(t + ' #3053 opening Settings over open New Agent hides create (mutual exclusion, both orders)', mutex.err === null && mutex.settingsShownOverCreate === true && mutex.createHiddenUnderSettings === true, JSON.stringify(mutex));
+
     await page.close();
   }
   await browser.close();
