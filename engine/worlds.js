@@ -127,7 +127,10 @@ function writeRegistry(base, reg) {
   fs.renameSync(tmp, registryPath(base));
 }
 
-function listWorlds(base) { return readRegistry(base).worlds; }
+/* #2935: the user-facing switcher list drops hidden worlds. `readRegistry` deliberately keeps them
+   (internal callers -- worldBaseDir, the activeWorldId guard -- still need a hidden world's row so
+   its store resolves and stays accessible). */
+function listWorlds(base) { return readRegistry(base).worlds.filter((w) => !w.hiddenAt); }
 
 function activeWorld(base) {
   const reg = readRegistry(base);
@@ -345,7 +348,15 @@ function createWorld(base, name) {
   if (id === DEFAULT_ID) throw new Error(`world id "${DEFAULT_ID}" is reserved`);
   return withRegistryLock(base, () => {
     const reg = readRegistry(base);
-    if (reg.worlds.some((w) => w.id === id)) throw new Error(`a world "${id}" already exists`);
+    const clash = reg.worlds.find((w) => w.id === id);
+    if (clash) {
+      // #2935: a hidden Kosmos keeps its registry row (its store must survive), so its id stays
+      // taken even though it is off the list. Say that plainly rather than "a world X already
+      // exists", which reads as an internal error about a Kosmos the person can no longer see.
+      // There is no restore, so the resolution is a different name, not un-hiding the old one.
+      if (clash.hiddenAt) throw new Error(`you hid a Kosmos named "${clash.name}", and its files are still on this computer, so pick a different name for the new one`);
+      throw new Error(`a world "${id}" already exists`);
+    }
     const dir = path.join(base, WORLDS_SUBDIR, id);
     // Make the world's subtrees up front so a switch never lands on a missing dir.
     // #2439: the store leaf MUST match what dataRootFor appends for this world
@@ -373,7 +384,15 @@ function createWorld(base, name) {
 function setActiveWorld(base, id) {
   return withRegistryLock(base, () => {
     const reg = readRegistry(base);
-    if (!reg.worlds.some((w) => w.id === id)) {
+    // #2935: readRegistry KEEPS hidden rows (so the store pointer survives), but a hidden
+    // Kosmos is off the user's list and there is no restore, so it must not be switchable
+    // either -- otherwise POST /api/worlds/active {hiddenId} would boot into an "active but
+    // invisible" world. To every caller a hidden world is gone, so it is the SAME not-found
+    // as a missing one (ENOWORLD -> the route's 404), which also matches the pause branch's
+    // listWorlds `known` check. Guarded here, the one chokepoint, so the invariant holds for
+    // every caller rather than each route re-deriving it (Repo Convention: one derivation).
+    const world = reg.worlds.find((w) => w.id === id);
+    if (!world || world.hiddenAt) {
       // Typed so a caller (e.g. the /api/worlds/active route) can classify this
       // as not-found WITHOUT matching on the message text -- the message is for a
       // person and is free to change; the code is the contract.
@@ -431,6 +450,45 @@ function renameWorld(base, id, newName) {
       throw err;
     }
     world.name = name;
+    writeRegistry(base, reg);
+    return world;
+  });
+}
+
+/*
+ * #2935 (Josh's soft-delete ruling, 2026-09-12): HIDE a world from the Kosmoses list. This is NOT
+ * destructive -- the on-disk store (<base>/worlds/<id>/) stays in place and accessible; only the
+ * registry ROW is flagged with `hiddenAt`, so the pointer to those files survives (dropping the row
+ * would lose the pointer we promise the user their files still live behind). `listWorlds` filters
+ * hidden rows out of the switcher, while `readRegistry` keeps them so `worldBaseDir` still resolves
+ * a hidden world's store. The default world is never hideable; the active world must be switched
+ * away from first (its conversations/watchers/agent processes belong to it). There is no unhide:
+ * re-adding a world is the import path (#2892), not a restore feature (Josh: "no restore a kosmos").
+ */
+function hideWorld(base, id) {
+  if (id === DEFAULT_ID) {
+    const err = new Error('the default Kosmos cannot be hidden');
+    err.code = 'ERESERVED';
+    throw err;
+  }
+  return withRegistryLock(base, () => {
+    const reg = readRegistry(base);
+    const world = reg.worlds.find((w) => w.id === id);
+    if (!world) {
+      const err = new Error(`no such world "${id}"`);
+      err.code = 'ENOWORLD';
+      throw err;
+    }
+    if (reg.activeWorldId === id) {
+      const err = new Error('switch to another Kosmos before hiding this one');
+      err.code = 'EACTIVE';
+      throw err;
+    }
+    // Already hidden: a second hide is a harmless no-op, not a re-stamp -- keep the original
+    // hiddenAt and write nothing. Not reachable from the UI (a hidden world is off the switcher, so
+    // its cog cannot be re-clicked), but stated so it is a deliberate no-op rather than implicit.
+    if (world.hiddenAt) return world;
+    world.hiddenAt = new Date().toISOString();
     writeRegistry(base, reg);
     return world;
   });
@@ -525,6 +583,7 @@ module.exports = {
   preWorldEnv,
   createWorld,
   renameWorld,
+  hideWorld,
   setActiveWorld,
   applyActiveWorldEnv,
   worldStoreRoot,

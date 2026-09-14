@@ -430,6 +430,11 @@ function install(spec) {
  * Stop this agent ACROSS LOGINS. Disabling rather than deleting mirrors
  * `launchctl disable`: the job stays on disk so a later `enable` restores it,
  * and `remove.js` on the Mac records prior state for exactly that reason.
+ *
+ * `worldId` (like `taskName`'s) targets a SPECIFIC world's task; omit it for the
+ * board's current world. It is load-bearing for #2935's hide, which stops the
+ * agents of a NON-current (hidden) world -- without it every act would resolve
+ * against `currentWorldId()` and hit the booted world's same-named task instead.
  */
 /* `worldId` (win32-installer-native): the uninstall reaches ANOTHER Kosmos's agent task by
    that world's key, parsed from the task path, never by guessing. Absent means this
@@ -440,8 +445,8 @@ function disable(name, worldId) {
   return { ok: true };
 }
 
-function enable(name) {
-  const r = run(['/Change', '/TN', taskName(name), '/ENABLE']);
+function enable(name, worldId) {
+  const r = run(['/Change', '/TN', taskName(name, worldId), '/ENABLE']);
   if (!r.ok) return { ok: false, because: 'we could not set it to start again (' + (r.out || '').trim().split('\n')[0] + ')' };
   return { ok: true };
 }
@@ -472,8 +477,8 @@ function end(name, worldId) {
  * half of a restore. `enable` alone would leave the agent off until the person
  * next signed in, which is not what "start it again" says.
  */
-function start(name) {
-  const r = run(['/Run', '/TN', taskName(name)]);
+function start(name, worldId) {
+  const r = run(['/Run', '/TN', taskName(name, worldId)]);
   if (!r.ok) return { ok: false, because: 'we could not start it again now (' + (r.out || '').trim().split('\n')[0] + ')' };
   return { ok: true };
 }
