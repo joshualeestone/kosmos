@@ -4467,21 +4467,19 @@ const server = http.createServer((req, res) => {
            create-agent checkbox: default ON, so fire unless it was explicitly
            turned off (`notifyCreated === false`). Best-effort and non-blocking --
            createdbeacon swallows everything, so a beacon never affects a create.
-           The count is agents on this install INCLUDING the one just made: the
-           board snapshot may not reflect the new agent's tmux session yet this
-           instant (it appears milliseconds later), so add 1 when it is not there.
-           The server is idempotent (Math.max on count), so a slightly-early or
-           re-sent count never inflates the total. */
+           The count is the MONOTONIC total this install has ever CREATED (#3038),
+           read from the birth log, INCLUDING the one just made -- its birth line is
+           already written by the time this runs (recordBirth is inside the create).
+           The server is idempotent (Math.max on count), so a re-sent count never
+           inflates the total. */
         if (result.outcome === create.OUTCOME.CREATED && body.notifyCreated !== false) {
           try {
-            const roster = safeRoster();
-            // Match the MACHINE SLUG: roster entries key on `sessionName` (every
-            // other membership check in this file does, e.g. lines ~1652/3915),
-            // and `result.name` is that slug (its comment ~20 lines down). An
-            // earlier version compared `a.name` (the DISPLAY name) and `a.shown`
-            // (which does not exist on a roster entry), so the match never fired.
-            const alreadyListed = roster.some((a) => a && a.sessionName === result.name);
-            createdbeacon.pingAgentCreated(roster.length + (alreadyListed ? 0 : 1));
+            // #3038: the total ever CREATED (create.createdCount, from created.jsonl),
+            // NOT the live running roster. safeRoster() counts RUNNING agents, so the
+            // old beacon (roster.length) froze the homepage number at peak-running under
+            // the server's Math.max and a created-but-stopped agent never grew it.
+            // "Agents created" must count creations.
+            createdbeacon.pingAgentCreated(create.createdCount());
           } catch { /* best-effort: a beacon never affects a create */ }
         }
         // REFUSED is the caller's fault (a bad name, a duplicate); PARTIAL is

@@ -2866,6 +2866,21 @@ function createdLog() {
   }).filter((e) => e && typeof e === 'object');
 }
 
+/* #3038: the MONOTONIC count of agents this install has ever CREATED, for the
+   created beacon. The homepage "agents created" number must grow with CREATIONS,
+   not track the live RUNNING roster (safeRoster) -- the old beacon sent the
+   running count, so a created-but-stopped agent never grew it and the server's
+   Math.max(existing,count) froze at peak-running. Counted from the append-only
+   birth log (created.jsonl): every creation ATTEMPT is one line, so this counts
+   the ones that actually made an agent -- outcome CREATED or PARTIAL -- and
+   excludes REFUSED (nothing was made) and UNKNOWN. This is the SAME "created or
+   partial line is the tie" interpretation register.js uses to decide an agent
+   was ever made here. It only sees births since the birth log shipped (#157);
+   agents created before that are not in the log and cannot be counted here. */
+function createdCount() {
+  return createdLog().filter((e) => e.outcome === OUTCOME.CREATED || e.outcome === OUTCOME.PARTIAL).length;
+}
+
 /* #1916: REAL liveness for a CLAUDE account. `claude auth status` (what
    subscription.checkLive is built on) reports a STORED login, not a working
    token -- proven in the field: a fully-expired OAuth token badged as "Signed
@@ -4475,7 +4490,7 @@ module.exports = {
   defaultModelKeyFor,
   modelFor,
   SELF_STARTS,
-  createdLog, createdLogFile, disabledJobs, disabledJobsResult, runningJobs,
+  createdLog, createdLogFile, createdCount, disabledJobs, disabledJobsResult, runningJobs,
 
   /* ⚠️ Exported as the ONE machine-name rule. `slugFor` lower-cases and folds
      whitespace and periods to hyphens — it is a converter, not a gate — so
