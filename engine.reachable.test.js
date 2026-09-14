@@ -58,6 +58,8 @@ const EXCUSED = {
   setChatgptTimers: 'test seam (#2338): shrinks the ChatGPT-subscription sign-in watchdog + reap TTL so the abandoned-child and session-reap tests run in ms instead of minutes (never wired to a screen)',
   setBase: 'test seam (update feed base url)',
   setInstallRunner: 'test seam (update installer)',
+  setWindowsInstaller: 'test seam (win32-update-arm S4): injects engine/win32update.js\'s begin() so a suite drives engine/update.js\'s beginInstall win32 arm without a real download/swap. Production calls win32update.begin() directly (beginWindowsInstall reads the windowsInstallerFn variable, so the setter itself has no production caller). Named here rather than passing by luck: setBoardContext, its neighbour, escapes only because server.js calls it.',
+  setWindowsHelperWitnessMs: 'test seam (win32-update-arm S4): shrinks the detached-helper single-flight witness window (default win32apply.STAGED_HELPER_STARTUP_GRACE_MS, 2 min) so the witness-release test runs in ms. Production derives the window from win32apply and never calls the setter.',
   setInstalledRoot: 'test seam (update root)',
   setAutoPref: 'test seam (auto-update preference file)',
   setPlatform: 'test seam (win32-update-check): engine/update.js\'s platform for the pointer, manifest and channel rules, so the Windows arm is asserted from a Mac and the Mac contract (update.test.js) is pinned to darwin on the Windows box. Production reads process.platform.',

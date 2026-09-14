@@ -3,8 +3,9 @@
  * The Windows in-app updater, slice S2: download, verify and STAGE a newer Windows build; and slice
  * S3's board side, B5 (`begin()`): stage it, write the update journal, and start the detached helper
  * (engine/win32apply.js) that swaps it in. `prepare()` itself never swaps anything in. The button
- * (S4) is a later slice; nothing in the product calls `prepare()` or `begin()` yet (only the
- * live-check CLI below), and SELF_INSTALL is still darwin-only.
+ * As of S4 the board calls `begin()` (engine/update.js beginInstall routes win32 here) and
+ * SELF_INSTALL includes win32, so the Install button is live; `prepare()` alone is still reached
+ * only by the live-check CLI below.
  *
  * 🔑 THE WHOLE SLICE WRITES INSIDE ONE FOLDER, `<ROOT>\.kosmos-update\` (WORK), where ROOT is
  * the unpacked Kosmos folder the board runs from. On the same volume as ROOT, so the S3 swap is
@@ -324,20 +325,55 @@ function protectedFolders(env, home) {
 
 let preparing = false;
 
+/** Is `child` the folder `parent`, or inside it, read with WIN32 semantics on ANY host? OneDrive and
+    Program Files are always `C:\...` paths, so the as-spelled inside-check must use path.win32 --
+    host `path` is POSIX on the macOS CI box, where `path.isAbsolute('C:\\...')` is false and the
+    check silently never fires. */
+function insideOrEqualWin32(child, parent) {
+  const w = path.win32;
+  const rel = w.relative(w.resolve(parent), w.resolve(child));
+  return rel === '' || !(rel === '..' || rel.startsWith('..' + w.sep) || w.isAbsolute(rel));
+}
+/**
+ * Where a win32 path really is -- junctions, `subst` drives and 8.3 short spellings resolved by the
+ * OS -- joined with path.win32 so a `C:\...` path is analyzed as win32 on any host. `resolveReal`
+ * (default fs.realpathSync.native) is a seam so a test can simulate a host that cannot resolve a
+ * `C:\` path. 🛑 BEST EFFORT: a throw / ENOENT / a POSIX host that cannot resolve a `C:\` path walks
+ * up and finally falls back to the as-spelled win32-resolved path, so realpath only ever ADDS a
+ * junction/8.3 catch on a real win32 FS -- it can NEVER turn a refusal into a non-refusal.
+ */
+function realPathOfWin32(target, resolveReal) {
+  const w = path.win32;
+  const real = typeof resolveReal === 'function' ? resolveReal : fs.realpathSync.native;
+  let existing = w.resolve(target);
+  const rest = [];
+  for (;;) {
+    try { return w.join(real(existing), ...rest); } catch { /* go up */ }
+    const parent = w.dirname(existing);
+    if (parent === existing) return w.resolve(target);
+    rest.unshift(w.basename(existing));
+    existing = parent;
+  }
+}
 /**
  * B0's unusual-location rule (UNUSUAL_LOCATION_POLICY), as a sentence, or null. Compared as spelled
- * and as resolved, like the protected folders. `policy` defaults to the rule's one switch.
+ * AND as resolved, both with WIN32 semantics so the detection is host-independent (it must fire on
+ * the POSIX macOS CI host too, not just a real win32 board). `policy` defaults to the rule's one
+ * switch; `resolveReal` is the realpath seam (best-effort; see realPathOfWin32).
  */
-function unusualLocationRefusal(root, env, base, policy) {
+function unusualLocationRefusal(root, env, base, policy, resolveReal) {
   if ((policy || UNUSUAL_LOCATION_POLICY) !== 'refuse') return null;
-  const realRoot = realPathOf(root);
+  const w = path.win32;
+  const realRoot = realPathOfWin32(root, resolveReal);
   let site = String(base || '');
   try { site = new URL(site).host; } catch { /* keep what was given */ }
   for (const [label, keys] of [['OneDrive', ONEDRIVE_ENV_KEYS], ['Program Files', PROGRAM_FILES_ENV_KEYS]]) {
     for (const key of keys) {
       const dir = env && env[key];
-      if (typeof dir !== 'string' || !path.isAbsolute(dir)) continue;
-      if (insideOrEqual(root, dir) || insideOrEqual(realRoot, realPathOf(dir))) {
+      if (typeof dir !== 'string' || !w.isAbsolute(dir)) continue;
+      /* As-spelled (win32) fires on any host; the resolved forms are the additional junction/8.3
+         catch on a real win32 FS, OR'd so they can only add matches, never suppress the as-spelled one. */
+      if (insideOrEqualWin32(root, dir) || insideOrEqualWin32(realRoot, realPathOfWin32(dir, resolveReal))) {
         return `${root} is inside ${label} (${dir}), where Kosmos does not update itself. Download the new version from ${site || 'the Kosmos website'}, unpack it over your Kosmos folder, then double-click Kosmos.exe`;
       }
     }
@@ -1047,6 +1083,15 @@ function verifyStaged(ctx, latest) {
   if (!/^v\d+\.\d+\.\d+$/.test(printed)) refuse(`the Node runtime inside the update did not report a version (it printed ${JSON.stringify(printed.slice(0, 80))})`);
   const namedNode = manifest.node && manifest.node.version;
   if (namedNode && printed !== namedNode) refuse(`the Node runtime inside the update is ${printed}, but its manifest.json names ${namedNode}`);
+
+  /* AUTHENTICODE-SEAM (S4 follow-up): the staged Kosmos.exe's Authenticode signature is NOT
+     verified here. Trust today rests on the sha matching the channel manifest over HTTPS (B2), which
+     is what this whole flow checks; a signature check is defence in depth for a tampered-but-matching
+     mirror. It is deferred because Azure code signing is not landed (DUNS/paperwork pending), so
+     there is no signature to verify yet. When signing lands, add the check on `stagedExe` HERE, in
+     B4, before H1 ever runs. Tracked as a GitHub issue linked from
+     .claude/plans/win32-update-arm-20260913T230101Z.md. */
+  const stagedExe = path.join(staged, 'Kosmos.exe'); void stagedExe;
 
   const anchoredNode = path.join(win32anchor.anchorDir(process.platform, ctx.home, ctx.env), win32anchor.NODE_NAME);
   const runtimeChanged = interpreterDiffers(stagedNode, anchoredNode);

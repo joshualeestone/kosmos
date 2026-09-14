@@ -476,6 +476,12 @@ const UNREAD_ON_PURPOSE = {
   unknownFullness: 'a count the summary line covers in words rather than by '
     + 'number',
   unreadableTokens: 'as above',
+  updatePhase: 'win32-update-arm (S4): the Windows update journal phase (staged/stopping/'
+    + 'starting/confirmed/rolling-back/stuck), published for diagnostics and the forthcoming S5 '
+    + 'Roll back UI (#3017). It pairs with updateChannel. The update overlay does NOT read it: it '
+    + 'derives its Downloading -> Updating transition from board reachability, because the board is '
+    + 'down during the swap and cannot answer /api/status then. Null on the Mac and whenever there '
+    + 'is no journal.',
   /* `overCeiling` was parked here for one hour on 2026-08-22 and is now drawn
      as the word `Full` (#260). The line came off because the allowlist's own
      control failed the moment the page started reading it, which is the whole

@@ -1,24 +1,32 @@
 'use strict';
 
 /**
- * Settings > Updates on a Windows bundle, before the in-app updater is armed
- * (win32-update-check, updater slice S1).
+ * Settings > Updates on a Windows bundle: the in-app [Update] offer once the updater is armed
+ * (win32-update-arm, slice S4), and the manual download for a bundle the updater refuses up front
+ * (win32-update-check, slice S1).
  *
  * The false sentence this replaces: a Windows board read the MAC pointer and, having no
  * installedRoot(), sent `update: null`, so the card said "Up to date." with a newer Windows build
- * on the site. The board now sends `updateManual` ({version, download}) and `updateChannel`, and
- * the card paints the manual offer. This drives the REAL card on a REAL page and reads what
- * renders, in four states:
+ * on the site. Now a normal armed bundle sends `update` ({version}) and the card paints the
+ * [Update] offer; a bundle under OneDrive or Program Files sends `updateManual` instead, and the
+ * card paints the manual offer. This drives the REAL card on a REAL page and reads what renders, in
+ * five states:
  *
- *   manual    prod, a newer Windows build: the exact manual-offer sentence, a visible Download
- *             link to the exact versioned zip, no check button, no channel tag
- *   staging   the same offer on the staging channel: "Staging channel" shows, and the link is
- *             the staged versioned zip
+ *   armed     prod, a normal armed bundle: the "Version X is ready." offer and an [Update] button,
+ *             no Download link, no manual steps -- the in-app path is live
+ *   manual    a refused location (OneDrive/Program Files): the manual-offer sentence, a visible
+ *             Download link to the exact versioned zip, no check button, no channel tag
+ *   staging   the same manual offer on the staging channel: "Staging channel" shows, and the link
+ *             is the staged versioned zip
  *   unread    a look that reached the host but could not read it (a bad Windows manifest):
  *             the could-not-read sentence, no link, never "Up to date."; then a press whose
  *             check cannot reach the host: the could-not-reach sentence
  *   current   the CONTROL: nothing newer, the press says "Up to date." and no link shows --
- *             without it the three states above could pass on a card that never says it
+ *             without it the states above could pass on a card that never says it
+ *
+ * The confirm dialog's body and the update overlay's Windows wording are served only to a win32
+ * board, so they cannot render on the macOS CI host; web.update-settle-win32.test.js is their
+ * coverage (it drives the lifted page functions with the platform forced).
  *
  * The update ANSWERS are stubbed at the network edge and nowhere else (the same posture as
  * render-updates-stale.js): /api/update/check, and in the poll's /api/status only `update`,
@@ -54,22 +62,28 @@ function chk(ok, label, extra) {
   if (!ok) fail.push(label);
 }
 
-/** What each state's poll and press answer, around the real served version. */
+/** What each state's poll and press answer, around the real served version. Each state declares its
+    own `update` (the in-app offer) and `updateManual` (the manual download); the two are mutually
+    exclusive, exactly as the engine makes them. */
 function stateAnswers(state, served) {
   const readLook = { reached: true, readable: true, looked: true };
+  if (state === 'armed') {
+    return { status: { update: { version: NEWER }, updateLook: readLook, updateManual: null, updateChannel: 'prod' },
+      check: { running: served, latest: NEWER, reached: true, readable: true, offer: { version: NEWER }, manual: null, channel: 'prod' } };
+  }
   if (state === 'manual') {
-    return { status: { updateLook: readLook, updateManual: { version: NEWER, download: PROD_ZIP }, updateChannel: 'prod' },
+    return { status: { update: null, updateLook: readLook, updateManual: { version: NEWER, download: PROD_ZIP }, updateChannel: 'prod' },
       check: { running: served, latest: NEWER, reached: true, readable: true, offer: null, manual: { version: NEWER, download: PROD_ZIP }, channel: 'prod' } };
   }
   if (state === 'staging') {
-    return { status: { updateLook: readLook, updateManual: { version: NEWER, download: STAGED }, updateChannel: 'staging' },
+    return { status: { update: null, updateLook: readLook, updateManual: { version: NEWER, download: STAGED }, updateChannel: 'staging' },
       check: { running: served, latest: NEWER, reached: true, readable: true, offer: null, manual: { version: NEWER, download: STAGED }, channel: 'staging' } };
   }
   if (state === 'unread') {
-    return { status: { updateLook: { reached: true, readable: false, looked: true }, updateManual: null, updateChannel: 'prod' },
+    return { status: { update: null, updateLook: { reached: true, readable: false, looked: true }, updateManual: null, updateChannel: 'prod' },
       check: { running: served, latest: null, reached: false, readable: false, offer: null, manual: null, channel: 'prod' } };
   }
-  return { status: { updateLook: readLook, updateManual: null, updateChannel: 'prod' },
+  return { status: { update: null, updateLook: readLook, updateManual: null, updateChannel: 'prod' },
     check: { running: served, latest: served, reached: true, readable: true, offer: null, manual: null, channel: 'prod' } };
 }
 
@@ -96,6 +110,7 @@ async function readCard(pg) {
       target: dl ? dl.getAttribute('target') : null,
       describedBy: dl ? dl.getAttribute('aria-describedby') : null,
       buttonShown: shown(btn),
+      buttonText: btn ? btn.textContent.trim() : null,
       channelShown: shown(chan),
       channelText: chan ? chan.textContent.trim() : null,
       /* win32-board-copy (W-25): the numbered steps and the folder button beside Download. */
@@ -119,7 +134,7 @@ async function readCard(pg) {
     process.exit(1);
   }
 
-  for (const state of ['manual', 'staging', 'unread', 'current']) {
+  for (const state of ['armed', 'manual', 'staging', 'unread', 'current']) {
     const answers = stateAnswers(state, served);
     const pg = await b.newPage({ viewport: { width: 1400, height: 800 } });
     const errs = [];
@@ -138,7 +153,7 @@ async function readCard(pg) {
         await route.abort().catch(() => {});
         return;
       }
-      Object.assign(data, answers.status, { update: null, engine: null });
+      Object.assign(data, answers.status, { engine: null });
       await route.fulfill({ response: res, body: JSON.stringify(data), headers: { ...res.headers(), 'content-type': 'application/json' } });
     });
     await openUpdatesCard(pg);
@@ -146,7 +161,17 @@ async function readCard(pg) {
     await pg.waitForFunction(() => !document.getElementById('upd-btn').hidden || !document.getElementById('upd-download').hidden,
       null, { timeout: 12000 }).catch(() => {});
 
-    if (state === 'manual' || state === 'staging') {
+    if (state === 'armed') {
+      const card = await readCard(pg);
+      chk(card.line === 'Version ' + NEWER + ' is ready.', 'armed: the in-app offer sentence, unasked', JSON.stringify(card.line));
+      chk(!/Up to date/.test(card.line), 'armed: never "Up to date."', JSON.stringify(card.line));
+      chk(card.buttonShown && card.buttonText === 'Update', 'armed: the [Update] button is shown', JSON.stringify(card));
+      chk(!card.downloadShown, 'armed: no manual Download link when the in-app path is live', JSON.stringify(card));
+      chk(!card.stepsShown && !card.openFolderShown, 'armed: no manual steps or folder button on a normal bundle', JSON.stringify(card));
+      chk(!card.channelShown, 'armed: the channel tag is hidden on prod', JSON.stringify(card));
+      const box = await pg.$('#s-sec-updates');
+      if (box) await box.screenshot({ path: path.join(OUT, 'update-win32-armed.png') });
+    } else if (state === 'manual' || state === 'staging') {
       const card = await readCard(pg);
       chk(card.line === MANUAL_SENTENCE, state + ': the manual-offer sentence, unasked', JSON.stringify(card.line));
       chk(!/Up to date/.test(card.line), state + ': never "Up to date."', JSON.stringify(card.line));
