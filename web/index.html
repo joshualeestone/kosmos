@@ -12740,7 +12740,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <button class="btn-quiet" type="button" id="upd-open-folder" hidden data-win-copy="updateOpenFolder">Open my Kosmos folder</button>
         <!-- win32-update-rollback (S5, #3017): restore the kept previous build. Shown only when the
              status carries a rollback offer (win32-only, so never on Mac); paintUpdateCard sets its
-             "Roll back to X" label from that offer, so it needs no data-win-copy of its own. -->
+             "Roll back to X" label from that offer in script, so it carries no platform-copy key. -->
         <button class="btn-quiet" type="button" id="upd-rollback" hidden aria-describedby="upd-line">Roll back</button>
       </div>
       <ol class="dhint upd-manual-steps" id="upd-manual-steps" hidden></ol>
