@@ -2055,6 +2055,13 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    --panel/--line/--ink/--muted/--gold/--green/--mono/--disp map to the app tokens
    below. Structure/spacing/typography match design/token-value.html. */
 .tv-hero { margin: 20px 0 0; background: var(--k-bg); border: 1px solid var(--k-rule); border-radius: 18px; padding: clamp(20px,4vw,32px) clamp(16px,3.5vw,28px); }
+/* #2840: the Token Usage section is a size CONTAINER so the value-view grids below
+   collapse on the SETTINGS COLUMN width, not the viewport. The settings content
+   column is capped at 34rem (~544px) on a wide desktop viewport (#panel-settings
+   .dbody), so a plain viewport media query never fires there -- the exact trap the
+   predecessor cards documented. The table+donut row (.tv-wtr) needs more than 544px
+   side by side, so it keys off the container instead. */
+#s-sec-usage { container-type: inline-size; }
 .tv-days { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 clamp(16px,3vw,24px); }
 .tv-dnum { display: flex; gap: 4px; }
 .tv-dbox { font: 700 clamp(16px,2.7vw,22px)/1.2 var(--font-mono); color: var(--gold); text-align: center; }
@@ -2082,12 +2089,16 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 .tv-mini svg { width: 100%; height: auto; display: block; }
 /* per-model table + donut, side by side (design .wtr). */
 .tv-wtr { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: stretch; margin-top: 20px; }
-@media (max-width: 680px) { .tv-wtr { grid-template-columns: 1fr; } }
+/* Container query, not viewport: stack the table above the donut whenever the
+   settings column is too narrow to hold both side by side (it is at the 34rem
+   desktop cap; side by side only when the column genuinely widens past ~620px). */
+@container (max-width: 620px) { .tv-wtr { grid-template-columns: 1fr; } }
 .tv-mtable { border: 1px solid var(--k-rule); border-radius: 14px; overflow: hidden; }
 .tv-mrow { display: grid; grid-template-columns: 1.6fr 1fr 88px 84px; gap: 10px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--k-rule); }
 .tv-mrow:first-child { border-top: none; }
 .tv-mrow.head { background: var(--k-bg); font: 600 .6875rem var(--font-ui); text-transform: uppercase; letter-spacing: .07em; color: var(--k-ink-2); }
-.tv-mrow .tv-mn { font: 600 .875rem var(--font-ui); color: var(--k-ink); display: flex; align-items: center; gap: 9px; }
+.tv-mrow .tv-mn { font: 600 .875rem var(--font-ui); color: var(--k-ink); display: flex; align-items: center; gap: 9px; min-width: 0; }
+.tv-mrow .tv-mnl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .tv-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
 .tv-mbar { height: 7px; background: var(--k-rule); border-radius: 5px; overflow: hidden; }
 .tv-mbar span { display: block; height: 100%; border-radius: 5px; }
@@ -25006,11 +25017,12 @@ function usageAbbr(n) {
    the approved /design/token-value derives: the row's own 4-class token total valued at
    a blended knowledge-work rate. Blend-vs-output was a Josh call on his #1 demo headline;
    he RULED to KEEP THE BLENDED number (the design's ~$135M "Approximate Human Cost"), so
-   the earlier "pending" stub is retired here. Scope note: this is the ONLY blended figure
-   added. The design's blended "150B Total Tokens" hero is deliberately NOT brought in,
-   because a single blended token total is exactly what Josh's #2617 overrule refused
-   (cache_read ~440x output); the four classes stay shown separately in the per-class
-   charts above. The two constants below are the
+   the earlier "pending" stub is retired here. Scope note: the blended total is used by
+   ruling. Josh's 2026-09-14 call overruled the earlier #2617 never-sum position for the
+   value headline, so the hero shows the blended total as "Total Tokens Used" and each row's
+   Value blends the same way (usageGrandTotal is the single source). The four classes are
+   still shown separately and unfused in the per-class charts above, so the raw cache_read
+   (~440x output) magnitude is never hidden behind the blend. The two constants below are the
    design's and belong to a person, not the engine: 100,000
    tokens ~ one hour of focused knowledge work (the METR framing), valued at a blended
    $90/hr across roles. Kept together so a rate change is one edit. Pure + node-tested. */
@@ -25119,7 +25131,7 @@ function usageModelTableHtml(models, grandTotal) {
     const color = USAGE_MODEL_COLORS[Math.min(i, USAGE_MODEL_COLORS.length - 1)];
     const pct = (Number(x.tok) || 0) / total * 100;
     const pctStr = pct >= 0.1 ? pct.toFixed(1) + '%' : '<0.1%';
-    return '<div class="tv-mrow"><div class="tv-mn"><span class="tv-dot" style="background:' + color + '"></span>' + esc(x.name) + '</div>'
+    return '<div class="tv-mrow"><div class="tv-mn"><span class="tv-dot" style="background:' + color + '"></span><span class="tv-mnl">' + esc(x.name) + '</span></div>'
       + '<div class="tv-mbar"><span style="width:' + ((Number(x.tok) || 0) / max * 100).toFixed(1) + '%;background:' + color + '"></span></div>'
       + '<div class="tv-num">' + esc(usageAbbr(x.tok)) + '</div>'
       + '<div class="tv-num">' + pctStr + '</div></div>';
@@ -25158,7 +25170,9 @@ function usageDonutSvg(models, grandTotal) {
     a0 = a1;
     return el;
   }).join('');
-  const centerTok = esc(usageAbbr(Number(grandTotal) || tot));
+  // A real grandTotal of 0 is honest (show "0"); only a missing/non-number one falls
+  // back to the slice sum, so `|| tot` (which also swallows 0) is not used here.
+  const centerTok = esc(usageAbbr(typeof grandTotal === 'number' && Number.isFinite(grandTotal) ? grandTotal : tot));
   const svg = '<svg viewBox="0 0 200 200" role="img" aria-label="Token share by model">' + segs
     + '<text x="100" y="95" text-anchor="middle" style="font-size:15px;fill:var(--k-ink);font-weight:700" font-family="var(--font-mono)">' + centerTok + '</text>'
     + '<text x="100" y="113" text-anchor="middle" style="font-size:10px;fill:var(--k-ink-2)">total tokens</text></svg>';

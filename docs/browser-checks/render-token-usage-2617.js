@@ -95,6 +95,13 @@ function readUsage(page) {
       })(),
       donutCenter: /total tokens/i.test(txt('#usage-donut') || ''),
       donutLegend: document.querySelectorAll('#usage-donut .tv-pileg').length,
+      // #2840 layout: the value-view must fit the fixed ~544px settings column. The
+      // table+donut row keys off a container query so it stacks when the column can't
+      // hold both. Measure REAL horizontal overflow, not just structural presence.
+      mtableFits: (() => { const el = document.getElementById('usage-mtable'); return el ? el.scrollWidth <= el.clientWidth + 1 : null; })(),
+      sectionFits: (() => { const el = document.getElementById('s-sec-usage'); return el ? el.scrollWidth <= el.clientWidth + 2 : null; })(),
+      wtrCols: (() => { const el = document.getElementById('usage-wtr'); return el ? (getComputedStyle(el).gridTemplateColumns || '').split(' ').filter(Boolean).length : null; })(),
+      secW: (() => { const el = document.getElementById('s-sec-usage'); return el ? el.clientWidth : null; })(),
       // the removed elements must be GONE (Josh's exact-to-spec replacement).
       noCards: !document.getElementById('usage-cards'),
       noMoney: !document.getElementById('usage-worth'),
@@ -160,6 +167,10 @@ function readUsage(page) {
     ok(v.modelPct, 'the sole model is 100.0% of the total');
     ok(v.donutSvg, 'the per-model donut svg renders');
     ok(v.donutRing, 'the donut ring is actually painted (stroked circle/arc, not an invisible 360-degree arc)');
+    // layout at the real settings-column width (see the container-query fix)
+    console.log(`  ..   settings column ${v.secW}px, table+donut cols=${v.wtrCols}`);
+    ok(v.mtableFits, 'the per-model table fits its column with no horizontal overflow');
+    ok(v.sectionFits, 'the token-usage section has no horizontal overflow at the settings-column width');
     ok(v.donutCenter, 'the donut center names the total tokens');
     ok(v.donutLegend >= 1, `the donut legend lists the model(s) (got ${v.donutLegend})`);
     // the replaced elements are gone

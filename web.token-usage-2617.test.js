@@ -162,6 +162,16 @@ test('#2840: a single-model donut draws a full-circle ring, not a degenerate arc
   assert.ok(svg.includes('total tokens'), 'the center still names the total');
 });
 
+test('#2840: a two-model donut where one model has zero tokens is safe (no NaN, the nonzero model fills the ring)', () => {
+  const two = [{ name: 'claude-opus-4-8', tok: 100 }, { name: 'gpt-5.1', tok: 0 }];
+  const svg = U.usageDonutSvg(two, 100);
+  // The 100-token model is 100% of the total, so it hits the full-circle branch (a <circle>);
+  // the zero-token model draws a harmless minimal sliver. No NaN must reach the output.
+  assert.ok(!/NaN/.test(svg), 'no NaN in the rendered donut');
+  assert.match(svg, /<circle /, 'the sole nonzero model fills the ring as a circle');
+  assert.ok(svg.includes('total tokens'), 'the center still names the total');
+});
+
 test('#2840: usageGrandTotal is the single blended-total source (hero, charts4, table, donut agree)', () => {
   const totals = U.usageTotals(FIXTURE);
   assert.equal(U.usageGrandTotal(totals), EXPECT.total, 'grand total = sum of the four classes');
