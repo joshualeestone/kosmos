@@ -8128,17 +8128,41 @@ const server = http.createServer((req, res) => {
        row, which is absent / path-key-mismatched on a normal box -> checkable:false
        forever -> the pill sticks on "Checking..." and the gate fail-safes Next to
        ENABLED (Josh's #2451 symptom: "stuck on Checking, Next already activated").
-       read() is the native app's AXIsProcessTrusted verdict (written on launch +
-       every 60s, inside STALE_AFTER_MS), so a native install gets a definite
-       trusted:true/false and the gate works; a browser (no writer) stays
-       checkable:false and fail-safe. (#2085 called the app's trust a "false TMUX
-       ACTIVATED" pill under the now-disproven belief that tmux must hold the grant;
-       #2125 resolved the subject is the app. tmuxGrant stays in the engine for a
-       possible #2125-KEEP tmux-identity path.) Same {checkable, trusted} shape, so
-       the S3 gate poll + render-gated-next consume it unchanged. */
+       (#2085 called the app's trust a "false TMUX ACTIVATED" pill under the
+       now-disproven belief that tmux must hold the grant; #2125 resolved the subject
+       is the app. tmuxGrant stays in the engine for a possible #2125-KEEP
+       tmux-identity path.)
+
+       #2559/#2911 (Josh's #1, 2026-09-14): RE-GATE Continue on this reading, which
+       #2912 had made advisory because the source was too laggy to gate on. The
+       source is now upgraded: prefer the LIVE TCC-db read of the app's own
+       Accessibility grant (appGrant), which flips the instant the toggle does -- so
+       the re-gated Continue clears within a poll tick of the grant, without the 60s
+       staleness of the native-file read() (whose verdict a11y-status.json refreshes
+       only on a 60s native timer, and which "Check again" cannot force fresh). That
+       staleness is what trapped Josh on 0.6.63. The combination NEVER re-traps:
+         - appGrant checkable (a real install: the board holds FDA) -> AUTHORITATIVE
+           both ways; live-true clears, live-false blocks and clears the instant the
+           toggle flips.
+         - appGrant uncheckable (a browser, or a box without FDA / an unreadable db)
+           -> fall back to read() ONLY for the GRANTED signal (never strand a granted
+           user); read()'s NOT-granted never blocks here (it is the laggy reading).
+           So a no-FDA context degrades to advisory (fail-safe), as before this change.
+       Same {checkable, trusted} shape, so the S3 gate poll + render-gated-next
+       consume it unchanged. */
     let reading;
-    try { reading = a11ystatus.read(); }
-    catch (err) { reading = { checkable: false, because: 'we could not read the accessibility reading (' + String(err && err.message || err) + ')' }; }
+    try {
+      const live = a11ystatus.appGrant();
+      if (live && live.checkable === true) {
+        reading = live;
+      } else {
+        let nf; try { nf = a11ystatus.read(); } catch { nf = { checkable: false }; }
+        if (nf && nf.checkable === true && nf.trusted === true) reading = nf;
+        else reading = { checkable: false, because: (live && live.because) || (nf && nf.because) || 'accessibility is not live-checkable here' };
+      }
+    } catch (err) {
+      reading = { checkable: false, because: 'we could not read the accessibility reading (' + String(err && err.message || err) + ')' };
+    }
     sendJson(res, 200, reading);
     return;
   }

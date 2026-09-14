@@ -136,6 +136,101 @@ let sqliteRunner = (dbPath) => {
 };
 function setSqliteRunner(fn) { sqliteRunner = fn; }
 
+/* #2559/#2911: the KOSMOS APP's own Accessibility client key in the system TCC db.
+   Accessibility is keyed on the CALLING BINARY. Onboarding needs TWO separate
+   Accessibility grants and both are real (Josh's fresh-install screenshot + this
+   box's system TCC.db both show them, 2026-09-14): the KOSMOS APP (bundle-id-keyed,
+   this constant) AND tmux's OWN grant (path-keyed on the bundled tmux binary, read
+   by tmuxGrant() below). An earlier note here claimed "tmux never holds an
+   Accessibility grant" -- that was an over-generalized read of #2125 (which is
+   narrowly about the APP gate) and is wrong; tmux gets its own AX grant when it
+   controls the terminal. APP_CLIENT is the exact bundle id the installer registers
+   (install/setup.sh CFBundleIdentifier + AssociatedBundleIdentifiers, engine/create.js).
+   A fixed literal -- there is no interpolated value, nothing to escape -- and the
+   exact-string match is done in JS below off the returned rows. */
+const APP_CLIENT = 'com.chaoskosmos.kosmos';
+
+/* #2559 app-grant reader: the SAME shape and safety posture as sqliteRunner (the
+   tmux one), but selecting the app's Accessibility rows. `-readonly` so a locked
+   live db still reads and this can NEVER mutate the system TCC store; a short 2s
+   timeout so a pathological lock cannot pin the board's HTTP thread; any error ->
+   { ok:false } -> checkable:false ("Checking..."), never a wrong verdict. The query
+   filters on the fixed bundle id in SQL AND the JS below re-checks the exact client,
+   so a schema quirk that widened the match cannot leak a non-app row into the
+   verdict. Swappable via setAppSqliteRunner for tests (never served the cache). */
+let appSqliteRunner = (dbPath) => {
+  try {
+    const q = "SELECT client, auth_value FROM access WHERE service='kTCCServiceAccessibility' AND client='" + APP_CLIENT + "';";
+    const out = execFileSync('/usr/bin/sqlite3', ['-readonly', dbPath, q], {
+      encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const rows = String(out).split('\n').map((s) => s.trim()).filter(Boolean).map((line) => {
+      const i = line.lastIndexOf('|');
+      if (i < 0) return null;
+      const auth = Number(line.slice(i + 1));
+      return Number.isFinite(auth) ? { client: line.slice(0, i), auth } : null;
+    }).filter(Boolean);
+    return { ok: true, rows };
+  } catch (e) { return { ok: false, because: String((e && e.message) || e) }; }
+};
+function setAppSqliteRunner(fn) { appSqliteRunner = fn; }
+
+let appGrantCache = null; // { at, value }
+function resetAppGrantCache() { appGrantCache = null; }
+
+/**
+ * #2559: the KOSMOS APP's OWN Accessibility grant, read LIVE from the system TCC
+ * db, in the SAME three-answer shape as read().
+ *
+ * 🔑 WHY THIS EXISTS, and why read() alone cannot re-gate. read()'s verdict comes
+ * from a11y-status.json, a file the NATIVE app rewrites on a 60s timer (and the
+ * "Check again" button only RE-READS that file -- it cannot force a fresh write).
+ * So a just-granted permission can sit unreflected for up to a minute, which is the
+ * latency that trapped Josh on 0.6.63 and made #2912 turn the gate advisory. #2912
+ * named the fix precisely: "read the grant from the system TCC db, which updates the
+ * instant the toggle flips" (#2559). This is that reader -- the db flips the moment
+ * the toggle does, so a gate consuming THIS clears within a poll tick of the grant.
+ *
+ * 🛑 SUBJECT = the KOSMOS APP (bundle-id-keyed). This is ONE of the two real
+ * Accessibility subjects onboarding must detect (#2911): the app's own grant, read
+ * here, and tmux's own grant, read by tmuxGrant() (path-keyed on the bundled tmux
+ * binary). The two are independent grants and the gate checks both; appGrant() is
+ * the APP half, tmuxGrant() the tmux half -- neither is "the wrong subject".
+ *
+ * Dispositions -- NEVER a false green, and never a false block that strands a
+ * granted user:
+ *   app row present, auth >= 2   -> { checkable:true, trusted:true }   (green, live)
+ *   app row present, auth < 2    -> { checkable:true, trusted:false }  (Not activated + Turn On)
+ *   app row ABSENT (db readable) -> { checkable:true, trusted:false }  (honest fresh install: never granted)
+ *   any read failure (no FDA, missing/locked db, no sqlite3, schema drift)
+ *                                -> { checkable:false }                ("Checking...", fail-safe non-blocking)
+ *
+ * @returns {{checkable:true,trusted:boolean,at:string}|{checkable:false,because:string}}
+ */
+function appGrant(opts) {
+  const dbPath = (opts && opts.tccDb) || TCC_DB;
+  // Only the production path (no test overrides) is cached, so a test never reads a
+  // value seeded by another test or by production.
+  const useCache = !(opts && (opts.appSqliteRunner || opts.tccDb));
+  if (useCache && appGrantCache && (Date.now() - appGrantCache.at) < GRANT_TTL_MS) {
+    return appGrantCache.value;
+  }
+  const runner = (opts && opts.appSqliteRunner) || appSqliteRunner;
+  let res;
+  try { res = runner(dbPath); } catch (e) { res = { ok: false, because: String((e && e.message) || e) }; }
+  let verdict;
+  if (!res || res.ok !== true || !Array.isArray(res.rows)) {
+    verdict = { checkable: false, because: 'the accessibility database was not readable (no access, missing, locked, or a changed format)' };
+  } else {
+    // auth_value 2 (allowed) / 3 (allowed, limited) => granted; 0/1 => denied; no row => never granted.
+    const row = res.rows.find((r) => r && r.client === APP_CLIENT);
+    const trusted = !!(row && row.auth >= 2);
+    verdict = { checkable: true, trusted, at: new Date().toISOString() };
+  }
+  if (useCache) appGrantCache = { at: Date.now(), value: verdict };
+  return verdict;
+}
+
 /* #2085: a tiny time-boxed cache so the 1.5s first-run gate poll does not spawn a
    sqlite3 subprocess on EVERY request (each spawn blocks the board's single HTTP
    thread). It elides the SUBPROCESS SPAWN specifically; the cheap path resolution
@@ -231,4 +326,7 @@ function tmuxGrant(opts) {
   return verdict;
 }
 
-module.exports = { FILE, STALE_AFTER_MS, read, tmuxGrant, setSqliteRunner, resetGrantCache };
+module.exports = {
+  FILE, STALE_AFTER_MS, APP_CLIENT, read, tmuxGrant, appGrant,
+  setSqliteRunner, resetGrantCache, setAppSqliteRunner, resetAppGrantCache,
+};

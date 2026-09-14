@@ -44066,23 +44066,22 @@ const FR_GATES = {
     url: '/api/a11y-status',
     granted: (r) => r.checkable === true && r.trusted === true,
     blocked: (r) => r.checkable === true && r.trusted !== true,
-    // #2912/#2559 (Josh 2026-09-14, P0 "I cannot proceed forward to install Kosmos"):
-    // ADVISORY -- the accessibility step no longer gates Next. It was mandatory on the
-    // premise "accessibility is satisfiable + detectable, so gate it". Josh's fresh
-    // 0.6.63 test broke that premise: he GRANTED Kosmos accessibility, hit Check Again
-    // repeatedly, and it never saw the grant -- only an APP REFRESH picked it up. The
-    // reading is the native app's own AXIsProcessTrusted, which macOS pins at process
-    // start, so a running app cannot see a just-granted permission until it restarts:
-    // a FALSE not-granted that hard-blocked Next and trapped the user on the last
-    // install screen. Hard-gating on a detection that false-negatives is strictly worse
-    // than not gating, so the step is advisory until the detection is made live
-    // (#2559: read the grant from the system TCC db, which updates the instant the
-    // toggle flips). The ASK stays fully on screen (mock + Turn On + the Activated pill
-    // still drive off granted/blocked); only the Next TRAP is removed. Josh endorsed
-    // exactly this ("Next automatically ready ... if they don't accept the accessibility
-    // requirements"). Re-gating is a one-line flip once #2559 lands, if he wants his
-    // "unless" (energy non-mandatory while accessibility gates).
-    gatesNext: false,
+    // #2559/#2911 (Josh's #1, 2026-09-14): RE-GATED. This step blocks Next again --
+    // Next stays disabled until Kosmos accessibility is granted (block-on-positive:
+    // only a definite checkable:true + trusted:false blocks; an uncheckable reading
+    // never blocks, so a browser / no-FDA box is never trapped).
+    //
+    // WHY IT IS SAFE TO RE-GATE NOW, when #2912 could not. #2912 made this advisory
+    // because the reading (the native app's AXIsProcessTrusted, written to a file on
+    // a 60s timer) false-negatived a just-granted permission -- Josh GRANTED Kosmos
+    // accessibility on 0.6.63, hit Check Again repeatedly, and it never saw the grant
+    // until an app restart, trapping him on the last install screen. #2912 named the
+    // fix: re-gate "once #2559 lands (read the grant from the system TCC db, which
+    // updates the instant the toggle flips)". #2559 is now the /api/a11y-status source
+    // (engine appGrant() reads the app's bundle-id Accessibility row live; the route
+    // falls back to the native-file read() only for the GRANTED signal, never blocks
+    // on its laggy not-granted). So the pill + Next now clear within a poll tick of
+    // the toggle -- no app refresh, no 60s wait. Energy (sleep) stays advisory (#2587).
   },
 };
 let FR_GATE_GEN = 0, FR_GATE_TIMER = null, FR_GATE_SCREEN = null;
