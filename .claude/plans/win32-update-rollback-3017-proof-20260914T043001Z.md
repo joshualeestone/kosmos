@@ -1,6 +1,6 @@
 # win32-update-rollback-3017 -- S5 pre-challenge proof
 
-Branch `win32-update-rollback-3017`, head `4c1ba37b`, merge-base `43035808` (origin/main).
+Branch `win32-update-rollback-3017`, code head `1b8983f7`, merge-base `43035808` (origin/main).
 Issue #3017 (Addresses, not Closes). Plan:
 `.claude/plans/win32-update-rollback-3017-20260914T021812Z.md`.
 
@@ -39,6 +39,19 @@ before any validation when there's no journal or a finished FORWARD journal, so 
 **Round 3 — CONVERGED.** Both crash windows closed; the fix is crash-safe, idempotent, dup-safe,
 correctly guarded, and free in the common case. The 3 remaining observations are optional/non-
 blocking and are documented in the PR body's "Known limits / accepted residuals" (no code change).
+
+**CI fix (post-convergence) — two shared-card-code regressions the win32-only suites missed.** The
+first CI run failed the macOS `test` jobs (these fail on the win32 box too; they were in files I had
+not run). (1) `web.reload-button-995.test.js`: `paintUpdateCard`'s rollback block ran
+`delete el.dataset.version` (ToObject on undefined) for every non-rollback caller whose stub element
+lacks a `dataset` — default `rollback = null` + guard the dataset ops, restoring byte-identical
+behavior for non-rollback callers. (2) `server.test.js` card tests: `closeUpdConfirm`/`updCheckNowClick`
+now call `setUpdConfirmMode`/`openUpdConfirm`, but those tests eval a function subset that omitted
+them (ReferenceError) — new `confirmModeDeps()` adds the helpers + the mode/wording bindings and the
+confirm stubs gain `updconfirm.dataset`. Coverage lesson applied: grepped every test that
+evals/extracts the changed functions (`paintUpdateCard`, `openUpdConfirm`, `setUpdConfirmMode`,
+`closeUpdConfirm`, `updCheckNowClick`, the confirm/overlay/card helpers) and ran them all vs an
+origin/main archive by name + first error line.
 
 ## The layered kept-build guarantee
 *The kept build is preserved on every finish path, and an orphaned `staged` from a finished
@@ -87,9 +100,13 @@ claims a rollback is under way (or vice versa).
 ## diff_hash
     git diff 43035808..HEAD -- . ':(exclude).claude/plans/win32-update-rollback-3017-proof-*.md' | sha256sum
 
-merge-base `43035808`, head `4c1ba37b`:
+merge-base `43035808`, code head `1b8983f7`:
 
-    diff_hash = 5f7e85fe884440298de1cd5529516ed0e9fc4f45231d62db071809b03195b631
+    diff_hash = ffea75d65b4a2b4e2c59678504c0f4c4140c1e56e663d5da899d80c1428c57e0
+
+(The pre-CI-fix reviewed tree at `4c1ba37b` had diff_hash
+`5f7e85fe884440298de1cd5529516ed0e9fc4f45231d62db071809b03195b631`; the CI fix at `1b8983f7`
+is the null-safe `paintUpdateCard` rollback arg + the server card-test extraction only.)
 
 Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01Anwz2k5SbPCSy3yNnPQEok
