@@ -145,7 +145,14 @@ test('#2281 (FIX 4) pidWaiting returns TRUE through the real fs chain on a lone 
   const sdir = path.join(cfg, 'sessions');
   require('node:fs').mkdirSync(sdir, { recursive: true });
   const pid = 424242;
-  require('node:fs').writeFileSync(path.join(sdir, KEY(pid)), 'x');   // a lone .key, no .json
+  const keyPath = path.join(sdir, KEY(pid));
+  require('node:fs').writeFileSync(keyPath, 'x');   // a lone .key, no .json
+  /* Back-date the .key so its age is unambiguously positive (a just-written file
+     can otherwise sit within the same integer ms as Date.now(); the production
+     clamp handles that, but a deterministic mtime keeps this test independent of
+     it and exercises a real, aged lone .key). */
+  const past = Date.now() - 60_000;
+  require('node:fs').utimesSync(keyPath, new Date(past), new Date(past));
   try {
     assert.equal(tw.pidWaiting(pid, { configDir: cfg, olderThanMs: 0 }), true,
       'a real <pid>.<hash>.key with no sibling <pid>.json reads as waiting');

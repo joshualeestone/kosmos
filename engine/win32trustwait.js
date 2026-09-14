@@ -125,7 +125,12 @@ function stuckSessions(opts) {
     const pid = m[1];
     if (registered.has(pid)) continue;            // it registered -- not stuck
     const mtimeMs = Number.isFinite(e.mtimeMs) ? e.mtimeMs : now;
-    const ageMs = now - mtimeMs;
+    /* Clamp at 0: statSync's mtimeMs is a FLOAT and Date.now() truncates to whole
+       ms, so a just-written .key can compute a hair-negative age. Without the
+       clamp, `ageMs < olderThanMs` would reject that file even at olderThanMs:0 --
+       making "0" mean "accept nothing this instant" instead of "accept all ages".
+       Clamping fixes olderThanMs:0 and is a no-op for any positive threshold. */
+    const ageMs = Math.max(0, now - mtimeMs);
     if (ageMs < olderThanMs) continue;            // still within its start-up grace
     out.push({ pid, keyFile: e.name, ageMs });
   }
