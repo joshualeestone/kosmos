@@ -57,8 +57,14 @@ const WORLDS = { worlds: [{ id: 'default', name: 'Kosmos 1' }, { id: 'w2', name:
       try { localStorage.removeItem('kosmos-worlds-last-known'); } catch { /* private window */ }
       if (s.cache) { try { localStorage.setItem('kosmos-worlds-last-known', JSON.stringify(s.cache)); } catch { /* */ } }
       const realFetch = window.fetch;
+      // #3055 FAST-FOLLOW: record every URL worldsFetch requests, so an arm can assert the
+      // switcher reads /api/worlds/names and NEVER the token-gated rich GET /api/worlds. This
+      // is what locks in the primary-read swap: a regression re-adding a rich-route fallback
+      // would show up here even in the arms where the names read succeeds.
+      const fetched = [];
       window.fetch = (u, o) => {
         const url = String(u);
+        fetched.push(url);
         // #3055 FAST-FOLLOW: the switcher's PRIMARY read. The legacy arms drive it via
         // s.ok/s.throwIt (it is the only list read); s.namesLive + s.richStatus model the
         // unsigned board where this route is live but the token-gated /api/worlds 403s.
@@ -88,12 +94,22 @@ const WORLDS = { worlds: [{ id: 'default', name: 'Kosmos 1' }, { id: 'w2', name:
       const bmsg = document.getElementById('worldsw-restart-msg');
       if (!sw) return { error: '#worldsw is not in the page' };
       let cached = null; try { cached = localStorage.getItem('kosmos-worlds-last-known'); } catch { /* */ }
+      // A rich GET is a /api/worlds request that is NOT the names route and NOT one of the
+      // sibling routes the switcher legitimately uses (/active flips, /list is the picker).
+      const richGet = fetched.filter((u) =>
+        u.indexOf('/api/worlds') !== -1
+        && u.indexOf('/api/worlds/names') === -1
+        && u.indexOf('/api/worlds/active') === -1
+        && u.indexOf('/api/worlds/list') === -1);
+      const sawNames = fetched.some((u) => u.indexOf('/api/worlds/names') !== -1);
       return {
         hidden: !!sw.hidden,
         rows: Array.from(document.querySelectorAll('#worldsw-list .worldsw-rowname')).map((n) => (n.textContent || '').trim()),
         bannerHidden: !!(banner && banner.hidden),
         bannerText: bmsg ? (bmsg.textContent || '').trim() : '',
         cachedPresent: !!cached,
+        richGet,
+        sawNames,
       };
     }, scenario);
     await page.close();
@@ -126,9 +142,13 @@ const WORLDS = { worlds: [{ id: 'default', name: 'Kosmos 1' }, { id: 'w2', name:
   if (err) problems.push(err);
   else {
     for (const [label, r] of [['500', failedWithCache], ['unreachable', throwWithCache]]) {
-      if (r.hidden) problems.push(`THE LOCKOUT: a ${label} /api/worlds with a cached list left the switcher HIDDEN -- the user is locked out with no way back. got: ` + JSON.stringify(r));
+      if (r.hidden) problems.push(`THE LOCKOUT: a ${label} /api/worlds/names with a cached list left the switcher HIDDEN -- the user is locked out with no way back. got: ` + JSON.stringify(r));
       if (!r.rows.includes('Side Project')) problems.push(`the ${label} fallback did not list the last-known Kosmoses. got rows: ` + JSON.stringify(r.rows));
       if (r.bannerHidden || !/last-known/.test(r.bannerText)) problems.push(`the ${label} fallback did not show the honest last-known note. got: ` + JSON.stringify(r));
+      // #3055 FAST-FOLLOW: when the names read fails, the fallback is the localStorage net --
+      // NEVER the token-gated rich GET /api/worlds. This is what would catch a regression that
+      // re-added a rich-route fallback (the lockout this whole change removes).
+      if (r.richGet.length) problems.push(`the ${label} fallback read the token-gated rich GET /api/worlds instead of falling back to the last-known list -- a re-added rich fallback is the lockout returning. got rich reads: ` + JSON.stringify(r.richGet));
     }
     if (live.hidden) problems.push('a LIVE /api/worlds read left the switcher hidden. got: ' + JSON.stringify(live));
     if (!live.bannerHidden) problems.push('a live read still shows the stale note (it must clear). got: ' + JSON.stringify(live));
@@ -144,6 +164,11 @@ const WORLDS = { worlds: [{ id: 'default', name: 'Kosmos 1' }, { id: 'w2', name:
     if (!unsignedLive.rows.includes('Side Project')) problems.push('the unsigned-board live read did not list the Kosmoses from /api/worlds/names. got rows: ' + JSON.stringify(unsignedLive.rows));
     if (!unsignedLive.bannerHidden) problems.push('the unsigned-board read is LIVE (from /api/worlds/names), so it must show NO stale note. got: ' + JSON.stringify(unsignedLive));
     if (!unsignedLive.cachedPresent) problems.push('the unsigned-board live read did not cache the world list for a later failed read. got: ' + JSON.stringify(unsignedLive));
+    // #3055 FAST-FOLLOW: the unsigned board renders from the UNGATED names route, and the
+    // switcher must not touch the token-gated rich GET /api/worlds at all (reading it is what
+    // 403s and locks the user out on this exact board).
+    if (!unsignedLive.sawNames) problems.push('the unsigned-board arm never read /api/worlds/names -- the primary-read swap did not take. got: ' + JSON.stringify(unsignedLive));
+    if (unsignedLive.richGet.length) problems.push('the unsigned-board arm read the token-gated rich GET /api/worlds -- that route 403s here and is the lockout. got rich reads: ' + JSON.stringify(unsignedLive.richGet));
   }
 
   if (problems.length) {
