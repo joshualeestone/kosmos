@@ -69,9 +69,9 @@ if [ -s "$ARGS" ]; then ok "the supervisor reached new-session (the launch)"; el
 # by trust.js's own canonicalOnDisk (fs.realpathSync.native, separator-normalised) rather
 # than a bash `pwd -P` hand-derivation, so this cannot diverge from what the writer keys on.
 if [ -f "$CFG" ] && node -e '
-  const fs=require("fs"), path=require("path");
+  const fs=require("fs"), nodePath=require("path");
   const { canonicalOnDisk } = require(process.argv[3] + "/trust");
-  const key = canonicalOnDisk(process.argv[2]).split(path.sep).join("/");
+  const key = canonicalOnDisk(process.argv[2]).split(nodePath.sep).join("/");
   const d=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));
   const e=d.projects && d.projects[key];
   process.exit(e && e.hasTrustDialogAccepted===true ? 0 : 1);
