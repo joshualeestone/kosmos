@@ -2,88 +2,83 @@
 pre_challenge: true
 method: challenge-loop
 branch: agentnav-2916
-diff_hash: 0c23f13e972589e55446cea975f79f725710cdc727e095d5213cef282b46f5d4
+diff_hash: 178df1ceeb3b4bb57c302c62a746fe129a610c1ee911ea7abc6ccb75ea0f2311
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-12T18:01:22Z
-iterations: 4
+timestamp: 2026-09-14T00:34:41Z
+iterations: 3
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 4
-**Converged:** Yes (iteration 4 returned zero NEW BLOCKER/WARNING/CONVENTION findings)
-**Total findings:** 2 BLOCKERs, 2 WARNINGs, 1 CONVENTION, several NITs
-**Fixed:** all actionable + 2 NITs applied | **Deferred:** the latent skills-deep-link NIT (documented, no live caller) | **Asked:** 0
+**Iterations:** 3
+**Converged:** Yes
+**Total findings:** 6 (0 BLOCKERs, 2 WARNINGs, 1 CONVENTION, 3 NITs)
+**Fixed:** 2 | **Deferred:** 1 | **Asked (awaiting user):** 0
 
-A core-nav restructure (agent detail view). The loop's value here was concentrated and real: the
-two BLOCKERs were the SAME class of defect (a browser-check clicking a removed pill through a
-DYNAMICALLY-built `data-go` selector, invisible to a literal grep) found in two different files one
-round apart, which is exactly why the loop iterates and varies the reviewer model. After the second
-BLOCKER a repo-wide sweep of the dynamic-build-up pattern proved the full set (3 files) handled, and
-iterations 3-4 found only accessibility-consistency and label-text points. Reviewer models
-alternated sonnet/opus/sonnet/opus.
+Context: this proof regenerates after resolve-merge-conflicts rebased agentnav-2916
+onto origin/main. The rebase collided with main's win32 copy mechanism
+(data-win-copy/data-win-aria-label="terminalTab") on the Terminal tab; the
+resolution kept #2916's Mac pill rename ("Advanced") and main's win32 "Live output"
+consistency, and updated the win32-copy test + render-win32-board-copy browser-check
+baselines to match. Reviewer models rotated opus -> sonnet -> opus (kosmos#2032).
 
 ### Per-Iteration Breakdown
 
 #### Iteration 1
-**Reviewer model:** sonnet
-**New findings:** 1 BLOCKER, 2 WARNINGs, 1 CONVENTION
-**Self-generated:** 0
-- [BLOCKER] render-agent-nav.js - clicked the removed `memory` pill via a dynamic `data-go` selector (a literal grep missed it) and asserted 1:1 section reveal --> FIXED (232fccd0): iterate PILLS, assert group reveal; verified passing live
-- [WARNING] web/index.html - skills lazy-load fires on every Instructions click, refetch + flicker --> FIXED: SKILLS_LOADED_FOR per-agent guard, reset in openDetail
-- [WARNING] web/index.html - focus lands on group[0], folded-member deep-link focus not obvious --> FIXED: documented at the group map
-- [CONVENTION] named-controls.js - "SEVEN SURFACES" comment stale after the sweep shrank to six --> FIXED
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 1 CONVENTION, 3 NITs
+**Self-generated:** 0 of the above (the CONVENTION was em dashes in the pre-rebase proof file, BRANCH)
+- [CONVENTION] .claude/plans/agentnav-2916-pre-challenge.md - em dashes in the stale pre-rebase proof prose --> FIXED (commit 1493347b, stripped to hyphens)
+- [NIT] web/index.html SKILLS_LOADED_FOR guard set before loadSkills resolves (author's code, latent, self-documented) --> deferred to author (NIT)
+- [NIT] a11y: Mac "Advanced" pill controls a region still aria-label "Terminal" (deliberate, matches Model convention) --> deferred (NIT)
+- [NIT] cross-platform label divergence (Mac "Advanced" / Windows "Live output") --> see iter-3 WARNING deferral
 
 #### Iteration 2
-**Reviewer model:** opus
-**New findings:** 1 BLOCKER, 2 NITs
-**Self-generated:** 0
-- [BLOCKER] contrast.js - the SAME dynamic-selector pattern, a `#d-nav` sweep including `memory` --> FIXED (f737d3d3): dropped memory from the sweep; a comprehensive grep then proved exactly 3 files carry this pattern, all handled
-- [NIT] d-sec-model aria-label "Model and Memory" overclaimed (region holds only model) --> FIXED: reverted to "Model"; the pill carries the grouping
-- [NIT] skills load only from the click handler (latent deep-link gap) --> documented
+**Reviewer model:** sonnet (a different model from iteration 1, per 6a)
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 1 NIT
+**Self-generated:** 0 of the above
+**Duplicates of prior findings:** 1 (the skills lazy-load NIT, re-raised)
+- [WARNING] web/index.html - #2916 group-reveal shows two sibling .dsec cards (Model+Memory, Instructions+Skills) at once for the first time; .dsec spaces only its own children, so the two bordered cards render flush --> FIXED (commit 8c2f05fc, added .dsec:not([hidden]) + .dsec:not([hidden]) margin-top:24px)
 
 #### Iteration 3
-**Reviewer model:** sonnet
-**New findings:** 1 WARNING, 1 NIT
-**Self-generated:** 0
-- [WARNING] d-sec-term aria-label "Advanced" contradicts its "This agent's Terminal" content, inconsistent with the model region kept as "Model" --> FIXED (60757d9): reverted to "Terminal"; only the nav pill is "Advanced"
-- [NIT] skills deep-link gap (re-raised) --> already documented, accepted
-
-#### Iteration 4
 **Reviewer model:** opus
-**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs
-**Self-generated:** 0
-**Converged** - no actionable findings.
-- [NIT] render-agent-nav.js control label said "six" others; SECTIONS grew to 8 --> FIXED (5058078): "seven" (label text only, logic was correct)
-- [NIT] skills deep-link gap --> documented, accepted (no live caller; verified across all openDetail sites)
+**New findings:** 0 BLOCKERs, 1 WARNING (dedup of the iter-1/2 cross-platform-label concern, severity-bumped), 0 CONVENTIONs, 2 NITs (both prior)
+**Self-generated:** 0 of the above
+**Converged** - no new actionable findings; the CSS rule from iter 2 was verified correctly scoped (group members DOM-adjacent, single-section pills and the settings panel unaffected).
+- [WARNING] web/index.html:7914 - Terminal->Advanced is a Mac-only rename; Windows keeps "Live output" via data-win-copy="terminalTab" --> DEFERRED
 
 ### Final Ledger
 
-| # | Iter | Category | File | Origin | Description | Status | Resolution |
-|---|------|----------|------|--------|-------------|--------|------------|
-| 1 | 1 | BLOCKER | render-agent-nav.js | BRANCH | clicked removed memory pill via dynamic selector | FIXED | 232fccd0 |
-| 2 | 1 | WARNING | web/index.html | BRANCH | skills refetch on every Instructions click | FIXED | 232fccd0 |
-| 3 | 1 | WARNING | web/index.html | BRANCH | folded-member focus not documented | FIXED | 232fccd0 |
-| 4 | 1 | CONVENTION | named-controls.js | BRANCH | stale "seven surfaces" comment | FIXED | 232fccd0 |
-| 5 | 2 | BLOCKER | contrast.js | BRANCH | same dynamic-selector memory sweep | FIXED | f737d3d3 |
-| 6 | 2 | NIT | web/index.html | BRANCH | model aria-label overclaimed | FIXED | f737d3d3 |
-| 7 | 3 | WARNING | web/index.html | BRANCH | term aria-label contradicts content | FIXED | 60757d9 |
-| 8 | 4 | NIT | render-agent-nav.js | BRANCH | stale "six" count in a control label | FIXED | 5058078 |
+| # | Iter | Category | File:Line | Origin | Description | Status | Resolution |
+|---|------|----------|-----------|--------|-------------|--------|------------|
+| 1 | 1 | CONVENTION | .claude/plans/agentnav-2916-pre-challenge.md | BRANCH | em dashes in stale proof prose | FIXED | 1493347b |
+| 2 | 2 | WARNING | web/index.html:2256 | BRANCH | sibling .dsec cards flush under group-reveal | FIXED | 8c2f05fc |
+| 3 | 3 | WARNING | web/index.html:7914 | BRANCH | Terminal->Advanced rename is Mac-only (Windows keeps Live output) | DEFERRED | see below |
+
+### Deferred, with reasoning
+- **[WARNING] web/index.html:7914 - Terminal->Advanced rename is Mac-only.** Deferred, not a
+  defect in this PR: Windows rendered "Live output" for this tab BEFORE this PR (main's
+  win32-copy branch) and still does, so there is no regression; #2916 is a Mac-context rename
+  (Josh 6.59 QA was on Mac) and the code is internally consistent + guarded by
+  render-win32-board-copy.js (win32 "Live output" / darwin "Advanced"). Whether "Advanced"
+  should ALSO replace "Live output" on Windows is a separate product decision, out of this PR's
+  scope, and already surfaced to Splinter/Josh (routed to the AM e2e review). Three reviewers
+  (opus, sonnet, opus) each independently called it deliberate/defensible. Weakest premise: if
+  Josh wants the rename universal, drop data-win-copy from the pill and rework the line-161
+  a11y test in web.win32-board-copy.test.js.
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 None.
 
-### NITs (non-blocking, deferred)
-- The Skills lazy-load lives in the nav click handler, so a FUTURE direct section deep-link to
-  'instr' would render the Skills list blank until the pill is clicked. No production caller passes a
-  section today (verified across all openDetail sites); documented at the load site with the fix for
-  when a deep-link is added.
+### NITs (non-blocking, across all iterations)
+- [NIT] web/index.html - SKILLS_LOADED_FOR guard set before loadSkills resolves: a failed first fetch leaves the guard set, so a later Instructions-pill click will not retry until the agent is reopened (author's code, self-documented, low severity). (iterations 1)
+- [NIT] web/index.html - a11y: the renamed Mac "Advanced" pill lands a screen-reader user in a region announced "Terminal" (deliberate, matches the "Model and Memory" pill / "Model" section convention). (iterations 1, 3)
+- [NIT] web/index.html - Skills lazy-load fires only from the nav click handler, so a future openDetail(name,'instr') deep-link would reveal an unpopulated Skills list; no production caller passes a section today (self-documented). (iterations 2, 3)
 
-### Strengths (across iterations)
-- The dynamic-selector sweep is complete: the only remaining `data-go="memory"/"skills"` occurrences are the intentional `assert.doesNotMatch` guards in server.test.js.
-- The group-reveal (`DETAIL_SECTION_GROUPS`/`DETAIL_SECTION_PILL`/`detailSectionGroup`) satisfies "combine pills, don't touch section internals": model-picker, memory controls, skills load, and instruction editor are untouched; DOM order matches the fold so focus-on-group[0] lands the keyboard correctly.
-- The SKILLS_LOADED_FOR guard is correctly reset (openDetail) and bypassed by the add/delete paths (loadSkills called directly), so no double-fetch and no stale list.
-- Accessibility: each section keeps a content-accurate aria-label; the two group pills' aria-controls list both real section ids; aria-current lands on the group pill.
-- Node tests are non-vacuous: the folded set is pinned exactly to ['memory','skills'], every section is proven reachable via its pill, and the new pill labels + the absence of standalone Memory/Skills pills are asserted by content. No em dashes.
+### Strengths (across all iterations)
+- The group-reveal design (DETAIL_SECTION_GROUPS / DETAIL_SECTION_PILL / detailSectionGroup) combines the nav pills with zero changes to each section's internal wiring; folded sections stay reachable and light the correct pill. (iterations 1, 2, 3)
+- Test/browser-check coverage is thorough and non-vacuous: render-agent-nav.js reworked from section-iterating to pill/group assertions; server.test.js + web.agent-nav.test.js add positive and negative (doesNotMatch) checks. (iterations 1, 2, 3)
+- The win32 copy layer stays internally consistent after the rename: pill and section both resolve through terminalTab -> "Live output" on Windows, and web.win32-board-copy.test.js pins the exact new markup plus a MAC UNCHANGED control. (iterations 1, 2)
+- The .dsec:not([hidden]) + .dsec:not([hidden]) spacing rule is correctly scoped: group members are DOM-adjacent, single-section pills never gain a stray margin, and the settings panel (one section at a time) is unaffected. (iteration 3)
