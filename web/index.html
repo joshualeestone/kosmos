@@ -12734,15 +12734,13 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            so it supersedes the earlier #2617 never-sum position for THIS headline.
            Populated by usageHeroHtml() from the same real /api/usage data. -->
       <div id="usage-hero"></div>
-      <div id="usage-cards"></div>
-      <div id="usage-chartwrap" class="usage-chartwrap" hidden>
-        <h4>Daily usage, all four classes</h4>
-        <p class="dhint">Cache read dominates the axis, so the other three run low along the bottom. That is the real scale, not a drawing choice.</p>
-        <div id="usage-chart"></div>
-        <!-- Filled by usageLegendHtml() from the shared USAGE_CLASS_COLORS, so the
-             swatches cannot drift from the polyline colors they explain. -->
-        <div id="usage-legend" class="usage-legend"></div>
-      </div>
+      <!-- #2840: charts4 -- four per-class daily mini-charts (cache reads / writes /
+           output / input), the approved /design/token-value presentation. Replaces
+           the prior four full-number cards + single combined shared-axis chart
+           (#2617), per Josh's 2026-09-14 exact-to-spec ruling (documented on the
+           card; a fast add-back if he wants either kept). Populated by
+           usageCharts4Html from the same real /api/usage daily series. -->
+      <div id="usage-charts4" hidden></div>
       <!-- #2840: where the work ran -- the per-model table + the per-model token
            share donut, side by side, matching the approved /design/token-value.
            Both draw from the same per-model aggregate (usageByModel) and the same
@@ -12752,14 +12750,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <div class="tv-pie" id="usage-donut"></div>
       </div>
       <!-- #2840 (Mona's 0.6.57 token-value design): the scrollable usage-history
-           list, above the estimate note. Newest day+model first, fixed-height
-           scroll. Day / Model / Total tokens / Value.
-           The Value column is the BLENDED per-row dollar figure the approved
-           /design/token-value derives (all four classes summed, valued at a blended
-           knowledge-work rate). Josh RULED to keep this blend (the design's ~$135M
-           headline); usageRowValue computes it. Note: this is the only blended figure
-           surfaced -- the design's blended "total tokens" hero stays OUT, because a
-           single blended token total is what #2617 refused (cache_read ~440x output). -->
+           list. Newest day+model first, fixed-height scroll. Day / Model / Total
+           tokens / Value. The Value column is the blended per-row dollar figure the
+           approved /design/token-value derives (all four classes summed at a blended
+           knowledge-work rate), computed by usageRowValue. Per Josh's 2026-09-14
+           ruling the blended total is ALSO the hero headline (it reflects full
+           engineering value, not output "typing" alone), so the blend is the page's
+           throughline rather than a lone figure -- superseding the earlier #2617
+           never-sum position for this headline. -->
       <div class="usage-hist">
         <h4>Usage history</h4>
         <p class="dhint">Your most recent days, newest first. It scrolls when the history runs long. Value estimates the human work each day represents.</p>
@@ -12775,16 +12773,6 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            already shows in the column). Quiet: top hairline, muted, no callout, no
            left rule. The METR URL is verbatim from design/token-value.html. -->
       <p class="usage-method">How we estimate the value: each day's tokens, across all four classes, are valued at a blended knowledge-work rate. Framing informed by <a href="https://metr.org/time-horizons/" target="_blank" rel="noopener">METR's research</a> on how long AI can work unattended.</p>
-      <!-- The engineering-equivalent line, quoted against OUTPUT tokens and
-           saying so in the sentence itself. It sits BELOW the cards and chart on
-           purpose: the four classes are the measurement, this is one
-           interpretation of one of them, and putting the interpretation first
-           would make the derived number look like the finding. -->
-      <div id="usage-worth"></div>
-      <div class="usage-meas">
-        <h4>The measurement it comes from</h4>
-        <div id="usage-table"></div>
-      </div>
     </section>
   </section>
   <section class="dsec" id="s-sec-updates" data-sec="updates" tabindex="-1" aria-label="Updates" hidden>
@@ -25489,79 +25477,63 @@ let USAGE_BUSY = false;
 async function paintUsage() {
   const msg = document.getElementById('usage-msg');
   const hero = document.getElementById('usage-hero'); // #2840: the approved value-view hero
+  const charts4 = document.getElementById('usage-charts4'); // #2840: four per-class daily charts
   const wtr = document.getElementById('usage-wtr'); // #2840: per-model table + donut wrap
   const mtable = document.getElementById('usage-mtable');
   const donut = document.getElementById('usage-donut');
-  const cards = document.getElementById('usage-cards');
-  const chartWrap = document.getElementById('usage-chartwrap');
-  const chart = document.getElementById('usage-chart');
-  const legend = document.getElementById('usage-legend');
-  const money = document.getElementById('usage-worth');
-  const box = document.getElementById('usage-table');
   const history = document.getElementById('usage-history'); // #2840: the scrollable usage-history list
-  if (!msg || !box || USAGE_BUSY) return;
+  if (!msg || !hero || USAGE_BUSY) return;
   USAGE_BUSY = true;
   msg.textContent = 'Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.';
+  /* #2840: reset every value-view region to a known-empty state. Shared by the
+     no-data and error paths so they cannot drift apart. */
+  const clearAll = () => {
+    if (hero) hero.innerHTML = '';
+    if (charts4) { charts4.innerHTML = ''; charts4.hidden = true; }
+    if (wtr) wtr.hidden = true;
+    if (mtable) mtable.innerHTML = '';
+    if (donut) donut.innerHTML = '';
+    if (history) history.innerHTML = '';
+  };
   try {
-    /* 14 days -- Mona's design shows a two-week trend. Completed days are frozen
-       to disk and load instantly; the extra week is nearly free (server.js note). */
+    /* 14 days -- the approved design shows a two-week trend. Completed days are
+       frozen to disk and load instantly; the extra week is nearly free. */
     const res = await fetch('/api/usage?days=14');
     if (!res.ok) throw new Error('status ' + res.status);
     const data = await res.json();
     const byDay = (data && data.byDay) || {};
     if (!Object.keys(byDay).length) {
       msg.textContent = 'No usage recorded yet on this computer.';
-      if (hero) hero.innerHTML = '';
-      if (wtr) wtr.hidden = true;
-      if (mtable) mtable.innerHTML = '';
-      if (donut) donut.innerHTML = '';
-      if (cards) cards.innerHTML = '';
-      if (chart) chart.innerHTML = '';
-      if (legend) legend.innerHTML = '';
-      if (chartWrap) chartWrap.hidden = true;
-      if (money) money.innerHTML = '';
-      box.innerHTML = '';
-      if (history) history.innerHTML = '';
+      clearAll();
       return;
     }
     const totals = usageTotals(byDay);
-    /* #2840: the hero, from the same totals. Active days = days with any recorded
-       usage. apiCostUsd is null until the published-price table is wired; the hero
-       then shows a quiet "-" for that one stat rather than a guessed number. */
-    /* #2840: equivalent API cost from published per-model list prices. cost is
-       null if nothing was priceable (hero shows "-"); unpriced names any model
-       with no published price, excluded from the figure and noted below. */
-    const api = usageApiCost(byDay);
-    if (hero) hero.innerHTML = usageHeroHtml(totals, Object.keys(byDay).length, api.cost);
-    /* #2840: per-model table + donut, from one shared aggregate + grand total. */
     const grandTotal = (Number(totals.input) || 0) + (Number(totals.output) || 0)
       + (Number(totals.cacheWritten) || 0) + (Number(totals.cacheRead) || 0);
+    /* #2840: equivalent API cost from published per-model list prices. cost is
+       null if nothing was priceable (hero shows "-"); unpriced names any model
+       with no published price, excluded from the figure and named in msg below. */
+    const api = usageApiCost(byDay);
     const models = usageByModel(byDay);
+    const historyHtml = usageHistoryHtml(byDay);
+    /* The history has a row per day+model, so an empty history means the window
+       held no usage -- the same "nothing to show" signal the old per-day table
+       gave, without that table. */
+    if (!historyHtml) {
+      msg.textContent = 'No usage recorded in the last fourteen days.';
+      clearAll();
+      return;
+    }
+    if (hero) hero.innerHTML = usageHeroHtml(totals, Object.keys(byDay).length, api.cost);
+    if (charts4) {
+      const c4 = usageCharts4Html(usageDailySeries(byDay), totals, grandTotal);
+      charts4.innerHTML = c4;
+      charts4.hidden = !c4;
+    }
     if (mtable) mtable.innerHTML = usageModelTableHtml(models, grandTotal);
     if (donut) donut.innerHTML = usageDonutSvg(models, grandTotal);
     if (wtr) wtr.hidden = !models.length;
-    if (cards) cards.innerHTML = usageCardsHtml(totals);
-    const svg = usageChartSvg(usageDailySeries(byDay));
-    if (chart) chart.innerHTML = svg;
-    if (legend) legend.innerHTML = svg ? usageLegendHtml() : '';
-    if (chartWrap) chartWrap.hidden = !svg;
-    if (money) money.innerHTML = usageMoneyHtml(totals);
-    box.innerHTML = usageTableHtml(byDay);
-    if (history) history.innerHTML = usageHistoryHtml(byDay);
-    if (!box.innerHTML) {
-      msg.textContent = 'No usage recorded in the last fourteen days.';
-      if (hero) hero.innerHTML = '';
-      if (wtr) wtr.hidden = true;
-      if (mtable) mtable.innerHTML = '';
-      if (donut) donut.innerHTML = '';
-      if (cards) cards.innerHTML = '';
-      if (chart) chart.innerHTML = '';
-      if (legend) legend.innerHTML = '';
-      if (chartWrap) chartWrap.hidden = true;
-      if (money) money.innerHTML = '';
-      if (history) history.innerHTML = '';
-      return;
-    }
+    if (history) history.innerHTML = historyHtml;
     /* Said plainly rather than implied: this counts what was found on this
        machine, and a config root we could not read is a gap in the number
        rather than a zero. The engine reports what it actually read. */
@@ -25579,13 +25551,7 @@ async function paintUsage() {
     }
   } catch (e) {
     msg.textContent = 'We could not read token usage just now.';
-    if (cards) cards.innerHTML = '';
-    if (chart) chart.innerHTML = '';
-    if (legend) legend.innerHTML = '';
-    if (chartWrap) chartWrap.hidden = true;
-    if (money) money.innerHTML = '';
-    box.innerHTML = '';
-    if (history) history.innerHTML = '';
+    clearAll();
   } finally {
     USAGE_BUSY = false;
   }
