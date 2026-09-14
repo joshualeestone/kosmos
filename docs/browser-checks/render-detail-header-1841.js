@@ -15,8 +15,9 @@
  *   2. The hand-edited stale case keeps a redesigned HEADER card: short,
  *      "[name] needs to be restarted", a [Restart] button (never "Restart it"),
  *      one short idle line.
- *   3. The duplicate lower status (#d-why) is suppressed when the state is
- *      reported (the top line already carries it), and still shown otherwise.
+ *   3. (#3043) The reported self-quote is dropped from the task line beside the
+ *      bubble and relocated to the #d-why explanation note; a non-reported state
+ *      keeps its honest why-line there.
  *   4. The role in #d-meta is bold; the model is not.
  *   5. No "it" for an agent in the restart copy: the header card and the idle
  *      line say the name / "them", asserted in Part 2 below.
@@ -135,9 +136,13 @@ function chk(ok, label, extra) {
     chk(!/<b>/.test(roleless), 'Part 4: a role-less agent does not bold the model', roleless);
     chk(/Claude Sonnet 5/i.test(roleless), 'Part 4 CONTROL: the model still renders for a role-less agent', roleless);
 
-    // ── Part 3: the lower status (#d-why) is suppressed for a REPORTED state,
-    // and shown for a non-reported one. Driven through the real openDetail on a
-    // real card whose stateReported/because are flipped. ────────────────────
+    // ── Part 3 (#3043, Josh 2026-09-14): the agent's self-reported quote no longer
+    // prints beside the bubble (#d-task) in the header -- it RELOCATES to the
+    // explanation note (#d-why) below the name. So for a REPORTED state, #d-task is
+    // now empty and #d-why carries the reason; a NON-reported state keeps its honest
+    // why-line in #d-why exactly as before. Driven through the real openDetail on a
+    // real card whose stateReported/because are flipped, reading BOTH elements so the
+    // relocation is proven (the reason MOVED, it did not vanish). ────────────────
     const dup = await page.evaluate(() => {
       // The only fixture card; take its real sessionName rather than guessing.
       const real = LAST[0];
@@ -150,20 +155,32 @@ function chk(ok, label, extra) {
           taskHidden: task.hidden, taskText: task.textContent,
         };
       };
-      // Reported idle: the top line carries the quote, the lower line is hidden.
+      // Reported idle: the quote is GONE from the task line and shows in #d-why instead.
       LAST[0] = { ...real, stateReported: true, because: 'finished responding' };
       openDetail(sn);
       const reported = read();
-      // Not reported: the honest "why" explanation stays.
+      // Not reported: the honest "why" explanation stays in #d-why.
       LAST[0] = { ...real, stateReported: false, because: 'it is sitting at its prompt' };
       openDetail(sn);
       const inferred = read();
+      // Reported AND rate_limited: the noQuote path keeps the engine sentence beside the
+      // bubble (#d-task), and the agent's own self-report still relocates to #d-why. Both
+      // surfaces speak, and they say different things -- the one combo where that happens.
+      LAST[0] = { ...real, stateReported: true, because: 'finished the analysis',
+                  state: 'rate_limited', stateConfidence: 'scraped' };
+      openDetail(sn);
+      const reportedLimited = read();
       LAST[0] = real;
-      return { sn, reported, inferred };
+      return { sn, reported, inferred, reportedLimited };
     });
-    chk(dup.reported.whyHidden === true, 'Part 3: reported state hides the duplicate lower status', JSON.stringify(dup.reported));
-    chk(!dup.reported.taskHidden && /finished responding/.test(dup.reported.taskText),
-      'Part 3: the top line still carries the reported status', JSON.stringify(dup.reported));
+    chk(dup.reported.taskHidden === true && dup.reported.taskText === '',
+      'Part 3 (#3043): the reported quote is dropped from the task line beside the bubble', JSON.stringify(dup.reported));
+    chk(dup.reported.whyHidden === false && /finished responding/i.test(dup.reported.whyText),
+      'Part 3 (#3043): the reported reason relocated to the #d-why explanation note', JSON.stringify(dup.reported));
+    chk(dup.reportedLimited.taskHidden === false && /usage limit/i.test(dup.reportedLimited.taskText),
+      'Part 3 (#3043): a reported + rate_limited agent keeps the engine sentence beside the bubble', JSON.stringify(dup.reportedLimited));
+    chk(dup.reportedLimited.whyHidden === false && /finished the analysis/i.test(dup.reportedLimited.whyText),
+      'Part 3 (#3043): a reported + rate_limited agent still shows its self-report in #d-why', JSON.stringify(dup.reportedLimited));
     chk(dup.inferred.whyHidden === false && /sitting at its prompt/i.test(dup.inferred.whyText),
       'Part 3: a NON-reported state keeps the honest why-line', JSON.stringify(dup.inferred));
 

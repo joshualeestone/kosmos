@@ -3308,15 +3308,20 @@ test('the detail panel carries the explanation the card gave up', () => {
   const healthy = drive(undefined);
   assert.equal(healthy.textContent, '', 'a missing because must clear the seeded text, not keep it');
   assert.equal(healthy.hidden, true, 'an empty explanation must hide its line, not sit as a grey gap');
-  /* #1841 (Josh, 2026-09-02): when the state is REPORTED, the top line already
-     quotes the sentence (d-task), so this lower line is a duplicate and hides --
-     even though its text is non-empty. The honest non-reported explanation above
-     is unaffected, which is the whole point of the guard. */
+  /* #3043 (Josh, 2026-09-14): the reported quote no longer prints beside the bubble
+     (#d-task), so this lower explanation note is now the reported reason's surface -- it
+     SHOWS it (single or multi line) rather than hiding as a duplicate. Under #1841 a
+     reported single-line reason hid here because d-task carried it beside the bubble;
+     #3043 dropped that header quote, so the suppression lifts and the reason relocates
+     here. needs_you stays the exception (below). */
   const reported = drive('finished responding', true);
-  assert.equal(reported.hidden, true, 'a reported state must hide the duplicate lower status');
-  /* #1996: a reported MULTI-LINE because cannot fit d-task's one nowrap line, so #1841's
-     suppression lifts and this surface shows it in full -- for reported states OTHER than
-     needs_you (see #2833 below). */
+  assert.equal(reported.hidden, false,
+    'a reported single-line reason must show in the explanation note now that #3043 dropped it from beside the bubble');
+  assert.equal(reported.textContent, 'Finished responding.',
+    'the relocated reported reason renders as the panel explanation sentence');
+  /* #1996 / #3043: a reported MULTI-LINE because also shows here in full -- for reported
+     states OTHER than needs_you (see #2833 below). Since #3043 the single-line case above
+     shows too, so this is no longer the only reported case this surface carries. */
   const reportedMulti = drive('blocked on the deploy\n\nwaiting for the cert to be signed', true);
   assert.equal(reportedMulti.hidden, false,
     'a reported non-needs_you MULTI-LINE because must stay visible (d-task truncates it): #1996');
@@ -8910,24 +8915,23 @@ test('the detail badge reads the card’s own derivations, and the task is a sep
   assert.equal(needs.task.textContent, '', 'needs_you still showed the frozen title as its task');
   assert.equal(needs.task.hidden, true, 'the empty task line was not hidden');
 
-  /* #2833 (Josh, 2026-09-11): a REPORTED state's self-reported message is now HIDDEN on the
-     header even though taskLine still returns it (the Talk section's waiting box carries it).
-     A NON-reported reason (rate_limited, below) stays visible -- that is the distinction. */
+  /* #3043 (Josh, 2026-09-14): a REPORTED state's self-reported quote no longer prints beside
+     the bubble in the header -- it relocates to the explanation note (#d-why), which this
+     SLICED block does not paint (the relocation is asserted in
+     docs/browser-checks/render-detail-header-1841.js, which drives real openDetail and sees
+     both elements). Here we pin the d-task side: a reported state, needs_you or not, shows
+     nothing on this line. The non-reported `paused` (rate_limited) control below DOES still
+     show its engine-state sentence, so this is not a vacuous "d-task is always empty" test --
+     #2833's carve-out for the SHORT non-reported reasons is preserved by that control. */
   const reportedNeeds = drive({ state: 'needs_you', because: 'Research Kerry Pickrell: two location details', stateReported: true });
-  assert.notEqual(reportedNeeds.task.textContent, '',
-    'CONTROL: taskLine must still return the reported because, or the hide assertion below is vacuous');
-  assert.equal(reportedNeeds.task.hidden, true,
-    'a reported state must hide its self-reported quote on the header (#2833): it duplicates the waiting box');
+  assert.equal(reportedNeeds.task.textContent, '',
+    'a reported needs_you printed its self-reported quote beside the bubble (#3043)');
+  assert.equal(reportedNeeds.task.hidden, true, 'the empty task line was not hidden');
 
-  /* #2833 CONTROL: the hide is scoped to needs_you, NOT to every reported state. A reported
-     BLOCKED agent's substantive reason has no compensating waiting box (that box is gated on
-     needs_you), so it must STAY visible. This guards against a future edit widening the guard
-     back toward a.stateReported. */
   const reportedBlocked = drive({ state: 'blocked', because: 'waiting on the cert to be signed', stateReported: true });
-  assert.notEqual(reportedBlocked.task.textContent, '',
-    'CONTROL: taskLine must return the blocked reason, or the visible assertion below is vacuous');
-  assert.equal(reportedBlocked.task.hidden, false,
-    'a reported non-needs_you state (blocked) must keep its reason on the header (#2833 is needs_you-scoped)');
+  assert.equal(reportedBlocked.task.textContent, '',
+    'a reported non-needs_you state printed its quote beside the bubble instead of relocating it to #d-why (#3043)');
+  assert.equal(reportedBlocked.task.hidden, true, 'the relocated task line was not hidden');
 
   /**
    * 🛑 AND THE HEADER SAYS WHAT THE CARD SAYS. Both derive the task line from

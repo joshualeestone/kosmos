@@ -44,8 +44,14 @@ test('the card and row do NOT show the agent\'s quoted sentence', () => {
     'the quoted last-words line is still on the grid and list; that is the whole card');
 });
 
-test('the detail panel DOES still show it', () => {
-  /* Josh scoped this to two views. Called with no options, the quote stays. */
+test('stateReason still PRODUCES the quote when asked (the shared derivation is unchanged)', () => {
+  /* #986 scoped the card/list to noQuote; the detail HEADER used to render the full quote.
+     #3043 (Josh, 2026-09-14) stops the header rendering it beside the bubble too -- the header
+     now takes the noQuote path like the cards, and the reported reason relocates to #d-why.
+     stateReason itself is UNCHANGED: called with NO options it still returns the agent's own
+     words, quoted. That quoted branch is now a retained library contract that no current render
+     path reaches (cards and header both take the noQuote FALL-THROUGH, which strips it); this
+     pins the contract so a future caller that DOES want the quote still gets it. */
   assert.match(stateReason(REPORTED), /Finished responding/);
   assert.match(stateReason(REPORTED), /[“”]/, 'the quotation marks are the "in its own words" mark, not decoration');
 });
@@ -67,7 +73,7 @@ test('an agent with nothing to say still says nothing', () => {
   assert.equal(stateReason({ state: 'idle' }), '');
 });
 
-test('the two views Josh named ask for it without the quote, and the detail does not', () => {
+test('the two views Josh named ask for it without the quote, and #3043 drops it from the header too', () => {
   /* Pinned by CALL SITE: the derivation being correct is no use if the card
      stops passing the option. */
   const grid = PAGE.match(/<div class="atask">\$\{esc\(taskLine\([^)]*\)\)\}<\/div>/);
@@ -76,8 +82,13 @@ test('the two views Josh named ask for it without the quote, and the detail does
   assert.ok(list, 'the list row no longer renders .ltask this way; re-derive this test');
   assert.match(grid[0], /noQuote/, 'the GRID card is asking for the quoted line again');
   assert.match(list[0], /noQuote/, 'the LIST row is asking for the quoted line again');
-  assert.match(PAGE, /dtask\.textContent = taskLine\(a\);/,
-    'the detail panel stopped showing the agent\'s own words, which this card did not ask for');
+  /* #3043: the detail header drops the reported quote from the task line beside the bubble by
+     using the SAME noQuote derivation the cards use (it relocates to #d-why). Pin the call site,
+     so an edit that puts the quote back beside the bubble -- or re-derives the "is this the
+     reported quote" test inline instead of sharing taskLine's one source -- is caught here. The
+     noQuote BEHAVIOR (reported -> '', rate_limited/auth still speak) is asserted directly above. */
+  assert.match(PAGE, /dtask\.textContent = taskLine\(a, \{ noQuote: true \}\);/,
+    'the detail header no longer shares the cards’ noQuote derivation for the task line (#3043)');
 });
 
 /**
