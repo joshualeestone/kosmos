@@ -90,17 +90,41 @@ JS
   # give the port a moment to free before the second listener
   for i in $(seq 1 20); do port_has_listener || break; sleep 0.2; done
 
+  # Arm 1: command is NOT server.js (holder.js). is_kosmos must be 0 because the command
+  # is not the board entry -- NOT because of the path (SANDBOX is a mktemp "kosmos-3079.*"
+  # dir, so this path DOES contain "kosmos"; the label must not claim otherwise).
   NPID="$(spawn_listener "$SANDBOX/plainapp/holder.js")"
   if wait_listening; then
     own="$(port_listener_owner)"
     kos_got="$(printf '%s' "$own" | awk '{print $3}')"
-    [ "$kos_got" = 0 ] && pass "a NON-Kosmos listener reads is_kosmos=0 (path has no Kosmos)" || fail "non-kosmos listener: is_kosmos='$kos_got', want 0"
+    [ "$kos_got" = 0 ] && pass "a listener whose command is not server.js reads is_kosmos=0" || fail "holder.js listener: is_kosmos='$kos_got', want 0"
     r="$(_kosmos_reclaim_decision "$MYUID" "$MYUID" "$kos_got")"
-    [ "$r" = keep ] && pass "own NON-Kosmos listener -> decision keep" || fail "own non-kosmos decision: got '$r', want keep"
+    [ "$r" = keep ] && pass "own non-server.js listener -> decision keep" || fail "own non-server.js decision: got '$r', want keep"
   else
-    fail "spawned non-Kosmos listener never bound 127.0.0.1:$TEST_PORT"
+    fail "spawned holder.js listener never bound 127.0.0.1:$TEST_PORT"
   fi
   kill "$NPID" 2>/dev/null; wait "$NPID" 2>/dev/null
+  for i in $(seq 1 20); do port_has_listener || break; sleep 0.2; done
+
+  # Arm 2: ISOLATE the Kosmos-token requirement -- a real server.js command under a path
+  # with NO "kosmos" token must read is_kosmos=0. A bug that matched server.js alone
+  # (ignoring the Kosmos token) would make this 1 and fail here (prove-a-check-can-fail).
+  # Use a neutral temp dir; skip only if the temp root itself happens to contain "kosmos".
+  NEUTRAL="$(mktemp -d "${TMPDIR:-/tmp}/plain3079.XXXXXX")"
+  case "$NEUTRAL" in
+    *[Kk][Oo][Ss][Mm][Oo][Ss]*) echo "  SKIP: temp root contains 'kosmos', cannot isolate the token arm" ;;
+    *)
+      TPID="$(spawn_listener "$NEUTRAL/app/server.js")"
+      if wait_listening; then
+        own="$(port_listener_owner)"
+        kos_got="$(printf '%s' "$own" | awk '{print $3}')"
+        [ "$kos_got" = 0 ] && pass "a server.js listener under a NON-Kosmos path reads is_kosmos=0 (token isolated)" || fail "non-kosmos-path server.js: is_kosmos='$kos_got', want 0"
+      else
+        fail "spawned neutral server.js listener never bound 127.0.0.1:$TEST_PORT"
+      fi
+      kill "$TPID" 2>/dev/null; wait "$TPID" 2>/dev/null ;;
+  esac
+  rm -rf "$NEUTRAL" 2>/dev/null
 else
   echo "  SKIP: node not on PATH -- owner-resolution arm skipped (the pure decision above still ran)"
 fi

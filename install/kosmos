@@ -338,9 +338,13 @@ port_has_listener() {
 port_listener_owner() {
   { [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; } || return 1
   local _lsof _pid _uid _cmd _iskos
-  _lsof="$(/usr/sbin/lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null)"
-  _pid="$(/usr/bin/awk -v p=":$PORT" '
-    ($0 ~ (" 127.0.0.1" p " ")) || ($0 ~ (" [*]" p " ")) { print $2; exit }' <<EOF
+  # -Fpn: field output, a `p<pid>` record then `n<name>` records per file. Parse the pid
+  # whose name is a colliding address (exact 127.0.0.1:PORT or *:PORT). Immune to a
+  # COMMAND that contains spaces, which the human column layout (awk $2) is not.
+  _lsof="$(/usr/sbin/lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -Fpn 2>/dev/null)"
+  _pid="$(/usr/bin/awk -v port="$PORT" '
+    /^p/ { pid = substr($0, 2); next }
+    /^n/ { n = substr($0, 2); if (n == "127.0.0.1:" port || n == "*:" port) { print pid; exit } }' <<EOF
 $_lsof
 EOF
 )"
@@ -636,14 +640,23 @@ cmd_start() {
     _lpid="$(printf '%s' "$_own" | awk '{print $1}')"
     _luid="$(printf '%s' "$_own" | awk '{print $2}')"
     _lkos="$(printf '%s' "$_own" | awk '{print $3}')"
-    if [ "$(_kosmos_reclaim_decision "$_luid" "$(/usr/bin/id -u)" "$_lkos")" = reclaim ]; then
+    if [ "$(_kosmos_reclaim_decision "$_luid" "$_kosmos_uid" "$_lkos")" = reclaim ]; then
       say "The address is held by your own stale Kosmos (process $_lpid). Reclaiming it."
+      # A launchd-supervised holder would be relaunched the instant we kill it. The stop
+      # marker makes board-run decline to relaunch (cmd_board_run honors it BEFORE binding,
+      # and the job's PathState KeepAlive is keyed on it) -- the same mechanism cmd_stop
+      # uses. cmd_start cleared the marker at the top ("starting means I want it running"),
+      # so set it for the kill window, then clear it again before we start ours below.
+      : > "$STOP_MARKER" 2>/dev/null || true
       kill "$_lpid" 2>/dev/null || true
       for _w in 1 2 3 4 5 6 7 8 9 10; do port_has_listener || break; sleep 0.5; done
       if port_has_listener; then
         kill -9 "$_lpid" 2>/dev/null || true
         for _w in 1 2 3 4; do port_has_listener || break; sleep 0.5; done
       fi
+      # Re-allow our own start below (undo the marker we set for the kill window), whether
+      # or not the port freed -- a failed reclaim must not leave the board wedged off.
+      rm -f "$STOP_MARKER" 2>/dev/null || true
       if port_has_listener; then
         die "Could not free port $PORT: your stale Kosmos (process $_lpid) did not exit. Run 'kosmos stop', or reboot, then start again."
       fi
@@ -651,8 +664,8 @@ cmd_start() {
       # pid; clear it so the running_pid guard below does not die on a stale entry.
       rm -f "$PIDFILE" 2>/dev/null || true
       say "Address reclaimed."
-      # Fall through to the normal start below.
-    elif [ -n "$_luid" ] && [ "$_luid" != "$(/usr/bin/id -u)" ]; then
+      # Fall through to the normal start below (supervised kickstart -k, else nohup).
+    elif [ -n "$_luid" ] && [ "$_luid" != "$_kosmos_uid" ]; then
       die "Port $PORT is held by ANOTHER account's process on this shared Mac, so Kosmos will not touch it (killing it would take down that person's session). Your own copy of Kosmos is in Applications -- open that."
     else
       die "Another app on this computer is already using port $PORT, so Kosmos cannot start there. Quit that app and run 'kosmos start' again."
