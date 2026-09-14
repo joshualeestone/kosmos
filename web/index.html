@@ -19420,6 +19420,14 @@ async function worldswSwitch(id, name, agents) {
       // is shared by every branch (see the catch above).
       if (res.status === 404) { await worldsFetch().catch(() => {}); say(because || 'That Kosmos is no longer here; the list has been refreshed.'); }
       else if (res.status === 409) { say(because || 'Another Kosmos operation is in progress. Try again in a moment.'); }
+      /* #3055: a 403 here means the board did not accept this browser's sign-in for the
+         switch -- the per-world board-token mismatch after a switch (each Kosmos has its
+         own board token, and the browser is still holding a different world's). Say that
+         honestly rather than a bare "could not switch", and do NOT false-promise a fix:
+         "try again" is the honest advice (the board may re-sign) until the auth flow
+         accepts the held token as same-account (the engine follow-up), after which this
+         branch becomes the rare fallback. */
+      else if (res.status === 403) { say(because || 'That Kosmos’s board did not accept your sign-in, so the switch did not go through. Try again in a moment.'); }
       else { say(because || 'Could not switch to that Kosmos.'); }
       worldswFocusTrigger();
       return;
