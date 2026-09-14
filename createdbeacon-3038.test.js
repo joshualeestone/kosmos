@@ -115,11 +115,16 @@ test('server.js requires the beacon and fires the install ping on board start', 
 
 test('the create route fires the created ping on OUTCOME.CREATED, gated on the checkbox', () => {
   assert.match(SERVER, /createdbeacon\.pingAgentCreated\(/, 'the create route never fires the created ping');
-  // The gate: fire only on a CREATED outcome and only when the checkbox is not off.
-  const i = SERVER.indexOf('createdbeacon.pingAgentCreated(');
-  const seg = SERVER.slice(Math.max(0, i - 400), i);
-  assert.match(seg, /result\.outcome === create\.OUTCOME\.CREATED/, 'the created ping is not gated on a CREATED outcome');
-  assert.match(seg, /body\.notifyCreated !== false/, 'the created ping is not gated on the checkbox (notifyCreated)');
+  // Anchor on the gate expression (both clauses in ONE if) and assert the ping
+  // fires within the block. Anchoring FORWARD from the gate (not backward a fixed
+  // width from the call) is robust to comments added between them -- an earlier
+  // fixed-width-before slice broke when a clarifying comment was added inside the
+  // block. Runtime behaviour is covered end-to-end in
+  // server.createdbeacon-route-3038.test.js; this pins the source wiring.
+  const gi = SERVER.indexOf('result.outcome === create.OUTCOME.CREATED && body.notifyCreated !== false');
+  assert.ok(gi >= 0, 'the created ping is not gated on OUTCOME.CREATED + notifyCreated (checkbox default-on)');
+  assert.match(SERVER.slice(gi, gi + 1000), /createdbeacon\.pingAgentCreated\(/,
+    'pingAgentCreated is not inside the CREATED + notifyCreated gate');
 });
 
 test('the create form carries the default-checked, hardcoded beacon checkbox', () => {
