@@ -1212,3 +1212,187 @@ test('#570 7c-2 waiting does not burn the throttle a crash never earned', () => 
   assert.equal(kids.length, 1, 'and starts at once rather than serving a penalty');
   h.stop();
 });
+
+/* ── #2281: the started-but-never-registered diagnostic ─────────────────────── */
+
+/* A fake ownership record that lets a /clear rekey succeed, so the id can rotate
+   under a live child the way #2669 measured. */
+function fakeSessions() {
+  return {
+    read: () => ({}),
+    record: () => ({ ok: true }),
+    forget: () => ({ ok: true }),
+    pruneName: () => ({ ok: true, removed: 0 }),
+    rowIsUnder: () => false,
+  };
+}
+
+test('#2281 an untrusted folder that never registers is called out as a probable trust prompt', () => {
+  /* The strong wording rests on a POSITIVE signal: trustCheck says the folder is
+     NOT recorded trusted in the config the agent reads. The lone .key only enriches. */
+  const events = [];
+  const regTimers = [];
+  let checkedCwd = null;
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w', configDir: 'C:\\cfg' }, {
+    liveReader: () => [],                          // nobody registered
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    registrationTimer: (fn) => { regTimers.push(fn); return regTimers.length; },
+    trustCheck: (cwd) => { checkedCwd = cwd; return false; },   // folder NOT trusted
+    trustWait: () => true,                         // lone .key corroborates
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: streamingChild(4242) }),
+  });
+
+  assert.equal(regTimers.length, 1, 'the start armed exactly one registration check');
+  regTimers[0]();
+  const unreg = events.filter((e) => e.action === 'unregistered');
+  assert.equal(unreg.length, 1, 'one diagnostic, not a flood');
+  assert.equal(unreg[0].sessionId, 'sess-1');
+  assert.match(unreg[0].because, /not recorded as trusted/);
+  assert.match(unreg[0].because, /workspace-trust prompt no one can see/);
+  assert.match(unreg[0].because, /written no registration record/);
+  assert.equal(checkedCwd, 'C:\\w', 'it asked about the agent working directory');
+  h.stop();
+});
+
+test('#2281 a TRUSTED folder that has not registered gets the hedged wording, never a trust claim', () => {
+  /* Findings 1+3: a slow-but-healthy start looks identical to a trust hang from
+     the timer alone. When the folder IS trusted, the strong claim would be false,
+     so only the hedged wording is allowed. */
+  const events = [];
+  const regTimers = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: () => [],
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    registrationTimer: (fn) => { regTimers.push(fn); return regTimers.length; },
+    trustCheck: () => true,                        // folder IS trusted
+    trustWait: () => true,                         // even with a lone .key, no trust claim
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: streamingChild(4242) }),
+  });
+  regTimers[0]();
+  const unreg = events.filter((e) => e.action === 'unregistered');
+  assert.equal(unreg.length, 1, 'it still says the agent has not registered');
+  assert.doesNotMatch(unreg[0].because, /not recorded as trusted/);
+  assert.doesNotMatch(unreg[0].because, /workspace-trust prompt/);
+  assert.match(unreg[0].because, /may be starting slowly/);
+  h.stop();
+});
+
+test('#2281 an UNKNOWABLE trust state also gets the hedged wording, not a trust claim', () => {
+  /* trustCheck returns null when the config could not be read; the strong claim is
+     well-founded only on an explicit false, so null hedges. */
+  const events = [];
+  const regTimers = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: () => [],
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    registrationTimer: (fn) => { regTimers.push(fn); return regTimers.length; },
+    trustCheck: () => null,                         // we could not tell
+    trustWait: () => true,
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: streamingChild(4242) }),
+  });
+  regTimers[0]();
+  const unreg = events.filter((e) => e.action === 'unregistered');
+  assert.equal(unreg.length, 1);
+  assert.doesNotMatch(unreg[0].because, /not recorded as trusted/);
+  assert.match(unreg[0].because, /may be starting slowly/);
+  h.stop();
+});
+
+test('#2281 a /clear that rotated the session id does NOT trigger the diagnostic (Finding 2)', () => {
+  /* #2669: a /clear rotates the live agent session id under the same child.
+     handle.sessionId follows it; the captured start id does not. The check must be
+     against the CURRENT id, or a healthy working agent reads as unregistered. */
+  const events = [];
+  const regTimers = [];
+  const kid = streamingChild(4242);
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: () => [{ sessionId: 'sess-2', pid: 4242 }],   // the runner lists the ROTATED id
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    registrationTimer: (fn) => { regTimers.push(fn); return regTimers.length; },
+    trustCheck: () => false,                       // even if the folder looked untrusted...
+    trustWait: () => true,
+    sessions: fakeSessions(),
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: kid }),
+  });
+  // the agent processes a message and /clears: system/init carries the new id
+  kid.stdout.emit('data', JSON.stringify({ type: 'system', subtype: 'init', session_id: 'sess-2' }) + '\n');
+  regTimers[0]();                                    // ...the grace elapses
+  assert.equal(events.filter((e) => e.action === 'unregistered').length, 0,
+    'the rotated id IS listed, so the working agent is not called stuck');
+  assert.ok(events.some((e) => e.action === 'rekeyed'), 'and the rotation was actually applied');
+  h.stop();
+});
+
+test('#2281 a stopped agent fires no diagnostic -- the check is guarded on the live child', () => {
+  const events = [];
+  const regTimers = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: () => [],
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    registrationTimer: (fn) => { regTimers.push(fn); return regTimers.length; },
+    trustCheck: () => false, trustWait: () => true,
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: streamingChild(4242) }),
+  });
+  h.stop();                                          // the agent is gone before the grace fires
+  regTimers[0]();
+  assert.equal(events.filter((e) => e.action === 'unregistered').length, 0, 'a run that ended does not get diagnosed');
+});
+
+test('#2281 an unreadable runner at check time makes NO claim (false-zero rule)', () => {
+  const events = [];
+  const regTimers = [];
+  let calls = 0;
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: () => (calls++ === 0 ? [] : null),   // live at start, unreadable at the check
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    registrationTimer: (fn) => { regTimers.push(fn); return regTimers.length; },
+    trustCheck: () => false, trustWait: () => true,
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: streamingChild(4242) }),
+  });
+  regTimers[0]();
+  assert.equal(events.filter((e) => e.action === 'unregistered').length, 0, 'no runner read, no claim');
+  h.stop();
+});
+
+test('#2281 a registered agent (current id listed) fires no diagnostic', () => {
+  const events = [];
+  const regTimers = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: () => [{ sessionId: 'sess-1', pid: 4242 }],
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    registrationTimer: (fn) => { regTimers.push(fn); return regTimers.length; },
+    trustCheck: () => false, trustWait: () => true,
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 'sess-1', child: streamingChild(4242) }),
+  });
+  regTimers[0]();
+  assert.equal(events.filter((e) => e.action === 'unregistered').length, 0, 'a healthy agent is not called stuck');
+  h.stop();
+});
+
+test('#2281 a re-arm retires the prior pending registration timer (crash loop)', () => {
+  /* Without clearing, a crash loop would pile up one 90s timer per restart. */
+  const cleared = [];
+  let seq = 0;
+  const kids = [];
+  const timers = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\\w' }, {
+    liveReader: () => [],
+    throttleMs: 0, now: () => 0, setTimer: (fn) => timers.push(fn),   // hold restarts
+    registrationTimer: (fn) => { seq += 1; return seq; },             // hand back a distinct handle
+    registrationClear: (t) => cleared.push(t),
+    trustCheck: () => true, trustWait: () => false,
+    onEvent: () => {},
+    launch: () => { const c = streamingChild(7000 + kids.length); kids.push(c); return { ok: true, sessionId: 's' + kids.length, child: c }; },
+  });
+  kids[0].die(1);            // crash -> schedule() -> a restart timer is queued
+  timers.shift()();          // run the restart: startOnce arms a SECOND registration timer
+  assert.deepEqual(cleared, [1], 'arming the restart cleared the first start pending timer');
+  h.stop();
+});
