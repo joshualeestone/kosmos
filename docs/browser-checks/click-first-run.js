@@ -37,6 +37,28 @@ const YOU = path.join(path.dirname(path.dirname(FLAG)), 'you.json');
 const fails = [];
 const ok = (cond, what) => { if (!cond) fails.push(what); console.log(`${cond ? '  ok  ' : ' FAIL '} ${what}`); };
 
+/* #3030: the completion flag (first-run.json) is written by
+   /api/first-run/complete, which the client fires when the onboarding ending is
+   taken. The write can lag the read under a release cut's load, so reading the
+   flag the instant the ending's panel renders threw ENOENT and RED a cut that
+   was otherwise green (a load-sensitive flake, not a regression). Poll (bounded)
+   for the flag rather than reading it immediately. Returns the parsed flag
+   object once it exists (and, when requireCompletedAt, once it carries a
+   completedAt), or null after the timeout -- so a genuinely-never-written flag
+   still fails the assertion, it just is not raced. A partial write (file present
+   but not yet valid JSON / no completedAt) keeps polling until the deadline. */
+async function waitForFlag(flagPath, { requireCompletedAt = false, timeoutMs = 5000 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(flagPath, 'utf8'));
+      if (!requireCompletedAt || parsed.completedAt) return parsed;
+    } catch (_) { /* ENOENT or mid-write: keep polling until the deadline */ }
+    if (Date.now() >= deadline) return null;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
 /* install-flow-9screen: the permission gates (S2/S3) disable Next until granted.
    In a walk-through we mock them UNCHECKABLE so Next follows the fail-safe path
    (never blocks) -- a real browser reports checkable:false anyway, so this models
@@ -236,8 +258,10 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     ok(await page.isVisible('#panel-create'), 'the Create-your-first-agent panel is there (#2497 Giddy Up ending)');
     ok(await page.evaluate(() => document.querySelector('.apphead').inert === false),
       'the app behind is interactive again');
-    ok(fs.existsSync(FLAG), 'the flag was written, so it will not reappear');
-    ok(JSON.parse(fs.readFileSync(FLAG, 'utf8')).completedAt, 'and the flag has a timestamp in it');
+    // #3030: poll for the flag (its write can lag this read under cut load).
+    const flag = await waitForFlag(FLAG, { requireCompletedAt: true });
+    ok(flag !== null, 'the flag was written, so it will not reappear');
+    ok(flag && flag.completedAt, 'and the flag has a timestamp in it');
     await ctx.close();
   }
 
@@ -270,7 +294,9 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(600);
     ok(await page.isHidden('#firstrun'), 'Escape closed it');
-    ok(fs.existsSync(FLAG), 'Escape marked it seen, so it does not nag');
+    // #3030: same lag class as the ending -- Escape's "mark seen" write can trail
+    // this read under load; poll for the flag's existence rather than racing it.
+    ok((await waitForFlag(FLAG)) !== null, 'Escape marked it seen, so it does not nag');
     await ctx.close();
   }
   {
