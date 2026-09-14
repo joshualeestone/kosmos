@@ -474,6 +474,7 @@ const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
 const feedback = require('./engine/feedback');
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
+const createdbeacon = require('./engine/createdbeacon'); // #3038: install + agent-created beacon (Josh ruled it back in; #2623's removal was an agent's, not his)
 const heartbeat = require('./engine/heartbeat');
 const heartbeatSetting = require('./engine/heartbeat-setting');
 const selfreport = require('./engine/selfreport');
@@ -4377,8 +4378,25 @@ const server = http.createServer((req, res) => {
           // (#323), so the addAgent below finds the block already there.
           projects: projectsToJoin,
         });
-        /* #2623: the create-agent telemetry ping was deleted (Josh, 2026-09-09,
-           "invasion of privacy"). A creation no longer tells anyone anything. */
+        /* #3038: RESTORED. The create-agent beacon was removed by an AGENT in
+           #2623; Josh ruled that removal was NOT his and that he "always wanted"
+           it, so a creation once again tells installkosmos.com the agent count
+           moved (the homepage number Josh flagged as frozen). GATED on the
+           create-agent checkbox: default ON, so fire unless it was explicitly
+           turned off (`notifyCreated === false`). Best-effort and non-blocking --
+           createdbeacon swallows everything, so a beacon never affects a create.
+           The count is agents on this install INCLUDING the one just made: the
+           board snapshot may not reflect the new agent's tmux session yet this
+           instant (it appears milliseconds later), so add 1 when it is not there.
+           The server is idempotent (Math.max on count), so a slightly-early or
+           re-sent count never inflates the total. */
+        if (result.outcome === create.OUTCOME.CREATED && body.notifyCreated !== false) {
+          try {
+            const r = safeRoster();
+            const has = r.some((a) => a && (a.name === result.name || a.shown === result.name));
+            createdbeacon.pingAgentCreated(r.length + (has ? 0 : 1));
+          } catch { /* best-effort: a beacon never affects a create */ }
+        }
         // REFUSED is the caller's fault (a bad name, a duplicate); PARTIAL is
         // ours, and it is a 200 because the thing half-happened and the caller
         // needs the detail rather than an error.
@@ -13197,6 +13215,15 @@ function start(port = PORT) {
         try { feedbacksend.sendDailyOnce(feedback.today()); } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) : 60 * 60 * 1000); // the env is the test seam only
       if (feedbackSweep && typeof feedbackSweep.unref === 'function') feedbackSweep.unref();
+      /* #3038: register this install with installkosmos.com so the homepage
+         INSTALL count moves (Josh's #1-frustration regression: it was frozen at
+         32 because the app never POSTed /api/created). UNCONDITIONAL -- it
+         carries no agent information, only that an install exists -- and
+         fire-and-forget, once on board start. The server is idempotent (Math.max
+         on count 0), so a re-fire on every launch never inflates anything; that
+         is also how an install that predates this beacon gets counted, on its
+         next launch. Best-effort, like the sweeps above. */
+      try { createdbeacon.pingInstall(); } catch { /* a beacon never blocks a boot */ }
       /* #1945: the update-awareness sweep. `updates.poke()` is the ONLY thing
          that fetches latest.json and can fire an auto-install, and its only
          other caller is the /api/status route -- which runs only while someone
