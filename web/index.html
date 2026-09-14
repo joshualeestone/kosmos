@@ -9558,19 +9558,20 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p class="fr-msg" id="fr-s2-msg" role="status" aria-live="polite"></p>
       </div>
 
-      <!-- S3 Automation. Both status rows are ADVISORY (they show the ask + state but do NOT gate Next). -->
+      <!-- S3 Automation. Three status rows: sleep (advisory, #2587) plus the app's Accessibility grant (data-gate="tmux") and tmux's own grant (data-gate="tmux-a11y"), which GATE Next (re-gated #2559/#2911). -->
       <div class="fr-pane" id="fr-pane-3" hidden>
         <!-- ============================================================
              SCREEN 3 - AUTOMATION   (spec screen F + part of E)
-             Primary button (shell param): "Next" -- always available (both gates advisory). No skip.
-             GATES: data-gate="sleep" and data-gate="tmux" on the two status rows. Renet's poll
+             Primary button (shell param): "Next" -- gated on the accessibility grants. No skip.
+             GATES: data-gate="sleep", data-gate="tmux" (the app's Accessibility grant) and
+               data-gate="tmux-a11y" (tmux's own grant) on the three status rows. Renet's poll
                sets `data-granted` on each when granted (green "Activated"), `data-checking` on the
                cannot-check state (neutral "Checking...", #2085), else the red "Not activated" + Turn
-               On default. #2587 made sleep advisory (a laptop cannot satisfy it); #2912/#2559 made the
-               accessibility (tmux) row advisory too -- its native AXIsProcessTrusted reading is pinned
-               at process start, so it false-negatives a just-granted permission and trapped Josh on
-               install ("I cannot proceed forward"). Both rows still SHOW the ask; neither blocks Next.
-               Next re-gates on accessibility once the detection is live from the TCC db (#2559).
+               On default. #2587 made sleep advisory (a laptop cannot satisfy it). #2559/#2911: the
+               accessibility rows GATE Next -- the readings are now live TCC-db reads (appGrant /
+               tmuxGrant) that flip the instant the toggle does, so the #2912 false-negative that
+               trapped Josh on install ("I cannot proceed forward") is gone. Only a definite
+               not-granted blocks; an uncheckable reading stays advisory, so it never re-traps.
              Dynamic: none.  CSS namespace: s3-*
              Copy is Josh's, verbatim. Graphic 1 = macOS Energy pane (reproduced). Graphic 2 = the
              Kosmos Accessibility permission; STAND-IN until the real "Screenshot 10.09.15 AM" is pulled (flagged).
@@ -44905,15 +44906,17 @@ async function frRecheckPress(btn) {
   }
 }
 
-/* install-flow-9screen: S3 Automation's two "Turn On" buttons, delegated on the
+/* install-flow-9screen: S3 Automation's "Turn On" buttons, delegated on the
    pane. This REPLACES the two retired top-level handlers (the machine-check
    screen's #fr-checks sleep button and the standalone a11y step's #fr-a11y-open),
-   folding both open-settings actions into the S3 gate:
-     - a click inside the data-gate="sleep" row  -> /api/open-sleep-settings
-     - a click inside the data-gate="tmux" row    -> /api/open-accessibility-settings
+   folding the open-settings actions into the S3 gate:
+     - a click inside the data-gate="sleep" row      -> /api/open-sleep-settings
+     - a click inside the data-gate="tmux" row       -> /api/open-accessibility-settings (app)
+     - a click inside the data-gate="tmux-a11y" row  -> /api/open-accessibility-settings (tmux)
    The button opens System Settings; it cannot grant the permission (TCC), which
-   is why the gate poll (not this click) is what flips the pill. (Both S3 rows are
-   advisory -- #2587/#2912 -- so neither flips Next; the pill is all that changes.)
+   is why the gate poll (not this click) is what flips the pill. Sleep is advisory
+   (#2587); the two accessibility rows GATE Next (re-gated #2559/#2911), and the poll
+   both flips the pill and unlocks Next once the grant lands.
    Only a failure speaks, in the step's own #fr-s3-msg line; the Settings window
    itself is the success feedback. */
 document.getElementById('fr-pane-3').addEventListener('click', async (e) => {

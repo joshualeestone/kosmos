@@ -1,4 +1,4 @@
-# Plan: #2911 — detect BOTH Accessibility grants + tmux "step 3" ask
+# Plan: #2911 - detect BOTH Accessibility grants + tmux "step 3" ask
 
 Branch: `a11y-regate-2911`  ·  Card: kosmos#2911 (claimed:angel, priority, josh-review)
 Related: #2559 (re-gate), #2912 (advisory flip), #2451/#2125 (app-AX subject), #2685 (tmux file-access), #1940 (tmux AX on install)
@@ -6,10 +6,10 @@ Related: #2559 (re-gate), #2912 (advisory flip), #2451/#2125 (app-AX subject), #
 ## What "finished" looks like (true when done)
 On the "Kosmos Never Sleeps" / Access (S3) screen:
 1. The screen asks for tmux Accessibility (Josh's "step 3") alongside the Kosmos-app
-   Accessibility ask — user turns on Kosmos, tmux, and accessibility.
+   Accessibility ask - user turns on Kosmos, tmux, and accessibility.
 2. The gate detects BOTH grants and blocks Continue only on a definite not-granted:
-   - APP Accessibility — via appGrant() live TCC read (DONE, commit 75a53a79a).
-   - TMUX Accessibility — via tmuxGrant() (client LIKE '%/tmux', realpath exact-match
+   - APP Accessibility - via appGrant() live TCC read (DONE, commit 75a53a79a).
+   - TMUX Accessibility - via tmuxGrant() (client LIKE '%/tmux', realpath exact-match
      on the bundled tmux binary), wired as its own FR_GATES row.
 3. Both gate rows are block-on-positive with uncheckable→non-blocking, so a browser /
    no-FDA / path-mismatch context is NEVER re-trapped (the #2912 lesson, applied to
@@ -44,7 +44,7 @@ over-generalized #2125 read and is wrong.
 - web/index.html FR_GATES (~43953): add a tmux-accessibility gate row (granted/blocked
   off tmuxGrant's {checkable,trusted}); block-on-positive, uncheckable non-blocking.
 - web/index.html S3 UI: add the tmux-accessibility ask block beside the app ask
-  (extend the existing Screen-3 tmux row; coordinate region with Mona — her #3043 is
+  (extend the existing Screen-3 tmux row; coordinate region with Mona - her #3043 is
   agent-detail-header ~24455, her #3066 is room-scroll; both != FR_GATES region).
 - browser-checks: bump any EXPECTED gate/ask counts (render-gated-next / render-createnav
   #1720 chain); run the FULL browser-checks suite, not just node.
@@ -57,7 +57,7 @@ Mitigation: fail-safe (uncheckable→non-blocking) degrades to advisory, never t
 Fresh-install TCC verification (Josh's fresh Mac / ICK w/ FDA) would confirm the keyed
 path; a mismatch there would mean keying tmuxGrant off the picked-tmux differently.
 
-## Explainer wording (tmux file-access folders) — PENDING fresh-GUI observation; not shipped here.
+## Explainer wording (tmux file-access folders) - PENDING fresh-GUI observation; not shipped here.
 
 ## Test plan
 - node engine tests: extend the a11ystatus test with tmuxGrant dispositions (granted /
