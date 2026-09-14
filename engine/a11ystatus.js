@@ -154,13 +154,15 @@ const APP_CLIENT = 'com.chaoskosmos.kosmos';
    tmux one), but selecting the app's Accessibility rows. `-readonly` so a locked
    live db still reads and this can NEVER mutate the system TCC store; a short 2s
    timeout so a pathological lock cannot pin the board's HTTP thread; any error ->
-   { ok:false } -> checkable:false ("Checking..."), never a wrong verdict. The query
-   filters on the fixed bundle id in SQL AND the JS below re-checks the exact client,
-   so a schema quirk that widened the match cannot leak a non-app row into the
-   verdict. Swappable via setAppSqliteRunner for tests (never served the cache). */
+   { ok:false } -> checkable:false ("Checking..."), never a wrong verdict. The query is
+   a FIXED LITERAL with no interpolation (the same posture as sqliteRunner's LIKE) -- it
+   selects every Accessibility row and appGrant() below narrows to APP_CLIENT with an
+   exact JS match, so a schema quirk cannot leak a non-app row AND there is no
+   concatenated bundle id that could become an injection footgun if APP_CLIENT were ever
+   made configurable. Swappable via setAppSqliteRunner for tests (never served the cache). */
 let appSqliteRunner = (dbPath) => {
   try {
-    const q = "SELECT client, auth_value FROM access WHERE service='kTCCServiceAccessibility' AND client='" + APP_CLIENT + "';";
+    const q = "SELECT client, auth_value FROM access WHERE service='kTCCServiceAccessibility';";
     const out = execFileSync('/usr/bin/sqlite3', ['-readonly', dbPath, q], {
       encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'pipe'],
     });

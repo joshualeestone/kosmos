@@ -15,8 +15,10 @@ On the "Kosmos Never Sleeps" / Access (S3) screen:
    no-FDA / path-mismatch context is NEVER re-trapped (the #2912 lesson, applied to
    both halves).
 4. False-premise comments corrected (DONE for a11ystatus.js).
-5. node tests + challenge-loop proof + browser-checks all green. PR up, reviewer
-   joshualeestone.
+5. node tests + challenge-loop proof + browser-checks all green. PR up. Kosmos has NO
+   human GitHub reviewer (repo CLAUDE.md): the agent merges its own green PR rather than
+   waiting on a person. The card's `josh-review` label is provenance (Josh filed/wants
+   eyes on it), NOT a request to add joshualeestone as a PR reviewer. Ships in 6.67.
 
 ## The corrected model (measured, not inferred)
 tmux DOES hold its own kTCCServiceAccessibility grant. Proof: this box's system
