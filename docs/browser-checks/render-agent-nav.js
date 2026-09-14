@@ -103,25 +103,6 @@ function chk(ok, label, extra) {
       chk(names.remove === 'Remove April', `[${theme}] the Remove pill names the agent`, names.remove);
       chk(names.go === 'Change & Restart April', `[${theme}] the model button names the agent`, names.go);
 
-      // #3045: the "Model and Memory" pill is the longest label in the 176px nav column and
-      // word-wrapped to two lines. It must stay on ONE line. Compare its height to a
-      // single-word pill (Instructions), which is always one line; a two-line wrap makes the
-      // model pill ~1.5x taller. Relative, so it does not pin an absolute px that font/padding
-      // tuning would break.
-      const lineFit = await page.evaluate(() => {
-        const model = document.querySelector('#d-nav button[data-go="model"]');
-        const h = (go) => document.querySelector('#d-nav button[data-go="' + go + '"]').getBoundingClientRect().height;
-        const mH = h('model'); const iH = h('instr');
-        // oneLine: height matches a single-line pill (catches a word-WRAP to two lines).
-        // noOverflow: scrollWidth within clientWidth (catches a horizontal OVERFLOW, which
-        // nowrap would otherwise hide behind a still-one-line height, per challenge iter 2).
-        return {
-          model: Math.round(mH), instr: Math.round(iH), oneLine: Math.abs(mH - iH) <= 2,
-          scrollW: model.scrollWidth, clientW: model.clientWidth, noOverflow: model.scrollWidth <= model.clientWidth,
-        };
-      });
-      chk(lineFit.oneLine && lineFit.noOverflow, `[${theme}] #3045 the "Model and Memory" pill is one line and not overflowing (nowrap fits the column)`, JSON.stringify(lineFit));
-
       // The needs-you dot: April is asking a question, so Talk carries it.
       const dot = await page.evaluate(() => {
         const b = document.querySelector('#d-nav button[data-go="talk"]');
@@ -147,6 +128,23 @@ function chk(ok, label, extra) {
           `[${theme}] click ${k}: exactly that pill is on and aria-current`, JSON.stringify(pill));
         // Focus lands on the group's FIRST section, which is the pill's own (grp[0] === k here).
         chk(pill.focus === grp[0], `[${theme}] click ${k}: focus moved into the section`, String(pill.focus));
+        if (k === 'model') {
+          // #3045: the pill is now .on, which is font-weight 600 (wider than the base 500) --
+          // the widest render and the state the user is in on this section, so measure the fit
+          // HERE, not at landing. oneLine: height matches a single-line pill (catches a word
+          // wrap to two lines, the shipped defect). noOverflow: scrollWidth within clientWidth
+          // -- a forward guard that a future longer label or narrower column, staying one line
+          // under nowrap, would still be caught overrunning the 176px column rather than hiding.
+          const fit = await page.evaluate(() => {
+            const m = document.querySelector('#d-nav button[data-go="model"]');
+            const ih = document.querySelector('#d-nav button[data-go="instr"]').getBoundingClientRect().height;
+            const mh = m.getBoundingClientRect().height;
+            return { model: Math.round(mh), instr: Math.round(ih), weight: getComputedStyle(m).fontWeight,
+              scrollW: m.scrollWidth, clientW: m.clientWidth,
+              oneLine: Math.abs(mh - ih) <= 2, noOverflow: m.scrollWidth <= m.clientWidth };
+          });
+          chk(fit.oneLine && fit.noOverflow, `[${theme}] #3045 the active (bold) "Model and Memory" pill is one line and not overflowing the column`, JSON.stringify(fit));
+        }
         await page.screenshot({ path: path.join(OUT, `${theme}-${k}.png`), fullPage: false });
       }
 
