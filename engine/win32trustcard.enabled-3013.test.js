@@ -49,11 +49,17 @@ function arrangeAccount() {
 
 /* The schtasks answer for `/Query /XML`: the real task XML win32job.taskXml writes,
    with the given enabled state -- so diagnose reads enabled through the REAL
-   `<Settings><Enabled>` parse. Any other schtasks call (a /Change) answers ok. */
+   `<Settings><Enabled>` parse. `enabledRef.value === undefined` STRIPS the Settings
+   <Enabled> element entirely (the shape Windows actually emits for an enabled task;
+   mirrors create.win32-job-read.test.js's xmlNoEnabled). Any other call (a /Change)
+   answers ok. */
 function runnerFor(cwd, configDir, enabledRef) {
   return (args) => {
     if (args.includes('/XML') && args.includes('/Query')) {
-      const xml = win32job.taskXml({ name: NAME, cwd, configDir, enabled: enabledRef.value }, {});
+      let xml = win32job.taskXml({ name: NAME, cwd, configDir, enabled: enabledRef.value !== false }, {});
+      if (enabledRef.value === undefined) {
+        xml = xml.replace(/(<Settings>[\s\S]*?)<Enabled>(?:true|false)<\/Enabled>/, '$1');
+      }
       return { ok: true, out: xml };
     }
     return { ok: true, out: '' };
@@ -86,6 +92,42 @@ test('#3013 a SWITCHED-OFF agent (same untrusted folder + stuck .key) is NOT dia
   try {
     assert.equal(card.diagnose(NAME), null,
       'a disabled task must not render needs_trust, however untrusted its folder');
+  } finally {
+    win32job.setRunner(null);
+  }
+});
+
+test('#3013 an ABSENT <Enabled> element counts as enabled -- an otherwise-stuck agent IS diagnosed', () => {
+  /* 🔑 THE COMMON REAL-WORLD SHAPE. Windows omits <Settings><Enabled> for an enabled
+     task (schema default true), so this is what a genuinely-enabled stuck agent looks
+     like on the box -- not the explicit <Enabled>true</Enabled> the arms above use.
+     End-to-end through taskSpec.enabled (not just the shared parser's unit test), this
+     is the exact false-negative the enabled gate must NOT introduce: absent -> enabled
+     -> flagged. */
+  const { cwd, configDir } = arrangeAccount();
+  const enabledRef = { value: undefined };   // strips the <Enabled> element
+  win32job.setRunner(runnerFor(cwd, configDir, enabledRef));
+  try {
+    const d = card.diagnose(NAME);
+    assert.ok(d, 'a task with no <Enabled> element (the Windows-default enabled shape) must still be diagnosed when stuck');
+    assert.match(d.because, /workspace-trust prompt no one can see/);
+  } finally {
+    win32job.setRunner(null);
+  }
+});
+
+test('#3013 the enabled flag is FRESH: enable() busts the cache, so a re-enable is re-evaluated', () => {
+  /* The mirror of the disable() arm: a re-enabled task must be re-evaluated, not kept
+     as the cached switched-off answer. Same forgetTaskSpec code path. */
+  const { cwd, configDir } = arrangeAccount();
+  const enabledRef = { value: false };
+  win32job.setRunner(runnerFor(cwd, configDir, enabledRef));
+  try {
+    assert.equal(card.diagnose(NAME), null, 'starts switched off -> not diagnosed (and now cached)');
+    enabledRef.value = true;
+    assert.equal(card.diagnose(NAME), null, 'CONTROL: the cached enabled:false persists until something busts it');
+    win32job.enable(NAME);
+    assert.ok(card.diagnose(NAME), 'enable() did not bust the task-spec cache, so the re-enabled task was not re-evaluated');
   } finally {
     win32job.setRunner(null);
   }
