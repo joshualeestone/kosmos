@@ -81,7 +81,7 @@ the column, that is a one-line CSS follow-up.
   role step; projects list stays; fills-to-form-width-left-aligned (range check, guards the CSS fix that
   caught the 193px bug); project-nav hides it + shows the project; leaving consolidated restores to top
   level; tab-view CONTROL (not consolidated, full-page create); list-state #pj-none suppression + poll
-  re-invoke; agents-tab reachability. 24 assertions, both themes, headless.
+  re-invoke; agents-tab reachability; mutual exclusion (both open orders). 28 assertions, both themes, headless.
 - `web.consolidated-774.test.js`: source-grep for the paintPjNone `show` line updated to include
   `&& !appCreateOpen`.
 - Full run: web.*.test.js 1429/1429; server.test.js 297/297; #1720 + #2518 browser-check gates exit 0.
