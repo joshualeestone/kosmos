@@ -132,7 +132,8 @@ test('#1: S3 Turn On FIRES the native prompt (tmux -> a11y-prompt), falling back
 test('#2911: S3 asks for tmux\'s OWN Accessibility grant (data-gate="tmux-a11y") and detects it via /api/tmux-a11y-status', () => {
   // Josh (6.59 QA): "add a step 3 asking for accessibility for tmux ... turn on Kosmos,
   // tmux, and accessibility." tmux holds a SEPARATE Accessibility grant from the app's;
-  // this third S3 sub-step asks for it and gates on tmuxGrant's live reading.
+  // this tmux ask (folded into the combined caption + one-box mock at #3075, no longer a
+  // separate step-3 sub-step) still gates on tmuxGrant's live reading.
 
   // The row + its visible copy (a distinct row from the app "Kosmos" one).
   assert.match(S3, /data-gate="tmux-a11y"/, 'S3 carries the tmux-accessibility gate row (data-gate="tmux-a11y")');
