@@ -10714,7 +10714,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            this out." Sent as notifyCreated; the board beacons the new agent count
            unless it is off. Left of the button, per the one-row layout Josh set
            2026-08-22 (the box on the left, the button on the right). -->
-      <label class="tellrow">
+      <!-- `for` is REQUIRED, not redundant: the named-controls a11y browser-check
+           computes a checkbox's accessible name from aria-label / aria-labelledby /
+           label[for] only (an <input> has no textContent, and it does NOT resolve
+           an implicit WRAPPING label), so without `for` the box has no name and
+           the "every visible control has a name" check goes red. -->
+      <label class="tellrow" for="create-tell">
         <input type="checkbox" id="create-tell" checked>
         <span>Let Kosmos know an agent was created</span>
       </label>
