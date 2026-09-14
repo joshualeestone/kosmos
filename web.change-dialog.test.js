@@ -55,6 +55,11 @@ function world(html, fetchImpl) {
     document: { getElementById: el, addEventListener: () => {}, removeEventListener: () => {} },
     CURRENT: currentCard(),
     fetch: fetchImpl, encodeURIComponent, tick: async () => {}, agentShown: () => 'Mara', console,
+    /* #2716: changeModelNow/changeProviderNow now fire autoHelloOnSwitchRestart on a real
+       restart. `lift` only pulls the two function declarations, so stub it as a no-op
+       here: this file is about the SENTENCES the dialog shows, and the auto-hello side
+       effect is covered by docs/browser-checks/render-autohello-switch-2716.js. */
+    autoHelloOnSwitchRestart: () => {},
     /* #768-batch: changeModelNow now names the provider in the reduced success line.
        Lift the real (const arrow) providerOf into the VM ctx, since `lift` only pulls
        the two `function` declarations. */
@@ -123,4 +128,24 @@ test('control: the page before this change left the dialog on Working… after a
     return;
   }
   assert.equal(got.keep.hidden, true);
+});
+
+test('#2716: both switch dialogs wire autoHelloOnSwitchRestart on a real restart', () => {
+  /* The behavioural driver above uses a NO-OP stub for autoHelloOnSwitchRestart, so it
+     cannot catch a regression that deletes or misorders the wiring at either call site.
+     This pins it from source: both changeModelNow and changeProviderNow must call
+     autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual) inside their
+     `if (restarted)` branch. `lift` captures each full body (verified: it reaches the call).
+     A deleted or argument-swapped call reds here. The runtime guard/race behaviour of the
+     helper itself is covered by docs/browser-checks/render-autohello-switch-2716.js. */
+  for (const fn of ['changeModelNow', 'changeProviderNow']) {
+    const body = lift(page.scriptOf(CURRENT_PAGE), 'async function ' + fn + '(');
+    assert.match(body, /if \(restarted\) autoHelloOnSwitchRestart\(forAgent, switchShown, provName, switchManual\);/,
+      fn + ' no longer wires autoHelloOnSwitchRestart(forAgent, switchShown, provName, switchManual) on a real restart');
+    /* And the manual line the helper's content check compares against is the SAME string
+       passed to say/tell -- built once as switchManual and handed to both -- so a reword
+       cannot silently break the content match. Pin that shared construction. */
+    assert.match(body, /const switchManual = 'Say hello to ' \+ switchShown \+ ' to reactivate them on ' \+ provName \+ '\.';/,
+      fn + ' no longer builds the manual line once as switchManual to share with say/tell and the helper');
+  }
 });
