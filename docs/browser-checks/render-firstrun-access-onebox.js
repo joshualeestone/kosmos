@@ -180,9 +180,12 @@ function isBlue(rgb) {
     });
 
     // #3031 item 2: at the REAL onboarding pane width (~552px) the two previews must sit
-    // side by side, not stacked. The 1280px test viewport hides this (two previews always
-    // fit), so pin the width. This is the regression the first cut shipped: 320px-wide
-    // previews wrapped to a column on the narrow pane. Same top + different left = one row.
+    // side by side, not stacked. That width is not the test viewport: .fr-box caps the modal
+    // at max-width:40rem (640px), and .fr-body's 44px side padding leaves ~552px of content,
+    // so the natural render here is already ~552px whatever the viewport is. We pin 552px
+    // anyway so this guard does not silently disarm if .fr-box's own width rules change later.
+    // The regression the first cut shipped: 320px-wide previews wrapped to a column on the
+    // narrow pane. Same top + different left = one row.
     const layout = await page.evaluate(() => {
       const fan = document.querySelector('#fr-pane-2 .s2-dlg-fan') || document.querySelector('.s2-dlg-fan');
       if (!fan) return { ok: false };

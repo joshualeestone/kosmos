@@ -32,7 +32,8 @@ check against `permission-screen-2910` before push (Angel does the same).
 - `web/index.html`: the `.s2-dlg-fan` markup (six -> two previews) + the `.s2-*` CSS
   (`.s2-dlg-fan` side-by-side flex; `.s2-dlg` flex:1 1 240px so two share the ~552px pane;
   `.s2-db` white-space:nowrap; removed the now-dead `.s2-appgrp`/`.s2-applbl`/`.s2-grpnote`/
-  `.s2-dlgrow` rules) + the descriptive comment.
+  `.s2-dlgrow` rules) + the two structural comments (the CSS-block comment and the HTML
+  markup comment above `.s2-dlg-fan`).
 - `docs/browser-checks/render-firstrun-access-onebox.js`: rewrote the arms for the two-preview
   structure (2 previews, no groups/labels/note, generic copy, deny/allow count 2), added a
   no-wrap guard (nowrap + single-line height + equal height) and a SIDE-BY-SIDE guard at the
