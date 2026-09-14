@@ -1,10 +1,10 @@
 'use strict';
 /**
- * #3013: the board-card engine path -- which known-owned Windows agents are stuck
- * at Claude Code's invisible workspace-trust prompt. Every arm drives waiting()
- * over INJECTED seams (no schtasks, no real sessions dir, no `claude agents
- * --json`), so it is green on any host: the win32-specific facts (the job list,
- * the account config, the sessions dir) arrive through the seams as data.
+ * #3013: the board-card diagnosis engine path -- is a known-owned, enabled,
+ * not-live Windows agent waiting at Claude Code's invisible workspace-trust prompt?
+ * Every arm drives diagnose() over INJECTED seams (no schtasks, no real sessions
+ * dir, no trust config), so it is green on any host: the win32-specific facts arrive
+ * through the seams as data.
  *
  *   node --test engine/win32trustcard.test.js
  */
@@ -13,161 +13,108 @@ const assert = require('node:assert/strict');
 
 const card = require('./win32trustcard');
 
-/* A sessions stub with the two methods waiting() reads: the ownership record and
-   the id gate. validId mirrors win32sessions' charset gate closely enough for the
-   test's synthetic ids. */
-function sessionsStub(record) {
+/* A job stub exposing ONLY cachedTaskSpec (the #2717 cache diagnose is allowed to
+   use) plus counting shims for the uncached calls it must NOT make. */
+function jobStub(spec, counters) {
+  const c = counters || {};
   return {
-    read: () => record || {},
-    validId: (id) => typeof id === 'string' && /^[A-Za-z0-9._-]{1,200}$/.test(id),
+    cachedTaskSpec: (name) => { c.cachedTaskSpec = (c.cachedTaskSpec || 0) + 1; return spec; },
+    taskEnabled: () => { c.taskEnabled = (c.taskEnabled || 0) + 1; return { known: true, registered: true, enabled: true }; },
+    taskSpec: () => { c.taskSpec = (c.taskSpec || 0) + 1; return spec; },
+    list: () => { c.list = (c.list || 0) + 1; return { known: true, names: new Set() }; },
   };
 }
-
-/* A job stub: a known fleet, plus per-name enabled/spec answers. Anything not in
-   the maps answers "not registered", which waiting() must skip. */
-function jobStub(names, enabled, specs) {
-  return {
-    list: () => ({ known: true, names: new Set(names) }),
-    taskEnabled: (name) => enabled[name] || { known: true, registered: false },
-    taskSpec: (name) => specs[name] || { known: true, registered: false },
-  };
-}
-const EN = (enabled) => ({ known: true, registered: true, enabled });
 const SPEC = (cwd, configDir) => ({ known: true, registered: true, spec: { cwd, configDir: configDir || null } });
 
-test('#3013 a known-owned, enabled, not-registered agent with an untrusted folder + a stuck .key is needs_trust', () => {
-  const out = card.waiting({
-    job: jobStub(['alice'], { alice: EN(true) }, { alice: SPEC('C:\\work\\alice', 'C:\\cfg\\alice') }),
-    sessions: sessionsStub({}),
-    live: [],                                   // nothing registered
-    trustCheck: () => false,                    // folder explicitly NOT trusted
-    detect: () => true,                         // a lone unregistered .key sits there
+test('#3013 an untrusted folder + a stuck .key is the strong workspace-trust diagnosis', () => {
+  const d = card.diagnose('alice', {
+    job: jobStub(SPEC('C:\\work\\alice', 'C:\\cfg\\alice')),
+    trustCheck: () => false,      // folder explicitly NOT trusted
+    detect: () => true,           // a lone unregistered .key sits there
   });
-  assert.equal(out.length, 1);
-  assert.equal(out[0].name, 'alice');
-  assert.equal(out[0].needsTrust, true, 'an explicit untrusted folder gets the strong claim');
-  assert.match(out[0].because, /workspace-trust prompt no one can see/);
-  assert.match(out[0].because, /not recorded as trusted/, 'the strong wording names the untrusted folder');
+  assert.ok(d, 'a stuck, untrusted agent should be diagnosed');
+  assert.match(d.because, /workspace-trust prompt no one can see/);
+  assert.match(d.because, /not recorded as trusted/, 'the strong wording names the untrusted folder');
 });
 
-test('#3013 folderTrusted null (config unreadable) + a stuck .key is still surfaced, but HEDGED', () => {
-  const out = card.waiting({
-    job: jobStub(['alice'], { alice: EN(true) }, { alice: SPEC('C:\\work\\alice', 'C:\\cfg\\alice') }),
-    sessions: sessionsStub({}),
-    live: [],
-    trustCheck: () => null,                     // we could not read the config
+test('#3013 folderTrusted null (config unreadable) + a stuck .key is diagnosed, but HEDGED', () => {
+  const d = card.diagnose('alice', {
+    job: jobStub(SPEC('C:\\work\\alice', 'C:\\cfg\\alice')),
+    trustCheck: () => null,       // we could not read the config
     detect: () => true,
   });
-  assert.equal(out.length, 1);
-  assert.equal(out[0].needsTrust, false, 'a null trust read must not make the strong untrusted claim');
-  assert.match(out[0].because, /most likely waiting at a workspace-trust prompt/);
-  assert.doesNotMatch(out[0].because, /not recorded as trusted/, 'null falls back to the hedged wording');
+  assert.ok(d);
+  assert.match(d.because, /most likely waiting at a workspace-trust prompt/);
+  assert.doesNotMatch(d.because, /not recorded as trusted/, 'null falls back to the hedged wording');
 });
 
-test('#3013 a TRUSTED folder is a slow start, not a trust hang -- excluded', () => {
-  const out = card.waiting({
-    job: jobStub(['alice'], { alice: EN(true) }, { alice: SPEC('C:\\work\\alice', 'C:\\cfg\\alice') }),
-    sessions: sessionsStub({}),
-    live: [],
-    trustCheck: () => true,                     // folder is recorded trusted
+test('#3013 a TRUSTED folder is a slow start, not a trust hang -- no diagnosis', () => {
+  const d = card.diagnose('alice', {
+    job: jobStub(SPEC('C:\\work\\alice', 'C:\\cfg\\alice')),
+    trustCheck: () => true,
     detect: () => true,
   });
-  assert.deepEqual(out, []);
+  assert.equal(d, null);
 });
 
 test('#3013 no stuck .key (detector false) -> no claim, however untrusted', () => {
-  const out = card.waiting({
-    job: jobStub(['alice'], { alice: EN(true) }, { alice: SPEC('C:\\work\\alice', 'C:\\cfg\\alice') }),
-    sessions: sessionsStub({}),
-    live: [],
+  const d = card.diagnose('alice', {
+    job: jobStub(SPEC('C:\\work\\alice', 'C:\\cfg\\alice')),
     trustCheck: () => false,
-    detect: () => false,                        // nothing started-but-unregistered in the dir
+    detect: () => false,
   });
-  assert.deepEqual(out, []);
+  assert.equal(d, null);
 });
 
-test('#3013 a live/registered owned agent is excluded even if its folder reads untrusted', () => {
-  const out = card.waiting({
-    job: jobStub(['alice'], { alice: EN(true) }, { alice: SPEC('C:\\work\\alice', 'C:\\cfg\\alice') }),
-    // the record maps a live sessionId to alice; the live list carries that id
-    sessions: sessionsStub({ 'sess-1': { name: 'alice' } }),
-    live: [{ sessionId: 'sess-1' }],
-    trustCheck: () => false,
-    detect: () => true,
-  });
-  assert.deepEqual(out, [], 'an agent registered under a recorded session is not stuck');
-});
-
-test('#3013 a DISABLED (or unregistered) task is intentionally off, not stuck', () => {
-  const out = card.waiting({
-    job: jobStub(
-      ['off', 'gone'],
-      { off: EN(false), gone: { known: true, registered: false } },
-      { off: SPEC('C:\\work\\off', 'C:\\cfg\\off'), gone: SPEC('C:\\work\\gone', null) },
-    ),
-    sessions: sessionsStub({}),
-    live: [],
-    trustCheck: () => false,
-    detect: () => true,
-  });
-  assert.deepEqual(out, [], 'a switched-off or unregistered task never reads as trust-waiting');
-});
-
-test('#3013 fails closed: a job list we could not enumerate claims nothing', () => {
-  const out = card.waiting({
-    job: { list: () => ({ known: false }), taskEnabled: () => EN(true), taskSpec: () => SPEC('C:\\w', 'C:\\c') },
-    sessions: sessionsStub({}),
-    live: [],
-    trustCheck: () => false,
-    detect: () => true,
-  });
-  assert.deepEqual(out, []);
-});
-
-test('#3013 fails closed: a null live look claims nothing (an agent we cannot confirm live might be live)', () => {
-  const out = card.waiting({
-    job: jobStub(['alice'], { alice: EN(true) }, { alice: SPEC('C:\\work\\alice', 'C:\\cfg\\alice') }),
-    sessions: sessionsStub({}),
-    live: null,                                 // `claude agents --json` could not be read
-    trustCheck: () => false,
-    detect: () => true,
-  });
-  assert.deepEqual(out, []);
+test('#3013 fails closed: an unreadable/unregistered task spec is no diagnosis', () => {
+  assert.equal(card.diagnose('alice', {
+    job: jobStub({ known: false }), trustCheck: () => false, detect: () => true,
+  }), null, 'a task we could not read makes no claim');
+  assert.equal(card.diagnose('alice', {
+    job: jobStub({ known: true, registered: false }), trustCheck: () => false, detect: () => true,
+  }), null, 'a task with no registration makes no claim');
 });
 
 test('#3013 the default account (no configDir) is classified as a default-account agent', () => {
-  let sawDefault = null;
-  const out = card.waiting({
-    job: jobStub(['deffy'], { deffy: EN(true) }, { deffy: SPEC('C:\\work\\deffy', null) }),
-    sessions: sessionsStub({}),
-    live: [],
-    trustCheck: (cwd, configDir) => { sawDefault = { cwd, configDir }; return false; },
+  let saw = null;
+  card.diagnose('deffy', {
+    job: jobStub(SPEC('C:\\work\\deffy', null)),
+    trustCheck: (cwd, configDir) => { saw = { cwd, configDir }; return false; },
     detect: () => true,
   });
-  assert.equal(out.length, 1);
-  assert.equal(sawDefault.cwd, 'C:\\work\\deffy');
-  assert.equal(sawDefault.configDir, null, 'a default-account agent passes configDir null to the trust check');
+  assert.equal(saw.cwd, 'C:\\work\\deffy');
+  assert.equal(saw.configDir, null, 'a default-account agent passes configDir null to the trust check');
 });
 
-test('#3013 several agents: only the stuck, untrusted, not-registered, enabled ones come back, in list order', () => {
-  const out = card.waiting({
-    job: jobStub(
-      ['live1', 'trusted1', 'stuck1', 'young1', 'stuck2'],
-      {
-        live1: EN(true), trusted1: EN(true), stuck1: EN(true), young1: EN(true), stuck2: EN(true),
-      },
-      {
-        live1: SPEC('C:\\w\\live1', 'C:\\c'), trusted1: SPEC('C:\\w\\trusted1', 'C:\\c'),
-        stuck1: SPEC('C:\\w\\stuck1', 'C:\\c'), young1: SPEC('C:\\w\\young1', 'C:\\c'),
-        stuck2: SPEC('C:\\w\\stuck2', null),
-      },
-    ),
-    sessions: sessionsStub({ 'id-live1': { name: 'live1' } }),
-    live: [{ sessionId: 'id-live1' }],
-    trustCheck: (cwd) => (cwd.endsWith('trusted1') ? true : false),
-    detect: (configDir) => true,                // pretend every account has a stuck .key
+test('#3013 (SPAWN SHAPE) diagnose reads config ONLY through the #2717 cache, never the uncached calls', () => {
+  /* 🛑 THE PERF GUARD (#2717 / round-1 must-fix). The board calls this per offline
+     agent on the 5s poll. The regression it must never re-introduce is calling the
+     UNCACHED win32job.taskEnabled + raw win32job.taskSpec (two schtasks /Query /XML
+     spawns of identical XML, per agent, per poll). diagnose must read cwd/configDir
+     ONLY through cachedTaskSpec (the cache the poll path was built around). Revert
+     control: switching diagnose back to taskEnabled/taskSpec makes taskEnabled/
+     taskSpec non-zero here and reds. */
+  const counters = {};
+  const job = jobStub(SPEC('C:\\w', 'C:\\c'), counters);
+  for (const name of ['a', 'b', 'c']) {
+    card.diagnose(name, { job, trustCheck: () => false, detect: () => true });
+  }
+  assert.equal(counters.taskEnabled || 0, 0, 'diagnose called the UNCACHED taskEnabled -- a per-poll schtasks spawn');
+  assert.equal(counters.taskSpec || 0, 0, 'diagnose called the UNCACHED raw taskSpec -- a second per-poll schtasks spawn');
+  assert.equal(counters.list || 0, 0, 'diagnose enumerated the fleet itself -- the caller already did that');
+  assert.equal(counters.cachedTaskSpec, 3, 'diagnose should read each agent exactly once, through the cache');
+});
+
+test('#3013 (SPAWN SHAPE) diagnose runs NO live query of its own (liveness is the caller\u2019s)', () => {
+  /* The old fleet-level shape ran win32roster.defaultRun() -> a second
+     `claude agents --json` spawn per poll. diagnose has no live seam at all: it is
+     handed an already-not-live agent. Proven by giving it a job stub with no live
+     reader and asserting it still answers -- if diagnose reached for a live query it
+     would throw or need a seam this test never provides. */
+  const d = card.diagnose('alice', {
+    job: { cachedTaskSpec: () => SPEC('C:\\w', 'C:\\c') },   // no list / no live reader
+    trustCheck: () => false,
+    detect: () => true,
   });
-  // live1 registered; trusted1 trusted; young1 would need detect=false to exclude
-  // -- here detect is always true, so young1 IS included (it is untrusted+not-registered).
-  assert.deepEqual(out.map((o) => o.name), ['stuck1', 'young1', 'stuck2']);
+  assert.ok(d, 'diagnose needed no live query to reach a diagnosis');
 });

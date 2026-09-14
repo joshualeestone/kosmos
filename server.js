@@ -2975,25 +2975,19 @@ const server = http.createServer((req, res) => {
              this roster already refuses elsewhere. Empty on any failure:
              could-not-look must never dress a stopped agent in running. */
           const runningNow = create.runningJobs();
-          /* #3013: which of these known-owned Windows agents are stuck at Claude
-             Code's invisible workspace-trust prompt -- spawned, wrote the early
-             session .key, never registered because the folder is not trusted in
-             the config it reads. The engine path reuses the #2281 detector
+          /* #3013: the workspace-trust diagnosis for a Windows agent that spawned,
+             wrote its early session .key, and never registered because its folder is
+             not trusted in the config it reads. It reuses the #2281 detector
              (win32trustwait) and the supervisor's own positive signal
-             (trust.folderTrusted); it fails closed to [] off win32 and on any
-             refused schtasks/look, so the map is empty on every non-win32 board
-             and on any poll that could not enumerate. Computed once here, then
-             used per row below to replace the misleading "Not running" / "Can't
-             tell" offline copy with the diagnostic the supervisor already writes
-             to the task log. */
-          const trustWaiting = new Map();
-          if (process.platform === 'win32') {
-            try {
-              for (const t of require('./engine/win32trustcard').waiting()) {
-                if (t && t.name) trustWaiting.set(t.name, t.because);
-              }
-            } catch { /* fail closed: a look we could not make shows no trust rows, never a wrong one */ }
-          }
+             (trust.folderTrusted). win32-only, and it adds NO process spawn to this
+             5s poll: liveness is already decided here (this list is the NOT-live
+             agents), enabled is `switchedOff` (one fleet query above), and its one
+             task read goes through win32job's #2717 cache (already warmed for each
+             agent by accountOf/runnerOfCard on the same row). Applied per row below,
+             replacing the misleading "Not running" / "Can't tell" copy with the
+             diagnosis the supervisor already writes to the task log. See
+             engine/win32trustcard.js (incl. its account-level-attribution limit). */
+          const trustCard = process.platform === 'win32' ? require('./engine/win32trustcard') : null;
           /* 🛑 #127: A LEFTOVER JOB WITH NO FOLDER IS STILL A LEFTOVER, and it
              was the one this list discarded. The gate used to be `k.folder`
              alone, so an agent whose worker folder was deleted while its
@@ -3010,10 +3004,16 @@ const server = http.createServer((req, res) => {
             .map((k) => {
               try {
               const profile = store.readProfile(k.name) || {};
-              /* #3013: the trust-wait diagnosis for THIS agent, if any (win32-only;
-                 empty on every other board). When set, it wins over the generic
-                 offline state and copy below. */
-              const stuckBecause = trustWaiting.get(k.name);
+              /* #3013: the trust-wait diagnosis for THIS agent, if any. Only an
+                 ENABLED, present agent can be trust-waiting -- a switched-off one is
+                 intentionally off, a job-missing one is a #127 leftover -- and this
+                 row is already NOT live (it has no pane). Reuses `switchedOff` (one
+                 fleet query above) and jobMissing rather than probing again; diagnose
+                 reads its config from win32job's warm #2717 cache, so no schtasks
+                 spawn is added. win32-only (trustCard is null elsewhere). */
+              const stuckBecause = (trustCard && !create.jobMissing(k.name) && !switchedOff.has(k.name))
+                ? ((trustCard.diagnose(k.name) || {}).because)
+                : undefined;
               /* #668: launchd holds a live process for this job, and this
                  board can see no session for it. Two true facts that
                  disagree, and the disagreement is the story -- so the row

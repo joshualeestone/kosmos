@@ -31,12 +31,26 @@ function offlineRegion() {
   return SRC.slice(at, end);
 }
 
-test('#3013 the offline builder consults win32trustcard, win32-gated', () => {
+test('#3013 the offline builder consults win32trustcard.diagnose, win32-gated', () => {
   const region = offlineRegion();
-  assert.match(region, /process\.platform === 'win32'/,
-    'the trust-wait probe is not gated to win32, so every Mac board would spawn a failing schtasks per poll');
-  assert.match(region, /require\('\.\/engine\/win32trustcard'\)\.waiting\(\)/,
-    'the offline builder no longer reuses the win32trustcard engine path');
+  assert.match(region, /process\.platform === 'win32' \? require\('\.\/engine\/win32trustcard'\) : null/,
+    'the trust-card module is not required win32-gated, so a Mac board would load/probe it every poll');
+  assert.match(region, /trustCard\.diagnose\(k\.name\)/,
+    'the offline builder no longer calls the per-agent diagnose path');
+});
+
+test('#3013 (PERF) the trust probe adds NO per-poll spawn: gated on already-fetched fleet facts', () => {
+  /* 🛑 THE #2717 GUARD AT THE CALL SITE. diagnose must be reached only through data
+     the offline builder ALREADY fetched this poll -- switchedOff (one create.disabledJobs
+     fleet call above) and jobMissing -- never a fresh per-agent probe, and diagnose
+     itself must not be the fleet-level waiting() that re-ran claude/schtasks. */
+  const region = offlineRegion();
+  assert.match(region, /!switchedOff\.has\(k\.name\)/,
+    'the trust probe is not gated on the already-fetched switchedOff set');
+  assert.doesNotMatch(region, /win32trustcard'\)\.waiting\(\)/,
+    'the offline builder still calls the removed fleet-level waiting() (a second claude/schtasks pass)');
+  assert.doesNotMatch(region, /win32roster'\)\.defaultRun\(\)/,
+    'the offline builder runs a second claude agents --json for the trust probe');
 });
 
 test('#3013 a stuck agent gets state needs_trust and the needsTrust marker', () => {
