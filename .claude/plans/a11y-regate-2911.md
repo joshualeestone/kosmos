@@ -8,7 +8,8 @@ On the "Kosmos Never Sleeps" / Access (S3) screen:
 1. The screen asks for tmux Accessibility (Josh's "step 3") alongside the Kosmos-app
    Accessibility ask - user turns on Kosmos, tmux, and accessibility.
 2. The gate detects BOTH grants and blocks Continue only on a definite not-granted:
-   - APP Accessibility - via appGrant() live TCC read (DONE, commit 75a53a79a).
+   - APP Accessibility - via appGrant() live TCC read (DONE on this branch; a rebase
+     rewrites commit shas, so this cites no specific sha).
    - TMUX Accessibility - via tmuxGrant() (client LIKE '%/tmux', realpath exact-match
      on the bundled tmux binary), wired as its own FR_GATES row.
 3. Both gate rows are block-on-positive with uncheckable→non-blocking, so a browser /

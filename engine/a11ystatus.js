@@ -246,22 +246,21 @@ const GRANT_TTL_MS = 2000;
 function resetGrantCache() { grantCache = null; }
 
 /**
- * #2085: tmux's REAL Accessibility grant, read from the system TCC db, in the
+ * #2085/#2911: tmux's OWN Accessibility grant, read from the system TCC db, in the
  * SAME three-answer shape as read().
  *
- * 🛑 THIS READS TMUX'S OWN GRANT, a DIFFERENT subject from read(). It was #2085's
- * attempt to answer "is tmux granted" while read() (the native app's own
- * AXIsProcessTrusted = the CALLING binary) was believed to be the wrong subject. But
- * #2451 (Kitty's identity resolution) established the CALLING binary IS the subject
- * the first-run gate needs: the onboarding registers the kosmos-app (the Accessibility
- * row macOS shows + grants is Kosmos, never tmux), so /api/a11y-status serves read()
- * and this function is NOT route-called -- do not re-wire the gate to it. It stays a
- * library function (and for a possible #2125-KEEP tmux-identity path): AX is keyed on
- * the calling binary and there is no clean API to ask "is tmux trusted" from another
- * process, so this reads tmux's OWN path-keyed grant row directly. (tmux appearing in
- * the db is real and path-keyed -- measured on the fleet, `.../tmux -> auth_value 2`;
- * that is orthogonal to tmux disclaiming responsibility for its CHILDREN, which is why
- * the under-tmux re-exec in #2125 still returned the app's state.)
+ * SUBJECT = tmux itself (path-keyed on the bundled tmux binary), a DISTINCT subject
+ * from the Kosmos app's grant (read()/appGrant, bundle-id-keyed). Onboarding needs
+ * BOTH (#2911): the app row macOS shows as "Kosmos" AND the "tmux" row it lists
+ * alongside it (Josh's fresh-install screenshot + this box's system TCC.db both show
+ * them). So this function IS route-called now, by /api/tmux-a11y-status (#2911), to
+ * gate S3 on tmux's own grant; the app gate (/api/a11y-status) stays the APP subject,
+ * which is what #2451 established for THAT gate. An earlier note here said tmux "can
+ * never hold the grant" and that this must not be route-wired -- both were wrong (an
+ * over-generalized #2125 read) and are retracted: tmux holds its own path-keyed AX
+ * grant, measured on the fleet (`.../tmux -> auth_value 2`). AX is keyed on the calling
+ * binary and there is no clean cross-process API to ask "is tmux trusted", so this
+ * reads tmux's OWN path-keyed grant row directly.
  *
  * Dispositions -- NEVER a false green is the load-bearing invariant, and it never
  * strands a granted user on a Next gate either:

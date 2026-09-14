@@ -8166,6 +8166,13 @@ const server = http.createServer((req, res) => {
         // that keyed the grant on a client string other than APP_CLIENT). That closes
         // the both-ways trap without weakening the re-gate: a genuine not-granted has
         // read() ALSO not-trusted, so it still blocks.
+        // ACCEPTED TRADEOFF: read()'s trusted:true is stale-tolerant (< STALE_AFTER_MS,
+        // ~5 min, refreshed ~60s). So a user who JUST revoked Accessibility while
+        // appGrant is momentarily uncheckable (e.g. a transient TCC-db lock) could be
+        // served granted for one staleness window. This is strictly no worse than
+        // pre-#2559 (which relied on read() 100% of the time with the same staleness),
+        // the window is narrow, and it fails toward NOT-trapping -- the deliberate
+        // direction for this install-screen surface (#2912).
         let nf; try { nf = a11ystatus.read(); } catch { nf = { checkable: false }; }
         if (nf && nf.checkable === true && nf.trusted === true) reading = nf;
         else if (live && live.checkable === true) reading = live;
@@ -8187,7 +8194,12 @@ const server = http.createServer((req, res) => {
      rule: a present:false verdict (our tmux binary is not yet listed in Accessibility,
      so there is nothing to toggle) is mapped to checkable:false -> advisory, so a
      screen reached before tmux registers is never a trap (#2912). A path-key mismatch
-     or an unreadable db is already checkable:false (advisory) from tmuxGrant. */
+     or an unreadable db is already checkable:false (advisory) from tmuxGrant.
+     NOTE (cost): S3 now polls TWO Accessibility readers -- appGrant (/api/a11y-status)
+     and tmuxGrant (this route) -- each spawning its own sqlite3 subprocess against the
+     same system TCC.db on the board's single HTTP thread. Each reader has its own 2s
+     memo (GRANT_TTL_MS), so the 750ms poll elides most spawns; a single combined read
+     serving both rows is a possible follow-up if the doubled spawn ever shows on S3. */
   if (pathname === '/api/tmux-a11y-status' && (req.method === 'GET' || req.method === 'HEAD')) {
     let reading;
     try {
