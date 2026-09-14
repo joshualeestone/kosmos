@@ -2030,72 +2030,6 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    is wrong here: the picture is the subject, not a bullet, so they centre. */
 .dockrow { display: flex; align-items: center; gap: 12px; margin: 12px 0 0; }
 .dockrow-i { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 10px; display: block; }
-/* #853's table, the first one in the product, so it brings its own rules.
-   ⚠️ THE WRAPPER SCROLLS, THE PAGE DOES NOT. Six columns of large numbers is
-   wider than a narrow window, and a table that widens the page pushes every
-   other section sideways too. `#usage-table` is the scroll container; the table
-   inside it is allowed to be wider than the screen. */
-/* ROOM FOR THE SCROLLBAR (kosmos#1308, revisited by #2617). Josh, on 0.5.97:
-   "there's a horizontal scroll bar that is going right over the top of the total
-   line". Back then `#usage-worth` sat immediately BELOW this scroll container and
-   the bar struck through the summary. #2617 reordered the section: the money box
-   now sits ABOVE the table and `#usage-table` is the LAST element, so the bar no
-   longer lands on the summary. The padding stays: it is breathing room below the
-   bar at the foot of the section, and it keeps the bar off the last table row.
-   ⚠️ PADDING INSIDE THE SCROLL CONTAINER, not a margin below it: the bar belongs
-   to this box, so the room for it has to be in this box.
-   📌 Only appears when the six columns are wider than the window, which is why
-   it shows on a narrow window and not a wide one. */
-#usage-table { overflow-x: auto; padding-bottom: 10px; }
-.usage-table { border-collapse: collapse; font-size: .875rem; min-width: 100%; }
-.usage-table th, .usage-table td { padding: 6px 12px 6px 0; text-align: left; white-space: nowrap; }
-.usage-table th { color: var(--k-ink-2); font-weight: 600; border-bottom: 1px solid var(--k-rule); }
-.usage-table td { border-bottom: 1px solid var(--k-rule); }
-/* Right-aligned and tabular so columns of very different magnitudes line up:
-   cache-read runs orders of magnitude above output, and ragged digits make that
-   difference harder to see rather than easier. */
-.usage-table td.usage-n { text-align: right; font-variant-numeric: tabular-nums; }
-/* #2617: the graphical value view (Mona's design). Cards, shared-axis chart,
-   money box, and the table framed as "the measurement". Built on the app's
-   --k-* surface/ink/rule tokens so the whole view flips with the theme -- the
-   mockup hardcoded dark; the tokens give the light scheme for free. The four
-   chart/legend colors are Mona's exact values. */
-/* TWO columns, not four. The mockup shows four across at a 900px document width,
-   and drops to two at <=680px VIEWPORT. But this section lives in the Settings
-   content column (34rem / ~544px) inside a wide viewport, so the viewport query
-   never fires and four full 13-digit numbers get crushed to ~85px each -- which
-   forced a font smaller than the card's own caption. Two across gives each card
-   ~210px, so the numbers stay bold AND fit on one clean line (Mona's #2617
-   design-block). One column only on a genuinely narrow phone. */
-.usage-four { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 14px 0 0; }
-@media (max-width: 480px) { .usage-four { grid-template-columns: 1fr; } }
-.usage-cls { border: 1px solid var(--k-rule); border-radius: 12px; padding: 14px 15px; }
-.usage-k { color: var(--k-ink-2); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 7px; }
-/* nowrap + no word-break: a full, unabbreviated number stays on ONE line and is
-   never split mid-digit-group (the #2617 design-block: "1,964,/004,10/2" read as
-   broken). At 1.2rem in a two-column card, even a trillion-scale (17-char) number
-   fits, so the layout holds Josh's "show it in full however large" without wrapping. */
-.usage-v { color: var(--k-ink); font: 700 1.2rem/1.15 var(--font-mono); letter-spacing: -.01em; white-space: nowrap; }
-/* The cache-read card's accent is applied inline by usageCardsHtml from the shared
-   USAGE_CLASS_COLORS, so it agrees with the chart line and legend swatch by
-   REFERENCE, not by both happening to equal the app-wide --gold (which is reused
-   for unrelated accents and could drift from the class color). */
-.usage-say { color: var(--k-ink-2); font-size: .8125rem; margin: 6px 0 0; }
-.usage-chartwrap { border: 1px solid var(--k-rule); border-radius: 14px; padding: 16px 16px 10px; margin: 16px 0 0; }
-.usage-chartwrap h4 { color: var(--k-ink); font: 600 .9375rem var(--font-ui); margin: 0 0 2px; }
-#usage-chart svg { width: 100%; height: auto; display: block; }
-.usage-legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 8px 0 0; }
-.usage-lg { display: inline-flex; align-items: center; gap: 6px; color: var(--k-ink-2); font-size: .8125rem; }
-.usage-lg i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
-.usage-money { border: 1px solid var(--k-rule); border-radius: 12px; padding: 16px 18px; margin: 22px 0 0;
-               background: linear-gradient(180deg, rgba(214, 166, 46, .06), transparent 70%); }
-.usage-money-lab { color: var(--k-ink-2); font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; margin: 0 0 6px; }
-.usage-money-big { font: 700 2rem/1 var(--font-ui); color: var(--k-ink); letter-spacing: -.02em; margin: 0; }
-.usage-money-big span { color: var(--gold); }
-.usage-money-basis { color: var(--k-ink-2); font-size: .9375rem; margin: 10px 0 0; max-width: 60ch; }
-.usage-money-basis b { color: var(--k-ink); }
-.usage-meas { margin: 24px 0 0; }
-.usage-meas h4 { color: var(--k-ink); font: 600 .9375rem var(--font-ui); margin: 0 0 10px; }
 /* #2840: the "how we estimate the value" method footnote for the blended Value
    column (Mona Lisa's token-value design). A QUIET footnote, not a callout: one
    top hairline, muted ink, no box/border/radius and no left color-rule -- the same
@@ -2103,8 +2037,8 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 .usage-method { border-top: 1px solid var(--k-rule); margin: 20px 0 0; padding: 14px 0 0; color: var(--k-ink-2); font-size: .8125rem; line-height: 1.55; max-width: 60ch; }
 .usage-method a { color: var(--k-ink-2); text-decoration: underline; }
 /* #2840: the scrollable usage-history list (Mona's token-value design, ported to the
-   app's --k-* tokens). A fixed-height scroll box; the header sticks. Same right-aligned
-   tabular numerics as .usage-table so magnitudes line up. */
+   app's --k-* tokens). A fixed-height scroll box; the header sticks. Right-aligned
+   tabular numerics so magnitudes line up. */
 .usage-hist { margin: 24px 0 0; }
 .usage-hist h4 { color: var(--k-ink); font: 600 .9375rem var(--font-ui); margin: 0 0 6px; }
 #usage-history { margin-top: 12px; border: 1px solid var(--k-rule); border-radius: 12px; max-height: 520px; overflow-y: auto; }
@@ -2114,6 +2048,71 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 .uhrow .uh-d { font-weight: 600; color: var(--k-ink); }
 .uhrow .uh-m { color: var(--k-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .uhrow .uh-n { text-align: right; font-variant-numeric: tabular-nums; color: var(--k-ink-2); }
+/* #2840: the approved /design/token-value hero + stats + per-model donut + model
+   table + four daily charts, ported to the app's --k-* tokens EXACTLY to Josh's
+   approved spec (2026-09-14 ruling: build verbatim, the blended headline total is
+   correct as full-engineering-value, do not "honest-adjust"). The design's
+   --panel/--line/--ink/--muted/--gold/--green/--mono/--disp map to the app tokens
+   below. Structure/spacing/typography match design/token-value.html. */
+.tv-hero { margin: 20px 0 0; background: var(--k-bg); border: 1px solid var(--k-rule); border-radius: 18px; padding: clamp(20px,4vw,32px) clamp(16px,3.5vw,28px); }
+/* #2840: the Token Usage section is a size CONTAINER so the value-view grids below
+   collapse on the SETTINGS COLUMN width, not the viewport. The settings content
+   column is capped at 34rem (~544px) on a wide desktop viewport (#panel-settings
+   .dbody), so a plain viewport media query never fires there -- the exact trap the
+   predecessor cards documented. The table+donut row (.tv-wtr) needs more than 544px
+   side by side, so it keys off the container instead. */
+#s-sec-usage { container-type: inline-size; }
+.tv-days { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 clamp(16px,3vw,24px); }
+.tv-dnum { display: flex; gap: 4px; }
+.tv-dbox { font: 700 clamp(16px,2.7vw,22px)/1.2 var(--font-mono); color: var(--gold); text-align: center; }
+.tv-dtxt { font: 700 clamp(14px,2.1vw,18px) var(--font-ui); letter-spacing: .01em; color: var(--k-ink); }
+.tv-heq { display: grid; grid-template-columns: 1fr auto 1fr; align-items: stretch; gap: clamp(8px,2vw,20px); }
+.tv-fbox, .tv-sbox { background: var(--k-bg); border: 1px solid var(--k-rule); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+.tv-fig { flex: 1; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; line-height: .95; letter-spacing: -.03em; text-align: center; color: var(--k-ink); }
+/* Figure sizes scale with the CONTAINER (cqi), not the viewport: the settings column
+   is fixed at ~544px on desktop, so a vw clamp would size the number to the whole screen
+   and a production-scale headline ($135.0M / 150.0B) would overflow its box and be clipped
+   by the overflow:hidden above. cqi tracks the column that actually bounds the text. */
+.tv-fbox .tv-fig { font-size: clamp(26px,8cqi,80px); padding: clamp(18px,4.5vw,34px) 10px; }
+.tv-fbox.gold .tv-fig { color: var(--gold); }
+.tv-fbox.green .tv-fig { color: var(--ok, #1f7a4d); }
+.tv-flabel { color: var(--k-ink-2); font: 600 clamp(10px,1.35vw,12px) var(--font-mono); text-transform: uppercase; letter-spacing: .07em; text-align: center; padding: 11px 10px 14px; border-top: 1px solid var(--k-rule); }
+.tv-eq { display: flex; align-items: center; justify-content: center; font: 700 clamp(20px,7cqi,44px) var(--font-mono); color: var(--k-ink-2); padding: 0 2px; }
+.tv-stats3 { display: grid; grid-template-columns: repeat(3,1fr); gap: clamp(8px,1.8vw,16px); margin-top: clamp(8px,1.8vw,16px); }
+.tv-sbox .tv-fig { font-size: clamp(20px,6cqi,36px); letter-spacing: -.02em; padding: clamp(16px,3.2vw,24px) 8px; }
+@media (max-width: 520px) { .tv-stats3 { grid-template-columns: 1fr; } }
+/* charts4: the four per-class daily line charts (small multiples). */
+.tv-charts4 { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(10px,2vw,18px); margin-top: 20px; }
+@media (max-width: 560px) { .tv-charts4 { grid-template-columns: 1fr; } }
+.tv-mini { border: 1px solid var(--k-rule); border-radius: 14px; padding: 14px 16px; background: var(--k-bg); }
+.tv-mini .tv-mh { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.tv-mini .tv-nm { font: 600 .875rem var(--font-ui); color: var(--k-ink); }
+.tv-mini .tv-tg { color: var(--k-ink-2); font-weight: 400; font-size: .75rem; margin-left: 7px; }
+.tv-mini .tv-tot { font: 700 .875rem var(--font-mono); font-variant-numeric: tabular-nums; color: var(--k-ink); }
+.tv-mini .tv-pc { color: var(--k-ink-2); font-weight: 500; margin-left: 6px; }
+.tv-mini svg { width: 100%; height: auto; display: block; }
+/* per-model table + donut, side by side (design .wtr). */
+.tv-wtr { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: stretch; margin-top: 20px; }
+/* Container query, not viewport: stack the table above the donut whenever the
+   settings column is too narrow to hold both side by side (it is at the 34rem
+   desktop cap; side by side only when the column genuinely widens past ~620px). */
+@container (max-width: 620px) { .tv-wtr { grid-template-columns: 1fr; } }
+.tv-mtable { border: 1px solid var(--k-rule); border-radius: 14px; overflow: hidden; }
+.tv-mrow { display: grid; grid-template-columns: 1.6fr 1fr 88px 84px; gap: 10px; align-items: center; padding: 12px 16px; border-top: 1px solid var(--k-rule); }
+.tv-mrow:first-child { border-top: none; }
+.tv-mrow.head { background: var(--k-bg); font: 600 .6875rem var(--font-ui); text-transform: uppercase; letter-spacing: .07em; color: var(--k-ink-2); }
+.tv-mrow .tv-mn { font: 600 .875rem var(--font-ui); color: var(--k-ink); display: flex; align-items: center; gap: 9px; min-width: 0; }
+.tv-mrow .tv-mnl { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tv-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.tv-mbar { height: 7px; background: var(--k-rule); border-radius: 5px; overflow: hidden; }
+.tv-mbar span { display: block; height: 100%; border-radius: 5px; }
+.tv-mrow .tv-num { font: 500 .84rem var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--k-ink); }
+.tv-pie { border: 1px solid var(--k-rule); border-radius: 16px; padding: 22px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; background: var(--k-bg); }
+.tv-pie svg { max-width: 220px; }
+.tv-pielegend { display: flex; flex-direction: column; gap: 9px; width: 100%; }
+.tv-pileg { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: .8125rem; }
+.tv-pileg .l { display: flex; align-items: center; gap: 8px; color: var(--k-ink-2); }
+.tv-pileg .v { font: 600 .8125rem var(--font-mono); font-variant-numeric: tabular-nums; color: var(--k-ink); }
 .dstack { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 14px; }
 .dstack > .dbox { align-self: stretch; }
 /* The agent page's left nav (Mona Lisa's agent-page mock, 2026-08-22). A
@@ -4849,8 +4848,8 @@ body.plus-active .dm.theirs .dm-b[data-am], body.plus-active .msg:not(.you) .msg
 .dm-b .mdh4, .pj-msg-text .mdh4, .msg-b .mdh4 { font-size: 1rem; }
 .dm-b .mdh5, .pj-msg-text .mdh5, .msg-b .mdh5 { font-size: .9375rem; }
 .dm-b .mdh6, .pj-msg-text .mdh6, .msg-b .mdh6 { font-size: .875rem; }
-/* #2701: markdown tables. The WRAPPER is the inline-block scroll container (the
-   #usage-table pattern) -- it flows in the renderer's inline (<br>-joined)
+/* #2701: markdown tables. The WRAPPER is the inline-block scroll container --
+   it flows in the renderer's inline (<br>-joined)
    output like .mdhr's inline-block, caps the width, and SCROLLS a wide table
    rather than letting it widen the message bubble (a long URL / inline-code
    token in a cell cannot force the column wider). The table itself lays out
@@ -12689,24 +12688,39 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            work and is a deferred fast-follow (#2617 comment). -->
       <p class="dhint">What your agents used, per class, over the last 14 days. Read from the transcripts on this computer, shown in full. Nothing here leaves the machine.</p>
       <p id="usage-msg" class="dhint">Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.</p>
-      <div id="usage-cards"></div>
-      <div id="usage-chartwrap" class="usage-chartwrap" hidden>
-        <h4>Daily usage, all four classes</h4>
-        <p class="dhint">Cache read dominates the axis, so the other three run low along the bottom. That is the real scale, not a drawing choice.</p>
-        <div id="usage-chart"></div>
-        <!-- Filled by usageLegendHtml() from the shared USAGE_CLASS_COLORS, so the
-             swatches cannot drift from the polyline colors they explain. -->
-        <div id="usage-legend" class="usage-legend"></div>
+      <!-- #2840: the approved /design/token-value HERO -- active-days eyebrow +
+           the blended tokens = human-cost equation + three stats (work hours /
+           years / equivalent API cost). Josh RULED 2026-09-14 (via Splinter) to
+           build this verbatim to his approved spec: the blended "total tokens"
+           headline is CORRECT because it reflects FULL engineering value
+           (research, reading, prioritizing -- not output-token "typing" alone),
+           so it supersedes the earlier #2617 never-sum position for THIS headline.
+           Populated by usageHeroHtml() from the same real /api/usage data. -->
+      <div id="usage-hero"></div>
+      <!-- #2840: charts4 -- four per-class daily mini-charts (cache reads / writes /
+           output / input), the approved /design/token-value presentation. Replaces
+           the prior four full-number cards + single combined shared-axis chart
+           (#2617), per Josh's 2026-09-14 exact-to-spec ruling (documented on the
+           card; a fast add-back if he wants either kept). Populated by
+           usageCharts4Html from the same real /api/usage daily series. -->
+      <div id="usage-charts4" hidden></div>
+      <!-- #2840: where the work ran -- the per-model table + the per-model token
+           share donut, side by side, matching the approved /design/token-value.
+           Both draw from the same per-model aggregate (usageByModel) and the same
+           USAGE_MODEL_COLORS, so table and donut cannot disagree. -->
+      <div class="tv-wtr" id="usage-wtr" hidden>
+        <div class="tv-mtable" id="usage-mtable"></div>
+        <div class="tv-pie" id="usage-donut"></div>
       </div>
       <!-- #2840 (Mona's 0.6.57 token-value design): the scrollable usage-history
-           list, above the estimate note. Newest day+model first, fixed-height
-           scroll. Day / Model / Total tokens / Value.
-           The Value column is the BLENDED per-row dollar figure the approved
-           /design/token-value derives (all four classes summed, valued at a blended
-           knowledge-work rate). Josh RULED to keep this blend (the design's ~$135M
-           headline); usageRowValue computes it. Note: this is the only blended figure
-           surfaced -- the design's blended "total tokens" hero stays OUT, because a
-           single blended token total is what #2617 refused (cache_read ~440x output). -->
+           list. Newest day+model first, fixed-height scroll. Day / Model / Total
+           tokens / Value. The Value column is the blended per-row dollar figure the
+           approved /design/token-value derives (all four classes summed at a blended
+           knowledge-work rate), computed by usageRowValue. Per Josh's 2026-09-14
+           ruling the blended total is ALSO the hero headline (it reflects full
+           engineering value, not output "typing" alone), so the blend is the page's
+           throughline rather than a lone figure -- superseding the earlier #2617
+           never-sum position for this headline. -->
       <div class="usage-hist">
         <h4>Usage history</h4>
         <p class="dhint">Your most recent days, newest first. It scrolls when the history runs long. Value estimates the human work each day represents.</p>
@@ -12722,16 +12736,6 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            already shows in the column). Quiet: top hairline, muted, no callout, no
            left rule. The METR URL is verbatim from design/token-value.html. -->
       <p class="usage-method">How we estimate the value: each day's tokens, across all four classes, are valued at a blended knowledge-work rate. Framing informed by <a href="https://metr.org/time-horizons/" target="_blank" rel="noopener">METR's research</a> on how long AI can work unattended.</p>
-      <!-- The engineering-equivalent line, quoted against OUTPUT tokens and
-           saying so in the sentence itself. It sits BELOW the cards and chart on
-           purpose: the four classes are the measurement, this is one
-           interpretation of one of them, and putting the interpretation first
-           would make the derived number look like the finding. -->
-      <div id="usage-worth"></div>
-      <div class="usage-meas">
-        <h4>The measurement it comes from</h4>
-        <div id="usage-table"></div>
-      </div>
     </section>
   </section>
   <section class="dsec" id="s-sec-updates" data-sec="updates" tabindex="-1" aria-label="Updates" hidden>
@@ -25074,33 +25078,13 @@ function settingsGo(section, opts) {
    rescanned on every call and cannot be frozen while it is still accruing), and
    this section repaints on every arrival, so without the guard a person tabbing
    in and out queues a minute of work per visit. */
-/* #853's second half, in Josh's words: "tracking how many tokens they are
-   using and then showing them the dollar engineering costs next to it."
-   🛑 QUOTED AGAINST OUTPUT TOKENS ALONE, AND THE CLASS IS NAMED AT THE NUMBER.
-   The tokens page states the rule this follows: "the class is named at every
-   number on this page rather than explained once at the top", because a caveat
-   at the top does not travel with a figure somebody screenshots. Output is what
-   the models actually produced; cache reads are the same context re-read on
-   every turn, ran 98% of one measured total, and are NOT work. Feeding a
-   combined total into this formula gives an answer about 440x too large, and a
-   number that size reads as a triumph rather than an error, so nobody
-   challenges it.
-   ⚠️ BOTH CONSTANTS ARE DISPLAY LAYER AND BELONG TO A PERSON, NOT TO THE ENGINE.
-   The rate is Josh's own ($100/hr) and the conversion is Koalr's (750,000
-   tokens to an eight-hour engineer-day), the same pair the published page uses.
-   They are here, together, so changing them is one edit in one place and so
-   that nobody has to reverse-engineer where a dollar figure came from. */
-const USAGE_TOKENS_PER_ENGINEER_DAY = 750000;
-const USAGE_HOURS_PER_ENGINEER_DAY = 8;
-const USAGE_RATE_PER_HOUR = 100;
-/* #2617: the graphical value view (Mona's design, Josh's #1 demo win). The four
-   classes are shown SEPARATELY and in FULL -- Josh's overrule, verbatim via
-   Splinter: show them "however high or insane they might look", no rounding, no
-   abbreviation, no softening a number because it looks alarming. The chart puts
-   all four on ONE shared axis so cache-read towers over the rest, which is the
-   true proportion rather than a drawing choice. The dollar box below is built
-   from OUTPUT tokens alone and names its class in the sentence, so a derived
-   figure is never read as a raw total.
+/* #2840: the approved /design/token-value value view (Josh's #1 demo win). Josh RULED
+   2026-09-14 (via Splinter) to build it verbatim to the approved spec: a hero (blended
+   total = human-cost equation + three stats), four per-class daily mini-charts, a
+   per-model table + token-share donut, the usage-history list, and the METR footnote.
+   The blended total is the headline, ruled CORRECT as full engineering value; the four
+   classes are still shown on their own in the mini-charts so cache-read's magnitude is
+   visible rather than hidden behind the blend.
    🛑 THE HELPERS BELOW ARE PURE AND SELF-CONTAINED ON PURPOSE. The node test
    (web.token-usage-2617.test.js) lifts each out of the page and runs it against
    a fixed /api/usage fixture to pin the summed classes and the computed dollar
@@ -25110,10 +25094,12 @@ function usageNum(n) {
   const v = Number(n) || 0;
   return v.toLocaleString();
 }
-/* Sum each of the four classes across every day and model. They are returned as
-   four separate integers and DELIBERATELY never added together (server.js:4485,
-   web:11299): cache_read ran ~440x output in one measured day, so a single
-   "tokens used" figure is not a rounder truth, it is roughly 440x too large. */
+/* Sum each of the four classes across every day and model, returned as four separate
+   integers. The per-class split is kept because the classes differ wildly in magnitude
+   (cache_read ran ~440x output in one measured day), so the mini-charts show each on its
+   own. The BLENDED total (all four summed) is a separate helper, usageGrandTotal, used
+   for the hero headline and the per-model shares per Josh's 2026-09-14 ruling that the
+   blended total is the correct full-value figure. */
 function usageTotals(byDay) {
   const t = { input: 0, output: 0, cacheWritten: 0, cacheRead: 0 };
   for (const day of Object.keys(byDay || {})) {
@@ -25127,6 +25113,25 @@ function usageTotals(byDay) {
     }
   }
   return t;
+}
+/* #2840: the blended grand total, every class summed. ONE helper so the hero headline,
+   the charts4/table/donut grandTotal, and the donut center all derive the figure from a
+   single place. A change to which classes count is then one edit rather than three that
+   have to stay in lockstep -- the "two derivations of one fact" defect this codebase keeps
+   paying for. Pure + node-tested (sum of usageByModel equals this). */
+function usageGrandTotal(totals) {
+  const t = totals || {};
+  return (Number(t.input) || 0) + (Number(t.output) || 0)
+    + (Number(t.cacheWritten) || 0) + (Number(t.cacheRead) || 0);
+}
+/* #2840: one day+model row's blended token total (all four raw class fields). Shared by
+   the per-model aggregate (usageByModel) and the usage-history rows so the row math lives
+   in one place, not two copies that can drift -- the same "one derivation" rule
+   usageGrandTotal applies to the class totals. Pure + node-tested. */
+function usageRowTokenTotal(b) {
+  const r = b || {};
+  return (Number(r.input_tokens) || 0) + (Number(r.output_tokens) || 0)
+    + (Number(r.cache_creation_input_tokens) || 0) + (Number(r.cache_read_input_tokens) || 0);
 }
 /* One point per day (models summed within the day), ascending by date, so the
    chart draws left-to-right oldest-to-newest. */
@@ -25144,62 +25149,9 @@ function usageDailySeries(byDay) {
     return p;
   });
 }
-/* YYYY-MM-DD (the UTC key usage.js produces) -> a short "Mon D" axis label.
-   Anything not in that shape is shown as-is rather than guessed at. */
-function usageDayLabel(day) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(day || ''));
-  if (!m) return String(day || '');
-  const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return (names[Number(m[2]) - 1] || m[2]) + ' ' + String(Number(m[3]));
-}
-/* The four class cards, full numbers, cache-read gold-accented. Each names what
-   its class IS on the card, because a caveat at the top does not travel with a
-   number somebody screenshots. */
-function usageCardsHtml(totals) {
-  const t = totals || {};
-  /* The cache-read accent is taken from the SAME shared source as the chart line
-     and the legend swatch, so all three agree by reference rather than by all
-     happening to equal the app-wide --gold. */
-  const readColor = (USAGE_CLASS_COLORS.find((c) => c.key === 'cacheRead') || {}).color || '';
-  const card = (extra, label, value, say, color) =>
-    '<div class="usage-cls' + (extra ? ' ' + extra : '') + '">'
-    + '<div class="usage-k">' + label + '</div>'
-    + '<div class="usage-v"' + (color ? ' style="color:' + color + '"' : '') + '>' + usageNum(value) + '</div>'
-    + '<div class="usage-say">' + say + '</div></div>';
-  return '<div class="usage-four">'
-    + card('', 'Input', t.input, 'what you sent the models', '')
-    + card('', 'Output', t.output, 'what the models produced', '')
-    + card('', 'Cache written', t.cacheWritten, 'context stored for reuse', '')
-    + card('read', 'Cache read', t.cacheRead, 'the same context read again on every turn', readColor)
-    + '</div>';
-}
-/* One interpretation, in money, from OUTPUT tokens only. The class is named in
-   the sentence and the other three are shown in full above rather than folded
-   in, so a large count is never turned into a large dollar amount it did not
-   earn. The two constants belong to a person, not the engine (see the note at
-   USAGE_TOKENS_PER_ENGINEER_DAY). Empty when there is no output to interpret. */
-function usageMoneyHtml(totals) {
-  const output = Number((totals || {}).output) || 0;
-  if (!output) return '';
-  const engDays = output / USAGE_TOKENS_PER_ENGINEER_DAY;
-  const dollars = Math.round(engDays * USAGE_HOURS_PER_ENGINEER_DAY * USAGE_RATE_PER_HOUR);
-  return '<div class="usage-money">'
-    + '<p class="usage-money-lab">One interpretation, in money</p>'
-    + '<p class="usage-money-big">$<span>' + usageNum(dollars) + '</span></p>'
-    + '<p class="usage-money-basis">This is the engineering-equivalent of the <b>output</b> tokens above ('
-    + usageNum(output) + ' over the period), at ' + usageNum(USAGE_TOKENS_PER_ENGINEER_DAY)
-    // "eight-hour" is spelled out (Mona's #2617 copy call) so the reader does not
-    // collide it with the digit in "about N engineer-days" later in the sentence.
-    // The word tracks USAGE_HOURS_PER_ENGINEER_DAY (8); update both together.
-    + ' output tokens to an eight-hour engineer-day at $' + USAGE_RATE_PER_HOUR
-    + ' an hour: about ' + engDays.toFixed(1) + ' engineer-days. It is built from output on purpose, because '
-    + 'output is what the models actually produced; the other three classes are shown in full above rather than '
-    + 'folded into this figure, so a large number is never turned into a large dollar amount it did not earn.</p>'
-    + '</div>';
-}
-/* The four class colors live ONCE here and drive BOTH the chart polylines
-   (usageChartSvg) and the legend swatches (usageLegendHtml), so a color Mona
-   revises cannot drift between the two surfaces -- the "two derivations of one
+/* The four class colors live ONCE here and drive the per-class lines in the
+   four daily mini-charts (usageCharts4Html), so a color Mona revises lives in
+   one place and cannot drift across charts -- the "two derivations of one
    fact" defect. Order matches the mockup's legend (cache-read first). */
 const USAGE_CLASS_COLORS = [
   { key: 'cacheRead', color: '#d6a62e', label: 'Cache read' },
@@ -25207,64 +25159,6 @@ const USAGE_CLASS_COLORS = [
   { key: 'input', color: '#8ab4ff', label: 'Input' },
   { key: 'output', color: '#c78cff', label: 'Output' }
 ];
-/* The legend, generated from the shared color list so it cannot disagree with
-   the polylines it explains. */
-function usageLegendHtml() {
-  return USAGE_CLASS_COLORS.map((c) =>
-    '<span class="usage-lg"><i style="background:' + c.color + '"></i>' + c.label + '</span>').join('');
-}
-/* The daily chart: four polylines on ONE shared y-axis, scaled to the single
-   largest value across all four classes (cache-read, in practice), so the true
-   proportion shows -- cache-read towers, the other three run low along the
-   bottom. Needs at least two days to draw a line; returns '' otherwise and the
-   caller hides the chart. Colors come from USAGE_CLASS_COLORS (shared with the
-   legend). */
-function usageChartSvg(series) {
-  const s = Array.isArray(series) ? series : [];
-  if (s.length < 2) return '';
-  const x0 = 8, x1 = 752, yBase = 274, yTop = 14;
-  const classes = USAGE_CLASS_COLORS;
-  let max = 0;
-  for (const p of s) for (const c of classes) max = Math.max(max, Number(p[c.key]) || 0);
-  if (!max) max = 1;
-  const n = s.length;
-  const xAt = (i) => x0 + (i / (n - 1)) * (x1 - x0);
-  const yAt = (v) => yBase - ((Number(v) || 0) / max) * (yBase - yTop);
-  const lines = classes.map((c) => {
-    const pts = s.map((p, i) => xAt(i).toFixed(1) + ',' + yAt(p[c.key]).toFixed(1)).join(' ');
-    return '<polyline fill="none" stroke="' + c.color + '" stroke-width="2" points="' + pts + '"/>';
-  }).join('');
-  /* Every other day, so a 14-day axis does not crowd. The first label sits at
-     x0=8 and would clip at the SVG's left edge if centered ("ug 31"), so anchor
-     it to the start; the rest stay centered on their point. */
-  const labels = s.map((p, i) => (i % 2 === 0)
-    ? '<text x="' + xAt(i).toFixed(1) + '" y="292" text-anchor="' + (i === 0 ? 'start' : 'middle') + '" font-size="9" fill="var(--k-ink-2)">' + esc(usageDayLabel(p.day)) + '</text>'
-    : '').join('');
-  return '<svg viewBox="0 0 760 300" role="img" aria-label="Daily token usage by class, ' + n + ' days">'
-    + '<line x1="' + x0 + '" y1="' + yBase + '" x2="' + x1 + '" y2="' + yBase + '" stroke="var(--k-rule)" stroke-width="1"/>'
-    + lines + labels + '</svg>';
-}
-/* The per-model, per-day table -- the measurement the headline numbers add up
-   from. Newest day first, as before #2617. */
-function usageTableHtml(byDay) {
-  const days = Object.keys(byDay || {}).sort().reverse();
-  const rows = [];
-  for (const day of days) {
-    const models = byDay[day] || {};
-    for (const model of Object.keys(models).sort()) {
-      const b = models[model] || {};
-      rows.push('<tr><td>' + esc(day) + '</td><td>' + esc(model) + '</td>'
-        + '<td class="usage-n">' + usageNum(b.input_tokens) + '</td>'
-        + '<td class="usage-n">' + usageNum(b.output_tokens) + '</td>'
-        + '<td class="usage-n">' + usageNum(b.cache_creation_input_tokens) + '</td>'
-        + '<td class="usage-n">' + usageNum(b.cache_read_input_tokens) + '</td></tr>');
-    }
-  }
-  if (!rows.length) return '';
-  return '<table class="usage-table"><thead><tr>'
-    + '<th>Day</th><th>Model</th><th>Input</th><th>Output</th><th>Cache written</th><th>Cache read</th>'
-    + '</tr></thead><tbody>' + rows.join('') + '</tbody></table>';
-}
 /* #2840: compact token count for the usage-history list (Mona's design uses B/M/K
    abbreviations so hundreds of scrolling rows stay legible). The full number rides
    the row's title attr, so precision is one hover away and #2617's "shown in full"
@@ -25276,16 +25170,25 @@ function usageAbbr(n) {
   if (v >= 1e3) return (v / 1e3).toFixed(0) + 'K';
   return String(v);
 }
+/* #2840: the big blended-token headline format, shared by the hero ("Total Tokens Used")
+   and the donut center so the identical figure reads identically. usageAbbr drops the
+   decimal at >=10B, which would show the hero's "150.0B" as "150B" in the donut for the
+   same number; this keeps one decimal in the B band, and defers to usageAbbr below 1B. Pure. */
+function usageBigTokens(n) {
+  const v = Number(n) || 0;
+  return v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : usageAbbr(v);
+}
 /* THE VALUE COLUMN (#2840), now LIVE. The per-row Value is the BLENDED dollar figure
    the approved /design/token-value derives: the row's own 4-class token total valued at
    a blended knowledge-work rate. Blend-vs-output was a Josh call on his #1 demo headline;
    he RULED to KEEP THE BLENDED number (the design's ~$135M "Approximate Human Cost"), so
-   the earlier "pending" stub is retired here. Scope note: this is the ONLY blended figure
-   added. The design's blended "150B Total Tokens" hero is deliberately NOT brought in,
-   because a single blended token total is exactly what Josh's #2617 overrule refused
-   (cache_read ~440x output); the four classes stay shown separately and in full above,
-   and the output-only money box keeps its own named basis. The two constants below are the
-   design's and belong to a person, not the engine (like USAGE_RATE_PER_HOUR): 100,000
+   the earlier "pending" stub is retired here. Scope note: the blended total is used
+   deliberately, by Josh's ruling. His 2026-09-14 call overruled the earlier #2617 never-sum position for the
+   value headline, so the hero shows the blended total as "Total Tokens Used" and each row's
+   Value blends the same way (usageGrandTotal is the single source). The four classes are
+   still shown separately and unfused in the per-class charts above, so the raw cache_read
+   (~440x output) magnitude is never hidden behind the blend. The two constants below are the
+   design's and belong to a person, not the engine: 100,000
    tokens ~ one hour of focused knowledge work (the METR framing), valued at a blended
    $90/hr across roles. Kept together so a rate change is one edit. Pure + node-tested. */
 const USAGE_VALUE_TOKENS_PER_HOUR = 100000;
@@ -25305,6 +25208,255 @@ function usageUsd(n) {
 function usageRowValue(total) {
   return usageUsd((Number(total) || 0) / USAGE_VALUE_TOKENS_PER_HOUR * USAGE_VALUE_BLENDED_RATE);
 }
+/* #2840: a work-year for the "years of human work" stat -- 2080 hours (a 40-hour
+   week x 52), matching the approved /design/token-value calc. Display layer, with
+   the other two value constants. */
+const USAGE_VALUE_HOURS_PER_YEAR = 2080;
+/* #2840: the approved /design/token-value hero, built verbatim per Josh's
+   2026-09-14 ruling (the blended total is the headline and is correct as full
+   engineering value). Reuses the design's own calc, already live in the app for
+   the Value column: hours = total / USAGE_VALUE_TOKENS_PER_HOUR, value = hours *
+   USAGE_VALUE_BLENDED_RATE, years = hours / 2080. `total` is the deliberate
+   blended 4-class sum -- the single headline #2617 once refused, now Josh-ruled
+   correct because it reflects full engineering value, not output "typing" alone.
+   The three stats are work-hours, years, and the equivalent API cost; apiCostUsd
+   is computed by the caller from published provider list prices (usageApiCost) and
+   passed in, or null while that is unavailable, in which case the box shows a
+   quiet "-" rather than a guessed number. `activeDays` is the count of days with
+   any recorded usage. Pure + node-testable like its siblings. */
+function usageHeroDigits(n) {
+  return String(Math.max(0, Math.floor(Number(n) || 0)))
+    .split('')
+    .map((d) => '<span class="tv-dbox">' + d + '</span>')
+    .join('');
+}
+function usageHeroHtml(totals, activeDays, apiCostUsd) {
+  const t = totals || {};
+  const total = usageGrandTotal(t);
+  const hours = total / USAGE_VALUE_TOKENS_PER_HOUR;
+  const value = hours * USAGE_VALUE_BLENDED_RATE;
+  const years = hours / USAGE_VALUE_HOURS_PER_YEAR;
+  const tokensStr = usageBigTokens(total);
+  // The approved design's headline format is "$X.XM" (e.g. $135.0M), kept verbatim at
+  // demo scale. Below $1M that format would show a real figure as "$0.0M" (e.g. $45K on a
+  // light machine), so fall back to usageUsd there -- the same formatter the API-cost stat
+  // and the history Value column already use, for a case the approved mock never showed.
+  // The one-decimal M band is DELIBERATELY only on this headline (the mock locks "$135.0M");
+  // the API-cost stat below stays on usageUsd's whole-number M band. That the two dollar
+  // figures in this card differ by a decimal is the approved mock, not a formatting drift.
+  const valueStr = value >= 1e6 ? '$' + (value / 1e6).toFixed(1) + 'M' : usageUsd(value);
+  const apiStr = (apiCostUsd === null || apiCostUsd === undefined) ? '-' : usageUsd(apiCostUsd);
+  return '<div class="tv-hero">'
+    + '<p class="tv-days"><span class="tv-dnum">' + usageHeroDigits(activeDays) + '</span>'
+    + '<span class="tv-dtxt">Active Days on Kosmos</span></p>'
+    + '<div class="tv-heq">'
+    + '<div class="tv-fbox gold"><div class="tv-fig">' + esc(tokensStr) + '</div>'
+    + '<div class="tv-flabel">Total Tokens Used</div></div>'
+    + '<div class="tv-eq" aria-hidden="true">=</div>'
+    + '<div class="tv-fbox green"><div class="tv-fig">' + esc(valueStr) + '</div>'
+    + '<div class="tv-flabel">Approximate Human Cost</div></div>'
+    + '</div>'
+    + '<div class="tv-stats3">'
+    + '<div class="tv-sbox"><div class="tv-fig">' + esc(usageAbbr(Math.round(hours))) + '</div>'
+    + '<div class="tv-flabel">Human Work Hours</div></div>'
+    + '<div class="tv-sbox"><div class="tv-fig">' + esc(String(Math.round(years / 10) * 10)) + '</div>'
+    + '<div class="tv-flabel">Years of Human Work</div></div>'
+    + '<div class="tv-sbox"><div class="tv-fig">' + esc(apiStr) + '</div>'
+    + '<div class="tv-flabel">Equivalent Token API Cost</div></div>'
+    + '</div></div>';
+}
+/* #2840: the per-model categorical palette, app-native, from the approved
+   /design/token-value pie (the reference's provider hues all collapsed to the app
+   gold, so distinct ranks needed distinct colors). ONE source drives BOTH the
+   model table dots and the donut slices, so a color cannot drift between the two
+   surfaces -- the same "one color source" rule USAGE_CLASS_COLORS follows for
+   the per-class charts. Index 6 is the muted "Other" bucket. */
+const USAGE_MODEL_COLORS = ['#b88920', '#4171e3', '#3fbf87', '#41c2e3', '#8a7fe0', '#d97aa0', '#8a8f98'];
+/* Aggregate byDay into per-model 4-class token totals, summed across every day,
+   sorted most-tokens-first. The blended per-model sum is deliberate here (Josh's
+   2026-09-14 ruling: the blended total is the correct full-value figure); it is
+   the same aggregate the hero headline and the donut share. Pure + node-testable. */
+function usageByModel(byDay) {
+  const acc = {};
+  for (const day of Object.keys(byDay || {})) {
+    const models = byDay[day] || {};
+    for (const model of Object.keys(models)) {
+      const b = models[model] || {};
+      acc[model] = (acc[model] || 0) + usageRowTokenTotal(b);
+    }
+  }
+  return Object.keys(acc).map((name) => ({ name: name, tok: acc[name] }))
+    .sort((a, b) => b.tok - a.tok);
+}
+/* #2840: the per-model table (Model / share-bar / tokens / % of total), matching
+   the approved design's mtable. Bars are scaled to the biggest model so the
+   largest fills the cell. Colors from the shared USAGE_MODEL_COLORS by rank; ranks
+   past the palette reuse the muted "Other" color. Pure. */
+function usageModelTableHtml(models, grandTotal) {
+  const m = Array.isArray(models) ? models : [];
+  if (!m.length) return '';
+  const total = Number(grandTotal) || m.reduce((a, x) => a + (Number(x.tok) || 0), 0) || 1;
+  const max = m.reduce((a, x) => Math.max(a, Number(x.tok) || 0), 0) || 1;
+  const rows = m.map((x, i) => {
+    const color = USAGE_MODEL_COLORS[Math.min(i, USAGE_MODEL_COLORS.length - 1)];
+    const pct = (Number(x.tok) || 0) / total * 100;
+    const pctStr = pct >= 0.1 ? pct.toFixed(1) + '%' : '&lt;0.1%';
+    return '<div class="tv-mrow"><div class="tv-mn"><span class="tv-dot" style="background:' + color + '"></span><span class="tv-mnl">' + esc(x.name) + '</span></div>'
+      + '<div class="tv-mbar"><span style="width:' + ((Number(x.tok) || 0) / max * 100).toFixed(1) + '%;background:' + color + '"></span></div>'
+      + '<div class="tv-num">' + esc(usageAbbr(x.tok)) + '</div>'
+      + '<div class="tv-num">' + pctStr + '</div></div>';
+  }).join('');
+  return '<div class="tv-mrow head"><div>Model</div><div>Share</div><div class="tv-num">Tokens</div><div class="tv-num">% total</div></div>' + rows;
+}
+/* #2840: the donut -- per-model token SHARE, top 6 + an "Other" bucket, matching
+   the approved design's pie. Center shows the blended total tokens (Josh's ruling:
+   the blended total is the correct headline). Legend lists each slice's share.
+   Same USAGE_MODEL_COLORS by rank as the table, so the two agree. Pure. */
+function usageDonutSvg(models, grandTotal) {
+  const m = Array.isArray(models) ? models.slice() : [];
+  if (!m.length) return '';
+  const top = m.slice(0, 6);
+  const restTok = m.slice(6).reduce((a, x) => a + (Number(x.tok) || 0), 0);
+  const slices = top.map((x, i) => ({ name: x.name, tok: Number(x.tok) || 0, c: USAGE_MODEL_COLORS[i] }));
+  if (restTok > 0) slices.push({ name: 'Other', tok: restTok, c: USAGE_MODEL_COLORS[6] });
+  const tot = slices.reduce((a, s) => a + s.tok, 0) || 1;
+  const cx = 100, cy = 100, R = 80, sw = 32;
+  let a0 = -Math.PI / 2;
+  const segs = slices.map((s) => {
+    const frac = s.tok / tot, a1 = a0 + frac * 2 * Math.PI, big = frac > 0.5 ? 1 : 0;
+    let el;
+    if (frac >= 1) {
+      // A lone slice filling the whole ring cannot be drawn as one 360-degree arc:
+      // its endpoint would coincide with its start point and SVG drops such a
+      // segment, leaving the ring invisible. This is the common single-model case,
+      // so draw a full circle stroke instead (browser-check asserts the ring paints).
+      el = '<circle cx="' + cx + '" cy="' + cy + '" r="' + R + '" fill="none" stroke="' + s.c + '" stroke-width="' + sw + '"/>';
+    } else {
+      const x0 = cx + R * Math.cos(a0), y0 = cy + R * Math.sin(a0);
+      const ea = Math.max(a1, a0 + 0.01);
+      const x1 = cx + R * Math.cos(ea), y1 = cy + R * Math.sin(ea);
+      el = '<path d="M ' + x0.toFixed(2) + ' ' + y0.toFixed(2) + ' A ' + R + ' ' + R + ' 0 ' + big + ' 1 ' + x1.toFixed(2) + ' ' + y1.toFixed(2) + '" fill="none" stroke="' + s.c + '" stroke-width="' + sw + '"/>';
+    }
+    a0 = a1;
+    return el;
+  }).join('');
+  // A real grandTotal of 0 is honest (show "0"); only a missing/non-number one falls
+  // back to the slice sum, so `|| tot` (which also swallows 0) is not used here.
+  const centerTok = esc(usageBigTokens(typeof grandTotal === 'number' && Number.isFinite(grandTotal) ? grandTotal : tot));
+  const svg = '<svg viewBox="0 0 200 200" role="img" aria-label="Token share by model">' + segs
+    + '<text x="100" y="95" text-anchor="middle" style="font-size:15px;fill:var(--k-ink);font-weight:700;font-family:var(--font-mono)">' + centerTok + '</text>'
+    + '<text x="100" y="113" text-anchor="middle" style="font-size:10px;fill:var(--k-ink-2)">total tokens</text></svg>';
+  const legend = slices.map((s) => {
+    const pct = s.tok / tot * 100;
+    const ps = pct >= 1 ? pct.toFixed(0) + '%' : '&lt;1%';
+    return '<div class="tv-pileg"><span class="l"><span class="tv-dot" style="background:' + s.c + '"></span>' + esc(s.name) + '</span><span class="v">' + ps + '</span></div>';
+  }).join('');
+  return svg + '<div class="tv-pielegend">' + legend + '</div>';
+}
+/* #2840: the four per-class daily mini-charts (small multiples), matching the
+   approved /design/token-value charts4. One area+line sparkline per class, each
+   with its name, a plain-language tag, its abbreviated total, and its % of the
+   blended total. Class order + tags are the design's (cache reads first). Colors
+   come from USAGE_CLASS_COLORS so they match the legend elsewhere. Needs the daily
+   series from usageDailySeries. Pure + node-testable. */
+function usageCharts4Html(series, totals, grandTotal) {
+  const s = Array.isArray(series) ? series : [];
+  if (!s.length) return '';
+  const t = totals || {};
+  const total = Number(grandTotal) || 1;
+  const color = (key) => (USAGE_CLASS_COLORS.find((c) => c.key === key) || {}).color || 'var(--k-ink-2)';
+  const SPECS = [
+    { key: 'cacheRead', name: 'Cache reads', tag: 'context ingested', tot: Number(t.cacheRead) || 0 },
+    { key: 'cacheWritten', name: 'Cache writes', tag: 'context stored', tot: Number(t.cacheWritten) || 0 },
+    { key: 'output', name: 'Output', tag: 'text produced', tot: Number(t.output) || 0 },
+    { key: 'input', name: 'Input', tag: 'new prompts', tot: Number(t.input) || 0 }
+  ];
+  return '<div class="tv-charts4">' + SPECS.map((spec) => {
+    const data = s.map((p) => Number(p[spec.key]) || 0);
+    const n = data.length, maxV = Math.max.apply(null, data.concat([1]));
+    const W = 440, H = 140, padL = 6, padR = 6, padT = 10, padB = 6;
+    const xAt = (i) => (n <= 1 ? padL : padL + (i / (n - 1)) * (W - padL - padR));
+    const yAt = (v) => padT + (1 - v / maxV) * (H - padT - padB);
+    let line = '', area = 'M ' + xAt(0).toFixed(1) + ' ' + yAt(0).toFixed(1) + ' ';
+    data.forEach((v, i) => { const px = xAt(i).toFixed(1), py = yAt(v).toFixed(1); line += (i ? 'L' : 'M') + px + ' ' + py + ' '; area += 'L ' + px + ' ' + py + ' '; });
+    area += 'L ' + xAt(n - 1).toFixed(1) + ' ' + yAt(0).toFixed(1) + ' Z';
+    const pct = spec.tot / total * 100;
+    const ps = pct >= 1 ? pct.toFixed(1) + '%' : (pct < 0.1 ? '&lt;0.1%' : pct.toFixed(2) + '%');
+    const gid = 'tvg-' + spec.key;
+    return '<div class="tv-mini"><div class="tv-mh"><span class="tv-nm">' + spec.name
+      + '<span class="tv-tg">' + spec.tag + '</span></span><span class="tv-tot">' + esc(usageAbbr(spec.tot))
+      + '<span class="tv-pc">' + ps + '</span></span></div>'
+      + '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(spec.name) + ' per day, ' + n + ' days">'
+      + '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + color(spec.key) + '" stop-opacity="0.28"/><stop offset="1" stop-color="' + color(spec.key) + '" stop-opacity="0.02"/></linearGradient></defs>'
+      + '<path d="' + area + '" fill="url(#' + gid + ')"/>'
+      + '<path d="' + line + '" fill="none" stroke="' + color(spec.key) + '" stroke-width="1.8" stroke-linejoin="round"/></svg></div>';
+  }).join('') + '</div>';
+}
+/* #2840: the "Equivalent Token API Cost" stat. Josh ruled (via Splinter) to build
+   it from OFFICIAL PUBLISHED per-model API list prices (tokens x published price) --
+   a real source, not METR (which is the value-per-hour framing, cited by the hero,
+   not an API price table). Prices are US dollars per MILLION tokens, keyed by the
+   model id /api/usage records.
+   🛑 SOURCE + DATE, because published prices change (Splinter's requirement):
+     - Anthropic (claude.com/pricing, fetched 2026-09-14): all four classes are
+       separately published (input / output / 5-min cache write / cache read).
+     - OpenAI (developers.openai.com/api/docs/pricing, 2026-09-14): input / cached
+       input / output are published; there is NO separate cache-WRITE charge, so
+       cw is the input rate (how OpenAI bills a first-seen token) and cr is the
+       published cached-input rate -- a mapping of published behaviour, not a guess.
+     - Google (ai.google.dev/gemini-api/docs/pricing, 2026-09-14): input / output /
+       cached are published (per-token); cache storage is billed per-hour, not per
+       write-token, so cw is the input rate here too.
+   🛑 NO GUESSING (Splinter): a model with no published price is EXCLUDED from the
+   figure and named in `unpriced`, never estimated. gpt-5.1-codex is the live case:
+   OpenAI does not list a Codex price, so its tokens are left out and flagged. */
+const USAGE_MODEL_PRICES = {
+  // id: { in, out, cw, cr }  -- $ per MILLION tokens
+  'claude-opus-5': { in: 5, out: 25, cw: 6.25, cr: 0.50 },
+  'claude-opus-4-8': { in: 5, out: 25, cw: 6.25, cr: 0.50 },
+  'claude-sonnet-5': { in: 2, out: 10, cw: 2.50, cr: 0.20 },
+  'claude-sonnet-4-6': { in: 3, out: 15, cw: 3.75, cr: 0.30 },
+  'claude-haiku-4-5': { in: 1, out: 5, cw: 1.25, cr: 0.10 },
+  // fable-5-1 cache read is $0.25 (0.025x input), NOT the 0.1x input the other tiers use.
+  // Verified against claude.com/pricing 2026-09-14: Fable 5.1 cr=$0.25, legacy Fable 5 cr=$1.00.
+  // The break from the pattern is Anthropic's, not a transcription error -- do not "correct" it.
+  'claude-fable-5-1': { in: 10, out: 50, cw: 12.50, cr: 0.25 },
+  'claude-fable-5': { in: 10, out: 50, cw: 12.50, cr: 1.00 },
+  'gpt-5.1': { in: 1.25, out: 10, cw: 1.25, cr: 0.125 },
+  'gemini-2.5-flash': { in: 0.375, out: 1.875, cw: 0.375, cr: 0.0375 },
+};
+/* Resolve a model id to a price row: exact match first, then strip a trailing
+   -YYYYMMDD date-stamp (Claude Code writes e.g. claude-haiku-4-5-20251001). Returns
+   null when there is no published price, so the caller can exclude + flag it. Pure. */
+function usageModelPrice(modelId) {
+  const id = String(modelId || '');
+  if (USAGE_MODEL_PRICES[id]) return USAGE_MODEL_PRICES[id];
+  const stripped = id.replace(/-\d{8}$/, '');
+  return USAGE_MODEL_PRICES[stripped] || null;
+}
+/* Sum the equivalent API cost across byDay: for each priced model, its four class
+   token counts times the published per-class $/Mtok. Returns { cost, unpriced }
+   where unpriced is the sorted list of model ids that had no published price (their
+   tokens are NOT in cost). cost is null only if NOTHING was priceable, so the hero
+   shows a dash rather than a misleading $0. Pure + node-testable. */
+function usageApiCost(byDay) {
+  let cost = 0, priced = 0;
+  const unpriced = {};
+  for (const day of Object.keys(byDay || {})) {
+    const models = byDay[day] || {};
+    for (const model of Object.keys(models)) {
+      const p = usageModelPrice(model);
+      if (!p) { unpriced[model] = true; continue; }
+      const b = models[model] || {};
+      cost += ((Number(b.input_tokens) || 0) * p.in
+        + (Number(b.output_tokens) || 0) * p.out
+        + (Number(b.cache_creation_input_tokens) || 0) * p.cw
+        + (Number(b.cache_read_input_tokens) || 0) * p.cr) / 1e6;
+      priced += 1;
+    }
+  }
+  return { cost: priced ? cost : null, unpriced: Object.keys(unpriced).sort() };
+}
 /* #2840: the scrollable usage-history list -- one row per day+model, newest first,
    matching Mona's 0.6.57 token-value design. Day / Model / Total tokens / Value.
    Total is the row's own 4-class sum (a labeled per-row breakdown, not the single
@@ -25318,8 +25470,7 @@ function usageHistoryHtml(byDay) {
     const models = byDay[day] || {};
     for (const model of Object.keys(models).sort()) {
       const b = models[model] || {};
-      const total = (Number(b.input_tokens) || 0) + (Number(b.output_tokens) || 0)
-        + (Number(b.cache_creation_input_tokens) || 0) + (Number(b.cache_read_input_tokens) || 0);
+      const total = usageRowTokenTotal(b);
       rows.push('<div class="uhrow"><div class="uh-d">' + esc(day) + '</div>'
         + '<div class="uh-m">' + esc(model) + '</div>'
         + '<div class="uh-n" title="' + usageNum(total) + '">' + esc(usageAbbr(total)) + '</div>'
@@ -25333,53 +25484,63 @@ function usageHistoryHtml(byDay) {
 let USAGE_BUSY = false;
 async function paintUsage() {
   const msg = document.getElementById('usage-msg');
-  const cards = document.getElementById('usage-cards');
-  const chartWrap = document.getElementById('usage-chartwrap');
-  const chart = document.getElementById('usage-chart');
-  const legend = document.getElementById('usage-legend');
-  const money = document.getElementById('usage-worth');
-  const box = document.getElementById('usage-table');
+  const hero = document.getElementById('usage-hero'); // #2840: the approved value-view hero
+  const charts4 = document.getElementById('usage-charts4'); // #2840: four per-class daily charts
+  const wtr = document.getElementById('usage-wtr'); // #2840: per-model table + donut wrap
+  const mtable = document.getElementById('usage-mtable');
+  const donut = document.getElementById('usage-donut');
   const history = document.getElementById('usage-history'); // #2840: the scrollable usage-history list
-  if (!msg || !box || USAGE_BUSY) return;
+  if (!msg || !hero || USAGE_BUSY) return;
   USAGE_BUSY = true;
   msg.textContent = 'Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.';
+  /* #2840: reset every value-view region to a known-empty state. Shared by the
+     no-data and error paths so they cannot drift apart. */
+  const clearAll = () => {
+    if (hero) hero.innerHTML = '';
+    if (charts4) { charts4.innerHTML = ''; charts4.hidden = true; }
+    if (wtr) wtr.hidden = true;
+    if (mtable) mtable.innerHTML = '';
+    if (donut) donut.innerHTML = '';
+    if (history) history.innerHTML = '';
+  };
   try {
-    /* 14 days -- Mona's design shows a two-week trend. Completed days are frozen
-       to disk and load instantly; the extra week is nearly free (server.js note). */
+    /* 14 days -- the approved design shows a two-week trend. Completed days are
+       frozen to disk and load instantly; the extra week is nearly free. */
     const res = await fetch('/api/usage?days=14');
     if (!res.ok) throw new Error('status ' + res.status);
     const data = await res.json();
     const byDay = (data && data.byDay) || {};
     if (!Object.keys(byDay).length) {
       msg.textContent = 'No usage recorded yet on this computer.';
-      if (cards) cards.innerHTML = '';
-      if (chart) chart.innerHTML = '';
-      if (legend) legend.innerHTML = '';
-      if (chartWrap) chartWrap.hidden = true;
-      if (money) money.innerHTML = '';
-      box.innerHTML = '';
-      if (history) history.innerHTML = '';
+      clearAll();
       return;
     }
     const totals = usageTotals(byDay);
-    if (cards) cards.innerHTML = usageCardsHtml(totals);
-    const svg = usageChartSvg(usageDailySeries(byDay));
-    if (chart) chart.innerHTML = svg;
-    if (legend) legend.innerHTML = svg ? usageLegendHtml() : '';
-    if (chartWrap) chartWrap.hidden = !svg;
-    if (money) money.innerHTML = usageMoneyHtml(totals);
-    box.innerHTML = usageTableHtml(byDay);
-    if (history) history.innerHTML = usageHistoryHtml(byDay);
-    if (!box.innerHTML) {
+    const grandTotal = usageGrandTotal(totals);
+    /* #2840: equivalent API cost from published per-model list prices. cost is
+       null if nothing was priceable (hero shows "-"); unpriced names any model
+       with no published price, excluded from the figure and named in msg below. */
+    const api = usageApiCost(byDay);
+    const models = usageByModel(byDay);
+    const historyHtml = usageHistoryHtml(byDay);
+    /* The history has a row per day+model, so an empty history means the window
+       held no usage -- the same "nothing to show" signal the old per-day table
+       gave, without that table. */
+    if (!historyHtml) {
       msg.textContent = 'No usage recorded in the last fourteen days.';
-      if (cards) cards.innerHTML = '';
-      if (chart) chart.innerHTML = '';
-      if (legend) legend.innerHTML = '';
-      if (chartWrap) chartWrap.hidden = true;
-      if (money) money.innerHTML = '';
-      if (history) history.innerHTML = '';
+      clearAll();
       return;
     }
+    if (hero) hero.innerHTML = usageHeroHtml(totals, Object.keys(byDay).length, api.cost);
+    if (charts4) {
+      const c4 = usageCharts4Html(usageDailySeries(byDay), totals, grandTotal);
+      charts4.innerHTML = c4;
+      charts4.hidden = !c4;
+    }
+    if (mtable) mtable.innerHTML = usageModelTableHtml(models, grandTotal);
+    if (donut) donut.innerHTML = usageDonutSvg(models, grandTotal);
+    if (wtr) wtr.hidden = !models.length;
+    if (history) history.innerHTML = historyHtml;
     /* Said plainly rather than implied: this counts what was found on this
        machine, and a config root we could not read is a gap in the number
        rather than a zero. The engine reports what it actually read. */
@@ -25387,15 +25548,17 @@ async function paintUsage() {
     msg.textContent = roots === null
       ? 'Counted from the transcripts on this computer.'
       : 'Counted from ' + roots + (roots === 1 ? ' place' : ' places') + ' on this computer that hold transcripts.';
+    /* #2840: name any model excluded from the API-cost figure for want of a
+       published price (Splinter's flag-do-not-guess rule), so an incomplete cost
+       is never read as complete. */
+    if (api.unpriced.length) {
+      msg.textContent += ' The equivalent API cost leaves out '
+        + api.unpriced.length + (api.unpriced.length === 1 ? ' model' : ' models')
+        + ' with no published price (' + api.unpriced.join(', ') + ').';
+    }
   } catch (e) {
     msg.textContent = 'We could not read token usage just now.';
-    if (cards) cards.innerHTML = '';
-    if (chart) chart.innerHTML = '';
-    if (legend) legend.innerHTML = '';
-    if (chartWrap) chartWrap.hidden = true;
-    if (money) money.innerHTML = '';
-    box.innerHTML = '';
-    if (history) history.innerHTML = '';
+    clearAll();
   } finally {
     USAGE_BUSY = false;
   }
@@ -39211,7 +39374,7 @@ function pjTableHtml(headerLine, aligns, bodyLines, names, agentNames) {
   const cols = headers.length;
   const cell = (tag, text, k) => '<' + tag + (aligns[k] ? ' style="text-align:' + aligns[k] + '"' : '')
     + '>' + pjRichSpans(text == null ? '' : text, names, agentNames) + '</' + tag + '>';
-  /* Wrapped in a scroll container (like #usage-table): the wrapper is the
+  /* Wrapped in a scroll container: the wrapper is the
      inline-block that caps width and scrolls, the table lays out normally
      inside, so a wide table scrolls rather than widening the message bubble. */
   let h = '<span class="mdtablewrap"><table class="mdtable"><thead><tr>';

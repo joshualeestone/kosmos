@@ -1,18 +1,18 @@
 /**
- * #2617: the Token Usage page is the graphical value view, not a plain white box.
+ * #2617/#2840: the Token Usage page is the approved graphical value view.
  *
- * Josh's #1 demo win. The page (Settings > Token Usage) regressed to a bare table;
- * Mona's design restores four class cards, a shared-axis trend chart, a money box
- * derived from output, and keeps the per-model/day table. This RUNS the real page
- * against a served board with /api/usage MOCKED to a fixed two-day response, so the
- * rendered facts are deterministic regardless of what transcripts the board holds.
+ * Josh's #1 demo win. The page (Settings > Token Usage) is the approved
+ * /design/token-value value view (Josh's 2026-09-14 exact-to-spec ruling): a hero
+ * (the blended total = human-cost equation + three stats), four per-class daily
+ * mini-charts, a per-model table + token-share donut, the usage-history list, and
+ * the METR method footnote. The blended total is Josh-ruled CORRECT (full
+ * engineering value), replacing the earlier full-number cards / combined chart /
+ * output-only money box (documented on #2840). This RUNS the real page against a
+ * served board with /api/usage MOCKED to a fixed two-day response, so the rendered
+ * facts are deterministic regardless of what transcripts the board holds.
  *
- * It asserts the DETERMINISTIC, headless-safe structure: the four cards with their
- * class labels (cache-read gold-accented), the chart svg with one polyline per
- * class on a shared axis, the money box naming OUTPUT as its basis, and the table.
- * The pixel match to Mona's mockup (spacing, the swipe of the towering cache-read
- * line, dark-theme feel) belongs to the headed pass; this pins that the pieces are
- * present and wired to the data, which is what a "plain white box" regression loses.
+ * It asserts the DETERMINISTIC, headless-safe structure + numbers; the pixel match
+ * to the mockup belongs to the headed pass.
  *
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 \
  *     node docs/browser-checks/render-token-usage-2617.js http://127.0.0.1:PORT
@@ -24,10 +24,15 @@ const HEADED = process.env.HEADED !== '0';
 const fails = [];
 const ok = (cond, what) => { if (!cond) fails.push(what); console.log(`${cond ? '  ok  ' : ' FAIL '} ${what}`); };
 
-// A fixed /api/usage response: two days, one model, cache-read towering over the
-// other three (as on a real machine). Hand-computed totals the render must show:
+// A fixed /api/usage response: two days, one model (claude-opus-4-8), cache-read
+// towering over the other three. Hand-computed, independent of the product code:
 //   input 4,151,004  output 1,461,889  cache-written 18,103,778  cache-read 1,964,004,102
-//   $ from output only = round(1,461,889 / 750,000 * 8 * 100) = 1,559
+//   blended total = 1,987,720,773  ->  hero "2.0B"
+//   value = total/100000*90 = 1,788,948.7  ->  "$1.8M"
+//   hours = total/100000 = 19,877.2  ->  "20K"    years = hours/2080 = 9.556  ->  "10"
+//   equivalent API cost (opus-4-8: in 5 / out 25 / cw 6.25 / cr 0.50 $/Mtok):
+//     4,151,004*5 + 1,461,889*25 + 18,103,778*6.25 + 1,964,004,102*0.50 = 1,152,452,908.5
+//     /1e6 = 1,152.45  ->  "$1,152"
 const USAGE = {
   byDay: {
     '2026-09-01': { 'claude-opus-4-8': { input_tokens: 2140559, output_tokens: 760331, cache_creation_input_tokens: 9401220, cache_read_input_tokens: 1023445990 } },
@@ -43,50 +48,77 @@ async function openUsage(page) {
   await page.click('.tab[data-tab="settings"]');
   await page.click('#s-nav button[data-go="usage"]');
   await page.waitForSelector('#s-sec-usage:not([hidden])');
-  await page.waitForSelector('#usage-cards .usage-cls');
-  await page.waitForSelector('#usage-history .uhrow'); // #2840: the usage-history list has painted
+  await page.waitForSelector('#usage-hero .tv-hero');       // #2840: the hero has painted
+  await page.waitForSelector('#usage-history .uhrow');       // the history list has painted
 }
 
 function readUsage(page) {
   return page.evaluate(() => {
-    const cards = [...document.querySelectorAll('#usage-cards .usage-cls')];
-    const label = (el) => (el.querySelector('.usage-k') || {}).textContent || '';
-    const readCard = cards.find((c) => c.classList.contains('read'));
-    const chartSvg = document.querySelector('#usage-chart svg');
-    const money = document.querySelector('#usage-worth .usage-money');
-    const table = document.querySelector('#usage-table table.usage-table');
+    const txt = (sel) => { const el = document.querySelector(sel); return el ? (el.textContent || '') : null; };
+    const hero = document.querySelector('#usage-hero .tv-hero');
+    const heroText = hero ? (hero.textContent || '') : '';
     return {
-      cardCount: cards.length,
-      labels: cards.map(label),
-      readLabel: readCard ? label(readCard) : null,
-      chartWrapHidden: (() => { const w = document.getElementById('usage-chartwrap'); return w ? w.hidden : null; })(),
-      hasSvg: !!chartSvg,
-      polylines: chartSvg ? chartSvg.querySelectorAll('polyline').length : 0,
-      moneyText: money ? (money.textContent || '') : null,
-      moneyNamesOutput: !!(money && money.querySelector('.usage-money-basis b') && /output/i.test(money.querySelector('.usage-money-basis b').textContent || '')),
-      cacheReadShown: cards.some((c) => /1,964,004,102/.test(c.textContent || '')),
-      legendSwatches: document.querySelectorAll('#usage-legend .usage-lg').length,
-      tableRows: table ? table.querySelectorAll('tbody tr').length : 0,
-      // #2840: the scrollable usage-history list.
+      // #2840 hero: the blended total = human-cost equation + three stats.
+      hasHero: !!hero,
+      heroTokens: heroText.includes('2.0B'),
+      heroTokensLabel: heroText.includes('Total Tokens Used'),
+      heroValue: heroText.includes('$1.8M'),
+      heroValueLabel: heroText.includes('Approximate Human Cost'),
+      heroHours: heroText.includes('20K') && heroText.includes('Human Work Hours'),
+      heroYears: (() => {
+        // Read the digit next to its OWN label, not a bare "10" scanned from the
+        // whole hero (which could false-match a 10 inside another figure).
+        const box = [...document.querySelectorAll('#usage-hero .tv-sbox')]
+          .find((b) => /Years of Human Work/.test(b.textContent || ''));
+        const fig = box && box.querySelector('.tv-fig');
+        return !!fig && (fig.textContent || '').trim() === '10';
+      })(),
+      heroApi: heroText.includes('$1,152') && heroText.includes('Equivalent Token API Cost'),
+      heroDays: heroText.includes('Active Days on Kosmos'),
+      // #2840 charts4: four per-class daily mini-charts, each with an svg.
+      charts4Count: document.querySelectorAll('#usage-charts4 .tv-mini').length,
+      charts4Svgs: document.querySelectorAll('#usage-charts4 .tv-mini svg').length,
+      charts4Names: [...document.querySelectorAll('#usage-charts4 .tv-mini .tv-nm')].map((e) => (e.textContent || '').replace(/\s+/g, ' ').trim()),
+      // #2840 per-model table + donut.
+      modelRows: document.querySelectorAll('#usage-mtable .tv-mrow:not(.head)').length,
+      modelNamed: /claude-opus-4-8/.test(txt('#usage-mtable') || ''),
+      modelPct: /100\.0%/.test(txt('#usage-mtable') || ''),
+      donutSvg: !!document.querySelector('#usage-donut svg'),
+      // The ring must actually PAINT: a lone 100% slice drawn as one 360-degree arc
+      // has coincident endpoints and SVG drops it (the invisible-donut bug). Assert a
+      // stroked circle/arc element exists, not merely that the <svg> is present.
+      donutRing: (() => {
+        const el = document.querySelector('#usage-donut svg circle, #usage-donut svg path');
+        if (!el) return false;
+        const st = el.getAttribute('stroke'), sw = el.getAttribute('stroke-width');
+        return !!st && st !== 'none' && Number(sw) > 0;
+      })(),
+      donutCenter: /total tokens/i.test(txt('#usage-donut') || ''),
+      donutLegend: document.querySelectorAll('#usage-donut .tv-pileg').length,
+      // #2840 layout: the value-view must fit the fixed ~544px settings column. The
+      // table+donut row keys off a container query so it stacks when the column can't
+      // hold both. Measure REAL horizontal overflow, not just structural presence.
+      mtableFits: (() => { const el = document.getElementById('usage-mtable'); return el ? el.scrollWidth <= el.clientWidth + 1 : null; })(),
+      sectionFits: (() => { const el = document.getElementById('s-sec-usage'); return el ? el.scrollWidth <= el.clientWidth + 2 : null; })(),
+      wtrCols: (() => { const el = document.getElementById('usage-wtr'); return el ? (getComputedStyle(el).gridTemplateColumns || '').split(' ').filter(Boolean).length : null; })(),
+      secW: (() => { const el = document.getElementById('s-sec-usage'); return el ? el.clientWidth : null; })(),
+      // the removed elements must be GONE (Josh's exact-to-spec replacement).
+      noCards: !document.getElementById('usage-cards'),
+      noMoney: !document.getElementById('usage-worth'),
+      noCombinedChart: !document.getElementById('usage-chartwrap'),
+      // #2840 usage-history list (kept).
       historyRows: document.querySelectorAll('#usage-history .uhrow:not(.uhhead)').length,
       historyHeaders: [...document.querySelectorAll('#usage-history .uhrow.uhhead > div')].map((d) => (d.textContent || '').trim()),
       historyValueLive: [...document.querySelectorAll('#usage-history .uhrow:not(.uhhead) .uh-n:last-child')].every((c) => /^\$[\d.,]+[BMK]?$/.test((c.textContent || '').trim())),
-      historyHasDollar: /\$/.test((document.getElementById('usage-history') || {}).textContent || ''),
-      historyHasPending: /pending/.test((document.getElementById('usage-history') || {}).textContent || ''),
       historyScrolls: (() => { const b = document.getElementById('usage-history'); return b ? getComputedStyle(b).overflowY === 'auto' : null; })(),
       historyKeyboardReachable: (() => { const b = document.getElementById('usage-history'); return b ? b.getAttribute('tabindex') === '0' : null; })(),
-      // #2840: the METR "how we estimate the value" method footnote for the blended
-      // Value column. Quiet footnote, not a callout: assert the specific element, its
-      // copy, the exact approved link, its quiet styling (top hairline, NO left rule,
-      // no callout background), and its placement between the history list and the table.
+      // #2840 the METR method footnote (kept). Quiet: top hairline, no left rule, no callout bg.
       method: (() => {
         const m = document.querySelector('.usage-method');
         if (!m) return null;
         const cs = getComputedStyle(m);
         const link = m.querySelector('a');
         const hist = document.querySelector('.usage-hist');
-        const meas = document.querySelector('.usage-meas');
-        const moneyBox = document.querySelector('#usage-worth');
         const DP_FOLLOWING = Node.DOCUMENT_POSITION_FOLLOWING;
         return {
           text: (m.textContent || '').trim(),
@@ -100,8 +132,6 @@ function readUsage(page) {
           bg: cs.backgroundColor,
           boxShadow: cs.boxShadow,
           afterHist: hist ? !!(hist.compareDocumentPosition(m) & DP_FOLLOWING) : null,
-          beforeMeas: meas ? !!(m.compareDocumentPosition(meas) & DP_FOLLOWING) : null,
-          beforeMoney: moneyBox ? !!(m.compareDocumentPosition(moneyBox) & DP_FOLLOWING) : null,
         };
       })(),
     };
@@ -113,49 +143,78 @@ function readUsage(page) {
   try { browser = await chromium.launch({ headless: !HEADED }); }
   catch (e) { console.error('FAIL  render-token-usage-2617: could not start a browser (' + ((e && e.message) || e) + ')'); process.exit(1); }
   try {
-    console.log('\n#2617 -- the graphical Token Usage value view');
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+    console.log('\n#2840 -- the approved Token Usage value view');
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 1100 } });
     const p = await ctx.newPage();
     p.on('pageerror', (e) => fails.push('JS ERROR: ' + e.message));
     await openUsage(p);
     const v = await readUsage(p);
-    ok(v.cardCount === 4, `four class cards render (got ${v.cardCount})`);
-    ok(['Input', 'Output', 'Cache written', 'Cache read'].every((l) => v.labels.includes(l)),
-      `the four card labels are Input/Output/Cache written/Cache read (got ${JSON.stringify(v.labels)})`);
-    ok(v.readLabel === 'Cache read', `the gold "read" card is Cache read (got ${JSON.stringify(v.readLabel)})`);
-    ok(v.cacheReadShown, 'the full, unabbreviated cache-read number is on screen (1,964,004,102 -- Josh: show it in full)');
-    ok(v.chartWrapHidden === false, 'the chart wrap is shown (not hidden) when there is a multi-day trend');
-    ok(v.hasSvg, 'the trend chart svg renders');
-    ok(v.polylines === 4, `the chart has one polyline per class on a shared axis (got ${v.polylines})`);
-    ok(v.legendSwatches === 4, `the legend renders one swatch per class (got ${v.legendSwatches})`);
-    ok(v.moneyNamesOutput, 'the money box names OUTPUT as its basis (never a blended total)');
-    ok(/\$/.test(v.moneyText || ''), 'the money box shows a dollar figure');
-    ok(v.tableRows >= 1, `the per-model/day table stays as the measurement (got ${v.tableRows} rows)`);
-    // #2840: the scrollable usage-history list, wired to the same /api/usage.
+    // hero
+    ok(v.hasHero, 'the hero renders');
+    ok(v.heroTokens && v.heroTokensLabel, 'the blended total headline (2.0B, Total Tokens Used) is shown -- Josh-ruled correct');
+    ok(v.heroValue && v.heroValueLabel, 'the human-cost value ($1.8M = total/1e5*$90, Approximate Human Cost) is shown');
+    ok(v.heroHours, 'the Human Work Hours stat (20K) is shown');
+    ok(v.heroYears, 'the Years of Human Work stat (10) is shown');
+    ok(v.heroApi, 'the Equivalent Token API Cost stat ($1,152 from published opus-4-8 prices) is shown');
+    ok(v.heroDays, 'the Active Days on Kosmos eyebrow is shown');
+    // charts4
+    ok(v.charts4Count === 4, `four per-class daily mini-charts render (got ${v.charts4Count})`);
+    ok(v.charts4Svgs === 4, `each mini-chart has its sparkline svg (got ${v.charts4Svgs})`);
+    ok(['Cache reads', 'Cache writes', 'Output', 'Input'].every((n) => v.charts4Names.some((x) => x.startsWith(n))),
+      `the four charts are the four classes (got ${JSON.stringify(v.charts4Names)})`);
+    // per-model table + donut
+    ok(v.modelRows === 1 && v.modelNamed, `the per-model table lists the model (got ${v.modelRows} rows)`);
+    ok(v.modelPct, 'the sole model is 100.0% of the total');
+    ok(v.donutSvg, 'the per-model donut svg renders');
+    ok(v.donutRing, 'the donut ring is actually painted (stroked circle/arc, not an invisible 360-degree arc)');
+    // layout at the real settings-column width (see the container-query fix)
+    console.log(`  ..   settings column ${v.secW}px, table+donut cols=${v.wtrCols}`);
+    ok(v.mtableFits, 'the per-model table fits its column with no horizontal overflow');
+    ok(v.sectionFits, 'the token-usage section has no horizontal overflow at the settings-column width');
+    ok(v.donutCenter, 'the donut center names the total tokens');
+    ok(v.donutLegend >= 1, `the donut legend lists the model(s) (got ${v.donutLegend})`);
+    // the replaced elements are gone
+    ok(v.noCards, 'the old full-number cards are removed (replaced by the approved design)');
+    ok(v.noMoney, 'the old output-only money box is removed (replaced by the hero value)');
+    ok(v.noCombinedChart, 'the old combined shared-axis chart is removed (replaced by charts4)');
+    // usage-history (kept)
     ok(v.historyRows >= 1, `the usage-history list renders a row per day/model (got ${v.historyRows})`);
     ok(['Day', 'Model', 'Total tokens', 'Value'].every((h) => v.historyHeaders.includes(h)),
       `the usage-history columns are Day/Model/Total tokens/Value (got ${JSON.stringify(v.historyHeaders)})`);
-    ok(v.historyScrolls === true, 'the usage-history box is a fixed-height scroller (overflow-y:auto)');
-    ok(v.historyKeyboardReachable === true, 'the scroll region is keyboard-reachable (tabindex=0, WCAG AA)');
-    // #2840: Josh ruled to KEEP the blended Value (the design's ~$135M headline), so
-    // every Value cell now shows a live blended dollar figure and "pending" is gone.
     ok(v.historyValueLive, 'every usage-history Value cell shows a live blended $ figure');
-    ok(v.historyHasDollar === true, 'the usage-history list shows dollar Values');
-    ok(v.historyHasPending === false, 'the retired "pending" stub is gone from the Value column');
-    // #2840: the METR "how we estimate the value" method footnote for the blended Value column.
-    ok(v.method, 'the METR "how we estimate the value" method footnote renders (.usage-method)');
+    ok(v.historyScrolls === true, 'the usage-history box is a fixed-height scroller');
+    ok(v.historyKeyboardReachable === true, 'the scroll region is keyboard-reachable (tabindex=0, WCAG AA)');
+    // METR method footnote (kept)
+    ok(v.method, 'the METR method footnote renders (.usage-method)');
     ok(v.method && /^how we estimate the value/i.test(v.method.text), 'the footnote leads with "How we estimate the value"');
-    ok(v.method && /blended knowledge-work rate/i.test(v.method.text), "the footnote names the blended knowledge-work rate (the Value column's basis, not output)");
     ok(v.method && v.method.href === 'https://metr.org/time-horizons/', `the footnote links the exact approved METR URL (got ${v.method && v.method.href})`);
-    ok(v.method && /metr/i.test(v.method.linkText || ''), `the link text names METR (meaningful, not "click here" or dropped; got ${JSON.stringify(v.method && v.method.linkText)})`);
-    ok(v.method && v.method.borderTopW === 1, `the footnote has a quiet 1px top hairline, not a thick border (got ${v.method && v.method.borderTopW})`);
-    ok(v.method && v.method.borderLeftW === 0, 'the footnote has NO left color-rule (a quiet footnote, not a styled callout)');
-    ok(v.method && v.method.maxRadius === 0, `the footnote has no rounded corners, so it is not a boxed callout (got ${v.method && v.method.maxRadius})`);
-    ok(v.method && (v.method.bg === 'rgba(0, 0, 0, 0)' || v.method.bg === 'transparent'), 'the footnote has no callout background (quiet, muted)');
-    ok(v.method && v.method.boxShadow === 'none', `the footnote has no box-shadow, so an inset box or shadow left-rule callout cannot pass unseen (got ${v.method && v.method.boxShadow})`);
-    ok(v.method && v.method.afterHist === true, 'the footnote sits under the usage-history list (beside the Value column it explains)');
-    ok(v.method && v.method.beforeMoney === true, 'the footnote sits directly under the history list, above the output money box (so it reads as the Value column\'s note, not the money box\'s)');
-    ok(v.method && v.method.beforeMeas === true, 'the footnote sits above "The measurement it comes from" table');
+    ok(v.method && /metr/i.test(v.method.linkText || ''), 'the link text names METR');
+    ok(v.method && v.method.borderTopW === 1, 'the footnote has a quiet 1px top hairline');
+    ok(v.method && v.method.borderLeftW === 0, 'the footnote has NO left color-rule (a quiet footnote, not a callout)');
+    ok(v.method && v.method.maxRadius === 0, 'the footnote has no rounded corners (not a boxed callout)');
+    ok(v.method && (v.method.bg === 'rgba(0, 0, 0, 0)' || v.method.bg === 'transparent'), 'the footnote has no callout background');
+    ok(v.method && v.method.boxShadow === 'none', 'the footnote has no box-shadow');
+    ok(v.method && v.method.afterHist === true, 'the footnote sits under the usage-history list');
+    // #2840 production-scale hero: the fixture above renders short values (2.0B / $1.8M),
+    // which never exercise the widest headline. Re-mock at the design's own magnitude
+    // (~150B tokens -> "150.0B" / "$135.0M") and assert the hero figures FIT their boxes.
+    // A textContent check cannot see this: .tv-fbox{overflow:hidden} clips silently, so we
+    // measure scrollWidth vs clientWidth on the figure elements themselves.
+    const BIG = { byDay: { '2026-09-01': { 'claude-opus-4-8': { input_tokens: 500000000, output_tokens: 500000000, cache_creation_input_tokens: 1000000000, cache_read_input_tokens: 148000000000 } } }, rootsRead: ['/tmp/fixture'] };
+    await p.unroute('**/api/usage*');
+    await p.route('**/api/usage*', (r) => r.fulfill({ json: BIG }));
+    await p.reload({ waitUntil: 'networkidle' });
+    await p.click('.tab[data-tab="settings"]');
+    await p.click('#s-nav button[data-go="usage"]');
+    await p.waitForSelector('#usage-hero .tv-hero');
+    const scale = await p.evaluate(() => {
+      const figs = [...document.querySelectorAll('#usage-hero .tv-fig')];
+      const clipped = figs.filter((f) => f.scrollWidth > f.clientWidth + 1).map((f) => (f.textContent || '').trim());
+      const big = ((document.querySelector('#usage-hero .tv-fbox.gold .tv-fig') || {}).textContent || '').trim();
+      return { n: figs.length, clipped, big };
+    });
+    ok(scale.big.includes('B'), `hero shows the production-scale total in the B band (got ${scale.big})`);
+    ok(scale.clipped.length === 0, `hero figures fit their boxes at production scale, none clipped (clipped: ${JSON.stringify(scale.clipped)})`);
     await ctx.close();
   } finally {
     await browser.close();

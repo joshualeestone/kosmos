@@ -1,18 +1,24 @@
 'use strict';
 /**
- * #2617: the graphical Token Usage value view (Mona's design, Josh's #1 demo win).
+ * #2617/#2840: the graphical Token Usage value view.
  *
  * 🔑 THIS RUNS THE REAL RENDER FUNCTIONS against a fixed /api/usage fixture and
  * checks the numbers on the screen against values computed BY HAND here, not by
- * re-running the product's own formula. That is the #2620 lesson made concrete:
- * an un-runnable check whose expected values are hardcoded from the same head
- * that wrote the code proves nothing; a wrong sum or a wrong dollar is exactly
- * what a blind reviewer catches. Here the fixture goes in, the hand-computed
- * total/dollar is asserted out, and the real lifted code has to produce it.
+ * re-running the product's own formula. That is the #2620 lesson: a check whose
+ * expected values are hardcoded from the same head that wrote the code proves
+ * nothing; a wrong sum or a wrong dollar is what a blind reviewer catches. Here
+ * the fixture goes in, the hand-computed number is asserted out, and the real
+ * lifted code has to produce it.
  *
- * The browser-check render-token-usage-2617.js covers the LIVE rendered page
- * (cards + chart svg + money + table present on a served board); this pins the
- * SOURCE compute -- the repo's dual-coverage convention for a usage feature.
+ * #2840 (Josh's 2026-09-14 ruling): the screen is now the approved
+ * /design/token-value value view -- a hero (blended total = human-cost equation +
+ * three stats), four per-class daily mini-charts, a per-model table + donut, the
+ * usage-history list, and the METR footnote. The blended total is Josh-ruled
+ * CORRECT (full engineering value), superseding the earlier #2617 never-sum
+ * position for the headline. The prior full-number cards / combined chart /
+ * output-only money box were replaced (documented on #2840). The browser-check
+ * render-token-usage-2617.js covers the LIVE rendered page; this pins the SOURCE
+ * compute.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -26,40 +32,46 @@ const CODE = codeOnly(RAW);
 const SCRIPT = page.scriptOf(RAW);
 const lift = (name) => page.lift(SCRIPT, name);
 
-/* The real render functions, lifted out of the shipped page and their callees +
-   the three display constants brought with them so they can actually run
-   (a lifted function's own callees have to come with it -- test-support/page.js). */
+/* The real render functions, lifted out of the shipped page with their callees +
+   the display constants they use, so they actually run (a lifted function's own
+   callees have to come with it -- test-support/page.js). */
 function bundle() {
   // eslint-disable-next-line no-new-func
   return new Function(
-    page.liftConst(SCRIPT, 'USAGE_TOKENS_PER_ENGINEER_DAY') + '\n'
-    + page.liftConst(SCRIPT, 'USAGE_HOURS_PER_ENGINEER_DAY') + '\n'
-    + page.liftConst(SCRIPT, 'USAGE_RATE_PER_HOUR') + '\n'
-    + page.liftConst(SCRIPT, 'USAGE_CLASS_COLORS') + '\n'
-    + lift('esc') + '\n'
-    + lift('usageNum') + '\n'
-    + lift('usageDayLabel') + '\n'
-    + lift('usageTotals') + '\n'
-    + lift('usageDailySeries') + '\n'
-    + lift('usageCardsHtml') + '\n'
-    + lift('usageMoneyHtml') + '\n'
-    + lift('usageChartSvg') + '\n'
-    + lift('usageLegendHtml') + '\n'
-    + lift('usageTableHtml') + '\n'
-    // #2840: the usage-history list + its abbr helper + the blended Value math.
+    page.liftConst(SCRIPT, 'USAGE_CLASS_COLORS') + '\n'
     + page.liftConst(SCRIPT, 'USAGE_VALUE_TOKENS_PER_HOUR') + '\n'
     + page.liftConst(SCRIPT, 'USAGE_VALUE_BLENDED_RATE') + '\n'
+    + page.liftConst(SCRIPT, 'USAGE_VALUE_HOURS_PER_YEAR') + '\n'
+    + page.liftConst(SCRIPT, 'USAGE_MODEL_COLORS') + '\n'
+    + page.liftConst(SCRIPT, 'USAGE_MODEL_PRICES') + '\n'
+    + lift('esc') + '\n'
+    + lift('usageNum') + '\n'
+    + lift('usageAbbr') + '\n'
+    + lift('usageBigTokens') + '\n'
     + lift('usageUsd') + '\n'
     + lift('usageRowValue') + '\n'
-    + lift('usageAbbr') + '\n'
+    + lift('usageTotals') + '\n'
+    + lift('usageGrandTotal') + '\n'
+    + lift('usageRowTokenTotal') + '\n'
+    + lift('usageDailySeries') + '\n'
+    + lift('usageHeroDigits') + '\n'
+    + lift('usageHeroHtml') + '\n'
+    + lift('usageByModel') + '\n'
+    + lift('usageModelTableHtml') + '\n'
+    + lift('usageDonutSvg') + '\n'
+    + lift('usageCharts4Html') + '\n'
+    + lift('usageModelPrice') + '\n'
+    + lift('usageApiCost') + '\n'
     + lift('usageHistoryHtml') + '\n'
-    + 'return { usageTotals, usageDailySeries, usageCardsHtml, usageMoneyHtml, usageChartSvg, usageLegendHtml, usageTableHtml, usageDayLabel, usageNum, USAGE_CLASS_COLORS, usageAbbr, usageHistoryHtml, usageUsd, usageRowValue };'
+    + 'return { usageTotals, usageGrandTotal, usageRowTokenTotal, usageDailySeries, usageNum, usageAbbr, usageBigTokens, usageUsd, usageRowValue, '
+    + 'usageHeroHtml, usageByModel, usageModelTableHtml, usageDonutSvg, usageCharts4Html, '
+    + 'usageModelPrice, usageApiCost, usageHistoryHtml, USAGE_CLASS_COLORS, USAGE_MODEL_COLORS, USAGE_MODEL_PRICES };'
   )();
 }
 const U = bundle();
 
-/* Two days, one model. Chosen so cache-read towers over the other three, as it
-   does on a real machine, and so every class sums to a distinct number. */
+/* Two days, one model (claude-opus-4-8). Chosen so cache-read towers over the
+   other three (as on a real machine) and each class sums to a distinct number. */
 const FIXTURE = {
   '2026-09-01': { 'claude-opus-4-8': { input_tokens: 2140559, output_tokens: 760331, cache_creation_input_tokens: 9401220, cache_read_input_tokens: 1023445990 } },
   '2026-08-31': { 'claude-opus-4-8': { input_tokens: 2010445, output_tokens: 701558, cache_creation_input_tokens: 8702558, cache_read_input_tokens: 940558112 } },
@@ -69,172 +81,210 @@ const FIXTURE = {
 //   output =   760,331 +   701,558 = 1,461,889
 //   written= 9,401,220 + 8,702,558 = 18,103,778
 //   read   =1,023,445,990+940,558,112=1,964,004,102
-//   $ from OUTPUT only: 1,461,889 / 750,000 = 1.94918... eng-days
-//                       round(1.94918... * 8h * $100) = round(1559.348) = 1559
-const EXPECT = { input: 4151004, output: 1461889, cacheWritten: 18103778, cacheRead: 1964004102, dollars: 1559 };
-// Formatting is asserted via the runtime's own toLocaleString so the test is
-// locale-robust, while the integer above is the hand-computed pin.
+//   blended total = 4,151,004+1,461,889+18,103,778+1,964,004,102 = 1,987,720,773
+const EXPECT = { input: 4151004, output: 1461889, cacheWritten: 18103778, cacheRead: 1964004102, total: 1987720773 };
 const fmt = (n) => Number(n).toLocaleString();
-const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-test('#2617: usageTotals sums each class separately and never blends them', () => {
+test('#2617: usageTotals sums each class separately (the four are never fused in the data)', () => {
   const t = U.usageTotals(FIXTURE);
   assert.equal(t.input, EXPECT.input, 'input total');
   assert.equal(t.output, EXPECT.output, 'output total');
   assert.equal(t.cacheWritten, EXPECT.cacheWritten, 'cache-written total');
   assert.equal(t.cacheRead, EXPECT.cacheRead, 'cache-read total');
-  // The four are returned as four fields, so nothing here can add up to a single
-  // "tokens used" figure -- the invariant the whole page defends.
-  assert.ok(!('total' in t) && !('all' in t), 'no blended total field is produced');
+  // The four classes are returned as four fields; the blended headline is computed
+  // in the hero from these, not baked into the totals object.
+  assert.ok(!('total' in t) && !('all' in t), 'usageTotals itself produces no blended field');
 });
 
-test('#2617: the four class cards show the full numbers, cache-read gold-accented', () => {
-  const html = U.usageCardsHtml(U.usageTotals(FIXTURE));
-  assert.match(html, /class="usage-four"/, 'the four-card grid is present');
-  for (const [label, key] of [['Input', 'input'], ['Output', 'output'], ['Cache written', 'cacheWritten'], ['Cache read', 'cacheRead']]) {
-    assert.ok(html.includes('>' + label + '<'), label + ' card label present');
-    assert.ok(html.includes(fmt(EXPECT[key])), label + ' shows its full number ' + fmt(EXPECT[key]));
-  }
-  // no abbreviation: the billion-scale cache-read is not softened to "1.9B" etc
-  assert.ok(!/\d(\.\d+)?[KMB]\b/.test(html), 'no K/M/B abbreviation (Josh: show them in full)');
-  assert.match(html, /class="usage-cls read"[\s\S]*Cache read/, 'the cache-read card carries the gold "read" class');
-  // the card accent comes from the SHARED source (not the app-wide --gold), so it
-  // agrees with the chart line and legend swatch by reference.
-  const readColor = U.USAGE_CLASS_COLORS.find((c) => c.key === 'cacheRead').color;
-  assert.match(html, new RegExp('class="usage-v" style="color:' + reEsc(readColor) + '"'),
-    'the cache-read card value is colored from USAGE_CLASS_COLORS (' + readColor + '), the same source as the chart');
+test('#2840: the hero shows the blended total = human-cost equation + three stats (verbatim design calc)', () => {
+  const html = U.usageHeroHtml(U.usageTotals(FIXTURE), Object.keys(FIXTURE).length, 1152);
+  // total 1,987,720,773 -> 2.0B ; hours = total/1e5 = 19,877.2 -> 20K ;
+  // value = hours*90 = 1,788,948.7 -> $1.8M ; years = hours/2080 = 9.556 -> round/10*10 = 10.
+  assert.match(html, /class="tv-hero"/, 'the hero container is present');
+  assert.ok(html.includes('>2.0B<'), 'the blended total headline (2.0B) is shown');
+  assert.ok(html.includes('Total Tokens Used'), 'labeled Total Tokens Used');
+  assert.ok(html.includes('>$1.8M<'), 'the human-cost value ($1.8M = total/1e5*$90) is shown');
+  assert.ok(html.includes('Approximate Human Cost'), 'labeled Approximate Human Cost');
+  assert.ok(html.includes('>20K<'), 'Human Work Hours (20K)');
+  assert.ok(html.includes('>10<'), 'Years of Human Work (10)');
+  assert.ok(html.includes('$1,152') && html.includes('Equivalent Token API Cost'), 'the API-cost stat shows the passed figure');
+  // active-days: 2 days -> two digit boxes "2"? no -- 2 days is one digit "2".
+  assert.match(html, /class="tv-days"[\s\S]*Active Days on Kosmos/, 'active-days eyebrow present');
 });
 
-test('#2617: the table renders a row per day/model and escapes model names (the innerHTML site)', () => {
-  const rows = U.usageTableHtml(FIXTURE);
-  assert.match(rows, /<table class="usage-table">/, 'a table is produced');
-  assert.equal((rows.match(/<tr>/g) || []).length, 3, 'one header row + one row per day/model (2 days) = 3');
-  assert.ok(rows.includes(fmt(EXPECT.cacheRead)) === false, 'per-row values are per-day, not the summed total');
-  // escaping: a hostile model name must not inject markup through innerHTML.
-  const hostile = U.usageTableHtml({ '2026-09-01': { '<img src=x onerror=alert(1)>': { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 1, cache_read_input_tokens: 1 } } });
-  assert.ok(!hostile.includes('<img src=x'), 'a hostile model name is escaped, not rendered as a tag');
-  assert.ok(hostile.includes('&lt;img'), 'the hostile string is HTML-escaped');
+test('#2840: the hero API-cost stat shows a dash (not $0) when no cost is available', () => {
+  const html = U.usageHeroHtml(U.usageTotals(FIXTURE), 2, null);
+  // the third stat box is the API cost; null -> "-" not "$0".
+  assert.match(html, /Equivalent Token API Cost/, 'the box is present');
+  assert.ok(!html.includes('$0<') && !html.includes('>$0<'), 'no false $0 for a missing price');
 });
 
-test('#2617: the money box is derived from OUTPUT alone and names its class', () => {
-  const money = U.usageMoneyHtml(U.usageTotals(FIXTURE));
-  assert.match(money, new RegExp('\\$<span>' + reEsc(fmt(EXPECT.dollars)) + '</span>'),
-    'the dollar figure is the hand-computed ' + fmt(EXPECT.dollars) + ' (output/750k * 8h * $100)');
-  assert.match(money, /engineering-equivalent of the <b>output<\/b> tokens/, 'it names OUTPUT as its basis');
-  assert.ok(money.includes(fmt(EXPECT.output)), 'it states the output token count it is built from');
-  assert.match(money, /about 1\.9 engineer-days/, 'it states the engineer-day equivalent');
-  // Mona's #2617 copy call: spell "eight-hour" so it does not collide with the
-  // digit in "about 1.9 engineer-days" later in the same sentence.
-  assert.match(money, /eight-hour engineer-day/, 'the engineer-day is spelled "eight-hour"');
-  assert.doesNotMatch(money, /8-hour/, 'not the digit form "8-hour" (Mona ruled the word)');
-  // The other three classes must NOT be folded into the dollar figure.
-  assert.ok(!money.includes(fmt(EXPECT.cacheRead)), 'cache-read is not folded into the dollar figure');
+test('#2840: the hero value degrades gracefully below $1M (a light machine shows the real figure, not $0.0M)', () => {
+  // total 50M -> value = 50e6 / 1e5 * 90 = $45,000. The verbatim "$X.XM" format would
+  // show that as "$0.0M"; below $1M the hero routes through usageUsd instead.
+  const html = U.usageHeroHtml({ input: 0, output: 0, cacheWritten: 0, cacheRead: 50000000 }, 3, 12);
+  assert.ok(html.includes('$45,000'), 'shows the exact dollar figure for a light machine');
+  assert.ok(!html.includes('$0.0M'), 'no misleading $0.0M for a real sub-$1M value');
+  // demo scale is unchanged: the approved $X.XM format still applies at >= $1M.
+  assert.ok(U.usageHeroHtml(U.usageTotals(FIXTURE), 2, 1152).includes('$1.8M'), 'demo-scale value keeps the approved $X.XM format');
 });
 
-test('#2617: an empty output produces no money box (nothing to interpret)', () => {
-  assert.equal(U.usageMoneyHtml({ input: 5, output: 0, cacheWritten: 5, cacheRead: 5 }), '', 'no output -> empty money box');
+test('#2840: usageByModel aggregates per-model blended totals, sorted most-first', () => {
+  const fx = {
+    'd2': { 'claude-opus-5': { output_tokens: 200, cache_read_input_tokens: 800 }, 'claude-sonnet-5': { output_tokens: 40 } },
+    'd1': { 'claude-opus-5': { input_tokens: 4 } },
+  };
+  const m = U.usageByModel(fx);
+  assert.equal(m.length, 2, 'two models');
+  assert.equal(m[0].name, 'claude-opus-5', 'sorted desc: opus first');
+  assert.equal(m[0].tok, 1004, 'opus blended total summed across days (200+800+4)');
+  assert.equal(m[1].tok, 40, 'sonnet total');
 });
 
-test('#2617: the chart is four polylines on one shared axis, oldest-to-newest', () => {
+test('#2840: the per-model table renders a row per model with a share bar + %', () => {
+  const models = U.usageByModel(FIXTURE);
+  const html = U.usageModelTableHtml(models, EXPECT.total);
+  assert.match(html, /class="tv-mrow head"/, 'a header row is present');
+  assert.match(html, />Model<[\s\S]*>Share<[\s\S]*>Tokens<[\s\S]*>% total</, 'the columns are Model/Share/Tokens/% total');
+  assert.ok(html.includes('claude-opus-4-8'), 'the model is listed');
+  assert.ok(html.includes('100.0%'), 'the sole model is 100% of the total');
+  // hostile model name escaped (innerHTML site)
+  const hostile = U.usageModelTableHtml([{ name: '<img src=x onerror=1>', tok: 5 }], 5);
+  assert.ok(!hostile.includes('<img src=x') && hostile.includes('&lt;img'), 'a hostile model name is escaped');
+});
+
+test('#2840: the donut renders a slice per model (top 6 + Other) with a blended-total center', () => {
+  const many = Array.from({ length: 8 }, (_, i) => ({ name: 'M' + i, tok: (8 - i) * 1000 }));
+  const svg = U.usageDonutSvg(many, 36000);
+  assert.match(svg, /token share by model/i, 'labeled as token share by model');
+  assert.equal((svg.match(/<path /g) || []).length, 7, 'top 6 slices + one Other slice = 7 arcs');
+  assert.ok(svg.includes('>Other<'), 'the tail is bucketed into Other');
+  assert.ok(svg.includes('total tokens'), 'the center names the total');
+  assert.equal(U.usageDonutSvg([], 0), '', 'no models -> empty');
+});
+
+test('#2840: a single-model donut draws a full-circle ring, not a degenerate arc (invisible-donut regression)', () => {
+  const one = [{ name: 'claude-opus-4-8', tok: 1987720773 }];
+  const svg = U.usageDonutSvg(one, 1987720773);
+  // A 100% slice drawn as one 360-degree <path> arc has its endpoint equal to its
+  // start, which SVG drops -- the ring would render invisibly. The fix draws a <circle>.
+  assert.match(svg, /<circle /, 'the lone full slice is drawn as a circle ring');
+  assert.equal((svg.match(/<path /g) || []).length, 0, 'no degenerate 360-degree path arc for a lone slice');
+  assert.ok(svg.includes('total tokens'), 'the center still names the total');
+});
+
+test('#2840: a two-model donut where one model has zero tokens is safe (no NaN, the nonzero model fills the ring)', () => {
+  const two = [{ name: 'claude-opus-4-8', tok: 100 }, { name: 'gpt-5.1', tok: 0 }];
+  const svg = U.usageDonutSvg(two, 100);
+  // The 100-token model is 100% of the total, so it hits the full-circle branch (a <circle>);
+  // the zero-token model draws a harmless minimal sliver. No NaN must reach the output.
+  assert.ok(!/NaN/.test(svg), 'no NaN in the rendered donut');
+  assert.match(svg, /<circle /, 'the sole nonzero model fills the ring as a circle');
+  assert.ok(svg.includes('total tokens'), 'the center still names the total');
+});
+
+test('#2840: a multi-slice donut draws real arcs with the correct large-arc flag per slice', () => {
+  const two = [{ name: 'A', tok: 60 }, { name: 'B', tok: 40 }];
+  const svg = U.usageDonutSvg(two, 100);
+  assert.ok(!/NaN/.test(svg), 'no NaN in the arc coordinates');
+  assert.equal((svg.match(/<path /g) || []).length, 2, 'two nonzero slices -> two arc paths (no full-ring circle)');
+  assert.equal((svg.match(/<circle /g) || []).length, 0, 'neither slice is a full ring');
+  // path form: "A 80 80 0 <big> 1" -- the >50% slice sets the large-arc flag, the <50% does not.
+  assert.match(svg, /A 80 80 0 1 1 /, 'the >50% slice uses the large-arc flag (1)');
+  assert.match(svg, /A 80 80 0 0 1 /, 'the <50% slice uses the small-arc flag (0)');
+});
+
+test('#2840: usageGrandTotal is the single blended-total source (hero, charts4, table, donut agree)', () => {
+  const totals = U.usageTotals(FIXTURE);
+  assert.equal(U.usageGrandTotal(totals), EXPECT.total, 'grand total = sum of the four classes');
+  // The per-model sum derives the same blended total from the same byDay data, so the
+  // hero headline and the per-model table/donut cannot silently disagree (Convention #5).
+  const byModelSum = U.usageByModel(FIXTURE).reduce((a, m) => a + m.tok, 0);
+  assert.equal(byModelSum, U.usageGrandTotal(totals), 'sum(usageByModel) === usageGrandTotal(usageTotals)');
+});
+
+test('#2840: the hero and donut center render the blended total identically at showcase scale (one formatter)', () => {
+  assert.equal(U.usageBigTokens(150e9), '150.0B', 'the shared big-token format keeps one decimal in the B band');
+  assert.equal(U.usageBigTokens(1987720773), '2.0B', 'and below 10B (fixture scale) too');
+  // both surfaces route through usageBigTokens, so one number cannot read two ways.
+  const hero = U.usageHeroHtml({ input: 0, output: 0, cacheWritten: 0, cacheRead: 150000000000 }, 30, 100000);
+  const donut = U.usageDonutSvg([{ name: 'm', tok: 150000000000 }], 150000000000);
+  assert.ok(hero.includes('150.0B'), 'hero shows 150.0B');
+  assert.ok(donut.includes('150.0B'), 'donut center shows 150.0B, not 150B');
+});
+
+test('#2840: charts4 renders four per-class daily mini-charts', () => {
   const series = U.usageDailySeries(FIXTURE);
-  assert.deepEqual(series.map((p) => p.day), ['2026-08-31', '2026-09-01'], 'series ascends by date');
-  const svg = U.usageChartSvg(series);
-  assert.match(svg, /viewBox="0 0 760 300"/, 'svg present with the mockup viewBox');
-  assert.equal((svg.match(/<polyline /g) || []).length, 4, 'exactly four polylines (one per class)');
-  for (const color of ['#d6a62e', '#6fd3a0', '#8ab4ff', '#c78cff']) {
-    assert.ok(svg.includes('stroke="' + color + '"'), 'polyline for color ' + color);
+  const html = U.usageCharts4Html(series, U.usageTotals(FIXTURE), EXPECT.total);
+  assert.match(html, /class="tv-charts4"/, 'the charts4 grid is present');
+  assert.equal((html.match(/class="tv-mini"/g) || []).length, 4, 'four mini-charts');
+  for (const name of ['Cache reads', 'Cache writes', 'Output', 'Input']) {
+    assert.ok(html.includes(name), name + ' chart present');
   }
-  // shared axis: cache-read (the largest) reaches the top band, the others sit near the baseline.
-  // its max point is the second day; y ~ yTop (14). The baseline is at y=274.
-  assert.match(svg, /stroke="#d6a62e"[^/]*points="[^"]*,14\.0"/, 'cache-read touches the top of the shared axis (its own max)');
-  assert.match(svg, /Aug 31/, 'the x-axis carries a day label');
+  assert.ok(!/NaN|undefined/.test(html), 'no NaN/undefined in the paths');
+  assert.equal(U.usageCharts4Html([], {}, 1), '', 'empty series -> empty');
 });
 
-test('#2617: a single day cannot draw a line, so the chart is empty (caller hides it)', () => {
-  const svg = U.usageChartSvg(U.usageDailySeries({ '2026-09-01': FIXTURE['2026-09-01'] }));
-  assert.equal(svg, '', 'one point -> no chart');
+test('#2840: usageApiCost sums tokens x published price, excludes+flags unpriced models', () => {
+  // opus-5 published: in 5 / out 25 / cw 6.25 / cr 0.50 ($/Mtok).
+  // 1M of each class -> (5+25+6.25+0.50) = $36.75
+  const r1 = U.usageApiCost({ d: { 'claude-opus-5': { input_tokens: 1e6, output_tokens: 1e6, cache_creation_input_tokens: 1e6, cache_read_input_tokens: 1e6 } } });
+  assert.ok(Math.abs(r1.cost - 36.75) < 1e-9, 'opus-5 1M-each -> $36.75');
+  assert.deepEqual(r1.unpriced, [], 'nothing unpriced');
+  // gpt-5.1-codex has no published price: excluded + flagged, never guessed.
+  const r2 = U.usageApiCost({ d: { 'claude-opus-5': { output_tokens: 1e6 }, 'gpt-5.1-codex': { output_tokens: 1e9 } } });
+  assert.ok(Math.abs(r2.cost - 25) < 1e-9, 'codex excluded; opus-5 1M output -> $25');
+  assert.deepEqual(r2.unpriced, ['gpt-5.1-codex'], 'codex named as unpriced');
+  // haiku carries a -YYYYMMDD stamp; usageModelPrice strips it to match.
+  const r3 = U.usageApiCost({ d: { 'claude-haiku-4-5-20251001': { output_tokens: 1e6 } } });
+  assert.ok(Math.abs(r3.cost - 5) < 1e-9, 'haiku (dated id) -> $5 via the date-strip');
+  // nothing priceable -> cost null, so the hero shows a dash not a false $0.
+  const r4 = U.usageApiCost({ d: { 'gpt-5.1-codex': { output_tokens: 1e6 } } });
+  assert.equal(r4.cost, null, 'all-unpriced -> cost null');
 });
 
-test('#2617: usageDayLabel formats the UTC key, and passes anything else through', () => {
-  assert.equal(U.usageDayLabel('2026-08-19'), 'Aug 19');
-  assert.equal(U.usageDayLabel('not-a-date'), 'not-a-date');
+test('#2840: usageModelPrice resolves exact ids and strips a date suffix', () => {
+  assert.ok(U.usageModelPrice('claude-opus-5'), 'exact id resolves');
+  assert.ok(U.usageModelPrice('claude-haiku-4-5-20251001'), 'dated id resolves via strip');
+  assert.equal(U.usageModelPrice('gpt-5.1-codex'), null, 'unpublished model -> null (flagged upstream, never guessed)');
+  assert.equal(U.usageModelPrice('totally-unknown'), null, 'unknown model -> null');
 });
 
-test('#2617: the section markup carries the cards, chart, money and table containers, and fetches 14 days', () => {
-  assert.match(CODE, /id="usage-cards"/, 'the cards container is in the page');
-  assert.match(CODE, /id="usage-chartwrap"[^>]*hidden/, 'the chart wrap is present and starts hidden');
-  assert.match(CODE, /id="usage-chart"/, 'the chart container is in the page');
-  assert.match(CODE, /id="usage-worth"/, 'the money container is in the page');
-  assert.match(CODE, /class="usage-meas"[\s\S]*id="usage-table"/, 'the table stays, framed as the measurement');
-  assert.match(CODE, /id="usage-legend"/, 'the legend container is in the page (filled by JS from the shared color source)');
-  assert.match(SCRIPT, /fetch\('\/api\/usage\?days=14'\)/, 'the render asks for 14 days (Mona\'s two-week trend)');
-});
-
-test('#2617: the legend and the chart draw from ONE color source, so they cannot drift', () => {
-  // Both usageChartSvg and usageLegendHtml read USAGE_CLASS_COLORS -- proven by running them.
-  const legend = U.usageLegendHtml();
-  const svg = U.usageChartSvg(U.usageDailySeries(FIXTURE));
-  for (const c of U.USAGE_CLASS_COLORS) {
-    assert.ok(legend.includes('background:' + c.color), 'legend swatch uses ' + c.color + ' for ' + c.label);
-    assert.ok(legend.includes('>' + c.label + '</span>'), 'legend names ' + c.label);
-    assert.ok(svg.includes('stroke="' + c.color + '"'), 'the chart polyline uses the SAME ' + c.color);
-  }
-  assert.equal(U.USAGE_CLASS_COLORS.length, 4, 'exactly the four classes');
-  // the legend order matches the mockup (cache-read first)
-  assert.deepEqual(U.USAGE_CLASS_COLORS.map((c) => c.label), ['Cache read', 'Cache written', 'Input', 'Output']);
-});
-
-/* #2840: the scrollable usage-history list. FIXTURE (above) is 2 days x 1 model.
-   Hand-computed per-row totals (4-class sums), independent of the product code:
+/* #2840: the scrollable usage-history list. FIXTURE per-row 4-class totals:
    2026-09-01: 2,140,559 + 760,331 + 9,401,220 + 1,023,445,990 = 1,035,748,100
    2026-08-31: 2,010,445 + 701,558 + 8,702,558 +   940,558,112 =   951,972,673 */
 test('#2840: usageHistoryHtml renders a row per day/model, newest first, with the 4-class total', () => {
   const html = U.usageHistoryHtml(FIXTURE);
   assert.match(html, /class="uhrow uhhead"/, 'the sticky header row is present');
-  assert.match(html, />Day<[\s\S]*>Model<[\s\S]*>Total tokens<[\s\S]*>Value</, 'the four columns are Day/Model/Total tokens/Value');
-  // newest first: 09-01 appears before 08-31
+  assert.match(html, />Day<[\s\S]*>Model<[\s\S]*>Total tokens<[\s\S]*>Value</, 'the columns are Day/Model/Total tokens/Value');
   assert.ok(html.indexOf('2026-09-01') < html.indexOf('2026-08-31'), 'rows are newest-first');
-  // per-row total abbreviated in the cell, full number in the title attr
   assert.ok(html.includes('title="' + fmt(1035748100) + '"'), 'the 09-01 row carries its full total in title');
   assert.ok(html.includes('>1.0B<'), 'the 09-01 row shows the abbreviated total');
 });
 
 test('#2840: the Value column is the blended per-row dollar figure (Josh ruled: keep the blend)', () => {
   const html = U.usageHistoryHtml(FIXTURE);
-  // Josh ruled to KEEP the blended Value (the design's ~$135M headline), so the
-  // "pending" stub is retired and each row shows its own blended dollar figure:
   //   Value = usd( rowTotal / 100,000 * 90 )   (the approved /design/token-value math)
   //   2026-09-01: 1,035,748,100 / 1e5 * 90 = 932,173.29 -> "$932,173"
   //   2026-08-31:   951,972,673 / 1e5 * 90 = 856,775.41 -> "$856,775"
-  // The comma band flows through usageNum -> toLocaleString, so assert against the
-  // runtime's own fmt (like the #2617 siblings) rather than a hardcoded en-US string,
-  // keeping the test locale-robust.
   assert.ok(html.includes('$' + fmt(932173)), 'the 09-01 row shows its blended dollar Value');
   assert.ok(html.includes('$' + fmt(856775)), 'the 08-31 row shows its blended dollar Value');
-  assert.ok(!/pending/.test(html), 'the "pending" stub is gone');
-  assert.ok(!/uh-stub/.test(html), 'the retired stub class is gone');
 });
 
 test('#2840: usageRowValue + usageUsd match the approved design formula and format bands', () => {
-  // Row value = the design's (tok / tokPerHr) * blendedRate, formatted by usd().
-  // Comma band via fmt (runtime toLocaleString) so the test is locale-robust; the
-  // B/M/cents bands use toFixed and are locale-independent, so they stay literal.
   assert.equal(U.usageRowValue(1035748100), '$' + fmt(932173), 'billion-scale row -> thousands-separated $');
   assert.equal(U.usageRowValue(951972673), '$' + fmt(856775), 'the older row matches its hand-computed value');
-  // usd() format bands, straight from the design's usd():
   assert.equal(U.usageUsd(2.5e9), '$2.50B', 'billions keep two decimals with a B');
   assert.equal(U.usageUsd(3.4e6), '$3M', 'millions round to a whole M');
   assert.equal(U.usageUsd(932173.29), '$' + fmt(932173), 'the thousands band is separated and rounded');
   assert.equal(U.usageUsd(50), '$50', 'tens..hundreds print as a whole dollar');
   assert.equal(U.usageUsd(5.5), '$5.50', 'under $10 keeps cents');
-  // Sanity: the grand-total blend lands on the design's ~$135M headline scale.
   assert.equal(U.usageUsd(150005932754 / 1e5 * 90), '$135M', 'the blended grand total is the design ~$135M');
 });
 
 test('#2840: usageAbbr abbreviates B/M/K and passes small numbers through', () => {
-  assert.equal(U.usageAbbr(21463000000), '21B', 'ten-billions round to a whole B (toFixed 0)');
-  assert.equal(U.usageAbbr(1964004102), '2.0B', 'single-digit billions keep one decimal (1.96 -> 2.0B)');
-  assert.equal(U.usageAbbr(1035748100), '1.0B', 'a low single-digit billion keeps one decimal');
+  assert.equal(U.usageAbbr(21463000000), '21B', 'ten-billions round to a whole B');
+  assert.equal(U.usageAbbr(1964004102), '2.0B', 'single-digit billions keep one decimal');
   assert.equal(U.usageAbbr(18103778), '18.1M', 'millions keep one decimal');
   assert.equal(U.usageAbbr(4151), '4K', 'thousands round to whole K');
   assert.equal(U.usageAbbr(742), '742', 'sub-thousand passes through');
@@ -248,23 +298,15 @@ test('#2840: usageHistoryHtml escapes a hostile model name and is empty on no da
   assert.equal(U.usageHistoryHtml({}), '', 'empty byDay renders nothing');
 });
 
-/* #2840 (Convention #5, "two derivations of one fact"): usageTableHtml and usageHistoryHtml
-   independently iterate byDay to emit their rows. This pins that they cover the SAME
-   (day, model) set from the same input, so a future edit to one loop (e.g. a per-class
-   filter) that misses the other desyncs a test rather than shipping silently. */
-test('#2840: the usage-history list and the measurement table derive the same (day,model) rows', () => {
-  const fx = {
-    '2026-09-02': { 'claude-opus-5': { output_tokens: 3 }, 'gpt-5.1-codex': { output_tokens: 2 } },
-    '2026-09-01': { 'claude-opus-5': { input_tokens: 1 } },
-  };
-  const tablePairs = [...U.usageTableHtml(fx).matchAll(/<tr><td>([^<]+)<\/td><td>([^<]+)<\/td>/g)]
-    .map((m) => m[1] + '|' + m[2]);
-  const histPairs = [...U.usageHistoryHtml(fx).matchAll(/<div class="uh-d">([^<]+)<\/div><div class="uh-m">([^<]+)<\/div>/g)]
-    .map((m) => m[1] + '|' + m[2]);
-  assert.equal(histPairs.length, 3, 'the fixture yields 3 day+model rows');
-  assert.deepEqual(histPairs.slice().sort(), tablePairs.slice().sort(),
-    'both functions produce the same (day,model) row set from the same byDay');
-  // Both are newest-first, so the first row of each is the 09-02 pair, not 09-01.
-  assert.ok(histPairs[0].startsWith('2026-09-02') && tablePairs[0].startsWith('2026-09-02'),
-    'both order newest-day-first');
+test('#2840: the section markup carries the approved value-view containers, and fetches 14 days', () => {
+  assert.match(CODE, /id="usage-hero"/, 'the hero container is in the page');
+  assert.match(CODE, /id="usage-charts4"/, 'the four-charts container is in the page');
+  assert.match(CODE, /id="usage-wtr"/, 'the per-model table + donut wrap is in the page');
+  assert.match(CODE, /id="usage-mtable"/, 'the model table container is in the page');
+  assert.match(CODE, /id="usage-donut"/, 'the donut container is in the page');
+  assert.match(CODE, /id="usage-history"/, 'the usage-history list is in the page');
+  // the replaced elements are gone (Josh's exact-to-spec ruling; documented on #2840).
+  assert.doesNotMatch(CODE, /id="usage-cards"/, 'the old full-number cards container is removed');
+  assert.doesNotMatch(CODE, /id="usage-worth"/, 'the old output-only money box is removed');
+  assert.match(SCRIPT, /fetch\('\/api\/usage\?days=14'\)/, 'the render asks for 14 days');
 });
