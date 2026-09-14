@@ -4946,6 +4946,11 @@ body.plus-active .dm.theirs .dm-b[data-am], body.plus-active .msg:not(.you) .msg
    and focus ring match the sibling `.pj-question-clear` text button (--label-2)
    and this file's k-component focus convention (--k-ink), not an undefined
    token. */
+/* #2808: the plain-language GRANT primary. A top margin so it separates from
+   the "Show full command" toggle above and reads as its own action; no width
+   or nowrap override, so its long label wraps within the content column and
+   fits a phone the same way the sibling Clear / Trust buttons do. */
+#d-qask-grant { margin-top: 8px; }
 .qask-expand { display: inline-block; margin-top: 4px; background: none; border: 0;
   padding: 0; font: var(--text-caption) var(--font-ui); color: var(--label-2);
   text-decoration: underline; cursor: pointer; }
@@ -7991,6 +7996,19 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              stays in the DOM either way. -->
         <button class="qask-expand" id="d-qask-expand" type="button" hidden
                 aria-expanded="false" aria-controls="d-qask-text">Show full command</button>
+        <!-- #2808 (Josh, 0.6.56): the plainly-worded one-click GRANT for a LIVE
+             permission prompt. When the parsed menu has a clean affirmative
+             first option (Claude's "1. Yes"/"Yes, continue"), this primary
+             button sends that answer via the SAME /api/agent/<name>/thread path
+             the raw option buttons use (server 409-guards it against a moved-on
+             pane) -- so a non-technical user grants in one obvious press instead
+             of reading a raw menu. On a placed send the answered-hold hides this
+             box, which is the "clear this message" half of Josh's ask. The raw
+             options stay below as the precise/secondary control (coexist, not
+             supersede -- #2146). The render unhides it ONLY when opts[0] is
+             affirmative AND it is NOT the folder-trust prompt (that keeps its own
+             "Trust & Restart"); never on an open or non-affirmative question. -->
+        <button class="btn uprime" id="d-qask-grant" type="button" hidden>Give this agent permission and clear this message</button>
         <div class="qopts" id="d-qopts" hidden></div>
         <p class="qout" id="d-qout" hidden>Or write your own answer below.</p>
         <!-- ⚠️ A HINT, NOT A VERDICT PILL, ruled by Mona Lisa 2026-08-20 after a
@@ -23731,6 +23749,41 @@ async function paintTalk(sessionName, agentName) {
    * prompt twice.
    */
   const opts = (body.asking && !stillTheSame && live && Array.isArray(body.options)) ? body.options : null;
+  /* #2808: the plainly-worded one-click GRANT. Shown ONLY for a live permission
+     prompt whose parsed menu has a clean AFFIRMATIVE first option -- Claude's
+     "1. Yes" / "Yes, continue", Codex's "Yes, continue". Gated hard so it never
+     fires on the wrong thing:
+       - `opts` already carries every guard the option buttons need (asking,
+         live, not the answered-hold, a confident 1..n menu);
+       - `!body.answerNote` excludes the folder-trust prompt, whose real
+         one-click action is "Trust & Restart" beside it (a "grant" there would
+         type into a trust dialog that skip-permissions does not cover);
+       - `opts.length >= 2` + an affirmative opt[0] label is the yes/no
+         permission SHAPE -- an open multi-choice question ("which design?") has
+         no affirmative first option, so it gets no grant button and the person
+         uses the raw options or the composer.
+     It sends opt[0] via the SAME `sendTalk(n, label)` the raw buttons use, so
+     the server's 409 screen-check still refuses a pane that moved on, and a
+     placed send records the answered-hold that hides this box (the "clear this
+     message" half). Coexists with the raw options -- it does not replace them. */
+  const AFFIRMATIVE_RE = /^\s*(?:[❯›]\s*)?(?:yes|allow|proceed|approve|continue|ok)\b/i;
+  const grantOpt = (opts && !body.answerNote && opts.length >= 2
+    && opts[0] && AFFIRMATIVE_RE.test(String(opts[0].label))) ? opts[0] : null;
+  {
+    const qGrant = document.getElementById('d-qask-grant');
+    if (qGrant) {
+      if (grantOpt) {
+        qGrant.dataset.n = String(grantOpt.n);
+        qGrant.dataset.label = grantOpt.label;
+        /* Dead while THIS person's own answer is in the air, exactly like the
+           raw option buttons: a second press answers a numbered prompt twice. */
+        qGrant.disabled = flying;
+        qGrant.hidden = false;
+      } else {
+        qGrant.hidden = true;
+      }
+    }
+  }
   /* ⚠️ DEAD WHILE A SEND IS IN THE AIR. A paint that lands mid-flight rebuilds
      these, and the first version rebuilt them ENABLED — undoing the send's own
      disable. The double send was still refused by the TALK_SENDING guard, so
@@ -42386,6 +42439,17 @@ document.getElementById('d-say').addEventListener('keydown', (e) => {
 document.getElementById('d-qopts').addEventListener('click', (e) => {
   const btn = e.target.closest('.qopt');
   if (!btn || btn.disabled) return;
+  sendTalk(btn.dataset.n, btn.dataset.label);
+});
+/* #2808: the plainly-worded GRANT sends the affirmative option exactly as
+   clicking that raw option would -- the digit on the wire, its own words in the
+   bubble. `sendTalk` carries the answered-hold + the 409 screen-check, so this
+   is the option press under a plain label, not a second code path. Its own
+   listener (not the #d-qopts delegate) because it lives in #d-qask beside the
+   options, not inside #d-qopts, and it is not a `.qopt` (a distinct primary). */
+document.getElementById('d-qask-grant').addEventListener('click', (e) => {
+  const btn = e.currentTarget;
+  if (btn.disabled) return;
   sendTalk(btn.dataset.n, btn.dataset.label);
 });
 document.getElementById('pj-send').addEventListener('click', pjSend);
