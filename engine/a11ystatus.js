@@ -276,7 +276,10 @@ function resetGrantCache() { grantCache = null; }
  *   any read failure (no FDA, missing/locked db, schema drift, no sqlite3,
  *   unresolvable tmux path)                          -> { checkable:false }      ("Checking...")
  *
- * @returns {{checkable:true,trusted:boolean,at:string}|{checkable:false,because:string}}
+ * @returns {{checkable:true,trusted:boolean,present:boolean,at:string}|{checkable:false,because:string}}
+ *   present (checkable:true only): whether our tmux binary has a row in the
+ *   Accessibility list. present:false => not listed yet (nothing to toggle);
+ *   the #2911 route treats that as advisory so it never traps (#2912).
  */
 function tmuxGrant(opts) {
   // The tmux binary Kosmos actually runs, then its realpath: TCC keys on the
@@ -311,15 +314,23 @@ function tmuxGrant(opts) {
     // auth_value 2 (allowed) / 3 (allowed, limited) => granted; 0/1 => denied.
     const granted = (r) => r && r.auth >= 2;
     if (exact) {
-      verdict = { checkable: true, trusted: granted(exact), at: new Date().toISOString() };
+      // Our tmux binary HAS a row in the Accessibility list (present:true), on or
+      // off. present:true lets the #2911 gate BLOCK an off row (the user can toggle
+      // it) without trapping when tmux is not listed at all (present:false below).
+      verdict = { checkable: true, trusted: granted(exact), present: true, at: new Date().toISOString() };
     } else if (rows.some(granted)) {
       // A tmux is granted, but not the binary we resolve -- ambiguous. Do not
       // claim green (it is not OUR tmux) and do not block Next with a possibly-
       // false "Not activated"; report cannot-check so the pill reads "Checking...".
       verdict = { checkable: false, because: 'a tmux Accessibility grant exists but not for the tmux binary this install runs (path-key mismatch)' };
     } else {
-      // No tmux granted anywhere -> the honest, actionable fresh-install state.
-      verdict = { checkable: true, trusted: false, at: new Date().toISOString() };
+      // No row for our tmux binary anywhere (present:false): tmux is not yet listed
+      // in Accessibility, so there is nothing for the user to toggle. The verdict is
+      // an honest not-granted, but present:false lets the #2911 route treat it as
+      // NON-blocking (advisory), so a screen reached before tmux registered is never
+      // a trap (#2912). Once tmux registers (the bg-agent-at-Access-step fires it up
+      // front, #1940 solved-by-design), it becomes an exact present:true row.
+      verdict = { checkable: true, trusted: false, present: false, at: new Date().toISOString() };
     }
   }
   if (useCache) grantCache = { key: cacheKey, at: Date.now(), value: verdict };

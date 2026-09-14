@@ -8120,18 +8120,16 @@ const server = http.createServer((req, res) => {
      supplies the reading because accessibility trust is a TCC fact the engine
      cannot read (#1344); this route only surfaces it. */
   if (pathname === '/api/a11y-status' && (req.method === 'GET' || req.method === 'HEAD')) {
-    /* #2451: serve Kosmos.app's OWN Accessibility trust (a11ystatus.read()), NOT
-       tmuxGrant(). Accessibility is keyed on the CALLING BINARY: the onboarding
-       "Turn On" registers the kosmos-app (Josh sees "Kosmos" in the Accessibility
-       list), and tmux disclaims responsibility for its children and can never hold
-       that grant -- so tmux is the WRONG subject. tmuxGrant() reads tmux's path-keyed
-       row, which is absent / path-key-mismatched on a normal box -> checkable:false
-       forever -> the pill sticks on "Checking..." and the gate fail-safes Next to
-       ENABLED (Josh's #2451 symptom: "stuck on Checking, Next already activated").
-       (#2085 called the app's trust a "false TMUX ACTIVATED" pill under the
-       now-disproven belief that tmux must hold the grant; #2125 resolved the subject
-       is the app. tmuxGrant stays in the engine for a possible #2125-KEEP
-       tmux-identity path.)
+    /* #2451/#2911: this route serves Kosmos.app's OWN Accessibility grant (the APP
+       subject) -- the "Kosmos" row the onboarding "Turn On" registers in the
+       Accessibility list. Accessibility is keyed on the CALLING BINARY, so the app's
+       grant and tmux's grant are TWO DISTINCT rows. This route is the APP one; the
+       tmux one is served by /api/tmux-a11y-status (tmuxGrant, #2911). An earlier note
+       here claimed tmux "can never hold that grant" -- that was wrong (an
+       over-generalized #2125 read); #2911 measured tmux's own AX row on the system db
+       and in Josh's fresh-install screenshot. #2125 is narrowly that the APP gate's
+       subject is the app, which is correct and is why THIS route reads the app, not
+       tmux.
 
        #2559/#2911 (Josh's #1, 2026-09-14): RE-GATE Continue on this reading, which
        #2912 had made advisory because the source was too laggy to gate on. The
@@ -8162,6 +8160,32 @@ const server = http.createServer((req, res) => {
       }
     } catch (err) {
       reading = { checkable: false, because: 'we could not read the accessibility reading (' + String(err && err.message || err) + ')' };
+    }
+    sendJson(res, 200, reading);
+    return;
+  }
+
+  /* #2911: serve tmux's OWN Accessibility grant (tmuxGrant) -- the SECOND, distinct
+     Accessibility subject the onboarding must detect (the "tmux" row macOS lists
+     alongside "Kosmos", keyed on the bundled tmux binary's real path, resolved from
+     AGENT_WORKFORCE_TMUX_BIN which the board process carries). Same {checkable,
+     trusted} shape as /api/a11y-status, so the S3 gate poll consumes it unchanged and
+     blocks Next ONLY on a definite checkable:true + trusted:false. The ONE extra
+     rule: a present:false verdict (our tmux binary is not yet listed in Accessibility,
+     so there is nothing to toggle) is mapped to checkable:false -> advisory, so a
+     screen reached before tmux registers is never a trap (#2912). A path-key mismatch
+     or an unreadable db is already checkable:false (advisory) from tmuxGrant. */
+  if (pathname === '/api/tmux-a11y-status' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let reading;
+    try {
+      const g = a11ystatus.tmuxGrant();
+      if (g && g.checkable === true && g.present === false) {
+        reading = { checkable: false, because: 'tmux is not yet listed in Accessibility (nothing to turn on here yet)' };
+      } else {
+        reading = g;
+      }
+    } catch (err) {
+      reading = { checkable: false, because: 'we could not read the tmux accessibility reading (' + String(err && err.message || err) + ')' };
     }
     sendJson(res, 200, reading);
     return;
