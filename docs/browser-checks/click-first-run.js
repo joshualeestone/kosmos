@@ -45,15 +45,17 @@ const ok = (cond, what) => { if (!cond) fails.push(what); console.log(`${cond ? 
    for the flag rather than reading it immediately. Returns the parsed flag
    object once it exists (and, when requireCompletedAt, once it carries a
    completedAt), or null after the timeout -- so a genuinely-never-written flag
-   still fails the assertion, it just is not raced. A partial write (file present
-   but not yet valid JSON / no completedAt) keeps polling until the deadline. */
+   still fails the assertion, it just is not raced. The flag has one writer
+   (engine/firstrun.js writes a temp then renames it into place), so it is only
+   ever absent or complete: the try/catch covers the ENOENT window before the
+   rename lands, not a half-written file, which an atomic rename cannot expose. */
 async function waitForFlag(flagPath, { requireCompletedAt = false, timeoutMs = 5000 } = {}) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     try {
       const parsed = JSON.parse(fs.readFileSync(flagPath, 'utf8'));
       if (!requireCompletedAt || parsed.completedAt) return parsed;
-    } catch (_) { /* ENOENT or mid-write: keep polling until the deadline */ }
+    } catch (_) { /* ENOENT: the flag is not renamed into place yet -- keep polling */ }
     if (Date.now() >= deadline) return null;
     await new Promise((r) => setTimeout(r, 100));
   }
