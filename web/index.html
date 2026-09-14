@@ -12743,6 +12743,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              swatches cannot drift from the polyline colors they explain. -->
         <div id="usage-legend" class="usage-legend"></div>
       </div>
+      <!-- #2840: where the work ran -- the per-model table + the per-model token
+           share donut, side by side, matching the approved /design/token-value.
+           Both draw from the same per-model aggregate (usageByModel) and the same
+           USAGE_MODEL_COLORS, so table and donut cannot disagree. -->
+      <div class="tv-wtr" id="usage-wtr" hidden>
+        <div class="tv-mtable" id="usage-mtable"></div>
+        <div class="tv-pie" id="usage-donut"></div>
+      </div>
       <!-- #2840 (Mona's 0.6.57 token-value design): the scrollable usage-history
            list, above the estimate note. Newest day+model first, fixed-height
            scroll. Day / Model / Total tokens / Value.
@@ -25272,6 +25280,85 @@ function usageHeroHtml(totals, activeDays, apiCostUsd) {
     + '<div class="tv-flabel">Equivalent Token API Cost</div></div>'
     + '</div></div>';
 }
+/* #2840: the per-model categorical palette, app-native, from the approved
+   /design/token-value pie (the reference's provider hues all collapsed to the app
+   gold, so distinct ranks needed distinct colors). ONE source drives BOTH the
+   model table dots and the donut slices, so a color cannot drift between the two
+   surfaces -- the same "one color source" rule usageChartSvg/usageLegendHtml
+   follow. Index 6 is the muted "Other" bucket. */
+const USAGE_MODEL_COLORS = ['#b88920', '#4171e3', '#3fbf87', '#41c2e3', '#8a7fe0', '#d97aa0', '#8a8f98'];
+/* Aggregate byDay into per-model 4-class token totals, summed across every day,
+   sorted most-tokens-first. The blended per-model sum is deliberate here (Josh's
+   2026-09-14 ruling: the blended total is the correct full-value figure); it is
+   the same aggregate the hero headline and the donut share. Pure + node-testable. */
+function usageByModel(byDay) {
+  const acc = {};
+  for (const day of Object.keys(byDay || {})) {
+    const models = byDay[day] || {};
+    for (const model of Object.keys(models)) {
+      const b = models[model] || {};
+      const tok = (Number(b.input_tokens) || 0) + (Number(b.output_tokens) || 0)
+        + (Number(b.cache_creation_input_tokens) || 0) + (Number(b.cache_read_input_tokens) || 0);
+      acc[model] = (acc[model] || 0) + tok;
+    }
+  }
+  return Object.keys(acc).map((name) => ({ name: name, tok: acc[name] }))
+    .sort((a, b) => b.tok - a.tok);
+}
+/* #2840: the per-model table (Model / share-bar / tokens / % of total), matching
+   the approved design's mtable. Bars are scaled to the biggest model so the
+   largest fills the cell. Colors from the shared USAGE_MODEL_COLORS by rank; ranks
+   past the palette reuse the muted "Other" color. Pure. */
+function usageModelTableHtml(models, grandTotal) {
+  const m = Array.isArray(models) ? models : [];
+  if (!m.length) return '';
+  const total = Number(grandTotal) || m.reduce((a, x) => a + (Number(x.tok) || 0), 0) || 1;
+  const max = m.reduce((a, x) => Math.max(a, Number(x.tok) || 0), 0) || 1;
+  const rows = m.map((x, i) => {
+    const color = USAGE_MODEL_COLORS[Math.min(i, USAGE_MODEL_COLORS.length - 1)];
+    const pct = (Number(x.tok) || 0) / total * 100;
+    const pctStr = pct >= 0.1 ? pct.toFixed(1) + '%' : '<0.1%';
+    return '<div class="tv-mrow"><div class="tv-mn"><span class="tv-dot" style="background:' + color + '"></span>' + esc(x.name) + '</div>'
+      + '<div class="tv-mbar"><span style="width:' + ((Number(x.tok) || 0) / max * 100).toFixed(1) + '%;background:' + color + '"></span></div>'
+      + '<div class="tv-num">' + esc(usageAbbr(x.tok)) + '</div>'
+      + '<div class="tv-num">' + pctStr + '</div></div>';
+  }).join('');
+  return '<div class="tv-mrow head"><div>Model</div><div>Share</div><div class="tv-num">Tokens</div><div class="tv-num">% total</div></div>' + rows;
+}
+/* #2840: the donut -- per-model token SHARE, top 6 + an "Other" bucket, matching
+   the approved design's pie. Center shows the blended total tokens (Josh's ruling:
+   the blended total is the correct headline). Legend lists each slice's share.
+   Same USAGE_MODEL_COLORS by rank as the table, so the two agree. Pure. */
+function usageDonutSvg(models, grandTotal) {
+  const m = Array.isArray(models) ? models.slice() : [];
+  if (!m.length) return '';
+  const top = m.slice(0, 6);
+  const restTok = m.slice(6).reduce((a, x) => a + (Number(x.tok) || 0), 0);
+  const slices = top.map((x, i) => ({ name: x.name, tok: Number(x.tok) || 0, c: USAGE_MODEL_COLORS[i] }));
+  if (restTok > 0) slices.push({ name: 'Other', tok: restTok, c: USAGE_MODEL_COLORS[6] });
+  const tot = slices.reduce((a, s) => a + s.tok, 0) || 1;
+  const cx = 100, cy = 100, R = 80, sw = 32;
+  let a0 = -Math.PI / 2;
+  const segs = slices.map((s) => {
+    const frac = s.tok / tot, a1 = a0 + frac * 2 * Math.PI, big = frac > 0.5 ? 1 : 0;
+    const x0 = cx + R * Math.cos(a0), y0 = cy + R * Math.sin(a0);
+    const ea = Math.max(a1, a0 + 0.01);
+    const x1 = cx + R * Math.cos(ea), y1 = cy + R * Math.sin(ea);
+    const p = '<path d="M ' + x0.toFixed(2) + ' ' + y0.toFixed(2) + ' A ' + R + ' ' + R + ' 0 ' + big + ' 1 ' + x1.toFixed(2) + ' ' + y1.toFixed(2) + '" fill="none" stroke="' + s.c + '" stroke-width="' + sw + '"/>';
+    a0 = a1;
+    return p;
+  }).join('');
+  const centerTok = esc(usageAbbr(Number(grandTotal) || tot));
+  const svg = '<svg viewBox="0 0 200 200" role="img" aria-label="Token share by model">' + segs
+    + '<text x="100" y="95" text-anchor="middle" style="font-size:15px;fill:var(--k-ink);font-weight:700" font-family="var(--font-mono)">' + centerTok + '</text>'
+    + '<text x="100" y="113" text-anchor="middle" style="font-size:10px;fill:var(--k-ink-2)">total tokens</text></svg>';
+  const legend = slices.map((s) => {
+    const pct = s.tok / tot * 100;
+    const ps = pct >= 1 ? pct.toFixed(0) + '%' : '<1%';
+    return '<div class="tv-pileg"><span class="l"><span class="tv-dot" style="background:' + s.c + '"></span>' + esc(s.name) + '</span><span class="v">' + ps + '</span></div>';
+  }).join('');
+  return svg + '<div class="tv-pielegend">' + legend + '</div>';
+}
 /* #2840: the scrollable usage-history list -- one row per day+model, newest first,
    matching Mona's 0.6.57 token-value design. Day / Model / Total tokens / Value.
    Total is the row's own 4-class sum (a labeled per-row breakdown, not the single
@@ -25301,6 +25388,9 @@ let USAGE_BUSY = false;
 async function paintUsage() {
   const msg = document.getElementById('usage-msg');
   const hero = document.getElementById('usage-hero'); // #2840: the approved value-view hero
+  const wtr = document.getElementById('usage-wtr'); // #2840: per-model table + donut wrap
+  const mtable = document.getElementById('usage-mtable');
+  const donut = document.getElementById('usage-donut');
   const cards = document.getElementById('usage-cards');
   const chartWrap = document.getElementById('usage-chartwrap');
   const chart = document.getElementById('usage-chart');
@@ -25321,6 +25411,9 @@ async function paintUsage() {
     if (!Object.keys(byDay).length) {
       msg.textContent = 'No usage recorded yet on this computer.';
       if (hero) hero.innerHTML = '';
+      if (wtr) wtr.hidden = true;
+      if (mtable) mtable.innerHTML = '';
+      if (donut) donut.innerHTML = '';
       if (cards) cards.innerHTML = '';
       if (chart) chart.innerHTML = '';
       if (legend) legend.innerHTML = '';
@@ -25335,6 +25428,13 @@ async function paintUsage() {
        usage. apiCostUsd is null until the published-price table is wired; the hero
        then shows a quiet "-" for that one stat rather than a guessed number. */
     if (hero) hero.innerHTML = usageHeroHtml(totals, Object.keys(byDay).length, null);
+    /* #2840: per-model table + donut, from one shared aggregate + grand total. */
+    const grandTotal = (Number(totals.input) || 0) + (Number(totals.output) || 0)
+      + (Number(totals.cacheWritten) || 0) + (Number(totals.cacheRead) || 0);
+    const models = usageByModel(byDay);
+    if (mtable) mtable.innerHTML = usageModelTableHtml(models, grandTotal);
+    if (donut) donut.innerHTML = usageDonutSvg(models, grandTotal);
+    if (wtr) wtr.hidden = !models.length;
     if (cards) cards.innerHTML = usageCardsHtml(totals);
     const svg = usageChartSvg(usageDailySeries(byDay));
     if (chart) chart.innerHTML = svg;
@@ -25346,6 +25446,9 @@ async function paintUsage() {
     if (!box.innerHTML) {
       msg.textContent = 'No usage recorded in the last fourteen days.';
       if (hero) hero.innerHTML = '';
+      if (wtr) wtr.hidden = true;
+      if (mtable) mtable.innerHTML = '';
+      if (donut) donut.innerHTML = '';
       if (cards) cards.innerHTML = '';
       if (chart) chart.innerHTML = '';
       if (legend) legend.innerHTML = '';
