@@ -25027,6 +25027,14 @@ function usageAbbr(n) {
   if (v >= 1e3) return (v / 1e3).toFixed(0) + 'K';
   return String(v);
 }
+/* #2840: the big blended-token headline format, shared by the hero ("Total Tokens Used")
+   and the donut center so the identical figure reads identically. usageAbbr drops the
+   decimal at >=10B, which would show the hero's "150.0B" as "150B" in the donut for the
+   same number; this keeps one decimal in the B band, and defers to usageAbbr below 1B. Pure. */
+function usageBigTokens(n) {
+  const v = Number(n) || 0;
+  return v >= 1e9 ? (v / 1e9).toFixed(1) + 'B' : usageAbbr(v);
+}
 /* THE VALUE COLUMN (#2840), now LIVE. The per-row Value is the BLENDED dollar figure
    the approved /design/token-value derives: the row's own 4-class token total valued at
    a blended knowledge-work rate. Blend-vs-output was a Josh call on his #1 demo headline;
@@ -25085,7 +25093,7 @@ function usageHeroHtml(totals, activeDays, apiCostUsd) {
   const hours = total / USAGE_VALUE_TOKENS_PER_HOUR;
   const value = hours * USAGE_VALUE_BLENDED_RATE;
   const years = hours / USAGE_VALUE_HOURS_PER_YEAR;
-  const tokensStr = (total / 1e9) >= 1 ? (total / 1e9).toFixed(1) + 'B' : usageAbbr(total);
+  const tokensStr = usageBigTokens(total);
   // The approved design's headline format is "$X.XM" (e.g. $135.0M), kept verbatim at
   // demo scale. Below $1M that format would show a real figure as "$0.0M" (e.g. $45K on a
   // light machine), so fall back to usageUsd there -- the same formatter the API-cost stat
@@ -25191,7 +25199,7 @@ function usageDonutSvg(models, grandTotal) {
   }).join('');
   // A real grandTotal of 0 is honest (show "0"); only a missing/non-number one falls
   // back to the slice sum, so `|| tot` (which also swallows 0) is not used here.
-  const centerTok = esc(usageAbbr(typeof grandTotal === 'number' && Number.isFinite(grandTotal) ? grandTotal : tot));
+  const centerTok = esc(usageBigTokens(typeof grandTotal === 'number' && Number.isFinite(grandTotal) ? grandTotal : tot));
   const svg = '<svg viewBox="0 0 200 200" role="img" aria-label="Token share by model">' + segs
     + '<text x="100" y="95" text-anchor="middle" style="font-size:15px;fill:var(--k-ink);font-weight:700;font-family:var(--font-mono)">' + centerTok + '</text>'
     + '<text x="100" y="113" text-anchor="middle" style="font-size:10px;fill:var(--k-ink-2)">total tokens</text></svg>';

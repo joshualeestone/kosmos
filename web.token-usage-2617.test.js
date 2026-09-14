@@ -47,6 +47,7 @@ function bundle() {
     + lift('esc') + '\n'
     + lift('usageNum') + '\n'
     + lift('usageAbbr') + '\n'
+    + lift('usageBigTokens') + '\n'
     + lift('usageUsd') + '\n'
     + lift('usageRowValue') + '\n'
     + lift('usageTotals') + '\n'
@@ -62,7 +63,7 @@ function bundle() {
     + lift('usageModelPrice') + '\n'
     + lift('usageApiCost') + '\n'
     + lift('usageHistoryHtml') + '\n'
-    + 'return { usageTotals, usageGrandTotal, usageRowTokenTotal, usageDailySeries, usageNum, usageAbbr, usageUsd, usageRowValue, '
+    + 'return { usageTotals, usageGrandTotal, usageRowTokenTotal, usageDailySeries, usageNum, usageAbbr, usageBigTokens, usageUsd, usageRowValue, '
     + 'usageHeroHtml, usageByModel, usageModelTableHtml, usageDonutSvg, usageCharts4Html, '
     + 'usageModelPrice, usageApiCost, usageHistoryHtml, USAGE_CLASS_COLORS, USAGE_MODEL_COLORS, USAGE_MODEL_PRICES };'
   )();
@@ -200,6 +201,16 @@ test('#2840: usageGrandTotal is the single blended-total source (hero, charts4, 
   // hero headline and the per-model table/donut cannot silently disagree (Convention #5).
   const byModelSum = U.usageByModel(FIXTURE).reduce((a, m) => a + m.tok, 0);
   assert.equal(byModelSum, U.usageGrandTotal(totals), 'sum(usageByModel) === usageGrandTotal(usageTotals)');
+});
+
+test('#2840: the hero and donut center render the blended total identically at showcase scale (one formatter)', () => {
+  assert.equal(U.usageBigTokens(150e9), '150.0B', 'the shared big-token format keeps one decimal in the B band');
+  assert.equal(U.usageBigTokens(1987720773), '2.0B', 'and below 10B (fixture scale) too');
+  // both surfaces route through usageBigTokens, so one number cannot read two ways.
+  const hero = U.usageHeroHtml({ input: 0, output: 0, cacheWritten: 0, cacheRead: 150000000000 }, 30, 100000);
+  const donut = U.usageDonutSvg([{ name: 'm', tok: 150000000000 }], 150000000000);
+  assert.ok(hero.includes('150.0B'), 'hero shows 150.0B');
+  assert.ok(donut.includes('150.0B'), 'donut center shows 150.0B, not 150B');
 });
 
 test('#2840: charts4 renders four per-class daily mini-charts', () => {
