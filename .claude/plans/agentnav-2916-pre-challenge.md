@@ -31,16 +31,16 @@ alternated sonnet/opus/sonnet/opus.
 **Reviewer model:** sonnet
 **New findings:** 1 BLOCKER, 2 WARNINGs, 1 CONVENTION
 **Self-generated:** 0
-- [BLOCKER] render-agent-nav.js — clicked the removed `memory` pill via a dynamic `data-go` selector (a literal grep missed it) and asserted 1:1 section reveal --> FIXED (232fccd0): iterate PILLS, assert group reveal; verified passing live
-- [WARNING] web/index.html — skills lazy-load fires on every Instructions click, refetch + flicker --> FIXED: SKILLS_LOADED_FOR per-agent guard, reset in openDetail
-- [WARNING] web/index.html — focus lands on group[0], folded-member deep-link focus not obvious --> FIXED: documented at the group map
-- [CONVENTION] named-controls.js — "SEVEN SURFACES" comment stale after the sweep shrank to six --> FIXED
+- [BLOCKER] render-agent-nav.js - clicked the removed `memory` pill via a dynamic `data-go` selector (a literal grep missed it) and asserted 1:1 section reveal --> FIXED (232fccd0): iterate PILLS, assert group reveal; verified passing live
+- [WARNING] web/index.html - skills lazy-load fires on every Instructions click, refetch + flicker --> FIXED: SKILLS_LOADED_FOR per-agent guard, reset in openDetail
+- [WARNING] web/index.html - focus lands on group[0], folded-member deep-link focus not obvious --> FIXED: documented at the group map
+- [CONVENTION] named-controls.js - "SEVEN SURFACES" comment stale after the sweep shrank to six --> FIXED
 
 #### Iteration 2
 **Reviewer model:** opus
 **New findings:** 1 BLOCKER, 2 NITs
 **Self-generated:** 0
-- [BLOCKER] contrast.js — the SAME dynamic-selector pattern, a `#d-nav` sweep including `memory` --> FIXED (f737d3d3): dropped memory from the sweep; a comprehensive grep then proved exactly 3 files carry this pattern, all handled
+- [BLOCKER] contrast.js - the SAME dynamic-selector pattern, a `#d-nav` sweep including `memory` --> FIXED (f737d3d3): dropped memory from the sweep; a comprehensive grep then proved exactly 3 files carry this pattern, all handled
 - [NIT] d-sec-model aria-label "Model and Memory" overclaimed (region holds only model) --> FIXED: reverted to "Model"; the pill carries the grouping
 - [NIT] skills load only from the click handler (latent deep-link gap) --> documented
 
@@ -55,7 +55,7 @@ alternated sonnet/opus/sonnet/opus.
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs
 **Self-generated:** 0
-**Converged** — no actionable findings.
+**Converged** - no actionable findings.
 - [NIT] render-agent-nav.js control label said "six" others; SECTIONS grew to 8 --> FIXED (5058078): "seven" (label text only, logic was correct)
 - [NIT] skills deep-link gap --> documented, accepted (no live caller; verified across all openDetail sites)
 
