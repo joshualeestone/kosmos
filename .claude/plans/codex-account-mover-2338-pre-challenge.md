@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: codex-account-mover-2338
-diff_hash: a2651dadf4fd24d657fcf3400a8e2f14697ae3cef0377e3c9eae69922a0a2339
+diff_hash: b8bff5fd0d03404f4ab87c7016a24e74f83ab58db7891dc034964e2a6200750f
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-14T15:34:42Z
@@ -15,7 +15,12 @@ converged: true
 **Iterations:** 6
 **Converged:** Yes (iteration 6 found zero new actionable findings)
 **Total findings:** 10 actionable (1 BLOCKER, 7 WARNINGs, 2 CONVENTIONs) + 4 NITs
-**Fixed:** 9 | **Deferred:** 1 (no plan file) | **Asked:** 0
+**Fixed:** 10 | **Deferred:** 0 | **Asked:** 0
+
+> Post-loop note: the plan-file CONVENTION (deferred during the loop as a directive-driven
+> build) was RESOLVED at PR time - the pre-challenge-gate hook requires a per-branch plan
+> file, so `.claude/plans/codex-account-mover-2338-20260914T1034.md` was added and the
+> `diff_hash` above recomputed to include it. The code review content is unchanged.
 
 Change: kosmos#2338 piece 2 — a Codex/ChatGPT agent can be moved between the user's
 OpenAI (CODEX_HOME) accounts from the account picker that already moves Claude agents.
