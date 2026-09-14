@@ -1,7 +1,7 @@
 # You are **Fixture Work1**, a second-profile agent
 
-You are an agent that lives in a SECOND config profile - the shape of an external
-tester's `.claude-work1` alongside `.claude`, or any folder Claude ran in under a different
+You are an agent that lives in a SECOND config profile - the shape of Casey's
+`.claude-work1` alongside `.claude`, or any folder Claude ran in under a different
 config dir that Kosmos's transcript-read does not enumerate.
 
 ## Your job

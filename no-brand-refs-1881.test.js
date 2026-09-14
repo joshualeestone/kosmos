@@ -109,7 +109,7 @@ function hitsIn(rel) {
 const BRAND_SAMPLES = [
   ROOT_A + '-io', ROOT_A + '.io', ROOT_A + 'io', ROOT_A + 'token', 'Bo' + 'ok.io', 'BO' + 'OK-IO',
   'josh@' + ROOT_A + '\\.io', 'https://' + ROOT_A + '.io/', ROOT_A + '-io/claude-setup',
-  ROOT_B + '.io', ROOT_B + '-io', ROOT_B + 'io', 'josh@' + ROOT_B + '\\.io', '$' + 'STUFF', '$' + ROOT_B,
+  ROOT_B + '.io', ROOT_B + '-io', ROOT_B + 'io', 'josh@' + ROOT_B + '\\.io', ('$' + ROOT_B).toUpperCase(), '$' + ROOT_B,
 ];
 
 test('#1881: the matcher can fail - it matches every forbidden spelling and rejects neutral controls', () => {

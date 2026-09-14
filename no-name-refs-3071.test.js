@@ -33,10 +33,15 @@
  * the second name, hyphenated and spaced spellings), so they are matched as
  * case-insensitive substrings to catch every compound.
  *
- * 🛑 BINARY FILES ARE SKIPPED. A screenshot PNG can contain the three bytes of
- * the first name between two non-letter bytes purely by coincidence, which a
- * word-boundary match would flag. Scanning is NUL-byte gated - a file with a NUL
- * byte is treated as binary and skipped - so image bytes cannot red the guard.
+ * 🛑 BINARY FILES ARE SKIPPED, BUT NOT BY A NUL-BYTE TEST. A screenshot PNG can
+ * contain the three bytes of the first name between two non-letter bytes purely by
+ * coincidence, which a boundary match would flag, so real binaries must be skipped.
+ * A plain NUL-byte gate is WRONG though: several tracked SOURCE files embed a
+ * literal NUL as a compound-cache-key delimiter yet are valid UTF-8 product code
+ * that must be scanned, and a NUL gate silently exempts them. So binary is detected
+ * by decoded content: a true binary is not valid UTF-8 and yields U+FFFD on decode,
+ * while a source file with an embedded NUL decodes cleanly (NUL is U+0000, not
+ * U+FFFD). See hitsIn for the measured both-arms rationale.
  *
  * Runs in the node suite (via tools/run-tests.sh), so it is armed, not decorative.
  */
@@ -59,6 +64,14 @@ const PATTERNS = [
   // Boundary that also breaks on `_`: standalone first name incl. underscore-joined
   // forms, never bench/beneath/reuben. `\b` would miss the underscore forms (see header).
   new RegExp('(?<![a-z0-9])' + NAME_A + '(?![a-z0-9])', 'i'),
+  // The other three are bare substrings (on purpose: catch every compound fixture
+  // form). That accepts a small false-positive tail, the same deliberate trade the
+  // sibling brand-guard's token pattern makes: the second name is a substring of a
+  // food term's plural, and the third is also Australian slang for a woman, so a
+  // substring match could red on those in an unrelated future comment/doc/fixture.
+  // No such collision exists in the tree today, and firing on a rare loanword is the
+  // safer trade than a word-boundary that would miss the hyphenated/spaced compounds
+  // these names appear in.
   new RegExp(NAME_B, 'i'),                    // second name anywhere (lil<B>, lil-<B>, <B>-1493, ...)
   new RegExp(NAME_C, 'i'),                    // third name anywhere
   new RegExp(NAME_D, 'i'),                    // fourth name anywhere
@@ -94,16 +107,24 @@ function trackedFiles() {
 }
 
 function hitsIn(rel) {
-  let buf;
+  let text;
   try {
-    buf = fs.readFileSync(path.join(ROOT, rel));
+    text = fs.readFileSync(path.join(ROOT, rel), 'utf8');
   } catch {
     return []; // unreadable: nothing to scan
   }
-  // NUL-byte gate: a binary file (PNG, etc.) can contain a name's bytes by
-  // coincidence, so treat any file with a NUL byte as binary and skip it.
-  if (buf.includes(0)) return [];
-  const text = buf.toString('utf8');
+  // Binary gate. A screenshot PNG can contain a name's bytes between two non-letter
+  // bytes by coincidence, so real binaries must be skipped. But a plain NUL-byte
+  // test is WRONG: several tracked source files (engine/worldimport.js,
+  // engine/a11ystatus.js, ...) embed a literal NUL as a compound-cache-key delimiter
+  // and are still valid UTF-8 real product code that MUST be scanned - a NUL gate
+  // silently exempts them (measured; the sibling brand-guard, which reads utf8 with
+  // no NUL skip, scans them fine). So detect binary by decoded content instead: a
+  // true binary is not valid UTF-8 and yields U+FFFD replacement characters on
+  // decode, whereas a source file with an embedded NUL decodes cleanly (NUL is valid
+  // UTF-8, U+0000, not U+FFFD). Verified both arms: worldimport/a11ystatus -> scanned,
+  // PNG/ico/exe -> skipped.
+  if (text.includes('�')) return [];
   const out = [];
   const lines = text.split('\n');
   for (let i = 0; i < lines.length; i += 1) {

@@ -47,8 +47,8 @@ silently: if discovery changes and a shape's behaviour flips, that test reds.
 
 ## Constraint
 All fixtures here are FRESH synthetic files. The hard constraint (Splinter): do NOT touch or
-substitute the preserved REAL fixture files on an external tester's machine - the real Lil Pixel files kept as the
-live #1938 evidence, and that tester's real second profile. The fresh stand-ins for those shapes are
+substitute the preserved REAL files on Casey's machine - the real Lil Pixel files kept as the
+live #1938 evidence, and Casey's real second profile. The fresh stand-ins for those shapes are
 #1 (the Kosmos-created / #1938 Lil-Pixel shape), #5 (the #1493 hand-written lowercase-name case,
-a fresh lowercase name `pip`, deliberately not `lilpixel`), and #6 (the external-tester second-profile
+Josh's sister - named `pip`, deliberately not `lilpixel`), and #6 (the Casey second-profile
 shape). None is an original.
