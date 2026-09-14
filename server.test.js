@@ -2503,6 +2503,18 @@ function updateCardDeps() {
     + 'let ENGINE_STALE = null;\n';
 }
 
+/**
+ * S5 (#3017): the shared-confirm helpers that closeUpdConfirm and updCheckNowClick's Update arm now
+ * call -- the confirm mode state, the update wording captured at load, and setUpdConfirmMode /
+ * openUpdConfirm -- so an eval'd function subset resolves them instead of ReferenceError-ing. The
+ * UC_UPDATE_* values stand in for what the page caches from the confirm markup at load; the Update
+ * arm only ever sets 'update' mode, which does not read windowsCopy, so none is needed here.
+ */
+function confirmModeDeps() {
+  return "let UPD_CONFIRM_MODE = 'update'; let UC_UPDATE_TITLE = 'Update Kosmos?'; let UC_UPDATE_BODY = '';\n"
+    + pageFnSource('setUpdConfirmMode') + '\n' + pageFnSource('openUpdConfirm') + '\n';
+}
+
 test('the creation screen only calls an agent made when the board can see it running', async () => {
   const boardCanSeeIt = pageFunction('boardCanSeeIt');
 
@@ -7951,13 +7963,16 @@ test('the card standoff, the confirm focus fallback, and the identical-write gua
   // (b) closeUpdConfirm falls back to a live control when the opener is gone.
   const focused = [];
   const els = {
-    updconfirm: { hidden: false },
+    updconfirm: { hidden: false, dataset: {} },
     'ut-install': null,
     'upd-btn': { focus: () => focused.push('upd-btn') },
   };
   global.document = { getElementById: (id) => els[id], contains: () => false };
   const close = new Function('document',
     "let UPD_CONFIRM_OPENER = { focus: () => { throw new Error('focused a removed node'); } };\n"
+    /* closeUpdConfirm now resets the shared confirm to update mode (setUpdConfirmMode), so its subset
+       must resolve that helper and the mode/wording bindings it reads. */
+    + confirmModeDeps()
     + pageFnSource('closeUpdConfirm') + '\ncloseUpdConfirm();\nreturn UPD_CONFIRM_OPENER;');
   const cleared = close(global.document);
   assert.deepEqual(focused, ['upd-btn'], 'focus did not fall back to a live control');
@@ -7991,14 +8006,15 @@ test("the card's Update arm opens the one shared confirm and records itself as o
     'upd-btn': { textContent: 'Update', hidden: false, disabled: false, dataset: { act: 'update' }, focus: () => calls.push('btn-focus') },
     'upd-line': { textContent: '' },
     'uc-err': { hidden: false },
-    updconfirm: { hidden: true },
+    updconfirm: { hidden: true, dataset: {} },
     'uc-no': { focus: () => calls.push('uc-no-focus') },
   };
   const doc = { getElementById: (id) => els[id] };
   // eslint-disable-next-line no-new-func
   const opener = await new Function('document', 'localStorage', 'fetch', 'renderUpdateToast', 'LAST_VERSION',
     'let UPD_CHECKING = false; let UPD_CONFIRM_OPENER = null; let UPD_ASKED = false;\n'
-    + updateCardDeps() + pageFnSource('paintUpdateCard') + '\n' + pageFnSource('updCheckNowClick')
+    /* The Update arm now opens the shared confirm via openUpdConfirm (which calls setUpdConfirmMode). */
+    + updateCardDeps() + confirmModeDeps() + pageFnSource('paintUpdateCard') + '\n' + pageFnSource('updCheckNowClick')
     + '\nreturn updCheckNowClick().then(() => UPD_CONFIRM_OPENER);')(
     doc,
     { removeItem: () => calls.push('clear') },

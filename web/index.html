@@ -15359,7 +15359,7 @@ let UPD_CHECKING = false;
 /* Has the person pressed the button in this session? Gates the resting
    "Up to date." only; see the arm that reads it. */
 let UPD_ASKED = false;
-function paintUpdateCard(running, offer, look, manual, channel, rollback) {
+function paintUpdateCard(running, offer, look, manual, channel, rollback = null) {
   if (UPD_CHECKING) return;
   const line = document.getElementById('upd-line');
   const btn = document.getElementById('upd-btn');
@@ -15409,11 +15409,14 @@ function paintUpdateCard(running, offer, look, manual, channel, rollback) {
     if (rollback && rollback.version) {
       const label = 'Roll back to ' + rollback.version;
       if (rollbackBtn.textContent !== label) rollbackBtn.textContent = label;
-      rollbackBtn.dataset.version = rollback.version;
+      /* Guard dataset: a stub/harness element may lack it, and `delete el.dataset.x` would call
+         ToObject(undefined) and throw. Absent a rollback offer this branch does nothing to a missing
+         dataset, so every non-rollback caller (the reload-button card, the poll) behaves as before. */
+      if (rollbackBtn.dataset) rollbackBtn.dataset.version = rollback.version;
       rollbackBtn.hidden = false;
     } else {
       rollbackBtn.hidden = true;
-      delete rollbackBtn.dataset.version;
+      if (rollbackBtn.dataset) delete rollbackBtn.dataset.version;
     }
   }
   if (offer && offer.version) {
