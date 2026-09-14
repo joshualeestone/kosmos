@@ -135,13 +135,25 @@ test('piece two: the rail heads exist once, hidden until the mode, with a + on t
   assert.match(PAGE, /body\.consolidated\.fold-p #pj-list\.asgrid[^{]*\{ display: none; \}/, 'the projects fold lost to #pj-list.asgrid again');
 });
 
-test('piece three: the person\'s row exists once, hidden until the mode, opens Settings, and its pill is the header\'s own theme buttons', () => {
+test('piece three: the person\'s row is retired in the consolidated view (#3051 moved the person up to the top-right user menu); the markup is kept but hidden, and paintYou still paints it', () => {
+  /* #3051 (Josh, 0.6.63 for 6.65): the person moves from the bottom-left rail up to the
+     top-right user menu (#userpop), which the one full-width header carries in every view
+     since #2282. So the rail's bottom-left person -> Settings slot is retired (display:none
+     in the consolidated view); the markup is kept (not deleted) so the shared paintRailMe and
+     the document-level theme handler stay trivially correct. rail-me-go no longer clicks the
+     (now-removed) Settings tab -- it routes to the panel directly. */
   assert.equal((PAGE.match(/id="rail-me"/g) || []).length, 1);
   assert.match(PAGE, /<div class="railme" id="rail-me" hidden>/);
   const row = PAGE.slice(PAGE.indexOf('id="rail-me"'), PAGE.indexOf('id="rail-me"') + 2500);
   assert.equal((row.match(/data-theme-set="(light|dark)"/g) || []).length, 2, 'the row does not carry the two theme buttons the document handler serves');
   assert.match(SCRIPT, /getElementById\('rail-me'\)\.hidden = !cons/);
-  assert.match(SCRIPT, /querySelector\('\.tab\[data-tab="settings"\]'\)/, 'the row does not open Settings through the tab');
+  /* #3051: the Settings tab is gone, so nothing may still query it (rail-me-go and the new
+     user menu both route via showTab('settings') / openConsolidatedSettings instead). */
+  assert.doesNotMatch(SCRIPT, /querySelector\('\.tab\[data-tab="settings"\]'\)/, 'the removed Settings tab is still being queried somewhere');
+  /* #3051: the rail person row is display:none in the consolidated view (retired, moved up). */
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated > #rail-me \{ display: none; \}/, 'the rail person row is not retired in the consolidated view (#3051)');
+  /* #3051: the person -> Settings affordance is now the top-right user menu's Settings link. */
+  assert.match(PAGE, /id="userpop-settings"/, 'the user menu Settings link (the new person -> Settings affordance) is missing');
   assert.match(SCRIPT, /function paintRailMe\(\)/);
   assert.match(SCRIPT, /paintRailMe\(\);\n  if \(!face\) return;/, 'paintYou no longer paints the row');
 });
