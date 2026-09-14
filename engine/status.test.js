@@ -3901,9 +3901,9 @@ test('#874: a rejected OAuth token reads as auth_failed, not working forever', (
 
 test('#1884: Claude Code\'s friendly (non-JSON) auth line reads as auth_failed, not Idle', () => {
   /**
-   * 🛑 A REAL EXTERNAL TESTER (Ben) was blocked here, 2026-09-02, and the board
+   * 🛑 A REAL EXTERNAL TESTER was blocked here, 2026-09-02, and the board
    * said "Idle · it is at rest and nothing is needed" over it -- the worst
-   * possible label, in words that stop anyone looking. His pane, verbatim, and
+   * possible label, in words that stop anyone looking. Their pane, verbatim, and
    * current Claude Code (2.1.258) prints a human-readable line, not the raw JSON
    * envelope #874 was captured from:
    *
@@ -3914,9 +3914,9 @@ test('#1884: Claude Code\'s friendly (non-JSON) auth line reads as auth_failed, 
    * classify() fell through to idle. Detection is the message + Claude Code's own
    * remedy on one row.
    */
-  const BEN = '● Please run /login · API Error: 401 OAuth access token has expired.\n'
+  const EXPIRED_PANE = '● Please run /login · API Error: 401 OAuth access token has expired.\n'
     + '  Re-authenticate to continue.\n';
-  const r = classify(pane(), BEN);
+  const r = classify(pane(), EXPIRED_PANE);
   assert.equal(r.state, STATE.AUTH_FAILED,
     'a real blocked tester read as Idle · nothing is needed');
   assert.equal(r.confidence, CONFIDENCE.SCRAPED);
@@ -3974,7 +3974,7 @@ test('#1884: KNOWN GAP -- a message quoting the whole friendly line still reads 
      card and its discussion do exactly that, so an agent working #1884 can see
      its own pane flip. Accepted, not traded: it is rare and temporary, and when
      the agent is also self-reporting it surfaces as a CONFLICT (see the reconcile
-     test below), not the silent false calm that stopped Ben. If a discriminator
+     test below), not the silent false calm that stopped the tester. If a discriminator
      is ever found that keeps every real screen, flip this to notEqual. */
   const quoting = 'The stuck pane read: Please run /login · API Error: 401 OAuth access token has expired.\n';
   assert.equal(classify(pane(), quoting).state, STATE.AUTH_FAILED,
@@ -4231,19 +4231,19 @@ test('#886: a scraped auth_failed stands over a reported idle, conflict surfaced
   assert.equal(started.state, STATE.AUTH_FAILED);
 });
 
-test('#1884: Ben\'s friendly auth line, scraped THEN reconciled over an idle report, is auth_failed not Idle', () => {
-  /* The whole path for the real incident, scrape through reconcile. Ben's header
+test('#1884: the tester\'s friendly auth line, scraped THEN reconciled over an idle report, is auth_failed not Idle', () => {
+  /* The whole path for the real incident, scrape through reconcile. The tester's header
      read "Idle · nothing is needed"; the fix must survive BOTH the scrape (the
      #1884 classify test above) and the reconcile against whatever the agent last
      reported. An agent that reported idle and then hit an expired token is the
      exact #886 shape, one message format over -- so #886's rule 3b must carry
      the friendly form too, not only the JSON one it was written against. */
-  const BEN = '● Please run /login · API Error: 401 OAuth access token has expired.\n'
+  const EXPIRED_PANE = '● Please run /login · API Error: 401 OAuth access token has expired.\n'
     + '  Re-authenticate to continue.\n';
-  const scraped = classify(pane(), BEN);
+  const scraped = classify(pane(), EXPIRED_PANE);
   assert.equal(scraped.state, STATE.AUTH_FAILED, 'the scrape must read the friendly line as a dead token');
   const got = reconcileReport(rep('idle'), scraped, T0 + 60_000);
-  assert.equal(got.state, STATE.AUTH_FAILED, 'the idle report re-buried Ben\'s blocked agent as at-rest');
+  assert.equal(got.state, STATE.AUTH_FAILED, 'the idle report re-buried the tester\'s blocked agent as at-rest');
   assert.equal(got.reported, false);
   assert.match(got.conflict, /sign-in is being rejected/, 'the contradiction with the idle report must be surfaced');
 });
@@ -5267,7 +5267,7 @@ test('#1629: trustPrompt returns the question row alone, capped, and nothing for
 // dialog, one function over. The general consent detector reads the trimmed tail.
 // ---------------------------------------------------------------------------
 
-/* The card's capture (Ben via Josh, 2026-09-02), reconstructed from the issue body:
+/* The card's capture (an external tester via Josh, 2026-09-02), reconstructed from the issue body:
    the warning + un-numbered options + confirm footer, with the fresh-pane tmux blank
    padding BENEATH it (43 blank rows on the real 60-row pane) that makes the untrimmed
    tail read blank. The leading space per row mirrors how the pane draws them. */

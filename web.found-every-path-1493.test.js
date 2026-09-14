@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * #2497 (Josh, 2026-09-08, watching Ben + Nacho test): onboarding no longer auto-scans or
+ * #2497 (Josh, 2026-09-08, watching an external tester): onboarding no longer auto-scans or
  * auto-imports. First run ALWAYS lands on the no-agent "Create your first agent." / "Giddy Up"
  * screen, whatever the engine's path (adopt/create/unknown) or fleetCount, and fires NO discovery.
  *

@@ -82,7 +82,7 @@ test('read returns null for an unseen (provider, agent) (never a fabricated shap
 const FRESH = 60 * 1000;
 const NOW = 1_000_000;
 
-test('verdict: a fresh observed 401 shows rejected, EVEN when checkLive says connected (the Ben case)', () => {
+test('verdict: a fresh observed 401 shows rejected, EVEN when checkLive says connected (the expired-401 case)', () => {
   const v = observed.verdict({ checkLiveState: 'connected', observedOutcome: REJECTED, observedAt: NOW - 5000, now: NOW, freshMs: FRESH });
   assert.equal(v.badge, 'rejected');
   assert.equal(v.ageMs, 5000);

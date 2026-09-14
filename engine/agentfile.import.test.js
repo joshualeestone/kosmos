@@ -77,11 +77,11 @@ test('#1939 THE FIX: a raw CLAUDE.md with no header, whose text names an agent, 
      feeds the create form: the whole file is the instructions, the display name and
      a derived machine name come from the body. It does NOT create the agent -- the
      form does -- so this is a pre-fill, not a half-applied export. */
-  const claudeMd = '# You are Lil Nacho, project manager.\n\nYou keep the team on track.\n';
+  const claudeMd = '# You are Lil Pixel, project manager.\n\nYou keep the team on track.\n';
   const out = agentfile.importAgent(claudeMd, deps);
   assert.equal(out.ok, true, 'a CLAUDE.md that names an agent must be recognized (#1939): ' + out.because);
-  assert.equal(out.displayName, 'Lil Nacho', 'the display name comes from the body, the signal adoption trusts');
-  assert.equal(out.name, 'lil-nacho', 'a usable machine name is suggested from the display name');
+  assert.equal(out.displayName, 'Lil Pixel', 'the display name comes from the body, the signal adoption trusts');
+  assert.equal(out.name, 'lil-pixel', 'a usable machine name is suggested from the display name');
   assert.equal(out.provider, null, 'a raw instructions file states no provider');
   assert.equal(out.body, claudeMd, 'the whole file is the instructions (there is no frontmatter to strip)');
   assert.equal(out.recognizedFromContent, true, 'the caller is told this was instructions, not an export');
@@ -91,10 +91,10 @@ test('#1939 RED-CAPABLE CONTROL: the same file with a Kosmos export header still
   /* The recognized-instructions path must not cannibalise the export path: a real
      export of the same agent still imports as the exact machine name, proving the
      fix added a branch rather than loosening the strict one. */
-  const text = exportedFile('lil-nacho', '# You are Lil Nacho, project manager.\n\nYou keep the team on track.\n');
+  const text = exportedFile('lil-pixel', '# You are Lil Pixel, project manager.\n\nYou keep the team on track.\n');
   const out = agentfile.importAgent(text, deps);
   assert.equal(out.ok, true, out.because);
-  assert.equal(out.name, 'lil-nacho', 'an export carries its exact machine name');
+  assert.equal(out.name, 'lil-pixel', 'an export carries its exact machine name');
   assert.equal(out.recognizedFromContent, undefined, 'the export path does not set the instructions flag');
 });
 

@@ -3,7 +3,7 @@
  * AN AGENT WHOSE NAME WE CANNOT READ IS OFFERED, NOT DROPPED (#1527).
  *
  * 🛑 THE MEASUREMENT THAT MADE THIS URGENT. A `CLAUDE.md` reading
- * `You are lilnacho, a project manager.` names nobody: the prose arm of
+ * `You are lilpixel, a project manager.` names nobody: the prose arm of
  * `identityFromText` needs a capital or bold markers, and every agent name on this
  * fleet is lowercase. Measured before this change:
  *
@@ -22,7 +22,7 @@
  *
  * ⚠️ THE DISCRIMINATOR IS CRUDE ON PURPOSE. "You are ..." at the start of a line is
  * what an agent's file says and a project README does not. It cannot tell
- * "You are lilnacho" from "You are an expert Python developer" and does not try.
+ * "You are lilpixel" from "You are an expert Python developer" and does not try.
  * Measured on 85 real instruction files: 18 named, 63 silent, THREE new offers, all
  * three template repos. The price is three declines against an agent being
  * invisible.
@@ -51,7 +51,7 @@ function seed(key, name, md) {
   return cwd;
 }
 
-const HER   = seed('-k-her',   'lilnacho', '# lilnacho\n\nYou are lilnacho, a project manager.\n');
+const HER   = seed('-k-her',   'lilpixel', '# lilpixel\n\nYou are lilpixel, a project manager.\n');
 const BOLD  = seed('-k-bold',  'bolded',   '# x\n\nYou are **Bolded**, a tester.\n');
 const README= seed('-k-readme','repo',     '# repo\n\nThis project builds a thing. It has no agent.\n');
 const NOFILE= seed('-k-none',  'nofile',   null);
@@ -70,7 +70,7 @@ test('#1527: a lowercase unbolded name is OFFERED rather than dropped', () => {
   assert.deepEqual(r.agents.map((a) => a.name), ['Bolded'],
     `the control agent was not recognised: ${JSON.stringify(r.agents.map((a) => a.name))}`);
   assert.ok(offered().includes(HER),
-    'the folder whose file says "You are lilnacho" is still invisible');
+    'the folder whose file says "You are lilpixel" is still invisible');
 });
 
 test('#1527: an ordinary project README is NOT offered, which is the whole risk', () => {

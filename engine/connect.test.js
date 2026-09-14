@@ -2115,7 +2115,7 @@ driverTest('#1560 CONTROL: an UNVERIFIABLE live check keeps the old behaviour ra
  * #1937: an EXPLICIT re-auth must run a REAL login, even when the file AND
  * `claude auth status` both say connected.
  *
- * 🛑 THE DANGEROUS ANSWER THIS ARM REJECTS. Ben's state was: the local file
+ * 🛑 THE DANGEROUS ANSWER THIS ARM REJECTS. The tester's state was: the local file
  * names a paid plan (`check()` -> CONNECTED) and `claude auth status` reports
  * `loggedIn: true`. That status is expiry-blind (#874/#1916): it says a login
  * EXISTS, never that it WORKS, so it answers connected for a DEAD credential.
@@ -2209,7 +2209,7 @@ driverTest('#2645 (was #1937 CONTROL): a present-but-dead credential now appends
  * #1937 END-TO-END: the fix cannot stop at start() + the launch argv. Once the
  * re-auth launches, the driver's tick loop meets the "config outranks screen"
  * guards (browser-open/awaiting-code and the unknown-escalation arm). Both call
- * the FILE-based `subscription.check()`, which is stale-CONNECTED for Ben's
+ * the FILE-based `subscription.check()`, which is stale-CONNECTED for the tester's
  * account from the first tick -- so before the tick-loop fix the flow finished
  * instantly off the stale file and `killSession()`'d the still-running
  * `claude auth login`, reporting success with nothing repaired. This arm drives

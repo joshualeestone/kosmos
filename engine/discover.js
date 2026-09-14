@@ -83,7 +83,7 @@ const DISMISS_FILE = path.join(store.ROOT, 'found-agents-dismissed.json');
  *
  * 🔑 The whole discriminator for #1527, and it is deliberately crude. "You are ..."
  * at the start of a line is what an agent's instruction file says and what a
- * project's README does not. It cannot tell "You are lilnacho" from "You are an
+ * project's README does not. It cannot tell "You are lilpixel" from "You are an
  * expert Python developer", and it does not try: the first is an agent we failed to
  * name, the second is a template, and ONE CLICK separates them on a screen that
  * asks rather than asserts.
@@ -641,7 +641,7 @@ function found() {
         if (!unreadableDirs.has(cwd)) { unreadableDirs.add(cwd); unreadable += 1; }
         /* 🛑 A FILE THAT SAYS "YOU ARE ..." IS CLAIMING TO INTRODUCE SOMEBODY, EVEN
            WHEN WE CANNOT READ THE NAME (#1527). Measured on a real machine: a
-           `CLAUDE.md` reading `You are lilnacho, a project manager.` names nobody,
+           `CLAUDE.md` reading `You are lilpixel, a project manager.` names nobody,
            because the prose arm needs a capital or bold markers. So her agent was
            LESS discoverable than a folder with NO file at all, which is offered.
 

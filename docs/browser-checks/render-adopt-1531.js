@@ -3,7 +3,7 @@
  *
  * #1531 shipped an "Is this one of your agents?" adopt prompt on first-run Screen 9 for
  * no-instruction-file folders discovery offered for adoption. #2497 (Josh, 2026-09-08, watching
- * Ben + Nacho test) removed ALL auto-scan/auto-import from onboarding: a developer's many tmux
+ * an external tester) removed ALL auto-scan/auto-import from onboarding: a developer's many tmux
  * Claude Code sessions filled first run with garbage agents. First run now ALWAYS lands on the
  * no-agent "Create your first agent." / Giddy Up screen, so the adopt prompt (frPaintFound /
  * adoptRowsHtml) never renders during onboarding, even when discovery HAS adoptable folders.

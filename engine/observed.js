@@ -111,7 +111,7 @@ function freshMs() {
  * A FRESH observation wins over checkLive; observedOutcome is the single last outcome
  * seen, so exactly one of the two fresh arms is ever eligible -- they are ordered for
  * reading, not because both can be live at once:
- *   fresh 401  -> 'rejected'              (WINS over checkLive 'connected' -- the Ben case)
+ *   fresh 401  -> 'rejected'              (WINS over checkLive 'connected' -- the expired-401 case)
  *   fresh ok   -> 'working'               (also rescues a crashed probe: observed > predicted)
  *   else 'connected' -> 'signed_in_unverified'  (a login exists; NOT verified working; NOT green)
  *   else 'none'      -> 'signed_out'

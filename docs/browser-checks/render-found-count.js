@@ -6,7 +6,7 @@
  *
  * #1346 fixed a headline-vs-trailing-line count disagreement on the first-run found-agents screen
  * ("We found 3 agents" over three rows, then "6 agents" counting a second surface's rows too).
- * #2497 (Josh, 2026-09-08, watching Ben + Nacho test) removed the whole found-agents list from
+ * #2497 (Josh, 2026-09-08, watching an external tester) removed the whole found-agents list from
  * onboarding: a developer's many tmux Claude Code sessions filled first run with garbage agents.
  * First run now ALWAYS lands on the no-agent "Create your first agent." / Giddy Up screen, so no
  * found rows and no count line render on first-run S9, whatever discovery returns.

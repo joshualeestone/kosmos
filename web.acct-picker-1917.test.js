@@ -2,7 +2,7 @@
 
 /**
  * #1917: two Claude accounts on ONE email rendered as two identical options in the
- * create-agent picker, so a real external tester (Ben, 0.6.22) could not tell which
+ * create-agent picker, so a real external tester (0.6.22) could not tell which
  * to pick and ran his agent on the dead one for an hour. The Settings list already
  * disambiguates duplicated rows via accountQualifiers; the picker threw that away and
  * rendered by email alone.
@@ -82,7 +82,7 @@ function optionTexts(html) {
 
 const conn = (state) => ({ state });
 const claude = (over) => Object.assign({
-  provider: 'anthropic', email: 'ben@example.com', label: null, isDefault: false,
+  provider: 'anthropic', email: 'tester@example.com', label: null, isDefault: false,
   memoryShared: true, connection: conn('connected'),
 }, over);
 
@@ -103,7 +103,7 @@ test('#1917: two Claude accounts on one email render as DISTINCT picker options,
     'the duplicate is not distinguished by its label: ' + JSON.stringify(texts));
   // Every option still carries the shared email, so the qualifier ADDS a
   // discriminator rather than replacing the identity.
-  assert.ok(texts.every((t) => t.includes('ben@example.com')),
+  assert.ok(texts.every((t) => t.includes('tester@example.com')),
     'a row lost its email; the qualifier should append, not replace: ' + JSON.stringify(texts));
 });
 
@@ -111,7 +111,7 @@ test('#1917 control: a UNIQUE email is left exactly as it was (no qualifier nois
   const only = claude({ dir: '/h/.claude', isDefault: true, label: null });
   const texts = optionTexts(runFillCreate([only]));
   assert.equal(texts.length, 1, 'expected one option, got: ' + JSON.stringify(texts));
-  assert.equal(texts[0], 'ben@example.com',
+  assert.equal(texts[0], 'tester@example.com',
     'a single account picked up a qualifier -- the fix is meant to fire only on ambiguity: ' + JSON.stringify(texts));
   assert.doesNotMatch(texts[0], /\(main\)/, 'a lone default should not be tagged `main`');
 });

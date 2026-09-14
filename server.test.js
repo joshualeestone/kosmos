@@ -5762,8 +5762,8 @@ test('#2497: the fleet screen lands on Giddy Up on every path, including a broke
     FR: { path: 'adopt', fleetCount: 13, fleetNames: ['Splinter', 'Angel'] },
   });
   // #2497: even an adopt machine (13 running agents) lands on the no-agent create / Giddy Up
-  // screen. Onboarding no longer counts a fleet or offers to import it (Josh, watching Ben/Nacho:
-  // a dev's tmux Claude Code sessions filled first run with garbage agents). Real agents come in
+  // screen. Onboarding no longer counts a fleet or offers to import it (Josh, watching an external
+  // tester: a dev's tmux Claude Code sessions filled first run with garbage agents). Real agents come in
   // later via the manual Import Agent (#1652) on the Create Agent screen.
   assert.match(adopt.els['fr-fleet-title'].textContent, /Create your first agent/i);
   assert.match(adopt.els['fr-fleet'].innerHTML, /Let’s get started/i);
@@ -6992,7 +6992,7 @@ test('the disc hash spreads: the pack seven-bucket system, order-sensitive, all 
   const lens = new Function(tintsLine + inksLine + 'return [DISC_TINTS.length, DISC_INKS.length];')();
   assert.equal(lens[0], lens[1], 'DISC_TINTS and DISC_INKS diverged; discInk would emit undefined');
   const discIndex = pageFunction('discIndex', tintsLine);
-  const corpus = ['leo','mara','rook','nils','vex','angel','april','donnie','mikey','casey','raph','splinter','krang','jennika','shredder','tom','ana','ben','cleo','dora','eli','fern','gus','hana','ivan','june','kira','liam','nora','omar','pia','quinn','rosa','sam','tara','uma','vic','wren','xena','yuri','zed'];
+  const corpus = ['leo','mara','rook','nils','vex','angel','april','donnie','mikey','casey','raph','splinter','krang','jennika','shredder','tom','ana','roo','cleo','dora','eli','fern','gus','hana','ivan','june','kira','liam','nora','omar','pia','quinn','rosa','sam','tara','uma','vic','wren','xena','yuri','zed'];
   const seen = new Map();
   for (const n of corpus) seen.set(discIndex(n), (seen.get(discIndex(n)) || 0) + 1);
   assert.equal(seen.size, lens[0], 'a 41-name corpus left buckets unreached: hit '
@@ -10361,7 +10361,7 @@ test('the rows arrive one at a time, and an unrevealed row says it is working', 
 
 test('#2497: first run lands on Giddy Up regardless of what is on the disk (no auto-surfaced fleet)', () => {
   /**
-   * 🛑 #2497 (Josh, 2026-09-08, watching Ben + Nacho test) SUPERSEDES the #320/2026-08-22
+   * 🛑 #2497 (Josh, 2026-09-08, watching an external tester) SUPERSEDES the #320/2026-08-22
    * "look on the disk before saying anybody has nothing" behavior FOR ONBOARDING. That behavior
    * surfaced found agents on the first-run screen; on a developer's box (many tmux Claude Code
    * sessions) it filled the board with garbage throwaway agents. Josh ruled that first run always

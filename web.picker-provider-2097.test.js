@@ -68,7 +68,7 @@ test('#2098/#2140 (source): applyCreateProviderUI routes OpenAI to the per-accou
 
 test('#2097(2) (source+exec): the account row is HIDDEN at <2 accounts, SHOWN at 2+ (Josh re-rule 2026-09-04)', () => {
   // Josh re-ruled #2097 on 2026-09-04, superseding the earlier "shown even at one": a single-entry
-  // menu is a choice presented to someone who has none to make, and he watched it confuse Ben. So
+  // menu is a choice presented to someone who has none to make, and he watched it confuse a real tester. So
   // the account row hides itself unless there are two or more accounts to choose from.
   const start = PAGE.indexOf('function fillCreateAccounts');
   const fn = PAGE.slice(start, PAGE.indexOf('\nfunction ', start + 1));

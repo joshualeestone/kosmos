@@ -50,8 +50,8 @@ function seed(folderKey, cwdName, claudeMd, { gone = false, sessions = 1 } = {})
   return cwd;
 }
 
-const AGENT_CWD = seed('-Users-someone-work-workers-lilnacho', 'workers/lilnacho',
-  '# lilnacho\n\nYou are **lilnacho**, a project manager.\n');
+const AGENT_CWD = seed('-Users-someone-work-workers-lilpixel', 'workers/lilpixel',
+  '# lilpixel\n\nYou are **lilpixel**, a project manager.\n');
 const BARE_CWD = seed('-Users-someone', 'homedir', null, { sessions: 9 });
 const GONE_CWD = seed('-Users-someone-deleted', 'deleted', null, { gone: true });
 
@@ -85,12 +85,12 @@ test('#1531: a DELETED folder is counted but never offered, because adopting it 
 });
 
 test('#1531: an agent we CAN name is not also offered as an unnamed folder', () => {
-  /* Otherwise lilnacho appears twice on the board, once as herself and once as a
-     nameless folder, which is the "shows two lilnachos" failure the ship criterion
+  /* Otherwise lilpixel appears twice on the board, once as herself and once as a
+     nameless folder, which is the "shows two lilpixels" failure the ship criterion
      is written to catch. */
   const r = discover.found();
   assert.equal(r.agents.length, 1, `expected one agent: ${JSON.stringify(r.agents.map((a) => a.name))}`);
-  assert.equal(r.agents[0].name, 'lilnacho');
+  assert.equal(r.agents[0].name, 'lilpixel');
   assert.equal(r.adoptable.some((a) => a.dir === AGENT_CWD), false,
     'the named agent is ALSO being offered as an unidentified folder');
 });

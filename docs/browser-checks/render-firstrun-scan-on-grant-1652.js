@@ -3,7 +3,7 @@
  *
  * #1652 made first-run Screen 9 auto-scan for agents on the disk and, after a late file-access
  * grant, re-scan via /api/scan-import and load the found agents onto the screen ("it just pulls
- * them in"). #2497 (Josh, 2026-09-08, watching Ben + Nacho test) removed ALL auto-scan/auto-import
+ * them in"). #2497 (Josh, 2026-09-08, watching an external tester) removed ALL auto-scan/auto-import
  * from onboarding: a developer's many tmux Claude Code sessions filled first run with garbage
  * agents. First run now ALWAYS lands on the no-agent "Create your first agent." / Giddy Up screen,
  * so it fires no disk scan on entry and arms no grant-flip poll, whatever the grant or the disk.

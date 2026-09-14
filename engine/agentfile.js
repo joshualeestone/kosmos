@@ -99,7 +99,7 @@ const IMPORT_CONTRACT = Object.freeze({
 
 /* A machine-name SUGGESTION derived from a display name, for the #1939 recognized-
    instructions path. Lowercase, runs of non-`[a-z0-9]` collapsed to a single '-',
-   ends trimmed, capped at the 32-char name bound (so "Lil Nacho" -> "lil-nacho").
+   ends trimmed, capped at the 32-char name bound (so "Lil Pixel" -> "lil-pixel").
 
    🔑 Returned ONLY if the create form will ACTUALLY ACCEPT it -- gated on the full
    `nameProblem` (format, length, reserved words, the `-discord`/`kosmos-connect`
