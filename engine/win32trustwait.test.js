@@ -114,19 +114,91 @@ test('#2281 pidWaiting refuses a non-numeric pid without reading anything', () =
 
 test('#2281 sessionsDir resolves to the config DIR, not the .claude.json file', () => {
   const saved = process.env.CLAUDE_CONFIG_DIR;
+  const savedHome = process.env.AGENT_WORKFORCE_HOME;
   try {
     // 1. an explicit account config dir
     assert.equal(tw.sessionsDir(path.join('X', 'acct')), path.join('X', 'acct', 'sessions'));
-    // 2. the process CLAUDE_CONFIG_DIR when no dir is passed
-    process.env.CLAUDE_CONFIG_DIR = path.join('Y', 'envcfg');
-    assert.equal(tw.sessionsDir(null), path.join('Y', 'envcfg', 'sessions'));
-    // 3. the default account: ~/.claude/sessions
+    delete process.env.AGENT_WORKFORCE_HOME;
+    // 2. the default account: ~/.claude/sessions
     delete process.env.CLAUDE_CONFIG_DIR;
     assert.equal(tw.sessionsDir(null), path.join(os.homedir(), '.claude', 'sessions'));
   } finally {
     if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = saved;
+    if (savedHome === undefined) delete process.env.AGENT_WORKFORCE_HOME;
+    else process.env.AGENT_WORKFORCE_HOME = savedHome;
   }
+});
+
+test('#3013 sessionsDir(null) IGNORES the engine CLAUDE_CONFIG_DIR (mirrors trust.defaultAgentSettings)', () => {
+  /* Folded in from the #2281 review: a DEFAULT-account agent launches with
+     CLAUDE_CONFIG_DIR DELETED and reads ~/.claude/sessions, so trustWait must scan
+     THERE, not the engine's own CLAUDE_CONFIG_DIR (which a used-machine board can
+     carry). This became load-bearing when the #3013 board card started asking about
+     default-account agents. AGENT_WORKFORCE_HOME is the sandbox seam, parallel to
+     trust.defaultAgentSettings'. */
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  const savedHome = process.env.AGENT_WORKFORCE_HOME;
+  try {
+    process.env.CLAUDE_CONFIG_DIR = path.join('Y', 'engine-envcfg');   // the ENGINE's own
+    delete process.env.AGENT_WORKFORCE_HOME;
+    assert.equal(tw.sessionsDir(null), path.join(os.homedir(), '.claude', 'sessions'),
+      'the default-account sessions dir never follows the engine CLAUDE_CONFIG_DIR');
+    // AGENT_WORKFORCE_HOME redirects the default base, exactly as defaultAgentSettings honours it
+    process.env.AGENT_WORKFORCE_HOME = path.join('Z', 'sandbox-home');
+    assert.equal(tw.sessionsDir(null), path.join('Z', 'sandbox-home', '.claude', 'sessions'),
+      'AGENT_WORKFORCE_HOME is the sandbox seam for the default-account sessions dir');
+  } finally {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+    if (savedHome === undefined) delete process.env.AGENT_WORKFORCE_HOME;
+    else process.env.AGENT_WORKFORCE_HOME = savedHome;
+  }
+});
+
+test('#3013 (control) the float-ms age clamp: a future-dated .key still counts at olderThanMs:0, not under a threshold', () => {
+  /* Folded in from the #2281 review: statSync's mtimeMs is a FLOAT and Date.now()
+     truncates to whole ms, so a just-written .key can compute a hair-negative age.
+     stuckSessions clamps the age at 0, which is what makes olderThanMs:0 mean
+     "accept all ages" rather than "accept nothing this instant". Pin both halves:
+     a future-dated (negative raw age) .key is STILL stuck at olderThanMs:0, and is
+     NOT stuck under any positive threshold (a clamped-to-0 age is < the threshold). */
+  const now = 1_000_000;
+  const future = now + 5_000;   // mtime AHEAD of the clock -> raw age -5000ms
+  const atZero = tw.stuckSessions({
+    entries: [{ name: KEY('4242'), mtimeMs: future }],
+    now, olderThanMs: 0,
+  });
+  assert.equal(atZero.length, 1, 'clamped to age 0, a future-dated lone .key is accepted at olderThanMs:0');
+  assert.equal(atZero[0].pid, '4242');
+  assert.equal(atZero[0].ageMs, 0, 'the negative raw age is clamped to 0, never surfaced negative');
+
+  const atThreshold = tw.stuckSessions({
+    entries: [{ name: KEY('4242'), mtimeMs: future }],
+    now, olderThanMs: 1,
+  });
+  assert.deepEqual(atThreshold, [], 'a clamped-to-0 age is below any positive threshold');
+});
+
+test('#3013 dirWaiting answers the FOLDER-level question over an injected listing', () => {
+  const now = 1_000_000;
+  const stuckList = () => [{ name: KEY('4242'), mtimeMs: now - 60_000 }];   // a lone aged .key
+  const healthyList = () => [
+    { name: KEY('9000'), mtimeMs: now - 60_000 }, { name: JSON_('9000'), mtimeMs: now - 50_000 },  // registered
+  ];
+  const cfg = path.join('X', 'acct');
+  assert.equal(tw.dirWaiting(cfg, { list: stuckList, now, olderThanMs: 45_000 }), true,
+    'a lone aged .key in the account dir reads as waiting, with no pid needed');
+  assert.equal(tw.dirWaiting(cfg, { list: healthyList, now, olderThanMs: 45_000 }), false,
+    'a registered session (.key + .json) is not waiting');
+  assert.equal(tw.dirWaiting(cfg, { list: () => [], now, olderThanMs: 0 }), false,
+    'an empty account dir is not waiting');
+});
+
+test('#3013 dirWaiting is fail-soft through the real fs chain: a missing dir is "not waiting"', () => {
+  const missing = path.join(os.tmpdir(), 'win32trustwait-dir-missing-' + process.pid + '-' + Date.now());
+  assert.equal(tw.dirWaiting(missing, { olderThanMs: 0 }), false,
+    'a real read of an absent dir swallows the fault and answers false');
 });
 
 test('#2281 the default real-dir read is fail-soft: a missing dir is "not stuck"', () => {

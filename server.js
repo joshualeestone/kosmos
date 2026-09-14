@@ -2975,6 +2975,20 @@ const server = http.createServer((req, res) => {
              this roster already refuses elsewhere. Empty on any failure:
              could-not-look must never dress a stopped agent in running. */
           const runningNow = create.runningJobs();
+          /* #3013: the workspace-trust diagnosis for a Windows agent that spawned,
+             wrote its early session .key, and never registered because its folder is
+             not trusted in the config it reads. It reuses the #2281 detector
+             (win32trustwait) and the supervisor's own positive signal
+             (trust.folderTrusted). win32-only, and it adds NO process spawn to this
+             5s poll: liveness is already decided here (this list is the NOT-live
+             agents), and every per-agent fact diagnose needs -- config AND the
+             enabled flag -- comes from win32job's PROCESS-LIFETIME #2717 cache (poll
+             N hits what an earlier poll warmed; busted only by install/remove/
+             disable/enable). Applied per row below, replacing the misleading "Not
+             running" / "Can't tell" copy with the diagnosis the supervisor already
+             writes to the task log. See engine/win32trustcard.js (incl. its
+             account-level-attribution limit). */
+          const trustCard = process.platform === 'win32' ? require('./engine/win32trustcard') : null;
           /* 🛑 #127: A LEFTOVER JOB WITH NO FOLDER IS STILL A LEFTOVER, and it
              was the one this list discarded. The gate used to be `k.folder`
              alone, so an agent whose worker folder was deleted while its
@@ -2991,6 +3005,15 @@ const server = http.createServer((req, res) => {
             .map((k) => {
               try {
               const profile = store.readProfile(k.name) || {};
+              /* #3013: the trust-wait diagnosis for THIS agent, if any. This row is
+                 already NOT live (it has no pane); diagnose makes the rest of the
+                 per-agent decision itself -- registered, ENABLED (from the task's own
+                 XML, win32-correct and fresh; NOT the darwin-only create.disabledJobs
+                 that is inert on Windows), folder untrusted, a started-but-
+                 unregistered .key. It reads only win32job's process-lifetime #2717
+                 cache, so no schtasks spawn is added to the poll. win32-only
+                 (trustCard is null elsewhere). */
+              const stuckBecause = trustCard ? ((trustCard.diagnose(k.name) || {}).because) : undefined;
               /* #668: launchd holds a live process for this job, and this
                  board can see no session for it. Two true facts that
                  disagree, and the disagreement is the story -- so the row
@@ -3027,7 +3050,14 @@ const server = http.createServer((req, res) => {
                    it is a false one -- launchd says otherwise. Unknown at
                    confidence none is the honest pair: we tried to read it and
                    could not, which is exactly what those two values mean. */
-                state: unseen ? 'unknown' : 'stopped',
+                /* #3013: a trust-wait agent gets its own state; otherwise the
+                   existing #668 unseen-vs-stopped split stands. */
+                state: stuckBecause ? 'needs_trust' : (unseen ? 'unknown' : 'stopped'),
+                /* #3013: the marker the card and list row branch on to draw the
+                   workspace-trust treatment instead of the generic offline shape.
+                   Off-win32 and on any refused look it is false for every row, so
+                   the offline path is byte-identical there. */
+                needsTrust: Boolean(stuckBecause),
                 /* ⚠️ THE FLAG THE SCREEN BRANCHES ON, and it is not derivable
                    from the state: a pane running something that is not Claude
                    is also stopped, and that agent IS up. Stays false on the
@@ -3040,7 +3070,10 @@ const server = http.createServer((req, res) => {
                    the one cause a person produced themselves with no screen
                    connecting the two. Said here, once, so every surface that
                    reads `because` says it. */
-                because: k.profile === false
+                /* #3013: the supervisor's own workspace-trust reason wins when
+                   this agent is stuck at the prompt; otherwise the existing
+                   offline-cause ladder stands unchanged. */
+                because: stuckBecause ? stuckBecause : (k.profile === false
                   /* #500: the profile-less stray this row now surfaces. The
                      survey found it on disk with no record behind it, so the
                      one true sentence is that Kosmos does not know it. The
@@ -3105,7 +3138,7 @@ const server = http.createServer((req, res) => {
                     ? 'this agent is not running: nothing on this computer has a session for it. '
                       + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1)
                       + '; if it stays off, its Terminal tab is where to look'
-                    : 'this agent is not running: nothing on this computer has a session for it',
+                    : 'this agent is not running: nothing on this computer has a session for it'),
                 hasAvatar: Boolean(safeAvatarFor(k.name)),
                 /* #2698: a version that moves when the picture changes, so a view
                    that skips an identical repaint (the org chart) still refreshes

@@ -13745,6 +13745,15 @@ const STATE_COPY = {
   restarting:   { label: 'Restarting agent', attn: false },
   stopped:      { label: 'Not running',   attn: true  },
   unknown:      { label: "Can't tell",    attn: true  },
+  /* #3013: a Windows agent that spawned but is stuck at Claude Code's
+     workspace-trust prompt in an invisible console -- it started, wrote its
+     early session record, and never registered because its folder is not
+     trusted in the config it reads (engine/win32trustwait + trust.folderTrusted,
+     the supervisor's own signals). An attention state: nothing is wrong with
+     Kosmos, but a person has to answer a prompt no window shows. The card and
+     row carry their own distinct treatment (a because line naming the trust
+     prompt); this entry keeps the detail panel and any generic consumer honest. */
+  needs_trust:  { label: 'Waiting on a trust prompt', attn: true },
 };
 
 /**
@@ -13787,6 +13796,14 @@ const CARD_ST = {
   restarting:   { st: 'restarting', pres: 'on' },
   stopped:      { st: 'stopped', pres: 'off' },
   unknown:      { st: 'unknown', pres: 'unsure' },
+  /* #3013: the attention treatment (a Claude process IS there, hung at the
+     prompt, so it needs a person), but presence is 'unsure' -- NOT 'off'. The
+     process is alive behind an invisible console, so "Not running" would be the
+     confident-negative lie this file refuses; and 'off' is deliberately reserved
+     for 'stopped' alone (server.js gates plannedModelName on STATE.STOPPED, and
+     a second pres:'off' state would silently lose its "Will start on" line --
+     pinned by server.test.js). */
+  needs_trust:  { st: 'attn', pres: 'unsure' },
 };
 /* #2019: the restarting K. It breathes (a calm 2.4s pulse, NOT a fast loader
    spin) while the restart is in progress, because the K pulsing says "this is
@@ -14769,6 +14786,24 @@ function card(a) {
      the guard makes the presentation self-contained, so a future running:false
      restarting payload still renders the honest restarting state, not "Not running". */
   if (a.running === false && a.state !== 'restarting') {
+    /* #3013: a Windows agent stuck at Claude Code's invisible workspace-trust
+       prompt. It is enumerated like any offline agent (a registered job, no live
+       session), but "Not running" / "Can't tell" would be the wrong story -- a
+       Claude process IS there, hung on a prompt no window shows. The server marks
+       it (needsTrust) and hands the reason it already writes to the task log
+       (#2281); the card carries that reason in a because line rather than the
+       generic offline copy. Checked BEFORE the split branch below because it is
+       the stronger, more specific fact. Its own `needstrust` marker class and the
+       attn pill make it read as an agent that wants a person, not one that is off. */
+    if (a.needsTrust === true) {
+      return `<div class="acard attn notrunning needstrust" data-agent="${esc(a.sessionName)}">
+      <div class="agauge"><svg viewBox="0 0 72 72" role="img" aria-label="${esc(a.name)}. Waiting at a workspace-trust prompt.">${face(a)}</svg><span class="pres unsure" aria-hidden="true"></span>${dmBadge(a)}</div>
+      <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>
+      <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
+      <div class="astate st-attn"><span class="haz" aria-hidden="true">!</span><b>${esc(STATE_COPY.needs_trust.label)}</b></div>
+      <div class="note">${esc(a.because || 'It started but has not registered -- most likely waiting at a workspace-trust prompt no one can see.')}</div>
+    </div>`;
+    }
     /* #668: the one offline row whose "Not running" would be a lie. The board
        can see no session, but launchd says the agent's background job holds a
        live process -- so the pill says the could-not-check word instead of a
@@ -14959,6 +14994,26 @@ function lrow(a) {
      * ⚠️ EMPTY, and not a dash or "no task": a stopped agent has no task to
      * not-show. Same rule as the card carrying no memory ring at all.
      */
+    /* #3013: the list-view twin of the card's workspace-trust row. Same
+       seven-column grid as every other row (the rule above), so it reads as an
+       agent in a distinct state rather than a different kind of object; the two
+       cells it cannot answer (task, model) are empty, exactly as the offline row
+       leaves them. The state word carries the diagnosis; the full because rides
+       the card and the detail panel, which have the room the row does not. */
+    if (a.needsTrust === true) {
+      const tav = a.hasAvatar
+        ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
+        : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
+      return `<div class="lrow attn notrunning needstrust" data-agent="${esc(a.sessionName)}">
+      <div class="lav">${tav}</div>${dmBadge(a)}
+      <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b></div>
+      <div class="ltitle">${esc(roleLine(a, ROLE_TITLES))}</div>
+      <div class="lstate st-attn"><span class="haz" aria-hidden="true">!</span>${esc(STATE_COPY.needs_trust.label)}</div>
+      <div class="ltask"></div>
+      <div class="lmodel"></div>
+      <div class="lmem"></div>
+    </div>`;
+    }
     const off = a.hasAvatar
       ? `<img src="/api/agent/${encodeURIComponent(a.sessionName)}/avatar" alt="">`
       : `<span class="lavtint" style="background:${discTint(a.name)};color:${discInk(a.name)}">${esc(initials(a.name))}</span>`;
