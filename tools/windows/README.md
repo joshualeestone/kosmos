@@ -27,14 +27,17 @@ What it adds is how a Windows program presents itself (win32-launcher-native):
   double-click opens nothing but the browser. The board runs on a hidden console,
   as the logon task's board does. A board that could not move to its logon task
   keeps serving from there. From `HANDOFF_CHECK_FOR_SERVING_AFTER_MS` (in
-  `engine/win32handoff.js`) on, the launcher checks whether that board is listening
-  on a TCP port, which it does only once it has decided to serve there. When it is,
-  a box titled "Kosmos" says so and stays up as the person's handle on it. If
-  Windows will not let the launcher read its TCP table at all, the box falls back to
-  `HANDOFF_UNREADABLE_LISTENER_FALLBACK_MS` (45s), a time no successful hand-off
-  reaches; one readable poll puts the listener rule back in charge. OK stops that board
-  and everything still descended from it (`taskkill /T`), and the box closes by itself if the
-  board ends first.
+  `engine/win32handoff.js`) on, the launcher waits for POSITIVE proof that the board
+  is serving from here -- it is listening on a TCP port, or it wrote the serve-here
+  signal the launcher named in `KOSMOS_SERVE_HERE_SIGNAL` (#2983) -- both of which
+  the board reaches only once it has decided to serve here rather than hand off. When
+  either is proven, a box titled "Kosmos" says so and stays up as the person's handle
+  on it. The signal carries a locked-down box where Windows will not let the launcher
+  read its TCP table at all; it replaced a time-derived fallback that boxed a
+  slow-but-successful boot, because the board runs `ensureInstalled` and its roster
+  syncs before the hand-off, past any fixed time. OK stops that board and everything
+  still descended from it (`taskkill /T`), and the box closes by itself if the board
+  ends first.
 - **Problems are a message box titled "Kosmos"**, never console text a person
   cannot see. That includes the most common mistake: double-clicking `Kosmos.exe`
   inside the zip in Explorer, which runs it from a temp folder with no

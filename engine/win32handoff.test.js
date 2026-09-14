@@ -18,7 +18,7 @@ const nodePath = require('node:path');
 const http = require('node:http');
 const net = require('node:net');
 
-const { handOffToTask, buildIdentity, BOARD_IDENTITY_HEADER, BOARD_STARTED_BY_TASK_HEADER, probeBoard, boardStartedByTaskHeaderValue, boardMayBeOpen, PROBE_OUTCOMES, probeBoardOnEveryAddress, cannotTellIfOpenSentence } = require('./win32handoff');
+const { handOffToTask, buildIdentity, BOARD_IDENTITY_HEADER, BOARD_STARTED_BY_TASK_HEADER, probeBoard, boardStartedByTaskHeaderValue, boardMayBeOpen, PROBE_OUTCOMES, probeBoardOnEveryAddress, cannotTellIfOpenSentence, SERVE_HERE_SIGNAL_ENV, signalServingHere } = require('./win32handoff');
 
 /* Round 7, finding 4: the fake world's port is 9 (discard), never a Kosmos board's. And nothing in this suite
    may connect to 16180, the live board's port: a test that tries goes red instead of reaching it. */
@@ -909,4 +909,54 @@ test('a default-world boot records no attempt, so a hand-off neither takes nor p
   const r = await handOffToTask(w.opts({ worlds: { guard, worldenv: { bootedBaseDir: () => '/x', bootedWorld: () => 'default' } } }));
   assert.equal(r.serve, true);
   assert.equal(recorded, 0, 'the fallback recorded an attempt the bootstrap never made');
+});
+
+// ── #2983: the serve-here signal the launcher waits on ─────────────────────
+
+test('#2983 serve-here writes the launcher\'s signal (its pid); a successful hand-off does not', async () => {
+  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-serve-signal-2983-'));
+  try {
+    // A board that serves here (a source checkout skips the hand-off) writes the
+    // file the launcher waits on, so the box appears on proof, not on a timer.
+    const serveHerePath = nodePath.join(dir, 'serve-here.signal');
+    const served = await handOffToTask(world().opts({ bundle: false, signalEnv: { [SERVE_HERE_SIGNAL_ENV]: serveHerePath } }));
+    assert.equal(served.serve, true);
+    assert.equal(fs.readFileSync(serveHerePath, 'utf8'), String(process.pid),
+      'the board that serves here did not write the signal the launcher waits on, or wrote something other than its pid');
+
+    // A board that hands off (its own build already answers) must NOT write it: a
+    // signal there is exactly the false "running from here" box #2983 removes.
+    const handOffPath = nodePath.join(dir, 'hand-off.signal');
+    const handedOff = await handOffToTask(world({ occupant: MINE }).opts({ signalEnv: { [SERVE_HERE_SIGNAL_ENV]: handOffPath } }));
+    assert.equal(handedOff.serve, false, handedOff.because);
+    assert.equal(fs.existsSync(handOffPath), false, 'a board that handed off to its task still wrote the serve-here signal');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('#2983 the signal is silent when none was asked, and never throws when it cannot be written', async () => {
+  // No variable set: nothing to write, and the serve decision is unchanged.
+  const quiet = await handOffToTask(world().opts({ bundle: false, signalEnv: {} }));
+  assert.equal(quiet.serve, true);
+  // An unwritable path (a parent that does not exist) is swallowed: the board still
+  // serves, and the launcher's listener proof stands.
+  const bad = nodePath.join(os.tmpdir(), 'aw-2983-no-such-dir-' + process.pid, 'x', 'serve.signal');
+  const served = await handOffToTask(world().opts({ bundle: false, signalEnv: { [SERVE_HERE_SIGNAL_ENV]: bad } }));
+  assert.equal(served.serve, true, 'a failed signal write must not change the serve decision');
+  assert.equal(fs.existsSync(bad), false);
+});
+
+test('#2983 signalServingHere reads the real process env by default, one spelling for the C# launcher', () => {
+  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-serve-signal-env-2983-'));
+  const before = process.env[SERVE_HERE_SIGNAL_ENV];
+  try {
+    const at = nodePath.join(dir, 'via-process-env.signal');
+    process.env[SERVE_HERE_SIGNAL_ENV] = at;
+    signalServingHere(); // no env argument: the path the real board reads from process.env
+    assert.equal(fs.readFileSync(at, 'utf8'), String(process.pid));
+    assert.equal(SERVE_HERE_SIGNAL_ENV, 'KOSMOS_SERVE_HERE_SIGNAL',
+      'the serve-here env var name drifted from the C# launcher\'s ServeHereSignalEnvVar copy');
+  } finally {
+    if (before === undefined) delete process.env[SERVE_HERE_SIGNAL_ENV]; else process.env[SERVE_HERE_SIGNAL_ENV] = before;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

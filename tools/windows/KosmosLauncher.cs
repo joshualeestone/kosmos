@@ -89,9 +89,10 @@ class KosmosLauncher
     // HANDOFF_CHECK_FOR_SERVING_AFTER_MS (the budget plus its floors), pinned
     // equal by tools.win-launcher-native.test.js. It is NOT a worst case: the
     // hand-off's schtasks calls and a slow first boot can both run past it. So
-    // time alone never shows the box. From this mark the launcher polls, and the
-    // box waits for the board to be listening, which it does only once it has
-    // decided to serve here.
+    // time alone never shows the box. From this mark the launcher polls for
+    // positive proof that the board is serving from here -- it is LISTENING, or it
+    // wrote its serve-here signal (ServeHereSignalEnvVar) -- both of which the board
+    // reaches only once it has decided to serve here rather than hand off.
     const int CheckForServingAfterMs = 18000;
 
     // How often, from that mark, the launcher looks for the board's listener:
@@ -99,14 +100,17 @@ class KosmosLauncher
     // that reading the TCP table costs nothing noticeable.
     const int ServingPollMs = 300;
 
-    // When the TCP table cannot be read at all (every poll so far failed), there is
-    // no listener proof, so the box falls back to time -- but a time no successful
-    // hand-off reaches: CheckForServingAfterMs, plus win32board's schtasks call
-    // timeout, plus a margin. That is engine/win32handoff.js's
-    // HANDOFF_UNREADABLE_LISTENER_FALLBACK_MS, pinned equal by the test. The
-    // slowest hand-off that still succeeds (the 12s budget, a /Run that takes its
-    // whole 20s timeout, and a 2s confirming probe) has exited by then.
-    const int UnreadableTableFallbackMs = 45000;
+    // #2983: the board's POSITIVE "I am serving from here" proof, for when the TCP
+    // table cannot be read at all (every GetExtendedTcpTable read fails). The
+    // launcher mints a unique path (ServeHereSignal), hands it to the board in this
+    // environment variable, and the board writes the file the instant it decides to
+    // serve here (engine/win32handoff.js, SERVE_HERE_SIGNAL_ENV, pinned equal by the
+    // test). It replaced a time-derived fallback that fired a false box during a
+    // slow-but-successful boot: the board runs ensureInstalled and its roster syncs
+    // before the hand-off, well past any fixed time, so time could not tell a slow
+    // success from a serve-here. This file cannot: it is written only on the
+    // serve-here decision, never during a hand-off that goes on to succeed.
+    const string ServeHereSignalEnvVar = "KOSMOS_SERVE_HERE_SIGNAL";
 
     // Shown once the board is listening from here: it did not move to its logon
     // task and is serving from this launcher, which has no window, so this box
@@ -225,6 +229,12 @@ class KosmosLauncher
         ProcessStartInfo s = new ProcessStartInfo(node, "\"" + server + "\"");
         s.UseShellExecute = false;
         s.WorkingDirectory = here;
+        // #2983: a unique path the board will create once it decides to serve from
+        // here (see the serving loop). Fresh per launch, so it is never a stale
+        // file from a past run, and gone by the time we look unless this board
+        // wrote it. A missing temp path leaves the listener proof to stand alone.
+        string serveHereSignal = ServeHereSignalPath();
+        if (serveHereSignal != null) s.EnvironmentVariables[ServeHereSignalEnvVar] = serveHereSignal;
         // With --console the server shares this console, whose output IS the
         // status. Without it there is no console to share, so the server runs on
         // a hidden one -- as the opener does, and as the logon task's
@@ -247,31 +257,32 @@ class KosmosLauncher
         // A board that hands off to its logon task exits 0. One that serves from
         // here does so on a console nobody can see, so the person gets a box to
         // keep it by (see KeepBoardUntilPersonStopsIt). Time alone cannot tell the
-        // two apart, so the box waits for proof: the board LISTENING, which it
-        // does only once it has decided to serve here. If the TCP table has never
-        // once been readable, there can be no proof, and the box falls back to a
-        // time past any successful hand-off (UnreadableTableFallbackMs); a single
-        // readable poll puts the listener rule back in charge. With --console, or
-        // with nobody at the desktop, the launcher just waits, as it always did.
+        // two apart, so the box waits for POSITIVE proof that this board is serving
+        // here: it is LISTENING (which server.js reaches only after the hand-off
+        // decided to serve here), or it wrote its serve-here signal
+        // (ServeHereSignalPresent), which the same decision writes. The signal is
+        // what carries a locked-down box where every TCP-table read fails; #2983
+        // removed the old time-derived fallback, which fired a false box during a
+        // slow-but-successful boot. With --console, or with nobody at the desktop,
+        // the launcher just waits, as it always did.
         bool stoppedByPerson = false;
         if (showMessageBoxes)
         {
             int stillToWaitMs = CheckForServingAfterMs - (int)sinceServerStarted.ElapsedMilliseconds;
             if (!p.WaitForExit(Math.Max(0, stillToWaitMs)))
             {
-                bool everyReadFailed = true;
                 while (!p.WaitForExit(ServingPollMs))
                 {
-                    ListenerAnswer answer = ListenerStateOf(p.Id);
-                    if (answer != ListenerAnswer.CouldNotRead) everyReadFailed = false;
-                    bool provablyServingHere = answer == ListenerAnswer.Listening;
-                    bool unreadableLongPastAnyHandOff = everyReadFailed && sinceServerStarted.ElapsedMilliseconds >= UnreadableTableFallbackMs;
-                    if (provablyServingHere || unreadableLongPastAnyHandOff) { stoppedByPerson = KeepBoardUntilPersonStopsIt(p); break; }
+                    bool provablyServingHere = ListenerStateOf(p.Id) == ListenerAnswer.Listening || ServeHereSignalPresent(serveHereSignal);
+                    if (provablyServingHere) { stoppedByPerson = KeepBoardUntilPersonStopsIt(p); break; }
                 }
             }
         }
 
         p.WaitForExit();
+        // #2983: the board owns the signal's content, the launcher its lifetime. The
+        // board has ended, so nothing else reads it; leaving it would litter %TEMP%.
+        if (serveHereSignal != null) { try { File.Delete(serveHereSignal); } catch { /* a leftover temp file is not worth failing over */ } }
         if (p.ExitCode != 0 && !stoppedByPerson)
         {
             if (showMessageBoxes)
@@ -401,6 +412,28 @@ class KosmosLauncher
     }
 
     // ---- is the board serving from here? ------------------------------------
+
+    // #2983: a unique path, in %TEMP%, the board is told to create once it decides
+    // to serve here (ServeHereSignalEnvVar). A fresh GUID per launch, so it never
+    // collides between installs and is never a stale file from a past run. Null when
+    // there is no temp path to write in, and the listener proof stands alone.
+    static string ServeHereSignalPath()
+    {
+        try { return Path.Combine(Path.GetTempPath(), "kosmos-serve-here-" + Guid.NewGuid().ToString("N") + ".signal"); }
+        catch { return null; }
+    }
+
+    // #2983: has the board written its serve-here signal yet? Its presence is the
+    // authoritative "serving here" proof the TCP table cannot give on a box where
+    // every GetExtendedTcpTable read fails. Never throws: a check that crashed would
+    // take the person's only handle on the board with it, and it is polled every
+    // ServingPollMs. internal only so a probe compiled beside this file can call it.
+    internal static bool ServeHereSignalPresent(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return false;
+        try { return File.Exists(path); }
+        catch { return false; }
+    }
 
     internal enum ListenerAnswer { Listening, NotListening, CouldNotRead }
 
