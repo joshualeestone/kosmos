@@ -62,12 +62,16 @@ const WORDS = {
     '#set-reveal': 'Open the Kosmos folder',
     'button[data-go="term"]': 'Live output',
     '#fr-pane-7 p[data-win-copy="s7Body"]': 'To open Kosmos later, double-click Kosmos.exe in the folder you extracted it to.',
+    /* win32-update-arm (S4): the Update confirm dialog body. The win32 updater downloads first, THEN
+       stops the board to swap in place, which the Mac's does not, so the win32 copy names both steps. */
+    '#uc-small[data-win-copy="updateConfirmBody"]': 'Kosmos downloads the update, then closes for a few seconds while it swaps it in. Your agents keep working the whole time.',
   },
   darwin: {
     '#docs-finder': 'Open this folder in Finder',
     '#set-reveal': 'Show me where it is',
     'button[data-go="term"]': 'Terminal',
     '#fr-pane-7 p[data-win-copy="s7Body"]': 'Kosmos is now in your applications folder, and you will see Kosmos in your dock.',
+    '#uc-small[data-win-copy="updateConfirmBody"]': 'Kosmos closes for a few seconds while it updates. Your agents keep working the whole time.',
   },
 };
 
