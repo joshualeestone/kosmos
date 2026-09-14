@@ -2254,6 +2254,13 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 .snav button:not([data-dot]) .vh { display: none; }
 .dsecs { min-width: 0; }
 .dsec { display: flex; flex-direction: column; gap: 18px; border-radius: 16px; }
+/* #2916 group-reveal shows two sibling .dsec cards at once (Model+Memory,
+   Instructions+Skills, which are DOM-adjacent). .dsec only spaces its OWN
+   children, so two visible siblings would render flush. Add separation only
+   when a .dsec directly follows another VISIBLE .dsec: the :not([hidden]) on
+   the left side means a lone section (its preceding sibling hidden) gets no
+   stray top margin, so single-section pills are unaffected. */
+.dsec:not([hidden]) + .dsec:not([hidden]) { margin-top: 24px; }
 .dsec:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 4px; }
 /* One of three sentences while the box is hidden, chosen by `data-tied`;
    none while the box is showing. ⚠️ ORDER-DEPENDENT: the sibling rule last
