@@ -103,7 +103,8 @@ test('an IMPOSTOR pane (a stranger under a name) records NOTHING, even scraping 
 
 test('a CODEX agent WORKING (no witnessed completion) records NOTHING -- not a Claude obs, not an OpenAI obs', () => {
   // A codex/OpenAI agent also classifies WORKING, and one on the default codex home
-  // has configDir=null, which accountForAgent maps to the DEFAULT CLAUDE account. Left
+  // has configDir=null, which accountForAgent USED to map to the DEFAULT CLAUDE
+  // account (#2811 gated it). Left
   // ungated, a working codex agent would green a Claude account it has nothing to do
   // with -- the cross-provider false-green this feature removes.
   //

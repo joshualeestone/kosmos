@@ -27,15 +27,45 @@ const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
 const fleet = require('./test-support/fleet');
 
+/* A top-level server.js function plus every top-level server.js function it
+   calls, followed through what THOSE call, each read out of the source the same
+   way (from its `function name(` line to the next top-level function).
+   🛑 WHY IT FOLLOWS THE CALLS: win32-cli-verbs moved the "did the caller present a
+   token" reading into its own helper (presentedAgentToken), and extracting
+   resolveAgentSender alone then threw `ReferenceError: presentedAgentToken is not
+   defined` on macOS CI. Reading the calls out of the text carries the next helper
+   along too, instead of a copy of it living here (convention 5). A method call
+   (`x.name(`) is never followed: those are the engine modules passed in below. */
+function serverFunctionsFor(src, root) {
+  const topLevel = new Set([...src.matchAll(/\nfunction ([A-Za-z_$][\w$]*)\(/g)].map((m) => m[1]));
+  const sourceOf = (name) => {
+    const start = src.indexOf('\nfunction ' + name + '(');
+    assert.ok(start >= 0, name + ' is gone from server.js');
+    const end = src.indexOf('\nfunction ', start + 10);
+    assert.ok(end > start, 'could not find the end of ' + name);
+    return src.slice(start, end);
+  };
+  const found = new Map();
+  const queue = [root];
+  while (queue.length) {
+    const name = queue.shift();
+    if (found.has(name)) continue;
+    const text = sourceOf(name);
+    found.set(name, text);
+    for (const m of text.matchAll(/(?<![.\w$])([A-Za-z_$][\w$]*)\s*\(/g)) {
+      if (topLevel.has(m[1]) && !found.has(m[1])) queue.push(m[1]);
+    }
+  }
+  return [...found.values()];
+}
+
 /* The helper is not exported -- server.js is a running server, not a module.
-   Read it out of the source and evaluate it against the same engine modules
-   the server uses, so this tests the SHIPPED text rather than a copy. */
+   Read it (and the server.js helpers it calls) out of the source and evaluate it
+   against the same engine modules the server uses, so this tests the SHIPPED text
+   rather than a copy. */
 function loadHelper() {
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
-  const start = src.indexOf('function resolveAgentSender(req, body, roster, opts) {');
-  assert.ok(start > 0, 'resolveAgentSender is gone from server.js');
-  const end = src.indexOf('\nfunction ', start + 10);
-  assert.ok(end > start, 'could not find the end of resolveAgentSender');
+  assert.ok(src.includes('\nfunction resolveAgentSender(req, body, roster, opts) {'), 'resolveAgentSender is gone from server.js');
   /* ⚠️ NO CARD IN THIS STUB, DELIBERATELY. fixture-discipline flagged the
      first version for hand-building one, and it was right twice over: the
      pane arm below only asserts `.ok`, so the card was never needed. A stub
@@ -43,7 +73,7 @@ function loadHelper() {
      not exist -- which is the defect that guard was written for. */
   const messages = { resolveSender: (pane) => (pane ? { ok: true } : { ok: false, because: 'no pane' }) };
   // eslint-disable-next-line no-new-func
-  return new Function('sendertoken', 'liveness', 'messages', src.slice(start, end) + '\nreturn resolveAgentSender;')(sendertoken, liveness, messages);
+  return new Function('sendertoken', 'liveness', 'messages', serverFunctionsFor(src, 'resolveAgentSender').join('\n') + '\nreturn resolveAgentSender;')(sendertoken, liveness, messages);
 }
 const resolveAgentSender = loadHelper();
 const hdr = (t) => ({ headers: t ? { 'x-kosmos-agent-token': t } : {} });

@@ -256,7 +256,14 @@ test('a pause from a NAMED Kosmos (Windows) disables and ends only that Kosmos\'
   const winCalls = [];
   win32job.setRunner((args) => {
     winCalls.push(['schtasks', ...args].join(' '));
-    return args[0] === '/Query' ? { ok: true, out: 'Status: Ready\n' } : { ok: true, out: 'SUCCESS' };
+    if (args[0] !== '/Query') return { ok: true, out: 'SUCCESS' };
+    // The switched-off check reads the task's DEFINITION via `/Query /XML` (#2978's
+    // taskEnabled); a LIST-shaped "Status: Ready" is not a readable definition, so it
+    // would read known:false (unknown) and #2977 would then leave the agent as-is. This
+    // agent is a plain enabled task, so answer the XML read with a readable enabled
+    // definition; the LIST read (jobFor) still gets the status line.
+    if (args.includes('/XML')) return { ok: true, out: '<Task><Settings><Enabled>true</Enabled></Settings></Task>' };
+    return { ok: true, out: 'Status: Ready\n' };
   });
   win32stop.setLive(() => new Map());   // nothing live under any name: the end state
   worldstarts.setPlatformForTests('win32');

@@ -34,11 +34,18 @@ const { start, server } = require('./server');
 const projects = require('./engine/projects');
 const tasks = require('./engine/tasks');
 const fleet = require('./test-support/fleet');
+const sendertoken = require('./engine/sendertoken');
+const win32job = require('./engine/win32job');
 
 let base;
 let projectId;
 let taskNum;
 test.before(async () => {
+  /* On Windows the board asks Task Scheduler whether each agent has a task. This
+     fleet is a stub, and a real one may share the account, so the question never
+     leaves the process (win32-cli-verbs review round 1: the suite's schtasks guard
+     caught `Kosmos\agent-mona` from this file). */
+  win32job.setRunner(() => ({ ok: false, out: 'ERROR: The system cannot find the file specified.', code: 1 }));
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
   const roster = fleet.install([fleet.agent('mona', { state: 'idle' })]).agents;
@@ -67,4 +74,15 @@ test('a process is valved after the cap; the operator (screen) never is', async 
     'the operator must never be valved, even after the process cap is spent');
 });
 
-test.after(() => { try { server.close(); } catch { /* already down */ } });
+test('win32-cli-verbs: a request presenting a VALID agent token is valved even when it also sends Sec-Fetch-Site', async () => {
+  /* The cap is spent by the test above. An agent's own token plus a browser header
+     must not read as the operator's screen (isViaScreen), or a looping agent could
+     skip the valve by adding one header. */
+  const minted = sendertoken.mint('mona');
+  assert.equal(minted.ok, true, minted.because);
+  const r = await post({ 'x-kosmos-agent-token': minted.token, 'sec-fetch-site': 'same-origin', origin: base });
+  assert.equal(r.status, 429, 'an agent token with a browser header skipped the task-message valve');
+  assert.match((await r.json()).error, /pausing agent task messages/);
+});
+
+test.after(() => { win32job.setRunner(null); try { server.close(); } catch { /* already down */ } });

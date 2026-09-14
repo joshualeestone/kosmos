@@ -1,10 +1,11 @@
 'use strict';
 /**
  * #570: a board started BY HAND from the unpacked Windows zip hands itself to its
- * logon task, instead of serving from the launcher's console window.
+ * logon task, instead of serving from the launcher's hidden console (or its
+ * --console window).
  *
- * 🛑 THE WINDOW WAS THE BOARD. `Kosmos.exe` runs server.js in the foreground of
- * the console it opens, so closing that window killed the board -- the class of
+ * 🛑 THE WINDOW WAS THE BOARD. `Kosmos.exe` ran server.js in the foreground of
+ * the console it opened, so closing that window killed the board -- the class of
  * defect #2714 removed from every Scheduled Task, left standing on the one window a
  * person is most likely to close. And from the first logon on, the task's headless
  * board is already serving, so every later double-click printed "port 16180 is
@@ -15,12 +16,15 @@
  * (`win32board.ensureInstalled` registered or refreshed it a moment earlier in the
  * same boot), it runs headless, and it is what a logon starts anyway -- so after
  * this there is one way the board runs on Windows, whichever way it was started.
- * Exiting 0 lets the launcher's console close by itself; its opener is already
- * waiting to put the board in the browser.
+ * Exiting 0 lets the launcher exit with it (closing its --console window, if it has
+ * one); its opener is already waiting to put the board in the browser.
  *
- * ⚠️ WHAT IT CANNOT CONFIRM, IT LEAVES TO THE WINDOW, which is the behaviour before
- * this module -- inside a budget that ends before the opener gives up (see
- * HANDOFF_BUDGET_MS), so a fallback still gets the browser signed in.
+ * ⚠️ WHAT IT CANNOT CONFIRM, IT LEAVES TO THE LAUNCHER, which is the behaviour
+ * before this module: this board serves from the launcher's hidden console (or its
+ * --console window), and a GUI Kosmos.exe shows a box that stays the person's handle
+ * on it once this board is listening (HANDOFF_CHECK_FOR_SERVING_AFTER_MS). All inside
+ * a budget that ends before the opener
+ * gives up (see HANDOFF_BUDGET_MS), so a fallback still gets the browser signed in.
  */
 
 const fs = require('node:fs');
@@ -32,7 +36,7 @@ const path = require('node:path');
  * browser opener does not wait for us. `tools/kosmos-open-board.js` waits 20s for
  * a board and then opens the PLAIN url, which an enforcing Windows board answers
  * with the #2007 403. So whatever this does -- succeed, replace an older board, or
- * give up and serve in the window -- a board must be answering before then.
+ * give up and serve from the launcher -- a board must be answering before then.
  * ⚠️ THE BUDGET IS NOT THE WORST CASE, and the difference is spelled out so it is
  * not rediscovered: a probe already in flight at the deadline can take
  * PROBE_TIMEOUT_MS (no wait starts one past its own end), and the fallback's
@@ -74,6 +78,56 @@ const PROBE_TIMEOUT_MS = 2000;
 const POLL_INTERVAL_MS = 300;
 
 /**
+ * When Kosmos.exe starts asking whether the board it started is serving from it: the
+ * arithmetic spelled out at HANDOFF_BUDGET_MS, as one value (tools/windows/
+ * KosmosLauncher.cs, CheckForServingAfterMs, pinned equal by
+ * tools.win-launcher-native.test.js).
+ * ⚠️ NOT A WORST CASE. Every schtasks call in the hand-off is a synchronous spawn with
+ * its own timeout, so a `/Run` that starts just inside the budget can still be confirmed
+ * after this, and a slow first boot can pass it before the hand-off begins. So the
+ * launcher never decides on time alone: from this mark it polls for positive proof and
+ * shows its box only on it -- this board LISTENING (which start() reaches only after the
+ * hand-off decided to serve here), or its serve-here signal (SERVE_HERE_SIGNAL_ENV),
+ * which the same decision writes. Time never shows the box.
+ */
+const HANDOFF_CHECK_FOR_SERVING_AFTER_MS = HANDOFF_BUDGET_MS + PROBE_TIMEOUT_MS + MIN_PORT_RELEASE_WAIT_MS + PROBE_TIMEOUT_MS;
+
+/**
+ * 🔑 #2983: the POSITIVE "this board is serving from the launcher's console" proof.
+ * The launcher (tools/windows/KosmosLauncher.cs) mints a unique path, puts it in
+ * this environment variable, and starts server.js; this module writes the file the
+ * instant handOffToTask decides to serve here (see signalServingHere), and the
+ * launcher waits for it to exist.
+ * ⚠️ WHY A SIGNAL AND NOT A TIMER. The launcher's other proof, the board's TCP
+ * listener, cannot be read on a box where every GetExtendedTcpTable read fails, so
+ * the launcher used to fall back to a time past which a successful hand-off was
+ * ASSUMED to have exited. That assumption was wrong: on the "a same-identity board
+ * is already serving" path server.js runs ensureInstalled (two schtasks calls) and
+ * two roster syncs BEFORE the hand-off, ~72s worst case, so the timer fired a false
+ * box during a slow-but-successful launch. This file is written ONLY on the
+ * serve-here decision -- never while a hand-off is still being tried, never when one
+ * succeeds (serve:false, and the process then exits) -- so it can never fire falsely,
+ * however slow the boot. ONE spelling, pinned equal to the C# ServeHereSignalEnvVar
+ * by tools.win-launcher-native.test.js.
+ */
+const SERVE_HERE_SIGNAL_ENV = 'KOSMOS_SERVE_HERE_SIGNAL';
+
+/**
+ * Write the serve-here signal, if the launcher asked for one. `env` defaults to the
+ * real process environment, which is where the launcher sets the variable (server.js
+ * passes only its LAUNCH_ENV_OVERRIDES to handOffToTask, never the whole environment,
+ * so this reads process.env directly). The pid is the content so a paranoid launcher
+ * could match its child; the launcher's unique path already makes mere existence
+ * proof enough. Never throws: a board that cannot write the signal still serves, and
+ * the launcher's listener proof stands.
+ */
+function signalServingHere(env) {
+  const at = (env || process.env)[SERVE_HERE_SIGNAL_ENV];
+  if (!at) return;
+  try { fs.writeFileSync(at, String(process.pid)); } catch { /* the launcher's listener proof stands */ }
+}
+
+/**
  * 🔑 THE RUNNING BOARD'S IDENTITY COMES FROM A HEADER, NEVER FROM THE PAGE.
  * server.js reads `web/index.html` per request, so a new zip unpacked over the
  * running install -- the folder Explorer's Extract All offers by default -- makes
@@ -85,6 +139,35 @@ const POLL_INTERVAL_MS = 300;
  * GET / needs no token, so any caller can ask; the version is on the page anyway.
  */
 const BOARD_IDENTITY_HEADER = 'x-kosmos-board';
+
+/**
+ * 🔑 #2973: WHETHER THE ANSWERING BOARD WAS STARTED BY ITS LOGON TASK, SAID BY THE BOARD.
+ * The hand-off may end only the TASK's board, and it used to ask Task Scheduler whether
+ * the task was running. That answer is not trustworthy: the localized status word
+ * cannot be read in every language, and the Last Result code stops saying "running" as
+ * soon as any `/Run` is ignored by IgnoreNew (measured, review round 1). The board
+ * knows the fact outright (win32board.startedByTask, the marker its task's boot shim
+ * stamps), and the hand-off already asks it who it is. So it says this too, on the same
+ * response, and the hand-off reads it without schtasks or a locale.
+ * `'1'` started by the task, `'0'` not. A board that predates this header sends
+ * neither, and reads as null (see startedByTaskFromHeader).
+ */
+const BOARD_STARTED_BY_TASK_HEADER = 'x-kosmos-board-started-by-task';
+
+/* The header's value for THIS process. ONE writer (server.js's GET /) and ONE reader
+   (startedByTaskFromHeader), so the two spellings cannot drift. win32board is required
+   when asked, never with this module. */
+function boardStartedByTaskHeaderValue(env) {
+  return require('./win32board').startedByTask(env) ? '1' : '0';
+}
+
+/* true / false from a board that sends the header; null from one that predates it (or
+   sends something that is not ours), which the hand-off answers the old way. */
+function startedByTaskFromHeader(value) {
+  if (value === '1') return true;
+  if (value === '0') return false;
+  return null;
+}
 
 /**
  * Which build this app is: its package.json version, plus the commit the zip was
@@ -154,23 +237,299 @@ function thisBootsWorldAttempt(deps) {
   };
 }
 
-/* Is a board answering on this port, and which board is it? Never rejects. */
-function probeBoard(port) {
+/**
+ * Why a probe got the answer it did (win32-installer-native, round 3 finding 1; round 6 finding 1).
+ *   answered           the port answered over HTTP
+ *   refused            the connection was refused (ECONNREFUSED): the only proof that no board listens there
+ *   timed-out          nothing came back within PROBE_TIMEOUT_MS. With a connect limit (the uninstall's and
+ *                      the move's looks, probeBoardOnEveryAddress) the connection WAS made first. Without one
+ *                      (the launcher's hand-off, the board restart) the one limit covers the connect as well,
+ *                      so this is also a connect that did not finish, or a refusal slower than 2 s, which
+ *                      Windows gives on this PC's own non-loopback addresses
+ *   connect-timed-out  with a connect limit only: the connection was not made within CONNECT_TIMEOUT_MS
+ *   unidentified       the every-address look only (round 7, finding 1): an HTTP answer without a Kosmos
+ *                      identity from a bind host address. The real board answers a look there before routing
+ *                      it (a 400 for a Host it does not route, a 403 from its remote guard), without the
+ *                      identity header, so any HTTP answer there may be a board. `answering` is false for it.
+ *   error              any other failure to look: a reset, an unreachable address, a reply that is not HTTP
+ * With a connect limit a look also ends, as `timed-out`, by CONNECT_TIMEOUT_MS + PROBE_TIMEOUT_MS in all.
+ * `answering` is false for every outcome but answered, as it always was, so the hand-off and the board
+ * restart read a slow board as they always did. See boardMayBeOpen.
+ */
+const PROBE_OUTCOMES = Object.freeze({ ANSWERED: 'answered', REFUSED: 'refused', TIMED_OUT: 'timed-out', CONNECT_TIMED_OUT: 'connect-timed-out', UNIDENTIFIED: 'unidentified', ERROR: 'error' });
+
+/* Where the launcher's hand-off looks, and one of the two loopbacks the uninstall and the move look on. */
+const BOARD_LOOPBACK_V4 = '127.0.0.1';
+const BOARD_LOOPBACK_V6 = '::1';
+/* The two looks every every-address look makes, whose Host a board always routes. */
+const LOOPBACK_PROBES = new Set([BOARD_LOOPBACK_V4, BOARD_LOOPBACK_V6]);
+/* Bind hosts the two loopback probes already cover: loopback itself, and the wildcards, which accept
+   loopback connections. */
+const BIND_HOSTS_COVERED_BY_LOOPBACK = new Set(['127.0.0.1', '::1', 'localhost', '0.0.0.0', '::']);
+/* How long a name in KOSMOS_BIND_HOST may take to resolve before the probes go on without it. An unknown
+   name answered ENOTFOUND in 67 ms on this box; 5 s leaves a slow resolver room, and keeps the uninstall
+   from waiting on DNS for ever. */
+const BIND_HOST_LOOKUP_TIMEOUT_MS = 5000;
+/* Round 6, finding 1: how long the uninstall's and the move's looks give a connection to be made, before
+   PROBE_TIMEOUT_MS starts counting the answer. Measured on this PC: a closed port on its own non-loopback
+   addresses (LAN, Tailscale, link-local) is refused only after 2.02-2.04 s, because Windows retries the SYN
+   after a reset, while loopback refuses in 1-2 ms. One 2 s limit on the connect and the answer together read
+   every such refusal as a timeout, so a bind host of this PC's own address always looked open. 5 s is well
+   above that. The launcher's hand-off does not use it (#2983). */
+const CONNECT_TIMEOUT_MS = 5000;
+/* The longest one every-address look can take: resolving a bind host name, then a connect and an answer on
+   every address at once. The uninstall sizes its wait for an ended board from it. */
+const EVERY_ADDRESS_LOOK_WORST_MS = BIND_HOST_LOOKUP_TIMEOUT_MS + CONNECT_TIMEOUT_MS + PROBE_TIMEOUT_MS;
+
+/* Round 5, finding 4: only a refused connection proves nothing listens. Every other failure to connect
+   (EADDRNOTAVAIL, ENETUNREACH, a reset) is a failed look, which may be a board: fail closed. ::1 cannot be
+   switched off on Windows (KB 929852), so it refuses like any loopback. */
+function outcomeOfFailedLook(err, timedOut, connectTimedOut) {
+  if (connectTimedOut) return PROBE_OUTCOMES.CONNECT_TIMED_OUT;
+  if (timedOut) return PROBE_OUTCOMES.TIMED_OUT;
+  return err && err.code === 'ECONNREFUSED' ? PROBE_OUTCOMES.REFUSED : PROBE_OUTCOMES.ERROR;
+}
+
+/**
+ * Is a board answering on this port, and which board is it? Never rejects. `host` defaults to 127.0.0.1,
+ * the only address the launcher's hand-off asks (#2983).
+ *
+ * `options.connectTimeoutMs` (round 6, finding 1) splits the one limit in two: the connection gets that long
+ * to be made, and PROBE_TIMEOUT_MS starts only once it is. Without it -- the hand-off and the board restart
+ * -- one PROBE_TIMEOUT_MS covers the connect and the answer, exactly as before. `options.createConnection`
+ * replaces the socket in a test.
+ */
+function probeBoard(port, host, options) {
+  const connectLimit = options && options.connectTimeoutMs;
   return new Promise((resolve) => {
-    const req = http.get({ host: '127.0.0.1', port, path: '/', timeout: PROBE_TIMEOUT_MS }, (res) => {
+    let timedOut = false;
+    let connectTimedOut = false;
+    let connectTimer = null;
+    let deadlineTimer = null;
+    let settled = false;
+    const settle = (answer) => { if (!settled) { settled = true; clearTimeout(connectTimer); clearTimeout(deadlineTimer); resolve(answer); } };
+    const request = { host: host || BOARD_LOOPBACK_V4, port, path: '/' };
+    if (!connectLimit) {
+      request.timeout = PROBE_TIMEOUT_MS;
+    } else if (options && typeof options.createConnection === 'function') {
+      /* A test's socket. No `agent` with it: for `agent: false` Node's http builds a fresh Agent, which ignores
+         createConnection and opens a real connection. */
+      request.createConnection = options.createConnection;
+    } else {
+      /* Round 6, finding 1, measured: a look made right after a board went away reused the kept-alive socket of
+         the look before it, and failed at once (`error`) instead of being refused. So a look with a connect
+         limit always makes its own connection (`agent: false`: a fresh Agent that keeps nothing alive). */
+      request.agent = false;
+    }
+    const req = http.get(request, (res) => {
       res.resume();
       const named = res.headers[BOARD_IDENTITY_HEADER];
-      res.on('end', () => resolve({ answering: true, identity: typeof named === 'string' && named ? named : null }));
+      const startedByTask = startedByTaskFromHeader(res.headers[BOARD_STARTED_BY_TASK_HEADER]);
+      res.on('end', () => settle({ answering: true, outcome: PROBE_OUTCOMES.ANSWERED, identity: typeof named === 'string' && named ? named : null, startedByTask }));
+      /* With a connect limit, an answer cut off before its end (by the deadline below, or the board going) is not
+         an answer. */
+      if (connectLimit) res.on('close', () => settle({ answering: false, outcome: outcomeOfFailedLook(null, timedOut, connectTimedOut), identity: null, startedByTask: null }));
     });
-    req.on('timeout', () => req.destroy(new Error('timeout')));
-    req.on('error', () => resolve({ answering: false, identity: null }));
+    if (connectLimit) {
+      /* Round 7, finding 3, measured: the answer limit is an idle timeout, so a listener that sends a byte every
+         1.5 s kept one look alive for 16.6 s. So a look with a connect limit also ends, as `timed-out`, by
+         CONNECT + ANSWER in all, which is what EVERY_ADDRESS_LOOK_WORST_MS counts. */
+      deadlineTimer = setTimeout(() => { timedOut = true; req.destroy(new Error('look deadline')); }, connectLimit + PROBE_TIMEOUT_MS);
+      req.on('socket', (socket) => {
+        const limitTheAnswer = () => { clearTimeout(connectTimer); req.setTimeout(PROBE_TIMEOUT_MS); };
+        if (!socket.connecting) { limitTheAnswer(); return; }
+        connectTimer = setTimeout(() => { connectTimedOut = true; req.destroy(new Error('connect timeout')); }, connectLimit);
+        socket.once('connect', limitTheAnswer);
+      });
+    }
+    req.on('timeout', () => { timedOut = true; req.destroy(new Error('timeout')); });
+    req.on('error', (err) => settle({
+      answering: false,
+      outcome: outcomeOfFailedLook(err, timedOut, connectTimedOut),
+      identity: null,
+      startedByTask: null,
+    }));
   });
+}
+
+/**
+ * For a caller about to take away what a running board depends on (the uninstall deleting its
+ * folders, the move copying its folder): may a board be open on that port? ONE reading of a probe's
+ * answer, shared by engine/win32uninstall.js and engine/win32relocate.js (convention 5).
+ *
+ * 🛑 ONLY A REFUSED CONNECTION MEANS NO BOARD. A busy board that answers after PROBE_TIMEOUT_MS read as
+ * `answering: false`, and the uninstall ran under it (round 3, finding 1). A timeout, a failed look, or
+ * no answer at all is a board that may be open. The hand-off does not use this: it still reads a
+ * timeout as nobody there (#2983).
+ */
+function boardMayBeOpen(answer) {
+  if (!answer) return true;
+  if (answer.answering) return true;
+  return answer.outcome !== PROBE_OUTCOMES.REFUSED;
+}
+
+/** An answer from a Kosmos board: it names its build, or says whether its task started it. */
+function isKosmosBoardAnswer(answer) {
+  return Boolean(answer && answer.answering && (answer.identity || typeof answer.startedByTask === 'boolean'));
+}
+
+/** An IP address as an interface lists it: IPv4-mapped IPv6 as IPv4, IPv6 in its canonical lower-case form. */
+function canonicalAddress(bare) {
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(bare);
+  if (mapped) return mapped[1];
+  if (require('node:net').isIP(bare) !== 6) return bare;
+  try { return new URL('http://[' + bare + ']/').hostname.slice(1, -1); } catch { return bare.toLowerCase(); }
+}
+
+/**
+ * Round 5, findings 1 and 3: is this address one of this machine's own, so a board of this user could be
+ * listening on it? Returns the spelling to probe it by, or null when it is not this machine's. Loopback
+ * (127/8, ::1) always is. Anything else must be an address one of this machine's interfaces has, compared
+ * without its zone, and a zone (`%14`, `%Ethernet 2`) must name that interface, by scope id or by name: the
+ * same link-local address on another adapter is another address.
+ *
+ * Round 6, finding 1: a link-local address WITHOUT a zone (as a host name's lookup gives this PC's own) is
+ * reached only through its interface, so it is probed with that interface's zone. Round 7, finding 5: every
+ * interface that has it, since the same link-local address can be on two adapters and the board on either;
+ * link-local is all of fe80::/10; and a scope id of 0 is no zone. Returns every spelling to probe it by, or
+ * none when it is not this machine's. `interfaces` replaces os.networkInterfaces() in a test.
+ */
+function thisMachinesSpellings(address, interfaces) {
+  const text = String(address);
+  const at = text.indexOf('%');
+  const bare = canonicalAddress(at < 0 ? text : text.slice(0, at));
+  const zone = at < 0 ? null : text.slice(at + 1).toLowerCase();
+  const kind = require('node:net').isIP(bare);
+  if (kind === 0) return [];
+  if ((kind === 4 && bare.startsWith('127.')) || bare === '::1') return [text];
+  const all = interfaces || require('node:os').networkInterfaces();
+  const spellings = [];
+  for (const [name, list] of Object.entries(all)) {
+    for (const i of list || []) {
+      if (canonicalAddress(String(i.address)) !== bare) continue;
+      if (zone !== null) {
+        if (String(i.scopeid) === zone || name.toLowerCase() === zone) return [text];
+        continue;
+      }
+      const spelling = isLinkLocalAddress(bare) && i.scopeid ? bare + '%' + i.scopeid : text;
+      if (!spellings.includes(spelling)) spellings.push(spelling);
+    }
+  }
+  return spellings;
+}
+
+/* fe80::/10, the link-local range: its first ten bits are 1111111010, so its first group is fe80 to febf. */
+function isLinkLocalAddress(bare) {
+  return /^fe[89ab][0-9a-f]:/i.test(bare);
+}
+
+/**
+ * Round 5, findings 1 and 3: the addresses engine/bindhost.js's bindHost() names that a board of this user
+ * could be listening on.
+ *   - loopback, a wildcard, or nothing: none, because the two loopback probes cover them;
+ *   - an IP literal: itself, zone kept, if it is this machine's own;
+ *   - a name: every address dns.lookup gives, kept only when it is this machine's own.
+ * A board cannot listen on an address this machine does not have (server.listen fails), so no other
+ * address is ever probed, and no probe crosses the network to another machine. A name that does not
+ * resolve, or does not resolve within BIND_HOST_LOOKUP_TIMEOUT_MS, adds nothing: a board could not have
+ * bound it either. `lookup` replaces dns.lookup in a test.
+ */
+async function bindHostProbeAddresses(env, lookup, interfaces) {
+  const bound = require('./bindhost').bindHost(env).replace(/^\[(.*)\]$/, '$1');
+  if (!bound || BIND_HOSTS_COVERED_BY_LOOPBACK.has(bound.toLowerCase())) return [];
+  let found = [bound];
+  if (require('node:net').isIP(bound) === 0) {
+    const resolve = typeof lookup === 'function' ? lookup : (name) => require('node:dns').promises.lookup(name, { all: true, verbatim: true });
+    let timer = null;
+    try {
+      const results = await Promise.race([
+        resolve(bound),
+        new Promise((resolveTimeout) => { timer = setTimeout(() => resolveTimeout([]), BIND_HOST_LOOKUP_TIMEOUT_MS); }),
+      ]);
+      found = (results || []).map((result) => String(result.address));
+    } catch {
+      found = [];
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return found.flatMap((address) => thisMachinesSpellings(address, interfaces));
+}
+
+/**
+ * Every address a Kosmos board of this user could be answering on (round 4, finding 1): both loopbacks,
+ * and the bind host's own addresses (bindHostProbeAddresses). A wildcard bind accepts loopback
+ * connections, so the loopbacks cover it. A board bound to an address set only in ANOTHER process's
+ * environment cannot be seen from here; the board task's state is the backstop (the plan's known limits).
+ */
+async function boardProbeAddresses(env, lookup, interfaces) {
+  const addresses = [BOARD_LOOPBACK_V4, BOARD_LOOPBACK_V6];
+  for (const address of await bindHostProbeAddresses(env, lookup, interfaces)) {
+    if (!addresses.some((known) => known.toLowerCase() === address.toLowerCase())) addresses.push(address);
+  }
+  return addresses;
+}
+
+/* Which of several looks says most about a board that may be open, most first. A board no task command
+   can stop (it says its task did not start it, or is too old to say) outranks the task's own board, so it
+   stops the removal with nothing changed at all (round 5, finding 2). A web page that is not Kosmos on one
+   address never hides a timeout or a failed look on another. */
+function opennessRank(answer) {
+  if (isKosmosBoardAnswer(answer)) return answer.startedByTask === true ? 1 : 0;
+  if ([PROBE_OUTCOMES.TIMED_OUT, PROBE_OUTCOMES.CONNECT_TIMED_OUT, PROBE_OUTCOMES.UNIDENTIFIED].includes(answer.outcome)) return 2;
+  if (answer.answering) return 4;
+  if (answer.outcome === PROBE_OUTCOMES.REFUSED) return 5;
+  return 3;
+}
+
+/**
+ * probeBoard on every address in boardProbeAddresses, all at once, so the look takes as long as its
+ * slowest probe rather than their sum (plus resolving a bind host name, when there is one). The most open
+ * answer wins, with the address it came from (`host`). The uninstall and the move read it with
+ * boardMayBeOpen; the launcher's hand-off does not use it and still asks 127.0.0.1 alone (#2983).
+ * `probeOne` replaces probeBoard, `lookup` replaces dns.lookup, and `interfaces` replaces os.networkInterfaces()
+ * in a test.
+ */
+async function probeBoardOnEveryAddress(port, env, probeOne, lookup, interfaces) {
+  const look = typeof probeOne === 'function' ? probeOne : probeBoard;
+  const answers = await Promise.all((await boardProbeAddresses(env, lookup, interfaces)).map(async (host) => {
+    let answer;
+    try {
+      answer = { ...(await look(port, host, { connectTimeoutMs: CONNECT_TIMEOUT_MS })), host };
+    } catch {
+      return { answering: false, outcome: PROBE_OUTCOMES.ERROR, identity: null, startedByTask: null, host };
+    }
+    /* Round 7, finding 1: on a bind host address the real board answers a look BEFORE routing it (a 400 for a
+       Host it does not route, a 403 from its remote guard), and those answers carry no identity header. So
+       there any HTTP answer without a Kosmos identity may be a board. On the two loopback probes a board
+       always routes the look and names itself, so an answer without an identity there is not Kosmos. */
+    if (!LOOPBACK_PROBES.has(host) && answer.answering && !isKosmosBoardAnswer(answer)) {
+      return { answering: false, outcome: PROBE_OUTCOMES.UNIDENTIFIED, identity: null, startedByTask: null, host };
+    }
+    return answer;
+  }));
+  return answers.reduce((most, answer) => (opennessRank(answer) < opennessRank(most) ? answer : most));
+}
+
+/**
+ * Round 4 finding 3, round 5 finding 5: why Kosmos cannot tell whether it is open, when its port gave no
+ * answer, only a failed look. Shared by the uninstall and the move, which each add what to do next.
+ * "Another program" only when the board task is KNOWN not to be registered: win32board.status() never
+ * says a registered task is not running (`running` is true or null), so a registered task could still
+ * be behind the port.
+ */
+function cannotTellIfOpenSentence(port, boardTask) {
+  if (boardTask && boardTask.known && boardTask.registered === false) {
+    return 'Another program is using port ' + port + ', so Kosmos cannot tell whether it is still open.';
+  }
+  return 'Kosmos could not tell whether it is still open.';
 }
 
 /* The logon task runs with the account's environment, not this launch's. A launch
    that asked for its own port or its own data folder would be handed to a board
    that serves neither -- and the hand-off would then end that working board as
-   "not answering". Those launches keep their window. */
+   "not answering". Those launches serve from the launcher (its hidden console, or
+   its --console window). */
 function overriddenBy(env) {
   const e = env || {};
   if (e.PORT) return 'PORT';
@@ -191,7 +550,7 @@ function skipReason(o) {
   const e = o.ensured;
   /* Only a task that was just registered or refreshed is known to be enabled AND to
      name this install. A task the person switched off or removed means they chose
-     the window, and the window is what they get. */
+     to run Kosmos from the launcher, and that is what they get. */
   if (!e || !e.ok || (e.action !== 'registered' && e.action !== 'refreshed')) {
     return 'the logon task is not ready (' + ((e && (e.action || e.because)) || 'unknown') + ')';
   }
@@ -239,7 +598,17 @@ async function attemptHandOff(o, deps) {
          board can be replaced from here:
          anything else on the port (a board in another window, or not a board at
          all) is somebody else's, and serving here reproduces today's message. */
-      if (!board.status().running) return serveHere('something the logon task did not start is already using port ' + port);
+      /* #2973: was the answering board started by the task? The board says so itself
+         (BOARD_STARTED_BY_TASK_HEADER), and its word wins. Only a board that predates the
+         header is looked up in Task Scheduler, whose `running` is true, false, or null
+         when it could not tell. Only a board PROVEN to be the task's is ended from here;
+         could-not-tell keeps the window. */
+      const byTask = typeof p.startedByTask === 'boolean' ? p.startedByTask : board.status().running;
+      if (byTask !== true) {
+        return serveHere(byTask === false
+          ? 'something the logon task did not start is already using port ' + port
+          : 'we could not tell whether the logon task started what is already using port ' + port + ', so it was left running');
+      }
       /* With no time left to start its replacement, a working older board is
          worth more than a window: keep it, and let this launch report the port. */
       if (left() <= 0) return serveHere('there was no time left to replace the older Kosmos that is running');
@@ -283,6 +652,16 @@ async function attemptHandOff(o, deps) {
  */
 async function handOffToTask(opts) {
   const o = opts || {};
+  const result = await decideHandOff(o);
+  /* #2983: one funnel for every serve:true outcome (skip, tried-and-unconfirmed,
+     or a caught error), so the launcher's positive proof is written exactly when,
+     and only when, this board is going to serve here. `o.signalEnv` is a test seam;
+     the real board writes through process.env. */
+  if (result && result.serve) signalServingHere(o.signalEnv);
+  return result;
+}
+
+async function decideHandOff(o) {
   try {
     const board = o.board || require('./win32board');
     const probe = o.probe || probeBoard;
@@ -311,4 +690,9 @@ async function handOffToTask(opts) {
   }
 }
 
-module.exports = { handOffToTask, buildIdentity, boardIdentity, BOARD_IDENTITY_HEADER };
+/* probeBoard is also how the Windows updater (engine/win32apply.js) confirms which board came back
+   after a swap, so there is one reading of the identity header. */
+module.exports = {
+  handOffToTask, buildIdentity, boardIdentity, probeBoard, boardMayBeOpen, probeBoardOnEveryAddress, cannotTellIfOpenSentence, PROBE_OUTCOMES, EVERY_ADDRESS_LOOK_WORST_MS, BOARD_IDENTITY_HEADER, HANDOFF_CHECK_FOR_SERVING_AFTER_MS,
+  BOARD_STARTED_BY_TASK_HEADER, boardStartedByTaskHeaderValue, startedByTaskFromHeader, SERVE_HERE_SIGNAL_ENV, signalServingHere,
+};

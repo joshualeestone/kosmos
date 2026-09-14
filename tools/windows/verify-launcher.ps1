@@ -50,9 +50,14 @@ $csc = 'C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 # 🔑 ONE definition of the build, shared with tools/build-kosmos-windows.sh's
 # comment and with the README. If this list changes, the committed binary must
 # be rebuilt in the same commit.
-$FLAGS = @('/nologo', '/target:exe', '/optimize+', '/platform:anycpu')
+$FLAGS = @('/nologo', '/target:winexe', '/optimize+', '/platform:anycpu')
+# The icon, as the README writes it (relative to the repo root), and as this
+# script passes it (resolved from its own location, so it runs from anywhere).
+$ICON_FLAG_FROM_REPO_ROOT = '/win32icon:assets\kosmos.ico'
+$icon = [System.IO.Path]::GetFullPath((Join-Path $here '..\..\assets\kosmos.ico'))
+$buildFlags = $FLAGS + @("/win32icon:$icon")
 
-foreach ($p in @($csc, $src, $committed)) {
+foreach ($p in @($csc, $src, $committed, $icon)) {
   if (-not (Test-Path -LiteralPath $p)) { Write-Error "missing: $p"; exit 2 }
 }
 
@@ -71,13 +76,13 @@ try {
   $one = Join-Path $dirOne 'Kosmos.exe'
   $two = Join-Path $dirTwo 'Kosmos.exe'
 
-  & $csc @FLAGS "/out:$one" $src | Out-Null
+  & $csc @buildFlags "/out:$one" $src | Out-Null
   if ($LASTEXITCODE -ne 0) { Write-Error 'the first rebuild failed'; exit 2 }
   # A second apart, so a per-run timestamp actually differs between the two and
   # lands in the mask. Without this the mask can come back empty on a fast box
   # and the compare silently becomes a plain byte-compare that always fails.
   Start-Sleep -Seconds 2
-  & $csc @FLAGS "/out:$two" $src | Out-Null
+  & $csc @buildFlags "/out:$two" $src | Out-Null
   if ($LASTEXITCODE -ne 0) { Write-Error 'the second rebuild failed'; exit 2 }
 
   $a = [System.IO.File]::ReadAllBytes($one)
@@ -120,7 +125,7 @@ try {
   $mask = @($set) | Sort-Object
 
   Write-Host ("compiler      : " + (Get-Item $csc).VersionInfo.FileVersion)
-  Write-Host ("flags         : " + ($FLAGS -join ' '))
+  Write-Host ("flags         : " + ($FLAGS -join ' ') + ' ' + $ICON_FLAG_FROM_REPO_ROOT)
   Write-Host ("size          : " + $a.Length + " bytes")
   Write-Host ("build metadata: " + $mask.Count + " byte(s) vary between two runs")
   if ($mask.Count -gt 0) {
@@ -152,7 +157,7 @@ try {
   Write-Host "MISMATCH: $n byte(s) differ outside the build metadata."
   Write-Host 'The committed binary did not come from the committed source (or from these flags).'
   Write-Host 'Rebuild it in the same commit as the source change:'
-  Write-Host ("  " + $csc + ' ' + ($FLAGS -join ' ') + ' /out:tools\windows\Kosmos.exe tools\windows\KosmosLauncher.cs')
+  Write-Host ("  " + $csc + ' ' + ($FLAGS -join ' ') + ' ' + $ICON_FLAG_FROM_REPO_ROOT + ' /out:tools\windows\Kosmos.exe tools\windows\KosmosLauncher.cs')
   exit 1
 } finally {
   Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

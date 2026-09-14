@@ -257,3 +257,29 @@ test('#570 record: a corrupt store file reads as EMPTY (fail-safe -> nothing our
   assert.deepEqual(win32sessions.read(), {}, 'a corrupt record reads empty, so nothing is ours');
   assert.equal(win32sessions.isOurs('anything'), false);
 });
+
+test('#2811: the LIVE LIST gates the roster, not the record - a recorded codex session `claude agents --json` does not list emits NO ROW', () => {
+  // Pins the fact five prose versions of the win32 paragraph in engine/runningas.js
+  // got wrong. `runner` IS a roster column (see the test above), which reads as
+  // "the win32 substitute for tmux names the provider" -- and it does NOT, because
+  // make() iterates the LIVE list and that command is `claude agents --json`, which
+  // has no codex arm. A codex session it cannot see produces no row, so no pane,
+  // so `card.runner` (resolvedRunner's marker rung) never fires on Windows and the
+  // PROFILE is the sole rung there.
+  const rec = { 'cccc-3333': { name: 'gpt-7b', runner: 'codex' } };
+
+  // The agent is RECORDED as codex, and `claude agents --json` does not list it.
+  const unseen = win32roster.make({ run: () => [OURS], record: { read: () => rec } });
+  const names = status.parsePanes(unseen()).map((p) => p.session);
+  assert.ok(!names.includes('gpt-7b'), 'a recorded codex session absent from the live list is NOT emitted');
+
+  // CONTROL, and it is the whole test: the ONLY change is that the live list now
+  // contains that session. The record is byte-identical. A row appears, carrying
+  // the codex runner -- so the assertion above is about the live list and can
+  // return the dangerous answer.
+  const live = { pid: 300, cwd: '/w/gpt', kind: 'interactive', startedAt: 3, sessionId: 'cccc-3333', name: 'gpt-7b', status: 'idle' };
+  const seen = win32roster.make({ run: () => [OURS, live], record: { read: () => rec } });
+  const row = status.parsePanes(seen()).find((p) => p.session === 'gpt-7b');
+  assert.ok(row, 'CONTROL: the same record DOES emit a row once the live list names the session');
+  assert.equal(row.runner, 'codex', 'CONTROL: and that row carries the recorded codex runner');
+});

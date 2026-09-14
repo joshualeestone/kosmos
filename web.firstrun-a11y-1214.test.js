@@ -135,8 +135,10 @@ test('install-flow-9screen: the S3 Continue/Next is GATED -- unlocks only when b
      primary is Next, and its go() re-reads fr-next.disabled before advancing. */
   assert.match(step3, /label: 'Next'/,
     "the S3 primary is no longer labelled 'Next'");
-  assert.match(step3, /if \(document\.getElementById\('fr-next'\)\.disabled\) return; frGo\(4\);/,
-    'the S3 Next is gated: it proceeds to S4 only when the check has not disabled it');
+  /* win32-board-copy: the hop is frStepAfter(3), which is S4 on a Mac and S5 on Windows (S4
+     is a macOS notice); the GATE this pins is unchanged. */
+  assert.match(step3, /if \(document\.getElementById\('fr-next'\)\.disabled\) return; frGo\(frStepAfter\(3\)\);/,
+    'the S3 Next is gated: it proceeds to the next step only when the check has not disabled it');
   /* #2647: and the Check-again control rides the nav's alt slot from here, which
      is the ONLY thing wiring it up: the old in-pane handler was delegated on
      #fr-pane-3 and #fr-alt sits outside every pane, so losing this argument

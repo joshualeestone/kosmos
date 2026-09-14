@@ -1,0 +1,546 @@
+'use strict';
+/**
+ * win32-agent-job-read: an agent's job on Windows is its Scheduled Task, and the
+ * setters and Trust & Restart read and change it there.
+ *
+ * 🛑 THE DEFECT. `create.readJob` read only the launchd plist, so on Windows it
+ * answered null for every agent: changing a model, provider or account refused
+ * with "was not started by Kosmos", and Trust & Restart skipped its trust write.
+ *
+ * 🔑 THE PLATFORM IS INJECTED (`platform: 'win32'`) so a Mac drives the win32 arm,
+ * and EVERY win32job seam is stubbed: the runner (never the real schtasks) and the
+ * anchorer (never the real interpreter copy under %LOCALAPPDATA%).
+ *
+ *   node --test engine/create.win32-job-read.test.js
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+/* SANDBOX EVERY ROOT BEFORE ANY REQUIRE (convention 2): store.ROOT freezes at
+   require, and the trust writers fall back to real configs through overrides. */
+const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'create-win32-jobread-')));
+const HOME = path.join(SANDBOX, 'home');
+for (const d of ['home', 'data', 'workers', 'launch', 'projects']) fs.mkdirSync(path.join(SANDBOX, d), { recursive: true });
+process.env.AGENT_WORKFORCE_HOME = HOME;
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
+delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+delete process.env.CLAUDE_CONFIG_DIR;
+delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+delete process.env.CODEX_HOME;
+delete process.env.KOSMOS_WORLD;
+/* A runnable binary on every host, for setProvider's runner check. */
+process.env.AGENT_WORKFORCE_CLAUDE_BIN = process.execPath;
+process.env.AGENT_WORKFORCE_CODEX_BIN = process.execPath;
+
+/* The default Claude account, so setAccount has somewhere to move an agent. */
+fs.mkdirSync(path.join(HOME, '.claude', 'projects'), { recursive: true });
+fs.writeFileSync(path.join(HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'first@example.com' } }));
+/* A labelled codex account, for setCodexAccount. */
+const CODEX_WORK = path.join(HOME, '.codex-work');
+fs.mkdirSync(CODEX_WORK, { recursive: true });
+fs.writeFileSync(path.join(CODEX_WORK, 'auth.json'), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtestJOBREAD01' }));
+
+const cp = require('node:child_process');
+const create = require('./create');
+const job = require('./win32job');
+const { specFromArgv } = require('./win32argv');
+const { KEY } = require('./trust');
+const launcher = require('./win32launch');
+
+const XML_ENV = { USERNAME: 'kitty', USERDOMAIN: 'BOX', SystemRoot: 'C:\\Windows' };
+const NO_SUCH = { ok: false, out: 'ERROR: The system cannot find the file specified.' };
+
+/**
+ * A Task Scheduler that holds `tasks` (task name -> the spec taskXml registered),
+ * answers `/Query /XML` with the XML the real writer produces, and records every
+ * `/Create` together with the definition it was handed (read from the transient
+ * XML file while it still exists).
+ */
+function scheduler(tasks, opts) {
+  const o = opts || {};
+  const calls = [];
+  job.setAnchorer(() => ({ ok: true, node: 'C:\\Anchor\\node.exe', boot: 'C:\\Anchor\\boot.js' }));
+  job.setRunner((args) => {
+    const rec = { args: args.slice() };
+    calls.push(rec);
+    const tn = args[args.indexOf('/TN') + 1];
+    /* The LIST read, printed the way schtasks prints it: TaskName and HostName lines
+       as well as the status, in English or (listLocale 'de') German. Nothing that
+       decides may read this text (round 2): it is localized and carries names. */
+    if (args[0] === '/Query' && args.includes('LIST')) {
+      if (o.listFails) return { ok: false, out: o.listFails };
+      const spec = tasks[tn];
+      if (!spec) return NO_SUCH;
+      const de = o.listLocale === 'de';
+      const state = de ? (spec.disabled ? 'Deaktiviert' : 'Bereit') : (spec.disabled ? 'Disabled' : 'Ready');
+      return { ok: true, out: (de ? 'Aufgabenname: \\' : 'TaskName: \\') + tn + '\n' + (de ? 'Hostname: ' : 'HostName: ') + 'BOX\nStatus: ' + state + '\n' };
+    }
+    /* The definition read, which is also the enabled-state read: the XML the real
+       writer produces, switched off when the task is marked `disabled`. The counters
+       let an arm answer the FIRST read (the remembered definition) and not a later
+       one (the setter's fresh state read). */
+    if (args[0] === '/Query' && args.includes('/XML')) {
+      if (o.queryFails) return { ok: false, out: o.queryFails };
+      const seen = (o.seen = o.seen || {});
+      seen[tn] = (seen[tn] || 0) + 1;
+      if (o.xmlFailAfter && seen[tn] > o.xmlFailAfter) return { ok: false, out: 'ERROR: Access is denied.' };
+      if (o.xmlGoneAfter && seen[tn] > o.xmlGoneAfter) return NO_SUCH;
+      const spec = tasks[tn];
+      if (!spec) return NO_SUCH;
+      let xml = job.taskXml({ ...spec, enabled: spec.disabled ? false : spec.enabled }, XML_ENV);
+      if (o.xmlNoEnabled) xml = xml.replace(/(<Settings>[\s\S]*?)<Enabled>(?:true|false)<\/Enabled>/, '$1');
+      return { ok: true, out: xml };
+    }
+    if (args[0] === '/Create') {
+      rec.xml = fs.readFileSync(args[args.indexOf('/XML') + 1]).toString('utf16le');
+      if (o.createFails) return { ok: false, out: o.createFails };
+      return { ok: true, out: '' };
+    }
+    return { ok: true, out: '' };
+  });
+  return calls;
+}
+
+/* The argv a /Create registered, parsed by the ONE parser the supervisor uses. */
+function registeredSpec(rec) {
+  const m = /<Arguments>([\s\S]*?)<\/Arguments>/.exec(rec.xml);
+  assert.ok(m, 'the registered definition has no argument line: ' + rec.xml);
+  const toks = [];
+  const re = /"([^"]*)"/g;
+  let t;
+  const line = job.xmlUnescape(m[1]);
+  while ((t = re.exec(line)) !== null) toks.push(t[1]);
+  return specFromArgv(toks.slice(2));
+}
+const creates = (calls) => calls.filter((c) => c.args[0] === '/Create');
+/* The definition reads only: the setters also ask the task's state (/FO LIST). */
+const queries = (calls) => calls.filter((c) => c.args[0] === '/Query' && c.args.includes('/XML'));
+
+function taskFor(name, fields) {
+  return { name, cwd: 'C:\\work\\' + name, node: 'C:\\n.exe', supervisor: 'C:\\s.js', ...fields };
+}
+
+test.after(() => {
+  job.setRunner(null);
+  job.setAnchorer(null);
+  launcher.setSpawn(null);
+  delete process.env.KOSMOS_WORLD;
+  try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
+});
+
+/* ── the readJob win32 arm ─────────────────────────────────────────────────── */
+
+test('readJob on win32 reads the agent task in the default world', () => {
+  const calls = scheduler({
+    'Kosmos\\agent-ava': taskFor('ava', { model: 'claude-opus-x', configDir: 'C:\\Users\\kitty\\.claude-work', runner: 'claude', claudeBin: 'C:\\bin\\claude.exe' }),
+  });
+  assert.deepEqual(create.readJob('ava', undefined, 'win32'), {
+    claude: 'C:\\bin\\claude.exe', tmux: null, model: 'claude-opus-x', configDir: 'C:\\Users\\kitty\\.claude-work', runner: 'claude',
+  });
+  assert.equal(queries(calls)[0].args[2], 'Kosmos\\agent-ava', 'it did not ask for the default world task name');
+});
+
+test('readJob on win32 reads a named Kosmos agent from agent-name+world', () => {
+  const calls = scheduler({
+    'Kosmos\\agent-ava+qa': taskFor('ava', { runner: 'codex', configDir: 'C:\\h\\.codex-qa', world: 'qa' }),
+  });
+  const explicit = create.readJob('ava', 'qa', 'win32');
+  assert.deepEqual(explicit, { claude: null, tmux: null, model: null, configDir: 'C:\\h\\.codex-qa', runner: 'codex' });
+  assert.equal(queries(calls)[0].args[2], 'Kosmos\\agent-ava+qa');
+  /* Control: the default world has no task of that name, so the key is doing the work. */
+  assert.equal(create.readJob('ava', undefined, 'win32'), null, 'the default world read another Kosmos task');
+  /* And a board booted into the named world reaches it with no world passed. */
+  process.env.KOSMOS_WORLD = 'qa';
+  try {
+    assert.equal(create.readJob('ava', undefined, 'win32').runner, 'codex');
+  } finally { delete process.env.KOSMOS_WORLD; }
+});
+
+test('readJobVerdict on win32 tells an absent task from one it could not read', () => {
+  scheduler({});
+  assert.deepEqual(create.readJobVerdict('ghost', undefined, 'win32'), { job: null, win32: true, absent: true });
+  scheduler({}, { queryFails: 'ERROR: Access is denied.' });
+  const v = create.readJobVerdict('locked', undefined, 'win32');
+  assert.equal(v.job, null);
+  assert.equal(v.absent, undefined, 'a failed look was reported as an absence');
+  assert.match(v.because, /Access is denied/);
+});
+
+test('readJob on win32 is answered from the #2717 cache, and a re-register forgets it', () => {
+  const tasks = { 'Kosmos\\agent-ava': taskFor('ava', { runner: 'claude', claudeBin: 'C:\\bin\\claude.exe' }) };
+  const calls = scheduler(tasks);
+  create.readJob('ava', undefined, 'win32');
+  create.readJob('ava', undefined, 'win32');
+  assert.equal(queries(calls).length, 1, 'every read spawned schtasks, which on the five-second poll is one spawn per agent');
+  const r = create.setModel('ava', create.modelsFor('anthropic')[0].key, { platform: 'win32' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  /* The change itself asks the task's state fresh (round 2), so count from after it. */
+  const afterChange = queries(calls).length;
+  create.readJob('ava', undefined, 'win32');
+  assert.equal(queries(calls).length, afterChange + 1, 'the re-register did not forget the remembered definition');
+});
+
+/* ── the setters re-register the task ──────────────────────────────────────── */
+
+test('setModel on win32 re-registers the task with the new model and keeps account and binary', () => {
+  const calls = scheduler({
+    'Kosmos\\agent-ava': taskFor('ava', { model: 'old-model', configDir: 'C:\\acct', runner: 'claude', claudeBin: 'C:\\bin\\claude.exe' }),
+  });
+  const m = create.modelsFor('anthropic')[0];
+  const r = create.setModel('ava', m.key, { platform: 'win32' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, 'the change was refused: ' + r.because);
+  const made = creates(calls);
+  assert.equal(made.length, 1, 'the task was not re-registered');
+  assert.deepEqual(made[0].args.slice(0, 4), ['/Create', '/F', '/TN', 'Kosmos\\agent-ava']);
+  const spec = registeredSpec(made[0]);
+  assert.equal(spec.name, 'ava');
+  assert.equal(spec.model, m.arg, 'the new model is not on the task line');
+  assert.equal(spec.configDir, 'C:\\acct', 'the account was dropped by a model change');
+  assert.equal(spec.runner, 'claude');
+  assert.equal(spec.claudeBin, 'C:\\bin\\claude.exe', 'the recorded runner binary was dropped');
+});
+
+test('setModel on win32 in a named Kosmos re-registers that world task and keeps the world on its line', () => {
+  const calls = scheduler({ 'Kosmos\\agent-ava+qa': taskFor('ava', { runner: 'claude', world: 'qa' }) });
+  process.env.KOSMOS_WORLD = 'qa';
+  try {
+    const r = create.setModel('ava', create.modelsFor('anthropic')[0].key, { platform: 'win32' });
+    assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  } finally { delete process.env.KOSMOS_WORLD; }
+  const made = creates(calls);
+  assert.equal(made.length, 1);
+  assert.equal(made[0].args[3], 'Kosmos\\agent-ava+qa', 'a named Kosmos agent was re-registered under the default world name');
+  assert.equal(registeredSpec(made[0]).world, 'qa');
+});
+
+test('setAccount on win32 moves a Claude agent to the default account through the task', () => {
+  const calls = scheduler({ 'Kosmos\\agent-ava': taskFor('ava', { model: 'kept-model', configDir: 'C:\\acct', runner: 'claude' }) });
+  fs.mkdirSync(create.workerDir('ava'), { recursive: true });
+  const r = create.setAccount('ava', '', { platform: 'win32' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, 'the account change was refused: ' + r.because);
+  const made = creates(calls);
+  assert.equal(made.length, 1, 'the task was not re-registered');
+  const spec = registeredSpec(made[0]);
+  assert.equal(spec.configDir, undefined, 'the default account must write no configDir');
+  assert.equal(spec.model, 'kept-model', 'the model was dropped by an account change');
+});
+
+test('setAccount on win32 moves a codex agent to another OpenAI home through the task', () => {
+  const calls = scheduler({ 'Kosmos\\agent-cx': taskFor('cx', { runner: 'codex', model: 'gpt-x', claudeBin: 'C:\\bin\\codex.exe' }) });
+  fs.mkdirSync(create.workerDir('cx'), { recursive: true });
+  const r = create.setAccount('cx', CODEX_WORK, { platform: 'win32' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, 'the codex account change was refused: ' + r.because);
+  const spec = registeredSpec(creates(calls)[0]);
+  assert.equal(spec.runner, 'codex');
+  assert.equal(spec.configDir, path.resolve(CODEX_WORK));
+  assert.equal(spec.model, 'gpt-x');
+  assert.equal(spec.claudeBin, 'C:\\bin\\codex.exe');
+});
+
+test('setProvider on win32 switches a codex agent to Claude through the task, dropping model and account', () => {
+  const calls = scheduler({ 'Kosmos\\agent-sw': taskFor('sw', { runner: 'codex', model: 'gpt-x', configDir: 'C:\\h\\.codex-a' }) });
+  fs.mkdirSync(create.workerDir('sw'), { recursive: true });
+  const r = create.setProvider('sw', 'anthropic', { platform: 'win32', claudeBin: process.execPath });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, 'the provider switch was refused: ' + r.because);
+  const spec = registeredSpec(creates(calls)[0]);
+  assert.equal(spec.runner, 'claude');
+  assert.equal(spec.model, undefined);
+  assert.equal(spec.configDir, undefined);
+  assert.equal(spec.claudeBin, process.execPath);
+});
+
+/* ── the refusals name what is actually wrong ──────────────────────────────── */
+
+test('on win32 a missing task, an unreadable task and a failed re-register each say so, never "not started by Kosmos"', () => {
+  const key = create.modelsFor('anthropic')[0].key;
+  scheduler({});
+  const missing = create.setModel('ghost', key, { platform: 'win32' });
+  assert.equal(missing.outcome, create.OUTCOME.REFUSED);
+  assert.match(missing.because, /no startup task in Task Scheduler \(Kosmos\\agent-ghost\)/);
+  assert.doesNotMatch(missing.because, /not started by Kosmos/);
+
+  scheduler({}, { queryFails: 'ERROR: Access is denied.' });
+  const unreadable = create.setProvider('locked', 'openai', { platform: 'win32' });
+  assert.match(unreadable.because, /could not read .*startup task in Task Scheduler \(ERROR: Access is denied\.\)/);
+  const acct = create.setAccount('locked', '', { platform: 'win32' });
+  assert.match(acct.because, /could not read .*startup task in Task Scheduler \(ERROR: Access is denied\.\)/);
+
+  const calls = scheduler({ 'Kosmos\\agent-ava': taskFor('ava', { runner: 'claude' }) }, { createFails: 'ERROR: Access is denied.' });
+  const failed = create.setModel('ava', key, { platform: 'win32' });
+  assert.equal(failed.outcome, create.OUTCOME.REFUSED, 'a failed re-register was reported as a change');
+  assert.match(failed.because, /could not update .*startup task in Task Scheduler .*Access is denied/);
+  assert.equal(creates(calls).length, 1, 'control: the re-register was attempted');
+});
+
+test('the win32 re-register stays behind the live-execution gate (#1598)', () => {
+  const calls = scheduler({ 'Kosmos\\agent-ava': taskFor('ava', { runner: 'claude' }) });
+  const real = job.commandsAreReal;
+  job.commandsAreReal = () => false;
+  try {
+    assert.throws(() => create.setModel('ava', create.modelsFor('anthropic')[0].key, { platform: 'win32' }),
+      /tried to execute "schtasks\.exe \/Create/, 'an unauthorized re-register did not refuse');
+  } finally { job.commandsAreReal = real; }
+  assert.equal(creates(calls).length, 0, 'the task was re-registered without authorization');
+  /* The predicate itself: no runner and no opt-in is not authorized. */
+  job.setRunner(null);
+  assert.equal(job.commandsAreReal(), false);
+});
+
+test('win32job never spawns schtasks from a test process that installed no runner', () => {
+  job.setRunner(null);
+  let spawned = 0;
+  const realExec = cp.execFileSync;
+  cp.execFileSync = () => { spawned += 1; throw Object.assign(new Error('stubbed'), { stderr: 'ERROR: stubbed' }); };
+  try {
+    const p = job.presence('guard-probe');
+    assert.equal(spawned, 0, 'a test process reached execFileSync for schtasks');
+    assert.equal(p.known, false, 'a refused look must not read as an answer');
+    assert.equal(p.because, job.REFUSED_IN_TEST);
+  } finally { cp.execFileSync = realExec; }
+});
+
+test('a board a test spawns (no --test in its execArgv) never spawns schtasks either', () => {
+  /* The shape server.leftover-removable and its siblings use: `node -e` with the
+     test's env. The child stubs its OWN execFileSync first, so even with the guard
+     reverted it counts an attempt and never reaches the real Task Scheduler. */
+  const script = [
+    "const cp = require('node:child_process');",
+    'let spawned = 0;',
+    "cp.execFileSync = () => { spawned += 1; throw Object.assign(new Error('stubbed'), { stderr: 'ERROR: stubbed' }); };",
+    'const job = require(' + JSON.stringify(path.join(__dirname, 'win32job.js')) + ');',
+    "const p = job.presence('guard-child');",
+    'process.stdout.write(JSON.stringify({ spawned, testFlag: process.execArgv.some((a) => a.startsWith("--test")), because: p.because }));',
+  ].join('\n');
+  const out = JSON.parse(cp.execFileSync(process.execPath, ['-e', script], { encoding: 'utf8', env: { ...process.env } }));
+  assert.equal(out.testFlag, false, 'control: the child must look like a spawned board, not a test process');
+  assert.equal(out.spawned, 0, 'a board spawned by a test reached execFileSync for schtasks');
+  assert.equal(out.because, job.REFUSED_IN_TEST);
+});
+
+/* ── Trust & Restart ───────────────────────────────────────────────────────── */
+
+test('trustAgentFolder on win32 writes the trust entry for a task-started Claude agent', () => {
+  scheduler({ 'Kosmos\\agent-trusty': taskFor('trusty', { runner: 'claude' }) });
+  const folder = create.workerDir('trusty');
+  fs.mkdirSync(folder, { recursive: true });
+  const t = create.trustAgentFolder('trusty', { platform: 'win32' });
+  assert.equal(t.wrote, true, 'the trust step was skipped on win32: ' + JSON.stringify(t));
+  assert.equal(t.runner, 'claude');
+  const cfg = JSON.parse(fs.readFileSync(path.join(HOME, '.claude.json'), 'utf8'));
+  /* Compared with separators normalised: the trust writer keys a Windows folder with
+     forward slashes, a Mac one natively, and this arm is about WHETHER the entry was
+     written, not its spelling (server.trust-restart-fallback-2129 pins that). */
+  const want = fs.realpathSync.native(create.workerDir('trusty')).replace(/\\/g, '/');
+  const hit = Object.keys(cfg.projects || {}).find((k) => k.replace(/\\/g, '/') === want);
+  assert.ok(hit && cfg.projects[hit][KEY] === true,
+    'no trust entry for the agent folder: ' + JSON.stringify(Object.keys(cfg.projects || {})));
+});
+
+test('trustAgentFolder on win32 says whether the task is missing or unreadable', () => {
+  scheduler({});
+  assert.match(create.trustAgentFolder('ghost', { platform: 'win32' }).because, /no startup task in Task Scheduler/);
+  scheduler({}, { queryFails: 'ERROR: Access is denied.' });
+  assert.match(create.trustAgentFolder('locked', { platform: 'win32' }).because, /could not read .*startup task .*Access is denied/);
+});
+
+test('the Trust & Restart route takes its trust step from create.trustAgentFolder', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const at = src.indexOf("trust-and-restart$/);");
+  assert.ok(at > -1, 'the route is gone');
+  assert.match(src.slice(at, at + 1500), /create\.trustAgentFolder\(clean\)/,
+    'the route does its own plist-only job read again');
+});
+
+/* ── round 1 SAFETY: a re-register keeps the task's enabled state ──────────── */
+
+function settingsEnabled(xml) {
+  const block = /<Settings>([\s\S]*?)<\/Settings>/.exec(xml);
+  assert.ok(block, 'the definition has no Settings block: ' + xml);
+  const e = /<Enabled>(true|false)<\/Enabled>/.exec(block[1]);
+  assert.ok(e, 'the Settings block has no Enabled element: ' + block[1]);
+  return e[1] === 'true';
+}
+
+const SETTERS = [
+  { label: 'setModel', task: 'sfa', fields: { runner: 'claude' },
+    run: () => create.setModel('sfa', create.modelsFor('anthropic')[0].key, { platform: 'win32' }) },
+  { label: 'setAccount (Claude)', task: 'sfb', fields: { runner: 'claude', configDir: 'C:\\acct' },
+    run: () => create.setAccount('sfb', '', { platform: 'win32' }) },
+  { label: 'setAccount (codex)', task: 'sfc', fields: { runner: 'codex' },
+    run: () => create.setAccount('sfc', CODEX_WORK, { platform: 'win32' }) },
+  { label: 'setProvider', task: 'sfd', fields: { runner: 'codex' },
+    run: () => create.setProvider('sfd', 'anthropic', { platform: 'win32', claudeBin: process.execPath }) },
+];
+
+for (const s of SETTERS) {
+  for (const disabled of [true, false]) {
+    test('SAFETY: ' + s.label + ' on win32 keeps ' + (disabled ? 'a DISABLED task disabled (a removed or paused agent stays off)' : 'an ENABLED task enabled'), () => {
+      fs.mkdirSync(create.workerDir(s.task), { recursive: true });
+      const calls = scheduler({ ['Kosmos\\agent-' + s.task]: taskFor(s.task, { ...s.fields, disabled }) });
+      const r = s.run();
+      assert.equal(r.outcome, create.OUTCOME.CREATED, 'the change was refused: ' + r.because);
+      const made = creates(calls);
+      assert.equal(made.length, 1, 'the task was not re-registered');
+      assert.equal(settingsEnabled(made[0].xml), !disabled, disabled
+        ? 'the re-register switched a disabled task back on, so a removed agent would start at the next logon'
+        : 'the re-register switched an enabled task off');
+    });
+  }
+}
+
+test('SAFETY (e): when the task state read (XML) errors, the change is refused and nothing is registered', () => {
+  /* The first XML read (the remembered definition) answers; the setter's fresh
+     state read does not. */
+  const calls = scheduler({ 'Kosmos\\agent-ava': taskFor('ava', { runner: 'claude' }) }, { xmlFailAfter: 1 });
+  const r = create.setModel('ava', create.modelsFor('anthropic')[0].key, { platform: 'win32' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED, 'a change went ahead on a task whose switch could not be read');
+  assert.match(r.because, /could not tell whether .*startup task is switched on or off \(ERROR: Access is denied\.\)/);
+  assert.equal(creates(calls).length, 0, 'a task was registered while its state was unknown');
+});
+
+test('SAFETY: taskXml writes the enabled state it is given, and enabled when told nothing (creation)', () => {
+  const base = { name: 'x', cwd: 'C:\\w', node: 'C:\\n.exe', supervisor: 'C:\\s.js' };
+  assert.equal(settingsEnabled(job.taskXml({ ...base, enabled: false }, XML_ENV)), false);
+  assert.equal(settingsEnabled(job.taskXml({ ...base, enabled: true }, XML_ENV)), true);
+  assert.equal(settingsEnabled(job.taskXml(base, XML_ENV)), true, 'a spec that says nothing must stay enabled, or creation registers a switched-off agent');
+  assert.ok(job.taskXml({ ...base, enabled: false }, XML_ENV).includes('<LogonTrigger><Enabled>true</Enabled>'),
+    'the logon trigger is not the switch; only the task setting is');
+});
+
+/* ── round 2: the switch is read from the task's own definition ──────────────── */
+
+test('ROUND 2 (a): an ENABLED task whose name contains "disabled" stays enabled (the LIST text is not read)', () => {
+  const calls = scheduler({ 'Kosmos\\agent-disabled-bot': taskFor('disabled-bot', { runner: 'claude' }) });
+  const r = create.setModel('disabled-bot', create.modelsFor('anthropic')[0].key, { platform: 'win32' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  /* Control: the LIST text for this task really does contain the word. */
+  assert.match(job.presence('disabled-bot').enabled === false ? 'disabled' : '', /disabled/,
+    'control: the LIST reader must misread this task, or the arm proves nothing');
+  const made = creates(calls);
+  assert.equal(made.length, 1);
+  assert.equal(settingsEnabled(made[0].xml), true, 'an enabled agent named disabled-bot was registered switched off');
+});
+
+test('ROUND 2 (c): a definition with no <Enabled> counts as enabled (the schema default)', () => {
+  const calls = scheduler({ 'Kosmos\\agent-ava': taskFor('ava', { runner: 'claude' }) }, { xmlNoEnabled: true });
+  assert.deepEqual(job.taskEnabled('ava'), { known: true, registered: true, enabled: true });
+  const r = create.setModel('ava', create.modelsFor('anthropic')[0].key, { platform: 'win32' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  assert.equal(settingsEnabled(creates(calls)[0].xml), true);
+});
+
+test('ROUND 2 (d): on a German Windows a switched-off task stays off (the XML, not the translated status)', () => {
+  const calls = scheduler({ 'Kosmos\\agent-ava': taskFor('ava', { runner: 'claude', disabled: true }) }, { listLocale: 'de' });
+  /* Control: the LIST reader misses the German status and calls the task on. */
+  assert.equal(job.presence('ava').enabled, true, 'control: the LIST reader must misread the German status, or the arm proves nothing');
+  const r = create.setModel('ava', create.modelsFor('anthropic')[0].key, { platform: 'win32' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  assert.equal(settingsEnabled(creates(calls)[0].xml), false, 'a removed agent on a German Windows was switched back on');
+});
+
+test('ROUND 2: a task gone at the state read is refused with no /Create', () => {
+  /* The remembered definition answers; by the fresh state read the task is gone. */
+  const calls = scheduler({ 'Kosmos\\agent-ava': taskFor('ava', { runner: 'claude' }) }, { xmlGoneAfter: 1 });
+  const r = create.setModel('ava', create.modelsFor('anthropic')[0].key, { platform: 'win32' });
+  assert.equal(r.outcome, create.OUTCOME.REFUSED, 'a change went ahead on a task that was no longer there');
+  assert.match(r.because, /startup task is no longer in Task Scheduler/);
+  assert.equal(creates(calls).length, 0, 'a task that had gone was registered again');
+});
+
+test('ROUND 2: taskEnabled refuses to guess from a definition it cannot read', () => {
+  scheduler({});
+  assert.deepEqual(job.taskEnabled('ghost'), { known: true, registered: false });
+  job.setRunner(() => ({ ok: true, out: '<Task><Actions/></Task>' }));
+  assert.equal(job.taskEnabled('odd').known, false, 'a definition with no Settings was read as a switch');
+  job.setRunner(() => ({ ok: true, out: '<Task><Settings><Enabled>maybe</Enabled></Settings></Task>' }));
+  assert.equal(job.taskEnabled('odd').known, false, 'an Enabled that is not a boolean was read as a switch');
+  job.setRunner(() => ({ ok: false, out: 'ERROR: Access is denied.' }));
+  assert.equal(job.taskEnabled('locked').known, false);
+});
+
+/* ── round 1 BUG: a codex agent's named home reaches its process ───────────── */
+
+test('BUG: childEnv gives a codex agent its named home as CODEX_HOME, a default one none, and Claude only CLAUDE_CONFIG_DIR', () => {
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  assert.equal(launcher.childEnv({}, 't', 'C:\\h\\.codex-work', null, 'codex').CODEX_HOME, 'C:\\h\\.codex-work');
+  assert.equal(has(launcher.childEnv({}, 't', null, null, 'codex'), 'CODEX_HOME'), false, 'a default-home codex agent was given a CODEX_HOME');
+  assert.equal(launcher.childEnv({ CODEX_HOME: 'C:\\inherited' }, 't', null, null, 'codex').CODEX_HOME, 'C:\\inherited',
+    'a default-home codex agent must keep inheriting what it did');
+  const claude = launcher.childEnv({}, 't', 'C:\\Users\\k\\.claude-work', null, 'claude');
+  assert.equal(claude.CLAUDE_CONFIG_DIR, 'C:\\Users\\k\\.claude-work');
+  assert.equal(has(claude, 'CODEX_HOME'), false, 'a Claude agent was given a CODEX_HOME');
+});
+
+test('BUG: the account variable per runner is the one the Mac plist writes', () => {
+  const { accountEnvVar } = require('./accountenv');
+  assert.equal(accountEnvVar('codex'), 'CODEX_HOME');
+  assert.equal(accountEnvVar('claude'), 'CLAUDE_CONFIG_DIR');
+  assert.match(create.plistFor('mx', '/b/codex', '/b/tmux', null, '/h/codex-w', 'codex'), /<key>CODEX_HOME<\/key><string>\/h\/codex-w<\/string>/);
+  assert.match(create.plistFor('my', '/b/claude', '/b/tmux', null, '/h/claude-w', 'claude'), /<key>CLAUDE_CONFIG_DIR<\/key><string>\/h\/claude-w<\/string>/);
+});
+
+test('BUG: a codex account change on win32 reaches the relaunched agent as CODEX_HOME', () => {
+  const calls = scheduler({ 'Kosmos\\agent-cxr': taskFor('cxr', { runner: 'codex', claudeBin: process.execPath }) });
+  const folder = create.workerDir('cxr');
+  fs.mkdirSync(folder, { recursive: true });
+  const r = create.setAccount('cxr', CODEX_WORK, { platform: 'win32' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, 'the codex account change was refused: ' + r.because);
+  /* What the task now carries is what the supervisor hands the launcher. */
+  const spec = registeredSpec(creates(calls)[0]);
+  let seen = null;
+  launcher.setSpawn((bin, argv, opts) => {
+    seen = opts && opts.env;
+    return { pid: 4242, stdin: null, stdout: null, stderr: null, on() {}, unref() {} };
+  });
+  try {
+    const launched = launcher.launchStreaming({ ...spec, cwd: folder, platform: 'win32' });
+    assert.equal(launched.ok, true, 'the relaunch did not start: ' + launched.because);
+  } finally { launcher.setSpawn(null); }
+  assert.ok(seen, 'the launcher never spawned');
+  assert.equal(seen.CODEX_HOME, path.resolve(CODEX_WORK), 'the relaunched codex agent does not read the home it was moved to');
+});
+
+test('BUG: the detached launch() hands its runner to childEnv too (only supervise() reaches it)', () => {
+  const folder = create.workerDir('cxd');
+  fs.mkdirSync(folder, { recursive: true });
+  let seen = null;
+  launcher.setSpawn((cmd, argv, opts) => { seen = opts && opts.env; return { pid: 4343, unref() {} }; });
+  try {
+    const r = launcher.launch({ name: 'cxd', runner: 'codex', cwd: folder, configDir: CODEX_WORK, platform: 'win32' });
+    assert.equal(r.ok, true, 'the detached launch did not start: ' + r.because);
+  } finally { launcher.setSpawn(null); }
+  assert.equal(seen && seen.CODEX_HOME, CODEX_WORK, 'the detached launch did not pass the runner, so a codex home never reached the agent');
+});
+
+/* ── the Mac arm is unchanged ──────────────────────────────────────────────── */
+
+test('on darwin readJob still reads the plist, and setModel rewrites it without touching schtasks', () => {
+  const calls = scheduler({});
+  const name = 'macagent';
+  fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+  fs.writeFileSync(create.plistPath(name),
+    create.plistFor(name, '/opt/bin/claude', '/opt/bin/tmux', null, '/Users/k/.claude-work', 'claude'), 'utf8');
+  assert.deepEqual(create.readJob(name, undefined, 'darwin'), {
+    claude: '/opt/bin/claude', tmux: '/opt/bin/tmux', model: null, configDir: '/Users/k/.claude-work', runner: 'claude',
+  });
+  const m = create.modelsFor('anthropic')[0];
+  const r = create.setModel(name, m.key, { platform: 'darwin' });
+  assert.equal(r.outcome, create.OUTCOME.CREATED, r.because);
+  const after = create.readJob(name, undefined, 'darwin');
+  assert.equal(after.model, m.arg, 'the plist was not rewritten with the model');
+  assert.equal(after.configDir, '/Users/k/.claude-work', 'the account was dropped');
+  /* No task is registered by the Mac arm. (A /Query can still appear on a Windows
+     host: spokenName's identity lookup reads the recorded runner through a
+     platform-defaulted readJob, which is that host's correct behaviour.) */
+  assert.equal(creates(calls).length, 0, 'the Mac arm registered a Scheduled Task: ' + JSON.stringify(calls.map((c) => c.args)));
+  const gone = create.setModel('nomac', m.key, { platform: 'darwin' });
+  assert.equal(gone.because, 'nomac was not started by Kosmos, so we cannot change what it runs on.');
+  assert.equal(create.trustAgentFolder('nomac', { platform: 'darwin' }).because,
+    'this agent has no Kosmos launch job, so there was no folder to trust');
+});

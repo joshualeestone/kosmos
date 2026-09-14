@@ -76,10 +76,17 @@ test('it stays short, because shortening this page was a direct instruction', ()
   assert.ok(n >= 55, `the tmux box is ${n} words, too short to still carry all four facts`);
 });
 
-test('the word tmux is still here on purpose, and still the only place', () => {
-  /* Two rulings say Kosmos must not introduce this word. This box is the
-     exception because macOS puts it on the screen first, and #1004's comment
-     says so. A future "fix" that removes it takes away the one explanation of a
-     word a person was handed. */
-  assert.match(boxText(), /"tmux"/, 'the box stopped naming the word macOS shows');
+test('the word tmux appears only where macOS shows it first, never as Kosmos jargon', () => {
+  /* Two rulings say Kosmos must not INTRODUCE this word. It is allowed only
+     where macOS puts it on the screen first, and we mirror that: the Settings
+     box explains the prompts, and the S2 Access screen previews the real
+     file-access prompt. Both echo what macOS shows; neither is Kosmos coining
+     jargon. A fix that removes it from either takes away the explanation of a
+     word a person was handed. (#2685 added the S2 place; before it, the box was
+     the only one.) */
+  assert.match(boxText(), /"tmux"/, 'the Settings box stopped naming the word macOS shows');
+  // The S2 file-access preview mirrors the real "tmux" prompt; a revert of the
+  // #2685 relabel back to "Terminal" would break the invariant, so pin it here too.
+  assert.match(PAGE, /<p class="s2-say">"tmux" would like to access files/,
+    'the S2 file-access preview stopped naming tmux (reverted to Terminal?)');
 });

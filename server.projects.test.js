@@ -94,6 +94,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const projects = require('./engine/projects');
+/* win32-board-copy: the reveal routes below assert the Mac opener (/usr/bin/open), so
+   the file states that platform; the Windows arm is engine/projects.win32-reveal.test.js. */
+projects.setRevealPlatform('darwin');
 const fleet = require('./test-support/fleet');
 
 const WORK = path.join(SANDBOX, 'work');

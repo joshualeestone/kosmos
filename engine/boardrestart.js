@@ -233,11 +233,17 @@ function win32CanRestart() {
     return { canRestart: false, via: null, because: `we could not check how this board is started on Windows (${String((e && e.message) || e)}); restart it by hand` };
   }
   const st = ops.status();
+  /* #2973: a logon job we could not read might be one that cannot bring the board
+     back, so could-not-tell is a refusal, and so is anything but a job known to be on. */
+  if (st.known === false) {
+    return { canRestart: false, via: null,
+      because: `we could not read the job that starts the board at logon (${ops.TASK_NAME}${st.because ? ': ' + st.because : ''}), so stopping the board might not bring it back; restart it by hand` };
+  }
   if (!st.registered) {
     return { canRestart: false, via: null,
       because: 'nothing on this computer starts the board at logon yet, so stopping it would not bring it back; restart it by hand' };
   }
-  if (st.enabled === false) {
+  if (st.enabled !== true) {
     return { canRestart: false, via: null,
       because: `the job that starts the board at logon (${ops.TASK_NAME}) is switched off, so stopping it would not bring it back; restart it by hand` };
   }
@@ -305,13 +311,14 @@ function kosmosRestart(cli) {
  * launchctl stop (gui-domain target, falling back to the bare label).
  * @returns {{ok:boolean, because?:string}}
  */
-function selfRestart(platform = process.platform) {
+function selfRestart(platform = process.platform, opts = {}) {
   const can = canSelfRestart(platform);
   if (!can.canRestart) return { ok: false, because: can.because };
   /* #570: end the logon task, wait for the board to actually be gone, run it
      again -- driven from a detached helper, because step one kills this process.
-     engine/win32board.restart() owns the sequence and the measurement behind it. */
-  if (can.via === 'schtasks') return boardOpsFn().restart();
+     engine/win32board.restart() owns the sequence and the measurement behind it.
+     #2973: `port` is this board's, which the helper asks to confirm one came back. */
+  if (can.via === 'schtasks') return boardOpsFn().restart({ port: opts && opts.port });
   if (can.via === 'kosmos') return kosmosRestart(can.cli);
   const u = uid();
   let r = runner('launchctl', ['stop', `gui/${u}/${BOARD_LABEL}`]);

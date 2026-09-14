@@ -8,7 +8,8 @@
  *
  *   1. The observation is PROVIDER-QUALIFIED (PROVIDER.OPENAI), never PROVIDER.ANTHROPIC.
  *      A codex agent on the default home records configDir=null, which accountForAgent
- *      maps to the DEFAULT CLAUDE account; without the provider tag its `ok` would green
+ *      USED to map to the DEFAULT CLAUDE account (#2811 gated it); without the
+ *      provider tag its `ok` would green
  *      a Claude account it has nothing to do with.
  *
  *   2. The `ok` is recorded from a WITNESSED ROLLOUT COMPLETION (a token_count carrying
@@ -25,8 +26,13 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-codex-observed-241
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_CODEX_HOME = path.join(SANDBOX, 'codex-home');
+// #3011: without this, fleet.install writes each fixture agent's plist into the
+// operator's REAL ~/Library/LaunchAgents (phantom codex* agents on the board).
+// Every sibling create/discover test sets it for the same reason (create.test.js:13).
+// Must be set BEFORE ./create / ../test-support/fleet are required below.
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'LaunchAgents');
 for (const d of [process.env.AGENT_WORKFORCE_DATA, process.env.AGENT_WORKFORCE_WORKERS,
-  process.env.AGENT_WORKFORCE_CODEX_HOME]) fs.mkdirSync(d, { recursive: true });
+  process.env.AGENT_WORKFORCE_CODEX_HOME, process.env.AGENT_WORKFORCE_LAUNCH]) fs.mkdirSync(d, { recursive: true });
 
 const test = require('node:test');
 const assert = require('node:assert/strict');

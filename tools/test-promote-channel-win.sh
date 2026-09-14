@@ -52,12 +52,26 @@ make_site() {
   printf '%s' "$s"
 }
 # write_record <dir> <version> <sha> <result>   (or <dir> - <sha> <raw json> for a malformed one)
+# Records are built by the ONE record spec (tools/lib/win-staging-record.js), the writer's own
+# builder: "pass" = every check passed, "fail" = z-checks failed, anything else = a pass record
+# whose result field is overwritten with that value.
+RECORD_SPEC="$HERE/lib/win-staging-record.js"
 write_record() {
   mkdir -p "$1"
   if [ "$2" = - ]; then printf '%s\n' "$4" > "$1/win-staging-$3.json"; return; fi
-  printf '{"version":"%s","sha256":"%s","source_sha":"%s","checks":["V1 sha matches pointer and sidecar","V2 Explorer unpack Z0-Z6","V3 in-app update from staging"],"at":"2026-09-12T16:10:00Z","result":"%s"}\n' \
-    "$2" "$3" "$SOURCE_SHA" "$4" > "$1/win-staging-$3.json"
+  node -e '
+    const [specFile, file, version, sha256, sourceSha, want] = process.argv.slice(1);
+    const spec = require(specFile);
+    const checkResults = {};
+    for (const check of spec.REQUIRED_CHECKS) checkResults[check.id] = { result: "pass" };
+    if (want === "fail") checkResults["z-checks"] = { result: "fail" };
+    const record = spec.buildRecord({ version, sha256, sourceSha, checkResults, at: "2026-09-12T16:10:00Z" });
+    if (want !== "pass" && want !== "fail") record.result = want;
+    require("node:fs").writeFileSync(file, JSON.stringify(record) + "\n");
+  ' "$RECORD_SPEC" "$1/win-staging-$3.json" "$2" "$3" "$SOURCE_SHA" "$4"
 }
+# edit_record <file> <js statement on r>: hand-edit a written record (a tampered or foreign one).
+edit_record() { node -e 'const fs=require("node:fs");const f=process.argv[1];const r=JSON.parse(fs.readFileSync(f,"utf8"));eval(process.argv[2]);fs.writeFileSync(f,JSON.stringify(r)+"\n")' "$1" "$2"; }
 # A content fingerprint of the WHOLE dist, dotfiles included (a leaked promote temp file counts).
 fingerprint() { ( cd "$1/dist" && for f in .[!.]* *; do [ -f "$f" ] && printf '%s %s\n' "$f" "$(sha_of "$f")"; done ); }
 # The PROD files only: latest-win.json and the alias pair.
@@ -106,6 +120,19 @@ out="$(KOSMOS_WIN_VERIFY_DIR="$R" bash "$GATE" "$P" 2>&1)"; rc=$?
 R="$T/rec-maybe"; write_record "$R" "$V" "$SHA" maybe
 out="$(KOSMOS_WIN_VERIFY_DIR="$R" bash "$GATE" "$P" 2>&1)"; rc=$?
 [ "$rc" = 1 ] && pass "gate: a result other than pass/fail -> 1" || bad "gate unknown result (rc=$rc, out=$out)"
+
+# The checks must support the result (the spec re-derives it): a record hand-edited to "pass" over
+# a failed check, one whose checks are free-form strings, and one that marks an operator check as
+# automated are all ambiguous, never a pass.
+R="$T/rec-overclaim"; write_record "$R" "$V" "$SHA" fail; edit_record "$R/win-staging-$SHA.json" 'r.result="pass"'
+out="$(KOSMOS_WIN_VERIFY_DIR="$R" bash "$GATE" "$P" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "disagrees with its checks" && pass "gate: a pass record over a failed check -> 1 (ambiguous)" || bad "gate overclaim (rc=$rc, out=$out)"
+R="$T/rec-strings"; write_record "$R" "$V" "$SHA" pass; edit_record "$R/win-staging-$SHA.json" 'r.checks=["V1 sha matches pointer and sidecar","V2 Explorer unpack Z0-Z6"]'
+out="$(KOSMOS_WIN_VERIFY_DIR="$R" bash "$GATE" "$P" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "unknown check" && pass "gate: free-form string checks -> 1 (ambiguous)" || bad "gate string checks (rc=$rc, out=$out)"
+R="$T/rec-wrongby"; write_record "$R" "$V" "$SHA" pass; edit_record "$R/win-staging-$SHA.json" 'r.checks.find(c=>c.id==="z-checks").by="automated"'
+out="$(KOSMOS_WIN_VERIFY_DIR="$R" bash "$GATE" "$P" 2>&1)"; rc=$?
+[ "$rc" = 1 ] && has "$out" "but that check is operator" && pass "gate: an operator check marked automated -> 1 (ambiguous)" || bad "gate wrong performer (rc=$rc, out=$out)"
 
 # The default record location: %LOCALAPPDATA%\Kosmos\release-verify when LOCALAPPDATA is set,
 # else $HOME/.local/state/kosmos/release-verify.

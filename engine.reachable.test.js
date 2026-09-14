@@ -26,7 +26,9 @@ const EXCUSED = {
   superviseStreaming: 'engine/win32supervisor.js (#570 7c-1): the supervisor that HOLDS a streaming agent\'s pipes -- the other half of launchStreaming, and the thing that will carry delivery. Unwired for the same reason and on the same card: the Scheduled Task still runs supervise(), and swapping the entry point is slice 7c-2. Landed with its own arms first because the properties that matter here (a death is one death; the throttle limps; every restart is a --resume, never a fresh id) are cheaper to pin now than to debug through a task later.',
   launchStreaming: 'engine/win32launch.js (#570 7c-1): the streaming launch -- `claude -p --input-format stream-json` with the pipes held -- which is the substrate for MESSAGING a Windows agent. Deliberately NOT wired yet: create.js and win32supervisor.js still use the detached launch(), and the wiring is slice 7c-2 (.claude/plans/WINDOWS-ROADMAP.md §3). Landed and tested on its own first because this lane has repeatedly shipped a green suite over a path production could not take. An excuse with a named next slice, not an orphan -- if 7c is abandoned, this export goes with it.',
   setAnchorer: 'test seam (#570): injects engine/win32job.js\'s anchor step, so a suite never copies the 92 MB interpreter and a Mac is never asked to write a Windows path -- both of which happen the moment installJob is driven with platform:"win32", which is exactly how this branch is asserted. Named here rather than passing by luck: "setAnchorer" is unique to that file, while its sibling setRunner escapes only by colliding with every other file\'s runner seam.',
-  readPointer: 'engine/win32anchor.js (#570): the readable counterpart of the engine-path pointer. The generated supervisor-boot shim CANNOT call it -- the shim exists precisely to bootstrap before the engine is locatable, so it inlines its own readFileSync -- and the production reader that would use this is the recorded follow-up "refresh the engine pointer at server start on win32" (step 8 in .claude/plans/win32-keepalive-570.md), which is not this slice. Dormant with a named card, not orphaned.',
+  // readPointer's excuse was removed in win32-update-stage: engine/win32update.js's prepare()
+  // now reads the pointer (B0: it must name the folder being updated), so it has a real caller
+  // and the #265 orphan guard protects it again.
   setChecker: 'test seam (#1930): injects the live claude-auth checker so authprobe tests do not spawn a real subprocess',
   resetForTest: 'test seam (#1930): clears the authprobe per-account cache between tests',
   setPauser: 'test seam: observes the codex Enter gap without sleeping (#571)',
@@ -41,6 +43,11 @@ const EXCUSED = {
   setPaneSource: 'test seam: keeps status reads off the real machine',
   setRenderer: 'test seam (attachments preview)',
   setRevealRunner: 'test seam (projects reveal)',
+  setRevealPlatform: 'test seam (win32-board-copy): engine/projects.js picks the Mac (/usr/bin/open) or Windows (File Explorer) opener; the Mac suites state darwin through it so their pins hold on a Windows box. Production reads process.platform.',
+  setStatForTests: 'test seam (win32-board-copy): engine/win32explorer.js\'s existence check, so the Windows launcher is asserted with a Windows path from any host. Production uses fs.statSync.',
+  setFsWorldForTests: 'test seam (win32-board-copy review round 2): engine/projects.js reads a project folder and its files through realpath/stat/access together, so a mapped drive (Z:\\ resolving to \\\\server\\share) is asserted without mapping a drive. Production uses the real filesystem.',
+  setWin32SleepClockForTests: 'test seam (win32-board-copy review round 1): engine/machine.js measures the age of its cached powercfg reading on this clock, so the cache window is asserted without sleeping. Production uses Date.now.',
+  resetWin32SleepReading: 'test hook (win32-board-copy review round 1): forgets engine/machine.js\'s cached powercfg reading between tests, the same role as resetSleepPaneCache.',
   setSessionSource: 'test seam: keeps session reads off the real machine',
   setTickInterval: 'test seam (connect pacing)',
   setUnknownGrace: 'test seam (connect pacing)',
@@ -60,6 +67,8 @@ const EXCUSED = {
   setRelay: 'engine/remote.js: dormant until the Kosmos-team Settings surface wires the self-host relay field; validated here so garbage is refused at set time. Its siblings (setOn, status, ...) escape this sweep only because their names collide with words in other files; setRelay is unique, so it is named here rather than passing by luck.',
   setTransport: 'test seam (#2296): injects the blob list/get transport so engine/feedbackpull.js tests never hit the network or the real secrets map. Named here because "setTransport" is unique to this file; production pull() uses the default fetch transport.',
   setSender: 'test seam (#2037): engine/feedbacksend.js injects a fake sender so the daily-report send tests never hit the network; production uses global fetch. Named here from #2623 onward: it used to escape this sweep by a name-collision with engine/notify.js and engine/ping.js, both of which had a setSender -- #2623 deleted notify.js and ping.js\'s sender, so feedbacksend.js is now the sole definer and the collision cover is gone. A test seam, not an orphan.',
+  setSigninPlatformForTests: 'test seam (win32-claude-signin-host): engine/connect.js picks its sign-in host by platform. A suite pins darwin to drive the tmux host from a Windows box, or win32 to drive the Windows host from a Mac. Production uses process.platform.',
+  setWindowsSigninHostForTests: 'test seam (win32-claude-signin-host): runs engine/win32signin.js under test while WINDOWS_SIGNIN_HOST_ENABLED ships false, and refuses outside a node --test process. Slice 3 (the L-1 live check) flips the constant; this seam can go then.',
   setPlatformForTests: 'test seam (#1704 PR3): engine/worldstarts.js picks the platform arm for a caller that does not pass one. The switch route never passes one, so server.world-switch-agents-1704.test.js states the Mac arm through this and drives it with remove.setRunner from any host. Production uses process.platform.',
   // setActiveWorld's excuse was removed in slice 2b-ii: POST /api/worlds/active
   // (server.js) is now a real caller, so the #265 orphan guard protects it again.

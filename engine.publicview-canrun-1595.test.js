@@ -35,7 +35,7 @@ test('#1595: publicView carries canRunClaude, so the stuck screen hatch reaches 
 
   // The addition did not drop any prior field: the tail/plan/because contract the
   // rest of the page depends on is intact.
-  for (const k of ['configDir', 'phase', 'before', 'progress', 'url', 'plan', 'because', 'tail']) {
+  for (const k of ['configDir', 'phase', 'before', 'progress', 'url', 'plan', 'because', 'tail', 'claudeSigninCommand']) {
     assert.ok(k in canRun, 'publicView dropped the pre-existing field ' + k);
   }
 });

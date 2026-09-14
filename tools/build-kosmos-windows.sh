@@ -275,21 +275,38 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
 # "More info", which does not look like a button. Somebody who has not been told
 # stops there, and we learn nothing about the installer because it never ran.
 # 🔑 A README A PERSON ACTUALLY READS, because the FIRST thing they see is a
-# security warning, and the second is a window that closes by itself. Both are
-# expected, and neither is obvious.
+# security warning, which is expected and not obvious. (The launcher window that
+# used to close by itself is gone: Kosmos.exe is a GUI exe, win32-launcher-native.)
+# 🔑 IN WINDOWS' OWN WORDS: "Extract All...", "sign in", the Task Scheduler path
+# spelled out. A Windows person has never been told to "unpack" anything.
 # ⚠️ THE FOLDER IS THE INSTALL. There is no installer: the board's and every
-# agent's logon task run the app from wherever the zip was unpacked (the engine
-# pointer, engine/win32anchor.js), so a folder unpacked into Downloads and
-# tidied away later leaves Kosmos unable to start at the next logon. That is
-# why the README's first instruction is where to unpack it.
+# agent's logon task run the app from wherever the zip was extracted (the engine
+# pointer, engine/win32anchor.js), so a folder extracted into Downloads and
+# tidied away later leaves Kosmos unable to start at the next sign-in. That is
+# why the README's first instruction is where to extract it. The example is
+# %LOCALAPPDATA%\Programs\Kosmos, the per-user program folder, and NOT
+# C:\Users\<name>\Kosmos, which is where Kosmos keeps the person's Projects.
 {
   printf 'Kosmos for Windows (unsigned preview)\r\n'
   printf '\r\n'
-  printf 'Unpack the whole zip into a folder you will keep, for example a\r\n'
-  printf 'Kosmos folder in your user folder (C:\\Users\\<your name>\\Kosmos).\r\n'
-  printf 'Not Downloads, and not a folder OneDrive syncs. Kosmos runs from that\r\n'
-  printf 'folder, so do not delete or move it. Then double-click Kosmos.exe in\r\n'
-  printf 'that folder.\r\n'
+  printf 'Extract the whole zip into its own folder that you will keep: a\r\n'
+  printf 'folder named Kosmos inside %%LOCALAPPDATA%%\\Programs. Not Downloads,\r\n'
+  printf 'not your Desktop, and not a folder OneDrive syncs. Kosmos runs from\r\n'
+  printf 'that folder, so do not delete or move it.\r\n'
+  printf '\r\n'
+  printf 'To make that folder: in File Explorer, click the address bar, type\r\n'
+  printf '%%LOCALAPPDATA%%\\Programs and press Enter. If Windows says it does not\r\n'
+  printf 'exist, type %%LOCALAPPDATA%% instead, press Enter, make a new folder\r\n'
+  printf 'named Programs, and open it. Make a new folder named Kosmos there,\r\n'
+  printf 'open it, click the address bar, and copy the path it shows.\r\n'
+  printf '\r\n'
+  printf 'To extract: right-click the zip in your Downloads folder, choose\r\n'
+  printf 'Extract All..., paste that path into the box, and click Extract.\r\n'
+  printf 'Then open that folder and double-click Kosmos.exe.\r\n'
+  printf '\r\n'
+  printf 'Tip: before you extract, right-click the zip, choose Properties, tick\r\n'
+  printf 'Unblock at the bottom, then click OK. Windows then warns you less\r\n'
+  printf 'about the files inside it.\r\n'
   printf '\r\n'
   printf 'The first time, Windows will try to stop you, and that is expected.\r\n'
   printf '\r\n'
@@ -297,32 +314,30 @@ cp "$LAUNCHER" "$STAGE/Kosmos.exe"
   printf 'see says "Don\047t run". DO NOT PRESS IT. Click the small "More info"\r\n'
   printf 'text above it, and then "Run anyway".\r\n'
   printf '\r\n'
-  printf 'That happens because this build is not signed yet. Signing is a\r\n'
-  printf 'certificate we have not bought, not a problem with the software.\r\n'
+  printf 'If a box says "The publisher could not be verified", click Run.\r\n'
   printf '\r\n'
-  printf 'You may also see "This file came from another computer and might be\r\n'
-  printf 'blocked". If you do: right-click Kosmos.exe, choose Properties, tick\r\n'
-  printf 'Unblock at the bottom, then OK. Windows adds that to anything that\r\n'
-  printf 'arrives inside a downloaded zip.\r\n'
+  printf 'This preview is not signed yet; signed builds are coming.\r\n'
   printf '\r\n'
-  printf 'A window opens for a moment and closes by itself, and a browser opens\r\n'
-  printf 'on the Kosmos board. Kosmos keeps running in the background, with no\r\n'
-  printf 'window, and starts by itself when you log in. Your agents do too. To\r\n'
-  printf 'open the board again later, double-click Kosmos.exe again.\r\n'
+  printf 'A browser opens on the Kosmos board. Kosmos keeps running in the\r\n'
+  printf 'background, with no window, and starts by itself when you sign in to\r\n'
+  printf 'Windows. Your agents do too. To open the board again later,\r\n'
+  printf 'double-click Kosmos.exe again.\r\n'
   printf '\r\n'
   printf 'Agents need Claude Code on this computer, signed in. If it is\r\n'
   printf 'missing, the board shows you the command that installs it. If it is\r\n'
   printf 'not signed in, the board shows you how to sign in.\r\n'
   printf '\r\n'
-  printf 'To update: download the new zip, unpack it over this folder, and\r\n'
-  printf 'double-click Kosmos.exe again. Your agents keep running.\r\n'
+  printf 'To update: download the new zip, extract it into this same folder,\r\n'
+  printf 'replacing the files, and double-click Kosmos.exe again. Your agents\r\n'
+  printf 'keep running.\r\n'
   printf '\r\n'
-  printf 'Everything Kosmos starts at login is listed in Task Scheduler, in the\r\n'
-  printf 'Kosmos folder.\r\n'
+  printf 'Everything Kosmos starts when you sign in is listed in Task\r\n'
+  printf 'Scheduler: open Start, type Task Scheduler, press Enter, and open\r\n'
+  printf 'Task Scheduler Library, then the Kosmos folder.\r\n'
   printf '\r\n'
   printf 'If no browser opens, or the board says it is not signed in,\r\n'
-  printf 'double-click Kosmos.exe again. Typing http://127.0.0.1:%s into a\r\n' "$PORT_DEFAULT"
-  printf 'browser Kosmos has not opened before cannot show your agents.\r\n'
+  printf 'double-click Kosmos.exe again. Bookmarks to Kosmos don\047t stay\r\n'
+  printf 'signed in. Always open Kosmos from Kosmos.exe.\r\n'
 } > "$STAGE/! READ ME FIRST - Windows will warn you.txt"
 
 # ---- the manifest ----------------------------------------------------------

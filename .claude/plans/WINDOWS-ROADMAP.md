@@ -847,6 +847,17 @@ Verified live with candidate zips built from all three branches:
   two-line answer arrived exactly, `kosmos msg reh-b` reached reh-b as that
   colleague, and no argument file was left in %TEMP% (recorded on PR #2754).
 
+⚠️ **Talk ✅ was true for reply, msg, post and react only** (parity audit 2026-09-12,
+rows #43-#46). The same zip lacked `kosmos task message` (in every task
+notification), `kosmos feedback write`/`show` (taught to the Project Manager role
+daily) and `kosmos room reopen`, and `kosmos reply --help` SENT "--help". Branch
+`win32-cli-verbs` ports all three plus the #1674 `--help` guard, makes the task
+message route resolve the agent token, and adds
+`tools.windows-kosmos-cli-verbs-parity.test.js`, which holds the Windows command to
+install/kosmos and to every `kosmos <verb>` the tree teaches. Its live check (the
+answers seen in the board thread) is in `.claude/plans/win32-cli-verbs-20260912T2150.md`
+and is owed on the first Windows build that carries it.
+
 Known limit: the PowerShell shim is a `.ps1`, so it runs only where the execution
 policy allows scripts. Claude Code's PowerShell runs with a process-scope Bypass
 (measured), and a person's default Restricted PowerShell would refuse it. The

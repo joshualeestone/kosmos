@@ -186,10 +186,15 @@ test('the open project stays lit: a persistent .open state, written on click and
      arrow (#pj-back), whose click handler was one of the close paths. No path
      was LOST -- the door out of a project is now the Projects tab, whose click
      handler (`if (btn.dataset.tab === 'projects') pjMarkOpen(null)`) is one of
-     the five that remain. */
+     the five that remained.
+     📌 #2928 brings it back to 6: the top-left back chevron (#pj-back) is a
+     project navigation control again, and its handler's list-return branch (a
+     top-level project's back goes to the projects list) calls pjMarkOpen(null)
+     so a lit row cannot outlive the project you just left. A subproject's back
+     opens the parent instead (openProject), which lights the parent itself. */
   const nulls = (codeOnly.match(/pjMarkOpen\(null\)/g) || []).length;
-  assert.equal(nulls, 5,
-    `pjMarkOpen(null) is called from ${nulls} places, expected 5. Fewer means a close path lost it and a lit row can outlive its project; more means a new close path arrived and this pin should name it.`);
+  assert.equal(nulls, 6,
+    `pjMarkOpen(null) is called from ${nulls} places, expected 6. Fewer means a close path lost it and a lit row can outlive its project; more means a new close path arrived and this pin should name it.`);
   assert.ok((('/* pjMarkOpen(null) */').replace(/\/\*[\s\S]*?\*\//g, '').match(/pjMarkOpen\(null\)/g) || []).length === 0,
     'control: the comment strip no longer removes a quoted call, so the count above can be satisfied by prose');
 });

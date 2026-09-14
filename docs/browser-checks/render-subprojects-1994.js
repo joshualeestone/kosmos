@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: pj-parent pjsub pj-one-subprojects
+// Browser-check-surface: pj-parent pjsub pj-one-subprojects pj-crumb pj-back pj-crumb-cur pj-crumb-lead
 // (#2518) the distinctive web/index.html tokens this check asserts (the ancestry/parent
 // chip + the sub-projects line + the detail/consolidated sub-projects strip); a change to
 // them must update this check at PR time. #2487 changed pj-parent to a full ancestry line
@@ -160,9 +160,15 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       const out = { gcChain: ancT('gc'), mobChain: ancT('mob'), appChain: ancT('app'), gcDots: dotsAria('gc') };
       try {
         PJ_CURRENT = 'mob'; paintOneProject();
-        const par = document.getElementById('pj-one-parent');
+        const crumb = document.getElementById('pj-crumb');
+        const back = document.getElementById('pj-back');
         const subs = document.getElementById('pj-one-subprojects');
-        out.parentHidden = par.hidden; out.parentText = par.textContent;
+        out.crumbText = crumb ? crumb.textContent : null; out.hasBack = !!back;
+        // #2928: the current project is a protected crumb (.pj-crumb-cur) so CSS
+        // truncation eats the ancestor lead (.pj-crumb-lead), never the "you are
+        // here" name. Capture both to assert the structure, not just the joined text.
+        out.crumbCur = crumb ? (crumb.querySelector('.pj-crumb-cur') || {}).textContent || null : null;
+        out.crumbLead = crumb ? (crumb.querySelector('.pj-crumb-lead') || {}).textContent || null : null;
         out.subsHidden = subs.hidden; out.subKid = !!subs.querySelector('.pj-subrow[data-project="gc"]');
         // #2487: the row must actually OPEN on click. It lives in #pj-one-view, a
         // sibling of #pj-list, so the list delegate does not cover it -- this proves
@@ -173,9 +179,25 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         // #2487 hidden branches (both empty states, like the Map check): a top-level
         // project hides the parent trail; a leaf hides the sub-projects section.
         PJ_CURRENT = 'k'; paintOneProject();
-        out.topParentHidden = document.getElementById('pj-one-parent').hidden;
+        const topCrumbEl = document.getElementById('pj-crumb');
+        out.topCrumbText = topCrumbEl ? topCrumbEl.textContent : null;
+        out.topCrumbCur = topCrumbEl ? ((topCrumbEl.querySelector('.pj-crumb-cur') || {}).textContent || null) : null;
+        out.topHasLead = topCrumbEl ? !!topCrumbEl.querySelector('.pj-crumb-lead') : null;
         PJ_CURRENT = 'gc'; paintOneProject();   // gc is a leaf (no children)
         out.leafSubsHidden = document.getElementById('pj-one-subprojects').hidden;
+        // #2928: the back chevron NAVIGATES, it is not just present. A subproject
+        // goes UP one nesting level (openProject on the parent); a top-level project
+        // returns to the list. Click it and assert the resulting state, mirroring the
+        // sub-row click above (which proves openProject fires in this harness). This
+        // is the card's core deliverable, so a green presence check was not enough.
+        PJ_CURRENT = 'mob'; paintOneProject();          // mob's parent is app
+        document.getElementById('pj-back').click();
+        out.backSubCurrent = PJ_CURRENT;                // expect 'app'
+        out.backSubView = PJ_VIEW;                       // expect 'one'
+        PJ_CURRENT = 'k'; paintOneProject();            // k is top-level (no parent)
+        document.getElementById('pj-back').click();
+        out.backTopCurrent = PJ_CURRENT;                // expect null (back to list)
+        out.backTopView = PJ_VIEW;                       // expect 'list'
         out.detailErr = null;
       } catch (e) { out.detailErr = String(e && e.message || e); }
       return out;
@@ -192,34 +214,65 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // dropped on this path, and still distinct from a nested child ("In Kosmos › App").
     ok(t + ' ancestry: child shows the one parent', /^In\s+Kosmos$/.test(anc.appChain), anc.appChain);
     ok(t + ' ancestry: depth dots are decorative (aria-hidden)', anc.gcDots === 'true', 'aria-hidden=' + anc.gcDots);
-    ok(t + ' detail: parent trail shows for a nested project', anc.detailErr === null && anc.parentHidden === false && /Kosmos/.test(anc.parentText || '') && /App/.test(anc.parentText || ''), JSON.stringify({ err: anc.detailErr, h: anc.parentHidden, txt: anc.parentText }));
+    // #2928: the detail-page trail is now a full-location breadcrumb ("Kosmos / App
+    // / Mobile", current project included) beside a back chevron, replacing #2487's
+    // ancestor-only #pj-one-parent trail.
+    ok(t + ' detail: breadcrumb shows the full nested chain + back chevron', anc.detailErr === null && anc.hasBack === true && /Kosmos/.test(anc.crumbText || '') && /App/.test(anc.crumbText || '') && /Mobile/.test(anc.crumbText || ''), JSON.stringify({ err: anc.detailErr, back: anc.hasBack, txt: anc.crumbText }));
+    // The chain must read root-to-current IN ORDER, not merely contain the names:
+    // a garbled or reversed concatenation ("Mobile ... App ... Kosmos") would pass a
+    // bare substring check but is the dangerous answer this asserts against.
+    ok(t + ' detail: breadcrumb reads root-to-current in order', anc.detailErr === null && (anc.crumbText || '').indexOf('Kosmos') < (anc.crumbText || '').indexOf('App') && (anc.crumbText || '').indexOf('App') < (anc.crumbText || '').indexOf('Mobile'), JSON.stringify({ txt: anc.crumbText }));
+    // #2928: the current project is its OWN protected crumb (.pj-crumb-cur) and the
+    // ancestors sit in .pj-crumb-lead, which carries the ellipsis and shrinks first.
+    // A single-ellipsis container truncated the tail -- i.e. the current name, the one
+    // piece a "you are here" breadcrumb exists to show -- so this asserts the structure
+    // that protects it, not merely the joined text.
+    ok(t + ' #2928 detail: current project is a protected crumb, ancestors in the lead', anc.detailErr === null && anc.crumbCur === 'Mobile' && /Kosmos/.test(anc.crumbLead || '') && /App/.test(anc.crumbLead || ''), JSON.stringify({ cur: anc.crumbCur, lead: anc.crumbLead }));
+    // #2928: clicking the back chevron NAVIGATES (the card's core behavior), not
+    // merely renders. A subproject goes UP to its parent; a top-level goes to the list.
+    ok(t + ' #2928 back: clicking the chevron on a subproject opens its parent', anc.detailErr === null && anc.backSubCurrent === 'app' && anc.backSubView === 'one', JSON.stringify({ err: anc.detailErr, cur: anc.backSubCurrent, view: anc.backSubView }));
+    ok(t + ' #2928 back: clicking the chevron on a top-level project returns to the list', anc.detailErr === null && anc.backTopCurrent === null && anc.backTopView === 'list', JSON.stringify({ err: anc.detailErr, cur: anc.backTopCurrent, view: anc.backTopView }));
     ok(t + ' detail: sub-projects section lists a direct child', anc.detailErr === null && anc.subsHidden === false && anc.subKid === true, JSON.stringify({ err: anc.detailErr, h: anc.subsHidden, kid: anc.subKid }));
     ok(t + ' detail: a sub-project row OPENS on click (its own delegate, not the list’s)', anc.detailErr === null && anc.opened === true, JSON.stringify({ err: anc.detailErr, opened: anc.opened }));
-    ok(t + ' detail: a top-level project hides the parent trail', anc.detailErr === null && anc.topParentHidden === true, JSON.stringify({ err: anc.detailErr, topParentHidden: anc.topParentHidden }));
+    ok(t + ' detail: a top-level project shows just its own name as the single crumb (no ancestor separators)', anc.detailErr === null && /Kosmos/.test(anc.topCrumbText || '') && !/\//.test(anc.topCrumbText || ''), JSON.stringify({ err: anc.detailErr, txt: anc.topCrumbText }));
+    // #2928: and that single crumb is the protected current crumb, with NO ancestor
+    // lead element at all (a top-level project has no ancestors to truncate).
+    ok(t + ' #2928 detail: a top-level project is a single protected crumb with no lead', anc.detailErr === null && anc.topCrumbCur === 'Kosmos' && anc.topHasLead === false, JSON.stringify({ cur: anc.topCrumbCur, hasLead: anc.topHasLead }));
     ok(t + ' detail: a leaf project hides the sub-projects section', anc.detailErr === null && anc.leafSubsHidden === true, JSON.stringify({ err: anc.detailErr, leafSubsHidden: anc.leafSubsHidden }));
     // #2487: the card chain gets a vh "In " lead-in so a screen reader frames the
     // names as ancestry rather than a run of unlabelled text after the card title.
     ok(t + ' ancestry: a vh "In " lead-in frames the names for a screen reader', /In\s/.test(anc.mobChain), anc.mobChain);
 
-    // #2487: the consolidated rail reuses projectCard but ships one rail-specific rule
-    // (body.consolidated .pj-anc { justify-content: flex-start }). Assert the ancestry
-    // line actually renders (and is displayed, not display:none) under consolidated, so
-    // that rule and this surface are not shipped with zero coverage.
+    // #2487 + #2929: the consolidated rail reuses projectCard and ships one rail-specific
+    // rule (body.consolidated .pj-anc { justify-content: flex-start }). #2929 turned the rail
+    // into an openable file tree, so a NESTED child (.child) now HIDES its chip there -- the
+    // indent carries the relationship. The rail chip therefore shows only on a row the indent
+    // does NOT place: a dangling/orphan child at depth 0. So assert the .pj-anc rule still has
+    // coverage on THAT row (renders + displayed under the REAL consolidated state --
+    // html[data-layout] + body, which the #2929 rule keys on), and, the #2929 control, that a
+    // nested child's chip is hidden. An earlier version tested the nested child's chip as
+    // DISPLAYED, which #2929 makes false in the real rail; it passed only because it set
+    // body.consolidated without data-layout, so the #2929 rule never fired.
     const rail = await page.evaluate(() => {
-      const mk = (id, name, parent) => ({ id, name, parent: parent || null, parentName: parent ? name + ' parent' : null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
-      PROJECTS = [mk('k', 'Kosmos'), mk('app', 'App', 'k'), mk('mob', 'Mobile', 'app')];
+      const mk = (id, name, parent, parentName) => ({ id, name, parent: parent || null, parentName: parentName || null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('k', 'Kosmos'), mk('app', 'App', 'k'), mk('mob', 'Mobile', 'app'), mk('orph', 'Orphan', 'gone', 'Gone')];
       PJ_SORT = 'az';
+      const origLayout = document.documentElement.getAttribute('data-layout');
       document.getElementById('pj-list').classList.remove('asgrid');
+      document.documentElement.setAttribute('data-layout', 'consolidated');   // the REAL rail state
       document.body.classList.add('consolidated');
       paintProjects();
-      const row = document.querySelector('#pj-list .pj-row[data-project="mob"]');
-      const t2 = row && row.querySelector('.pj-anc-t');
-      const anchor = row && row.querySelector('.pj-anc');
-      const out = { txt: t2 ? t2.textContent : '', disp: anchor ? getComputedStyle(anchor).display : 'none' };
-      document.body.classList.remove('consolidated');   // restore for later layers
+      const chipDisp = (id) => { const a = document.querySelector('#pj-list .pj-row[data-project="' + id + '"] .pj-anc'); return a ? getComputedStyle(a).display : 'none'; };
+      const ancT = (id) => { const e = document.querySelector('#pj-list .pj-row[data-project="' + id + '"] .pj-anc-t'); return e ? e.textContent : ''; };
+      const out = { orphTxt: ancT('orph'), orphDisp: chipDisp('orph'), nestedDisp: chipDisp('mob') };
+      document.documentElement.setAttribute('data-layout', origLayout || 'tabs');   // restore for later layers
+      document.body.classList.remove('consolidated');
       return out;
     });
-    ok(t + ' rail (consolidated): the ancestry line renders and is displayed', /Kosmos/.test(rail.txt) && /App/.test(rail.txt) && rail.disp !== 'none', JSON.stringify(rail));
+    ok(t + ' rail (consolidated): an orphan chip renders and is displayed (covers the .pj-anc rail rule)', /Gone/.test(rail.orphTxt) && rail.orphDisp !== 'none', JSON.stringify(rail));
+    // #2929: a nested child's chip is HIDDEN in the real consolidated rail -- the file-tree
+    // indent carries the relationship, so the chip there would be redundant clutter.
+    ok(t + ' #2929 rail: a nested child hides its chip (the tree indent carries it)', rail.nestedDisp === 'none', JSON.stringify(rail));
 
     // ---- Layer 1e: #2848 the CONSOLIDATED sub-project HEADER ----
     // Josh, 0.6.57 review: the sub-project view was "breaking across the top" --

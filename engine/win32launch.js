@@ -53,6 +53,7 @@ const path = require('node:path');
 
 const win32create = require('./win32create');
 const trust = require('./trust');
+const { accountEnvVar } = require('./accountenv');
 
 /* Every marker that makes a spawned session a CHILD of this one. Stripped, not
    overwritten: Claude Code reads presence, so an empty string is not the same as
@@ -96,7 +97,7 @@ function agentCliDir(root, exists) {
  * 🔑 A PURE FUNCTION OVER AN ENV OBJECT, so the stripping is assertable from a
  * Mac without spawning anything.
  */
-function childEnv(baseEnv, token, configDir, cliDir) {
+function childEnv(baseEnv, token, configDir, cliDir, runner) {
   const env = Object.assign({}, baseEnv || {});
   for (const k of INHERITED_MARKERS) delete env[k];
   /* #570: the agent's `kosmos` command. Every instruction and every message the
@@ -126,6 +127,16 @@ function childEnv(baseEnv, token, configDir, cliDir) {
      start with no CLAUDE_CONFIG_DIR at all. */
   if (configDir) env.CLAUDE_CONFIG_DIR = String(configDir);
   else delete env.CLAUDE_CONFIG_DIR;
+  /* 🔑 A CODEX AGENT'S ACCOUNT IS ITS CODEX_HOME (round 1 BUG). A Mac job writes the
+     account directory under the runner's own variable (accountenv.accountEnvVar,
+     the key create.plistFor uses). Here only CLAUDE_CONFIG_DIR was ever set, so a
+     codex agent moved to a named OpenAI home was told "runs on X now" and kept
+     reading ~/.codex.
+     ⚠️ ONLY FOR A NAMED HOME. A default-home codex agent gets no CODEX_HOME
+     written, so it keeps inheriting exactly what it did before. The
+     CLAUDE_CONFIG_DIR handling above is unchanged for every runner. */
+  const accountKey = accountEnvVar(runner);
+  if (accountKey !== 'CLAUDE_CONFIG_DIR' && configDir) env[accountKey] = String(configDir);
   return env;
 }
 
@@ -270,7 +281,7 @@ function launch(spec) {
   try {
     child = spawner()('cmd.exe', ['/c', 'start', '', '/min', bin].concat(argv), {
       cwd: s.cwd,
-      env: childEnv(process.env, prepared.token, s.configDir, agentCliDir()),
+      env: childEnv(process.env, prepared.token, s.configDir, agentCliDir(), s.runner),
       detached: true,
       windowsHide: true,
       stdio: 'ignore',
@@ -412,7 +423,7 @@ function launchStreaming(spec) {
   try {
     child = spawner()(bin, argv, {
       cwd: s.cwd,
-      env: childEnv(process.env, prepared.token, s.configDir, agentCliDir()),
+      env: childEnv(process.env, prepared.token, s.configDir, agentCliDir(), s.runner),
       windowsHide: true,
       /* 🔑 PIPES, AND THIS IS THE WHOLE POINT. `launch()` passes 'ignore' so the
          agent is nobody's child; here stdin is the delivery channel and stdout is

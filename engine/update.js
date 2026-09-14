@@ -835,6 +835,57 @@ function setInstalledRoot(f) { installedRootFn = f; }
 function setFetcher(f) { fetcher = f; }
 function resetCache() { cache = emptyCache(); inFlight = null; installStarted = false; autoFailedAt = 0; lastAttempt = null; }
 
+/**
+ * #2934: has the build this box is RUNNING been published on prod?
+ *
+ * Returns true / false / null, where **null means "cannot tell"** and is the answer
+ * whenever this cache cannot speak to the question: we have never looked, the host was
+ * unreachable, the pointer was unreadable, or the look went to the STAGING pointer (whose
+ * version says nothing about what prod publishes). The caller treats null as "keep what
+ * you already believed", so an unknown can never darken a badge.
+ *
+ * 🛑 EQUALITY, NOT ">=", AND THE DIFFERENCE IS THE WHOLE POINT. "prod publishes something
+ * at least as new as us" is NOT "our bytes reached prod": a staging build that was
+ * ABANDONED rather than promoted, while prod later published a different, newer build,
+ * satisfies the >= test while this box runs bytes that never went to prod at all. That is
+ * exactly the box the STAGING badge exists for. Only equality is sound, and it is sound
+ * precisely because of #2036's invariant: the same bytes are promoted with no rebuild, so
+ * the prod pointer naming our exact version means our bytes ARE the prod bytes.
+ *
+ * ⏳ IT IS TRUE OF A MOMENT, NOT FOREVER, AND THAT WINDOW IS ACCEPTED. Two states answer
+ * false: bytes that never reached prod, and OUR bytes, promoted, since SUPERSEDED by a
+ * newer prod release. The second means a correctly-promoted box reads 'staging' again from
+ * the moment prod moves on until this box takes that update, which rewrites the stamp to
+ * prod via setup.sh and ends it. It self-heals, and no weaker comparison avoids it without
+ * reintroducing the abandoned-build error above, so it is the accepted cost rather than an
+ * oversight. Anyone seeing #2934's symptom right after a release should look here first.
+ *
+ * 🔭 SCOPE: this asks nothing about `cache.base`. A board pointed at a mirror via
+ * AGENT_WORKFORCE_RELEASE_BASE answers relative to THAT host's prod pointer, which is the
+ * self-consistent answer: the base is where this box actually updates from, so it is the
+ * prod that means anything to it. Deliberate, not an omission.
+ *
+ * Living here rather than in the caller is deliberate (one derivation of one fact): the
+ * cache's shape is this module's business. `cache.latest` is the validated MANIFEST OBJECT
+ * ({version} on mac, plus sha256/versioned on win32), and an earlier draft of this feature
+ * handed that object straight to `newer()`, where `parts()` returns null and `newer()` then
+ * returns false for EVERY input -- a comparison that cannot fire, reading as "prod caught
+ * up", darkening the badge on exactly the pre-release box it exists for. Keeping the
+ * comparison inside the module that owns the shape is what makes that unrepeatable, rather
+ * than a warning comment at a boundary.
+ */
+function prodPublishesRunning() {
+  if (cache.channel !== 'prod') return null;
+  if (!cache.latest || typeof cache.latest.version !== 'string') return null;
+  /* TRIMMED, because parts() trims and this must not become a second answer to the same
+     fact. readManifest's mac arm stores body.version VERBATIM (only the win32 arm insists
+     it is already trimmed), so a pointer published as " 0.6.60" validates and is cached
+     with its space. Comparing raw, this would say false while available()/newer() -- which
+     trim inside parts() -- say the box is up to date. Same module, two answers, which is
+     the defect this module's own layout exists to avoid. */
+  return cache.latest.version.trim() === String(RUNNING).trim();
+}
+
 module.exports = {
   available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
   pointerFor, pointerUrl, readManifest, updateChannel, releaseBase, manualOffer, // the per-platform check (win32-update-check)
@@ -844,4 +895,5 @@ module.exports = {
   selfInstallRefusal, // #570: null where self-update works, else the sentence to show
   alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,
   resetCache, RUNNING, TTL, lastLook, checkNow,
+  prodPublishesRunning, // #2934: has prod published the build we are running? true/false/null(unknown)
 };

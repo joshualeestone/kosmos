@@ -61,6 +61,22 @@ test('both the running AND the offline card render the DM badge (a stopped agent
     'the offline (not-running) card drops the DM badge, so a stopped agent that messaged you shows nothing');
 });
 
+test('#2863: the list row and the org node wire the DM badge (source guard, no browser needed)', () => {
+  // The list badge is a direct .lrow child (the .lav avatar is overflow:hidden, so it
+  // cannot live inside the avatar), in BOTH branches.
+  assert.match(SCRIPT, /\$\{m\.st === 'attn' \? LROW_WARN : ''\}<\/div>\$\{dmBadge\(a\)\}/,
+    'the running list row does not render dmBadge as a direct .lrow child');
+  assert.match(SCRIPT, /<div class="lav">\$\{off\}<\/div>\$\{dmBadge\(a\)\}/,
+    'the offline list row does not render dmBadge');
+  // The org node concatenates dmBadge(a) (distinct from the grid card's ${dmBadge(a)}),
+  // AND folds the unread count into the button aria-label -- a descendant badge's
+  // aria-label is inert inside the labeled button, so the fold is the real signal.
+  assert.match(SCRIPT, /\+ dmBadge\(a\)/,
+    'the org node does not concatenate dmBadge(a)');
+  assert.match(SCRIPT, /\(needsYou \? ', needs you' : ''\) \+ dmAria \+ '">'/,
+    'the org node button aria-label does not fold in the unread-DM count (dmAria)');
+});
+
 test('reading a thread clears the unread count via a GATED POST /api/agent/<name>/seen', () => {
   const at = SCRIPT.indexOf('async function paintTalk');
   assert.ok(at > -1, 'paintTalk moved');
@@ -77,7 +93,11 @@ test('reading a thread clears the unread count via a GATED POST /api/agent/<name
 });
 
 test('the DM badge CSS is the red bubble, absolute, with a dark twin and the membadge co-occurrence offset', () => {
-  const rule = PAGE.match(/\.dmbadge \{[^}]*\}/);
+  // The BASE `.dmbadge` rule sits at line-start (no selector prefix). Anchor to the
+  // preceding newline so this does not match the #2863 descendant selectors that also
+  // contain ".dmbadge {" -- `.lrow > .dmbadge` and `.onode .dmbadge` -- one of which
+  // now precedes the base rule in source order and would otherwise be read instead.
+  const rule = PAGE.match(/\n\.dmbadge \{[^}]*\}/);
   assert.ok(rule, 'no .dmbadge rule');
   assert.match(rule[0], /position: absolute/, 'the badge is not absolute (would shift layout)');
   assert.match(rule[0], /background: #b3261e/, 'the badge is not the app red #b3261e');
