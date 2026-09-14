@@ -153,6 +153,10 @@ const V2 = 'NEW instructions now on disk (post-reassign)';
     chk(after.noteHidden === true, 'Update clears the staleness note', JSON.stringify(after));
     chk(after.updatingHidden === true, 'the loader is cleared once the reload finishes', JSON.stringify(after));
     chk(/^updated\.$/i.test(after.msg), 'a confirmation ("Updated.") is shown after a clean update', after.msg);
+    // a11y: focus must not be dropped to <body> when the Update button (inside the
+    // now-hidden note) vanishes; it lands on the result status line.
+    const focusAfter = await page.evaluate(() => (document.activeElement && document.activeElement.id) || '');
+    chk(focusAfter === 'd-instr-msg', 'after a clean update, focus lands on the result status line (not <body>)', 'activeElement=' + focusAfter);
 
     // ── Agent-switch race (#3050 BLOCKER): switch to a SECOND tied agent while an
     // Update reload is still in flight; the indicator must not strand on the new
@@ -178,6 +182,42 @@ const V2 = 'NEW instructions now on disk (post-reassign)';
     const stranded = await page.evaluate(() => document.getElementById('d-instr-updating').hidden);
     chk(stranded === true, 'switching agents mid-update clears the loader (no stranded aria-live on the new panel)', 'hidden=' + stranded);
     delayMs = 0;                                                   // let any pending reload resolve
+    await page.waitForTimeout(200);
+
+    // ── Same-agent reopen mid-reload (#3050 BLOCKER, the INSTR_LOAD-token guard):
+    // click Update, then detail-back and reopen the SAME agent before the first
+    // reload resolves. The superseded first reload must NOT announce a false
+    // "Updated." (the name check alone stays true for the same agent; only the load
+    // token distinguishes "reopened THIS agent"). We give the FIRST reload a short
+    // delay and the SECOND a long one, so the first resolves while the second is
+    // still pending - the window where a false "Updated." would be visible. ────────
+    // Back out of marlow (the switch arm left us there) and reopen beatrix's instr tab.
+    await page.click('#detail-back');
+    await page.waitForSelector('[data-agent="beatrix"]', { timeout: 8000 });
+    await page.click('[data-agent="beatrix"]');
+    await page.waitForSelector('#panel-detail:not([hidden])');
+    await page.click('#d-nav button[data-go="instr"]');
+    await page.waitForFunction((v) => document.getElementById('d-instr').value === v, V2, { timeout: 8000 });
+    await page.evaluate((old) => {
+      document.getElementById('d-instr').value = old;
+      document.getElementById('d-instr-outdated').hidden = false;
+      document.getElementById('d-instr-msg').textContent = '';
+    }, V1);
+    delayMs = 400;                                                 // the FIRST reload resolves soon
+    await page.click('#d-instr-update');                           // reload A
+    await page.waitForFunction(() => document.getElementById('d-instr-updating').hidden === false, { timeout: 4000 });
+    delayMs = 2000;                                                // the SECOND reload stays pending
+    await page.click('#detail-back');
+    await page.waitForSelector('[data-agent="beatrix"]', { timeout: 8000 });
+    await page.click('[data-agent="beatrix"]');                    // reopen SAME agent -> reload B
+    await page.waitForSelector('#panel-detail:not([hidden])');
+    // Wait past A's 400ms (it resolves and its superseded tail runs) while B's 2000ms
+    // is still pending, then assert no false "Updated." was written.
+    await page.waitForTimeout(900);
+    const afterReopen = await page.evaluate(() => document.getElementById('d-instr-msg').textContent.trim());
+    chk(!/updated\./i.test(afterReopen), 'reopening the SAME agent mid-reload does not fire a false "Updated." from the superseded reload', 'msg=' + JSON.stringify(afterReopen));
+    delayMs = 0;
+    await page.waitForFunction((v) => document.getElementById('d-instr').value === v, V2, { timeout: 8000 });
 
     chk(errs.length === 0, 'no page errors', errs.slice(0, 4).join(' | '));
     await page.close();

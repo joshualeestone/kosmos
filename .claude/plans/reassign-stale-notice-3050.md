@@ -52,14 +52,19 @@ message.
 
 - **docs/browser-checks/render-reassign-update-3050.js** (new): drives the real page
   against a real fixture agent and the real `loadInstructions` handler, headless.
-  Mocks ONLY the per-agent instructions endpoint (v1 -> v2) to stand in for the file
-  changing on disk between opening the box and pressing Update. Asserts: the note
-  names the action, the old "Reopen this agent" wording is gone, the Update button
-  and the separate K element exist, and - the load-bearing arm - pressing Update
-  reloads v2 into the box, clears the note and the K, and shows "Updated.". A CONTROL
-  pins the stale v1 in the box before the click, so the post-click v2 proves the
-  reload happened rather than the initial load. Verified 10/10 green, and RED-capable:
-  reverting the wording reds the two wording arms.
+  Mocks ONLY the per-agent instructions endpoint (v1 -> v2, with a controllable
+  delay) to stand in for the file changing on disk between opening the box and
+  pressing Update. Asserts: the note names the action, the old "Reopen this agent"
+  wording is gone, the Update button and the separate loader element (the Sweep loader
+  .spin-sweep, NOT the .kspin mark) exist; the load-bearing reload arm (press Update ->
+  box reloads v2, note + loader clear, "Updated." shown), with a CONTROL pinning stale
+  v1 before the click so the post-click v2 proves the reload (not the initial load);
+  focus lands on the result status line; the agent-switch race (switch to a second
+  agent mid-reload clears the loader); and the same-agent-reopen race (reopen the SAME
+  agent mid-reload fires no false "Updated." from the superseded reload). Verified
+  14/14 green, and RED-capable on the load-bearing arms: reverting the wording reds the
+  wording arms, removing the openDetail reset reds the switch arm, and removing the
+  INSTR_LOAD token guard reds the same-agent-reopen arm.
 - Wired into `tools/browser-checks.sh` (the self-booting loop), indexed in the
   browser-checks README, and `EXPECTED_SITES` in browser-checks-reason-grep.test.js
   bumped 109 -> 110 for the new chk() emit site. Browser-check meta-tests
