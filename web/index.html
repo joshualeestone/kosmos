@@ -8419,8 +8419,24 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          file cannot be edited. The staleness note beside it is already a live
          region; this was not. WCAG 2.1 SC 4.1.3, which is AA. -->
     <div class="stale-note" id="d-instr-outdated" role="status" aria-live="polite" hidden>
-      <b>This file has changed since you opened it.</b> What is in the box is not
-      what is on disk any more. Reopen this agent to see the current version.
+      <!-- #3050 (Josh, 6.63 testing): the note used to end "Reopen this agent to see
+           the current version" with no control to act on, so a person (e.g. after a
+           reassign restart rewrote this file) was told what to do but given no way to
+           do it. Now it names the action and offers a button that reloads the current
+           on-disk version in place. -->
+      <b>This file has changed since you opened it.</b> This agent needs to be updated.
+      <div class="frow" style="margin-top: var(--space-3);">
+        <button class="btn" id="d-instr-update" type="button">Update</button>
+      </div>
+    </div>
+    <!-- #3050: the brief update-in-progress state. loadInstructions() hides the note
+         above at its START (line ~26303), so the Update button vanishes the instant
+         it is pressed; the K mark that shows the reload happening therefore lives here
+         in its own element, not inside the note. -->
+    <div class="stale-note" id="d-instr-updating" role="status" aria-live="polite" hidden
+         style="display:flex; align-items:center; gap:var(--space-3);">
+      <span class="kspin" aria-hidden="true"><img src="/icons/kosmos-32.png" alt="" width="16" height="16"></span>
+      <span>Updating this agent…</span>
     </div>
     <!-- ⚠️ No filename here either. It used to read "kept beside it as
          CLAUDE.md.previous", which is both jargon and, on a non-Claude agent,
@@ -26146,7 +26162,7 @@ function setWritesOffered(a, tied) {
     INSTR_READY = false;
     INSTR_BANNER = false;   // not our card: nothing here is about the agent on screen
     INSTR_VERSION = null;
-    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev']) {
+    for (const id of ['d-instr-foot', 'd-instr-stale', 'd-instr-outdated', 'd-instr-prev', 'd-instr-updating']) {
       const el = document.getElementById(id);
       if (el) el.hidden = true;
     }
@@ -26863,6 +26879,39 @@ document.getElementById('d-instr-save').addEventListener('click', async () => {
     if (CURRENT && CURRENT.sessionName === forAgent && INSTR_LOAD === forLoad) {
       btn.disabled = false;
     }
+  }
+});
+
+// #3050: the Update button on the staleness note reloads the current on-disk
+// instructions in place, so a person told "this agent needs to be updated" has a
+// way to do it without leaving the panel. loadInstructions() hides the note at its
+// start, so the K mark shows in #d-instr-updating for the brief reload, then a
+// confirmation lands. It replaces whatever is in the box with the current on-disk
+// version - which is the point: the note only shows when the file has moved on from
+// the box, and "Update" means "take what is on disk now" (the same semantics the old
+// "reopen this agent to see the current version" text described, now with a control).
+document.getElementById('d-instr-update').addEventListener('click', async () => {
+  if (!CURRENT || !CURRENT.sessionName) return;
+  const agent = CURRENT.sessionName;
+  const updating = document.getElementById('d-instr-updating');
+  // Hide the prompt and show the K while the reload runs. loadInstructions also hides
+  // the prompt at its start; hiding it here first keeps the two from flickering.
+  document.getElementById('d-instr-outdated').hidden = true;
+  updating.hidden = false;
+  try {
+    // Reloads the current on-disk version into the box and repopulates INSTR_VERSION.
+    // It catches its own errors (never throws) and writes its own failure sentence
+    // into d-instr-msg, so there is nothing to catch here.
+    await loadInstructions(agent);
+  } finally {
+    updating.hidden = true;
+  }
+  // Confirm ONLY on a clean success. loadInstructions clears d-instr-msg to '' only on
+  // the editable-file-loaded path; every other outcome (no file yet, not editable,
+  // load failed) leaves its own sentence there, which must not be clobbered.
+  if (CURRENT && CURRENT.sessionName === agent) {
+    const msg = document.getElementById('d-instr-msg');
+    if (!msg.textContent) msg.textContent = 'Updated.';
   }
 });
 
