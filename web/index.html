@@ -44606,9 +44606,24 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
      trigger. Both fall back to opening Settings when the native trigger is unavailable. */
   const s3PermissionTargets = (gate) => ({
     trigger: gate === 'tmux' ? '/api/a11y-prompt' : null,
+    /* #2911: the tmux row secures BOTH grants up front. The primary trigger registers the
+       Kosmos app (calling binary, #2451); this ADDITIONAL trigger fires the automation prompt
+       attributed to TMUX (the responsible process agents run under), which is the one Josh gets
+       ambushed by mid-work (engine/terminal.js drives Terminal.app under an agent's tmux). Both
+       are fire-and-forget requests to the same native watcher; the shared Settings fallback
+       covers the no-native-app case for both. */
+    extraTriggers: gate === 'tmux' ? ['/api/tmux-a11y-prompt'] : [],
     fallback: gate === 'sleep' ? '/api/open-sleep-settings'
       : gate === 'tmux' ? '/api/open-accessibility-settings' : null,
   });
+  /* #2911: fire each supplementary trigger best-effort (fire-and-forget, no fallback of its
+     own -- the primary trigger's Settings fallback covers a no-native-app machine for the row). */
+  const frFireExtra = async (urls) => {
+    for (const u of (urls || [])) {
+      try { await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json' } }); }
+      catch { /* best-effort; the primary trigger + fallback still run */ }
+    }
+  };
   // #2620: a click on the mock switch (its real overlay button, .s3-sw-open) opens the
   // same macOS pane as that row's "Turn On" -- Josh's point is people try to click the
   // switch itself. Same trigger/fallback map as the .s3-on handler below; keyed on the
@@ -44617,11 +44632,11 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
   if (swOpen) {
     if (swOpen.disabled) return;
     const g = swOpen.getAttribute('data-sw-gate');
-    const { trigger: swTrigger, fallback: swFallback } = s3PermissionTargets(g);
+    const { trigger: swTrigger, extraTriggers: swExtra, fallback: swFallback } = s3PermissionTargets(g);
     if (!swFallback) return;
     const swMsg = document.getElementById('fr-s3-msg');
     swOpen.disabled = true;
-    try { await frFirePermission(swTrigger, swFallback, swMsg); }
+    try { await frFireExtra(swExtra); await frFirePermission(swTrigger, swFallback, swMsg); }
     finally { swOpen.disabled = false; }
     return;
   }
@@ -44640,11 +44655,11 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
   const gate = row && row.getAttribute('data-gate');
   // The gate -> (trigger, fallback) map lives in s3PermissionTargets (see it for the
   // #1/#2451/#2125 rationale); shared with the .s3-sw-open overlay so they cannot drift.
-  const { trigger, fallback } = s3PermissionTargets(gate);
+  const { trigger, extraTriggers, fallback } = s3PermissionTargets(gate);
   if (!fallback) return;
   const msg = document.getElementById('fr-s3-msg');
   b.disabled = true;
-  try { await frFirePermission(trigger, fallback, msg); }
+  try { await frFireExtra(extraTriggers); await frFirePermission(trigger, fallback, msg); }
   finally { b.disabled = false; }
 });
 

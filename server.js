@@ -7975,6 +7975,20 @@ const server = http.createServer((req, res) => {
     sendJson(res, 200, r);
     return;
   }
+  /* #2911: fire the TMUX accessibility/automation prompt on demand. Same fire-and-forget
+     contract as /api/a11y-prompt, but records a `tmux-a11y` request the native watcher
+     answers by running an osascript automation op UNDER the bundled tmux, so macOS prompts
+     for tmux (the responsible process agents run under) rather than the Kosmos app. The S3
+     "Turn On" fires this alongside /api/a11y-prompt so the user secures BOTH grants up front
+     and is never ambushed mid-work (Josh's ruling). Falls back to Settings via the caller
+     when no native app is present, like its sibling. */
+  if (pathname === '/api/tmux-a11y-prompt' && req.method === 'POST') {
+    let r;
+    try { r = promptrequest.request('tmux-a11y'); }
+    catch (err) { r = { ok: false, because: 'we could not record the tmux accessibility prompt request (' + String((err && err.message) || err) + ')' }; }
+    sendJson(res, 200, r);
+    return;
+  }
   if (pathname === '/api/file-access-prompt' && req.method === 'POST') {
     let r;
     try { r = promptrequest.request('file-access'); }

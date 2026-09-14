@@ -41,6 +41,15 @@ const a11ystatus = require('./a11ystatus');
 const REQUEST_FILE = {
   a11y: 'a11y-prompt-request',
   'file-access': 'file-access-prompt-request',
+  /* #2911: the tmux accessibility/automation prompt. Distinct from `a11y` (which fires
+     AXIsProcessTrusted inside the app executable and so registers the KOSMOS APP -- the
+     calling binary, #2451). This one asks the native watcher to run an osascript
+     Terminal/System-Events automation op UNDER the bundled tmux, so macOS attributes the
+     prompt to the RESPONSIBLE process (tmux) -- the binary agents actually run under, which
+     is what gets prompted at runtime when engine/terminal.js drives Terminal.app. Securing
+     it up front stops the mid-work ambush Josh hit. (The exact osascript payload + which TCC
+     service(s) fire is pinned by a fresh-install verify; the native hatch owns that string.) */
+  'tmux-a11y': 'tmux-a11y-prompt-request',
 };
 
 /**
