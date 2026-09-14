@@ -25398,6 +25398,68 @@ function usageCharts4Html(series, totals, grandTotal) {
       + '<path d="' + line + '" fill="none" stroke="' + color(spec.key) + '" stroke-width="1.8" stroke-linejoin="round"/></svg></div>';
   }).join('') + '</div>';
 }
+/* #2840: the "Equivalent Token API Cost" stat. Josh ruled (via Splinter) to build
+   it from OFFICIAL PUBLISHED per-model API list prices (tokens x published price) --
+   a real source, not METR (which is the value-per-hour framing, cited by the hero,
+   not an API price table). Prices are US dollars per MILLION tokens, keyed by the
+   model id /api/usage records.
+   🛑 SOURCE + DATE, because published prices change (Splinter's requirement):
+     - Anthropic (claude.com/pricing, fetched 2026-09-14): all four classes are
+       separately published (input / output / 5-min cache write / cache read).
+     - OpenAI (developers.openai.com/api/docs/pricing, 2026-09-14): input / cached
+       input / output are published; there is NO separate cache-WRITE charge, so
+       cw is the input rate (how OpenAI bills a first-seen token) and cr is the
+       published cached-input rate -- a mapping of published behaviour, not a guess.
+     - Google (ai.google.dev/gemini-api/docs/pricing, 2026-09-14): input / output /
+       cached are published (per-token); cache storage is billed per-hour, not per
+       write-token, so cw is the input rate here too.
+   🛑 NO GUESSING (Splinter): a model with no published price is EXCLUDED from the
+   figure and named in `unpriced`, never estimated. gpt-5.1-codex is the live case:
+   OpenAI does not list a Codex price, so its tokens are left out and flagged. */
+const USAGE_MODEL_PRICES = {
+  // id: { in, out, cw, cr }  -- $ per MILLION tokens
+  'claude-opus-5': { in: 5, out: 25, cw: 6.25, cr: 0.50 },
+  'claude-opus-4-8': { in: 5, out: 25, cw: 6.25, cr: 0.50 },
+  'claude-sonnet-5': { in: 2, out: 10, cw: 2.50, cr: 0.20 },
+  'claude-sonnet-4-6': { in: 3, out: 15, cw: 3.75, cr: 0.30 },
+  'claude-haiku-4-5': { in: 1, out: 5, cw: 1.25, cr: 0.10 },
+  'claude-fable-5-1': { in: 10, out: 50, cw: 12.50, cr: 0.25 },
+  'claude-fable-5': { in: 10, out: 50, cw: 12.50, cr: 1.00 },
+  'gpt-5.1': { in: 1.25, out: 10, cw: 1.25, cr: 0.125 },
+  'gemini-2.5-flash': { in: 0.375, out: 1.875, cw: 0.375, cr: 0.0375 },
+};
+/* Resolve a model id to a price row: exact match first, then strip a trailing
+   -YYYYMMDD date-stamp (Claude Code writes e.g. claude-haiku-4-5-20251001). Returns
+   null when there is no published price, so the caller can exclude + flag it. Pure. */
+function usageModelPrice(modelId) {
+  const id = String(modelId || '');
+  if (USAGE_MODEL_PRICES[id]) return USAGE_MODEL_PRICES[id];
+  const stripped = id.replace(/-\d{8}$/, '');
+  return USAGE_MODEL_PRICES[stripped] || null;
+}
+/* Sum the equivalent API cost across byDay: for each priced model, its four class
+   token counts times the published per-class $/Mtok. Returns { cost, unpriced }
+   where unpriced is the sorted list of model ids that had no published price (their
+   tokens are NOT in cost). cost is null only if NOTHING was priceable, so the hero
+   shows a dash rather than a misleading $0. Pure + node-testable. */
+function usageApiCost(byDay) {
+  let cost = 0, priced = 0;
+  const unpriced = {};
+  for (const day of Object.keys(byDay || {})) {
+    const models = byDay[day] || {};
+    for (const model of Object.keys(models)) {
+      const p = usageModelPrice(model);
+      if (!p) { unpriced[model] = true; continue; }
+      const b = models[model] || {};
+      cost += ((Number(b.input_tokens) || 0) * p.in
+        + (Number(b.output_tokens) || 0) * p.out
+        + (Number(b.cache_creation_input_tokens) || 0) * p.cw
+        + (Number(b.cache_read_input_tokens) || 0) * p.cr) / 1e6;
+      priced += 1;
+    }
+  }
+  return { cost: priced ? cost : null, unpriced: Object.keys(unpriced).sort() };
+}
 /* #2840: the scrollable usage-history list -- one row per day+model, newest first,
    matching Mona's 0.6.57 token-value design. Day / Model / Total tokens / Value.
    Total is the row's own 4-class sum (a labeled per-row breakdown, not the single
@@ -25466,7 +25528,11 @@ async function paintUsage() {
     /* #2840: the hero, from the same totals. Active days = days with any recorded
        usage. apiCostUsd is null until the published-price table is wired; the hero
        then shows a quiet "-" for that one stat rather than a guessed number. */
-    if (hero) hero.innerHTML = usageHeroHtml(totals, Object.keys(byDay).length, null);
+    /* #2840: equivalent API cost from published per-model list prices. cost is
+       null if nothing was priceable (hero shows "-"); unpriced names any model
+       with no published price, excluded from the figure and noted below. */
+    const api = usageApiCost(byDay);
+    if (hero) hero.innerHTML = usageHeroHtml(totals, Object.keys(byDay).length, api.cost);
     /* #2840: per-model table + donut, from one shared aggregate + grand total. */
     const grandTotal = (Number(totals.input) || 0) + (Number(totals.output) || 0)
       + (Number(totals.cacheWritten) || 0) + (Number(totals.cacheRead) || 0);
@@ -25503,6 +25569,14 @@ async function paintUsage() {
     msg.textContent = roots === null
       ? 'Counted from the transcripts on this computer.'
       : 'Counted from ' + roots + (roots === 1 ? ' place' : ' places') + ' on this computer that hold transcripts.';
+    /* #2840: name any model excluded from the API-cost figure for want of a
+       published price (Splinter's flag-do-not-guess rule), so an incomplete cost
+       is never read as complete. */
+    if (api.unpriced.length) {
+      msg.textContent += ' The equivalent API cost leaves out '
+        + api.unpriced.length + (api.unpriced.length === 1 ? ' model' : ' models')
+        + ' with no published price (' + api.unpriced.join(', ') + ').';
+    }
   } catch (e) {
     msg.textContent = 'We could not read token usage just now.';
     if (cards) cards.innerHTML = '';
