@@ -92,20 +92,35 @@ the file's "painters write by id" note, but confirm at execution (step 2/4).
 #3047 (nav button ORDER - a separate reorder on top of this) and #3044 (header order). Deploy/cut is
 0.6.67 (Splinter slots it; Josh scoping).
 
-## RESUME STATUS (2026-09-14, Baron) - checkpointed for a claude-fe build
+## RESUME STATUS (2026-09-14, Baron) - CODE COMPLETE; only browser-verify (step 10) + PR remain
 
-Done + committed:
-- Plan (this file). WIP commit 52401924d: steps 1 (DETAIL_SECTION_GROUPS.profile=['profile','instr','skills']
-  + DETAIL_SECTION_PILL folds instr+skills under profile) and 3 (one "Profile Info" nav button,
-  aria-controls the 3 sections, carries the needs-you dot). No DOM reorder yet, so the reveal currently
-  renders instr,skills,profile order (wrong) until step 2.
+ALL CODE STEPS DONE + COMMITTED (this session):
+- Step 1 (WIP 52401924d): DETAIL_SECTION_GROUPS.profile=['profile','instr','skills'] +
+  DETAIL_SECTION_PILL folds instr+skills under profile.
+- Step 3 (WIP 52401924d): one "Profile Info" nav button, aria-controls the 3 sections, needs-you dot.
+- Step 2 DOM reorder: d-sec-profile block moved to immediately BEFORE d-sec-instr. DOM order is now
+  talk, model, memory, PROFILE, INSTR, SKILLS, term, remove (verified: 120 ins / 120 del pure move,
+  tag balance unchanged). The reveal renders profile->instr->skills.
+- Step 4: detailDots set('profile', ...) so the instructions needs-you dot lights the Profile Info pill.
+- Step 5: group-reveal CSS is the adjacent-sibling rule `.dsec:not([hidden]) + .dsec:not([hidden])`,
+  which CHAINS for 3 cards (no functional change needed; comment updated for the 3-card group).
+- Step 7: skills lazy-load repointed to `b.dataset.go === 'profile'` (was 'instr').
+- Step 6: no painter references the old instr/profile buttons; pill label is "Profile Info".
+- Step 8: web.agent-nav.test.js (FOLD map + folded-set + a new #3046 test) and server.test.js
+  (nav pill order + section DOM order) updated. Full `node --test`: 7560 tests, 0 fail.
+- Step 9: #1720 coarse gate satisfied (render-agent-nav.js updated). #2518 surface gate: the ONLY
+  mapped token my diff touches is d-role-msg (render-reassign-restart-2829.js), resolved with a
+  per-check override trailer in the commit (that check drives popRestartAfterSave/openRestartModal
+  directly by id, unaffected by the reorder). Verified the gate refuses without the trailer and
+  passes with it. render-agent-nav.js browser check updated (PILLS/GROUP, #3045 baseline pill
+  instr->term, deep-link expectation). browser-checks meta tests green.
 
-NEXT (resume here, ideally in claude-fe so the DOM move + reveal/focus/dot can be browser-verified):
-- Step 2 DOM reorder: move the d-sec-profile block (currently web/index.html lines 8463-8582, from
-  `<section ... id="d-sec-profile" ...>` through its closing `</section>`) to IMMEDIATELY BEFORE the
-  d-sec-instr opening (line 8329 `<section ... id="d-sec-instr" ...>`). Result DOM order:
-  profile, instr, skills. (Line numbers drift with edits; re-grep the ids.)
-- Then steps 4 (detailDots repoint so instr needs-you lights the profile pill), 5 (group-reveal CSS
-  for 3 stacked cards), 7 (skills lazy-load triggers on the profile-group open, was instr), 8 (tests),
-  9 (#1720 browser-check + #2518 surface trailer + emit-count), 10 (browser verify in claude-fe).
-- Coupled: after #3046 lands, do #3047 (reorder the post-#3046 nav) then #3044 (header order). All ride 0.6.67.
+NEXT (a claude-fe / Playwright-provisioned session):
+- Step 10 browser verify: this fresh worktree has NO provisioned Playwright (`Cannot find module
+  'playwright'`), so `node docs/browser-checks/render-agent-nav.js` could not run here. In a
+  claude-fe (or cut-provisioned) session, run that check headed AND do a manual /browser-test: open
+  an agent, click Profile Info, confirm picture+name+what-they-do+reports-to on top, then the
+  instruction set, then skills; confirm the old Instructions/Profile pills are gone and needs-you
+  lights Profile Info. Capture evidence for the PR.
+- Then rebase onto origin/main (branch is behind), /challenge-loop, open the PR (rides 0.6.67).
+- Coupled: after #3046 lands, do #3047 (reorder the post-#3046 nav) then #3044 (header order).

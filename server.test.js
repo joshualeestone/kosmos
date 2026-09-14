@@ -8805,22 +8805,26 @@ test('the agent detail page is eight sections behind a nav, in the ruled order',
                           raw.indexOf('<section class="panel" id="panel-settings"'));
   const nav = panel.slice(panel.indexOf('<nav class="snav" id="d-nav"'), panel.indexOf('</nav>'));
   const gos = [...nav.matchAll(/<button type="button" data-go="([a-z]+)"/g)].map((m) => m[1]);
-  // #2916 (Josh 6.59): Memory folds under the "Model and Memory" pill and Skills under
-  // "Instructions", so neither has a pill of its own; the "Terminal" pill is renamed "Advanced".
+  // #2916 (Josh 6.59): Memory folds under the "Model and Memory" pill. #3046 (Josh 6.63): Profile,
+  // Instructions and Skills fold under ONE "Profile Info" pill (data-go="profile"), so Memory,
+  // Instructions and Skills have no pill of their own; the "Terminal" pill is renamed "Advanced".
   // The pill order a person sees:
-  assert.deepEqual(gos, ['talk', 'model', 'instr', 'profile', 'term', 'remove'],
-    'the nav pill order moved; the pills read Talk, Model and Memory, Instructions, Profile, Advanced, Remove');
-  // The pill LABELS Josh asked for, and the two folded pills absent by name.
+  assert.deepEqual(gos, ['talk', 'model', 'profile', 'term', 'remove'],
+    'the nav pill order moved; the pills read Talk, Model and Memory, Profile Info, Advanced, Remove');
+  // The pill LABELS Josh asked for, and the folded pills absent by name.
   assert.match(nav, /data-go="model"[^>]*>Model and Memory</, 'the model pill is not labelled "Model and Memory"');
+  assert.match(nav, /data-go="profile"[^>]*>\s*<span>Profile Info<\/span>/, 'the profile pill is not labelled "Profile Info"');
   assert.match(nav, /data-go="term"[^>]*>Advanced</, 'the Terminal pill was not renamed "Advanced"');
   assert.doesNotMatch(nav, /data-go="memory"/, 'a standalone Memory pill is back');
   assert.doesNotMatch(nav, /data-go="skills"/, 'a standalone Skills pill is back');
+  assert.doesNotMatch(nav, /data-go="instr"/, 'a standalone Instructions pill is back (#3046 folds it under Profile Info)');
   const secs = [...panel.matchAll(/<section class="dsec" id="d-sec-[a-z]+" data-sec="([a-z]+)"/g)].map((m) => m[1]);
-  // The eight sections are unchanged and still in reading order; the folded pair sits right after
-  // the section it folds under (memory after model, skills after instr).
-  assert.deepEqual(secs, ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'],
+  // The eight sections are unchanged; memory still sits right after the model it folds under, and
+  // #3046 groups profile -> instr -> skills consecutively so the Profile Info reveal renders in
+  // that order (profile on top).
+  assert.deepEqual(secs, ['talk', 'model', 'memory', 'profile', 'instr', 'skills', 'term', 'remove'],
     'the section order moved');
-  // Pills are the sections minus the folded pair, in the same relative order.
+  // Pills are the sections minus the folded set, in the same relative order.
   assert.deepEqual(secs.filter((s) => gos.includes(s)), gos, 'the pills are not in section order');
   // ⚠️ The control: the old grid no longer exists in this panel, so a revival
   // of it here would be a second layout under the nav.

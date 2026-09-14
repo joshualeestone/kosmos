@@ -60,18 +60,20 @@ test('only Talk is on screen before a click, and every section can be reached fr
   assert.equal(secs.length, 8, 'the page has ' + secs.length + ' sections, not eight');
   assert.deepEqual(secs.filter((s) => !s.hidden).map((s) => s.key), ['talk'], 'the landing is not Talk alone');
   const gos = [...PANEL.matchAll(/data-go="([a-z]+)"/g)].map((m) => m[1]);
-  // #2916: pills are now a SUBSET of sections -- memory folds under the 'model' pill (Model and
-  // Memory) and skills under 'instr' (Instructions), so those two sections have no pill of their
-  // own but are still reached. Every section must be reachable, every pill must point at a real
-  // section, and exactly memory+skills are the folded pair.
-  const FOLD = { memory: 'model', skills: 'instr' };  // a folded section -> the pill that reveals it
+  // #2916/#3046: pills are a SUBSET of sections. #2916 folded memory under the 'model' pill (Model
+  // and Memory) and skills under 'instr' (Instructions). #3046 combines Profile + Instructions +
+  // Skills under ONE 'Profile Info' pill (data-go="profile"), so instr AND skills both fold under
+  // 'profile' and the standalone 'instr' pill is gone. memory still folds under 'model'. Every
+  // section must be reachable, every pill must point at a real section, and exactly
+  // memory+instr+skills are the folded set.
+  const FOLD = { memory: 'model', instr: 'profile', skills: 'profile' };  // a folded section -> the pill that reveals it
   for (const s of secs) {
     const pill = FOLD[s.key] || s.key;
     assert.ok(gos.includes(pill), s.key + ' is not reachable from any pill (expected pill: ' + pill + ')');
   }
   assert.ok(gos.every((g) => secs.some((s) => s.key === g)), 'a pill points at no section');
-  assert.deepEqual(secs.map((s) => s.key).filter((k) => !gos.includes(k)).sort(), ['memory', 'skills'],
-    'the folded set changed; #2916 folds exactly memory (under Model and Memory) and skills (under Instructions)');
+  assert.deepEqual(secs.map((s) => s.key).filter((k) => !gos.includes(k)).sort(), ['instr', 'memory', 'skills'],
+    'the folded set changed; #3046 folds memory (under Model and Memory) and instr+skills (under Profile Info)');
   for (const s of secs) {
     assert.match(PANEL, new RegExp('id="d-sec-' + s.key + '" data-sec="' + s.key + '" tabindex="-1"'), s.key + ' cannot take focus, so a click strands the keyboard on the nav');
   }
@@ -128,4 +130,32 @@ test('the nav names the agent in the two places a bare label would be unsafe', (
   // must not leave the previous agent's name on a button.
   assert.match(PANEL, /id="d-nav-talk">Talk to this agent</, 'the markup ships a name');
   assert.match(PANEL, /id="d-nav-remove">Remove this agent</, 'the markup ships a name');
+});
+
+test('#3046: Profile + Instructions + Skills are one "Profile Info" pill, rendered profile->instr->skills', () => {
+  // The consolidation Josh asked for: one pill, Profile on top, then the
+  // instruction set, then the skills boxes. The reveal renders in DOM order, so
+  // the three sections must be DOM-adjacent in exactly that order.
+  const order = [...PANEL.matchAll(/<section class="dsec" id="d-sec-([a-z]+)"/g)].map((m) => m[1]);
+  const p = order.indexOf('profile'), i = order.indexOf('instr'), s = order.indexOf('skills');
+  assert.ok(p >= 0 && i >= 0 && s >= 0, 'a Profile Info section is missing');
+  assert.equal(i, p + 1, 'Instructions does not immediately follow Profile in the DOM');
+  assert.equal(s, i + 1, 'Skills does not immediately follow Instructions in the DOM');
+
+  // Exactly ONE "Profile Info" pill, and no standalone Profile or Instructions pill survives.
+  const nav = PANEL.slice(PANEL.indexOf('id="d-nav"'), PANEL.indexOf('</nav>') >= 0 ? PANEL.indexOf('</nav>') : PANEL.indexOf('<section class="dsec"'));
+  const profBtns = [...nav.matchAll(/data-go="profile"/g)].length;
+  assert.equal(profBtns, 1, 'there is not exactly one Profile Info pill');
+  assert.doesNotMatch(nav, /data-go="instr"/, 'a standalone Instructions pill still exists');
+  assert.match(nav, /data-go="profile" aria-controls="d-sec-profile d-sec-instr d-sec-skills"/, 'the Profile Info pill does not control all three sections');
+  assert.match(nav, /data-go="profile"[^>]*>\s*<span>Profile Info<\/span>/, 'the pill is not labelled "Profile Info"');
+
+  // The reveal constants fold instr+skills under the profile pill (group[0]=profile so focus lands on top).
+  const script = PAGE.slice(PAGE.lastIndexOf('<script>'));
+  assert.match(script, /DETAIL_SECTION_GROUPS\s*=\s*\{[^}]*profile:\s*\[\s*'profile',\s*'instr',\s*'skills'\s*\]/, 'the profile group is not [profile, instr, skills]');
+  assert.match(script, /DETAIL_SECTION_PILL\s*=\s*\{[^}]*instr:\s*'profile'[^}]*skills:\s*'profile'/, 'instr and skills do not both fold under the profile pill');
+
+  // The needs-you dot and the skills lazy-load both moved to the profile pill.
+  assert.match(script, /set\('profile',\s*shown\('d-instr-outdated'\)/, 'the instructions needs-you dot does not light the Profile Info pill');
+  assert.match(script, /b\.dataset\.go === 'profile' && CURRENT && SKILLS_LOADED_FOR/, 'the skills lazy-load no longer triggers on the Profile Info pill');
 });

@@ -2296,12 +2296,13 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 .snav button:not([data-dot]) .vh { display: none; }
 .dsecs { min-width: 0; }
 .dsec { display: flex; flex-direction: column; gap: 18px; border-radius: 16px; }
-/* #2916 group-reveal shows two sibling .dsec cards at once (Model+Memory,
-   Instructions+Skills, which are DOM-adjacent). .dsec only spaces its OWN
-   children, so two visible siblings would render flush. Add separation only
-   when a .dsec directly follows another VISIBLE .dsec: the :not([hidden]) on
-   the left side means a lone section (its preceding sibling hidden) gets no
-   stray top margin, so single-section pills are unaffected. */
+/* #2916/#3046 group-reveal shows sibling .dsec cards at once: Model+Memory (two),
+   and Profile+Instructions+Skills (three, #3046), all DOM-adjacent. .dsec only
+   spaces its OWN children, so visible siblings would render flush. Add separation
+   only when a .dsec directly follows another VISIBLE .dsec: the adjacent-sibling
+   rule chains, so it spaces the 2nd AND 3rd card of the Profile Info group. The
+   :not([hidden]) on the left side means a lone section (its preceding sibling
+   hidden) gets no stray top margin, so single-section pills are unaffected. */
 .dsec:not([hidden]) + .dsec:not([hidden]) { margin-top: 24px; }
 .dsec:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 4px; }
 /* One of three sentences while the box is hidden, chosen by `data-tied`;
@@ -8416,6 +8417,126 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   </section>
   </div>
   </section>
+  <section class="dsec" id="d-sec-profile" data-sec="profile" tabindex="-1" aria-label="Profile" hidden>
+
+  <section class="dbox">
+  <div class="field">
+    <label class="flabel" for="d-file">Picture</label>
+    <div class="fhint">A face makes an agent easy to pick out at a glance.</div>
+    <!-- ⚠️ A REAL BUTTON OVER A HIDDEN INPUT, which is the pattern the create
+         form already uses and the reason is recorded there: a hidden file input
+         is out of the tab order and a label is not keyboard-activatable, so the
+         label-only version makes this the one control on the form a keyboard
+         cannot reach. A button that forwards the click keeps it reachable.
+         🛑 THIS SCREEN AND SETTINGS WERE LEFT ON THE BROWSER DEFAULT while
+         create got the treatment, so two of the three places a person picks a
+         picture rendered an unstyled "Choose File / No file chosen" in a
+         product where every other control is drawn. Same shape as the memory
+         figure earlier tonight: three surfaces, one job, and the ones nobody
+         was editing stayed behind. -->
+    <div class="frow">
+      <button class="btn sav-btn" type="button" id="d-file-btn">Change picture</button>
+      <!-- "Remove picture", not "Remove": this row sits on a page whose last
+             pill is "Remove <name>", and a bare verb beside "Change picture"
+             reads as the agent until you have pressed it (#406). -->
+        <button class="btn" id="d-remove" type="button">Remove picture</button>
+      <input type="file" id="d-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+    </div>
+    <div class="fmsg" id="d-msg"></div>
+  </div>
+  <!-- 🛑 THE ID IS `d-rename`, NOT `d-name`, AND THAT COST A REAL CATCH.
+       `d-name` was ALREADY TAKEN by the heading at the top of this page
+       (`<span class="dname" id="d-name">`). The first version of this field
+       reused it, and every symptom pointed the wrong way:
+       `getElementById('d-name')` returned the SPAN, so populating it set an
+       expando `.value` on a span, the browser check then read that expando
+       back and reported `nameValue: "angel"` — a confident pass measuring an
+       element that is not a control. The PUT would have sent `undefined` and
+       the server would have dropped it, and the untied-disable list would have
+       been disabling a heading. The tell was geometry: 59x16, which is text,
+       not a field. Never reuse an id; and when a check passes, confirm it
+       measured the element you meant.
+
+       ⚠️ RENAMING WAS UNREACHABLE UNTIL NOW, and the route was already there.
+       `PUT /api/agent/:name/profile` has accepted `displayName` since round 32,
+       written specifically so a Kosmos-created agent would stop having a
+       permanently unchangeable name — and no screen ever sent one. The comment
+       that removed the card's edit pencil said editing "lives on the detail
+       page (the pack's avedit/nameedit)"; the picture landed there and the role
+       landed there and the name never did, so the comment authorising the
+       removal is the comment that was wrong, in two places, since the rebuild.
+       Found by Mona Lisa.
+
+       ⚠️ NOT THE PACK'S MODAL, deliberately. The pack draws "Edit April" over
+       picture and name together. Josh's own rule from taking the pencils off
+       the project head applies here: renaming is rare, reading the name is
+       constant, so the rare thing goes behind a door and the constant thing
+       gets to be just words. The detail page already IS that door. -->
+  <div class="field" style="margin-top:18px;">
+    <label class="flabel" for="d-rename">Name</label>
+    <!-- ⚠️ THE SECOND SENTENCE WENT TRUE-BUT-INCOMPLETE the day a rename started
+         reaching the instruction file. It read only what a rename does NOT
+         touch, written when the record was the only thing that moved; a person
+         reading it now would not know the agent itself is told. The
+         disclaimers stay, because both are still true and both are things
+         people worry about. -->
+    <div class="fhint" id="d-rename-hint">What you call them here, and what their own instructions will say. It does not change where they live on this computer, or the name other agents use to reach them.</div>
+    <div class="frow">
+      <input type="text" id="d-rename" maxlength="80" placeholder="What you call them">
+    </div>
+  </div>
+  <div class="field" style="margin-top:18px;">
+    <label class="flabel" for="d-role">What they do</label>
+    <div class="fhint">Shown under their name, and written into their own instructions.</div>
+    <!-- ⚠️ FOUR WORDS DOING THE JOB OF A SENTENCE. This read "Your words.
+         Nothing on this computer records it, so it is blank until you say."
+         Mona Lisa's three objections, all right: it is a MECHANISM sentence
+         told to someone who only needs the outcome, the same shape the pack
+         has now fixed twice in the composer; it stops being true after the
+         first save, because the profile record does hold it; and "blank until
+         you say" never says until you say WHAT. The half worth keeping is that
+         this is free text rather than a picked role, since a role catalogue
+         exists and would make a reader expect a list. The placeholder beside
+         it already carries the examples. -->
+    <div class="frow">
+      <input type="text" id="d-role" placeholder="Executive Assistant, Bookkeeper, Researcher&hellip;">
+    </div>
+  </div>
+  <!-- ⚠️ HIDDEN WHEN THERE IS NOBODY ELSE, the same rule the projects picker
+       follows: a dropdown whose only entry is the agent you are looking at is
+       a decision presented to somebody who has none to make. It appears the
+       moment a second agent exists.
+       🛑 AND IT IS NEVER PREFILLED FROM A GUESS. There is already a function
+       in this product that works out "is this the manager" from role text, and
+       its own comment prices the looseness honestly: being wrong costs one
+       click on a dropdown. That price is right there and wrong here, because
+       the org view DRAWS this answer and a diagram does not look like a guess.
+       An empty reporting line is honest; an inferred one is a claim. -->
+  <div class="field" id="d-reports-wrap" hidden>
+    <label class="flabel" for="d-reports">Reports to</label>
+    <!-- 🔑 REPLACED WHOLE (#336, Mona Lisa and Splinter). The old hint was
+         "Only used to draw your org chart. Leave it blank if it does not
+         apply." Both sentences wrong: blank is not "does not apply", it is
+         "reports to you" (Josh, 2026-08-23 09:55); and "only used to draw"
+         expired the day the line started being written into the agent's
+         file. A hint that says "only used for X" is a capability claim with
+         an expiry date and nothing announces the day it expires. -->
+    <div class="fhint">Who they report their work to. Until you pick somebody, that is you.</div>
+    <div class="frow">
+      <select id="d-reports"></select>
+    </div>
+  </div>
+  <!-- ONE Save for the box, because it now writes two fields. A button sitting
+       inside the role row while also saving the name would misdescribe itself. -->
+  <div class="frow" style="margin-top:14px;">
+    <!-- Named for its BOX rather than its fields, because Reports to is
+         conditional: a label listing the fields would be wrong whenever that
+         row is hidden, which is most machines. "Save" survives verbatim. -->
+    <button class="btn" id="d-save" type="button" aria-label="Save name and role">Save</button>
+  </div>
+  <div class="fmsg" id="d-role-msg"></div>
+  </section>
+  </section>
   <section class="dsec" id="d-sec-instr" data-sec="instr" tabindex="-1" aria-label="Instructions" hidden>
   <section class="dbox">
   <!-- #1841 (Josh, 2026-09-02 07:06): the working-rules update prompt lives
@@ -8571,126 +8692,6 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p class="fmsg" id="d-skill-add-msg" role="status" aria-live="polite"></p>
       </div>
     </section>
-  </section>
-  <section class="dsec" id="d-sec-profile" data-sec="profile" tabindex="-1" aria-label="Profile" hidden>
-
-  <section class="dbox">
-  <div class="field">
-    <label class="flabel" for="d-file">Picture</label>
-    <div class="fhint">A face makes an agent easy to pick out at a glance.</div>
-    <!-- ⚠️ A REAL BUTTON OVER A HIDDEN INPUT, which is the pattern the create
-         form already uses and the reason is recorded there: a hidden file input
-         is out of the tab order and a label is not keyboard-activatable, so the
-         label-only version makes this the one control on the form a keyboard
-         cannot reach. A button that forwards the click keeps it reachable.
-         🛑 THIS SCREEN AND SETTINGS WERE LEFT ON THE BROWSER DEFAULT while
-         create got the treatment, so two of the three places a person picks a
-         picture rendered an unstyled "Choose File / No file chosen" in a
-         product where every other control is drawn. Same shape as the memory
-         figure earlier tonight: three surfaces, one job, and the ones nobody
-         was editing stayed behind. -->
-    <div class="frow">
-      <button class="btn sav-btn" type="button" id="d-file-btn">Change picture</button>
-      <!-- "Remove picture", not "Remove": this row sits on a page whose last
-             pill is "Remove <name>", and a bare verb beside "Change picture"
-             reads as the agent until you have pressed it (#406). -->
-        <button class="btn" id="d-remove" type="button">Remove picture</button>
-      <input type="file" id="d-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
-    </div>
-    <div class="fmsg" id="d-msg"></div>
-  </div>
-  <!-- 🛑 THE ID IS `d-rename`, NOT `d-name`, AND THAT COST A REAL CATCH.
-       `d-name` was ALREADY TAKEN by the heading at the top of this page
-       (`<span class="dname" id="d-name">`). The first version of this field
-       reused it, and every symptom pointed the wrong way:
-       `getElementById('d-name')` returned the SPAN, so populating it set an
-       expando `.value` on a span, the browser check then read that expando
-       back and reported `nameValue: "angel"` — a confident pass measuring an
-       element that is not a control. The PUT would have sent `undefined` and
-       the server would have dropped it, and the untied-disable list would have
-       been disabling a heading. The tell was geometry: 59x16, which is text,
-       not a field. Never reuse an id; and when a check passes, confirm it
-       measured the element you meant.
-
-       ⚠️ RENAMING WAS UNREACHABLE UNTIL NOW, and the route was already there.
-       `PUT /api/agent/:name/profile` has accepted `displayName` since round 32,
-       written specifically so a Kosmos-created agent would stop having a
-       permanently unchangeable name — and no screen ever sent one. The comment
-       that removed the card's edit pencil said editing "lives on the detail
-       page (the pack's avedit/nameedit)"; the picture landed there and the role
-       landed there and the name never did, so the comment authorising the
-       removal is the comment that was wrong, in two places, since the rebuild.
-       Found by Mona Lisa.
-
-       ⚠️ NOT THE PACK'S MODAL, deliberately. The pack draws "Edit April" over
-       picture and name together. Josh's own rule from taking the pencils off
-       the project head applies here: renaming is rare, reading the name is
-       constant, so the rare thing goes behind a door and the constant thing
-       gets to be just words. The detail page already IS that door. -->
-  <div class="field" style="margin-top:18px;">
-    <label class="flabel" for="d-rename">Name</label>
-    <!-- ⚠️ THE SECOND SENTENCE WENT TRUE-BUT-INCOMPLETE the day a rename started
-         reaching the instruction file. It read only what a rename does NOT
-         touch, written when the record was the only thing that moved; a person
-         reading it now would not know the agent itself is told. The
-         disclaimers stay, because both are still true and both are things
-         people worry about. -->
-    <div class="fhint" id="d-rename-hint">What you call them here, and what their own instructions will say. It does not change where they live on this computer, or the name other agents use to reach them.</div>
-    <div class="frow">
-      <input type="text" id="d-rename" maxlength="80" placeholder="What you call them">
-    </div>
-  </div>
-  <div class="field" style="margin-top:18px;">
-    <label class="flabel" for="d-role">What they do</label>
-    <div class="fhint">Shown under their name, and written into their own instructions.</div>
-    <!-- ⚠️ FOUR WORDS DOING THE JOB OF A SENTENCE. This read "Your words.
-         Nothing on this computer records it, so it is blank until you say."
-         Mona Lisa's three objections, all right: it is a MECHANISM sentence
-         told to someone who only needs the outcome, the same shape the pack
-         has now fixed twice in the composer; it stops being true after the
-         first save, because the profile record does hold it; and "blank until
-         you say" never says until you say WHAT. The half worth keeping is that
-         this is free text rather than a picked role, since a role catalogue
-         exists and would make a reader expect a list. The placeholder beside
-         it already carries the examples. -->
-    <div class="frow">
-      <input type="text" id="d-role" placeholder="Executive Assistant, Bookkeeper, Researcher&hellip;">
-    </div>
-  </div>
-  <!-- ⚠️ HIDDEN WHEN THERE IS NOBODY ELSE, the same rule the projects picker
-       follows: a dropdown whose only entry is the agent you are looking at is
-       a decision presented to somebody who has none to make. It appears the
-       moment a second agent exists.
-       🛑 AND IT IS NEVER PREFILLED FROM A GUESS. There is already a function
-       in this product that works out "is this the manager" from role text, and
-       its own comment prices the looseness honestly: being wrong costs one
-       click on a dropdown. That price is right there and wrong here, because
-       the org view DRAWS this answer and a diagram does not look like a guess.
-       An empty reporting line is honest; an inferred one is a claim. -->
-  <div class="field" id="d-reports-wrap" hidden>
-    <label class="flabel" for="d-reports">Reports to</label>
-    <!-- 🔑 REPLACED WHOLE (#336, Mona Lisa and Splinter). The old hint was
-         "Only used to draw your org chart. Leave it blank if it does not
-         apply." Both sentences wrong: blank is not "does not apply", it is
-         "reports to you" (Josh, 2026-08-23 09:55); and "only used to draw"
-         expired the day the line started being written into the agent's
-         file. A hint that says "only used for X" is a capability claim with
-         an expiry date and nothing announces the day it expires. -->
-    <div class="fhint">Who they report their work to. Until you pick somebody, that is you.</div>
-    <div class="frow">
-      <select id="d-reports"></select>
-    </div>
-  </div>
-  <!-- ONE Save for the box, because it now writes two fields. A button sitting
-       inside the role row while also saving the name would misdescribe itself. -->
-  <div class="frow" style="margin-top:14px;">
-    <!-- Named for its BOX rather than its fields, because Reports to is
-         conditional: a label listing the fields would be wrong whenever that
-         row is hidden, which is most machines. "Save" survives verbatim. -->
-    <button class="btn" id="d-save" type="button" aria-label="Save name and role">Save</button>
-  </div>
-  <div class="fmsg" id="d-role-msg"></div>
-  </section>
   </section>
   <!-- #2916: the nav PILL is renamed "Advanced", but this region keeps aria-label "Terminal" to
        match its own content (the "This agent's Terminal" heading + Open Terminal controls) -- same
@@ -25144,16 +25145,17 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
   if (!b) return;
   detailGo(b.dataset.go);
-  /* #2916: the Skills list lazy-loads when its section is revealed. It used to live behind its
-     own pill; now it is folded under Instructions, so load it when the Instructions pill opens
-     (the skills section shows alongside it). Guarded by SKILLS_LOADED_FOR so returning to
-     Instructions -- a frequent action, it also carries the needs-you dot -- does not refetch and
-     rebuild the list on every visit.
+  /* #2916/#3046: the Skills list lazy-loads when its section is revealed. It used to live behind
+     its own pill; now it is folded under the "Profile Info" pill (data-go="profile") alongside
+     Instructions, so load it when the Profile Info pill opens (the skills section shows alongside
+     it). Guarded by SKILLS_LOADED_FOR so returning to Profile Info -- a frequent action, it also
+     carries the needs-you dot -- does not refetch and rebuild the list on every visit.
      ⚠️ The trigger lives HERE, in the click handler, not in detailGo/openDetail. No caller opens
-     directly to Instructions today (every openDetail lands on Talk; the URL deep-link carries no
-     section), so this is fine. If a section deep-link to 'instr' is ever added, the Skills list
-     would render blank until the pill is clicked -- move this load beside the group reveal then. */
-  if (b.dataset.go === 'instr' && CURRENT && SKILLS_LOADED_FOR !== CURRENT.sessionName) {
+     directly to Profile Info today (every openDetail lands on Talk; the URL deep-link carries no
+     section), so this is fine. If a section deep-link to 'profile'/'instr' is ever added, the
+     Skills list would render blank until the pill is clicked -- move this load beside the group
+     reveal then. */
+  if (b.dataset.go === 'profile' && CURRENT && SKILLS_LOADED_FOR !== CURRENT.sessionName) {
     SKILLS_LOADED_FOR = CURRENT.sessionName;
     loadSkills('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/skills', 'd-skills-list', 'd-skills-msg');
   }
@@ -26486,10 +26488,12 @@ function detailDots() {
     if (on) b.setAttribute('data-dot', '1'); else b.removeAttribute('data-dot');
   };
   set('talk', shown('d-qask'));
-  /* #1841: the Instructions tab dot also lights for the working-rules update
-     state, now that it lives on that tab -- either the doctrine prompt (made
-     before the rules) or the reports section (Kosmos-made change to re-read). */
-  set('instr', shown('d-instr-outdated') || shown('d-instr-stale')
+  /* #1841/#3046: the needs-you dot for the instructions/working-rules update state
+     lights the "Profile Info" pill (data-go="profile"), since Instructions now folds
+     under it (#3046) -- either the doctrine prompt (made before the rules) or the
+     reports section (Kosmos-made change to re-read). There is no standalone instr
+     button anymore, so set('profile', ...) is the pill that carries this dot. */
+  set('profile', shown('d-instr-outdated') || shown('d-instr-stale')
     || shown('d-doctrine-note') || shown('d-instr-reports'));
 }
 (function watchDots() {

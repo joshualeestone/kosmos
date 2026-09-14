@@ -43,12 +43,13 @@ const fleet = require('../../test-support/fleet');
 const srv = require('../../server.js');
 
 const OUT = process.env.SHOT_DIR || fs.mkdtempSync(path.join(os.tmpdir(), 'nav-shots-'));
-// #2916: SECTIONS is every MEASURABLE section (skills added, since it now shows alongside instr).
-// PILLS is what the nav actually clicks -- memory folds under the 'model' pill and skills under
-// 'instr', so neither has a pill of its own. GROUP maps a pill to the section(s) it reveals.
-const SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'];
-const PILLS = ['talk', 'model', 'instr', 'profile', 'term', 'remove'];
-const GROUP = { model: ['model', 'memory'], instr: ['instr', 'skills'] };
+// #2916/#3046: SECTIONS is every MEASURABLE section. PILLS is what the nav actually clicks --
+// memory folds under the 'model' pill (#2916), and #3046 folds instr + skills under the 'profile'
+// pill ("Profile Info"), so memory, instr and skills have no pill of their own. GROUP maps a pill
+// to the section(s) it reveals, in DOM/reveal order.
+const SECTIONS = ['talk', 'model', 'memory', 'profile', 'instr', 'skills', 'term', 'remove'];
+const PILLS = ['talk', 'model', 'profile', 'term', 'remove'];
+const GROUP = { model: ['model', 'memory'], profile: ['profile', 'instr', 'skills'] };
 const groupOf = (k) => GROUP[k] || [k];
 const fail = [];
 function chk(ok, label, extra) {
@@ -114,7 +115,7 @@ function chk(ok, label, extra) {
         await page.click('#d-nav button[data-go="' + k + '"]');
         await page.waitForTimeout(150);
         r = await rects();
-        // #2916: the pill reveals its GROUP (model+memory, or instr+skills); everything else is 0.
+        // #2916/#3046: the pill reveals its GROUP (model+memory, or profile+instr+skills); everything else is 0.
         const grp = groupOf(k);
         const onlyThis = SECTIONS.every((j) => (grp.includes(j) ? r[j].h > 0 : r[j].h === 0));
         chk(onlyThis, `[${theme}] click ${k}: [${grp.join('+')}] on screen and nothing else`,
@@ -137,9 +138,11 @@ function chk(ok, label, extra) {
           // under nowrap, would still be caught overrunning the 176px column rather than hiding.
           const fit = await page.evaluate(() => {
             const m = document.querySelector('#d-nav button[data-go="model"]');
-            const ih = document.querySelector('#d-nav button[data-go="instr"]').getBoundingClientRect().height;
+            // #3046: the standalone 'instr' pill is gone; use 'term' (Advanced), a plain one-line
+            // pill, as the single-line height baseline the bold 'model' pill must match.
+            const ih = document.querySelector('#d-nav button[data-go="term"]').getBoundingClientRect().height;
             const mh = m.getBoundingClientRect().height;
-            return { model: Math.round(mh), instr: Math.round(ih), weight: getComputedStyle(m).fontWeight,
+            return { model: Math.round(mh), ref: Math.round(ih), weight: getComputedStyle(m).fontWeight,
               scrollW: m.scrollWidth, clientW: m.clientWidth,
               oneLine: Math.abs(mh - ih) <= 2, noOverflow: m.scrollWidth <= m.clientWidth };
           });
@@ -154,9 +157,10 @@ function chk(ok, label, extra) {
       await page.evaluate(() => openDetail('april', 'instr'));
       await page.waitForTimeout(200);
       r = await rects();
-      // #2916: Instructions reveals the instr+skills group; the rest measure zero.
-      chk(r.instr.h > 0 && r.skills.h > 0 && SECTIONS.filter((j) => !['instr', 'skills'].includes(j)).every((j) => r[j].h === 0),
-        `[${theme}] openDetail(name, 'instr') lands on Instructions with Skills below`, JSON.stringify(Object.fromEntries(SECTIONS.map((j) => [j, r[j].h]))));
+      // #3046: a deep-link to the folded 'instr' section reveals the whole Profile Info group
+      // (profile + instr + skills), focus on profile (group[0]); the rest measure zero.
+      chk(r.profile.h > 0 && r.instr.h > 0 && r.skills.h > 0 && SECTIONS.filter((j) => !['profile', 'instr', 'skills'].includes(j)).every((j) => r[j].h === 0),
+        `[${theme}] openDetail(name, 'instr') reveals the Profile Info group (profile+instr+skills)`, JSON.stringify(Object.fromEntries(SECTIONS.map((j) => [j, r[j].h]))));
       await page.evaluate(() => openDetail('april', 'no-such-section'));
       await page.waitForTimeout(100);
       r = await rects();
