@@ -30,10 +30,10 @@ test('an empty consolidated centre says what to press, and says it differently w
   assert.match(PAGE, /\} else if \(empty\) \{\n(?:[^\n]*\n){1,4}    say = '';/);
   // the view is the record, never the DOM (the list stays visible beside the New project form in the consolidated layout)
   assert.match(PAGE, /const view = which === undefined \? PJ_VIEW : which;/);
-  // #2842: the show also suppresses the hint while the consolidated user-settings view is open
-  // (openConsolidatedSettings takes over the display column), so #pj-none does not render over
-  // the settings panel. It still keys on the record (view === 'list'), never the DOM.
-  assert.match(PAGE, /const show = document\.body\.classList\.contains\('consolidated'\) && view === 'list' && !appSettingsOpen;/);
+  // #2842 / #3053: the show also suppresses the hint while the consolidated user-settings view
+  // OR the New Agent create panel is open (each takes over the display column), so #pj-none does
+  // not render over them. It still keys on the record (view === 'list'), never the DOM.
+  assert.match(PAGE, /const show = document\.body\.classList\.contains\('consolidated'\) && view === 'list' && !appSettingsOpen && !appCreateOpen;/);
   // "No projects yet" only after a read has happened
   assert.match(PAGE, /const empty = PJ_LOADED_ONCE && !PJ_READ_FAILED && PROJECTS\.length === 0;/, 'a failed read never reads as "no projects"');
   assert.match(PAGE, /PJ_READ_FAILED = true;\n    paintPjNone\(\);/, 'the failure branch repaints the sentence');

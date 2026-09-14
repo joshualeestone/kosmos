@@ -3549,6 +3549,13 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings { grid-column: 2; grid-row: 1; margin: 0; width: 100%; padding: 24px 24px 0 0; min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings::-webkit-scrollbar { display: none; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings .dbody { grid-template-columns: minmax(120px, 30%) minmax(0, 1fr); justify-content: stretch; column-gap: 18px; }
+  /* #3053: the relocated New Agent create panel gets the same display-column placement #2842 gave
+     settings -- grid-column 2, top of the display area beside the projects list -- but it stays a
+     34rem FORM (inherited max-width), NOT a full-width fill: `margin: 0` overrides the tab-view
+     `margin: 0 auto` so it sits at the LEFT of the wide column instead of collapsing to a narrow
+     centered island, and `width: 100%` (capped by the 34rem max-width) gives it its real form width. */
+  html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-create { grid-column: 2; grid-row: 1; margin: 0; width: 100%; padding: 24px 24px 0 0; min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+  html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-create::-webkit-scrollbar { display: none; }
   /* 🔑 THESE PANES HIDE THEIR SCROLLBAR LIKE EVERY OTHER SCROLLER IN THIS VIEW
      (kosmos#1196). Josh: "The project settings tab itself is quite a mess. It has
      a horizontal or vertical scroll bar in the middle of the page. I'd like to
@@ -16993,6 +17000,9 @@ function showTab(tab) {
   // top level in the tab view. Same chokepoint and same `cons` flag as above, so the
   // DOM move and the consolidated CSS stay in lockstep.
   placeAppSettings(cons);
+  // #3053: same relocation for the New Agent create panel, so it opens in the consolidated
+  // display column and is restored to the top level in the tab view. Same chokepoint + `cons`.
+  placeCreatePanel(cons);
   // #980: the search placeholder follows the EFFECTIVE view, set in the
   // one place that decides it (this toggle re-runs on tab switches and on
   // the resize re-check), never the saved layout alone -- a consolidated
@@ -30252,6 +30262,32 @@ function placeAppSettings(consolidated) {
     APP_SETTINGS_HOME.parent.insertBefore(panel, APP_SETTINGS_HOME.next);
   }
 }
+/* #2842 / #3053: prepare the consolidated display column for a takeover overlay (settings or the
+   New Agent create form). ONE helper does the whole preparation so a new pj-view or a third overlay
+   is added in a single place, not copied across the two open-functions (repo convention #5): show
+   #panel-projects, hide every project sub-view and the "No projects yet" hint, keep the projects list
+   beside it, and hide the OTHER relocated overlay so the column holds AT MOST ONE at a time (the
+   caller then shows its own panel). That last part is what stops opening one overlay over the other
+   -- both are persistent rail buttons with no project navigation between -- from stacking both in the
+   same grid cell (they share grid-column 2 / grid-row 1); pjView covers the project-nav exit. */
+function takeOverDisplayColumn() {
+  const projects = document.getElementById('panel-projects');
+  if (!projects) return;
+  projects.hidden = false;
+  for (const v of ['one', 'add', 'settings', 'task', 'docs', 'alltasks']) {
+    const el = document.getElementById('pj-' + v + '-view');
+    if (el) el.hidden = true;
+  }
+  document.getElementById('pj-list-view').hidden = false;   // keep the projects column beside it
+  // Hide the other relocated takeover overlays so the column holds one at a time.
+  for (const id of ['panel-settings', 'panel-create']) {
+    const p = document.getElementById(id);
+    if (p && p.parentElement === projects) p.hidden = true;
+  }
+  // paintPjNone keeps #pj-none hidden while an overlay is open (the 5s poll re-runs it); hide it
+  // now so it does not flash over the overlay before the next paint.
+  { const none = document.getElementById('pj-none'); if (none) none.hidden = true; }
+}
 /* Open the app settings inside the consolidated display column, staying in the
    consolidated view. Swaps the display column to the settings panel (hiding the
    project views), keeps the projects list beside it, and paints the settings the
@@ -30266,16 +30302,7 @@ function openConsolidatedSettings() {
   // future caller cannot render settings into #panel-projects without the consolidated CSS.
   if (!document.body.classList.contains('consolidated')) return;
   placeAppSettings(true);
-  document.getElementById('panel-projects').hidden = false;
-  for (const v of ['one', 'add', 'settings', 'task', 'docs', 'alltasks']) {
-    const el = document.getElementById('pj-' + v + '-view');
-    if (el) el.hidden = true;
-  }
-  document.getElementById('pj-list-view').hidden = false;   // keep the projects column
-  // #pj-none is another display-column child; hide the "No projects yet" hint so it does not
-  // render over settings. paintPjNone keeps it hidden while settings is open (the poll re-runs
-  // it); this makes it immediate rather than waiting for the next paint.
-  { const none = document.getElementById('pj-none'); if (none) none.hidden = true; }
+  takeOverDisplayColumn();   // #3053: prepare the column (hides any create overlay too)
   document.getElementById('panel-settings').hidden = false;
   paintSettings();
   // settingsOpen -> settingsGo -> syncUrl writes the address from PJ_VIEW/PJ_CURRENT, which
@@ -30286,6 +30313,39 @@ function openConsolidatedSettings() {
   // 'appsettings' value that syncUrl and every PJ_VIEW reader would then have to learn.
   settingsOpen(SETTINGS_SEC);
   syncPlusChrome();
+}
+/* #3053: the New Agent create panel gets the SAME consolidated-display treatment #2842 gave
+   settings, so clicking New Agent in the consolidated view opens the form in the display column
+   instead of kicking back to the tab view. placeCreatePanel mirrors placeAppSettings (relocate
+   #panel-create into #panel-projects, restore it in the tab view); openConsolidatedCreate mirrors
+   openConsolidatedSettings (show it in place). */
+let CREATE_PANEL_HOME = null;
+function placeCreatePanel(consolidated) {
+  const panel = document.getElementById('panel-create');
+  const projects = document.getElementById('panel-projects');
+  if (!panel || !projects) return;
+  if (consolidated) {
+    if (panel.parentElement !== projects) {
+      // Same cached-sibling restore as placeAppSettings: capture the original parent + next
+      // sibling once; insertBefore(panel, next) puts it back in its top-level slot (next may be null).
+      if (!CREATE_PANEL_HOME) CREATE_PANEL_HOME = { parent: panel.parentElement, next: panel.nextElementSibling };
+      panel.hidden = true;   // relocated but not shown until openConsolidatedCreate()
+      projects.appendChild(panel);
+    }
+  } else if (CREATE_PANEL_HOME && panel.parentElement === projects) {
+    CREATE_PANEL_HOME.parent.insertBefore(panel, CREATE_PANEL_HOME.next);
+  }
+}
+/* Open the create panel inside the consolidated display column, staying in the consolidated view.
+   openCreate has already reset the form and set cstep('role'); this only swaps the display column
+   to the create panel (hiding the project views), keeps the projects list beside it, and does NOT
+   showTab (which would drop body.consolidated and kick to the tab view -- the #3053 bug). Guarded
+   on body.consolidated for the same reason openConsolidatedSettings is. */
+function openConsolidatedCreate() {
+  if (!document.body.classList.contains('consolidated')) return;
+  placeCreatePanel(true);
+  takeOverDisplayColumn();   // #3053: prepare the column (hides any settings overlay too)
+  document.getElementById('panel-create').hidden = false;
 }
 /* #2618: the in-tab layout tiles + Activate (kosmos#1216) lived in the removed
    Settings > Styles tab. The header board-view toggle below (#2154) is now the only
@@ -30335,7 +30395,14 @@ function paintPjNone(which) {
     const pp = document.getElementById('panel-projects');
     return !!(ps && pp && ps.parentElement === pp && !ps.hidden);
   })();
-  const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen;
+  /* #3053: the relocated New Agent create panel takes over the display column the same way, so
+     suppress the "No projects yet" hint while it is open too (the 5s poll re-invokes this). */
+  const appCreateOpen = (() => {
+    const pc = document.getElementById('panel-create');
+    const pp = document.getElementById('panel-projects');
+    return !!(pc && pp && pc.parentElement === pp && !pc.hidden);
+  })();
+  const show = document.body.classList.contains('consolidated') && view === 'list' && !appSettingsOpen && !appCreateOpen;
   el.hidden = !show;
   if (!show) return;
   const cls = document.body.classList;
@@ -34032,7 +34099,15 @@ function openCreate(initialMode) {
   document.getElementById('create-go').disabled = false;
   document.getElementById('role-next').disabled = true;
   cstep('role');
-  showTab('create');
+  /* #3053: in the consolidated view, open the create panel IN the display column rather than
+     showTab('create'), which is not an agents/projects tab and so drops body.consolidated and
+     kicks the person to the tab view. Mirrors #rail-me-go -> openConsolidatedSettings for the
+     New Agent action; the tab view keeps its full-page create panel. */
+  if (document.body.classList.contains('consolidated')) {
+    openConsolidatedCreate();
+  } else {
+    showTab('create');
+  }
   // #1652: passes the mode through to loadRoles' async pickMode, so the first-run
   // import link (openCreate('import')) lands on the import panel rather than being
   // reset to 'pm'. Every other caller passes nothing and gets 'pm' as before.
@@ -35950,6 +36025,11 @@ function pjView(which) {
     const appS = document.getElementById('panel-settings');
     const proj = document.getElementById('panel-projects');
     if (appS && proj && appS.parentElement === proj) appS.hidden = true;
+    /* #3053: same for the relocated New Agent create panel -- pjView is project navigation, so it
+       always leaves the consolidated create view too (this is how create-back / done return to the
+       projects display without dropping the consolidated layout). */
+    const appC = document.getElementById('panel-create');
+    if (appC && proj && appC.parentElement === proj) appC.hidden = true;
   }
   paintPjNone(which);
   /* #520: the list is the projects rail in the consolidated view, so it
