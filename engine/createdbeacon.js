@@ -50,7 +50,6 @@
 
 const os = require('node:os');
 const ping = require('./ping');       // installId + the under-test guard
-const status = require('./status');   // paneRoster() -- the live agent count
 
 const DEFAULT_ENDPOINT = 'https://installkosmos.com/api/created';
 
@@ -76,20 +75,6 @@ function version() {
 function osTag() {
   try { return `${os.platform()} ${os.release()}`.trim(); }
   catch { return 'unknown'; }
-}
-
-/**
- * The live number of agents on this install, or null if it cannot be read.
- * status.paneRoster() THROWS when tmux cannot be asked (deliberately, so a gate
- * never treats "could not look" as "nothing running") -- here that throw just
- * means we skip sending a count we do not actually know, which is the safe
- * direction for a best-effort beacon.
- */
-function liveAgentCount() {
-  try {
-    const roster = status.paneRoster();
-    return Array.isArray(roster) ? roster.length : null;
-  } catch { return null; }
 }
 
 /**
@@ -149,17 +134,18 @@ function send(count) {
 function pingInstall() { send(0); }
 
 /**
- * The AGENT-CREATED ping: the install's LIVE agent count. The CALLER gates this
- * on the create-agent checkbox (the route fires it only when the box is on);
- * this function is unconditional-send like feedbacksend.maybeSend, so the gate
- * lives in one place (the create route) and the send stays testable. When no
- * count is passed it reads the live roster; a caller that already has the count
- * passes it to avoid a second roster read.
+ * The AGENT-CREATED ping: the install's live agent count. The CALLER owns the
+ * count AND the checkbox gate (the create route fires this only when the box is
+ * on, and passes its own safeRoster-based count). Keeping the count derivation
+ * in ONE place -- the route -- is deliberate: an earlier version also read the
+ * roster here (via a different, pane-based source), which is exactly the
+ * two-derivations-of-one-fact defect the repo names as its worst habit. So this
+ * takes the count and only sends; a missing or bad count is dropped rather than
+ * re-derived from a second source.
  */
 function pingAgentCreated(count) {
-  const n = Number.isInteger(count) && count >= 0 ? count : liveAgentCount();
-  if (n == null) return;   // could not read the roster: skip rather than send a wrong count
-  send(n);
+  if (!Number.isInteger(count) || count < 0) return;
+  send(count);
 }
 
 /* Test hook. Production never calls this. */
@@ -167,5 +153,5 @@ function setSender(f) { sender = f; }
 
 module.exports = {
   payload, send, pingInstall, pingAgentCreated,
-  liveAgentCount, version, osTag, underTest, setSender, DEFAULT_ENDPOINT,
+  version, osTag, underTest, setSender, DEFAULT_ENDPOINT,
 };
