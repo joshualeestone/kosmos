@@ -17,8 +17,10 @@
  *                    exists", never how many agents it runs.
  *   - created ping   on agent create, GATED on the create-agent checkbox
  *                    (default CHECKED, hardcoded on the form, #238). Carries the
- *                    install's LIVE agent count, so the homepage AGENT count
- *                    moves to the true number (not +1 -- see below).
+ *                    install's TOTAL-EVER-CREATED count (create.createdCount,
+ *                    from the birth log; #3038 -- NOT the live running roster,
+ *                    which froze at peak-running under Math.max), so the homepage
+ *                    AGENT count moves to the true number (not +1 -- see below).
  *
  * The split is deliberate: the install ping cannot be opted out (it is just a
  * headcount of installs and reveals nothing about agents), and the agent count
@@ -29,9 +31,10 @@
  * Math.max(existing, count). So:
  *   - an install can ping any number of times (every board start) without ever
  *     inflating a number -- the install ping's count 0 never lowers a real one;
- *   - ONE created ping after an upgrade carries the LIVE agent count, so an
- *     install that already had N agents before this beacon shipped is counted in
- *     full the first time it creates one more, rather than climbing +1 forever.
+ *   - ONE created ping after an upgrade carries the TOTAL-EVER-CREATED count
+ *     (read from the full birth log), so an install that already had N agents
+ *     before this beacon shipped is counted in full the first time it creates one
+ *     more, rather than climbing +1 forever.
  * The contract with the collector is exactly:
  *   POST <endpoint>  application/json
  *   { installId, count, version, os }
@@ -79,8 +82,8 @@ function osTag() {
 
 /**
  * The payload for a `count`, matching the collector contract EXACTLY. `count` is
- * a non-negative integer (0 for the install ping, the live agent count for the
- * created ping). installId falls back to 'unknown' the same way feedbacksend
+ * a non-negative integer (0 for the install ping, the total-ever-created count for
+ * the created ping). installId falls back to 'unknown' the same way feedbacksend
  * does, so a one-off id-write failure never blocks the send.
  */
 function payload(count) {
@@ -134,11 +137,13 @@ function send(count) {
 function pingInstall() { send(0); }
 
 /**
- * The AGENT-CREATED ping: the install's live agent count. The CALLER owns the
+ * The AGENT-CREATED ping: a count the CALLER supplies. The CALLER owns the
  * count AND the checkbox gate (the create route fires this only when the box is
- * on, and passes its own safeRoster-based count). Keeping the count derivation
- * in ONE place -- the route -- is deliberate: an earlier version also read the
- * roster here (via a different, pane-based source), which is exactly the
+ * on, and passes create.createdCount() -- the monotonic total-ever-created from
+ * the birth log, #3038; it used to pass the live safeRoster count, which froze
+ * the homepage number at peak-running under the server's Math.max). Keeping the
+ * count derivation in ONE place -- the route -- is deliberate: an earlier version
+ * also read the roster here (via a different, pane-based source), which is exactly the
  * two-derivations-of-one-fact defect the repo names as its worst habit. So this
  * takes the count and only sends; a missing or bad count is dropped rather than
  * re-derived from a second source.

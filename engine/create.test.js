@@ -5131,3 +5131,27 @@ test('#1704 a NAMED-world launch hands the pane its Kosmos: KOSMOS_WORLD + the w
   assert.ok(dataVar && dataVar.includes(nodePath.join('worlds', 'qa')),
     'the pane reaches the qa world store, not the default: ' + dataVar);
 });
+
+test('#3038: createdCount() counts creations (created + partial), never refusals -- so the beacon grows with creations, not the running roster', () => {
+  create.setRunner(() => ({ ok: true }));
+  create.setDryRun(false);
+  const before = create.createdCount();
+  const logLenBefore = create.createdLog().length;
+
+  // A real CREATED must grow the count by exactly 1.
+  const made = create.createAgent({ ...BINS, name: 'count-fixture-ick', role: 'pm' });
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because || '');
+  assert.equal(create.createdCount(), before + 1, 'a CREATED grows createdCount by exactly 1');
+
+  // A REFUSED (duplicate name) writes a birth-log line but must NOT grow the count.
+  const dup = create.createAgent({ ...BINS, name: 'count-fixture-ick', role: 'pm' });
+  assert.equal(dup.outcome, create.OUTCOME.REFUSED);
+  assert.equal(create.createdCount(), before + 1, 'a REFUSED does not grow createdCount (nothing was made)');
+  assert.ok(create.createdLog().length >= logLenBefore + 2, 'both attempts (incl. the refusal) were recorded in the birth log');
+
+  // Consistency: createdCount == the created+partial entries in the birth log,
+  // the same "created or partial line is the tie" interpretation register.js uses.
+  const expected = create.createdLog()
+    .filter((e) => e.outcome === create.OUTCOME.CREATED || e.outcome === create.OUTCOME.PARTIAL).length;
+  assert.equal(create.createdCount(), expected, 'createdCount matches the created+partial birth-log entries');
+});
