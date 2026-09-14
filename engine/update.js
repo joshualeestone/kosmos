@@ -126,6 +126,8 @@ let installRunner = null;   // tests inject; production spawns the real installe
 let autoPrefFn = null;      // tests inject; production reads the real setting
 let installedRootFn = null; // tests inject; production checks the real layout
 let windowsInstallerFn = null; // tests inject; production calls win32update.begin() (the S3 board-side entrypoint)
+let windowsRollbackFn = null; // tests inject; production calls win32update.rollbackToPrevious() (S5)
+let keptPreviousBuildFn = null; // tests inject; production asks win32update for the kept previous build
 /* #S4: the board tells update.js its own port and pid at listen time (server.js real-start), so the
    win32 in-app updater can hand the detached helper the real board to stop and the real port to
    confirm on. Null until then; begin() then defaults them (port -> its own DEFAULT_BOARD_PORT). */
@@ -213,6 +215,29 @@ function installOffer() {
   if (!installedRoot()) return null;
   if (windowsLocationRefusal()) return null;
   return available();
+}
+
+/**
+ * 🪟 S5: the "Roll back" offer -- the kept previous build a person can restore, `{ version }`, or null.
+ * S4's armed success path keeps one `previous-<from>` folder under WORK exactly so a rollback button
+ * can restore it (design decision 4, #3017). This surfaces its version to the card so people know
+ * rollback exists (Josh: "people don't know rollback exists otherwise"). Null off win32, on a source
+ * checkout, or for a bundle the updater refuses up front (OneDrive / Program Files) -- a location that
+ * never took an in-app update has no kept previous build anyway, and its destructive rename is refused
+ * the same way the forward swap is. The full validation (required entries, the node.exe runs) happens
+ * at press time in win32update.rollbackToPrevious; this is the light, poll-cheap version read.
+ *
+ * 📌 Lazy require of win32update, exactly as windowsLocationRefusal's, to avoid the require cycle.
+ */
+function rollbackOffer() {
+  if (updatePlatform() !== 'win32') return null;
+  const root = installedRoot();
+  if (!root) return null;
+  if (windowsLocationRefusal()) return null;
+  try {
+    const kept = keptPreviousBuildFn ? keptPreviousBuildFn(root) : require('./win32update').keptPreviousBuild(root);
+    return kept && kept.version ? { version: kept.version } : null;
+  } catch { return null; }
 }
 
 function manualOffer() {
@@ -880,6 +905,46 @@ function beginWindowsInstall(opts) {
     });
 }
 
+/**
+ * 🪟 S5: the win32 in-app ROLLBACK. The person pressed "Roll back", so this restores the kept previous
+ * build through win32update.rollbackToPrevious(), which reuses the SAME detached helper the forward
+ * update spawns (it stages the kept build as a rollback journal and applies it). It shares the forward
+ * path's single-flight (installStarted) and its detached-helper witness, so a rollback and an update can
+ * never race, and a helper that dies before it stops the board still releases the flag. On {ok:true} the
+ * helper is on its way to stop this board, so single-flight stays held; on a refusal or failure this
+ * releases it and records the sentence for the overlay and the person's retry. Never auto -- only a
+ * person presses Roll back -- but the opts.auto symmetry is kept harmless.
+ *
+ * 🛑 SETS THE SINGLE-FLIGHT FLAG AND THE FRESH RECORD ITSELF (like beginInstall, unlike
+ * beginWindowsInstall which beginInstall calls with those already set), because the route calls this
+ * directly rather than through beginInstall's Mac/win32 fork.
+ */
+function beginRollback(opts) {
+  if (installStarted) return;
+  installStarted = true;
+  lastAttempt = { startedAt: new Date().toISOString(), endedAt: null, code: null, because: null, log: null };
+  const owner = lastAttempt;
+  const runRollback = windowsRollbackFn || ((o) => require('./win32update').rollbackToPrevious(o));
+  const root = installedRoot();
+  Promise.resolve()
+    .then(() => runRollback({
+      root,
+      port: Number.isInteger(boardContext.port) ? boardContext.port : undefined,
+      boardPid: Number.isInteger(boardContext.pid) ? boardContext.pid : undefined,
+    }))
+    .then((r) => {
+      if (r && r.ok) { armWindowsHelperWitness(owner, opts); return; }   // the helper is starting; it stops and restarts this board
+      installStarted = false;
+      noteAttemptEnd(owner, null, (r && r.because) || 'the rollback could not be started');
+      if (opts && opts.auto) autoFailedAt = Date.now();
+    })
+    .catch((e) => {
+      installStarted = false;
+      noteAttemptEnd(owner, null, 'the rollback could not be started: ' + String((e && e.message) || e));
+      if (opts && opts.auto) autoFailedAt = Date.now();
+    });
+}
+
 /* 🪟 S4: how long armWindowsHelperWitness waits for the helper to stop THIS board before it treats
    the helper as spawned-then-died and releases single-flight. Tied to
    win32apply.STAGED_HELPER_STARTUP_GRACE_MS -- the very window begin() itself treats a just-started
@@ -1055,6 +1120,8 @@ function setBase(b) { baseOverride = b || null; }
 function setPlatform(p) { platformOverride = p || null; }
 function setWindowsBundleRoot(f) { windowsBundleRootFn = f; }
 function setWindowsInstaller(f) { windowsInstallerFn = typeof f === 'function' ? f : null; }
+function setWindowsRollback(f) { windowsRollbackFn = typeof f === 'function' ? f : null; }
+function setKeptPreviousBuild(f) { keptPreviousBuildFn = typeof f === 'function' ? f : null; }
 function setWindowsHelperWitnessMs(ms) { windowsHelperWitnessMsOverride = Number.isFinite(ms) ? ms : null; }
 function setBoardContext(ctx) { boardContext = { port: ctx && ctx.port, pid: ctx && ctx.pid }; }
 function setInstallRunner(f) { installRunner = f; }
@@ -1118,10 +1185,11 @@ module.exports = {
   available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
   pointerFor, pointerUrl, readManifest, updateChannel, releaseBase, manualOffer, // the per-platform check (win32-update-check)
   installOffer, // S4: the [Update] offer (installedRoot AND not a refused win32 location); one derivation
+  rollbackOffer, beginRollback, // S5 (#3017): the kept-previous-build offer, and the user-initiated rollback
   windowsLocationRefusal, // S4: decision 5 -- the OneDrive/Program Files refusal sentence, or null
   updatePhase, // S4: the win32 update journal phase for the client, or null
   setBoardContext, // S4: server tells update.js its own {port, pid} at listen time
-  setPlatform, setWindowsBundleRoot, setWindowsInstaller, setWindowsHelperWitnessMs,
+  setPlatform, setWindowsBundleRoot, setWindowsInstaller, setWindowsRollback, setKeptPreviousBuild, setWindowsHelperWitnessMs,
   updateAbort, // #2055: the durable board-would-not-pause abort marker ({count,reason,port,ts} or null)
   installStartedFile, // #1728: the durable in-flight marker path (tests + direct readers)
   selfInstallRefusal, // #570: null where self-update works, else the sentence to show
