@@ -226,10 +226,69 @@ function interpreterSizeDiffers(srcNode, nodeAt) {
 }
 
 /**
+ * The bundle VERSION an engine directory belongs to, or null when it cannot be
+ * read. Reuses win32handoff.buildIdentity -- the ONE derivation of "which build a
+ * bundle is", already the basis of the #570 hand-off's comparison -- and keeps
+ * only the version half (buildIdentity appends `+<sha>` when a manifest is present;
+ * ordering is by version, shas are unordered). buildIdentity takes the APP dir, and
+ * an engine dir is `<root>/app/engine`, so its parent is that app dir.
+ *
+ * Required lazily: this is reached only on a win32 re-anchor, and win32handoff
+ * requires win32board only inside its own functions, so there is no load cycle.
+ */
+function bundleVersionForEngineDir(engineDir) {
+  if (!engineDir) return null;
+  let identity = null;
+  try { identity = require('./win32handoff').buildIdentity(path.join(engineDir, '..')); } catch { identity = null; }
+  return identity ? String(identity).split('+')[0] : null;
+}
+
+/**
+ * 🛑 #3016: WOULD REPOINTING THE FLEET TO `launchedEngineDir` BE A DOWNGRADE? The
+ * `engine-path` pointer is the ONE indirection every Scheduled Task reads at logon
+ * and every agent supervisor reads at start, so rewriting it to an OLDER engine
+ * silently downgrades the whole running fleet. That is exactly what double-clicking
+ * an old, unpacked `Kosmos.exe` does: its boot runs
+ * `win32board.ensureInstalled -> install -> ensureAnchored`, which lands here.
+ * Josh's rule (windows-updater-decisions #6): "Never downgrade. Opening an older
+ * `Kosmos.exe` must not take over the fleet. Hand off to, or update to, the newest
+ * copy instead." The caller turns a `true` here into a no-op that keeps the newer
+ * anchor and hands the person to it (win32board.install, win32handoff).
+ *
+ * 🔑 ONE COMPARISON, REUSED: ordering is `update.newer` (real numeric x.y.z; an
+ * unknown version on either side is never newer), not a string compare. Required
+ * lazily -- update.js requires none of the win32* modules, so there is no cycle,
+ * and the cost lands only on a win32 re-anchor.
+ *
+ * ⚠️ SAME VERSION IS NOT A DOWNGRADE, and neither is the same install repairing
+ * itself. Two Windows zips cut from main between version bumps share a version but
+ * differ by sha, and git shas are unordered, so only a STRICTLY older version is
+ * refused -- a same-version reinstall/repair and a first install (no current
+ * pointer) both proceed. An unreadable version fails OPEN to today's behaviour,
+ * matching newer()'s unknown => false.
+ */
+function wouldDowngradePointer(currentEngineDir, launchedEngineDir) {
+  if (!currentEngineDir) return false;
+  const same = path.resolve(currentEngineDir).toLowerCase() === path.resolve(String(launchedEngineDir || '')).toLowerCase();
+  if (same) return false;
+  let newerFn = null;
+  try { newerFn = require('./update').newer; } catch { newerFn = null; }
+  if (typeof newerFn !== 'function') return false;
+  return newerFn(bundleVersionForEngineDir(currentEngineDir), bundleVersionForEngineDir(launchedEngineDir));
+}
+
+/**
  * Put the anchor in place, and answer with the paths a task should be built from.
  *
  * Returns { ok, node, boot, dir, pointer } or { ok:false, because } -- never
  * throws, so a caller can refuse a job with a sentence instead of unwinding.
+ *
+ * 🛑 #3016: when the pointer already names a NEWER build, this repoints NOTHING --
+ * not the pointer, not node.exe, not the shims -- and returns `{ ok:true,
+ * downgrade:true, keptEngine }`. Those shims on disk were written by the newer
+ * build; the older build's constants must not clobber them. The paths returned are
+ * still the anchor's real ones, so a caller that only needs `dir`/`node`/`boot`
+ * keeps working, while the fleet stays on the newer engine.
  */
 function ensureAnchored(opts) {
   const o = opts || {};
@@ -268,6 +327,17 @@ function ensureAnchored(opts) {
     }
     return { ok: true, node: nodeAt, boot: bootAt, dir, pointer: pointerAt,
       untouched: `this app runs from inside the updater's folder (${engineDir}), so the startup files were left as they are` };
+  }
+
+  /* 🛑 #3016: refuse an OLDER build re-pointing the fleet. Read the pointer that is
+     already there and, if it names a strictly-newer engine, repoint NOTHING -- no
+     pointer write, no node copy, no shim rewrite -- so a double-clicked older
+     Kosmos.exe cannot silently downgrade the running fleet. See
+     wouldDowngradePointer; the caller hands the person to the newer copy instead. */
+  let currentPointerEngine = null;
+  try { currentPointerEngine = String(fs.readFileSync(pointerAt, 'utf8')).trim() || null; } catch { currentPointerEngine = null; }
+  if (wouldDowngradePointer(currentPointerEngine, engineDir)) {
+    return { ok: true, downgrade: true, keptEngine: currentPointerEngine, node: nodeAt, boot: bootAt, dir, pointer: pointerAt };
   }
 
   try {

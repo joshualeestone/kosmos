@@ -412,6 +412,10 @@ function anchorBundle(opts) {
   }
   const anchored = anchorFor({ platform: o.platform, home: o.home, env: machineEnv(o), node: o.node, engineDir: o.engineDir });
   if (!anchored.ok) return { ok: false, action: 'failed', because: anchored.because };
+  /* 🛑 #3016: this is an OLDER build, and the anchor refused to re-point the fleet
+     to it (win32anchor.ensureAnchored). Report it so the boot hands the person to
+     the newer copy instead of quietly serving the older one. */
+  if (anchored.downgrade) return { ok: true, action: 'kept-newer', downgrade: true, keptEngine: anchored.keptEngine, pointer: anchored.pointer };
   return { ok: true, action: 'anchored', pointer: anchored.pointer };
 }
 
@@ -460,6 +464,13 @@ function install(spec) {
     node: s.node, engineDir: s.engineDir,
   });
   if (!anchor.ok) return { ok: false, because: anchor.because };
+
+  /* 🛑 #3016: this is an OLDER build than the one anchored. The anchor kept the
+     newer pointer, so do NOT rewrite the board's boot shim (which is the newer
+     build's, and this older build's constants must not clobber it) and do NOT
+     re-register the task. Report the downgrade so the boot hands off to the newer
+     copy. The task on disk still runs the newer engine through the kept pointer. */
+  if (anchor.downgrade) return { ok: true, downgrade: true, keptEngine: anchor.keptEngine, task: TASK_NAME };
 
   /* 🛑 A LOGON TRIGGER NEEDS A USER, and an empty one registers a task that can
      never fire. Refuse with a sentence rather than write a definition schtasks
@@ -770,7 +781,12 @@ function ensureInstalled(opts) {
      re-points, it never registers, re-creates or switches on a task. */
   const anchor = anchorBundle(o);
   const task = registerOrLeaveBoardTask(o);
-  return anchor.ok ? task : { ...task, anchor };
+  const result = anchor.ok ? task : { ...task, anchor };
+  /* 🛑 #3016: either half seeing an older build means the fleet was not re-pointed
+     to it. Surface it so the boot's hand-off (engine/win32handoff.js) sends the
+     person to the newer copy rather than serving this older one. */
+  if (anchor.downgrade || task.downgrade) return { ...result, downgrade: true };
+  return result;
 }
 
 /* The task half of ensureInstalled, for a Windows bundle (the five states above). */
@@ -795,6 +811,13 @@ function registerOrLeaveBoardTask(o) {
      always on or absent; passing the read keeps that true by construction. */
   const r = install({ ...o, workingDir: o.workingDir || bundleRoot(o), enabled: st.registered ? st.enabled : undefined });
   if (!r.ok) return { ok: false, action: 'failed', because: r.because };
+  /* 🛑 #3016: an older build. install neither registered nor refreshed the task
+     (it left the newer one alone), so this is NOT a task to hand off to; do not
+     claim, and report the downgrade for the boot's hand-off decision. */
+  if (r.downgrade) {
+    return { ok: true, action: 'left-newer', downgrade: true, keptEngine: r.keptEngine, task: TASK_NAME,
+      because: 'a newer version of Kosmos is already installed, so this older copy did not take over the fleet' };
+  }
   if (!st.registered) claim(o);
   return { ok: true, action: st.registered ? 'refreshed' : 'registered', task: TASK_NAME, removeHint: REMOVE_HINT };
 }

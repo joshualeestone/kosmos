@@ -13431,6 +13431,10 @@ if (require.main === module) {
       }
       if (r.action === 'registered') {
         process.stdout.write(`Kosmos will now start when you log in. Task Scheduler > Kosmos > board; remove it with: ${r.removeHint}\n`);
+      } else if (r.downgrade) {
+        /* #3016: an older Kosmos.exe was opened. The fleet was NOT re-pointed to it;
+           the hand-off below sends the person to the newer copy that keeps running. */
+        process.stdout.write('You opened an older copy of Kosmos. It did not take over -- the newer one already installed keeps running.\n');
       } else if (r.action === 'unknown') {
         /* #2973: could not read the job, so nothing was changed. Not "will not start". */
         process.stderr.write(`Kosmos could not check whether it starts when you log in: ${r.because}\n`);
