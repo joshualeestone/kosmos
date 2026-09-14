@@ -2231,6 +2231,13 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
                border-radius: 100px; border: 1px solid var(--k-rule); background: var(--k-surface);
                cursor: pointer; color: var(--k-ink-2); font: 500 .8125rem var(--font-ui); }
 .snav button:hover { color: var(--k-ink); }
+/* #3045 (Josh, 6.63 review): the "Model and Memory" pill (#2916's combined section) is the
+   longest label in this 176px nav column, and at the default 28px side padding it word-wrapped
+   to two lines. Keep it on one line: nowrap plus a little more inner room (18px sides) so the
+   label has real slack rather than a 1px-tight fit that could wrap or clip on another render.
+   Scoped to this one pill: the button is width:100% with centered text, so the reduced side
+   padding is invisible (same box, same centering) and does not touch the other nav buttons. */
+.snav button[data-go="model"] { white-space: nowrap; padding-left: 18px; padding-right: 18px; }
 .snav button.on { background: var(--gold); border-color: var(--gold); color: #14161a; font-weight: 600; }
 .snav button:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .snav .sep { height: 1px; background: var(--k-rule); margin: 8px 14px; }

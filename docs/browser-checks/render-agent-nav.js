@@ -103,6 +103,18 @@ function chk(ok, label, extra) {
       chk(names.remove === 'Remove April', `[${theme}] the Remove pill names the agent`, names.remove);
       chk(names.go === 'Change & Restart April', `[${theme}] the model button names the agent`, names.go);
 
+      // #3045: the "Model and Memory" pill is the longest label in the 176px nav column and
+      // word-wrapped to two lines. It must stay on ONE line. Compare its height to a
+      // single-word pill (Instructions), which is always one line; a two-line wrap makes the
+      // model pill ~1.5x taller. Relative, so it does not pin an absolute px that font/padding
+      // tuning would break.
+      const lineFit = await page.evaluate(() => {
+        const h = (go) => document.querySelector('#d-nav button[data-go="' + go + '"]').getBoundingClientRect().height;
+        const model = h('model'); const instr = h('instr');
+        return { model: Math.round(model), instr: Math.round(instr), oneLine: Math.abs(model - instr) <= 2 };
+      });
+      chk(lineFit.oneLine, `[${theme}] #3045 the "Model and Memory" pill is one line (same height as a single-line pill)`, JSON.stringify(lineFit));
+
       // The needs-you dot: April is asking a question, so Talk carries it.
       const dot = await page.evaluate(() => {
         const b = document.querySelector('#d-nav button[data-go="talk"]');
