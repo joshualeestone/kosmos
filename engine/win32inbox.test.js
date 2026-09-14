@@ -287,6 +287,35 @@ test('dryRun (-Peek in delivery mode) reports routing but delivers nothing and a
   assert.equal(r.results[1].kind, DISPOSITION.OWNED_DOWN, 'peek surfaces the owned-but-down block it would hit');
 });
 
+// ── NIT 3: exact ts ordering (no float tie -> no duplicate delivery) ──────────
+
+test('NIT 3: compareTs orders two near-simultaneous ts that float64 ties as EQUAL', () => {
+  // These two DISTINCT ts collapse to the same float64 -- the precise hazard.
+  const a = '1789346624.9068191';
+  const b = '1789346624.9068192';
+  assert.equal(Number(a) === Number(b), true, 'precondition: float64 cannot tell these apart');
+  assert.ok(win32inbox.compareTs(a, b) < 0, 'but compareTs orders them exactly');
+  assert.ok(win32inbox.compareTs(b, a) > 0);
+  assert.equal(win32inbox.compareTs(a, a), 0);
+  // Seconds take precedence over the fraction.
+  assert.ok(win32inbox.compareTs('100.999999', '101.000000') < 0);
+  // A shorter fraction must not sort above a longer one (padding, not raw compare).
+  assert.ok(win32inbox.compareTs('100.9', '100.09') > 0, '.9 (=.900000) is after .09 (=.090000)');
+});
+
+test('NIT 3: two near-simultaneous ts each deliver exactly once, cursor at the larger (no dup)', () => {
+  const say = sayReturning({ ok: true });
+  const r = run([
+    { ts: '1789346624.9068192', text: env({ from: 'mac-1', to: 'reh-a', body: 'msgB' }) },
+    { ts: '1789346624.9068191', text: env({ from: 'mac-1', to: 'reh-a', body: 'msgA' }) },
+  ], { liveNames: LIVE, say });
+  assert.equal(say.calls.length, 2, 'each delivered exactly once');
+  assert.deepEqual(say.calls.map((c) => c.text.includes('msgA') ? 'A' : 'B'), ['A', 'B'],
+    'oldest of the two near ts is delivered first, deterministically');
+  assert.equal(r.advanceTo, '1789346624.9068192',
+    'cursor sits on the larger ts; with exclusive oldest= the next poll re-fetches neither');
+});
+
 test('messages are handled oldest-first regardless of input order', () => {
   const say = sayReturning({ ok: true });
   const r = run([

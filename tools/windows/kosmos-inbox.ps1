@@ -107,8 +107,15 @@ if ($Deliver) {
         exit 3
     }
 
-    # Oldest-first (win32inbox re-sorts too, so ordering is pinned on both sides).
-    $msgs = @($msgs | Sort-Object { [double]$_.ts }) | Where-Object { $_.text }
+    # Oldest-first by EXACT ts (NIT 3), the SAME split-and-compare win32inbox.compareTs
+    # uses, so both sides agree byte-for-byte and never tie on a near-simultaneous ts:
+    # sort by the integer seconds, then by the microseconds as a fixed-width (6) digit
+    # string. `[double]$_.ts` would lose precision at Slack-ts magnitude and could tie
+    # two distinct ts, which -- with an exclusive `oldest=` cursor -- risks a duplicate
+    # delivery. (win32inbox re-sorts identically as a backstop.)
+    $tsSec = { [int64](($_.ts -split '\.')[0]) }
+    $tsFrac = { $p = ($_.ts -split '\.'); if ($p.Count -gt 1) { $p[1].PadRight(6, '0') } else { '000000' } }
+    $msgs = @($msgs | Where-Object { $_.text } | Sort-Object $tsSec, $tsFrac)
 
     # Hand every message (text + ts) to the node brain; it decides which are for a
     # live local worker, delivers those through win32channel, and returns the ONE

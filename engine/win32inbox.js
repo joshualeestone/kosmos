@@ -123,6 +123,39 @@ function resolveTarget(toNames, names) {
 }
 
 /**
+ * Order two Slack `ts` values EXACTLY (NIT 3). A `ts` is "<seconds>.<microseconds>",
+ * and parsing it as a float64 (`Number(ts)`) loses precision at that magnitude --
+ * two near-simultaneous ts (e.g. `...9068191` and `...9068192`) compare EQUAL as
+ * floats, so a float sort could tie and reorder them. A tie is a real hazard here:
+ * the cursor advances by ts and Slack's `oldest=` is exclusive, so a reorder that
+ * left the cursor between two same-valued ts could re-fetch and re-deliver one. This
+ * compares the integer seconds, then the microseconds as fixed-width digit strings
+ * (padded so a shorter fraction cannot sort above a longer one), which is exact and
+ * deterministic. The ps1's Sort-Object uses the SAME split-and-compare, so both
+ * sides agree byte-for-byte (convention 5).
+ */
+function compareTs(a, b) {
+  const split = (t) => {
+    const s = String(t == null ? '' : t);
+    const dot = s.indexOf('.');
+    return dot === -1 ? [s, ''] : [s.slice(0, dot), s.slice(dot + 1)];
+  };
+  const [as, af] = split(a);
+  const [bs, bf] = split(b);
+  const asN = Number(as) || 0;
+  const bsN = Number(bs) || 0;
+  if (asN !== bsN) return asN - bsN;
+  const width = Math.max(af.length, bf.length);
+  const afp = af.padEnd(width, '0');
+  const bfp = bf.padEnd(width, '0');
+  // Fixed-width digit strings: lexicographic order equals numeric order, with no
+  // float rounding. (Also avoids overflowing a 53-bit int on a long fraction.)
+  if (afp < bfp) return -1;
+  if (afp > bfp) return 1;
+  return 0;
+}
+
+/**
  * The names of workers this box OWNS and has NOT removed (round 2, FIX 2). This is
  * the set that separates "our worker, currently down" from "not ours": a message to
  * an owned-not-removed worker that is absent from `claude agents --json` must be
@@ -159,6 +192,12 @@ function ownedWorkerNames(opts) {
   let rows = {};
   try { rows = record.read() || {}; } catch { rows = {}; }
   for (const sid of Object.keys(rows)) {
+    // NIT 2 (convention 5): the recorded name alone, with NO live-name fallback --
+    // win32sessions.record() rejects a row without a valid name (validName at write
+    // time), so `rec.name` is always present for a real row. win32live falls back to
+    // the live `a.name` because it joins against `claude agents --json`; here the set
+    // is exactly the DOWN case where there is no live entry to fall back to, so the
+    // recorded name is both the only source and the guaranteed one.
     const raw = rows[sid] && rows[sid].name;
     const name = flat(raw || '');
     if (!validName(name)) continue;
@@ -248,9 +287,9 @@ function runInbox(input, opts) {
   const say = typeof o.say === 'function' ? o.say : require('./win32channel').say;
 
   const messages = Array.isArray(input && input.messages) ? input.messages.slice() : [];
-  // Oldest-first, numerically, so a delivery order and the cursor cannot drift
-  // from the string sort a caller happened to hand us.
-  messages.sort((a, b) => Number(a && a.ts) - Number(b && b.ts));
+  // Oldest-first by EXACT ts (NIT 3: compareTs, not float), so delivery order and
+  // the cursor cannot drift from the caller's order or tie on near-simultaneous ts.
+  messages.sort((a, b) => compareTs(a && a.ts, b && b.ts));
 
   const results = [];
   let advanceTo = null;
@@ -335,4 +374,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { DISPOSITION, parseEnvelope, resolveTarget, ownedWorkerNames, verdictToDisposition, runInbox };
+module.exports = { DISPOSITION, parseEnvelope, resolveTarget, compareTs, ownedWorkerNames, verdictToDisposition, runInbox };
