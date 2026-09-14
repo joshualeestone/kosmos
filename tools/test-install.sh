@@ -160,10 +160,17 @@ DATA_PATHS_BEFORE="$(data_paths)"
 #   That is the case the installSupervisor-only wording missed, which is how
 #   .world-confirmed.json (#2528/#2569: server.js onListening -> markConfirmed,
 #   the set-once "this world genuinely served" marker) drifted the 0.6.51 cut.
+# ⇒ ping.json (#3038, kosmos): the beacon reads the install's random installId on board
+#   start (engine/ping.js writes store.ROOT/ping.json, minted once), and this gate boots the
+#   installed board, so the id file lands on first boot -- the same set-once-boot-marker case
+#   as .world-confirmed.json above. It is a local random id (never a machine fingerprint) and
+#   only leaves the Mac via the opt-out feedback report. #3038 added the boot-time read without
+#   updating this list, so the first cut carrying it red-flagged ping.json here; blessed now.
 # Order matters: ADDED is `find . | sort`ed and compared as a literal string, so
 # EXPECTED_ADDS must be in sort order too. `.world-confirmed.json` sorts FIRST
-# (the leading '.' 0x2E collates before 'bin' 0x62), so it leads the list.
-EXPECTED_ADDS="$(printf '%s\n' ./Kosmos/.world-confirmed.json ./Kosmos/bin/agent-supervisor.sh ./Kosmos/bin/codex-report-bridge.js ./Kosmos/bin/engine-path ./Kosmos/source-channel)"
+# (the leading '.' 0x2E collates before 'bin' 0x62), so it leads the list; ping.json ('p')
+# sorts after bin/ ('b') and before source-channel ('s').
+EXPECTED_ADDS="$(printf '%s\n' ./Kosmos/.world-confirmed.json ./Kosmos/bin/agent-supervisor.sh ./Kosmos/bin/codex-report-bridge.js ./Kosmos/bin/engine-path ./Kosmos/ping.json ./Kosmos/source-channel)"
 
 # ⚠️ THE PRODUCT'S DEFAULT PORT, RECORDED BEFORE ANYTHING RUNS, and checked
 # again at the end. Found by Splinter, 2026-08-21: a test run left a board
