@@ -24,17 +24,18 @@ test('#739: the block under the instructions box is gone, and so is the role cau
   assert.doesNotMatch(PAGE, /id="create-limit"/);
   assert.doesNotMatch(PAGE, /getElementById\('create-limit'\)/);
   assert.doesNotMatch(PAGE, /getElementById\('create-instr-defaults-text'\)/);
-  /* ⚠️ #2623: the created-ping checkbox is GONE. Josh, 2026-09-09, called the
-     "let the Kosmos team know..." telemetry an invasion of privacy and asked for
-     it deleted. The step keeps its instruction box and its button; the checkbox
-     is asserted ABSENT so a later paste-defaults edit cannot quietly bring the
-     telemetry checkbox back onto this step. The button is anchored separately so
-     a step that lost it goes red for the right reason. */
+  /* #3038: the created-ping checkbox is BACK. Josh ruled #2623's removal was an
+     AGENT's, not his -- he "always wanted" it -- so this step is again exactly
+     the three things Josh named 2026-08-24 21:16 (quoted above): the instruction
+     box, the "Let Kosmos know an agent was created" checkbox, and the Create
+     button. Default CHECKED, hardcoded here so a later edit cannot silently drop
+     it again ("hardcode it so everybody knows. Don't take this out."). The button
+     is anchored separately so a step that lost it goes red for the right reason. */
   const at = PAGE.indexOf('id="create-instr"');
   const step = PAGE.slice(at, PAGE.indexOf('id="create-msg"', at));
   assert.match(step, /id="create-go"/, 'the create step lost its button');
-  assert.doesNotMatch(step, /id="create-tell"/,
-    'the created-ping checkbox is back on the create step; it was deleted in #2623 (invasion of privacy)');
+  assert.match(step, /<input type="checkbox" id="create-tell" checked>/,
+    'the create-agent beacon checkbox is missing or not default-checked (#3038: Josh ruled it back in)');
 });
 
 test('the rules still reach the agent: the engine serves and writes them, and the page carries no copy', () => {
