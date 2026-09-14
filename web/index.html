@@ -25359,6 +25359,45 @@ function usageDonutSvg(models, grandTotal) {
   }).join('');
   return svg + '<div class="tv-pielegend">' + legend + '</div>';
 }
+/* #2840: the four per-class daily mini-charts (small multiples), matching the
+   approved /design/token-value charts4. One area+line sparkline per class, each
+   with its name, a plain-language tag, its abbreviated total, and its % of the
+   blended total. Class order + tags are the design's (cache reads first). Colors
+   come from USAGE_CLASS_COLORS so they match the legend elsewhere. Needs the daily
+   series from usageDailySeries. Pure + node-testable. */
+function usageCharts4Html(series, totals, grandTotal) {
+  const s = Array.isArray(series) ? series : [];
+  if (!s.length) return '';
+  const t = totals || {};
+  const total = Number(grandTotal) || 1;
+  const color = (key) => (USAGE_CLASS_COLORS.find((c) => c.key === key) || {}).color || 'var(--k-ink-2)';
+  const SPECS = [
+    { key: 'cacheRead', name: 'Cache reads', tag: 'context ingested', tot: Number(t.cacheRead) || 0 },
+    { key: 'cacheWritten', name: 'Cache writes', tag: 'context stored', tot: Number(t.cacheWritten) || 0 },
+    { key: 'output', name: 'Output', tag: 'text produced', tot: Number(t.output) || 0 },
+    { key: 'input', name: 'Input', tag: 'new prompts', tot: Number(t.input) || 0 }
+  ];
+  return '<div class="tv-charts4">' + SPECS.map((spec) => {
+    const data = s.map((p) => Number(p[spec.key]) || 0);
+    const n = data.length, maxV = Math.max.apply(null, data.concat([1]));
+    const W = 440, H = 140, padL = 6, padR = 6, padT = 10, padB = 6;
+    const xAt = (i) => (n <= 1 ? padL : padL + (i / (n - 1)) * (W - padL - padR));
+    const yAt = (v) => padT + (1 - v / maxV) * (H - padT - padB);
+    let line = '', area = 'M ' + xAt(0).toFixed(1) + ' ' + yAt(0).toFixed(1) + ' ';
+    data.forEach((v, i) => { const px = xAt(i).toFixed(1), py = yAt(v).toFixed(1); line += (i ? 'L' : 'M') + px + ' ' + py + ' '; area += 'L ' + px + ' ' + py + ' '; });
+    area += 'L ' + xAt(n - 1).toFixed(1) + ' ' + yAt(0).toFixed(1) + ' Z';
+    const pct = spec.tot / total * 100;
+    const ps = pct >= 1 ? pct.toFixed(1) + '%' : (pct < 0.1 ? '<0.1%' : pct.toFixed(2) + '%');
+    const gid = 'tvg-' + spec.key;
+    return '<div class="tv-mini"><div class="tv-mh"><span class="tv-nm">' + spec.name
+      + '<span class="tv-tg">' + spec.tag + '</span></span><span class="tv-tot">' + esc(usageAbbr(spec.tot))
+      + '<span class="tv-pc">' + ps + '</span></span></div>'
+      + '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' + esc(spec.name) + ' per day, ' + n + ' days">'
+      + '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + color(spec.key) + '" stop-opacity="0.28"/><stop offset="1" stop-color="' + color(spec.key) + '" stop-opacity="0.02"/></linearGradient></defs>'
+      + '<path d="' + area + '" fill="url(#' + gid + ')"/>'
+      + '<path d="' + line + '" fill="none" stroke="' + color(spec.key) + '" stroke-width="1.8" stroke-linejoin="round"/></svg></div>';
+  }).join('') + '</div>';
+}
 /* #2840: the scrollable usage-history list -- one row per day+model, newest first,
    matching Mona's 0.6.57 token-value design. Day / Model / Total tokens / Value.
    Total is the row's own 4-class sum (a labeled per-row breakdown, not the single
