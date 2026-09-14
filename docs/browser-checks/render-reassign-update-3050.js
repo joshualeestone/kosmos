@@ -21,9 +21,9 @@
  *  - the reload: a CONTROL pins the stale v1 in the box before the click, so the
  *    post-click v2 proves the Update handler actually reloaded (not the initial load).
  *  - the agent-switch race: switching to a SECOND agent while an Update reload is
- *    still in flight must clear the indicator; without the reset in loadInstructions
- *    the (tied) new agent's openDetail skips the untied reset and the "Updating…"
- *    aria-live region strands on the new agent's panel.
+ *    still in flight must clear the indicator. The reset that does this is the
+ *    unconditional hide at the top of openDetail (run on every agent-open); remove
+ *    it and the "Updating…" aria-live region strands on the new agent's panel.
  *
  *   HEADED=0 node docs/browser-checks/render-reassign-update-3050.js
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-reassign-update-3050.js
@@ -157,8 +157,8 @@ const V2 = 'NEW instructions now on disk (post-reassign)';
     // ── Agent-switch race (#3050 BLOCKER): switch to a SECOND tied agent while an
     // Update reload is still in flight; the indicator must not strand on the new
     // agent's panel. Delay the reload so it stays pending across the switch.
-    // RED-CAPABLE: without the reset in loadInstructions, marlow's (tied) openDetail
-    // skips the untied reset and the "Updating…" region stays visible on marlow. ──
+    // RED-CAPABLE: the clear is the unconditional hide at the top of openDetail;
+    // remove it and the "Updating…" region stays visible on marlow after the switch. ──
     await page.evaluate((old) => {
       document.getElementById('d-instr').value = old;
       document.getElementById('d-instr-outdated').hidden = false;
