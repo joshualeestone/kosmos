@@ -34,9 +34,33 @@ test('the overlay lead: "Downloading X" while reachable, "Updating." during the 
   assert.equal(updateOverlayLead(true, '0.6.60', 'darwin'), 'Updating.', 'the Mac lead is unchanged');
   assert.equal(updateOverlayLead(false, '0.6.60', 'darwin'), 'Updating.');
   /* The initial overlay builds its lead through updateOverlayLead (so the Mac renders the same
-     "Updating." bytes and win32 gets "Downloading X."). */
-  assert.ok(PAGE.includes("'<b>' + esc(updateOverlayLead(true, downloading)) + '</b> Your agents keep working."),
+     "Updating." bytes and win32 gets "Downloading X.", and a rollback gets "Rolling back to X."). */
+  assert.ok(PAGE.includes("'<b>' + esc(updateOverlayLead(true, downloading, undefined, rollingBack)) + '</b> Your agents keep working."),
     'the overlay lead is no longer built through updateOverlayLead');
+});
+
+test('win32-update-rollback (S5): the overlay lead is "Rolling back to X." throughout, whatever reachability says', () => {
+  const { updateOverlayLead } = lifted();
+  assert.equal(updateOverlayLead(true, '0.6.50', 'win32', true), 'Rolling back to 0.6.50.', 'a reachable board still leads with the rollback -- there is no download step');
+  assert.equal(updateOverlayLead(false, '0.6.50', 'win32', true), 'Rolling back to 0.6.50.', 'and the same while the board is down for the swap');
+  assert.equal(updateOverlayLead(true, '', 'win32', true), 'Rolling back.', 'with no version, it still names the act');
+});
+
+test('win32-update-rollback (S5): a failed roll back reads as a roll back, not an update, and leaves the box unchanged', () => {
+  const { updateSettleText, windowsCopy } = lifted();
+  for (const verdict of ['failed', 'did-not-take']) {
+    const t = updateSettleText(verdict, '0.6.61', { code: 1 }, null, 'win32', true);
+    assert.equal(t, '<b>The roll back did not take.</b> Kosmos is still on 0.6.61. Nothing else was changed.',
+      `win32 rollback ${verdict}: the honest sentence`);
+    assert.doesNotMatch(t, /update did not take|installer|Applications/, `win32 rollback ${verdict}: update/installer vocabulary leaked in`);
+  }
+  assert.equal(windowsCopy('updateRollbackDidNotTake'), 'The roll back did not take.');
+});
+
+test('win32-update-rollback (S5): the rollback confirm body names the close-and-swap, with no download step', () => {
+  const { windowsCopy } = lifted();
+  assert.equal(windowsCopy('updateRollbackConfirmBody'),
+    'Kosmos closes for a few seconds while it puts the previous version back. <b>Your agents keep working the whole time.</b>');
 });
 
 test('win32 failure: a rollback (or refusal) says the box is unchanged; the same sentence for failed and did-not-take', () => {

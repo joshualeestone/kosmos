@@ -12756,6 +12756,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <!-- win32-board-copy (W-25): the manual offer's second button, shown only in that arm.
              It is the same engine reveal as Settings' "Open the Kosmos folder". -->
         <button class="btn-quiet" type="button" id="upd-open-folder" hidden data-win-copy="updateOpenFolder">Open my Kosmos folder</button>
+        <!-- win32-update-rollback (S5, #3017): restore the kept previous build. Shown only when the
+             status carries a rollback offer (win32-only, so never on Mac); paintUpdateCard sets its
+             "Roll back to X" label from that offer in script, so it carries no platform-copy key. -->
+        <button class="btn-quiet" type="button" id="upd-rollback" hidden aria-describedby="upd-line">Roll back</button>
       </div>
       <ol class="dhint upd-manual-steps" id="upd-manual-steps" hidden></ol>
       <p class="dhint" id="upd-open-folder-msg" role="status" hidden></p>
@@ -13484,9 +13488,16 @@ function windowsCopyTable() {
        downloads first, THEN stops the board to swap the new build in place, which the Mac's does not,
        so its body names both steps. */
     updateConfirmBody: 'Kosmos downloads the update, then closes for a few seconds while it swaps it in. <b>Your agents keep working the whole time.</b>',
+    /* win32-update-rollback (S5, #3017): the rollback confirm reuses the update confirm dialog with this
+       body. The previous build is already on the machine, so there is no download step -- Kosmos just
+       closes for a few seconds while it swaps the old build back in. */
+    updateRollbackConfirmBody: 'Kosmos closes for a few seconds while it puts the previous version back. <b>Your agents keep working the whole time.</b>',
     /* The overlay's outcome copy (S4). A win32 rollback leaves the box exactly as it was, so the
        failure sentence says so; the slow remedy points at Kosmos.exe rather than the Mac's Applications. */
     updateNothingChanged: 'Nothing else was changed.',
+    /* win32-update-rollback (S5): the overlay's own failure sentence, so a failed roll back does not read
+       as a failed update. A failed rollback leaves the box on the build it was already running. */
+    updateRollbackDidNotTake: 'The roll back did not take.',
     updateSlowRemedy: 'If Kosmos does not come back on its own, double-click Kosmos.exe in your Kosmos folder.',
     /* Settings > Updates, the manual offer (W-25). */
     updateManualLead: 'To install it, follow these steps.',
@@ -15350,13 +15361,11 @@ function renderUpdateToast(u) {
     slot.innerHTML = ''; delete slot.dataset.v;
   });
   document.getElementById('ut-install').addEventListener('click', () => {
-    UPD_CONFIRM_OPENER = document.getElementById('ut-install');
-    document.getElementById('uc-err').hidden = true;
-    document.getElementById('updconfirm').hidden = false;
     // Focus lands on the SAFE answer, same rule as every dialog here: the
     // confirm exists as a deliberate-click gate, and opening it with the
-    // keyboard already on gold Update would make that gate one Enter wide.
-    document.getElementById('uc-no').focus();
+    // keyboard already on gold Update would make that gate one Enter wide
+    // (openUpdConfirm sets update mode + focuses Not now).
+    openUpdConfirm('update', document.getElementById('ut-install'));
   });
 }
 /* The update card (Settings): her four states, painted from the SAME
@@ -15368,7 +15377,7 @@ let UPD_CHECKING = false;
 /* Has the person pressed the button in this session? Gates the resting
    "Up to date." only; see the arm that reads it. */
 let UPD_ASKED = false;
-function paintUpdateCard(running, offer, look, manual, channel) {
+function paintUpdateCard(running, offer, look, manual, channel, rollback = null) {
   if (UPD_CHECKING) return;
   const line = document.getElementById('upd-line');
   const btn = document.getElementById('upd-btn');
@@ -15409,6 +15418,25 @@ function paintUpdateCard(running, offer, look, manual, channel) {
   const openFolder = document.getElementById('upd-open-folder');
   if (manualSteps) manualSteps.hidden = true;
   if (openFolder) openFolder.hidden = true;
+  /* win32-update-rollback (S5, #3017): the Roll back button is ORTHOGONAL to the offer/manual arms
+     below -- a person may have an update to install AND a kept build to go back to, or be up to date
+     with a kept build. It shows whenever the status carries a rollback offer (win32-only), labelled
+     with the exact version it restores so people know rollback exists and what it does. */
+  const rollbackBtn = document.getElementById('upd-rollback');
+  if (rollbackBtn) {
+    if (rollback && rollback.version) {
+      const label = 'Roll back to ' + rollback.version;
+      if (rollbackBtn.textContent !== label) rollbackBtn.textContent = label;
+      /* Guard dataset: a stub/harness element may lack it, and `delete el.dataset.x` would call
+         ToObject(undefined) and throw. Absent a rollback offer this branch does nothing to a missing
+         dataset, so every non-rollback caller (the reload-button card, the poll) behaves as before. */
+      if (rollbackBtn.dataset) rollbackBtn.dataset.version = rollback.version;
+      rollbackBtn.hidden = false;
+    } else {
+      rollbackBtn.hidden = true;
+      if (rollbackBtn.dataset) delete rollbackBtn.dataset.version;
+    }
+  }
   if (offer && offer.version) {
     put(v + 'Version ' + offer.version + ' is ready.');
     putBtn('Update');
@@ -15558,10 +15586,7 @@ async function updCheckNowClick() {
   }
   if (btn.dataset.act === 'update') {
     // ONE install path: the same confirm the toast opens, same safe-focus rule.
-    UPD_CONFIRM_OPENER = btn;
-    document.getElementById('uc-err').hidden = true;
-    document.getElementById('updconfirm').hidden = false;
-    document.getElementById('uc-no').focus();
+    openUpdConfirm('update', btn);
     return;
   }
   /* The check does three things, in the spec's order: clears the Later
@@ -15609,7 +15634,7 @@ async function updCheckNowClick() {
     btn.focus();
     return;
   }
-  paintUpdateCard(out.running || LAST_VERSION, out.offer, { reached: !!out.reached, readable: !!out.readable, looked: true }, out.manual, out.channel);
+  paintUpdateCard(out.running || LAST_VERSION, out.offer, { reached: !!out.reached, readable: !!out.readable, looked: true }, out.manual, out.channel, out.rollback);
   // The Later note is gone, so a live offer returns to the toast too.
   renderUpdateToast(out.offer);
   // The keyboard's place is restored: disabling the focused button had
@@ -15643,14 +15668,54 @@ document.getElementById('upd-btn').addEventListener('click', updCheckNowClick);
    Install OR the card's Update (after Later, the toast is gone, so the
    old ut-install lookup dropped keyboard users onto <body>). */
 let UPD_CONFIRM_OPENER = null;
+/* win32-update-rollback (S5, #3017): the SAME confirm dialog serves both Update and Roll back. The
+   mode chooses the title, body, go-button label and, in uc-go, the endpoint and overlay wording. The
+   update wording is cached at load (after applyPlatformCopy has set the platform body), so switching
+   back to update mode restores exactly what shipped -- Mac stays byte-identical, it never enters
+   rollback mode (the offer is win32-only). */
+let UPD_CONFIRM_MODE = 'update';
+const UC_UPDATE_TITLE = (document.getElementById('uc-t') || {}).textContent || 'Update Kosmos?';
+const UC_UPDATE_BODY = (document.getElementById('uc-small') || {}).innerHTML || '';
+function setUpdConfirmMode(mode, version) {
+  UPD_CONFIRM_MODE = mode === 'rollback' ? 'rollback' : 'update';
+  const t = document.getElementById('uc-t');
+  const body = document.getElementById('uc-small');
+  const go = document.getElementById('uc-go');
+  const confirm = document.getElementById('updconfirm');
+  if (confirm) confirm.dataset.mode = UPD_CONFIRM_MODE;
+  if (UPD_CONFIRM_MODE === 'rollback') {
+    if (t) t.textContent = 'Roll back Kosmos' + (version ? ' to ' + version : '') + '?';
+    if (body) body.innerHTML = windowsCopy('updateRollbackConfirmBody');
+    if (go) go.textContent = 'Roll back';
+  } else {
+    if (t) t.textContent = UC_UPDATE_TITLE;
+    if (body) body.innerHTML = UC_UPDATE_BODY;
+    if (go) go.textContent = 'Update';
+  }
+}
+function openUpdConfirm(mode, opener, version) {
+  UPD_CONFIRM_OPENER = opener || null;
+  setUpdConfirmMode(mode, version);
+  document.getElementById('uc-err').hidden = true;
+  const go = document.getElementById('uc-go');
+  if (go) { go.disabled = false; go.onclick = null; }
+  document.getElementById('updconfirm').hidden = false;
+  document.getElementById('uc-no').focus();
+}
 function closeUpdConfirm() {
   document.getElementById('updconfirm').hidden = true;
   const back = (UPD_CONFIRM_OPENER && document.contains(UPD_CONFIRM_OPENER))
     ? UPD_CONFIRM_OPENER
     : (document.getElementById('ut-install') || document.getElementById('upd-btn'));
   UPD_CONFIRM_OPENER = null;
+  setUpdConfirmMode('update');   // leave the dialog ready for the next Update press
   if (back) back.focus();
 }
+/* The Roll back button opens the shared confirm in rollback mode, naming the version it restores. */
+(document.getElementById('upd-rollback') || { addEventListener() {} }).addEventListener('click', (e) => {
+  const btn = e.currentTarget;
+  openUpdConfirm('rollback', btn, btn && btn.dataset ? btn.dataset.version : null);
+});
 document.getElementById('uc-no').addEventListener('click', closeUpdConfirm);
 document.getElementById('updconfirm').addEventListener('click', (e) => {
   if (e.target.id === 'updconfirm') closeUpdConfirm();
@@ -15684,18 +15749,23 @@ document.addEventListener('keydown', (e) => {
 document.getElementById('uc-go').addEventListener('click', async () => {
   const err = document.getElementById('uc-err');
   const go = document.getElementById('uc-go');
+  /* win32-update-rollback (S5, #3017): the SAME confirm serves Update and Roll back. The mode chooses
+     the endpoint and the overlay wording; a rollback has no download step (the previous build is
+     already on the machine), so its overlay lead is "Rolling back to X." throughout. */
+  const rollingBack = UPD_CONFIRM_MODE === 'rollback';
+  const endpoint = rollingBack ? '/api/update/rollback' : '/api/update';
   err.hidden = true;
   go.disabled = true;   // one click, one installer; the route is idempotent as the backstop
   let res = null;
   let body = null;
   try {
-    res = await fetch('/api/update', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    res = await fetch(endpoint, { method: 'POST', headers: { 'content-type': 'application/json' } });
     body = await res.json().catch(() => null);
   } catch { res = null; }
   if (!res || !res.ok) {
     // The route's own sentence: a from-source run, nothing newer published,
     // or a spawn failure. All are states, not scoldings.
-    const said = (body && body.error) || 'we could not start the update';
+    const said = (body && body.error) || (rollingBack ? 'we could not start the roll back' : 'we could not start the update');
     /* 🛑 "THERE IS NO UPDATE TO INSTALL RIGHT NOW" UNDER A BUTTON THAT SAYS
        UPDATE (Josh, 2026-08-23 13:03, screenshot). The offer came from a
        poll; by the press the board had already been restarted on the newer
@@ -15739,11 +15809,15 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   /* 🪟 win32: the swap downloads FIRST while the board still runs, then stops it to swap in place, so
      the overlay leads with "Downloading X." and turns to "Updating." when the board goes away (the
      poll loop below tracks that by reachability). The Mac installer does it all after the board stops,
-     so its lead stays "Updating." -- updateOverlayLead returns that verbatim off Windows. */
-  const downloading = body && body.updating ? String(body.updating) : '';
+     so its lead stays "Updating." -- updateOverlayLead returns that verbatim off Windows. A rollback
+     has no download step, so its lead is "Rolling back to X." throughout (updateOverlayLead's rollback
+     arm ignores reachability). */
+  const downloading = rollingBack
+    ? (body && body.rollingBackTo ? String(body.rollingBackTo) : '')
+    : (body && body.updating ? String(body.updating) : '');
   back.innerHTML = '<div class="upd-msg" role="alert" tabindex="-1">'
     + '<canvas class="upd-k" width="176" height="206" role="img" aria-label="Updating"></canvas>'
-    + '<b>' + esc(updateOverlayLead(true, downloading)) + '</b> Your agents keep working.</div>';
+    + '<b>' + esc(updateOverlayLead(true, downloading, undefined, rollingBack)) + '</b> Your agents keep working.</div>';
   document.body.appendChild(back);
   /* After it is in the document: the loader measures the canvas, and a detached
      one has no layout to measure. */
@@ -15778,7 +15852,7 @@ document.getElementById('uc-go').addEventListener('click', async () => {
   const bootBefore = LAST_BOOTED_AT || null;
   const settle = (verdict, versionNow, attempt) => {
     const logAt = (attempt && attempt.log) || logSeen || null;
-    const text = updateSettleText(verdict, versionNow, attempt, logAt);
+    const text = updateSettleText(verdict, versionNow, attempt, logAt, undefined, rollingBack);
     /* One span for the sentence: .upd-msg is a flex column, so bare
        inline children (the <code> path, the closing period) would each
        become their own row. */
@@ -15804,7 +15878,7 @@ document.getElementById('uc-go').addEventListener('click', async () => {
     /* 🪟 win32: while the board still answers it is downloading; when it stops answering the swap is
        under way. Update the lead from that, and skip the Mac-only "Still updating." relabel below,
        whose wording this two-state Windows lead replaces. */
-    if (onWindows()) { const b = msg.querySelector('b'); if (b) b.textContent = updateOverlayLead(reached, downloading); }
+    if (onWindows()) { const b = msg.querySelector('b'); if (b) b.textContent = updateOverlayLead(reached, downloading, undefined, rollingBack); }
     const verdict = updateVerdict({ elapsedMs: Date.now() - t0, reached, before, now: versionNow, attempt, myStart, bootBefore, bootNow });
     if (verdict === 'done') { location.reload(); return; }
     if (verdict === 'slow') { if (!onWindows()) msg.querySelector('b').textContent = 'Still updating.'; continue; }
@@ -15837,10 +15911,13 @@ function updateVerdict(v) {
    box back to exactly where it was, so 'failed' and 'did-not-take' read one honest sentence there;
    the Mac keeps its installer-worded pair byte-for-byte. `platform` is a seam defaulting to the
    served platform, so a test can drive either OS. */
-function updateSettleText(verdict, versionNow, attempt, logAt, platform) {
+function updateSettleText(verdict, versionNow, attempt, logAt, platform, rollback) {
   const still = versionNow ? ' Kosmos is still on ' + esc(versionNow) + '.' : '';
   const notes = logAt ? ' The installer\'s notes are at <code>' + esc(logAt) + '</code>.' : '';
   if (verdict === 'failed' || verdict === 'did-not-take') {
+    /* win32-update-rollback (S5): a failed roll back reads as a failed roll back, not a failed update;
+       it too leaves the box exactly where it was. Rollback is win32-only, so this arm is win32-only. */
+    if (rollback) return '<b>' + windowsCopy('updateRollbackDidNotTake') + '</b>' + still + ' ' + windowsCopy('updateNothingChanged') + notes;
     if (onWindows(platform)) return '<b>The update did not take.</b>' + still + ' ' + windowsCopy('updateNothingChanged') + notes;
     return verdict === 'failed'
       ? '<b>The update did not take.</b>The installer ' + (attempt && attempt.code != null ? 'stopped (code ' + esc(String(attempt.code)) + ')' : 'could not be started') + '.' + still + notes
@@ -15853,7 +15930,10 @@ function updateSettleText(verdict, versionNow, attempt, logAt, platform) {
 /* 🪟 S4: the win32 overlay lead -- "Downloading X." while the board still answers, "Updating." once
    it stops to swap. Off Windows the Mac overlay says "Updating." throughout, returned verbatim so the
    served Mac page stays byte-identical. `platform` is a seam defaulting to the served platform. */
-function updateOverlayLead(reached, version, platform) {
+function updateOverlayLead(reached, version, platform, rollback) {
+  /* win32-update-rollback (S5): a rollback has no download step -- the previous build is already on the
+     machine -- so its lead is "Rolling back to X." throughout, whatever reachability says. */
+  if (rollback) return version ? ('Rolling back to ' + version + '.') : 'Rolling back.';
   if (!onWindows(platform)) return 'Updating.';
   return reached ? ('Downloading ' + version + '.') : 'Updating.';
 }
@@ -16132,7 +16212,7 @@ async function tick() {
     updateRecPill();
     renderUpdateToast(data.update);
     paintUpdateAbort(data.updateAbort); // #2055: null-when-healthy; renders only on this successful read
-    paintUpdateCard(data.version, data.update, data.updateLook, data.updateManual, data.updateChannel);
+    paintUpdateCard(data.version, data.update, data.updateLook, data.updateManual, data.updateChannel, data.updateRollback);
     updatedNoteOnce(data.version);
     LAST_VERSION = data.version || LAST_VERSION;
     LAST_BOOTED_AT = data.bootedAt || LAST_BOOTED_AT;
@@ -17347,7 +17427,7 @@ async function paintSettings() {
   }
   try {
     const st = await (await fetch('/api/status')).json();
-    paintUpdateCard(st.version, st.update, st.updateLook, st.updateManual, st.updateChannel);
+    paintUpdateCard(st.version, st.update, st.updateLook, st.updateManual, st.updateChannel, st.updateRollback);
   } catch {
     // The card keeps its last honest paint; the poll repaints it.
   }

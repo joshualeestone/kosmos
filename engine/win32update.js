@@ -1178,8 +1178,11 @@ async function prepare(opts) {
        first look and the lock is an update whose helper owns WORK. */
     const unfinished = journalRefusal(env, home);
     if (unfinished) { workBelongsToAnotherUpdate = true; refuse(unfinished); }
-    /* Whatever an earlier attempt left. Both are WORK's own. */
+    /* Whatever an earlier attempt left. Both are WORK's own. But FIRST rescue an orphaned rollback
+       build a crash left in staged beside a finished rollback journal (adoptOrphanedRollbackBuild),
+       so this delete does not lose the only copy of a kept build. */
     fs.rmSync(inWork(ctx.part), { force: true });
+    adoptOrphanedRollbackBuild(root, env, home, ctx.staged, ctx.inWork, ctx.runStagedNode, log);
     fs.rmSync(inWork(ctx.staged), { recursive: true, force: true });
 
     const latest = await readOffer(ctx);
@@ -1340,6 +1343,233 @@ async function begin(opts) {
   return { ...prepared, journal: journalAt, helperPid: started.pid };
 }
 
+/* ─── S5: the user-initiated rollback ────────────────────────────────────────────────────── */
+
+/**
+ * The build a rollback would restore: the newest `previous-*` folder in WORK that is a whole-enough
+ * app STRICTLY OLDER than the one now in ROOT. `{ dir, version }` or null. Light (a readdir plus one
+ * package.json per candidate, no node spawn), so the status offer (update.rollbackOffer) can call it
+ * on every poll; rollbackToPrevious does the full validation (required entries, the node.exe runs)
+ * before it moves anything. S4's H9 keeps exactly one `previous-<from>`, so in practice there is one.
+ */
+function keptPreviousBuild(root) {
+  const apply = require('./win32apply'); // lazy: win32apply requires this module
+  const work = path.join(root, WORK_DIRNAME);
+  const installed = (readJson(path.join(root, 'app', 'package.json')) || {}).version;
+  let names = [];
+  try { names = fs.readdirSync(work); } catch { return null; }
+  let best = null;
+  for (const name of names) {
+    if (!name.startsWith(apply.PREVIOUS_PREFIX)) continue;
+    const dir = path.join(work, name);
+    let st = null;
+    try { st = fs.statSync(dir); } catch { st = null; }
+    if (!st || !st.isDirectory()) continue;
+    const version = (readJson(path.join(dir, 'app', 'package.json')) || {}).version;
+    if (typeof version !== 'string' || !/^\d+\.\d+\.\d+$/.test(version)) continue;
+    /* Only a build strictly older than the one running: the button is "go back", never a covert
+       forward install, and a leftover previous-* naming the same or a newer build is not offered. */
+    if (installed && !update.newer(installed, version)) continue;
+    if (!best || update.newer(version, best.version)) best = { dir, version };
+  }
+  return best;
+}
+
+/** The full check of a kept build before Kosmos will roll back to it, as a sentence, or null: every
+    required entry is there, and its own node.exe runs and reports a version. Read-only. */
+function keptBuildRefusal(dir, version, root, runNode) {
+  const installed = (readJson(path.join(root, 'app', 'package.json')) || {}).version;
+  if (installed && !update.newer(installed, version)) {
+    return `the kept build (${version}) is not older than the one you are running (${installed}), so there is nothing to roll back to`;
+  }
+  for (const entry of REQUIRED_ENTRIES) {
+    let st = null;
+    try { st = fs.statSync(path.join(dir, ...entry.split('/'))); } catch { st = null; }
+    if (!st || !st.isFile()) return `the kept previous build is incomplete (${entry.split('/').join('\\')} is missing), so Kosmos will not roll back to it`;
+  }
+  const stagedNode = path.join(dir, 'runtime', win32anchor.NODE_NAME);
+  let printed = '';
+  try {
+    printed = String((typeof runNode === 'function' ? runNode : runStagedNode)(stagedNode, STAGED_NODE_TIMEOUT_MS)).trim();
+  } catch (e) {
+    const why = e && e.code === 'ETIMEDOUT' ? `it did not answer within ${Math.round(STAGED_NODE_TIMEOUT_MS / 1000)} seconds` : firstLine(e);
+    return `the Node runtime inside the kept previous build did not run (${why}), so Kosmos will not roll back to it`;
+  }
+  if (!/^v\d+\.\d+\.\d+$/.test(printed)) return `the Node runtime inside the kept previous build did not report a version, so Kosmos will not roll back to it`;
+  return null;
+}
+
+const NO_KEPT_PREVIOUS = 'there is no earlier Kosmos kept to roll back to. A rollback restores the build the last in-app update replaced, and none is on hand';
+
+/**
+ * S5 crash-window backstop: adopt an orphaned rollback `staged` tree before it is deleted. A crash
+ * between concludeRollback's save(finished) and its preserve rename -- or a preserve rename that threw
+ * on a held handle in finishWithoutChange -- can leave a FINISHED rollback journal beside a `staged`
+ * tree that is the ONLY copy of the kept build; the resumers bail on a finished journal, so no one
+ * recovers it, and this deletion would lose it permanently and vanish the Roll back button. So before
+ * any prepare/rollback deletes `staged`, if a finished rollback journal names a `to.version` and
+ * `staged` is a COMPLETE build OF exactly that version, move it to previous-<to.version> (dup-safe: an
+ * existing previous-<to> means an equivalent kept copy, so the stray staged is dropped) instead of
+ * deleting it. keptPreviousBuild then re-discovers it and the button returns. Best-effort; the common
+ * case (no journal, or a finished FORWARD journal) returns before any build validation, so no node runs.
+ */
+function adoptOrphanedRollbackBuild(root, env, home, staged, inWork, runNode, log) {
+  const apply = require('./win32apply'); // lazy: win32apply requires this module
+  let anchorDir;
+  try { anchorDir = win32anchor.anchorDir(process.platform, home, env); } catch { return; }
+  const read = apply.readJournal(apply.journalPathFor(anchorDir));
+  if (read.state !== 'finished' || !read.journal || read.journal.rollback !== true) return;
+  const toVersion = read.journal.to && read.journal.to.version;
+  if (!toVersion) return;
+  /* The orphan must be a WHOLE build OF exactly the version the finished rollback was restoring. */
+  if ((readJson(path.join(staged, 'app', 'package.json')) || {}).version !== toVersion) return;
+  if (keptBuildRefusal(staged, toVersion, root, runNode)) return;
+  const dest = path.join(path.dirname(staged), apply.PREVIOUS_PREFIX + toVersion);
+  try {
+    if (fs.existsSync(dest)) {
+      fs.rmSync(inWork(staged), { recursive: true, force: true });
+      log(`an orphaned rollback build was already kept at ${dest}; dropped the duplicate staged copy`);
+      return;
+    }
+    require('./win32swap').renameWithRetry(inWork(staged), inWork(dest));
+    log(`adopted an orphaned rollback build as ${dest} so the rollback can be retried`);
+  } catch (e) { log(`could not adopt the orphaned rollback build (${firstLine(e)}); it will be cleared`); }
+}
+
+/**
+ * S5: roll THIS Kosmos back to the kept previous build, the person's own choice. It reuses the entire
+ * apply/rollback helper (engine/win32apply.js) by staging the kept build as if it were an update: it
+ * renames `<WORK>\previous-<old>` to `<WORK>\staged`, writes a journal marked `rollback: true` whose
+ * `from` is the build now in ROOT and `to` is the kept older build, and starts the SAME detached
+ * helper (`--kosmos-update-apply`). The helper stops this board, moves the current entries into
+ * `previous-<current>` (H3), moves the kept build into ROOT (H4), restores the interpreter and pointer
+ * (H5/H6), and confirms the OLD identity (H7); if any of that fails, H8 puts the current build back and
+ * confirms it -- the same rollback-safety a forward update has, for free.
+ *
+ * 🛑 NEVER LOSES THE KEPT BUILD. On any failure after the rename but before the helper is safely on
+ * its way, the kept build is renamed back from `staged` to `previous-<old>`, so a person can try again.
+ *
+ * Options mirror begin(): root, world, port, boardPid, fromIdentity, spawn, liveExecutionAllowed, env,
+ * home, platform, boardTask, applySeams, lockHooks, log, and runStagedNode (a seam for the validation).
+ * Resolves to `{ ok:true, version, from, journal, helperPid, ... }` or `{ ok:false, because }`.
+ */
+async function rollbackToPrevious(opts) {
+  const o = opts || {};
+  const log = typeof o.log === 'function' ? o.log : defaultLog;
+  const platform = o.platform || process.platform;
+  const env = o.env || process.env;
+  const home = o.home || os.homedir();
+  if (platform !== 'win32') return { ok: false, because: 'the in-app updater is for Kosmos on Windows, and this is not Windows' };
+  const given = o.root || win32board.bundleRoot({ platform });
+  if (!given) return { ok: false, because: 'this Kosmos is not running from the Windows download, so there is nothing to roll back' };
+  const root = path.resolve(given);
+  const base = String(o.base || update.releaseBase()).replace(/\/+$/, '');
+  const apply = require('./win32apply'); // lazy: win32apply requires this module
+  const win32swap = require('./win32swap'); // lazy: keeps the top of this module cycle-free
+
+  /* B0, the same read-only precondition set the forward path uses: bundle layout, the pointer equals
+     ROOT\app\engine, ROOT is no drive top / protected folder / OneDrive / Program Files, and no
+     earlier update's journal is unfinished. */
+  const b0 = preconditionRefusal(root, env, home, base);
+  if (b0) { log(`refused before starting: ${b0}`); return { ok: false, because: b0 }; }
+  const allowed = typeof o.liveExecutionAllowed === 'function' ? o.liveExecutionAllowed : liveExec.liveExecutionAllowed;
+  if (!allowed()) {
+    liveExec.refuseOrWarn('engine/win32update.js', 'rollbackToPrevious', ['--root', root]);
+    return { ok: false, because: LIVE_REFUSAL };
+  }
+  const taskRefusal = boardTaskRefusal(o.boardTask || defaultBoardTask());
+  if (taskRefusal) { log(`refused before starting: ${taskRefusal}`); return { ok: false, because: taskRefusal }; }
+
+  const kept = keptPreviousBuild(root);
+  if (!kept) return { ok: false, because: NO_KEPT_PREVIOUS };
+  const keptRefusal = keptBuildRefusal(kept.dir, kept.version, root, o.runStagedNode);
+  if (keptRefusal) { log(`refused before starting: ${keptRefusal}`); return { ok: false, because: keptRefusal }; }
+
+  let anchorDir;
+  try { anchorDir = win32anchor.anchorDir(process.platform, home, env); } catch (e) {
+    return { ok: false, because: `we could not work out where Kosmos keeps its update records (${firstLine(e)})` };
+  }
+  const journalAt = apply.journalPathFor(anchorDir);
+
+  const script = path.join(root, 'app', 'engine', path.basename(__filename));
+  if (!fs.existsSync(script) || !fs.existsSync(path.join(root, 'app', 'engine', apply.MODULE_FILE_NAME))) {
+    return { ok: false, because: `the Kosmos in ${root} is too old to roll back by itself. Download a fresh copy, unpack it over your Kosmos folder, then double-click Kosmos.exe` };
+  }
+
+  const fromVersion = (readJson(path.join(root, 'app', 'package.json')) || {}).version;
+  const work = path.join(root, WORK_DIRNAME);
+  const inWork = workGuard(work);
+  const lockPath = path.join(work, LOCK_NAME);
+  const staged = path.join(work, STAGED_DIRNAME);
+  const spawnFn = typeof o.spawn === 'function' ? o.spawn : cp.spawn;
+  /* Never lose the kept build. Idempotent, so it composes with win32apply's own preserve (abandon and
+     the resumers move staged -> previous-<to> for a rollback journal): if the engine already preserved
+     it, staged is gone here and this no-ops; if a duplicate previous-<to> exists, the stray staged copy
+     is dropped rather than clobbering it. previous-<old> === previous-<to.version>, the same dest. */
+  const restoreKeptBuild = () => {
+    try {
+      if (!fs.existsSync(staged)) return;
+      if (fs.existsSync(kept.dir)) { fs.rmSync(staged, { recursive: true, force: true }); return; }
+      win32swap.renameWithRetry(staged, kept.dir);
+    } catch (e) { log(`could not restore the kept previous build to ${kept.dir}: ${firstLine(e)}`); }
+  };
+
+  let lockText = null;
+  let result = null;
+  let renamed = false;
+  try {
+    if (!fs.existsSync(work)) fs.mkdirSync(work);
+    lockText = takeLock(inWork(lockPath), log, o.lockHooks);
+    sweepLockLeftovers(work, inWork, log);
+    /* Re-check under the lock: a journal written between B0 and here is another update that owns WORK. */
+    const unfinished = journalRefusal(env, home);
+    if (unfinished) { result = { ok: false, because: unfinished }; }
+    else {
+      /* Clear whatever a past attempt left in WORK's own scratch (never the kept previous folders).
+         FIRST adopt an orphaned rollback build a crash left in staged, so this delete cannot lose it. */
+      fs.rmSync(inWork(path.join(work, DOWNLOAD_PART_NAME)), { force: true });
+      adoptOrphanedRollbackBuild(root, env, home, staged, inWork, o.runStagedNode, log);
+      fs.rmSync(inWork(staged), { recursive: true, force: true });
+      /* One atomic same-volume rename makes the kept build fit the journal's derived `staged` path. */
+      win32swap.renameWithRetry(inWork(kept.dir), inWork(staged));
+      renamed = true;
+      const world = resolveWorld(o.world);
+      const fromIdentity = o.fromIdentity || win32handoff.boardIdentity(win32handoff.buildIdentity(path.join(root, 'app')), world);
+      const toBuild = win32handoff.buildIdentity(path.join(staged, 'app'));
+      if (!toBuild) throw new Error('the kept previous build has no version to identify it by');
+      const toIdentity = win32handoff.boardIdentity(toBuild, world);
+      const anchoredNode = path.join(anchorDir, win32anchor.NODE_NAME);
+      const runtimeChanged = interpreterDiffers(path.join(staged, 'runtime', win32anchor.NODE_NAME), anchoredNode);
+      const board = { pid: Number.isInteger(o.boardPid) ? o.boardPid : null, port: Number.isInteger(o.port) ? o.port : DEFAULT_BOARD_PORT };
+      apply.writeRollbackJournal(journalAt, {
+        root, anchor: anchorDir, fromVersion, fromIdentity,
+        to: { version: kept.version, identity: toIdentity }, runtimeChanged, board, now: Date.now(),
+      });
+      result = { ok: true, version: kept.version, from: fromVersion, stagedDir: staged, runtimeChanged, expectedIdentity: toIdentity };
+    }
+  } catch (e) {
+    result = { ok: false, because: e instanceof PrepareRefusal ? e.message : `the rollback could not be prepared (${firstLine(e)})` };
+  } finally {
+    if (lockText) { try { releaseLock(inWork(lockPath), lockText, log); } catch (e) { log(`could not remove the prepare lock: ${firstLine(e)}`); } }
+  }
+
+  /* Any failure after the rename puts the kept build back at previous-<old> so keptPreviousBuild finds it. */
+  if (renamed && !result.ok) restoreKeptBuild();
+  if (!result.ok) { log(`could not roll back: ${result.because}`); return result; }
+
+  const started = startHelper(spawnFn, helperLaunch(anchorDir, script, APPLY_FLAG, journalAt), log);
+  if (!started.ok) {
+    const because = `the rollback helper could not be started (${started.because})`;
+    /* abandonStagedJournal finishes the staged rollback journal as not-started AND (via
+       finishWithoutChange) preserves staged -> previous-<to>; restoreKeptBuild is the idempotent backstop. */
+    apply.abandonStagedJournal(journalAt, because, o.applySeams);
+    restoreKeptBuild();
+    return { ok: false, because };
+  }
+  log(`started the rollback helper (pid ${started.pid}) to ${kept.version}; journal ${journalAt}`);
+  return { ...result, journal: journalAt, helperPid: started.pid };
+}
+
 /* ─── the live-check CLI ─────────────────────────────────────────────────────────────────── */
 
 const USAGE = 'usage: node engine/win32update.js --prepare --root <folder> [--base <url>] [--channel prod|staging] [--world <id>] [--yes]\n'
@@ -1464,7 +1694,7 @@ async function cliMain(argv, write, seams) {
 }
 
 module.exports = {
-  prepare, begin, cliMain, runStagedNode, stagedNodeLaunch, workGuard, takeLock, releaseLock, sweepLockLeftovers, resolveWorld,
+  prepare, begin, rollbackToPrevious, keptPreviousBuild, cliMain, runStagedNode, stagedNodeLaunch, workGuard, takeLock, releaseLock, sweepLockLeftovers, resolveWorld,
   readFileRetryingHolds, tryRetryingHolds, QUICK_HELD_READ_BUDGET, HELD_FILE_CODES,
   processImageFromTasklist, processImageStamp, sha256OfFile, unusualLocationRefusal, helperLaunch, waitForOutcome,
   REQUIRED_ENTRIES, ENTRIES, WORK_DIRNAME, STAGED_DIRNAME, DOWNLOAD_PART_NAME, LOCK_NAME, DEFAULT_LIMITS, STAGED_NODE_ENV_KEYS,

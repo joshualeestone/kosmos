@@ -240,6 +240,11 @@ function statusPathFor(anchorDir) { return path.join(anchorDir, win32anchor.UPDA
  */
 function journalProblem(j, journalAt) {
   if (!j || typeof j !== 'object' || j.format !== JOURNAL_FORMAT) return 'is not an update journal this Kosmos can read';
+  /* S5: a user-initiated rollback rides the same journal shape, marked `rollback: true` -- the ONLY
+     shape difference is that `to` is an OLDER version than `from` (applyRefusal reads the flag to skip
+     the never-downgrade gate). Everything below is validated identically for both. A non-boolean flag
+     is a damaged/edited journal. */
+  if (j.rollback !== undefined && typeof j.rollback !== 'boolean') return 'names an unknown rollback marker';
   for (const key of ['root', 'work', 'staged', 'previous', 'anchor']) {
     if (typeof j[key] !== 'string' || !path.isAbsolute(j[key])) return `names no folder for ${key}`;
   }
@@ -325,10 +330,13 @@ function unfinishedUpdateRefusal(anchorDir) {
 }
 
 /**
- * The journal B5 writes, while prepare() still holds the update lock. `spec`: root, anchor,
- * prepared (prepare()'s result), fromVersion, fromIdentity, board ({pid, port}), now.
+ * The one journal shape both a forward update (writeStagedJournal) and a user rollback
+ * (writeRollbackJournal) derive, so the two cannot drift (convention 5). `spec`: root, anchor,
+ * fromVersion, fromIdentity, to ({version, identity, sha256}), runtimeChanged, board ({pid, port}),
+ * now, and rollback (optional). `from` is always the build now in ROOT and `to` the build now in
+ * `staged`; for a rollback `to` is the OLDER kept build, which is the whole difference.
  */
-function stagedJournal(spec) {
+function buildJournal(spec) {
   const root = path.resolve(spec.root);
   const anchor = path.resolve(spec.anchor);
   const work = path.join(root, win32update.WORK_DIRNAME);
@@ -343,6 +351,8 @@ function stagedJournal(spec) {
     phase: 'staged',
     finished: false,
     outcome: null,
+    /* Omitted on a forward update (kept byte-compatible with S4 journals); true for a user rollback. */
+    ...(spec.rollback ? { rollback: true } : {}),
     root, work, staged, previous, anchor,
     order,
     /* Held answers are asked again, and one still unknown refuses the journal (isThere throws): an
@@ -350,8 +360,8 @@ function stagedJournal(spec) {
     presentBefore: order.filter((e) => isThere(path.join(root, e))),
     stagedEntries: order.filter((e) => isThere(path.join(staged, e))),
     from: { version: spec.fromVersion, identity: spec.fromIdentity },
-    to: { version: spec.prepared.version, identity: spec.prepared.expectedIdentity, sha256: spec.prepared.sha256 },
-    runtimeChanged: Boolean(spec.prepared.runtimeChanged),
+    to: { version: spec.to.version, identity: spec.to.identity, sha256: spec.to.sha256 || null },
+    runtimeChanged: Boolean(spec.runtimeChanged),
     board: { pid: Number.isInteger(spec.board.pid) ? spec.board.pid : null, port: spec.board.port },
     pointer: { at: pointerAt, before: readTextKnown(pointerAt), after: path.join(root, 'app', 'engine') },
     interpreter: null,
@@ -364,14 +374,13 @@ function stagedJournal(spec) {
   };
 }
 
-function writeStagedJournal(journalAt, spec) {
-  const j = stagedJournal(spec);
+/** The one guarded, held-aware write of a fresh journal, shared by both writers. */
+function writeFreshJournal(journalAt, j) {
   const problem = journalProblem(j, journalAt);
   if (problem) throw new Error(`the update journal ${problem}`);
-  if (!samePath(path.join(j.staged), spec.prepared.stagedDir)) throw new Error('the staged update is not where the journal expects it');
-  /* begin()'s write, in the board's own process: a held rename is tried again within the quick write
-     budget (2 tries, about 2 s synchronous when held for good; writeBudgetFrom), and one still held refuses
-     the update in words (begin() reports it). */
+  /* begin()'s / rollbackToPrevious()'s write, in the board's own process: a held rename is tried again
+     within the quick write budget (2 tries, about 2 s synchronous when held for good; writeBudgetFrom),
+     and one still held refuses the update in words (the caller reports it). */
   const tried = win32update.tryRetryingHolds(
     () => win32swap.writeFileAtomic(journalAt, JSON.stringify(j, null, 2) + '\n'), null, writeBudgetFrom(win32update.QUICK_HELD_READ_BUDGET));
   if (!('value' in tried)) {
@@ -379,6 +388,31 @@ function writeStagedJournal(journalAt, spec) {
     throw tried.error;
   }
   return j;
+}
+
+/**
+ * The journal B5 writes, while prepare() still holds the update lock. `spec`: root, anchor,
+ * prepared (prepare()'s result), fromVersion, fromIdentity, board ({pid, port}), now.
+ */
+function writeStagedJournal(journalAt, spec) {
+  const j = buildJournal({
+    ...spec,
+    to: { version: spec.prepared.version, identity: spec.prepared.expectedIdentity, sha256: spec.prepared.sha256 },
+    runtimeChanged: spec.prepared.runtimeChanged,
+  });
+  if (!samePath(path.join(j.staged), spec.prepared.stagedDir)) throw new Error('the staged update is not where the journal expects it');
+  return writeFreshJournal(journalAt, j);
+}
+
+/**
+ * S5: the journal a user rollback writes, while rollbackToPrevious() still holds the update lock. The
+ * kept previous build has already been renamed into `staged`, so this is byte-identical to a forward
+ * journal except `to` is the OLDER kept version and `rollback` is set. `spec`: root, anchor,
+ * fromVersion (the build now in ROOT), fromIdentity, to ({version, identity} of the kept build),
+ * runtimeChanged, board, now.
+ */
+function writeRollbackJournal(journalAt, spec) {
+  return writeFreshJournal(journalAt, buildJournal({ ...spec, rollback: true }));
 }
 
 /* ─── one context, one guard ─────────────────────────────────────────────────────────────── */
@@ -695,7 +729,7 @@ function launcherFolder(j) {
  */
 function statusFor(j, outcome, because, at, kind) {
   let sentence;
-  if (outcome === 'updated') sentence = `Kosmos is now on ${j.to.version}.`;
+  if (outcome === 'updated') sentence = j.rollback ? `Kosmos has rolled back to ${j.to.version}.` : `Kosmos is now on ${j.to.version}.`;
   else if (outcome === 'abandoned') sentence = `The update to ${j.to.version} was stopped: the Kosmos folder that update was changing (${j.root}) no longer exists.`;
   else if (outcome === 'stuck' && kind === 'unrecoverable') {
     sentence = `The update to ${j.to.version} did not finish, and Kosmos cannot finish or undo it by itself (${because}). `
@@ -703,6 +737,8 @@ function statusFor(j, outcome, because, at, kind) {
   } else if (outcome === 'stuck') {
     sentence = `The update did not take, and Kosmos could not put ${j.from.version} back by itself (${because}). `
       + `Close any window or program that is using the Kosmos folder, then restart your computer, or double-click Kosmos.exe in ${launcherFolder(j)} to start it again.`;
+  } else if (j.rollback) {
+    sentence = `The roll back did not take. Kosmos is still on ${j.from.version}. If Kosmos does not come back by itself, double-click Kosmos.exe in ${j.root}.`;
   } else sentence = `The update did not take. Kosmos is still on ${j.from.version}. If Kosmos does not come back by itself, double-click Kosmos.exe in ${j.root}.`;
   return {
     outcome,
@@ -1037,14 +1073,52 @@ function cleanUpAfterFinish(ctx, removals) {
   }
 }
 
-/** What a rollback that left the tree whole leaves behind: nothing of the new build. Best effort. */
+/**
+ * S5: preserve the kept previous build. A rollback's `staged` tree is the ONLY copy of the kept build
+ * (a forward update's staged is a re-downloadable download), so instead of leaving it orphaned or
+ * deleting it we move it back to previous-<to.version>, where win32update.keptPreviousBuild
+ * re-discovers it and the person can retry. Idempotent: `staged` already gone means an earlier run
+ * preserved it; an existing previous-<to.version> is an equivalent kept copy, so the duplicate staged
+ * tree is dropped rather than clobbering it.
+ *
+ * 🛑 THE ACTUAL GUARANTEE IS LAYERED, NOT "this call is crash-safe". finishWithoutChange calls this
+ * BEFORE it marks the journal finished (so a crash there re-runs it, and it is idempotent).
+ * cleanupAfterRollback calls it AFTER concludeRollback has already saved the journal finished, so a
+ * crash between that save and this rename -- or a rename that throws here on a held handle -- leaves
+ * `staged` orphaned beside a finished rollback journal. THAT window is covered by
+ * win32update.adoptOrphanedRollbackBuild, which the next prepare/rollback runs before it would delete
+ * `staged`: it re-homes such an orphan to previous-<to.version>. Net: the kept build is preserved on
+ * every finish path, and an orphaned staged from a finished rollback is adopted on the next operation,
+ * so it survives a crash at any point.
+ */
+function moveStagedToKeptPrevious(ctx) {
+  const { j, log } = ctx;
+  const dest = path.join(j.work, PREVIOUS_PREFIX + j.to.version);
+  if (!exists(j.staged)) return;
+  if (exists(dest)) {
+    fs.rmSync(ctx.guard(j.staged), { recursive: true, force: true });
+    log(`the previous build was already kept at ${dest}; removed the duplicate staged copy`);
+    return;
+  }
+  win32swap.renameWithRetry(ctx.guard(j.staged), ctx.guard(dest));
+  log(`kept the previous build at ${dest} so the rollback can be retried`);
+}
+
+/** What a rollback that left the tree whole leaves behind: nothing of the new build, and -- for a
+    user-initiated rollback (S5) -- the kept previous build PRESERVED for a retry rather than deleted.
+    Best effort. */
 function cleanupAfterRollback(ctx) {
   const { j } = ctx;
-  cleanUpAfterFinish(ctx, [
+  const removals = [
     ['the safety copy of node.exe', () => fs.rmSync(ctx.guard(path.join(j.previous, ANCHORED_NODE_COPY_NAME)), { force: true })],
     ['the empty previous folder', () => { if (exists(j.previous)) fs.rmdirSync(ctx.guard(j.previous)); }],
-    ['the staged update', () => fs.rmSync(ctx.guard(j.staged), { recursive: true, force: true })],
-  ]);
+  ];
+  /* 🛑 S5: after a reversed rollback, `staged` holds the kept build (the only copy). Keep it as
+     previous-<to.version> for a retry instead of deleting it; a forward update's staged is safe to drop. */
+  removals.push(j.rollback
+    ? ['the kept previous build (preserved for retry)', () => moveStagedToKeptPrevious(ctx)]
+    : ['the staged update', () => fs.rmSync(ctx.guard(j.staged), { recursive: true, force: true })]);
+  cleanUpAfterFinish(ctx, removals);
 }
 
 function concludeRollback(ctx, boardBecause) {
@@ -1127,6 +1201,14 @@ function finishWithoutChange(ctx, because) {
   j.because = because;
   j.rolledBackFrom = j.phase;
   writeStatus(ctx, 'not-started', because);
+  /* 🛑 S5: an interrupted or refused rollback that never moved anything (UNCHANGED_PHASES) still has
+     the kept build living ONLY in `staged`. Move it back to previous-<to> so keptPreviousBuild re-offers
+     it and the person can retry -- a forward update leaves its (re-downloadable) staged download instead.
+     Best effort: a failure leaves it staged, and the journal being finished the next prepare reclaims it. */
+  if (j.rollback) {
+    try { moveStagedToKeptPrevious(ctx); }
+    catch (e) { if (stopsWriting(e)) throw e; ctx.log(`could not preserve the kept previous build (${describeError(e)}); it remains staged`); }
+  }
   j.finished = true;
   j.outcome = 'not-started';
   save(ctx);
@@ -1143,7 +1225,15 @@ function applyRefusal(ctx) {
      StepFailure (applyJournal holds), never a refusal that settles the update as not-started. */
   const installed = (readJsonKnown(path.join(j.root, 'app', 'package.json'), reading) || {}).version;
   if (installed !== j.from.version) return `the Kosmos folder is now ${installed || 'of an unknown version'}, not the ${j.from.version} this update was prepared for`;
-  if (!update.newer(j.to.version, installed)) return `${j.to.version} is not newer than ${installed}, and Kosmos never installs an older or equal version`;
+  /* 🛑 NEVER-DOWNGRADE DOES NOT APPLY TO AN EXPLICIT ROLLBACK -- going back is the whole point -- but it
+     is not a licence to go anywhere: a rollback may only ever move to a build STRICTLY OLDER than the one
+     running, so a corrupted/edited rollback journal cannot masquerade as an update. A forward update keeps
+     the original gate: only strictly newer than installed. */
+  if (j.rollback) {
+    if (!update.newer(j.from.version, j.to.version)) return `${j.to.version} is not older than ${installed}, so there is nothing to roll back to`;
+  } else if (!update.newer(j.to.version, installed)) {
+    return `${j.to.version} is not newer than ${installed}, and Kosmos never installs an older or equal version`;
+  }
   const stagedVersion = (readJsonKnown(path.join(j.staged, 'app', 'package.json'), reading) || {}).version;
   if (stagedVersion !== j.to.version) return `the staged update is ${stagedVersion || 'of an unknown version'}, not the ${j.to.version} this update was prepared for`;
   for (const entry of j.order) {
@@ -1756,7 +1846,7 @@ function abandonStagedJournal(journalAt, because, overrides) {
 }
 
 module.exports = {
-  applyJournal, resumeJournal, recoverAtBoot, abandonStagedJournal, settleUnrecoverableJournal, readJournal, writeStagedJournal,
+  applyJournal, resumeJournal, recoverAtBoot, abandonStagedJournal, settleUnrecoverableJournal, readJournal, writeStagedJournal, writeRollbackJournal,
   unfinishedUpdateRefusal, journalPathFor, statusPathFor, moveOrder, writeGuard,
   stagedIsYoung, presenceOf, answersAs, previousAppMayBoot,
   MODULE_FILE_NAME, PREVIOUS_PREFIX, ANCHORED_NODE_COPY_NAME, APPLY_LOG_NAME, DEFAULT_APPLY_LIMITS, PHASES, STAGED_HELPER_STARTUP_GRACE_MS,

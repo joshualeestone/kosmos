@@ -3269,6 +3269,11 @@ const server = http.createServer((req, res) => {
            is the win32 update journal's phase, so the overlay can tell downloading from swapping. The
            channel rides beside them so a staging board is never silent about being one. */
         updateManual: updates.manualOffer(), updateChannel: updates.updateChannel(), updatePhase: updates.updatePhase(),
+        /* win32 (S5, #3017): the kept previous build a person can roll back to ({version}) or null. S4's
+           armed success path keeps one previous-<from> folder exactly so this button can restore it;
+           surfaced here so people know rollback exists. Null off win32 / on a source run / for a
+           OneDrive-Program Files bundle the updater refuses up front. */
+        updateRollback: updates.rollbackOffer(),
         /* #553: the last install attempt this server saw END (a failure;
            a success kills the server first). The overlay reads it to say
            a true sentence instead of spinning. */
@@ -8248,8 +8253,8 @@ const server = http.createServer((req, res) => {
       // offer is the newer()-gated verdict (same gate the toast rides), so
       // the card never has to re-derive version ordering client-side.
       // manual/channel: the same two facts /api/status carries, so a press paints what the poll paints.
-      .then((out) => sendJson(res, 200, { ...out, offer: updates.installOffer(), source: !updates.installedRoot(), manual: updates.manualOffer(), channel: updates.updateChannel() }))
-      .catch(() => sendJson(res, 200, { running: updates.RUNNING, latest: null, reached: false, readable: false, offer: null, manual: null, channel: updates.updateChannel() }));
+      .then((out) => sendJson(res, 200, { ...out, offer: updates.installOffer(), source: !updates.installedRoot(), manual: updates.manualOffer(), rollback: updates.rollbackOffer(), channel: updates.updateChannel() }))
+      .catch(() => sendJson(res, 200, { running: updates.RUNNING, latest: null, reached: false, readable: false, offer: null, manual: null, rollback: null, channel: updates.updateChannel() }));
     return;
   }
 
@@ -8300,9 +8305,16 @@ const server = http.createServer((req, res) => {
       // second tab gets the same true answer without a second installer
       // racing the first through the stage-and-swap.
       /* The in-flight attempt is the one this second press joins; its
-         stamp rides back so a reattached overlay can see its verdict. */
+         stamp rides back so a reattached overlay can see its verdict.
+         🪟 S5 (#3017): tell the truth about WHAT is running. If a rollback holds the single-flight, an
+         Update press must not claim an update is under way -- report the actual operation instead. */
       const inflight = updates.lastAttempt();
-      sendJson(res, 200, { ok: true, updating: avail.version, already: true, startedAt: inflight ? inflight.startedAt : null });
+      const startedAt = inflight ? inflight.startedAt : null;
+      if (updates.inFlightKind() === 'rollback') {
+        sendJson(res, 200, { ok: true, already: true, operation: 'rollback', startedAt });
+        return;
+      }
+      sendJson(res, 200, { ok: true, updating: avail.version, already: true, operation: 'update', startedAt });
       return;
     }
     try { updates.beginInstall(); }
@@ -8315,6 +8327,48 @@ const server = http.createServer((req, res) => {
        by comparing clocks. */
     const att = updates.lastAttempt();
     sendJson(res, 200, { ok: true, updating: avail.version, startedAt: att ? att.startedAt : null });
+    return;
+  }
+
+  /**
+   * 🪟 S5 (#3017): roll back to the kept previous build. POST, so it inherits the cross-site guard --
+   * this one stops and restarts the board and swaps the bundle, the same destructive class as
+   * /api/update. The refusals mirror that route (a state conflict is 409): no kept build to roll back
+   * to, a source run, or a OneDrive/Program Files bundle whose destructive rename the updater refuses.
+   * Past those the answer is 200 BEFORE the detached helper stops this board; agents keep working
+   * throughout. beginRollback is idempotent through the shared single-flight, so a double press does not
+   * start a second helper.
+   */
+  if (pathname === '/api/update/rollback' && req.method === 'POST') {
+    const rollback = updates.rollbackOffer();
+    if (!rollback) { sendJson(res, 409, { error: 'there is no earlier Kosmos kept to roll back to right now' }); return; }
+    if (!updates.installedRoot()) {
+      sendJson(res, 409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
+      return;
+    }
+    /* Belt-and-braces for a stray POST: a OneDrive/Program Files bundle never does the destructive swap
+       (the status already withholds the rollback offer there). Null and skipped on the Mac. */
+    const locationRefusal = updates.windowsLocationRefusal();
+    if (locationRefusal) { sendJson(res, 409, { error: locationRefusal }); return; }
+    if (updates.alreadyInstalling()) {
+      /* 🪟 S5 (#3017): honest `already` -- if a forward UPDATE holds the single-flight, do not claim a
+         rollback is under way (the board will come back on the newer build, not the previous one). */
+      const inflight = updates.lastAttempt();
+      const startedAt = inflight ? inflight.startedAt : null;
+      if (updates.inFlightKind() === 'update') {
+        sendJson(res, 200, { ok: true, already: true, operation: 'update', startedAt });
+        return;
+      }
+      sendJson(res, 200, { ok: true, rollingBackTo: rollback.version, already: true, operation: 'rollback', startedAt });
+      return;
+    }
+    try { updates.beginRollback(); }
+    catch (err) {
+      sendJson(res, 500, { error: 'we could not start the roll back', detail: String((err && err.message) || err) });
+      return;
+    }
+    const att = updates.lastAttempt();
+    sendJson(res, 200, { ok: true, rollingBackTo: rollback.version, startedAt: att ? att.startedAt : null });
     return;
   }
 

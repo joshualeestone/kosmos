@@ -109,6 +109,7 @@ function paintStatus(st, asked, focusedId) {
     'upd-download': dl,
     'upd-manual-steps': { hidden: true, innerHTML: '' },
     'upd-open-folder': { hidden: true },
+    'upd-rollback': { hidden: true, textContent: '', dataset: {} },
   };
   const doc = {
     activeElement: focusedId ? els[focusedId] : null,
@@ -119,7 +120,7 @@ function paintStatus(st, asked, focusedId) {
   // eslint-disable-next-line no-new-func
   new Function('document', 'UPD_ASKED', 'UPD_CHECKING', 'ENGINE_STALE', 'ST',
     page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'paintUpdateCard'])
-    + '\npaintUpdateCard(ST.version, ST.update, ST.updateLook, ST.updateManual, ST.updateChannel);')(doc, asked, false, null, st);
+    + '\npaintUpdateCard(ST.version, ST.update, ST.updateLook, ST.updateManual, ST.updateChannel, ST.updateRollback);')(doc, asked, false, null, st);
   return {
     line: els['upd-line'].textContent,
     btnHidden: els['upd-btn'].hidden,
@@ -132,6 +133,9 @@ function paintStatus(st, asked, focusedId) {
     stepsShown: els['upd-manual-steps'].hidden === false,
     steps: els['upd-manual-steps'].innerHTML,
     openFolderShown: els['upd-open-folder'].hidden === false,
+    rollbackShown: els['upd-rollback'].hidden === false,
+    rollbackLabel: els['upd-rollback'].textContent,
+    rollbackVersion: els['upd-rollback'].dataset.version,
   };
 }
 
@@ -295,14 +299,44 @@ test('CONTROL: the Mac\'s install offer still wins the card, and the manual arm 
   assert.equal(card.openFolderShown, false, 'the Windows folder button showed on the Mac offer');
 });
 
+test('S5 (#3017): the Roll back button shows and names its version when a kept build is offered, hidden otherwise', async () => {
+  const st = await statusAfterLook(winFetch(NEWER));
+  /* With a rollback offer, the button shows labelled with the exact version it restores -- alongside
+     whatever the offer arm paints (here the [Update] offer), because the two are orthogonal. */
+  st.updateRollback = { version: '0.6.50' };
+  const withKept = paintStatus(st, true);
+  assert.equal(withKept.rollbackShown, true, 'the Roll back button did not show with a kept build');
+  assert.equal(withKept.rollbackLabel, 'Roll back to 0.6.50');
+  assert.equal(withKept.rollbackVersion, '0.6.50', 'the button did not record the version it rolls back to');
+  assert.equal(withKept.line, 'Version ' + NEWER + ' is ready.', 'the offer arm still paints beside the rollback button');
+  /* No offer, only a kept build (up to date but able to go back): the button still shows. */
+  const current = await statusAfterLook(winFetch(RUNNING));
+  current.updateRollback = { version: '0.6.50' };
+  const upToDate = paintStatus(current, true);
+  assert.equal(upToDate.rollbackShown, true, 'the Roll back button hid when up to date, so people cannot find rollback');
+  assert.equal(upToDate.line, 'Up to date.');
+  /* No kept build: hidden. */
+  st.updateRollback = null;
+  const none = paintStatus(st, true);
+  assert.equal(none.rollbackShown, false, 'the Roll back button showed with nothing to roll back to');
+});
+
 test('one derivation: the status route, the check route and every card caller carry the same fields', () => {
   /* The harness above rebuilds the status fields; these pins keep it the route's expressions. */
   assert.ok(SERVER.includes('update: updates.installOffer(), updateLook: updates.lastLook(),'),
     'the status route\'s install offer changed; re-point statusAfterLook');
   assert.ok(SERVER.includes('updateManual: updates.manualOffer(), updateChannel: updates.updateChannel(), updatePhase: updates.updatePhase(),'),
     '/api/status no longer carries the manual offer, the channel and the phase');
-  assert.ok(SERVER.includes('offer: updates.installOffer(), source: !updates.installedRoot(), manual: updates.manualOffer(), channel: updates.updateChannel() }'),
+  assert.ok(SERVER.includes('offer: updates.installOffer(), source: !updates.installedRoot(), manual: updates.manualOffer(), rollback: updates.rollbackOffer(), channel: updates.updateChannel() }'),
     'the check route no longer carries them, so a press would paint "Up to date." over the poll\'s offer');
+  assert.ok(SERVER.includes('updateRollback: updates.rollbackOffer(),'),
+    '/api/status no longer carries the S5 rollback offer, so the Roll back button would never show');
+  /* FIX2 (honesty): each route's idempotent `already` branch reports the ACTUAL in-flight operation,
+     so an Update press does not claim a rollback is under way (or vice versa). */
+  assert.ok(SERVER.includes("if (updates.inFlightKind() === 'rollback')"),
+    'the /api/update already-branch does not check the in-flight operation direction');
+  assert.ok(SERVER.includes("if (updates.inFlightKind() === 'update')"),
+    'the /api/update/rollback already-branch does not check the in-flight operation direction');
   assert.ok(/process\.stdout\.write\(`Kosmos update check: channel=\$\{updates\.updateChannel\(\)\} pointer=\$\{updates\.pointerUrl\(\)\}/.test(SERVER),
     'the boot log no longer names the channel');
 
@@ -310,8 +344,10 @@ test('one derivation: the status route, the check route and every card caller ca
   const callers = calls.filter((c) => !/^paintUpdateCard\(running,/.test(c));
   assert.equal(callers.length, 3, 'a caller was added or lost: ' + callers.join(' | '));
   for (const c of callers) {
-    assert.ok(/, (data|st)\.updateManual, (data|st)\.updateChannel\)$|, out\.manual, out\.channel\)$/.test(c),
-      'a caller does not pass the manual offer and the channel: ' + c);
+    /* S5: every caller now also passes the rollback offer, so the Roll back button paints from the
+       same payload the offer and manual arms read (one derivation). */
+    assert.ok(/, (data|st)\.updateChannel, (data|st)\.updateRollback\)$|, out\.channel, out\.rollback\)$/.test(c),
+      'a caller does not pass the channel and the rollback offer: ' + c);
   }
   assert.ok(/<a class="btn-quiet" id="upd-download" href="#" target="_blank" rel="noopener" aria-describedby="upd-line" hidden>Download<\/a>/.test(PAGE),
     'the Download link\'s markup moved, or lost the description that says WHAT it downloads');
