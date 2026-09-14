@@ -4393,7 +4393,12 @@ const server = http.createServer((req, res) => {
         if (result.outcome === create.OUTCOME.CREATED && body.notifyCreated !== false) {
           try {
             const r = safeRoster();
-            const has = r.some((a) => a && (a.name === result.name || a.shown === result.name));
+            // Match the MACHINE SLUG: roster entries key on `sessionName` (every
+            // other membership check in this file does, e.g. lines ~1652/3915),
+            // and `result.name` is that slug (its comment ~20 lines down). An
+            // earlier version compared `a.name` (the DISPLAY name) and `a.shown`
+            // (which does not exist on a roster entry), so `has` never matched.
+            const has = r.some((a) => a && a.sessionName === result.name);
             createdbeacon.pingAgentCreated(r.length + (has ? 0 : 1));
           } catch { /* best-effort: a beacon never affects a create */ }
         }
@@ -13222,7 +13227,16 @@ function start(port = PORT) {
          fire-and-forget, once on board start. The server is idempotent (Math.max
          on count 0), so a re-fire on every launch never inflates anything; that
          is also how an install that predates this beacon gets counted, on its
-         next launch. Best-effort, like the sweeps above. */
+         next launch. Best-effort, like the sweeps above.
+         🛑 HARD DEPENDENCY ON THE SITE'S Math.max: this per-boot ping is only
+         safe once chaoskosmos-site/api/created.js keeps Math.max(had, count)
+         instead of the old `had + 1` (the paired #3038 site change). Under `had
+         + 1` every board restart across the install base would increment the
+         agent count, and because the intended semantics are a monotonic
+         high-water mark, that inflation can never be walked back. So the site
+         change MUST be published and verified BEFORE this ships. If a future
+         edit fires the install ping before that guarantee holds, it re-opens
+         exactly that inflation. */
       try { createdbeacon.pingInstall(); } catch { /* a beacon never blocks a boot */ }
       /* #1945: the update-awareness sweep. `updates.poke()` is the ONLY thing
          that fetches latest.json and can fire an auto-install, and its only
