@@ -3529,9 +3529,10 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      shrinking it to its content instead of filling column 2. `grid-row: 1` keeps it in
      the list's row (the display views share that row); it stretches to the row height
      like the other display views (grid `align-items: stretch`) and scrolls internally. */
-  /* #3054 (Josh, 6.63 review): in the tab view the panel's own inset gives the settings
-     content top/side breathing room, but the consolidated relocation into column 2 dropped
-     it, so Your Profile sat against the very top and the content box against the right edge.
+  /* #3054 (Josh, 6.63 review): in the tab view the settings content gets its top/side
+     breathing room from the page layout and the centered body (the base #panel-settings is
+     padding:0), but the consolidated relocation makes the panel a full-width grid cell in
+     column 2, so Your Profile sat against the very top and the content box against the right edge.
      Add a top + right inset. Padding, not margin: the panel is width:100% in a grid cell and
      box-sizing is border-box globally, so padding insets the content without overflowing the
      column (a margin-right would). Left stays on the grid column-gap; bottom stays 0 (it

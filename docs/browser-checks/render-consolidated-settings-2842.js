@@ -102,7 +102,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // #3054: the panel has a top + right inset (padding), so the content is not slammed to
     // the top/right edge. Both must be > 0. This is compatible with the fill assertion above:
     // padding is inside the border-box, so settingsWidth (the border-box width) is unchanged.
-    ok(t + ' #3054 the settings panel has a top + right inset (Your Profile not slammed to the edge)', out.err === null && out.padTop > 0 && out.padRight > 0, JSON.stringify(out));
+    ok(t + ' #3054 the settings panel has a real top + right inset (Your Profile not slammed to the edge)', out.err === null && out.padTop >= 12 && out.padRight >= 12, JSON.stringify(out));
     ok(t + ' #2842 navigating to a project hides settings and shows the project', out.err === null && out.settingsHiddenAfterNav === true && out.projectShownAfterNav === true, JSON.stringify(out));
     ok(t + ' #2842 leaving the consolidated view restores settings to the top level', out.err === null && out.restoredToTopLevel === true, JSON.stringify(out));
     ok(t + ' #2842 CONTROL: in the tab view #rail-me-go does not enter the consolidated view', out.err === null && out.tabViewNotConsolidated === true, JSON.stringify(out));
