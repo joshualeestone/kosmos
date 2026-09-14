@@ -66,7 +66,8 @@ const WORDS = {
   darwin: {
     '#docs-finder': 'Open this folder in Finder',
     '#set-reveal': 'Show me where it is',
-    'button[data-go="term"]': 'Terminal',
+    // #2916 renamed the Mac nav pill Terminal -> Advanced; Windows keeps "Live output" (above).
+    'button[data-go="term"]': 'Advanced',
     '#fr-pane-7 p[data-win-copy="s7Body"]': 'Kosmos is now in your applications folder, and you will see Kosmos in your dock.',
   },
 };

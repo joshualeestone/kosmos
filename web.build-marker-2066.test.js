@@ -4,9 +4,12 @@
  * kosmos#2066 -- the board's build marker (paintBuildMark) in web/index.html.
  * Executes the extracted function against a fake DOM with stubbed bakedVersion /
  * esc / pageIsStale / location, so the branching logic is really run, not just
- * pinned by source text. The browser check render-build-marker-2066.js proves it
- * RENDERS with the staging treatment (computed style); this proves the value logic:
- * baked wins, an absent/unknown channel folds to prod, no version hides.
+ * pinned by source text. #2658 (option a) superseded #2066's loud staging badge with
+ * ONE uniform visible marker ("beta build v<version>") for every channel; the staging
+ * safety tell moved to the hover title. The browser check render-build-marker-2066.js
+ * proves the uniform marker RENDERS and the title-based channel tell survives (computed
+ * style); this proves the value logic: baked wins, an absent/unknown channel folds to
+ * prod in the title, no version hides.
  *
  *   node --test web.build-marker-2066.test.js
  */
@@ -44,35 +47,40 @@ function harness(overrides) {
   return { fn, el };
 }
 
-test('prod: a dim version string, no staging class, no badge markup', () => {
+test('prod: the uniform "beta build v<version>" marker, no badge markup (#2658)', () => {
   const { fn, el } = harness();
   fn('0.6.26', 'prod');
   assert.equal(el.hidden, false);
-  assert.equal(el.className, '', 'prod must not carry the staging class');
-  assert.equal(el.textContent, 'v0.6.26');
-  assert.equal(el.innerHTML, '', 'prod is plain text, not badge markup');
+  assert.equal(el.className, '', 'the marker carries no channel class (#2658 uniform)');
+  assert.equal(el.textContent, 'beta build v0.6.26');
+  assert.equal(el.innerHTML, '', 'plain text, not badge markup');
   assert.match(el.title, /prod/, 'the hover line names the channel');
 });
 
-test('staging: the loud badge -- STAGING, the version in a .bm-v span, the staging class', () => {
+test('staging: the SAME uniform marker as prod; the channel tell is in the hover title (#2658 option a)', () => {
   const { fn, el } = harness();
   fn('0.6.27', 'staging');
   assert.equal(el.hidden, false);
-  assert.equal(el.className, 'staging');
-  assert.match(el.innerHTML, /STAGING/);
-  assert.match(el.innerHTML, /class="bm-v"/);
-  assert.match(el.innerHTML, /v0\.6\.27/);
-  assert.match(el.title, /staging/);
+  assert.equal(el.className, '', 'no loud staging class -- the visible marker is uniform (#2658)');
+  assert.equal(el.textContent, 'beta build v0.6.27', 'same "beta build v<version>" shape as prod');
+  assert.equal(el.innerHTML, '', 'plain text, not a STAGING badge');
+  assert.match(el.title, /staging/, 'the staging safety tell survives in the hover title (#2066 intent)');
 });
 
-test('an absent or unknown channel folds to PROD -- a corrupt signal never paints STAGING', () => {
+test('an absent or unknown channel folds to PROD in the hover title -- a corrupt signal never says staging (#2658)', () => {
   for (const ch of [undefined, null, '', 'PROD', 'stage', 'production', 'STAGING']) {
     // Only the exact lowercase 'staging' is staging; the frontend trusts the
-    // server to have normalised, and anything else is the safe default.
+    // server to have normalised, and anything else is the safe default. Post-#2658
+    // the channel shows ONLY in the hover title (the visible marker is uniform).
     const { fn, el } = harness();
     fn('0.6.26', ch);
-    if (ch === 'staging') { assert.equal(el.className, 'staging', 'exact "staging" is staging'); }
-    else { assert.equal(el.className, '', 'channel ' + JSON.stringify(ch) + ' must render as prod'); }
+    assert.equal(el.className, '', 'the visible marker is uniform for every channel (#2658)');
+    if (ch === 'staging') {
+      assert.match(el.title, /staging/, 'exact "staging" names staging in the title');
+    } else {
+      assert.doesNotMatch(el.title, /staging/, 'channel ' + JSON.stringify(ch) + ' must fold to prod in the title');
+      assert.match(el.title, /prod/, 'a non-staging channel names prod in the title');
+    }
   }
 });
 
@@ -88,7 +96,7 @@ test('no version -> hidden, never a flash of "unknown"', () => {
 test('the BAKED version wins over the polled one (what am I looking at), and stale is noted in the title', () => {
   const { fn, el } = harness({ bakedVersion: () => '0.6.26', pageIsStale: () => true });
   fn('0.6.27', 'prod'); // served 0.6.27, page baked 0.6.26 -> stale
-  assert.equal(el.textContent, 'v0.6.26', 'the marker shows the page it IS, not the server it polls');
+  assert.equal(el.textContent, 'beta build v0.6.26', 'the marker shows the page it IS, not the server it polls');
   assert.match(el.title, /reload for v0\.6\.27/, 'the disagreement (stale) rides the hover line');
 });
 

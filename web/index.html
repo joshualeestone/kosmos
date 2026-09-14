@@ -71,6 +71,11 @@
      data-theme, which every :root:not([data-theme]) selector reads. */
   --k-bg: #faf9f7; --k-ink: #14161a; --k-ink-2: #4a4f57; --k-rule: #e3e1dc;
   --k-surface: #ffffff; --k-track: rgba(20,22,26,.16); --k-knob: #ffffff;
+  /* #2922: the bright blue an @agent mention wears in the project room. #0a58d8 clears WCAG AA as
+     text on the message-bubble grounds it actually renders on -- the --k-sunk wash (agent posts)
+     and the --usermsg-tint wash (your own), computed worst-case 5.19:1, not just the bare page. The
+     dark block below lifts it to a brighter blue for the dark ground. */
+  --pj-mention: #0a58d8;
   /* ⚠️ DEFINED HERE, not inherited from a fallback. The pack writes this token
      as `var(--k-sunk, rgba(20,22,26,.05))` everywhere and defines it nowhere,
      which works in light and is nearly invisible in dark: a 5%-black wash on a
@@ -171,13 +176,6 @@
      Dark #4ade80 is 10.11 on the dark card and 11.16 on the dark page. */
   --ok: #1f7a4d;
   --k-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  /* #2066 build marker: the STAGING badge's ink + ground. Mona Lisa's values
-     (installkosmos.com/design/build-marker). A dark warm-brown ink on a light
-     warm-cream ground in light; the inverse (light gold on deep brown) in dark,
-     so the badge stays loud and legible either way. Defined here and re-stated
-     in both dark blocks below, because a one-theme colour on the wrong ground is
-     the failure this palette exists to avoid. */
-  --stag: #8a5a00; --stag-bg: #fbeecb;
 
   --font-ui: -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Monaco, monospace;
@@ -303,6 +301,8 @@
     --k-rule:    #2a2d31;
     --k-track:   rgba(245,245,244,.22);
     --k-knob:    #e8e9eb;
+    /* #2922: a brighter blue for the dark ground -- #0a64fa is too dark on #0c0d0f; #5aa2ff clears AA. */
+    --pj-mention: #5aa2ff;
     /* The inverse: a raised-looking wash on the dark ground, because a
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
@@ -313,8 +313,6 @@
     --k-side:   #111316;
     --k-side-2: #1c1f23;
     --k-optline: #6e7278;
-    /* #2066 build marker (dark): light gold ink on a deep warm-brown ground. */
-    --stag: #f0c860; --stag-bg: #3a2e10;
   }
 }
 /* ⚠️ THIS BLOCK USED TO BREAK DARK MODE, and it sits after the dark block, so it
@@ -1157,19 +1155,14 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
            margin: calc(-1 * var(--space-8)) calc(-1 * var(--space-8)) var(--space-6);
            padding: var(--space-8) var(--space-8) 0;
            border-bottom: 1px solid var(--k-rule); }
-/* #2066 build marker (Mona Lisa's design, installkosmos.com/design/build-marker).
-   Same fixed corner, different weight per channel: prod is quiet furniture, present
-   in every screenshot but not competing; staging spends attention on purpose so a
-   tester cannot miss it or leave it out of a shot. Below the sticky header (z 20) so
-   it never sits over the chrome; the corner keeps it clear of content. */
+/* #2066 + #2658 build marker: a uniform "beta build v<version>" in the board's fixed
+   corner, quiet furniture present in every screenshot but not competing. #2658 (option a)
+   dropped #2066's loud per-channel staging badge; the channel now rides the hover title
+   only (staging is opt-in, prod is always promoted+verified). Below the sticky header
+   (z 20) so it never sits over the chrome; the corner keeps it clear of content. */
 #buildmark { position: fixed; right: 10px; bottom: 8px; z-index: 15;
              font: 500 11px/1.4 var(--k-mono); color: var(--k-ink-2); opacity: .75;
              user-select: none; }
-#buildmark.staging { display: inline-flex; align-items: center; gap: 6px;
-             font: 700 11px/1 var(--font-ui); letter-spacing: .04em; opacity: 1;
-             color: var(--stag); background: var(--stag-bg);
-             border: 1px solid var(--stag); border-radius: 99px; padding: 3px 10px; }
-#buildmark.staging .bm-v { font: 600 11px var(--k-mono); }
 /**
  * 🛑 THE TABS CENTRED AGAINST THE GAP, NOT AGAINST THE PAGE. `auto 1fr auto`
  * gives the tab bar a middle column that is whatever is left between two
@@ -2254,6 +2247,13 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 .snav button:not([data-dot]) .vh { display: none; }
 .dsecs { min-width: 0; }
 .dsec { display: flex; flex-direction: column; gap: 18px; border-radius: 16px; }
+/* #2916 group-reveal shows two sibling .dsec cards at once (Model+Memory,
+   Instructions+Skills, which are DOM-adjacent). .dsec only spaces its OWN
+   children, so two visible siblings would render flush. Add separation only
+   when a .dsec directly follows another VISIBLE .dsec: the :not([hidden]) on
+   the left side means a lone section (its preceding sibling hidden) gets no
+   stray top margin, so single-section pills are unaffected. */
+.dsec:not([hidden]) + .dsec:not([hidden]) { margin-top: 24px; }
 .dsec:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 4px; }
 /* One of three sentences while the box is hidden, chosen by `data-tied`;
    none while the box is showing. ⚠️ ORDER-DEPENDENT: the sibling rule last
@@ -5375,6 +5375,10 @@ body.plus-active .dm.theirs .dm-b[data-am], body.plus-active .msg:not(.you) .msg
    blue: in a room where most of what is written is local, the ONE thing that
    leaves the machine should not also be the one thing that shouts. */
 .xlink { color: var(--k-ink); text-underline-offset: 3px; }
+/* #2922 (Josh 6.59): an @agent mention in the project room wears the bright blue so the reader sees
+   it will flag that agent. Weight lifts it a touch without a background, so a message full of names
+   does not turn into a wall of chips. The token is theme-aware (AA in both grounds). */
+.pjmention { color: var(--pj-mention); font-weight: 600; }
 /* The pack's quoted block, on this file's tokens. No figcaption rule: nothing
    can produce a source yet, so there is no caption to style. */
 /* #460: a quoted line, the pack's .quoteb. Drawn ONLY where the engine
@@ -5920,6 +5924,25 @@ body.plus-active .dm.theirs .dm-b[data-am], body.plus-active .msg:not(.you) .msg
      path) breaks rather than re-opening the letterbox. */
   white-space: pre-wrap; overflow-wrap: anywhere; overflow: auto; }
 .fr-scanpreview:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
+/* #1280 org-chart import. Its own textarea rule (NOT folded into the #1800
+   shared #create-instr/#import-text pair, which is deliberately pinned to
+   exactly those two) but the same appearance, so a person recognises the
+   surface. The preview is a plain card + numbered list: styled to the app, real
+   controls, because an unstyled block is exactly the defect #2025 was. */
+#orgchart-text { width: 100%; font: var(--text-callout) var(--font-mono);
+  color: var(--label); background: var(--field-fill);
+  border: 0.5px solid var(--border-strong); border-radius: var(--radius-control);
+  padding: 10px 12px; resize: vertical; box-sizing: border-box; }
+#orgchart-text:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
+.orgchart-preview { margin-top: var(--space-2); padding: 12px;
+  background: var(--field-fill); border: 0.5px solid var(--border-strong);
+  border-radius: var(--radius-control); box-sizing: border-box; }
+.orgchart-count { margin: 0 0 8px; font: var(--text-callout) var(--font-ui); color: var(--label); }
+.orgchart-list { margin: 0; padding-left: 1.4em; max-height: 18rem; overflow: auto;
+  display: flex; flex-direction: column; gap: 4px; }
+.orgchart-list li { font: var(--text-callout) var(--font-ui); color: var(--label); }
+.orgchart-nameopt { display: flex; align-items: center; gap: 8px; margin-top: 8px;
+  font: var(--text-callout) var(--font-ui); color: var(--label); cursor: pointer; }
 /* #1652 PR2: the found-on-this-computer import list. Each row shows the file's name,
    its title, its path, and a read-only preview (the same "SHOW the file, do not assert"
    rule the scan panel keeps), then a single Import action. Dressed with the shared
@@ -7299,6 +7322,8 @@ html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
     --k-rule:    #2a2d31;
     --k-track:   rgba(245,245,244,.22);
     --k-knob:    #e8e9eb;
+    /* #2922: a brighter blue for the dark ground -- #0a64fa is too dark on #0c0d0f; #5aa2ff clears AA. */
+    --pj-mention: #5aa2ff;
     /* The inverse: a raised-looking wash on the dark ground, because a
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
@@ -7309,8 +7334,6 @@ html[data-kosmos-platform="win32"] [data-win-hide] { display: none !important; }
     --k-side:   #111316;
     --k-side-2: #1c1f23;
     --k-optline: #6e7278;
-    /* #2066 build marker (dark): light gold ink on a deep warm-brown ground. */
-    --stag: #f0c860; --stag-bg: #3a2e10;
   }
 
 @media (prefers-contrast: more) {
@@ -7556,10 +7579,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
      A fixed body corner, NOT Settings: a problem screenshot is not of Settings, and a
      click/hover reveal is not in a screenshot. Body-fixed rather than inside .apphead
      because the consolidated layout sets .apphead to position:static, so a body corner
-     is the layout-robust home for "on every tab". Prod: a small dim version string.
-     Staging: a loud coloured STAGING badge in the same slot (absence of the badge is
-     prod). Painted by paintBuildMark() off the /api/status poll; the hover title carries
-     the fuller line (channel · port). Hidden until the first paint gives it a version. -->
+     is the layout-robust home for "on every tab". A uniform "beta build v<version>" for
+     every channel (#2658 dropped #2066's per-channel loud STAGING badge; the channel rides
+     the hover title only). Painted by paintBuildMark() off the /api/status poll; the hover
+     title carries the fuller line (channel · port). Hidden until the first paint gives it a version. -->
 <div id="buildmark" hidden></div>
 <!-- ⚠️ THE STICKY UNIT IS THE WHOLE BAR, header and tabs together, pulled to
      the page edges with negative margins that mirror the body padding exactly
@@ -7898,12 +7921,13 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   <div class="dbody">
   <nav class="snav" id="d-nav" aria-label="Sections of this page">
     <button type="button" data-go="talk" aria-controls="d-sec-talk" class="on" aria-current="true"><span id="d-nav-talk">Talk to this agent</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
-    <button type="button" data-go="model" aria-controls="d-sec-model">Model</button>
-    <button type="button" data-go="memory" aria-controls="d-sec-memory">Memory</button>
-    <button type="button" data-go="instr" aria-controls="d-sec-instr"><span>Instructions</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
-    <button type="button" data-go="skills" aria-controls="d-sec-skills">Skills</button>
+    <!-- #2916 (Josh 6.59): Model and Memory share one pill; Instructions holds Skills below it;
+         the Terminal pill is renamed Advanced. The memory + skills SECTIONS are unchanged and
+         still keyed on their own data-sec; detailGo reveals both members of a pill's group. -->
+    <button type="button" data-go="model" aria-controls="d-sec-model d-sec-memory">Model and Memory</button>
+    <button type="button" data-go="instr" aria-controls="d-sec-instr d-sec-skills"><span>Instructions</span><span class="dot" aria-hidden="true"></span><span class="vh"> (needs you)</span></button>
       <button type="button" data-go="profile" aria-controls="d-sec-profile">Profile</button>
-    <button type="button" data-go="term" aria-controls="d-sec-term" data-win-copy="terminalTab">Terminal</button>
+    <button type="button" data-go="term" aria-controls="d-sec-term" data-win-copy="terminalTab">Advanced</button>
     <div class="sep" role="separator"></div>
     <button type="button" data-go="remove" aria-controls="d-sec-remove" class="danger"><span id="d-nav-remove">Remove this agent</span></button>
   </nav>
@@ -8071,6 +8095,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <p class="dhint" id="d-persist" style="margin:12px 0 0;"></p>
   </section>
   </section>
+  <!-- #2916: the "Model and Memory" pill reveals THIS model region plus the adjacent d-sec-memory
+       region. Each region keeps its own accurate aria-label ("Model" here, "Memory" below) so a
+       screen-reader user is not told memory controls live in a region that only holds the model. -->
   <section class="dsec" id="d-sec-model" data-sec="model" tabindex="-1" aria-label="Model" hidden>
   <section class="dbox">
     <h3 class="dlab">Runs on</h3>
@@ -8504,6 +8531,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   <div class="fmsg" id="d-role-msg"></div>
   </section>
   </section>
+  <!-- #2916: the nav PILL is renamed "Advanced", but this region keeps aria-label "Terminal" to
+       match its own content (the "This agent's Terminal" heading + Open Terminal controls) -- same
+       convention as d-sec-model staying "Model" under the "Model and Memory" pill. -->
   <section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-win-aria-label="terminalTab" data-tied="1" hidden>
 
   <!-- #5 insurance + terminal-window actions (Josh 0.6.44). These sit ABOVE the window
@@ -10388,6 +10418,60 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              holds, found by the disk scan and offered for one-click import. Hidden until
              the scan finds any; the paste/choose controls above work regardless. -->
         <div class="import-found" id="import-found" hidden></div>
+      </div>
+      <!-- ⚠️ FIFTH OPTION: upload an org chart (#1280). It is the ONLY entry in
+           this list that creates MANY agents at once, so it needs what a bulk
+           operation needs and the other four do not: a preview with a count
+           before it commits, and a way back. Objective is THROUGHPUT (Josh's
+           ruling) -- paste 15-20 names and titles, get that many agents in
+           seconds -- not a clever chart parser. Gated on OWN_ROLE like pick-own
+           and pick-import, because each row is created down the SAME 'own'
+           (define-your-own) path, its title as the role label. Names are OFF by
+           default (an agent under a real person's name has consequences in logs,
+           commits and messages); the person's name is a label the operator opts
+           into, never the agent's machine name unless they ask. -->
+      <label class="pick2 own" hidden id="pick-orgchart">
+        <input type="radio" name="rmode" value="orgchart">
+        <span class="pickmark" aria-hidden="true">&#10003;</span>
+        <span class="p2n">Upload an org chart</span>
+        <span class="p2d">Create a whole team at once from a list</span>
+        <span class="p2full">Paste your people and their titles, one per line. We will show you the full list before creating anything, and you can raise or cancel it first.</span>
+      </label>
+      <!-- The panel only exists once its radio is chosen (mirrors #rolepick and
+           #importpick), so the screen stays the options tall until someone asks
+           to build a team. -->
+      <div class="rolepick" id="orgchartpick" hidden>
+        <label class="flabel" for="orgchart-text">Your people</label>
+        <textarea id="orgchart-text" rows="6" placeholder="One person per line, for example:&#10;Marketing Lead&#10;Sarah Chen, Head of Sales&#10;Engineer"></textarea>
+        <p class="rolehelp">One person per line. Put the title on its own, or write the name and title separated by a comma. We create one agent per line, named for the title.</p>
+        <!-- ⚠️ The caution below is a PLAIN, always-visible help line, NOT a
+             .pick2/.p2full card. .p2full is display:none until its input is
+             :checked (it is a radio option's extended text), so used here the
+             safety caution would be hidden in the UNCHECKED default and appear
+             only AFTER the operator opted in -- the one state it does not need
+             to warn. A caution about naming agents after real people has to be
+             visible while the box is still off. -->
+        <label class="orgchart-nameopt">
+          <input type="checkbox" id="orgchart-usenames">
+          <span>Name the agents after the people (off by default)</span>
+        </label>
+        <p class="rolehelp">Leave this off and each agent is named for its title (Marketing Lead), not the person. Turn it on only if you want agents named after your staff: their name will then appear in that agent's logs, messages and commits.</p>
+        <div class="importrow">
+          <button class="btn uprime" type="button" id="orgchart-preview">Preview the team</button>
+        </div>
+        <!-- The preview: a count and the list of agents this will create, shown
+             BEFORE anything is created. This is not friction -- it is what makes
+             "in seconds" safe, because twenty agents made with no glance is a
+             worse surprise than twenty made after one. Hidden until a parse. -->
+        <div class="orgchart-preview" id="orgchart-preview-box" hidden>
+          <p class="orgchart-count" id="orgchart-count" role="status" aria-live="polite"></p>
+          <ol class="orgchart-list" id="orgchart-list"></ol>
+          <div class="importrow">
+            <button class="btn uprime" type="button" id="orgchart-create">Create the team</button>
+            <button class="btn" type="button" id="orgchart-edit">Back to the list</button>
+          </div>
+        </div>
+        <p class="rolelimit" id="orgchart-msg" role="status" aria-live="polite" hidden></p>
       </div>
       </fieldset>
     </div>
@@ -21698,19 +21782,21 @@ function paintBuildLine(version) {
 }
 
 /**
- * #2066: the build marker in the board's persistent chrome -- "which build am I on,
- * and is this staging or prod", answerable from a problem screenshot without asking.
+ * #2066 + #2658: the build marker in the board's persistent chrome -- "which build am I
+ * on", shown uniformly for every channel as "beta build v<version>".
  *
  * Same value logic as paintBuildLine: the BAKED version wins, because the question is
  * "what am I looking at" and only the page's own baked value knows that; the polled
  * `version` is the fallback for a source checkout that bakes nothing. Channel is
  * `sourceChannel` off the /api/status poll (never baked into the artifact -- #2036's
  * same-bytes-promotion invariant), defaulting to prod. Port comes from the URL the
- * board is served on, which is per-account (#the cabal9 "which of several apps" case).
+ * board is served on, which is per-account (the cabal9 "which of several apps" case).
  *
- * Weight, not visibility, carries the channel: prod paints a small dim version string
- * (chrome, ignorable in daily use, still in the screenshot); staging paints a loud
- * badge. The fuller line (channel, port) rides the hover title so prod stays quiet.
+ * #2658 (option a, Baron): the VISIBLE marker is uniform for every channel; the channel
+ * (staging/prod) and port ride the hover title, not the visible text. The staging safety
+ * tell lives there and in /api/accounts (#2036) -- staging is opt-in and prod is always
+ * promoted+verified, so no constantly-visible staging indicator is needed. This supersedes
+ * #2066's loud staging badge (the .staging/.bm-v CSS went with it).
  * Hidden until we actually have a version to show, so it never flashes "unknown".
  */
 function paintBuildMark(version, sourceChannel) {
@@ -21727,13 +21813,14 @@ function paintBuildMark(version, sourceChannel) {
   el.title = 'Kosmos v' + shown + ' · ' + channel
     + (port ? ' · port ' + port : '')
     + (pageIsStale(version) ? ' · page stale, reload for v' + version : '');
-  if (staging) {
-    el.className = 'staging';
-    el.innerHTML = 'STAGING <span class="bm-v">v' + esc(shown) + '</span>';
-  } else {
-    el.className = '';
-    el.textContent = 'v' + shown;
-  }
+  /* #2658: one uniform visible marker for every channel -- "beta build v<version>".
+     The staging safety tell is NOT lost: the hover title above still names the
+     channel (staging/prod), and /api/accounts carries the channel metadata (#2036).
+     Baron (who built the #2066 staging-loud marker) ruled option (a): staging is
+     opt-in and prod is always promoted+verified, so no constantly-visible staging
+     indicator is needed. textContent, so the version is escaped by construction. */
+  el.className = '';
+  el.textContent = 'beta build v' + shown;
   el.hidden = false;
 }
 
@@ -21894,6 +21981,11 @@ function boardEmpty() {
 // projects reads: two in-flight looks must not paint out of order.
 let PJ_BROWSE_GEN = 0;
 let CURRENT = null;
+/* #2916: which agent's Skills list is already loaded. Skills now folds under the Instructions
+   pill, which is visited far more often than the old standalone Skills pill, so guard the lazy
+   load against a refetch + list-rebuild flicker on every return to Instructions. Reset per open
+   (below) so reopening an agent gets a fresh list; a skill ADD refreshes it on its own path. */
+let SKILLS_LOADED_FOR = null;
 /* #2574: the project a detail view was opened FROM (a project-member click), so
    detail-back returns to that project instead of All agents. null for every
    other opener. */
@@ -23939,6 +24031,7 @@ function openDetail(sessionName, section, fromProject) {
   DETAIL_FROM_PROJECT = fromProject || null;
   const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
+  SKILLS_LOADED_FOR = null;   // #2916: a fresh open reloads the Skills list on the first Instructions visit
   URL_TAB = 'detail';
   /* #1615: openDetail is the THIRD writer of URL_TAB (after showTab and, via it,
      settingsGo). Jumping straight to the agent detail from the Plus tab must
@@ -24449,6 +24542,23 @@ function detailPaintWindow(a) {
    has `settingsGo` for its own), and it is called from a nav click and from
    `openDetail`, never from the poll. */
 const DETAIL_SECTIONS = ['talk', 'model', 'memory', 'instr', 'skills', 'profile', 'term', 'remove'];
+/* #2916 (Josh 6.59): two pills now each cover two sections. "Model and Memory" (the `model`
+   pill) reveals the model AND memory sections together; "Instructions" (the `instr` pill)
+   reveals the instructions AND skills sections. The member sections keep their own data-sec and
+   wiring untouched -- only which ones show together changed. detailSectionGroup maps any section
+   (the pill's own, or a folded member reached programmatically) to the full set to reveal, and
+   detailSectionPill maps it to the pill that should light. Anything not folded maps to itself.
+   ⚠️ FOCUS lands on the group's FIRST section (the pill's own), NOT a requested folded member: a
+   future openDetail(name, 'memory') reveals model+memory but focuses the top of Model, so a
+   keyboard user tabs past Model to reach Memory. No caller passes a folded member today; if one
+   is added and must focus ON the member, teach detailGo to focus the requested section rather
+   than group[0]. */
+const DETAIL_SECTION_GROUPS = { model: ['model', 'memory'], instr: ['instr', 'skills'] };
+const DETAIL_SECTION_PILL = { memory: 'model', skills: 'instr' };
+function detailSectionGroup(section) {
+  const pill = DETAIL_SECTION_PILL[section] || section;
+  return DETAIL_SECTION_GROUPS[pill] || [pill];
+}
 /* The thread's scroll offset while Talk is hidden. A display:none container
    drops its scrollTop, so "came back to where I was reading" has to be kept
    here; null means nobody has left Talk for this agent yet. */
@@ -24464,8 +24574,11 @@ function detailGo(section, opts) {
     if (talk && !talk.hidden && section !== 'talk' && th) TALK_SCROLL = th.scrollTop;
   }
   const nav = document.getElementById('d-nav');
+  /* #2916: a folded section (memory, skills) lights its PILL (model, instr), not a pill of
+     its own -- it no longer has one. Anything not folded maps to itself. */
+  const pill = DETAIL_SECTION_PILL[section] || section;
   nav.querySelectorAll('button[data-go]').forEach((b) => {
-    const on = b.dataset.go === section;
+    const on = b.dataset.go === pill;
     b.classList.toggle('on', on);
     /* "true", not "page": the pills change no URL, and AT reads "page" as one. */
     if (on) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current');
@@ -24475,11 +24588,14 @@ function detailGo(section, opts) {
      re-capture); an open is always one, even onto the section already
      showing, because openDetail has just reset what the section holds. */
   const arriving = detailSection(section).hidden || !!(opts && opts.focus === false);
+  /* #2916: reveal every section in the pill's group (model+memory, or instr+skills), hide the
+     rest. Focus lands on the group's FIRST section (the pill's own), so a keyboard user arrives
+     at the top of what they asked for, with the folded section below it in DOM order. */
+  const group = detailSectionGroup(section);
   document.querySelectorAll('#panel-detail .dsec').forEach((sec) => {
-    const on = sec.dataset.sec === section;
-    sec.hidden = !on;
-    if (on) target = sec;
+    sec.hidden = !group.includes(sec.dataset.sec);
   });
+  target = detailSection(group[0]);
   /* 🔑 FOCUS MOVES INTO THE SECTION ON A CLICK, so a keyboard user's next Tab
      is the first control of what they asked for rather than the next pill.
      (Shift+Tab from there lands on the last pill, Remove, because that is DOM
@@ -24522,7 +24638,17 @@ document.getElementById('d-nav').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-go]');
   if (!b) return;
   detailGo(b.dataset.go);
-  if (b.dataset.go === 'skills' && CURRENT) {
+  /* #2916: the Skills list lazy-loads when its section is revealed. It used to live behind its
+     own pill; now it is folded under Instructions, so load it when the Instructions pill opens
+     (the skills section shows alongside it). Guarded by SKILLS_LOADED_FOR so returning to
+     Instructions -- a frequent action, it also carries the needs-you dot -- does not refetch and
+     rebuild the list on every visit.
+     ⚠️ The trigger lives HERE, in the click handler, not in detailGo/openDetail. No caller opens
+     directly to Instructions today (every openDetail lands on Talk; the URL deep-link carries no
+     section), so this is fine. If a section deep-link to 'instr' is ever added, the Skills list
+     would render blank until the pill is clicked -- move this load beside the group reveal then. */
+  if (b.dataset.go === 'instr' && CURRENT && SKILLS_LOADED_FOR !== CURRENT.sessionName) {
+    SKILLS_LOADED_FOR = CURRENT.sessionName;
     loadSkills('/api/agent/' + encodeURIComponent(CURRENT.sessionName) + '/skills', 'd-skills-list', 'd-skills-msg');
   }
 });
@@ -32807,7 +32933,7 @@ async function loadRoles(initialMode) {
     // no-hardcoded-list rule exists for, arriving through a stale cache).
     OWN_ROLE = null;
     CREATE_MODELS = [];
-    ['pick-pm', 'pick-list', 'pick-own', 'pick-import', 'rolepick', 'importpick'].forEach((id) => {
+    ['pick-pm', 'pick-list', 'pick-own', 'pick-import', 'pick-orgchart', 'rolepick', 'importpick', 'orgchartpick'].forEach((id) => {
       document.getElementById(id).hidden = true;
     });
     // Not `esc()`: this goes into textContent, which does its own escaping, so
@@ -32864,6 +32990,9 @@ function buildPicker() {
   // Import uses the `own` role's key, so it is offered on exactly the same
   // condition the `own` option is.
   document.getElementById('pick-import').hidden = !OWN_ROLE;
+  // #1280: the org-chart import creates every row down the `own` path, so it is
+  // offered on the same condition as `own` and `import`.
+  document.getElementById('pick-orgchart').hidden = !OWN_ROLE;
 }
 
 /**
@@ -32921,20 +33050,32 @@ function pickMode(mode) {
   const input = document.querySelector(`input[name="rmode"][value="${mode}"]`);
   if (input) input.checked = true;
   document.getElementById('rolepick').hidden = mode !== 'list';
-  /* Import shows its own panel and advances with its own button, so the shared
-     Continue is hidden for it and shown for every other mode. */
+  /* Import and org-chart each show their own panel and advance with their own
+     button, so the shared Continue is hidden for them and shown for every other
+     mode. */
   const importing = mode === 'import';
+  const orgcharting = mode === 'orgchart';
   document.getElementById('importpick').hidden = !importing;
-  document.getElementById('role-next').hidden = importing;
+  document.getElementById('orgchartpick').hidden = !orgcharting;
+  document.getElementById('role-next').hidden = importing || orgcharting;
   /* Supersede any import still in flight so its resolution cannot yank the screen
      after the person moved on, and give the panel a fresh enabled button whenever
      it is shown. */
   IMPORT_GEN += 1;
+  // #1280: any mode change supersedes an in-flight team create (mirrors IMPORT_GEN).
+  ORGCHART_GEN += 1;
   if (importing) {
     document.getElementById('import-load').disabled = false;
     // #1652 PR2: fill (or refresh) the found-on-this-computer list each time the panel
     // opens. Best-effort and async; the paste/choose controls do not wait on it.
     populateFoundImports();
+  }
+  if (orgcharting) {
+    // #1280: a fresh panel each time it opens. The pasted text is kept (like
+    // import-text) so a person who tabbed away does not lose it, but the preview
+    // is hidden and the status cleared -- the text may have changed since the
+    // last parse, so a stale count must not stand as if it still described it.
+    resetOrgchartPreview();
   }
   if (mode === 'pm') {
     PICKED = (roleByKey('pm') || ROLES[0]).key;
@@ -32942,14 +33083,15 @@ function pickMode(mode) {
     // Not in the fetched menu on purpose; the key is the contract with the
     // engine, which holds the example text and the label gate.
     PICKED = 'own';
-  } else if (importing) {
-    // No role yet: a successful read of the file sets 'own'. Continue stays
-    // hidden; the panel's own button is the advance.
+  } else if (importing || orgcharting) {
+    // No single role: import sets 'own' on a successful read; org-chart creates
+    // many agents down its own button. The shared Continue stays hidden; each
+    // panel's own button is the advance.
     PICKED = null;
   } else {
     PICKED = document.getElementById('rolesel').value;
   }
-  document.getElementById('role-next').disabled = importing;
+  document.getElementById('role-next').disabled = importing || orgcharting;
   paintPickLimit();
 }
 
@@ -32971,6 +33113,236 @@ function paintPickLimit() {
 document.getElementById('rolesel').addEventListener('change', () => {
   PICKED = document.getElementById('rolesel').value;
   paintPickLimit();
+});
+
+/* ── #1280 org-chart import: paste a roster, create a whole team ────────────
+   THROUGHPUT, not interpretation (Josh's ruling): one agent per line, in
+   seconds. Each row is created down the SAME 'own' (define-your-own) path the
+   single-create form uses -- its title is the agent's role label -- via
+   POST /api/team (engine/team.createTeam), the one create surface that makes
+   MANY agents under one creator+purpose. Names are OFF by default: an agent
+   under a real person's name carries that name in logs, commits and messages,
+   so the person's name is used only when the operator opts in, and even then it
+   is the machine name only because that opt-in IS the "name the agents after
+   the people" choice. The cap is Kosmos's, not the paste's -- over it the
+   backend refuses the whole request with a message naming the cap and its
+   ceiling and saying only the OPERATOR can raise it; we surface that message
+   verbatim rather than trying to raise the cap from here (a request cannot
+   raise its own bound, by design: engine/team.js). */
+
+// The parse held between Preview and Create, so Create builds exactly what the
+// person reviewed rather than a re-parse of text they may have edited after.
+let ORGCHART_PARSED = null;
+/* Supersedes an in-flight team create the way IMPORT_GEN does for import: bumped
+   on any mode change (pickMode) so a late /api/team response cannot yank the
+   screen after the operator switched away or reopened the form. */
+let ORGCHART_GEN = 0;
+
+/* The derived-name length ceiling. It MIRRORS engine/create.nameProblem's 32-char
+   cap (engine/create.js) so a client-derived candidate is not rejected for length
+   the operator cannot see; the engine stays the authority and refuses anything
+   longer, so a future backend change to that cap degrades to a surfaced refusal,
+   never a silent accept. Named rather than inlined so the two do not drift unseen. */
+const ORGCHART_NAME_MAX = 32;
+
+function resetOrgchartPreview() {
+  ORGCHART_PARSED = null;
+  const box = document.getElementById('orgchart-preview-box');
+  if (box) box.hidden = true;
+  const list = document.getElementById('orgchart-list');
+  if (list) list.innerHTML = '';
+  const count = document.getElementById('orgchart-count');
+  if (count) count.textContent = '';
+  const msg = document.getElementById('orgchart-msg');
+  if (msg) { msg.textContent = ''; msg.hidden = true; }
+  const create = document.getElementById('orgchart-create');
+  if (create) create.disabled = false;
+}
+
+/* A title (or a person's name, when opted in) into a machine name the engine
+   will accept. engine/create.nameProblem is the AUTHORITY and refuses a bad one
+   with a reason we surface; this only makes a reasonable candidate so the common
+   case is not a wall of refusals. Lowercase, any run of non [a-z0-9] to a single
+   hyphen, trimmed of hyphens, 32 max. Empty (a title of only punctuation) falls
+   back to 'agent' so the row still has a candidate the engine can rule on. */
+function orgchartSlug(s) {
+  const slug = String(s == null ? '' : s)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, ORGCHART_NAME_MAX)
+    .replace(/-+$/g, '');
+  return slug || 'agent';
+}
+
+/* Parse the pasted roster. One agent per non-blank line. A line splits on its
+   FIRST comma (then tab) into two fields "Name, Title"; a single field is the
+   TITLE with no name (the names-off default shape). Names OFF: the agent is
+   named for its title and the person's name is dropped; names ON: named for the
+   person when there is one, else still the title. The title is always the role
+   label. Machine names are de-duplicated among the parsed set (twenty "Engineer"
+   rows would otherwise collide on one name and return as nineteen refusals); the
+   engine still has the final say, this only spares the common case. */
+function parseOrgchart(text, useNames) {
+  const rows = [];
+  const used = Object.create(null);
+  const uniq = (base) => {
+    if (!used[base]) { used[base] = true; return base; }
+    /* Reserve room for the suffix by TRUNCATING the base, never by slicing the
+       suffix off after appending. A base already at ORGCHART_NAME_MAX with the
+       suffix sliced back off reproduces the base, so `used[s]` never clears and
+       the loop spins forever -- a real browser hang on a roster with two long
+       identical titles (found in review). Truncating the base first makes every
+       n produce a distinct, in-length string, so the loop always terminates. */
+    let n = 2;
+    let s;
+    do {
+      const suffix = '-' + n;
+      s = base.slice(0, ORGCHART_NAME_MAX - suffix.length).replace(/-+$/g, '') + suffix;
+      n += 1;
+    } while (used[s]);
+    used[s] = true;
+    return s;
+  };
+  for (const raw of String(text == null ? '' : text).split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    let name = '';
+    let title = '';
+    // Split at whichever separator comes FIRST, not comma-always: a tab-separated
+    // spreadsheet paste whose title carries a later comma ("Sarah\tSuccess Mgr, EMEA")
+    // must split at the tab, not fold the tab into the name at the comma.
+    const ci = line.indexOf(',');
+    const ti = line.indexOf('\t');
+    let at = -1;
+    if (ci >= 0 && ti >= 0) at = Math.min(ci, ti);
+    else if (ci >= 0) at = ci;
+    else if (ti >= 0) at = ti;
+    if (at >= 0) {
+      name = line.slice(0, at).trim();
+      title = line.slice(at + 1).trim();
+    } else {
+      title = line;
+    }
+    // A "Name," with an empty title degrades to the present field being the
+    // title -- the tolerant shape the plan asks for.
+    if (!title && name) { title = name; name = ''; }
+    if (!title) continue;
+    const person = (useNames && name) ? name : '';
+    const machine = uniq(orgchartSlug(person || title));
+    rows.push({ name: machine, role: 'own', label: title, person });
+  }
+  return rows;
+}
+
+document.getElementById('orgchart-preview').addEventListener('click', () => {
+  const rows = parseOrgchart(
+    document.getElementById('orgchart-text').value,
+    document.getElementById('orgchart-usenames').checked,
+  );
+  const msg = document.getElementById('orgchart-msg');
+  const box = document.getElementById('orgchart-preview-box');
+  if (!rows.length) {
+    ORGCHART_PARSED = null;
+    box.hidden = true;
+    msg.textContent = 'Paste at least one line: a title on its own, or a name and a title.';
+    msg.hidden = false;
+    return;
+  }
+  ORGCHART_PARSED = rows;
+  msg.textContent = ''; msg.hidden = true;
+  document.getElementById('orgchart-count').textContent =
+    'This will create ' + rows.length + (rows.length === 1 ? ' agent:' : ' agents:');
+  document.getElementById('orgchart-list').innerHTML = rows.map((r) =>
+    '<li>' + esc(r.label)
+      + (r.person ? ' <span class="dhint">named ' + esc(r.person) + '</span>' : '')
+      + ' <span class="dhint">&rarr; ' + esc(r.name) + '</span></li>').join('');
+  document.getElementById('orgchart-create').disabled = false;
+  box.hidden = false;
+});
+
+/* Pre-commit undo: back to the paste box with the text intact, so a person who
+   does not like the preview edits it rather than starting over. */
+document.getElementById('orgchart-edit').addEventListener('click', () => {
+  document.getElementById('orgchart-preview-box').hidden = true;
+  document.getElementById('orgchart-text').focus();
+});
+
+document.getElementById('orgchart-create').addEventListener('click', async () => {
+  if (!ORGCHART_PARSED || !ORGCHART_PARSED.length) return;
+  // Capture the generation: if the operator changes mode or reopens the form while
+  // this create is in flight, pickMode bumps ORGCHART_GEN and every DOM write below
+  // is skipped, so a late response cannot yank a screen the person has left.
+  const gen = ORGCHART_GEN;
+  const btn = document.getElementById('orgchart-create');
+  const msg = document.getElementById('orgchart-msg');
+  const countEl = document.getElementById('orgchart-count');
+  const listEl = document.getElementById('orgchart-list');
+  btn.disabled = true;
+  msg.textContent = ''; msg.hidden = true;
+  countEl.textContent = 'Creating ' + ORGCHART_PARSED.length
+    + (ORGCHART_PARSED.length === 1 ? ' agent…' : ' agents…');
+  const members = ORGCHART_PARSED.map((r) => ({ name: r.name, role: 'own', label: r.label }));
+  let result = null;
+  try {
+    const res = await fetch('/api/team', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ creator: 'operator', purpose: 'Imported from an org chart', members }),
+    });
+    result = await res.json().catch(() => null);
+  } catch (err) {
+    if (gen !== ORGCHART_GEN) return;   // superseded during the fetch
+    btn.disabled = false;
+    msg.hidden = false;
+    msg.textContent = 'We could not reach Kosmos to create the team ('
+      + ((err && err.message) ? err.message : 'network error') + '). Try again.';
+    return;
+  }
+  if (gen !== ORGCHART_GEN) return;   // superseded during the fetch: do not touch the screen
+  if (!result) {
+    btn.disabled = false;
+    msg.hidden = false;
+    msg.textContent = 'Kosmos did not answer in a way we could read. Try again.';
+    return;
+  }
+  /* A real createTeam response ALWAYS carries `outcome` -- even an HTTP 400 wholesale
+     refusal (over cap, all members dead) returns { outcome:'refused', because, refused }
+     which we DO want to surface. A transport/auth/malformed failure instead carries
+     `error` and no `outcome` (403 no board token, 503 roster-unreadable, 400 unparseable
+     body). Without this guard those fall through to the created/refused rendering below
+     and read as a bare "No agents were created", hiding the real reason on a 15-20 person
+     import. So: no `outcome` means it is not a team result -- surface its error plainly. */
+  if (result.outcome === undefined) {
+    btn.disabled = false;
+    msg.hidden = false;
+    msg.textContent = result.error ? String(result.error) : 'Kosmos refused the request.';
+    return;
+  }
+  /* Surface created[]/refused[]/because faithfully. The over-cap refusal arrives
+     here as `because` with nothing created, carrying the count, the cap, MAX 50,
+     and how the OPERATOR raises it -- shown verbatim, not reworded. */
+  const created = Array.isArray(result.created) ? result.created : [];
+  const refused = Array.isArray(result.refused) ? result.refused : [];
+  if (created.length && !refused.length) {
+    countEl.textContent = 'Created ' + created.length
+      + (created.length === 1 ? ' agent. It will appear on your board in a moment.'
+                              : ' agents. They will appear on your board in a moment.');
+  } else if (created.length) {
+    countEl.textContent = 'Created ' + created.length + ' of ' + (created.length + refused.length)
+      + '. ' + refused.length + (refused.length === 1 ? ' was not created:' : ' were not created:');
+  } else {
+    countEl.textContent = result.because || 'No agents were created.';
+  }
+  listEl.innerHTML =
+    created.map((c) => '<li>' + esc(c.shownAs || c.name) + ' <span class="dhint">created</span></li>').join('')
+    + refused.map((r) => '<li>' + esc(r.name || 'One agent')
+        + ' <span class="dhint">not created: ' + esc(r.because || 'no reason given') + '</span></li>').join('');
+  /* After a run the button stays disabled: the created agents now exist, so a
+     second press of the same reviewed set would only collide with them. To make
+     more, "Back to the list" reopens the paste box; editing and re-previewing
+     arms a fresh parse. */
+  btn.disabled = true;
 });
 
 /* 🛑 THE ARROW-KEY HANDLER THAT WAS HERE IS DELETED, and nothing replaced it.
@@ -32999,6 +33371,12 @@ function openCreate(initialMode) {
   document.getElementById('import-load').disabled = false;
   const importMsgEl = document.getElementById('import-msg');
   importMsgEl.textContent = ''; importMsgEl.hidden = true;
+  /* #1280: org-chart panel back to closed and empty -- text, the names toggle,
+     and the preview must not carry over from a previous open. */
+  document.getElementById('orgchartpick').hidden = true;
+  document.getElementById('orgchart-text').value = '';
+  document.getElementById('orgchart-usenames').checked = false;
+  resetOrgchartPreview();
   CREATING = false;
   WATCH += 1;
   document.getElementById('create-name').value = '';
@@ -38358,11 +38736,11 @@ function pjTableAligns(line) {
   }
   return aligns;
 }
-function pjTableHtml(headerLine, aligns, bodyLines, names) {
+function pjTableHtml(headerLine, aligns, bodyLines, names, agentNames) {
   const headers = pjTableCells(headerLine);
   const cols = headers.length;
   const cell = (tag, text, k) => '<' + tag + (aligns[k] ? ' style="text-align:' + aligns[k] + '"' : '')
-    + '>' + pjRichSpans(text == null ? '' : text, names) + '</' + tag + '>';
+    + '>' + pjRichSpans(text == null ? '' : text, names, agentNames) + '</' + tag + '>';
   /* Wrapped in a scroll container (like #usage-table): the wrapper is the
      inline-block that caps width and scrolls, the table lays out normally
      inside, so a wide table scrolls rather than widening the message bubble. */
@@ -38377,7 +38755,7 @@ function pjTableHtml(headerLine, aligns, bodyLines, names) {
   }
   return h + '</tbody></table></span>';
 }
-function pjProse(text, names) {
+function pjProse(text, names, agentNames) {
   const src = String(text == null ? '' : text).split('\n');
   /* Drop empty lines at the two ENDS only (never interior blank lines, which
      are the paragraph breaks this renderer exists to show). This absorbs the
@@ -38396,7 +38774,7 @@ function pjProse(text, names) {
       if (aligns) {
         let j = i + 2; const body = [];
         while (j < src.length && src[j].trim() !== '' && src[j].indexOf('|') !== -1) { body.push(src[j]); j += 1; }
-        out.push(pjTableHtml(line, aligns, body, names));
+        out.push(pjTableHtml(line, aligns, body, names, agentNames));
         i = j - 1; // the for-loop's i += 1 lands on the line after the table
         continue;
       }
@@ -38406,7 +38784,7 @@ function pjProse(text, names) {
        different sizes -- a `##` heading (and any emoji in it) is bigger than a
        `####` one, which a single mdh size collapsed. */
     let m = /^[ \t]*(#{1,6})[ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdh mdh' + m[1].length + '">' + pjRichSpans(m[2], names) + '</span>'); continue; }
+    if (m) { out.push('<span class="mdh mdh' + m[1].length + '">' + pjRichSpans(m[2], names, agentNames) + '</span>'); continue; }
     /* NO markdown blockquote in the room, on purpose. The room already has a
        DISTINCT, server-supplied quote (`m.quotes` -> <blockquote class="quoteb">),
        and web.quoteb asserts a bare leading `>` with no tag stays literal text
@@ -38414,25 +38792,25 @@ function pjProse(text, names) {
        server-quote concept, do style `>` as `.mdq`; this renderer deliberately
        does not.) `>` therefore falls through to inline text below. */
     m = /^[ \t]*[-+*][ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdli">' + pjRichSpans(m[1], names) + '</span>'); continue; }
+    if (m) { out.push('<span class="mdli">' + pjRichSpans(m[1], names, agentNames) + '</span>'); continue; }
     m = /^[ \t]*(\d+)\.[ \t]+(.*)$/.exec(line);
-    if (m) { out.push('<span class="mdli mdlin" data-n="' + esc(m[1]) + '.">' + pjRichSpans(m[2], names) + '</span>'); continue; }
-    out.push(pjRichSpans(line, names));
+    if (m) { out.push('<span class="mdli mdlin" data-n="' + esc(m[1]) + '.">' + pjRichSpans(m[2], names, agentNames) + '</span>'); continue; }
+    out.push(pjRichSpans(line, names, agentNames));
   }
   return out.join('<br>');
 }
-function pjBody(text, names) {
+function pjBody(text, names, agentNames) {
   const raw = String(text == null ? '' : text);
   /* The capture keeps each fence line's infostring; the old pattern ate it.
      With the capture, k closed blocks yield 4k+1 segments:
      [prose, openInfo, code, closeInfo, prose, ...]. Any other count means an
      unclosed fence, and an uncertain reading stays the flat paragraph. */
   const parts = raw.split(/^```([^\n]*)$/m);
-  if (parts.length < 5 || (parts.length - 1) % 4 !== 0) return pjProse(raw, names);
+  if (parts.length < 5 || (parts.length - 1) % 4 !== 0) return pjProse(raw, names, agentNames);
   let out = '';
   for (let i = 0; i < parts.length; i += 1) {
     const at = i % 4;
-    if (at === 0) { out += pjProse(parts[i], names); continue; }
+    if (at === 0) { out += pjProse(parts[i], names, agentNames); continue; }
     if (at === 1) {
       const label = String(parts[i] || '').trim();
       /* Path-shaped: no whitespace (a save-as attribute is not an origin),
@@ -38526,7 +38904,7 @@ function pjInline(text) {
    call would split `**bold text**` across whitespace and leak the markers --
    which is a careful refactor of the most-shared render path and gets its own
    PR. Flagged on #2067. */
-function pjRichSpans(seg, names) {
+function pjRichSpans(seg, names, agentNames) {
   /* Inline treatments for a single line's text, in an order chosen so no pass
      can corrupt an earlier pass's output:
        1. pull inline code out to a held placeholder (its body is never
@@ -38562,12 +38940,46 @@ function pjRichSpans(seg, names) {
      it. A token whose URL body still holds a placeholder sentinel is left
      unlinked rather than built into an attribute. */
   const hasNames = !!(names && names.size);
+  /* #2922 (Josh 6.59): in the project room, an @name that names an agent ON THIS PROJECT is
+     highlighted bright blue so the reader sees it will flag that agent. `agentNames` is the Set of
+     that project's agent keys (sessionNames), supplied only by pjRoomBody; the dialogue surfaces
+     pass none, so this is scoped to the project room. An @name that matches nobody stays plain. */
+  const hasAgents = !!(agentNames && agentNames.size);
   s = s.split(/(\s+)/).map((tok) => {
     if (!tok || /^\s+$/.test(tok)) return tok;
     const mm = /^(.*?)([.,;:!?)\]*~]*)$/.exec(tok);
     const core = mm[1];
     if (/^https?:\/\/[^\s￼]+$/.test(core)) {
       return hold('<a class="xlink" href="' + core + '" target="_blank" rel="noreferrer noopener">' + core + '</a>') + mm[2];
+    }
+    /* #2922: @<agent> mention. `core` is already esc()'d; agent keys are [A-Za-z0-9._-], which esc
+       leaves unchanged, so the Set lookup on the escaped key is exact. Leading emphasis markers and
+       an opening paren are peeled off and RE-ATTACHED around the held span, so `**@mona**` bolds the
+       whole chip and `(@mona)` keeps its parens -- the token-splitter only peels the tail, so the
+       head has to be handled here or those natural spellings would never highlight. Held like the
+       URL/chip so it is atomic through the emphasis pass (never leaks a marker). */
+    if (hasAgents && !core.includes('￼')) {
+      /* Peel ONLY non-identifier leading chars (`*` `~` `(`). NOT `_`: the backend's left boundary
+         is `(^|[^A-Za-z0-9._-])@` and `_` is IN that class, so `_@mona_` is NOT flagged -- peeling a
+         leading `_` here would paint it blue and falsely promise delivery. So an underscore-italic
+         mention renders as plain italic, exactly as the backend treats it (not a recipient). */
+      const lead = (core.match(/^[*~(]+/) || [''])[0];
+      const afterLead = core.slice(lead.length);
+      /* Highlight EXACTLY what the backend flags, so the blue means "this will reach that agent"
+         (Josh's ask). engine/messages.js matches the @-word exactly, else the word with a trailing
+         run of ._- stripped -- so `@mona-` (which the backend flags by dropping the `-`) highlights,
+         a key that itself ends in `_`/`-` matches by the exact-first check, and `@mona_bar` (no
+         trailing ._-, not a key) neither flags nor highlights. Leading emphasis / `(` are peeled and
+         re-attached so `**@mona**` / `(@mona)` wrap the chip; the matched `tail` renders plain. */
+      if (afterLead.charAt(0) === '@' && afterLead.length > 1) {
+        const word = afterLead.slice(1);
+        let key = null, tail = '';
+        if (agentNames.has(word)) { key = word; }
+        else { const sm = word.match(/^(.*?)([._-]+)$/); if (sm && sm[1] && agentNames.has(sm[1])) { key = sm[1]; tail = sm[2]; } }
+        if (key !== null) {
+          return lead + hold('<span class="pjmention">@' + key + '</span>') + tail + mm[2];
+        }
+      }
     }
     /* A cited project file -> a "Show me" chip (#355), same PATH rule as
        pjLinkPaths (last segment, no `..`), only when a `names` set is supplied.
@@ -39416,7 +39828,18 @@ function pjSilences(allRows, p) {
 function pjRoomBody(m, p) {
   const words = pjWords(m);
   if (!words) return '';
-  const flat = '<p>' + pjBody(words, PJ_DOC_NAMES) + '</p>';
+  /* #2922: the Set of agent keys (sessionNames) on THIS project, so pjRichSpans can highlight an
+     @name that flags an agent here. Same key derivation as mentionCandidates (a member is a string
+     key or a {sessionName} object). Empty/absent -> no highlight, which is the safe default. */
+  const agentNames = new Set(((p && p.agents) || [])
+    .map((a) => (typeof a === 'string' ? a : (a && typeof a.sessionName === 'string' ? a.sessionName : '')))
+    .filter(Boolean));
+  /* #2922: mirror the backend's recipient filter (engine/messages.js: recipients = operator ?
+     members : members.filter(m => m !== from)). A non-operator post never flags its OWN author, so
+     an agent's `@<self>` must NOT render blue -- it would falsely promise a message reaching the one
+     agent it provably will not. An operator post flags anyone, so no exclusion there. */
+  if (m && m.operator !== true && m.from) agentNames.delete(m.from);
+  const flat = '<p>' + pjBody(words, PJ_DOC_NAMES, agentNames) + '</p>';
   const qs = Array.isArray(m.quotes) ? m.quotes.filter((q) => q && typeof q === 'object'
     && typeof q.of === 'string' && q.of
     && Number.isInteger(q.start) && Number.isInteger(q.end)
@@ -39427,13 +39850,13 @@ function pjRoomBody(m, p) {
   /* Prose between quotes keeps the spacing the person typed inside it; only
      the whitespace at its edges goes, since that only separated it from the
      quote, so no empty paragraph or hanging indent is drawn beside the bar. */
-  const prose = (t) => { const k = t.replace(/^\s+|\s+$/g, ''); return k ? '<p>' + pjBody(k, PJ_DOC_NAMES) + '</p>' : ''; };
+  const prose = (t) => { const k = t.replace(/^\s+|\s+$/g, ''); return k ? '<p>' + pjBody(k, PJ_DOC_NAMES, agentNames) + '</p>' : ''; };
   let out = '';
   let at = 0;
   for (const q of qs) {
     out += prose(words.slice(at, q.start));
     const who = q.from === 'you' ? 'You' : (pjNameOf(p, q.from) || q.from);
-    out += '<blockquote class="quoteb">' + pjBody(words.slice(q.start, q.end).replace(/^\n+|\n+$/g, ''), PJ_DOC_NAMES)
+    out += '<blockquote class="quoteb">' + pjBody(words.slice(q.start, q.end).replace(/^\n+|\n+$/g, ''), PJ_DOC_NAMES, agentNames)
       + '<cite class="quoteb-from">' + esc(who) + ', earlier</cite></blockquote>';
     at = q.end;
   }

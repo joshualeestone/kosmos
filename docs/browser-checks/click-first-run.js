@@ -316,8 +316,9 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     ok(await page.isVisible('#panel-create'), 'and the create panel is open');
     // Not just open -- usable. The picker's radios are only un-hidden by the fetch.
     await page.waitForSelector('#roles-list .pick2', { state: 'visible', timeout: 5000 }).catch(() => {});
-    // Four since #1652 added "import an agent from a file" as a fourth .pick2.
-    ok((await page.locator('#roles-list .pick2:visible').count()) === 4, 'with its roles actually loaded');
+    // Five since #1280 added "upload an org chart" as a fifth .pick2 (after the
+    // #1652 file-import option). The count tracks the create-flow option set.
+    ok((await page.locator('#roles-list .pick2:visible').count()) === 5, 'with its roles actually loaded');
     ok(await page.isVisible('#cstep-role'), 'on step one of creating, not somewhere mid-flow');
     await ctx.close();
   }
