@@ -76,13 +76,13 @@ const WORLDS = { worlds: [{ id: 'default', name: 'Kosmos 1' }, { id: 'w2', name:
     return out;
   };
 
-  // A — THE FIX: /api/worlds 500s, but a cached list exists -> switcher VISIBLE + stale note.
+  // A -- THE FIX: /api/worlds 500s, but a cached list exists -> switcher VISIBLE + stale note.
   const failedWithCache = await drive({ cache: WORLDS, ok: false });
-  // A' — the same for an unreachable board (fetch throws), the other lockout trigger.
+  // A' -- the same for an unreachable board (fetch throws), the other lockout trigger.
   const throwWithCache = await drive({ cache: WORLDS, throwIt: true });
-  // B — a live read: switcher visible, NO stale note, and the list is cached for next time.
+  // B -- a live read: switcher visible, NO stale note, and the list is cached for next time.
   const live = await drive({ ok: true, live: WORLDS });
-  // C — CONTROL: failed read with NO cache stays hidden (today's clean single-world degrade).
+  // C -- CONTROL: failed read with NO cache stays hidden (today's clean single-world degrade).
   //     Without this the fix could just always-show; this is the arm that reds a naive fix.
   const failedNoCache = await drive({ ok: false });
 
@@ -106,7 +106,7 @@ const WORLDS = { worlds: [{ id: 'default', name: 'Kosmos 1' }, { id: 'w2', name:
 
   if (problems.length) {
     console.error('FAIL  render-worldsw-lockout-3055');
-    for (const p of problems) console.error('  ' + p);
+    for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
   console.log('PASS  render-worldsw-lockout-3055: a failed/unreachable /api/worlds falls back to the last-known Kosmoses (switcher stays reachable, honest note); a live read shows live + caches; no cache stays hidden');

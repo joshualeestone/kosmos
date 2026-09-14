@@ -19185,6 +19185,11 @@ function openAcctReauthOpenai(dir, email) {
    live read fails, render from it (degraded) so the user can always switch back to a
    working Kosmos; retry so a recovered board replaces the stale list on its own. */
 const WORLDS_CACHE_KEY = 'kosmos-worlds-last-known';
+/* 8s: this is a recovery poll for a broken/not-signed-in board, not the fast
+   post-switch reconnect (that is WORLDSW_RECONNECT_INTERVAL_MS, 2s). A broken board
+   recovers on a human timescale (a re-sign-in, a board restart), so a slow, cheap poll
+   is right -- fast enough that the switcher self-heals to live within a few seconds of
+   recovery, slow enough not to hammer /api/worlds while it stays down. */
 const WORLDS_RETRY_MS = 8000;
 let WORLDS_RETRY_T = null;
 let WORLDSW_STALE = false;
@@ -19212,6 +19217,7 @@ async function worldsFetch() {
     if (res.ok) data = await res.json();
   } catch { /* board unreachable -- fall through to the last-known list below */ }
   if (data && Array.isArray(data.worlds) && data.worlds.length > 0) {
+    clearTimeout(WORLDS_RETRY_T);   // recovered: stop the fallback retry
     worldsCacheSave(data);
     worldswRender(data);   // a live read -- clears any stale note
     return;
@@ -19223,7 +19229,13 @@ async function worldsFetch() {
      clean single-world degrade. */
   const cached = worldsCacheLoad();
   if (cached) {
-    worldswRender(cached, { stale: true });
+    /* Render the last-known list ONCE (the first fallback un-hides it). A later retry
+       that is still failing must NOT tear down and rebuild the list the user is reading
+       to pick a world -- `worldswRender` clears `#worldsw-list` and rebuilds every row,
+       which drops keyboard focus and resets scroll. `WORLDSW_STALE` is already true after
+       the first stale render, so re-render only when it is not (the first fallback, or
+       after a live read reset it to false). */
+    if (!WORLDSW_STALE) worldswRender(cached, { stale: true });
     if (!WORLDSW_RECONNECTING) {
       clearTimeout(WORLDS_RETRY_T);
       WORLDS_RETRY_T = setTimeout(() => { worldsFetch().catch(() => {}); }, WORLDS_RETRY_MS);
@@ -19241,8 +19253,11 @@ function worldswSetStale(stale) {
   if (stale) {
     WORLDSW_STALE = true;
     if (banner && bmsg && !WORLDSW_RECONNECTING) {
-      bmsg.textContent = 'We could not reach the board just now, so this is your last-known list of Kosmoses. Pick one to switch back to it.';
+      // Unhide BEFORE setting the text: `role="status"` announces a text change on a
+      // region that is already visible; setting text on a hidden region can go unspoken
+      // (the deliberate order worldswSwitch documents for this same element).
       banner.hidden = false;
+      bmsg.textContent = 'We could not reach the board just now, so this is your last-known list of Kosmoses. Pick one to switch back to it.';
     }
   } else {
     if (WORLDSW_STALE && banner && bmsg && !WORLDSW_RECONNECTING) {
