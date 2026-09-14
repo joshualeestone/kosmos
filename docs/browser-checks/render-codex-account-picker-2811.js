@@ -107,6 +107,13 @@ const OPENAI_ROWS = [
   const codexNoOpenai = await drive(
     { sessionName: 'gpt2', isNamedOurs: true, runner: 'codex', account: null },
     CLAUDE_ROWS);
+  // #2338/#1492 SUBJECT: a default codex agent whose default home is SIGNED OUT (absent
+  // from the list, so no isDefault row -> currentDir null) but with a usable NAMED home
+  // must still get a LIVE picker offering that home -- not a dead control. The codex
+  // analogue of the Claude signed-out recovery the same picker surfaces.
+  const codexSignedOutDefault = await drive(
+    { sessionName: 'gpt3', isNamedOurs: true, runner: 'codex', account: null },
+    [{ provider: 'openai', dir: '/Users/x/.codex-work', isDefault: false, name: 'Josh work', email: 'work@openai' }]);
   // CONTROL: identical card, claude runner, claude accounts. If this does NOT produce
   // the old "we cannot tell" sentence, the !ours branch was not reached and the codex
   // assertions prove nothing.
@@ -117,7 +124,7 @@ const OPENAI_ROWS = [
   await browser.close();
 
   const problems = [];
-  const err = codexMovable.error || codexNoOpenai.error || claudeR.error;
+  const err = codexMovable.error || codexNoOpenai.error || codexSignedOutDefault.error || claudeR.error;
   if (err) problems.push(err);
   else {
     // POPULATION FLOOR / CONTROL first: the claude arm must reach the !ours branch.
@@ -148,6 +155,16 @@ const OPENAI_ROWS = [
     if (!/OpenAI accounts/.test(codexNoOpenai.text) || !/cannot be moved from here/.test(codexNoOpenai.text)) {
       problems.push('a codex agent with no readable OpenAI account does not get the honest '
         + 'could-not-read-OpenAI-accounts message. got: ' + JSON.stringify(codexNoOpenai.text));
+    }
+
+    // #2338/#1492 signed-out-default arm: the picker stays LIVE and offers the named home.
+    if (codexSignedOutDefault.disabled) {
+      problems.push('a default codex agent whose default home is signed out has a DISABLED picker, '
+        + 'hiding the recovery move to a usable named home (#1492). got: ' + JSON.stringify(codexSignedOutDefault));
+    }
+    if (!codexSignedOutDefault.options.some((o) => o.value === '/Users/x/.codex-work')) {
+      problems.push('the signed-out-default codex agent is not offered its usable named home as a destination. '
+        + 'got: ' + JSON.stringify(codexSignedOutDefault.options));
     }
   }
 

@@ -71,6 +71,31 @@ test('CONTROL: a codex agent on a machine with NO OpenAI accounts is not movable
   assert.equal(w.currentDir, null, 'a codex account was resolved from a list with no OpenAI rows');
 });
 
+test('#1488: an OpenAI account marked offerable:false is NOT offered as a move destination', () => {
+  const world = worldFn();
+  // Under an AGENT_WORKFORCE_CODEX_HOME override, /api/accounts marks every home but the
+  // pinned one offerable:false because the engine collapses to that one home. Offering
+  // them is the "option that always fails" anti-pattern the sibling picker filters.
+  const pinned = { provider: 'openai', dir: '/Users/x/.codex', isDefault: true, name: 'main', offerable: true };
+  const collapsed = { provider: 'openai', dir: '/Users/x/.codex-work', isDefault: false, name: 'work', offerable: false };
+  const w = world({ runner: 'codex', account: { dir: pinned.dir } }, [pinned, collapsed]);
+  assert.ok(!w.movable.some((x) => x.dir === collapsed.dir),
+    'an offerable:false OpenAI home was offered as a move destination (the #1488 anti-pattern)');
+  assert.ok(w.movable.some((x) => x.dir === pinned.dir), 'the offerable home went missing from movable');
+});
+
+test('#2338/#1492: a default codex agent whose default home is signed out still has a movable named home', () => {
+  const world = worldFn();
+  // A signed-out default home does not read, so openaiaccounts.list() omits it (no
+  // isDefault row). currentDir is then null, but the usable named home is still a valid
+  // destination -- the picker (ours = movable.length > 0) must stay live to offer it.
+  const namedOnly = { provider: 'openai', dir: '/Users/x/.codex-work', isDefault: false, name: 'work', offerable: true };
+  const w = world({ runner: 'codex', account: null }, [namedOnly]);
+  assert.equal(w.currentDir, null, 'currentDir was resolved despite no default OpenAI row present');
+  assert.deepEqual(w.movable.map((x) => x.dir), [namedOnly.dir],
+    'the usable named home was not offered when the default home is signed out');
+});
+
 test('a CLAUDE agent is unchanged: it moves among shared-memory Claude accounts, never the OpenAI ones', () => {
   const world = worldFn();
   const w = world({ runner: 'claude', account: { dir: CLAUDE_A.dir } }, ALL);

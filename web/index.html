@@ -30998,7 +30998,15 @@ function acctMoveWorld(a, accounts) {
   const isCodex = !!(a && a.runner === 'codex');
   const isOpenaiRow = (x) => !!(x && x.provider === 'openai');
   const acct = a && a.account;
-  const movable = isCodex ? rows.filter(isOpenaiRow) : rows.filter((x) => x && x.memoryShared);
+  /* #1488: an OpenAI row is only a valid MOVE destination when `offerable !== false`.
+     When `AGENT_WORKFORCE_CODEX_HOME` pins one home, `/api/accounts` (server.js) marks
+     every OTHER OpenAI row `offerable:false` because the engine collapses to that one
+     home, so offering them would be the "an option that always fails is worse than one
+     that is not there" anti-pattern the sibling create/switch OpenAI picker already
+     filters against. The Claude branch's `memoryShared` is its own equivalent gate. */
+  const movable = isCodex
+    ? rows.filter((x) => isOpenaiRow(x) && x.offerable !== false)
+    : rows.filter((x) => x && x.memoryShared);
   const currentDir = isCodex
     ? ((acct && acct.dir) || ((movable.find((x) => x.isDefault) || {}).dir) || null)
     : ((acct && acct.dir) || null);
@@ -31165,7 +31173,16 @@ async function paintAccountPicker(a) {
      agents whose launch file we have never seen, so the control offered a move
      the engine would then refuse. An option that always fails is worse than an
      option that is not there. */
-  const ours = world.isCodex ? !!currentDir : !!acct;
+  /* #2338/#1492: for a codex agent the picker is live whenever there is at least one
+     movable OpenAI account, NOT only when we could resolve the CURRENT one. A default
+     codex agent whose default home (~/.codex) is signed out is absent from
+     `openaiaccounts.list()` (its auth.json does not read), so `currentDir` is null even
+     though a usable named home exists that `setCodexAccount` could move it to. Gating on
+     `currentDir` alone would collapse to a dead control and hide that recovery -- the
+     codex analogue of the Claude signed-out recovery this same picker surfaces. With no
+     resolvable current account the "here" option reads "Move to..." and every movable
+     account is offered as a destination. A Claude agent is unchanged (`!!acct`). */
+  const ours = world.isCodex ? world.movable.length > 0 : !!acct;
   /* The dropdown stays live whenever we know the account: opening it and
      seeing only where you are IS the answer to "can I move this", so the
      one-account sentence that used to say so is gone (Josh, 19:56). Move
