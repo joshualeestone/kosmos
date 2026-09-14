@@ -50,27 +50,44 @@ const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
      to a guess: regress-a-night carries the same pins and is green. */
   chk(vis.names[0] === 'Compact: summarise and keep going' && vis.names[1] === 'Clear: start over, loses what it is holding' && /^Restart: stop and start \S/.test(vis.names[2]),
     'the three buttons carry the pack\u2019s words, and Restart names the agent', JSON.stringify(vis.names));
-  /* #2809 (Josh, 2026-09-11, reviewing 0.6.56 live: the fresh-start buttons
-     "look terrible" full-width): each of the three now sizes to its content
-     (`display:block; width:fit-content`), not the full container width, and
-     they stay stacked one per line. Two assertions guard two distinct
-     regressions: a re-widen to the old full-bleed `width:100%` (the width
-     check), and a switch away from block stacking -- e.g. flex-row -- that would
-     let three narrow buttons sit on one line and still pass a width-only check
-     (the stacking check). Each button is measured against its own parent
-     container (compact+clear share one `.freshstack` div; restart sits in the
-     separate `.field.freshstack`). 0.9 leaves headroom for the longest label. */
+  /* #2917 (Josh, 6.59 QA: "make Compact and Restart the same width as Clear and
+     center the text"): the three fresh-start buttons are now EQUAL width and
+     fill their column (`width:100%; text-align:center`), superseding #2809's
+     fit-content sizing. #2809's "look terrible" full width was the FULL PAGE;
+     under #2917 the Fresh start box is 50% of the panel (Memory/Fresh-start
+     side by side), so 100%-of-column is half that and equal by construction.
+     Equal width is the load-bearing promise: the Restart label is DYNAMIC
+     ("Restart: stop and start <name>"), so fit-content-to-widest would jump per
+     agent. Assertions guard three regressions: a revert to fit-content (the
+     fill check), unequal widths (the equal check), and a switch away from block
+     stacking (the stacking check). Each button is measured against its own
+     parent (compact+clear share one `.freshstack`; restart sits in the separate
+     `.field.freshstack`). */
   const geo = await page.evaluate(() => ['d-compact-go', 'd-clear-go', 'd-restart-start'].map((id) => {
     const b = document.getElementById(id); const r = b.getBoundingClientRect();
-    return { id, btn: r.width, container: b.parentElement.getBoundingClientRect().width, top: r.top, left: r.left, bottom: r.bottom };
+    return { id, btn: r.width, container: b.parentElement.getBoundingClientRect().width, top: r.top, left: r.left, bottom: r.bottom, align: getComputedStyle(b).textAlign };
   }));
-  chk(geo.every((g) => g.btn > 0 && g.container > 0 && g.btn <= g.container * 0.9),
-    'the three fresh-start buttons size to content, not full width (#2809)',
+  chk(geo.every((g) => g.btn > 0 && g.btn >= g.container * 0.95),
+    'the three fresh-start buttons fill their column, not fit-content (#2917 supersedes #2809)',
     JSON.stringify(geo.map((g) => ({ id: g.id, btn: Math.round(g.btn), container: Math.round(g.container) }))));
+  const bw = geo.map((g) => g.btn);
+  chk(Math.max(...bw) - Math.min(...bw) < 2, 'the three fresh-start buttons are equal width (#2917)', JSON.stringify(bw.map(Math.round)));
+  chk(geo.every((g) => g.align === 'center'), 'the three fresh-start button labels are centered (#2917)', JSON.stringify(geo.map((g) => g.align)));
   const stacked = geo[1].top >= geo[0].bottom - 2 && geo[2].top >= geo[1].bottom - 2
     && Math.abs(geo[1].left - geo[0].left) < 2 && Math.abs(geo[2].left - geo[0].left) < 2;
-  chk(stacked, 'the three fresh-start buttons stack one per line, left-aligned (#2809)',
+  chk(stacked, 'the three fresh-start buttons stack one per line (#2917)',
     JSON.stringify(geo.map((g) => ({ id: g.id, top: Math.round(g.top), left: Math.round(g.left) }))));
+  /* #2917: Memory (50%) and Fresh start (50%) sit side by side under the
+     combined Model+Memory. Same top, second to the right of the first, widths
+     within 15% of each other; at 1300px the row does not wrap. */
+  const cols = await page.evaluate(() => {
+    const row = document.querySelector('.mem-fresh-row');
+    return [...row.children].filter((c) => c.classList.contains('dbox'))
+      .map((b) => { const r = b.getBoundingClientRect(); return { top: Math.round(r.top), width: Math.round(r.width), left: Math.round(r.left) }; });
+  });
+  chk(cols.length === 2 && Math.abs(cols[0].top - cols[1].top) < 4 && cols[1].left > cols[0].left
+      && Math.abs(cols[0].width - cols[1].width) < cols[0].width * 0.15,
+    'Memory and Fresh start sit side by side at ~50/50 (#2917)', JSON.stringify(cols));
   await page.screenshot({ path: process.env.SHOT || path.join(os.tmpdir(), 'memory-controls.png') });
   await page.click('#d-compact-go'); await page.waitForTimeout(300);
   chk(!(await page.$eval('#chg-modal', (m) => m.hidden)), 'Compact opens a dialog rather than acting');
