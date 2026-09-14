@@ -221,6 +221,26 @@ test('beginInstall win32: a swap in progress (journal past staged) does NOT trip
   }
 });
 
+test('beginInstall win32: a journal file present but torn/unreadable HOLDS single-flight (fail closed)', WIN_ONLY, async () => {
+  /* Defense in depth (round 3): a journal being replaced mid-swap reads as unreadable for a moment.
+     The witness must HOLD then, never release -- releasing during a live swap is the one thing it must
+     not do. Only a definitively absent-or-staged read releases. */
+  const anchor = win32anchor.anchorDir('win32', os.homedir(), process.env);
+  fs.mkdirSync(anchor, { recursive: true });
+  const journalAt = win32apply.journalPathFor(anchor);
+  fs.writeFileSync(journalAt, 'not valid json {{{');   // a file EXISTS but readJournal cannot parse it
+  try {
+    assert.equal(update.updatePhase(), null, 'precondition: a torn journal reads as no phase (would release under the old witness)');
+    update.setWindowsHelperWitnessMs(10);
+    update.setWindowsInstaller(async () => ({ ok: true }));
+    update.beginInstall({});
+    await new Promise((r) => setTimeout(r, 40));   // past the witness window
+    assert.equal(update.alreadyInstalling(), true, 'the witness released while a journal file was present but unreadable');
+  } finally {
+    try { fs.rmSync(journalAt, { force: true }); } catch { /* best effort */ }
+  }
+});
+
 /* ── maybeAutoInstall: the SAME policy as the Mac ──────────────────────────────────────────── */
 
 test('maybeAutoInstall win32: default ON installs; off, backoff and single-flight each suppress', async () => {

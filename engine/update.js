@@ -641,19 +641,31 @@ function windowsAnchorDir() {
   catch { return null; }
 }
 /**
- * win32 only: the phase the current update journal is at (staged / stopping / starting / confirmed /
- * rolling-back / stuck), or null when there is no journal. The status carries it as `updatePhase` so
- * the overlay can tell downloading/staging apart from the swap. Read-only; never throws.
+ * win32 only: the current update journal, as `{ state, phase }`. `state` is win32apply.readJournal's:
+ * 'none' (no journal file), 'unreadable' (a file EXISTS but could not be read/parsed -- torn mid-swap,
+ * a scanner holding it), or 'unfinished'/'finished' (a valid journal, `phase` set). A require/anchor
+ * failure reads as 'unreadable' -- "a file may exist and we cannot tell" -- so a caller that must fail
+ * closed can. Read-only; never throws. The distinction between 'none' and 'unreadable' is why the
+ * helper witness reads THIS rather than updatePhase(), which collapses both to null.
  */
-function updatePhase() {
-  if (updatePlatform() !== 'win32') return null;
+function windowsJournalRead() {
+  if (updatePlatform() !== 'win32') return { state: 'none' };
   const anchor = windowsAnchorDir();
-  if (!anchor) return null;
+  if (!anchor) return { state: 'none' };
   try {
     const apply = require('./win32apply');
     const read = apply.readJournal(apply.journalPathFor(anchor));
-    return (read.state === 'unfinished' || read.state === 'finished') ? read.journal.phase : null;
-  } catch { return null; }
+    return { state: read.state, phase: read.journal ? read.journal.phase : null };
+  } catch { return { state: 'unreadable' }; }
+}
+/**
+ * win32 only: the phase the current update journal is at (staged / stopping / starting / confirmed /
+ * rolling-back / stuck), or null when there is no readable journal. The status carries it as
+ * `updatePhase` so the overlay can tell downloading/staging apart from the swap.
+ */
+function updatePhase() {
+  const r = windowsJournalRead();
+  return (r.state === 'unfinished' || r.state === 'finished') ? r.phase : null;
 }
 /**
  * win32 only: the last win32 update OUTCOME, mapped to the lastAttempt shape the overlay reads, or
@@ -904,8 +916,17 @@ function windowsHelperWitnessMs() {
 function armWindowsHelperWitness(owner, opts) {
   const t = setTimeout(() => {
     if (!installStarted || owner !== lastAttempt) return;   // already released, or a newer attempt superseded it
-    const phase = updatePhase();
-    if (phase && phase !== 'staged') return;                // the swap began; leave the flag to the helper
+    const j = windowsJournalRead();
+    /* 🛑 FAIL CLOSED WHEN WE CANNOT TELL. A journal file that EXISTS but reads as torn/unreadable
+       (a writer replacing it mid-swap, a scanner holding it) must HOLD the flag, never release it:
+       releasing during a live swap is the one thing this must not do. Only a definitively ABSENT
+       journal ('none') or one still at 'staged' (the helper wrote it and then died before its first
+       forward step setPhase('stopping')) means the swap never began -- release then. A phase past
+       'staged' likewise means the swap is progressing: leave it. The on-disk WORK lock is the true
+       single-flight authority behind all of this; this keeps the in-memory flag independently correct
+       rather than leaning on that backstop. */
+    if (j.state === 'unreadable') return;                          // a journal exists but we cannot read it: hold
+    if (j.state !== 'none' && j.phase !== 'staged') return;        // the swap began: leave the flag to the helper
     installStarted = false;
     noteAttemptEnd(owner, null, 'the update helper stopped before it could stop the board');
     if (opts && opts.auto) autoFailedAt = Date.now();
