@@ -24445,15 +24445,20 @@ function openDetail(sessionName, section, fromProject) {
      a task line would restate the badge; this panel shows nothing rather than
      that. Since #209 the card, too, shows nothing here rather than a frozen
      title, so the two surfaces no longer diverge on what "no task" looks like. */
-  /* #2833 (Josh, 2026-09-11): hide the self-reported quote under the name ONLY for needs_you.
-     A needs-you agent's message is already shown by the Talk section's "waiting on an answer"
-     box (Josh: "redundant and adds clutter... I only want to see the Title and Model there").
-     🛑 Scoped to needs_you, NOT to every reported state: that box is gated on needs_you, so a
-     reported BLOCKED agent's substantive reason has no other surface and must stay. A
-     non-reported reason (rate_limited's "Looks like a usage limit") also stays. taskLine is
-     UNCHANGED, so the cards that share it are unaffected. */
+  /* #3043 (Josh, 2026-09-14): the agent's own self-reported sentence no longer prints
+     beside the status bubble in the header. Josh, on the agent view: "I only want to show
+     the status bubble ... it prints out really long stuff that I don't need. I just need to
+     know if it's idle, or if it's working, or if it needs something." So the reported quote
+     is dropped from this line and relocates to the explanation note (#d-why) below the name,
+     which keeps a reported agent's reason on a surface (#2833) without printing it beside the
+     badge. The SHORT engine-state reassurances stay here (restarting "Nothing was lost" #2019,
+     auth #874, rate-limit #215): those are not the long self-reported text Josh flagged, and
+     dropping them would silently undo those prior rulings.
+     (#2833 still holds: needs_you hides its quote here, and the Talk waiting box carries it.)
+     taskLine / stateReason are UNCHANGED, so the grid/list cards that share them are unaffected. */
   const dtask = document.getElementById('d-task');
-  dtask.textContent = taskLine(a);
+  const reportedQuote = a.stateReported === true && a.because;
+  dtask.textContent = reportedQuote ? '' : taskLine(a);
   dtask.hidden = !dtask.textContent || (a.state === 'needs_you');
   /* The lede names the AGENT rather than saying "this agent", which is the
      pack's wording and the same substitution the rest of this panel already
@@ -24490,13 +24495,14 @@ function openDetail(sessionName, section, fromProject) {
      it the sentence it is. Nothing else about the words changes. */
   const reason = String(a.because || '').trim();
   why.textContent = reason ? reason.charAt(0).toUpperCase() + reason.slice(1) + (/[.!?]$/.test(reason) ? '' : '.') : '';
-  /* #1841 (Josh, 2026-09-02) hides this for a reported SINGLE-LINE because (d-task carries it);
-     #1996 keeps it for a reported MULTI-LINE because (d-task truncates to one line).
-     #2833 (Josh, 2026-09-11): ALSO hide it for needs_you -- d-task no longer shows a needs-you
-     quote and the Talk waiting box does, so a multi-line needs_you because must not reappear
-     here. Other reported states keep the #1841/#1996 behavior, and the NON-reported "why we
-     cannot vouch" line (#569) is untouched: it is the sole surface for that. */
-  why.hidden = !why.textContent || (a.state === 'needs_you') || (a.stateReported === true && !reason.includes('\n'));
+  /* #3043 (Josh, 2026-09-14): the reported reason now shows HERE (the explanation note below
+     the name) for every reported state except needs_you. It used to be suppressed for a
+     single-line reported because #d-task carried it beside the bubble (#1841); with #3043
+     dropping that header quote, this note is now its surface, so a reported agent's reason
+     (single or multi line, #1996) still has somewhere to live (#2833). needs_you stays hidden:
+     the Talk "waiting on an answer" box carries it. The NON-reported "why we cannot vouch"
+     line (#569) is untouched: it is the sole surface for that. */
+  why.hidden = !why.textContent || (a.state === 'needs_you');
   /* ⚠️ TEXT, NEVER MARKUP. This is pane content: whatever happens to be on
      somebody's terminal, on its way to a product surface. `textContent` is the
      escape, and the engine has already trimmed and capped it. */

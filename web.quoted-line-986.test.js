@@ -44,8 +44,12 @@ test('the card and row do NOT show the agent\'s quoted sentence', () => {
     'the quoted last-words line is still on the grid and list; that is the whole card');
 });
 
-test('the detail panel DOES still show it', () => {
-  /* Josh scoped this to two views. Called with no options, the quote stays. */
+test('stateReason still PRODUCES the quote when asked (the shared derivation is unchanged)', () => {
+  /* #986 scoped the card/list to noQuote; the detail HEADER used to render the full
+     quote. #3043 (Josh, 2026-09-14) stops the header rendering it beside the bubble too
+     (see the header-drop assertion below) -- the reported reason relocates to #d-why. But
+     stateReason itself is UNCHANGED: called with no options it still returns the agent's
+     own words, quoted, which is the contract the cards depend on via the noQuote path. */
   assert.match(stateReason(REPORTED), /Finished responding/);
   assert.match(stateReason(REPORTED), /[“”]/, 'the quotation marks are the "in its own words" mark, not decoration');
 });
@@ -67,7 +71,7 @@ test('an agent with nothing to say still says nothing', () => {
   assert.equal(stateReason({ state: 'idle' }), '');
 });
 
-test('the two views Josh named ask for it without the quote, and the detail does not', () => {
+test('the two views Josh named ask for it without the quote, and #3043 drops it from the header too', () => {
   /* Pinned by CALL SITE: the derivation being correct is no use if the card
      stops passing the option. */
   const grid = PAGE.match(/<div class="atask">\$\{esc\(taskLine\([^)]*\)\)\}<\/div>/);
@@ -76,8 +80,13 @@ test('the two views Josh named ask for it without the quote, and the detail does
   assert.ok(list, 'the list row no longer renders .ltask this way; re-derive this test');
   assert.match(grid[0], /noQuote/, 'the GRID card is asking for the quoted line again');
   assert.match(list[0], /noQuote/, 'the LIST row is asking for the quoted line again');
-  assert.match(PAGE, /dtask\.textContent = taskLine\(a\);/,
-    'the detail panel stopped showing the agent\'s own words, which this card did not ask for');
+  /* #3043: the detail header now gates the reported quote out of the task line beside the
+     bubble (it relocates to #d-why). Pin both the gate and its use by call site, so a future
+     edit that puts the quote back beside the bubble is caught here. */
+  assert.match(PAGE, /const reportedQuote = a\.stateReported === true && a\.because;/,
+    'the detail header stopped gating the reported quote out of the task line (#3043)');
+  assert.match(PAGE, /dtask\.textContent = reportedQuote \? '' : taskLine\(a\);/,
+    'the detail header prints the reported quote beside the bubble again (#3043 relocated it to #d-why)');
 });
 
 /**
