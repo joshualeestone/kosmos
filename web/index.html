@@ -44112,8 +44112,9 @@ function frGo(step) {
     frActions({ label: 'Next', go: () => { if (document.getElementById('fr-next').disabled) return; frGo(frStepAfter(2)); } });
     frGateStart(pane);
   } else if (step === 3) {
-    // S3 Automation: sleep + tmux gates. Next unlocks only when BOTH are granted;
-    // same FAIL-SAFE soft-open posture as S2.
+    // S3 Automation: sleep + accessibility (tmux) rows. Both ADVISORY (gatesNext:false,
+    // #2587/#2912), so Next is always available here; the go() guard below still reads
+    // fr-next.disabled defensively. Only S2 file-access hard-gates Next.
     /* #2647: Check-again rides the nav's far-left secondary slot, with its copy
        beside it. Josh could not see the old in-pane version before finishing the
        connection; this bar is always visible. */
@@ -44586,7 +44587,8 @@ async function frRecheckPress(btn) {
      - a click inside the data-gate="sleep" row  -> /api/open-sleep-settings
      - a click inside the data-gate="tmux" row    -> /api/open-accessibility-settings
    The button opens System Settings; it cannot grant the permission (TCC), which
-   is why the gate poll (not this click) is what flips the pill and unlocks Next.
+   is why the gate poll (not this click) is what flips the pill. (Both S3 rows are
+   advisory -- #2587/#2912 -- so neither flips Next; the pill is all that changes.)
    Only a failure speaks, in the step's own #fr-s3-msg line; the Settings window
    itself is the success feedback. */
 document.getElementById('fr-pane-3').addEventListener('click', async (e) => {

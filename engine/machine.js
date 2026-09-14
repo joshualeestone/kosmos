@@ -327,8 +327,10 @@ function sleepCheck(text) {
  * somewhere); the web (FR_GATES.sleep gatesNext:false) simply no longer lets a
  * not-prevented sleep row disable Next, and shows an honest note keyed on the
  * battOnly flag this branch sets, so the note replaces the useless "Turn On" only on
- * the laptop-battery case. Accessibility/file-access STAY real gates -- those are
- * satisfiable, and letting a user past them lands them in broken agents.
+ * the laptop-battery case. (Web gating note, kept current: as of #2912 the accessibility
+ * step is advisory too -- its AXIsProcessTrusted reading false-negatives a just-granted
+ * permission and trapped users on install; only S2 file-access still hard-gates Next.
+ * This engine sleep reading is unaffected either way.)
  */
 function sleepGate(opts) {
   if (platformOf(opts) === 'win32') return win32SleepGate(opts);
