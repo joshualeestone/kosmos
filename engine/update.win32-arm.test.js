@@ -55,6 +55,7 @@ test.beforeEach(() => {
   update.setWindowsBundleRoot(() => BUNDLE);
   update.setInstalledRoot(() => BUNDLE);
   update.setWindowsInstaller(null);
+  update.setWindowsHelperWitnessMs(null);
   update.setBoardContext({ port: null, pid: null });
   update.setAutoPref(() => ({ on: false, ok: true }));
 });
@@ -66,6 +67,7 @@ test.afterEach(() => {
   update.setWindowsBundleRoot(null);
   update.setInstalledRoot(null);
   update.setWindowsInstaller(null);
+  update.setWindowsHelperWitnessMs(null);
   update.setBoardContext({ port: null, pid: null });
   update.setAutoPref(null);
 });
@@ -169,6 +171,54 @@ test('beginInstall win32: a thrown updater is caught, single-flight released, fa
   await tick();
   assert.equal(update.alreadyInstalling(), false, 'a throw left single-flight set');
   assert.match(update.lastAttempt().because, /boom/, 'a thrown updater was not recorded');
+});
+
+/* ── the detached-helper single-flight witness (Finding 2) ─────────────────────────────────── */
+
+test('beginInstall win32: a helper that spawns then dies before stopping the board releases single-flight', async () => {
+  /* The failure this guards: begin() spawns a DETACHED helper and returns ok:true, so single-flight
+     stays held for the board-stop the helper is about to do; if the helper then dies before H2, the
+     journal never leaves 'staged' and nothing would ever release the flag. A leftover journal (from
+     another arm) would look like a swap in progress, so clear it first: the helper here writes none. */
+  const anchor = win32anchor.anchorDir('win32', os.homedir(), process.env);
+  try { fs.rmSync(win32apply.journalPathFor(anchor), { force: true }); } catch { /* none */ }
+  update.setWindowsHelperWitnessMs(60);
+  update.setWindowsInstaller(async () => ({ ok: true }));   // spawned ok, but nothing advances the journal
+  update.beginInstall({ auto: true });
+  await tick();   // ~15ms, inside the 60ms window
+  assert.equal(update.alreadyInstalling(), true, 'while the witness window is open, single-flight is still held');
+  await new Promise((r) => setTimeout(r, 90));   // past the 60ms witness window
+  assert.equal(update.alreadyInstalling(), false, 'the witness did not release a helper that died before stopping the board');
+  assert.match(update.lastAttempt().because, /stopped before it could stop the board/, 'the stranded-flag release was not recorded');
+  assert.equal(update.lastAttempt().code, null, 'nothing ran to completion, so there is no exit code');
+});
+
+test('beginInstall win32: a swap in progress (journal past staged) does NOT trip the witness', WIN_ONLY, async () => {
+  /* The normal path: the helper's first act is setPhase('stopping'), then it ends the board. In a
+     real board that kills this process so the timer never fires; here the process lives, so the
+     witness must read the advanced phase and LEAVE the flag rather than release a live swap. */
+  const anchor = win32anchor.anchorDir('win32', os.homedir(), process.env);
+  fs.mkdirSync(anchor, { recursive: true });
+  const journalAt = win32apply.journalPathFor(anchor);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-witroot-'));
+  fs.writeFileSync(path.join(anchor, win32anchor.POINTER_NAME), path.join(root, 'app', 'engine'));
+  try {
+    win32apply.writeStagedJournal(journalAt, {
+      root, anchor,
+      prepared: { version: NEWER, expectedIdentity: 'kosmos:default', sha256: 'ab'.repeat(32), runtimeChanged: false, stagedDir: path.join(root, '.kosmos-update', 'staged') },
+      fromVersion: RUNNING, fromIdentity: 'kosmos:default', board: { pid: 1, port: 16180 }, now: Date.now(),
+    });
+    /* Advance the phase off 'staged' the way runSteps does, leaving the journal otherwise valid. */
+    const j = JSON.parse(fs.readFileSync(journalAt, 'utf8')); j.phase = 'stopping'; fs.writeFileSync(journalAt, JSON.stringify(j));
+    assert.equal(update.updatePhase(), 'stopping', 'precondition: the journal reads as a swap in progress');
+    update.setWindowsHelperWitnessMs(10);
+    update.setWindowsInstaller(async () => ({ ok: true }));
+    update.beginInstall({});
+    await new Promise((r) => setTimeout(r, 40));   // past the witness window
+    assert.equal(update.alreadyInstalling(), true, 'the witness released while the swap was in progress');
+  } finally {
+    try { fs.rmSync(journalAt, { force: true }); } catch { /* best effort */ }
+  }
 });
 
 /* ── maybeAutoInstall: the SAME policy as the Mac ──────────────────────────────────────────── */

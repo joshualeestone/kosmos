@@ -130,6 +130,7 @@ let windowsInstallerFn = null; // tests inject; production calls win32update.beg
    win32 in-app updater can hand the detached helper the real board to stop and the real port to
    confirm on. Null until then; begin() then defaults them (port -> its own DEFAULT_BOARD_PORT). */
 let boardContext = { port: null, pid: null };
+let windowsHelperWitnessMsOverride = null; // tests inject a short witness window
 
 function parts(v) {
   const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(v || '').trim());
@@ -855,7 +856,7 @@ function beginWindowsInstall(opts) {
       boardPid: Number.isInteger(boardContext.pid) ? boardContext.pid : undefined,
     }))
     .then((r) => {
-      if (r && r.ok) return;   // the helper is starting; it stops and restarts this board
+      if (r && r.ok) { armWindowsHelperWitness(owner, opts); return; }   // the helper is starting; it stops and restarts this board
       installStarted = false;
       noteAttemptEnd(owner, null, (r && r.because) || 'the update could not be started');
       if (opts && opts.auto) autoFailedAt = Date.now();
@@ -865,6 +866,52 @@ function beginWindowsInstall(opts) {
       noteAttemptEnd(owner, null, 'the update could not be started: ' + String((e && e.message) || e));
       if (opts && opts.auto) autoFailedAt = Date.now();
     });
+}
+
+/* 🪟 S4: how long armWindowsHelperWitness waits for the helper to stop THIS board before it treats
+   the helper as spawned-then-died and releases single-flight. Tied to
+   win32apply.STAGED_HELPER_STARTUP_GRACE_MS -- the very window begin() itself treats a just-started
+   helper as "young" (stagedIsYoung) and refuses a second start within -- so the two never drift and
+   the witness never fires while begin() would still consider the helper to be starting. It is far
+   above win32apply's board-stop budget (stopWaitMs 30s + settleMs 1s), and the download is already
+   done before the helper is spawned, so a normal (even slow) swap ends this process long before it. */
+function windowsHelperWitnessMs() {
+  if (Number.isFinite(windowsHelperWitnessMsOverride)) return windowsHelperWitnessMsOverride;
+  try { return require('./win32apply').STAGED_HELPER_STARTUP_GRACE_MS; } catch { return 2 * 60 * 1000; }
+}
+
+/**
+ * 🛑 S4: THE DETACHED HELPER'S SINGLE-FLIGHT WITNESS -- the win32 analogue of the Mac wireChild
+ * exit/error listeners (#2503/#988), as symmetric as the detached-helper model allows. On success
+ * begin() has spawned a DETACHED helper and this keeps installStarted=true because the helper is
+ * about to stop and restart this board. But if that helper spawns and then dies BEFORE it stops the
+ * board (an early throw, a missing dependency after a clean spawn), nothing would ever release the
+ * flag: the route would answer every retry idempotently and maybeAutoInstall would be blocked until
+ * the board restarts. This bounded timer closes that gap.
+ *
+ * 🔑 THE BOARD GOING DOWN IS THE NORMAL PATH AND MUST NOT TRIP THIS. The helper's first forward act
+ * (win32apply runSteps) is setPhase('stopping'), and it then ends the board -- which, in a real
+ * board, kills THIS process, so this timer never fires on the normal path. When it DOES fire (this
+ * process still alive well past a normal board-stop), it releases ONLY if the journal never left
+ * 'staged' -- i.e. the helper never began the swap. A journal past 'staged' means the swap is/was
+ * progressing, so the flag is left as it is.
+ *
+ * ⚠️ WHERE IT CANNOT BE SYMMETRIC WITH THE MAC: begin() hands back only the helper's pid, not its
+ * child handle (the helper is detached and spawned inside win32update), so there is no exit/error
+ * event to bind as wireChild does; a bounded timer plus the journal-phase check is the observable
+ * substitute. unref'd, so it never holds the process open and dies with it when the helper wins.
+ */
+function armWindowsHelperWitness(owner, opts) {
+  const t = setTimeout(() => {
+    if (!installStarted || owner !== lastAttempt) return;   // already released, or a newer attempt superseded it
+    const phase = updatePhase();
+    if (phase && phase !== 'staged') return;                // the swap began; leave the flag to the helper
+    installStarted = false;
+    noteAttemptEnd(owner, null, 'the update helper stopped before it could stop the board');
+    if (opts && opts.auto) autoFailedAt = Date.now();
+  }, windowsHelperWitnessMs());
+  if (t && typeof t.unref === 'function') t.unref();
+  return t;
 }
 
 function beginInstall(opts) {
@@ -987,6 +1034,7 @@ function setBase(b) { baseOverride = b || null; }
 function setPlatform(p) { platformOverride = p || null; }
 function setWindowsBundleRoot(f) { windowsBundleRootFn = f; }
 function setWindowsInstaller(f) { windowsInstallerFn = typeof f === 'function' ? f : null; }
+function setWindowsHelperWitnessMs(ms) { windowsHelperWitnessMsOverride = Number.isFinite(ms) ? ms : null; }
 function setBoardContext(ctx) { boardContext = { port: ctx && ctx.port, pid: ctx && ctx.pid }; }
 function setInstallRunner(f) { installRunner = f; }
 function setAutoPref(f) { autoPrefFn = f; }
@@ -1052,7 +1100,7 @@ module.exports = {
   windowsLocationRefusal, // S4: decision 5 -- the OneDrive/Program Files refusal sentence, or null
   updatePhase, // S4: the win32 update journal phase for the client, or null
   setBoardContext, // S4: server tells update.js its own {port, pid} at listen time
-  setPlatform, setWindowsBundleRoot, setWindowsInstaller,
+  setPlatform, setWindowsBundleRoot, setWindowsInstaller, setWindowsHelperWitnessMs,
   updateAbort, // #2055: the durable board-would-not-pause abort marker ({count,reason,port,ts} or null)
   installStartedFile, // #1728: the durable in-flight marker path (tests + direct readers)
   selfInstallRefusal, // #570: null where self-update works, else the sentence to show
