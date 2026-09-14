@@ -3529,7 +3529,15 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      shrinking it to its content instead of filling column 2. `grid-row: 1` keeps it in
      the list's row (the display views share that row); it stretches to the row height
      like the other display views (grid `align-items: stretch`) and scrolls internally. */
-  html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings { grid-column: 2; grid-row: 1; margin: 0; width: 100%; min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
+  /* #3054 (Josh, 6.63 review): in the tab view the panel's own inset gives the settings
+     content top/side breathing room, but the consolidated relocation into column 2 dropped
+     it, so Your Profile sat against the very top and the content box against the right edge.
+     Add a top + right inset. Padding, not margin: the panel is width:100% in a grid cell and
+     box-sizing is border-box globally, so padding insets the content without overflowing the
+     column (a margin-right would). Left stays on the grid column-gap; bottom stays 0 (it
+     scrolls). This does not change the panel's border-box width, so the #2842 fill assertion
+     (which measures the border-box) is unaffected. */
+  html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings { grid-column: 2; grid-row: 1; margin: 0; width: 100%; padding: 24px 24px 0 0; min-height: 0; overflow-y: auto; scrollbar-width: none; -ms-overflow-style: none; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings::-webkit-scrollbar { display: none; }
   html[data-layout="consolidated"] body.consolidated #panel-projects > #panel-settings .dbody { grid-template-columns: minmax(120px, 30%) minmax(0, 1fr); justify-content: stretch; column-gap: 18px; }
   /* 🔑 THESE PANES HIDE THEIR SCROLLBAR LIKE EVERY OTHER SCROLLER IN THIS VIEW
