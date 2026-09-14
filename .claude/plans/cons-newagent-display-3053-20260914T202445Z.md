@@ -32,11 +32,14 @@ tabs, so 'create' drops body.consolidated and renders the tab-view create panel 
 - CSS: `#panel-projects > #panel-create` in the consolidated layout gets `grid-column:2; margin:0;
   width:100%` (capped by its 34rem max-width) so it sits at the top-LEFT of the display column at its
   form width, overriding the tab-view `margin:0 auto` that collapsed it to a ~193px centered island.
-- `closeConsolidatedOverlays()` (added iteration 2): the display column holds AT MOST ONE takeover
-  overlay. Both openConsolidatedSettings and openConsolidatedCreate call it before showing themselves,
-  so switching directly between Settings and New Agent (both persistent rail buttons, no project nav
-  between) hides the other rather than stacking both in the same grid cell. Also subsumes iteration 1's
-  duplication NIT for the mutual-exclusion step.
+- `takeOverDisplayColumn()` (iteration 2 added the mutex step; iteration 3 merged the shared
+  show-logic into it): ONE helper both openConsolidatedSettings and openConsolidatedCreate call to
+  prepare the display column -- show #panel-projects, hide the project sub-views + #pj-none, keep the
+  projects list, AND hide the other relocated overlay so the column holds AT MOST ONE at a time. This
+  fixes the overlay-stacking (iteration 2 BLOCKER) AND removes the duplicated show-logic between the
+  two open-functions (iteration 1 NIT / iteration 3 CONVENTION, repo convention #5) in one place, so a
+  future pj-view or third overlay is added once. Verified: the #2842 settings browser-check still 26/26
+  after the shared function replaced its inline body.
 
 ## Rejected
 - Full-width fill (like settings): a create FORM at ~900px stretches its fields awkwardly. Kept the 34rem

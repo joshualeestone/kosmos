@@ -30099,19 +30099,31 @@ function placeAppSettings(consolidated) {
     APP_SETTINGS_HOME.parent.insertBefore(panel, APP_SETTINGS_HOME.next);
   }
 }
-/* #3053: the consolidated display column holds AT MOST ONE takeover overlay at a time. Both
-   openConsolidatedSettings and openConsolidatedCreate call this before showing themselves, so
-   switching directly between Settings and New Agent (both persistent rail buttons, with no project
-   navigation between them) hides the other rather than stacking both in the same grid cell (they
-   share grid-column 2 / grid-row 1). pjView already hides both relocated panels on project
-   navigation; this covers the open-to-open switch, and protects the next occupant added the same way. */
-function closeConsolidatedOverlays() {
+/* #2842 / #3053: prepare the consolidated display column for a takeover overlay (settings or the
+   New Agent create form). ONE helper does the whole preparation so a new pj-view or a third overlay
+   is added in a single place, not copied across the two open-functions (repo convention #5): show
+   #panel-projects, hide every project sub-view and the "No projects yet" hint, keep the projects list
+   beside it, and hide the OTHER relocated overlay so the column holds AT MOST ONE at a time (the
+   caller then shows its own panel). That last part is what stops opening one overlay over the other
+   -- both are persistent rail buttons with no project navigation between -- from stacking both in the
+   same grid cell (they share grid-column 2 / grid-row 1); pjView covers the project-nav exit. */
+function takeOverDisplayColumn() {
   const projects = document.getElementById('panel-projects');
   if (!projects) return;
+  projects.hidden = false;
+  for (const v of ['one', 'add', 'settings', 'task', 'docs', 'alltasks']) {
+    const el = document.getElementById('pj-' + v + '-view');
+    if (el) el.hidden = true;
+  }
+  document.getElementById('pj-list-view').hidden = false;   // keep the projects column beside it
+  // Hide the other relocated takeover overlays so the column holds one at a time.
   for (const id of ['panel-settings', 'panel-create']) {
     const p = document.getElementById(id);
     if (p && p.parentElement === projects) p.hidden = true;
   }
+  // paintPjNone keeps #pj-none hidden while an overlay is open (the 5s poll re-runs it); hide it
+  // now so it does not flash over the overlay before the next paint.
+  { const none = document.getElementById('pj-none'); if (none) none.hidden = true; }
 }
 /* Open the app settings inside the consolidated display column, staying in the
    consolidated view. Swaps the display column to the settings panel (hiding the
@@ -30127,17 +30139,7 @@ function openConsolidatedSettings() {
   // future caller cannot render settings into #panel-projects without the consolidated CSS.
   if (!document.body.classList.contains('consolidated')) return;
   placeAppSettings(true);
-  closeConsolidatedOverlays();   // #3053: hide the create overlay if it was the one open
-  document.getElementById('panel-projects').hidden = false;
-  for (const v of ['one', 'add', 'settings', 'task', 'docs', 'alltasks']) {
-    const el = document.getElementById('pj-' + v + '-view');
-    if (el) el.hidden = true;
-  }
-  document.getElementById('pj-list-view').hidden = false;   // keep the projects column
-  // #pj-none is another display-column child; hide the "No projects yet" hint so it does not
-  // render over settings. paintPjNone keeps it hidden while settings is open (the poll re-runs
-  // it); this makes it immediate rather than waiting for the next paint.
-  { const none = document.getElementById('pj-none'); if (none) none.hidden = true; }
+  takeOverDisplayColumn();   // #3053: prepare the column (hides any create overlay too)
   document.getElementById('panel-settings').hidden = false;
   paintSettings();
   // settingsOpen -> settingsGo -> syncUrl writes the address from PJ_VIEW/PJ_CURRENT, which
@@ -30179,16 +30181,7 @@ function placeCreatePanel(consolidated) {
 function openConsolidatedCreate() {
   if (!document.body.classList.contains('consolidated')) return;
   placeCreatePanel(true);
-  closeConsolidatedOverlays();   // #3053: hide the settings overlay if it was the one open
-  document.getElementById('panel-projects').hidden = false;
-  for (const v of ['one', 'add', 'settings', 'task', 'docs', 'alltasks']) {
-    const el = document.getElementById('pj-' + v + '-view');
-    if (el) el.hidden = true;
-  }
-  document.getElementById('pj-list-view').hidden = false;   // keep the projects column beside it
-  // #pj-none is another display-column child; hide the "No projects yet" hint so it does not render
-  // over the create panel (paintPjNone keeps it hidden while create is open; this makes it immediate).
-  { const none = document.getElementById('pj-none'); if (none) none.hidden = true; }
+  takeOverDisplayColumn();   // #3053: prepare the column (hides any settings overlay too)
   document.getElementById('panel-create').hidden = false;
 }
 /* #2618: the in-tab layout tiles + Activate (kosmos#1216) lived in the removed
