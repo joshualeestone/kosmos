@@ -153,7 +153,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // ---- Mutual exclusion: the display column holds ONE takeover overlay at a time. Settings
     // (#2842) and Create (#3053) both relocate into #panel-projects at the same grid cell, so
     // opening one over the other via the persistent rail buttons -- with NO project nav between --
-    // must hide the other rather than stack both. closeConsolidatedOverlays enforces this; pjView
+    // must hide the other rather than stack both. takeOverDisplayColumn enforces this; pjView
     // only covers project-nav exits, not the open-to-open switch. Both orders. ----
     const mutex = await page.evaluate(() => {
       const res = {};

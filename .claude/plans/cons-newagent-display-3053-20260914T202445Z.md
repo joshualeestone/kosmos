@@ -51,10 +51,22 @@ tabs, so 'create' drops body.consolidated and renders the tab-view create panel 
 The OPEN-side gap the iteration-1 review and my own weakest-premise both missed: opening one overlay
 over the other (Settings then New Agent, or the reverse) via the persistent rail buttons left BOTH
 stacked in the same grid cell, a regression to the shipped #2842 settings feature. pjView only hides
-them on project navigation, not the open-to-open switch. Fixed with closeConsolidatedOverlays (above),
-called by both open-functions; a new mutual-exclusion assertion (both orders) pins it, and a negative
-control confirmed it fails on the pre-fix behavior. This is exactly the kosmos#2032 multi-model value:
-opus (iter 1) missed it, sonnet (iter 2) caught it.
+them on project navigation, not the open-to-open switch. Fixed with the shared takeOverDisplayColumn
+helper (above -- iteration 2 added it as closeConsolidatedOverlays for the mutex step; iteration 3
+merged the show-logic in and renamed it), called by both open-functions; a new mutual-exclusion
+assertion (both orders) pins it, and a negative control confirmed it fails on the pre-fix behavior.
+This is exactly the kosmos#2032 multi-model value: opus (iter 1) missed it, sonnet (iter 2) caught it.
+
+## Deferred (pre-existing, not introduced by #3053)
+- The pj-view array `['one','add','settings','task','docs','alltasks']` appears in both
+  takeOverDisplayColumn and pjView, and the overlay-id list `['panel-settings','panel-create']` is a
+  literal a third overlay would need to join. Both pre-date this PR (the array was inline in the old
+  openConsolidatedSettings and in pjView); extracting a shared constant touches pjView (shipped) and is
+  a reasonable separate cleanup, not this card's regression.
+- The #867 first-poll auto-open-first-project can fire after New Agent/Settings is opened if the user
+  clicks before the first /api/projects poll resolves (PJ_CURRENT null, not yet auto-opened), silently
+  switching to a project. Pre-existing and symmetric with the shipped #2842 settings path (not worsened
+  by #3053); narrow window. Flagged for awareness.
 
 ## Weakest premise
 That routing create-back / done through pjView (which now hides the relocated panel) is sufficient for
