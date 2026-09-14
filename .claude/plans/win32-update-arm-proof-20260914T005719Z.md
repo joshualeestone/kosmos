@@ -98,12 +98,25 @@ on a win32 FS (win32-gated). `update.win32-arm` 19/0, `win32update` 98/0, `web.w
 fake-`C:\` arm flows through `unusualLocationRefusal` (now host-independent); anchor-FS arms are
 win32-gated.
 
+## Post-open CI fix 2: browser-check surface gate (#2518)
+
+The next CI run had ZERO TAP failures (the location fix worked) but the `test` job's static
+browser-check surface gate (#2518) reds deterministically: S4 added `data-win-copy="updateConfirmBody"`
+to the confirm dialog, and the gate maps any `data-win-copy` change to
+`docs/browser-checks/render-win32-board-copy.js`, which S4 had not updated. Fix (preferred path):
+that check now asserts the confirm-body surface — `#uc-small[data-win-copy="updateConfirmBody"]` reads
+the win32 download-then-swap copy on Windows and the Mac copy on a Mac (added to its `WORDS` map for
+both platforms). Verified on-box: both static gates pass (`kosmos_browser_check_surface_gate` exit 0,
+`kosmos_browser_check_gate` exit 0 — they grep web/index.html, no WebKit needed), and the exact
+rendered textContent matches the check's expected strings on both platforms. Swept the surface gate
+against the whole branch: no other web/index.html surface is uncovered.
+
 ## diff_hash
 
 - merge-base: `1bfd8ad265a51dc5de64102e7a037ec2b7d2b723` (`git merge-base origin/main HEAD`)
 - command: `git diff 1bfd8ad2..HEAD -- . ':(exclude).claude/plans/win32-update-arm-proof-*.md' | sha256sum`
-- diff_hash: `b1bc3e5370bd1c806e914615e74051cd33506672375c646c00dd8e4cf917258d`
-- (supersedes the pre-CI-fix hash `96f17d74a7707423c6574c0e3eabd10c42f8557d0d0ca1c1ff3b05b5e3370174`)
+- diff_hash: `1a01f33f3e02b207078d36715a0bfc6288c1ec486eb72d3cd8825b12067606a0`
+- (supersedes `b1bc3e53…` (post-location-fix) and `96f17d74…` (pre-CI-fix))
 
 ## Follow-ups filed
 
