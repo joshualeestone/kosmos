@@ -49,7 +49,8 @@ tests + browser-check now assert those elements are GONE. Documented on card #28
 - Focused pure-function tests (scratch): hero figures match the design (150.0B / $135.0M / 1.5M /
   720); per-model aggregation + donut bucketing; charts4 (4 charts, empty-safe, no NaN); API cost
   (per-class pricing, codex excluded+flagged, haiku date-strip, null-dash). All pass.
-- `web.token-usage-2617.test.js` rewritten to the value-view, 19/19 green: hero figures, per-model
+- `web.token-usage-2617.test.js` rewritten to the value-view, 20/20 green: hero figures (incl. the
+  sub-$1M value fallback), per-model
   aggregation, donut (single-model circle + two-model-with-zero + multi-slice arc flags), charts4,
   API cost, history rows/escaping, the usageGrandTotal single-source pin, and usageRowTokenTotal.
 - Browser-check `render-token-usage-2617.js` runs the live page against a served board and asserts

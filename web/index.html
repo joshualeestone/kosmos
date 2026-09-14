@@ -25031,8 +25031,8 @@ function usageAbbr(n) {
    the approved /design/token-value derives: the row's own 4-class token total valued at
    a blended knowledge-work rate. Blend-vs-output was a Josh call on his #1 demo headline;
    he RULED to KEEP THE BLENDED number (the design's ~$135M "Approximate Human Cost"), so
-   the earlier "pending" stub is retired here. Scope note: the blended total is used by
-   ruling. Josh's 2026-09-14 call overruled the earlier #2617 never-sum position for the
+   the earlier "pending" stub is retired here. Scope note: the blended total is used
+   deliberately, by Josh's ruling. His 2026-09-14 call overruled the earlier #2617 never-sum position for the
    value headline, so the hero shows the blended total as "Total Tokens Used" and each row's
    Value blends the same way (usageGrandTotal is the single source). The four classes are
    still shown separately and unfused in the per-class charts above, so the raw cache_read
@@ -25090,6 +25090,9 @@ function usageHeroHtml(totals, activeDays, apiCostUsd) {
   // demo scale. Below $1M that format would show a real figure as "$0.0M" (e.g. $45K on a
   // light machine), so fall back to usageUsd there -- the same formatter the API-cost stat
   // and the history Value column already use, for a case the approved mock never showed.
+  // The one-decimal M band is DELIBERATELY only on this headline (the mock locks "$135.0M");
+  // the API-cost stat below stays on usageUsd's whole-number M band. That the two dollar
+  // figures in this card differ by a decimal is the approved mock, not a formatting drift.
   const valueStr = value >= 1e6 ? '$' + (value / 1e6).toFixed(1) + 'M' : usageUsd(value);
   const apiStr = (apiCostUsd === null || apiCostUsd === undefined) ? '-' : usageUsd(apiCostUsd);
   return '<div class="tv-hero">'
