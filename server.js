@@ -7435,7 +7435,12 @@ const server = http.createServer((req, res) => {
   }
 
   /**
-   * Point an agent at a different Claude account.
+   * Point an agent at a different account of its OWN provider: a Claude agent at a
+   * different Claude account, a codex agent at a different OpenAI (CODEX_HOME) account.
+   * `create.setAccount` reads the agent's runner and branches to `setCodexAccount` for a
+   * codex job (#2338), so this one handler serves both; the `isCodexMove` branch below
+   * words the success sentence honestly for each (Claude history is shared and travels;
+   * codex chat lives per-CODEX_HOME and stays with the old account).
    *
    * 🛑 THE SAME TWO WRITES AS THE MODEL ROUTE, and the second is not optional:
    * launchd reads the startup file when the job is bootstrapped, so without the
@@ -7459,7 +7464,18 @@ const server = http.createServer((req, res) => {
         try { back = removal.restart(name, 'account'); }
         catch (err) { back = { outcome: 'partial', because: String((err && err.message) || err), steps: [] }; }
         const ok = back.outcome === removal.OUTCOME.RESTARTED;
-        const who = wrote.account.email || wrote.account.label || 'that account';
+        /* #2338: lead with the human-chosen account name (the `.kosmos-name`
+           sidecar an OpenAI row carries, #2095), the same value the picker shows,
+           falling back to the email/label as before. */
+        const who = wrote.account.name || wrote.account.email || wrote.account.label || 'that account';
+        /* #2338: a codex account move is between OpenAI CODEX_HOME dirs, and codex
+           conversation history lives INSIDE a home (there is no cross-home symlink,
+           unlike Claude's shared history) -- so it does NOT travel, and the Claude
+           "Everything it has done comes with it" sentence would be a false promise.
+           What DOES travel is everything Kosmos owns: the worker folder, its files,
+           role, projects and commitments (an account swap rewrites only CODEX_HOME).
+           So the codex sentence is honest about the split rather than silent on it. */
+        const isCodexMove = !!(wrote.account && wrote.account.provider === 'openai');
         sendJson(res, 200, {
           outcome: ok ? 'changed' : 'partial',
           account: wrote.account,
@@ -7468,9 +7484,13 @@ const server = http.createServer((req, res) => {
                reason: a restarted agent has done nothing, and Josh read that
                emptiness as the change having failed. The history sentence is
                here because it is the one thing a person is right to worry
-               about when moving accounts, and the answer is good news. */
-            ? `${name} runs on ${who} now. It is starting again, and it will look idle `
-              + 'until you say something to it. Everything it has done comes with it.'
+               about when moving accounts. */
+            ? (isCodexMove
+              ? `${name} runs on ${who} now. It is starting again, and it will look idle `
+                + 'until you say something to it. Its files and projects come with it; '
+                + 'its earlier Codex chat stays with the account it was on.'
+              : `${name} runs on ${who} now. It is starting again, and it will look idle `
+                + 'until you say something to it. Everything it has done comes with it.')
             : `We saved ${who}, but could not start it again: ${back.because} `
               + 'It is still on the old account until it restarts.',
           steps: back.steps || [],

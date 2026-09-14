@@ -213,8 +213,14 @@ test('#1492: a signed-out account the agent runs on surfaces the move (or reauth
   const at = CODE.indexOf('async function paintAccountPicker');
   assert.ok(at > -1, 'paintAccountPicker moved or was renamed');
   const fn = CODE.slice(at, at + 5000);
-  assert.match(fn, /ACCOUNTS\.find\(\(x\) => x\.dir === acct\.dir\)/,
-    'the picker no longer cross-references the agent account against the live list, so it cannot tell it is signed out (a launch-file read would not know)');
+  // #2338: the live-list cross-reference moved into the pure `acctMoveWorld`
+  // helper (its `currentRow`), which paintAccountPicker consumes as `acctLive`.
+  // Same intent -- the agent's account is matched against the live list so
+  // signed-out is knowable -- across a refactor, not a removal.
+  assert.match(CODE, /rows\.find\(\(x\) => x && x\.dir === currentDir\)/,
+    'acctMoveWorld no longer cross-references the agent account against the live list, so the picker cannot tell it is signed out');
+  assert.match(fn, /const acctLive = world\.currentRow/,
+    'paintAccountPicker no longer consumes the resolved live row as acctLive');
   // #1959: signed-out detection now reads the observed-liveness badge via
   // !acctUsableLogin(acctLive) (so a rejected credential, #874, is also detected
   // as unusable), instead of the raw `state !== 'connected'`. Intent unchanged;
