@@ -118,6 +118,16 @@ test('#2840: the hero API-cost stat shows a dash (not $0) when no cost is availa
   assert.ok(!html.includes('$0<') && !html.includes('>$0<'), 'no false $0 for a missing price');
 });
 
+test('#2840: the hero value degrades gracefully below $1M (a light machine shows the real figure, not $0.0M)', () => {
+  // total 50M -> value = 50e6 / 1e5 * 90 = $45,000. The verbatim "$X.XM" format would
+  // show that as "$0.0M"; below $1M the hero routes through usageUsd instead.
+  const html = U.usageHeroHtml({ input: 0, output: 0, cacheWritten: 0, cacheRead: 50000000 }, 3, 12);
+  assert.ok(html.includes('$45,000'), 'shows the exact dollar figure for a light machine');
+  assert.ok(!html.includes('$0.0M'), 'no misleading $0.0M for a real sub-$1M value');
+  // demo scale is unchanged: the approved $X.XM format still applies at >= $1M.
+  assert.ok(U.usageHeroHtml(U.usageTotals(FIXTURE), 2, 1152).includes('$1.8M'), 'demo-scale value keeps the approved $X.XM format');
+});
+
 test('#2840: usageByModel aggregates per-model blended totals, sorted most-first', () => {
   const fx = {
     'd2': { 'claude-opus-5': { output_tokens: 200, cache_read_input_tokens: 800 }, 'claude-sonnet-5': { output_tokens: 40 } },

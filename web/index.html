@@ -25086,7 +25086,11 @@ function usageHeroHtml(totals, activeDays, apiCostUsd) {
   const value = hours * USAGE_VALUE_BLENDED_RATE;
   const years = hours / USAGE_VALUE_HOURS_PER_YEAR;
   const tokensStr = (total / 1e9) >= 1 ? (total / 1e9).toFixed(1) + 'B' : usageAbbr(total);
-  const valueStr = '$' + (value / 1e6).toFixed(1) + 'M';
+  // The approved design's headline format is "$X.XM" (e.g. $135.0M), kept verbatim at
+  // demo scale. Below $1M that format would show a real figure as "$0.0M" (e.g. $45K on a
+  // light machine), so fall back to usageUsd there -- the same formatter the API-cost stat
+  // and the history Value column already use, for a case the approved mock never showed.
+  const valueStr = value >= 1e6 ? '$' + (value / 1e6).toFixed(1) + 'M' : usageUsd(value);
   const apiStr = (apiCostUsd === null || apiCostUsd === undefined) ? '-' : usageUsd(apiCostUsd);
   return '<div class="tv-hero">'
     + '<p class="tv-days"><span class="tv-dnum">' + usageHeroDigits(activeDays) + '</span>'
@@ -25186,7 +25190,7 @@ function usageDonutSvg(models, grandTotal) {
   // back to the slice sum, so `|| tot` (which also swallows 0) is not used here.
   const centerTok = esc(usageAbbr(typeof grandTotal === 'number' && Number.isFinite(grandTotal) ? grandTotal : tot));
   const svg = '<svg viewBox="0 0 200 200" role="img" aria-label="Token share by model">' + segs
-    + '<text x="100" y="95" text-anchor="middle" style="font-size:15px;fill:var(--k-ink);font-weight:700" font-family="var(--font-mono)">' + centerTok + '</text>'
+    + '<text x="100" y="95" text-anchor="middle" style="font-size:15px;fill:var(--k-ink);font-weight:700;font-family:var(--font-mono)">' + centerTok + '</text>'
     + '<text x="100" y="113" text-anchor="middle" style="font-size:10px;fill:var(--k-ink-2)">total tokens</text></svg>';
   const legend = slices.map((s) => {
     const pct = s.tok / tot * 100;
