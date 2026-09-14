@@ -1646,7 +1646,29 @@ for _a in "$@"; do
 done
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
-    msg|reply|post|react|report|room|feedback|task|adopt|whoami) set -- "$1" ;;
+    msg|reply|post|react|report|room|feedback|task)
+      # kosmos#3036: these verbs, run bare, print their own usage and exit 2 --
+      # the missing-required-argument error. A --help re-dispatched here to GET
+      # that usage SUCCEEDED, so it must exit 0, not inherit the bare-usage 2 (a
+      # smoke test doing `kosmos msg --help && echo ok` read a working help as a
+      # failure). Re-dispatch bare so the verb's own usage string is reused (no
+      # second copy, per the note above). Use $SELF -- the symlink-resolved
+      # self-path this script computes at the top and already trusts for $NODE
+      # and $APP -- NOT raw $0, which the resolver at the top deliberately avoids
+      # (a symlinked ~/.local/bin/kosmos makes $0 unreliable). The `|| _hrc=$?`
+      # captures the code AND keeps `set -e` from propagating it. A bare message
+      # verb exits 2 (usage), which is help-success here -> map ONLY that to 0;
+      # surface any OTHER code rather than masking a broken re-dispatch as a
+      # silent exit 0 with no usage. The genuine bare `kosmos msg` (no --help) is
+      # untouched and still exits 2.
+      _hrc=0; ( "$SELF" "$1" ) || _hrc=$?
+      [ "$_hrc" -eq 2 ] && exit 0
+      exit "$_hrc" ;;
+    adopt|whoami)
+      # These show read-only OUTPUT on --help (they act read-only), so their own
+      # exit status is meaningful -- a failed whoami must not read as success.
+      # Keep the bare re-dispatch and let their status stand.
+      set -- "$1" ;;
     *)
       printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | task | adopt | whoami\n\n'
       printf '  Add --help to any command; it never acts, except adopt and whoami, which show their read-only output.\n'
