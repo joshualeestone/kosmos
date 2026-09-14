@@ -108,11 +108,12 @@ function unhide(id) {
     if (s3.noPane) {
       check(`${engine}: fr-pane-3 reachable`, false, 'no pane');
     } else {
-      // #2911: S3 now has THREE step captions (keep awake, switch Kosmos on, switch tmux
-      // on) -- the third asks for tmux's own Accessibility grant (Josh: "turn on Kosmos,
-      // tmux, and accessibility").
-      const capsOk = s3.caps.length === 3 && s3.caps.every((c) => c.px > 0 && c.px <= 12 && c.wt === '600');
-      check(`${engine}: all three S3 step captions are compact (<=12px, weight 600), not the 17px/400 overlay body`,
+      // #3075: S3 now has TWO step captions (keep awake, and the combined "switch Kosmos
+      // and tmux to On"). #2911 briefly split the accessibility ask into two captions
+      // (Kosmos, then tmux); the one-box restyle folds them into one, so the tmux ask for
+      // its own grant rides the combined caption above a single two-row Accessibility mock.
+      const capsOk = s3.caps.length === 2 && s3.caps.every((c) => c.px > 0 && c.px <= 12 && c.wt === '600');
+      check(`${engine}: both S3 step captions are compact (<=12px, weight 600), not the 17px/400 overlay body`,
         capsOk, JSON.stringify(s3.caps));
       check(`${engine}: the "(stand-in graphic)" dev note is removed (no .s3-standin)`,
         s3.standinPresent === false, `standinPresent ${s3.standinPresent}`);

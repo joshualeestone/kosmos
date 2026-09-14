@@ -97,7 +97,7 @@ test('#2451: the S3 Automation gate names Kosmos, not tmux (the binary macOS sho
   // copy, not the attribute.
   assert.match(S3, /<span class="s3-gate-lbl">Kosmos<\/span>/, 'the app a11y gate row label reads "Kosmos"');
   assert.match(S3, /<span class="s3-mtxt">Kosmos<small>Control your computer<\/small>/, 'the app mock Accessibility row names Kosmos');
-  assert.match(S3, /switch Kosmos to On/, 'the app step caption says "switch Kosmos to On"');
+  assert.match(S3, /switch Kosmos and tmux to On/, 'the combined step caption asks to switch Kosmos on (#3075 one-box: Kosmos + tmux in one caption)');
   assert.doesNotMatch(S3, /<span class="s3-gate-lbl">TMUX<\/span>/, 'the old uppercase "TMUX" mislabel of the APP row is gone (#2451)');
   assert.doesNotMatch(S3, /switch TMUX to On/, 'the old "switch TMUX to On" caption for the APP row is gone (#2451)');
   // NOTE: #2911 legitimately reintroduces a LOWERCASE "tmux" mock + label -- but for the
@@ -139,7 +139,10 @@ test('#2911: S3 asks for tmux\'s OWN Accessibility grant (data-gate="tmux-a11y")
   assert.match(S3, /class="s3-gate-row" data-gate="tmux-a11y"[\s\S]{0,120}<span class="s3-gate-lbl">tmux<\/span>/,
     'the tmux-a11y gate row label reads "tmux"');
   assert.match(S3, /<span class="s3-mtxt">tmux<small>Control your computer<\/small>/, 'the tmux mock Accessibility row names tmux');
-  assert.match(S3, /switch tmux to On/, 'the third step caption says "switch tmux to On"');
+  // #3075 one-box: the separate "3 - switch tmux to On" caption folded into the combined
+  // "2 - switch Kosmos and tmux to On" caption above the single two-row Accessibility mock.
+  // The tmux ROW, SWITCH and GATE (asserted around this line) are what carry the tmux ask now.
+  assert.match(S3, /switch Kosmos and tmux to On/, 'the combined step caption asks to switch tmux On too (#3075)');
 
   // FR_GATES routes it to the tmux-a11y status endpoint, granting only on trusted:true.
   assert.match(PAGE, /'tmux-a11y':\s*\{[\s\S]*?url:\s*'\/api\/tmux-a11y-status',[\s\S]*?granted:\s*\(r\)\s*=>[\s\S]*?r\.trusted === true/,

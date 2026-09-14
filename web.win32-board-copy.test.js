@@ -239,12 +239,16 @@ test('one CSS rule hides the Mac-only surfaces, and it is on each one the audits
   const HIDDEN_ON_WINDOWS = {
     'S3 Energy mock (traffic lights)': /<div class="s3-mock" data-win-hide>\s*<div class="s3-win" aria-hidden="true">\s*<div class="s3-bar">[^\n]*>Energy</,
     'S3 Accessibility mock': /<div class="s3-mock" data-win-hide>\s*<div class="s3-win" aria-hidden="true">\s*<div class="s3-bar">[^\n]*>Accessibility</,
-    'S3 Accessibility caption': /<p class="s3-step-cap" data-win-hide>2 &middot; when prompted, switch Kosmos to On<\/p>/,
+    'S3 Accessibility caption': /<p class="s3-step-cap" data-win-hide>2 &middot; when prompted, switch Kosmos and tmux to On<\/p>/,
     'S3 Accessibility gate row': /<div class="s3-gate-row" data-gate="tmux" data-win-hide>/,
-    // #2911: the tmux-own-Accessibility sub-step (caption + mock + gate row) is Mac-only
-    // too (tmux Accessibility is a macOS TCC grant), so each carries data-win-hide.
-    'S3 tmux Accessibility caption': /<p class="s3-step-cap" data-win-hide>3 &middot; when prompted, switch tmux to On<\/p>/,
-    'S3 tmux Accessibility mock': /<span class="s3-mtxt">tmux<small>Control your computer<\/small><\/span><span class="s3-sw" data-sw-gate="tmux-a11y">/,
+    // #3075: the tmux Accessibility ask is now ONE box with Kosmos, not a separate mock +
+    // caption. Its own status ROW (data-gate="tmux-a11y") still gates Next and stays Mac-only,
+    // so it keeps its data-win-hide (pinned just below). The retired "3 - switch tmux to On"
+    // caption and the second .s3-mock are gone -- the tmux mock ROW now rides the ONE combined
+    // Accessibility mock above (that mock's data-win-hide hides it on Windows, pinned by 'S3
+    // Accessibility mock'), and the tmux row's PRESENCE is pinned by web.firstrun-a11y-1214.test.js
+    // and render-win32-board-copy.js. Two data-win-hide surfaces went away (caption 3 + the
+    // second mock), so two keys did too, keeping the count assertion balanced.
     'S3 tmux Accessibility gate row': /<div class="s3-gate-row" data-gate="tmux-a11y" data-win-hide>/,
     'S7 Dock drawing': /<div class="s7-dock-wrap" id="fr-success" data-win-hide>/,
     'Settings Dock icon': /<img class="dockrow-i" data-win-hide /,
@@ -504,7 +508,7 @@ test('MAC UNCHANGED: every static Mac string this branch keyed or hid still read
   const MAC_MARKUP = [
     />To get the most out of your agents we need to ensure they can stay awake and access the computer\.<\/p>/,
     />1 &middot; keep this computer awake<\/p>/,
-    />2 &middot; when prompted, switch Kosmos to On<\/p>/,
+    />2 &middot; when prompted, switch Kosmos and tmux to On<\/p>/,
     /<span class="s3-title">Energy<\/span>/,
     /<span class="s3-mtxt">Kosmos<small>Control your computer<\/small><\/span>/,
     /<h2>Kosmos needs your permission<\/h2>/,

@@ -9600,7 +9600,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         .s3-tl{width:11px;height:11px;border-radius:50%}
         .s3-r{background:#ff5f57}.s3-y{background:#febc2e}.s3-g{background:#28c840}
         .s3-title{font:600 .75rem var(--font-ui,-apple-system,sans-serif);color:#3a3a38;margin-left:8px}
-        .s3-body{padding:12px 14px}
+        /* #3075: the Accessibility mock now stacks TWO rows (Kosmos + tmux) in one
+           box, so the body is a gapped column. A single-row body (Energy/sleep) is
+           unaffected -- one stretched child looks the same with or without the gap. */
+        .s3-body{padding:12px 14px;display:flex;flex-direction:column;gap:8px}
         .s3-mrow{display:flex;align-items:center;gap:10px;padding:9px 10px;background:#fff;border:1px solid #e6e4e0;border-radius:8px}
         .s3-mtxt{font:600 .6875rem/1.3 var(--font-ui,-apple-system,sans-serif);color:#1c1b19}
         .s3-mtxt small{display:block;font-weight:400;color:#7c7c78;font-size:.625rem}
@@ -9744,43 +9747,43 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
 
         <p data-win-only hidden data-win-copy="s3BatteryNote"></p>
         <!-- win32-board-copy (W-11): Windows has no Accessibility grant for this, so the whole second step is hidden there. -->
-        <p class="s3-step-cap" data-win-hide>2 &middot; when prompted, switch Kosmos to On</p>
-        <!-- #2236/0.6.42 #1 (Josh): the grant is Privacy & Security > Accessibility
-             ("control your computer"), NOT Login Items. The old mock showed the Login Items
-             pane, which sent Josh to the wrong Settings pane. Depict Accessibility here.
-             (S4's s4-* pane keeps "Login Items" -- that is correct, for bash background
-             activity, a different grant. Do not conflate the two.) Copy: Mona Lisa.
-             #2451: the row macOS shows + grants is Kosmos (the calling binary the
-             onboarding registers), not tmux -- so this mock and the gate row below read
-             "Kosmos". The internal data-gate key stays "tmux" (it is the FR_GATES /
-             handler / browser-check selector; the subject is Kosmos.app). -->
+        <p class="s3-step-cap" data-win-hide>2 &middot; when prompted, switch Kosmos and tmux to On</p>
+        <!-- #3075/#3032 (Josh, 2026-09-14 #chaoskosmos-design): ONE Accessibility panel with
+             BOTH rows -- "Kosmos" and "tmux" -- because macOS lists them in a SINGLE
+             Accessibility list (Josh's fresh-install screenshot shows both). His words: a
+             second "tmux controls your computer" switch RIGHT UNDER Kosmos in the same box,
+             both switches animating on, one combined line. #2911 (Angel, engine) landed the
+             tmux grant as a SECOND, separate mock window; this restyles to the one-box design
+             Josh asked for. It leaves Angel's engine untouched: BOTH gate status rows stay
+             (data-gate="tmux" = the app's grant, data-gate="tmux-a11y" = the bundled tmux's
+             grant), BOTH switches keep their data-sw-gate keys, FR_GATES is unchanged. The
+             gate poll (swMirror) and frSyncSwitchOverlays both key off data-sw-gate
+             document-wide, so two switches sharing one .s3-mock bind exactly as before.
+             #2236/0.6.42: the grant is Privacy & Security > Accessibility ("control your
+             computer"), NOT Login Items -- depict Accessibility here. (S4's s4-* pane keeps
+             "Login Items", a different grant for bash background activity; do not conflate.)
+             #2451: macOS registers the calling binary as "Kosmos" (the app row); tmux is its
+             own bundled-binary subject (the tmux row). Copy: Mona Lisa. -->
         <div class="s3-mock" data-win-hide>
           <div class="s3-win" aria-hidden="true">
             <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Accessibility</span></div>
-            <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">Kosmos<small>Control your computer</small></span><span class="s3-sw" data-sw-gate="tmux"></span></div></div>
+            <div class="s3-body">
+              <div class="s3-mrow"><span class="s3-mtxt">Kosmos<small>Control your computer</small></span><span class="s3-sw" data-sw-gate="tmux"></span></div>
+              <div class="s3-mrow"><span class="s3-mtxt">tmux<small>Control your computer</small></span><span class="s3-sw" data-sw-gate="tmux-a11y"></span></div>
+            </div>
           </div>
           <button class="s3-sw-open" type="button" data-sw-gate="tmux" aria-label="Open Accessibility settings for Kosmos"></button>
+          <button class="s3-sw-open" type="button" data-sw-gate="tmux-a11y" aria-label="Open Accessibility settings for tmux"></button>
         </div>
+        <!-- Two status rows, one per grant, kept SEPARATE on purpose: a single combined line
+             cannot honestly show "Kosmos on, tmux still off" mid-flow. The mock above mirrors
+             the real Settings list (one box, two switches); these rows are the app's own
+             per-grant confirmation. Kosmos = data-gate="tmux" (app), tmux = data-gate="tmux-a11y". -->
         <div class="s3-gate-row" data-gate="tmux" data-win-hide>
           <span class="s3-gate-lbl">Kosmos</span>
           <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button">Turn On</button></span>
           <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
-        </div>
-        <!-- #2911 (Josh, 6.59 QA: "they need to turn on Kosmos, tmux, and accessibility"):
-             a THIRD sub-step for tmux's OWN Accessibility grant. tmux is a SEPARATE row
-             in the SAME macOS Accessibility list (Josh's fresh-install screenshot shows
-             both "Kosmos" and "tmux"); the grant is keyed on the bundled tmux binary, a
-             distinct subject from the app row above. data-gate="tmux-a11y" -> FR_GATES
-             (route /api/tmux-a11y-status, engine tmuxGrant). Same visual + fail-safe
-             posture as the Kosmos row; the generic [data-gate] poll picks it up. -->
-        <p class="s3-step-cap" data-win-hide>3 &middot; when prompted, switch tmux to On</p>
-        <div class="s3-mock" data-win-hide>
-          <div class="s3-win" aria-hidden="true">
-            <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Accessibility</span></div>
-            <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">tmux<small>Control your computer</small></span><span class="s3-sw" data-sw-gate="tmux-a11y"></span></div></div>
-          </div>
-          <button class="s3-sw-open" type="button" data-sw-gate="tmux-a11y" aria-label="Open Accessibility settings for tmux"></button>
         </div>
         <div class="s3-gate-row" data-gate="tmux-a11y" data-win-hide>
           <span class="s3-gate-lbl">tmux</span>
