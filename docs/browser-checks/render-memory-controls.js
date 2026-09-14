@@ -88,6 +88,21 @@ const chk = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
   chk(cols.length === 2 && Math.abs(cols[0].top - cols[1].top) < 4 && cols[1].left > cols[0].left
       && Math.abs(cols[0].width - cols[1].width) < cols[0].width * 0.15,
     'Memory and Fresh start sit side by side at ~50/50 (#2917)', JSON.stringify(cols));
+  /* #2917: the row wraps to a single stacked column at narrow / phone width
+     (`flex-wrap:wrap` + `flex: 1 1 260px`). This is the falsifiable half of the
+     plan's responsive claim, so it is asserted, not just described: at 420px the
+     two dboxes stack (same left, the second below the first). A regression that
+     broke the wrap (a fixed `flex-wrap:nowrap`, or a basis too small) fails here.
+     Resize back to 1300 afterwards so the dialog interaction below runs wide. */
+  await page.setViewportSize({ width: 420, height: 1000 }); await page.waitForTimeout(300);
+  const narrow = await page.evaluate(() => {
+    const row = document.querySelector('.mem-fresh-row');
+    return [...row.children].filter((c) => c.classList.contains('dbox'))
+      .map((b) => { const r = b.getBoundingClientRect(); return { top: Math.round(r.top), left: Math.round(r.left), bottom: Math.round(r.bottom) }; });
+  });
+  chk(narrow.length === 2 && Math.abs(narrow[0].left - narrow[1].left) < 4 && narrow[1].top >= narrow[0].bottom - 4,
+    'Memory and Fresh start stack to one column at 420px (#2917)', JSON.stringify(narrow));
+  await page.setViewportSize({ width: 1300, height: 1000 }); await page.waitForTimeout(300);
   await page.screenshot({ path: process.env.SHOT || path.join(os.tmpdir(), 'memory-controls.png') });
   await page.click('#d-compact-go'); await page.waitForTimeout(300);
   chk(!(await page.$eval('#chg-modal', (m) => m.hidden)), 'Compact opens a dialog rather than acting');
