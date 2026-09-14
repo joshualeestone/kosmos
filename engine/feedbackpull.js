@@ -189,8 +189,19 @@ async function pull(dir, opts) {
     };
   }
   let blobs;
+  // The token IS present here (the not-filed case returned above), so a list
+  // failure is a store/network/API fault, NOT a missing token -- surface the
+  // underlying error so it is diagnosable instead of fail-softing to a generic
+  // "0 reports" that reads like an empty store (kosmos#3060: a swallowed list
+  // error is exactly what made this look like a fetch-path bug when it was not).
   try { blobs = await tp.list(tok); }
-  catch { return { ok: false, written: 0, skipped: 0, dir: target, because: 'could not list the collected feedback (the store or network did not answer)' }; }
+  catch (e) {
+    return {
+      ok: false, written: 0, skipped: 0, dir: target,
+      because: 'the collected-feedback token is filed, but listing the store failed: '
+        + String((e && e.message) || e) + '. This is a store/network/API fault, not a missing token.',
+    };
+  }
   try { fs.mkdirSync(target, { recursive: true }); }
   catch { return { ok: false, written: 0, skipped: 0, dir: target, because: 'could not create the destination directory' }; }
   let written = 0;
@@ -212,8 +223,73 @@ async function pull(dir, opts) {
   return { ok: true, written, skipped, total: (Array.isArray(blobs) ? blobs.length : 0), dir: target };
 }
 
+/**
+ * CLI entrypoint, so `node engine/feedbackpull.js [--dir <path>]` actually pulls
+ * the collected feedback into a triage-readable directory on ANY platform.
+ *
+ * 🛑 WHY THIS EXISTS (kosmos#3060). This module exported `pull` but nothing on
+ * the fleet CALLED it: the feedback CLI verbs live only in the Windows AGENT's
+ * command (tools/windows/kosmos-cli.js, `ctx.engine('feedbackpull').pull(...)`),
+ * and the macOS `kosmos` launcher (install/kosmos) exposes none of them. So a
+ * bare `node engine/feedbackpull.js <dir>` -- the obvious way to run it, and the
+ * way #3060 was reproduced -- LOADED the module and invoked nothing, writing 0
+ * reports with exit 0. That read as a fetch-path failure; it was a MISSING
+ * ENTRYPOINT. `pull` itself is correct (its real-transport test pages + writes).
+ * This mirrors the 12 sibling engine modules that carry a `require.main` block
+ * and prints the same summary shape as the Windows CLI's `pull` verb.
+ *
+ * `opts` is forwarded to `pull` and exists only for the test seam (inject a
+ * token so the CLI path is exercised without the real secrets map); the real
+ * invocation below passes none, so `pull` resolves the token via the map exactly
+ * as before. Accepts both `--dir <path>` (matches `kosmos feedback triage --dir`)
+ * and a bare positional path (the #3060 repro), so both forms work.
+ */
+async function runCli(argv, opts) {
+  const a = Array.isArray(argv) ? argv.slice() : [];
+  let dir;
+  while (a.length) {
+    const t = a.shift();
+    if (t === '--help' || t === '-h') {
+      process.stdout.write('usage: node engine/feedbackpull.js [--dir <path>]\n'
+        + 'Pulls collected feedback reports into <path> (default: the data root) as triage-readable .md files.\n');
+      return 0;
+    }
+    if (t === '--dir') {
+      // The directory can be given once, as EITHER `--dir <path>` OR a bare
+      // positional -- giving it twice (any mix) is an error, symmetric with the
+      // two-bare-positionals case below, so `--dir` never silently overwrites a
+      // positional already seen.
+      if (dir !== undefined) { process.stderr.write('the directory was given more than once\n'); return 2; }
+      if (!a.length) { process.stderr.write('--dir needs a path\n'); return 2; }
+      dir = a.shift();
+    } else if (dir === undefined) {
+      dir = t;
+    } else {
+      process.stderr.write('unexpected argument: ' + t + '\n');
+      return 2;
+    }
+  }
+  let r;
+  try { r = await pull(dir || undefined, opts); }
+  catch (e) { process.stderr.write('could not pull the collected feedback: ' + String((e && e.message) || e) + '\n'); return 1; }
+  if (!r.ok) { process.stderr.write(r.because + '\n'); return 1; }
+  process.stdout.write('pulled ' + r.written + ' report(s)'
+    + (r.skipped ? ' (' + r.skipped + ' skipped)' : '')
+    + ' to ' + r.dir + '\n');
+  return 0;
+}
+
+if (require.main === module) {
+  // runCli catches its own only await today, but attach a rejection handler so a
+  // future path that lets it reject surfaces as a clean stderr line + exit 1
+  // rather than a raw unhandled rejection (matches selfcheck.js / win32update.js).
+  runCli(process.argv.slice(2))
+    .then((code) => { process.exitCode = code; })
+    .catch((e) => { process.stderr.write('could not pull the collected feedback: ' + String((e && e.message) || e) + '\n'); process.exitCode = 1; });
+}
+
 module.exports = {
-  pull, setTransport, token, toMarkdown, fileName,
+  pull, runCli, setTransport, token, toMarkdown, fileName,
   FEEDBACK_TOKEN_TARGET, PREFIX, defaultDir, blobApi, DEFAULT_BLOB_API,
   defaultList, defaultGet,
 };

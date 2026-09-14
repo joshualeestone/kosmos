@@ -154,3 +154,83 @@ test('a newline in a stored header field cannot shift the frontmatter boundary',
   assert.equal(feedback.stripFrontmatter(md).trim(), 'real body', 'the body boundary is intact, no injected header leaked into the body');
   assert.ok(!/injected: evil/.test(feedback.stripFrontmatter(md)), 'the injected fence did not open a second header');
 });
+
+// #3060: the CLI entrypoint. The module exported pull() but nothing on the fleet
+// (macOS) called it -- the feedback verbs live only in the Windows agent CLI --
+// so `node engine/feedbackpull.js <dir>` loaded the module and wrote 0 reports at
+// exit 0, reading as a fetch-path bug when the bug was a MISSING ENTRYPOINT. runCli
+// takes an opts pass-through purely so these tests inject a token (exercising the
+// CLI path without the real secrets map); the real main block passes none.
+function captureStd(fn) {
+  const out = []; const err = [];
+  const so = process.stdout.write.bind(process.stdout);
+  const se = process.stderr.write.bind(process.stderr);
+  process.stdout.write = (s) => { out.push(String(s)); return true; };
+  process.stderr.write = (s) => { err.push(String(s)); return true; };
+  return Promise.resolve()
+    .then(fn)
+    .then((code) => { process.stdout.write = so; process.stderr.write = se; return { code, out: out.join(''), err: err.join('') }; })
+    .catch((e) => { process.stdout.write = so; process.stderr.write = se; throw e; });
+}
+
+test('#3060: runCli --dir pulls the reports, writes them, prints a summary, exits 0', async () => {
+  const dir = path.join(SB, 'cli-dir');
+  fp.setTransport(transportFor([REC('inst-aaa', '2026-09-04', 'one'), REC('inst-bbb', '2026-09-05', 'two')]));
+  const { code, out } = await captureStd(() => fp.runCli(['--dir', dir], { token: TOKEN }));
+  assert.equal(code, 0);
+  assert.match(out, /pulled 2 report\(s\)/);
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['2026-09-04__inst-aaa.md', '2026-09-05__inst-bbb.md']);
+});
+
+test('#3060: runCli accepts a bare positional dir (the exact repro form) and writes >0', async () => {
+  const dir = path.join(SB, 'cli-positional');
+  fp.setTransport(transportFor([REC('inst-aaa', '2026-09-04', 'one')]));
+  const { code } = await captureStd(() => fp.runCli([dir], { token: TOKEN }));
+  assert.equal(code, 0);
+  assert.equal(fs.readdirSync(dir).length, 1);
+});
+
+test('#3060: runCli with no filed token exits 1 and says so on stderr, writes nothing', async () => {
+  const dir = path.join(SB, 'cli-notoken');
+  fp.setTransport({ list: async () => { throw new Error('should not list without a token'); }, get: async () => '' });
+  const { code, err } = await captureStd(() => fp.runCli(['--dir', dir], { token: '' }));
+  assert.equal(code, 1);
+  assert.match(err, /token is not filed/);
+  assert.ok(!fs.existsSync(dir) || fs.readdirSync(dir).length === 0);
+});
+
+test('#3060: runCli --dir with no path is a usage error (exit 2)', async () => {
+  const { code, err } = await captureStd(() => fp.runCli(['--dir'], { token: TOKEN }));
+  assert.equal(code, 2);
+  assert.match(err, /--dir needs a path/);
+});
+
+test('#3060: runCli rejects the directory given more than once, symmetric with two positionals (exit 2)', async () => {
+  // A bare positional then --dir must NOT silently overwrite; both "already have
+  // a dir" forms error the same way.
+  const mixed = await captureStd(() => fp.runCli(['mydir', '--dir', 'other'], { token: TOKEN }));
+  assert.equal(mixed.code, 2);
+  assert.match(mixed.err, /more than once/);
+  const twoFlags = await captureStd(() => fp.runCli(['--dir', 'a', '--dir', 'b'], { token: TOKEN }));
+  assert.equal(twoFlags.code, 2);
+  assert.match(twoFlags.err, /more than once/);
+  const twoPositional = await captureStd(() => fp.runCli(['a', 'b'], { token: TOKEN }));
+  assert.equal(twoPositional.code, 2);
+  assert.match(twoPositional.err, /unexpected argument/);
+});
+
+test('#3060: runCli --help prints usage and exits 0', async () => {
+  const { code, out } = await captureStd(() => fp.runCli(['--help'], { token: TOKEN }));
+  assert.equal(code, 0);
+  assert.match(out, /usage: node engine\/feedbackpull\.js/);
+});
+
+test('#3060: a list failure with the token filed surfaces the real error, not a generic empty (distinguishes fetch-failed from token-absent)', async () => {
+  const dir = path.join(SB, 'listfail');
+  fp.setTransport({ list: async () => { throw new Error('blob list HTTP 401'); }, get: async () => '' });
+  const r = await fp.pull(dir, { token: TOKEN });
+  assert.equal(r.ok, false);
+  assert.equal(r.written, 0);
+  assert.match(r.because, /blob list HTTP 401/, 'the underlying error is surfaced');
+  assert.match(r.because, /not a missing token/, 'it distinguishes a store/network fault from an absent token');
+});
