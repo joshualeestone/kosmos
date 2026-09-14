@@ -43725,7 +43725,8 @@ let FR_YOU_GEN = 0;
    Accessibility poll (frPollA11y) with a general poll over the data-gate rows in
    the ACTIVE screen. S2 carries data-gate="file-access"; S3 carries
    data-gate="sleep" + data-gate="tmux". A row is GREEN (data-granted) ONLY on a
-   measured grant; #fr-next is disabled ONLY when some row is measured-not-granted.
+   measured grant; #fr-next is disabled ONLY when a GATING row (S2 file-access) is
+   measured-not-granted -- both S3 rows are advisory (gatesNext:false, #2587/#2912).
    Posture is FAIL-SAFE and POSITIVE-ONLY, exactly like the engine: uncheckable (a
    browser, no native reading yet) and any fetch failure NEVER block and NEVER show
    a false green, so the gate can never strand a browser tester or an unreadable
@@ -43852,12 +43853,14 @@ async function frPollGates(screenEl, gen) {
         if (row.hasAttribute(a)) swMirror.setAttribute(a, ''); else swMirror.removeAttribute(a);
       });
     }
-    // #2587 (Josh's ruling): the sleep step is ADVISORY -- it never gates Next. A
-    // laptop that cannot satisfy it (macOS has no never-sleep-on-battery switch), or
-    // anyone who simply has not set it, can still move on; the honest note stays as
-    // information rather than walling them in. Only genuinely-satisfiable permissions
-    // (Accessibility/tmux, file access) gate Next -- gating those is correct, because
-    // letting a user past an ungranted Accessibility grant lands them in broken agents.
+    // ADVISORY gates never disable Next (gatesNext:false). #2587: the sleep step (a
+    // laptop cannot satisfy it -- macOS has no never-sleep-on-battery switch, or the
+    // user simply has not set it). #2912: the accessibility (tmux) step too -- its
+    // native AXIsProcessTrusted reading is pinned at process start, so it
+    // false-negatives a just-granted permission and trapped users on the last install
+    // screen. Both keep their ask + honest state on screen; only a GATING row (S2
+    // file-access) can set anyBlocked. Accessibility re-gates once the grant is read
+    // live from the TCC db (#2559).
     const spec = FR_GATES[row.getAttribute('data-gate')];
     if (st === 'blocked' && !(spec && spec.gatesNext === false)) anyBlocked = true;
   });
