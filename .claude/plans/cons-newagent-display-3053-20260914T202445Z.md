@@ -9,8 +9,8 @@ opening it in the consolidated display area. Sibling of #2842, which fixed the s
 
 ## Done condition
 Clicking New Agent from the consolidated view opens the create form IN the display column (beside the
-projects list), staying in the consolidated layout. A reader on the floor... n/a. Leaving create (project
-nav / back / done) returns to the consolidated projects view. Tab view keeps its full-page create. No
+projects list), staying in the consolidated layout. Leaving create (project nav / back / done) returns
+to the consolidated projects view. Tab view keeps its full-page create. No
 "No projects yet" hint renders over the create panel. Verified headless + node suites; Josh confirms on 6.65+.
 
 ## Root cause
