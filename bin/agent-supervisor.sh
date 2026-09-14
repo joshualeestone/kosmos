@@ -485,6 +485,21 @@ if [ -z "$adopt" ]; then
         "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" || exit 1
     fi
   else
+    # #2808 class-1 / #2129: re-apply the folder-trust write + bypass pre-accept BEFORE
+    # this (re)launch. engine/create.js writes them once at CREATE, but a restart re-runs
+    # THIS script, not create.js, and --dangerously-skip-permissions does NOT answer the
+    # folder-trust dialog (a separate startup gate) -- so without this a restarted agent
+    # can park on the #2129 trust prompt in a TUI nobody can answer. Best-effort +
+    # idempotent (the shim always exits 0, re-writes nothing when the keys are set), same
+    # $_eng/$NODE_BIN resolution and same best-effort posture as the codex-dismiss shim above.
+    # The extra `[ -n "${_eng:-}" ]` (which that shim omits) is deliberate: the codex shim
+    # builds its path from `$(dirname "$0")` which is always set, whereas $_eng can be empty
+    # (no engine, no pointer), so guarding it keeps the `-f` test off a bare "/ensure-launch-
+    # trust.js". Claude arm only: the codex arm has its own trustCodexFolder + dismiss shim,
+    # and its CLAUDE_CONFIG_DIR is a CODEX_HOME that must never take a CLAUDE trust write.
+    if [ -n "${_eng:-}" ] && [ -f "$_eng/ensure-launch-trust.js" ] && [ -n "${NODE_BIN:-}" ]; then
+      "$NODE_BIN" "$_eng/ensure-launch-trust.js" "$WORKDIR" "${CLAUDE_CONFIG_DIR:-}" >/dev/null 2>&1 || true
+    fi
     if [ -n "$MODEL" ]; then
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
         "$CLAUDE" --dangerously-skip-permissions --model "$MODEL" || exit 1
