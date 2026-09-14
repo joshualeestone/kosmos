@@ -81,11 +81,29 @@ All red on break, all restored; no leftovers.
 - A real end-to-end swap is barred by HARD SAFETY — covered by macOS CI (platform-agnostic arms), the
   win32-arm seams, and the coordinator's V1–V4 live checks on a staging build with Josh's go.
 
+## Post-open CI fix: macOS host-dependence of the location rule
+
+The first CI run on PR #3022: browser-checks passed, both macOS `test` jobs failed (17 tests, all the
+location-refusal / manual-offer arms). Root cause: `win32update.unusualLocationRefusal` read the HOST
+`path` (POSIX on the macOS CI box, where `path.isAbsolute('C:\\...')` is false), so it skipped the
+env dir and offered [Update] instead of the manual download. My on-box comparison was structurally
+blind to it (this box is win32). Fix: analyze the `C:\` location with `path.win32` on any host, and
+make realpath a best-effort seamable catch that falls back to the as-spelled result and can never
+suppress a match. Mechanism proven locally: `path.posix.isAbsolute('C:\\...')` is false (old code
+skipped → no refusal) while `path.win32.isAbsolute('C:\\...')` is true (new code refuses on any host).
+New tests: a `C:\` OneDrive/Program Files path refuses on ANY host (ungated — the macOS reproduction),
+a throwing realpath still refuses (the POSIX-host / torn-FS condition), and a real junction is caught
+on a win32 FS (win32-gated). `update.win32-arm` 19/0, `win32update` 98/0, `web.win32-update-offer`
+11/0, `web.win32-board-copy` 26/0 on-box; block log 0. Swept the other new S4 tests: every ungated
+fake-`C:\` arm flows through `unusualLocationRefusal` (now host-independent); anchor-FS arms are
+win32-gated.
+
 ## diff_hash
 
 - merge-base: `1bfd8ad265a51dc5de64102e7a037ec2b7d2b723` (`git merge-base origin/main HEAD`)
 - command: `git diff 1bfd8ad2..HEAD -- . ':(exclude).claude/plans/win32-update-arm-proof-*.md' | sha256sum`
-- diff_hash: `96f17d74a7707423c6574c0e3eabd10c42f8557d0d0ca1c1ff3b05b5e3370174`
+- diff_hash: `b1bc3e5370bd1c806e914615e74051cd33506672375c646c00dd8e4cf917258d`
+- (supersedes the pre-CI-fix hash `96f17d74a7707423c6574c0e3eabd10c42f8557d0d0ca1c1ff3b05b5e3370174`)
 
 ## Follow-ups filed
 
