@@ -8430,12 +8430,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       </div>
     </div>
     <!-- #3050: the brief update-in-progress state. loadInstructions() hides the note
-         above at its START (line ~26303), so the Update button vanishes the instant
-         it is pressed; the K mark that shows the reload happening therefore lives here
-         in its own element, not inside the note. -->
-    <div class="stale-note" id="d-instr-updating" role="status" aria-live="polite" hidden
+         above at its START, so the Update button vanishes the instant it is pressed;
+         the loading indicator that shows the reload happening therefore lives here in
+         its own element, not inside the note, and the click handler moves focus here so
+         a keyboard/screen-reader user is not dropped to <body> when the button goes.
+         The loader is the "Sweep" dots (.spin.spin-sweep), Josh's chosen loading
+         indicator (#2236) - NOT the .kspin Kosmos MARK, which Josh flagged as the wrong
+         asset for a loader, and not the startKLoader branded K, a multi-second canvas
+         animation ending in a success tick built for restarts/app-updates and far too
+         heavy for a near-instant instructions reload. -->
+    <div class="stale-note" id="d-instr-updating" role="status" aria-live="polite" tabindex="-1" hidden
          style="display:flex; align-items:center; gap:var(--space-3);">
-      <span class="kspin" aria-hidden="true"><img src="/icons/kosmos-32.png" alt="" width="16" height="16"></span>
+      <span class="spin spin-sweep" style="--sz:16px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
       <span>Updating this agent…</span>
     </div>
     <!-- ⚠️ No filename here either. It used to read "kept beside it as
@@ -24309,6 +24315,13 @@ async function sendTalk(text, chose, attachment) {
 function openDetail(sessionName, section, fromProject) {
   const a = LAST.find((x) => x.sessionName === sessionName);
   if (!a) return;
+  // #3050: opening ANY agent clears a stranded update-in-progress indicator. The
+  // Update button's reload shows #d-instr-updating and calls loadInstructions
+  // DIRECTLY (never openDetail), so switching agents mid-reload would otherwise leave
+  // "Updating this agent…" (an aria-live region) on the new agent's panel until the
+  // superseded reload settled. openDetail runs only on a real agent open, never on the
+  // poll, so this cannot hide the loader during the update's own reload.
+  document.getElementById('d-instr-updating').hidden = true;
   /* #2574: remember a project origin (a member click passes PJ_CURRENT) so
      detail-back returns to the project; every existing caller passes no 3rd
      arg -> null -> the unchanged All-agents back. */
@@ -26894,24 +26907,38 @@ document.getElementById('d-instr-update').addEventListener('click', async () => 
   if (!CURRENT || !CURRENT.sessionName) return;
   const agent = CURRENT.sessionName;
   const updating = document.getElementById('d-instr-updating');
-  // Hide the prompt and show the K while the reload runs. loadInstructions also hides
-  // the prompt at its start; hiding it here first keeps the two from flickering.
+  // Hide the prompt and show the loader while the reload runs. loadInstructions also
+  // hides the prompt at its start; hiding it here first keeps the two from flickering.
   document.getElementById('d-instr-outdated').hidden = true;
   updating.hidden = false;
+  // The Update button lived inside the note we just hid, so move focus onto the
+  // updating status - otherwise a keyboard/screen-reader user is dropped to <body>.
+  // Same pattern as the app-update overlay focusing its own status region.
+  updating.focus();
   try {
     // Reloads the current on-disk version into the box and repopulates INSTR_VERSION.
     // It catches its own errors (never throws) and writes its own failure sentence
     // into d-instr-msg, so there is nothing to catch here.
     await loadInstructions(agent);
   } finally {
-    updating.hidden = true;
+    // Only clear the indicator (and land focus / confirm, below) for THIS click's
+    // agent. If the user switched agents mid-reload, the new agent's own
+    // loadInstructions already hid the indicator, and the message + focus now belong
+    // to the agent on screen - a late finally from the superseded reload must not
+    // touch them (it would hide a fresh Update's indicator, or steal focus).
+    if (CURRENT && CURRENT.sessionName === agent) updating.hidden = true;
   }
-  // Confirm ONLY on a clean success. loadInstructions clears d-instr-msg to '' only on
-  // the editable-file-loaded path; every other outcome (no file yet, not editable,
-  // load failed) leaves its own sentence there, which must not be clobbered.
+  // Confirm ONLY on a clean success, and only while still on the same agent.
+  // loadInstructions clears d-instr-msg to '' only on the editable-file-loaded path;
+  // every other outcome (no file yet, not editable, load failed) leaves its own
+  // sentence there, which must not be clobbered.
   if (CURRENT && CURRENT.sessionName === agent) {
     const msg = document.getElementById('d-instr-msg');
     if (!msg.textContent) msg.textContent = 'Updated.';
+    // Land focus on the result's status line, carrying whatever it now says
+    // ("Updated." on success, or loadInstructions' own reason on a non-success).
+    msg.setAttribute('tabindex', '-1');
+    msg.focus();
   }
 });
 

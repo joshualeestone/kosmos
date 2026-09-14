@@ -1,22 +1,29 @@
-// Browser-check-surface: d-instr-outdated d-instr-update d-instr-updating
 'use strict';
+// Browser-check-surface: d-instr-outdated d-instr-update d-instr-updating
+// (#3050) the distinctive web/index.html tokens this check asserts: the staleness note
+// (reworded, with the Update button inside it), the Update button itself, and the
+// update-in-progress indicator element that carries the loader.
 /**
  * #3050 (Josh, 6.63 testing): the Instructions-tab staleness note used to end
- * "Reopen this agent to see the current version" -- an instruction with no control
+ * "Reopen this agent to see the current version" - an instruction with no control
  * to act on, so a person whose file had moved on (e.g. a reassign restart rewrote
  * it) was told what to do and given no way to do it. It now NAMES the action
  * ("This agent needs to be updated") and offers an Update button that reloads the
- * current on-disk version in place, showing the Kosmos K mark for the brief reload.
+ * current on-disk version in place, showing the "Sweep" loading dots for the reload.
  *
- * `node --test` cannot see any of this: the note text, the button, the K element
- * and the reload BEHAVIOUR are DOM outcomes of the real page and the real
+ * `node --test` cannot see any of this: the note text, the button, the loader
+ * element and the reload BEHAVIOUR are DOM outcomes of the real page and the real
  * `loadInstructions` handler. This drives the real page against a real fixture
  * agent and mocks ONLY the per-agent instructions endpoint, so the reload can be
  * shown fetching a CHANGED file (v1 -> v2) rather than re-reading the same bytes.
  *
- * The load-bearing arm is red-capable: if the Update button did not actually
- * reload, the box would still hold the stale v1 after the click, and
- * "Update reloads the current on-disk version" would fail.
+ * Two load-bearing, red-capable arms:
+ *  - the reload: a CONTROL pins the stale v1 in the box before the click, so the
+ *    post-click v2 proves the Update handler actually reloaded (not the initial load).
+ *  - the agent-switch race: switching to a SECOND agent while an Update reload is
+ *    still in flight must clear the indicator; without the reset in loadInstructions
+ *    the (tied) new agent's openDetail skips the untied reset and the "Updating…"
+ *    aria-live region strands on the new agent's panel.
  *
  *   HEADED=0 node docs/browser-checks/render-reassign-update-3050.js
  *   NODE_PATH=~/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-reassign-update-3050.js
@@ -51,9 +58,12 @@ const V2 = 'NEW instructions now on disk (post-reassign)';
 (async () => {
   fleet.install([
     fleet.agent('beatrix', { state: 'idle', displayName: 'Beatrix', role: 'Collections Coordinator' }),
+    fleet.agent('marlow', { state: 'idle', displayName: 'Marlow', role: 'Records Clerk' }),
   ]);
-  fs.writeFileSync(create.plistPath('beatrix'),
-    create.plistFor('beatrix', '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-sonnet-5'), 'utf8');
+  for (const a of ['beatrix', 'marlow']) {
+    fs.writeFileSync(create.plistPath(a),
+      create.plistFor(a, '/bin/echo', '/opt/homebrew/bin/tmux', 'claude-sonnet-5'), 'utf8');
+  }
 
   const server = await srv.start(0);
   const URL = 'http://127.0.0.1:' + server.address().port;
@@ -64,12 +74,15 @@ const V2 = 'NEW instructions now on disk (post-reassign)';
     page.on('pageerror', (e) => errs.push(e.message));
 
     // Mock ONLY the per-agent instructions GET. `served` flips from v1 to v2 to
-    // stand in for the file changing on disk between opening the box and pressing
-    // Update. A non-GET (the save PUT) is never issued here, but pass it through.
+    // stand in for the file changing on disk; `delayMs` lets a reload hang so the
+    // switch-race can observe the indicator mid-flight. A non-GET (the save PUT) is
+    // never issued here, but pass it through.
     let served = V1;
     let servedVersion = 'v1';
-    await page.route('**/api/agent/*/instructions*', (route) => {
+    let delayMs = 0;
+    await page.route('**/api/agent/*/instructions*', async (route) => {
       if (route.request().method() !== 'GET') return route.continue();
+      if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
       route.fulfill({
         json: {
           exists: true, editable: true, text: served, version: servedVersion,
@@ -87,8 +100,8 @@ const V2 = 'NEW instructions now on disk (post-reassign)';
     // openDetail calls loadInstructions for a tied agent, so the box loads v1.
     await page.waitForFunction((v) => document.getElementById('d-instr').value === v, V1, { timeout: 8000 });
 
-    // ── Static: the note names the action, offers an Update button, and the old
-    // dead-end wording is gone. The K mark lives in its own element. ────────────
+    // ── Static: the note names the action, offers an Update button, the old
+    // dead-end wording is gone, and the loader lives in its own element. ────────
     const markup = await page.evaluate(() => {
       const n = document.getElementById('d-instr-outdated');
       const btn = document.getElementById('d-instr-update');
@@ -99,20 +112,23 @@ const V2 = 'NEW instructions now on disk (post-reassign)';
         btnText: btn ? btn.textContent.trim() : null,
         buttonInNote: !!(btn && n && n.contains(btn)),
         hasUpdating: !!upd,
-        kInUpdating: !!(upd && upd.querySelector('.kspin')),
+        sweepInUpdating: !!(upd && upd.querySelector('.spin-sweep')),
+        // #3050 CONVENTION: NOT the .kspin restart mark (Josh flagged it as the wrong
+        // loader asset); assert it is absent so a regression back to it is caught.
+        noKspinInUpdating: !!(upd && !upd.querySelector('.kspin')),
         updatingSeparateFromNote: !!(upd && n && !n.contains(upd)),
       };
     });
     chk(/this agent needs to be updated/i.test(markup.noteText), 'the note names the action ("This agent needs to be updated")', markup.noteText);
     chk(!/reopen this agent/i.test(markup.noteText), 'the dead-end "Reopen this agent to see the current version" wording is gone', markup.noteText);
     chk(markup.hasButton && markup.btnText === 'Update' && markup.buttonInNote, 'the note offers an Update button', JSON.stringify(markup));
-    chk(markup.hasUpdating && markup.kInUpdating && markup.updatingSeparateFromNote,
-      'the K mark lives in its own element outside the note (which hides on click)', JSON.stringify(markup));
+    chk(markup.hasUpdating && markup.sweepInUpdating && markup.noKspinInUpdating && markup.updatingSeparateFromNote,
+      'the Sweep loader (not the .kspin mark) lives in its own element outside the note (which hides on click)', JSON.stringify(markup));
 
-    // ── Behaviour: the file has moved on since the box was opened. The poll would
-    // put the box in its stale state and raise the note; simulate that, flip the
-    // served file to v2, press Update, and assert the box reloads v2, the note
-    // and the K clear, and a confirmation lands. ───────────────────────────────
+    // ── Behaviour: the file has moved on since the box was opened. Put the box in
+    // its stale state and raise the note (as the poll would), flip the served file
+    // to v2, press Update, and assert the box reloads v2, the note and loader clear,
+    // and a confirmation lands. ─────────────────────────────────────────────────
     await page.evaluate((old) => {
       document.getElementById('d-instr').value = old;              // stale text in the box
       document.getElementById('d-instr-outdated').hidden = false;  // the poll's note
@@ -135,8 +151,33 @@ const V2 = 'NEW instructions now on disk (post-reassign)';
     }));
     chk(after.box === V2, 'Update reloads the current on-disk version into the box', JSON.stringify(after));
     chk(after.noteHidden === true, 'Update clears the staleness note', JSON.stringify(after));
-    chk(after.updatingHidden === true, 'the updating K mark is cleared once the reload finishes', JSON.stringify(after));
+    chk(after.updatingHidden === true, 'the loader is cleared once the reload finishes', JSON.stringify(after));
     chk(/^updated\.$/i.test(after.msg), 'a confirmation ("Updated.") is shown after a clean update', after.msg);
+
+    // ── Agent-switch race (#3050 BLOCKER): switch to a SECOND tied agent while an
+    // Update reload is still in flight; the indicator must not strand on the new
+    // agent's panel. Delay the reload so it stays pending across the switch.
+    // RED-CAPABLE: without the reset in loadInstructions, marlow's (tied) openDetail
+    // skips the untied reset and the "Updating…" region stays visible on marlow. ──
+    await page.evaluate((old) => {
+      document.getElementById('d-instr').value = old;
+      document.getElementById('d-instr-outdated').hidden = false;
+      document.getElementById('d-instr-msg').textContent = '';
+    }, V1);
+    delayMs = 1500;                                                // beatrix's reload will hang
+    await page.click('#d-instr-update');
+    await page.waitForFunction(() => document.getElementById('d-instr-updating').hidden === false, { timeout: 4000 });
+    const midFlight = await page.evaluate(() => document.getElementById('d-instr-updating').hidden);
+    chk(midFlight === false, 'CONTROL: the indicator is visible while the reload is in flight', 'hidden=' + midFlight);
+    // Switch to the other agent mid-reload.
+    await page.click('#detail-back');
+    await page.waitForSelector('[data-agent="marlow"]', { timeout: 8000 });
+    await page.click('[data-agent="marlow"]');
+    await page.waitForSelector('#panel-detail:not([hidden])');
+    await page.waitForFunction(() => document.getElementById('d-instr-updating').hidden === true, { timeout: 8000 });
+    const stranded = await page.evaluate(() => document.getElementById('d-instr-updating').hidden);
+    chk(stranded === true, 'switching agents mid-update clears the loader (no stranded aria-live on the new panel)', 'hidden=' + stranded);
+    delayMs = 0;                                                   // let any pending reload resolve
 
     chk(errs.length === 0, 'no page errors', errs.slice(0, 4).join(' | '));
     await page.close();
