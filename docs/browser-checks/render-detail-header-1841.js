@@ -163,13 +163,24 @@ function chk(ok, label, extra) {
       LAST[0] = { ...real, stateReported: false, because: 'it is sitting at its prompt' };
       openDetail(sn);
       const inferred = read();
+      // Reported AND rate_limited: the noQuote path keeps the engine sentence beside the
+      // bubble (#d-task), and the agent's own self-report still relocates to #d-why. Both
+      // surfaces speak, and they say different things -- the one combo where that happens.
+      LAST[0] = { ...real, stateReported: true, because: 'finished the analysis',
+                  state: 'rate_limited', stateConfidence: 'scraped' };
+      openDetail(sn);
+      const reportedLimited = read();
       LAST[0] = real;
-      return { sn, reported, inferred };
+      return { sn, reported, inferred, reportedLimited };
     });
     chk(dup.reported.taskHidden === true && dup.reported.taskText === '',
       'Part 3 (#3043): the reported quote is dropped from the task line beside the bubble', JSON.stringify(dup.reported));
     chk(dup.reported.whyHidden === false && /finished responding/i.test(dup.reported.whyText),
       'Part 3 (#3043): the reported reason relocated to the #d-why explanation note', JSON.stringify(dup.reported));
+    chk(dup.reportedLimited.taskHidden === false && /usage limit/i.test(dup.reportedLimited.taskText),
+      'Part 3 (#3043): a reported + rate_limited agent keeps the engine sentence beside the bubble', JSON.stringify(dup.reportedLimited));
+    chk(dup.reportedLimited.whyHidden === false && /finished the analysis/i.test(dup.reportedLimited.whyText),
+      'Part 3 (#3043): a reported + rate_limited agent still shows its self-report in #d-why', JSON.stringify(dup.reportedLimited));
     chk(dup.inferred.whyHidden === false && /sitting at its prompt/i.test(dup.inferred.whyText),
       'Part 3: a NON-reported state keeps the honest why-line', JSON.stringify(dup.inferred));
 
