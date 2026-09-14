@@ -188,14 +188,14 @@ test('#1938: a present-but-UNNAMED instructions file + a typed name is adopted (
   fs.mkdirSync(dir, { recursive: true });
   /* Lowercase name: INTRODUCES matches (the crude "You are" signal), but
      identityFromText returns no displayName -- the exact shape the scan offers nameless. */
-  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'You are lilnacho, a project manager.\n');
-  const r = noRealCommands(() => discover.connect(dir, { name: 'lilnacho-monitor' }));
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'You are lilpixel, a project manager.\n');
+  const r = noRealCommands(() => discover.connect(dir, { name: 'lilpixel-monitor' }));
   assert.equal(r.ok, true, r.because);
   /* The typed name is BOTH the machine name and the display name, because the file
      offers none -- so the profile is not left with a null displayName. */
-  assert.equal(r.name, 'lilnacho-monitor', 'the typed name did not become the agent name');
-  assert.equal(r.displayName, 'lilnacho-monitor', 'the display name was not the typed name');
-  assert.equal((store.readProfile('lilnacho-monitor') || {}).displayName, 'lilnacho-monitor',
+  assert.equal(r.name, 'lilpixel-monitor', 'the typed name did not become the agent name');
+  assert.equal(r.displayName, 'lilpixel-monitor', 'the display name was not the typed name');
+  assert.equal((store.readProfile('lilpixel-monitor') || {}).displayName, 'lilpixel-monitor',
     'the typed display name did not reach the profile');
 
   /* 🛑 CONTROL: the SAME unnamed file with NO typed name still refuses, so the change
@@ -204,7 +204,7 @@ test('#1938: a present-but-UNNAMED instructions file + a typed name is adopted (
      unnamed files entirely -- the over-correction. */
   const dir2 = path.join(SB, 'unnamed-intro-noname');
   fs.mkdirSync(dir2, { recursive: true });
-  fs.writeFileSync(path.join(dir2, 'CLAUDE.md'), 'You are lilnacho, a project manager.\n');
+  fs.writeFileSync(path.join(dir2, 'CLAUDE.md'), 'You are lilpixel, a project manager.\n');
   const refused = discover.connect(dir2, {});
   assert.equal(refused.ok, false, 'an unnamed file with no typed name was adopted anyway');
   assert.match(refused.because, /do not say who the agent is/i);

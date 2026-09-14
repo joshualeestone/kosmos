@@ -2,7 +2,7 @@
  * #2497: the found-agents row (Add / Undo) is GONE from first run.
  *
  * This check drove the first-run Screen 9 found-agents list and pressed Add/Undo on its rows.
- * #2497 (Josh, 2026-09-08, watching Ben + Nacho test) removed the found-agents list from onboarding:
+ * #2497 (Josh, 2026-09-08, watching an external tester) removed the found-agents list from onboarding:
  * a developer's many tmux Claude Code sessions filled first run with garbage agents. First run now
  * ALWAYS lands on the no-agent "Create your first agent." / Giddy Up screen, so no found rows (and
  * no Add/Undo controls) render on first-run S9, whatever discovery returns.

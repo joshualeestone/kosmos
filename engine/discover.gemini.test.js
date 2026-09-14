@@ -89,14 +89,14 @@ test('#2243 CONTROL: a GEMINI.md that introduces NOBODY is not a named agent (ne
 test('#2243 (foundCodex parity, #1527): a GEMINI.md that INTRODUCES somebody but names nobody is COUNTED, not silently dropped', () => {
   const root = sandbox();
   const work = path.join(root, 'proj'); fs.mkdirSync(work);
-  // "You are lilnacho" -> INTRODUCES matches, but identityFromText cannot read the
+  // "You are lilpixel" -> INTRODUCES matches, but identityFromText cannot read the
   // lowercase name. That is an agent we could not NAME, not a non-agent: it must
   // raise unreadable so the board surfaces "we skipped one", exactly as foundCodex
   // counts an unreadable rollout -- and it must NOT be offered under a guessed name.
   // This is the discriminating twin of the CONTROL above: identical shape, differing
   // ONLY in whether the file introduces somebody, so it pins the INTRODUCES gate in
   // both directions (0 for a non-agent, 1 for an un-nameable agent).
-  fs.writeFileSync(path.join(work, 'GEMINI.md'), 'You are lilnacho, a pm.\n');
+  fs.writeFileSync(path.join(work, 'GEMINI.md'), 'You are lilpixel, a pm.\n');
   projectsJson(root, { [work]: 'proj' });
   const r = withGeminiHome(root, () => discover.foundGemini(undefined));
   assert.equal(r.agents.length, 0, 'an un-named agent must not be offered under a guessed name');

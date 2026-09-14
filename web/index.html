@@ -10657,7 +10657,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <!-- ⚠️ HIDDEN AT ONE ACCOUNT, SHOWN AT TWO OR MORE. Josh re-ruled #2097
              on 2026-09-04, superseding the earlier "shown even at one" note that
              stood here: a single-entry menu is a choice presented to someone who
-             has none to make, and he watched it confuse a real tester (Ben).
+             has none to make, and he watched it confuse a real tester.
              Verbatim: "if there's only one account then... we don't show the
              account dropdown. It's just confusing to people... As soon as there's
              a second account then we should show it, but that won't be most
@@ -33003,7 +33003,7 @@ function fillCreateAccounts() {
   const movable = openai ? working : working.filter((x) => x.memoryShared);
   const usable = movable.length ? movable : working;
   /* #1917: two accounts on one email rendered as two identical options, so a real
-     tester (Ben, 0.6.22) could not tell which to pick and ran his agent on the dead
+     tester (0.6.22) could not tell which to pick and ran their agent on the dead
      one for an hour. The Settings list already disambiguates duplicated rows via
      `accountQualifiers` (the default is `main`, the others by their own label, then
      by a provider name only where the group spans providers, then by dir. This list
@@ -33035,7 +33035,7 @@ function fillCreateAccounts() {
   /* #2097 (Josh re-rule 2026-09-04, supersedes the earlier "shown even at one"):
      HIDE the account row unless there are two or more accounts to choose from. A
      single-entry menu is a choice presented to someone who has none to make, and
-     he watched it confuse a real tester (Ben): "if there's only one account then
+     he watched it confuse a real tester: "if there's only one account then
      we don't show the account dropdown... As soon as there's a second account
      then we should show it, but that won't be most people." The one usable
      account is still the select's value, so create uses it; the placeholder-only
@@ -47523,8 +47523,8 @@ function frPaintFleet() {
 
   const count = FR && FR.fleetCount;
 
-  /* 🛑 #2497: ONBOARDING NEVER AUTO-SCANS OR AUTO-IMPORTS. Josh, 2026-09-08, watching Ben and
-     Nacho test: a developer's many tmux Claude Code sessions filled first run with garbage
+  /* 🛑 #2497: ONBOARDING NEVER AUTO-SCANS OR AUTO-IMPORTS. Josh, 2026-09-08, watching an external
+     tester: a developer's many tmux Claude Code sessions filled first run with garbage
      throwaway agents. First run ALWAYS lands on the no-agent "Create your first agent." / Giddy
      Up screen, exactly as if the machine had no agents, whatever the real path (adopt/create/
      unknown) or fleetCount. Real agents are pulled in LATER via the manual Import Agent (#1652)

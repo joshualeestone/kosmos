@@ -2894,7 +2894,7 @@ function createdLog() {
    might print (an update/onboarding notice carrying "/login") would FALSE-REFUSE
    a good account -- the false negative this family must never ship. Every
    alternative here is a genuine dead-sign-in string from Claude Code 2.1.258 and
-   would not appear in a successful "reply ok" response. Ben's line
+   would not appear in a successful "reply ok" response. The tester's line
    ("Please run /login · API Error: 401 OAuth access token has expired.") is
    caught by "OAuth access token has expired", not by the remedy phrase. */
 const CLAUDE_DEAD_AUTH = /OAuth access token (?:has expired|has been revoked|is invalid)|OAuth token revoked|Login expired|authentication_error|API Error:\s*401\s+Invalid API key/i;

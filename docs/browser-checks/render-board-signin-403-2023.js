@@ -11,8 +11,7 @@
  * loopback auth landed, so a board opened from a bookmark / a typed 127.0.0.1 (no
  * board token) 403s every protected read. The shell (`GET /`) is exempt and paints
  * fine; only the reads 403. The board drew that as "We cannot read your agents
- * right now", which invites waiting -- and patience cannot supply a token. Ben and
- * Casey (the two outside testers) both hit an empty `?`-filled board within the hour.
+ * right now", which invites waiting -- and patience cannot supply a token. Two outside testers both hit an empty `?`-filled board within the hour.
  *
  * 🔑 WHY THIS ASSERTS THE RENDERED MESSAGE, NEVER `GET /`'s STATUS. `GET /` is 200
  * while everything is broken -- that is exactly what let 0.6.25 through four gate

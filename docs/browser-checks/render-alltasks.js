@@ -115,7 +115,7 @@ const say = (n, cond, note) => {
     await p.waitForTimeout(400);
 
     /* THE DOOR IS UNCONDITIONAL: the control is offered from every project view.
-       #2498 scoped the screen BEHIND it to the current project (Ben's 0.6.48
+       #2498 scoped the screen BEHIND it to the current project (an external tester's 0.6.48
        finding: 'view all tasks' from a project should show only that project's
        tasks), so the door is present but the screen is per-project, not global. */
     const doorVisible = await p.isVisible('#pj-alltasks');

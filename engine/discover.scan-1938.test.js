@@ -51,20 +51,20 @@ test('an agent Claude never ran in is found by the disk scan, with a name', () =
   /* 🔑 THE WHOLE POINT. This folder is on disk with an introducing CLAUDE.md and
      has NO Claude project record, so `found()` is blind to it. The scan is the only
      thing that can surface it. */
-  const dir = onDisk('lilnacho', 'You are **Lil Nacho**, a project manager.\n\nMore.\n');
+  const dir = onDisk('lilpixel', 'You are **Lil Pixel**, a project manager.\n\nMore.\n');
   const r = scanDisk();
   assert.equal(r.ok, true);
   const hit = r.candidates.find((c) => c.dir === dir);
-  assert.ok(hit, `Lil Nacho was not scanned up: ${JSON.stringify(r.candidates.map((c) => c.dir))}`);
-  assert.equal(hit.name, 'Lil Nacho');
+  assert.ok(hit, `Lil Pixel was not scanned up: ${JSON.stringify(r.candidates.map((c) => c.dir))}`);
+  assert.equal(hit.name, 'Lil Pixel');
   assert.equal(hit.role, 'project manager');
 });
 
 test('an introducing file that names nobody is offered with an empty name', () => {
-  /* ⚠️ THE SAME TWO-SOURCE RULE `found()` USES. "You are lilnacho" (lowercase) is
+  /* ⚠️ THE SAME TWO-SOURCE RULE `found()` USES. "You are lilpixel" (lowercase) is
      an introduction `identityFromText` cannot name, so the row ships with an empty
      name and the screen asks -- never a guess. */
-  const dir = onDisk('unnamed-intro', 'You are lilnacho, a project manager.\n');
+  const dir = onDisk('unnamed-intro', 'You are lilpixel, a project manager.\n');
   const hit = scanDisk().candidates.find((c) => c.dir === dir);
   assert.ok(hit, 'an unnamed introduction was not offered');
   assert.equal(hit.name, '');

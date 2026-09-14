@@ -1948,7 +1948,7 @@ function activeWhileWaitingFrom(state, freshest, askedAtMs) {
 
 /**
  * #1884. Claude Code's FRIENDLY (non-JSON) auth-failure line, the shape a real
- * external tester (Ben) was stuck on, 2026-09-02. His pane, verbatim:
+ * external tester was stuck on, 2026-09-02. Their pane, verbatim:
  *
  *   ● Please run /login · API Error: 401 OAuth access token has expired.
  *     Re-authenticate to continue.
@@ -1977,7 +1977,7 @@ function activeWhileWaitingFrom(state, freshest, askedAtMs) {
  * discussion do exactly that, so an agent working #1884 can trip it. It is rare,
  * temporary, and -- crucially -- when the agent is also self-reporting it
  * surfaces as a CONFLICT (rule 3b), visible and recoverable, not the silent
- * false calm that stopped Ben. A missed dead token is worse than a rare false
+ * false calm that stopped the tester. A missed dead token is worse than a rare false
  * pause; that trade is this file's oldest rule.
  */
 const AUTH_FRIENDLY_MESSAGE = /OAuth access token (?:has expired|has been revoked|is invalid)|API Error:\s*401\s+Invalid API key|OAuth token revoked|Login expired|Your session has expired/i;
@@ -2924,7 +2924,7 @@ function authFailed(tail) {
     .some((glued) => glued && AUTH_FAILED_MARKERS.some((re) => re.test(glued)) && AUTH_ENVELOPE.test(glued));
   if (!wholeOnOneRow && !wrapJoined) {
     /* #1884: not the JSON-envelope form. Try Claude Code's friendly one-line
-       auth-failure format before giving up -- the shape Ben's stuck pane showed,
+       auth-failure format before giving up -- the shape the tester's stuck pane showed,
        which the JSON markers above render as "Idle · nothing is needed". */
     return friendlyAuthLine(rows);
   }

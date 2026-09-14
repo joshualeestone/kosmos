@@ -9,7 +9,7 @@
  * of them -- i.e. a credential EXISTS everywhere. That is exactly the state that used
  * to paint every account green. The badge must now refuse that green until a real
  * call is observed, and must show a fresh 401 as not-connected even while checkLive
- * still says connected (Ben's screen: two same-email accounts both "Signed in" while
+ * still says connected (an external tester's screen: two same-email accounts both "Signed in" while
  * one was 401ing).
  */
 
@@ -118,7 +118,7 @@ test('THE FIX: a credential that only EXISTS (checkLive connected, nothing obser
   }
 });
 
-test('THE BEN CASE: a fresh observed 401 shows not-connected EVEN THOUGH checkLive says connected', async () => {
+test('THE EXPIRED-401 CASE: a fresh observed 401 shows not-connected EVEN THOUGH checkLive says connected', async () => {
   observed.saw(observed.PROVIDER.ANTHROPIC, 'ariaagent', observed.OUTCOME.REJECTED, Date.now());
   const m = await badges();
   assert.equal(m.get('aria@example.com').badge, 'rejected',

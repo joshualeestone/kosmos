@@ -18,8 +18,8 @@
  * offered every file indiscriminately would pass every other row here. #7 failing
  * to be ignored is the one that catches over-eagerness.
  *
- * 🛑 FRESH files only. #1 (the Kosmos-created / #1938 Lil-Nacho shape), #5 (the
- * #1493 hand-written lowercase-name case, named `pip` on purpose, not `lilnacho`),
+ * 🛑 FRESH files only. #1 (the Kosmos-created / #1938 Lil-Pixel shape), #5 (the
+ * #1493 hand-written lowercase-name case, named `pip` on purpose, not `lilpixel`),
  * and #6 (the Casey second-profile shape) are synthetic stand-ins - never the
  * preserved REAL files on Casey's machine (the live #1938 evidence).
  */

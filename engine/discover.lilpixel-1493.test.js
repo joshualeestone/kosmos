@@ -6,7 +6,7 @@
  * 🔑 Reconstructed from what Splinter read off the reporter's disk: TWO project
  * folders, and only one of them is an agent.
  *
- *   -Users-<user>-work-workers-lilnacho   1 transcript,  CLAUDE.md naming her
+ *   -Users-<user>-work-workers-lilpixel   1 transcript,  CLAUDE.md naming her
  *   -Users-<user>                         9 transcripts, NO CLAUDE.md at all
  *
  * ⇒ **`found()` returns ONE AGENT and ONE DROP.** Not two agents, and not zero.
@@ -16,7 +16,7 @@
  *
  * 🛑 THE SHIP CRITERION IS NO LONGER "THE BUILD SHOWS ONE", AND THIS FILE MUST NOT
  * BE READ AS IF IT WERE (Splinter, 2026-08-29 18:47). Once the adoption surface
- * exists, a correct build shows TWO THINGS: lilnacho as an agent, AND the
+ * exists, a correct build shows TWO THINGS: lilpixel as an agent, AND the
  * unidentified folder OFFERED for adoption. **Anyone gating a cut on "shows 1" is
  * testing against a stale target.**
  *
@@ -47,7 +47,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
-const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-lilnacho-1493-'));
+const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-lilpixel-1493-'));
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(SB, 'claude');
 process.env.AGENT_WORKFORCE_DATA = path.join(SB, 'data');
 
@@ -75,9 +75,9 @@ function seed(folderKey, cwdName, claudeMd, { transcripts = 1 } = {}) {
 /* Her real line, quoted rather than paraphrased: the bold markers are part of what
    the parser has to survive, and a fixture written as plain text would test a
    string she does not have. */
-const HER_CLAUDE_MD = '# lilnacho\n\nYou are **lilnacho**, a project manager.\n';
+const HER_CLAUDE_MD = '# lilpixel\n\nYou are **lilpixel**, a project manager.\n';
 
-seed('-Users-someone-work-workers-lilnacho', 'lilnacho', HER_CLAUDE_MD);
+seed('-Users-someone-work-workers-lilpixel', 'lilpixel', HER_CLAUDE_MD);
 seed('-Users-someone', 'someone-home', null, { transcripts: 9 });
 
 test('#1493: her shape resolves to exactly ONE agent, not two and not zero', () => {
@@ -89,7 +89,7 @@ test('#1493: her shape resolves to exactly ONE agent, not two and not zero', () 
      read as proof of a build that finds nobody. */
   assert.notEqual(names.length, 0,
     'the fixture found NOBODY, so this test cannot tell a correct build from the bug it is about');
-  assert.deepEqual(names, ['lilnacho'],
+  assert.deepEqual(names, ['lilpixel'],
     `expected exactly her, got ${JSON.stringify(names)}`);
 });
 
@@ -111,10 +111,10 @@ test('#1493: her actual line, bold markers and all, is what makes her an agent',
      that they are something the parser has to SURVIVE. Measured, they are what
      SAVES her:
 
-       You are **lilnacho**, a project manager.   -> lilnacho, project manager
-       You are lilnacho, a project manager.       -> NULL
-       You are Lilnacho, a project manager.       -> Lilnacho, project manager
-       You are lilnacho.                          -> NULL
+       You are **lilpixel**, a project manager.   -> lilpixel, project manager
+       You are lilpixel, a project manager.       -> NULL
+       You are Lilpixel, a project manager.       -> Lilpixel, project manager
+       You are lilpixel.                          -> NULL
 
      ⇒ A LOWERCASE NAME WITH NO BOLD MARKERS NAMES NOBODY. Either the markers or a
      capital letter carries it, and she happened to have the markers. Somebody who
@@ -127,7 +127,7 @@ test('#1493: her actual line, bold markers and all, is what makes her an agent',
      dependency is visible instead of incidental. */
   const id = status.identityFromText(HER_CLAUDE_MD);
   assert.ok(id && id.displayName, 'her own line no longer names anybody');
-  assert.equal(id.displayName, 'lilnacho');
+  assert.equal(id.displayName, 'lilpixel');
 
   /* And the negative arm, so the predicate is not simply saying yes to everything:
      her second folder's absence of any instruction file must NOT produce a name. */
@@ -139,11 +139,11 @@ test('#1493: her actual line, bold markers and all, is what makes her an agent',
      this assertion fails and whoever made it should DELETE this line and say so on
      #1493, because that is a fix and not a regression. Pinning it is how the
      dependency stops being invisible; it is not an endorsement of it. */
-  const plainLower = status.identityFromText('# lilnacho\n\nYou are lilnacho, a project manager.\n');
+  const plainLower = status.identityFromText('# lilpixel\n\nYou are lilpixel, a project manager.\n');
   assert.ok(!plainLower || !plainLower.displayName,
     'the plain lowercase form now names somebody: that is an improvement, delete this arm and note it on #1493');
-  const capital = status.identityFromText('# Lilnacho\n\nYou are Lilnacho, a project manager.\n');
-  assert.equal(capital && capital.displayName, 'Lilnacho',
+  const capital = status.identityFromText('# Lilpixel\n\nYou are Lilpixel, a project manager.\n');
+  assert.equal(capital && capital.displayName, 'Lilpixel',
     'a capitalised name must still work, or the arm above is measuring something other than case');
 });
 
@@ -152,15 +152,15 @@ test('#1493: her actual line, bold markers and all, is what makes her an agent',
  *
  * Her dump shows the SAME two project folders under BOTH roots:
  *
- *   ~/.claude/projects/-Users-caseywinner-work-workers-lilnacho/       1 jsonl
+ *   ~/.claude/projects/-Users-caseywinner-work-workers-lilpixel/       1 jsonl
  *   ~/.claude/projects/-Users-caseywinner/                             9 jsonl
- *   ~/.claude-work1/projects/-Users-caseywinner-work-workers-lilnacho/ 1 jsonl
+ *   ~/.claude-work1/projects/-Users-caseywinner-work-workers-lilpixel/ 1 jsonl
  *   ~/.claude-work1/projects/-Users-caseywinner/                       9 jsonl
  *
  * `configRoots()` accepts both (`.claude` and `.claude-*`), so the ship gate's real
  * question is DEDUP: **does the same agent, reachable through two roots, appear
  * ONCE or TWICE?** The criterion is "the probe says N, the build shows N", and N=1.
- * ⚠️ A build showing TWO lilnachos fails that gate exactly as hard as one showing
+ * ⚠️ A build showing TWO lilpixels fails that gate exactly as hard as one showing
  * zero, and the single-root fixture above passes either way.
  *
  * 📌 NOT REDUNDANT, CHECKED RATHER THAN ASSUMED. No discovery test sets more than
@@ -175,14 +175,14 @@ test('#1493: her actual line, bold markers and all, is what makes her an agent',
  */
 test('#1493: the same agent under TWO config roots is ONE agent, not two', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1493-tworoots-'));
-  const cwd = path.join(home, 'work', 'workers', 'lilnacho');
+  const cwd = path.join(home, 'work', 'workers', 'lilpixel');
   fs.mkdirSync(cwd, { recursive: true });
   fs.writeFileSync(path.join(cwd, 'CLAUDE.md'), HER_CLAUDE_MD);
   const homeCwd = path.join(home, 'homedir');
   fs.mkdirSync(homeCwd, { recursive: true });
 
   for (const root of ['.claude', '.claude-work1']) {
-    const named = path.join(home, root, 'projects', '-Users-caseywinner-work-workers-lilnacho');
+    const named = path.join(home, root, 'projects', '-Users-caseywinner-work-workers-lilpixel');
     fs.mkdirSync(named, { recursive: true });
     fs.writeFileSync(path.join(named, 'a.jsonl'), `{"type":"user"}\n{"cwd":${JSON.stringify(cwd)}}\n`);
     const bare = path.join(home, root, 'projects', '-Users-caseywinner');
@@ -211,7 +211,7 @@ test('#1493: the same agent under TWO config roots is ONE agent, not two', () =>
      all, because there was never a second copy to deduplicate. */
   assert.equal(got.roots, 2,
     `only ${got.roots} config root(s) were walked, so the dedup below is vacuous`);
-  assert.deepEqual(got.names, ['lilnacho'],
+  assert.deepEqual(got.names, ['lilpixel'],
     `the same agent under two roots resolved to ${JSON.stringify(got.names)}`);
 
   /* And the drops dedup on the same axis: ONE bare home folder, not one per root. */
@@ -269,7 +269,7 @@ test('#1493 GAP: one shared cwd with no CLAUDE.md yields ZERO agents, whatever t
   fs.mkdirSync(cwd, { recursive: true });
   const proj = path.join(home, '.claude', 'projects', '-Users-caseywinner');
   fs.mkdirSync(proj, { recursive: true });
-  const who = ['lilnacho', 'josh', 'sarah'];
+  const who = ['lilpixel', 'josh', 'sarah'];
   for (let i = 0; i < 9; i += 1) {
     fs.writeFileSync(path.join(proj, `s${i}.jsonl`),
       `{"type":"user","message":{"content":"You are ${who[i % 3]}, a project manager."}}\n`

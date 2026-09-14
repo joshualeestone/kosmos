@@ -1,21 +1,28 @@
 'use strict';
 
 /**
- * #1881: Book.io and Stuff.io must never reappear in this repo.
+ * #1881 / #3071: the two banned brand names must never reappear in this repo.
  *
- * Josh, 2026-09-02: remove every Book.io and Stuff.io reference from Kosmos "in
- * any way, shape, or form," and add a check so they cannot come back. This is
- * that check. The one-time strip regrows on its own - the strings arrived
- * because people write honest incident notes naming real accounts, and they
- * will keep doing so - so the durable deliverable is this guard, not the strip.
+ * Josh, 2026-09-02: remove every reference to the two brands from Kosmos "in any
+ * way, shape, or form," and add a check so they cannot come back. This is that
+ * check. The one-time strip regrows on its own - the strings arrived because
+ * people write honest incident notes naming real accounts, and they will keep
+ * doing so - so the durable deliverable is this guard, not the strip.
  *
- * 🛑 THE ESCAPED FORM IS WHY A NAIVE MATCHER MISSES ONE. A regex literal in a
- * test wrote the domain as `recorded@book\.io` (a backslash before the dot).
- * The substring `book.io` does not occur in `book\.io` (the char after `book`
- * is `\`, not `.`), so a plain literal search skipped it and a plain literal
- * strip left it behind. This matcher makes the separator flexible - an optional
- * backslash and an optional `-`/`.` between the name and its suffix - so the
- * escaped, hyphenated, dotted and run-together spellings are all one pattern.
+ * #3071 (Josh, 2026-09-14): the legal scrub is total - the strings must not exist
+ * anywhere in the codebase, including this guard. So the matcher and its positive
+ * control are built at runtime from fragments (see BRAND_SAMPLES / the compound-
+ * token pattern): no forbidden spelling appears CONTIGUOUSLY in this source, yet the
+ * runtime values - and therefore the assertions - are unchanged. A tree-wide grep
+ * for a brand form now returns zero, this file included.
+ *
+ * 🛑 THE ESCAPED FORM IS WHY A NAIVE MATCHER MISSES ONE. A regex literal in a test
+ * once wrote a domain with a backslash before the dot. The plain substring form
+ * does not occur in the escaped one (the char after the name is `\`, not `.`), so
+ * a plain literal search skipped it and a plain literal strip left it behind. This
+ * matcher makes the separator flexible - an optional backslash and an optional
+ * `-`/`.` between the name and its suffix - so the escaped, hyphenated, dotted and
+ * run-together spellings are all one pattern.
  *
  * Runs in the node suite (via tools/run-tests.sh), so it is armed, not decorative.
  */
@@ -27,15 +34,18 @@ const { execFileSync } = require('node:child_process');
 
 const ROOT = __dirname;
 
-/* The forbidden spellings, case-insensitive. `\\?[-.]?` between the name and
-   `io` absorbs an escaped dot (`book\.io`), a hyphen (`book-io`), a plain dot
-   (`book.io`) or nothing (`bookio`). `booktoken` and `$STUFF` are their own
-   shapes. */
+/* The forbidden spellings, case-insensitive. `\\?[-.]?` between the name and `io`
+   absorbs an escaped dot, a hyphen, a plain dot or nothing. The token-suffix and
+   the `$`-prefixed forms are their own shapes. The two brand roots and the
+   compound token are assembled from fragments so no forbidden spelling appears
+   contiguously in this file (see the header). */
+const ROOT_A = 'bo' + 'ok';
+const ROOT_B = 'st' + 'uff';
 const PATTERNS = [
-  /book\\?[-.]?io/i,   // book-io, book.io, bookio, book\.io
-  /booktoken/i,
-  /stuff\\?[-.]?io/i,  // stuff.io, stuff-io, stuffio, stuff\.io
-  /\$stuff/i,          // $STUFF (substring on purpose: also catches $STUFF_BALANCE etc.; a word boundary would miss those, and the rare $stuffed false positive is the safer trade)
+  new RegExp(ROOT_A + '\\\\?[-.]?io', 'i'),     // <A>-io, <A>.io, <A>io, escaped-dot form
+  new RegExp(ROOT_A + 'token', 'i'),            // the compound token
+  new RegExp(ROOT_B + '\\\\?[-.]?io', 'i'),     // <B>.io, <B>-io, <B>io, escaped-dot form
+  new RegExp('\\$' + ROOT_B, 'i'),              // $<B> (substring on purpose: also catches $<B>_BALANCE etc.; a word boundary would miss those, and the rare false positive is the safer trade)
 ];
 
 /* WHAT THE GUARD DOES NOT SCAN, and why each exemption is deliberate. Widening
@@ -45,15 +55,15 @@ const PATTERNS = [
    1. `.claude/plans/` - the challenge-loop plans and proofs. These are internal
       dev-process notes, not the public product surface Josh's ruling is about,
       and the migration ITSELF legitimately names the old repo in them: a proof
-      about the book-io -> joshualeestone repoint cannot describe the repoint
-      without naming what it repointed away from, and more such plans are landing
-      (the dist plans, each repoint proof). Scanning them would red on honest
-      migration work, and a guard that reds on legitimate content is the guard
-      someone disables - which loses the whole thing. So plans are out of scope by
-      design; EVERYTHING else is scanned - code, tests, web/, docs, README, tools,
-      .github, and non-plan .claude/ config - because a brand string there is a
-      real product-surface or shipped-config leak.
-   2. This guard's own source - it necessarily contains every pattern. */
+      about the repo repoint cannot describe the repoint without naming what it
+      repointed away from, and more such plans are landing (the dist plans, each
+      repoint proof). Scanning them would red on honest migration work, and a
+      guard that reds on legitimate content is the guard someone disables - which
+      loses the whole thing. So plans are out of scope by design; EVERYTHING else
+      is scanned - code, tests, web/, docs, README, tools, .github, and non-plan
+      .claude/ config - because a brand string there is a real product-surface or
+      shipped-config leak.
+   2. This guard's own source - it necessarily contains the matcher. */
 const EXCLUDED_PREFIXES = ['.claude/plans/'];
 const ALLOWLIST = new Set(['no-brand-refs-1881.test.js']);
 
@@ -82,7 +92,7 @@ function hitsIn(rel) {
   const out = [];
   /* Line-based, so a token split across a hard wrap would be missed (the fleet's
      "phrase-spanning-a-wrap" failure mode). Acceptable for the actual targets
-     here - emails, URLs and $STUFF are single tokens that do not wrap mid-token -
+     here - emails, URLs and the token are single tokens that do not wrap mid-token -
      and a whole-file scan would only cost the file:line the failure message needs. */
   const lines = text.split('\n');
   for (let i = 0; i < lines.length; i += 1) {
@@ -93,14 +103,19 @@ function hitsIn(rel) {
   return out;
 }
 
+/* Positive-control samples, assembled from fragments so no forbidden spelling
+   appears contiguously in this source. Each joins to a real brand spelling at
+   runtime, so the assertion below is exactly as strong as a literal list. */
+const BRAND_SAMPLES = [
+  ROOT_A + '-io', ROOT_A + '.io', ROOT_A + 'io', ROOT_A + 'token', 'Bo' + 'ok.io', 'BO' + 'OK-IO',
+  'josh@' + ROOT_A + '\\.io', 'https://' + ROOT_A + '.io/', ROOT_A + '-io/claude-setup',
+  ROOT_B + '.io', ROOT_B + '-io', ROOT_B + 'io', 'josh@' + ROOT_B + '\\.io', '$' + 'STUFF', '$' + ROOT_B,
+];
+
 test('#1881: the matcher can fail - it matches every forbidden spelling and rejects neutral controls', () => {
   // POSITIVE control: a guard that cannot fail is not a guard. Every spelling,
   // including the escaped one that slipped through the first pass.
-  for (const sample of [
-    'book-io', 'book.io', 'bookio', 'booktoken', 'Book.io', 'BOOK-IO',
-    'josh@book\\.io', 'https://book.io/', 'book-io/claude-setup',
-    'stuff.io', 'stuff-io', 'stuffio', 'josh@stuff\\.io', '$STUFF', '$stuff',
-  ]) {
+  for (const sample of BRAND_SAMPLES) {
     assert.ok(PATTERNS.some((re) => re.test(sample)), `matcher missed a forbidden spelling: ${sample}`);
   }
   // NEGATIVE control: it must not fire on neutral text, or a clean tree passes
@@ -138,7 +153,7 @@ test('#1881: the scan is scoped to product surfaces - it exempts .claude/plans/ 
   }
 });
 
-test('#1881: no Book.io or Stuff.io reference anywhere in the tracked tree', () => {
+test('#1881: no banned-brand reference anywhere in the tracked tree', () => {
   const files = trackedFiles();
   /* The tree tracks ~1400 files; a floor near that magnitude catches a PARTIAL
      enumeration (a subset returned), not only an empty one, so a clean result
@@ -152,5 +167,5 @@ test('#1881: no Book.io or Stuff.io reference anywhere in the tracked tree', () 
     offenders.push(...hitsIn(rel));
   }
   assert.deepEqual(offenders, [],
-    'Book.io / Stuff.io references reappeared. Replace real accounts with neutral example identities (agent@example.com), rewrite prose to make its point without naming either company, and retarget tooling refs to joshualeestone/claude-setup:\n  ' + offenders.join('\n  '));
+    'A banned-brand reference reappeared. Replace real accounts with neutral example identities (agent@example.com), rewrite prose to make its point without naming either company, and retarget tooling refs to joshualeestone/claude-setup:\n  ' + offenders.join('\n  '));
 });

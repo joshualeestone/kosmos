@@ -48,12 +48,12 @@ test('#2439: a legacy store with no new store is MOVED to the new leaf, intact',
   withData(dir, () => {
     const legacy = legacyLeaf(dir);
     fs.mkdirSync(path.join(legacy, 'profiles'), { recursive: true });
-    fs.writeFileSync(path.join(legacy, 'profiles', 'ben.json'), '{"name":"ben"}');
+    fs.writeFileSync(path.join(legacy, 'profiles', 'roo.json'), '{"name":"roo"}');
     // First store access triggers the migration.
     const resolved = store.ROOT;
     assert.equal(resolved, newLeaf(dir), 'root() resolves to the new (Kosmos) leaf');
     assert.equal(fs.existsSync(newLeaf(dir)), true, 'the new store exists after migration');
-    assert.equal(fs.readFileSync(path.join(newLeaf(dir), 'profiles', 'ben.json'), 'utf8'), '{"name":"ben"}',
+    assert.equal(fs.readFileSync(path.join(newLeaf(dir), 'profiles', 'roo.json'), 'utf8'), '{"name":"roo"}',
       'the data moved intact under the new leaf');
     assert.equal(fs.existsSync(legacy), false, 'the legacy store was MOVED, not left orphaned');
   });
@@ -71,11 +71,11 @@ test('#2439: KOSMOS_NO_LEGACY_MIGRATION=1 skips the migration (fleet-safety opt-
   try {
     const legacy = legacyLeaf(dir);
     fs.mkdirSync(path.join(legacy, 'profiles'), { recursive: true });
-    fs.writeFileSync(path.join(legacy, 'profiles', 'ben.json'), '{"name":"ben"}');
+    fs.writeFileSync(path.join(legacy, 'profiles', 'roo.json'), '{"name":"roo"}');
     void store.ROOT;  // would MOVE legacy -> new if the opt-out were not honored (see the arm above)
     assert.equal(fs.existsSync(legacy), true, 'the opt-out was ignored: the legacy store was migrated');
     assert.equal(fs.existsSync(newLeaf(dir)), false, 'the opt-out was ignored: a new leaf was created');
-    assert.equal(fs.readFileSync(path.join(legacy, 'profiles', 'ben.json'), 'utf8'), '{"name":"ben"}',
+    assert.equal(fs.readFileSync(path.join(legacy, 'profiles', 'roo.json'), 'utf8'), '{"name":"roo"}',
       'the legacy data was disturbed while the opt-out was set');
   } finally {
     if (prevData === undefined) delete process.env.AGENT_WORKFORCE_DATA; else process.env.AGENT_WORKFORCE_DATA = prevData;

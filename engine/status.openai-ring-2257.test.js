@@ -38,8 +38,8 @@ const codexsession = require('./codexsession');
 const status = require('./status');
 const create = require('./create');
 
-const NAME = 'ben-the-cat';
-const WORKDIR = path.join(SB, 'work', 'ben');
+const NAME = 'roo-the-cat';
+const WORKDIR = path.join(SB, 'work', 'roo');
 fs.mkdirSync(WORKDIR, { recursive: true });
 
 /* #2906: the ring reader now resolves the agent's OWN Codex account home from its

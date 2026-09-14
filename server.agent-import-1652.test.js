@@ -103,12 +103,12 @@ test('#1939 over HTTP: a raw CLAUDE.md that names an agent is recognized and pre
   // Josh's dead end (2026-09-03): picking an existing agent's CLAUDE.md refused with
   // "it has no header". It now comes back as create-form material with the flag that
   // says it was instructions, not an export.
-  const claudeMd = '# You are Lil Nacho, project manager.\n\nYou keep the team on track.\n';
+  const claudeMd = '# You are Lil Pixel, project manager.\n\nYou keep the team on track.\n';
   const { status, json } = await post('/api/agent-import', { file: claudeMd });
   assert.equal(status, 200);
   assert.equal(json.ok, true, json.because);
-  assert.equal(json.displayName, 'Lil Nacho');
-  assert.equal(json.name, 'lil-nacho', 'a usable machine name is suggested for the form');
+  assert.equal(json.displayName, 'Lil Pixel');
+  assert.equal(json.name, 'lil-pixel', 'a usable machine name is suggested for the form');
   assert.equal(json.recognizedFromContent, true, 'the form is told this was instructions, not an export');
   assert.ok(json.instructions.includes('You keep the team on track'), 'the whole file is returned as instructions');
 });
