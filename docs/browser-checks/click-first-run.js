@@ -37,6 +37,53 @@ const YOU = path.join(path.dirname(path.dirname(FLAG)), 'you.json');
 const fails = [];
 const ok = (cond, what) => { if (!cond) fails.push(what); console.log(`${cond ? '  ok  ' : ' FAIL '} ${what}`); };
 
+/* #3030: the completion flag (first-run.json) is written by
+   /api/first-run/complete, which the client fires when the onboarding ending is
+   taken. The write can lag the read under a release cut's load, so reading the
+   flag the instant the ending's panel renders threw ENOENT and RED a cut that
+   was otherwise green (a load-sensitive flake, not a regression). Poll (bounded)
+   for the flag rather than reading it immediately. Returns the parsed flag
+   object once it exists (and, when requireCompletedAt, once it carries a
+   completedAt), or null after the timeout -- so a genuinely-never-written flag
+   still fails the assertion, it just is not raced. The flag has one writer
+   (engine/firstrun.js writes a temp then renames it into place), so a present
+   flag is only ever complete-and-valid: ENOENT (not renamed in yet) is the retry
+   case. The heavy cut load this targets can itself induce TRANSIENT I/O errors
+   (fd exhaustion / contention across ~16 boards + Playwright + node); those are
+   retried too, because rethrowing one would exit the check and hand run_one a
+   dirty-sandbox retry -- the deferred bug-2 cascade. Only a genuine, NON-transient
+   fault (EACCES, EISDIR) is rethrown, surfaced rather than masked into a timeout. */
+// 5s covers the observed write-vs-read lag under a full release cut's load with
+// margin; 100ms between reads keeps a genuine failure's added wait small (one
+// FAIL costs at most one timeout) without busy-spinning the filesystem.
+const FLAG_POLL_TIMEOUT_MS = 5000;
+const FLAG_POLL_INTERVAL_MS = 100;
+async function waitForFlag(flagPath, { requireCompletedAt = false, timeoutMs = FLAG_POLL_TIMEOUT_MS } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(flagPath, 'utf8'));
+      // `parsed &&` guards a degenerate flag whose body is JSON `null`: it stays
+      // absent-shaped (poll on, fail at the cap) rather than throwing a TypeError
+      // on `.completedAt`. Unreachable given the sole writer, defensive only.
+      if (parsed && (!requireCompletedAt || parsed.completedAt)) return parsed;
+    } catch (err) {
+      // Retry (poll again) on: ENOENT (the flag is not renamed into place yet);
+      // the transient I/O errors heavy cut load can induce (fd exhaustion /
+      // contention) -- rethrowing one would exit the check into a dirty-sandbox
+      // run_one retry, the deferred bug-2 cascade; and a JSON parse error
+      // (defensive -- the atomic rename cannot expose a half-written file). A
+      // genuine, non-transient fault (EACCES, EISDIR, ...) is rethrown so it
+      // surfaces instead of being masked into a "never written" timeout.
+      const retryable = ['ENOENT', 'EMFILE', 'ENFILE', 'EAGAIN', 'EBUSY'].includes(err.code)
+        || err instanceof SyntaxError;
+      if (!retryable) throw err;
+    }
+    if (Date.now() >= deadline) return null;
+    await new Promise((r) => setTimeout(r, FLAG_POLL_INTERVAL_MS));
+  }
+}
+
 /* install-flow-9screen: the permission gates (S2/S3) disable Next until granted.
    In a walk-through we mock them UNCHECKABLE so Next follows the fail-safe path
    (never blocks) -- a real browser reports checkable:false anyway, so this models
@@ -236,8 +283,13 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     ok(await page.isVisible('#panel-create'), 'the Create-your-first-agent panel is there (#2497 Giddy Up ending)');
     ok(await page.evaluate(() => document.querySelector('.apphead').inert === false),
       'the app behind is interactive again');
-    ok(fs.existsSync(FLAG), 'the flag was written, so it will not reappear');
-    ok(JSON.parse(fs.readFileSync(FLAG, 'utf8')).completedAt, 'and the flag has a timestamp in it');
+    // #3030: poll for the flag (its write can lag this read under cut load).
+    const flag = await waitForFlag(FLAG, { requireCompletedAt: true });
+    ok(flag !== null, 'the flag was written, so it will not reappear');
+    // With the single atomic writer, a present flag always carries completedAt,
+    // so this restates the line above rather than checking it independently; kept
+    // for the two-line report this check has always printed.
+    ok(flag && flag.completedAt, 'and the flag has a timestamp in it');
     await ctx.close();
   }
 
@@ -270,7 +322,9 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(600);
     ok(await page.isHidden('#firstrun'), 'Escape closed it');
-    ok(fs.existsSync(FLAG), 'Escape marked it seen, so it does not nag');
+    // #3030: same lag class as the ending -- Escape's "mark seen" write can trail
+    // this read under load; poll for the flag's existence rather than racing it.
+    ok((await waitForFlag(FLAG)) !== null, 'Escape marked it seen, so it does not nag');
     await ctx.close();
   }
   {
