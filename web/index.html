@@ -12725,6 +12725,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            work and is a deferred fast-follow (#2617 comment). -->
       <p class="dhint">What your agents used, per class, over the last 14 days. Read from the transcripts on this computer, shown in full. Nothing here leaves the machine.</p>
       <p id="usage-msg" class="dhint">Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.</p>
+      <!-- #2840: the approved /design/token-value HERO -- active-days eyebrow +
+           the blended tokens = human-cost equation + three stats (work hours /
+           years / equivalent API cost). Josh RULED 2026-09-14 (via Splinter) to
+           build this verbatim to his approved spec: the blended "total tokens"
+           headline is CORRECT because it reflects FULL engineering value
+           (research, reading, prioritizing -- not output-token "typing" alone),
+           so it supersedes the earlier #2617 never-sum position for THIS headline.
+           Populated by usageHeroHtml() from the same real /api/usage data. -->
+      <div id="usage-hero"></div>
       <div id="usage-cards"></div>
       <div id="usage-chartwrap" class="usage-chartwrap" hidden>
         <h4>Daily usage, all four classes</h4>
@@ -25212,6 +25221,57 @@ function usageUsd(n) {
 function usageRowValue(total) {
   return usageUsd((Number(total) || 0) / USAGE_VALUE_TOKENS_PER_HOUR * USAGE_VALUE_BLENDED_RATE);
 }
+/* #2840: a work-year for the "years of human work" stat -- 2080 hours (a 40-hour
+   week x 52), matching the approved /design/token-value calc. Display layer, with
+   the other two value constants. */
+const USAGE_VALUE_HOURS_PER_YEAR = 2080;
+/* #2840: the approved /design/token-value hero, built verbatim per Josh's
+   2026-09-14 ruling (the blended total is the headline and is correct as full
+   engineering value). Reuses the design's own calc, already live in the app for
+   the Value column: hours = total / USAGE_VALUE_TOKENS_PER_HOUR, value = hours *
+   USAGE_VALUE_BLENDED_RATE, years = hours / 2080. `total` is the deliberate
+   blended 4-class sum -- the single headline #2617 once refused, now Josh-ruled
+   correct because it reflects full engineering value, not output "typing" alone.
+   The three stats are work-hours, years, and the equivalent API cost; apiCostUsd
+   is computed by the caller from published provider list prices (usageApiCost) and
+   passed in, or null while that is unavailable, in which case the box shows a
+   quiet "-" rather than a guessed number. `activeDays` is the count of days with
+   any recorded usage. Pure + node-testable like its siblings. */
+function usageHeroDigits(n) {
+  return String(Math.max(0, Math.floor(Number(n) || 0)))
+    .split('')
+    .map((d) => '<span class="tv-dbox">' + d + '</span>')
+    .join('');
+}
+function usageHeroHtml(totals, activeDays, apiCostUsd) {
+  const t = totals || {};
+  const total = (Number(t.input) || 0) + (Number(t.output) || 0)
+    + (Number(t.cacheWritten) || 0) + (Number(t.cacheRead) || 0);
+  const hours = total / USAGE_VALUE_TOKENS_PER_HOUR;
+  const value = hours * USAGE_VALUE_BLENDED_RATE;
+  const years = hours / USAGE_VALUE_HOURS_PER_YEAR;
+  const tokensStr = (total / 1e9) >= 1 ? (total / 1e9).toFixed(1) + 'B' : usageAbbr(total);
+  const valueStr = '$' + (value / 1e6).toFixed(1) + 'M';
+  const apiStr = (apiCostUsd === null || apiCostUsd === undefined) ? '-' : usageUsd(apiCostUsd);
+  return '<div class="tv-hero">'
+    + '<p class="tv-days"><span class="tv-dnum">' + usageHeroDigits(activeDays) + '</span>'
+    + '<span class="tv-dtxt">Active Days on Kosmos</span></p>'
+    + '<div class="tv-heq">'
+    + '<div class="tv-fbox gold"><div class="tv-fig">' + esc(tokensStr) + '</div>'
+    + '<div class="tv-flabel">Total Tokens Used</div></div>'
+    + '<div class="tv-eq" aria-hidden="true">=</div>'
+    + '<div class="tv-fbox green"><div class="tv-fig">' + esc(valueStr) + '</div>'
+    + '<div class="tv-flabel">Approximate Human Cost</div></div>'
+    + '</div>'
+    + '<div class="tv-stats3">'
+    + '<div class="tv-sbox"><div class="tv-fig">' + esc(usageAbbr(hours)) + '</div>'
+    + '<div class="tv-flabel">Human Work Hours</div></div>'
+    + '<div class="tv-sbox"><div class="tv-fig">' + esc(String(Math.round(years / 10) * 10)) + '</div>'
+    + '<div class="tv-flabel">Years of Human Work</div></div>'
+    + '<div class="tv-sbox"><div class="tv-fig">' + esc(apiStr) + '</div>'
+    + '<div class="tv-flabel">Equivalent Token API Cost</div></div>'
+    + '</div></div>';
+}
 /* #2840: the scrollable usage-history list -- one row per day+model, newest first,
    matching Mona's 0.6.57 token-value design. Day / Model / Total tokens / Value.
    Total is the row's own 4-class sum (a labeled per-row breakdown, not the single
@@ -25240,6 +25300,7 @@ function usageHistoryHtml(byDay) {
 let USAGE_BUSY = false;
 async function paintUsage() {
   const msg = document.getElementById('usage-msg');
+  const hero = document.getElementById('usage-hero'); // #2840: the approved value-view hero
   const cards = document.getElementById('usage-cards');
   const chartWrap = document.getElementById('usage-chartwrap');
   const chart = document.getElementById('usage-chart');
@@ -25259,6 +25320,7 @@ async function paintUsage() {
     const byDay = (data && data.byDay) || {};
     if (!Object.keys(byDay).length) {
       msg.textContent = 'No usage recorded yet on this computer.';
+      if (hero) hero.innerHTML = '';
       if (cards) cards.innerHTML = '';
       if (chart) chart.innerHTML = '';
       if (legend) legend.innerHTML = '';
@@ -25269,6 +25331,10 @@ async function paintUsage() {
       return;
     }
     const totals = usageTotals(byDay);
+    /* #2840: the hero, from the same totals. Active days = days with any recorded
+       usage. apiCostUsd is null until the published-price table is wired; the hero
+       then shows a quiet "-" for that one stat rather than a guessed number. */
+    if (hero) hero.innerHTML = usageHeroHtml(totals, Object.keys(byDay).length, null);
     if (cards) cards.innerHTML = usageCardsHtml(totals);
     const svg = usageChartSvg(usageDailySeries(byDay));
     if (chart) chart.innerHTML = svg;
@@ -25279,6 +25345,7 @@ async function paintUsage() {
     if (history) history.innerHTML = usageHistoryHtml(byDay);
     if (!box.innerHTML) {
       msg.textContent = 'No usage recorded in the last fourteen days.';
+      if (hero) hero.innerHTML = '';
       if (cards) cards.innerHTML = '';
       if (chart) chart.innerHTML = '';
       if (legend) legend.innerHTML = '';
