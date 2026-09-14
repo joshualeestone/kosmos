@@ -98,6 +98,23 @@ test('a SAME-version reinstall/repair from a different folder still re-points', 
   assert.equal(fs.readFileSync(pointerOf(data), 'utf8').trim(), b);
 });
 
+test('LOCK: the updater and its rollback repoint the pointer WITHOUT ensureAnchored', () => {
+  /* 🛑 THE WHOLE SAFETY ARGUMENT RESTS ON THIS INVARIANT. The downgrade guard lives
+     inside ensureAnchored, so it refuses an older engine. A version update's rollback
+     is a LEGITIMATE downgrade (N+1 -> N), and it must not be refused. It is safe today
+     only because win32apply/win32update write engine-path DIRECTLY (win32apply H6,
+     win32swap.writeFileAtomic), never through ensureAnchored -- so the guard cannot
+     fire during a rollback. If a future refactor ever routed a rollback's pointer write
+     through ensureAnchored, the guard would silently refuse the rollback and no other
+     #3016 test would catch it. This pins the invariant at the source, the shape
+     create.win32-launch-570.test.js uses for its own cross-cutting rule. */
+  for (const file of ['win32apply.js', 'win32update.js']) {
+    const src = fs.readFileSync(path.join(__dirname, file), 'utf8');
+    assert.doesNotMatch(src, /ensureAnchored\s*\(/,
+      `${file} must not call win32anchor.ensureAnchored: the updater/rollback repoints engine-path directly, so the downgrade guard cannot refuse a legitimate rollback`);
+  }
+});
+
 test('an unreadable version on either side fails OPEN to today\'s behaviour', () => {
   const data = path.join(ROOT, 'd5'); fs.mkdirSync(data, { recursive: true });
   const versioned = bundle('v060c', '0.6.60');

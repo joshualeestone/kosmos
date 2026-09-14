@@ -717,7 +717,16 @@ async function decideHandOff(o) {
        instead of to a task of its own, and must not run skipReason's "is my task
        ready" gate -- there is no task for this older build to be ready. It still
        keeps to the launcher when this launch chose its own port or data folder, for
-       overriddenBy's reason: the newer fleet board serves neither. */
+       overriddenBy's reason: the newer fleet board serves neither.
+       🔑 THE INVARIANT THIS BRANCH RELIES ON: `ensured.downgrade` implies win32 AND a
+       real bundle AND live execution armed. `downgrade` is set only by
+       win32board.ensureInstalled, which returns early unless the platform is win32 and
+       the root is a Kosmos build, and in production is called only from server.js's
+       real-startup path, which has armed live execution before it runs. So `downgrade`
+       can never be true off-win32, from source, or unarmed, and skipping those gates
+       here is safe. If the condition that SETS downgrade ever loosens, restore the
+       platform/bundle/live checks before the board.status()/runNow calls below, or
+       they could fire in an unarmed context. */
     const downgrade = Boolean(o.ensured && o.ensured.downgrade);
     if (!downgrade) {
       const skip = skipReason({
