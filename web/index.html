@@ -24935,14 +24935,13 @@ function settingsGo(section, opts) {
    rescanned on every call and cannot be frozen while it is still accruing), and
    this section repaints on every arrival, so without the guard a person tabbing
    in and out queues a minute of work per visit. */
-/* #2617: the graphical value view (Mona's design, Josh's #1 demo win). The four
-   classes are shown SEPARATELY and in FULL -- Josh's overrule, verbatim via
-   Splinter: show them "however high or insane they might look", no rounding, no
-   abbreviation, no softening a number because it looks alarming. The chart puts
-   all four on ONE shared axis so cache-read towers over the rest, which is the
-   true proportion rather than a drawing choice. The dollar box below is built
-   from OUTPUT tokens alone and names its class in the sentence, so a derived
-   figure is never read as a raw total.
+/* #2840: the approved /design/token-value value view (Josh's #1 demo win). Josh RULED
+   2026-09-14 (via Splinter) to build it verbatim to the approved spec: a hero (blended
+   total = human-cost equation + three stats), four per-class daily mini-charts, a
+   per-model table + token-share donut, the usage-history list, and the METR footnote.
+   The blended total is the headline, ruled CORRECT as full engineering value; the four
+   classes are still shown on their own in the mini-charts so cache-read's magnitude is
+   visible rather than hidden behind the blend.
    🛑 THE HELPERS BELOW ARE PURE AND SELF-CONTAINED ON PURPOSE. The node test
    (web.token-usage-2617.test.js) lifts each out of the page and runs it against
    a fixed /api/usage fixture to pin the summed classes and the computed dollar
@@ -24952,10 +24951,12 @@ function usageNum(n) {
   const v = Number(n) || 0;
   return v.toLocaleString();
 }
-/* Sum each of the four classes across every day and model. They are returned as
-   four separate integers and DELIBERATELY never added together (server.js:4485,
-   web:11299): cache_read ran ~440x output in one measured day, so a single
-   "tokens used" figure is not a rounder truth, it is roughly 440x too large. */
+/* Sum each of the four classes across every day and model, returned as four separate
+   integers. The per-class split is kept because the classes differ wildly in magnitude
+   (cache_read ran ~440x output in one measured day), so the mini-charts show each on its
+   own. The BLENDED total (all four summed) is a separate helper, usageGrandTotal, used
+   for the hero headline and the per-model shares per Josh's 2026-09-14 ruling that the
+   blended total is the correct full-value figure. */
 function usageTotals(byDay) {
   const t = { input: 0, output: 0, cacheWritten: 0, cacheRead: 0 };
   for (const day of Object.keys(byDay || {})) {
@@ -25098,7 +25099,7 @@ function usageHeroHtml(totals, activeDays, apiCostUsd) {
     + '<div class="tv-flabel">Approximate Human Cost</div></div>'
     + '</div>'
     + '<div class="tv-stats3">'
-    + '<div class="tv-sbox"><div class="tv-fig">' + esc(usageAbbr(hours)) + '</div>'
+    + '<div class="tv-sbox"><div class="tv-fig">' + esc(usageAbbr(Math.round(hours))) + '</div>'
     + '<div class="tv-flabel">Human Work Hours</div></div>'
     + '<div class="tv-sbox"><div class="tv-fig">' + esc(String(Math.round(years / 10) * 10)) + '</div>'
     + '<div class="tv-flabel">Years of Human Work</div></div>'
@@ -25141,7 +25142,7 @@ function usageModelTableHtml(models, grandTotal) {
   const rows = m.map((x, i) => {
     const color = USAGE_MODEL_COLORS[Math.min(i, USAGE_MODEL_COLORS.length - 1)];
     const pct = (Number(x.tok) || 0) / total * 100;
-    const pctStr = pct >= 0.1 ? pct.toFixed(1) + '%' : '<0.1%';
+    const pctStr = pct >= 0.1 ? pct.toFixed(1) + '%' : '&lt;0.1%';
     return '<div class="tv-mrow"><div class="tv-mn"><span class="tv-dot" style="background:' + color + '"></span><span class="tv-mnl">' + esc(x.name) + '</span></div>'
       + '<div class="tv-mbar"><span style="width:' + ((Number(x.tok) || 0) / max * 100).toFixed(1) + '%;background:' + color + '"></span></div>'
       + '<div class="tv-num">' + esc(usageAbbr(x.tok)) + '</div>'
@@ -25189,7 +25190,7 @@ function usageDonutSvg(models, grandTotal) {
     + '<text x="100" y="113" text-anchor="middle" style="font-size:10px;fill:var(--k-ink-2)">total tokens</text></svg>';
   const legend = slices.map((s) => {
     const pct = s.tok / tot * 100;
-    const ps = pct >= 1 ? pct.toFixed(0) + '%' : '<1%';
+    const ps = pct >= 1 ? pct.toFixed(0) + '%' : '&lt;1%';
     return '<div class="tv-pileg"><span class="l"><span class="tv-dot" style="background:' + s.c + '"></span>' + esc(s.name) + '</span><span class="v">' + ps + '</span></div>';
   }).join('');
   return svg + '<div class="tv-pielegend">' + legend + '</div>';
@@ -25222,7 +25223,7 @@ function usageCharts4Html(series, totals, grandTotal) {
     data.forEach((v, i) => { const px = xAt(i).toFixed(1), py = yAt(v).toFixed(1); line += (i ? 'L' : 'M') + px + ' ' + py + ' '; area += 'L ' + px + ' ' + py + ' '; });
     area += 'L ' + xAt(n - 1).toFixed(1) + ' ' + yAt(0).toFixed(1) + ' Z';
     const pct = spec.tot / total * 100;
-    const ps = pct >= 1 ? pct.toFixed(1) + '%' : (pct < 0.1 ? '<0.1%' : pct.toFixed(2) + '%');
+    const ps = pct >= 1 ? pct.toFixed(1) + '%' : (pct < 0.1 ? '&lt;0.1%' : pct.toFixed(2) + '%');
     const gid = 'tvg-' + spec.key;
     return '<div class="tv-mini"><div class="tv-mh"><span class="tv-nm">' + spec.name
       + '<span class="tv-tg">' + spec.tag + '</span></span><span class="tv-tot">' + esc(usageAbbr(spec.tot))
