@@ -46,18 +46,31 @@ const ok = (cond, what) => { if (!cond) fails.push(what); console.log(`${cond ? 
    object once it exists (and, when requireCompletedAt, once it carries a
    completedAt), or null after the timeout -- so a genuinely-never-written flag
    still fails the assertion, it just is not raced. The flag has one writer
-   (engine/firstrun.js writes a temp then renames it into place), so it is only
-   ever absent or complete: the try/catch covers the ENOENT window before the
-   rename lands, not a half-written file, which an atomic rename cannot expose. */
-async function waitForFlag(flagPath, { requireCompletedAt = false, timeoutMs = 5000 } = {}) {
+   (engine/firstrun.js writes a temp then renames it into place), so a present
+   flag is only ever complete-and-valid: ENOENT (not renamed in yet) is the retry
+   case. A real error -- EACCES, an I/O fault -- is NOT a timing race, so it is
+   rethrown rather than silently polled into a timeout that would read like
+   "never written". */
+// 5s covers the observed write-vs-read lag under a full release cut's load with
+// margin; 100ms between reads keeps a genuine failure's added wait small (one
+// FAIL costs at most one timeout) without busy-spinning the filesystem.
+const FLAG_POLL_TIMEOUT_MS = 5000;
+const FLAG_POLL_INTERVAL_MS = 100;
+async function waitForFlag(flagPath, { requireCompletedAt = false, timeoutMs = FLAG_POLL_TIMEOUT_MS } = {}) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     try {
       const parsed = JSON.parse(fs.readFileSync(flagPath, 'utf8'));
       if (!requireCompletedAt || parsed.completedAt) return parsed;
-    } catch (_) { /* ENOENT: the flag is not renamed into place yet -- keep polling */ }
+    } catch (err) {
+      // ENOENT is the race (the flag is not renamed into place yet); a JSON parse
+      // error is defensive only (the atomic rename cannot expose a half-written
+      // file). Anything else -- EACCES, a real I/O fault -- is not a timing race,
+      // so surface it instead of retrying it into a misleading timeout.
+      if (err.code !== 'ENOENT' && !(err instanceof SyntaxError)) throw err;
+    }
     if (Date.now() >= deadline) return null;
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, FLAG_POLL_INTERVAL_MS));
   }
 }
 
@@ -263,6 +276,9 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     // #3030: poll for the flag (its write can lag this read under cut load).
     const flag = await waitForFlag(FLAG, { requireCompletedAt: true });
     ok(flag !== null, 'the flag was written, so it will not reappear');
+    // With the single atomic writer, a present flag always carries completedAt,
+    // so this restates the line above rather than checking it independently; kept
+    // for the two-line report this check has always printed.
     ok(flag && flag.completedAt, 'and the flag has a timestamp in it');
     await ctx.close();
   }
