@@ -76,39 +76,32 @@ const say = (ok, label, extra) => {
        grid is exactly how that happens. */
     say(edges.doc <= WIDE, theme + ': the page does not scroll sideways', String(edges.doc));
 
-    /* 🔑 THE TABS, AT TWO STAMP LENGTHS. Driven through the page's own painter
-       so the measurement is of what ships, not of markup I substituted. */
-    const offsets = [];
-    for (const seconds of [3, 41283]) {
-      await pg.evaluate((n) => {
-        const el = document.getElementById('checked');
-        el.innerHTML = '<span>Agent status</span><b>' + freshWords(n) + '</b>';
-      }, seconds);
-      await pg.waitForTimeout(120);
-      offsets.push(await pg.evaluate(() => {
-        const t = document.querySelector('.tabs').getBoundingClientRect();
-        /* 🛑 MEASURE AGAINST THE BOX THE TABS ARE ACTUALLY IN, NOT THE VIEWPORT.
-           This used to compare against documentElement.clientWidth / 2 and it
-           failed intermittently for a reason that had nothing to do with the
-           tabs: `scrollbar-gutter: stable` (index.html, the
-           html:not([data-layout="consolidated"]) rule) RESERVES 15px whenever
-           the browser's scrollbars take layout width. When it does, body is
-           1385 inside a 1400 clientWidth, everything centred in body sits ~7.5px
-           left of the viewport centre, and this assertion read -8.
-           ⇒ That is the gutter doing its job: it exists so the page does not
-           jump when a scrollbar appears. The page was right and the measurement
-           was against the wrong box.
-           Whether the reservation materialises depends on the browser's
-           scrollbar mode, which is an ENVIRONMENT variable, not a code one.
-           That is why no sha, no branch and no headed/headless axis ever
-           correlated with the failures, and why they clustered in time. */
-        const box = document.body.getBoundingClientRect();
-        return Math.round((t.left + t.right) / 2 - (box.left + box.right) / 2);
-      }));
-    }
-    say(Math.abs(offsets[0]) <= 1, theme + ': the tabs sit on the page centre', String(offsets[0]));
-    say(offsets[0] === offsets[1], theme + ': and do not move when the stamp changes length',
-      offsets.join(' vs '));
+    /* 🔑 THE TABS SIT ON THE PAGE CENTRE. Driven through the page's own layout.
+       #3051: the agent-status stamp moved off the header row into the user menu, so it can
+       no longer push the tabs off-centre; the old "the stamp length does not move the tabs"
+       arm is retired (with the stamp gone from the row, the grid balances .headleft against
+       .headright, and the tabs' centring is what this asserts). */
+    const tabOffset = await pg.evaluate(() => {
+      const t = document.querySelector('.tabs').getBoundingClientRect();
+      /* 🛑 MEASURE AGAINST THE BOX THE TABS ARE ACTUALLY IN, NOT THE VIEWPORT.
+         This used to compare against documentElement.clientWidth / 2 and it
+         failed intermittently for a reason that had nothing to do with the
+         tabs: `scrollbar-gutter: stable` (index.html, the
+         html:not([data-layout="consolidated"]) rule) RESERVES 15px whenever
+         the browser's scrollbars take layout width. When it does, body is
+         1385 inside a 1400 clientWidth, everything centred in body sits ~7.5px
+         left of the viewport centre, and this assertion read -8.
+         ⇒ That is the gutter doing its job: it exists so the page does not
+         jump when a scrollbar appears. The page was right and the measurement
+         was against the wrong box.
+         Whether the reservation materialises depends on the browser's
+         scrollbar mode, which is an ENVIRONMENT variable, not a code one.
+         That is why no sha, no branch and no headed/headless axis ever
+         correlated with the failures, and why they clustered in time. */
+      const box = document.body.getBoundingClientRect();
+      return Math.round((t.left + t.right) / 2 - (box.left + box.right) / 2);
+    });
+    say(Math.abs(tabOffset) <= 1, theme + ': the tabs sit on the page centre', String(tabOffset));
 
     await pg.screenshot({ path: path.join(OUT, 'wide-' + theme + '.png'), clip: { x: 0, y: 0, width: WIDE, height: 620 } });
 
@@ -117,7 +110,7 @@ const say = (ok, label, extra) => {
        cap turns that expression into 0px and leaves a rule that does nothing;
        and the settings grid was a FIXED two columns, so uncapping it widens
        the boxes instead of adding a third. Neither shows up on the board. */
-    await pg.click('.tab[data-tab="settings"]');
+    await pg.evaluate(() => showTab('settings'));
     await pg.waitForTimeout(700);
     const dg = await pg.evaluate(() => {
       /* ⚠️ SCOPED TO THE PANEL ON SCREEN. A bare `.dgrid` matched the one in

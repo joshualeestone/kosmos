@@ -47,8 +47,19 @@ const { chromium } = require('playwright');
   const ariaOf = (sel) => pg.locator(sel).first().getAttribute('aria-checked').catch(() => 'missing');
   const dismissFirstRun = async () => { if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); } };
   const htmlLayout = () => pg.evaluate(() => document.documentElement.getAttribute('data-layout') || 'tabs');
-  const HEAD = '.headright .laypick';
+  const LAY = '#userpop-menu .laypick';
   const RAIL = '#rail-me .laypick';
+  // #3051: the board-view toggle moved OFF the always-visible header row INTO the
+  // upper-right user menu (#userpop), so every interaction opens the menu first. The
+  // menu stays open across a layout flip (only the Settings link, an outside click, or
+  // Escape close it), but a reload closes it, so re-open after each reload.
+  const openPop = async () => {
+    if (!(await pg.locator('#userpop-menu').isVisible())) {
+      await pg.click('#userpop-btn');
+      await pg.waitForFunction(() => { const m = document.getElementById('userpop-menu'); return m && !m.hidden; }, null, { timeout: 5000 });
+      await pg.waitForTimeout(120);
+    }
+  };
 
   let savedLayout = 'tabs';
   try {
@@ -63,69 +74,75 @@ const { chromium } = require('playwright');
     await dismissFirstRun();
     await settled(false);
 
-    // --- Tabbed view: the toggle lives in the header, the rail copy is away. ---
-    say(await visible(HEAD), 'tabbed view: the toggle is in the header');
-    say((await pg.$$(HEAD + ' [data-layout-switch]')).length === 2, 'the header toggle has two segments (tabs, consolidated)');
+    // --- Tabbed view: the toggle lives in the user menu; the rail copy is away. ---
+    await openPop();
+    say(await visible(LAY), 'tabbed view: the board-view toggle is in the user menu');
+    say((await pg.$$(LAY + ' [data-layout-switch]')).length === 2, 'the menu toggle has two segments (tabs, consolidated)');
     say(!(await visible(RAIL)), 'tabbed view: the rail copy is not shown');
-    // #2194: the toggle sits to the RIGHT of the light/dark switcher in the
-    // header (Josh moved it past the switcher). A RENDERED position read, not a
-    // DOM-order read: it compares laid-out geometry, so it reds on the pre-#2194
-    // page where the toggle was to the switcher's left.
-    const rightOfTheme = await pg.evaluate(() => {
-      const lay = document.querySelector('.headright .laypick');
-      const th = document.querySelector('.headright .themepick');
+    // #3051: in the menu the board-view row sits BELOW the appearance (light/dark)
+    // row (menu order: Settings, Appearance, Board view, Agent status). A RENDERED
+    // position read, replacing the old #2194 header "toggle to the right of the
+    // switcher" now that both controls stack in the dropdown.
+    const belowTheme = await pg.evaluate(() => {
+      const lay = document.querySelector('#userpop-menu .laypick');
+      const th = document.querySelector('#userpop-menu .themepick');
       if (!lay || !th) return null;
       const l = lay.getBoundingClientRect(), t = th.getBoundingClientRect();
-      return { layLeft: Math.round(l.left), thRight: Math.round(t.right) };
+      return { layTop: Math.round(l.top), thBottom: Math.round(t.bottom) };
     });
-    say(rightOfTheme && rightOfTheme.layLeft >= rightOfTheme.thRight,
-      'tabbed view: the board-view toggle sits to the right of the light/dark switcher (#2194)',
-      rightOfTheme ? JSON.stringify(rightOfTheme) : 'one of .laypick/.themepick missing');
-    say((await ariaOf(HEAD + ' [data-layout-switch="tabs"]')) === 'true', 'tabbed view: the tabs segment is checked');
-    say((await ariaOf(HEAD + ' [data-layout-switch="consolidated"]')) === 'false', 'tabbed view: the consolidated segment is not checked');
+    say(belowTheme && belowTheme.layTop >= belowTheme.thBottom,
+      'tabbed view: in the menu the board-view toggle sits below the light/dark switcher (#3051)',
+      belowTheme ? JSON.stringify(belowTheme) : 'one of .laypick/.themepick missing');
+    say((await ariaOf(LAY + ' [data-layout-switch="tabs"]')) === 'true', 'tabbed view: the tabs segment is checked');
+    say((await ariaOf(LAY + ' [data-layout-switch="consolidated"]')) === 'false', 'tabbed view: the consolidated segment is not checked');
 
-    // A press on "one screen" (from the header) flips the whole board and persists.
-    await pg.click(HEAD + ' [data-layout-switch="consolidated"]');
+    // A press on "one screen" (from the menu) flips the whole board and persists.
+    await pg.click(LAY + ' [data-layout-switch="consolidated"]');
     await settled(true);
     say((await htmlLayout()) === 'consolidated', 'press one screen: html data-layout is consolidated');
     say(await pg.evaluate(() => document.body.classList.contains('consolidated')), 'press one screen: the consolidated view is up');
     say((await savedLayoutOf()) === 'consolidated', 'press one screen: the layout is saved on the server (not a second store)');
 
-    // --- Consolidated view (#2282): the header stays full-width across every
-    // view, so the toggle lives in the header here too and the rail copy is
-    // hidden. This reverses the old tab-only-header design, where .headright
-    // collapsed in consolidated and the toggle moved into #rail-me. ---
-    say(await visible(HEAD), 'consolidated view: the header toggle is still shown (#2282 persistent header)');
-    say(!(await visible(RAIL)), 'consolidated view: the rail copy is hidden (#2282 folds the rail controls up)');
-    say((await ariaOf(HEAD + ' [data-layout-switch="consolidated"]')) === 'true', 'consolidated view: the header one-screen segment is checked');
-    say((await ariaOf(HEAD + ' [data-layout-switch="tabs"]')) === 'false', 'consolidated view: the header tabs segment is not checked');
+    // --- Consolidated view (#2282 keeps the header full-width; #3051 puts the
+    // toggle in the user menu, carried in BOTH views). The menu toggle is still
+    // reachable and the rail copy (with the whole rail person slot) is hidden. ---
+    await openPop();
+    say(await visible(LAY), 'consolidated view: the menu toggle is still reachable (#2282 persistent header)');
+    say(!(await visible(RAIL)), 'consolidated view: the rail copy is hidden (#3051 retires the rail person slot)');
+    say((await ariaOf(LAY + ' [data-layout-switch="consolidated"]')) === 'true', 'consolidated view: the one-screen segment is checked');
+    say((await ariaOf(LAY + ' [data-layout-switch="tabs"]')) === 'false', 'consolidated view: the tabs segment is not checked');
 
     // It survives a reload, because it was saved and the boot paint reads it.
     await pg.reload({ waitUntil: 'networkidle' });
     await dismissFirstRun();
     await settled(true);
-    say(await visible(HEAD), 'after a reload: the header toggle is still shown (the saved one-screen choice)');
-    say((await ariaOf(HEAD + ' [data-layout-switch="consolidated"]')) === 'true', 'after a reload: the header toggle still shows one screen');
+    await openPop();
+    say(await visible(LAY), 'after a reload: the menu toggle is still reachable (the saved one-screen choice)');
+    say((await ariaOf(LAY + ' [data-layout-switch="consolidated"]')) === 'true', 'after a reload: the toggle still shows one screen');
 
-    // A press on "separate tabs" from the HEADER flips it back -- #2282 keeps the
-    // header copy present in the consolidated view, so it is the route back.
-    await pg.click(HEAD + ' [data-layout-switch="tabs"]');
+    // A press on "separate tabs" from the MENU flips it back -- the user menu is the
+    // route back in the consolidated view.
+    await pg.click(LAY + ' [data-layout-switch="tabs"]');
     await settled(false);
-    say((await htmlLayout()) === 'tabs', 'press separate tabs (header): html data-layout is tabs');
-    say(!(await pg.evaluate(() => document.body.classList.contains('consolidated'))), 'press separate tabs (header): the consolidated view is down');
-    say(await visible(HEAD), 'press separate tabs (header): the header toggle is shown');
-    say((await ariaOf(HEAD + ' [data-layout-switch="tabs"]')) === 'true', 'press separate tabs (header): the header tabs segment is checked again');
-    say((await savedLayoutOf()) === 'tabs', 'press separate tabs (header): the tabbed layout is saved on the server');
+    say((await htmlLayout()) === 'tabs', 'press separate tabs: html data-layout is tabs');
+    say(!(await pg.evaluate(() => document.body.classList.contains('consolidated'))), 'press separate tabs: the consolidated view is down');
+    await openPop();
+    say(await visible(LAY), 'press separate tabs: the menu toggle is shown');
+    say((await ariaOf(LAY + ' [data-layout-switch="tabs"]')) === 'true', 'press separate tabs: the tabs segment is checked again');
+    say((await savedLayoutOf()) === 'tabs', 'press separate tabs: the tabbed layout is saved on the server');
 
-    // The narrow-window gate: below 960px the consolidated view is not offered,
-    // so the toggle must not be a dead control. Positive control: at 1400px it is
-    // shown (asserted above), so this absence is a real gate, not a lost element.
+    // The narrow-window gate: below 960px the consolidated view is not offered, so
+    // the board-view toggle must not be a dead control even inside the menu. Open the
+    // menu at 800px and the toggle is gone (its .laypick media gate still applies in
+    // the dropdown); at 1400px (positive control) it is present.
     await pg.setViewportSize({ width: 800, height: 950 });
     await pg.waitForTimeout(200);
-    say(!(await visible(HEAD)), 'on a narrow (800px) window: the view toggle is hidden');
+    await openPop();
+    say(!(await visible(LAY)), 'on a narrow (800px) window: the view toggle is hidden in the menu');
     await pg.setViewportSize({ width: 1400, height: 950 });
     await pg.waitForTimeout(200);
-    say(await visible(HEAD), 'back to a wide window: the view toggle is shown again (control)');
+    await openPop();
+    say(await visible(LAY), 'back to a wide window: the view toggle is shown again (control)');
   } finally {
     try { await putLayout(savedLayout); } catch { /* the server may be gone */ }
     await b.close();

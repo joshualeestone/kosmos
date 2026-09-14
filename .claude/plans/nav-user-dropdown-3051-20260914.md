@@ -58,3 +58,39 @@ Rework the upper-right nav for BOTH the tab view and the consolidated view:
   mock exists (installkosmos.com/... mocks are referenced elsewhere), prefer it.
 - Consolidated placement (increment 2) depends on the consolidated header CSS -- confirmed during that
   increment, not assumed here.
+
+## AS BUILT (both increments in one PR)
+Increment 1 and 2 landed together because the premise "the header .headright is hidden in the
+consolidated view" is STALE: since #2282 the one full-width header renders in EVERY view (only the
+center tabs + h1 hide in consolidated). So a SINGLE `.userpop` in `.headright` already renders at the
+top-right in both the tab and consolidated views -- there was no second placement to build.
+
+- web/index.html: added `.userpop` (button = `#userpop-face` avatar + `#userpop-name` + chevron; menu
+  = `#userpop-settings` link + the moved `.themepick` + `.laypick` + the moved `#checked` stamp).
+  Removed the Settings `.tab`; added `'settings'` to `BUTTONLESS` (16958) so `showTab('settings')`
+  still shows `#panel-settings`. `#rail-me-go` else-branch now calls `showTab('settings')` directly
+  (the tab button it used is gone). `paintRailMe` paints `#userpop-face`/`#userpop-name` too (single
+  source with the consolidated rail). `wireUserpop` IIFE: toggle + Escape/outside-click close; the
+  Settings link calls `openConsolidatedSettings()` in consolidated (mirrors #rail-me-go, keeps #2842)
+  else `showTab('settings')`. Boot now calls `refreshYouName()` so the always-visible name is not
+  stuck on "You". CSS: `.userpop*` on the worldsw pattern; `.userpop-btn` height 32px to match
+  `.worldsw-btn` (#2350). Increment 2: `#rail-me` is `display:none` in consolidated (the person moved
+  up to the top-right; the rail's bottom-left slot is retired).
+- New check: docs/browser-checks/render-user-menu-3051.js (hermetic file://; 30 assertions; 2-tab nav,
+  avatar+name, the four dropdown items, Settings link -> #panel-settings with no tab lit, Escape +
+  outside-click close). Wired into the line-1283 loop; README row; surface tokens
+  (userpop-btn/userpop-menu/userpop-settings/BUTTONLESS).
+- Reconciled the checks that encoded the old header layout: the 14 that navigated by clicking the
+  now-removed Settings tab -> `evaluate(() => showTab('settings'))` (behavior-preserving; the tab
+  click always ran showTab); render-theme-toggle + render-viewtoggle-header-2154 open the userpop
+  before measuring and drop the retired header-geometry arms; render-worldsw-height-2350 now matches
+  worldsw-btn to userpop-btn (themepick left the row); render-tophead-consolidated-2282 asserts the
+  controls render inside the header user menu + #rail-me retired; render-consolidated-settings-2842 +
+  render-consolidated-newagent-3053 drive #userpop-settings (the #2842/#3053 behaviour is unchanged,
+  only the entry moved); render-update-toast + render-full-width drop #checked as a header-row peer.
+- The reason-grep guard counts were bumped +1 each (one quotable finding-emit loop + one launch catch).
+
+## Weakest premise (as built)
+- Retiring the bottom-left #rail-me person in consolidated is my read of "move the user up"; it is one
+  CSS rule and fully reversible if Josh wants the person kept in both places. What would change my
+  mind: Josh saying the bottom-left person should stay.

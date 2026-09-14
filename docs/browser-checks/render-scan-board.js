@@ -202,7 +202,7 @@ const CANDS = [
      ("it appears everywhere", Josh 2026-09-03). This is the tab-SWITCH handler, so
      it must read hidden immediately -- well under the 5s poll, or the check would
      be measuring the poll instead of the fix. FAIL against origin/main. */
-  await page.click('[data-tab="settings"]');
+  await page.evaluate(() => showTab('settings'));
   await page.waitForTimeout(300);
   const offtab = await page.evaluate(() => {
     const wrap = document.getElementById('scan-wrap');

@@ -53,7 +53,7 @@ function check(name, pass, detail) {
 async function openSettingsTab(pg, tab) {
   if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
   await pg.waitForTimeout(600);
-  await pg.click('.tab[data-tab="settings"]');
+  await pg.evaluate(() => showTab('settings'));
   await pg.waitForTimeout(400);
   await pg.click('#s-nav button[data-go="' + tab + '"]');
   await pg.waitForTimeout(300);

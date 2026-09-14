@@ -152,7 +152,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
 
     // ---- Mutual exclusion: the display column holds ONE takeover overlay at a time. Settings
     // (#2842) and Create (#3053) both relocate into #panel-projects at the same grid cell, so
-    // opening one over the other via the persistent rail buttons -- with NO project nav between --
+    // opening one over the other (Settings from the top-right user menu #3051, New Agent from
+    // the rail's Add button) -- with NO project nav between --
     // must hide the other rather than stack both. takeOverDisplayColumn enforces this; pjView
     // only covers project-nav exits, not the open-to-open switch. Both orders. ----
     const mutex = await page.evaluate(() => {
@@ -167,13 +168,13 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         document.documentElement.setAttribute('data-layout', 'consolidated');
         showTab('projects');
         // Settings first, then New Agent over it: create shows, settings hides.
-        document.getElementById('rail-me-go').click();
+        document.getElementById('userpop-settings').click();
         res.settingsUpFirst = shownInCol(settings);
         document.getElementById('rail-agents-new').click();
         res.createShownOverSettings = shownInCol(create);
         res.settingsHiddenUnderCreate = settings.hidden === true;
         // New Agent open, then Settings over it: settings shows, create hides.
-        document.getElementById('rail-me-go').click();
+        document.getElementById('userpop-settings').click();
         res.settingsShownOverCreate = shownInCol(settings);
         res.createHiddenUnderSettings = create.hidden === true;
         res.err = null;

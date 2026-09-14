@@ -2,9 +2,13 @@
 
 /**
  * kosmos#2350 (Josh, 2026-09-06): the multi-Kosmos switcher control on the header icon
- * row is the SAME HEIGHT as the light/dark switcher (.themepick), so the two read as a
- * matched set. Before the fix the switcher button was content-height-driven (~25px) while
- * the theme control renders 32px -- a visible ~7px mismatch on the row.
+ * row is the SAME HEIGHT as its neighbour on the row, so the two read as a matched set.
+ * Before the fix the switcher button was content-height-driven (~25px) against a 32px
+ * neighbour -- a visible ~7px mismatch on the row.
+ *
+ * #3051: the light/dark switcher (.themepick) moved off the header row into the user menu,
+ * so the neighbour that must match is now the USER MENU BUTTON (#userpop-btn), the other
+ * always-present header-row control. Both render 32px.
  *
  * This measures both controls' RENDERED heights in a real DOM and asserts they are equal.
  * Keying on the actual rendered height (not the CSS text) is what makes it a real match:
@@ -14,7 +18,7 @@
  * of drifting silently.
  *
  * CONTROL: on the pre-fix page (no explicit height on .worldsw-btn) the switcher measures
- * ~25px against the theme control's 32px, so the equality assertion reds.
+ * ~25px against the 32px neighbour, so the equality assertion reds.
  *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-worldsw-height-2350.js
@@ -52,18 +56,22 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       // name so it lays out exactly as it does in the header.
       const sw = document.getElementById('worldsw'); if (sw) sw.hidden = false;
       const nm = document.getElementById('worldsw-name'); if (nm) nm.textContent = 'Client work';
-      const themepick = document.querySelector('.themepick');
+      // #3051: the light/dark switcher moved OFF the header row into the user menu, so the
+      // #2350 "matched set on the header row" invariant is now the two remaining header-row
+      // controls: the multi-Kosmos switcher (left) and the user menu button (right). The
+      // user button is always present (no reveal needed).
+      const userBtn = document.getElementById('userpop-btn');
       const worldswBtn = document.getElementById('worldsw-btn');
-      if (!themepick) return { error: 'no .themepick (light/dark switcher) on the page' };
+      if (!userBtn) return { error: 'no #userpop-btn (user menu button) on the page' };
       if (!worldswBtn) return { error: 'no #worldsw-btn (multi-Kosmos switcher) on the page' };
       const h = (e) => +e.getBoundingClientRect().height.toFixed(2);
-      return { themepick: h(themepick), worldswBtn: h(worldswBtn) };
+      return { userBtn: h(userBtn), worldswBtn: h(worldswBtn) };
     });
     await page.close();
     if (r.error) { problems.push(r.error); continue; }
     console.log('  DPR ' + dpr + ' -> ' + JSON.stringify(r));
-    if (r.worldswBtn !== r.themepick) {
-      problems.push('DPR ' + dpr + ': the multi-Kosmos switcher (' + r.worldswBtn + 'px) is a different height from the light/dark switcher (' + r.themepick + 'px) -- Josh #2350 wants them matched on the header row');
+    if (r.worldswBtn !== r.userBtn) {
+      problems.push('DPR ' + dpr + ': the multi-Kosmos switcher (' + r.worldswBtn + 'px) is a different height from the user menu button (' + r.userBtn + 'px) -- #2350/#3051 want the two header-row controls matched');
     }
   }
 
@@ -74,5 +82,5 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-worldsw-height-2350: the multi-Kosmos switcher control is the same rendered height as the light/dark switcher on the header row (DPR 1 + 2).');
+  console.log('render-worldsw-height-2350: the multi-Kosmos switcher control is the same rendered height as the user menu button on the header row (DPR 1 + 2).');
 })();

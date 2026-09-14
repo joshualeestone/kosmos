@@ -63,7 +63,7 @@ function chk(ok, label, extra) {
       page.on('pageerror', (e) => errs.push(e.message));
       await page.goto(URL, { waitUntil: 'networkidle' });
       if (await page.$('#firstrun:not([hidden])')) { await page.keyboard.press('Escape'); await page.waitForTimeout(400); }
-      await page.click('.tab[data-tab="settings"]');
+      await page.evaluate(() => showTab('settings'));
       await page.waitForSelector('#panel-settings:not([hidden])');
       await page.waitForTimeout(1500);
 

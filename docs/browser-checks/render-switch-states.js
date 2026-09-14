@@ -21,7 +21,7 @@ const { chromium } = require('playwright');
   await pg.goto(URL, { waitUntil: 'networkidle' });
   if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); }
   await pg.waitForTimeout(1000);
-  await pg.click('.tab[data-tab="settings"]');
+  await pg.evaluate(() => showTab('settings'));
   await pg.waitForTimeout(1200);
   const fails = [];
   const say = (ok, l, x) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + l + (x ? '  ' + x : '')); if (!ok) fails.push(l); };
