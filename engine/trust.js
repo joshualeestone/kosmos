@@ -163,6 +163,24 @@ const configTarget = (opts) =>
 const settingsTarget = (configDir, agentDefaultAccount) =>
   (agentDefaultAccount && !configDir) ? defaultAgentSettings() : SETTINGS(configDir || null);
 
+// #3088: run a config/settings writer under the fleet file lock, but take the lock
+// only when the target's PARENT dir exists. The lock (<target>.lock) is itself a
+// mkdir in that parent, and its whole job is to serialise a read-modify-write on an
+// EXISTING file. When the parent is absent there is no file to lost-update, the lock's
+// mkdir would fail with ENOENT, and the only inner path that reaches here in that state
+// REFUSES without writing (trustFolder / forgetFolder with no createIfAbsent -> the
+// "Claude Code has not run..." / "we could not read..." refusals). A create-capable
+// caller mkdirs the parent BEFORE calling this, so its write path always locks. So run
+// the inner directly when the parent is absent, returning the same {ok:true,value}
+// envelope withFileLock would, rather than let the lock's own ENOENT mask the inner's
+// honest refusal as 'we could not get exclusive access' -- the regression the #2129
+// default-refuse test caught. Callers unwrap `value` exactly as on a real lock success.
+function withWriteLock(target, inner) {
+  let parentExists = false;
+  try { parentExists = fs.statSync(path.dirname(target)).isDirectory(); } catch { parentExists = false; }
+  return parentExists ? withFileLock(target, inner) : { ok: true, value: inner() };
+}
+
 /**
  * A temp path that is OURS, not a predictable one.
  *
@@ -213,13 +231,17 @@ const tempPath = (target) => `${target}.kosmos-${process.pid}-${STARTED}-${++SEQ
 // exact target the inner writes (configTarget), best-effort per filelock's contract.
 function trustFolder(dir, opts) {
   const target = configTarget(opts);
-  // #3088: the lock is <target>.lock, so its PARENT must exist to mkdir the lock.
-  // trustFolderInner create-if-absent's the config FILE, but the lock precedes the
-  // inner, so create the parent here when the caller opted into creation. This never
-  // creates the config file, so the refuse-on-absent contract is unchanged; it is a
-  // no-op when the parent already exists (the default-account parent, ~, always does).
+  // #3088: under createIfAbsent the inner CREATES the config file (and, on a fresh
+  // macOS user, its parent dir), so make the parent HERE first -- withWriteLock takes
+  // the lock only when the target's parent already exists, and the write path must be
+  // locked. This never creates the config FILE itself, so the refuse-on-absent
+  // contract is unchanged; it is a no-op when the parent already exists (the
+  // default-account parent, ~, always does). When the caller did NOT opt into creation
+  // and the parent is absent, withWriteLock runs the inner unlocked, so its honest
+  // "Claude Code has not run on this computer yet" refusal is preserved rather than
+  // masked by the lock's ENOENT.
   if (opts && opts.createIfAbsent) { try { fs.mkdirSync(path.dirname(target), { recursive: true }); } catch { /* the inner reports a real write failure */ } }
-  const r = withFileLock(target, () => trustFolderInner(dir, opts));
+  const r = withWriteLock(target, () => trustFolderInner(dir, opts));
   return r.ok ? r.value : { ok: false, because: r.because };
 }
 
@@ -500,7 +522,12 @@ function trustFolderInner(dir, opts) {
 // config's writers and must serialise against each other, or a rollback could
 // clobber a concurrent relaunch's trust write.
 function forgetFolder(dir, displaced, madeEntry) {
-  const r = withFileLock(CONFIG(), () => forgetFolderInner(dir, displaced, madeEntry));
+  // #3088: withWriteLock, not withFileLock, so an absent config parent (the config we
+  // wrote was deleted before rollback) yields forgetFolderInner's honest "we could not
+  // read their config file" rather than the lock's 'we could not get exclusive access'.
+  // In the normal case CONFIG()'s parent (~) exists, so the real lock is taken and
+  // forgetFolder still serialises against a concurrent trustFolder on the same file.
+  const r = withWriteLock(CONFIG(), () => forgetFolderInner(dir, displaced, madeEntry));
   return r.ok ? r.value : { ok: false, because: r.because };
 }
 
