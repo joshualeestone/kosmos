@@ -67,22 +67,48 @@ if (-not $All -and (Test-Path -LiteralPath $StatePath)) {
     if (-not $since) { $since = '0' }
 }
 
-$uri = "https://slack.com/api/conversations.history?channel=$($cfg.channel)&limit=100&oldest=$since"
-$resp = Invoke-RestMethod -Uri $uri -Headers $H
-
-if (-not $resp.ok) {
-    Write-Error "slack error: $($resp.error)"
-    exit 1
-}
-
-# Oldest-first so a run reads in the order things were said. (win32inbox also sorts
-# by numeric ts, so ordering is pinned on both sides.)
-$msgs = @($resp.messages) | Sort-Object { [double]$_.ts }
-
 # ── DELIVER MODE (#2042 S1) ──────────────────────────────────────────────────
 if ($Deliver) {
     if (-not (Test-Path -LiteralPath $Node))    { Write-Error "no node runtime at $Node (set KOSMOS_NODE)"; exit 1 }
     if (-not (Test-Path -LiteralPath $InboxJs)) { Write-Error "no win32inbox.js at $InboxJs (set KOSMOS_ENGINE_DIR)"; exit 1 }
+
+    # FIX 1 (message loss on a backlog): conversations.history returns at most one
+    # page (newest-first) with `has_more` + `response_metadata.next_cursor`. A single
+    # page after a long outage (this box BSODs) would fetch only the NEWEST 100 and,
+    # because the cursor then advances to the newest handled ts, would LOSE the older
+    # unread page forever. So page to COMPLETION and only then hand node the full
+    # contiguous set since the cursor. Pages run newest -> older, so the messages
+    # nearest the cursor arrive LAST; if we cannot reach the end (page cap, or a
+    # broken cursor while has_more is still true) we do NOT have a contiguous run
+    # from the cursor and MUST advance nothing, or we would skip the unfetched
+    # oldest messages. Generous cap; hitting it is pathological and retried.
+    $PAGE_LIMIT = 200
+    $MAX_PAGES  = 50
+    $msgs   = @()
+    $cursor = $null
+    $page   = 0
+    $complete = $false
+    do {
+        $uri = "https://slack.com/api/conversations.history?channel=$($cfg.channel)&limit=$PAGE_LIMIT"
+        if ($cursor) { $uri += "&cursor=$([uri]::EscapeDataString($cursor))" }
+        else         { $uri += "&oldest=$since" }
+        $resp = Invoke-RestMethod -Uri $uri -Headers $H
+        if (-not $resp.ok) { Write-Error "slack error: $($resp.error)"; exit 1 }
+        $msgs += @($resp.messages)
+        $page += 1
+        $cursor = $resp.response_metadata.next_cursor
+        if (-not $resp.has_more) { $complete = $true; break }
+    } while ($cursor -and $page -lt $MAX_PAGES)
+
+    if (-not $complete) {
+        # We could not gather the full contiguous backlog since the cursor. Advancing
+        # now would step over the unfetched oldest page -> silent loss. Refuse.
+        Write-Error "kosmos inbox (deliver): backlog exceeds $($MAX_PAGES * $PAGE_LIMIT) messages or pagination broke; advancing nothing, will retry"
+        exit 3
+    }
+
+    # Oldest-first (win32inbox re-sorts too, so ordering is pinned on both sides).
+    $msgs = @($msgs | Sort-Object { [double]$_.ts }) | Where-Object { $_.text }
 
     # Hand every message (text + ts) to the node brain; it decides which are for a
     # live local worker, delivers those through win32channel, and returns the ONE
@@ -108,6 +134,11 @@ if ($Deliver) {
     $psi.StandardErrorEncoding  = [System.Text.Encoding]::UTF8
 
     $proc = [System.Diagnostics.Process]::Start($psi)
+    # FIX 4 (latent deadlock): start reading BOTH streams before writing stdin, and
+    # read them concurrently -- reading stdout to end while the child fills its
+    # stderr pipe buffer (or vice versa) would deadlock. Async tasks drain both.
+    $outTask = $proc.StandardOutput.ReadToEndAsync()
+    $errTask = $proc.StandardError.ReadToEndAsync()
     # No-BOM UTF-8: a leading byte-order mark would make node's JSON.parse reject
     # the payload (win32inbox also strips one defensively).
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -115,9 +146,9 @@ if ($Deliver) {
     $proc.StandardInput.BaseStream.Write($bytes, 0, $bytes.Length)
     $proc.StandardInput.BaseStream.Flush()
     $proc.StandardInput.Close()
-    $stdout = $proc.StandardOutput.ReadToEnd()
-    $stderr = $proc.StandardError.ReadToEnd()
     $proc.WaitForExit()
+    $stdout = $outTask.Result
+    $stderr = $errTask.Result
 
     $result = $null
     try { $result = ($stdout.Trim() -split "`n" | Select-Object -Last 1) | ConvertFrom-Json } catch { }
@@ -133,17 +164,18 @@ if ($Deliver) {
         exit 3
     }
 
-    $placed = 0; $unconf = 0; $could = 0; $skipped = 0; $peeked = 0
+    $placed = 0; $unconf = 0; $could = 0; $ownedDown = 0; $skipped = 0; $peeked = 0
     foreach ($r in @($result.results)) {
         switch ($r.kind) {
             'placed'        { Write-Output ("-> placed       to $($r.target)  (ts=$($r.ts))"); $placed++ }
             'unconfirmed'   { Write-Output ("-> UNCONFIRMED  to $($r.target)  (ts=$($r.ts)) -- $($r.because)"); $unconf++ }
             'could_not'     { Write-Output ("-> COULD_NOT    to $($r.target)  (ts=$($r.ts)) -- $($r.because); cursor left here, will retry"); $could++ }
+            'owned_down'    { Write-Output ("-> OWNED-DOWN   to $($r.target)  (ts=$($r.ts)) -- $($r.because); cursor left here, will retry"); $ownedDown++ }
             'would_deliver' { Write-Output ("-> would deliver to $($r.target)  (ts=$($r.ts))  [peek]"); $peeked++ }
             default         { $skipped++ }
         }
     }
-    Write-Output "=== kosmos inbox (deliver): placed=$placed unconfirmed=$unconf could_not=$could would_deliver=$peeked not_local=$skipped ==="
+    Write-Output "=== kosmos inbox (deliver): placed=$placed unconfirmed=$unconf could_not=$could owned_down=$ownedDown would_deliver=$peeked not_local=$skipped ==="
 
     # -Peek is a dry run: node returns advanceTo=null, and we persist nothing.
     if (-not $Peek -and $result.advanceTo) {
@@ -156,6 +188,18 @@ if ($Deliver) {
 }
 
 # ── PRINT MODE (legacy, unchanged) ───────────────────────────────────────────
+# Single-page fetch, exactly as before this script grew: the orchestrator pull
+# reads what it can see and advances past everything seen. (Delivery mode, above,
+# is the path that pages and blocks on could_not/owned_down.)
+$uri = "https://slack.com/api/conversations.history?channel=$($cfg.channel)&limit=100&oldest=$since"
+$resp = Invoke-RestMethod -Uri $uri -Headers $H
+if (-not $resp.ok) {
+    Write-Error "slack error: $($resp.error)"
+    exit 1
+}
+# Oldest-first so a run reads in the order things were said.
+$msgs = @($resp.messages) | Sort-Object { [double]$_.ts }
+
 $mine    = @()
 $skipped = 0
 

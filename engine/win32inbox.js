@@ -31,18 +31,38 @@
  * message, so the next poll re-reads and retries it in order. A message queued for
  * a supervisor that may never return is a message the sender was falsely told
  * arrived -- the same stance `win32channel` takes about its own missing pipe.
+ *
+ * ⚠️ OWNED-BUT-DOWN IS BLOCKED, NOT DROPPED (round 2, FIX 2). A message to a
+ * worker this box OWNS (win32sessions) and has NOT removed, that is momentarily
+ * absent from `claude agents --json` (crashed / restarting -- the norm on a box
+ * that BSODs), is treated like `could_not`: the cursor is NOT advanced, so the
+ * next poll retries once the supervised worker restarts. Only a name this box does
+ * not own, or has removed, is `not_local` (advanced past). Prefer BLOCK-and-recover
+ * over LOSE. Residual: a permanently-broken owned-not-removed worker head-of-line
+ * blocks the queue -- the same bounded cost `could_not` already carries.
+ *
+ * 🔑 ROUTED BY `to:` ALONE, NEVER SUPPRESSED BY `from:` (round 2, FIX 3). The
+ * poller only ever READS Slack and WRITES to an agent's stdin; it never posts to
+ * Slack, and no Kosmos agent posts an envelope to Slack under its own name (the app
+ * has no Slack sender at all). So there is no delivery loop to guard against, and a
+ * `from:`-based skip could only DROP legitimate inbound from a remote agent whose
+ * name happens to collide with a local worker's. Delivery is decided purely by
+ * `to:`; `from:` is informational.
  */
 
 const win32live = require('./win32live');
 
-/* The three verdicts, one word each, the SAME strings chat.js's DELIVERY uses so a
-   reader who knows one knows the other. `not_local` and `roster_unreadable` are
-   this module's own dispositions for the two W-steps that happen BEFORE a delivery
-   is even attempted (not addressed here; could not see the machine). */
+/* The three delivery verdicts, one word each, the SAME strings chat.js's DELIVERY
+   uses so a reader who knows one knows the other. The rest are this module's own
+   dispositions for the steps around a delivery: `owned_down` (ours but not live
+   right now -- block and retry), `not_local` (not ours, or removed -- advance
+   past), and `roster_unreadable` (could not see the machine at all -- advance
+   nothing). */
 const DISPOSITION = {
   PLACED: 'placed',
   UNCONFIRMED: 'unconfirmed',
   COULD_NOT: 'could_not',
+  OWNED_DOWN: 'owned_down',
   NOT_LOCAL: 'not_local',
   ROSTER_UNREADABLE: 'roster_unreadable',
 };
@@ -85,20 +105,68 @@ function parseEnvelope(text) {
  * names this box's worker plus others is delivered to ours and left for the others.
  *
  * A name that is not in `liveNames` -- a remote agent, or a local one that is not
- * running -- returns null on purpose: it is "not a live local worker", which the
- * caller advances past rather than blocking on. `could_not` is reserved for a name
- * that DID resolve live but whose pipe was down at send time.
+ * running -- returns null on purpose. The caller then asks `ownedWorkerNames`
+ * whether it is one of ours that is merely down (block + retry) versus genuinely
+ * not ours (advance past). `could_not` is a THIRD case: a name that DID resolve
+ * live but whose pipe was down at send time.
  *
  * @param {string[]} toNames
- * @param {Iterable<string>} liveNames the live local worker names (a Set/array).
+ * @param {Iterable<string>} names the candidate name set (live, or owned).
  * @returns {string|null}
  */
-function resolveTarget(toNames, liveNames) {
-  const live = liveNames instanceof Set ? liveNames : new Set(liveNames || []);
+function resolveTarget(toNames, names) {
+  const set = names instanceof Set ? names : new Set(names || []);
   for (const n of (Array.isArray(toNames) ? toNames : [])) {
-    if (live.has(n)) return n;
+    if (set.has(n)) return n;
   }
   return null;
+}
+
+/**
+ * The names of workers this box OWNS and has NOT removed (round 2, FIX 2). This is
+ * the set that separates "our worker, currently down" from "not ours": a message to
+ * an owned-not-removed worker that is absent from `claude agents --json` must be
+ * BLOCKED (cursor unmoved, retried) rather than advanced past and lost, because a
+ * supervised worker restarts -- especially on this box, which BSODs.
+ *
+ * The owned set is the `name` field of every `win32sessions` row (the ownership
+ * record persists across a session's death by design), MINUS any name currently on
+ * the removed list (`remove.isRemoved`, which normalizes with `create.cleanName`).
+ * Names are flattened with `win32roster.flat`, the SAME derivation `win32live` uses
+ * for its keys, so the owned set and the live set are comparable name-for-name.
+ *
+ * ⚠️ FAIL-SAFE EMPTY, matching win32sessions' own doctrine: an unreadable record
+ * yields `{}`, so the owned set is empty and the affected message falls through to
+ * `not_local`. That is the one residual where an owned-but-down worker's message
+ * could still be advanced past -- only if the record read itself faults during that
+ * exact poll -- and it is the same fail-closed direction the rest of the win32
+ * family takes rather than blocking every not-live message on a transient glitch.
+ *
+ * @param {object} [opts]
+ * @param {{read:()=>object}} [opts.record] the ownership record (default win32sessions).
+ * @param {(name:string)=>boolean} [opts.isRemoved] the removed-list predicate
+ *   (default remove.isRemoved), injectable so a test never reads the real store.
+ * @returns {Set<string>}
+ */
+function ownedWorkerNames(opts) {
+  const o = opts || {};
+  const record = o.record || require('./win32sessions');
+  const validName = require('./win32sessions').validName;
+  const flat = require('./win32roster').flat;
+  const isRemoved = typeof o.isRemoved === 'function' ? o.isRemoved : require('./remove').isRemoved;
+
+  const out = new Set();
+  let rows = {};
+  try { rows = record.read() || {}; } catch { rows = {}; }
+  for (const sid of Object.keys(rows)) {
+    const raw = rows[sid] && rows[sid].name;
+    const name = flat(raw || '');
+    if (!validName(name)) continue;
+    let removed = false;
+    try { removed = Boolean(isRemoved(name)); } catch { removed = false; }
+    if (!removed) out.add(name);
+  }
+  return out;
 }
 
 /**
@@ -146,6 +214,10 @@ function verdictToDisposition(verdict) {
  *   (tests). When omitted, `win32channel.say` (production).
  * @param {object} [opts.liveOpts] passed through to `win32live.byName` (its `run`
  *   and `record` seams) so a test never reads the real store or spawns claude.
+ * @param {string[]} [opts.ownedNames] inject the owned-not-removed worker names
+ *   (tests). When omitted, read them from `ownedWorkerNames` (production).
+ * @param {object} [opts.ownedOpts] passed through to `ownedWorkerNames` (its
+ *   `record` and `isRemoved` seams) so a test never reads the real store.
  * @param {boolean} [opts.dryRun] resolve and report what WOULD be delivered, but
  *   call no `say` and advance nothing. This is what `-Peek` maps to in delivery
  *   mode: the existing "inspect without consuming" meaning, kept honest (a peek
@@ -169,6 +241,10 @@ function runInbox(input, opts) {
     liveNames = new Set(map.keys());
   }
 
+  /* FIX 2 source: the owned-not-removed worker names, the set that separates "ours
+     but down" (block + retry) from "not ours" (advance past). Fail-safe empty. */
+  const ownedNames = Array.isArray(o.ownedNames) ? new Set(o.ownedNames) : ownedWorkerNames(o.ownedOpts);
+
   const say = typeof o.say === 'function' ? o.say : require('./win32channel').say;
 
   const messages = Array.isArray(input && input.messages) ? input.messages.slice() : [];
@@ -181,27 +257,34 @@ function runInbox(input, opts) {
 
   for (const m of messages) {
     const ts = m && m.ts;
-    const { from, toNames } = parseEnvelope(m && m.text);
+    // Routed by `to:` alone (FIX 3); `from:` is informational and never suppresses.
+    const { toNames } = parseEnvelope(m && m.text);
     const target = resolveTarget(toNames, liveNames);
-    // Our own outgoing: an envelope FROM a live local worker is a send this box
-    // already made, never inbound to re-deliver.
-    const ownOutgoing = Boolean(from && liveNames.has(from));
+    // Not deliverable right now: is it a worker we own that is merely down?
+    const ownedDown = !target && Boolean(resolveTarget(toNames, ownedNames));
 
     // A peek (dry run) reports the routing it WOULD take and stops there: no
     // delivery, and the cursor is left WHOLLY untouched (advanceTo stays null) so
     // the next real run sees exactly these messages.
     if (dryRun) {
-      results.push(target && !ownOutgoing
-        ? { ts, kind: 'would_deliver', target, because: null }
-        : { ts, kind: DISPOSITION.NOT_LOCAL, target: null, because: ownOutgoing ? 'from a local agent (our own outgoing)' : null });
+      if (target) results.push({ ts, kind: 'would_deliver', target, because: null });
+      else if (ownedDown) results.push({ ts, kind: DISPOSITION.OWNED_DOWN, target: resolveTarget(toNames, ownedNames), because: 'owned worker is down; a real run would block here and retry' });
+      else results.push({ ts, kind: DISPOSITION.NOT_LOCAL, target: null, because: null });
       continue;
     }
 
-    // Not addressed to a live local worker (or our own outgoing): not ours.
-    // Advance past it -- each box polls with its own cursor, so leaving it for
-    // another box costs us nothing.
-    if (!target || ownOutgoing) {
-      results.push({ ts, kind: DISPOSITION.NOT_LOCAL, target: null, because: ownOutgoing ? 'from a local agent (our own outgoing)' : null });
+    // Ours but currently down: BLOCK. Leave the cursor before this message so the
+    // next poll retries once the supervised worker restarts, and do not process
+    // later messages this poll (in-order, no spool) -- same stance as could_not.
+    if (ownedDown) {
+      results.push({ ts, kind: DISPOSITION.OWNED_DOWN, target: resolveTarget(toNames, ownedNames), because: 'it is one of ours but not running just now, so we did not type anything; will retry' });
+      break;
+    }
+
+    // Not ours (or removed): advance past it -- each box polls with its own cursor,
+    // so leaving it for another box costs us nothing.
+    if (!target) {
+      results.push({ ts, kind: DISPOSITION.NOT_LOCAL, target: null, because: null });
       advanceTo = ts;
       continue;
     }
@@ -252,4 +335,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { DISPOSITION, parseEnvelope, resolveTarget, verdictToDisposition, runInbox };
+module.exports = { DISPOSITION, parseEnvelope, resolveTarget, ownedWorkerNames, verdictToDisposition, runInbox };
