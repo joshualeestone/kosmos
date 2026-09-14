@@ -3331,6 +3331,13 @@ test('S5 rollback: if the kept build does not come up, H8 puts the current build
   const status = readJson(c.statusAt);
   assert.equal(status.sentence, `The roll back did not take. Kosmos is still on ${NEW}. If Kosmos does not come back by itself, double-click Kosmos.exe in ${c.root}.`);
   assert.equal(status.version, NEW);
+  /* FIX1: a reversed rollback must PRESERVE the kept build (its only copy) so the person can retry --
+     not delete it with the rest of the swap's scratch. */
+  const keptDir = path.join(c.work, `previous-${OLD}`);
+  assert.equal(fs.existsSync(keptDir), true, 'a reversed rollback deleted the kept build instead of keeping it for a retry');
+  assert.equal(fs.existsSync(c.staged), false, 'the kept build was left in staged, where the next prepare would delete it');
+  const kept = win32update.keptPreviousBuild(c.root);
+  assert.equal(kept && kept.version, OLD, 'keptPreviousBuild no longer re-offers the kept build after a reversed rollback');
 });
 
 test('S5 rollback: never-downgrade is skipped, but only for a strictly-older target', T, async () => {
@@ -3361,4 +3368,47 @@ test('S5 rollback: a forward journal is byte-compatible -- it carries no rollbac
   const c = freshInstall();
   const j = stage(c);
   assert.equal('rollback' in j, false, 'a forward update journal has no rollback marker');
+});
+
+test('S5 rollback FIX1: a crash at phase staged preserves the kept build as previous-<to>, so keptPreviousBuild re-offers it', T, () => {
+  const c = rollbackInstall();
+  const keptTree = hashTree(c.staged);   // the kept build lives ONLY in staged at this point
+  stageRollback(c);                      // phase staged, before the helper moved anything
+  const sim = playBoard(c);
+  const r = win32apply.recoverAtBoot(c.journal, sim.deps());
+  assert.equal(r.action, 'not-started', JSON.stringify(r) + '\n' + c.log.join('\n'));
+  const keptDir = path.join(c.work, `previous-${OLD}`);
+  assert.equal(fs.existsSync(c.staged), false, 'staged was left orphaned rather than preserved');
+  assert.equal(fs.existsSync(keptDir), true, 'the kept build was not preserved as previous-<to>');
+  assert.deepEqual(hashTree(keptDir), keptTree, 'the preserved tree is exactly the kept build');
+  const kept = win32update.keptPreviousBuild(c.root);
+  assert.equal(kept && kept.version, OLD, 'keptPreviousBuild cannot re-offer the kept build after a crash');
+  assert.equal(readJson(c.journal).finished, true, 'the journal is finished');
+});
+
+test('S5 rollback FIX1: a crash at phase stopping also preserves the kept build', T, () => {
+  const c = rollbackInstall();
+  const keptTree = hashTree(c.staged);
+  stageRollback(c);
+  const j = readJson(c.journal); j.phase = 'stopping'; fs.writeFileSync(c.journal, JSON.stringify(j, null, 2) + '\n');
+  const sim = playBoard(c);
+  const r = win32apply.recoverAtBoot(c.journal, sim.deps());
+  assert.equal(r.action, 'not-started', JSON.stringify(r) + '\n' + c.log.join('\n'));
+  const keptDir = path.join(c.work, `previous-${OLD}`);
+  assert.deepEqual(hashTree(keptDir), keptTree, 'the kept build was not preserved from a stopping-phase crash');
+  assert.equal(win32update.keptPreviousBuild(c.root).version, OLD);
+});
+
+test('S5 rollback FIX1: a duplicate previous-<to> is not clobbered; the stray staged copy is dropped', T, () => {
+  const c = rollbackInstall();
+  stageRollback(c);
+  /* An equivalent kept copy already exists (e.g. a resumer beat this one). The preserve must keep it
+     and drop the duplicate staged, never overwrite. */
+  const keptDir = path.join(c.work, `previous-${OLD}`);
+  fs.mkdirSync(path.join(keptDir, 'app'), { recursive: true });
+  fs.writeFileSync(path.join(keptDir, 'sentinel'), 'the pre-existing kept copy');
+  const sim = playBoard(c);
+  win32apply.recoverAtBoot(c.journal, sim.deps());
+  assert.equal(fs.readFileSync(path.join(keptDir, 'sentinel'), 'utf8'), 'the pre-existing kept copy', 'the existing kept copy was clobbered');
+  assert.equal(fs.existsSync(c.staged), false, 'the duplicate staged copy was not dropped');
 });

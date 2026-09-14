@@ -125,6 +125,21 @@ test('beginRollback: a thrown entrypoint is caught, single-flight released, fail
   assert.match(update.lastAttempt().because, /boom/, 'a thrown entrypoint was not recorded');
 });
 
+test('FIX2: inFlightKind reports which operation holds the single-flight, and null when none does', async () => {
+  assert.equal(update.inFlightKind(), null, 'nothing running, so no operation');
+  update.setWindowsRollback(async () => ({ ok: true }));
+  update.beginRollback();
+  await tick();
+  assert.equal(update.inFlightKind(), 'rollback', 'a rollback holds the flag, so an Update press can be told the truth');
+  update.resetCache();
+  update.setPlatform('win32');
+  update.setInstalledRoot(() => BUNDLE);
+  update.setWindowsInstaller(async () => ({ ok: true }));
+  update.beginInstall({});
+  await tick();
+  assert.equal(update.inFlightKind(), 'update', 'a forward update holds the flag, so a Roll back press can be told the truth');
+});
+
 test('beginRollback: a helper that spawns then dies before stopping the board releases single-flight', async () => {
   /* The rollback reuses the forward path's detached-helper witness: on {ok:true} the flag is held for
      the helper to stop this board; if the journal never leaves absent/'staged' inside the witness

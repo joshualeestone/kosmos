@@ -8305,9 +8305,16 @@ const server = http.createServer((req, res) => {
       // second tab gets the same true answer without a second installer
       // racing the first through the stage-and-swap.
       /* The in-flight attempt is the one this second press joins; its
-         stamp rides back so a reattached overlay can see its verdict. */
+         stamp rides back so a reattached overlay can see its verdict.
+         🪟 S5 (#3017): tell the truth about WHAT is running. If a rollback holds the single-flight, an
+         Update press must not claim an update is under way -- report the actual operation instead. */
       const inflight = updates.lastAttempt();
-      sendJson(res, 200, { ok: true, updating: avail.version, already: true, startedAt: inflight ? inflight.startedAt : null });
+      const startedAt = inflight ? inflight.startedAt : null;
+      if (updates.inFlightKind() === 'rollback') {
+        sendJson(res, 200, { ok: true, already: true, operation: 'rollback', startedAt });
+        return;
+      }
+      sendJson(res, 200, { ok: true, updating: avail.version, already: true, operation: 'update', startedAt });
       return;
     }
     try { updates.beginInstall(); }
@@ -8344,8 +8351,15 @@ const server = http.createServer((req, res) => {
     const locationRefusal = updates.windowsLocationRefusal();
     if (locationRefusal) { sendJson(res, 409, { error: locationRefusal }); return; }
     if (updates.alreadyInstalling()) {
+      /* 🪟 S5 (#3017): honest `already` -- if a forward UPDATE holds the single-flight, do not claim a
+         rollback is under way (the board will come back on the newer build, not the previous one). */
       const inflight = updates.lastAttempt();
-      sendJson(res, 200, { ok: true, rollingBackTo: rollback.version, already: true, startedAt: inflight ? inflight.startedAt : null });
+      const startedAt = inflight ? inflight.startedAt : null;
+      if (updates.inFlightKind() === 'update') {
+        sendJson(res, 200, { ok: true, already: true, operation: 'update', startedAt });
+        return;
+      }
+      sendJson(res, 200, { ok: true, rollingBackTo: rollback.version, already: true, operation: 'rollback', startedAt });
       return;
     }
     try { updates.beginRollback(); }

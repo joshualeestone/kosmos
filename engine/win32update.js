@@ -1464,6 +1464,17 @@ async function rollbackToPrevious(opts) {
   const lockPath = path.join(work, LOCK_NAME);
   const staged = path.join(work, STAGED_DIRNAME);
   const spawnFn = typeof o.spawn === 'function' ? o.spawn : cp.spawn;
+  /* Never lose the kept build. Idempotent, so it composes with win32apply's own preserve (abandon and
+     the resumers move staged -> previous-<to> for a rollback journal): if the engine already preserved
+     it, staged is gone here and this no-ops; if a duplicate previous-<to> exists, the stray staged copy
+     is dropped rather than clobbering it. previous-<old> === previous-<to.version>, the same dest. */
+  const restoreKeptBuild = () => {
+    try {
+      if (!fs.existsSync(staged)) return;
+      if (fs.existsSync(kept.dir)) { fs.rmSync(staged, { recursive: true, force: true }); return; }
+      win32swap.renameWithRetry(staged, kept.dir);
+    } catch (e) { log(`could not restore the kept previous build to ${kept.dir}: ${firstLine(e)}`); }
+  };
 
   let lockText = null;
   let result = null;
@@ -1502,17 +1513,17 @@ async function rollbackToPrevious(opts) {
     if (lockText) { try { releaseLock(inWork(lockPath), lockText, log); } catch (e) { log(`could not remove the prepare lock: ${firstLine(e)}`); } }
   }
 
-  /* Never lose the kept build: any failure after the rename puts it back at previous-<old>. */
-  if (renamed && !result.ok) {
-    try { win32swap.renameWithRetry(staged, kept.dir); } catch (e) { log(`could not restore the kept previous build to ${kept.dir}: ${firstLine(e)}`); }
-  }
+  /* Any failure after the rename puts the kept build back at previous-<old> so keptPreviousBuild finds it. */
+  if (renamed && !result.ok) restoreKeptBuild();
   if (!result.ok) { log(`could not roll back: ${result.because}`); return result; }
 
   const started = startHelper(spawnFn, helperLaunch(anchorDir, script, APPLY_FLAG, journalAt), log);
   if (!started.ok) {
     const because = `the rollback helper could not be started (${started.because})`;
+    /* abandonStagedJournal finishes the staged rollback journal as not-started AND (via
+       finishWithoutChange) preserves staged -> previous-<to>; restoreKeptBuild is the idempotent backstop. */
     apply.abandonStagedJournal(journalAt, because, o.applySeams);
-    try { win32swap.renameWithRetry(staged, kept.dir); } catch (e) { log(`could not restore the kept previous build to ${kept.dir}: ${firstLine(e)}`); }
+    restoreKeptBuild();
     return { ok: false, because };
   }
   log(`started the rollback helper (pid ${started.pid}) to ${kept.version}; journal ${journalAt}`);

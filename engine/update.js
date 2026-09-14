@@ -537,6 +537,12 @@ function selfInstallRefusal(platform = process.platform) {
 }
 
 let installStarted = false;
+/* 🪟 S5 (#3017): which operation holds the single-flight -- 'update' or 'rollback' -- so the routes'
+   idempotent `already` answer can tell the truth about what is actually running (an Update press while
+   a rollback is in flight must not claim an update is under way, and vice versa). Read only while
+   installStarted is true, so a stale value after release is harmless and the next begin sets it fresh. */
+let inFlightKindVar = null;
+function inFlightKind() { return installStarted ? inFlightKindVar : null; }
 /* #553: the last install ATTEMPT this server saw end, so the page can say
    a true sentence instead of spinning. A failed install never kills this
    server, so the child's non-zero exit (or a spawn error) is observable
@@ -922,6 +928,7 @@ function beginWindowsInstall(opts) {
 function beginRollback(opts) {
   if (installStarted) return;
   installStarted = true;
+  inFlightKindVar = 'rollback';
   lastAttempt = { startedAt: new Date().toISOString(), endedAt: null, code: null, because: null, log: null };
   const owner = lastAttempt;
   const runRollback = windowsRollbackFn || ((o) => require('./win32update').rollbackToPrevious(o));
@@ -1007,6 +1014,7 @@ function beginInstall(opts) {
   // lifetime; the flag dies with the process the installer restarts.
   if (installStarted) return;
   installStarted = true;
+  inFlightKindVar = 'update';
   /* A fresh press starts a fresh record: the previous attempt's failure
      is history, not a verdict on this one. */
   lastAttempt = { startedAt: new Date().toISOString(), endedAt: null, code: null, because: null, log: null };
@@ -1128,7 +1136,7 @@ function setInstallRunner(f) { installRunner = f; }
 function setAutoPref(f) { autoPrefFn = f; }
 function setInstalledRoot(f) { installedRootFn = f; }
 function setFetcher(f) { fetcher = f; }
-function resetCache() { cache = emptyCache(); inFlight = null; installStarted = false; autoFailedAt = 0; lastAttempt = null; }
+function resetCache() { cache = emptyCache(); inFlight = null; installStarted = false; inFlightKindVar = null; autoFailedAt = 0; lastAttempt = null; }
 
 /**
  * #2934: has the build this box is RUNNING been published on prod?
@@ -1185,7 +1193,7 @@ module.exports = {
   available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
   pointerFor, pointerUrl, readManifest, updateChannel, releaseBase, manualOffer, // the per-platform check (win32-update-check)
   installOffer, // S4: the [Update] offer (installedRoot AND not a refused win32 location); one derivation
-  rollbackOffer, beginRollback, // S5 (#3017): the kept-previous-build offer, and the user-initiated rollback
+  rollbackOffer, beginRollback, inFlightKind, // S5 (#3017): the kept-previous-build offer, the user-initiated rollback, and which op holds single-flight
   windowsLocationRefusal, // S4: decision 5 -- the OneDrive/Program Files refusal sentence, or null
   updatePhase, // S4: the win32 update journal phase for the client, or null
   setBoardContext, // S4: server tells update.js its own {port, pid} at listen time

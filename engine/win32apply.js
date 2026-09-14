@@ -1073,14 +1073,45 @@ function cleanUpAfterFinish(ctx, removals) {
   }
 }
 
-/** What a rollback that left the tree whole leaves behind: nothing of the new build. Best effort. */
+/**
+ * S5: preserve the kept previous build across an interrupted or reversed rollback. A rollback's
+ * `staged` tree is the ONLY copy of the kept build (a forward update's staged is a re-downloadable
+ * download), so instead of leaving it orphaned or deleting it we move it back to
+ * previous-<to.version>, where win32update.keptPreviousBuild re-discovers it and the person can retry.
+ * Idempotent and crash-safe: `staged` already gone means an earlier run preserved it; an existing
+ * previous-<to.version> is an equivalent kept copy, so the duplicate staged tree is dropped rather than
+ * clobbering it. A rename that cannot be made is left for its caller's tidy/log (it stays staged, and
+ * the journal being finished, the next prepare would then reclaim it -- the accepted residual of a
+ * same-volume rename that fails).
+ */
+function moveStagedToKeptPrevious(ctx) {
+  const { j, log } = ctx;
+  const dest = path.join(j.work, PREVIOUS_PREFIX + j.to.version);
+  if (!exists(j.staged)) return;
+  if (exists(dest)) {
+    fs.rmSync(ctx.guard(j.staged), { recursive: true, force: true });
+    log(`the previous build was already kept at ${dest}; removed the duplicate staged copy`);
+    return;
+  }
+  win32swap.renameWithRetry(ctx.guard(j.staged), ctx.guard(dest));
+  log(`kept the previous build at ${dest} so the rollback can be retried`);
+}
+
+/** What a rollback that left the tree whole leaves behind: nothing of the new build, and -- for a
+    user-initiated rollback (S5) -- the kept previous build PRESERVED for a retry rather than deleted.
+    Best effort. */
 function cleanupAfterRollback(ctx) {
   const { j } = ctx;
-  cleanUpAfterFinish(ctx, [
+  const removals = [
     ['the safety copy of node.exe', () => fs.rmSync(ctx.guard(path.join(j.previous, ANCHORED_NODE_COPY_NAME)), { force: true })],
     ['the empty previous folder', () => { if (exists(j.previous)) fs.rmdirSync(ctx.guard(j.previous)); }],
-    ['the staged update', () => fs.rmSync(ctx.guard(j.staged), { recursive: true, force: true })],
-  ]);
+  ];
+  /* 🛑 S5: after a reversed rollback, `staged` holds the kept build (the only copy). Keep it as
+     previous-<to.version> for a retry instead of deleting it; a forward update's staged is safe to drop. */
+  removals.push(j.rollback
+    ? ['the kept previous build (preserved for retry)', () => moveStagedToKeptPrevious(ctx)]
+    : ['the staged update', () => fs.rmSync(ctx.guard(j.staged), { recursive: true, force: true })]);
+  cleanUpAfterFinish(ctx, removals);
 }
 
 function concludeRollback(ctx, boardBecause) {
@@ -1163,6 +1194,14 @@ function finishWithoutChange(ctx, because) {
   j.because = because;
   j.rolledBackFrom = j.phase;
   writeStatus(ctx, 'not-started', because);
+  /* 🛑 S5: an interrupted or refused rollback that never moved anything (UNCHANGED_PHASES) still has
+     the kept build living ONLY in `staged`. Move it back to previous-<to> so keptPreviousBuild re-offers
+     it and the person can retry -- a forward update leaves its (re-downloadable) staged download instead.
+     Best effort: a failure leaves it staged, and the journal being finished the next prepare reclaims it. */
+  if (j.rollback) {
+    try { moveStagedToKeptPrevious(ctx); }
+    catch (e) { if (stopsWriting(e)) throw e; ctx.log(`could not preserve the kept previous build (${describeError(e)}); it remains staged`); }
+  }
   j.finished = true;
   j.outcome = 'not-started';
   save(ctx);

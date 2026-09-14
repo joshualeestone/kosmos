@@ -331,6 +331,12 @@ test('one derivation: the status route, the check route and every card caller ca
     'the check route no longer carries them, so a press would paint "Up to date." over the poll\'s offer');
   assert.ok(SERVER.includes('updateRollback: updates.rollbackOffer(),'),
     '/api/status no longer carries the S5 rollback offer, so the Roll back button would never show');
+  /* FIX2 (honesty): each route's idempotent `already` branch reports the ACTUAL in-flight operation,
+     so an Update press does not claim a rollback is under way (or vice versa). */
+  assert.ok(SERVER.includes("if (updates.inFlightKind() === 'rollback')"),
+    'the /api/update already-branch does not check the in-flight operation direction');
+  assert.ok(SERVER.includes("if (updates.inFlightKind() === 'update')"),
+    'the /api/update/rollback already-branch does not check the in-flight operation direction');
   assert.ok(/process\.stdout\.write\(`Kosmos update check: channel=\$\{updates\.updateChannel\(\)\} pointer=\$\{updates\.pointerUrl\(\)\}/.test(SERVER),
     'the boot log no longer names the channel');
 
