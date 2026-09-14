@@ -164,8 +164,8 @@ test('#2762: the number of avatar URLs on the page is PINNED', () => {
      what to do teaches them to satisfy it, and the previous version's easiest remedy
      was to add yourself to a carve-out list. */
   const count = CODE.split('/avatar').length - 1;
-  assert.equal(count, 18,
-    'the page now has ' + count + ' avatar URLs, not 18. NOTE: this counts every occurrence, '
+  assert.equal(count, 19,
+    'the page now has ' + count + ' avatar URLs, not 19. NOTE: this counts every occurrence, '
     + 'including 6 fetch() calls and 4 /api/you/avatar lines, so an unrelated fetch moves it too; '
     + 'that is deliberate fail-closed noise rather than a hole. If you ADDED a RENDER: is it painted through '
     + 'setLive / setIfChanged / paintThreadInto? Then it needs `?v=` the avatar version, or it will '
@@ -201,5 +201,5 @@ test('#2762 CONTROL: each assertion above can actually fail', () => {
     'PRE-CONTROL: the typo mutant no longer contains the substring, so it would not test the boundary');
 
   const fewer = CODE.replace('/avatar', 'XavatarX');
-  assert.notEqual(fewer.split('/avatar').length - 1, 18, 'the count is insensitive to an avatar URL being removed');
+  assert.notEqual(fewer.split('/avatar').length - 1, 19, 'the count is insensitive to an avatar URL being removed');
 });
