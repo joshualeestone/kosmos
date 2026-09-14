@@ -35110,9 +35110,22 @@ async function autoHelloAfterRestart(name, report, saidText, manualText) {
    the dialog still being open AND still this agent, mirroring `say`'s own hidden-modal
    bail, so a late resolution never lands in a closed or switched-away dialog. The
    manualText is byte-identical to the line `say` already showed, so a timeout/failure
-   leaves today's behavior unchanged (no regression). No race with the floor render:
-   autoHelloAfterRestart must observe the restart gap before accepting ready, so its
-   earliest write is ~2 polls out, after the floor line has painted. */
+   leaves today's behavior unchanged (no regression).
+
+   ⚠️ #2716<-#2692 INTERACTION (found on the merge to current main): this write races
+   changeDialog's floor render. It only wins while the readiness wait's earliest accept
+   (>= 2 polls, since sawUnready needs a gap) lands AFTER the floor: 2 *
+   RESTART_READY_POLL_MS > RESTART_HOLD_MS. That HELD when RESTART_HOLD_MS was ~2s, but
+   #2692 raised it to Math.max(2000, K_LOADER_CYCLE_MS) = 4400 (one K-into-circle loop)
+   while RESTART_READY_POLL_MS stayed 2000, so 2*2000=4000 < 4400. In the fast-respawn
+   worst case the placed confirmation fires before the floor paints the manual line, the
+   `m.textContent === manualLine` guard below sees an unpainted line and stands down, and
+   only the manual line shows (benign: the hello still fired, no false claim). The source
+   invariant in render-autohello-switch-2716.js reds on exactly this. FIX (not yet done,
+   deliberately not blind-shipped on this Josh-tuned interstitial): let changeDialog's own
+   floor render paint the confirmation-or-manual line based on whether the hello was
+   placed, instead of racing it from here. In practice a Claude respawn usually exceeds
+   4400ms so the confirmation typically shows; the guard covers the fast case. */
 function autoHelloOnSwitchRestart(forAgent, shown, provName, manualLine) {
   const saidLine = 'Reactivated on ' + provName + ', and said hello to wake ' + shown + '.';
   autoHelloAfterRestart(forAgent,

@@ -165,8 +165,23 @@ function initStub() {
   // confirmation" reds here. Benign direction (never a false claim), but caught. ----
   const src = require('node:fs').readFileSync(path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html'), 'utf8');
   const num = (re) => { const m = src.match(re); return m ? Number(m[1]) : NaN; };
+  // Resolve RESTART_HOLD_MS's EFFECTIVE value. #2692 changed it from a literal to
+  // `Math.max(2000, K_LOADER_CYCLE_MS)` (one whole K-into-circle loop), so a bare
+  // `= (\d+)` parse now reads NaN and the invariant fails for the wrong reason. Read
+  // both forms: a literal, or Math.max(<lit>, <IDENT>) with IDENT resolved from source.
+  const holdValue = () => {
+    const lit = src.match(/RESTART_HOLD_MS\s*=\s*(\d+)\s*;/);
+    if (lit) return Number(lit[1]);
+    const mm = src.match(/RESTART_HOLD_MS\s*=\s*Math\.max\(\s*(\d+)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)/);
+    if (mm) {
+      const litArg = Number(mm[1]);
+      const idm = src.match(new RegExp(mm[2] + '\\s*=\\s*(\\d+)'));
+      return Number.isFinite(litArg) && idm ? Math.max(litArg, Number(idm[1])) : NaN;
+    }
+    return NaN;
+  };
   const poll = num(/RESTART_READY_POLL_MS\s*=\s*(\d+)/);
-  const hold = num(/RESTART_HOLD_MS\s*=\s*(\d+)/);
+  const hold = holdValue();
   check('no-race invariant holds: 2 * RESTART_READY_POLL_MS > RESTART_HOLD_MS',
     Number.isFinite(poll) && Number.isFinite(hold) && (2 * poll > hold), 'poll=' + poll + ' hold=' + hold);
 
