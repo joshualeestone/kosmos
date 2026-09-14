@@ -3399,6 +3399,30 @@ test('S5 rollback FIX1: a crash at phase stopping also preserves the kept build'
   assert.equal(win32update.keptPreviousBuild(c.root).version, OLD);
 });
 
+test('S5 rollback round2: a preserve rename that throws still FINISHES the journal and leaves staged for the next prepare to adopt', T, () => {
+  const c = rollbackInstall();
+  const keptTree = hashTree(c.staged);
+  stageRollback(c);
+  /* Fail ONLY the staged->previous move (not writeStatus's own renames), so finishWithoutChange's
+     try/catch swallows it and finishes anyway -- the finished-journal-plus-orphaned-staged state the
+     round-2 backstop (win32update.adoptOrphanedRollbackBuild) then recovers on the next prepare. */
+  const realRename = win32swap.renameWithRetry;
+  win32swap.renameWithRetry = (from, to) => {
+    if (path.resolve(String(from)) === path.resolve(c.staged)) throw Object.assign(new Error('EBUSY'), { code: 'EBUSY' });
+    return realRename(from, to);
+  };
+  let r;
+  try {
+    const sim = playBoard(c);
+    r = win32apply.recoverAtBoot(c.journal, sim.deps());
+  } finally { win32swap.renameWithRetry = realRename; }
+  assert.equal(r.action, 'not-started', JSON.stringify(r) + '\n' + c.log.join('\n'));
+  assert.equal(readJson(c.journal).finished, true, 'the journal must finish even though the preserve rename threw');
+  assert.equal(fs.existsSync(c.staged), true, 'staged is left in place (orphaned) for the next prepare to adopt');
+  assert.deepEqual(hashTree(c.staged), keptTree, 'the orphaned staged tree is still exactly the kept build');
+  assert.ok(c.log.some((l) => /could not preserve the kept previous build/.test(l)), 'the failed preserve was not logged');
+});
+
 test('S5 rollback FIX1: a duplicate previous-<to> is not clobbered; the stray staged copy is dropped', T, () => {
   const c = rollbackInstall();
   stageRollback(c);

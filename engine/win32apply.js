@@ -1074,15 +1074,22 @@ function cleanUpAfterFinish(ctx, removals) {
 }
 
 /**
- * S5: preserve the kept previous build across an interrupted or reversed rollback. A rollback's
- * `staged` tree is the ONLY copy of the kept build (a forward update's staged is a re-downloadable
- * download), so instead of leaving it orphaned or deleting it we move it back to
- * previous-<to.version>, where win32update.keptPreviousBuild re-discovers it and the person can retry.
- * Idempotent and crash-safe: `staged` already gone means an earlier run preserved it; an existing
- * previous-<to.version> is an equivalent kept copy, so the duplicate staged tree is dropped rather than
- * clobbering it. A rename that cannot be made is left for its caller's tidy/log (it stays staged, and
- * the journal being finished, the next prepare would then reclaim it -- the accepted residual of a
- * same-volume rename that fails).
+ * S5: preserve the kept previous build. A rollback's `staged` tree is the ONLY copy of the kept build
+ * (a forward update's staged is a re-downloadable download), so instead of leaving it orphaned or
+ * deleting it we move it back to previous-<to.version>, where win32update.keptPreviousBuild
+ * re-discovers it and the person can retry. Idempotent: `staged` already gone means an earlier run
+ * preserved it; an existing previous-<to.version> is an equivalent kept copy, so the duplicate staged
+ * tree is dropped rather than clobbering it.
+ *
+ * 🛑 THE ACTUAL GUARANTEE IS LAYERED, NOT "this call is crash-safe". finishWithoutChange calls this
+ * BEFORE it marks the journal finished (so a crash there re-runs it, and it is idempotent).
+ * cleanupAfterRollback calls it AFTER concludeRollback has already saved the journal finished, so a
+ * crash between that save and this rename -- or a rename that throws here on a held handle -- leaves
+ * `staged` orphaned beside a finished rollback journal. THAT window is covered by
+ * win32update.adoptOrphanedRollbackBuild, which the next prepare/rollback runs before it would delete
+ * `staged`: it re-homes such an orphan to previous-<to.version>. Net: the kept build is preserved on
+ * every finish path, and an orphaned staged from a finished rollback is adopted on the next operation,
+ * so it survives a crash at any point.
  */
 function moveStagedToKeptPrevious(ctx) {
   const { j, log } = ctx;

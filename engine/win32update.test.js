@@ -2016,3 +2016,54 @@ test('S5: keptPreviousBuild is host-independent -- a realpath that throws does n
     assert.equal(kept && kept.version, PREV, 'the kept build is still found when realpath cannot resolve');
   } finally { fs.realpathSync.native = realNative; }
 });
+
+/* ─── S5 round-2 backstop: adopt an orphaned rollback build a crash left in staged ─────────── */
+
+/** The on-disk state a crash between concludeRollback's save(finished) and its preserve rename leaves
+    (identical to the state a preserve rename that threw in finishWithoutChange leaves): a FINISHED
+    rollback journal naming to.version, and a COMPLETE build of that version orphaned in staged. */
+function orphanedRollbackCase() {
+  const c = freshCase();                                   // ROOT at 0.6.55
+  c.staged = path.join(c.work, win32update.STAGED_DIRNAME);
+  writeDirBuild(c.staged, PREV);                           // the kept 0.6.50 build, stranded in staged
+  const apply = require('./win32apply');
+  apply.writeRollbackJournal(path.join(c.anchor, JOURNAL_NAME), {
+    root: c.root, anchor: c.anchor, fromVersion: INSTALLED, fromIdentity: `${INSTALLED}@default`,
+    to: { version: PREV, identity: `${PREV}@default` }, runtimeChanged: true, board: { pid: null, port: 16180 }, now: Date.now(),
+  });
+  const disk = readJson(path.join(c.anchor, JOURNAL_NAME)); // mark it finished, as concludeRollback's save would
+  disk.finished = true; disk.outcome = 'rolled-back';
+  fs.writeFileSync(path.join(c.anchor, JOURNAL_NAME), JSON.stringify(disk, null, 2) + '\n');
+  c.journalAt = path.join(c.anchor, JOURNAL_NAME);
+  return c;
+}
+
+test('S5 round2: a finished rollback journal + an orphaned staged build is ADOPTED, not deleted, on the next prepare', async () => {
+  const c = orphanedRollbackCase();
+  /* prepare adopts before it reaches the network; the download then fails, but the kept build is safe. */
+  const r = await win32update.prepare(prepareOpts(c, null, { fetch: async () => { throw new Error('offline'); } }));
+  assert.equal(r.ok, false, JSON.stringify(r));
+  const dest = path.join(c.work, `previous-${PREV}`);
+  assert.equal(fs.existsSync(dest), true, 'the orphaned rollback build was deleted instead of adopted');
+  assert.equal(fs.existsSync(c.staged), false, 'staged was left behind rather than adopted');
+  assert.equal((readJson(path.join(dest, 'app', 'package.json')) || {}).version, PREV, 'the adopted build is not the kept build');
+  const kept = win32update.keptPreviousBuild(c.root);
+  assert.equal(kept && kept.version, PREV, 'keptPreviousBuild does not re-offer the adopted build, so the button stays gone');
+});
+
+test('S5 round2: a FINISHED FORWARD journal never triggers adoption (its staged is a re-downloadable download)', async () => {
+  const c = freshCase();
+  c.staged = path.join(c.work, win32update.STAGED_DIRNAME);
+  writeDirBuild(c.staged, PREV);
+  const apply = require('./win32apply');
+  /* A forward staged journal, marked finished -- NOT a rollback. */
+  apply.writeStagedJournal(path.join(c.anchor, JOURNAL_NAME), {
+    root: c.root, anchor: c.anchor, fromVersion: INSTALLED, fromIdentity: `${INSTALLED}@default`,
+    prepared: { version: NEXT, expectedIdentity: `${NEXT}@default`, sha256: 'a'.repeat(64), runtimeChanged: true, stagedDir: c.staged },
+    board: { pid: null, port: 16180 }, now: Date.now(),
+  });
+  const disk = readJson(path.join(c.anchor, JOURNAL_NAME)); disk.finished = true; disk.outcome = 'updated';
+  fs.writeFileSync(path.join(c.anchor, JOURNAL_NAME), JSON.stringify(disk, null, 2) + '\n');
+  await win32update.prepare(prepareOpts(c, null, { fetch: async () => { throw new Error('offline'); } }));
+  assert.equal(fs.existsSync(path.join(c.work, `previous-${PREV}`)), false, 'a forward journal must not adopt staged as a kept build');
+});

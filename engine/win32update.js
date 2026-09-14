@@ -1178,8 +1178,11 @@ async function prepare(opts) {
        first look and the lock is an update whose helper owns WORK. */
     const unfinished = journalRefusal(env, home);
     if (unfinished) { workBelongsToAnotherUpdate = true; refuse(unfinished); }
-    /* Whatever an earlier attempt left. Both are WORK's own. */
+    /* Whatever an earlier attempt left. Both are WORK's own. But FIRST rescue an orphaned rollback
+       build a crash left in staged beside a finished rollback journal (adoptOrphanedRollbackBuild),
+       so this delete does not lose the only copy of a kept build. */
     fs.rmSync(inWork(ctx.part), { force: true });
+    adoptOrphanedRollbackBuild(root, env, home, ctx.staged, ctx.inWork, ctx.runStagedNode, log);
     fs.rmSync(inWork(ctx.staged), { recursive: true, force: true });
 
     const latest = await readOffer(ctx);
@@ -1399,6 +1402,41 @@ function keptBuildRefusal(dir, version, root, runNode) {
 const NO_KEPT_PREVIOUS = 'there is no earlier Kosmos kept to roll back to. A rollback restores the build the last in-app update replaced, and none is on hand';
 
 /**
+ * S5 crash-window backstop: adopt an orphaned rollback `staged` tree before it is deleted. A crash
+ * between concludeRollback's save(finished) and its preserve rename -- or a preserve rename that threw
+ * on a held handle in finishWithoutChange -- can leave a FINISHED rollback journal beside a `staged`
+ * tree that is the ONLY copy of the kept build; the resumers bail on a finished journal, so no one
+ * recovers it, and this deletion would lose it permanently and vanish the Roll back button. So before
+ * any prepare/rollback deletes `staged`, if a finished rollback journal names a `to.version` and
+ * `staged` is a COMPLETE build OF exactly that version, move it to previous-<to.version> (dup-safe: an
+ * existing previous-<to> means an equivalent kept copy, so the stray staged is dropped) instead of
+ * deleting it. keptPreviousBuild then re-discovers it and the button returns. Best-effort; the common
+ * case (no journal, or a finished FORWARD journal) returns before any build validation, so no node runs.
+ */
+function adoptOrphanedRollbackBuild(root, env, home, staged, inWork, runNode, log) {
+  const apply = require('./win32apply'); // lazy: win32apply requires this module
+  let anchorDir;
+  try { anchorDir = win32anchor.anchorDir(process.platform, home, env); } catch { return; }
+  const read = apply.readJournal(apply.journalPathFor(anchorDir));
+  if (read.state !== 'finished' || !read.journal || read.journal.rollback !== true) return;
+  const toVersion = read.journal.to && read.journal.to.version;
+  if (!toVersion) return;
+  /* The orphan must be a WHOLE build OF exactly the version the finished rollback was restoring. */
+  if ((readJson(path.join(staged, 'app', 'package.json')) || {}).version !== toVersion) return;
+  if (keptBuildRefusal(staged, toVersion, root, runNode)) return;
+  const dest = path.join(path.dirname(staged), apply.PREVIOUS_PREFIX + toVersion);
+  try {
+    if (fs.existsSync(dest)) {
+      fs.rmSync(inWork(staged), { recursive: true, force: true });
+      log(`an orphaned rollback build was already kept at ${dest}; dropped the duplicate staged copy`);
+      return;
+    }
+    require('./win32swap').renameWithRetry(inWork(staged), inWork(dest));
+    log(`adopted an orphaned rollback build as ${dest} so the rollback can be retried`);
+  } catch (e) { log(`could not adopt the orphaned rollback build (${firstLine(e)}); it will be cleared`); }
+}
+
+/**
  * S5: roll THIS Kosmos back to the kept previous build, the person's own choice. It reuses the entire
  * apply/rollback helper (engine/win32apply.js) by staging the kept build as if it were an update: it
  * renames `<WORK>\previous-<old>` to `<WORK>\staged`, writes a journal marked `rollback: true` whose
@@ -1487,8 +1525,10 @@ async function rollbackToPrevious(opts) {
     const unfinished = journalRefusal(env, home);
     if (unfinished) { result = { ok: false, because: unfinished }; }
     else {
-      /* Clear whatever a past attempt left in WORK's own scratch (never the kept previous folders). */
+      /* Clear whatever a past attempt left in WORK's own scratch (never the kept previous folders).
+         FIRST adopt an orphaned rollback build a crash left in staged, so this delete cannot lose it. */
       fs.rmSync(inWork(path.join(work, DOWNLOAD_PART_NAME)), { force: true });
+      adoptOrphanedRollbackBuild(root, env, home, staged, inWork, o.runStagedNode, log);
       fs.rmSync(inWork(staged), { recursive: true, force: true });
       /* One atomic same-volume rename makes the kept build fit the journal's derived `staged` path. */
       win32swap.renameWithRetry(inWork(kept.dir), inWork(staged));
