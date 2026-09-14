@@ -128,6 +128,23 @@ function chk(ok, label, extra) {
           `[${theme}] click ${k}: exactly that pill is on and aria-current`, JSON.stringify(pill));
         // Focus lands on the group's FIRST section, which is the pill's own (grp[0] === k here).
         chk(pill.focus === grp[0], `[${theme}] click ${k}: focus moved into the section`, String(pill.focus));
+        if (k === 'model') {
+          // #3045: the pill is now .on, which is font-weight 600 (wider than the base 500) --
+          // the widest render and the state the user is in on this section, so measure the fit
+          // HERE, not at landing. oneLine: height matches a single-line pill (catches a word
+          // wrap to two lines, the shipped defect). noOverflow: scrollWidth within clientWidth
+          // -- a forward guard that a future longer label or narrower column, staying one line
+          // under nowrap, would still be caught overrunning the 176px column rather than hiding.
+          const fit = await page.evaluate(() => {
+            const m = document.querySelector('#d-nav button[data-go="model"]');
+            const ih = document.querySelector('#d-nav button[data-go="instr"]').getBoundingClientRect().height;
+            const mh = m.getBoundingClientRect().height;
+            return { model: Math.round(mh), instr: Math.round(ih), weight: getComputedStyle(m).fontWeight,
+              scrollW: m.scrollWidth, clientW: m.clientWidth,
+              oneLine: Math.abs(mh - ih) <= 2, noOverflow: m.scrollWidth <= m.clientWidth };
+          });
+          chk(fit.oneLine && fit.noOverflow, `[${theme}] #3045 the active (bold) "Model and Memory" pill is one line and not overflowing the column`, JSON.stringify(fit));
+        }
         await page.screenshot({ path: path.join(OUT, `${theme}-${k}.png`), fullPage: false });
       }
 
