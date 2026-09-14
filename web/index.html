@@ -2239,7 +2239,7 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    nav (#s-nav), so keying on #d-nav makes the scope structural rather than relying on
    data-go="model" being unique. The button is width:100% with centered text, so the reduced
    side padding is invisible (same box, same centering) and no other nav button changes. */
-#d-nav button[data-go="model"] { white-space: nowrap; padding-left: 18px; padding-right: 18px; }
+#d-nav button[data-go="model"] { white-space: nowrap; padding-left: 18px; padding-right: 18px; overflow: hidden; text-overflow: ellipsis; }
 .snav button.on { background: var(--gold); border-color: var(--gold); color: #14161a; font-weight: 600; }
 .snav button:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .snav .sep { height: 1px; background: var(--k-rule); margin: 8px 14px; }
