@@ -23,6 +23,7 @@ const update = require('./update');
 const platform = require('./platform');
 const win32anchor = require('./win32anchor');
 const win32apply = require('./win32apply');
+const win32update = require('./win32update');
 const { version: RUNNING } = require('../package.json');
 
 const ARCH = process.arch;
@@ -131,6 +132,54 @@ test('the offer split: a normal bundle offers in-app, a refused location offers 
   assert.equal(update.installOffer(), null, 'a OneDrive bundle offered an [Update] that would only fail');
   assert.deepEqual(update.manualOffer(), { version: NEWER, download: `https://installkosmos.com/dist/kosmos-${NEWER}-win-${ARCH}.zip` },
     'a OneDrive bundle did not fall back to the manual download');
+});
+
+/* ── the location rule is HOST-INDEPENDENT (Finding: macOS CI red) ──────────────────────────── */
+
+test('unusualLocationRefusal detects a C:\\ OneDrive/Program Files path on ANY host (path.win32)', () => {
+  /* 🛑 THE macOS CI RED. The rule read host `path`: on the POSIX CI box path.isAbsolute("C:\\...")
+     is false, so the dir was skipped and no refusal fired -- it offered [Update] instead of the
+     manual download. Now it analyzes with path.win32, so a C:\ OneDrive/Program Files path is caught
+     on any host. This test is ungated ON PURPOSE: it is the reproduction that reds on macOS CI before
+     the fix and passes after, and it runs identically here. */
+  const base = 'https://updates.example.test/dist';
+  const od = win32update.unusualLocationRefusal('C:\\Users\\me\\OneDrive\\Kosmos', { OneDrive: 'C:\\Users\\me\\OneDrive' }, base);
+  assert.ok(od && /is inside OneDrive/.test(od), 'a C:\\ OneDrive path was not refused (host path leaked in)');
+  const pf = win32update.unusualLocationRefusal('C:\\Program Files\\Kosmos', { ProgramFiles: 'C:\\Program Files' }, base);
+  assert.ok(pf && /is inside Program Files/.test(pf), 'a C:\\ Program Files path was not refused');
+  /* A C:\ bundle NOT inside the named dir is not refused (the inside-check really discriminates). */
+  assert.equal(win32update.unusualLocationRefusal('C:\\Users\\me\\Kosmos', { OneDrive: 'C:\\Users\\me\\OneDrive' }, base), null,
+    'a normal C:\\ bundle was refused just because OneDrive is set');
+  /* The switch still turns it off. */
+  assert.equal(win32update.unusualLocationRefusal('C:\\Users\\me\\OneDrive\\Kosmos', { OneDrive: 'C:\\Users\\me\\OneDrive' }, base, 'allow'), null);
+});
+
+test('unusualLocationRefusal still refuses when realpath cannot resolve (the POSIX-host / torn-FS condition)', () => {
+  /* Simulate a host that cannot resolve a C:\ path (a POSIX CI box, an ENOENT, a permission error):
+     the realpath seam throws. The as-spelled path.win32 check must still fire -- realpath is a
+     best-effort ADDITIONAL catch and must never turn a refusal into a non-refusal. */
+  const base = 'https://updates.example.test/dist';
+  const throwing = () => { throw new Error('this host cannot resolve a C: path'); };
+  const od = win32update.unusualLocationRefusal('C:\\Users\\me\\OneDrive\\Kosmos', { OneDrive: 'C:\\Users\\me\\OneDrive' }, base, undefined, throwing);
+  assert.ok(od && /is inside OneDrive/.test(od), 'a throwing realpath suppressed the OneDrive refusal');
+  const pf = win32update.unusualLocationRefusal('C:\\Program Files\\Kosmos', { ProgramFiles: 'C:\\Program Files' }, base, undefined, throwing);
+  assert.ok(pf && /is inside Program Files/.test(pf), 'a throwing realpath suppressed the Program Files refusal');
+});
+
+test('unusualLocationRefusal: real realpath still catches a junction that hides OneDrive (win32 FS)', WIN_ONLY, () => {
+  /* The junction/subst/8.3 catch the best-effort realpath adds on a real win32 FS: the bundle is
+     reached through a junction whose spelling is NOT under OneDrive, but resolves to inside it. */
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-junc-'));
+  const realOneDrive = path.join(home, 'RealOneDrive');
+  fs.mkdirSync(path.join(realOneDrive, 'Kosmos'), { recursive: true });
+  const link = path.join(home, 'ODlink');
+  try { fs.symlinkSync(realOneDrive, link, 'junction'); } catch (e) { return void assert.ok(true, 'junctions unavailable here: ' + e.code); }
+  const root = path.join(link, 'Kosmos');   // spelled outside OneDrive, resolves inside it
+  const base = 'https://updates.example.test/dist';
+  assert.equal(win32update.unusualLocationRefusal(root, { OneDrive: realOneDrive }, base, undefined, () => { throw new Error('no resolve'); }), null,
+    'without realpath the junction spelling is not seen as inside OneDrive (the as-spelled check alone cannot)');
+  const caught = win32update.unusualLocationRefusal(root, { OneDrive: realOneDrive }, base);   // real realpath resolves the junction
+  assert.ok(caught && /is inside OneDrive/.test(caught), 'the real realpath did not catch the junction into OneDrive');
 });
 
 /* ── beginInstall routes win32 to win32update.begin ─────────────────────────────────────────── */

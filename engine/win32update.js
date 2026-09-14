@@ -325,20 +325,55 @@ function protectedFolders(env, home) {
 
 let preparing = false;
 
+/** Is `child` the folder `parent`, or inside it, read with WIN32 semantics on ANY host? OneDrive and
+    Program Files are always `C:\...` paths, so the as-spelled inside-check must use path.win32 --
+    host `path` is POSIX on the macOS CI box, where `path.isAbsolute('C:\\...')` is false and the
+    check silently never fires. */
+function insideOrEqualWin32(child, parent) {
+  const w = path.win32;
+  const rel = w.relative(w.resolve(parent), w.resolve(child));
+  return rel === '' || !(rel === '..' || rel.startsWith('..' + w.sep) || w.isAbsolute(rel));
+}
+/**
+ * Where a win32 path really is -- junctions, `subst` drives and 8.3 short spellings resolved by the
+ * OS -- joined with path.win32 so a `C:\...` path is analyzed as win32 on any host. `resolveReal`
+ * (default fs.realpathSync.native) is a seam so a test can simulate a host that cannot resolve a
+ * `C:\` path. 🛑 BEST EFFORT: a throw / ENOENT / a POSIX host that cannot resolve a `C:\` path walks
+ * up and finally falls back to the as-spelled win32-resolved path, so realpath only ever ADDS a
+ * junction/8.3 catch on a real win32 FS -- it can NEVER turn a refusal into a non-refusal.
+ */
+function realPathOfWin32(target, resolveReal) {
+  const w = path.win32;
+  const real = typeof resolveReal === 'function' ? resolveReal : fs.realpathSync.native;
+  let existing = w.resolve(target);
+  const rest = [];
+  for (;;) {
+    try { return w.join(real(existing), ...rest); } catch { /* go up */ }
+    const parent = w.dirname(existing);
+    if (parent === existing) return w.resolve(target);
+    rest.unshift(w.basename(existing));
+    existing = parent;
+  }
+}
 /**
  * B0's unusual-location rule (UNUSUAL_LOCATION_POLICY), as a sentence, or null. Compared as spelled
- * and as resolved, like the protected folders. `policy` defaults to the rule's one switch.
+ * AND as resolved, both with WIN32 semantics so the detection is host-independent (it must fire on
+ * the POSIX macOS CI host too, not just a real win32 board). `policy` defaults to the rule's one
+ * switch; `resolveReal` is the realpath seam (best-effort; see realPathOfWin32).
  */
-function unusualLocationRefusal(root, env, base, policy) {
+function unusualLocationRefusal(root, env, base, policy, resolveReal) {
   if ((policy || UNUSUAL_LOCATION_POLICY) !== 'refuse') return null;
-  const realRoot = realPathOf(root);
+  const w = path.win32;
+  const realRoot = realPathOfWin32(root, resolveReal);
   let site = String(base || '');
   try { site = new URL(site).host; } catch { /* keep what was given */ }
   for (const [label, keys] of [['OneDrive', ONEDRIVE_ENV_KEYS], ['Program Files', PROGRAM_FILES_ENV_KEYS]]) {
     for (const key of keys) {
       const dir = env && env[key];
-      if (typeof dir !== 'string' || !path.isAbsolute(dir)) continue;
-      if (insideOrEqual(root, dir) || insideOrEqual(realRoot, realPathOf(dir))) {
+      if (typeof dir !== 'string' || !w.isAbsolute(dir)) continue;
+      /* As-spelled (win32) fires on any host; the resolved forms are the additional junction/8.3
+         catch on a real win32 FS, OR'd so they can only add matches, never suppress the as-spelled one. */
+      if (insideOrEqualWin32(root, dir) || insideOrEqualWin32(realRoot, realPathOfWin32(dir, resolveReal))) {
         return `${root} is inside ${label} (${dir}), where Kosmos does not update itself. Download the new version from ${site || 'the Kosmos website'}, unpack it over your Kosmos folder, then double-click Kosmos.exe`;
       }
     }
