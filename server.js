@@ -7435,7 +7435,12 @@ const server = http.createServer((req, res) => {
   }
 
   /**
-   * Point an agent at a different Claude account.
+   * Point an agent at a different account of its OWN provider: a Claude agent at a
+   * different Claude account, a codex agent at a different OpenAI (CODEX_HOME) account.
+   * `create.setAccount` reads the agent's runner and branches to `setCodexAccount` for a
+   * codex job (#2338), so this one handler serves both; the `isCodexMove` branch below
+   * words the success sentence honestly for each (Claude history is shared and travels;
+   * codex chat lives per-CODEX_HOME and stays with the old account).
    *
    * 🛑 THE SAME TWO WRITES AS THE MODEL ROUTE, and the second is not optional:
    * launchd reads the startup file when the job is bootstrapped, so without the

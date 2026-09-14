@@ -166,6 +166,10 @@ const OPENAI_ROWS = [
       problems.push('the signed-out-default codex agent is not offered its usable named home as a destination. '
         + 'got: ' + JSON.stringify(codexSignedOutDefault.options));
     }
+    if (!/Pick an account above and press Move/.test(codexSignedOutDefault.text)) {
+      problems.push('the signed-out-default codex agent shows no explanatory message directing the recovery move, '
+        + 'so a person sees a bare "Move to..." with no indication anything is wrong. got: ' + JSON.stringify(codexSignedOutDefault.text));
+    }
   }
 
   if (problems.length) {

@@ -84,6 +84,18 @@ test('#1488: an OpenAI account marked offerable:false is NOT offered as a move d
   assert.ok(w.movable.some((x) => x.dir === pinned.dir), 'the offerable home went missing from movable');
 });
 
+test('#1492: a signed-out OpenAI account (connection.state === "none") is NOT offered as a move destination', () => {
+  const world = worldFn();
+  // A listed OpenAI row can still be signed out (rowFor needs only a readable identity),
+  // and moving an agent onto a signed-out home would strand it. Mirror the sibling picker.
+  const good = { provider: 'openai', dir: '/Users/x/.codex', isDefault: true, name: 'main', connection: { state: 'connected' } };
+  const dead = { provider: 'openai', dir: '/Users/x/.codex-dead', isDefault: false, name: 'dead', connection: { state: 'none' } };
+  const w = world({ runner: 'codex', account: { dir: good.dir } }, [good, dead]);
+  assert.ok(!w.movable.some((x) => x.dir === dead.dir),
+    'a signed-out (state:none) OpenAI account was offered as a destination, which would strand the agent (#1492)');
+  assert.ok(w.movable.some((x) => x.dir === good.dir), 'the signed-in account went missing from movable');
+});
+
 test('#2338/#1492: a default codex agent whose default home is signed out still has a movable named home', () => {
   const world = worldFn();
   // A signed-out default home does not read, so openaiaccounts.list() omits it (no

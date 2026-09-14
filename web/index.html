@@ -30998,14 +30998,21 @@ function acctMoveWorld(a, accounts) {
   const isCodex = !!(a && a.runner === 'codex');
   const isOpenaiRow = (x) => !!(x && x.provider === 'openai');
   const acct = a && a.account;
-  /* #1488: an OpenAI row is only a valid MOVE destination when `offerable !== false`.
-     When `AGENT_WORKFORCE_CODEX_HOME` pins one home, `/api/accounts` (server.js) marks
-     every OTHER OpenAI row `offerable:false` because the engine collapses to that one
-     home, so offering them would be the "an option that always fails is worse than one
-     that is not there" anti-pattern the sibling create/switch OpenAI picker already
-     filters against. The Claude branch's `memoryShared` is its own equivalent gate. */
+  /* An OpenAI row is only a valid MOVE destination when it is BOTH offerable and
+     signed in -- the same two gates the sibling create/switch OpenAI picker applies
+     (`fillSwitchAccounts`), for the same "an option that always fails is worse than one
+     that is not there" reason this file invokes throughout:
+       - #1488 `offerable !== false`: under an `AGENT_WORKFORCE_CODEX_HOME` override,
+         `/api/accounts` marks every OTHER OpenAI row `offerable:false` (the engine has
+         collapsed to one home), so those are not real destinations.
+       - `connection.state !== 'none'`: a listed row can still be signed OUT/rejected
+         (`rowFor` needs only a READABLE identity, not a working one), and moving an
+         agent onto a signed-out home would strand it -- the #1492 failure class, applied
+         to the DESTINATION. `!x.connection` keeps a row whose live state we never read
+         (matches the sibling, and does not empty the menu against an older server).
+     The Claude branch's `memoryShared` is its own equivalent gate. */
   const movable = isCodex
-    ? rows.filter((x) => isOpenaiRow(x) && x.offerable !== false)
+    ? rows.filter((x) => isOpenaiRow(x) && (!x.connection || x.connection.state !== 'none') && x.offerable !== false)
     : rows.filter((x) => x && x.memoryShared);
   const currentDir = isCodex
     ? ((acct && acct.dir) || ((movable.find((x) => x.isDefault) || {}).dir) || null)
@@ -31222,6 +31229,15 @@ async function paintAccountPicker(a) {
        the very not-true claim this branch exists to avoid. Same no-promise phrasing
        as the board-summary "We could not check your accounts just now." */
     msg.textContent = 'We could not check just now whether the account this agent runs on is signed in.';
+  } else if (msg && !msg.textContent && world.isCodex && !currentDir) {
+    /* #2338/#1492: the picker is LIVE (there are movable OpenAI accounts, so `ours` is
+       true) but we could not resolve the account this agent currently runs on -- a
+       default codex agent whose default home is signed out drops out of the account
+       list, leaving `currentDir`/`acctLive` null, so none of the branches above fire.
+       Without this, the person would see a bare "Move to..." with no explanation. Say
+       what is true and point at the move -- the codex analogue of the signed-out
+       recovery the Claude path surfaces above. */
+    msg.textContent = 'We could not read the account this agent runs on. Pick an account above and press Move.';
   }
   /* #1373: ACCOUNTS is the switch picker's source too, and it is filled here.
      Without this call the picker stays hidden until the provider dropdown is
