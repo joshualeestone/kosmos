@@ -503,15 +503,12 @@ test('MAC UNCHANGED: every static Mac string this branch keyed or hid still read
     /<span class="s3-title">Energy<\/span>/,
     /<span class="s3-mtxt">Kosmos<small>Control your computer<\/small><\/span>/,
     /<h2>Kosmos needs your permission<\/h2>/,
-    // #2910 split the single "in your folders" ask into six folder-specific asks
-    // (Documents/Downloads/Desktop x two apps); #2685 then relabelled the file-access
-    // group from "Terminal" to "tmux" (the bundled tmux is the process macOS holds
-    // responsible for agent FILE access, so that is the name on the real prompts). This
-    // pins the three shipped tmux folder-access strings. The Kosmos group is asserted by
-    // the perApp coverage in render-firstrun-access-onebox.js.
-    /<p class="s2-say">"tmux" would like to access files in your Documents folder\.<\/p>/,
-    /<p class="s2-say">"tmux" would like to access files in your Downloads folder\.<\/p>/,
-    /<p class="s2-say">"tmux" would like to access files in your Desktop folder\.<\/p>/,
+    // #3031 (Josh 2026-09-14): the six folder-specific asks collapsed to two previews,
+    // one per app (Kosmos + tmux), each a single "<app> would like to access files." prompt
+    // (no per-folder lines, no group labels, no group micro-note). Pin both shipped strings;
+    // the two-preview structure is asserted by render-firstrun-access-onebox.js.
+    /<p class="s2-say">"Kosmos" would like to access files\.<\/p>/,
+    /<p class="s2-say">"tmux" would like to access files\.<\/p>/,
     /<h2>Random notifications may appear<\/h2>/,
     /"bash" can run in the background\. You can manage background activity in Login Items &amp; Extensions\./,
     /<h2>Kosmos is installed and configured\.<\/h2>/,
