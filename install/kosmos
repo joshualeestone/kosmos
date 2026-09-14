@@ -632,8 +632,11 @@ cmd_start() {
   # address the new build wants), reclaim it: kill it and start ours over it, no manual
   # step. A FOREIGN account's process (shared Mac, wrapped per-uid ports) or a same-uid
   # NON-Kosmos app is left untouched with a clear message -- killing it would take down
-  # someone else's session or an unrelated app. lsof-gated; if lsof cannot resolve the
-  # owner the block is skipped and the safe stranger/running-pid guards below still fire.
+  # someone else's session or an unrelated app. lsof-gated: when port_has_listener is
+  # false (no colliding listener, or lsof unavailable) this whole block is skipped and the
+  # stranger/running-pid guards below fire. When the port IS held but ownership cannot be
+  # resolved (empty uid), the block declines to kill and dies with the generic guard here
+  # rather than falling through -- safe either way, never a kill on an unidentified owner.
   if port_has_listener; then
     local _own _lpid _luid _lkos _w
     _own="$(port_listener_owner)" || _own=""
@@ -656,6 +659,11 @@ cmd_start() {
       fi
       # Re-allow our own start below (undo the marker we set for the kill window), whether
       # or not the port freed -- a failed reclaim must not leave the board wedged off.
+      # Between this clear and the start branch below (a few local guard checks, well under
+      # the launchd ThrottleInterval of 10s -- see setup.sh) a supervised job's PathState
+      # KeepAlive could in principle relaunch board-run on the now-free port; that is
+      # benign and self-healing -- the start below (kickstart -k, or nohup) brings up the
+      # current build regardless, and the token bind is race-safe (a bind-loser rejects).
       rm -f "$STOP_MARKER" 2>/dev/null || true
       if port_has_listener; then
         die "Could not free port $PORT: your stale Kosmos (process $_lpid) did not exit. Run 'kosmos stop', or reboot, then start again."
