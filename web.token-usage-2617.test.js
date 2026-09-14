@@ -172,6 +172,17 @@ test('#2840: a two-model donut where one model has zero tokens is safe (no NaN, 
   assert.ok(svg.includes('total tokens'), 'the center still names the total');
 });
 
+test('#2840: a multi-slice donut draws real arcs with the correct large-arc flag per slice', () => {
+  const two = [{ name: 'A', tok: 60 }, { name: 'B', tok: 40 }];
+  const svg = U.usageDonutSvg(two, 100);
+  assert.ok(!/NaN/.test(svg), 'no NaN in the arc coordinates');
+  assert.equal((svg.match(/<path /g) || []).length, 2, 'two nonzero slices -> two arc paths (no full-ring circle)');
+  assert.equal((svg.match(/<circle /g) || []).length, 0, 'neither slice is a full ring');
+  // path form: "A 80 80 0 <big> 1" -- the >50% slice sets the large-arc flag, the <50% does not.
+  assert.match(svg, /A 80 80 0 1 1 /, 'the >50% slice uses the large-arc flag (1)');
+  assert.match(svg, /A 80 80 0 0 1 /, 'the <50% slice uses the small-arc flag (0)');
+});
+
 test('#2840: usageGrandTotal is the single blended-total source (hero, charts4, table, donut agree)', () => {
   const totals = U.usageTotals(FIXTURE);
   assert.equal(U.usageGrandTotal(totals), EXPECT.total, 'grand total = sum of the four classes');

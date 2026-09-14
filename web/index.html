@@ -2069,13 +2069,17 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 .tv-heq { display: grid; grid-template-columns: 1fr auto 1fr; align-items: stretch; gap: clamp(8px,2vw,20px); }
 .tv-fbox, .tv-sbox { background: var(--k-bg); border: 1px solid var(--k-rule); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
 .tv-fig { flex: 1; display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; line-height: .95; letter-spacing: -.03em; text-align: center; color: var(--k-ink); }
-.tv-fbox .tv-fig { font-size: clamp(26px,8vw,80px); padding: clamp(18px,4.5vw,34px) 10px; }
+/* Figure sizes scale with the CONTAINER (cqi), not the viewport: the settings column
+   is fixed at ~544px on desktop, so a vw clamp would size the number to the whole screen
+   and a production-scale headline ($135.0M / 150.0B) would overflow its box and be clipped
+   by the overflow:hidden above. cqi tracks the column that actually bounds the text. */
+.tv-fbox .tv-fig { font-size: clamp(26px,8cqi,80px); padding: clamp(18px,4.5vw,34px) 10px; }
 .tv-fbox.gold .tv-fig { color: var(--gold); }
 .tv-fbox.green .tv-fig { color: var(--ok, #1f7a4d); }
 .tv-flabel { color: var(--k-ink-2); font: 600 clamp(10px,1.35vw,12px) var(--font-mono); text-transform: uppercase; letter-spacing: .07em; text-align: center; padding: 11px 10px 14px; border-top: 1px solid var(--k-rule); }
-.tv-eq { display: flex; align-items: center; justify-content: center; font: 700 clamp(24px,6vw,50px) var(--font-mono); color: var(--k-ink-2); padding: 0 2px; }
+.tv-eq { display: flex; align-items: center; justify-content: center; font: 700 clamp(20px,7cqi,44px) var(--font-mono); color: var(--k-ink-2); padding: 0 2px; }
 .tv-stats3 { display: grid; grid-template-columns: repeat(3,1fr); gap: clamp(8px,1.8vw,16px); margin-top: clamp(8px,1.8vw,16px); }
-.tv-sbox .tv-fig { font-size: clamp(22px,4.4vw,38px); letter-spacing: -.02em; padding: clamp(16px,3.2vw,24px) 8px; }
+.tv-sbox .tv-fig { font-size: clamp(20px,6cqi,36px); letter-spacing: -.02em; padding: clamp(16px,3.2vw,24px) 8px; }
 @media (max-width: 520px) { .tv-stats3 { grid-template-columns: 1fr; } }
 /* charts4: the four per-class daily line charts (small multiples). */
 .tv-charts4 { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(10px,2vw,18px); margin-top: 20px; }

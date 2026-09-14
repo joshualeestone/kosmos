@@ -195,6 +195,26 @@ function readUsage(page) {
     ok(v.method && (v.method.bg === 'rgba(0, 0, 0, 0)' || v.method.bg === 'transparent'), 'the footnote has no callout background');
     ok(v.method && v.method.boxShadow === 'none', 'the footnote has no box-shadow');
     ok(v.method && v.method.afterHist === true, 'the footnote sits under the usage-history list');
+    // #2840 production-scale hero: the fixture above renders short values (2.0B / $1.8M),
+    // which never exercise the widest headline. Re-mock at the design's own magnitude
+    // (~150B tokens -> "150.0B" / "$135.0M") and assert the hero figures FIT their boxes.
+    // A textContent check cannot see this: .tv-fbox{overflow:hidden} clips silently, so we
+    // measure scrollWidth vs clientWidth on the figure elements themselves.
+    const BIG = { byDay: { '2026-09-01': { 'claude-opus-4-8': { input_tokens: 500000000, output_tokens: 500000000, cache_creation_input_tokens: 1000000000, cache_read_input_tokens: 148000000000 } } }, rootsRead: ['/tmp/fixture'] };
+    await p.unroute('**/api/usage*');
+    await p.route('**/api/usage*', (r) => r.fulfill({ json: BIG }));
+    await p.reload({ waitUntil: 'networkidle' });
+    await p.click('.tab[data-tab="settings"]');
+    await p.click('#s-nav button[data-go="usage"]');
+    await p.waitForSelector('#usage-hero .tv-hero');
+    const scale = await p.evaluate(() => {
+      const figs = [...document.querySelectorAll('#usage-hero .tv-fig')];
+      const clipped = figs.filter((f) => f.scrollWidth > f.clientWidth + 1).map((f) => (f.textContent || '').trim());
+      const big = ((document.querySelector('#usage-hero .tv-fbox.gold .tv-fig') || {}).textContent || '').trim();
+      return { n: figs.length, clipped, big };
+    });
+    ok(scale.big.includes('B'), `hero shows the production-scale total in the B band (got ${scale.big})`);
+    ok(scale.clipped.length === 0, `hero figures fit their boxes at production scale, none clipped (clipped: ${JSON.stringify(scale.clipped)})`);
     await ctx.close();
   } finally {
     await browser.close();
