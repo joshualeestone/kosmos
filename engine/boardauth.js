@@ -227,6 +227,27 @@ function readToken() {
 }
 
 /**
+ * #3055: read the `board.token` at an EXPLICIT store root (a specific world's data
+ * dir), or null if it is absent/empty/unreadable. `tokenPath()`/`readToken()`
+ * answer for the ACTIVE world's `store.ROOT` only; the multi-world board-token gate
+ * (server.boardTokenOk) needs to read any world's token by its own root, which it
+ * gets from `worlds.worldStoreRoot`.
+ *
+ * NO legacy-leaf fallback (unlike readToken): that shim exists for the active
+ * `store.ROOT` during the #2439 migration window, and a caller enumerating world
+ * roots already lists every root that exists -- there is no second copy to chase.
+ */
+function readTokenFrom(root) {
+  if (typeof root !== 'string' || !root) return null;
+  try {
+    const t = fs.readFileSync(path.join(root, TOKEN_FILE), 'utf8').trim();
+    return t || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Whether an owner-only file mode (a 0o600 file inside a 0o700 dir) is actually
  * ENFORCED by the OS as an access boundary against another local account.
  *
@@ -581,10 +602,39 @@ function tokenOk({ token, req, routingBase }) {
   return !!presented && matches(presented, token);
 }
 
+/**
+ * #3055: does the request present a token matching ANY token in `tokens`? PURE,
+ * and the same length-guarded constant-time comparison as `tokenOk` (via
+ * `matches`), applied to a list -- this is the multi-world board-token gate: a
+ * board accepts any of THIS account's world board tokens as proof of same-account
+ * ownership (#1946), not only the active world's, so a post-switch browser still
+ * holding the world it LEFT can authenticate the switched-to board and switch back.
+ *
+ * The presented token is read ONCE and compared against each candidate. A null /
+ * empty / non-string candidate is skipped (`matches` returns false for a
+ * non-string), so an absent world token in the list is simply not a match -- never
+ * a throw and never a spurious accept. Returns false when nothing is presented (the
+ * dangerous answer the caller then refuses) or when the list is not an array.
+ *
+ * Constant-time PER comparison is preserved; the short-circuit on first match is
+ * not a cross-account timing leak, because every candidate is a same-account secret
+ * (a foreign account can read NONE of the mode-600 token files, so it can never get
+ * a valid candidate to time against).
+ */
+function tokenOkAny({ tokens, req, routingBase }) {
+  const presented = presentedToken(req, routingBase);
+  if (!presented || !Array.isArray(tokens)) return false;
+  return tokens.some((t) => matches(presented, t));
+}
+
 module.exports = {
   fullySandboxed, enforced, tokenPath, generateToken, readToken, ensureToken,
   cookieToken, presentedToken, queryToken, matches, cookieHeader, pathWithoutToken,
   pathWithoutParam, bootstrap, tokenOk, COOKIE_NAME, HEADER_NAME,
+  // #3055: the multi-world board-token gate -- read a specific world's token, and
+  // accept a token matching ANY of the account's world tokens (not only the active
+  // world's), so a post-switch browser is not locked out of switching back.
+  readTokenFrom, tokenOkAny,
   // #2040: honest per-platform answer to "is the file-mode boundary real here".
   ownerOnlyModeIsEnforced,
   // #1979: single-use browser-open nonces.

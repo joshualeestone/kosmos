@@ -403,6 +403,48 @@ const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopba
    bare `require('./server')` in a unit test must not touch the real store. The
    dispatch closure below reads this holder; start() populates it. */
 const boardAuthState = { on: false, token: null };
+/* #3055: the board-token check for the BROWSER dispatch gate. The board token
+   proves SAME-ACCOUNT ownership (#1946), and every world's `board.token` is a
+   mode-600 file in a mode-700 dir readable only by this account -- so ANY of this
+   account's world tokens is equally valid proof. Accepting any of them (not only
+   the ACTIVE world's `boardAuthState.token`) is what lets a post-switch browser,
+   still holding the world it LEFT in its cookie, authenticate the switched-to board
+   and switch back, instead of being locked out (#3055): the board self-restarts
+   (#2346) into the new world and enforces the NEW world's token, but the browser's
+   cookie is the world it left.
+
+   FAST PATH: the active token is checked first, in memory, so the common request
+   pays no filesystem cost; only a request whose token does NOT match the active
+   world reads the other worlds' token files off disk.
+
+   BOUNDED TO THIS ACCOUNT: the enumeration is `worlds.listWorlds(worldBase())` --
+   this account's OWN registry -- so it never reads another account's worlds, and it
+   changes no file permissions. #1946's cross-account boundary is untouched: a
+   foreign account can read none of the mode-600 token files, so it can present no
+   valid token here (server.board-auth-worldswitch-3055.test.js pins the foreign
+   token as REJECTED alongside the same-account other-world token ACCEPTED).
+
+   FAIL-CLOSED: if the base / registry cannot be resolved, only the active token is
+   honoured -- exactly today's behaviour.
+
+   SCOPE: only the browser COOKIE goes stale across the self-restart, and the browser
+   only traverses the main dispatch gate, so this is used there alone. The other
+   `tokenOk` callsites (the /api/team operator path and the report/reply #1968
+   guards) have a CLI or agent-token presenter that reads the LIVE booted-world token
+   off disk, never a stale cookie, so they stay strictly active-token. */
+function boardTokenOk(req) {
+  if (boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE })) return true;
+  let others;
+  try {
+    const base = worldBase();
+    others = worlds.listWorlds(base)
+      .map((w) => boardauth.readTokenFrom(worlds.worldStoreRoot(base, w)))
+      .filter(Boolean);
+  } catch {
+    return false; // fail-closed: registry unreadable -> active token only (above) applies
+  }
+  return boardauth.tokenOkAny({ tokens: others, req, routingBase: ROUTING_BASE });
+}
 /* Sandboxed whole or not at all (#634): refused before anything listens or
    writes. In-process (a test requiring this file) it throws; as the program it
    says the sentence and exits 2.
@@ -2646,7 +2688,7 @@ const server = http.createServer((req, res) => {
     // lockout. Kept as its OWN term, not folded into exemptAgent, because the reason differs:
     // this is a low-sensitivity public read, not an agent-token-authenticated route.
     const exemptPublic = PUBLIC_WORLD_ROUTES.has(`${req.method} ${pathname}`);
-    if (sensitive && !exemptAgent && !exemptPublic && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE })) {
+    if (sensitive && !exemptAgent && !exemptPublic && !boardTokenOk(req)) {  // #3055: boardTokenOk accepts ANY of this account's world tokens (not only the active world's) so a post-switch browser can switch back
       sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });
       return;
     }
