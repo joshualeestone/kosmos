@@ -323,6 +323,54 @@ port_has_listener() {
   esac
 }
 
+# #3079: WHO holds our port? Echoes "<pid> <uid> <is_kosmos>" for the process whose
+# LISTEN socket collides with the board's 127.0.0.1 bind (same 127.0.0.1:PORT / *:PORT
+# filter port_has_listener uses), or nothing (return 1) when lsof is unavailable or
+# nothing colliding listens -- so a caller that cannot resolve ownership falls back to
+# the safe, no-kill guard.
+#   uid       - numeric, read from the pid via `ps -o uid=` (NOT lsof's USER column,
+#               which is a name or a uid depending on resolvability).
+#   is_kosmos - 1 only when the listener's command names the board entry (server.js
+#               under a Kosmos path); 0 otherwise, so a same-uid NON-Kosmos process
+#               (the user's own unrelated server on the port) is never reclaimed.
+# Pipe-free capture + case-match for the pipefail/SIGPIPE reason port_has_listener
+# documents; awk extracts the FIRST colliding listener's pid (space-bounded NAME).
+port_listener_owner() {
+  { [ -f /usr/sbin/lsof ] && [ -x /usr/sbin/lsof ]; } || return 1
+  local _lsof _pid _uid _cmd _iskos
+  _lsof="$(/usr/sbin/lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null)"
+  _pid="$(/usr/bin/awk -v p=":$PORT" '
+    ($0 ~ (" 127.0.0.1" p " ")) || ($0 ~ (" [*]" p " ")) { print $2; exit }' <<EOF
+$_lsof
+EOF
+)"
+  [ -n "$_pid" ] || return 1
+  _uid="$(/bin/ps -o uid= -p "$_pid" 2>/dev/null | tr -d ' ')"
+  [ -n "$_uid" ] || return 1
+  _cmd="$(/bin/ps -o command= -p "$_pid" 2>/dev/null)"
+  _iskos=0
+  case "$_cmd" in
+    *server.js*) case "$_cmd" in *[Kk][Oo][Ss][Mm][Oo][Ss]*) _iskos=1 ;; esac ;;
+  esac
+  printf '%s %s %s\n' "$_pid" "$_uid" "$_iskos"
+}
+
+# #3079: PURE reclaim decision (kosmos#3079). Given the listener's uid, our uid, and
+# whether the listener is a Kosmos board (1/0), should we RECLAIM the port -- kill it
+# and start ours over it? YES only for our OWN uid AND a Kosmos process: that is a
+# stale/old build of ours, the common single-user update case Josh asked to auto-heal.
+# A FOREIGN uid (another account on a shared Mac -- ports can collide across accounts
+# because the per-uid port formula wraps at 3999) or a same-uid NON-Kosmos process is
+# NEVER killed. Echoes "reclaim" or "keep". No side effects, so it is unit-testable.
+_kosmos_reclaim_decision() {
+  local _luid="$1" _myuid="$2" _iskos="$3"
+  if [ -n "$_luid" ] && [ -n "$_myuid" ] && [ "$_luid" = "$_myuid" ] && [ "$_iskos" = 1 ]; then
+    printf 'reclaim\n'
+  else
+    printf 'keep\n'
+  fi
+}
+
 # #1946: the board token, read from the file the board wrote at boot. ONE source
 # of truth for the path -- `store.ROOT` (the same function the server uses), asked
 # via node so this shell never re-implements the ~/Library/Application Support
@@ -574,6 +622,41 @@ cmd_start() {
   if healthy; then
     say "Kosmos is already running at $URL"
     return 0
+  fi
+  # #3079: the port is held but NOT by our answering board. If it is OUR OWN stale
+  # Kosmos build (a common single-user update, where the old process still holds the
+  # address the new build wants), reclaim it: kill it and start ours over it, no manual
+  # step. A FOREIGN account's process (shared Mac, wrapped per-uid ports) or a same-uid
+  # NON-Kosmos app is left untouched with a clear message -- killing it would take down
+  # someone else's session or an unrelated app. lsof-gated; if lsof cannot resolve the
+  # owner the block is skipped and the safe stranger/running-pid guards below still fire.
+  if port_has_listener; then
+    local _own _lpid _luid _lkos _w
+    _own="$(port_listener_owner)" || _own=""
+    _lpid="$(printf '%s' "$_own" | awk '{print $1}')"
+    _luid="$(printf '%s' "$_own" | awk '{print $2}')"
+    _lkos="$(printf '%s' "$_own" | awk '{print $3}')"
+    if [ "$(_kosmos_reclaim_decision "$_luid" "$(/usr/bin/id -u)" "$_lkos")" = reclaim ]; then
+      say "The address is held by your own stale Kosmos (process $_lpid). Reclaiming it."
+      kill "$_lpid" 2>/dev/null || true
+      for _w in 1 2 3 4 5 6 7 8 9 10; do port_has_listener || break; sleep 0.5; done
+      if port_has_listener; then
+        kill -9 "$_lpid" 2>/dev/null || true
+        for _w in 1 2 3 4; do port_has_listener || break; sleep 0.5; done
+      fi
+      if port_has_listener; then
+        die "Could not free port $PORT: your stale Kosmos (process $_lpid) did not exit. Run 'kosmos stop', or reboot, then start again."
+      fi
+      # The reclaimed process's pidfile (if it was this install's) now points at a dead
+      # pid; clear it so the running_pid guard below does not die on a stale entry.
+      rm -f "$PIDFILE" 2>/dev/null || true
+      say "Address reclaimed."
+      # Fall through to the normal start below.
+    elif [ -n "$_luid" ] && [ "$_luid" != "$(/usr/bin/id -u)" ]; then
+      die "Port $PORT is held by ANOTHER account's process on this shared Mac, so Kosmos will not touch it (killing it would take down that person's session). Your own copy of Kosmos is in Applications -- open that."
+    else
+      die "Another app on this computer is already using port $PORT, so Kosmos cannot start there. Quit that app and run 'kosmos start' again."
+    fi
   fi
   if port_taken_by_stranger; then
     die "Another app on this computer is already using port $PORT, so Kosmos cannot start there. Quit that app and run 'kosmos start' again."
@@ -1962,6 +2045,13 @@ cmd_task() {
   esac
 }
 
+# #3079: let a test `source` this file to reach the pure helpers
+# (_kosmos_reclaim_decision et al.) without running a verb. Executed directly,
+# BASH_SOURCE[0] == $0 and we fall through to the dispatch; sourced, they differ and
+# we stop here. No behavior change on the executed path.
+if [ "${BASH_SOURCE[0]:-$0}" != "$0" ]; then
+  return 0 2>/dev/null || true
+fi
 case "${1:-}" in
   start)   cmd_start ;;
   stop)    cmd_stop ;;
