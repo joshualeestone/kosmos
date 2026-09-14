@@ -413,9 +413,10 @@ const boardAuthState = { on: false, token: null };
    (#2346) into the new world and enforces the NEW world's token, but the browser's
    cookie is the world it left.
 
-   FAST PATH: the active token is checked first, in memory, so the common request
-   pays no filesystem cost; only a request whose token does NOT match the active
-   world reads the other worlds' token files off disk.
+   FAST PATH: a request presenting NO token returns immediately, and a request whose
+   token matches the active world is answered from memory -- both without touching
+   the filesystem. Only a request that DOES present a token but one that does not
+   match the active world reads the other worlds' token files off disk.
 
    BOUNDED TO THIS ACCOUNT: the enumeration is `worlds.listWorlds(worldBase())` --
    this account's OWN registry -- so it never reads another account's worlds, and it
@@ -433,6 +434,10 @@ const boardAuthState = { on: false, token: null };
    guards) have a CLI or agent-token presenter that reads the LIVE booted-world token
    off disk, never a stale cookie, so they stay strictly active-token. */
 function boardTokenOk(req) {
+  // A tokenless request is a 403 either way (no candidate can match nothing), so
+  // refuse it here BEFORE the multi-world enumeration -- it keeps the fast-path
+  // filesystem-free for the unauthenticated case, not only the active-token one.
+  if (!boardauth.presentedToken(req, ROUTING_BASE)) return false;
   if (boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE })) return true;
   let others;
   try {
