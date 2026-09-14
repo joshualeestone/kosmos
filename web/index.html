@@ -5480,23 +5480,33 @@ body.plus-active .dm.theirs .dm-b[data-am], body.plus-active .msg:not(.you) .msg
    before. It lives on the id, not `.pj-screen`, because four surfaces share
    that rule and only this one is the agent page's window. */
 #d-window { max-height: calc(100vh - 220px); }
-/* Fresh start actions size to their content, not the full container width
-   (Josh, 2026-09-11 reviewing 0.6.56 live: the buttons "look terrible" full
-   width -- #2809). This reverses the 2026-08-23 full-bleed stack: the three
-   still stack one per line and left-align under the lede, but each is only as
-   wide as its label plus padding. `display:block` keeps them stacked (one per
-   line, left-aligned by the block default); `width:fit-content` shrinks each to
-   its label, replacing the old `width:100%`. Scoped to `.btn` deliberately so it
-   does NOT resize the sibling `.fmsg` receipts sharing the restart container --
-   a flex-column parent would have made those content-width too. */
+/* Fresh start buttons: EQUAL width + centered text (Josh, #2917, 6.59 QA:
+   "make Compact and Restart the same width as Clear and center the text").
+   They fill the Fresh start column (`width:100%`), which now sits at 50% of
+   the panel in the Memory/Fresh-start side-by-side (#2917) -- so this is NOT
+   the full-page full-bleed Josh rejected in #2809, it is half that, and equal
+   by construction. Equal-to-widest (fit-content) was considered and rejected:
+   the Restart label is DYNAMIC ("Restart: stop and start <name>", painted by
+   freshStartLabel), so a fit-content-to-widest group would jump width per
+   agent; 100%-of-column is stable and keeps the three identical whatever the
+   labels say, and centering is meaningful because the buttons are now wider
+   than their text. Scoped via `.btn` so the sibling `.fmsg` receipts are
+   untouched; empty ones stay display:none. */
 .freshstack { margin-top: 2px; }
-.freshstack .btn { display: block; width: fit-content; margin-top: 10px;
+.freshstack .btn { display: block; width: 100%; text-align: center; margin-top: 10px;
                    padding: 14px 16px; font-size: 17px; font-weight: 600; }
 /* The three read as ONE stack: the restart container joins at the stack's
    own 10px rhythm, and the empty receipt slots between them take no height
    until they hold a sentence. */
 .field.freshstack { margin-top: 0; }
 #d-fresh .fmsg:empty { display: none; margin: 0; }
+/* #2917: Memory (50%) / Fresh start (50%) side by side under the combined
+   Model+Memory pill. A flex row instead of the .dsec column stack; each dbox
+   takes half (equal grow from a 260px basis), and the row wraps to a single
+   stacked column when the panel is too narrow for two. min-width:0 lets long
+   content wrap instead of forcing horizontal overflow. */
+.mem-fresh-row { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+.mem-fresh-row > .dbox { flex: 1 1 260px; min-width: 0; }
 .pj-viewport { margin-top: var(--space-6); }
 .pj-msgs { display: flex; flex-direction: column; gap: var(--space-3); margin: var(--space-5) 0; }
 /* #2660 (Josh, 2026-09-10): every `.pj-msg` in a room is a message the person
@@ -8196,6 +8206,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   </section>
   </section>
   <section class="dsec" id="d-sec-memory" data-sec="memory" tabindex="-1" aria-label="Memory" hidden>
+  <!-- #2917: Memory (50%) and Fresh start (50%) side by side, under the combined
+       Model+Memory pill. The row wraps to stacked when the panel is too narrow. -->
+  <div class="mem-fresh-row">
   <section class="dbox">
     <h3 class="dlab">Memory</h3>
     <div id="d-memory"><p class="dhint" style="margin:0;">Opening&hellip;</p></div>
@@ -8250,11 +8263,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            ruling recorded below. The lede and the footer are the pack's
            sentences verbatim; the cost still lives in each button's dialog,
            which is what the footer promises. Only Restart names the agent.
-           ⚠️ THE WIDTH WAS REVERSED (Josh, 2026-09-11, #2809): the 08-23
-           "nice big fat buttons" were FULL-WIDTH, and reviewing 0.6.56 live he
-           ruled they "look terrible" that way. They now size to content
-           (`.freshstack .btn` is `display:block; width:fit-content`); still
-           stacked one per line, just no longer full-bleed. -->
+           ⚠️ THE WIDTH HAS CHANGED TWICE (Josh). #2809 (2026-09-11) made these
+           size to content because the 08-23 full-WIDTH "nice big fat buttons"
+           looked terrible full-bleed. Then #2917 (6.59) put Memory and Fresh
+           start side by side at 50% each and asked for the three buttons equal
+           width with centered text: they now FILL their 50% column
+           (`.freshstack .btn` is `display:block; width:100%; text-align:center`),
+           which is half the old full-bleed, equal by construction. The CSS-block
+           comment at `.freshstack .btn` explains why column-fill beats
+           fit-content here (the Restart label is dynamic). -->
       <div class="fhint" id="d-fresh-lede" style="margin-bottom:12px;">Three ways to get it going again, whatever the reason.</div>
       <div class="freshstack">
         <button class="btn" id="d-compact-go" type="button">Compact: summarise and keep going</button>
@@ -8276,6 +8293,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   </div>
   <div class="fhint" id="d-fresh-foot" style="margin-top:12px;" hidden>Each one shows what it stands to lose before you choose.</div>
   </section>
+  </div>
   </section>
   <section class="dsec" id="d-sec-instr" data-sec="instr" tabindex="-1" aria-label="Instructions" hidden>
   <section class="dbox">
