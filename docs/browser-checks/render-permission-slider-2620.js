@@ -41,6 +41,9 @@ async function gotoS3(page, tmuxTrusted) {
   const step = await stepForAnchor(page, '[data-gate="tmux"]');
   await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: true } }));
   await page.route('**/api/a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: tmuxTrusted } }));
+  // #2911: the tmux-a11y row is a sibling gating row on S3; route it deterministically so
+  // it never reads the real board while this check exercises the app row's switch.
+  await page.route('**/api/tmux-a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: tmuxTrusted } }));
   await page.goto(`${BASE}/?first-run=1&fr-step=${step}`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(700); // let the gate poll settle + frSyncSwitchOverlays run
 }

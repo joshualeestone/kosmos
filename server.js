@@ -8120,25 +8120,98 @@ const server = http.createServer((req, res) => {
      supplies the reading because accessibility trust is a TCC fact the engine
      cannot read (#1344); this route only surfaces it. */
   if (pathname === '/api/a11y-status' && (req.method === 'GET' || req.method === 'HEAD')) {
-    /* #2451: serve Kosmos.app's OWN Accessibility trust (a11ystatus.read()), NOT
-       tmuxGrant(). Accessibility is keyed on the CALLING BINARY: the onboarding
-       "Turn On" registers the kosmos-app (Josh sees "Kosmos" in the Accessibility
-       list), and tmux disclaims responsibility for its children and can never hold
-       that grant -- so tmux is the WRONG subject. tmuxGrant() reads tmux's path-keyed
-       row, which is absent / path-key-mismatched on a normal box -> checkable:false
-       forever -> the pill sticks on "Checking..." and the gate fail-safes Next to
-       ENABLED (Josh's #2451 symptom: "stuck on Checking, Next already activated").
-       read() is the native app's AXIsProcessTrusted verdict (written on launch +
-       every 60s, inside STALE_AFTER_MS), so a native install gets a definite
-       trusted:true/false and the gate works; a browser (no writer) stays
-       checkable:false and fail-safe. (#2085 called the app's trust a "false TMUX
-       ACTIVATED" pill under the now-disproven belief that tmux must hold the grant;
-       #2125 resolved the subject is the app. tmuxGrant stays in the engine for a
-       possible #2125-KEEP tmux-identity path.) Same {checkable, trusted} shape, so
-       the S3 gate poll + render-gated-next consume it unchanged. */
+    /* #2451/#2911: this route serves Kosmos.app's OWN Accessibility grant (the APP
+       subject) -- the "Kosmos" row the onboarding "Turn On" registers in the
+       Accessibility list. Accessibility is keyed on the CALLING BINARY, so the app's
+       grant and tmux's grant are TWO DISTINCT rows. This route is the APP one; the
+       tmux one is served by /api/tmux-a11y-status (tmuxGrant, #2911). An earlier note
+       here claimed tmux "can never hold that grant" -- that was wrong (an
+       over-generalized #2125 read); #2911 measured tmux's own AX row on the system db
+       and in Josh's fresh-install screenshot. #2125 is narrowly that the APP gate's
+       subject is the app, which is correct and is why THIS route reads the app, not
+       tmux.
+
+       #2559/#2911 (Josh's #1, 2026-09-14): RE-GATE Continue on this reading, which
+       #2912 had made advisory because the source was too laggy to gate on. The
+       source is now upgraded: prefer the LIVE TCC-db read of the app's own
+       Accessibility grant (appGrant), which flips the instant the toggle does -- so
+       the re-gated Continue clears within a poll tick of the grant, without the 60s
+       staleness of the native-file read() (whose verdict a11y-status.json refreshes
+       only on a 60s native timer, and which "Check again" cannot force fresh). That
+       staleness is what trapped Josh on 0.6.63. The combination NEVER re-traps:
+         - appGrant live-true -> GRANTED, cleared within a poll tick of the toggle.
+         - otherwise (appGrant uncheckable OR checkable-but-not-trusted) -> borrow the
+           native app's own AXIsProcessTrusted (read()) ONLY for the GRANTED signal: a
+           fresh read() trusted:true is a reliable POSITIVE, so a trusted app is never
+           blocked -- even if appGrant missed its TCC row (a fresh install that keyed the
+           grant on a client string other than APP_CLIENT). read()'s NOT-granted never
+           blocks (it is the laggy false-negative reading).
+         - appGrant checkable + not-trusted AND read() also not-trusted -> a genuine
+           not-granted: BLOCK (the re-gate), cleared the instant the toggle flips.
+         - appGrant uncheckable AND read() not-granted/absent (a browser, no FDA) ->
+           advisory (fail-safe), never a block.
+       Same {checkable, trusted} shape, so the S3 gate poll + render-gated-next
+       consume it unchanged. */
     let reading;
-    try { reading = a11ystatus.read(); }
-    catch (err) { reading = { checkable: false, because: 'we could not read the accessibility reading (' + String(err && err.message || err) + ')' }; }
+    try {
+      const live = a11ystatus.appGrant();
+      if (live && live.checkable === true && live.trusted === true) {
+        reading = live;
+      } else {
+        // live is uncheckable OR checkable-but-not-trusted. In EITHER case, borrow the
+        // native app's own AXIsProcessTrusted (read()) as the authoritative GRANTED
+        // signal: a fresh trusted:true is a reliable POSITIVE (the #2912 lag is a
+        // false-NEGATIVE, never a false-positive), so an app that reports itself trusted
+        // is never blocked -- even if appGrant missed its TCC row (e.g. a fresh install
+        // that keyed the grant on a client string other than APP_CLIENT). That closes
+        // the both-ways trap without weakening the re-gate: a genuine not-granted has
+        // read() ALSO not-trusted, so it still blocks.
+        // ACCEPTED TRADEOFF: read()'s trusted:true is stale-tolerant (< STALE_AFTER_MS,
+        // ~5 min, refreshed ~60s). So a user who JUST revoked Accessibility while
+        // appGrant is momentarily uncheckable (e.g. a transient TCC-db lock) could be
+        // served granted for one staleness window. This is strictly no worse than
+        // pre-#2559 (which relied on read() 100% of the time with the same staleness),
+        // the window is narrow, and it fails toward NOT-trapping -- the deliberate
+        // direction for this install-screen surface (#2912).
+        let nf; try { nf = a11ystatus.read(); } catch { nf = { checkable: false }; }
+        if (nf && nf.checkable === true && nf.trusted === true) reading = nf;
+        else if (live && live.checkable === true) reading = live;
+        else reading = { checkable: false, because: (live && live.because) || (nf && nf.because) || 'accessibility is not live-checkable here' };
+      }
+    } catch (err) {
+      reading = { checkable: false, because: 'we could not read the accessibility reading (' + String(err && err.message || err) + ')' };
+    }
+    sendJson(res, 200, reading);
+    return;
+  }
+
+  /* #2911: serve tmux's OWN Accessibility grant (tmuxGrant) -- the SECOND, distinct
+     Accessibility subject the onboarding must detect (the "tmux" row macOS lists
+     alongside "Kosmos", keyed on the bundled tmux binary's real path, resolved from
+     AGENT_WORKFORCE_TMUX_BIN which the board process carries). Same {checkable,
+     trusted} shape as /api/a11y-status, so the S3 gate poll consumes it unchanged and
+     blocks Next ONLY on a definite checkable:true + trusted:false. The ONE extra
+     rule: a present:false verdict (our tmux binary is not yet listed in Accessibility,
+     so there is nothing to toggle) is mapped to checkable:false -> advisory, so a
+     screen reached before tmux registers is never a trap (#2912). A path-key mismatch
+     or an unreadable db is already checkable:false (advisory) from tmuxGrant.
+     NOTE (cost): S3 now polls TWO Accessibility readers -- appGrant (/api/a11y-status)
+     and tmuxGrant (this route) -- each spawning its own sqlite3 subprocess against the
+     same system TCC.db on the board's single HTTP thread. Each reader has its own 2s
+     memo (GRANT_TTL_MS), so the 750ms poll elides most spawns; a single combined read
+     serving both rows is a possible follow-up if the doubled spawn ever shows on S3. */
+  if (pathname === '/api/tmux-a11y-status' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let reading;
+    try {
+      const g = a11ystatus.tmuxGrant();
+      if (g && g.checkable === true && g.present === false) {
+        reading = { checkable: false, because: 'tmux is not yet listed in Accessibility (nothing to turn on here yet)' };
+      } else {
+        reading = g;
+      }
+    } catch (err) {
+      reading = { checkable: false, because: 'we could not read the tmux accessibility reading (' + String(err && err.message || err) + ')' };
+    }
     sendJson(res, 200, reading);
     return;
   }

@@ -50,6 +50,9 @@ async function routeFlow(page, { fileAccessGranted, completeHit }) {
   await page.route('**/api/file-access-status', (r) => r.fulfill({ json: { checkable: true, granted: fileAccessGranted, nativePresent: true, at: Date.now() } }));
   await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: true } }));
   await page.route('**/api/a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: true } }));
+  // #2911: S3 re-gates on tmux's own Accessibility grant too -- grant it so the wizard can
+  // advance past S3 (an unrouted gating row would read the real board and could block).
+  await page.route('**/api/tmux-a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: true } }));
   await page.route('**/api/found-agents', (r) => r.fulfill({ json: { ok: true, agents: [], adoptable: [] } }));
   await page.route('**/api/scan-agents', (r) => r.fulfill({ json: { ok: true, candidates: [], importable: [], bounded: {} } }));
   await page.route('**/api/scan-import', (r) => r.fulfill({ json: { ok: true, candidates: [

@@ -50,6 +50,8 @@ const MAC_ONLY = {
   'S3 Energy mock': '.s3-mock:has(.s3-sw[data-sw-gate="sleep"])',
   'S3 Accessibility mock': '.s3-mock:has(.s3-sw[data-sw-gate="tmux"])',
   'S3 Accessibility gate row': '.s3-gate-row[data-gate="tmux"]',
+  'S3 tmux Accessibility mock': '.s3-mock:has(.s3-sw[data-sw-gate="tmux-a11y"])',
+  'S3 tmux Accessibility gate row': '.s3-gate-row[data-gate="tmux-a11y"]',
   'S7 Dock drawing': '#fr-success',
   'Settings Accessibility button': '#set-a11y-open',
   'Settings tmux box': 'section.dbox[data-win-hide]',

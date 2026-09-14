@@ -130,6 +130,72 @@ test('#2085 tmuxGrant: ANOTHER tmux granted but not ours (path-key mismatch) -> 
   assert.equal(r.trusted, undefined, 'and never a false green off a tmux that is not ours');
 });
 
+// ---- #2911: the `present` flag (listed-but-off blocks; not-listed is advisory) ----
+test('#2911 tmuxGrant: a granted tmux row carries present:true', () => {
+  assert.equal(a11y.tmuxGrant({ tmuxBin: '/fake/tmux', sqliteRunner: rowsRunner([{ client: '/fake/tmux', auth: 2 }]) }).present, true);
+});
+
+test('#2911 tmuxGrant: our tmux row present but OFF (auth 0) -> present:true (the user CAN toggle it -> the gate may block, not a trap)', () => {
+  const r = a11y.tmuxGrant({ tmuxBin: '/fake/tmux', sqliteRunner: rowsRunner([{ client: '/fake/tmux', auth: 0 }]) });
+  assert.equal(r.checkable, true);
+  assert.equal(r.trusted, false);
+  assert.equal(r.present, true, 'a listed-but-off tmux is actionable, so present:true -> blocking Next is correct, not a trap');
+});
+
+test('#2911 tmuxGrant: tmux NOT listed at all -> present:false (nothing to toggle; the route maps this to advisory, never a trap)', () => {
+  const r = a11y.tmuxGrant({ tmuxBin: '/fake/tmux', sqliteRunner: rowsRunner([]) });
+  assert.equal(r.checkable, true);
+  assert.equal(r.trusted, false);
+  assert.equal(r.present, false, 'no row for our tmux binary -> present:false, so /api/tmux-a11y-status advises (non-blocking) instead of trapping');
+});
+
+test('#2911 tmuxGrant: a checkable:false verdict (path-mismatch) carries no present field', () => {
+  const r = a11y.tmuxGrant({ tmuxBin: '/fake/bundled/tmux', sqliteRunner: rowsRunner([{ client: '/opt/homebrew/bin/tmux', auth: 2 }]) });
+  assert.equal(r.checkable, false);
+  assert.equal(r.present, undefined, 'present is only meaningful on a checkable verdict');
+});
+
+// ---- #2559: appGrant, the LIVE app-AX reader (previously untested) ----
+test('#2559 appGrant: app row granted (auth 2) -> checkable:true, trusted:true (live green)', () => {
+  const r = a11y.appGrant({ appSqliteRunner: rowsRunner([{ client: a11y.APP_CLIENT, auth: 2 }]) });
+  assert.equal(r.checkable, true);
+  assert.equal(r.trusted, true);
+  assert.equal(typeof r.at, 'string');
+});
+
+test('#2559 appGrant: auth 3 (allowed, limited) also -> trusted:true', () => {
+  assert.equal(a11y.appGrant({ appSqliteRunner: rowsRunner([{ client: a11y.APP_CLIENT, auth: 3 }]) }).trusted, true);
+});
+
+test('#2559 appGrant: app row present but denied (auth 0) -> checkable:true, trusted:false (Not activated)', () => {
+  const r = a11y.appGrant({ appSqliteRunner: rowsRunner([{ client: a11y.APP_CLIENT, auth: 0 }]) });
+  assert.equal(r.checkable, true);
+  assert.equal(r.trusted, false);
+});
+
+test('#2559 appGrant: app row ABSENT (db readable) -> checkable:true, trusted:false (honest fresh install, never granted)', () => {
+  const r = a11y.appGrant({ appSqliteRunner: rowsRunner([]) });
+  assert.equal(r.checkable, true);
+  assert.equal(r.trusted, false);
+});
+
+test('#2559 appGrant: a granted row for a DIFFERENT client is not our app -> trusted:false (never a false green off another app)', () => {
+  const r = a11y.appGrant({ appSqliteRunner: rowsRunner([{ client: 'com.someone.else', auth: 2 }]) });
+  assert.equal(r.checkable, true);
+  assert.equal(r.trusted, false, 'appGrant grants only on OUR bundle id, never another granted client');
+});
+
+test('#2559 appGrant: a read failure (no FDA / locked / missing db) -> checkable:false, never a false verdict', () => {
+  const r = a11y.appGrant({ appSqliteRunner: failRunner('no access') });
+  assert.equal(r.checkable, false);
+  assert.equal(r.trusted, undefined);
+});
+
+test('#2559 appGrant: a runner that THROWS is caught -> checkable:false, never a throw out', () => {
+  const r = a11y.appGrant({ appSqliteRunner: () => { throw new Error('boom'); } });
+  assert.equal(r.checkable, false);
+});
+
 test('#2085 tmuxGrant: a read failure -> checkable:false ("Checking..."), NEVER trusted:true', () => {
   const r = a11y.tmuxGrant({ tmuxBin: '/fake/tmux', sqliteRunner: failRunner('no FDA') });
   assert.equal(r.checkable, false);
@@ -223,5 +289,29 @@ test('#2085 tmuxGrant: the PRODUCTION (no-opts) cache path memoizes, and resetGr
     a11y.setSqliteRunner(() => ({ ok: false, because: 'test teardown runner' }));
     a11y.resetGrantCache();
     if (origBin === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = origBin;
+  }
+});
+
+test('#2559 appGrant: the PRODUCTION (no-opts) cache path memoizes, and resetAppGrantCache clears it', () => {
+  // appGrant()'s no-opts path turns useCache on and uses the MODULE app runner -- the twin
+  // of the tmuxGrant cache test above. appGrant is the LIVE re-gate source the /api/a11y-status
+  // route serves (#2559), so its 2s memo (which elides a repeat sqlite spawn on the 750ms gate
+  // poll) and its reset must be covered symmetrically. No env fiddle: appGrant keys on the fixed
+  // bundle id, not a resolved binary path. setAppSqliteRunner is a counting spy.
+  let calls = 0;
+  a11y.setAppSqliteRunner(() => { calls += 1; return { ok: true, rows: [{ client: a11y.APP_CLIENT, auth: 2 }] }; });
+  a11y.resetAppGrantCache();
+  try {
+    const first = a11y.appGrant();   // miss -> spy called
+    a11y.appGrant();                 // hit within the 2s TTL -> spy NOT called again
+    assert.equal(calls, 1, 'the memo must serve the second no-opts call from cache, not re-spawn');
+    assert.equal(first.trusted, true, 'and the cached verdict is the real one (granted)');
+    a11y.resetAppGrantCache();
+    a11y.appGrant();                 // cleared -> fresh read
+    assert.equal(calls, 2, 'resetAppGrantCache must force a fresh read');
+  } finally {
+    // Restore a benign module runner + clear the cache so no later test inherits the spy.
+    a11y.setAppSqliteRunner(() => ({ ok: false, because: 'test teardown runner' }));
+    a11y.resetAppGrantCache();
   }
 });
