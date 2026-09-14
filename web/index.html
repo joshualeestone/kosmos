@@ -19177,17 +19177,82 @@ function openAcctReauthOpenai(dir, email) {
    (the active-flip) is slice 2b; until it lands the rows are read-only and only
    "New Kosmos" acts. The switcher stays hidden on a board that has no /api/worlds
    route (pre-2a), so it degrades to today's header cleanly. */
+/* #3055: the switcher MUST NOT FAIL CLOSED. It is `hidden` by default and `worldsFetch`
+   is the only thing that reveals it, called once on load with no retry -- so a single
+   non-ok `/api/worlds` (a not-signed-in board 500s after a broken switch) permanently hid
+   it, and there was no other code path that ever showed it again: the user was locked out
+   of their Kosmoses with no way back. So persist the last-known world list and, when the
+   live read fails, render from it (degraded) so the user can always switch back to a
+   working Kosmos; retry so a recovered board replaces the stale list on its own. */
+const WORLDS_CACHE_KEY = 'kosmos-worlds-last-known';
+const WORLDS_RETRY_MS = 8000;
+let WORLDS_RETRY_T = null;
+let WORLDSW_STALE = false;
+
+function worldsCacheSave(data) {
+  try {
+    if (data && Array.isArray(data.worlds) && data.worlds.length > 0) {
+      localStorage.setItem(WORLDS_CACHE_KEY, JSON.stringify({
+        worlds: data.worlds, activeWorldId: data.activeWorldId, bootedWorldId: data.bootedWorldId,
+      }));
+    }
+  } catch { /* storage disabled/full (private window): degrade to no cache, prior behaviour */ }
+}
+function worldsCacheLoad() {
+  try {
+    const data = JSON.parse(localStorage.getItem(WORLDS_CACHE_KEY) || 'null');
+    return (data && Array.isArray(data.worlds) && data.worlds.length > 0) ? data : null;
+  } catch { return null; }
+}
+
 async function worldsFetch() {
-  let data;
+  let data = null;
   try {
     const res = await fetch('/api/worlds', { cache: 'no-store' });
-    if (!res.ok) return;
-    data = await res.json();
-  } catch { return; }
-  if (!data || !Array.isArray(data.worlds) || data.worlds.length === 0) return;
-  worldswRender(data);
+    if (res.ok) data = await res.json();
+  } catch { /* board unreachable -- fall through to the last-known list below */ }
+  if (data && Array.isArray(data.worlds) && data.worlds.length > 0) {
+    worldsCacheSave(data);
+    worldswRender(data);   // a live read -- clears any stale note
+    return;
+  }
+  /* Live read failed or was empty. Rather than fail closed (the lockout), fall back to
+     the last-known list so the switcher stays reachable, and retry so the switcher
+     self-heals to live once the board recovers. With NO cache (a board that never had
+     the route, or a first run before any successful read) leave it hidden -- today's
+     clean single-world degrade. */
+  const cached = worldsCacheLoad();
+  if (cached) {
+    worldswRender(cached, { stale: true });
+    if (!WORLDSW_RECONNECTING) {
+      clearTimeout(WORLDS_RETRY_T);
+      WORLDS_RETRY_T = setTimeout(() => { worldsFetch().catch(() => {}); }, WORLDS_RETRY_MS);
+    }
+  }
 }
-function worldswRender(data) {
+
+/* #3055: reflect a degraded (last-known) render honestly, and clear it when a live read
+   returns. Reuses the switcher's own status banner. Guarded by WORLDSW_RECONNECTING so a
+   live switch, which owns that banner, is never fought; and it only clears a note IT set
+   (WORLDSW_STALE), so a switch/manual-restart banner is never wiped. */
+function worldswSetStale(stale) {
+  const banner = document.getElementById('worldsw-restart');
+  const bmsg = document.getElementById('worldsw-restart-msg');
+  if (stale) {
+    WORLDSW_STALE = true;
+    if (banner && bmsg && !WORLDSW_RECONNECTING) {
+      bmsg.textContent = 'We could not reach the board just now, so this is your last-known list of Kosmoses. Pick one to switch back to it.';
+      banner.hidden = false;
+    }
+  } else {
+    if (WORLDSW_STALE && banner && bmsg && !WORLDSW_RECONNECTING) {
+      bmsg.textContent = '';
+      banner.hidden = true;
+    }
+    WORLDSW_STALE = false;
+  }
+}
+function worldswRender(data, opts) {
   const sw = document.getElementById('worldsw');
   const nameEl = document.getElementById('worldsw-name');
   const list = document.getElementById('worldsw-list');
@@ -19254,6 +19319,7 @@ function worldswRender(data) {
     list.appendChild(entry);
   }
   sw.hidden = false;
+  worldswSetStale(!!(opts && opts.stale));   // #3055: honest note on a last-known render
 }
 /* #2238: switch the active Kosmos. POST /api/worlds/active flips the registry and,
    when the board can SAFELY self-restart, restarts it onto the new world (#2346:
