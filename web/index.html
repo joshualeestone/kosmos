@@ -9460,13 +9460,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p>In order to put agents to work, you will need to grant them access to files, apps, and other parts of your computer.</p>
         <p>When prompted, click Allow.</p>
 
-        <!-- #2910/#2685: six previews, grouped by the app macOS names in each prompt. tmux's three
-             and Kosmos's three. The file-access prompts come up as "tmux", not Terminal: Kosmos
-             ships and launches its own bundled tmux (macOS has none), and that tmux is the process
-             macOS holds responsible for agent FILE access (engine/fileaccessstatus.js), so it is
-             the name on the real folder prompts (Josh's screenshots). This screen is FILE access
-             only; the accessibility step is S3 and is handled separately (its tmux-vs-Kosmos
-             attribution is being verified, #2911, and is not asserted here). aria-hidden: the real
+        <!-- #3031 (was #2910/#2685): two previews side by side, one per app (Kosmos, tmux), each a
+             single "would like to access files." prompt (the browser-check pins exactly two). The
+             file-access prompts come up as "tmux", not Terminal: Kosmos ships and launches its own
+             bundled tmux (macOS has none), and that tmux is the process macOS holds responsible for
+             agent FILE access (engine/fileaccessstatus.js), so it is the name on the real folder
+             prompts (Josh's screenshots). This screen is FILE access only; the accessibility step is
+             S3 and is handled separately (its tmux-vs-Kosmos attribution is on #2911/#3032, not
+             asserted here). aria-hidden: the real
              focusable grant is the .s2-gate-row button below; these are a mouse-only preview of what
              will pop up. Each mock Allow keeps .s2-mockallow, so a click forwards into the one real
              file-access flow (the #fr-pane-2 click handler targets the single .s2-allow). -->
