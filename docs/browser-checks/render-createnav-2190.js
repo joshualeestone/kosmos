@@ -75,6 +75,8 @@ async function driveCreate(page, agentsOutcome) {
       // #3042: is the "All agents" back button ACTUALLY visible? The removal on the
       // made step is a CSS display:none via :has(), not the [hidden] attribute, so
       // shown() (which reads .hidden) would miss it - read computed style instead.
+      // This reads the button's OWN display/visibility, which is exactly what the
+      // :has() rule under test sets; an ancestor being hidden is not this rule's concern.
       backVisible: (() => {
         const b = document.getElementById('create-back');
         if (!b) return null;
