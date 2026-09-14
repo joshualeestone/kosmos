@@ -297,17 +297,18 @@ function seed() {
         provider: sel('create-provider') ? sel('create-provider').value : null,
         account: !!sel('create-account'),
         models: model ? model.querySelectorAll('option').length : 0,
-        /* #2623: the created-ping checkbox was DELETED (Josh, 2026-09-09,
-           "invasion of privacy"). Assert both the box and its note row are gone
-           so a regression that brings the telemetry back goes red. */
-        tellGone: !sel('create-tell') && !sel('create-tell-note') };
+        /* #3038: the created-ping checkbox is BACK (Josh ruled #2623's removal
+           was an AGENT's, not his -- "always wanted" it). Assert the box renders
+           and is default-checked so a regression that drops it again goes red. */
+        tellPresent: !!sel('create-tell'),
+        tellChecked: !!(sel('create-tell') && sel('create-tell').checked) };
     });
     chk(/Model \(you can change this later\)/.test(create.hint || ''), theme + ': the model hint is there', create.hint);
     chk(create.provider !== null && create.account && create.models >= 2,
       theme + ': provider, account and model menus, with models to pick from', JSON.stringify(create));
-    /* #2623: the create-agent telemetry was deleted, so the box is gone. */
-    chk(create.tellGone === true,
-      theme + ': the created-ping checkbox is gone from the create form (#2623)', JSON.stringify(create));
+    /* #3038: the create-agent beacon checkbox is back, default-checked. */
+    chk(create.tellPresent === true && create.tellChecked === true,
+      theme + ': the created-ping checkbox is on the create form, default-checked (#3038)', JSON.stringify(create));
 
     chk(errs.length === 0, theme + ': no console errors', errs.slice(0, 2).join(' | '));
     await pg.close();

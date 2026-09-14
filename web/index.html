@@ -5918,6 +5918,11 @@ body.plus-active .dm.theirs .dm-b[data-am], body.plus-active .msg:not(.you) .msg
 #cstep-name .sfoot { justify-content: space-between; align-items: flex-start; gap: var(--space-6); }
 #cstep-name .sfoot .field { margin-top: 0; }
 #cstep-name .sfoot #create-go { flex: 0 0 auto; }
+/* #3038: the create-agent beacon checkbox, RESTORED (Josh ruled #2623's removal
+   was an agent's, not his). Left half of the one-row .sfoot; the button is the
+   right half. Self-contained so it cannot be knocked out by an unrelated edit. */
+.tellrow { display: flex; align-items: center; gap: var(--space-3); font-size: .875rem; color: var(--k-ink-2); cursor: pointer; flex: 1 1 auto; }
+.tellrow input { flex: none; margin: 0; }
 /* ⚠️ JOINED THE UNIFICATION LATE. This hardcoded `--bg-elevated` and a
    `1px solid var(--separator)` border while its three neighbours on the same
    step carry `--field-fill` and `0.5px solid var(--border-strong)`. It LOOKED
@@ -10720,9 +10725,22 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            being made, so the menu would carry no choice. Same rule as the
            projects picker, and the same resolution as the removed-agents list at
            zero. -->
-      <!-- #2623: the "Let the Kosmos team know you created an agent" checkbox was
-           deleted with the create-agent telemetry (Josh, 2026-09-09, "invasion
-           of privacy"). Creating an agent tells no one. -->
+      <!-- #3038: the create-agent beacon checkbox, RESTORED. Josh ruled #2623's
+           removal was an AGENT's, not his -- he "always wanted" it. Default
+           CHECKED, and HARDCODED here (a test pins its presence) so it cannot be
+           silently removed again: "hardcode it so everybody knows. Don't take
+           this out." Sent as notifyCreated; the board beacons the new agent count
+           unless it is off. Left of the button, per the one-row layout Josh set
+           2026-08-22 (the box on the left, the button on the right). -->
+      <!-- `for` is REQUIRED, not redundant: the named-controls a11y browser-check
+           computes a checkbox's accessible name from aria-label / aria-labelledby /
+           label[for] only (an <input> has no textContent, and it does NOT resolve
+           an implicit WRAPPING label), so without `for` the box has no name and
+           the "every visible control has a name" check goes red. -->
+      <label class="tellrow" for="create-tell">
+        <input type="checkbox" id="create-tell" checked>
+        <span>Let Kosmos know an agent was created</span>
+      </label>
       <button class="btn uprime big" id="create-go" type="button">Create agent</button>
     </div>
     <div class="fmsg" id="create-msg" role="status" aria-live="polite"></div>
@@ -34921,8 +34939,11 @@ document.getElementById('create-go').addEventListener('click', async () => {
            the hub already. */
         const to = document.getElementById('create-reports').value;
         if (to) b.reportsTo = to;
-        /* #2623: the create-agent telemetry checkbox was deleted, so tellKosmos
-           is no longer sent. */
+        /* #3038 (RESTORED): the create-agent checkbox governs whether the board
+           beacons this creation to installkosmos.com so the homepage agent count
+           moves. Default checked, hardcoded on the form; the server fires the
+           ping unless notifyCreated is explicitly false. */
+        b.notifyCreated = document.getElementById('create-tell').checked;
         if (CREATE_PROJECTS.length) b.projects = CREATE_PROJECTS;
         return b;
       })()),

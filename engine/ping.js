@@ -12,6 +12,12 @@
  * with engine/notify.js and the Settings toggles. This file no longer sends
  * anything anywhere.
  *
+ * ⚠️ #3038 (2026-09-14): the create-agent BEACON is BACK, but NOT here -- Josh
+ * ruled the #2623 removal was an AGENT's, not his ("always wanted" it). It lives
+ * in a new module, engine/createdbeacon.js, which reads `installId()` below to
+ * build its payload. So "this file sends nothing" is still true; "no create-agent
+ * telemetry exists anywhere" is NOT -- see createdbeacon.js for the restored send.
+ *
  * What stays is the one piece other features need and that never leaves the
  * machine on its own:
  *
