@@ -9557,15 +9557,19 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p class="fr-msg" id="fr-s2-msg" role="status" aria-live="polite"></p>
       </div>
 
-      <!-- S3 Automation (new). Gates: data-gate="sleep" + "tmux". Next locked until BOTH. -->
+      <!-- S3 Automation. Both status rows are ADVISORY (they show the ask + state but do NOT gate Next). -->
       <div class="fr-pane" id="fr-pane-3" hidden>
         <!-- ============================================================
              SCREEN 3 - AUTOMATION   (spec screen F + part of E)
-             Primary button (shell param): "Next", GREYED until BOTH gates granted. No skip.
+             Primary button (shell param): "Next" -- always available (both gates advisory). No skip.
              GATES: data-gate="sleep" and data-gate="tmux" on the two status rows. Renet's poll
                sets `data-granted` on each when granted (green "Activated"), `data-checking` on the
                cannot-check state (neutral "Checking...", #2085), else the red "Not activated" + Turn
-               On default; #fr-next is enabled only when neither gate is measured-not-granted.
+               On default. #2587 made sleep advisory (a laptop cannot satisfy it); #2912/#2559 made the
+               accessibility (tmux) row advisory too -- its native AXIsProcessTrusted reading is pinned
+               at process start, so it false-negatives a just-granted permission and trapped Josh on
+               install ("I cannot proceed forward"). Both rows still SHOW the ask; neither blocks Next.
+               Next re-gates on accessibility once the detection is live from the TCC db (#2559).
              Dynamic: none.  CSS namespace: s3-*
              Copy is Josh's, verbatim. Graphic 1 = macOS Energy pane (reproduced). Graphic 2 = the
              Kosmos Accessibility permission; STAND-IN until the real "Screenshot 10.09.15 AM" is pulled (flagged).
@@ -43721,7 +43725,8 @@ let FR_YOU_GEN = 0;
    Accessibility poll (frPollA11y) with a general poll over the data-gate rows in
    the ACTIVE screen. S2 carries data-gate="file-access"; S3 carries
    data-gate="sleep" + data-gate="tmux". A row is GREEN (data-granted) ONLY on a
-   measured grant; #fr-next is disabled ONLY when some row is measured-not-granted.
+   measured grant; #fr-next is disabled ONLY when a GATING row (S2 file-access) is
+   measured-not-granted -- both S3 rows are advisory (gatesNext:false, #2587/#2912).
    Posture is FAIL-SAFE and POSITIVE-ONLY, exactly like the engine: uncheckable (a
    browser, no native reading yet) and any fetch failure NEVER block and NEVER show
    a false green, so the gate can never strand a browser tester or an unreadable
@@ -43772,6 +43777,23 @@ const FR_GATES = {
     url: '/api/a11y-status',
     granted: (r) => r.checkable === true && r.trusted === true,
     blocked: (r) => r.checkable === true && r.trusted !== true,
+    // #2912/#2559 (Josh 2026-09-14, P0 "I cannot proceed forward to install Kosmos"):
+    // ADVISORY -- the accessibility step no longer gates Next. It was mandatory on the
+    // premise "accessibility is satisfiable + detectable, so gate it". Josh's fresh
+    // 0.6.63 test broke that premise: he GRANTED Kosmos accessibility, hit Check Again
+    // repeatedly, and it never saw the grant -- only an APP REFRESH picked it up. The
+    // reading is the native app's own AXIsProcessTrusted, which macOS pins at process
+    // start, so a running app cannot see a just-granted permission until it restarts:
+    // a FALSE not-granted that hard-blocked Next and trapped the user on the last
+    // install screen. Hard-gating on a detection that false-negatives is strictly worse
+    // than not gating, so the step is advisory until the detection is made live
+    // (#2559: read the grant from the system TCC db, which updates the instant the
+    // toggle flips). The ASK stays fully on screen (mock + Turn On + the Activated pill
+    // still drive off granted/blocked); only the Next TRAP is removed. Josh endorsed
+    // exactly this ("Next automatically ready ... if they don't accept the accessibility
+    // requirements"). Re-gating is a one-line flip once #2559 lands, if he wants his
+    // "unless" (energy non-mandatory while accessibility gates).
+    gatesNext: false,
   },
 };
 let FR_GATE_GEN = 0, FR_GATE_TIMER = null, FR_GATE_SCREEN = null;
@@ -43831,12 +43853,14 @@ async function frPollGates(screenEl, gen) {
         if (row.hasAttribute(a)) swMirror.setAttribute(a, ''); else swMirror.removeAttribute(a);
       });
     }
-    // #2587 (Josh's ruling): the sleep step is ADVISORY -- it never gates Next. A
-    // laptop that cannot satisfy it (macOS has no never-sleep-on-battery switch), or
-    // anyone who simply has not set it, can still move on; the honest note stays as
-    // information rather than walling them in. Only genuinely-satisfiable permissions
-    // (Accessibility/tmux, file access) gate Next -- gating those is correct, because
-    // letting a user past an ungranted Accessibility grant lands them in broken agents.
+    // ADVISORY gates never disable Next (gatesNext:false). #2587: the sleep step (a
+    // laptop cannot satisfy it -- macOS has no never-sleep-on-battery switch, or the
+    // user simply has not set it). #2912: the accessibility (tmux) step too -- its
+    // native AXIsProcessTrusted reading is pinned at process start, so it
+    // false-negatives a just-granted permission and trapped users on the last install
+    // screen. Both keep their ask + honest state on screen; only a GATING row (S2
+    // file-access) can set anyBlocked. Accessibility re-gates once the grant is read
+    // live from the TCC db (#2559).
     const spec = FR_GATES[row.getAttribute('data-gate')];
     if (st === 'blocked' && !(spec && spec.gatesNext === false)) anyBlocked = true;
   });
@@ -44088,8 +44112,9 @@ function frGo(step) {
     frActions({ label: 'Next', go: () => { if (document.getElementById('fr-next').disabled) return; frGo(frStepAfter(2)); } });
     frGateStart(pane);
   } else if (step === 3) {
-    // S3 Automation: sleep + tmux gates. Next unlocks only when BOTH are granted;
-    // same FAIL-SAFE soft-open posture as S2.
+    // S3 Automation: sleep + accessibility (tmux) rows. Both ADVISORY (gatesNext:false,
+    // #2587/#2912), so Next is always available here; the go() guard below still reads
+    // fr-next.disabled defensively. Only S2 file-access hard-gates Next.
     /* #2647: Check-again rides the nav's far-left secondary slot, with its copy
        beside it. Josh could not see the old in-pane version before finishing the
        connection; this bar is always visible. */
@@ -44562,7 +44587,8 @@ async function frRecheckPress(btn) {
      - a click inside the data-gate="sleep" row  -> /api/open-sleep-settings
      - a click inside the data-gate="tmux" row    -> /api/open-accessibility-settings
    The button opens System Settings; it cannot grant the permission (TCC), which
-   is why the gate poll (not this click) is what flips the pill and unlocks Next.
+   is why the gate poll (not this click) is what flips the pill. (Both S3 rows are
+   advisory -- #2587/#2912 -- so neither flips Next; the pill is all that changes.)
    Only a failure speaks, in the step's own #fr-s3-msg line; the Settings window
    itself is the success feedback. */
 document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
