@@ -121,9 +121,9 @@ test('the create route fires the created ping on OUTCOME.CREATED, gated on the c
   // fixed-width-before slice broke when a clarifying comment was added inside the
   // block. Runtime behaviour is covered end-to-end in
   // server.createdbeacon-route-3038.test.js; this pins the source wiring.
-  const gi = SERVER.indexOf('result.outcome === create.OUTCOME.CREATED && body.notifyCreated !== false');
-  assert.ok(gi >= 0, 'the created ping is not gated on OUTCOME.CREATED + notifyCreated (checkbox default-on)');
-  assert.match(SERVER.slice(gi, gi + 1000), /createdbeacon\.pingAgentCreated\(/,
+  const gateIndex = SERVER.indexOf('result.outcome === create.OUTCOME.CREATED && body.notifyCreated !== false');
+  assert.ok(gateIndex >= 0, 'the created ping is not gated on OUTCOME.CREATED + notifyCreated (checkbox default-on)');
+  assert.match(SERVER.slice(gateIndex, gateIndex + 1000), /createdbeacon\.pingAgentCreated\(/,
     'pingAgentCreated is not inside the CREATED + notifyCreated gate');
 });
 

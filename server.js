@@ -4392,14 +4392,14 @@ const server = http.createServer((req, res) => {
            re-sent count never inflates the total. */
         if (result.outcome === create.OUTCOME.CREATED && body.notifyCreated !== false) {
           try {
-            const r = safeRoster();
+            const roster = safeRoster();
             // Match the MACHINE SLUG: roster entries key on `sessionName` (every
             // other membership check in this file does, e.g. lines ~1652/3915),
             // and `result.name` is that slug (its comment ~20 lines down). An
             // earlier version compared `a.name` (the DISPLAY name) and `a.shown`
-            // (which does not exist on a roster entry), so `has` never matched.
-            const has = r.some((a) => a && a.sessionName === result.name);
-            createdbeacon.pingAgentCreated(r.length + (has ? 0 : 1));
+            // (which does not exist on a roster entry), so the match never fired.
+            const alreadyListed = roster.some((a) => a && a.sessionName === result.name);
+            createdbeacon.pingAgentCreated(roster.length + (alreadyListed ? 0 : 1));
           } catch { /* best-effort: a beacon never affects a create */ }
         }
         // REFUSED is the caller's fault (a bad name, a duplicate); PARTIAL is
