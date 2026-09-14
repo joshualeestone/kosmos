@@ -24455,10 +24455,15 @@ function openDetail(sessionName, section, fromProject) {
      auth #874, rate-limit #215): those are not the long self-reported text Josh flagged, and
      dropping them would silently undo those prior rulings.
      (#2833 still holds: needs_you hides its quote here, and the Talk waiting box carries it.)
-     taskLine / stateReason are UNCHANGED, so the grid/list cards that share them are unaffected. */
+     taskLine / stateReason are UNCHANGED, so the grid/list cards that share them are unaffected.
+     🔑 The mechanism is the SAME derivation the grid/list cards already use -- taskLine with
+     { noQuote: true }. That path falls through stateReason's reported branch (returning '' for a
+     reported self-quote) while KEEPING the engine-state sentences (auth/rate-limit/restart), which
+     is exactly what this line wants. Delegating rather than re-deriving the "is this the reported
+     quote" test inline keeps the header and the cards from ever disagreeing about what drops beside
+     the bubble (one fact, one derivation), and the noQuote behavior is already unit-tested. */
   const dtask = document.getElementById('d-task');
-  const reportedQuote = a.stateReported === true && a.because;
-  dtask.textContent = reportedQuote ? '' : taskLine(a);
+  dtask.textContent = taskLine(a, { noQuote: true });
   dtask.hidden = !dtask.textContent || (a.state === 'needs_you');
   /* The lede names the AGENT rather than saying "this agent", which is the
      pack's wording and the same substitution the rest of this panel already

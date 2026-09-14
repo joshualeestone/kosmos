@@ -45,11 +45,13 @@ test('the card and row do NOT show the agent\'s quoted sentence', () => {
 });
 
 test('stateReason still PRODUCES the quote when asked (the shared derivation is unchanged)', () => {
-  /* #986 scoped the card/list to noQuote; the detail HEADER used to render the full
-     quote. #3043 (Josh, 2026-09-14) stops the header rendering it beside the bubble too
-     (see the header-drop assertion below) -- the reported reason relocates to #d-why. But
-     stateReason itself is UNCHANGED: called with no options it still returns the agent's
-     own words, quoted, which is the contract the cards depend on via the noQuote path. */
+  /* #986 scoped the card/list to noQuote; the detail HEADER used to render the full quote.
+     #3043 (Josh, 2026-09-14) stops the header rendering it beside the bubble too -- the header
+     now takes the noQuote path like the cards, and the reported reason relocates to #d-why.
+     stateReason itself is UNCHANGED: called with NO options it still returns the agent's own
+     words, quoted. That quoted branch is now a retained library contract that no current render
+     path reaches (cards and header both take the noQuote FALL-THROUGH, which strips it); this
+     pins the contract so a future caller that DOES want the quote still gets it. */
   assert.match(stateReason(REPORTED), /Finished responding/);
   assert.match(stateReason(REPORTED), /[“”]/, 'the quotation marks are the "in its own words" mark, not decoration');
 });
@@ -80,13 +82,13 @@ test('the two views Josh named ask for it without the quote, and #3043 drops it 
   assert.ok(list, 'the list row no longer renders .ltask this way; re-derive this test');
   assert.match(grid[0], /noQuote/, 'the GRID card is asking for the quoted line again');
   assert.match(list[0], /noQuote/, 'the LIST row is asking for the quoted line again');
-  /* #3043: the detail header now gates the reported quote out of the task line beside the
-     bubble (it relocates to #d-why). Pin both the gate and its use by call site, so a future
-     edit that puts the quote back beside the bubble is caught here. */
-  assert.match(PAGE, /const reportedQuote = a\.stateReported === true && a\.because;/,
-    'the detail header stopped gating the reported quote out of the task line (#3043)');
-  assert.match(PAGE, /dtask\.textContent = reportedQuote \? '' : taskLine\(a\);/,
-    'the detail header prints the reported quote beside the bubble again (#3043 relocated it to #d-why)');
+  /* #3043: the detail header drops the reported quote from the task line beside the bubble by
+     using the SAME noQuote derivation the cards use (it relocates to #d-why). Pin the call site,
+     so an edit that puts the quote back beside the bubble -- or re-derives the "is this the
+     reported quote" test inline instead of sharing taskLine's one source -- is caught here. The
+     noQuote BEHAVIOR (reported -> '', rate_limited/auth still speak) is asserted directly above. */
+  assert.match(PAGE, /dtask\.textContent = taskLine\(a, \{ noQuote: true \}\);/,
+    'the detail header no longer shares the cards’ noQuote derivation for the task line (#3043)');
 });
 
 /**
