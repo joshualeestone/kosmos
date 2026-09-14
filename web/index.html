@@ -9339,16 +9339,20 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            file-access flow (.s2-mockallow), so it is no longer purely illustrative;
            the keyboard/AT path stays the real Allow Access button in the
            .s2-gate-row below. */
-        /* #2910 (Josh 6.59): the person will see SIX real macOS prompts, three from Terminal
+        /* #2910 (Josh 6.59) + #2685: the person will see SIX real macOS prompts, three from tmux
            and three from Kosmos, one per folder. Show all six, grouped and labeled by the app
            that actually raises them, so the screen matches what pops up (the old single box said
-           "Terminal" while the real prompt is often Kosmos). Two labeled groups, three compact
-           previews each; the row wraps at narrow widths so it never overflows the pane. */
+           "Terminal", but the real file-access prompt names tmux, the bundled process macOS holds
+           responsible for agent file access). Two labeled groups, three compact previews each;
+           the row wraps at narrow widths so it never overflows the pane. */
         .s2-dlg-fan{display:flex;flex-direction:column;gap:14px;align-items:stretch;margin:2px 0 16px}
         .s2-appgrp{display:flex;flex-direction:column;gap:7px}
         .s2-applbl{font:650 .75rem var(--font-ui,-apple-system,sans-serif);letter-spacing:.02em;
           color:var(--k-ink,#14161a);margin:0}
         .s2-applbl .s2-appcount{font-weight:500;color:var(--k-ink-soft,#6b7078)}
+        /* #2685: the tmux group's supporting micro-line -- explains the word "tmux" the way the
+           blessed dhint does, so it is not a naked label. Quiet: muted, small, no box. */
+        .s2-grpnote{font-size:.8125rem;line-height:1.5;color:var(--k-ink-2,#4a4f57);margin:2px 0 0;max-width:60ch}
         /* three per group across one row on the onboarding pane (~552px), collapsing to
            two then one as the width narrows -- auto-fit tiles as many >=150px columns as fit. */
         .s2-dlgrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}
@@ -9404,37 +9408,43 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p>In order to put agents to work, you will need to grant them access to files, apps, and other parts of your computer.</p>
         <p>When prompted, click Allow.</p>
 
-        <!-- #2910: six previews, grouped by the app macOS names in each prompt. Terminal's three
-             (tmux runs under it) and Kosmos's three. aria-hidden: the real focusable grant is the
-             .s2-gate-row button below; these are a mouse-only preview of what will pop up. Each
-             mock Allow keeps .s2-mockallow, so a click forwards into the one real file-access flow
-             (the #fr-pane-2 click handler targets the single .s2-allow). -->
+        <!-- #2910/#2685: six previews, grouped by the app macOS names in each prompt. tmux's three
+             and Kosmos's three. The file-access prompts come up as "tmux", not Terminal: Kosmos
+             ships and launches its own bundled tmux (macOS has none), and that tmux is the process
+             macOS holds responsible for agent FILE access (engine/fileaccessstatus.js), so it is
+             the name on the real folder prompts (Josh's screenshots). This screen is FILE access
+             only; the accessibility step is S3 and is handled separately (its tmux-vs-Kosmos
+             attribution is being verified, #2911, and is not asserted here). aria-hidden: the real
+             focusable grant is the .s2-gate-row button below; these are a mouse-only preview of what
+             will pop up. Each mock Allow keeps .s2-mockallow, so a click forwards into the one real
+             file-access flow (the #fr-pane-2 click handler targets the single .s2-allow). -->
         <div class="s2-dlg-fan" aria-hidden="true">
           <div class="s2-appgrp">
-            <p class="s2-applbl">Terminal <span class="s2-appcount">(3 folders)</span></p>
+            <p class="s2-applbl">tmux <span class="s2-appcount">(3 folders)</span></p>
             <div class="s2-dlgrow">
               <div class="s2-dlg">
                 <div class="s2-dlg-head">
                   <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
-                  <p class="s2-say">"Terminal" would like to access files in your Documents folder.</p>
+                  <p class="s2-say">"tmux" would like to access files in your Documents folder.</p>
                 </div>
                 <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
               </div>
               <div class="s2-dlg">
                 <div class="s2-dlg-head">
                   <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
-                  <p class="s2-say">"Terminal" would like to access files in your Downloads folder.</p>
+                  <p class="s2-say">"tmux" would like to access files in your Downloads folder.</p>
                 </div>
                 <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
               </div>
               <div class="s2-dlg">
                 <div class="s2-dlg-head">
                   <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
-                  <p class="s2-say">"Terminal" would like to access files in your Desktop folder.</p>
+                  <p class="s2-say">"tmux" would like to access files in your Desktop folder.</p>
                 </div>
                 <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
               </div>
             </div>
+            <p class="s2-grpnote">These prompts say "tmux". That is one of your agents reaching a folder you gave it work in. Allow each one.</p>
           </div>
           <div class="s2-appgrp">
             <p class="s2-applbl">Kosmos <span class="s2-appcount">(3 folders)</span></p>
@@ -12313,10 +12323,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            originates with the person's own instruction, so the fix that is
            left is words: agents pre-warn (the boot block), and this box is
            the standing answer for someone who met it cold. -->
-      <!-- ⚠️ THIS BOX IS THE ONE PLACE THE WORD tmux IS ALLOWED TO REACH A
-           PERSON, and the distinction matters because two rulings in this
-           codebase say it must not. Those are about Kosmos INTRODUCING the
-           word. Here macOS puts it on the screen itself, in a box we do not
+      <!-- ⚠️ THE WORD tmux MAY REACH A PERSON ONLY WHERE macOS SHOWS IT FIRST,
+           and the distinction matters because two rulings in this codebase say
+           Kosmos must not INTRODUCE it. This box is one such place; the S2
+           Access screen, which previews the real file-access prompt, is another
+           (#2685). Here macOS puts it on the screen itself, in a box we do not
            control, and a person who has just been shown a word deserves to be
            told what it is. Explaining a word they were handed is the opposite
            of using jargon at them.
@@ -12352,8 +12363,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            the box is, what to press, what each choice costs, and the reassurance,
            which had to be rewritten because the old one was only true of folders.
            📌 The heading still leads with what the person SEES, and the note above
-           still applies: this is the one place the word tmux may reach a person,
-           because macOS put it on their screen first. -->
+           still applies: the word tmux reaches a person only where macOS put it on
+           their screen first (this box and the S2 preview). -->
       <p class="dhint" style="margin:0;">
         macOS sometimes asks whether <i>&ldquo;tmux&rdquo;</i> can open one of your
         folders, or control this computer. That is one of your agents, reaching a

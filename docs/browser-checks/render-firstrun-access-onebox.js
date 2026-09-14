@@ -1,11 +1,15 @@
 /**
  * Screen 2 (Access) shows SIX macOS-style permission previews, grouped and
- * labeled by the app that actually raises each prompt: Terminal (Documents /
+ * labeled by the app that actually raises each prompt: tmux (Documents /
  * Downloads / Desktop) and Kosmos (Documents / Downloads / Desktop). #2910
- * (Josh 6.59): "Three for Kosmos and three for Terminal, all six in a row...
- * Right now we show that it's Terminal asking for access on that screen but then
- * when it pops up, it's actually Kosmos asking for it. We really need both so
- * let's ask for both."
+ * introduced the six-ask, framed as "Terminal"; #2685 corrects that group to
+ * "tmux": Kosmos ships and launches its own bundled tmux (macOS has none), and
+ * that tmux is the process macOS holds responsible for agent FILE access
+ * (engine/fileaccessstatus.js), so it is the name on the real folder prompts
+ * (Josh's screenshots say "tmux would like to access files in your ... folder").
+ * This check covers the FILE-access screen only; the accessibility step (S3) is
+ * separate, its tmux-vs-Kosmos attribution is being verified (#2911), and this
+ * check does not assert it.
  *
  * FILENAME IS HISTORICAL. This check began at 0.6.39 #8 asserting ONE box
  * ("onebox") that replaced a three-card fan; #2910 reverses that to six labeled
@@ -26,9 +30,10 @@
  *
  * Arms:
  *  1. STRUCTURE: exactly six `.s2-dlg`, in two `.s2-appgrp` groups.
- *  2. LABELS: the two group labels name Terminal and Kosmos.
- *  3. MISLABEL FIXED: at least one preview names Kosmos (was only "Terminal"),
- *     and the old generic "...in your folders." line is gone.
+ *  2. LABELS: the two group labels name tmux and Kosmos.
+ *  3. TMUX LABEL (#2685): the file-access group names tmux, NOT Terminal, Kosmos
+ *     is named, the old generic "...in your folders." line is gone, and the tmux
+ *     group carries its explaining micro-line.
  *  4. COVERAGE: each app covers Documents, Downloads and Desktop.
  *  5. COMPACT COPY: a preview line renders at the compact dialog size (~12-13px,
  *     weight 600), not the 17px/400 first-run body.
@@ -153,7 +158,9 @@ function isBlue(rgb) {
         perApp,
         oldGenericCopy: says.some((s) => /in your folders\.?$/.test(s)),
         namesKosmos: says.some((s) => /"Kosmos"/.test(s)),
+        namesTmux: says.some((s) => /"tmux"/.test(s)),
         namesTerminal: says.some((s) => /"Terminal"/.test(s)),
+        grpnote: (() => { const n = fan ? fan.querySelector('.s2-grpnote') : null; return n ? n.textContent.trim() : null; })(),
         denyCount: denies.filter(Boolean).length,
         allowCount: allows.filter(Boolean).length,
         sayPx: sayCs ? parseFloat(sayCs.fontSize) : null,
@@ -166,22 +173,28 @@ function isBlue(rgb) {
       state.dlgCount === 6 && state.groupCount === 2,
       `dlgs ${state.dlgCount}, groups ${state.groupCount}`);
 
-    check(`${engine}: the two group labels name Terminal and Kosmos`,
+    check(`${engine}: the two group labels name tmux and Kosmos`,
       state.labels.length === 2
-        && state.labels.some((l) => /^Terminal/.test(l))
+        && state.labels.some((l) => /^tmux/.test(l))
         && state.labels.some((l) => /^Kosmos/.test(l)),
       JSON.stringify(state.labels));
 
-    // The mislabel Josh reported: the screen said only "Terminal" while the real prompt is often
-    // Kosmos. Fixed = both apps are named AND the old generic "...in your folders." line is gone.
-    check(`${engine}: mislabel fixed - both Terminal and Kosmos are named, the old generic line is gone`,
-      state.namesTerminal && state.namesKosmos && !state.oldGenericCopy,
-      `terminal ${state.namesTerminal}, kosmos ${state.namesKosmos}, oldGeneric ${state.oldGenericCopy}`);
+    // #2685: the file-access group is labelled "tmux", matching the app macOS names in the real
+    // folder prompts (Kosmos ships + launches its own bundled tmux, the responsible process for
+    // FILE access). The old "Terminal" framing is gone: Terminal is NOT named here, tmux is; both
+    // tmux + Kosmos are named, and the old generic "...in your folders." line stays gone.
+    check(`${engine}: the file-access group names tmux (not Terminal), Kosmos is named, old generic line gone`,
+      state.namesTmux && !state.namesTerminal && state.namesKosmos && !state.oldGenericCopy,
+      `tmux ${state.namesTmux}, terminal ${state.namesTerminal}, kosmos ${state.namesKosmos}, oldGeneric ${state.oldGenericCopy}`);
+
+    // #2685: the tmux group carries its explaining micro-line, so the word is not left naked.
+    check(`${engine}: the tmux group has a micro-line naming tmux`,
+      !!state.grpnote && /tmux/.test(state.grpnote), JSON.stringify(state.grpnote));
 
     // Each app's three previews cover Documents, Downloads and Desktop, and name their own app.
     const coverageOk = state.perApp.length === 2 && state.perApp.every((g) =>
       FOLDERS.every((f) => g.lines.some((l) => new RegExp('"' + g.app + '".*' + f + ' folder').test(l))));
-    check(`${engine}: each app (Terminal, Kosmos) covers Documents, Downloads and Desktop`,
+    check(`${engine}: each app (tmux, Kosmos) covers Documents, Downloads and Desktop`,
       coverageOk, JSON.stringify(state.perApp));
 
     check(`${engine}: preview copy is compact dialog-sized (~12-13px, weight 600), not the overlay 17px/400 body`,
