@@ -69,6 +69,11 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         res.leftGapPastList = ps.left - lv.right;              // small (~gap), not ~180 (centered)
         res.settingsWidth = ps.w;                              // ~878 filled, not ~554 shrunk
         res.col2Width = pp.w - lv.w;                           // approx column-2 width
+        // #3054: the panel carries a top + right inset so Your Profile is not slammed to the
+        // top and the content box not to the right edge. Read computed padding on the panel.
+        const csp = getComputedStyle(panelSettings);
+        res.padTop = parseFloat(csp.paddingTop);
+        res.padRight = parseFloat(csp.paddingRight);
         // Navigate to a project -> settings hides, project shows.
         pjView('one');
         res.settingsHiddenAfterNav = panelSettings.hidden === true;
@@ -94,6 +99,10 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // The margin:0 fix: without it the panel centers and shrinks to ~554px offset ~180px into
     // the column. Assert it sits just past the list and fills most of column 2.
     ok(t + ' #2842 settings FILLS the display column (guards the margin:0 fix)', out.err === null && out.leftGapPastList < 40 && out.settingsWidth > out.col2Width - 60, JSON.stringify(out));
+    // #3054: the panel has a top + right inset (padding), so the content is not slammed to
+    // the top/right edge. Both must be > 0. This is compatible with the fill assertion above:
+    // padding is inside the border-box, so settingsWidth (the border-box width) is unchanged.
+    ok(t + ' #3054 the settings panel has a real top + right inset (Your Profile not slammed to the edge)', out.err === null && out.padTop >= 12 && out.padRight >= 12, JSON.stringify(out));
     ok(t + ' #2842 navigating to a project hides settings and shows the project', out.err === null && out.settingsHiddenAfterNav === true && out.projectShownAfterNav === true, JSON.stringify(out));
     ok(t + ' #2842 leaving the consolidated view restores settings to the top level', out.err === null && out.restoredToTopLevel === true, JSON.stringify(out));
     ok(t + ' #2842 CONTROL: in the tab view #rail-me-go does not enter the consolidated view', out.err === null && out.tabViewNotConsolidated === true, JSON.stringify(out));
