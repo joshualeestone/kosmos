@@ -8231,11 +8231,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            ruling recorded below. The lede and the footer are the pack's
            sentences verbatim; the cost still lives in each button's dialog,
            which is what the footer promises. Only Restart names the agent.
-           ⚠️ THE WIDTH WAS REVERSED (Josh, 2026-09-11, #2809): the 08-23
-           "nice big fat buttons" were FULL-WIDTH, and reviewing 0.6.56 live he
-           ruled they "look terrible" that way. They now size to content
-           (`.freshstack .btn` is `display:block; width:fit-content`); still
-           stacked one per line, just no longer full-bleed. -->
+           ⚠️ THE WIDTH HAS CHANGED TWICE (Josh). #2809 (2026-09-11) made these
+           size to content because the 08-23 full-WIDTH "nice big fat buttons"
+           looked terrible full-bleed. Then #2917 (6.59) put Memory and Fresh
+           start side by side at 50% each and asked for the three buttons equal
+           width with centered text: they now FILL their 50% column
+           (`.freshstack .btn` is `display:block; width:100%; text-align:center`),
+           which is half the old full-bleed, equal by construction. The CSS-block
+           comment at `.freshstack .btn` explains why column-fill beats
+           fit-content here (the Restart label is dynamic). -->
       <div class="fhint" id="d-fresh-lede" style="margin-bottom:12px;">Three ways to get it going again, whatever the reason.</div>
       <div class="freshstack">
         <button class="btn" id="d-compact-go" type="button">Compact: summarise and keep going</button>

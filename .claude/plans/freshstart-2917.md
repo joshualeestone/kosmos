@@ -1,4 +1,4 @@
-# Plan: #2917 Memory > Fresh Start — equal-width centered buttons + Memory/Fresh-start 50/50
+# Plan: #2917 Memory > Fresh Start, equal-width centered buttons + Memory/Fresh-start 50/50
 
 Branch: `freshstart-2917`. Card: joshualeestone/kosmos#2917 (josh-review, 6.59 QA).
 Unblocked when agentnav/#2948 merged (it combined Model+Memory under one nav pill; #2917's
