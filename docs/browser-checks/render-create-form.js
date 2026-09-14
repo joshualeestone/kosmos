@@ -79,9 +79,12 @@ function check(name, pass, detail) {
         .sort((a, b) => box(a).top - box(b).top);
       const form = step.getBoundingClientRect();
       const btn = box('create-go');
-      /* #2623: the created-ping checkbox was DELETED (Josh, 2026-09-09, "invasion
-         of privacy"). Assert it is gone from the rendered step. */
-      const tellGone = !id('create-tell');
+      /* #3038: the created-ping checkbox is BACK (Josh ruled #2623's removal was
+         an AGENT's, not his -- he "always wanted" it). Assert it RENDERS on the
+         step and is default-checked. */
+      const tellEl = id('create-tell');
+      const tellPresent = !!tellEl;
+      const tellChecked = tellPresent && tellEl.checked === true;
       const acct = box('create-account');
       const model = box('create-model');
       const prov = box('create-provider');
@@ -223,7 +226,8 @@ function check(name, pass, detail) {
             return Math.round(bottom - (cr.top + cr.height / 2));
           }).filter((n) => n !== null);
         })(),
-        tellGone,
+        tellPresent,
+        tellChecked,
         btnPresent: !!btn,
         labelGap: (() => {
           const l = document.querySelector('label[for="create-name"]');
@@ -354,12 +358,13 @@ function check(name, pass, detail) {
       seen.elbow ? `${seen.elbow.w} x ${seen.elbow.h} in ${seen.elbow.color}` : 'no ::before');
 
     /* 🛑 THIS HAS ASSERTED THE CHECKBOX, THEN ITS ABSENCE, AND NOW ITS PRESENCE
-       AGAIN. Josh removed the created-ping setting on 2026-08-26, then reversed
-       that on 2026-09-05 ("we need that back in for sure"), so the rendered
-       create step no longer carries the checkbox (#2623).
+       AGAIN. Josh removed the created-ping setting 2026-08-26, restored it
+       2026-09-05 ("we need that back in for sure"), an AGENT removed it again in
+       #2623, and Josh ruled THAT removal was not his (#3038: "always wanted" it,
+       "I don't care about privacy") -- so it is BACK, default-checked.
        📌 The button half is kept as the control: without it, "the checkbox is
-       gone" would still pass on a step that had lost its Create button. */
-    check(`[${engine}] the created-ping checkbox is gone from this step (#2623)`, seen.tellGone === true);
+       present" would still pass on a step that had lost its Create button. */
+    check(`[${engine}] the created-ping checkbox is on this step, default-checked (#3038)`, seen.tellPresent === true && seen.tellChecked === true);
     check(`[${engine}] and the Create button is still on it`, seen.btnPresent === true);
 
     check(`[${engine}] no page errors`, errors.length === 0, errors.join(' | ').slice(0, 160));
