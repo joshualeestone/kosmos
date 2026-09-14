@@ -114,6 +114,14 @@ const OPENAI_ROWS = [
   const codexSignedOutDefault = await drive(
     { sessionName: 'gpt3', isNamedOurs: true, runner: 'codex', account: null },
     [{ provider: 'openai', dir: '/Users/x/.codex-work', isDefault: false, name: 'Josh work', email: 'work@openai' }]);
+  // #2338/#1492 SUBJECT: a NAMED codex agent whose ONLY OpenAI home is LISTED but
+  // SIGNED OUT (connection.state === 'none') has an empty movable (the state filter
+  // drops it), so the picker is disabled -- but the message must be the ACCURATE
+  // "signed out, sign it in again from Settings", NOT a false "could not read your
+  // OpenAI accounts" (we could read it; it is signed out).
+  const codexOnlyHomeSignedOut = await drive(
+    { sessionName: 'gpt4', isNamedOurs: true, runner: 'codex', account: { dir: '/Users/x/.codex-solo' } },
+    [{ provider: 'openai', dir: '/Users/x/.codex-solo', isDefault: false, name: 'Josh solo', email: 'solo@openai', connection: { state: 'none' } }]);
   // CONTROL: identical card, claude runner, claude accounts. If this does NOT produce
   // the old "we cannot tell" sentence, the !ours branch was not reached and the codex
   // assertions prove nothing.
@@ -124,7 +132,8 @@ const OPENAI_ROWS = [
   await browser.close();
 
   const problems = [];
-  const err = codexMovable.error || codexNoOpenai.error || codexSignedOutDefault.error || claudeR.error;
+  const err = codexMovable.error || codexNoOpenai.error || codexSignedOutDefault.error
+    || codexOnlyHomeSignedOut.error || claudeR.error;
   if (err) problems.push(err);
   else {
     // POPULATION FLOOR / CONTROL first: the claude arm must reach the !ours branch.
@@ -169,6 +178,16 @@ const OPENAI_ROWS = [
     if (!/Pick an account above and press Move/.test(codexSignedOutDefault.text)) {
       problems.push('the signed-out-default codex agent shows no explanatory message directing the recovery move, '
         + 'so a person sees a bare "Move to..." with no indication anything is wrong. got: ' + JSON.stringify(codexSignedOutDefault.text));
+    }
+
+    // #2338/#1492 only-home-signed-out arm: accurate "signed out", never "could not read".
+    if (/could not read/.test(codexOnlyHomeSignedOut.text)) {
+      problems.push('a codex agent whose only OpenAI home is signed out is falsely told we could not read its '
+        + 'OpenAI accounts (we could -- it is signed out). got: ' + JSON.stringify(codexOnlyHomeSignedOut.text));
+    }
+    if (!/signed out/.test(codexOnlyHomeSignedOut.text) || !/Sign it in again from Settings/.test(codexOnlyHomeSignedOut.text)) {
+      problems.push('a codex agent whose only OpenAI home is signed out is not given the accurate '
+        + '"signed out, sign it in again from Settings" remedy. got: ' + JSON.stringify(codexOnlyHomeSignedOut.text));
     }
   }
 

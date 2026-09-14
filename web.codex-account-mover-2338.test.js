@@ -108,6 +108,19 @@ test('#2338/#1492: a default codex agent whose default home is signed out still 
     'the usable named home was not offered when the default home is signed out');
 });
 
+test('#1492: a named codex agent whose only OpenAI home is signed out has empty movable but a resolved current account', () => {
+  const world = worldFn();
+  // The current account is signed out (state:none), so it is filtered OUT of movable
+  // (nowhere to move), but it is still LISTED, so currentDir/currentRow resolve -- which
+  // is what lets paintAccountPicker show the accurate "signed out" message instead of a
+  // false "could not read your OpenAI accounts".
+  const soloDead = { provider: 'openai', dir: '/Users/x/.codex-solo', isDefault: false, name: 'solo', connection: { state: 'none' } };
+  const w = world({ runner: 'codex', account: { dir: soloDead.dir } }, [soloDead]);
+  assert.deepEqual(w.movable, [], 'a signed-out home was offered as a move destination');
+  assert.equal(w.currentDir, soloDead.dir, 'the current home was not resolved from a.account.dir');
+  assert.equal(w.currentRow, soloDead, 'the current row (needed for the signed-out message) was not resolved');
+});
+
 test('a CLAUDE agent is unchanged: it moves among shared-memory Claude accounts, never the OpenAI ones', () => {
   const world = worldFn();
   const w = world({ runner: 'claude', account: { dir: CLAUDE_A.dir } }, ALL);

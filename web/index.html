@@ -31166,7 +31166,10 @@ async function paintAccountPicker(a) {
      comes from a.account (launch-file-derived, no name), so resolve it through
      acctLive (its ACCOUNTS entry, already found above) to pick up the name, falling
      back to the launch-file object when it is not in the list. */
-  const here = currentDir ? '<option value="">' + esc(acctPrimaryName(acctLive || acct || { dir: currentDir })) + '</option>'
+  /* When `currentDir` is set it came from `acct.dir` (so `acct` is truthy) or from a
+     default row IN `movable` ⊆ `rows` (so `acctLive`/`currentRow` is truthy), so one of
+     the two operands below always resolves; no third fallback is reachable. */
+  const here = currentDir ? '<option value="">' + esc(acctPrimaryName(acctLive || acct)) + '</option>'
     : '<option value="">Move to&hellip;</option>';
   const html = [here].concat(
     movable.filter((x) => x.dir !== currentDir)
@@ -31196,17 +31199,23 @@ async function paintAccountPicker(a) {
      arms only when a different account is picked. */
   sel.disabled = !ours;
   go.disabled = !ours || !sel.value;
-  if (msg && !msg.textContent && !ours) {
+  if (msg && !msg.textContent && !ours && !(world.isCodex && acctLive)) {
     /* #2338: a codex agent IS movable now -- `acctMoveWorld` gives it the OpenAI
        accounts and `setCodexAccount` performs the swap -- so the old "This is a
        Codex agent... cannot be moved from here" dead-end is gone. A codex agent
-       only reaches this !ours branch when we could not read ANY OpenAI account for
-       it (an unreadable OpenAI list, or a machine with none), which is a
-       could-not-read state, not a cannot-move-by-design one -- so it says so
-       without the false absolute. A Claude agent lands here when its own account
-       could not be read (the launch file was unreadable), the pre-existing
-       cannot-tell case. `world.isCodex` is `a.runner === 'codex'`, the same idiom
-       used at the other runner reads in this file. */
+       reaches THIS branch only when we could read NO account for it at all
+       (`acctLive` null: an unreadable OpenAI list, or a machine with none), which is
+       a could-not-read state -- so it says so without a false absolute.
+       🛑 The `!(world.isCodex && acctLive)` guard is load-bearing: a named codex
+       agent whose only OpenAI home is LISTED but SIGNED OUT (`connection.state
+       === 'none'`) has an empty `movable` (the state filter drops it) so `ours` is
+       false, but its account IS resolved (`acctLive` set) and `signedOut` is true.
+       Without the guard this branch would claim a read failure that did not happen
+       and withhold the actionable "sign it in again from Settings" remedy below; the
+       guard lets it fall through to the accurate `signedOut` branch instead.
+       A Claude agent lands here when its own account could not be read (the launch
+       file was unreadable), the pre-existing cannot-tell case; `world.isCodex` is
+       false for it, so the guard never suppresses its message. */
     msg.textContent = world.isCodex
       ? 'We could not read this agent’s OpenAI accounts just now, so it cannot be moved from here.'
       : 'We cannot tell which account this one uses, so it cannot be moved from here.';
