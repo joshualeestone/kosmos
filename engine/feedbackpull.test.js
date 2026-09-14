@@ -205,6 +205,20 @@ test('#3060: runCli --dir with no path is a usage error (exit 2)', async () => {
   assert.match(err, /--dir needs a path/);
 });
 
+test('#3060: runCli rejects the directory given more than once, symmetric with two positionals (exit 2)', async () => {
+  // A bare positional then --dir must NOT silently overwrite; both "already have
+  // a dir" forms error the same way.
+  const mixed = await captureStd(() => fp.runCli(['mydir', '--dir', 'other'], { token: TOKEN }));
+  assert.equal(mixed.code, 2);
+  assert.match(mixed.err, /more than once/);
+  const twoFlags = await captureStd(() => fp.runCli(['--dir', 'a', '--dir', 'b'], { token: TOKEN }));
+  assert.equal(twoFlags.code, 2);
+  assert.match(twoFlags.err, /more than once/);
+  const twoPositional = await captureStd(() => fp.runCli(['a', 'b'], { token: TOKEN }));
+  assert.equal(twoPositional.code, 2);
+  assert.match(twoPositional.err, /unexpected argument/);
+});
+
 test('#3060: runCli --help prints usage and exits 0', async () => {
   const { code, out } = await captureStd(() => fp.runCli(['--help'], { token: TOKEN }));
   assert.equal(code, 0);

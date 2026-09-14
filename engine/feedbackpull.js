@@ -255,6 +255,11 @@ async function runCli(argv, opts) {
       return 0;
     }
     if (t === '--dir') {
+      // The directory can be given once, as EITHER `--dir <path>` OR a bare
+      // positional -- giving it twice (any mix) is an error, symmetric with the
+      // two-bare-positionals case below, so `--dir` never silently overwrites a
+      // positional already seen.
+      if (dir !== undefined) { process.stderr.write('the directory was given more than once\n'); return 2; }
       if (!a.length) { process.stderr.write('--dir needs a path\n'); return 2; }
       dir = a.shift();
     } else if (dir === undefined) {
@@ -275,7 +280,12 @@ async function runCli(argv, opts) {
 }
 
 if (require.main === module) {
-  runCli(process.argv.slice(2)).then((code) => { process.exitCode = code; });
+  // runCli catches its own only await today, but attach a rejection handler so a
+  // future path that lets it reject surfaces as a clean stderr line + exit 1
+  // rather than a raw unhandled rejection (matches selfcheck.js / win32update.js).
+  runCli(process.argv.slice(2))
+    .then((code) => { process.exitCode = code; })
+    .catch((e) => { process.stderr.write('could not pull the collected feedback: ' + String((e && e.message) || e) + '\n'); process.exitCode = 1; });
 }
 
 module.exports = {
