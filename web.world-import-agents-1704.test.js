@@ -47,8 +47,10 @@ test('the cog is on EVERY row, Kosmos 1 included, labelled as settings, and open
   dom.add('worldsw-btn', 'button');
   const opened = [];
   // eslint-disable-next-line no-new-func
-  new Function('document', 'worldswConfirmSwitch', 'worldRenameOpen', '_d', `${SW_RENDER}\nworldswRender(_d);`)(
-    dom.document, () => {}, (id, name) => opened.push([id, name]),
+  // #3055: worldswRender now calls worldswSetStale (the last-known-render note); stub it,
+  // as the other injected deps are stubbed, so the isolated render still runs.
+  new Function('document', 'worldswConfirmSwitch', 'worldRenameOpen', 'worldswSetStale', '_d', `${SW_RENDER}\nworldswRender(_d);`)(
+    dom.document, () => {}, (id, name) => opened.push([id, name]), () => {},
     { worlds: [{ id: 'default', name: 'Kosmos 1' }, { id: 'alpha', name: 'Alpha' }], activeWorldId: 'default' },
   );
   const cogs = list.children.map((entry) => entry.children.find((c) => c.className === 'worldsw-cog'));
