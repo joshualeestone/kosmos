@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: cons-newagent-display-3053
-diff_hash: bb7949957fd4d77e4d7521c02c7a8f70dce940cf082aaac72ec403ed3ffb3333
+diff_hash: e5e2be517ab47cf5494c0657904390d4dfe945c1e3ef7bc3c6176f912a0e40a6
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-14T21:10:26Z
@@ -62,6 +62,14 @@ converged: true
 | 6 | 4 | NIT | web/index.html | BRANCH | #867 first-poll auto-open race (pre-existing) | DEFERRED | symmetric with shipped #2842 |
 | 7 | 5 | NIT | plan | BRANCH | assertion count 24 vs 28 | FIXED | corrected |
 | 8 | 5 | NIT | (branch) | BRANCH | 1 commit behind main, merge-tree clean | DEFERRED | handled at PR time |
+
+### Post-convergence CI fix (test #1387)
+After the loop converged, CI's `tools.browser-checks-wired` test #1387 caught that the new
+`render-consolidated-newagent-3053.js` existed but was not listed in `tools/browser-checks.sh`, so
+the runner never ran it (the exists-but-nothing-runs-it gap). Notably ALL FIVE blind reviewers
+checked the check's CODE but not its WIRING. Fixed by adding it to the runner's for-loop beside
+`render-consolidated-settings-2842`; #1387 now 8/8. A wiring/config fix, not logic, so no
+re-challenge-loop; the diff_hash above is recomputed to include it.
 
 ### Outstanding questions (ASKED)
 None.
