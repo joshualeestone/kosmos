@@ -44034,9 +44034,11 @@ let FR_YOU_GEN = 0;
 /* install-flow-9screen: the permission-gate poll. Replaces the old single-gate
    Accessibility poll (frPollA11y) with a general poll over the data-gate rows in
    the ACTIVE screen. S2 carries data-gate="file-access"; S3 carries
-   data-gate="sleep" + data-gate="tmux". A row is GREEN (data-granted) ONLY on a
-   measured grant; #fr-next is disabled ONLY when a GATING row (S2 file-access) is
-   measured-not-granted -- both S3 rows are advisory (gatesNext:false, #2587/#2912).
+   data-gate="sleep", data-gate="tmux" (the app's Accessibility grant) and
+   data-gate="tmux-a11y" (tmux's own grant). A row is GREEN (data-granted) ONLY on a
+   measured grant; #fr-next is disabled when a GATING row is measured-not-granted --
+   that is S2 file-access AND both S3 accessibility rows (re-gated #2559/#2911); only
+   sleep stays advisory (gatesNext:false, #2587).
    Posture is FAIL-SAFE and POSITIVE-ONLY, exactly like the engine: uncheckable (a
    browser, no native reading yet) and any fetch failure NEVER block and NEVER show
    a false green, so the gate can never strand a browser tester or an unreadable
@@ -44175,14 +44177,14 @@ async function frPollGates(screenEl, gen) {
         if (row.hasAttribute(a)) swMirror.setAttribute(a, ''); else swMirror.removeAttribute(a);
       });
     }
-    // ADVISORY gates never disable Next (gatesNext:false). #2587: the sleep step (a
-    // laptop cannot satisfy it -- macOS has no never-sleep-on-battery switch, or the
-    // user simply has not set it). #2912: the accessibility (tmux) step too -- its
-    // native AXIsProcessTrusted reading is pinned at process start, so it
-    // false-negatives a just-granted permission and trapped users on the last install
-    // screen. Both keep their ask + honest state on screen; only a GATING row (S2
-    // file-access) can set anyBlocked. Accessibility re-gates once the grant is read
-    // live from the TCC db (#2559).
+    // An ADVISORY gate (gatesNext:false) never disables Next; a GATING one sets
+    // anyBlocked when its row is measured-blocked. #2587: sleep is advisory (a laptop
+    // cannot satisfy it -- macOS has no never-sleep-on-battery switch, or the user
+    // simply has not set it). #2559/#2911: the accessibility rows GATE -- the app's
+    // grant (data-gate="tmux") and tmux's own grant (data-gate="tmux-a11y") both set
+    // anyBlocked when measured-not-granted, now that the readings are live TCC-db reads
+    // that flip the instant the toggle does (so the #2912 false-negative that trapped
+    // users is gone). Only sleep carries gatesNext:false.
     const spec = FR_GATES[row.getAttribute('data-gate')];
     if (st === 'blocked' && !(spec && spec.gatesNext === false)) anyBlocked = true;
   });
@@ -44434,9 +44436,10 @@ function frGo(step) {
     frActions({ label: 'Next', go: () => { if (document.getElementById('fr-next').disabled) return; frGo(frStepAfter(2)); } });
     frGateStart(pane);
   } else if (step === 3) {
-    // S3 Automation: sleep + accessibility (tmux) rows. Both ADVISORY (gatesNext:false,
-    // #2587/#2912), so Next is always available here; the go() guard below still reads
-    // fr-next.disabled defensively. Only S2 file-access hard-gates Next.
+    // S3 Automation: sleep (advisory, #2587) plus the two accessibility rows -- the
+    // app's grant (data-gate="tmux") and tmux's own grant (data-gate="tmux-a11y") --
+    // which GATE Next when measured-not-granted (re-gated #2559/#2911). The go() guard
+    // below reads fr-next.disabled, which the gate poll (frGateStart) drives.
     /* #2647: Check-again rides the nav's far-left secondary slot, with its copy
        beside it. Josh could not see the old in-pane version before finishing the
        connection; this bar is always visible. */

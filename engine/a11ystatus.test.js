@@ -291,3 +291,27 @@ test('#2085 tmuxGrant: the PRODUCTION (no-opts) cache path memoizes, and resetGr
     if (origBin === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = origBin;
   }
 });
+
+test('#2559 appGrant: the PRODUCTION (no-opts) cache path memoizes, and resetAppGrantCache clears it', () => {
+  // appGrant()'s no-opts path turns useCache on and uses the MODULE app runner -- the twin
+  // of the tmuxGrant cache test above. appGrant is the LIVE re-gate source the /api/a11y-status
+  // route serves (#2559), so its 2s memo (which elides a repeat sqlite spawn on the 750ms gate
+  // poll) and its reset must be covered symmetrically. No env fiddle: appGrant keys on the fixed
+  // bundle id, not a resolved binary path. setAppSqliteRunner is a counting spy.
+  let calls = 0;
+  a11y.setAppSqliteRunner(() => { calls += 1; return { ok: true, rows: [{ client: a11y.APP_CLIENT, auth: 2 }] }; });
+  a11y.resetAppGrantCache();
+  try {
+    const first = a11y.appGrant();   // miss -> spy called
+    a11y.appGrant();                 // hit within the 2s TTL -> spy NOT called again
+    assert.equal(calls, 1, 'the memo must serve the second no-opts call from cache, not re-spawn');
+    assert.equal(first.trusted, true, 'and the cached verdict is the real one (granted)');
+    a11y.resetAppGrantCache();
+    a11y.appGrant();                 // cleared -> fresh read
+    assert.equal(calls, 2, 'resetAppGrantCache must force a fresh read');
+  } finally {
+    // Restore a benign module runner + clear the cache so no later test inherits the spy.
+    a11y.setAppSqliteRunner(() => ({ ok: false, because: 'test teardown runner' }));
+    a11y.resetAppGrantCache();
+  }
+});
