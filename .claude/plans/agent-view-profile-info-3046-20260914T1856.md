@@ -91,3 +91,21 @@ the file's "painters write by id" note, but confirm at execution (step 2/4).
 ## Not in scope
 #3047 (nav button ORDER - a separate reorder on top of this) and #3044 (header order). Deploy/cut is
 0.6.67 (Splinter slots it; Josh scoping).
+
+## RESUME STATUS (2026-09-14, Baron) - checkpointed for a claude-fe build
+
+Done + committed:
+- Plan (this file). WIP commit 52401924d: steps 1 (DETAIL_SECTION_GROUPS.profile=['profile','instr','skills']
+  + DETAIL_SECTION_PILL folds instr+skills under profile) and 3 (one "Profile Info" nav button,
+  aria-controls the 3 sections, carries the needs-you dot). No DOM reorder yet, so the reveal currently
+  renders instr,skills,profile order (wrong) until step 2.
+
+NEXT (resume here, ideally in claude-fe so the DOM move + reveal/focus/dot can be browser-verified):
+- Step 2 DOM reorder: move the d-sec-profile block (currently web/index.html lines 8463-8582, from
+  `<section ... id="d-sec-profile" ...>` through its closing `</section>`) to IMMEDIATELY BEFORE the
+  d-sec-instr opening (line 8329 `<section ... id="d-sec-instr" ...>`). Result DOM order:
+  profile, instr, skills. (Line numbers drift with edits; re-grep the ids.)
+- Then steps 4 (detailDots repoint so instr needs-you lights the profile pill), 5 (group-reveal CSS
+  for 3 stacked cards), 7 (skills lazy-load triggers on the profile-group open, was instr), 8 (tests),
+  9 (#1720 browser-check + #2518 surface trailer + emit-count), 10 (browser verify in claude-fe).
+- Coupled: after #3046 lands, do #3047 (reorder the post-#3046 nav) then #3044 (header order). All ride 0.6.67.
