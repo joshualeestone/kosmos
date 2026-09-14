@@ -17,13 +17,21 @@
  * assertions, are exactly as strong as a literal list. A tree-wide grep for any
  * of the four names now returns zero, this file included.
  *
- * 🔑 THE FIRST NAME NEEDS A WORD BOUNDARY; THE OTHER THREE DO NOT. The first
- * three letters of the first name also begin bench / beneath / benign / benefit
- * / benchmark, so a substring match would false-fire on ordinary English and the
- * guard would red on innocent code. It is matched with `\b...\b` instead. The
- * other three names have no common-word prefixes and appear in compound fixture
- * forms (a "lil-" prefix on the second name, hyphenated and spaced spellings), so
- * they are matched as case-insensitive substrings to catch every compound.
+ * 🔑 THE FIRST NAME NEEDS A BOUNDARY; THE OTHER THREE DO NOT. The first three
+ * letters of the first name also begin bench / beneath / benign / benefit /
+ * benchmark, so a substring match would false-fire on ordinary English and the
+ * guard would red on innocent code. It is boundary-matched instead. `\b` alone is
+ * NOT enough: `\b` treats `_` as a word char, so an underscore-joined form (the
+ * name with a `_word` suffix, or a `word_` prefix) has no word boundary at the
+ * underscore and would slip a `\b..\b` matcher (verified in node). Since an
+ * underscore-joined fixture or variable is exactly a regrowth vector this guard
+ * exists to catch, the boundary is `(?<![a-z0-9])..(?![a-z0-9])`
+ * (case-insensitive, so it also excludes A-Z): every char that is not a letter or
+ * digit - including `_` - is a boundary, while bench / beneath / reuben still do
+ * not match because a letter sits against the name. The other three names have no
+ * common-word prefixes and appear in compound fixture forms (a "lil-" prefix on
+ * the second name, hyphenated and spaced spellings), so they are matched as
+ * case-insensitive substrings to catch every compound.
  *
  * 🛑 BINARY FILES ARE SKIPPED. A screenshot PNG can contain the three bytes of
  * the first name between two non-letter bytes purely by coincidence, which a
@@ -48,7 +56,9 @@ const NAME_B = 'na' + 'cho';      // substring (compound forms: lil<B>, lil-<B>,
 const NAME_C = 'she' + 'ila';     // substring
 const NAME_D = 'mor' + 'pheus';   // substring
 const PATTERNS = [
-  new RegExp('\\b' + NAME_A + '\\b', 'i'),   // standalone first name only, never bench/beneath/...
+  // Boundary that also breaks on `_`: standalone first name incl. underscore-joined
+  // forms, never bench/beneath/reuben. `\b` would miss the underscore forms (see header).
+  new RegExp('(?<![a-z0-9])' + NAME_A + '(?![a-z0-9])', 'i'),
   new RegExp(NAME_B, 'i'),                    // second name anywhere (lil<B>, lil-<B>, <B>-1493, ...)
   new RegExp(NAME_C, 'i'),                    // third name anywhere
   new RegExp(NAME_D, 'i'),                    // fourth name anywhere
@@ -116,18 +126,36 @@ const OTHER_SAMPLES = [
   NAME_C, 'Mr ' + NAME_C, NAME_D, 'the ' + NAME_D + ' case',
 ];
 
+/* Per-pattern positive control: each regex must fire on a sample of its OWN name,
+   so a single broken pattern is caught even though the names do not overlap (a
+   `.some()` over all patterns would let one dead regex hide behind the others). */
+const PER_PATTERN_SAMPLES = [
+  NAME_A,                 // PATTERNS[0], the boundary-matched first name
+  'lil' + NAME_B,         // PATTERNS[1], compound form of the second name
+  NAME_C,                 // PATTERNS[2]
+  NAME_D,                 // PATTERNS[3]
+];
+
 test('#3071: the matcher can fail - it matches every forbidden name and rejects neutral controls', () => {
-  // POSITIVE control: a guard that cannot fail is not a guard.
+  // POSITIVE control, per pattern: prove each regex fires individually.
+  assert.equal(PATTERNS.length, PER_PATTERN_SAMPLES.length, 'per-pattern sample list is out of sync with PATTERNS');
+  PATTERNS.forEach((re, i) => {
+    assert.ok(re.test(PER_PATTERN_SAMPLES[i]), `PATTERNS[${i}] did not match its own sample: ${PER_PATTERN_SAMPLES[i]}`);
+  });
+  // POSITIVE control, aggregate: every real spelling is caught by SOME pattern.
   for (const sample of [...NAME_A_SAMPLES, ...OTHER_SAMPLES]) {
     assert.ok(PATTERNS.some((re) => re.test(sample)), `matcher missed a forbidden name: ${sample}`);
   }
-  // NEGATIVE control: the boundary-matched first name must NOT fire on the common
-  // English words that share its prefix, or a clean tree passes for the wrong
-  // reason and honest code reds the guard.
+  // NEGATIVE control: the boundary-matched first name must NOT fire on common
+  // English words that share its prefix (or contain it mid-word), or a clean tree
+  // passes for the wrong reason and honest code reds the guard. Includes the new
+  // fixture spellings (lilpixel / Lil Pixel / roo / pixel) to pin that the rename
+  // TARGETS are themselves guard-safe.
   for (const ok of [
-    'bench', 'beneath', 'benefit', 'benign', 'benchmark', 'benevolent', 'the bench is free',
+    'bench', 'beneath', 'benefit', 'benign', 'benchmark', 'benevolent', 'the bench is free', 'reuben',
     'macho', 'gazpacho', 'shield', 'sheikh', 'she said', 'morph', 'amorphous', 'morphine',
     'a notebook entry', 'kosmos', 'roo-the-cat', 'tester@example.com', 'pixel',
+    'lilpixel', 'Lil Pixel', 'lil-pixel', 'lilpixel-monitor',
   ]) {
     assert.ok(!PATTERNS.some((re) => re.test(ok)), `matcher false-fired on neutral text: ${ok}`);
   }
