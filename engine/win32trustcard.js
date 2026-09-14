@@ -24,17 +24,26 @@
  * the exact two the supervisor composes (engine/win32supervisor.js:704-728).
  *
  * 🔑 PER AGENT, AND IT ADDS NO PROCESS SPAWN TO THE 5s POLL (#2717). The CALLER
- * (server.js's offline builder) already owns the fleet-level facts and fetched them
- * once this poll: which agents have a Scheduled Task (register.survey ->
- * win32job.list, one fleet query), which are LIVE (the pane roster it already has),
- * and which are switched off (create.disabledJobs, one fleet query). So this
- * function is handed ONE already-selected candidate -- an owned, enabled agent with
- * no live session -- and only does the per-agent trust classification. Its ONE
- * task read goes through `win32job.cachedTaskSpec` (the #2717 cache the poll path
- * was built around, already warmed for this agent by accountOf/runnerOfCard in the
- * same offline row), NEVER the uncached `taskEnabled` + raw `taskSpec` (two spawns
- * of identical XML per agent per poll -- the regression this shape avoids). It runs
- * no `claude agents --json` of its own: liveness was decided by the caller. The
+ * (server.js's offline builder) already owns two fleet-level facts this poll and
+ * hands us ONE already-selected candidate: an owned agent (register.survey ->
+ * win32job.list, one fleet query) with NO live session (this list is the not-live
+ * agents -- the caller subtracted the live pane set). Everything else is per-agent
+ * and read HERE from `win32job.cachedTaskSpec`:
+ *   - cwd + account config dir (the argv), and
+ *   - the ENABLED flag (`<Settings><Enabled>`), which #3013 taught cachedTaskSpec to
+ *     carry from the same XML so one cached read yields both.
+ * This is NEVER the uncached `taskEnabled` + raw `taskSpec` (two spawns of identical
+ * XML per agent per poll -- the round-1 regression this shape avoids). The enabled
+ * gate is win32-correct (an XML setting, not the darwin-only create.disabledJobs,
+ * which throws on Windows and read as "nothing disabled") and FRESH (disable/enable
+ * bust the cache, so an operator switching a task off is seen next poll).
+ *
+ * 🔑 THE NO-SPAWN GUARANTEE IS THE PROCESS-LIFETIME CACHE, not same-row warming.
+ * `diagnose` runs BEFORE accountOf/runnerOfCard on the offline row, so on a cold
+ * cache it is the WARMER, not the beneficiary. What makes the poll spawn-free is
+ * that `TASK_SPEC_CACHE` lives for the process: poll N hits what an earlier poll
+ * warmed (busted only by install/remove/disable/enable). It runs no
+ * `claude agents --json` of its own -- liveness was decided by the caller. The
  * remaining reads are a config-file read (folderTrusted) and a sessions-dir read
  * (win32trustwait) -- no processes.
  *
@@ -94,11 +103,17 @@ function diagnose(name, opts) {
   const detect = typeof o.detect === 'function' ? o.detect
     : (configDir) => require('./win32trustwait').dirWaiting(configDir, { olderThanMs: REGISTRATION_GRACE_MS });
 
-  // The agent's own cwd + account config dir, from the #2717 CACHE (no per-poll
-  // spawn). Its enabled state and live state were decided by the caller.
+  // The agent's own cwd + account config dir AND its enabled flag, from the #2717
+  // CACHE (no per-poll spawn). Live state was decided by the caller (not-live).
   let read;
   try { read = job.cachedTaskSpec(name); } catch { return null; }
   if (!read || !read.known || !read.registered || !read.spec) return null;
+  // Only an ENABLED task is one the operator means to be running; a switched-off one
+  // is intentionally off, not stuck. Fail closed if the flag could not be read
+  // (undefined) -- never cry "waiting at a trust prompt" about a task we cannot
+  // confirm is even on. (win32-correct: this is the task's own XML setting, not the
+  // darwin-only create.disabledJobs, which is inert on Windows.)
+  if (read.enabled !== true) return null;
   const cwd = read.spec.cwd;
   const configDir = read.spec.configDir || null;
 

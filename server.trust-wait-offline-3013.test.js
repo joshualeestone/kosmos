@@ -39,18 +39,33 @@ test('#3013 the offline builder consults win32trustcard.diagnose, win32-gated', 
     'the offline builder no longer calls the per-agent diagnose path');
 });
 
-test('#3013 (PERF) the trust probe adds NO per-poll spawn: gated on already-fetched fleet facts', () => {
-  /* 🛑 THE #2717 GUARD AT THE CALL SITE. diagnose must be reached only through data
-     the offline builder ALREADY fetched this poll -- switchedOff (one create.disabledJobs
-     fleet call above) and jobMissing -- never a fresh per-agent probe, and diagnose
-     itself must not be the fleet-level waiting() that re-ran claude/schtasks. */
+test('#3013 (PERF) the trust probe adds NO per-poll spawn and no second live pass', () => {
+  /* 🛑 THE #2717 GUARD AT THE CALL SITE. The offline builder must not re-run the
+     fleet-level waiting() (which re-ran schtasks + claude) nor a second
+     `claude agents --json`; diagnose reads only win32job's process-lifetime cache. */
   const region = offlineRegion();
-  assert.match(region, /!switchedOff\.has\(k\.name\)/,
-    'the trust probe is not gated on the already-fetched switchedOff set');
   assert.doesNotMatch(region, /win32trustcard'\)\.waiting\(\)/,
     'the offline builder still calls the removed fleet-level waiting() (a second claude/schtasks pass)');
   assert.doesNotMatch(region, /win32roster'\)\.defaultRun\(\)/,
     'the offline builder runs a second claude agents --json for the trust probe');
+});
+
+test('#3013 (WIN32 ENABLED GATE) the trust probe does NOT gate on the darwin-only create.disabledJobs', () => {
+  /* 🛑 THE ROUND-2 REGRESSION GUARD. create.disabledJobs() throws on Windows
+     (process.getuid is undefined) and returns an empty Set, so gating the trust
+     probe on `!switchedOff.has(name)` was DEAD on win32 -- the one platform trustCard
+     runs -- and a switched-off agent would render needs_trust. The enabled decision
+     now lives inside diagnose (win32job's task XML), so the call site must not gate on
+     switchedOff. */
+  const region = offlineRegion();
+  /* Scope to the trust-gate STATEMENT itself -- the offline row legitimately still
+     uses switchedOff elsewhere (the darwin-only #310 jobSwitchedOff field). */
+  const gate = /const stuckBecause = [^\n]*/.exec(region);
+  assert.ok(gate, 'the stuckBecause trust gate statement is gone or reshaped');
+  assert.doesNotMatch(gate[0], /switchedOff/,
+    'the trust gate is gated on the darwin-only switchedOff again, which is inert on win32');
+  assert.match(gate[0], /trustCard \? \(\(trustCard\.diagnose\(k\.name\) \|\| \{\}\)\.because\) : undefined;/,
+    'the trust gate is no longer the plain win32-gated diagnose call (enabled decided inside diagnose)');
 });
 
 test('#3013 a stuck agent gets state needs_trust and the needsTrust marker', () => {

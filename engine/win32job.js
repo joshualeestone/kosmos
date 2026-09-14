@@ -89,10 +89,15 @@ let runFn = null;
  * transient schtasks failure into a permanently disarmed safety check, or a
  * setter that refuses forever.
  *
- * ⚠️ AND IT IS BUSTED WHERE THE ARGV CAN CHANGE, which is `install` (a
- * re-registered agent can carry a different account, model or runner) and
- * `remove`. `disable` and `enable` are `/Change` on the STATE only and cannot
- * move the argv, so they deliberately do not bust it.
+ * ⚠️ AND IT IS BUSTED WHERE THE CACHED ANSWER CAN CHANGE: `install` (a
+ * re-registered agent can carry a different account, model or runner), `remove`,
+ * and -- since #3013 -- `disable`/`enable`. The cached spec now also carries the
+ * task's `<Settings><Enabled>` flag (for the trust-card enabled gate, so one cached
+ * read yields both the config and a locale-safe enabled state with no per-poll
+ * spawn), and `/Change /DISABLE|/ENABLE` flips exactly that flag. So disable/enable
+ * MUST forget the entry or the cached enabled state would go stale -- the freshness
+ * a switch-flip requires. They still cannot move the argv, so the config half is
+ * unaffected either way.
  */
 const TASK_SPEC_CACHE = new Map();
 function forgetTaskSpec(name, worldId) { TASK_SPEC_CACHE.delete(taskName(name, worldId)); }
@@ -440,12 +445,17 @@ function install(spec) {
    that world's key, parsed from the task path, never by guessing. Absent means this
    process's own world, which is every other caller. */
 function disable(name, worldId) {
+  // #3013: the cached spec carries the enabled flag now, and this flips it, so
+  // forget the entry -- the same discipline install/remove keep, for the same
+  // reason (a cached answer this call can change must not outlive it).
+  forgetTaskSpec(name, worldId);
   const r = run(['/Change', '/TN', taskName(name, worldId), '/DISABLE']);
   if (!r.ok) return { ok: false, because: 'we could not stop it from starting again (' + (r.out || '').trim().split('\n')[0] + ')' };
   return { ok: true };
 }
 
 function enable(name, worldId) {
+  forgetTaskSpec(name, worldId);   // #3013: flips the cached enabled flag; see disable()
   const r = run(['/Change', '/TN', taskName(name, worldId), '/ENABLE']);
   if (!r.ok) return { ok: false, because: 'we could not set it to start again (' + (r.out || '').trim().split('\n')[0] + ')' };
   return { ok: true };
@@ -804,7 +814,16 @@ function taskSpec(name, worldId) {
   if (spec.name !== name) {
     return { known: false, because: 'the task argument line is not the shape we can read a configDir from' };
   }
-  return { known: true, registered: true, spec };
+  /* #3013: carry the task's enabled state too, parsed from the SAME XML this read
+     already holds -- via the shared `enabledFromTaskXml`, NOT a second derivation
+     (convention 5). One cached read then yields both the config (argv) and a
+     locale-safe enabled flag (`<Settings><Enabled>`), so the trust card's enabled
+     gate costs no extra spawn. `undefined` when the setting could not be read; a
+     reader that needs it (the trust card) fails closed on that. disable/enable bust
+     this cache (see the TASK_SPEC_CACHE header), so the flag stays fresh. */
+  const en = enabledFromTaskXml(read);
+  const enabled = (en && en.known && en.registered) ? en.enabled : undefined;
+  return { known: true, registered: true, spec, enabled };
 }
 
 /* The task's definition, answered from memory when it is known (#2717). Same

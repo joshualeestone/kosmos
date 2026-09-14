@@ -24,7 +24,9 @@ function jobStub(spec, counters) {
     list: () => { c.list = (c.list || 0) + 1; return { known: true, names: new Set() }; },
   };
 }
-const SPEC = (cwd, configDir) => ({ known: true, registered: true, spec: { cwd, configDir: configDir || null } });
+/* cachedTaskSpec now carries the enabled flag (#3013); default it true, pass false
+   for a switched-off task. */
+const SPEC = (cwd, configDir, enabled) => ({ known: true, registered: true, enabled: enabled !== false, spec: { cwd, configDir: configDir || null } });
 
 test('#3013 an untrusted folder + a stuck .key is the strong workspace-trust diagnosis', () => {
   const d = card.diagnose('alice', {
@@ -62,6 +64,30 @@ test('#3013 no stuck .key (detector false) -> no claim, however untrusted', () =
     job: jobStub(SPEC('C:\\work\\alice', 'C:\\cfg\\alice')),
     trustCheck: () => false,
     detect: () => false,
+  });
+  assert.equal(d, null);
+});
+
+test('#3013 a SWITCHED-OFF task is intentionally off, not stuck -- no diagnosis', () => {
+  /* The round-2 must-fix: a disabled Windows agent (untrusted folder, aged lone
+     .key) must NOT read as "waiting at a trust prompt" -- the person turned it off.
+     The enabled flag rides cachedTaskSpec (win32-correct, not the darwin-only
+     create.disabledJobs). */
+  const d = card.diagnose('offy', {
+    job: jobStub(SPEC('C:\\work\\offy', 'C:\\cfg\\offy', false)),   // enabled:false
+    trustCheck: () => false,
+    detect: () => true,
+  });
+  assert.equal(d, null, 'a switched-off task must never be diagnosed as trust-waiting');
+});
+
+test('#3013 fails closed: an UNREADABLE enabled flag is no diagnosis', () => {
+  /* If the task XML did not yield an enabled setting, cachedTaskSpec carries
+     enabled:undefined -- never claim a trust hang about a task we cannot confirm is on. */
+  const d = card.diagnose('mystery', {
+    job: jobStub({ known: true, registered: true, enabled: undefined, spec: { cwd: 'C:\\w', configDir: 'C:\\c' } }),
+    trustCheck: () => false,
+    detect: () => true,
   });
   assert.equal(d, null);
 });

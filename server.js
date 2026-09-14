@@ -2981,12 +2981,13 @@ const server = http.createServer((req, res) => {
              (win32trustwait) and the supervisor's own positive signal
              (trust.folderTrusted). win32-only, and it adds NO process spawn to this
              5s poll: liveness is already decided here (this list is the NOT-live
-             agents), enabled is `switchedOff` (one fleet query above), and its one
-             task read goes through win32job's #2717 cache (already warmed for each
-             agent by accountOf/runnerOfCard on the same row). Applied per row below,
-             replacing the misleading "Not running" / "Can't tell" copy with the
-             diagnosis the supervisor already writes to the task log. See
-             engine/win32trustcard.js (incl. its account-level-attribution limit). */
+             agents), and every per-agent fact diagnose needs -- config AND the
+             enabled flag -- comes from win32job's PROCESS-LIFETIME #2717 cache (poll
+             N hits what an earlier poll warmed; busted only by install/remove/
+             disable/enable). Applied per row below, replacing the misleading "Not
+             running" / "Can't tell" copy with the diagnosis the supervisor already
+             writes to the task log. See engine/win32trustcard.js (incl. its
+             account-level-attribution limit). */
           const trustCard = process.platform === 'win32' ? require('./engine/win32trustcard') : null;
           /* 🛑 #127: A LEFTOVER JOB WITH NO FOLDER IS STILL A LEFTOVER, and it
              was the one this list discarded. The gate used to be `k.folder`
@@ -3004,16 +3005,15 @@ const server = http.createServer((req, res) => {
             .map((k) => {
               try {
               const profile = store.readProfile(k.name) || {};
-              /* #3013: the trust-wait diagnosis for THIS agent, if any. Only an
-                 ENABLED, present agent can be trust-waiting -- a switched-off one is
-                 intentionally off, a job-missing one is a #127 leftover -- and this
-                 row is already NOT live (it has no pane). Reuses `switchedOff` (one
-                 fleet query above) and jobMissing rather than probing again; diagnose
-                 reads its config from win32job's warm #2717 cache, so no schtasks
-                 spawn is added. win32-only (trustCard is null elsewhere). */
-              const stuckBecause = (trustCard && !create.jobMissing(k.name) && !switchedOff.has(k.name))
-                ? ((trustCard.diagnose(k.name) || {}).because)
-                : undefined;
+              /* #3013: the trust-wait diagnosis for THIS agent, if any. This row is
+                 already NOT live (it has no pane); diagnose makes the rest of the
+                 per-agent decision itself -- registered, ENABLED (from the task's own
+                 XML, win32-correct and fresh; NOT the darwin-only create.disabledJobs
+                 that is inert on Windows), folder untrusted, a started-but-
+                 unregistered .key. It reads only win32job's process-lifetime #2717
+                 cache, so no schtasks spawn is added to the poll. win32-only
+                 (trustCard is null elsewhere). */
+              const stuckBecause = trustCard ? ((trustCard.diagnose(k.name) || {}).because) : undefined;
               /* #668: launchd holds a live process for this job, and this
                  board can see no session for it. Two true facts that
                  disagree, and the disagreement is the story -- so the row
