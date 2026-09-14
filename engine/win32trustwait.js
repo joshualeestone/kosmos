@@ -66,19 +66,35 @@ function homeDir() { return os.homedir(); }
  * 🔑 IT MIRRORS trust.js's SETTINGS() BASE, NOT ITS CONFIG(). Trust lives in the
  * `.claude.json` FILE (`$CLAUDE_CONFIG_DIR/.claude.json`, else `~/.claude.json`);
  * the sessions files live under the config DIR, the same base `settings.json`
- * uses (`<configDir>/sessions`, else `$CLAUDE_CONFIG_DIR/sessions`, else
- * `~/.claude/sessions`). The default `~/.claude/sessions` arm is the one
- * confirmed read-only on the box; the `configDir`/`CLAUDE_CONFIG_DIR` arms are
- * what a Windows agent uses and are confirmed by the live-check runbook.
+ * uses (`<configDir>/sessions`, else `~/.claude/sessions`). The default
+ * `~/.claude/sessions` arm is the one confirmed read-only on the box; the
+ * `configDir` arm is what a Windows agent on a named account uses and is
+ * confirmed by the live-check runbook.
+ *
+ * 🛑 THE DEFAULT-ACCOUNT ARM IGNORES THE ENGINE'S OWN CLAUDE_CONFIG_DIR (#3013,
+ * folding in the #2281 review item). A default-account agent launches with
+ * CLAUDE_CONFIG_DIR DELETED (win32launch.childEnv only sets it when configDir is
+ * given), so Claude Code reads `~/.claude/sessions` -- NOT the engine's own
+ * CLAUDE_CONFIG_DIR, which the Kosmos board can carry on a used machine (the same
+ * clean-env-vs-used-env divergence trust.js documents at #2129). Honouring the
+ * engine's CLAUDE_CONFIG_DIR here scanned the wrong dir and read a default-account
+ * agent as "not stuck" while it hung. So `sessionsDir(null)` mirrors
+ * `trust.defaultAgentSettings`: the default base is `AGENT_WORKFORCE_HOME` (the
+ * sandbox seam, parallel to defaultAgentSettings') else the real home, never the
+ * engine's CLAUDE_CONFIG_DIR. This was harmless while only the supervisor called
+ * this (it always passes the agent's configDir), and becomes load-bearing now
+ * that the board card path (#3013) asks about default-account agents too.
  *
  * @param {string|null} configDir the ACCOUNT's config dir Kosmos hands the agent
  *   (the same value that rides in its CLAUDE_CONFIG_DIR), or null for the default
  *   account (no CLAUDE_CONFIG_DIR).
  */
+function defaultSessionsDir() {
+  return path.join(process.env.AGENT_WORKFORCE_HOME || homeDir(), '.claude', 'sessions');
+}
 function sessionsDir(configDir) {
   if (configDir) return path.join(String(configDir), 'sessions');
-  if (process.env.CLAUDE_CONFIG_DIR) return path.join(process.env.CLAUDE_CONFIG_DIR, 'sessions');
-  return path.join(homeDir(), '.claude', 'sessions');
+  return defaultSessionsDir();
 }
 
 /* A `.key` is `<pid>.<hash>.key`; a `.json` is `<pid>.json`. The pid is the
@@ -179,4 +195,34 @@ function pidWaiting(pid, opts) {
   return stuck.some((s) => s.pid === want);
 }
 
-module.exports = { sessionsDir, stuckSessions, pidWaiting };
+/**
+ * Is ANY session in this account's sessions dir stuck at a trust/registration
+ * prompt -- a lone `<pid>.<hash>.key` with no `<pid>.json`, older than the grace?
+ *
+ * 🔑 THE FOLDER-LEVEL SIBLING OF pidWaiting, FOR THE #3013 BOARD CARD. A stuck
+ * agent never registered, so the board has no pid for it (the pid is the
+ * supervisor's own child, invisible to the board) -- it knows only the ACCOUNT
+ * whose folder is not trusted. So the card asks "is a started-but-unregistered
+ * session sitting in this account's dir" rather than "is THIS pid". Attribution to
+ * a specific agent is done per-folder by trust.folderTrusted at the call site; this
+ * answers only the account-level detector half, reusing the exact same
+ * lone-`.key` rule pidWaiting does (no second detector).
+ *
+ * @param {string|null} configDir the agent's account config dir (null = default
+ *   account -> ~/.claude/sessions, ignoring the engine's CLAUDE_CONFIG_DIR).
+ * @param {object} [opts]
+ * @param {number} [opts.olderThanMs] the start-up grace a board caller sets so a
+ *   freshly spawned agent's brief lone `.key` is not read as a stall (default 0).
+ * @param {number} [opts.now] the clock (default Date.now()).
+ * @param {(dir: string) => Array<{name: string, mtimeMs: number}>} [opts.list]
+ *   the directory reader, injectable for tests; defaults to the real fs read.
+ * @returns {boolean} true when at least one stuck `.key` sits in the dir.
+ */
+function dirWaiting(configDir, opts) {
+  const o = opts || {};
+  const list = typeof o.list === 'function' ? o.list : readEntries;
+  const entries = list(sessionsDir(configDir || null));
+  return stuckSessions({ entries, now: o.now, olderThanMs: o.olderThanMs }).length > 0;
+}
+
+module.exports = { sessionsDir, stuckSessions, pidWaiting, dirWaiting };

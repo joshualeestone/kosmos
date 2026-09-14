@@ -69,3 +69,28 @@ test('#2281 a MISSING folder reads as NULL -- no key can be resolved for it', ()
 test('#2281 a non-absolute dir reads as NULL', () => {
   assert.equal(trust.folderTrusted('relative/dir', { configDir: cfgDir() }), null);
 });
+
+test('#3013 the DEFAULT-account arm reads defaultAgentConfig(), not the engine CLAUDE_CONFIG_DIR', () => {
+  /* Folded in from the #2281 review: the arms above cover the configDir path; a
+     default-account agent (agentDefaultAccount:true, no configDir) reads the
+     ~/.claude.json a no-CLAUDE_CONFIG_DIR agent reads -- trust.defaultAgentConfig(),
+     which the SANDBOX redirects via AGENT_WORKFORCE_CLAUDE_CONFIG -- exactly how
+     win32launch/the supervisor resolve a default-account agent's config. */
+  const target = trust.defaultAgentConfig();   // == SANDBOX/.claude.json under this sandbox
+  const work = workdir('default-account');
+  const key = work.split(path.sep).join('/');
+  fs.writeFileSync(target, JSON.stringify({ projects: { [key]: { hasTrustDialogAccepted: true } } }));
+  assert.equal(trust.folderTrusted(work, { agentDefaultAccount: true }), true,
+    'a folder vouched for in the default-account config reads back TRUE via defaultAgentConfig()');
+
+  const other = workdir('default-account-untrusted');
+  assert.equal(trust.folderTrusted(other, { agentDefaultAccount: true }), false,
+    'a real folder absent from the readable default-account config is a definite FALSE');
+
+  /* agentDefaultAccount is honoured ONLY with no configDir: an explicit configDir
+     still targets that account, matching folderTrusted's (and trustFolder's) rule. */
+  const cfg = cfgDir();
+  fs.writeFileSync(path.join(cfg, '.claude.json'), JSON.stringify({ projects: {} }));
+  assert.equal(trust.folderTrusted(work, { agentDefaultAccount: true, configDir: cfg }), false,
+    'with a configDir present the default-account arm defers to that account');
+});

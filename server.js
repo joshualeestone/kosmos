@@ -2975,6 +2975,25 @@ const server = http.createServer((req, res) => {
              this roster already refuses elsewhere. Empty on any failure:
              could-not-look must never dress a stopped agent in running. */
           const runningNow = create.runningJobs();
+          /* #3013: which of these known-owned Windows agents are stuck at Claude
+             Code's invisible workspace-trust prompt -- spawned, wrote the early
+             session .key, never registered because the folder is not trusted in
+             the config it reads. The engine path reuses the #2281 detector
+             (win32trustwait) and the supervisor's own positive signal
+             (trust.folderTrusted); it fails closed to [] off win32 and on any
+             refused schtasks/look, so the map is empty on every non-win32 board
+             and on any poll that could not enumerate. Computed once here, then
+             used per row below to replace the misleading "Not running" / "Can't
+             tell" offline copy with the diagnostic the supervisor already writes
+             to the task log. */
+          const trustWaiting = new Map();
+          if (process.platform === 'win32') {
+            try {
+              for (const t of require('./engine/win32trustcard').waiting()) {
+                if (t && t.name) trustWaiting.set(t.name, t.because);
+              }
+            } catch { /* fail closed: a look we could not make shows no trust rows, never a wrong one */ }
+          }
           /* 🛑 #127: A LEFTOVER JOB WITH NO FOLDER IS STILL A LEFTOVER, and it
              was the one this list discarded. The gate used to be `k.folder`
              alone, so an agent whose worker folder was deleted while its
@@ -2991,6 +3010,10 @@ const server = http.createServer((req, res) => {
             .map((k) => {
               try {
               const profile = store.readProfile(k.name) || {};
+              /* #3013: the trust-wait diagnosis for THIS agent, if any (win32-only;
+                 empty on every other board). When set, it wins over the generic
+                 offline state and copy below. */
+              const stuckBecause = trustWaiting.get(k.name);
               /* #668: launchd holds a live process for this job, and this
                  board can see no session for it. Two true facts that
                  disagree, and the disagreement is the story -- so the row
@@ -3027,7 +3050,14 @@ const server = http.createServer((req, res) => {
                    it is a false one -- launchd says otherwise. Unknown at
                    confidence none is the honest pair: we tried to read it and
                    could not, which is exactly what those two values mean. */
-                state: unseen ? 'unknown' : 'stopped',
+                /* #3013: a trust-wait agent gets its own state; otherwise the
+                   existing #668 unseen-vs-stopped split stands. */
+                state: stuckBecause ? 'needs_trust' : (unseen ? 'unknown' : 'stopped'),
+                /* #3013: the marker the card and list row branch on to draw the
+                   workspace-trust treatment instead of the generic offline shape.
+                   Off-win32 and on any refused look it is false for every row, so
+                   the offline path is byte-identical there. */
+                needsTrust: Boolean(stuckBecause),
                 /* ⚠️ THE FLAG THE SCREEN BRANCHES ON, and it is not derivable
                    from the state: a pane running something that is not Claude
                    is also stopped, and that agent IS up. Stays false on the
@@ -3040,7 +3070,10 @@ const server = http.createServer((req, res) => {
                    the one cause a person produced themselves with no screen
                    connecting the two. Said here, once, so every surface that
                    reads `because` says it. */
-                because: k.profile === false
+                /* #3013: the supervisor's own workspace-trust reason wins when
+                   this agent is stuck at the prompt; otherwise the existing
+                   offline-cause ladder stands unchanged. */
+                because: stuckBecause ? stuckBecause : (k.profile === false
                   /* #500: the profile-less stray this row now surfaces. The
                      survey found it on disk with no record behind it, so the
                      one true sentence is that Kosmos does not know it. The
@@ -3105,7 +3138,7 @@ const server = http.createServer((req, res) => {
                     ? 'this agent is not running: nothing on this computer has a session for it. '
                       + create.SELF_STARTS.charAt(0).toUpperCase() + create.SELF_STARTS.slice(1)
                       + '; if it stays off, its Terminal tab is where to look'
-                    : 'this agent is not running: nothing on this computer has a session for it',
+                    : 'this agent is not running: nothing on this computer has a session for it'),
                 hasAvatar: Boolean(safeAvatarFor(k.name)),
                 /* #2698: a version that moves when the picture changes, so a view
                    that skips an identical repaint (the org chart) still refreshes
