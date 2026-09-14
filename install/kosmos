@@ -1053,6 +1053,23 @@ cmd_reply() {
   esac
 }
 
+# #2702 / #3035: a project id must be looked up EXACTLY, never STRIPPED. Stripping the
+# disallowed characters (the old `sed "s/[^A-Za-z0-9._-]//g"`) made a garbled id like
+# `qakosmos663!!!` resolve to a DIFFERENT real project (`qakosmos663`) -- a privacy leak in
+# `kosmos room` (it opened a room the user did not mean to), and a typo reading as "no tasks"
+# in `kosmos task`. cmd_post/cmd_react never stripped and reject a bad id with exit 1; this
+# gives room/task the same exact-lookup behavior. Rejects (exit 1, the same sentence the
+# board's 404 uses) any id carrying a character outside the allowed slug set. An empty id has
+# no character to match, so it passes here and is caught by each caller's own usage check.
+require_valid_project_id() {
+  case "$1" in
+    *[!A-Za-z0-9._-]*)
+      say "there is no project by that name"
+      exit 1
+      ;;
+  esac
+}
+
 cmd_post() {
   local project text body because _a
   # #1955: attaching a FILE to a room post is not supported yet. Detect the
@@ -1511,7 +1528,8 @@ cmd_room() {
       exit 1
     fi
     local esc_rproj _rbody _rrc=0 _rcode _rbt
-    esc_rproj=$(printf '%s' "$rproj" | sed "s/[^A-Za-z0-9._-]//g")
+    require_valid_project_id "$rproj"
+    esc_rproj="$rproj"
     _rbt="$(board_token || true)"   # #1946: board token for an enforcing board; the reopen route is board-token gated
     # Same rc/http-code capture as the room read below: never a bare
     # `local _rbody=$(...)` (local's own exit status would mask the curl
@@ -1542,7 +1560,8 @@ cmd_room() {
     exit 1
   fi
   local esc_project
-  esc_project=$(printf '%s' "$project" | sed "s/[^A-Za-z0-9._-]//g")
+  require_valid_project_id "$project"
+  esc_project="$project"
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
   # #2702: capture the HTTP status so an UNKNOWN project (404, "there is no
   # project by that name") prints its sentence AND exits non-zero -- parity with
@@ -1829,10 +1848,12 @@ cmd_task() {
     exit 1
   fi
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert when empty
-  # A project id is a slug in practice; keep it path/query-safe without a urlencoder (bash 3.2).
-  # Use cmd_room's EXACT sanitizer (strip disallowed, no '~'), not an independently invented one,
-  # so `kosmos room <id>` and `kosmos task <id>` sanitize the same id to the same route.
-  local esc_project; esc_project=$(printf '%s' "${1:-}" | sed "s/[^A-Za-z0-9._-]//g")
+  # #3035: a project id is looked up EXACTLY, never stripped -- room and task share
+  # require_valid_project_id, so `kosmos room <id>` and `kosmos task <id>` reject the same bad
+  # ids the same way (a typo reads as "there is no project by that name", never as an empty
+  # project). Keeps the id path/query-safe without a urlencoder (bash 3.2) by rejecting, not
+  # rewriting, anything outside the slug set.
+  local esc_project; require_valid_project_id "${1:-}"; esc_project="${1:-}"
   case "$sub" in
     list)
       local rc=0 body
