@@ -7633,12 +7633,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <h1 class="vh" tabindex="-1">Kosmos</h1>
     <!-- #1704 slice-3: the multiple-Kosmos switcher. The active world's name is
          promoted to a VISIBLE control beside the K mark (the mark stays the home
-         affordance), opening a menu of the person's Kosmoses + "New Kosmos".
-         Populated from GET /api/worlds; the active world is marked. SWITCHING
-         between worlds is slice 2b (the active-flip endpoint), so the rows here
-         are read-only for now and only "New Kosmos" acts; when 2b lands, a row
-         click wires to the switch. Hidden until the worlds load so a single-world
-         install does not flash an empty control. -->
+         affordance), opening a menu of the person's Kosmoses + "New Kosmos". How the
+         list is read and rendered is owned by worldsFetch/worldswRender in the script;
+         not restated here so this description cannot drift from the code. Hidden until
+         the worlds load so a single-world install does not flash an empty control. -->
     <div class="worldsw" id="worldsw" hidden>
       <button class="worldsw-btn" id="worldsw-btn" type="button" aria-expanded="false" aria-controls="worldsw-menu">
         <span class="worldsw-name" id="worldsw-name">Kosmos</span>
@@ -19190,11 +19188,9 @@ function openAcctReauthOpenai(dir, email) {
   document.getElementById('acct-add-modal').hidden = false;
   acctPick('openai', { focus: false });
 }
-/* #1704 slice-3: the multiple-Kosmos switcher (list + create). Lists worlds from
-   GET /api/worlds and creates them via POST /api/worlds. Switching between worlds
-   (the active-flip) is slice 2b; until it lands the rows are read-only and only
-   "New Kosmos" acts. The switcher stays hidden on a board that has no /api/worlds
-   route (pre-2a), so it degrades to today's header cleanly. */
+/* #1704 slice-3: the multiple-Kosmos switcher (list + create). Creates a new Kosmos
+   via POST /api/worlds. How the switcher reads, renders and degrades its world list
+   is owned by the #3055 block below -- not restated here, so the two cannot drift. */
 /* #3055: the switcher MUST NOT FAIL CLOSED. It is `hidden` by default and `worldsFetch`
    is the only thing that reveals it, called once on load with no retry -- so a single
    non-ok list read (a not-signed-in board 500s/403s after a broken switch) permanently hid
