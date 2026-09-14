@@ -718,10 +718,10 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    this agent. A sentence to read, so label-2 — no longer "like the state line
    above", which became a badge and gave up its colour in the same change. */
 .detail-why { font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-top: 2px;
-  /* #1996: a reported "because" may be MULTI-LINE now (the server keeps paragraph
-     breaks). When it is, this is the surface that shows it in full -- d-task above
-     is one line (nowrap) and truncates -- so preserve the breaks rather than
-     collapsing them to spaces. */
+  /* #1996 / #3043: a reported "because" may be MULTI-LINE (the server keeps paragraph
+     breaks), and since #3043 this note is the SOLE surface for a reported reason
+     (the header task line no longer carries it at all). So preserve the breaks rather
+     than collapsing them to spaces. */
   white-space: pre-line; }
 .field { border-top: 0.5px solid var(--separator); padding-top: var(--space-6); margin-top: var(--space-6); }
 .flabel { font: 600 var(--text-body) var(--font-ui); display: block; margin-bottom: 2px; }
