@@ -111,6 +111,46 @@ test('the remote agent surface stays reachable without a board token (its own au
   assert.notEqual(res.status, 403, 'board-token guard must exempt the remote agent surface');
 });
 
+// #3055: the names-only world list is exempt from the board-token gate so the
+// switcher dropdown renders even on a board that came up unsigned after a Kosmos
+// switch -- the one state where a user is otherwise locked out with no way back.
+// The exemption must be NARROW: names + markers only, read-only, and the rich
+// worlds routes stay gated. Reverting the exemption reds arm 1; reverting the
+// handler's {id,name} map (e.g. back to listWorlds/listForPicker) reds arm 2.
+test('#3055: an enforcing board serves GET /api/worlds/names WITHOUT a token (the anti-lockout exemption)', async () => {
+  assert.notEqual((await hit('/api/worlds/names')).code, 403,
+    'the names list must be readable on an unsigned board, or a switched-to board strands the user with no dropdown');
+});
+
+test('#3055: /api/worlds/names leaks NO agent data or filesystem paths through the exemption (names + markers only)', async () => {
+  const res = await fetch(base + '/api/worlds/names');
+  assert.notEqual(res.status, 403);
+  const body = await res.json();
+  assert.ok(Array.isArray(body.worlds), 'worlds is a list');
+  assert.ok('activeWorldId' in body && 'bootedWorldId' in body,
+    'the active/booted markers ride along so the switcher can mark the current world in the degraded read');
+  for (const w of body.worlds) {
+    assert.deepEqual(Object.keys(w).sort(), ['id', 'name'],
+      `each world exposes ONLY id+name through the ungated read; got ${JSON.stringify(Object.keys(w))}`);
+  }
+});
+
+test('#3055 CONTROL: the RICH GET /api/worlds STAYS gated (403 without a token)', async () => {
+  assert.equal((await hit('/api/worlds')).code, 403,
+    'only the names list is exempt; the rich worlds payload stays behind the token');
+});
+
+test('#3055 CONTROL: GET /api/worlds/list (agent data) STAYS gated', async () => {
+  assert.equal((await hit('/api/worlds/list')).code, 403,
+    '/api/worlds/list carries agentCount+agents+waiting, so it must stay behind the token');
+});
+
+test('#3055 CONTROL: a POST to /api/worlds/names is NOT exempt (the exemption is read-only)', async () => {
+  const res = await fetch(base + '/api/worlds/names', { method: 'POST', redirect: 'manual' });
+  await res.text().catch(() => {});
+  assert.equal(res.status, 403, 'the public exemption is GET/HEAD only; a write must still hit the token gate');
+});
+
 test.after(() => {
   try { server.close(); } catch { /* ignore */ }
   fs.rmSync(SANDBOX, { recursive: true, force: true });

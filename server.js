@@ -2433,6 +2433,16 @@ const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
    token; no-credential refused on an enforcing board), exactly as report/reply do
    one layer down -- see that handler. */
 const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report']);
+/* #3055: the world NAMES list (GET /api/worlds/names) is exempt from the board-token
+   gate so the world-switcher dropdown ALWAYS renders -- even on a board that came up
+   UNSIGNED after a Kosmos switch (the per-world board token means the browser holds the
+   left world's token, which the switched-to board refuses), which is exactly when a user
+   is otherwise locked out with NO way back. Its handler returns ONLY {id, name} per world
+   plus the active/booted markers -- NO agent data, unlike GET /api/worlds and
+   /api/worlds/list, which stay gated -- so the worst a second macOS account learns is
+   Kosmos NAMES + which is active: the acceptable floor for guaranteeing no lockout, and
+   far below #1946's account-data threat. Read-only; GET/HEAD only. */
+const PUBLIC_WORLD_ROUTES = new Set(['GET /api/worlds/names', 'HEAD /api/worlds/names']);
 
 /**
  * What makes opening the bind safe (#1112 phase 2).
@@ -2631,7 +2641,12 @@ const server = http.createServer((req, res) => {
     // REMOTE_AGENT_ROUTES, so remoteWriteGuard still refuses a NETWORK peer.
     const exemptAgent = REMOTE_AGENT_ROUTES.has(`${req.method} ${pathname}`)
       || LOOPBACK_AGENT_ROUTES.has(`${req.method} ${pathname}`);
-    if (sensitive && !exemptAgent && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE })) {
+    // #3055: the names-only world list is exempt too (see PUBLIC_WORLD_ROUTES) -- it carries
+    // no account data, and being readable on an unsigned board is what stops a post-switch
+    // lockout. Kept as its OWN term, not folded into exemptAgent, because the reason differs:
+    // this is a low-sensitivity public read, not an agent-token-authenticated route.
+    const exemptPublic = PUBLIC_WORLD_ROUTES.has(`${req.method} ${pathname}`);
+    if (sensitive && !exemptAgent && !exemptPublic && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE })) {
       sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });
       return;
     }
@@ -3597,6 +3612,26 @@ const server = http.createServer((req, res) => {
     try {
       const base = worldBase();
       sendJson(res, 200, { worlds: worldimport.listForPicker(base) });
+    } catch (_e) {
+      sendJson(res, 500, { because: 'the world registry is not readable on this machine' });
+    }
+    return;
+  }
+  /* #3055: the NAMES-ONLY world list, UNGATED (PUBLIC_WORLD_ROUTES) so the switcher
+     dropdown renders even on a board that came up unsigned after a Kosmos switch -- the
+     one state where a user is otherwise locked out with no way back. Deliberately maps
+     each world to {id, name} ONLY: never the whole `listWorlds` row (which carries `base`
+     filesystem paths and other internals) and never `listForPicker` (agent data). The
+     active/booted markers let the switcher mark the current world in the degraded read.
+     The rich GET /api/worlds and /api/worlds/list stay token-gated. Read-only. */
+  if (pathname === '/api/worlds/names' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const base = worldBase();
+      sendJson(res, 200, {
+        worlds: worlds.listWorlds(base).map((w) => ({ id: w.id, name: w.name })),
+        activeWorldId: worlds.activeWorld(base).id,
+        bootedWorldId: require('./engine/worldenv').bootedWorld(),
+      });
     } catch (_e) {
       sendJson(res, 500, { because: 'the world registry is not readable on this machine' });
     }
