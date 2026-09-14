@@ -6,7 +6,7 @@
  * Login Items pane -- see arms 4-6 below.
  *
  * #9: the two numbered step captions ("1 keep this computer awake", "2 when prompted,
- * switch Kosmos to On") are `<p class="s3-step-cap">`. A bare `.s3-step-cap` (0,1,0) loses
+ * switch Kosmos and tmux to On") are `<p class="s3-step-cap">`. A bare `.s3-step-cap` (0,1,0) loses
  * its font to `#firstrun .fr-body p` (1,1,1, 400/1.0625rem), so they rendered 17px/400
  * uppercase+tracked = "gigantic + stretched". The 0.6.39 pass only tightened margin +
  * the gate label, never the caption font. Fix: scope to `#firstrun .fr-body p.s3-step-cap`
