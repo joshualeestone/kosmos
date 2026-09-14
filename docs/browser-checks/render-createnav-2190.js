@@ -1,4 +1,4 @@
-// Browser-check-surface: made-head create-msg
+// Browser-check-surface: made-head create-msg create-back
 'use strict';
 // #2190: Create advances to the PROGRESS ('made') screen instead of showing
 // 'Making it…' inline on the create screen, and an error/refusal routes BACK to
@@ -72,6 +72,15 @@ async function driveCreate(page, agentsOutcome) {
       finalLoaderSet: loaderSet(),
       createMsg: (document.getElementById('create-msg').textContent || '').trim(),
       madeHead: (document.getElementById('made-head').textContent || '').trim(),
+      // #3042: is the "All agents" back button ACTUALLY visible? The removal on the
+      // made step is a CSS display:none via :has(), not the [hidden] attribute, so
+      // shown() (which reads .hidden) would miss it - read computed style instead.
+      backVisible: (() => {
+        const b = document.getElementById('create-back');
+        if (!b) return null;
+        const cs = getComputedStyle(b);
+        return !b.hidden && cs.display !== 'none' && cs.visibility !== 'hidden';
+      })(),
     };
   }, { roles: ROLES_PAYLOAD, outcome: agentsOutcome });
 }
@@ -101,6 +110,9 @@ async function driveCreate(page, agentsOutcome) {
     if (!/tester/.test(created.madeHead)) problems.push('created: made-head does not name the agent: "' + created.madeHead + '"');
     if (/Making it/.test(created.createMsg)) problems.push('created: the inline "Making it…" is still on the create screen: "' + created.createMsg + '"');
     if (!created.duringPostLoaderSet) problems.push('created: the K-loader (MADE_MARK) was not started on click - the progress animation must be running while the POST is in flight');
+    // #3042: on the progress (made) screen the "All agents" back button is removed
+    // so a person cannot accidentally leave mid-creation. The top tab bar stays.
+    if (created.backVisible !== false) problems.push('created: the "All agents" back button is still visible on the progress screen - a person can leave mid-creation (#3042)');
   }
 
   // Scenario 2: a refused outcome ROUTES BACK to the create screen with the message.
@@ -116,6 +128,10 @@ async function driveCreate(page, agentsOutcome) {
     if (!/that name will not work/.test(refused.createMsg)) problems.push('refused: the message is not beside the field: "' + refused.createMsg + '"');
     if (!refused.duringPostLoaderSet) problems.push('refused: the K-loader (MADE_MARK) was not started on click - it must start on nav, then be dropped on route-back');
     if (refused.finalLoaderSet) problems.push('refused: the K-loader (MADE_MARK) was NOT dropped on route-back - dropMyLoader must finish it and null MADE_MARK so no RAF is left running on the hidden canvas');
+    // #3042 control: back on the create form (role/name), where leaving before
+    // submit is safe, the "All agents" back button MUST stay visible. This is the
+    // arm that proves the made-step removal is scoped, not a blanket deletion.
+    if (refused.backVisible !== true) problems.push('refused: the "All agents" back button is missing on the create form - the #3042 removal must be scoped to the progress step, not blanket');
   }
 
   await browser.close();
