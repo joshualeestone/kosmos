@@ -1,6 +1,6 @@
 {
   "name": "agent-workforce",
-  "version": "0.6.64",
+  "version": "0.6.65",
   "engines": {
     "node": ">=26"
   },
