@@ -97,7 +97,7 @@ test('#2451: the S3 Automation gate names Kosmos, not tmux (the binary macOS sho
   // copy, not the attribute.
   assert.match(S3, /<span class="s3-gate-lbl">Kosmos<\/span>/, 'the app a11y gate row label reads "Kosmos"');
   assert.match(S3, /<span class="s3-mtxt">Kosmos<small>Control your computer<\/small>/, 'the app mock Accessibility row names Kosmos');
-  assert.match(S3, /switch Kosmos to On/, 'the app step caption says "switch Kosmos to On"');
+  assert.match(S3, /switch Kosmos and tmux to On/, 'the combined step caption asks to switch Kosmos on (#3075 one-box: Kosmos + tmux in one caption)');
   assert.doesNotMatch(S3, /<span class="s3-gate-lbl">TMUX<\/span>/, 'the old uppercase "TMUX" mislabel of the APP row is gone (#2451)');
   assert.doesNotMatch(S3, /switch TMUX to On/, 'the old "switch TMUX to On" caption for the APP row is gone (#2451)');
   // NOTE: #2911 legitimately reintroduces a LOWERCASE "tmux" mock + label -- but for the
@@ -132,14 +132,28 @@ test('#1: S3 Turn On FIRES the native prompt (tmux -> a11y-prompt), falling back
 test('#2911: S3 asks for tmux\'s OWN Accessibility grant (data-gate="tmux-a11y") and detects it via /api/tmux-a11y-status', () => {
   // Josh (6.59 QA): "add a step 3 asking for accessibility for tmux ... turn on Kosmos,
   // tmux, and accessibility." tmux holds a SEPARATE Accessibility grant from the app's;
-  // this third S3 sub-step asks for it and gates on tmuxGrant's live reading.
+  // this tmux ask (folded into the combined caption + one-box mock at #3075, no longer a
+  // separate step-3 sub-step) still gates on tmuxGrant's live reading.
 
   // The row + its visible copy (a distinct row from the app "Kosmos" one).
   assert.match(S3, /data-gate="tmux-a11y"/, 'S3 carries the tmux-accessibility gate row (data-gate="tmux-a11y")');
   assert.match(S3, /class="s3-gate-row" data-gate="tmux-a11y"[\s\S]{0,120}<span class="s3-gate-lbl">tmux<\/span>/,
     'the tmux-a11y gate row label reads "tmux"');
   assert.match(S3, /<span class="s3-mtxt">tmux<small>Control your computer<\/small>/, 'the tmux mock Accessibility row names tmux');
-  assert.match(S3, /switch tmux to On/, 'the third step caption says "switch tmux to On"');
+  // #3075 one-box: the tmux ask folded into the combined "2 - switch Kosmos and tmux to On"
+  // caption (asserted positively at the #2451 test above); the tmux ROW, SWITCH and GATE here
+  // carry the rest. Guard the fold itself: the separate step-3 "switch tmux to On" caption must
+  // NOT come back (distinct from the #2451 uppercase-"TMUX" guard, which is about a mislabel).
+  assert.doesNotMatch(S3, /switch tmux to On/, 'the retired separate "3 - switch tmux to On" caption stays folded into the combined one (#3075)');
+  // #3075 ONE-BOX invariant, pinned STRUCTURALLY (the other asserts here are independent and
+  // would all stay green if the panel were split back into two adjacent .s3-mock windows).
+  // The tempered [\s\S] refuses to cross a second `<div class="s3-mock`, so BOTH switches must
+  // sit inside a SINGLE mock for this to match; a two-mock regression breaks it.
+  assert.match(
+    S3,
+    /<div class="s3-mock" data-win-hide>(?:(?!<div class="s3-mock")[\s\S])*?data-sw-gate="tmux"(?:(?!<div class="s3-mock")[\s\S])*?data-sw-gate="tmux-a11y"/,
+    'both the Kosmos and tmux switches sit inside ONE .s3-mock (the #3075 one-box Accessibility panel)',
+  );
 
   // FR_GATES routes it to the tmux-a11y status endpoint, granting only on trusted:true.
   assert.match(PAGE, /'tmux-a11y':\s*\{[\s\S]*?url:\s*'\/api\/tmux-a11y-status',[\s\S]*?granted:\s*\(r\)\s*=>[\s\S]*?r\.trusted === true/,
