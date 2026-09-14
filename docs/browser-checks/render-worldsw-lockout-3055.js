@@ -59,6 +59,11 @@ const WORLDS = { worlds: [{ id: 'default', name: 'Kosmos 1' }, { id: 'w2', name:
       };
       if (typeof worldsFetch !== 'function') return { error: 'worldsFetch is not a function' };
       await worldsFetch();
+      // #3055: the stale note must SURVIVE a close/reopen while still offline (worldswClose
+      // must not clear a last-known-list note). Exercise open -> close -> open.
+      if (s.reopen && typeof worldswOpen === 'function' && typeof worldswClose === 'function') {
+        worldswOpen(); worldswClose(); worldswOpen();
+      }
       const sw = document.getElementById('worldsw');
       const banner = document.getElementById('worldsw-restart');
       const bmsg = document.getElementById('worldsw-restart-msg');
@@ -85,11 +90,14 @@ const WORLDS = { worlds: [{ id: 'default', name: 'Kosmos 1' }, { id: 'w2', name:
   // C -- CONTROL: failed read with NO cache stays hidden (today's clean single-world degrade).
   //     Without this the fix could just always-show; this is the arm that reds a naive fix.
   const failedNoCache = await drive({ ok: false });
+  // D -- the stale note must SURVIVE a close/reopen while still offline (worldswClose must
+  //      not clear a last-known-list note, or the reopened switcher looks live).
+  const staleReopen = await drive({ cache: WORLDS, ok: false, reopen: true });
 
   await browser.close();
 
   const problems = [];
-  const err = failedWithCache.error || throwWithCache.error || live.error || failedNoCache.error;
+  const err = failedWithCache.error || throwWithCache.error || live.error || failedNoCache.error || staleReopen.error;
   if (err) problems.push(err);
   else {
     for (const [label, r] of [['500', failedWithCache], ['unreachable', throwWithCache]]) {
@@ -102,6 +110,9 @@ const WORLDS = { worlds: [{ id: 'default', name: 'Kosmos 1' }, { id: 'w2', name:
     if (!live.cachedPresent) problems.push('a live read did not cache the world list for the next failed read. got: ' + JSON.stringify(live));
     // CONTROL: the fix must NOT just always-show; with no cache and a failed read it stays hidden.
     if (!failedNoCache.hidden) problems.push('CONTROL FAILED: a failed read with NO cache un-hid the switcher, so the fix always-shows rather than falling back to a known list. got: ' + JSON.stringify(failedNoCache));
+    // D: the stale note survives a close/reopen while still offline (still shows the last-known rows + note).
+    if (staleReopen.hidden || !staleReopen.rows.includes('Side Project')) problems.push('after a close/reopen the last-known switcher is gone. got: ' + JSON.stringify(staleReopen));
+    if (staleReopen.bannerHidden || !/last-known/.test(staleReopen.bannerText)) problems.push('a close/reopen while still offline cleared the honest last-known note, so the reopened stale list looks live. got: ' + JSON.stringify(staleReopen));
   }
 
   if (problems.length) {

@@ -19229,17 +19229,22 @@ async function worldsFetch() {
      clean single-world degrade. */
   const cached = worldsCacheLoad();
   if (cached) {
-    /* Render the last-known list ONCE (the first fallback un-hides it). A later retry
-       that is still failing must NOT tear down and rebuild the list the user is reading
-       to pick a world -- `worldswRender` clears `#worldsw-list` and rebuilds every row,
-       which drops keyboard focus and resets scroll. `WORLDSW_STALE` is already true after
-       the first stale render, so re-render only when it is not (the first fallback, or
-       after a live read reset it to false). */
-    if (!WORLDSW_STALE) worldswRender(cached, { stale: true });
-    if (!WORLDSW_RECONNECTING) {
-      clearTimeout(WORLDS_RETRY_T);
-      WORLDS_RETRY_T = setTimeout(() => { worldsFetch().catch(() => {}); }, WORLDS_RETRY_MS);
-    }
+    /* Render the last-known list ONCE, and NEVER while a live switch owns the UI
+       (WORLDSW_RECONNECTING keeps the menu + its banner open). A later retry that is still
+       failing must not tear down and rebuild the list the user is reading to pick a world
+       -- `worldswRender` clears `#worldsw-list` and rebuilds every row, dropping keyboard
+       focus and resetting scroll. `WORLDSW_STALE` is already true after the first stale
+       render, so re-render only when it is not (the first fallback, or after a live read
+       reset it to false). */
+    if (!WORLDSW_STALE && !WORLDSW_RECONNECTING) worldswRender(cached, { stale: true });
+    /* 🛑 KEEP THE SELF-HEAL RETRY ALIVE UNCONDITIONALLY on a failed read. Gating the
+       reschedule on WORLDSW_RECONNECTING let one bad-timing overlap -- a retry firing while
+       a concurrent worldswReconnect poll held the flag -- permanently kill the chain, so
+       the switcher never self-healed to live and only a page reload recovered. The RENDER
+       is guarded above; the SCHEDULE must not be. clearTimeout first keeps a single pending
+       retry. */
+    clearTimeout(WORLDS_RETRY_T);
+    WORLDS_RETRY_T = setTimeout(() => { worldsFetch().catch(() => {}); }, WORLDS_RETRY_MS);
   }
 }
 
@@ -19576,8 +19581,13 @@ function worldswClose() {
   document.getElementById('worldsw-btn').setAttribute('aria-expanded', 'false');
   // #2238: clear the post-switch status so a reopen never shows a stale (and possibly
   // now-false, if the board was since restarted) "Switched to X" line.
+  // #3055: but NOT the last-known-list note (WORLDSW_STALE). While the board is still
+  // unreachable the list genuinely IS stale, so the disclosure must survive a close/reopen
+  // -- otherwise the reopened switcher shows the same cached rows with no note and looks
+  // live. A live read clears it (worldswSetStale(false)); the switch flow's own banner is
+  // never stale, so this only ever preserves the honest note.
   const banner = document.getElementById('worldsw-restart');
-  if (banner) { banner.hidden = true; document.getElementById('worldsw-restart-msg').textContent = ''; }
+  if (banner && !WORLDSW_STALE) { banner.hidden = true; document.getElementById('worldsw-restart-msg').textContent = ''; }
 }
 function worldswOpen() {
   const menu = document.getElementById('worldsw-menu');
