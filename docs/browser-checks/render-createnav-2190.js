@@ -77,8 +77,9 @@ async function driveCreate(page, agentsOutcome) {
       // shown() (which reads .hidden) would miss it - read computed style instead.
       // This reads the button's OWN display/visibility, which is exactly what the
       // :has() rule under test sets; an ancestor being hidden is not this rule's concern.
-      // Captured here at the FINAL settled state (after the 500ms wait below), not at the
-      // duringPost* sampling point above, because the assertion is about the resting screen.
+      // Captured here at the FINAL settled state (after the 500ms wait above, before this
+      // return), not at the duringPost* sampling point, because the assertion is about the
+      // resting screen.
       backVisible: (() => {
         const b = document.getElementById('create-back');
         if (!b) return null;
