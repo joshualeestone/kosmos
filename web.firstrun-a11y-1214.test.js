@@ -139,10 +139,11 @@ test('#2911: S3 asks for tmux\'s OWN Accessibility grant (data-gate="tmux-a11y")
   assert.match(S3, /class="s3-gate-row" data-gate="tmux-a11y"[\s\S]{0,120}<span class="s3-gate-lbl">tmux<\/span>/,
     'the tmux-a11y gate row label reads "tmux"');
   assert.match(S3, /<span class="s3-mtxt">tmux<small>Control your computer<\/small>/, 'the tmux mock Accessibility row names tmux');
-  // #3075 one-box: the separate "3 - switch tmux to On" caption folded into the combined
-  // "2 - switch Kosmos and tmux to On" caption above the single two-row Accessibility mock.
-  // The tmux ROW, SWITCH and GATE (asserted around this line) are what carry the tmux ask now.
-  assert.match(S3, /switch Kosmos and tmux to On/, 'the combined step caption asks to switch tmux On too (#3075)');
+  // #3075 one-box: the tmux ask folded into the combined "2 - switch Kosmos and tmux to On"
+  // caption (asserted positively at the #2451 test above); the tmux ROW, SWITCH and GATE here
+  // carry the rest. Guard the fold itself: the separate step-3 "switch tmux to On" caption must
+  // NOT come back (distinct from the #2451 uppercase-"TMUX" guard, which is about a mislabel).
+  assert.doesNotMatch(S3, /switch tmux to On/, 'the retired separate "3 - switch tmux to On" caption stays folded into the combined one (#3075)');
 
   // FR_GATES routes it to the tmux-a11y status endpoint, granting only on trusted:true.
   assert.match(PAGE, /'tmux-a11y':\s*\{[\s\S]*?url:\s*'\/api\/tmux-a11y-status',[\s\S]*?granted:\s*\(r\)\s*=>[\s\S]*?r\.trusted === true/,

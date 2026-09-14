@@ -44446,10 +44446,11 @@ async function frPollGates(screenEl, gen) {
   if (anyBlocked) next.setAttribute('aria-disabled', 'true'); else next.removeAttribute('aria-disabled');
 }
 // #2620: keep each real .s3-sw-open overlay button sitting exactly over its decorative
-// switch. The two mocks differ in height (Energy is one label line, Accessibility is two:
-// "Kosmos" + "Control your computer"), so the switch's vertical position differs per mock --
-// MEASURE rather than hardcode an offset. Idempotent and cheap; runs when S3 paints and on
-// resize. Skips a switch that has not been laid out yet (pane hidden -> zero rect).
+// switch. #3075: the Accessibility mock now stacks TWO switch rows (Kosmos + tmux) in one
+// box, so two overlay buttons share that mock and their switches sit at DIFFERENT vertical
+// positions within it; the Energy mock's single switch is different again. So MEASURE each
+// switch's rect rather than hardcode an offset. Idempotent and cheap; runs when S3 paints and
+// on resize. Skips a switch that has not been laid out yet (pane hidden -> zero rect).
 function frSyncSwitchOverlays() {
   document.querySelectorAll('.s3-sw-open').forEach((btn) => {
     const gate = btn.getAttribute('data-sw-gate');
