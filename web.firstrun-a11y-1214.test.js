@@ -291,7 +291,7 @@ test('#2587/#2912: both S3 gates (sleep AND accessibility) are ADVISORY (never g
   const fps = PAGE.indexOf('async function frPollGates(');
   const fpBody = PAGE.slice(fps, PAGE.indexOf('\n}', fps));
   assert.match(fpBody, /st === 'blocked' && !\(spec && spec\.gatesNext === false\)\)\s*anyBlocked = true/,
-    'frPollGates still lets an advisory (gatesNext:false) row block Next');
+    'frPollGates blocks Next on a blocked row ONLY when it is a gating row -- an advisory (gatesNext:false) row never sets anyBlocked');
   assert.match(fpBody, /reads\[i\]\.battOnly && st === 'blocked'\)\s*row\.setAttribute\('data-battonly'/,
     'frPollGates does not mark the battOnly row with data-battonly (for the note)');
   assert.match(fpBody, /if \(st === 'granted'\) \{ row\.setAttribute\('data-granted'/, 'data-granted must be set only on the granted state');

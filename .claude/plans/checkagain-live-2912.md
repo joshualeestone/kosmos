@@ -51,6 +51,11 @@ detection reliable next, at which point re-gating is safe.
   when accessibility is not-granted (red-capable the other way: a regression re-adding the
   gate reds it); the poll-unlock arm repointed to S2 (still gates); the Check-again arm
   keeps its immediate-re-poll assertion but asserts the ROW flips to Activated (not Next).
+- `docs/browser-checks/click-first-run.js`: the S3 smoke arm (section 6) rewritten to the
+  advisory contract (Next enabled when accessibility not-granted; the pill still flips on grant).
+- `engine/machine.js`: a stale doc comment ("Accessibility/file-access STAY real gates")
+  updated to note accessibility is advisory as of #2912.
+- `docs/browser-checks/README.md`: the render-gated-next.js index row updated to the advisory contract.
 
 ## Verify
 - Node: `web.firstrun-a11y-1214.test.js` + gate-family (44/44). No other test asserts the
