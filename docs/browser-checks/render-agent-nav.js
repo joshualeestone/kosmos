@@ -109,11 +109,18 @@ function chk(ok, label, extra) {
       // model pill ~1.5x taller. Relative, so it does not pin an absolute px that font/padding
       // tuning would break.
       const lineFit = await page.evaluate(() => {
+        const model = document.querySelector('#d-nav button[data-go="model"]');
         const h = (go) => document.querySelector('#d-nav button[data-go="' + go + '"]').getBoundingClientRect().height;
-        const model = h('model'); const instr = h('instr');
-        return { model: Math.round(model), instr: Math.round(instr), oneLine: Math.abs(model - instr) <= 2 };
+        const mH = h('model'); const iH = h('instr');
+        // oneLine: height matches a single-line pill (catches a word-WRAP to two lines).
+        // noOverflow: scrollWidth within clientWidth (catches a horizontal OVERFLOW, which
+        // nowrap would otherwise hide behind a still-one-line height, per challenge iter 2).
+        return {
+          model: Math.round(mH), instr: Math.round(iH), oneLine: Math.abs(mH - iH) <= 2,
+          scrollW: model.scrollWidth, clientW: model.clientWidth, noOverflow: model.scrollWidth <= model.clientWidth,
+        };
       });
-      chk(lineFit.oneLine, `[${theme}] #3045 the "Model and Memory" pill is one line (same height as a single-line pill)`, JSON.stringify(lineFit));
+      chk(lineFit.oneLine && lineFit.noOverflow, `[${theme}] #3045 the "Model and Memory" pill is one line and not overflowing (nowrap fits the column)`, JSON.stringify(lineFit));
 
       // The needs-you dot: April is asking a question, so Talk carries it.
       const dot = await page.evaluate(() => {
