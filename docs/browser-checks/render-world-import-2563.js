@@ -86,6 +86,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
         const world = { id: 'wnew', name: postBody.name };
         return Promise.resolve({ ok: true, status: 200, json: async () => (imported ? { ok: true, world, imported } : { ok: true, world }) });
       }
+      // The world-list GET. This broad match is deliberately route-agnostic: after a
+      // successful create/import, worldAddSubmit calls worldsFetch to refresh the switcher,
+      // and worldsFetch reads GET /api/worlds/names since the #3055 fast-follow (was plain
+      // /api/worlds). If this is ever tightened to an anchored path, anchor it to
+      // /api/worlds/names too, or that refresh read goes unserved (the way render-worldhide-2935
+      // broke on that swap).
       if (url.indexOf('/api/worlds') !== -1 && method === 'GET') {
         return Promise.resolve({ ok: true, status: 200, json: async () => ({ worlds: [{ id: 'w1', name: 'Client work' }], activeWorldId: 'w1' }) });
       }

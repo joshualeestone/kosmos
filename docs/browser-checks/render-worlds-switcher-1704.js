@@ -2,7 +2,8 @@
 /**
  * #1704 slice-3: the multiple-Kosmos switcher (list + create), on a screen.
  *
- * The switcher lists worlds from GET /api/worlds and creates them via POST
+ * The switcher lists worlds from GET /api/worlds/names (the ungated names route it
+ * reads since the #3055 fast-follow) and creates them via POST
  * /api/worlds (Angel's slice 2a). None of it is visible to a source test: the
  * name is read from a live fetch, the menu is built from the response, and the
  * create round-trips a real POST and refetch. This self-boots its own sandbox

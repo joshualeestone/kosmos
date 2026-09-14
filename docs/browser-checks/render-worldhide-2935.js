@@ -78,10 +78,11 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
         const agents = id === 'keepers' ? { stopped: [], kept: ['ki'] } : { stopped: ['bo'], kept: [] };
         return Promise.resolve({ ok: true, json: async () => ({ ok: true, world: { id, hiddenAt: '2026-09-12T00:00:00.000Z' }, agents }) });
       }
-      // worldsFetch (the switcher refetch after a successful hide) hits PLAIN /api/worlds, a
-      // different endpoint from /api/worlds/list (the settings picker, fired on modal open). Serve
-      // it so the refetch actually renders and the post-hide assertion below is not vacuous.
-      if (/\/api\/worlds(?:\?|$)/.test(u)) return Promise.resolve({ ok: true, json: async () => ({ worlds: LIST.worlds.map((w) => ({ id: w.id, name: w.name })), activeWorldId: 'booted' }) });
+      // worldsFetch (the switcher refetch after a successful hide) hits /api/worlds/names -- the
+      // ungated names-only route it reads since the #3055 fast-follow -- a different endpoint from
+      // /api/worlds/list (the settings picker, fired on modal open). Serve it so the refetch
+      // actually renders and the post-hide assertion below is not vacuous.
+      if (/\/api\/worlds\/names(?:\?|$)/.test(u)) return Promise.resolve({ ok: true, json: async () => ({ worlds: LIST.worlds.map((w) => ({ id: w.id, name: w.name })), activeWorldId: 'booted' }) });
       return Promise.resolve({ ok: false, json: async () => ({}) });
     };
 
@@ -147,11 +148,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const hid = hidIdx >= 0 ? calls[hidIdx] : null;
     try { out.named.hideBody = hid ? JSON.parse(hid.body) : null; } catch { out.named.hideBody = null; }
     out.named.modalClosedAfterHide = $('world-rename-modal').hidden;
-    // Scoped to AFTER the hide POST, and matched against PLAIN /api/worlds (worldsFetch), never
-    // /api/worlds/list (which fires on modal open, before the hide): otherwise the assertion passes
-    // even if the refetch is deleted. `(?:\?|$)` keeps /api/worlds/list and /api/worlds/hide out.
+    // Scoped to AFTER the hide POST, and matched against /api/worlds/names (worldsFetch's read
+    // since the #3055 fast-follow), never /api/worlds/list (which fires on modal open, before the
+    // hide): otherwise the assertion passes even if the refetch is deleted. `(?:\?|$)` keeps
+    // /api/worlds/list and /api/worlds/hide out.
     out.named.refetchedAfterHide = hidIdx >= 0
-      && calls.slice(hidIdx + 1).some((c) => /\/api\/worlds(?:\?|$)/.test(c.url) && c.method !== 'POST');
+      && calls.slice(hidIdx + 1).some((c) => /\/api\/worlds\/names(?:\?|$)/.test(c.url) && c.method !== 'POST');
 
     // A hide whose best-effort agent-stop left an agent running: the world is hidden but the UI
     // must SAY an agent could not be stopped (the response carries agents.kept), not close silently.

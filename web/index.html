@@ -7647,12 +7647,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <h1 class="vh" tabindex="-1">Kosmos</h1>
     <!-- #1704 slice-3: the multiple-Kosmos switcher. The active world's name is
          promoted to a VISIBLE control beside the K mark (the mark stays the home
-         affordance), opening a menu of the person's Kosmoses + "New Kosmos".
-         Populated from GET /api/worlds; the active world is marked. SWITCHING
-         between worlds is slice 2b (the active-flip endpoint), so the rows here
-         are read-only for now and only "New Kosmos" acts; when 2b lands, a row
-         click wires to the switch. Hidden until the worlds load so a single-world
-         install does not flash an empty control. -->
+         affordance), opening a menu of the person's Kosmoses + "New Kosmos". How the
+         list is read and rendered is owned by worldsFetch/worldswRender in the script;
+         not restated here so this description cannot drift from the code. Hidden until
+         the worlds load so a single-world install does not flash an empty control. -->
     <div class="worldsw" id="worldsw" hidden>
       <button class="worldsw-btn" id="worldsw-btn" type="button" aria-expanded="false" aria-controls="worldsw-menu">
         <span class="worldsw-name" id="worldsw-name">Kosmos</span>
@@ -19217,24 +19215,32 @@ function openAcctReauthOpenai(dir, email) {
   document.getElementById('acct-add-modal').hidden = false;
   acctPick('openai', { focus: false });
 }
-/* #1704 slice-3: the multiple-Kosmos switcher (list + create). Lists worlds from
-   GET /api/worlds and creates them via POST /api/worlds. Switching between worlds
-   (the active-flip) is slice 2b; until it lands the rows are read-only and only
-   "New Kosmos" acts. The switcher stays hidden on a board that has no /api/worlds
-   route (pre-2a), so it degrades to today's header cleanly. */
+/* #1704 slice-3: the multiple-Kosmos switcher (list + create). Creates a new Kosmos
+   via POST /api/worlds. How the switcher reads, renders and degrades its world list
+   is owned by the #3055 block below -- not restated here, so the two cannot drift. */
 /* #3055: the switcher MUST NOT FAIL CLOSED. It is `hidden` by default and `worldsFetch`
    is the only thing that reveals it, called once on load with no retry -- so a single
-   non-ok `/api/worlds` (a not-signed-in board 500s after a broken switch) permanently hid
+   non-ok list read (a not-signed-in board 500s/403s after a broken switch) permanently hid
    it, and there was no other code path that ever showed it again: the user was locked out
-   of their Kosmoses with no way back. So persist the last-known world list and, when the
-   live read fails, render from it (degraded) so the user can always switch back to a
-   working Kosmos; retry so a recovered board replaces the stale list on its own. */
+   of their Kosmoses with no way back.
+
+   #3055 FAST-FOLLOW: the PRIMARY list read is now GET /api/worlds/names -- the UNGATED
+   (PUBLIC_WORLD_ROUTES, server.js) names-only route that returns exactly what the switcher
+   renders: {worlds:[{id,name}], activeWorldId, bootedWorldId}. Because it is ungated it
+   answers 200 even on the unsigned board that a broken switch leaves behind -- the one
+   state that used to lock the user out -- so the switcher renders LIVE there, no stale
+   note needed. The token-gated GET /api/worlds is no longer read here at all (it carried
+   nothing the switcher uses beyond id/name/markers). The last-known localStorage list stays
+   as the DEEPER fallback for the remaining failure -- the board being genuinely unreachable
+   (a fetch throw, or /api/worlds/names itself down) -- rendered degraded with an honest note;
+   an 8s retry replaces the stale list once the board recovers. With NO cache and an
+   unreachable board the switcher stays hidden (today's clean single-world degrade). */
 const WORLDS_CACHE_KEY = 'kosmos-worlds-last-known';
 /* 8s: this is a recovery poll for a broken/not-signed-in board, not the fast
    post-switch reconnect (that is WORLDSW_RECONNECT_INTERVAL_MS, 2s). A broken board
    recovers on a human timescale (a re-sign-in, a board restart), so a slow, cheap poll
    is right -- fast enough that the switcher self-heals to live within a few seconds of
-   recovery, slow enough not to hammer /api/worlds while it stays down. */
+   recovery, slow enough not to hammer /api/worlds/names while it stays down. */
 const WORLDS_RETRY_MS = 8000;
 let WORLDS_RETRY_T = null;
 let WORLDSW_STALE = false;
@@ -19258,7 +19264,9 @@ function worldsCacheLoad() {
 async function worldsFetch() {
   let data = null;
   try {
-    const res = await fetch('/api/worlds', { cache: 'no-store' });
+    // #3055 FAST-FOLLOW: the UNGATED names route, so an unsigned post-switch board (where
+    // the token-gated /api/worlds 403s) still serves the list and the switcher renders LIVE.
+    const res = await fetch('/api/worlds/names', { cache: 'no-store' });
     if (res.ok) data = await res.json();
   } catch { /* board unreachable -- fall through to the last-known list below */ }
   if (data && Array.isArray(data.worlds) && data.worlds.length > 0) {
