@@ -50,6 +50,8 @@ const EXCUSED = {
   resetWin32SleepReading: 'test hook (win32-board-copy review round 1): forgets engine/machine.js\'s cached powercfg reading between tests, the same role as resetSleepPaneCache.',
   resetGrantCache: 'test hook (#2085): forgets engine/a11ystatus.js\'s cached tmuxGrant verdict between tests, so the production (no-opts) cache path can be asserted then cleared -- the same role as resetWin32SleepReading. The a11ystatus exports block was single-line before #2559 (which this sweep\'s `\\n};` regex could not parse, so the file\'s exports were invisible to it); the #2559 multi-line reformat surfaced this real test seam, named here rather than left as a hidden orphan.',
   resetAppGrantCache: 'test hook (#2559): the appGrant twin of resetGrantCache -- forgets engine/a11ystatus.js\'s cached app-Accessibility verdict between tests. Same role and same reason as resetGrantCache.',
+  setSqliteRunner: 'test seam (#2085): injects engine/a11ystatus.js\'s tmux TCC sqlite runner so tmuxGrant is asserted without a real system db (the tmuxGrant/route tests spy on it). Named here rather than escaping only by an incidental comment mention of it.',
+  setAppSqliteRunner: 'test seam (#2559): the appGrant twin of setSqliteRunner -- injects the app-Accessibility TCC runner so appGrant and the /api/a11y-status route are asserted without a real system db. Named here explicitly for the same reason.',
   setSessionSource: 'test seam: keeps session reads off the real machine',
   setTickInterval: 'test seam (connect pacing)',
   setUnknownGrace: 'test seam (connect pacing)',

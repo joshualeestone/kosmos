@@ -8139,23 +8139,36 @@ const server = http.createServer((req, res) => {
        staleness of the native-file read() (whose verdict a11y-status.json refreshes
        only on a 60s native timer, and which "Check again" cannot force fresh). That
        staleness is what trapped Josh on 0.6.63. The combination NEVER re-traps:
-         - appGrant checkable (a real install: the board holds FDA) -> AUTHORITATIVE
-           both ways; live-true clears, live-false blocks and clears the instant the
-           toggle flips.
-         - appGrant uncheckable (a browser, or a box without FDA / an unreadable db)
-           -> fall back to read() ONLY for the GRANTED signal (never strand a granted
-           user); read()'s NOT-granted never blocks here (it is the laggy reading).
-           So a no-FDA context degrades to advisory (fail-safe), as before this change.
+         - appGrant live-true -> GRANTED, cleared within a poll tick of the toggle.
+         - otherwise (appGrant uncheckable OR checkable-but-not-trusted) -> borrow the
+           native app's own AXIsProcessTrusted (read()) ONLY for the GRANTED signal: a
+           fresh read() trusted:true is a reliable POSITIVE, so a trusted app is never
+           blocked -- even if appGrant missed its TCC row (a fresh install that keyed the
+           grant on a client string other than APP_CLIENT). read()'s NOT-granted never
+           blocks (it is the laggy false-negative reading).
+         - appGrant checkable + not-trusted AND read() also not-trusted -> a genuine
+           not-granted: BLOCK (the re-gate), cleared the instant the toggle flips.
+         - appGrant uncheckable AND read() not-granted/absent (a browser, no FDA) ->
+           advisory (fail-safe), never a block.
        Same {checkable, trusted} shape, so the S3 gate poll + render-gated-next
        consume it unchanged. */
     let reading;
     try {
       const live = a11ystatus.appGrant();
-      if (live && live.checkable === true) {
+      if (live && live.checkable === true && live.trusted === true) {
         reading = live;
       } else {
+        // live is uncheckable OR checkable-but-not-trusted. In EITHER case, borrow the
+        // native app's own AXIsProcessTrusted (read()) as the authoritative GRANTED
+        // signal: a fresh trusted:true is a reliable POSITIVE (the #2912 lag is a
+        // false-NEGATIVE, never a false-positive), so an app that reports itself trusted
+        // is never blocked -- even if appGrant missed its TCC row (e.g. a fresh install
+        // that keyed the grant on a client string other than APP_CLIENT). That closes
+        // the both-ways trap without weakening the re-gate: a genuine not-granted has
+        // read() ALSO not-trusted, so it still blocks.
         let nf; try { nf = a11ystatus.read(); } catch { nf = { checkable: false }; }
         if (nf && nf.checkable === true && nf.trusted === true) reading = nf;
+        else if (live && live.checkable === true) reading = live;
         else reading = { checkable: false, because: (live && live.because) || (nf && nf.because) || 'accessibility is not live-checkable here' };
       }
     } catch (err) {

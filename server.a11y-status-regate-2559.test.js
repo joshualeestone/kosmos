@@ -76,13 +76,25 @@ test('#2559 route: LIVE app grant GRANTED -> checkable:true + trusted:true (Next
   assert.equal(body.trusted, true, JSON.stringify(body));
 });
 
-test('#2559 route: LIVE app grant NOT granted -> checkable:true + trusted:false (BLOCKS -- the re-gate)', async () => {
-  // The core re-gate arm: a DEFINITE live not-granted must block Next. A logic bug that
-  // dropped this (e.g. only ever serving the granted signal) would silently un-gate S3.
-  liveApp([{ client: APP, auth: 0 }]); seedNative(true);  // native says granted, but live is authoritative both ways
+test('#2559 route: GENUINE not-granted (live not-trusted AND native not-trusted) -> checkable:true + trusted:false (BLOCKS -- the re-gate)', async () => {
+  // The core re-gate arm: when BOTH the live db and the native self-report agree the app
+  // is not trusted, Next must block. A logic bug that dropped this (only ever serving the
+  // granted signal) would silently un-gate S3.
+  liveApp([{ client: APP, auth: 0 }]); seedNative(false);
   const body = await a11yStatus();
   assert.equal(body.checkable, true, JSON.stringify(body));
-  assert.equal(body.trusted, false, 'a definite LIVE not-granted must block Next, even if the laggy native file says granted: ' + JSON.stringify(body));
+  assert.equal(body.trusted, false, 'a genuine not-granted (both sources agree not-trusted) must block Next: ' + JSON.stringify(body));
+});
+
+test('#2911 route: live MISSES the app grant (client mismatch) but native self-reports TRUSTED -> NOT blocked (both-ways trap closed)', async () => {
+  // The client-mismatch trap the re-gate must not fall into: appGrant finds no row for
+  // APP_CLIENT (so it reads not-trusted), but the native app's own AXIsProcessTrusted says
+  // trusted -- a reliable positive. The app IS trusted, so the route must serve GRANTED and
+  // never block, even though the live db missed the grant.
+  liveApp([]); seedNative(true);  // live: checkable, no APP_CLIENT row -> not-trusted; native: trusted
+  const body = await a11yStatus();
+  assert.equal(body.checkable, true, JSON.stringify(body));
+  assert.equal(body.trusted, true, 'a native trusted:true self-report must override a live miss so a trusted app is never trapped: ' + JSON.stringify(body));
 });
 
 test('#2559 route: live UNCHECKABLE + native GRANTED -> falls back to granted (never strands a granted user)', async () => {
