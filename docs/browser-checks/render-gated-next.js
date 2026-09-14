@@ -1,14 +1,17 @@
 /**
  * install-flow-9screen: the gated Next on the permission screens, driven for real.
  *
- * Two screens gate Next on a measured permission grant:
- *   S2 Access     data-gate="file-access"   -> /api/file-access-status (granted)
- *   S3 Automation data-gate="sleep"+"tmux"   -> /api/sleep-status (prevented),
- *                                               /api/a11y-status (trusted)
+ * Only S2 now gates Next on a measured grant; S3's two rows are ADVISORY (#2912/#2559):
+ *   S2 Access     data-gate="file-access"   -> /api/file-access-status (granted)   GATES
+ *   S3 Automation data-gate="sleep"+"tmux"   -> /api/sleep-status (prevented),      advisory
+ *                                               /api/a11y-status (trusted)          advisory
  * The contract (frPollGates) is FAIL-SAFE and POSITIVE-ONLY: a row goes green
- * (data-granted) ONLY on a measured grant; #fr-next is disabled ONLY when some row
- * is measured-not-granted (checkable:true && !granted). Uncheckable (a browser, no
- * native writer yet) and any fetch failure NEVER block and NEVER show false green.
+ * (data-granted) ONLY on a measured grant; #fr-next is disabled ONLY when a GATING row
+ * (S2 file-access) is measured-not-granted (checkable:true && !granted). S3's rows show
+ * their state but never disable Next (sleep #2587; accessibility #2912 -- its pinned
+ * AXIsProcessTrusted read false-negatives a live grant and trapped Josh on install).
+ * Uncheckable (a browser, no native writer yet) and any fetch failure NEVER block and
+ * NEVER show false green.
  * The poll (FR_GATE_POLL_MS, 750ms) re-checks, so granting in System Settings unlocks
  * Next on its own; a "Check again" button (#2451/#2559) also lets the user force it now.
  *
@@ -130,27 +133,36 @@ async function fresh(browser) {
     await ctx.close();
   }
 
-  /* ---------- S3 Automation: the sleep + tmux gates (Next needs BOTH) ---------- */
-  console.log('\nS3 Automation -- sleep + tmux, Next needs BOTH');
+  /* ---------- S3 Automation: sleep + accessibility are BOTH advisory (#2912/#2559) ----------
+     Neither S3 row gates Next. The accessibility (tmux) row was mandatory until Josh's
+     0.6.63 test: its native AXIsProcessTrusted reading is pinned at process start, so it
+     false-negated a just-granted permission and TRAPPED him on the last install screen
+     ("I cannot proceed forward to install"). A hard gate on a detection that false-
+     negatives is worse than no gate, so the row is advisory until the grant is read live
+     from the TCC db (#2559). The rows still SHOW granted/not-granted; Next never blocks.
+     RED-CAPABLE the other way now: if a regression re-adds the gate, "not-granted keeps
+     Next ENABLED" goes red. (The blocks-Next red-capability lives entirely in S2 above.) */
+  console.log('\nS3 Automation -- sleep + accessibility are advisory: neither gates Next (#2912)');
   {
-    // Both measured-not-granted -> disabled.
+    // Both measured-not-granted -> Next still ENABLED (both advisory; the un-trap).
     const { ctx, page } = await fresh(browser);
     await gotoGate(page, '[data-gate="sleep"]', {
       sleep: { checkable: true, prevented: false }, tmux: { checkable: true, trusted: false },
     });
-    ok(await nextDisabled(page), 'S3 both-not-granted disables Next');
-    ok(!(await rowGranted(page, 'sleep')) && !(await rowGranted(page, 'tmux')), 'neither S3 row is green');
+    ok(!(await nextDisabled(page)), 'S3 both-not-granted still ENABLES Next (both advisory -- the #2912 un-trap)');
+    ok(!(await rowGranted(page, 'sleep')) && !(await rowGranted(page, 'tmux')), 'neither S3 row is green (honest, no false grant)');
     await ctx.close();
   }
   {
-    // ONE granted, one not -> still disabled (Next needs BOTH).
+    // Accessibility measured-not-granted (the exact state Josh was trapped in: he granted
+    // it but the pinned AXIsProcessTrusted read still said false) -> Next ENABLED now.
     const { ctx, page } = await fresh(browser);
     await gotoGate(page, '[data-gate="sleep"]', {
       sleep: { checkable: true, prevented: true }, tmux: { checkable: true, trusted: false },
     });
-    ok(await nextDisabled(page), 'Accessibility (tmux) not-granted still disables Next -- it gates even with sleep granted (sleep is advisory, #2587)');
+    ok(!(await nextDisabled(page)), 'Accessibility (tmux) not-granted no longer disables Next -- the #2912 trap is removed');
     ok(await rowGranted(page, 'sleep'), 'the granted (sleep) row is green');
-    ok(!(await rowGranted(page, 'tmux')), 'the not-granted (tmux) row is not green');
+    ok(!(await rowGranted(page, 'tmux')), 'the not-granted (tmux) row is honestly not green');
     await ctx.close();
   }
   {
@@ -178,14 +190,13 @@ async function fresh(browser) {
      A laptop that sleeps on battery is prevented:false forever (macOS has no
      never-sleep-on-battery switch), so gating Next on it walled laptop users in. Now the
      sleep step NEVER gates Next; the honest note replaces the useless Turn On on that
-     (battOnly) row. Accessibility/tmux STILL gates -- it is satisfiable + required, so
-     letting a user past it would land them in broken agents. Arms: (A) laptop-battery +
-     Accessibility granted -> Next ENABLED though sleep is blocked, note shown, Turn On
-     hidden, not green, no Continue button; (B) laptop-battery + Accessibility NOT granted
-     -> Next stays LOCKED (advisory sleep does not bypass the real gate); (C) control: a
-     fixable desktop that sleeps on AC -> Next ENABLED too (advisory for everyone), no note,
-     Turn On shown. */
-  console.log('\n#2587 -- the sleep step is advisory: it never gates Next, Accessibility still does');
+     (battOnly) row. #2912/#2559: accessibility/tmux is now ADVISORY too (its pinned
+     AXIsProcessTrusted read false-negatives a just-granted permission and trapped Josh),
+     so neither S3 row gates Next. Arms: (A) laptop-battery + Accessibility granted -> Next
+     ENABLED, note shown, Turn On hidden, not green, no Continue button; (B) laptop-battery +
+     Accessibility NOT granted -> Next ENABLED too now (the worst case Josh was trapped in);
+     (C) control: a fixable desktop that sleeps on AC -> Next ENABLED, no note, Turn On shown. */
+  console.log('\n#2587/#2912 -- both S3 steps are advisory: neither gates Next; the rows still show state');
   const sleepUi = (page) => page.evaluate(() => {
     const row = document.querySelector('[data-gate="sleep"]');
     const vis = (sel) => { const e = row.querySelector(sel); return !!(e && getComputedStyle(e).display !== 'none'); };
@@ -211,13 +222,15 @@ async function fresh(browser) {
     await ctx.close();
   }
   {
-    // (B) same laptop-battery sleep, but Accessibility NOT granted: Next stays LOCKED. The
-    // advisory sleep row must not bypass the tmux gate (satisfiable + required).
+    // (B) #2912: same laptop-battery sleep, Accessibility NOT granted -> Next is now ENABLED
+    // too. This is the exact worst case Josh hit: a laptop that cannot satisfy sleep AND an
+    // accessibility reading that false-negatives the grant. Under the old design BOTH walls
+    // stacked and he was trapped; now neither S3 row gates, so he gets through.
     const { ctx, page } = await fresh(browser);
     await gotoGate(page, '[data-gate="sleep"]', {
       sleep: { checkable: true, prevented: false, battOnly: true }, tmux: { checkable: true, trusted: false },
     });
-    ok(await nextDisabled(page), '#2587 Accessibility STILL gates Next even when sleep is advisory (no bypass into broken agents)');
+    ok(!(await nextDisabled(page)), '#2912 laptop-battery + accessibility-not-detected no longer traps Next (both S3 rows advisory)');
     await ctx.close();
   }
   {
@@ -307,23 +320,24 @@ async function fresh(browser) {
     await ctx.close();
   }
 
-  /* ---------- the poll unlocks WITHOUT a manual re-check ---------- */
-  console.log('\nThe poll unlocks Next on its own when the grant lands (no manual click needed)');
+  /* ---------- the poll unlocks a GATING screen WITHOUT a manual re-check ----------
+     #2912 made S3 advisory, so this now exercises the poll-unlock on the screen that
+     STILL gates (S2 file-access): granting in System Settings unlocks Next on its own. */
+  console.log('\nThe poll unlocks Next on its own when the grant lands (S2 file-access, the gating screen)');
   {
     const { ctx, page } = await fresh(browser);
-    // Enter S3 with tmux not-granted (Next disabled), then flip it granted mid-screen.
+    // Enter S2 with file-access not-granted (Next disabled), then flip it granted mid-screen.
     await page.goto(`${BASE}/?first-run=1`, { waitUntil: 'domcontentloaded' });
-    const step = await stepForAnchor(page, '[data-gate="sleep"]');
-    let tmuxTrusted = false;
-    await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: true } }));
-    await page.route('**/api/a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: tmuxTrusted } }));
+    const step = await stepForAnchor(page, '[data-gate="file-access"]');
+    let faGranted = false;
+    await page.route('**/api/file-access-status', (r) => r.fulfill({ json: { checkable: true, granted: faGranted, nativePresent: true } }));
     await page.goto(`${BASE}/?first-run=1&fr-step=${step}`, { waitUntil: 'networkidle' });
     await page.waitForTimeout(600);
-    ok(await nextDisabled(page), 'Next starts disabled while tmux is not yet granted');
-    tmuxTrusted = true;   // the user grants it in System Settings
+    ok(await nextDisabled(page), 'Next starts disabled while file-access is not yet granted');
+    faGranted = true;   // the user grants it in System Settings
     await page.waitForFunction(() => !document.getElementById('fr-next').disabled, null, { timeout: 4000 })
       .catch(() => {});
-    ok(!(await nextDisabled(page)), 'the poll re-checks and unlocks Next once tmux is granted (no manual click in this scenario)');
+    ok(!(await nextDisabled(page)), 'the poll re-checks and unlocks Next once file-access is granted (no manual click in this scenario)');
     await ctx.close();
   }
 
@@ -358,9 +372,14 @@ async function fresh(browser) {
     ok(btn ? !(await btn.isHidden()) : false, 'the nav Check-again control is visible on S3');
     const label = btn ? (await btn.textContent()).trim() : '';
     ok(/check again/i.test(label), `the button reads "Check again" (got: ${JSON.stringify(label)})`);
-    ok(await nextDisabled(page), 'Next is disabled while the grant has not landed');
+    // S3 is advisory (#2912), so Next is available throughout. The value of Check again on
+    // S3 is that it FORCES an immediate re-read of the grant -- the row flips to Activated at
+    // once instead of waiting on the next 750ms poll (and it is the seam #2559 will point at
+    // a live TCC read). The accessibility row is honestly not-granted first.
+    ok(!(await nextDisabled(page)), 'Next is available on S3 regardless of the grant (advisory, #2912)');
+    ok(!(await rowGranted(page, 'tmux')), 'the accessibility row is honestly not-granted before the grant');
     // Grant it, then FORCE the check via the button and confirm a re-poll fires at once
-    // (before the next timer tick) and unlocks Next.
+    // (before the next timer tick) and flips the row to Activated.
     tmuxTrusted = true;
     const before = a11yHits;
     if (btn) await btn.click();
@@ -370,8 +389,8 @@ async function fresh(browser) {
     // the unit test web.firstrun-a11y-1214.test.js, which pins handler -> frRecheckGates).
     await page.waitForTimeout(80);
     ok(a11yHits > before, `clicking "Check again" fired an immediate /api/a11y-status re-check (hits ${before} -> ${a11yHits})`);
-    await page.waitForFunction(() => !document.getElementById('fr-next').disabled, null, { timeout: 2000 }).catch(() => {});
-    ok(!(await nextDisabled(page)), 'the manual re-check unlocks Next once the grant has landed');
+    await page.waitForFunction(() => { const r = document.querySelector('[data-gate="tmux"]'); return r && r.hasAttribute('data-granted'); }, null, { timeout: 2000 }).catch(() => {});
+    ok(await rowGranted(page, 'tmux'), 'the manual re-check flips the accessibility row to Activated once the grant has landed');
     await ctx.close();
   }
 

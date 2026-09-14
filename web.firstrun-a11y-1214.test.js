@@ -126,19 +126,23 @@ test('#1: S3 Turn On FIRES the native prompt (tmux -> a11y-prompt), falling back
     'the Settings button is unchanged and shares the endpoint');
 });
 
-test('install-flow-9screen: the S3 Continue/Next is GATED -- unlocks only when both gates are granted', () => {
+test('install-flow-9screen: the S3 Next keeps its disabled-guard mechanism, but both S3 gates are advisory so it is never trapped', () => {
+  // #2912/#2559: S3's Next no longer HARD-gates on the accessibility grant (both sleep
+  // and accessibility are advisory now -- see the #2587/#2912 test below). The go()
+  // GUARD (`if fr-next.disabled return`) stays as the defensive mechanism, but no S3
+  // gate sets fr-next.disabled anymore, so a user who cannot satisfy or cannot get the
+  // app to DETECT accessibility is never walled in on the last install screen.
   const SCRIPT = PAGE.slice(PAGE.indexOf('<script'), PAGE.lastIndexOf('</script>'));
   const step3 = SCRIPT.slice(SCRIPT.indexOf('} else if (step === 3) {'), SCRIPT.indexOf('} else if (step === 4) {'));
   /* #2647: this asserted the ENTIRE frActions call as one literal line, so adding
      the Check-again alt reddened it on formatting rather than on meaning. The
-     meaning is the GATE, and it is asserted directly below, unweakened: S3's
-     primary is Next, and its go() re-reads fr-next.disabled before advancing. */
+     mechanism is the go() guard, asserted directly below. */
   assert.match(step3, /label: 'Next'/,
     "the S3 primary is no longer labelled 'Next'");
   /* win32-board-copy: the hop is frStepAfter(3), which is S4 on a Mac and S5 on Windows (S4
-     is a macOS notice); the GATE this pins is unchanged. */
+     is a macOS notice); the go() guard this pins is unchanged. */
   assert.match(step3, /if \(document\.getElementById\('fr-next'\)\.disabled\) return; frGo\(frStepAfter\(3\)\);/,
-    'the S3 Next is gated: it proceeds to the next step only when the check has not disabled it');
+    'the S3 Next go() still reads fr-next.disabled before advancing (the guard mechanism is intact)');
   /* #2647: and the Check-again control rides the nav's alt slot from here, which
      is the ONLY thing wiring it up: the old in-pane handler was delegated on
      #fr-pane-3 and #fr-alt sits outside every pane, so losing this argument
@@ -251,23 +255,30 @@ test('#2451/#2559 (7.58.24): S3 has a manual "Check again" button that fires an 
     + 'losing the post-await re-read silently wipes an error the person has not read');
 });
 
-test('#2587: the sleep step is ADVISORY (never gates Next); Accessibility still gates; the honest laptop note stays', () => {
-  // Josh's ruling: a laptop that sleeps on battery cannot satisfy the sleep permission
-  // (macOS has no never-sleep-on-battery switch), so the step must not wall the user in.
-  // The sleep row never disables Next; Accessibility/file-access still gate (they are
-  // satisfiable + required). The honest note replaces the useless Turn On on the laptop
-  // (battOnly) case only. There is no "Continue anyway" button -- Next just works.
+test('#2587/#2912: both S3 gates (sleep AND accessibility) are ADVISORY (never gate Next); the honest laptop note stays', () => {
+  // #2587: a laptop that sleeps on battery cannot satisfy the sleep permission (macOS has
+  // no never-sleep-on-battery switch), so that step never walls the user in.
+  // #2912/#2559 (Josh 2026-09-14, P0 "I cannot proceed forward to install"): the
+  // accessibility (tmux) step is ADVISORY too. Its reading is the native app's
+  // AXIsProcessTrusted, pinned at process start, so it false-negatives a just-granted
+  // permission until an app restart -- which trapped Josh on the last install screen. A
+  // hard gate on a detection that false-negatives is worse than no gate, so accessibility
+  // does not block Next until the detection is made live from the TCC db (#2559). Both
+  // rows still SHOW the ask; neither disables Next. (S2 file-access, a different screen,
+  // still gates.) There is no "Continue anyway" button -- Next just works.
 
-  // 1. sleep is marked non-gating (gatesNext:false), keeps its battOnly predicate, and is
-  //    the ONLY advisory gate (tmux/file-access must still gate).
+  // 1. sleep is non-gating (gatesNext:false) and keeps its battOnly predicate.
   const frSleep = PAGE.slice(PAGE.indexOf("'sleep': {"), PAGE.indexOf("'tmux': {"));
   assert.ok(frSleep.length > 0 && frSleep.length < 1100, 'the FR_GATES.sleep block was not bounded (markers moved)');
   assert.match(frSleep, /gatesNext:\s*false/, 'FR_GATES.sleep is not marked gatesNext:false, so it would still gate Next');
   assert.match(frSleep, /battOnly:\s*\(r\)\s*=>\s*r\.battOnly === true/, 'FR_GATES.sleep lost its battOnly predicate');
+  // 1b. accessibility (tmux) is non-gating too (#2912/#2559): the trap Josh hit.
+  const frTmux = PAGE.slice(PAGE.indexOf("'tmux': {"), PAGE.indexOf('\n};', PAGE.indexOf("'tmux': {")));
+  assert.match(frTmux, /gatesNext:\s*false/, 'FR_GATES.tmux (accessibility) must be advisory (#2912): a false-negative AXIsProcessTrusted read must not trap Next');
   const frGatesStart = PAGE.indexOf('const FR_GATES = {');
   const frGatesBlock = PAGE.slice(frGatesStart, PAGE.indexOf('\n};', frGatesStart));
-  assert.equal((frGatesBlock.match(/gatesNext:\s*false/g) || []).length, 1,
-    'exactly one gate (sleep) may be advisory; the Accessibility/tmux gate must still gate Next');
+  assert.equal((frGatesBlock.match(/gatesNext:\s*false/g) || []).length, 2,
+    'both S3 gates (sleep + accessibility/tmux) are advisory; only S2 file-access still gates Next');
 
   // 2. frReadGate surfaces battOnly alongside the state (for the note).
   const frs = PAGE.indexOf('async function frReadGate(');
