@@ -141,7 +141,9 @@ resolve_install_user() {
   # ambiguous, which is the only case narrowed here. Reverses the count>1 half of
   # #2511's console fallback (itself marked reversible); count==0/count==1 unchanged.
   if [ "$_riu_owner_count" -gt 1 ]; then
-    RIU_REASON="Kosmos: more than one account is running the installer at the same time ($(printf '%s' "$_riu_owners" | /usr/bin/paste -sd, -)), so Kosmos cannot tell which one to install for. Installing for the wrong account would put your agents in the wrong account's home folder. Quit the installer in the other account(s), or sign in at this Mac's own screen as just the account you want, then open this installer again."
+    RIU_REASON="Kosmos: more than one account is running the installer at the same time ($(printf '%s' "$_riu_owners" | /usr/bin/paste -sd, -)), so Kosmos cannot tell which one to install for.
+  - Installing for the wrong account would put your agents in the wrong account's home folder.
+Quit the installer in the other account(s), or sign in at this Mac's own screen as just the account you want, then open this installer again."
     return 1
   fi
 
