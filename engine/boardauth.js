@@ -169,7 +169,15 @@ function legacyTokenPath() {
    longer needed. The READ-side fallback in readToken() below STAYS, so a token that
    only exists on the legacy leaf is still found and backfilled to the primary; only
    the WRITE-back is gone (it never resurrected a clean install; now it never writes
-   a live credential into the deprecated leaf at all). */
+   a live credential into the deprecated leaf at all).
+   #2511 residual: on a box that already ran the old mirror, a board.token may sit on the
+   legacy leaf holding a still-valid token. It is deliberately left in place (the READ
+   fallback below still needs it so a pre-#2439 bundle reading that leaf directly does not
+   403), but the mirror's permission self-heal (chmod 0o700/0o600, #1968) is gone with it, so
+   nothing re-tightens that file's mode if it ever loosens. Not re-tightened on purpose: doing
+   so would put legacy-leaf writes back, which is exactly what this change removes. The file is
+   read-only from here; the risk is bounded to an external mode-loosening event on a deprecated
+   path, and is documented in the plan rather than maintained. */
 
 /** Read the token file, or null if it is absent or empty. */
 function readToken() {

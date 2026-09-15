@@ -44,6 +44,19 @@ offline boxes and is reversible in a commit. Documented in the code comment at t
 site and in the PR body. Change is gated `needs-release` so it rides a cut where dormant
 boxes auto-refresh.
 
+Second residual (permission maintenance): the removed mirror also carried a permission
+self-heal (`chmod` the legacy dir to 0o700 and the legacy `board.token` to 0o600, #1968).
+On a box that already ran the old mirror, a still-valid `board.token` sits on the legacy
+leaf. It is deliberately KEPT (the READ fallback needs it so a pre-#2439 bundle reading
+that leaf directly does not 403), but nothing re-tightens its mode any more if it ever
+loosens (an external restore or a umask slip during some unrelated write). Rejected the
+alternative of deleting the legacy `board.token` on removal: that would strip the #2509
+read-fallback safety net, which is the opposite of this card's kept-read-fallback design.
+Rejected re-tightening it from the new code too: that re-introduces legacy-leaf writes,
+which is exactly what this change removes. The file is only READ from the new code, so the
+exposure is an external mode-loosening event on a deprecated path holding a credential that
+is already owner-only today; documented rather than maintained.
+
 ## Tests
 
 `engine.boardauth-leaf-2509.test.js` (repo root):
