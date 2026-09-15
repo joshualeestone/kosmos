@@ -133,3 +133,43 @@ test('#3081 control: an empty saved model is a no-op (OpenAI "let it choose" sta
   s.applyCreateModelPref('');
   assert.equal(sel.value, '', 'empty want should leave the select untouched');
 });
+
+/* The four helpers above are unit-tested in isolation; these last two pin the WIRING
+   in the page that calls them -- the one part the browser check would otherwise own.
+   Source-pattern assertions (the web.create-account.test.js style), because
+   loadCreateExtras is a large async function with many collaborators that is not worth
+   eval-executing whole; a regression that drops the restore or the save reds a node test
+   rather than only surfacing in a live browser. */
+test('#3081 wiring: loadCreateExtras restores the saved provider/account/model', () => {
+  const start = PAGE.indexOf('async function loadCreateExtras');
+  assert.ok(start >= 0, 'loadCreateExtras moved or was renamed; restate this pin');
+  const fn = PAGE.slice(start, PAGE.indexOf('\n  /* 🛑 THE PROJECTS PICKER IS GONE', start));
+  assert.ok(fn.length > 0, 'could not slice loadCreateExtras up to the projects-picker marker; re-anchor');
+  assert.match(fn, /const pref = readCreatePrefs\(\);/, 'the restore no longer reads the saved prefs');
+  assert.match(fn, /applyCreateAccountPref\(pref\.account\)/, 'the restore no longer applies the saved account');
+  // The account is applied BEFORE the model (applyCreateProviderUI resets the account to
+  // isDefault, so the account must be re-set first); pin that order.
+  assert.ok(
+    fn.indexOf('applyCreateAccountPref(pref.account)') < fn.indexOf('CREATE_PREF_OPENAI_MODEL = pref.model'),
+    'the saved account must be applied before the OpenAI model one-shot is armed',
+  );
+  // OpenAI's model rides the async one-shot (armed, then a single repaint for the chosen
+  // account); Claude's model is applied synchronously. Both branches must be present.
+  assert.match(fn, /CREATE_PREF_OPENAI_MODEL = pref\.model[^;]*;\s*\n\s*paintOpenaiCreateModel\(\);/,
+    'the OpenAI branch no longer arms the saved-model one-shot before a single repaint');
+  assert.match(fn, /applyCreateModelPref\(pref\.model\)/, 'the Claude branch no longer applies the saved model');
+  // The restore only fires while the provider is still usable and the operator has not
+  // touched the form (the #2097 auto-default gate); pin that guard so it cannot become a lock.
+  assert.match(fn, /prefProviderUsable/, 'the restore is no longer gated on the saved provider being usable');
+});
+
+test('#3081 wiring: a saved default is written ONLY on a successful create', () => {
+  const start = PAGE.indexOf("document.getElementById('create-go').addEventListener");
+  assert.ok(start >= 0, 'the create-go click handler moved or was renamed; restate this pin');
+  const handler = PAGE.slice(start, PAGE.indexOf("\n});", start) + 4);
+  assert.ok(handler.length > 0, 'could not slice the create-go handler; re-anchor');
+  // The save must sit inside an `outcome === 'created'` guard -- a 'partial' rolls back, so
+  // it must not become the remembered choice.
+  assert.match(handler, /if \(result\.outcome === 'created'\) \{[\s\S]*?saveCreatePrefs\(/,
+    "saveCreatePrefs is no longer guarded by outcome === 'created' (a rolled-back partial must not be remembered)");
+});
