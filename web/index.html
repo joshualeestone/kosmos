@@ -16315,6 +16315,39 @@ function paintOfflineNote(down) {
     + '</div></div>';
 }
 
+/* #3124: the agent-status freshness stamp now ages on the OBSERVER'S clock, on
+   its own timer, so it can show the ABSENCE of new data -- the one thing a stamp
+   painted only when data ARRIVES can never show. Before this it read
+   `data.checkedAt`, stamped at response-BUILD time by a server that re-scrapes
+   every request (snapshot()), so `age` was structurally always ~0: the stamp
+   could only ever say "just now", and the `age > 30` stale band plus every
+   freshWords band above the floor were dead code. Josh, #admin: "are we actually
+   really refreshing anything there, because I've never seen it say anything
+   other than that?" -- correct, because it could not. `LAST_STATUS_OK_AT` is the
+   client-clock instant of the last SUCCESSFUL poll (client clock at both ends
+   also drops the two-clock skew #292's freshWords guard exists for);
+   `STATUS_POLL_FAILED` hands the message to tick()'s catch path, which owns
+   "could not refresh" and must not be aged over. */
+let LAST_STATUS_OK_AT = null;
+let STATUS_POLL_FAILED = false;
+
+function ageCheckedStamp() {
+  /* Runs on a ~1s timer AND at the moment of each successful poll. On a healthy
+     5s board it cycles 0..5 and mostly reads "just now" -- honestly, the board
+     WAS read seconds ago. When polls stop (a hung request that never resolves or
+     rejects, a suspended tick), LAST_STATUS_OK_AT stops moving while this keeps
+     aging it, so the stamp goes stale visibly -- the intended behaviour the
+     comment on tick()'s stamp always claimed and the old paint-on-arrival code
+     never delivered. */
+  if (STATUS_POLL_FAILED) return;          // the catch path owns the message
+  if (LAST_STATUS_OK_AT == null) return;   // no successful poll yet: say nothing
+  const checked = document.getElementById('checked');
+  if (!checked) return;
+  const age = Math.round((Date.now() - LAST_STATUS_OK_AT) / 1000);
+  checked.className = 'checked stamp' + (age > 30 ? ' stale' : '');
+  checked.innerHTML = '<span>Agent status</span><b>' + freshWords(age) + '</b>';
+}
+
 async function tick() {
   const checked = document.getElementById('checked');
   let answered = false;   // set when the server replied, even with a refusal (#268)
@@ -16825,9 +16858,13 @@ async function tick() {
     // stamp goes stale visibly rather than the board freezing on a happy picture.
     // `stamp` is styleless pack-parity (like `hot` on .lrow): a future pack
     // rule lands here for free, and the failed-poll test anchors on it.
-    const age = Math.round((Date.now() - new Date(data.checkedAt).getTime()) / 1000);
-    checked.className = 'checked stamp' + (age > 30 ? ' stale' : '');
-    checked.innerHTML = '<span>Agent status</span><b>' + freshWords(age) + '</b>';
+    // #3124: record the client-clock instant of this success and render through
+    // the shared ager. The ~1s timer keeps aging it between polls, so the stamp
+    // reflects how long since we last HEARD from the board, not the age of a
+    // just-built response (`data.checkedAt`, which was structurally always ~0).
+    LAST_STATUS_OK_AT = Date.now();
+    STATUS_POLL_FAILED = false;
+    ageCheckedStamp();
 
     /**
      * ⚠️ THE REMOVED LIST IS PART OF THE BOARD, so it refreshes with it.
@@ -16881,6 +16918,9 @@ async function tick() {
     paintOfflineNote(!answered);
     const addViewOnFail = document.getElementById('pj-add-view');
     if (addViewOnFail && !addViewOnFail.hidden) paintAddAgents();
+    // #3124: the failed poll owns the stamp; stop the ~1s ager repainting an age
+    // over "could not refresh" until a poll succeeds again.
+    STATUS_POLL_FAILED = true;
     checked.className = 'checked stamp stale';
     checked.innerHTML = '<span>Agent status</span><b>could not refresh</b>';
     // Both containers: whichever layout is on screen must carry the failure.
@@ -48868,6 +48908,11 @@ paintBuildMark(null, 'prod');
 paintBuildLine(null);
 tick();
 setInterval(tick, 5000);
+/* #3124: age the freshness stamp on its own ~1s cadence, independent of when
+   polls land, so a board that goes quiet ages visibly instead of freezing on
+   the last "just now". A helper nothing calls is the defect this file is written
+   against; this is the caller. */
+setInterval(ageCheckedStamp, 1000);
 </script>
 </body>
 </html>
