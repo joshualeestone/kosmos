@@ -3165,7 +3165,7 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
   assert.equal(noproj['st-attn-noproj'].textContent, '1', 'the no-project tile lost its count');
   assert.equal(noproj['st-attn-noproj-tile'].hidden, false, 'a nonzero unattributed needs-you must show the no-project tile');
   /* 🛑 CONTROL that returns the dangerous answer: a board whose needs_you are ALL
-     attributed to a project has a nonzero "Needs you" but ZERO unattributed, so
+     attributed to a project has a nonzero "Issue" but ZERO unattributed, so
      the parent tile shows and the drill-down hides. Without the subset being its
      own field this could not be told apart from the total. */
   const attributedOnly = drive(fleet, { total: 7, needsYou: 2, needsYouUnattributed: 0, notRunning: 0 });

@@ -26,6 +26,12 @@ buttons wont wrap to two lines and it will keep a single word indicator for all 
 5. Project member row status: flows through stateCopyOf().label automatically.
 
 ## Deliberately LEFT unchanged (scoping, not oversight)
+- NOTE on the shared warning mark (#2577): `ONODE_WARN` (the org/map node's corner
+  triangle) is DERIVED from `LROW_WARN` by a class swap, so my LROW_WARN aria edit
+  ("Needs you" -> "Issue") correctly propagated the badge's aria to "Issue" as well.
+  That is intended #2577 behavior ("one mark means the same thing on a tile, a pill,
+  a row and a node"), not an accidental change: the shared MARK stays consistent. What
+  is deferred is only the node's own TEXT (the link aria and the `.pjoc` caption below).
 - The agent org-chart node aria + the projects-map node caption/aria (pjMapNode,
   the `.pjoc` span and its "Open <name>, needs you" aria): hardcoded separately from
   STATE_COPY, in the projects-MAP view Josh did not reference. NOTE, honestly: the
