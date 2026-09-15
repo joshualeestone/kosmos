@@ -8,6 +8,9 @@ const {
   planClass1Handle,
   runClass1Handle,
   sweepClass1,
+  standingFromAgent,
+  recordAttempt,
+  sweepOnce,
   DEFAULT_MAX_ATTEMPTS,
   DEFAULT_WINDOW_MS,
 } = require('./class1-autohandle');
@@ -285,4 +288,111 @@ test('CONTROL sweep: a throwing attemptsFor does not crash the sweep; the agent 
     ['angel', 'trust-and-restart'], // no history -> fresh decision, not a crash
     ['mona', 'none'],
   ]);
+});
+
+// ---------------------------------------------------------------------------
+// ARMED sweep (#2808 c wire-up): standingFromAgent + recordAttempt + sweepOnce.
+// A reconciled roster card carries { name, state, stateReportedBy }.
+// ---------------------------------------------------------------------------
+const agentCard = (over) => ({ name: 'angel', state: 'needs_you', stateReportedBy: 'auto', ...(over || {}) });
+
+test('standingFromAgent: maps a class-1 card to the standing shape', () => {
+  assert.deepEqual(standingFromAgent(agentCard()), { found: true, state: 'needs_you', by: 'auto' });
+});
+test('standingFromAgent: a scraped (self-report-less) card has by:null -> not class-1', () => {
+  const s = standingFromAgent(agentCard({ stateReportedBy: null }));
+  assert.equal(s.by, null);
+  assert.equal(isClass1(s), false);
+});
+test('standingFromAgent: a class-2 (by:agent) card maps to by:agent -> not class-1', () => {
+  assert.equal(isClass1(standingFromAgent(agentCard({ stateReportedBy: 'agent' }))), false);
+});
+
+test('recordAttempt: appends now and prunes entries older than the window', () => {
+  const now = 10_000_000;
+  const book = new Map([['angel', [now - (DEFAULT_WINDOW_MS + 1), now - 1000]]]); // one stale, one fresh
+  recordAttempt(book, 'angel', now);
+  assert.deepEqual(book.get('angel'), [now - 1000, now]); // stale pruned, fresh kept, now appended
+});
+test('recordAttempt: a missing name is a no-op (returns the map)', () => {
+  const book = new Map();
+  assert.equal(recordAttempt(book, '', 1e6), book);
+  assert.equal(book.size, 0);
+});
+
+// A fake executor that records the calls, so we can assert the sweep only acts on class-1.
+function fakeDeps() {
+  const calls = [];
+  return {
+    calls,
+    trustAgentFolder: (n) => { calls.push(['trust', n]); return { wrote: true }; },
+    restart: (n, cause) => { calls.push(['restart', n, cause]); return { outcome: 'restarted' }; },
+    RESTARTED: 'restarted',
+  };
+}
+
+test('sweepOnce: acts ONLY on class-1 agents; class-2/scraped/working are left untouched', () => {
+  const roster = [
+    agentCard({ name: 'a1', state: 'needs_you', stateReportedBy: 'auto' }),   // class 1 -> handle
+    agentCard({ name: 'a2', state: 'needs_you', stateReportedBy: 'agent' }),  // class 2 -> none
+    agentCard({ name: 'a3', state: 'needs_you', stateReportedBy: null }),     // scraped -> none
+    agentCard({ name: 'a4', state: 'working', stateReportedBy: 'auto' }),     // not needs_you -> none
+    agentCard({ name: 'a5', state: 'needs_you', stateReportedBy: 'operator' }), // operator -> none
+  ];
+  const d = fakeDeps();
+  const { results } = sweepOnce({ roster, attempts: new Map(), now: 1e6, ...d });
+  assert.deepEqual(results.map((r) => [r.name, r.act]), [
+    ['a1', 'trust-and-restart'], ['a2', 'none'], ['a3', 'none'], ['a4', 'none'], ['a5', 'none'],
+  ]);
+  // Only a1 was ever touched by the executor.
+  assert.deepEqual(d.calls, [['trust', 'a1'], ['restart', 'a1', 'restart']]);
+});
+
+test('sweepOnce: the loop-guard escalates across ticks via the carried attempts Map', () => {
+  const d = fakeDeps();
+  const roster = [agentCard({ name: 'stuck', state: 'needs_you', stateReportedBy: 'auto' })];
+  const book = new Map();
+  // Tick 1 and 2 (default maxAttempts 2) restart; tick 3 must escalate, NOT restart.
+  const r1 = sweepOnce({ roster, attempts: book, now: 1_000, ...d });
+  const r2 = sweepOnce({ roster, attempts: book, now: 2_000, ...d });
+  const r3 = sweepOnce({ roster, attempts: book, now: 3_000, ...d });
+  assert.equal(r1.results[0].act, 'trust-and-restart');
+  assert.equal(r2.results[0].act, 'trust-and-restart');
+  assert.equal(r3.results[0].act, 'escalate');
+  // exactly two restarts were issued (ticks 1 and 2), none on tick 3.
+  assert.equal(d.calls.filter((c) => c[0] === 'restart').length, 2);
+});
+
+test('sweepOnce: a throwing restart still records the attempt (loop-guard advances) and does not abort', () => {
+  const roster = [
+    agentCard({ name: 'boom', state: 'needs_you', stateReportedBy: 'auto' }),
+    agentCard({ name: 'ok', state: 'needs_you', stateReportedBy: 'auto' }),
+  ];
+  const book = new Map();
+  const { results } = sweepOnce({
+    roster, attempts: book, now: 1e6,
+    trustAgentFolder: () => ({ wrote: true }),
+    restart: (n) => { if (n === 'boom') throw new Error('kaboom'); return { outcome: 'restarted' }; },
+    RESTARTED: 'restarted',
+  });
+  assert.equal(results[0].name, 'boom');
+  assert.equal(results[0].handled, false); // threw -> not handled
+  assert.equal(results[1].name, 'ok');     // sweep continued to the next agent
+  assert.equal(results[1].handled, true);
+  assert.equal(book.get('boom').length, 1); // the attempt was recorded despite the throw
+});
+
+test('CONTROL sweepOnce: an empty/garbage roster acts on nothing and does not throw', () => {
+  const d = fakeDeps();
+  assert.deepEqual(sweepOnce({ roster: [], attempts: new Map(), now: 1e6, ...d }).results, []);
+  assert.deepEqual(sweepOnce({ roster: null, attempts: null, now: 1e6, ...d }).results, []);
+  assert.deepEqual(sweepOnce({}).results, []); // no deps, no roster -> nothing, no throw
+  assert.equal(d.calls.length, 0);
+});
+
+test('CONTROL sweepOnce: a nameless card is skipped', () => {
+  const d = fakeDeps();
+  const { results } = sweepOnce({ roster: [{ state: 'needs_you', stateReportedBy: 'auto' }], attempts: new Map(), now: 1e6, ...d });
+  assert.deepEqual(results, []);
+  assert.equal(d.calls.length, 0);
 });

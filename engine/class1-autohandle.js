@@ -243,11 +243,109 @@ function sweepClass1(names, deps, now, opts) {
   });
 }
 
+/*
+ * #2808 class-1 (c) ARMED: adapt a board snapshot/roster agent card to the `standing`
+ * shape planClass1Handle wants.
+ *
+ * The armed sweep reads the RECONCILED roster (status.js snapshot / safeRoster), NOT the
+ * raw self-report, and that is a safety choice, not a convenience:
+ *  - `stateReportedBy` is set ONLY for a SELF-REPORTED state (#3092). A needs_you that is
+ *    only SCRAPED (no self-report) carries stateReportedBy null, so it is NOT class-1 here
+ *    and stays red - the pane-scrape must never drive an auto-restart on its own.
+ *  - A scrape that supersedes or conflicts with a stale by:auto report has ALREADY been
+ *    reconciled by reconcileReport before it reaches the card (a working scrape wins, an
+ *    auth_failed scrape becomes auth_failed with a conflict), so the card's `state` is the
+ *    board's current truth. Firing on it cannot restart an agent that has moved past the
+ *    prompt - the false-positive an auto-restart most has to avoid.
+ * So class-1 here means exactly: the board's reconciled state is needs_you AND that state
+ * was self-reported by the lifecycle hook as by:'auto' (the technical permission/trust
+ * prompt). by:'agent' (class 2, the agent's own question - de-alarmed by #3092, stays
+ * visible), operator, and null all fall through to `none`.
+ */
+function standingFromAgent(agent) {
+  return {
+    found: true,
+    state: agent && agent.state,
+    by: (agent && agent.stateReportedBy) || null,
+  };
+}
+
+/*
+ * Record one auto-handle attempt for an agent into the attempts Map (a Map<name,
+ * number[]> the caller carries across ticks, heartbeat-style), pruning entries older
+ * than the window so the Map cannot grow unbounded. Called after EVERY trust-and-restart
+ * attempt (whether the restart succeeded or not), so the loop-guard advances toward
+ * escalate when a restart is not clearing the prompt. Returns the same Map for chaining.
+ */
+function recordAttempt(attempts, name, now, opts) {
+  const windowMs = (opts && Number.isFinite(opts.windowMs) && opts.windowMs > 0) ? opts.windowMs : DEFAULT_WINDOW_MS;
+  const book = attempts instanceof Map ? attempts : new Map();
+  if (!name) return book;
+  const prior = (book.get(name) || []).filter((t) => Number.isFinite(t) && (now - t) < windowMs);
+  prior.push(now);
+  book.set(name, prior);
+  return book;
+}
+
+/*
+ * One armed sweep tick. Reads the reconciled roster, plans each agent, and for the
+ * class-1 (`trust-and-restart`) agents runs runClass1Handle (write folder-trust key +
+ * restart, via the injected create.trustAgentFolder / remove.restart), recording each
+ * attempt so the loop-guard escalates rather than loops. `none` and `escalate` take NO
+ * action - an escalate is left standing (red), which is Angel's #3092 safety net and a
+ * signal a person should look. Best-effort per agent: one agent's failure never aborts
+ * the sweep. Dependency-injected so a test drives it with no real restart.
+ *
+ * @param {object} o
+ *   - roster: array of reconciled agent cards (safeRoster()); each needs `name`, `state`,
+ *     `stateReportedBy`.
+ *   - attempts: Map<name, number[]> carried across ticks (the loop-guard's memory).
+ *   - now: ms.
+ *   - trustAgentFolder(name), restart(name, cause), RESTARTED: the executor deps
+ *     (create.trustAgentFolder, remove.restart, remove.OUTCOME.RESTARTED).
+ *   - opts: forwarded to planClass1Handle / recordAttempt.
+ *   - log(record): optional, called once per acted agent with {name, handled, because}.
+ * @returns {{results: Array, attempts: Map}}
+ */
+function sweepOnce(o) {
+  const opts = o && o.opts;
+  const now = o && Number.isFinite(o.now) ? o.now : Date.now();
+  const book = (o && o.attempts instanceof Map) ? o.attempts : new Map();
+  const roster = (o && Array.isArray(o.roster)) ? o.roster : [];
+  const deps = { trustAgentFolder: o && o.trustAgentFolder, restart: o && o.restart, RESTARTED: o && o.RESTARTED };
+  const log = (o && typeof o.log === 'function') ? o.log : null;
+  const results = [];
+  for (const agent of roster) {
+    const name = agent && agent.name;
+    if (!name) continue;
+    let plan;
+    try { plan = planClass1Handle(standingFromAgent(agent), book.get(name) || [], now, opts); }
+    catch (err) { results.push({ name, act: 'none', because: 'plan threw: ' + String((err && err.message) || err) }); continue; }
+    if (plan.act !== 'trust-and-restart') {
+      results.push({ name, act: plan.act, because: plan.because });
+      continue;
+    }
+    // Record the attempt BEFORE (or regardless of) the outcome: a restart that throws or
+    // refuses still counts toward the loop-guard, so a persistently-stuck agent escalates
+    // instead of being restarted every tick forever.
+    recordAttempt(book, name, now, opts);
+    let res;
+    try { res = runClass1Handle(name, deps); }
+    catch (err) { res = { handled: false, because: 'runClass1Handle threw: ' + String((err && err.message) || err) }; }
+    results.push({ name, act: 'trust-and-restart', handled: !!res.handled, because: res.because });
+    if (log) { try { log({ name, handled: !!res.handled, because: res.because }); } catch { /* logging never breaks a sweep */ } }
+  }
+  return { results, attempts: book };
+}
+
 module.exports = {
   isClass1,
   planClass1Handle,
   runClass1Handle,
   sweepClass1,
+  standingFromAgent,
+  recordAttempt,
+  sweepOnce,
   DEFAULT_MAX_ATTEMPTS,
   DEFAULT_WINDOW_MS,
 };
