@@ -182,7 +182,7 @@ function seed() {
        drawn, and passed on a sentence nobody was looking at. The lede is
        painted per agent now (#198), so it must not be the generic once a
        panel is open. */
-    await pg.click('#d-nav button[data-go="instr"]');
+    await pg.click('#d-nav button[data-go="profile"]');
     await pg.waitForTimeout(300);
     const instrLede = await pg.evaluate(() => {
       const el = document.getElementById('d-instr-lede');

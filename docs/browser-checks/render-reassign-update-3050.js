@@ -96,7 +96,7 @@ const V2 = 'NEW instructions now on disk (post-reassign)';
     await page.waitForSelector('[data-agent="beatrix"]', { timeout: 8000 });
     await page.click('[data-agent="beatrix"]');
     await page.waitForSelector('#panel-detail:not([hidden])');
-    await page.click('#d-nav button[data-go="instr"]');
+    await page.click('#d-nav button[data-go="profile"]');
     // openDetail calls loadInstructions for a tied agent, so the box loads v1.
     await page.waitForFunction((v) => document.getElementById('d-instr').value === v, V1, { timeout: 8000 });
 
@@ -196,7 +196,7 @@ const V2 = 'NEW instructions now on disk (post-reassign)';
     await page.waitForSelector('[data-agent="beatrix"]', { timeout: 8000 });
     await page.click('[data-agent="beatrix"]');
     await page.waitForSelector('#panel-detail:not([hidden])');
-    await page.click('#d-nav button[data-go="instr"]');
+    await page.click('#d-nav button[data-go="profile"]');
     await page.waitForFunction((v) => document.getElementById('d-instr').value === v, V2, { timeout: 8000 });
     await page.evaluate((old) => {
       document.getElementById('d-instr').value = old;

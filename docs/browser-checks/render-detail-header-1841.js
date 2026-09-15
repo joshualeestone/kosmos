@@ -11,7 +11,7 @@
  *   1. The working-rules prompt moved OFF the header and ONTO the Instructions
  *      tab, for BOTH doctrine cases (made-before-rules -> #d-doctrine-note, and
  *      the Kosmos-made reports-to case -> #d-instr-reports), each with an
- *      "Add Instructions & Restart" button, and the Instructions tab dot lights.
+ *      "Add Instructions & Restart" button, and the Profile Info tab dot lights (#3046: instr folds under Profile Info).
  *   2. The hand-edited stale case keeps a redesigned HEADER card: short,
  *      "[name] needs to be restarted", a [Restart] button (never "Restart it"),
  *      one short idle line.
@@ -192,7 +192,10 @@ function chk(ok, label, extra) {
       const el = document.getElementById('d-instr-stale');
       const btn = el.querySelector('.instr-restart');
       const note = el.querySelector('.instr-restart-note');
-      const dot = document.querySelector('#d-nav button[data-go="instr"]');
+      // #3046: the instructions needs-you dot now lights the "Profile Info" pill
+      // (data-go="profile"), since Instructions folds under it; the standalone instr
+      // pill is gone. Same dot, new pill.
+      const dot = document.querySelector('#d-nav button[data-go="profile"]');
       return {
         staleHidden: el.hidden, staleHtml: el.innerHTML,
         reportsHidden: document.getElementById('d-instr-reports').hidden,
@@ -209,7 +212,7 @@ function chk(ok, label, extra) {
     chk(/Restarting re-reads the changes and wakes Beatrix/.test(handEdited.noteText || ''), 'Part 2: the restart note names the agent it will wake (autohello #2686 auto-sends the hello, so the old "say hello to wake them" line is gone)', handEdited.noteText);
     chk(!/\bit\b/i.test(handEdited.staleHtml.replace(/<[^>]*>/g, '')), 'Part 2: no "it" for the agent anywhere in the header card', handEdited.staleHtml);
     chk(handEdited.reportsHidden === true, 'Part 2: the reports section is hidden for the hand-edited case', String(handEdited.reportsHidden));
-    chk(handEdited.dot === true, 'Part 2: the Instructions tab dot is lit for the header restart card', String(handEdited.dot));
+    chk(handEdited.dot === true, 'Part 2: the Profile Info tab dot is lit for the header restart card', String(handEdited.dot));
 
     // ── Part 1b: the Kosmos-made stale case (reports-to) is the Instructions
     // tab section, and the header card clears. ──────────────────────────────
@@ -223,7 +226,7 @@ function chk(ok, label, extra) {
       detailDots();
       const reports = document.getElementById('d-instr-reports');
       const btn = document.getElementById('d-instr-reports-go');
-      const dot = document.querySelector('#d-nav button[data-go="instr"]');
+      const dot = document.querySelector('#d-nav button[data-go="profile"]');
       return {
         reportsHidden: reports.hidden,
         reportsHtml: document.getElementById('d-instr-reports-text').innerHTML,
@@ -236,7 +239,7 @@ function chk(ok, label, extra) {
       'Part 1b: the reports-to case reads on the Instructions tab', kosmos.reportsHtml);
     chk(kosmos.staleHidden === true, 'Part 1b: the header restart card clears for the reports-to case', String(kosmos.staleHidden));
     chk(kosmos.btnAgent === 'beatrix-discord', 'Part 1b: the reports button carries the restart target', kosmos.btnAgent);
-    chk(kosmos.dot === true, 'Part 1b: the Instructions tab dot is lit for the reports-to case', String(kosmos.dot));
+    chk(kosmos.dot === true, 'Part 1b: the Profile Info tab dot is lit for the reports-to case', String(kosmos.dot));
 
     // ── current: both surfaces clear. ───────────────────────────────────────
     const cleared = await page.evaluate(() => {
@@ -272,23 +275,23 @@ function chk(ok, label, extra) {
     chk(precedence.doctrineShown && precedence.reportsHidden && precedence.staleHidden,
       'Precedence: the doctrine prompt supersedes the reports-to prompt when both fire', JSON.stringify(precedence));
 
-    // ── Part 1a dot: showing the doctrine prompt lights the Instructions dot. ─
+    // ── Part 1a dot: showing the doctrine prompt lights the Profile Info tab dot. ─
     const doctrineDot = await page.evaluate(() => {
       document.getElementById('d-instr-stale').hidden = true;
       document.getElementById('d-instr-reports').hidden = true;
       const note = document.getElementById('d-doctrine-note');
       note.hidden = false;
       detailDots();
-      const dot = document.querySelector('#d-nav button[data-go="instr"]');
+      const dot = document.querySelector('#d-nav button[data-go="profile"]');
       const lit = !!(dot && dot.hasAttribute('data-dot'));
       note.hidden = true; detailDots();
       const off = !!(dot && dot.hasAttribute('data-dot'));
       return { lit, off };
     });
-    chk(doctrineDot.lit === true, 'Part 1a: showing the doctrine prompt lights the Instructions tab dot', String(doctrineDot.lit));
-    chk(doctrineDot.off === false, 'CONTROL: with nothing needing you, the Instructions dot is off', String(doctrineDot.off));
+    chk(doctrineDot.lit === true, 'Part 1a: showing the doctrine prompt lights the Profile Info tab dot', String(doctrineDot.lit));
+    chk(doctrineDot.off === false, 'CONTROL: with nothing needing you, the Profile Info tab dot is off', String(doctrineDot.off));
 
-    await page.click('#d-nav button[data-go="instr"]');
+    await page.click('#d-nav button[data-go="profile"]');
     await page.waitForTimeout(200);
     await page.screenshot({ path: path.join(OUT, 'detail-header-1841.png'), fullPage: false });
 
