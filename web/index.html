@@ -30165,9 +30165,14 @@ function readCreatePrefs() {
   } catch { return { provider: '', account: '', model: '' }; }  // private window / blocked storage: no saved default, the ordinary default stands
 }
 function saveCreatePrefs(provider, account, model) {
-  // Store the raw selector values verbatim (an empty account = the single-account hidden
-  // row, an empty model = OpenAI's "let it choose"); an empty value simply will not match
-  // an option on the next open, so it degrades to the ordinary default without a special case.
+  // Store the raw selector values verbatim (an empty account = the zero-usable-accounts
+  // placeholder row, per fillCreateAccounts -- a single usable account still stores its real
+  // dir; an empty model = OpenAI's "let it choose"); an empty value simply will not match an
+  // option on the next open, so it degrades to the ordinary default without a special case.
+  // A partial write (e.g. a quota throw between the setItems) is harmless and accepted rather
+  // than transactionally guarded: applyCreateAccountPref / applyCreateModelPref re-validate
+  // each field against the live options on read, so a stale or half-written triple degrades
+  // to the default field by field.
   try {
     localStorage.setItem(CREATE_PREF_KEYS.provider, provider || '');
     localStorage.setItem(CREATE_PREF_KEYS.account, account || '');
@@ -33432,6 +33437,19 @@ function paintOpenaiCreateModel() {
     return;
   }
   (async () => {
+    /* #3081/#2453: consume BOTH one-shots SYNCHRONOUSLY here, before the await, so this
+       paint owns its armed values and the globals are clear the instant it starts. The
+       gen-guard return below skips the old trailing clear, so a SUPERSEDED fetch used to
+       leave a flag set for the NEXT account's paint to re-apply -- the "a later manual
+       account change re-forces it" leak. Capturing up front means a superseded paint cannot
+       leak, and a later paint sees the globals already cleared and falls through to the
+       default. NOT touched on the !acctDir early return above, so a flag armed before an
+       account exists still survives to the paint that actually has one; resetCreateProvider
+       clears both on a fresh create. */
+    const importDefault = IMPORT_OPENAI_DEFAULT;
+    const savedModel = CREATE_PREF_OPENAI_MODEL;
+    IMPORT_OPENAI_DEFAULT = false;
+    CREATE_PREF_OPENAI_MODEL = '';
     let out = null;
     try {
       const res = await fetch('/api/accounts/openai/models?dir=' + encodeURIComponent(acctDir), { cache: 'no-store' });
@@ -33452,16 +33470,16 @@ function paintOpenaiCreateModel() {
         /* #2453 follow-up: an OpenAI IMPORT lands on the account's DEFAULT model (the list
            marks exactly one), overriding "Let OpenAI choose". If the list carries no default
            (older engine), it stays on "Let OpenAI choose" -- graceful, never worse than today. */
-        if (IMPORT_OPENAI_DEFAULT) {
+        if (importDefault) {
           const def = out.models.find((m) => m.default);
           if (def) sel.value = def.key;
         }
         /* #3081: restore the last-selected OpenAI model for THIS account when it is still
-           offered. One-shot (cleared below), so a later manual account change does not
-           re-force it; falls through to "Let OpenAI choose" when the saved model is not in
-           this account's list. Runs after the IMPORT default so an explicit import still wins. */
-        if (CREATE_PREF_OPENAI_MODEL && out.models.some((m) => m.key === CREATE_PREF_OPENAI_MODEL)) {
-          sel.value = CREATE_PREF_OPENAI_MODEL;
+           offered (savedModel was captured + cleared above, so a later manual account change
+           cannot re-force it); falls through to "Let OpenAI choose" when the saved model is
+           not in this account's list. Runs after the IMPORT default so an explicit import wins. */
+        if (savedModel && out.models.some((m) => m.key === savedModel)) {
+          sel.value = savedModel;
         }
       }
       paintModelWhy('create-model', 'create-model-why');
@@ -33479,14 +33497,9 @@ function paintOpenaiCreateModel() {
       if (row) row.hidden = false;
       if (why) { why.textContent = openaiNoModelsNote(out && out.because); why.hidden = false; }
     }
-    /* One-shot: consume the import default after this first paint (LISTABLE or not), so a
-       later manual account change does not re-force it. NOT cleared on the !acctDir early
-       return above, so the flag survives an account-less first paint through to the paint
-       that actually has an account; resetCreateProvider clears it on a fresh create. */
-    IMPORT_OPENAI_DEFAULT = false;
-    // #3081: the saved-model one-shot consumes the same way -- once a real account's list
-    // has painted, a later manual account change must not re-apply it.
-    CREATE_PREF_OPENAI_MODEL = '';
+    // Both one-shots were consumed synchronously at the top of this IIFE (see the capture
+    // above), so there is nothing to clear here -- and clearing here is exactly what a
+    // superseded paint would skip.
   })();
 }
 
@@ -35231,7 +35244,15 @@ async function loadCreateExtras() {
          operator can change any of the three, and a manual change flips the flag so this never
          overrides it. */
       const pref = readCreatePrefs();
-      const prefProviderUsable = !!pref.provider
+      /* The saved provider must (a) name an ENABLED provider option and (b) have a usable
+         account for it. (a) mirrors the import guard (~line 34503): a coming-soon or unknown
+         provider left in localStorage (a hand-edit, or a future provider rename) has a
+         disabled option or none at all, and setting the select to it would leave nothing
+         selected rather than degrading to the default the way applyCreateAccountPref /
+         applyCreateModelPref do for their fields. (b) is the account-existence check. */
+      const provOptOk = !!pref.provider
+        && Array.prototype.some.call(prov.options, (o) => o.value === pref.provider && !o.disabled);
+      const prefProviderUsable = provOptOk
         && ((pref.provider === 'openai' && hasOpenai) || (pref.provider !== 'openai' && hasClaude));
       if (prefProviderUsable) {
         // Only re-run the provider UI when the provider actually changes; otherwise the account

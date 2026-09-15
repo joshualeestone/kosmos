@@ -27,10 +27,12 @@ function sliceFn(name) {
 const paintFn = sliceFn('paintOpenaiCreateModel');
 const noteFn = sliceFn('openaiNoModelsNote');
 
-async function runPicker({ fetchOk, fetchBody, acctDir, seedModels }) {
+async function runPicker({ fetchOk, fetchBody, acctDir, seedModels, savedModel }) {
   const els = {
     'create-model-row': { hidden: false },
-    'create-model': { disabled: false, innerHTML: '' },
+    // value starts '' = the "Let OpenAI choose" default; the picker only sets it when it
+    // applies an import default or the #3081 saved model, so a case that does neither leaves ''.
+    'create-model': { disabled: false, innerHTML: '', value: '' },
     'create-model-why': { textContent: '', hidden: true },
     'create-account': { value: acctDir == null ? '' : acctDir },
   };
@@ -41,22 +43,28 @@ async function runPicker({ fetchOk, fetchBody, acctDir, seedModels }) {
     let CREATE_MODELS = ${JSON.stringify(seedModels || [])};
     let OPENAI_PICK_MODELS = [];
     let IMPORT_OPENAI_DEFAULT = false;   /* #2453 follow-up: paintOpenaiCreateModel reads this one-shot OpenAI-import default flag */
-    let CREATE_PREF_OPENAI_MODEL = '';   /* #3081: paintOpenaiCreateModel also reads this saved-model one-shot */
+    let CREATE_PREF_OPENAI_MODEL = ${JSON.stringify(savedModel || '')};   /* #3081: paintOpenaiCreateModel reads + consumes this saved-model one-shot */
     const esc = (s) => String(s == null ? '' : s);
     const paintModelWhy = () => { _calls.paintWhy += 1; };
     const fetch = async (url) => { _calls.fetchUrl = url; return { ok: ${fetchOk ? 'true' : 'false'}, json: async () => (${JSON.stringify(fetchBody || {})}) }; };
     ${noteFn}
     ${paintFn}
     paintOpenaiCreateModel();
+    /* #3081: the flag the INSTANT the paint call returns -- i.e. after the async IIFE ran
+       synchronously up to its await. The fix consumes the one-shot there (before the await),
+       so a real account paint reads '' here; that is exactly what makes a concurrent LATER
+       paint (a manual account switch fired before this fetch resolves) see the flag already
+       cleared and fall through to the default, instead of re-forcing the stale saved model. */
+    const savedModelSync = CREATE_PREF_OPENAI_MODEL;
     // A reader closure, because paintOpenaiCreateModel REASSIGNS OPENAI_PICK_MODELS
     // inside its async, so a value captured now would be the pre-fetch empty array.
-    return () => ({ CREATE_MODELS: CREATE_MODELS.slice(), OPENAI_PICK_MODELS: OPENAI_PICK_MODELS.slice() });
+    return () => ({ CREATE_MODELS: CREATE_MODELS.slice(), OPENAI_PICK_MODELS: OPENAI_PICK_MODELS.slice(), savedModelAfter: CREATE_PREF_OPENAI_MODEL, savedModelSync });
   `;
   // eslint-disable-next-line no-new-func
   const read = new Function('document', '_calls', wrap)(document, calls);
   await new Promise((r) => setTimeout(r, 15)); // let the fire-and-forget fetch resolve
   const state = read();
-  return { els, calls, CREATE_MODELS: state.CREATE_MODELS, OPENAI_PICK_MODELS: state.OPENAI_PICK_MODELS };
+  return { els, calls, CREATE_MODELS: state.CREATE_MODELS, OPENAI_PICK_MODELS: state.OPENAI_PICK_MODELS, savedModelAfter: state.savedModelAfter, savedModelSync: state.savedModelSync };
 }
 
 test('#2140 LISTABLE: the picker shows "Let OpenAI choose" first + the account models, in a SEPARATE cache (Claude CREATE_MODELS is not polluted)', async () => {
@@ -126,4 +134,58 @@ test('#2140 copy: openaiNoModelsNote maps each accountModels reason to Josh-voic
     assert.match(out, re, 'wrong copy for because=' + JSON.stringify(because));
     assert.doesNotMatch(out, /—/, 'an em dash slipped into the note copy');
   }
+});
+
+/* #3081: the saved-OpenAI-model one-shot (CREATE_PREF_OPENAI_MODEL). These run the shipped
+   paintOpenaiCreateModel with the flag armed, so they exercise the actual restore + consume
+   path -- not just the standalone helpers. The savedModelSync assertions pin the WARNING-2
+   fix: the flag is consumed BEFORE the await, so a superseded later paint cannot re-apply it. */
+test('#3081: an armed saved model that IS in the account list is selected', async () => {
+  const r = await runPicker({
+    fetchOk: true,
+    fetchBody: { ok: true, models: [
+      { key: 'gpt-5-codex', provider: 'openai', label: 'GPT 5 Codex', why: 'x' },
+      { key: 'o3', provider: 'openai', label: 'O3', why: 'y' },
+    ] },
+    acctDir: '/home/.codex',
+    savedModel: 'o3',
+  });
+  assert.equal(r.els['create-model'].value, 'o3', 'the saved model, offered by this account, was not restored');
+  assert.equal(r.savedModelSync, '', 'the one-shot must be cleared synchronously (before the await), or a concurrent later paint re-forces it');
+  assert.equal(r.savedModelAfter, '', 'the one-shot must not survive the paint');
+});
+
+test('#3081: an armed saved model that is NOT in the account list falls through to "Let OpenAI choose"', async () => {
+  const r = await runPicker({
+    fetchOk: true,
+    fetchBody: { ok: true, models: [
+      { key: 'gpt-5-codex', provider: 'openai', label: 'GPT 5 Codex', why: 'x' },
+    ] },
+    acctDir: '/home/.codex',
+    savedModel: 'o3-retired',   // this account no longer offers it
+  });
+  assert.equal(r.els['create-model'].value, '', 'a saved model not offered by this account must NOT be selected (stays on the auto default)');
+  assert.equal(r.savedModelSync, '', 'the one-shot is consumed even when the saved model is not applied');
+  assert.equal(r.savedModelAfter, '', 'the one-shot must not survive to a later paint');
+});
+
+test('#3081 control: a NOT-LISTABLE account still consumes the one-shot (never re-applied to the next account)', async () => {
+  const r = await runPicker({
+    fetchOk: true,
+    fetchBody: { ok: false, because: 'nobody has signed in to this account yet' },
+    acctDir: '/home/.codex',
+    savedModel: 'o3',
+  });
+  // The box shows the single disabled OpenAI option; the saved model cannot and must not apply.
+  assert.match(r.els['create-model'].innerHTML, /OpenAI picks its own model for now/);
+  assert.equal(r.savedModelSync, '', 'a not-listable account must still consume the one-shot before the await');
+  assert.equal(r.savedModelAfter, '', 'the one-shot must not leak to the next account paint');
+});
+
+test('#3081: a flag armed while NO account is chosen SURVIVES the account-less paint (mirrors IMPORT_OPENAI_DEFAULT)', async () => {
+  const r = await runPicker({ fetchOk: false, fetchBody: {}, acctDir: '', savedModel: 'o3' });
+  // No account -> the paint early-returns before the IIFE, so the one-shot is NOT consumed and
+  // survives to the paint that finally has an account (the same contract IMPORT_OPENAI_DEFAULT keeps).
+  assert.equal(r.calls.fetchUrl, null, 'no account was chosen, so no models fetch should have fired');
+  assert.equal(r.savedModelSync, 'o3', 'a flag armed before an account exists must survive the account-less paint');
 });
