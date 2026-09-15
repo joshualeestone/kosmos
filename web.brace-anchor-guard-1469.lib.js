@@ -101,7 +101,7 @@ const EXPECTED = {
   ],
   "web.consolidated-avatar-crop.test.js": [
     {
-      "pin": "assert.match(PAGE, /\\.lav img \\{ display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 50%;/,",
+      "pin": "assert.match(PAGE, /\\.lav img \\{ display: block; width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; border-radius: 50%;/,",
       "count": 1
     },
     {

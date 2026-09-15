@@ -58,9 +58,15 @@ const PAGE = fs.readFileSync('web/index.html', 'utf8');
 
    Full argument, counts and the four-arm proof: .claude/plans/css-brace-anchor-1430.md */
 
-test('a real avatar photo carries its own circular clip, independent of the parent .lav', () => {
-  assert.match(PAGE, /\.lav img \{ display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 50%;/,
-    'the avatar image lost its own border-radius -- it now depends entirely on .lav\'s overflow to stay circular');
+test('a real avatar photo carries its own circular clip AND is forced 1:1, so it is a circle not an ellipse', () => {
+  /* #520 gave the img its own border-radius: 50% so it self-clips independent of .lav's overflow.
+     #3110: that self-clip on a NON-square img is a vertical ELLIPSE -- a portrait photo sized the img
+     to 34x125 (height:100% resolved against .lav's auto grid row, which grew to the image's intrinsic
+     height). So the img must also be 1:1: aspect-ratio: 1 drives the height from the box-constrained
+     width, and object-fit: cover crops any photo to that square. Both properties are pinned here; the
+     behavioural guard is docs/browser-checks/render-member-modal.js. */
+  assert.match(PAGE, /\.lav img \{ display: block; width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; border-radius: 50%;/,
+    'the avatar image lost its own border-radius, its aspect-ratio:1, or its object-fit -- it can render as an oval (#3110) or a square-on-circle (#520)');
 });
 
 test('.lavtint (the initials fallback) already had its own circular clip -- unchanged by this fix', () => {

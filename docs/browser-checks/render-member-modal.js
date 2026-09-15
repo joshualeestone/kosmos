@@ -38,10 +38,23 @@ process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
 process.env.AGENT_WORKFORCE_CONFIG_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-mem-config-'));
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/bin/echo';
 
+const zlib = require('zlib');
 const { chromium } = require('playwright');
 const fleet = require('../../test-support/fleet');
 const projects = require('../../engine/projects');
+const store = require('../../engine/store');
 const srv = require('../../server.js');
+
+/* #3110: a valid NON-SQUARE (portrait) PNG so the members-list avatar assertion below exercises
+   the exact bug -- a tall photo that used to render as a vertical ellipse. Generated rather than
+   shipped as a binary fixture so the check stays self-contained. */
+function crc32(buf) { let c = ~0; for (let i = 0; i < buf.length; i++) { c ^= buf[i]; for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xEDB88320 & -(c & 1)); } return (~c) >>> 0; }
+function pngChunk(type, data) { const t = Buffer.from(type); const len = Buffer.alloc(4); len.writeUInt32BE(data.length, 0); const body = Buffer.concat([t, data]); const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(body), 0); return Buffer.concat([len, body, crc]); }
+function portraitPng(w, h) {
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2; // 8-bit RGB
+  const rows = []; for (let y = 0; y < h; y++) { rows.push(0); for (let x = 0; x < w; x++) rows.push(210, 70, 70); }
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), pngChunk('IHDR', ihdr), pngChunk('IDAT', zlib.deflateSync(Buffer.from(rows))), pngChunk('IEND', Buffer.alloc(0))]);
+}
 
 const fail = [];
 const chk = (ok, label, extra) => {
@@ -57,6 +70,9 @@ const chk = (ok, label, extra) => {
   /* One member, so mikey is free and the button has something to offer. */
   const p = projects.create({ name: 'Member Test' });
   projects.writeAll(projects.readAll().map((x) => (x.id === p.id ? { ...x, agents: ['april'] } : x)));
+  /* #3110: give the member a deliberately PORTRAIT photo so the members-list avatar assertion
+     below fails if the disc ever renders as an oval again. */
+  store.saveAvatar('april', 'image/png', portraitPng(12, 44));
 
   const server = await srv.start(0);
   const BASE = 'http://127.0.0.1:' + server.address().port;
@@ -76,6 +92,29 @@ const chk = (ok, label, extra) => {
     await page.waitForSelector('[data-project="' + p.id + '"]', { state: 'visible', timeout: 10000 });
     await page.click('[data-project="' + p.id + '"]');
     await page.waitForTimeout(700);
+
+    /* #3110: the member's avatar disc must be a CIRCLE even for a portrait photo. Before the fix
+       the <img> sized its height with `height: 100%` against `.lav`'s auto grid row, which grew to
+       the tall image's intrinsic height (measured 34x125 for a 12x44 source), so `border-radius:50%`
+       drew a vertical ellipse. Assert the rendered img is square (1:1) and cropped with object-fit.
+       A control on the CONTAINER box (already square) would pass either way, so this reads the IMG. */
+    const av = await page.$eval('.pj-member[data-agent="april"] .lav.pj-face img', (img) => {
+      const r = img.getBoundingClientRect();
+      return {
+        w: Math.round(r.width), h: Math.round(r.height), fit: getComputedStyle(img).objectFit,
+        // naturalWidth/Height are the DECODED source dimensions -- 0 if the img failed to load.
+        natW: img.naturalWidth, natH: img.naturalHeight,
+      };
+    }).catch(() => null);
+    chk(!!av, 'the member avatar photo is rendered', av ? '' : 'no img on the member face');
+    /* Prove the SQUARE render derives from a NON-square SOURCE. `aspect-ratio: 1` squares an empty img
+       box too, so without this a broken avatar route would let a simultaneous CSS regression pass. The
+       seeded source is 12x44 (portrait), so a genuine load reports natH > natW. */
+    chk(!!av && av.natW > 0 && av.natH > av.natW, 'the seeded avatar source actually loaded and is NON-square (portrait)',
+      av ? ('natural ' + av.natW + 'x' + av.natH) : '');
+    chk(!!av && av.w === av.h, 'the portrait-photo avatar renders SQUARE (a circle), not an oval (#3110)',
+      av ? ('img ' + av.w + 'x' + av.h) : '');
+    chk(!!av && av.fit === 'cover', 'the avatar photo is cropped with object-fit: cover', av ? av.fit : '');
 
     /* The box's rectangle, or null when it is not painted. A selector that
        matches nothing answers 'missing', so an absence line cannot pass on a

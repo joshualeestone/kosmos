@@ -2519,7 +2519,17 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .lav { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
        background: rgba(20,22,26,.06); font-size: .875rem; font-weight: 600;
        color: var(--k-ink-2); overflow: hidden; }
-.lav img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+/* #3110: the avatar must be a perfect CIRCLE for any source photo, not just square ones.
+   The disc BOX is a fixed 34x34, but this <img> sized its height with `height: 100%` against
+   `.lav`'s grid, whose single implicit row is `auto` and grew to the IMAGE's own intrinsic
+   height for a non-square photo -- measured 34x125 for a 12x44 portrait source -- so
+   `border-radius: 50%` drew a vertical ELLIPSE (Josh's Members-list report: one member's
+   avatar an oval, the others circles only because their photos happened to be roughly square).
+   Drive the height from the (box-constrained 100%) width with `aspect-ratio: 1`, and let it be
+   `auto` so it is not pinned back to that stretched row: the img is then always 1:1, and
+   `object-fit: cover` crops any photo to that square -> a true circle, robust to any source
+   dimensions. Square photos are unchanged (34 wide -> 34 tall either way). */
+.lav img { display: block; width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; border-radius: 50%; }
 /* #520/consolidated view: .lav switches to overflow:visible there (below)
    so the memory ring can extend past the avatar's own box -- which also
    drops the parent's clip, so a real photo rendered square over the
