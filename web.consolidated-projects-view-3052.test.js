@@ -1,0 +1,124 @@
+'use strict';
+
+/**
+ * #3052: the consolidated view's projects panel has its OWN view (the readable
+ * list), independent of the Projects TAB's saved grid/list/map choice. Before this
+ * fix, a tab left on the Map (project org-chart) made the narrow consolidated panel
+ * draw that org chart, where Josh "can't see anything".
+ *
+ * These EXTRACT and RUN the shipped placeProjectsView against a stub DOM +
+ * localStorage, so the controls return the dangerous answer without a browser:
+ * a consolidated view that leaves the map mode on, or a restore that writes storage.
+ * The showTab wiring is pinned with a source-pattern assertion.
+ *
+ *   node --test web.consolidated-projects-view-3052.test.js
+ */
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+
+// Slice placeProjectsView from its signature to the first column-0 `\n}` (its own
+// close; the inner if/else/try braces are indented).
+function grab(sig) {
+  const at = PAGE.indexOf(sig);
+  assert.notEqual(at, -1, sig + ' is gone from the page');
+  return PAGE.slice(at, PAGE.indexOf('\n}', at) + 2);
+}
+const FN_SRC = grab('function placeProjectsView(');
+
+// A minimal classList stub backed by a Set.
+function classList(initial) {
+  const s = new Set(initial || []);
+  return {
+    _set: s,
+    add: (c) => s.add(c),
+    remove: (c) => s.delete(c),
+    contains: (c) => s.has(c),
+    toggle: (c, on) => (on ? s.add(c) : s.delete(c)),
+  };
+}
+
+// Build a scope with placeProjectsView + the stubs it needs. Returns the fn plus
+// the observable stubs (body classList, the map/list elements, layoutApply calls,
+// and every localStorage.setItem the fn made).
+function scope({ storageThrows, saved } = {}) {
+  const body = { classList: classList(['pj-mapmode', 'consolidated']) };
+  const map = { hidden: false };
+  const list = { classList: classList(['asgrid']) };
+  const document = {
+    body,
+    getElementById: (id) => (id === 'pj-map' ? map : id === 'pj-list' ? list : null),
+  };
+  const writes = [];
+  const store = new Map(saved ? [['kosmos.layout.projects', saved]] : []);
+  const localStorage = {
+    getItem: (k) => { if (storageThrows) throw new Error('blocked'); return store.has(k) ? store.get(k) : null; },
+    setItem: (k, v) => { writes.push([k, v]); if (storageThrows) throw new Error('blocked'); store.set(k, v); },
+  };
+  const layoutApplyCalls = [];
+  const layoutApply = (s, w, p) => layoutApplyCalls.push([s, w, p]);
+  const LAYOUTS = { projects: { layouts: ['grid', 'list', 'map'], fallback: 'grid' } };
+  const factory = new Function('document', 'localStorage', 'layoutApply', 'LAYOUTS', `
+    ${FN_SRC}
+    return placeProjectsView;
+  `);
+  const fn = factory(document, localStorage, layoutApply, LAYOUTS);
+  return { fn, body, map, list, writes, layoutApplyCalls };
+}
+
+test('#3052: consolidated forces the list -- drops pj-mapmode, hides #pj-map, drops the grid class', () => {
+  const s = scope({ saved: 'map' });
+  s.fn(true, false);
+  assert.equal(s.body.classList.contains('pj-mapmode'), false, 'the map mode must be off in the consolidated panel');
+  assert.equal(s.map.hidden, true, 'the map container must be hidden');
+  assert.equal(s.list.classList.contains('asgrid'), false, 'the grid class must be off (list, not grid)');
+});
+
+test('#3052 control: the consolidated force is DISPLAY-ONLY -- it never writes localStorage', () => {
+  const s = scope({ saved: 'map' });
+  s.fn(true, false);
+  assert.deepEqual(s.writes, [], 'forcing the list in consolidated must not persist a layout (the tab choice must survive)');
+  assert.deepEqual(s.layoutApplyCalls, [], 'the consolidated branch must not re-run layoutApply');
+});
+
+test('#3052: leaving consolidated restores the saved tab layout (map)', () => {
+  const s = scope({ saved: 'map' });
+  s.fn(false, true);
+  assert.deepEqual(s.layoutApplyCalls, [['projects', 'map', undefined]], 'the saved map layout must be restored on exit');
+});
+
+test('#3052 control: an unreadable/foreign saved value falls back to grid, never guesses', () => {
+  const foreign = scope({ saved: 'org' });   // org is an agents-only layout, not in projects
+  foreign.fn(false, true);
+  assert.deepEqual(foreign.layoutApplyCalls, [['projects', 'grid', undefined]], 'a foreign value must fall back to the projects default');
+  const blocked = scope({ storageThrows: true });
+  blocked.fn(false, true);
+  assert.deepEqual(blocked.layoutApplyCalls, [['projects', 'grid', undefined]], 'a blocked read must fall back to the default, not throw');
+});
+
+test('#3052 control: not entering or leaving consolidated is a no-op', () => {
+  const s = scope({ saved: 'map' });
+  s.fn(false, false);   // tab view, was tab view -> honor the saved mode, do nothing
+  assert.deepEqual(s.layoutApplyCalls, [], 'a pure tab-view pass must not restore (it would fight a live map selection)');
+  assert.equal(s.body.classList.contains('pj-mapmode'), true, 'the tab view keeps its map mode untouched');
+  assert.deepEqual(s.writes, []);
+});
+
+test('#3052 wiring: showTab calls placeProjectsView(cons, wasCons) before the consolidated loadProjects', () => {
+  // showTab is the only caller; assert on the page rather than slicing that large
+  // function (its nested blocks make a brace-slice unreliable).
+  const call = PAGE.indexOf('placeProjectsView(cons, wasCons)');
+  assert.notEqual(call, -1, 'showTab no longer calls placeProjectsView(cons, wasCons)');
+  // The showTab body has placeProjectsView near its top and loadProjects() lower down; the
+  // NEXT loadProjects() after the call must be the consolidated repaint it precedes, so the
+  // map class is already cleared when paintProjects reads it.
+  const load = PAGE.indexOf('loadProjects()', call);
+  assert.notEqual(load, -1, 'no loadProjects() found after the placeProjectsView call');
+  assert.ok(call < load, 'placeProjectsView must run before loadProjects()');
+  // And it is defined exactly once (the helper), plus called once (in showTab).
+  assert.equal((PAGE.match(/function placeProjectsView\(/g) || []).length, 1, 'placeProjectsView should be defined once');
+});
