@@ -9,8 +9,10 @@
 #   - FALSE REFUSAL: console is loginwindow but someone drove Installer -> resolve.
 #   - SILENT MISINSTALL: console holder A is signed in, but B drove Installer ->
 #     the old guard installed for A; the fix installs for B.
-# The CONTROL proves the Aqua-session gate actually gates -- without it, those
-# arms would pass vacuously.
+# #2511: the hard Aqua-session gate was REMOVED (launchctl print gui/<uid>
+# false-negatives from the installd/root context). So the CONTROL is now the
+# genuine no-user case (no owner + console=loginwindow -> still refuses), proving
+# the fix is not "always resolve"; STUB_SESSIONS is kept but no longer gates.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
@@ -93,6 +95,21 @@ has "$RIU_REASON" "no GUI Installer owner was found" && pass "  and names the in
   || fail "  and names the installer check: $RIU_REASON"
 has "$RIU_REASON" "no one is signed in to install for." && fail "  must NOT use the old flat message" \
   || pass "  and does not use the old flat 'no one is signed in to install for.'"
+
+# --- ARM 5b: a REAL console name that fails its uid lookup -> refuse, but the
+# message must NOT say "no one is signed in at the screen" (a named console user
+# is signed in; its uid just didn't resolve). #2511 review: the refuse-reason
+# collapse must not produce a self-contradictory string.
+STUB_CONSOLE="ghost"; STUB_OWNERS=""; STUB_SESSIONS=""   # "ghost" has no uid in the stub
+run; r="$RUN_RESULT"
+[ "$r" = "<refused>" ] && pass "uid-fail: refuses when the console name has no resolvable uid and no owner" \
+  || fail "uid-fail: expected refusal, got '$r'"
+has "$RIU_REASON" "could not be resolved to a usable account" \
+  && pass "  and describes the named-but-unresolvable console user accurately" \
+  || fail "  and describes it accurately: $RIU_REASON"
+has "$RIU_REASON" "'ghost' (no one is signed in at the screen)" \
+  && fail "  must NOT tell a named console user 'no one is signed in'" \
+  || pass "  and does NOT contradict itself with 'no one is signed in'"
 
 # --- ARM 6: ambiguous -- >1 accounts running Installer AND no usable console --
 # count>1 now falls back to the console user (ARM 6b), but here console=loginwindow

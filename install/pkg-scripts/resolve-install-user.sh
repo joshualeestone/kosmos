@@ -145,9 +145,16 @@ resolve_install_user() {
   esac
 
   # Refuse ONLY when there is genuinely nobody to install for: candidate 1 did not
-  # resolve AND the console user is not a usable account (login window / none /
-  # unresolvable uid). This is a real "no one is signed in at the screen" state,
-  # not the false refusal #2511 fixes.
+  # resolve AND the console user is not a usable account. Describe WHICH accurately:
+  # a login-window / no-console state is "no one is signed in", but a real console
+  # NAME that merely failed its uid lookup must NOT be told "no one is signed in"
+  # (it contradicts the name we just printed).
+  case "$_riu_console" in
+    ''|root|loginwindow)
+      _riu_console_desc="the physical console user is '${_riu_console:-<none>}' (no one is signed in at the screen)" ;;
+    *)
+      _riu_console_desc="the physical console user is '$_riu_console', which could not be resolved to a usable account" ;;
+  esac
   if [ "$_riu_owner_count" -gt 1 ]; then
     _riu_own_desc="$_riu_owner_count accounts are running Installer ($(printf '%s' "$_riu_owners" | /usr/bin/paste -sd, -)) and there is no usable console user to fall back to"
   elif [ "$_riu_owner_count" -eq 1 ]; then
@@ -156,7 +163,7 @@ resolve_install_user() {
     _riu_own_desc="no GUI Installer owner was found, and there is no usable console user to fall back to"
   fi
   RIU_REASON="Kosmos: could not tell which signed-in user to install for.
-  - the physical console user is '${_riu_console:-<none>}' (no one is signed in at the screen)
+  - $_riu_console_desc
   - $_riu_own_desc
 Sign in to the Mac at its own screen (a full login, not only Screen Sharing or the login window), then open this installer again."
   return 1
