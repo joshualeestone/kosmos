@@ -1281,7 +1281,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .layopt:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 @media (max-width: 959.98px) { .laypick { display: none; } }
 /* #3051: the upper-right user menu (avatar + name -> dropdown), modelled on the
-   worldsw popover so the two header controls read as one family. The button is the
+   world-switcher popover so the two header controls read as one family. The button is the
    avatar + name; the menu holds the Settings link, the moved light/dark + board-view
    controls, and the agent-status stamp. */
 .userpop { position: relative; display: inline-flex; }
@@ -7809,7 +7809,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          still painted by getElementById('checked'). The .themepick (<40rem) and .laypick
          (<960px) visibility media gates are class-based, so they travel with the markup.
          The avatar+name is painted by paintRailMe (single-source with the consolidated
-         #rail-me), reusing youFaceHtml(). Popover mechanics reuse the worldsw pattern. -->
+         #rail-me), reusing youFaceHtml(). Popover mechanics reuse the world-switcher pattern. -->
     <div class="userpop" id="userpop">
       <button class="userpop-btn" id="userpop-btn" type="button" aria-expanded="false" aria-controls="userpop-menu" aria-haspopup="true" aria-label="Your account and settings">
         <span class="userpop-face" id="userpop-face" aria-hidden="true"></span>
