@@ -2,13 +2,32 @@
 pre_challenge: true
 method: challenge-loop
 branch: onboarding-reorder-3112
-diff_hash: 706f7c8dc244dde911bfefec930a3e4d911ddf8b9684521e4a4da42ee11c4e7f
+diff_hash: 1b3180a316cb7b3fbd0f5236b430f1cfac17a8352d2057297a537d84ebfb2b78
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-15T23:12:34Z
-iterations: 7
+timestamp: 2026-09-15T23:40:00Z
+iterations: 8
 converged: true
 ---
+
+<!-- ITER 8 (CI browser-checks red -> diagnosed + fixed, 2026-09-15 18:40 CDT): PR #3140 CI's
+browser-checks job went RED on two checks. Diagnosed both with the LOCAL harness (pinned
+Playwright ~/work/pw-runtime, KOSMOS_BC_CI_ALLOWLIST to run just the two):
+  1. render-win32-board-copy (docs/browser-checks/) -- REAL stale assertion: it reads the real
+     frStepSequence() and hardcoded the OLD order (win32 [1,3,5,6,7,8,9], Mac [1,2,3,4,5,6,7,8,9]).
+     The RENDER correctly produces the new order (win32 [1,5,3,6,7,8,9], Mac [1,5,2,3,4,6,7,8,9]);
+     only the browser-check's expected string was stale (I updated the node-test twin earlier but
+     not this one). [BLOCKER] FIXED: updated both order strings; verified PASS locally HEADLESS.
+  2. click-first-run -- NOT a regression. It passed locally 4/4 runs HEADLESS (96/96 assertions
+     each, incl. the About-you gate assertions CI showed failing). Its CI failure is a
+     runner-side timing FLAKE (loaded macos-latest headless). No code change; a CI re-run passes.
+     [STRENGTH] the reorder does not break the rendered first-run walk (walk is content/anchor
+     based, robust to reorder by design; kosmos#1801).
+Lesson recorded: local `yarn test` skips browser-checks without Playwright, so a reorder that
+changes the rendered flow MUST be run through the local browser-check harness (or CI) before
+calling the rendered flow verified -- exactly the self-disclosure the earlier handoff flagged.
+diff_hash refreshed to 1b3180a3. -->
+
 
 <!-- ITER 7 (post-0.6.68-prod rebase, 2026-09-15 18:12 CDT): 0.6.68 is LIVE on prod, the
 post-6.68 gate is OPEN, and #3112 is the priority 6.69 cut (Splinter). Rebased onto current
