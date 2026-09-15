@@ -8,9 +8,14 @@ const {
   planClass1Handle,
   runClass1Handle,
   sweepClass1,
+  standingFromAgent,
+  recordAttempt,
+  pruneAttempts,
   DEFAULT_MAX_ATTEMPTS,
   DEFAULT_WINDOW_MS,
 } = require('./class1-autohandle');
+// sweepOnce is exercised against REAL fleet cards in class1-autohandle-sweep-2808.test.js,
+// not here (a hand-built card would fail fixture-discipline).
 
 // A standing report shaped like selfreport.read()'s return, class-1 by default.
 const class1 = (over) => ({ found: true, state: 'needs_you', by: 'auto', because: 'asking permission to use Bash: cd', ...(over || {}) });
@@ -285,4 +290,78 @@ test('CONTROL sweep: a throwing attemptsFor does not crash the sweep; the agent 
     ['angel', 'trust-and-restart'], // no history -> fresh decision, not a crash
     ['mona', 'none'],
   ]);
+});
+
+// ---------------------------------------------------------------------------
+// ARMED-sweep PURE LOGIC: standingFromAgent + recordAttempt + pruneAttempts.
+// These read only { state, stateReportedBy, stateEvidence } / string keys, never a
+// hand-built card (no `sessionName` literal - that would fail fixture-discipline).
+// sweepOnce's card consumption is tested against REAL fleet cards in
+// class1-autohandle-sweep-2808.test.js.
+// ---------------------------------------------------------------------------
+// The real trust-dialog screen row; status.isTrustDialogEvidence matches /^Quick safety check:/.
+const TRUST_ROW = 'Quick safety check: Is this a project you created or one you trust?';
+const isTrustDialogEvidence = (e) => typeof e === 'string' && /^Quick safety check:/.test(e);
+
+test('standingFromAgent: a by:auto card maps to a class-1 standing', () => {
+  assert.deepEqual(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto' }), { found: true, state: 'needs_you', by: 'auto' });
+});
+test('standingFromAgent: a TRUST-DIALOG scrape (no by:auto self-report) IS class-1', () => {
+  // The folder-trust dialog is not a PermissionRequest, so stateReportedBy is null; the live
+  // screen evidence is the only signal, and it must still count as class-1.
+  const s = standingFromAgent({ state: 'needs_you', stateReportedBy: null, stateEvidence: TRUST_ROW }, isTrustDialogEvidence);
+  assert.equal(s.by, 'auto');
+  assert.equal(isClass1(s), true);
+});
+test('CONTROL standingFromAgent: a scraped NON-trust question (not the trust dialog) is NOT class-1', () => {
+  const s = standingFromAgent({ state: 'needs_you', stateReportedBy: null, stateEvidence: 'Which visual direction?' }, isTrustDialogEvidence);
+  assert.equal(isClass1(s), false);
+});
+test('CONTROL standingFromAgent: a class-2 (by:agent) card is NOT class-1 even with a non-trust question', () => {
+  assert.equal(isClass1(standingFromAgent({ state: 'needs_you', stateReportedBy: 'agent', stateEvidence: 'Which one?' }, isTrustDialogEvidence)), false);
+});
+test('DEFENSE-IN-DEPTH standingFromAgent: a self-reported by:agent is NOT promoted to class-1 even if a trust scrape coexists', () => {
+  // Unproducible today (reconcile emits evidence XOR by), but the class-2-never-restarted
+  // guarantee must not rest on that invariant: a scrape must never override a self-reported
+  // question into an auto-restart.
+  const s = standingFromAgent({ state: 'needs_you', stateReportedBy: 'agent', stateEvidence: TRUST_ROW }, isTrustDialogEvidence);
+  assert.equal(s.by, 'agent');
+  assert.equal(isClass1(s), false);
+});
+test('DEFENSE-IN-DEPTH standingFromAgent: a self-reported by:operator is likewise not promoted by a trust scrape', () => {
+  assert.equal(isClass1(standingFromAgent({ state: 'needs_you', stateReportedBy: 'operator', stateEvidence: TRUST_ROW }, isTrustDialogEvidence)), false);
+});
+test('CONTROL standingFromAgent: with NO isTrustDialogEvidence dep, only by:auto fires (a scrape does not)', () => {
+  assert.equal(isClass1(standingFromAgent({ state: 'needs_you', stateReportedBy: null, stateEvidence: TRUST_ROW })), false);
+});
+test('CONTROL standingFromAgent: an operator/legacy card is NOT class-1', () => {
+  assert.equal(isClass1(standingFromAgent({ state: 'needs_you', stateReportedBy: 'operator' }, isTrustDialogEvidence)), false);
+  assert.equal(isClass1(standingFromAgent({ state: 'needs_you', stateReportedBy: null }, isTrustDialogEvidence)), false);
+});
+test('CONTROL standingFromAgent: a trust-dialog scrape on a NON-needs_you state is not class-1', () => {
+  // planClass1Handle also requires state===needs_you, so a working card with a stale trust row
+  // still does not fire.
+  assert.equal(isClass1(standingFromAgent({ state: 'working', stateReportedBy: null, stateEvidence: TRUST_ROW }, isTrustDialogEvidence)), false);
+});
+
+test('recordAttempt: appends now and prunes entries older than the window', () => {
+  const now = 10_000_000;
+  const book = new Map([['angel-discord', [now - (DEFAULT_WINDOW_MS + 1), now - 1000]]]); // one stale, one fresh
+  recordAttempt(book, 'angel-discord', now);
+  assert.deepEqual(book.get('angel-discord'), [now - 1000, now]); // stale pruned, fresh kept, now appended
+});
+test('recordAttempt: a missing name is a no-op (returns the map)', () => {
+  const book = new Map();
+  assert.equal(recordAttempt(book, '', 1e6), book);
+  assert.equal(book.size, 0);
+});
+test('pruneAttempts: drops entries whose window has fully expired (bounds the Map by live names)', () => {
+  const now = 10_000_000;
+  const book = new Map([
+    ['gone', [now - (DEFAULT_WINDOW_MS + 1)]],             // all stale -> entry deleted
+    ['here', [now - 1000, now - (DEFAULT_WINDOW_MS + 1)]], // one fresh -> kept, pruned
+  ]);
+  pruneAttempts(book, now);
+  assert.equal(book.has('gone'), false);
+  assert.deepEqual(book.get('here'), [now - 1000]);
 });

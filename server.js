@@ -63,6 +63,10 @@ const {
      dialog and Enter there picks "No, exit"; see `trustDialogHold` below. */
   trustPrompt,
   TRUST_DIALOG_SENTENCE,
+  /* #2808 class-1 (c): tell whether a card's stateEvidence is the FOLDER-TRUST dialog,
+     the scrape-detected class-1 trigger the invisible auto-handle sweep needs (that
+     dialog is not a PermissionRequest, so it has no by:'auto' self-report). */
+  isTrustDialogEvidence,
   /* #2456: the placeholder `because` string, so a route can tell a real
      reported question from the board's generic "asking" and not offer the
      placeholder as the question the person should answer. */
@@ -523,6 +527,8 @@ const feedback = require('./engine/feedback');
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: daily-report send layer -- DEFAULT-ON / opt-out (#2013/#2957), not opt-in
 const createdbeacon = require('./engine/createdbeacon'); // #3038: install + agent-created beacon (Josh ruled it back in; #2623's removal was an agent's, not his)
 const heartbeat = require('./engine/heartbeat');
+const class1autohandle = require('./engine/class1-autohandle'); // #2808 class-1 (c): invisible auto-handle
+const liveExecution = require('./engine/live-execution'); // #2808 class-1 (c): gate the auto-handle sweep on the board's live-execution opt-in
 const heartbeatSetting = require('./engine/heartbeat-setting');
 const selfreport = require('./engine/selfreport');
 const sendertoken = require('./engine/sendertoken');
@@ -13361,6 +13367,53 @@ function start(port = PORT) {
         } catch { /* best-effort, like the nudge sweep */ }
       }, Number(process.env.AGENT_WORKFORCE_AUTOHANDOFF_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_AUTOHANDOFF_MS) : 60 * 1000); // the env is the test seam only
       if (ahSweep && typeof ahSweep.unref === 'function') ahSweep.unref();
+      /* #2808 class-1 (c): the INVISIBLE auto-handle sweep. Josh LOCKED 2026-09-14
+         16:49 - "auto-handler #1 invisibly. i want all auto-clear stuff cleared." When
+         an agent is parked on Claude Code's own folder-trust / bypass prompt, its
+         lifecycle hook self-reports a by:'auto' needs_you (class 1). Prevention landed in
+         #3087 (the launch shim re-writes trust+bypass every relaunch); this is the live
+         handle for a prompt that surfaces ANYWAY (a relaunch before #3087, a
+         create-before-shim race, or a #2173 config divergence). Each tick reads the
+         RECONCILED roster and, for every agent whose reconciled state is needs_you AND was
+         self-reported by:'auto', writes the folder-trust key + restarts it
+         (class1autohandle.sweepOnce -> the SAME create.trustAgentFolder + remove.restart
+         the manual /trust-and-restart button uses; NO send-keys - a mis-fired keystroke
+         into a real conversation is the whole hazard), so the relaunch clears it and the
+         end user never sees it. It NEVER acts on a by:'agent' question (class 2, de-alarmed
+         by #3092 and kept VISIBLE - auto-clearing it would drop a real request and stall
+         the fleet), an operator/legacy report, or a pane-SCRAPED needs_you (stateReportedBy
+         null -> stays red). Loop-guarded across ticks by an in-memory attempts Map
+         (heartbeat-style): after maxAttempts within the window a still-standing prompt
+         ESCALATES (left red) rather than restarting forever - the divergence signal a
+         person should see. Sibling to the sweeps above: own ~1-min timer, unref'd,
+         best-effort. Gated on the board's live-execution opt-in, so it is INERT under
+         `node --test` (allowLiveExecution() runs on the real-start path only, server.js
+         ~13525) - no test can trigger a real restart or a real trust write - and ALWAYS ON
+         in production (Josh wants it invisible, not a user setting), with
+         AGENT_WORKFORCE_CLASS1_AUTOHANDLE_OFF=1 as an operator emergency brake.
+         safeRoster(), NEVER paneRoster(): it needs the reconciled state + stateReportedBy
+         the full snapshot cards carry. */
+      const class1Attempts = new Map();
+      const class1Sweep = setInterval(() => {
+        // 🛑 LOAD-BEARING, DO NOT REMOVE: this is the ONLY gate on create.trustAgentFolder's
+        // real config write (it does not self-gate the way remove.restart does). It makes the
+        // whole sweep inert under `node --test` and before the board's live-execution opt-in.
+        if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
+        if (process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_OFF === '1') return; // operator brake
+        try {
+          class1autohandle.sweepOnce({
+            roster: safeRoster(),
+            attempts: class1Attempts,
+            now: Date.now(),
+            trustAgentFolder: create.trustAgentFolder,
+            restart: removal.restart,
+            RESTARTED: removal.OUTCOME.RESTARTED,
+            isTrustDialogEvidence, // the scrape-detected folder-trust trigger (no by:'auto' for that dialog)
+            log: (r) => process.stdout.write(`class1-autohandle: ${r.name} (${r.session}) ${r.act === 'escalate' ? 'ESCALATED (restart not clearing it, left red)' : (r.handled ? 'handled (trust+restart)' : 'attempted')} - ${r.because}\n`),
+          });
+        } catch { /* best-effort, like the sweeps above */ }
+      }, Number(process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_CLASS1_AUTOHANDLE_MS) : 60 * 1000); // the env is the test seam only
+      if (class1Sweep && typeof class1Sweep.unref === 'function') class1Sweep.unref();
       /* #2037 PR-C1: the daily product-feedback send sweep. The long-lived board
          owns the trigger because the short-lived `kosmos feedback` CLI cannot
          fire-and-forget a send (it exits). sendDailyOnce is opt-in-gated (default

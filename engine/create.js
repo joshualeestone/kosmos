@@ -999,6 +999,18 @@ function rewriteAgentJob(clean, spoken, fields, platform) {
  * route called a plist-only readJob, so on Windows it always skipped the trust write
  * and restarted anyway. BEST-EFFORT AND NON-GATING as before: the route restarts
  * whatever this answers. The trust writers are the create path's, unchanged.
+ *
+ * 🛑 #2808 class-1 (c): this now has a SECOND caller - the invisible auto-handle sweep
+ * (class1autohandle.sweepOnce, server.js's class1Sweep timer). Unlike remove.restart,
+ * which self-gates on liveExecutionAllowed() inside its own run(), this function does a
+ * real config write with NO gate of its own. That is safe today because of BOTH callers'
+ * contexts: the HTTP route is MEANT to be reached only on a running board (the route's own
+ * tests that drive its handler directly protect the write with sandboxed config-dir env
+ * vars, not a gate), and the sweep checks `liveExecution.liveExecutionAllowed()` before it
+ * ever calls this - `false` under `node --test`, so the sweep path cannot write for real in
+ * a test. If you add or move a caller, keep it behind that gate (or add one here) - an
+ * ungated call would write real trust/config files under `node --test`, the
+ * a-test-of-the-real-env hazard this file's create path guards against elsewhere.
  */
 function trustAgentFolder(name, opts) {
   const clean = cleanName(name);
