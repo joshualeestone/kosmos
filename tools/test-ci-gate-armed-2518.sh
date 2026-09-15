@@ -55,8 +55,8 @@ pass() { printf 'ok   %s\n' "$*"; }
 FETCH_DEPTH_RE='^[[:space:]]*fetch-depth:[[:space:]]*0[[:space:]]*$'
 # The run-tests.sh invocation, matched on ANY line (not anchored to `run:`), so both
 # `run: bash tools/run-tests.sh` and a multiline `run: |` block that calls it on its own
-# line satisfy it. Comment mentions are excluded separately (grep -vE '^#') at the use
-# site, so a `#`-prose reference to run-tests.sh cannot false-pass.
+# line satisfy it. Comment mentions are excluded separately (grep -qvE '^[[:space:]]*#')
+# at the use site, so a `#`-prose reference to run-tests.sh cannot false-pass.
 RUNTESTS_CALL_RE='bash[[:space:]]+tools/run-tests\.sh'
 COARSE_CALL_RE='&&[[:space:]]*kosmos_browser_check_gate[[:space:]]*\)'
 SURFACE_CALL_RE='&&[[:space:]]*kosmos_browser_check_surface_gate[[:space:]]*\)'
@@ -148,14 +148,17 @@ if grep -qE "$FETCH_DEPTH_RE" "$tmp/test-d1.yml"; then
 fi
 pass "RED-CAPABILITY: fetch-depth: 1 (shallow) reds the fetch-depth assertion"
 
-# 4c. Remove the run-tests.sh invocation from a copy of test.yml -> assertion 2 must MISS
-#     (grep -vE drops every line carrying the invocation, comment or not, so the non-comment
-#     match the assertion needs is gone).
-grep -vE "$RUNTESTS_CALL_RE" "$WF" > "$tmp/test-no-runtests.yml"
-if grep -E "$RUNTESTS_CALL_RE" "$tmp/test-no-runtests.yml" | grep -qvE '^[[:space:]]*#'; then
-  fail "RED-CAPABILITY: run-tests invocation still matched after removal -- the assertion cannot see the harness call being dropped"
+# 4c. COMMENT OUT the run-tests.sh invocation in a copy of test.yml -> assertion 2 must MISS.
+#     Comment-out (not full-line removal) is the representative disarm: it leaves the
+#     invocation substring in the file, so it is what proves the non-comment filter works
+#     (symmetric with the gate perturbations in 4d).
+# `\|...|` delimits the address with `|` instead of `/`, because RUNTESTS_CALL_RE contains
+# `tools/run-tests.sh` and a `/` there would prematurely close a `/`-delimited sed address.
+sed -E "\|${RUNTESTS_CALL_RE}| s/^/# /" "$WF" > "$tmp/test-comment-runtests.yml"
+if grep -E "$RUNTESTS_CALL_RE" "$tmp/test-comment-runtests.yml" | grep -qvE '^[[:space:]]*#'; then
+  fail "RED-CAPABILITY: run-tests invocation still matched after the call was COMMENTED OUT -- it would false-pass a workflow that no longer runs the harness"
 fi
-pass "RED-CAPABILITY: removing the run-tests.sh invocation reds the harness-call assertion"
+pass "RED-CAPABILITY: commenting out the run-tests.sh invocation reds the harness-call assertion"
 
 # 4d. COMMENT OUT each gate call in a copy of run-tests.sh -> its assertion must MISS. This is
 #     the REPRESENTATIVE disarm: the `&& <fn> )` substring survives a comment-out, so this is
