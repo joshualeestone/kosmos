@@ -546,7 +546,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 #you-name { flex: 0 1 14rem; min-width: 10rem; }
 /* In the hub the picture fills the circle the word used to sit in. */
 .hub.haspic { padding: 0; overflow: hidden; border-width: 2px; }
-.hub.haspic img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.hub.haspic img { display: block; width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; }
 /* The one checkbox on the create form. A row rather than a bare input so the
    whole line is the target: a 13px box on its own is a hard thing to hit. */
 /* The restart button inside the stale-instructions notice. Quiet and inline:
@@ -702,7 +702,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .detail-av { width: 72px; height: 72px; flex: none; border-radius: 50%; overflow: hidden;
              background: var(--bg-sunken); border: 0.5px solid var(--separator);
              display: flex; align-items: center; justify-content: center; }
-.detail-av img { width: 100%; height: 100%; object-fit: cover; }
+.detail-av img { width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; }
 .detail-initials { font: 600 var(--text-title-3) var(--font-ui); color: var(--label-3); }
 .detail-meta { font: var(--text-callout) var(--font-ui); color: var(--label-3); margin-top: 2px; }
 /* ⚠️ NO `color` HERE ANY MORE. This declared `--label-2` and, sitting before
@@ -1294,7 +1294,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .userpop-btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .userpop-face { flex: none; width: 26px; height: 26px; border-radius: 50%; overflow: hidden;
   display: inline-grid; place-items: center; }
-.userpop-face img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.userpop-face img { width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; display: block; }
 .userpop-face .youtint { width: 100%; height: 100%; display: grid; place-items: center;
   background: var(--k-sunk); color: var(--k-ink); font-size: 12px; font-weight: 600; }
 .userpop-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -3157,7 +3157,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated .railme-go { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; border: 0; background: none; padding: 0; font: inherit; color: inherit; cursor: pointer; text-align: left; }
   html[data-layout="consolidated"] body.consolidated .railme-face { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; overflow: hidden;
     background: var(--k-surface); border: 1px solid var(--k-rule); font: 700 10px/1 var(--font-ui); color: var(--k-ink-2); }
-  html[data-layout="consolidated"] body.consolidated .railme-face img { width: 100%; height: 100%; object-fit: cover; }
+  html[data-layout="consolidated"] body.consolidated .railme-face img { width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; }
   html[data-layout="consolidated"] body.consolidated .railme-b { min-width: 0; }
   html[data-layout="consolidated"] body.consolidated .railme-n { display: block; font-size: .8125rem; font-weight: 600; color: var(--k-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   html[data-layout="consolidated"] body.consolidated .railme-s { display: block; font-size: .6875rem; color: var(--k-ink-2); }
@@ -4633,7 +4633,7 @@ body:not(.consolidated) .pjmidhead:has(.pjhead) .tsearch:focus-within { flex-bas
 .msg-av { width: 34px; height: 34px; border-radius: 50%; flex: 0 0 34px; display: grid;
           place-items: center; background: rgba(20,22,26,.06); font-size: .875rem;
           font-weight: 600; color: var(--k-ink-2); overflow: hidden; }
-.msg-av img { width: 100%; height: 100%; object-fit: cover; }
+.msg-av img { width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; }
 .msg-av.mine { background: var(--k-ink); color: var(--k-bg); }
 .msg-b { flex: 1; min-width: 0; }
 /* #2918 (Josh, 2026-09-12 6.59 QA): the operator's OWN post reads like an iOS
