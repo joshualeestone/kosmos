@@ -16,6 +16,13 @@ settings.json. Splinter assigned: file + build now while the context is fresh.
 - Wrappers mkdir the target's PARENT before locking where the inner creates it lazily (the lock
   `<target>.lock` precedes the inner's own mkdir): trustFolder (createIfAbsent), preacceptBypass,
   record writers.
+- The MESSAGE-BEARING writers (trustFolder, forgetFolder, preacceptBypass) use `withWriteLock`, which
+  runs the inner UNLOCKED when the target parent does not exist, so on a mkdir-failed / locked-down
+  home the inner's specific refusal ("we could not write to their settings file", etc.) is surfaced
+  rather than masked by the lock's generic "we could not get exclusive access". The record writers
+  (recordWrite -> bare boolean, dropRecord -> void) carry NO specific message to mask and their inner
+  can throw on an absent parent, so they deliberately keep raw `withFileLock` (a lock failure degrades
+  to the same false / no-op they already promise) - see their comments.
 
 ## Two traps hit + fixed (see the commit messages)
 1. withFileLock returns `{ok:true, value: fn()}` (an envelope), not fn's result - wrappers unwrap.

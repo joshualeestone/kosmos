@@ -167,14 +167,19 @@ const settingsTarget = (configDir, agentDefaultAccount) =>
 // only when the target's PARENT dir exists. The lock (<target>.lock) is itself a
 // mkdir in that parent, and its whole job is to serialise a read-modify-write on an
 // EXISTING file. When the parent is absent there is no file to lost-update, the lock's
-// mkdir would fail with ENOENT, and the only inner path that reaches here in that state
-// REFUSES without writing (trustFolder / forgetFolder with no createIfAbsent -> the
-// "Claude Code has not run..." / "we could not read..." refusals). A create-capable
-// caller mkdirs the parent BEFORE calling this, so its write path always locks. So run
-// the inner directly when the parent is absent, returning the same {ok:true,value}
-// envelope withFileLock would, rather than let the lock's own ENOENT mask the inner's
-// honest refusal as 'we could not get exclusive access' -- the regression the #2129
-// default-refuse test caught. Callers unwrap `value` exactly as on a real lock success.
+// mkdir would fail with ENOENT, and every inner path that reaches here in that state
+// REFUSES without writing: trustFolder / forgetFolder with no createIfAbsent (the
+// "Claude Code has not run..." / "we could not read..." refusals), and preacceptBypass
+// on a parent that could not be created (its "we could not write to their settings
+// file" refusal). A create-capable caller mkdirs the parent BEFORE calling this, so its
+// write path always locks; the unlocked path is reached only when that mkdir itself
+// failed. So run the inner directly when the parent is absent, returning the same
+// {ok:true,value} envelope withFileLock would, rather than let the lock's own ENOENT mask
+// the inner's honest, specific refusal as the generic 'we could not get exclusive access'
+// -- the regression the #2129 default-refuse test caught. This is why the message-bearing
+// writers (trustFolder, forgetFolder, preacceptBypass) use withWriteLock; the record
+// writers, which return a bare boolean / void and carry no specific message to mask, keep
+// raw withFileLock (see their comments). Callers unwrap `value` as on a real lock success.
 function withWriteLock(target, inner) {
   let parentExists = false;
   try { parentExists = fs.statSync(path.dirname(target)).isDirectory(); } catch { parentExists = false; }
@@ -667,6 +672,12 @@ function writeRecordFile(data) {
 function recordWrite(name, wrote) {
   // #3088: the lock is RECORD()+'.lock', and writeRecordFile mkdirs RECORD()'s parent
   // (the store root) at write time - which the lock now precedes, so create it here too.
+  // Raw withFileLock, NOT withWriteLock: recordWrite returns a bare boolean with no
+  // specific message to mask, so there is no honest refusal to preserve; and on a
+  // parent-absent (mkdir-failed) tree, withWriteLock's unlocked-inner path would let
+  // recordWriteInner -> writeRecordFile throw on the same absent parent, turning the soft
+  // `false` this contract promises into an exception. A generic lock failure => false is
+  // the right degrade here.
   try { fs.mkdirSync(path.dirname(RECORD()), { recursive: true }); } catch { /* the inner reports a real write failure */ }
   const r = withFileLock(RECORD(), () => recordWriteInner(name, wrote));
   return r.ok ? r.value : false;   // lock failure == write failure (recordWrite returns a boolean)
@@ -703,6 +714,9 @@ function dropRecord(name) {
   // so a lock failure is the same do-nothing outcome. The envelope is discarded.
   // Parent-mkdir before the lock, as recordWrite (a dropRecord on an absent store root
   // has nothing to drop, but the lock mkdir would otherwise fail rather than no-op).
+  // Raw withFileLock, NOT withWriteLock: like recordWrite this carries no specific
+  // message (void return, all failures swallowed), so there is nothing to unmask - a
+  // lock failure and a no-op are the same outcome here.
   try { fs.mkdirSync(path.dirname(RECORD()), { recursive: true }); } catch { /* nothing to drop */ }
   withFileLock(RECORD(), () => dropRecordInner(name));
 }
@@ -744,9 +758,14 @@ function preacceptBypass(configDir, agentDefaultAccount) {
   const target = settingsTarget(configDir, agentDefaultAccount);
   // #3088: preacceptBypass create-if-absent's settings.json (and ~/.claude on a fresh
   // user), and the lock <target>.lock precedes the inner, so ensure the parent exists
-  // before locking (idempotent with the inner's own mkdir).
+  // before locking (idempotent with the inner's own mkdir). withWriteLock, not raw
+  // withFileLock: if the parent mkdir above FAILS (a locked-down home dir), the parent is
+  // absent when withWriteLock checks, so it runs the inner unlocked and surfaces
+  // preacceptBypassInner's specific "we could not write to their settings file" refusal,
+  // rather than the lock's generic "we could not get exclusive access" masking it - the
+  // same non-masked-refusal contract trustFolder/forgetFolder already hold.
   try { fs.mkdirSync(path.dirname(target), { recursive: true }); } catch { /* the inner reports a real write failure */ }
-  const r = withFileLock(target, () => preacceptBypassInner(configDir, agentDefaultAccount));
+  const r = withWriteLock(target, () => preacceptBypassInner(configDir, agentDefaultAccount));
   return r.ok ? r.value : { ok: false, because: r.because };
 }
 

@@ -9,12 +9,15 @@
 // lost-update this fix prevents. But that loss is TIMING-DEPENDENT (it needs the read and
 // rename windows to actually overlap), so a lock-bypassed run does NOT reliably drop keys
 // on every scheduling, which means this test is NOT a guaranteed-red control - it is an
-// integration smoke test of the LOCKED path. It reliably catches the regressions that ARE
-// deterministic: the {ok,value} envelope not being unwrapped, the lock's parent-dir not
-// existing (mkdir fails -> writes refused), or a deadlock/never-release. A guaranteed-red
-// lost-update control would need a test seam that delays the inner write to force the
-// overlap, which trust.js does not expose; the single-process contract is covered by
-// trust.test.js (39/39), and the lock's own stale/steal/release logic by filelock.test.js.
+// integration smoke test of the LOCKED path. It reliably catches: the {ok,value} envelope
+// not being unwrapped (the child below asserts trustFolder's UNWRAPPED shape - a boolean
+// `already` - not merely a truthy `ok`, which the raw envelope would also have), and a
+// deadlock or never-release (the children would hang and the test time out). It does NOT
+// by itself exercise the parent-dir-mkdir-before-lock path, because the test pre-creates
+// the config dir; that create-if-absent behavior is covered by trust.test.js. A
+// guaranteed-red lost-update control would need a test seam that delays the inner write to
+// force the overlap, which trust.js does not expose; the single-process contract is covered
+// by trust.test.js (39/39), and the lock's own stale/steal/release logic by filelock.test.js.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -36,7 +39,12 @@ const K = (p) => canonicalOnDisk(p).split(nodePath.sep).join('/');
 const CHILD = `
   const t = require(process.env.TRUST);
   const r = t.trustFolder(process.env.WORKDIR, { configDir: process.env.CFGDIR, createIfAbsent: true });
-  process.exit(r && r.ok ? 0 : 2);
+  // Exit non-zero unless trustFolder returned its UNWRAPPED success shape. A dropped
+  // {ok,value} unwrap (returning withFileLock's envelope verbatim) still has a truthy
+  // r.ok, so r.ok alone would pass while the bug shipped; the unwrapped success carries a
+  // boolean 'already' that the raw envelope does not, so this check catches a dropped
+  // unwrap deterministically (independent of whether the lock was contended).
+  process.exit(r && r.ok === true && typeof r.already === 'boolean' ? 0 : 2);
 `;
 
 function runChildren(cfgDir, workdirs, extraEnv) {
