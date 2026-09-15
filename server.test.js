@@ -6941,7 +6941,7 @@ test('the project pill claims only what the counts support', () => {
   assert.equal(pjPillOf({ summary: { total: 2, working: 1 } }, true).label, 'Can’t tell',
     'a blind roster let the card keep claiming Working');
   assert.equal(pjPillOf({ summary: { total: 2, needsYou: 1 } }, true).label, 'Can’t tell',
-    'a blind roster let the card keep claiming Needs you, the strongest reassurance it could leak');
+    'a blind roster let the card keep claiming Issue, the strongest reassurance it could leak');
 });
 
 test('the projects tiles DRAW, not just compute: present at non-zero, hidden at zero and blind', () => {
