@@ -1,20 +1,20 @@
 'use strict';
 
 /**
- * A project row is two lines, with its status on the agents line (#1303 E).
+ * The consolidated left-rail project row shows ONLY its title (#3105, 6.68).
  *
- * 🔑 Josh, 0.5.97 review: "the title / right below it, three agents / on the same
- * line as the three agents, in the same font size, the status... That way we can
- * tighten up these projects and get a whole lot more of them displayed."
+ * 🔑 Josh, 6.68 (#3105): "Show ONLY the project titles. Remove the number of
+ * agents, the status line, and the number of sub projects from each row. Literally
+ * just the project titles only." This SUPERSEDES the #1303E / 0.5.97 density design
+ * (status on the agents line) that this check used to verify: that whole subtitle
+ * was removed from the rail.
  *
- * 🛑 THE CLAIM IS "SAME LINE", WHICH IS A COMPARISON OF TWO ELEMENTS' VERTICAL
- * POSITIONS, NOT A PROPERTY OF EITHER. A check that read only the status pill
- * would pass on any layout. This asserts the status and the agent count share a
- * baseline, and that the row is SHORTER than it was, which is the density he
- * asked for and the reason the change exists.
- *
- * ⚠️ AND IT ASSERTS THE FONT SIZES MATCH, because "in the same font size" is half
- * his sentence and is the half a purely geometric check cannot see.
+ * 🛑 SO THE LOAD-BEARING ASSERTIONS ARE ABSENCES: the status pill and the agent
+ * count are NOT laid out in the rail (a display:none ancestor gives a zero box, so
+ * rect() returns null), while the title stays and the row is compact. They return
+ * the dangerous answer on origin/main, where both are shown. The tab-view arm below
+ * is the CONTROL that this removal is scoped to the consolidated rail: the Projects
+ * TAB list keeps its status pill.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-project-rows.js
  *
@@ -52,7 +52,17 @@ const chk = (ok, label, extra) => {
   ]);
   const a = projects.create({ name: 'Henderson Lease', description: 'A short description that should not change the shape.' });
   const b = projects.create({ name: 'Reed Handover' });
-  projects.writeAll(projects.readAll().map((x) => (x.id === a.id ? { ...x, agents: ['april', 'mikey'] } : x)));
+  // #3105: give Henderson a SUB-PROJECT so its rail row renders the .pjsub count
+  // ("1 sub-project"). Without a child, .pjsub never renders and the rule hiding it in the
+  // rail would be unguarded (a fixture-coverage gap a blind review caught). Henderson also
+  // carries agents, so its one row exercises every meta #3105 hides at once: .pjfaces,
+  // .pjcount, .pjpill AND .pjsub.
+  const c = projects.create({ name: 'Henderson Sublease' });
+  projects.writeAll(projects.readAll().map((x) => {
+    if (x.id === a.id) return { ...x, agents: ['april', 'mikey'] };
+    if (x.id === c.id) return { ...x, parent: a.id };
+    return x;
+  }));
 
   const server = await srv.start(0);
   const BASE = 'http://127.0.0.1:' + server.address().port;
@@ -91,6 +101,11 @@ const chk = (ok, label, extra) => {
         const rg = document.createRange();
         rg.selectNodeContents(node);
         const r = rg.getBoundingClientRect();
+        // #3105: an element whose ANCESTOR is display:none (e.g. .pjcount inside a
+        // hidden .pjfaces) is not caught by the own-display check above but has no
+        // layout box -- treat a zero box as "not shown" so a rail-hidden count reads
+        // as null, not as a zero-positioned element.
+        if (r.width === 0 && r.height === 0) return null;
         return {
           bottom: Math.round(r.bottom * 10) / 10,
           mid: Math.round((r.top + r.height / 2) * 10) / 10,
@@ -109,6 +124,11 @@ const chk = (ok, label, extra) => {
         title: rect('.pjcard-h b'),
         pill: rect('.pjpill'),
         count: rect('.pjcount'),
+        sub: rect('.pjsub'),
+        // Element EXISTENCE (querySelector finds a display:none node too), so the hide
+        // assertions below are provably non-vacuous: rect() returns null for both "hidden"
+        // and "absent", and these confirm the meta actually RENDERED before being hidden.
+        present: { pill: !!row.querySelector('.pjpill'), count: !!row.querySelector('.pjcount'), sub: !!row.querySelector('.pjsub') },
         parts,
       };
     }, a.id);
@@ -118,38 +138,35 @@ const chk = (ok, label, extra) => {
       console.log('');
       console.log('  row height : ' + m.rowHeight + 'px');
       console.log('  title      : ' + JSON.stringify(m.title));
-      console.log('  status     : ' + JSON.stringify(m.pill));
-      console.log('  agents     : ' + JSON.stringify(m.count));
+      console.log('  status     : ' + JSON.stringify(m.pill) + '   (expect null: #3105 hides it in the rail)');
+      console.log('  agents     : ' + JSON.stringify(m.count) + '   (expect null: #3105 hides it in the rail)');
+      console.log('  sub count  : ' + JSON.stringify(m.sub) + '   (expect null: #3105 hides it in the rail)');
       console.log('  visible parts: ' + (m.parts || []).join('  '));
       console.log('');
 
-      /* 🛑 CONTROLS FIRST. Every element the comparisons below rest on must
-         actually be painted with text. A hidden pill would make "same line"
-         unfalsifiable and a missing count would make it vacuous. */
+      /* #3105 (Josh, 6.68): the rail row is TITLE ONLY. The title is painted; the status
+         pill, the agent count AND the sub-project count are NOT laid out (hidden in the
+         rail), so rect() returns null for them. These absences are the load-bearing arms
+         and they return the dangerous answer on origin/main, where all are shown. Henderson
+         has agents (.pjfaces/.pjpill/.pjcount render) and a sub-project (.pjsub renders), so
+         all of #3105's hidden meta are exercised and proven hidden by this one row. */
       chk(!!(m.title && m.title.text), 'the title is on screen', m.title && m.title.text);
-      chk(!!(m.pill && m.pill.text), 'the status is on screen', m.pill && m.pill.text);
-      chk(!!(m.count && m.count.text), 'the agent count is on screen', m.count && m.count.text);
+      /* NON-VACUITY CONTROL: the fixture must actually render the meta before we can prove
+         it is hidden. Henderson has agents (pill+count) and a sub-project (sub), so all three
+         nodes exist in the row markup. On origin/main they would also be VISIBLE, so the three
+         hides below return the dangerous answer there. */
+      chk(m.present && m.present.pill && m.present.count && m.present.sub,
+        'the rail row actually renders the pill, agent count, and sub-project count (so the hides below are non-vacuous)',
+        JSON.stringify(m.present));
+      chk(!m.pill, 'the status is NOT shown in the rail (#3105 titles-only)', JSON.stringify(m.pill));
+      chk(!m.count, 'the agent count is NOT shown in the rail (#3105 titles-only)', JSON.stringify(m.count));
+      chk(!m.sub, 'the sub-project count is NOT shown in the rail (#3105 titles-only)', JSON.stringify(m.sub));
 
-      if (m.pill && m.count && m.title) {
-        /* His sentence, both halves. */
-        chk(Math.abs(m.pill.mid - m.count.mid) <= 2,
-          'the status sits on the SAME LINE as the agents',
-          m.pill.mid + ' vs ' + m.count.mid);
-        chk(m.pill.fontSize === m.count.fontSize,
-          'the status is the SAME FONT SIZE as the agents',
-          m.pill.fontSize + ' vs ' + m.count.fontSize);
-        /* And it must be BELOW the title, not beside it: "right below it". */
-        chk(m.count.mid > m.title.mid + 4,
-          'the agents line sits below the title',
-          m.count.mid + ' vs ' + m.title.mid);
-      }
-
-      /* ⚠️ THE POINT OF THE CHANGE, and the assertion most likely to be left
-         out: he asked for DENSITY. A row that satisfies every line above and
-         got taller has not done what he asked for. Three lines at this size
-         measured 71px; two lines must come in under that. */
-      chk(m.rowHeight < 60, 'the row is shorter than the three-line shape it replaces',
-        m.rowHeight + 'px  (was 90.2)');
+      /* ⚠️ DENSITY, the point of the row work: with only the title the row is even
+         tighter than the old two-line title+status/count shape (which came in under
+         60px). A row that got TALLER has not done what #3105 asked for. */
+      chk(m.rowHeight < 44, 'the title-only row is compact (tighter than the old two-line row)',
+        m.rowHeight + 'px  (the old three-line shape was 90.2)');
     }
     /* 🛑 THE ASSERTION THAT PROTECTS THE SURFACE I DID NOT TOUCH. The grid tile
        is the SAME MARKUP laid out differently, and #747/#748 put its status at
