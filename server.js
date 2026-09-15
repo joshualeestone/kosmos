@@ -399,6 +399,26 @@ function sourceChannelNow() {
   } catch { return 'staging'; }
 }
 
+/* #2036 observability slice (behavior-preserving; changes no channel resolution and moves no
+   bytes). A box INSTALLED from the staging channel but RESOLVING prod has silently lost its
+   staging subscription at login (#2969): the board's launchd job carries no channel, so
+   updateChannel() falls back to prod and the box quietly stops being ahead of prod, with no
+   error -- exactly the silence Josh named as #2036's failure mode. This predicate is the boot
+   diagnostic's condition, kept PURE so it is testable and so it cannot throw on the listen path.
+
+   🔑 IT COMPARES THE RAW INSTALL STAMP, NOT THE BADGE. `recorded` must be recordedSourceChannel()
+   (the durable one-time install stamp), NOT sourceChannelNow() -- the latter applies #2934's
+   prod-publishes-running re-derivation, which reports 'prod' for a legitimately-promoted staging
+   build and would MASK a genuine silent revert. `resolved` is updateChannel() (what the poller
+   actually fetches). The signature is: installed-from-staging yet polling-prod.
+
+   ⚠️ This is OBSERVABILITY ONLY. The byte-changing fix (persist the channel across login so the
+   subscription survives) is #2969/#2934 and stays parked on real-fresh-machine verification per
+   Josh's gate; this predicate neither resolves the channel nor changes which bytes install. */
+function stagingRevertWarning(recorded, resolved) {
+  return recorded === 'staging' && resolved === 'prod';
+}
+
 const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on context fill
 const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the consume half (the sweep)
 const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopback bind so another macOS account cannot reach it
@@ -13463,6 +13483,17 @@ function start(port = PORT) {
          will fetch, so a staging board, or a board aimed at a mirror, reads as one from its log
          line alone. */
       process.stdout.write(`Kosmos update check: channel=${updates.updateChannel()} pointer=${updates.pointerUrl()}\n`);
+      /* #2036: warn LOUDLY at boot when this box installed from staging (the durable stamp) but is
+         resolving prod -- the #2969 silent revert. Observability only: it changes nothing about which
+         channel resolves or which bytes install (that fix is parked on real-machine verification). The
+         predicate is pure and the two reads never throw (recordedSourceChannel try/catches to 'prod';
+         updates.updateChannel is pure), so this cannot break the listen path. */
+      if (stagingRevertWarning(recordedSourceChannel(), updates.updateChannel())) {
+        process.stderr.write('Kosmos update check: WARNING -- this box installed from the staging channel '
+          + '(source-channel=staging) but is resolving the prod channel, so it has silently stopped receiving '
+          + 'staging builds (kosmos#2969). The board launchd job carries no update channel across login; set the '
+          + 'update channel to staging (KOSMOS_UPDATE_CHANNEL=staging) to restore the subscription. See kosmos#2036.\n');
+      }
       /* 🪟 S4: tell the updater the board it must stop and the port it must confirm on, so the win32
          in-app helper (win32update.begin -> win32apply) hands the swap this exact process and port
          rather than its own default. Read from the bound socket, so it is the real listening port even
@@ -13869,6 +13900,10 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  /* #2036: the boot diagnostic's condition, exported so all four channel combinations are
+     pinned directly as a pure function -- the warn fires inside the listen callback, which a
+     require-only test never reaches, so the predicate is the testable seam. */
+  stagingRevertWarning,
   /* #1704 PR2: exported so a test can run one outbox drain against a sandboxed
      board; production starts it from the real-start path (startOutboxDrain). */
   drainOutboxNow,
