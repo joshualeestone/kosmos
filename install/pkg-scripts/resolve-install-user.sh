@@ -93,67 +93,65 @@ resolve_install_user() {
   # printed and captured either way.
   _riu_owner_count=$(printf '%s\n' "$_riu_owners" | /usr/bin/grep -c . || true)
 
-  # candidate 1: the owner of the running GUI Installer -- who actually invoked
-  # this install. Only when it is unambiguous (exactly one non-root owner) AND
-  # that user has a real Aqua session. This is what beats /dev/console and closes
-  # the silent-misinstall arm: even if the console holder is someone else, we
-  # install for whoever is driving Installer.
+  # candidate 1 (PREFERRED INVOKER): exactly one GUI Installer owner is the person
+  # who double-clicked. Install for them -- this beats /dev/console and closes the
+  # #1880 silent-misinstall arm (install for whoever DRIVES Installer, not the
+  # console holder), which is owner detection and is UNCHANGED.
+  #
+  # 🛑 NO HARD Aqua-session GATE HERE (kosmos#2511). A running GUI Installer.app
+  # owned by this user IS a live Aqua session -- you cannot double-click a .pkg
+  # without one -- so the owner signal already proves the session. The old
+  # `_riu_has_gui_session` gate used `launchctl print gui/<uid>`, which
+  # FALSE-NEGATIVES from the installd/root context this script runs in: it refused
+  # a VALID install on a FRESH single-user account installing directly at the
+  # console (Josh, 2026-09-15) -- i.e. universally, not just the multi-account case
+  # #1880 targeted. The downstream `launchctl asuser`/`bootstrap gui/<uid>` the
+  # postinstall then performs still works; only the PRINT probe was unreliable, so
+  # it is no longer a gate.
   if [ "$_riu_owner_count" -eq 1 ]; then
     _riu_u="$_riu_owners"
     _riu_id="$(_riu_uid_for "$_riu_u")"
-    if [ -n "$_riu_id" ] && _riu_has_gui_session "$_riu_id"; then
+    if [ -n "$_riu_id" ]; then
       INSTALL_USER="$_riu_u"; INSTALL_UID="$_riu_id"; return 0
     fi
   fi
 
-  # candidate 2 (fallback): the physical console user -- but ONLY when there is NO
-  # Installer-owner signal at all (count 0), and it is a real user with a real
-  # Aqua session. If we DID detect an Installer owner and it did not resolve via
-  # candidate 1 (it failed the session gate, count 1; or it was ambiguous,
-  # count > 1), we have a contradictory invoker signal, so we refuse and name it
-  # rather than silently redirect the install to the console holder -- who may not
-  # be who invoked it. Redirecting there is the very #1880 class this fixes,
-  # reached through the session-gate route instead of console divergence.
-  if [ "$_riu_owner_count" -eq 0 ]; then
-    case "$_riu_console" in
-      ''|root|loginwindow) : ;;
-      *)
-        _riu_id="$(_riu_uid_for "$_riu_console")"
-        if [ -n "$_riu_id" ] && _riu_has_gui_session "$_riu_id"; then
-          INSTALL_USER="$_riu_console"; INSTALL_UID="$_riu_id"; return 0
-        fi
-        ;;
-    esac
-  fi
-
-  # could not tell -- say WHICH check failed and the best guess, never the flat
-  # "no one is signed in".
+  # candidate 2 (FALLBACK): the physical console user, whenever candidate 1 did NOT
+  # resolve -- no Installer owner (count 0) OR an ambiguous multiple (count > 1).
+  # #1880 restricted this to count==0 AND hard-gated it on the same unreliable
+  # session print, turning a fallback into a HARD REFUSAL. Per Josh's standing
+  # priority "investors MUST be able to install" (Splinter, 2026-09-15 -- a
+  # reversible product call), FALL BACK rather than refuse, even in the ambiguous
+  # multi-account case, and without the session print.
+  #
+  # ACCEPTED RESIDUAL (documented, reversible): in a genuine multi-account /
+  # Screen-Sharing session this resolves to the CONSOLE holder rather than a
+  # specific non-console invoker -- the exact #1880 concern. That trade is accepted
+  # because a REFUSED install (an investor who cannot install at all) is the worse
+  # failure. The single-owner invoker PREFERENCE above still wins whenever it
+  # resolves, so the ordinary case keeps #1880's behavior.
   case "$_riu_console" in
-    ''|root|loginwindow)
-      _riu_console_desc="the physical console user is '${_riu_console:-<none>}' (no one is signed in at the screen)" ;;
+    ''|root|loginwindow) : ;;
     *)
-      # Say the ACCURATE reason. This branch is reached both when the console
-      # user has no session (the count==0 fallback that failed its gate) AND when
-      # it DOES have a session but is simply not who invoked the install (count>=1
-      # refusals, where candidate 2 never ran). Claiming "no session" in the
-      # latter would tell a signed-in operator they are not signed in -- exactly
-      # the wrong thing to tell the #1880 machine owner. So check the session.
-      _riu_cid="$(_riu_uid_for "$_riu_console")"
-      if [ -n "$_riu_cid" ] && _riu_has_gui_session "$_riu_cid"; then
-        _riu_console_desc="the physical console user is '$_riu_console', but that is not the account driving this install"
-      else
-        _riu_console_desc="the physical console user is '$_riu_console', which has no active window session to install into"
+      _riu_id="$(_riu_uid_for "$_riu_console")"
+      if [ -n "$_riu_id" ]; then
+        INSTALL_USER="$_riu_console"; INSTALL_UID="$_riu_id"; return 0
       fi ;;
   esac
+
+  # Refuse ONLY when there is genuinely nobody to install for: candidate 1 did not
+  # resolve AND the console user is not a usable account (login window / none /
+  # unresolvable uid). This is a real "no one is signed in at the screen" state,
+  # not the false refusal #2511 fixes.
   if [ "$_riu_owner_count" -gt 1 ]; then
-    _riu_own_desc="more than one account is running Installer ($(printf '%s' "$_riu_owners" | /usr/bin/paste -sd, -)), so it is ambiguous who to install for"
+    _riu_own_desc="$_riu_owner_count accounts are running Installer ($(printf '%s' "$_riu_owners" | /usr/bin/paste -sd, -)) and there is no usable console user to fall back to"
   elif [ "$_riu_owner_count" -eq 1 ]; then
-    _riu_own_desc="a GUI Installer is running as '$_riu_owners', but that account has no active window session to install into"
+    _riu_own_desc="a GUI Installer is running as '$_riu_owners' but that username did not resolve to a uid, and there is no usable console user to fall back to"
   else
-    _riu_own_desc="no GUI Installer process was found to attribute the install to"
+    _riu_own_desc="no GUI Installer owner was found, and there is no usable console user to fall back to"
   fi
   RIU_REASON="Kosmos: could not tell which signed-in user to install for.
-  - $_riu_console_desc
+  - the physical console user is '${_riu_console:-<none>}' (no one is signed in at the screen)
   - $_riu_own_desc
 Sign in to the Mac at its own screen (a full login, not only Screen Sharing or the login window), then open this installer again."
   return 1
