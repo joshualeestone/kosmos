@@ -136,13 +136,24 @@ resolve_install_user() {
   # This does NOT reintroduce the #1880 refusal for the case Josh's ruling protects:
   # a single investor installing on their own Mac is count==1 and still resolves via
   # candidate 1 above (no session gate), and count==0 still falls back to console
-  # below. count>1 requires multiple accounts running Installer at the same instant
-  # (fast user switching, a second Screen-Sharing session) -- rare, and genuinely
-  # ambiguous, which is the only case narrowed here. Reverses the count>1 half of
-  # #2511's console fallback (itself marked reversible); count==0/count==1 unchanged.
+  # below. count>1 requires more than one account running Installer at the same
+  # instant (fast user switching, a second Screen-Sharing session) -- rare. Reverses
+  # the count>1 half of #2511's console fallback (itself marked reversible);
+  # count==0/count==1 unchanged.
+  #
+  # KNOWN EDGE (recoverable, not a lockout): _riu_installer_owners counts any process
+  # on the Installer.app path, so a STALE / hung Installer left running in ANOTHER
+  # account can push the count above 1 and refuse an otherwise-unambiguous single
+  # investor install -- so count>1 is not ALWAYS a genuine simultaneous ambiguity. A
+  # robust liveness filter is not cleanly available here: the root-context
+  # `launchctl print gui/<uid>` session probe is exactly what #2511 removed as
+  # unreliable. This is accepted because the refusal is RECOVERABLE in one step (the
+  # message tells the user to quit the other Installer, after which count==1
+  # resolves), which beats a silent possibly-wrong install. A process-age filter is a
+  # future mitigation if stale Installers prove common (see the plan).
   if [ "$_riu_owner_count" -gt 1 ]; then
-    RIU_REASON="Kosmos: more than one account is running the installer at the same time ($(printf '%s' "$_riu_owners" | /usr/bin/paste -sd, -)), so Kosmos cannot tell which one to install for.
-  - Installing for the wrong account would put your agents in the wrong account's home folder.
+    RIU_REASON="Kosmos: more than one account is running the installer at the same time ($(printf '%s' "$_riu_owners" | /usr/bin/paste -sd, - | /usr/bin/sed 's/,/, /g')), so Kosmos cannot tell which one to install for.
+Installing for the wrong account would put your agents in the wrong account's home folder, so Kosmos did not guess.
 Quit the installer in the other account(s), or sign in at this Mac's own screen as just the account you want, then open this installer again."
     return 1
   fi

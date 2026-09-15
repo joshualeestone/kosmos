@@ -42,11 +42,27 @@ documented in the code + this plan so a future reader (and Josh) sees exactly wh
 count==0 (console fallback) and count==1 (candidate 1 resolves, no session gate) - the "investors
 must install" behavior. ARMs 2/4/7 assert this and still pass.
 
+## Known edge - count>1 can be SPURIOUSLY hit (stale Installer), and it is accepted
+`_riu_installer_owners` counts any process occupying the CoreServices Installer.app path, so
+count>1 is NOT always a genuine simultaneous multi-account install: a STALE / hung Installer.app
+left running in another account (an abandoned, not force-quit, prior install) also inflates the
+count. In that case this change refuses an otherwise-unambiguous single-investor install that the
+pre-#3111 code would have silently completed via console fallback. Accepted, deliberately:
+- The refusal is RECOVERABLE in one step - the message names the competing accounts and tells the
+  user to quit the other Installer(s), after which count==1 and candidate 1 resolves. It is a
+  messaged, actionable refusal, not a lockout, and it beats a silent possibly-wrong install.
+- A robust liveness filter to drop stale Installers is NOT cleanly available: the only obvious
+  liveness signal is the root-context `launchctl print gui/<uid>` session probe, which is exactly
+  the signal #2511 removed as unreliable (it false-negatives from the installd/root context). So a
+  filter would reintroduce the flakiness the P0 fix eliminated.
+
 ## What would change the call
-If measurement shows count>1 is effectively never hit by real users, the residual it protects
-against is negligible; but refusing there is cheap (honest message, clear next step) and the
-wrong-user install it prevents is silent, so refusing is the safer default. If Josh rules that
-count>1 must also never refuse (full "investors must install" even on simultaneous multi-account
-Installers), revert this one block - the P0 fallback is preserved in history.
+If measurement shows count>1 is effectively never hit (neither genuine simultaneous installs nor
+stale Installers), the residual is negligible and refusing there is cheap. If stale Installers
+prove COMMON on shared Macs, the follow-up is a process-age filter in `_riu_installer_owners` (drop
+Installer processes older than a threshold) so a leftover process stops inflating the count -
+tracked as a future hardening, not built here. If Josh/Splinter rules count>1 must NEVER refuse
+(full "investors must install" even on simultaneous multi-account Installers, accepting the
+wrong-user residual), revert this one block - the P0 fallback is preserved in history.
 
 Addresses #3111 (non-closing).
