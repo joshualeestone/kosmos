@@ -111,7 +111,7 @@ make_scenario() {  # [committed_sha_override]
   write_ptr "$live/dist/latest.json" "$OLD" "oldsha000000" "$OLDART"   # LIVE prod = OLD
 
   # --- the SITE checkout: committed at the NEW pointer (promote-channel already moved it) ---
-  git init -q "$s"
+  git init -q --initial-branch=main "$s"   # #3073: pin the branch so the deploy-site non-main-publish guard sees 'main' regardless of the ambient init.defaultBranch (matches tools/test-release-detached.sh)
   printf '<h1>site</h1>\n' > "$s/index.html"; printf '{}\n' > "$s/vercel.json"
   printf 'docs/\n' > "$s/.vercelignore"
   printf 'setup-script\n' > "$s/setup"
@@ -225,7 +225,7 @@ make_rollback_scenario() {  # echoes "SITE LIVE"
   printf 'setup-script\n' > "$live/setup"
   local oldsha; oldsha="$(sha_of "$live/dist/$OLDART")"
   write_ptr "$live/dist/latest.json" "$NEW" "newsha000000" "$NEWART"   # LIVE prod = NEW
-  git init -q "$s"
+  git init -q --initial-branch=main "$s"   # #3073: pin the branch so the deploy-site non-main-publish guard sees 'main' regardless of the ambient init.defaultBranch (matches tools/test-release-detached.sh)
   printf '<h1>site</h1>\n' > "$s/index.html"; printf '{}\n' > "$s/vercel.json"
   printf 'docs/\n' > "$s/.vercelignore"
   printf 'setup-script\n' > "$s/setup"

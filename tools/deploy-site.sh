@@ -80,19 +80,53 @@ WINZIP="${KOSMOS_WIN_ZIP:-kosmos-0.6.24-win-x64.zip}"
 
 PUBLISH=0
 PROMOTE=0
+FORCE=0
 # --promote (#2195) is a POINTER-MOVE deploy: it publishes a latest.json that intentionally
 # differs from the live one (a staging->prod promote, or a rollback to a prior pointer). It
 # implies --publish (a promote deploys). promote-channel.sh (#2036) does the guarded LOCAL
 # pointer move + alias refresh; this is the deploy that publishes it. Default PROMOTE=0 so the
 # site-copy guard below stays armed for every ordinary deploy. Unknown args fall through to a
 # dry run, exactly as before (no behaviour change for existing callers).
-case "${1:-}" in
-  --publish) PUBLISH=1 ;;
-  --promote) PUBLISH=1; PROMOTE=1 ;;
-esac
+# #3073: --force overrides the non-main-branch publish guard below (a deliberate one-off exception).
+# Parsed with a LOOP rather than a bare `case $1` so --force can sit in any position
+# (`--publish --force`); the previous single-arg callers (`--publish` / `--promote` as $1) are
+# unaffected, and an unknown arg still falls through to a dry run exactly as before.
+for _arg in "$@"; do
+  case "$_arg" in
+    --publish) PUBLISH=1 ;;
+    --promote) PUBLISH=1; PROMOTE=1 ;;
+    --force)   FORCE=1 ;;
+  esac
+done
 
 # --- preconditions -----------------------------------------------------------
 git -C "$SITE" rev-parse --verify HEAD >/dev/null 2>&1 || { echo "deploy-site: $SITE is not a git checkout with a HEAD"; exit 1; }
+# #3073: deploy ONLY from the site's default branch. chaoskosmos-site is deployed from separate
+# feature branches, each carrying a FULL index.html, and `--publish` ships the whole site dir -- so
+# a feature-branch deploy silently clobbers whatever the previous branch published. That is the
+# 2026-09-14 investor-facing regression this card was filed for: a later deploy of the
+# created-count-3038 branch (whose index.html predated the Windows-button fix) re-published an
+# index.html WITHOUT that fix, reverting it live while Josh had investors on the page. Refuse a
+# publishing run (--publish or --promote) from a non-default SITE branch; --force is the deliberate
+# one-off escape hatch. A DRY RUN (no --publish) deploys nothing and is unaffected -- it may run
+# from any branch. Placed here, right after the SITE-is-a-checkout precondition and before the
+# fetch/verify/export work, so it refuses up front rather than after minutes of work.
+if [ "$PUBLISH" = 1 ] && [ "$FORCE" != 1 ]; then
+  # symbolic-ref --quiet exits non-zero on a detached HEAD; `|| true` keeps set -e from aborting and
+  # leaves _site_branch empty, which is treated as "not the default branch" -> refuse (safe: a
+  # detached-HEAD publish is exactly as clobber-prone as a feature-branch one).
+  _site_branch=$(git -C "$SITE" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+  # The default branch is read from the site checkout's own origin/HEAD, not hardcoded, so a repo
+  # whose default is not "main" still works; fall back to main only when origin/HEAD is unset.
+  _default_branch=$(git -C "$SITE" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')
+  [ -n "$_default_branch" ] || _default_branch=main
+  if [ "$_site_branch" != "$_default_branch" ]; then
+    echo "deploy-site: refusing to publish from '${_site_branch:-a detached HEAD}' -- the site checkout $SITE is not on '$_default_branch' (#3073)."
+    echo "  Deploying a feature branch ships its full index.html and silently clobbers the live site's state (the 2026-09-14 investor-facing regression)."
+    echo "  Merge to '$_default_branch' and deploy from there, or pass --force for a deliberate one-off exception."
+    exit 1
+  fi
+fi
 [ -f "$SITE/.vercel/project.json" ] || { echo "deploy-site: no $SITE/.vercel/project.json; the CLI would not know the project"; exit 1; }
 [ -f "$REPO/tools/lib/site-deploy.sh" ] || { echo "deploy-site: cannot find $REPO/tools/lib/site-deploy.sh"; exit 1; }
 [ -f "$REPO/tools/lib/pkg-inputs.sh" ] || { echo "deploy-site: cannot find $REPO/tools/lib/pkg-inputs.sh (defines pkg_upload_filter_excludes)"; exit 1; }
