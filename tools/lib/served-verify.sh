@@ -288,6 +288,31 @@ served_verify_host_discriminates() {
 served_verify_asset_ok() {
   _svao_url=$1
   _svao_label=$2
+  # #3073: HEAD-first. This function checks only STATUS + CONTENT-TYPE -- the asset's BYTE
+  # integrity is verified separately, locally, against its manifest/.sha256 (deploy-site.sh),
+  # never by downloading the served body here. Both status and content-type are in a HEAD
+  # response's headers, so a HEAD answers the whole question without transferring the body --
+  # decisive for the multi-hundred-MB Windows zip, which this used to pull in full through
+  # `-o /dev/null` just to read a status line. The HEAD result is TRUSTED only on an
+  # unambiguous success: a 200 carrying a non-empty, non-html content-type. On ANY other
+  # outcome -- a non-200, an empty/absent content-type, an html page wearing a 200, a 405/501
+  # (server does not implement HEAD), or a transport error -- it falls through to the GET path
+  # below, so the check is never weaker than the full GET it replaces, and the GET path keeps
+  # sole ownership of the detailed failure messages and the redirect note. The extra HEAD is a
+  # header-only round-trip; it does not invoke a GET handler, so a stateful server's GET-keyed
+  # behavior is unperturbed by it.
+  _svao_hhdr=$(curl -sSLI --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{content_type}' "$_svao_url" 2>/dev/null) || _svao_hhdr=''
+  if [ -n "$_svao_hhdr" ]; then
+    _svao_hcode=${_svao_hhdr%% *}
+    _svao_hct=${_svao_hhdr#* }
+    if [ "$_svao_hcode" = "200" ] && [ -n "$_svao_hct" ]; then
+      _svao_hct_lc=$(printf '%s' "$_svao_hct" | tr '[:upper:]' '[:lower:]')
+      case "$_svao_hct_lc" in
+        *text/html*) : ;;   # an html page wearing 200: fall through to GET for the #1667 message
+        *) return 0 ;;      # clean HEAD: 200 + a non-empty, non-html content-type
+      esac
+    fi
+  fi
   _svao_hdr=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{content_type}' "$_svao_url") || {
     printf '%s\n' "served-verify: could not reach ${_svao_url} (${_svao_label}) -- transport error" >&2
     return 2
