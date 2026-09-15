@@ -1,5 +1,5 @@
 'use strict';
-// Browser-check-surface: pj-parent pjsub pj-crumb pj-back pj-crumb-cur pj-crumb-lead pj-crumbrow
+// Browser-check-surface: pj-parent pjsub pj-crumb pj-back pj-crumb-cur pj-crumb-lead pj-crumbrow pj-crumb-link
 // (#2518) the distinctive web/index.html tokens this check asserts (the ancestry/parent
 // chip + the sub-projects count line + the detail-page breadcrumb); a change to them must
 // update this check at PR time. #2487 changed pj-parent to a full ancestry line; #3103/#3104
@@ -169,6 +169,14 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         // here" name. Capture both to assert the structure, not just the joined text.
         out.crumbCur = crumb ? (crumb.querySelector('.pj-crumb-cur') || {}).textContent || null : null;
         out.crumbLead = crumb ? (crumb.querySelector('.pj-crumb-lead') || {}).textContent || null : null;
+        // #3125 (Josh 6.68): ancestor crumbs are CLICKABLE links (role=link,
+        // data-project) so a person jumps straight to that project; the current crumb
+        // is never a link, and the slash gets margin room (not a tight "A/B"). Capture
+        // the structure + sep margin on this 'mob' render (ancestors Kosmos(k)+App(app));
+        // the click-navigation itself is exercised below.
+        out.ancLinkIds = crumb ? Array.from(crumb.querySelectorAll('.pj-crumb-link[data-project]')).map((a) => a.getAttribute('data-project')) : null;
+        out.curIsLink = crumb ? !!crumb.querySelector('.pj-crumb-cur .pj-crumb-link, .pj-crumb-cur.pj-crumb-link') : null;
+        { const s = crumb && crumb.querySelector('.pj-crumb-sep'); out.sepMarginL = s ? getComputedStyle(s).marginLeft : null; }
         // #3103 (6.68): the detail-page sub-projects section was removed; only the
         // breadcrumb remains here. Its hidden-branch control is the top-level crumb below.
         PJ_CURRENT = 'k'; paintOneProject();
@@ -189,6 +197,13 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         document.getElementById('pj-back').click();
         out.backTopCurrent = PJ_CURRENT;                // expect null (back to list)
         out.backTopView = PJ_VIEW;                       // expect 'list'
+        // #3125: clicking an ANCESTOR crumb NAVIGATES straight to that project (the
+        // card's core behavior), mirroring the back-chevron click test. Re-render 'mob'
+        // (ancestors Kosmos/App), click the 'app' crumb link, assert we land on 'app'.
+        PJ_CURRENT = 'mob'; paintOneProject();
+        { const appCrumb = document.getElementById('pj-crumb').querySelector('.pj-crumb-link[data-project="app"]'); if (appCrumb) appCrumb.click(); }
+        out.crumbClickCurrent = PJ_CURRENT;              // expect 'app'
+        out.crumbClickView = PJ_VIEW;                    // expect 'one'
         out.detailErr = null;
       } catch (e) { out.detailErr = String(e && e.message || e); }
       return out;
@@ -219,6 +234,13 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // piece a "you are here" breadcrumb exists to show -- so this asserts the structure
     // that protects it, not merely the joined text.
     ok(t + ' #2928 detail: current project is a protected crumb, ancestors in the lead', anc.detailErr === null && anc.crumbCur === 'Mobile' && /Kosmos/.test(anc.crumbLead || '') && /App/.test(anc.crumbLead || ''), JSON.stringify({ cur: anc.crumbCur, lead: anc.crumbLead }));
+    // #3125 (Josh 6.68): ancestor crumbs are clickable links in root->current order
+    // (['k','app'] for Mobile), the current crumb is NOT a link, the slash has margin
+    // room, and clicking an ancestor NAVIGATES. All would fail on origin/main (plain
+    // text crumbs, zero sep margin, a click that goes nowhere) -> non-vacuous.
+    ok(t + ' #3125 detail: ancestor crumbs are clickable links (data-project) root-to-current, current is not a link', anc.detailErr === null && JSON.stringify(anc.ancLinkIds) === JSON.stringify(['k', 'app']) && anc.curIsLink === false, JSON.stringify({ links: anc.ancLinkIds, curIsLink: anc.curIsLink }));
+    ok(t + ' #3125 detail: the slash separator has margin room (Josh: "A  /  B", not "A/B")', anc.detailErr === null && parseFloat(anc.sepMarginL || '0') > 0, 'sep marginLeft=' + anc.sepMarginL);
+    ok(t + ' #3125 detail: clicking an ancestor crumb navigates straight to that project', anc.detailErr === null && anc.crumbClickCurrent === 'app' && anc.crumbClickView === 'one', JSON.stringify({ cur: anc.crumbClickCurrent, view: anc.crumbClickView }));
     // #2928: clicking the back chevron NAVIGATES (the card's core behavior), not
     // merely renders. A subproject goes UP to its parent; a top-level goes to the list.
     ok(t + ' #2928 back: clicking the chevron on a subproject opens its parent', anc.detailErr === null && anc.backSubCurrent === 'app' && anc.backSubView === 'one', JSON.stringify({ err: anc.detailErr, cur: anc.backSubCurrent, view: anc.backSubView }));
