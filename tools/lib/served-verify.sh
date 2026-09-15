@@ -314,6 +314,11 @@ served_verify_asset_ok() {
   # annotates"): an optimistic probe must not delay the fallback. A slow HEAD simply times out and
   # falls through to the full-budget GET, so worst-case time-to-refuse grows by the probe's 10s,
   # not by another 30s. A HEAD is header-only and returns in well under this on a healthy host.
+  # The probe suppresses its own stderr (`2>/dev/null`) DELIBERATELY, unlike the GET below: the
+  # probe is optimistic, so any HEAD failure is meant to degrade SILENTLY to the GET, which owns
+  # the transport-error diagnostic. Surfacing the HEAD's stderr too would print a spurious error
+  # line on every fall-through. (Named because this file's convention is to narrate every
+  # deliberate asymmetry.)
   _svao_hhdr=$(curl -sSLI --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{content_type}' "$_svao_url" 2>/dev/null) || _svao_hhdr=''
   if [ -n "$_svao_hhdr" ]; then
     _svao_hcode=${_svao_hhdr%% *}
