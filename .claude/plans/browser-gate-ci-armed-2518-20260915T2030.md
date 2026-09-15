@@ -19,9 +19,10 @@ exists only because `test.yml` sets `fetch-depth: 0` (checkout@v4 then fetches t
 `+refs/heads/*:refs/remotes/origin/*`). The default depth fetches only the triggering branch, so
 `origin/main` is ABSENT and BOTH gates fail-soft to a vacuous pass while CI stays green. Confirmed in
 CI run 35013011226 (members-avatar-circle-3110): the checkout log shows `main -> origin/main` and the
-surface gate executed against the branch diff. But `test.yml`'s comment attributes `fetch-depth: 0`
-only to #1025's range resolution, so a future #1025 refactor could drop it and silently disarm both
-gates. Nothing guarded that. That is the `a-fix-to-the-update-path-cannot-arrive-through-it` /
+surface gate executed against the branch diff. But `test.yml`'s comment (tagged #1794) explains
+`fetch-depth: 0` only as #1025's range resolution, so a future refactor of that range logic could
+drop it and silently disarm both gates. Nothing guarded that. That is the
+`a-fix-to-the-update-path-cannot-arrive-through-it` /
 `a-test-nothing-runs-is-an-unarmed-guard` hazard.
 
 ## The fix (this branch)

@@ -23,9 +23,9 @@
 # origin/main is ABSENT. Confirmed in a real run (test.yml run 35013011226,
 # members-avatar-circle-3110): the checkout log shows `main -> origin/main` and the
 # surface gate executed against the branch diff. So `fetch-depth: 0` is the one line
-# keeping the gates non-vacuous in CI -- and test.yml's own comment attributes that
-# line ONLY to #1025's range resolution, so a future #1025 refactor could "safely"
-# drop it and silently disarm both gates with all-green CI. Nothing guarded that. This
+# keeping the gates non-vacuous in CI -- and test.yml's own comment (tagged #1794) explains
+# that line only as #1025's range resolution, so a future refactor of that range logic could
+# "safely" drop it and silently disarm both gates with all-green CI. Nothing guarded that. This
 # does (a-fix-to-the-update-path-cannot-arrive-through-it).
 #
 # EXECUTED, NOT MERELY MENTIONED. Static checks only (no run, no network); it runs in
@@ -52,7 +52,14 @@ pass() { printf 'ok   %s\n' "$*"; }
 #  - the workflow RUNS run-tests.sh (the harness that invokes the gates)
 #  - run-tests.sh SOURCES-AND-CALLS each gate (the `&& <fn> )` invocation shape; prose
 #    never contains `&& kosmos_...`)
-FETCH_DEPTH_RE='^[[:space:]]*fetch-depth:[[:space:]]*0[[:space:]]*$'
+FETCH_DEPTH_RE='^[[:space:]]*fetch-depth:[[:space:]]*0[[:space:]]*(#.*)?$'
+# The gates only run on a PR/branch push if test.yml actually TRIGGERS the suite there. The
+# invariant holds if it triggers on pull_request OR on push with a branch filter that includes
+# feature branches (`["**"]`). Two separate patterns, checked as a disjunction below, so
+# narrowing ONE trigger while the other stays broad does not false-RED, but narrowing BOTH
+# (the real disarm, which would leave the gates running only post-merge on main) reds.
+PR_TRIGGER_RE='^[[:space:]]*pull_request:'
+PUSH_ALL_BRANCHES_RE='^[[:space:]]*branches:[[:space:]]*\[.*"\*\*".*\]'
 # The run-tests.sh invocation, matched on ANY line (not anchored to `run:`), so both
 # `run: bash tools/run-tests.sh` and a multiline `run: |` block that calls it on its own
 # line satisfy it. Comment mentions are excluded separately (grep -qvE '^[[:space:]]*#')
@@ -88,6 +95,14 @@ pass "the grep instrument discriminates (present hits, absent misses)"
 grep -qE "$FETCH_DEPTH_RE" "$WF" \
   || fail "test.yml checkout does not set 'fetch-depth: 0' -- origin/main would be ABSENT in CI, so BOTH browser-check diff gates (#1720 + #2518) fail-soft to a vacuous pass and gate nothing. Do not drop this line even if #1025's range resolution no longer needs it."
 pass "test.yml checks out with fetch-depth: 0 (origin/main resolves -> the diff gates are armed)"
+
+# 1b. The workflow still TRIGGERS the suite on feature/PR branches, or the gates would only run
+#     post-merge on main (too late to gate a PR). Disjunction: pull_request OR push:[**].
+if grep -qE "$PR_TRIGGER_RE" "$WF" || grep -qE "$PUSH_ALL_BRANCHES_RE" "$WF"; then
+  pass "test.yml triggers the suite on feature/PR branches (pull_request or push:[**]) -> the gates run before merge"
+else
+  fail "test.yml no longer triggers the suite on feature/PR branches (no pull_request trigger and no push:[**]) -- the gates would run only post-merge on main, too late to gate a PR"
+fi
 
 # 2. The workflow actually RUNS run-tests.sh (the harness the gates live inside). Match on a
 #    NON-comment line, so both `run: bash tools/run-tests.sh` and a multiline `run: |` block
@@ -147,6 +162,14 @@ if grep -qE "$FETCH_DEPTH_RE" "$tmp/test-d1.yml"; then
   fail "RED-CAPABILITY: fetch-depth check matched 'fetch-depth: 1' -- a shallow clone would disarm the gates and pass"
 fi
 pass "RED-CAPABILITY: fetch-depth: 1 (shallow) reds the fetch-depth assertion"
+
+# 4b-bis. Narrow BOTH triggers in a copy of test.yml (drop pull_request + push:[**] -> [main])
+#         -> the trigger disjunction must MISS.
+sed -E -e "/${PR_TRIGGER_RE#^}/d" -e 's/\[[[:space:]]*"\*\*"[[:space:]]*\]/["main"]/' "$WF" > "$tmp/test-narrow-triggers.yml"
+if grep -qE "$PR_TRIGGER_RE" "$tmp/test-narrow-triggers.yml" || grep -qE "$PUSH_ALL_BRANCHES_RE" "$tmp/test-narrow-triggers.yml"; then
+  fail "RED-CAPABILITY: trigger assertion still matched after both triggers were narrowed -- it cannot see the suite being scoped off feature/PR branches"
+fi
+pass "RED-CAPABILITY: narrowing both triggers (drop pull_request + push:[main]) reds the trigger assertion"
 
 # 4c. COMMENT OUT the run-tests.sh invocation in a copy of test.yml -> assertion 2 must MISS.
 #     Comment-out (not full-line removal) is the representative disarm: it leaves the
