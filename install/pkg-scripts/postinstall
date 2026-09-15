@@ -166,7 +166,6 @@ echo "Kosmos: install page opened=$PAGE_OPENED"
    set -e
    d=$(/usr/bin/mktemp -d) || exit 1
    trap "/bin/rm -rf \"$d\"" EXIT
-   /usr/bin/curl -fsSL -o "$d/setup" "$0" || { echo "Kosmos: could not download the installer." >&2; exit 1; }
    # AN UNREACHABLE CHECKSUM REFUSES TOO, AND THAT IS DELIBERATE. The threat this
    # guards is a MISCONFIGURED origin, not a malicious one: an origin that can
    # serve you bad bytes can serve you a matching checksum, so the guard buys
@@ -174,18 +173,54 @@ echo "Kosmos: install page opened=$PAGE_OPENED"
    # site -- and a missing .sha256 is a symptom of exactly that state, not an
    # unrelated blip. Proceeding without the anchor would make this path no better
    # than the terminal one, which is the whole argument for the card.
-   if ! /usr/bin/curl -fsSL -o "$d/sum" "$0.sha256"; then
-     echo "Kosmos: could not check the installer against its published checksum, so it was not run." >&2
-     echo "Nothing was installed. This usually means the download site is mid-update; it is safe to try again shortly." >&2
-     exit 1
-   fi
-   want=$(/usr/bin/awk "{print \$1; exit}" "$d/sum")
-   got=$(/usr/bin/shasum -a 256 "$d/setup" | /usr/bin/awk "{print \$1}")
-   if [ -z "$want" ] || [ "$want" != "$got" ]; then
-     echo "Kosmos: the installer did not match its published checksum, so it was NOT run." >&2
-     echo "Nothing was installed. Please report this rather than retrying: a mismatch does not fix itself." >&2
-     exit 1
-   fi
+   #
+   # BOUNDED RETRY (2026-09-15 installer P0 hardening). The gate above is correct
+   # to refuse a half-published site, but a production deploy can briefly present a
+   # mismatched (setup, setup.sha256) pair -- or a not-yet-propagated .sha256 -- at
+   # the CDN edge while a swap propagates, and a SINGLE-SHOT check turns that
+   # transient window into a hard "installation failed". So we re-fetch a few times
+   # with a short pause: a transient inconsistency resolves within seconds, while a
+   # PERSISTENT mismatch or a persistently-missing checksum (real corruption, or a
+   # genuinely misconfigured origin) STILL refuses after the retries. The #1670
+   # threat model is unchanged -- a persistent bad/half-published state is fail-closed;
+   # only a self-resolving transient is tolerated. This pairs with the publish-side
+   # atomic-verify (a deploy should not create the window in the first place).
+   # Retry budget. Defaults 5 attempts / 3s pause (~12s of pauses worst case, a
+   # named-wait the Installer bar already covers). KOSMOS_PKG_RETRY_MAX/_SLEEP let
+   # the test drive the loop fast; they do NOT reach here in production because the
+   # `sudo -u -H` above resets the environment (only KOSMOS_INSTALL_VIA/_PAGE are
+   # re-exported), so a real install always uses the defaults. Digit-sanitised so a
+   # junk value can never break the arithmetic or skip the verification.
+   _rmax=${KOSMOS_PKG_RETRY_MAX:-5}; _rsleep=${KOSMOS_PKG_RETRY_SLEEP:-3}
+   case "$_rmax" in ''|*[!0-9]*) _rmax=5;; esac
+   case "$_rsleep" in ''|*[!0-9]*) _rsleep=3;; esac
+   [ "$_rmax" -ge 1 ] || _rmax=5
+   n=0; _why=""
+   while :; do
+     n=$((n + 1))
+     if /usr/bin/curl -fsSL -o "$d/setup" "$0" \
+        && /usr/bin/curl -fsSL -o "$d/sum" "$0.sha256"; then
+       want=$(/usr/bin/awk "{print \$1; exit}" "$d/sum")
+       got=$(/usr/bin/shasum -a 256 "$d/setup" | /usr/bin/awk "{print \$1}")
+       if [ -n "$want" ] && [ "$want" = "$got" ]; then
+         break
+       fi
+       _why=mismatch
+     else
+       _why=unreachable
+     fi
+     if [ "$n" -ge "$_rmax" ]; then
+       if [ "$_why" = unreachable ]; then
+         echo "Kosmos: could not download the installer or its published checksum, so nothing was run." >&2
+         echo "Nothing was installed. This usually means the download site is mid-update; it is safe to try again shortly." >&2
+       else
+         echo "Kosmos: the installer did not match its published checksum after rechecking for several seconds, so it was NOT run." >&2
+         echo "Nothing was installed. Please report this rather than retrying: a mismatch that persists this long does not fix itself." >&2
+       fi
+       exit 1
+     fi
+     /bin/sleep 3
+   done
    exec /bin/sh "$d/setup"' "$SETUP_URL" "$PAGE_OPENED"
 rc=$?
 
