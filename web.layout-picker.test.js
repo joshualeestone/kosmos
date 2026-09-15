@@ -128,11 +128,10 @@ test('piece two: the rail heads exist once, hidden until the mode, with a + on t
   assert.match(SCRIPT, /getElementById\('rail-projects-new'\)\.addEventListener\('click', \(\) => document\.getElementById\('pj-new'\)\.click\(\)\)/, 'the rail + is not the list\'s own New project');
   assert.match(SCRIPT, /sessionStorage\.getItem\('rail-fold-' \+ k\)/, 'a fold is not per session');
   assert.match(PAGE, /body\.consolidated\.fold-a \{ grid-template-columns: 48px/);
-  assert.match(PAGE, /body\.consolidated\.fold-p #panel-projects \{ grid-template-columns: 48px/);
-  /* The switch-specificity trap: `#pj-list.asgrid { display: flex }` carries
-     one more class than a `#pj-list { display: none }` fold, so the fold must
-     name `.asgrid` too or it loses regardless of order. Measured 2026-08-24. */
-  assert.match(PAGE, /body\.consolidated\.fold-p #pj-list\.asgrid[^{]*\{ display: none; \}/, 'the projects fold lost to #pj-list.asgrid again');
+  /* #3126 (Josh, 6.68): the fold-p (folded-projects) CSS assertions were removed
+     with the collapse control - the projects column is no longer collapsible, so
+     #panel-projects never enters the 48px folded state and #pj-list is never
+     hidden by a fold. The agents fold (fold-a, above) is unchanged. */
 });
 
 test('piece three: the person\'s row is retired in the consolidated view (#3051 moved the person up to the top-right user menu); the markup is kept but hidden, and paintYou still paints it', () => {
@@ -213,8 +212,15 @@ test('piece five: the consolidated header stays as a top bar (#2282), keeps its 
      new order so a regression back to +-in-.lead is caught. */
   assert.match(PAGE, /<span class="lead"><button class="fold" type="button" id="rail-agents-fold"[^>]*>&lsaquo;<\/button><span class="railname">Agents<\/span><\/span>/,
     'the agents fold arrow is not inside .lead beside the name (collapse-on-the-left)');
-  assert.match(PAGE, /<span class="lead"><button class="fold" type="button" id="rail-projects-fold"[^>]*>&lsaquo;<\/button><span class="railname">Projects<\/span><\/span>/,
-    'the projects fold arrow is not inside .lead beside the name (collapse-on-the-left)');
+  /* #3126 (Josh, 6.68): the projects column is not collapsible, so its fold arrow
+     was removed; the head now holds only the name, kept aligned with the agents
+     head by a CSS inset (asserted below). */
+  assert.doesNotMatch(PAGE, /id="rail-projects-fold"/,
+    'the projects fold control must be gone - the column is not collapsible (#3126)');
+  assert.match(PAGE, /<span class="lead"><span class="railname">Projects<\/span><\/span>/,
+    'the projects head should hold only the name after the fold control was removed (#3126)');
+  assert.match(PAGE, /#rail-projects \.lead \{ padding-left: 29px; \}/,
+    'the projects head keeps the fold-button inset so "Projects" stays aligned with "Agents" (#3126)');
   assert.match(PAGE, /<span class="railacts">\s*<button class="fold plus" type="button" id="rail-agents-new"[^>]*>\+<\/button>\s*<\/span>/,
     'the agents + is not out in .railacts on the far right');
   assert.match(PAGE, /<span class="railacts">\s*<button class="fold plus" type="button" id="rail-projects-new"[^>]*>\+<\/button>\s*<\/span>/,

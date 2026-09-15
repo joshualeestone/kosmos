@@ -385,11 +385,11 @@ test('the state chatter is hidden from the EYE only, and a needs-you row keeps i
     'a GLYPH lost its aria-hidden: the visually-hidden .lstate would announce decoration with the state word (7 aria-hidden glyphs: working/attn/question/idle/paused/stopped/unknown; #2808 added question, restarting is a kGlyph() call with no literal here)');
 });
 
-test('each fold hides its OWN rail label, and only its own', () => {
+test('the agents fold hides its own rail label, scoped to #rail-agents (#3126: projects no longer folds)', () => {
   assert.match(PAGE, new RegExp(cons + '\\.fold-a #rail-agents \\.railname \\{ display: none; \\}'),
     'the fold-a railname hide lost its #rail-agents scope (unscoped, folding agents blanked the PROJECTS label)');
-  assert.match(PAGE, new RegExp(cons + '\\.fold-p #rail-projects \\.railname \\{ display: none; \\}'),
-    'folding projects no longer hides its own label, which overflowed the 48px strip as clipped letters');
+  /* #3126 (Josh, 6.68): the fold-p projects-railname hide was removed with the
+     collapse control - the projects column is no longer collapsible. */
 });
 
 test('the pre-rail grid rows are auto, never 0: the notice surfaces must be able to show', () => {
