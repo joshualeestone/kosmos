@@ -41,6 +41,7 @@ async function runPicker({ fetchOk, fetchBody, acctDir, seedModels }) {
     let CREATE_MODELS = ${JSON.stringify(seedModels || [])};
     let OPENAI_PICK_MODELS = [];
     let IMPORT_OPENAI_DEFAULT = false;   /* #2453 follow-up: paintOpenaiCreateModel reads this one-shot OpenAI-import default flag */
+    let CREATE_PREF_OPENAI_MODEL = '';   /* #3081: paintOpenaiCreateModel also reads this saved-model one-shot */
     const esc = (s) => String(s == null ? '' : s);
     const paintModelWhy = () => { _calls.paintWhy += 1; };
     const fetch = async (url) => { _calls.fetchUrl = url; return { ok: ${fetchOk ? 'true' : 'false'}, json: async () => (${JSON.stringify(fetchBody || {})}) }; };
