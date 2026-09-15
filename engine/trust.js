@@ -518,15 +518,16 @@ function trustFolderInner(dir, opts) {
  *
  * Same shape, same refusals, same fail-soft contract as `trustFolder`.
  */
-// #3088: same lock as trustFolder, on the SAME file (CONFIG()) - the two are the
-// config's writers and must serialise against each other, or a rollback could
-// clobber a concurrent relaunch's trust write.
+// #3088: lock CONFIG() - the file forgetFolderInner itself writes - so the rollback's
+// read-modify-write serialises against any other writer of that SAME file. (The pairing
+// with trustFolder, and a pre-existing default-account divergence where trustFolder can
+// target a different file, is in the plan; do not restate it here as a guarantee.)
 function forgetFolder(dir, displaced, madeEntry) {
   // #3088: withWriteLock, not withFileLock, so an absent config parent (the config we
   // wrote was deleted before rollback) yields forgetFolderInner's honest "we could not
   // read their config file" rather than the lock's 'we could not get exclusive access'.
-  // In the normal case CONFIG()'s parent (~) exists, so the real lock is taken and
-  // forgetFolder still serialises against a concurrent trustFolder on the same file.
+  // In the normal case CONFIG()'s parent (~) exists, so the real lock is taken rather
+  // than the unlocked fallback.
   const r = withWriteLock(CONFIG(), () => forgetFolderInner(dir, displaced, madeEntry));
   return r.ok ? r.value : { ok: false, because: r.because };
 }

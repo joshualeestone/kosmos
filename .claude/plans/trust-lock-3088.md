@@ -32,11 +32,30 @@ settings.json. Splinter assigned: file + build now while the context is fresh.
   seam to force the read/write overlap).
 
 ## Scope decision
-Locked ALL config-family writers, not just the two on the #2808 hot path: forgetFolder writes the
-SAME CONFIG file as trustFolder and must serialize with it; record writers share RECORD. Weakest
-premise: the concurrency test is not guaranteed-red, so the cross-process serialization rests on the
-single-process tests + the lock primitive's own tests (filelock.test.js) + the mechanism argument,
-not on a red-capable end-to-end control. A follow-up could add a delay seam to trust.js for a
-deterministic control.
+Locked ALL config-family writers, not just the two on the #2808 hot path: forgetFolder writes
+CONFIG() and record writers share RECORD, so each must serialize against any other writer of its own
+file. Weakest premise: the concurrency test is not guaranteed-red, so the cross-process
+serialization rests on the single-process tests + the lock primitive's own tests (filelock.test.js)
++ the mechanism argument, not on a red-capable end-to-end control. A follow-up could add a delay
+seam to trust.js for a deterministic control.
+
+## Two limitations the lock does NOT close (documented, not bugs introduced here)
+1. forgetFolder / trustFolder do NOT always serialize against EACH OTHER. Each locks its own inner's
+   target correctly, but the targets can differ: trustFolder honors opts (a default-account agent,
+   agentDefaultAccount + no configDir, targets defaultAgentConfig() = ~/.claude.json) while
+   forgetFolder takes no opts and always targets CONFIG() (the engine's own config, which follows
+   the engine's CLAUDE_CONFIG_DIR). So for a default-account agent on an engine that carries
+   CLAUDE_CONFIG_DIR, trustFolder and forgetFolder act on DIFFERENT files - a pre-existing
+   forgetFolder-ignores-opts divergence (rollback operates on the wrong file for that agent),
+   neither introduced nor fixed here. The lock is still keyed correctly per writer, so no new bug;
+   the earlier code comment overstating "same file" was corrected to claim only per-file
+   serialization.
+2. The lock is best-effort with a bounded acquire wait (filelock.js LOCK_WAIT_MS = 2000ms). Under a
+   large enough restart storm, if agents contend on one <config>.lock for >2s the wrapper
+   fail-safes to {ok:false} and the trust/settings write is SKIPPED. That degrades to the ORIGINAL
+   single-agent symptom (an agent meets the trust prompt), NOT to a corrupted / lost-update config -
+   the whole point of the lock. This skip-under-heavy-contention is the accepted worst case; the 2s
+   budget bounds how large a simultaneous storm the lock absorbs cleanly. A larger budget or a retry
+   loop is a follow-up if real storms are observed exceeding it.
 
 Full challenge-loop before PR. `Addresses #3088` (non-closing).
