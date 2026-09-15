@@ -70,6 +70,13 @@ URL="http://127.0.0.1:$PORT/setup"
 # URL". Two refusal arms then PASSED FOR THE WRONG REASON, because the script
 # refused on a download failure rather than on the checksum. Only the control
 # caught it.
+#
+# RETRY BUDGET FOR THE TEST. The shipped default is 5 attempts / 3s pause; we drive
+# it fast here (no pause, few attempts) via the env knobs the postinstall reads.
+# These reach the lifted script because run_arm inherits this shell's environment;
+# in a REAL install `sudo -u -H` strips them, so production keeps the 5/3 default.
+# The refuse arms below therefore complete instantly instead of waiting ~12s each.
+export KOSMOS_PKG_RETRY_SLEEP=0 KOSMOS_PKG_RETRY_MAX=4
 run_arm() { rm -f "$T/RAN"; /bin/sh -c "$(cat "$INNER")" "$URL" 0 2>&1; }
 
 # --- ARM 1: the checksum matches, so it runs -------------------------------
@@ -91,10 +98,67 @@ rm -f "$WWW/setup.sha256"
 out=$(run_arm); rc=$?
 if [ "$rc" -ne 0 ] && [ ! -f "$T/RAN" ]; then pass "an ABSENT checksum refuses and does not run it"
 else fail "an absent checksum must refuse AND not run (rc=$rc, ran=$([ -f "$T/RAN" ] && echo yes || echo no))"; fi
-if has "$out" "could not check the installer"; then pass "and says it could not CHECK, a different sentence from a mismatch"; else fail "and distinguishes the two causes: $out"; fi
+if has "$out" "could not download the installer or its published checksum"; then pass "and says it could not DOWNLOAD/check, a different sentence from a mismatch"; else fail "and distinguishes the two causes: $out"; fi
 if has "$out" "safe to try again"; then pass "and this one IS safe to retry, so it says so"; else fail "and says a retry is safe here: $out"; fi
 
+# --- ARM 4: a TRANSIENT mismatch (half-published window) then a MATCH RUNS --
+# The 2026-09-15 hardening: a single-shot check turned a transient CDN/half-publish
+# window into a hard "installation failed". The bounded retry must RECOVER when the
+# window closes. We prove it deterministically (not on a wall-clock race): a tiny
+# origin serves the WRONG setup.sha256 on the first request and the CORRECT one on
+# every request after, so attempt 1 mismatches and attempt 2 matches and runs.
+kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null; SRV=""
+CNT="$T/sha_hits"; : > "$CNT"
+# bind + report the port, then serve (wrong sha on the 1st fetch, right after)
+FLIPLOG="$T/flip.log"
+/usr/bin/python3 - "$GOOD" "$CNT" "$WWW" "$FLIPLOG" <<'PY' &
+import http.server, sys
+GOOD, CNT, ROOT, LOG = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+BAD = "0"*64
+class H(http.server.BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def do_GET(self):
+        if self.path == "/setup":
+            body = open(ROOT+"/setup","rb").read()
+        elif self.path == "/setup.sha256":
+            with open(CNT) as f: hits = len(f.read())
+            open(CNT,"a").write("x")
+            body = ((BAD if hits == 0 else GOOD)+"  setup\n").encode()
+        else:
+            self.send_response(404); self.end_headers(); return
+        self.send_response(200); self.send_header("Content-Length",str(len(body))); self.end_headers()
+        self.wfile.write(body)
+srv = http.server.HTTPServer(("127.0.0.1",0), H)
+open(LOG,"w").write("port %d\n" % srv.server_address[1])
+srv.serve_forever()
+PY
+SRV=$!
+FPORT=""
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  FPORT=$(sed -n 's/.*port \([0-9][0-9]*\).*/\1/p' "$FLIPLOG" 2>/dev/null | head -1)
+  [ -n "$FPORT" ] && break
+  sleep 0.25
+done
+if [ -z "$FPORT" ]; then fail "ARM 4 flip-origin did not start"; else
+  rm -f "$T/RAN"
+  out=$(/bin/sh -c "$(cat "$INNER")" "http://127.0.0.1:$FPORT/setup" 0 2>&1); rc=$?
+  if [ "$rc" -eq 0 ] && [ -f "$T/RAN" ]; then pass "a TRANSIENT mismatch that then matches RECOVERS and runs (retry works)"
+  else fail "a transient-then-matching checksum must recover and run (rc=$rc, ran=$([ -f "$T/RAN" ] && echo yes || echo no)): $out"; fi
+fi
+
 # --- CONTROL: the harness can tell a run from a refusal --------------------
+kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null; SRV=""
+cd "$WWW" || exit 1
+/usr/bin/python3 -u -m http.server 0 -b 127.0.0.1 >"$T/srv.log" 2>&1 &
+SRV=$!
+cd "$REPO" || exit 1
+PORT=""
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  PORT=$(sed -n 's/.*port \([0-9][0-9]*\).*/\1/p' "$T/srv.log" 2>/dev/null | head -1)
+  [ -n "$PORT" ] && break
+  sleep 0.25
+done
+URL="http://127.0.0.1:$PORT/setup"
 rm -f "$T/RAN"; printf '%s  setup\n' "$GOOD" > "$WWW/setup.sha256"
 run_arm >/dev/null 2>&1
 if [ -f "$T/RAN" ]; then pass "CONTROL: the harness detects a real run, so the refusals above mean something"
