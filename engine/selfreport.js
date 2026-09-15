@@ -116,6 +116,20 @@ function cappedSentence(value, cap) {
    by:'operator' must still store by:'agent'). ⚠️ Any NEW caller of record() must
    keep building entry explicitly -- spreading a request body here silently
    reopens the operator-provenance forgery. */
+/* #2808 class-1: the ONE definition of "this standing report is an AUTO permission/
+   trust wait" (a lifecycle-hook-written needs_you). record()'s #2456 clobber-guard
+   below and engine/class1-autohandle.js's auto-handle BOTH key the class-1-vs-class-2
+   line on it, so it lives here once and is exported rather than inlined in two places
+   (the two-derivations-of-one-fact defect this codebase names as its most-shipped).
+   A DELIBERATE needs_you (by:'agent'/'operator') is NOT this; nor is a legacy by:null
+   line (provenance unknown); nor any non-needs_you state. */
+function isAutoPermissionWait(standing) {
+  return !!standing
+    && standing.found === true
+    && standing.state === 'needs_you'
+    && standing.by === 'auto';
+}
+
 function record(sessionName, entry) {
   let file;
   try { file = fileFor(sessionName); } catch {
@@ -219,9 +233,7 @@ function record(sessionName, entry) {
      today -- a provider outage should surface even over a standing wait. */
   if (entry.auto === true && (state === 'idle' || state === 'working' || state === 'needs_you')) {
     const standing = read(sessionName);
-    const standingIsAutoPermissionWait = standing.found === true
-      && standing.state === 'needs_you'
-      && standing.by === 'auto';
+    const standingIsAutoPermissionWait = isAutoPermissionWait(standing);
     const standingIsProtectedWait = standing.found === true
       && WAITING_ON_A_PERSON.includes(standing.state)
       && !standingIsAutoPermissionWait;
@@ -402,4 +414,4 @@ function read(sessionName) {
   };
 }
 
-module.exports = { STATES, WAITING_ON_A_PERSON, DIR, NO_READING, TAIL_BYTES, record, read, fileFor };
+module.exports = { STATES, WAITING_ON_A_PERSON, DIR, NO_READING, TAIL_BYTES, record, read, fileFor, isAutoPermissionWait };
