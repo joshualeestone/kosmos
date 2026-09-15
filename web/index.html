@@ -13827,7 +13827,7 @@ const STATE_COPY = {
      broken". attn:false -- it is surfaced (never dropped), just not alarmed. The state is
      still needs_you; cardStOf/stateCopyOf route a class-2 here via the inlined
      `state==='needs_you' && stateReportedBy==='agent'` predicate (glyphOf follows cardStOf.st). */
-  question:     { label: 'Question',       attn: false },
+  question:     { label: 'Question',      attn: false },
   rate_limited: { label: 'Paused',        attn: true  },
   /* #874: Anthropic has rejected this account's bearer token outright, not
      merely throttled it. "Working" forever was the bug; "Paused" would be
@@ -23768,7 +23768,7 @@ async function paintTalk(sessionName, agentName) {
    * a free-text question, or a new menu whose labels wrap, which `optionsIn`
    * refuses by design -- and `different` stayed false, `stillTheSame` stayed
    * true, and the WHOLE `#d-qask` block hid, question text included, while the
-   * board card said Needs you.
+   * board card said Issue.
    *
    * That is verbatim the harm this file names two hundred lines up: "panel
    * gone, no buttons, while the board card still said the person was needed."
@@ -23803,7 +23803,7 @@ async function paintTalk(sessionName, agentName) {
    * the deletion changed was what happens on the tick AFTER.
    *
    * So they are separated: the panel is SHOWN (a question we can see must not
-   * be hidden while the board says Needs you) and the answer is REMEMBERED (the
+   * be hidden while the board says Issue) and the answer is REMEMBERED (the
    * next keyable tick decides by equality, as it always did). The cost is that
    * the question text can appear for a tick and go again when the menu
    * re-parses, which is the honest price of not being able to tell one
@@ -23954,7 +23954,7 @@ async function paintTalk(sessionName, agentName) {
     qtext.hidden = true;
     qtext.classList.remove('clamped', 'expanded');   // #2808: no wall, no clamp
   } else if (body.asking) {
-    /* ⚠️ SAID, not hidden. A "Issue" card over an empty question box is
+    /* ⚠️ SAID, not hidden. An "Issue" card over an empty question box is
        the stranded state this feature exists to remove. The ROUTE's own
        sentence is used, for the reason the room records: a second wording
        here drifts from that one the first time either is edited. */
@@ -37165,7 +37165,7 @@ function pjTilesUnknown() {
   document.getElementById('st-pjdm-tile').hidden = true;
 }
 
-/* The pack's state pill (view C): Needs you > Working > Can't tell >
+/* The pack's state pill (view C): Issue > Working > Can't tell >
    Nothing running. "Nothing running" is a CLAIM -- it is only made when
    every member was actually seen; a blind roster or unseen members get
    the board's own unsure treatment instead of a reassurance. */
@@ -42357,7 +42357,7 @@ function paintThread(body) {
     pjApplyEngMode();
   } else if (body.asking) {
     /**
-     * ⚠️ SAID, not hidden. A "Issue" card over an empty question box is the
+     * ⚠️ SAID, not hidden. An "Issue" card over an empty question box is the
      * stranded state this whole feature exists to remove, rebuilt one step
      * further in. The two reads differ in moment, flags and depth, so this is
      * genuinely reachable.

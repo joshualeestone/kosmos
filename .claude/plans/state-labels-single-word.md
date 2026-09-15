@@ -49,6 +49,14 @@ buttons wont wrap to two lines and it will keep a single word indicator for all 
   mean "this section needs your attention", a DIFFERENT concept from the agent state.
 - Engine-source comments that mention "Needs you" (PigeonPete confirmed all ~28 are
   comments, non-functional; chasing them is churn).
+- The comment sweep is bounded to the files this change touches (web/index.html,
+  server.test.js, the two dealarm/needsyou checks + the README): every stale
+  display-label quote in those was updated. Pre-existing NARRATIVE comments in files
+  this change does not otherwise touch (render-talk.js:1640, server.projects.test.js
+  test names, web.qask-clear-clamp-2808.test.js) still say "Needs you" but none
+  ASSERTS the rendered label (they test the needs_you snake_case key or are prose), so
+  they are not this change's drift and are left rather than pulling unrelated files
+  into the diff.
 
 If Josh wants the org-chart/map descriptive text single-worded too, that is a fast
 follow-up in a separate change.
