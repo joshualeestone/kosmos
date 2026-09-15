@@ -14705,10 +14705,13 @@ function boardMods(a, m) {
        with the label sitting on it. */
     m.st === 'working' ? 'working' : '',
     m.st === 'attn' ? 'attn' : '',
-    /* #2808 class 2: a deliberate agent question gets a CALM ground (not the red 'attn' wash),
-       so it is distinguishable but reads as "has a question", never "app broken". Derived from
-       the pill like every arm here, so ground and label cannot disagree. First-cut styling;
-       Mona Lisa's restyle owns the final look. */
+    /* #2808 class 2: a deliberate agent question gets the calm `question` class, whose CSS
+       (.acard.question) is a calm BORDER + shadow only -- NO ground wash. That is deliberate:
+       "state owns the ground" reserves a filled ground for working (green) and needs-you (red),
+       and everything else stays white (the rule above), so a class-2 stays white-grounded like
+       idle/paused and is told apart by its border, glyph and "has a question" label, never by a
+       red wash. Derived from the pill like every arm here. First-cut styling; Mona's restyle owns
+       the final look. */
     m.st === 'question' ? 'question' : '',
     m.st === 'stopped' ? 'off' : '',
     m.st === 'unknown' ? 'unk' : '',
@@ -21831,6 +21834,12 @@ function paintOrg() {
        signal that matters -- the working glyph still rides alongside elsewhere. */
     const working = cardStOf(a).st === 'working';
     const glowCls = needsYou ? ' onode-attn' : working ? ' onode-working' : '';
+    /* #2808 class 2: a deliberate agent question is de-alarmed off `onode-attn` (no red glow/
+       badge), but it must NOT vanish from the screen reader too -- dropping the accessible-name
+       state signal would silently drop a real question (Josh: do NOT drop these). So the
+       accessible name gains ", has a question" in place of ", needs you". This is the a11y text
+       signal only; a calm VISUAL affordance on the node is a Mona restyle item. */
+    const hasQuestion = cardStOf(a).st === 'question';
     const shown = a.name || a.sessionName;
     /* #2863: the node's button carries its own aria-label, so a descendant badge's
        aria-label is inert (the #2577 note below the aria-label says exactly this for
@@ -21862,7 +21871,7 @@ function paintOrg() {
          from descendant content), so needs-you would be visual-only here. Fold it
          into the button's accessible name, the way the list row conveys it through
          LROW_WARN sitting OUTSIDE any button. */
-      + ' aria-label="Open ' + esc(shown) + (needsYou ? ', needs you' : '') + dmAria + '">'
+      + ' aria-label="Open ' + esc(shown) + (needsYou ? ', needs you' : hasQuestion ? ', has a question' : '') + dmAria + '">'
       + orgRing(a)
       + '<span class="face"' + tint + '>' + face + '</span>'
       + (needsYou ? ONODE_WARN : '')
