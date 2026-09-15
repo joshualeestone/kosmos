@@ -529,7 +529,10 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    by which of two rules happens to sit lower in the file. */
 .lav.youav { width: 56px; height: 56px; flex: 0 0 56px; font: 600 .75rem var(--font-ui);
              color: var(--label-2); background: var(--k-sunk); }
-.lav.youav img { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* #3110: same fix as the base .lav img above, because this override re-pins height: 100% at higher
+   specificity and would otherwise keep the operator "you" photo (56x56, same .lav grid) an oval for a
+   portrait source. height: auto + aspect-ratio: 1 forces the 1:1 box; object-fit: cover crops. */
+.lav.youav img { display: block; width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; }
 /* The person's initial, dark, so they read as themselves rather than as one more
    agent (Josh, 2026-08-27: "give it a black background so it would have some
    difference and stand out").

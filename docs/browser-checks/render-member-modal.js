@@ -100,9 +100,18 @@ const chk = (ok, label, extra) => {
        A control on the CONTAINER box (already square) would pass either way, so this reads the IMG. */
     const av = await page.$eval('.pj-member[data-agent="april"] .lav.pj-face img', (img) => {
       const r = img.getBoundingClientRect();
-      return { w: Math.round(r.width), h: Math.round(r.height), fit: getComputedStyle(img).objectFit };
+      return {
+        w: Math.round(r.width), h: Math.round(r.height), fit: getComputedStyle(img).objectFit,
+        // naturalWidth/Height are the DECODED source dimensions -- 0 if the img failed to load.
+        natW: img.naturalWidth, natH: img.naturalHeight,
+      };
     }).catch(() => null);
     chk(!!av, 'the member avatar photo is rendered', av ? '' : 'no img on the member face');
+    /* Prove the SQUARE render derives from a NON-square SOURCE. `aspect-ratio: 1` squares an empty img
+       box too, so without this a broken avatar route would let a simultaneous CSS regression pass. The
+       seeded source is 12x44 (portrait), so a genuine load reports natH > natW. */
+    chk(!!av && av.natW > 0 && av.natH > av.natW, 'the seeded avatar source actually loaded and is NON-square (portrait)',
+      av ? ('natural ' + av.natW + 'x' + av.natH) : '');
     chk(!!av && av.w === av.h, 'the portrait-photo avatar renders SQUARE (a circle), not an oval (#3110)',
       av ? ('img ' + av.w + 'x' + av.h) : '');
     chk(!!av && av.fit === 'cover', 'the avatar photo is cropped with object-fit: cover', av ? av.fit : '');
