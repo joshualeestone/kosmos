@@ -419,6 +419,19 @@ function stagingRevertWarning(recorded, resolved) {
   return recorded === 'staging' && resolved === 'prod';
 }
 
+/* #2036: the boot site's actual decision, composed so the load-bearing WIRING is pinned by a
+   test and not just the truth table. The pure predicate above cannot protect the one choice that
+   matters here: that this reads recordedSourceChannel() (the RAW install stamp) and NOT
+   sourceChannelNow() (the #2934-rederived badge). Those two differ ONLY for a legitimately
+   promoted staging build (recorded 'staging', prodPublishesRunning() true), and there the badge
+   reads 'prod' -- so wiring the warn to the badge would report (prod, prod) and MASK exactly the
+   revert this exists to surface. Exported and exercised in that divergence case so the swap is a
+   test failure, not a silent regression. Reads env + disk at call time; both accessors are
+   non-throwing, so this cannot throw on the listen path. */
+function stagingRevertWarningNow() {
+  return stagingRevertWarning(recordedSourceChannel(), updates.updateChannel());
+}
+
 const autohandoff = require('./engine/autohandoff'); // #1724: auto-handoff on context fill
 const autohandoffSweep = require('./engine/autohandoff-sweep'); // #1724: the consume half (the sweep)
 const boardauth = require('./engine/boardauth'); // #1946: token-gate the loopback bind so another macOS account cannot reach it
@@ -13485,14 +13498,16 @@ function start(port = PORT) {
       process.stdout.write(`Kosmos update check: channel=${updates.updateChannel()} pointer=${updates.pointerUrl()}\n`);
       /* #2036: warn LOUDLY at boot when this box installed from staging (the durable stamp) but is
          resolving prod -- the #2969 silent revert. Observability only: it changes nothing about which
-         channel resolves or which bytes install (that fix is parked on real-machine verification). The
-         predicate is pure and the two reads never throw (recordedSourceChannel try/catches to 'prod';
-         updates.updateChannel is pure), so this cannot break the listen path. */
-      if (stagingRevertWarning(recordedSourceChannel(), updates.updateChannel())) {
+         channel resolves or which bytes install (that fix is parked on real-machine verification).
+         stagingRevertWarningNow() cannot throw on the listen path (both its reads are non-throwing), and
+         it wires the RAW install stamp rather than the #2934 badge (see its docstring). */
+      if (stagingRevertWarningNow()) {
         process.stderr.write('Kosmos update check: WARNING -- this box installed from the staging channel '
           + '(source-channel=staging) but is resolving the prod channel, so it has silently stopped receiving '
-          + 'staging builds (kosmos#2969). The board launchd job carries no update channel across login; set the '
-          + 'update channel to staging (KOSMOS_UPDATE_CHANNEL=staging) to restore the subscription. See kosmos#2036.\n');
+          + 'staging builds (kosmos#2969). The remedy is durable, not a one-off: the board launchd job carries '
+          + 'no update channel across login, so the channel must be persisted IN the board job (set '
+          + 'KOSMOS_UPDATE_CHANNEL=staging in its EnvironmentVariables and reload it) -- setting it only in an '
+          + 'interactive shell does not survive the next login and the revert returns. See kosmos#2969 / #2036.\n');
       }
       /* 🪟 S4: tell the updater the board it must stop and the port it must confirm on, so the win32
          in-app helper (win32update.begin -> win32apply) hands the swap this exact process and port
@@ -13900,10 +13915,13 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
-  /* #2036: the boot diagnostic's condition, exported so all four channel combinations are
-     pinned directly as a pure function -- the warn fires inside the listen callback, which a
-     require-only test never reaches, so the predicate is the testable seam. */
-  stagingRevertWarning,
+  /* #2036: the boot diagnostic's condition (pure truth table) AND its real call-site
+     composition, exported together so BOTH are pinned. stagingRevertWarningNow wires the raw
+     install stamp rather than the #2934 badge; sourceChannelNow is exported alongside so the
+     divergence test can show the badge would read 'prod' for a promoted build (masking the
+     revert) where the warn correctly fires -- i.e. the wiring, not just the predicate, is
+     guarded. The warn itself fires inside the listen callback a require-only test never reaches. */
+  stagingRevertWarning, stagingRevertWarningNow, sourceChannelNow,
   /* #1704 PR2: exported so a test can run one outbox drain against a sandboxed
      board; production starts it from the real-start path (startOutboxDrain). */
   drainOutboxNow,
