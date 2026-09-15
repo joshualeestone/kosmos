@@ -6360,7 +6360,7 @@ test('the About-you gate exists in production code (static pins)', () => {
   assert.match(fn, /nameEl\.value\.trim\(\) !== '' && doEl\.value\.trim\(\) !== ''/,
     'the two-answer gate is gone: Continue no longer waits');
   const put = fn.indexOf("fetch('/api/you'");
-  const advance = fn.indexOf('frGo(FR_STEP_YOU + 1)');
+  const advance = fn.indexOf('frGo(frStepAfter(FR_STEP_YOU))');   // #3112: advance routed through the sequence
   assert.ok(put > -1 && advance > -1 && put < advance,
     'the save no longer happens before the advance (or either vanished)');
   assert.match(fn, /aria-required="true"/,

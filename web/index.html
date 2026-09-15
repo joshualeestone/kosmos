@@ -44507,11 +44507,14 @@ function frStepAfter(step) {
   // display order instead (frStepProgress already uses indexOf, so this aligns them).
   const seq = frStepSequence();
   const at = seq.indexOf(step);
-  if (at !== -1) return at + 1 < seq.length ? seq[at + 1] : FR_STEPS;
-  // step not in the display sequence (e.g. a Windows-filtered pane via deep link):
-  // fall back to the next pane by number, the pre-#3112 behaviour, so frGo's clamp lands.
+  if (at !== -1) return at + 1 < seq.length ? seq[at + 1] : seq[seq.length - 1];
+  // step is NOT in the display sequence (e.g. a Windows-filtered pane reached by a
+  // ?fr-step= deep link). Fall forward to the first sequence element GREATER than step in
+  // ARRAY order -- which is no longer ascending, so on Windows a deep link to the skipped
+  // Access(2) lands on Model(5), not Automation(3). Landing on a real pane is all this owes
+  // frGo's clamp; it is a rare deep-link edge, never a normal Next hop.
   const next = seq.find((s) => s > step);
-  return next === undefined ? FR_STEPS : next;
+  return next === undefined ? seq[seq.length - 1] : next;
 }
 function frStepProgress(step) {
   const steps = frStepSequence();

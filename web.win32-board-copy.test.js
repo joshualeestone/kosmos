@@ -286,12 +286,15 @@ function wizard(platform, expr) {
 }
 
 test('a Windows wizard skips S2 (macOS file-access dialog) and S4 (macOS background notice), and counts honestly', () => {
-  assert.deepEqual(wizard('win32', 'frStepSequence()'), [1, 3, 5, 6, 7, 8, 9]);
-  assert.equal(wizard('win32', 'frStepAfter(1)'), 3, 'Get Started still lands on the macOS permission dialog');
-  assert.equal(wizard('win32', 'frStepAfter(3)'), 5, 'S3 Next still lands on the macOS notification mock');
-  assert.equal(wizard('win32', 'frStepAfter(2)'), 3, 'a deep link to S2 does not move on');
-  assert.equal(wizard('win32', 'frStepAfter(4)'), 5, 'a deep link to S4 does not move on');
-  assert.equal(wizard('win32', 'frStepProgress(3)'), 1 / 6, 'the progress still counts the skipped steps');
+  // #3112: Model (pane 5) is shown SECOND. Windows still drops Access(2) + Notifications(4)
+  // by pane NUMBER, so the display order is [1,5,3,6,7,8,9] (Welcome, Model, Automation, 6-9).
+  assert.deepEqual(wizard('win32', 'frStepSequence()'), [1, 5, 3, 6, 7, 8, 9]);
+  assert.equal(wizard('win32', 'frStepAfter(1)'), 5, 'Get Started now lands on the Model step (#3112)');
+  assert.equal(wizard('win32', 'frStepAfter(5)'), 3, 'Model Next lands on the automation step');
+  assert.equal(wizard('win32', 'frStepAfter(3)'), 6, 'S3 Next lands on step 6 (Access + Notifications are macOS-only)');
+  assert.equal(wizard('win32', 'frStepAfter(2)'), 5, 'a deep link to the skipped S2 falls forward to Model');
+  assert.equal(wizard('win32', 'frStepAfter(4)'), 5, 'a deep link to the skipped S4 falls forward to Model');
+  assert.equal(wizard('win32', 'frStepProgress(3)'), 2 / 6, 'the progress counts display position, skipped steps included');
   assert.equal(wizard('win32', 'frStepProgress(9)'), 1);
   const go = page.lift(SCRIPT, 'frGo');
   assert.match(go, /if \(!frStepSequence\(\)\.includes\(step\)\) step = frStepAfter\(step\);/, 'frGo paints a skipped step on a deep link');
@@ -301,13 +304,18 @@ test('a Windows wizard skips S2 (macOS file-access dialog) and S4 (macOS backgro
   }
 });
 
-test('MAC UNCHANGED: the wizard walks all nine steps, and progress is the number it always was', () => {
-  assert.deepEqual(wizard('darwin', 'frStepSequence()'), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
-  for (let s = 1; s <= 9; s += 1) {
-    assert.equal(wizard('darwin', `frStepAfter(${s})`), Math.min(s + 1, 9));
-    assert.equal(wizard('darwin', `frStepProgress(${s})`), (s - 1) / (9 - 1), `step ${s} progress moved on a Mac`);
+test('MAC (#3112): the wizard walks all nine steps with Model shown second, progress by display position', () => {
+  const order = [1, 5, 2, 3, 4, 6, 7, 8, 9];   // #3112: Model (pane 5) is shown second, right after Welcome
+  assert.deepEqual(wizard('darwin', 'frStepSequence()'), order);
+  // frStepAfter walks the DISPLAY order (indexOf+1), not pane number + 1, and frStepProgress
+  // counts the display position; a regression to the old ascending [1..9] order fails here.
+  for (let i = 0; i < order.length; i += 1) {
+    const s = order[i];
+    const after = i + 1 < order.length ? order[i + 1] : 9;   // the last step returns the last step (FR_STEPS is 9)
+    assert.equal(wizard('darwin', `frStepAfter(${s})`), after, `frStepAfter(${s}) moved wrong on a Mac`);
+    assert.equal(wizard('darwin', `frStepProgress(${s})`), i / (order.length - 1), `step ${s} progress moved on a Mac`);
   }
-  assert.deepEqual(wizard(undefined, 'frStepSequence()'), [1, 2, 3, 4, 5, 6, 7, 8, 9], 'an unstamped page skipped steps');
+  assert.deepEqual(wizard(undefined, 'frStepSequence()'), order, 'an unstamped page skipped steps');
 });
 
 test('S3 and S7 on Windows: the audit\'s words, no Accessibility, no Dock', () => {

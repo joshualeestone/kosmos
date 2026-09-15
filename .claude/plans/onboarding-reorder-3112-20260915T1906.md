@@ -44,9 +44,17 @@ Panes: 1 Welcome, 2 Access, 3 Automation, 4 Notifications, 5 Model, 6 Self-impro
 - Traversal simulation of the shipped functions: macOS -> [1,5,2,3,4,6,7,8,9]
   (Welcome, Model, Access, Automation, Notifications, Self-improving, Success, About-you,
   Your-agents), MATCH. Windows -> [1,5,3,6,7,8,9] (Access + Notifications dropped).
-- 70 firstrun node tests pass (web.firstrun-*.test.js), including firstrun-fractions-1835
-  (frStepProgress is position-based, so the reordered positions compute correctly).
+- Full node suite (`node --test engine/*.test.js *.test.js`, via `yarn test`) green.
+  🛑 The step-order GUARD is web.win32-board-copy.test.js (asserts frStepSequence / frStepAfter /
+  frStepProgress on BOTH macOS and Windows) and the About-you advance PIN is in server.test.js --
+  NEITHER matches the `web.firstrun-*.test.js` glob. An earlier `web.firstrun-*` subset run
+  (70 tests) reported green while missing exactly these guards (the bare-glob-runs-a-subset
+  hazard); the full suite caught them and both were updated to the new order. Run the FULL suite
+  for this change, never the firstrun-* subset.
 - No global "step N of M" counter exists (#firstrun step indicators were removed by Josh's
   spec); the s3-step-cap "1 / 2" captions are SUB-steps WITHIN the Automation pane, unaffected.
-- TODO before PR: run the firstrun browser-checks headless + full node suite + challenge-loop;
-  HOLD the merge behind 6.68 (ship order stays 6.68-then-onboarding).
+- #1720 web-change gate: satisfied by a `Browser-check:` commit trailer. The reorder is
+  navigation LOGIC (frStepSequence/frStepAfter), guarded by the win32-board-copy node test; the
+  panes' markup + ids are unchanged, so there is no new rendered surface a browser-check would
+  cover beyond that node coverage.
+- HOLD the merge behind 6.68 (ship order stays 6.68-then-onboarding).
