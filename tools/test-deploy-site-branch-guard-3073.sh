@@ -61,7 +61,7 @@ fi
 # =============================================================================================
 GIT="git -c user.email=t@t -c user.name=t -c init.defaultBranch=main -c advice.detachedHead=false"
 
-make_site() {  # <branch-to-end-on>  -> echoes the site dir
+make_site() {  # <branch-to-end-on> [origin-default-branch] -> echoes the site dir
   s=$(mktemp -d "${TMPDIR:-/tmp}/ds-guard-site.XXXXXX")
   $GIT -C "$s" init -q
   # commit so HEAD exists (the precondition above the guard), and a .vercel so a main run gets PAST
@@ -72,7 +72,15 @@ make_site() {  # <branch-to-end-on>  -> echoes the site dir
   $GIT -C "$s" commit -qm init >/dev/null 2>&1
   # ensure we are ON main (git may have defaulted elsewhere on old gits)
   $GIT -C "$s" branch -M main >/dev/null 2>&1
-  if [ "$1" != "main" ]; then $GIT -C "$s" checkout -q -b "$1" >/dev/null 2>&1; fi
+  # Optionally fabricate the site's origin/HEAD so the guard reads a NON-main default FROM it. No
+  # real remote is needed: origin/HEAD is a symref (exactly what `git remote set-head` writes), and
+  # the guard only reads its NAME (symbolic-ref --short | sed 's|^origin/||'), never its target.
+  if [ -n "${2:-}" ]; then
+    $GIT -C "$s" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$2" >/dev/null 2>&1
+  fi
+  # check out the branch we want to END on (create it if it is not main)
+  if [ "$1" = "main" ]; then $GIT -C "$s" checkout -q main >/dev/null 2>&1
+  else $GIT -C "$s" checkout -q -B "$1" >/dev/null 2>&1; fi
   printf '%s' "$s"
 }
 
@@ -117,6 +125,31 @@ if has "$OUT" "refusing to publish from"; then
   bad "B4: a DRY RUN (no --publish) from a feature branch tripped the #3073 guard -- a dry run deploys nothing and must be allowed. out=<<<$OUT>>>"
 else
   pass "B4: a dry run from a feature branch does NOT hit the #3073 guard (it deploys nothing)"
+fi
+rm -rf "$S"
+
+# B5) origin/HEAD names a NON-main default and the site is ON it -> guard ALLOWS. Proves the default
+# branch is READ from the site's own origin/HEAD, not hardcoded 'main' (the property test A3 only
+# grepped in source). No real remote needed: origin/HEAD is a fabricated symref, which is what the
+# guard reads.
+S=$(make_site trunk trunk)
+run_deploy "$S" --publish
+if has "$OUT" "refusing to publish from"; then
+  bad "B5: --publish from the site's OWN default 'trunk' (origin/HEAD=trunk) was refused -- the default is hardcoded 'main', not read from origin/HEAD. out=<<<$OUT>>>"
+else
+  pass "B5: --publish from a non-main default 'trunk' (origin/HEAD=trunk) is ALLOWED -- the default is derived from origin/HEAD (rc=$RC)"
+fi
+rm -rf "$S"
+
+# B6 CONTROL for B5) same trunk-default site but ON 'main' -> guard REFUSES (main != the trunk
+# default). Proves B5's allow is because the default is DERIVED (trunk), not because 'main' is
+# special-cased: here 'main' is the WRONG branch and is correctly refused.
+S=$(make_site main trunk)
+run_deploy "$S" --publish
+if [ "$RC" -ne 0 ] && has "$OUT" "refusing to publish from 'main'"; then
+  pass "B6 CONTROL: on a trunk-default site, --publish from 'main' REFUSES (main != trunk) -- confirms the default is derived from origin/HEAD, not hardcoded 'main'"
+else
+  bad "B6 CONTROL: on a trunk-default site, --publish from 'main' should refuse (main is not the default 'trunk'); rc=$RC out=<<<$OUT>>>"
 fi
 rm -rf "$S"
 

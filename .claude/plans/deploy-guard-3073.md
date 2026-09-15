@@ -55,6 +55,23 @@ one-off escape hatch.
   #3073 message; a default-branch `--publish` does NOT hit the guard (control - proves the refusal is
   branch-specific, not unconditional, so the refuse test is not vacuous); `--force` overrides; a dry
   run is unaffected.
+- **origin/HEAD-derived default (runtime):** a fabricated `origin/HEAD=trunk` site publishes fine
+  when ON `trunk` (the default is READ from origin/HEAD, not hardcoded), and its control - the SAME
+  trunk-default site ON `main` - is REFUSED (main is not the default here), proving the default is
+  derived rather than a hardcoded `main`.
+
+## Fixture pin (a consequence of the guard, caught in review)
+
+The guard reads the SITE's default from `origin/HEAD` and falls back to `main` when it is unset. The
+existing deploy-site tests build a fake `$SITE` with a bare `git init` and no origin, so the fallback
+is `main` while the fixture's branch was whatever the ambient `git init.defaultBranch` produced - on
+a box/CI where that is not `main`, the guard would refuse the fixtures' publishing runs. So all four
+fixture inits (`test-deploy-site-exit0-2791.sh`, `test-deploy-site-promote.sh` x2,
+`test-deploy-site-winderive.sh`) are pinned to `git init --initial-branch=main` (the established
+pattern from `test-release-detached.sh`), proven under `GIT_CONFIG_GLOBAL` forcing
+`init.defaultBranch=master`. Precisely: the pins in exit0-2791 (runs `--publish`) and promote (runs
+`--promote`) are LOAD-BEARING (the guard fires there); the winderive pin is defensive consistency
+only, because winderive invokes deploy-site.sh as a dry run and the guard never fires on a dry run.
 
 ## Ownership / merge posture
 
