@@ -6027,10 +6027,12 @@ function panelessCard(key, nowMs, defaultStatus) {
        the heartbeat leg (there is no pane to read working off of). */
     activeWhileWaiting,
     stateReported: status.reported === true,
-    /* #2808 class 2: same field as the pane card carries, for shape parity, so a consumer
-       reads one card shape. Null when the paneless reconcile did not carry a `by` (a class-2
-       question on a paneless agent then stays alarmed -- the safe direction, over- not
-       under-alarming). See the pane card below (the #188 stateReported field) for what the values mean. */
+    /* #2808 class 2: same field as the pane card carries, for shape parity, so a consumer reads
+       one card shape. panelessCard reconciles through the SAME reconcileReport as the pane path,
+       so a paneless agent that self-reports needs_you with by:'agent' DOES carry 'agent' here and
+       IS calmed to "has a question" like the pane card -- the de-alarm is not pane-only. Null only
+       when the report carried no `by` (legacy/unknown provenance, which stays alarmed and is by
+       definition not a class-2 question). See the pane card below (the #188 stateReported field). */
     stateReportedBy: status.by || null,
     /* 📌 ALWAYS `false` HERE, AND SAYING SO IS THE POINT. `panelessCard` reconciles
        against `PANELESS_DEFAULT` / `NEVER_RUN_DEFAULT`, neither of which carries
