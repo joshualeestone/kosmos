@@ -81,7 +81,15 @@ function seed() {
     chk((await pg.evaluate(() => document.querySelectorAll('.onode').length)) > 0,
       theme + ': the org chart draws');
 
-    await pg.click('.tab:has-text("Settings")');
+    /* #3051 moved Settings OUT of the top tab bar into the user-avatar menu (web/index.html
+       line ~17030: "'settings' has no tab button any more (it moved into the user menu)").
+       The old `.tab:has-text("Settings")` matched no element and waited the full 30s, timing
+       out deterministically since 0.6.65 (this is the org->Settings hang that failed every cut).
+       Settings is now reached by opening #userpop-btn (aria-controls #userpop-menu) and clicking
+       #userpop-settings. */
+    await pg.click('#userpop-btn');
+    await pg.waitForTimeout(300);
+    await pg.click('#userpop-settings');
     await pg.waitForTimeout(1800);
     /* #2623: tell-toggle and notify-toggle (the telemetry opt-outs) were DELETED
        (Josh, 2026-09-09, "invasion of privacy"), so they leave this list. */
