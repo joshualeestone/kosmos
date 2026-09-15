@@ -140,7 +140,6 @@ function generateToken() {
   return crypto.randomBytes(32).toString('hex');
 }
 
-/** Read the token file, or null if it is absent or empty. */
 /* #2509: the board.token path on the LEGACY store leaf (AgentWorkforce), or null
    when there is no distinct legacy leaf. #2439 renamed the store leaf
    AgentWorkforce -> Kosmos and `fs.rename`d the whole dir, so a `kosmos` CLI whose
@@ -161,49 +160,26 @@ function legacyTokenPath() {
   }
 }
 
-/* #2509: mirror the (already-established) board token to the legacy leaf so a
-   pre-#2439 CLI bundle, which reads that leaf, presents the SAME token. Written
-   0o600 in a 0o700 dir, exactly like the primary, so the mode-600 same-account
-   boundary #1968 leans on is preserved on the copy too -- a second account still
-   cannot read either file.
-   🛑 TEMPORARY COMPAT SHIM: it writes a live credential back into the leaf #2439
-   deprecated. The durable fix is updating the installed CLI bundle to the post-#2439
-   store path (carded); once the fleet's bundles resolve Kosmos natively this mirror
-   can be removed. Only mirrors where the legacy dir ALREADY EXISTS (a box that needs
-   the shim); it NEVER creates the dir, so a clean install does not resurrect what
-   #2439 removed. Best-effort: the primary token at store.ROOT is the source of truth. */
-function mirrorTokenToLegacy(token) {
-  const lp = legacyTokenPath();
-  if (!lp || !token) return;
-  const dir = path.dirname(lp);
-  let legacyDirExists = false;
-  try { legacyDirExists = fs.statSync(dir).isDirectory(); } catch { legacyDirExists = false; }
-  if (!legacyDirExists) return;   // never recreate the deprecated leaf on a clean install
-  try {
-    let current = null;
-    try { current = fs.readFileSync(lp, 'utf8').trim(); } catch { /* absent */ }
-    if (current === token) {
-      // Already mirrored; re-tighten both the dir and the file in case a restore or
-      // umask slip loosened either, matching ensureTokenPrimary's self-heal pattern.
-      try { fs.chmodSync(dir, 0o700); } catch { /* best-effort */ }
-      try { fs.chmodSync(lp, 0o600); } catch { /* best-effort */ }
-      return;
-    }
-    try { fs.chmodSync(dir, 0o700); } catch { /* best-effort: match the primary dir mode */ }
-    const tmp = path.join(dir, `.${TOKEN_FILE}.${process.pid}.legacy.tmp`);
-    try {
-      fs.writeFileSync(tmp, token, { mode: 0o600 });
-      try { fs.chmodSync(tmp, 0o600); } catch { /* writeFileSync mode already applied on most platforms */ }
-      fs.renameSync(tmp, lp);   // publish the mirror atomically; it tracks the primary, so clobber is correct
-    } finally {
-      try { fs.unlinkSync(tmp); } catch { /* our temp; harmless if already renamed into place */ }
-    }
-  } catch {
-    /* Best-effort. A board that cannot mirror is no worse off than before this
-       shim: the primary token still works for a CLI that resolves the new leaf. */
-  }
-}
+/* #2509/#2511: the legacy-leaf WRITE mirror (mirrorTokenToLegacy) was REMOVED here.
+   It was a temporary compat shim that wrote the live board token back into the
+   pre-#2439 leaf so an old CLI bundle reading that leaf still authenticated. #2511
+   part 1 (the durable fix) shipped: installed bundles resolve the post-#2439 store
+   natively, and the fleet is confirmed all post-#2439 (both online macs; a dormant
+   box returning with a stale bundle re-updates on reconnect), so the shim is no
+   longer needed. The READ-side fallback in readToken() below STAYS, so a token that
+   only exists on the legacy leaf is still found and backfilled to the primary; only
+   the WRITE-back is gone (it never resurrected a clean install; now it never writes
+   a live credential into the deprecated leaf at all).
+   #2511 residual: on a box that already ran the old mirror, a board.token may sit on the
+   legacy leaf holding a still-valid token. It is deliberately left in place (the READ
+   fallback below still needs it so a pre-#2439 bundle reading that leaf directly does not
+   403), but the mirror's permission self-heal (chmod 0o700/0o600, #1968) is gone with it, so
+   nothing re-tightens that file's mode if it ever loosens. Not re-tightened on purpose: doing
+   so would put legacy-leaf writes back, which is exactly what this change removes. The file is
+   read-only from here; the risk is bounded to an external mode-loosening event on a deprecated
+   path, and is documented in the plan rather than maintained. */
 
+/** Read the token file, or null if it is absent or empty. */
 function readToken() {
   try {
     const t = fs.readFileSync(tokenPath(), 'utf8').trim();
@@ -324,18 +300,11 @@ function ownerOnlyModeIsEnforced(platform = process.platform) {
  * is accepted as a bounded recovery rather than guarded with a lock.
  */
 function ensureToken() {
-  const token = ensureTokenPrimary();
-  // #2509: after the authoritative token at store.ROOT is established, keep the
-  // legacy-leaf mirror in sync with it, so a `kosmos` CLI bundle that predates the
-  // #2439 store rename (and so reads the OLD leaf) presents the SAME token. One
-  // call here covers every return path of ensureTokenPrimary(); best-effort and a
-  // no-op unless the legacy dir already exists (see mirrorTokenToLegacy).
-  // 🛑 ACTIVATION IS RESTART-GATED, like the #1976 change that caused the freeze:
-  // ensureToken() runs at board boot, so the mirror appears (and a frozen fleet's
-  // self-report resumes) only once a board RUNNING THIS CODE (re)starts with the
-  // legacy dir present. It does not self-heal an already-running board.
-  mirrorTokenToLegacy(token);
-  return token;
+  // #2511: the legacy-leaf WRITE-mirror call was removed here (see the removed
+  // mirrorTokenToLegacy note above). ensureTokenPrimary() is now the whole story;
+  // the legacy leaf is only READ from (readToken's fallback + the backfill in
+  // ensureTokenPrimary), never written back to.
+  return ensureTokenPrimary();
 }
 
 function ensureTokenPrimary() {

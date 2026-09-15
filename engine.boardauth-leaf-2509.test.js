@@ -5,14 +5,17 @@
  * leaf; the migration moved board.token out from under it, so it presented no token
  * and #1976's enforcing report route refused it -> self-report + liveness froze.
  *
- * boardauth now mirrors the token to the legacy leaf (when that dir exists) and
- * readToken falls back to it, so a caller on EITHER leaf finds the SAME token.
+ * #2511: the WRITE-back mirror (mirrorTokenToLegacy) is now REMOVED -- the durable fix
+ * shipped (installed bundles resolve the post-#2439 store natively) and the fleet is
+ * confirmed all post-#2439. What STAYS, and is guarded here: readToken FALLS BACK to
+ * the legacy leaf, ensureToken BACKFILLS a legacy-only token to the current leaf, and
+ * neither ever CREATES or WRITES the deprecated leaf.
  *
- * 🛑 RED-CAPABLE, #1968 stays closed: the mirror MUST be mode 0o600 (owner-only), or
- * a second account could read it -- which would reopen exactly the cross-account
- * boundary #1968 protects. The mode assertion below fails if the mirror is written
- * world/group-readable. (The report-route token-less refusal itself is unchanged by
- * this fix and is proven end-to-end by server.report-reply-loopback-1968.test.js.)
+ * 🛑 RED-CAPABLE against a mirror regression: the no-write-mirror and no-write-back
+ * tests below assert the legacy leaf is never written; if mirrorTokenToLegacy is ever
+ * re-added, a live token would appear/change on the legacy leaf and they fail. (The
+ * report-route token-less refusal is unchanged and is proven end-to-end by
+ * server.report-reply-loopback-1968.test.js.)
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -43,18 +46,17 @@ test.after(() => {
   for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best-effort */ } }
 });
 
-test('#2509 mirror: with the legacy dir present, ensureToken writes board.token to BOTH leaves, same value, mode 0600', () => {
+test('#2511 no-write-mirror: with the legacy dir present, ensureToken writes the primary but does NOT write board.token into the legacy leaf', () => {
   const p = freshData();
   fs.mkdirSync(p.legacy, { recursive: true, mode: 0o700 });   // a box with a pre-#2439 CLI bundle
   const token = boardauth.ensureToken();
   assert.ok(token && /^[0-9a-f]+$/.test(token), 'ensureToken should return a hex token');
-  const primary = path.join(p.kosmos, 'board.token');
-  const mirror = path.join(p.legacy, 'board.token');
-  assert.ok(fs.existsSync(primary), 'the primary board.token (Kosmos leaf) was not written');
-  assert.ok(fs.existsSync(mirror), 'board.token was not mirrored to the legacy (AgentWorkforce) leaf');
-  assert.equal(fs.readFileSync(mirror, 'utf8').trim(), token, 'the mirror does not match the primary token');
-  // RED-CAPABLE: owner-only, or #1968's cross-account boundary is reopened on the copy.
-  assert.equal(fs.statSync(mirror).mode & 0o777, 0o600, 'the mirrored board.token is not mode 0600 (a second account could read it)');
+  assert.ok(fs.existsSync(path.join(p.kosmos, 'board.token')), 'the primary board.token (Kosmos leaf) was not written');
+  // #2511: the WRITE-back mirror is removed. Even with the legacy dir present,
+  // ensureToken must NOT write a live token into the deprecated leaf. RED-CAPABLE:
+  // re-adding mirrorTokenToLegacy makes this file appear and this fails.
+  assert.equal(fs.existsSync(path.join(p.legacy, 'board.token')), false,
+    'a live token was written into the deprecated legacy leaf (the #2511-removed WRITE mirror is back)');
 });
 
 test('#2509 no-resurrect: with NO legacy dir, ensureToken does not create the deprecated leaf', () => {
@@ -90,7 +92,7 @@ test('#2509 backfill: a legacy-only token is written to the authoritative curren
   assert.equal(fs.statSync(primary).mode & 0o777, 0o600, 'the backfilled token is not mode 0600');
 });
 
-test('#2509 primary wins: when both leaves have a token, readToken prefers the current leaf and ensureToken re-syncs the mirror', () => {
+test('#2511 primary wins, no write-back: with both leaves set, readToken prefers the current leaf and ensureToken leaves the stale legacy copy UNTOUCHED', () => {
   const p = freshData();
   fs.mkdirSync(p.kosmos, { recursive: true, mode: 0o700 });
   fs.mkdirSync(p.legacy, { recursive: true, mode: 0o700 });
@@ -99,6 +101,8 @@ test('#2509 primary wins: when both leaves have a token, readToken prefers the c
   assert.equal(boardauth.readToken(), 'aaaa1111', 'readToken must prefer the current leaf when both exist');
   const token = boardauth.ensureToken();
   assert.equal(token, 'aaaa1111', 'ensureToken should adopt the existing current-leaf token');
-  assert.equal(fs.readFileSync(path.join(p.legacy, 'board.token'), 'utf8').trim(), 'aaaa1111',
-    'the mirror was not re-synced to the authoritative current-leaf token');
+  // #2511 RED-CAPABLE: the WRITE mirror is gone, so ensureToken must NOT re-sync the
+  // legacy leaf to the current token. The stale legacy copy stays exactly as it was.
+  assert.equal(fs.readFileSync(path.join(p.legacy, 'board.token'), 'utf8').trim(), 'bbbb2222',
+    'the legacy leaf was written back to (the #2511-removed WRITE mirror is still firing)');
 });
