@@ -33,6 +33,14 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+// #3088: the config/settings/record writers below are read-modify-write + atomic
+// rename. The rename never half-writes, but two processes writing the SAME file can
+// still LOST-UPDATE (one's read predates the other's rename). Acceptable at CREATE
+// (agents are added one at a time), but #2808 class-1 (a) now re-applies trustFolder +
+// preacceptBypass on EVERY relaunch, so a launchd restart storm writes the same
+// ~/.claude.json / settings.json concurrently. The public wrappers below serialize
+// each writer with the fleet's mkdir-atomic file lock, keyed per TARGET FILE.
+const { withFileLock } = require('./filelock');
 
 /* 🛑 A FUNCTION, NOT A CONST (#1432). Frozen at require time this read past
    the sandbox seam: a caller setting `AGENT_WORKFORCE_HOME` AFTER requiring
@@ -145,6 +153,39 @@ const defaultAgentSettings = () =>
   process.env.AGENT_WORKFORCE_CLAUDE_SETTINGS
   || path.join(process.env.AGENT_WORKFORCE_HOME || homeDir(), '.claude', 'settings.json');
 
+/* #3088: the ONE derivation of which file each writer targets, so the #3088 lock
+   wrappers below lock the SAME file their inner writer writes (a second derivation
+   would be the two-derivations defect - and a lock on the wrong file serialises
+   nothing). trustFolder / folderTrusted key off configTarget(opts); preacceptBypass
+   off settingsTarget(...). The #2129 default-account rule lives here now, once. */
+const configTarget = (opts) =>
+  (opts && opts.agentDefaultAccount && !opts.configDir) ? defaultAgentConfig() : CONFIG(opts && opts.configDir);
+const settingsTarget = (configDir, agentDefaultAccount) =>
+  (agentDefaultAccount && !configDir) ? defaultAgentSettings() : SETTINGS(configDir || null);
+
+// #3088: run a config/settings writer under the fleet file lock, but take the lock
+// only when the target's PARENT dir exists. The lock (<target>.lock) is itself a
+// mkdir in that parent, and its whole job is to serialise a read-modify-write on an
+// EXISTING file. When the parent is absent there is no file to lost-update, the lock's
+// mkdir would fail with ENOENT, and every inner path that reaches here in that state
+// REFUSES without writing: trustFolder / forgetFolder with no createIfAbsent (the
+// "Claude Code has not run..." / "we could not read..." refusals), and preacceptBypass
+// on a parent that could not be created (its "we could not write to their settings
+// file" refusal). A create-capable caller mkdirs the parent BEFORE calling this, so its
+// write path always locks; the unlocked path is reached only when that mkdir itself
+// failed. So run the inner directly when the parent is absent, returning the same
+// {ok:true,value} envelope withFileLock would, rather than let the lock's own ENOENT mask
+// the inner's honest, specific refusal as the generic 'we could not get exclusive access'
+// -- the regression the #2129 default-refuse test caught. This is why the message-bearing
+// writers (trustFolder, forgetFolder, preacceptBypass) use withWriteLock; the record
+// writers, which return a bare boolean / void and carry no specific message to mask, keep
+// raw withFileLock (see their comments). Callers unwrap `value` as on a real lock success.
+function withWriteLock(target, inner) {
+  let parentExists = false;
+  try { parentExists = fs.statSync(path.dirname(target)).isDirectory(); } catch { parentExists = false; }
+  return parentExists ? withFileLock(target, inner) : { ok: true, value: inner() };
+}
+
 /**
  * A temp path that is OURS, not a predictable one.
  *
@@ -189,13 +230,31 @@ const tempPath = (target) => `${target}.kosmos-${process.pid}-${STARTED}-${++SEQ
  * a caller that is pointing an agent somewhere. Absent means "the config this
  * process would read", which is what every pre-#1629 caller meant.
  */
+// #3088: public entry point - serialise the read-modify-write below against any
+// other writer of the SAME config file (a concurrent trustFolder or forgetFolder),
+// so a restart-storm cannot lost-update the trust key. The lock is keyed on the
+// exact target the inner writes (configTarget), best-effort per filelock's contract.
 function trustFolder(dir, opts) {
+  const target = configTarget(opts);
+  // #3088: under createIfAbsent the inner CREATES the config file (and, on a fresh
+  // macOS user, its parent dir), so make the parent HERE first -- withWriteLock takes
+  // the lock only when the target's parent already exists, and the write path must be
+  // locked. This never creates the config FILE itself, so the refuse-on-absent
+  // contract is unchanged; it is a no-op when the parent already exists (the
+  // default-account parent, ~, always does). When the caller did NOT opt into creation
+  // and the parent is absent, withWriteLock runs the inner unlocked, so its honest
+  // "Claude Code has not run on this computer yet" refusal is preserved rather than
+  // masked by the lock's ENOENT.
+  if (opts && opts.createIfAbsent) { try { fs.mkdirSync(path.dirname(target), { recursive: true }); } catch { /* the inner reports a real write failure */ } }
+  const r = withWriteLock(target, () => trustFolderInner(dir, opts));
+  return r.ok ? r.value : { ok: false, because: r.because };
+}
+
+function trustFolderInner(dir, opts) {
   // #2129: for an agent that will run on the DEFAULT account (no configDir, so it
   // launches with no CLAUDE_CONFIG_DIR and reads ~/.claude.json), target that file
   // rather than CONFIG(null), which would follow the ENGINE's own CLAUDE_CONFIG_DIR.
-  const target = (opts && opts.agentDefaultAccount && !opts.configDir)
-    ? defaultAgentConfig()
-    : CONFIG(opts && opts.configDir);
+  const target = configTarget(opts);
 
   if (!dir || !path.isAbsolute(dir)) {
     return { ok: false, because: 'that is not an absolute folder path' };
@@ -464,7 +523,21 @@ function trustFolder(dir, opts) {
  *
  * Same shape, same refusals, same fail-soft contract as `trustFolder`.
  */
+// #3088: lock CONFIG() - the file forgetFolderInner itself writes - so the rollback's
+// read-modify-write serialises against any other writer of that SAME file. (The pairing
+// with trustFolder, and a pre-existing default-account divergence where trustFolder can
+// target a different file, is in the plan; do not restate it here as a guarantee.)
 function forgetFolder(dir, displaced, madeEntry) {
+  // #3088: withWriteLock, not withFileLock, so an absent config parent (the config we
+  // wrote was deleted before rollback) yields forgetFolderInner's honest "we could not
+  // read their config file" rather than the lock's 'we could not get exclusive access'.
+  // In the normal case CONFIG()'s parent (~) exists, so the real lock is taken rather
+  // than the unlocked fallback.
+  const r = withWriteLock(CONFIG(), () => forgetFolderInner(dir, displaced, madeEntry));
+  return r.ok ? r.value : { ok: false, because: r.because };
+}
+
+function forgetFolderInner(dir, displaced, madeEntry) {
   const target = CONFIG();
   if (!dir || !path.isAbsolute(dir)) return { ok: false, because: 'that is not an absolute folder path' };
 
@@ -593,7 +666,23 @@ function writeRecordFile(data) {
   try { fs.renameSync(tmp, RECORD()); }
   catch (err) { try { fs.unlinkSync(tmp); } catch { /* the write failed louder */ } throw err; }
 }
+// #3088: serialise the record's read-modify-write on RECORD() (its own file, so a
+// separate lock from the config's). Lower-frequency than trustFolder (create/rollback,
+// not relaunch), but the same lost-update mechanism, so it takes the same lock.
 function recordWrite(name, wrote) {
+  // #3088: the lock is RECORD()+'.lock', and writeRecordFile mkdirs RECORD()'s parent
+  // (the store root) at write time - which the lock now precedes, so create it here too.
+  // Raw withFileLock, NOT withWriteLock: recordWrite returns a bare boolean with no
+  // specific message to mask, so there is no honest refusal to preserve; and on a
+  // parent-absent (mkdir-failed) tree, withWriteLock's unlocked-inner path would let
+  // recordWriteInner -> writeRecordFile throw on the same absent parent, turning the soft
+  // `false` this contract promises into an exception. A generic lock failure => false is
+  // the right degrade here.
+  try { fs.mkdirSync(path.dirname(RECORD()), { recursive: true }); } catch { /* the inner reports a real write failure */ }
+  const r = withFileLock(RECORD(), () => recordWriteInner(name, wrote));
+  return r.ok ? r.value : false;   // lock failure == write failure (recordWrite returns a boolean)
+}
+function recordWriteInner(name, wrote) {
   let data = readRecord();
   if (data === null) {
     /* A corrupt record must not disable recording forever and silently:
@@ -621,6 +710,17 @@ function recordedWrite(name) {
   return e && typeof e === 'object' && typeof e.key === 'string' && path.isAbsolute(e.key) ? e : null;
 }
 function dropRecord(name) {
+  // Void: dropRecord swallows failure ("the record stays; a later removal retries"),
+  // so a lock failure is the same do-nothing outcome. The envelope is discarded.
+  // Parent-mkdir before the lock, as recordWrite (a dropRecord on an absent store root
+  // has nothing to drop, but the lock mkdir would otherwise fail rather than no-op).
+  // Raw withFileLock, NOT withWriteLock: like recordWrite this carries no specific
+  // message (void return, all failures swallowed), so there is nothing to unmask - a
+  // lock failure and a no-op are the same outcome here.
+  try { fs.mkdirSync(path.dirname(RECORD()), { recursive: true }); } catch { /* nothing to drop */ }
+  withFileLock(RECORD(), () => dropRecordInner(name));
+}
+function dropRecordInner(name) {
   const data = readRecord();
   if (data === null || !(String(name) in data)) return;
   delete data[String(name)];
@@ -651,10 +751,28 @@ function dropRecord(name) {
  * @returns {{ok:true, already:boolean, target:string, displaced:*, madeFile:boolean}
  *          | {ok:false, because:string}}
  */
+// #3088: serialise the settings read-modify-write on the SETTINGS file (a separate
+// lock from the config's). preacceptBypass runs on every relaunch alongside
+// trustFolder (#2808 class-1 a), so it has the same restart-storm exposure.
 function preacceptBypass(configDir, agentDefaultAccount) {
+  const target = settingsTarget(configDir, agentDefaultAccount);
+  // #3088: preacceptBypass create-if-absent's settings.json (and ~/.claude on a fresh
+  // user), and the lock <target>.lock precedes the inner, so ensure the parent exists
+  // before locking (idempotent with the inner's own mkdir). withWriteLock, not raw
+  // withFileLock: if the parent mkdir above FAILS (a locked-down home dir), the parent is
+  // absent when withWriteLock checks, so it runs the inner unlocked and surfaces
+  // preacceptBypassInner's specific "we could not write to their settings file" refusal,
+  // rather than the lock's generic "we could not get exclusive access" masking it - the
+  // same non-masked-refusal contract trustFolder/forgetFolder already hold.
+  try { fs.mkdirSync(path.dirname(target), { recursive: true }); } catch { /* the inner reports a real write failure */ }
+  const r = withWriteLock(target, () => preacceptBypassInner(configDir, agentDefaultAccount));
+  return r.ok ? r.value : { ok: false, because: r.because };
+}
+
+function preacceptBypassInner(configDir, agentDefaultAccount) {
   // #2129: same default-account rule as trustFolder -- a default-account agent
   // (no configDir) reads ~/.claude/settings.json, not the engine's CLAUDE_CONFIG_DIR one.
-  const target = (agentDefaultAccount && !configDir) ? defaultAgentSettings() : SETTINGS(configDir || null);
+  const target = settingsTarget(configDir, agentDefaultAccount);
 
   // A symlinked target is somebody's arrangement; renaming over it severs the link. Refuse,
   // as trustFolder does. (Absent is the create case, handled below.)
@@ -736,9 +854,7 @@ function preacceptBypass(configDir, agentDefaultAccount) {
  *   ONLY on an explicit `false`; `null` must fall back to the hedged wording.
  */
 function folderTrusted(dir, opts) {
-  const target = (opts && opts.agentDefaultAccount && !opts.configDir)
-    ? defaultAgentConfig()
-    : CONFIG(opts && opts.configDir);
+  const target = configTarget(opts);  // #3088: the one derivation, shared with trustFolder
   if (!dir || !path.isAbsolute(dir)) return null;
   let key;
   try { key = fs.realpathSync.native(dir); }
