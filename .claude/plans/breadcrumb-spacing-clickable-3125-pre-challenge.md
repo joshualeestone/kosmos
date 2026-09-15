@@ -31,8 +31,8 @@ The project-detail breadcrumb gets (1) visible space around the slash ("A  /  B"
 - A delegated `#pj-crumb` click+keydown handler (set once, beside `#pj-back`) -> `openProject(id)`,
   mirroring the list card's `data-project` -> `openProject` pattern.
 
-### Iteration 1 (opus, blind) -- CONVERGED
-**New findings:** 0 BLOCKER, 0 WARNING, 0 CONVENTION-defect. The reviewer hand-traced:
+#### Iteration 1 (opus, blind) -- CONVERGED
+**New findings:** 0 BLOCKER, 0 WARNING, 0 CONVENTION-defect. No issues found (actionable). The reviewer hand-traced:
 - Ancestor walk k->app->mob yields `ancNodes = [{k},{app}]` root-to-current (no reversal); matches
   `pjAncestry` exactly incl. the self/loop guard and `parentName` fallback.
 - Top-level project: no lead, single non-link current crumb. Unloaded parent (`parentName`, no id):
@@ -62,6 +62,15 @@ also works. Kept deliberately as a keyboard convenience.
   executed by the **CI browser-checks job** (the local suite skips the headless render on a
   no-Playwright machine). The blind reviewer independently confirmed each assertion FAILS on
   origin/main (plain-text crumbs, zero margin, a click that goes nowhere) -> non-vacuous.
+
+### Final Ledger
+
+| # | Iter | Category | Origin | Description | Status |
+|---|------|----------|--------|-------------|--------|
+| 1 | 1 | [STRENGTH] | -- | Ancestor walk matches pjAncestry root-to-current; esc() attr-escaping matches list-card convention (no XSS/wrong-id); current crumb never a link; unloaded parent plain text; handler in-scope/set-once; truncation protection intact; browser-check assertions non-vacuous (fail on origin/main) | CONFIRMED |
+| 2 | 1 | [CONVENTION] | BRANCH | Space activates role=link (slightly non-standard) -- additive + forgiving (preventDefault only on a match), Enter also works | KEPT by design (not a defect) |
+
+No BLOCKER / WARNING / actionable CONVENTION findings. Converged on the first blind pass.
 
 ### Browser-check (#1720 / #2518)
 web/index.html is a rendered/interactive surface change (clickable crumbs). Coverage added to
