@@ -13504,10 +13504,10 @@ function start(port = PORT) {
       if (stagingRevertWarningNow()) {
         process.stderr.write('Kosmos update check: WARNING -- this box installed from the staging channel '
           + '(source-channel=staging) but is resolving the prod channel, so it has silently stopped receiving '
-          + 'staging builds (kosmos#2969). The remedy is durable, not a one-off: the board launchd job carries '
-          + 'no update channel across login, so the channel must be persisted IN the board job (set '
-          + 'KOSMOS_UPDATE_CHANNEL=staging in its EnvironmentVariables and reload it) -- setting it only in an '
-          + 'interactive shell does not survive the next login and the revert returns. See kosmos#2969 / #2036.\n');
+          + 'staging builds (kosmos#2969). The remedy is durable, not a one-off: the update channel is not '
+          + 'carried across login, so it must be persisted in the board\'s auto-start job (the mechanism and the '
+          + 'exact variable are per-platform -- see tools/release.sh and kosmos#2969), not merely set in an '
+          + 'interactive shell, which does not survive the next login and lets the revert return. See kosmos#2036.\n');
       }
       /* 🪟 S4: tell the updater the board it must stop and the port it must confirm on, so the win32
          in-app helper (win32update.begin -> win32apply) hands the swap this exact process and port

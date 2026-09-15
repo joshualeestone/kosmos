@@ -39,7 +39,9 @@ shrinks toward zero defeats the point of verifying a build before it reaches pro
   is what closes the card. Left #2036 needs-decision; only this observability slice ships here.
 
 ## Verification
-- `node -c server.js` OK; `node --test server.staging-revert-warn-2036.test.js` 5/5 pass.
+- `node -c server.js` OK; `node --test server.staging-revert-warn-2036.test.js` 8/8 pass (the 5-case
+  pure truth table plus 3 child-process WIRING tests pinning the raw-stamp-vs-badge accessor choice via
+  the promoted-build divergence case).
 - Diff confirmed additive-only (behavior-preserving).
 - challenge-loop to convergence, then normal green-gated PR (merge on CI green per the beta ruling; this is
   not the gated byte-change).
