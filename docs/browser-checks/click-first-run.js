@@ -2,9 +2,12 @@
  * Click the whole thing, like a person. Nothing here reads source.
  *
  * install-flow-9screen: rewritten for Josh's signed-off 9-screen flow (was the
- * 6-screen driver). The flow is now LINEAR 1..9 -- Welcome, Access(gate),
- * Automation(2 gates), Notifications, Model, Self-improving, Success, About-you,
- * Your-agents -- opening on Welcome (not Success), with no step crumb / progress
+ * 6-screen driver). #3112 (6.69) reordered the DISPLAY sequence to put Model second:
+ * Welcome, Model, Access(gate), Automation(2 gates), Notifications, Self-improving,
+ * Success, About-you, Your-agents -- so a model is chosen before the permission steps
+ * (that is what lets the tmux asks fire). Pane NUMBERS are unchanged; only the walk
+ * order is. This driver walks by CONTENT (advanceToAnchor), so the reorder is handled
+ * without counting steps. Opens on Welcome (not Success), with no step crumb / progress
  * segments (Josh's spec), no standalone machine-check screen, and no #2163
  * pre-flight interstitial. The persistent shell head (#fr-title/#fr-eyebrow) is
  * retired: each pane owns its own <h2>, so heads are read off the VISIBLE pane's
@@ -310,10 +313,13 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
   console.log('\n3. No Back, no Skip, and Escape');
   {
     const { ctx, page } = await fresh(browser);
-    // Welcome -> Access -> Automation (two clicks; gates mocked uncheckable so
-    // Next is live).
-    await page.click('#fr-next');   // Welcome -> Access
-    await page.click('#fr-next');   // Access -> Automation
+    // Walk a couple of steps in by CONTENT, not fixed #fr-next clicks. #3112 moved
+    // Model to display position 2, and on a CLEAN machine (every CI runner) Model
+    // HIDES #fr-next (offers only the #fr-alt "Skip"), so a fixed #fr-next click on
+    // it times out. advanceToAnchor clicks whatever control is actually forward
+    // (#fr-next, else the #fr-alt Skip), so it reaches the S2 Access step regardless
+    // of the subscription state. (gates mocked uncheckable so Next is live past here.)
+    await advanceToAnchor(page, '.s2-allow');   // Welcome -> Model(skip) -> Access
     // ⚠️ NO BACK anywhere (Josh, 2026-08-17): the flow only moves forward.
     ok((await page.locator('#fr-back').count()) === 0, 'no Back button exists on any step');
     // The visible Skip died by the pack's ruling; Escape is the exit and it
