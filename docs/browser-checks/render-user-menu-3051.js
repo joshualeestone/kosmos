@@ -149,4 +149,4 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
   }
   console.log('render-user-menu-3051: ' + pass + ' passed (the upper-right user menu: 2-tab nav, avatar+name button, the four dropdown items, the Settings link reaches #panel-settings, Escape + outside-click close). problems: none');
   process.exit(0);
-})();
+})().catch((e) => { console.error('FAIL  render-user-menu-3051: ' + (e && e.message ? e.message.split('\n')[0] : e)); process.exit(1); });
