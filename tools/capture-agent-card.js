@@ -37,14 +37,15 @@
  *     `because` line, any `stateConflict` sentence, the scraped evidence line, every
  *     string under `profile`, and every string anywhere else that is not re-pinned to a
  *     known-safe producer value below. "Known-safe" means ENUM-BOUNDED by status.js
- *     (state, stateConfidence, runner), not merely "a field I recognise": model and
+ *     (state, stateConfidence, runner, stateReportedBy), not merely "a field I recognise": model and
  *     modelName are regex-extracted from a transcript and are pinned to constants.
  *   - PRESERVES each field's TYPE: where the producer emits null, the recording carries
  *     null. ⚠️ EVERY re-pin to a CONSTANT below is therefore conditional on the field
- *     already being a string. The three ENUM re-pins (`state`, `stateConfidence`,
- *     `runner`) are unconditional and do not need the guard, because they copy the
- *     producer's own value and so cannot invent a type. An earlier version of this
- *     sentence said "every re-pin", which those three contradict. An unconditional pin was the defect here: `model` was assigned a string
+ *     already being a string. The four ENUM re-pins (`state`, `stateConfidence`,
+ *     `runner`, `stateReportedBy`) are unconditional and do not need the guard, because they copy
+ *     the producer's own value and so cannot invent a type (`stateReportedBy` also copies null
+ *     through unchanged on a pane-derived/legacy card, which is correct). An earlier version of this
+ *     sentence said "every re-pin", which those four contradict. An unconditional pin was the defect here: `model` was assigned a string
  *     unconditionally while `readModel()` returns `{model: null}` on three paths
  *     (status.js:4628, 4630, 4658 -- no transcript, empty tail, no non-synthetic match),
  *     so a tied agent with an unreadable transcript produced a card this recording could
