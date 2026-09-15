@@ -103,14 +103,19 @@ function isClass1(standing) {
  *     the window without clearing; surface to a person, do NOT restart again.
  */
 function planClass1Handle(standing, attempts, now, opts) {
-  // Require maxAttempts >= 1. A 0 (or negative) would make recentAttempts >= maxAttempts
-  // true on the very first wait, i.e. escalate before ever trying a single
-  // trust-and-restart - and "0" reads ambiguously as "unlimited" to a future caller.
-  // Anything not a finite integer >= 1 falls back to the default rather than becoming a
-  // never-restart footgun.
-  const maxAttempts = (opts && Number.isFinite(opts.maxAttempts) && opts.maxAttempts >= 1)
+  // Require maxAttempts to be a finite INTEGER >= 1. A 0 (or negative) would make
+  // recentAttempts >= maxAttempts true on the very first wait (escalate before ever
+  // trying a single trust-and-restart), and "0" reads ambiguously as "unlimited" to a
+  // future caller. A FRACTIONAL value (2.5) silently permits one extra restart
+  // (recentAttempts >= 2.5 needs 3) - the dangerous direction. Anything not a finite
+  // integer >= 1 falls back to the default rather than becoming a footgun.
+  const maxAttempts = (opts && Number.isInteger(opts.maxAttempts) && opts.maxAttempts >= 1)
     ? opts.maxAttempts : DEFAULT_MAX_ATTEMPTS;
-  const windowMs = (opts && Number.isFinite(opts.windowMs)) ? opts.windowMs : DEFAULT_WINDOW_MS;
+  // windowMs must be finite and > 0. A 0/negative window would make (now - t) < windowMs
+  // false for every past attempt, so the loop-guard would never engage and always
+  // restart - again the dangerous direction. Fall back to the default otherwise.
+  const windowMs = (opts && Number.isFinite(opts.windowMs) && opts.windowMs > 0)
+    ? opts.windowMs : DEFAULT_WINDOW_MS;
 
   if (!isClass1(standing)) {
     // Fail closed: anything we are not certain is class-1 technical junk is left
@@ -119,21 +124,27 @@ function planClass1Handle(standing, attempts, now, opts) {
     return { act: 'none', because: 'not a standing by:auto needs_you (class-1) wait' };
   }
 
-  // Count handles still inside the window. Both non-safe shapes bias toward
-  // ESCALATE, never toward another restart: a future timestamp (clock skew, t > now)
-  // is recent by the < windowMs test, and a NON-FINITE / corrupt entry (NaN,
-  // undefined - the kind the WIRE-UP #2 persistent attempts store could yield) is
-  // counted as recent explicitly rather than dropped, so a bad timestamp can only
-  // ever make us escalate sooner, never loop-restart an agent.
-  const list = Array.isArray(attempts) ? attempts : [];
-  // A non-finite `now` (a corrupt clock) is itself the dangerous shape: with it,
-  // `(now - t) < windowMs` is false for every finite t, so attempts would go
-  // uncounted and bias toward restart. Treat a bad `now` as "count everything
-  // recent" so the corrupt-clock case also biases to escalate, symmetric with the
-  // per-entry guard. (Every current caller feeds Date.now(); this is defence for the
-  // WIRE-UP #2 store's future callers.)
+  // Resolve the attempt history, biasing EVERY corrupt shape toward escalate (never
+  // toward another restart), consistent across the container, the entries, and `now`:
+  //  - null/undefined attempts = "no history supplied", the legitimate first-wait case
+  //    (count 0 -> trust-and-restart);
+  //  - a non-array attempts (a persistent store returning garbage - a number, an object -
+  //    instead of throwing, which sweepClass1's try/catch would NOT catch) is CORRUPT, so
+  //    treat it as fully recent -> escalate, rather than silently coercing it to [] and
+  //    restarting;
+  //  - a non-finite `now` (a corrupt clock) makes `(now - t) < windowMs` false for every
+  //    finite t, which would bias to restart; treat it as "count everything recent";
+  //  - a non-finite / future per-entry timestamp counts as recent rather than being
+  //    dropped.
   const nowBad = !Number.isFinite(now);
-  const recentAttempts = list.filter((t) => nowBad || !Number.isFinite(t) || (now - t) < windowMs).length;
+  let recentAttempts;
+  if (attempts === null || attempts === undefined) {
+    recentAttempts = 0; // no history: the normal first-wait case
+  } else if (!Array.isArray(attempts)) {
+    recentAttempts = maxAttempts; // corrupt container -> escalate, not restart
+  } else {
+    recentAttempts = attempts.filter((t) => nowBad || !Number.isFinite(t) || (now - t) < windowMs).length;
+  }
 
   if (recentAttempts >= maxAttempts) {
     return {

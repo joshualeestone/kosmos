@@ -231,6 +231,30 @@ test('loop-guard: a non-finite `now` (corrupt clock) counts all attempts recent 
   assert.equal(p.act, 'escalate');
   assert.equal(p.recentAttempts, 2);
 });
+test('loop-guard: null/undefined attempts (no history) -> trust-and-restart (the normal first wait)', () => {
+  assert.equal(planClass1Handle(class1(), null, 1e6).act, 'trust-and-restart');
+  assert.equal(planClass1Handle(class1(), undefined, 1e6).act, 'trust-and-restart');
+});
+test('loop-guard: a CORRUPT non-array attempts container biases to ESCALATE, never restart', () => {
+  // A future persistent store returning garbage instead of throwing (which
+  // sweepClass1's try/catch would not catch) must not silently coerce to [] and restart.
+  for (const bad of [0, 42, {}, 'nope', true]) {
+    assert.equal(planClass1Handle(class1(), bad, 1e6).act, 'escalate', `for ${JSON.stringify(bad)}`);
+  }
+});
+test('CONTROL loop-guard: a fractional maxAttempts falls back to the default (no extra restart)', () => {
+  const now = 1e6;
+  // 2.5 would otherwise need 3 recent attempts to escalate; the integer clamp keeps it at 2.
+  const p = planClass1Handle(class1(), [now - 1, now - 2], now, { maxAttempts: 2.5 });
+  assert.equal(p.act, 'escalate');
+});
+test('CONTROL loop-guard: a non-positive windowMs falls back to the default (guard still engages)', () => {
+  const now = 1e6;
+  // With windowMs <= 0, every past attempt would read as not-recent -> always restart;
+  // the clamp restores the default window so two recent attempts still escalate.
+  assert.equal(planClass1Handle(class1(), [now - 1, now - 2], now, { windowMs: 0 }).act, 'escalate');
+  assert.equal(planClass1Handle(class1(), [now - 1, now - 2], now, { windowMs: -5 }).act, 'escalate');
+});
 
 // ---------------------------------------------------------------------------
 // Executor: a THROWING trustAgentFolder is caught and, with a good restart,

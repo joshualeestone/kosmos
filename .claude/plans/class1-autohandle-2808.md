@@ -14,8 +14,11 @@ the dialog. This automates that one click.
 
 ## The build (this branch)
 - `engine/class1-autohandle.js`:
-  - `isClass1(standing)` - the ONE class-1 vs class-2 line, mirroring selfreport.js:222-224 exactly
-    (found && state==='needs_you' && by==='auto'). WIRE-UP #1 for Angel's class-2 by/permissionAsk.
+  - `isClass1(standing)` - delegates to the ONE class-1 vs class-2 predicate,
+    `selfreport.isAutoPermissionWait` (found && state==='needs_you' && by==='auto'), which this
+    branch EXTRACTS and exports from selfreport's previously-inline expression so record()'s
+    clobber-guard and this module share one definition (no two-derivations drift). WIRE-UP #1 for
+    Angel's class-2 by/permissionAsk lives in that single predicate.
   - `planClass1Handle(standing, attempts, now, opts)` - PURE decision: none / trust-and-restart /
     escalate. Fails closed (anything not certainly class-1 -> none). Loop-guarded: >= maxAttempts
     (default 2) recent handles in the window (default 10 min) -> escalate, never another restart.
@@ -49,4 +52,5 @@ class-2 classification, neither of which exists yet - arming now would be the un
 loop-guard exists to prevent. Weakest premise: that `by:'auto'` remains the stable class-1 seam until
 class-2 lands; if Angel's build changes how class-1 is marked, `isClass1` is the one line to update
 (named as WIRE-UP #1). Region is disjoint from Angel's class-2 (status.js/web render): a new engine
-module + test + a new bin, reusing create/remove/selfreport read-only.
+module + test + a new bin, reusing create/remove read-only and making one pure-refactor extraction
+in selfreport.js (isAutoPermissionWait) that its own 58 tests confirm is behavior-preserving.
