@@ -2729,12 +2729,14 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .pj-list { display: flex; flex-direction: column; gap: 14px; }
 .pj-arch-wrap { margin-top: var(--space-6); }
 /* #3105 (Josh, 6.68): "Show archived projects" was a heavy underlined link.
-   Make it a much smaller, un-underlined text button in every view (it is one
-   control; a lighter treatment reads better in both the tab list and the
-   consolidated rail). The #pj-arch-toggle id out-specifies the base `.linkish`
+   Make it a much smaller, un-underlined text button. SCOPED to the consolidated
+   left rail (body.consolidated), because that is the "left column" #3105 addresses
+   and the surface Josh's mockup 2 marked up; the Projects TAB toggle keeps the base
+   `.linkish` look, so this stays verbatim to the approved design rather than
+   extending it. The layout + id selector out-specifies the base `.linkish`
    (underline, .875rem, weight 600). The 24px min-height hit-area floor from
    `.linkish` (WCAG 2.5.8) is deliberately KEPT -- only the text shrinks. */
-#pj-arch-toggle { font-size: .6875rem; font-weight: 500; text-decoration: none; }
+html[data-layout="consolidated"] body.consolidated #pj-arch-toggle { font-size: .6875rem; font-weight: 500; text-decoration: none; }
 /* ⚠️ `color` is explicit, and it is the fix for a real dark-mode contrast
    failure. A <button> does NOT inherit the page's colour -- it uses the UA's
    `buttontext`, which is near-black. In light mode that happened to look

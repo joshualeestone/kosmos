@@ -1182,9 +1182,10 @@ fi
 #     dropping `flex-shrink: 0` gives 137px -> 119px, dropping the .dname
 #     nowrap/ellipsis takes the header 20px -> 40px. Both numbers are the ones that
 #     fix's own comment recorded when it was written.
-#   render-project-rows (#1303 E)        12/12 green; RED with `display: contents`
-#     off .pjcard-h, the rule its comment calls the whole trick: the status leaves
-#     the agents line (183 vs 201) and the row grows to 66px.
+#   render-project-rows (#3105)          all green; the consolidated rail row is
+#     TITLE ONLY. RED on origin/main, where the status pill / agent count /
+#     sub-project count still render VISIBLE in the rail instead of being hidden
+#     (the fixture gives Henderson agents + a sub-project so all three are exercised).
 #
 # 📌 render-found-count, the fourth on #1440, is NOT here and stays in NOT_WIRED.
 # Its own header says an in-process srv.start(0) cannot reach ?fr-step=6; it needs
