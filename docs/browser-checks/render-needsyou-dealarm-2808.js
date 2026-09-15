@@ -77,7 +77,28 @@ const BASE = require('./fixtures/agent-card.json');
         glyphHaz: !!c.querySelector('.astate .haz'),
       };
     };
-    return { q: read(cards[0]), auto: read(cards[1]), scr: read(cards[2]) };
+    // The de-alarm routes through the SHARED cardStOf, so it propagates to every per-agent
+    // surface that keys on cardStOf(a).st==='attn'. The project-member row (pjMember, the #2699
+    // red-triangle surface) is the one with concrete red markup to read; the org-chart node
+    // (onode-attn) uses the byte-identical gate, so it de-alarms by the same already-checked
+    // derivation. Verify a class-2 member loses the triangle + red text, and a class-1 keeps it.
+    let pj = { skipped: 'pjMember not a function' };
+    if (typeof pjMember === 'function') {
+      const mkM = (by) => ({ sessionName: 'm-' + (by || 'scr'), name: 'M ' + by, present: true, tied: true, state: 'needs_you', stateReportedBy: by, hasAvatar: false, told: {}, role: null, because: 'q' });
+      const h2 = document.createElement('div');
+      document.body.appendChild(h2);
+      h2.innerHTML = '<div class="pj-members">' + pjMember(mkM('agent'), true, false) + pjMember(mkM('auto'), true, false) + '</div>';
+      const rows = h2.querySelectorAll('.pj-member');
+      const small = (row) => row ? row.querySelector('small') : null;
+      pj = {
+        rows: rows.length,
+        qWarn: !!(rows[0] && rows[0].querySelector('.pj-face .lwarn')),
+        qSmallClass: small(rows[0]) ? small(rows[0]).className : '(none)',
+        autoWarn: !!(rows[1] && rows[1].querySelector('.pj-face .lwarn')),
+        autoSmallClass: small(rows[1]) ? small(rows[1]).className : '(none)',
+      };
+    }
+    return { q: read(cards[0]), auto: read(cards[1]), scr: read(cards[2]), pj };
   }, BASE);
 
   await browser.close();
@@ -99,6 +120,17 @@ const BASE = require('./fixtures/agent-card.json');
   // Computed-color proof: the calm border must actually differ from the red one, or .acard.question
   // is not overriding and the "calm" card still paints like the alarm.
   if (r.q.border === r.auto.border) fail.push('the calm class-2 border is the SAME computed color as the red class-1 border (' + r.q.border + ') - .acard.question is not overriding');
+  // Propagation to the #2699 project-member surface (and, by the identical gate, the org node).
+  if (r.pj && r.pj.skipped) {
+    fail.push('could not exercise the project-member surface: ' + r.pj.skipped);
+  } else if (r.pj) {
+    if (r.pj.rows !== 2) fail.push('expected 2 project-member rows, got ' + r.pj.rows);
+    if (r.pj.qWarn) fail.push('a class-2 project MEMBER still shows the red #2699 triangle - the de-alarm did not reach pjMember (' + JSON.stringify(r.pj) + ')');
+    if (/\bpj-attn\b/.test(r.pj.qSmallClass)) fail.push('a class-2 project member still has the red pj-attn status text (' + r.pj.qSmallClass + ')');
+    // Control: a class-1 (auto) member MUST still show the triangle + red, or the class-2 absence proves nothing.
+    if (!r.pj.autoWarn) fail.push('a class-1 (auto) project member LOST its #2699 triangle - the surface no longer red-alarms anything, so the class-2 arm is vacuous (' + JSON.stringify(r.pj) + ')');
+    if (!/\bpj-attn\b/.test(r.pj.autoSmallClass)) fail.push('a class-1 (auto) project member lost its red pj-attn text (' + r.pj.autoSmallClass + ')');
+  }
 
   if (fail.length) {
     console.error('FAIL  render-needsyou-dealarm-2808: ' + fail.join('; '));

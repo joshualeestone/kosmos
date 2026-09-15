@@ -191,9 +191,12 @@ function goldenCard(fixturePath) {
        fields; a trimmed one is the hand-built literal arriving by another door. */
     /* ⚠️ THE RENAME BELOW LEAVES THE CARD INTERNALLY INCONSISTENT, and it is inherited
        rather than introduced here: the reopen arm drives `{...card, state: 'needs_you'}`
-       while `because` still reads "it is mid-task" and `stateEvidence` still reads
-       "✽ Working…". The live path has always done the same to a live card, so this is
-       main's behaviour, not a regression from the fallback.
+       while `because` and `stateEvidence` still carry the CAPTURED card's own values,
+       which describe whatever state that card was in, not needs_you. (Those exact strings
+       are volatile -- the golden fixture is re-captured from a live card by
+       tools/capture-agent-card.js, so quoting them here would go stale on the next capture;
+       #2808 did exactly that.) The live path has always done the same to a live card, so
+       this is main's behaviour, not a regression from the fallback.
        ⇒ Named rather than fixed, deliberately. This branch argued at length that a
        fixture contradicting itself is worse than a stale one and made `context` coherent
        on that basis, so leaving this unnamed would be the same overstatement the branch

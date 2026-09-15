@@ -234,6 +234,15 @@ const ENUMS = {
   state: ['working', 'needs_you', 'rate_limited', 'auth_failed', 'idle', 'stopped', 'restarting', 'blocked', 'unknown'],
   stateConfidence: ['structured', 'scraped', 'none'],
   runner: ['codex', 'claude'],
+  /* #2808: `stateReportedBy` (selfreport.js's `by`) is ENUM-bounded like the three above --
+     'auto' (a lifecycle hook) | 'agent' (the agent chose to say it) | 'operator' (a person
+     cleared a stale report), or null for a pane-derived/legacy card. It is re-pinned from the
+     raw card below rather than scrubbed: it is a bounded enum, not free-form identity, and on
+     a self-reporting agent it is a real string ('agent'/'auto') that scrubStrings would
+     otherwise rewrite to 'example-statereportedby', silently corrupting the exact field the
+     class-2 de-alarm keys on. null bypasses scrubStrings, which is why the current fixture
+     (state working, by null) captured safely and this gap was invisible. */
+  stateReportedBy: ['auto', 'agent', 'operator'],
 };
 
 function neutralise(live) {
@@ -275,7 +284,7 @@ function neutralise(live) {
      regex-extracted from transcript text. So the tool REFUSES rather than recording a
      value outside the vocabulary, and an arm checks this vocabulary against status.js's
      own exports so the two cannot drift apart silently. */
-  for (const f of ['state', 'stateConfidence', 'runner']) {
+  for (const f of ['state', 'stateConfidence', 'runner', 'stateReportedBy']) {
     const v = live[f];
     if (v !== null && v !== undefined && !ENUMS[f].includes(v)) {
       /* ⚠️ A throw, because neutralise() is the PURE half and a test drives it; the
@@ -289,6 +298,7 @@ function neutralise(live) {
   card.state = live.state;
   card.stateConfidence = live.stateConfidence;
   card.runner = live.runner;   // normalised to 'codex'|'claude' by status.js, enum-bounded
+  card.stateReportedBy = live.stateReportedBy;   // #2808: enum-bounded ('auto'|'agent'|'operator') or null; restored raw, refused above if outside the vocabulary
   /* 🛑 model AND modelName ARE **NOT** ENUM-BOUNDED, and re-pinning them from the raw
      producer was the third instance of this same hole (context was the second).
      status.js's readModel() extracts by REGEX over the last 64KB of the agent's
