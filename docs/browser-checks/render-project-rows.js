@@ -52,7 +52,17 @@ const chk = (ok, label, extra) => {
   ]);
   const a = projects.create({ name: 'Henderson Lease', description: 'A short description that should not change the shape.' });
   const b = projects.create({ name: 'Reed Handover' });
-  projects.writeAll(projects.readAll().map((x) => (x.id === a.id ? { ...x, agents: ['april', 'mikey'] } : x)));
+  // #3105: give Henderson a SUB-PROJECT so its rail row renders the .pjsub count
+  // ("1 sub-project"). Without a child, .pjsub never renders and the rule hiding it in the
+  // rail would be unguarded (a fixture-coverage gap a blind review caught). Henderson also
+  // carries agents, so its one row exercises every meta #3105 hides at once: .pjfaces,
+  // .pjcount, .pjpill AND .pjsub.
+  const c = projects.create({ name: 'Henderson Sublease' });
+  projects.writeAll(projects.readAll().map((x) => {
+    if (x.id === a.id) return { ...x, agents: ['april', 'mikey'] };
+    if (x.id === c.id) return { ...x, parent: a.id };
+    return x;
+  }));
 
   const server = await srv.start(0);
   const BASE = 'http://127.0.0.1:' + server.address().port;
@@ -114,6 +124,11 @@ const chk = (ok, label, extra) => {
         title: rect('.pjcard-h b'),
         pill: rect('.pjpill'),
         count: rect('.pjcount'),
+        sub: rect('.pjsub'),
+        // Element EXISTENCE (querySelector finds a display:none node too), so the hide
+        // assertions below are provably non-vacuous: rect() returns null for both "hidden"
+        // and "absent", and these confirm the meta actually RENDERED before being hidden.
+        present: { pill: !!row.querySelector('.pjpill'), count: !!row.querySelector('.pjcount'), sub: !!row.querySelector('.pjsub') },
         parts,
       };
     }, a.id);
@@ -125,16 +140,27 @@ const chk = (ok, label, extra) => {
       console.log('  title      : ' + JSON.stringify(m.title));
       console.log('  status     : ' + JSON.stringify(m.pill) + '   (expect null: #3105 hides it in the rail)');
       console.log('  agents     : ' + JSON.stringify(m.count) + '   (expect null: #3105 hides it in the rail)');
+      console.log('  sub count  : ' + JSON.stringify(m.sub) + '   (expect null: #3105 hides it in the rail)');
       console.log('  visible parts: ' + (m.parts || []).join('  '));
       console.log('');
 
-      /* #3105 (Josh, 6.68): the rail row is TITLE ONLY. The title is painted; the
-         status pill and the agent count are NOT laid out (hidden in the rail), so
-         rect() returns null for them. These absences are the load-bearing arms and
-         they return the dangerous answer on origin/main, where both are shown. */
+      /* #3105 (Josh, 6.68): the rail row is TITLE ONLY. The title is painted; the status
+         pill, the agent count AND the sub-project count are NOT laid out (hidden in the
+         rail), so rect() returns null for them. These absences are the load-bearing arms
+         and they return the dangerous answer on origin/main, where all are shown. Henderson
+         has agents (.pjfaces/.pjpill/.pjcount render) and a sub-project (.pjsub renders), so
+         all of #3105's hidden meta are exercised and proven hidden by this one row. */
       chk(!!(m.title && m.title.text), 'the title is on screen', m.title && m.title.text);
+      /* NON-VACUITY CONTROL: the fixture must actually render the meta before we can prove
+         it is hidden. Henderson has agents (pill+count) and a sub-project (sub), so all three
+         nodes exist in the row markup. On origin/main they would also be VISIBLE, so the three
+         hides below return the dangerous answer there. */
+      chk(m.present && m.present.pill && m.present.count && m.present.sub,
+        'the rail row actually renders the pill, agent count, and sub-project count (so the hides below are non-vacuous)',
+        JSON.stringify(m.present));
       chk(!m.pill, 'the status is NOT shown in the rail (#3105 titles-only)', JSON.stringify(m.pill));
       chk(!m.count, 'the agent count is NOT shown in the rail (#3105 titles-only)', JSON.stringify(m.count));
+      chk(!m.sub, 'the sub-project count is NOT shown in the rail (#3105 titles-only)', JSON.stringify(m.sub));
 
       /* ⚠️ DENSITY, the point of the row work: with only the title the row is even
          tighter than the old two-line title+status/count shape (which came in under
