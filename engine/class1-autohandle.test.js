@@ -292,43 +292,51 @@ test('CONTROL sweep: a throwing attemptsFor does not crash the sweep; the agent 
 });
 
 // ---------------------------------------------------------------------------
-// ARMED sweep (#2808 c wire-up): standingFromAgent + recordAttempt + pruneAttempts +
-// sweepOnce. A reconciled roster card carries { name (DISPLAY), sessionName (KEY),
-// state, stateReportedBy, stateEvidence }.
+// ARMED-sweep PURE LOGIC: standingFromAgent + recordAttempt + pruneAttempts.
+// These read only { state, stateReportedBy, stateEvidence } / string keys, never a
+// hand-built card (no `sessionName` literal - that would fail fixture-discipline).
+// sweepOnce's card consumption is tested against REAL fleet cards in
+// class1-autohandle-sweep-2808.test.js.
 // ---------------------------------------------------------------------------
-// name (display) DELIBERATELY differs from sessionName (key), so a test fails if the
-// sweep ever keys the executor on the display name instead of the session key.
-const agentCard = (over) => ({ name: 'Angel', sessionName: 'angel', state: 'needs_you', stateReportedBy: 'auto', stateEvidence: null, ...(over || {}) });
 // The real trust-dialog screen row; status.isTrustDialogEvidence matches /^Quick safety check:/.
 const TRUST_ROW = 'Quick safety check: Is this a project you created or one you trust?';
 const isTrustDialogEvidence = (e) => typeof e === 'string' && /^Quick safety check:/.test(e);
 
 test('standingFromAgent: a by:auto card maps to a class-1 standing', () => {
-  assert.deepEqual(standingFromAgent(agentCard()), { found: true, state: 'needs_you', by: 'auto' });
+  assert.deepEqual(standingFromAgent({ state: 'needs_you', stateReportedBy: 'auto' }), { found: true, state: 'needs_you', by: 'auto' });
 });
 test('standingFromAgent: a TRUST-DIALOG scrape (no by:auto self-report) IS class-1', () => {
   // The folder-trust dialog is not a PermissionRequest, so stateReportedBy is null; the live
   // screen evidence is the only signal, and it must still count as class-1.
-  const s = standingFromAgent(agentCard({ stateReportedBy: null, stateEvidence: TRUST_ROW }), isTrustDialogEvidence);
+  const s = standingFromAgent({ state: 'needs_you', stateReportedBy: null, stateEvidence: TRUST_ROW }, isTrustDialogEvidence);
   assert.equal(s.by, 'auto');
   assert.equal(isClass1(s), true);
 });
 test('CONTROL standingFromAgent: a scraped NON-trust question (not the trust dialog) is NOT class-1', () => {
-  const s = standingFromAgent(agentCard({ stateReportedBy: null, stateEvidence: 'Which visual direction?' }), isTrustDialogEvidence);
+  const s = standingFromAgent({ state: 'needs_you', stateReportedBy: null, stateEvidence: 'Which visual direction?' }, isTrustDialogEvidence);
   assert.equal(isClass1(s), false);
 });
 test('CONTROL standingFromAgent: a class-2 (by:agent) card is NOT class-1 even with a non-trust question', () => {
-  assert.equal(isClass1(standingFromAgent(agentCard({ stateReportedBy: 'agent', stateEvidence: 'Which one?' }), isTrustDialogEvidence)), false);
+  assert.equal(isClass1(standingFromAgent({ state: 'needs_you', stateReportedBy: 'agent', stateEvidence: 'Which one?' }, isTrustDialogEvidence)), false);
 });
 test('CONTROL standingFromAgent: with NO isTrustDialogEvidence dep, only by:auto fires (a scrape does not)', () => {
-  assert.equal(isClass1(standingFromAgent(agentCard({ stateReportedBy: null, stateEvidence: TRUST_ROW }))), false);
+  assert.equal(isClass1(standingFromAgent({ state: 'needs_you', stateReportedBy: null, stateEvidence: TRUST_ROW })), false);
+});
+test('CONTROL standingFromAgent: an operator/legacy card is NOT class-1', () => {
+  assert.equal(isClass1(standingFromAgent({ state: 'needs_you', stateReportedBy: 'operator' }, isTrustDialogEvidence)), false);
+  assert.equal(isClass1(standingFromAgent({ state: 'needs_you', stateReportedBy: null }, isTrustDialogEvidence)), false);
+});
+test('CONTROL standingFromAgent: a trust-dialog scrape on a NON-needs_you state is not class-1', () => {
+  // planClass1Handle also requires state===needs_you, so a working card with a stale trust row
+  // still does not fire.
+  assert.equal(isClass1(standingFromAgent({ state: 'working', stateReportedBy: null, stateEvidence: TRUST_ROW }, isTrustDialogEvidence)), false);
 });
 
 test('recordAttempt: appends now and prunes entries older than the window', () => {
   const now = 10_000_000;
-  const book = new Map([['angel', [now - (DEFAULT_WINDOW_MS + 1), now - 1000]]]); // one stale, one fresh
-  recordAttempt(book, 'angel', now);
-  assert.deepEqual(book.get('angel'), [now - 1000, now]); // stale pruned, fresh kept, now appended
+  const book = new Map([['angel-discord', [now - (DEFAULT_WINDOW_MS + 1), now - 1000]]]); // one stale, one fresh
+  recordAttempt(book, 'angel-discord', now);
+  assert.deepEqual(book.get('angel-discord'), [now - 1000, now]); // stale pruned, fresh kept, now appended
 });
 test('recordAttempt: a missing name is a no-op (returns the map)', () => {
   const book = new Map();
@@ -338,99 +346,10 @@ test('recordAttempt: a missing name is a no-op (returns the map)', () => {
 test('pruneAttempts: drops entries whose window has fully expired (bounds the Map by live names)', () => {
   const now = 10_000_000;
   const book = new Map([
-    ['gone', [now - (DEFAULT_WINDOW_MS + 1)]],   // all stale -> entry deleted
+    ['gone', [now - (DEFAULT_WINDOW_MS + 1)]],             // all stale -> entry deleted
     ['here', [now - 1000, now - (DEFAULT_WINDOW_MS + 1)]], // one fresh -> kept, pruned
   ]);
   pruneAttempts(book, now);
   assert.equal(book.has('gone'), false);
   assert.deepEqual(book.get('here'), [now - 1000]);
-});
-
-// A fake executor that records the calls, so we can assert the sweep only acts on class-1
-// AND that it keys on the SESSION name, not the display name.
-function fakeDeps() {
-  const calls = [];
-  return {
-    calls,
-    trustAgentFolder: (n) => { calls.push(['trust', n]); return { wrote: true }; },
-    restart: (n, cause) => { calls.push(['restart', n, cause]); return { outcome: 'restarted' }; },
-    RESTARTED: 'restarted',
-    isTrustDialogEvidence,
-  };
-}
-
-test('BLOCKER regression: the executor is keyed on sessionName, NOT the display name', () => {
-  // Card display name 'Angel' != session key 'angel'. trustAgentFolder/restart resolve by
-  // session key, so the sweep must call them with 'angel'. Keying on 'Angel' would REFUSE
-  // (no such session) or restart the wrong agent.
-  const d = fakeDeps();
-  sweepOnce({ roster: [agentCard({ name: 'Angel', sessionName: 'angel' })], attempts: new Map(), now: 1e6, ...d });
-  assert.deepEqual(d.calls, [['trust', 'angel'], ['restart', 'angel', 'restart']]);
-});
-
-test('sweepOnce: acts ONLY on class-1 agents; class-2/scraped-question/working/operator are left untouched', () => {
-  const roster = [
-    agentCard({ name: 'A1', sessionName: 'a1', stateReportedBy: 'auto' }),                          // self-reported class 1 -> handle
-    agentCard({ name: 'A6', sessionName: 'a6', stateReportedBy: null, stateEvidence: TRUST_ROW }),  // trust-dialog scrape -> handle
-    agentCard({ name: 'A2', sessionName: 'a2', stateReportedBy: 'agent' }),                         // class 2 -> none
-    agentCard({ name: 'A3', sessionName: 'a3', stateReportedBy: null, stateEvidence: 'A question?' }), // non-trust scrape -> none
-    agentCard({ name: 'A4', sessionName: 'a4', state: 'working', stateReportedBy: 'auto' }),        // not needs_you -> none
-    agentCard({ name: 'A5', sessionName: 'a5', stateReportedBy: 'operator' }),                      // operator -> none
-  ];
-  const d = fakeDeps();
-  const { results } = sweepOnce({ roster, attempts: new Map(), now: 1e6, ...d });
-  assert.deepEqual(results.map((r) => [r.session, r.act]), [
-    ['a1', 'trust-and-restart'], ['a6', 'trust-and-restart'], ['a2', 'none'], ['a3', 'none'], ['a4', 'none'], ['a5', 'none'],
-  ]);
-  // Only a1 and a6 (both by session key) were ever touched by the executor.
-  assert.deepEqual(d.calls, [['trust', 'a1'], ['restart', 'a1', 'restart'], ['trust', 'a6'], ['restart', 'a6', 'restart']]);
-});
-
-test('sweepOnce: the loop-guard escalates across ticks via the carried attempts Map', () => {
-  const d = fakeDeps();
-  const roster = [agentCard({ name: 'Stuck', sessionName: 'stuck', stateReportedBy: 'auto' })];
-  const book = new Map();
-  // Tick 1 and 2 (default maxAttempts 2) restart; tick 3 must escalate, NOT restart.
-  const r1 = sweepOnce({ roster, attempts: book, now: 1_000, ...d });
-  const r2 = sweepOnce({ roster, attempts: book, now: 2_000, ...d });
-  const r3 = sweepOnce({ roster, attempts: book, now: 3_000, ...d });
-  assert.equal(r1.results[0].act, 'trust-and-restart');
-  assert.equal(r2.results[0].act, 'trust-and-restart');
-  assert.equal(r3.results[0].act, 'escalate');
-  // exactly two restarts were issued (ticks 1 and 2), none on tick 3.
-  assert.equal(d.calls.filter((c) => c[0] === 'restart').length, 2);
-});
-
-test('sweepOnce: a throwing restart still records the attempt (loop-guard advances) and does not abort', () => {
-  const roster = [
-    agentCard({ name: 'Boom', sessionName: 'boom', stateReportedBy: 'auto' }),
-    agentCard({ name: 'Ok', sessionName: 'ok', stateReportedBy: 'auto' }),
-  ];
-  const book = new Map();
-  const { results } = sweepOnce({
-    roster, attempts: book, now: 1e6,
-    trustAgentFolder: () => ({ wrote: true }),
-    restart: (n) => { if (n === 'boom') throw new Error('kaboom'); return { outcome: 'restarted' }; },
-    RESTARTED: 'restarted',
-  });
-  assert.equal(results[0].session, 'boom');
-  assert.equal(results[0].handled, false); // threw -> not handled
-  assert.equal(results[1].session, 'ok');  // sweep continued to the next agent
-  assert.equal(results[1].handled, true);
-  assert.equal(book.get('boom').length, 1); // the attempt was recorded despite the throw
-});
-
-test('CONTROL sweepOnce: an empty/garbage roster acts on nothing and does not throw', () => {
-  const d = fakeDeps();
-  assert.deepEqual(sweepOnce({ roster: [], attempts: new Map(), now: 1e6, ...d }).results, []);
-  assert.deepEqual(sweepOnce({ roster: null, attempts: null, now: 1e6, ...d }).results, []);
-  assert.deepEqual(sweepOnce({}).results, []); // no deps, no roster -> nothing, no throw
-  assert.equal(d.calls.length, 0);
-});
-
-test('CONTROL sweepOnce: a card with no sessionName is skipped (never acted on)', () => {
-  const d = fakeDeps();
-  const { results } = sweepOnce({ roster: [{ name: 'NoSession', state: 'needs_you', stateReportedBy: 'auto' }], attempts: new Map(), now: 1e6, ...d });
-  assert.deepEqual(results, []);
-  assert.equal(d.calls.length, 0);
 });
